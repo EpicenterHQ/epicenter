@@ -2,6 +2,7 @@
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Card from '@epicenter/ui/card';
+	import * as Item from '@epicenter/ui/item';
 	import { Link } from '@epicenter/ui/link';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { cn } from '@epicenter/ui/utils';
@@ -107,61 +108,65 @@
 			aria-label="Where transcription runs"
 			class="grid grid-cols-1 gap-3 sm:grid-cols-2"
 		>
-			<button
-				type="button"
+			<Item.Button
+				variant="outline"
 				aria-pressed={path === 'local'}
 				onclick={chooseLocal}
 				class={cn(
-					'flex min-h-28 flex-col items-start gap-2 rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+					'h-full min-h-28 w-full flex-col items-start text-left',
 					path === 'local'
 						? 'border-primary bg-primary/5'
 						: 'hover:bg-muted/50',
 				)}
 			>
-				<div class="flex w-full items-center gap-2">
-					<CpuIcon
-						class={cn(
-							'size-4',
-							path === 'local'
-								? 'text-primary'
-								: 'text-muted-foreground',
-						)}
-					/>
-					<span class="font-medium">On this device</span>
-					<Badge variant="outline" class="ml-auto text-xs">Recommended</Badge>
-				</div>
-				<span class="text-sm text-muted-foreground">
-					Private, offline, and free after one model download.
-				</span>
-			</button>
+				<Item.Content class="w-full">
+					<Item.Title class="w-full gap-2">
+						<CpuIcon
+							class={cn(
+								'size-4',
+								path === 'local'
+									? 'text-primary'
+									: 'text-muted-foreground',
+							)}
+						/>
+						<span>On this device</span>
+						<Badge variant="outline" class="ml-auto text-xs">Recommended</Badge>
+					</Item.Title>
+					<Item.Description class="line-clamp-none">
+						Private, offline, and free after one model download.
+					</Item.Description>
+				</Item.Content>
+			</Item.Button>
 
-			<button
-				type="button"
+			<Item.Button
+				variant="outline"
 				aria-pressed={path === 'cloud'}
 				onclick={chooseCloud}
 				class={cn(
-					'flex min-h-28 flex-col items-start gap-2 rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+					'h-full min-h-28 w-full flex-col items-start text-left',
 					path === 'cloud'
 						? 'border-primary bg-primary/5'
 						: 'hover:bg-muted/50',
 				)}
 			>
-				<div class="flex items-center gap-2">
-					<CloudIcon
-						class={cn(
-							'size-4',
-							path === 'cloud'
-								? 'text-primary'
-								: 'text-muted-foreground',
-						)}
-					/>
-					<span class="font-medium">Cloud</span>
-				</div>
-				<span class="text-sm text-muted-foreground">
-					Use {selectedRemoteProvider?.label ?? 'a supported provider'} with an account
-					or API key.
-				</span>
-			</button>
+				<Item.Content class="w-full">
+					<Item.Title class="w-full gap-2">
+						<CloudIcon
+							class={cn(
+								'size-4',
+								path === 'cloud'
+									? 'text-primary'
+									: 'text-muted-foreground',
+							)}
+						/>
+						<span>Cloud</span>
+					</Item.Title>
+					<Item.Description class="line-clamp-none">
+						Use {selectedRemoteProvider?.label ?? 'a supported provider'} with an account
+						or API key.
+					</Item.Description>
+				</Item.Content>
+			</Item.Button>
 		</div>
 	{:else}
 		<div
@@ -170,67 +175,71 @@
 			class="grid grid-cols-1 gap-3 sm:grid-cols-2"
 		>
 			{#if sessionProvider}
-				<button
-					type="button"
+				<Item.Button
+					variant="outline"
 					aria-pressed={path === 'session'}
 					onclick={chooseSession}
 					class={cn(
-						'flex min-h-28 flex-col items-start gap-2 rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+						'h-full min-h-28 w-full flex-col items-start text-left',
 						path === 'session'
 							? 'border-primary bg-primary/5'
 							: 'hover:bg-muted/50',
 					)}
 				>
-					<div class="flex w-full items-center gap-2">
-						<CloudIcon
-							class={cn(
-								'size-4',
-								path === 'session'
-									? 'text-primary'
-									: 'text-muted-foreground',
-							)}
-						/>
-						<span class="font-medium">Epicenter</span>
-						<Badge variant="outline" class="ml-auto text-xs">Simplest</Badge>
-					</div>
-					<span class="text-sm text-muted-foreground">
-						Sign in and use hosted transcription without managing an API key.
-					</span>
-				</button>
+					<Item.Content class="w-full">
+						<Item.Title class="w-full gap-2">
+							<CloudIcon
+								class={cn(
+									'size-4',
+									path === 'session'
+										? 'text-primary'
+										: 'text-muted-foreground',
+								)}
+							/>
+							<span>Epicenter</span>
+							<Badge variant="outline" class="ml-auto text-xs">Simplest</Badge>
+						</Item.Title>
+						<Item.Description class="line-clamp-none">
+							Sign in for hosted transcription. No API key needed.
+						</Item.Description>
+					</Item.Content>
+				</Item.Button>
 			{/if}
 
-			<button
-				type="button"
+			<Item.Button
+				variant="outline"
 				aria-pressed={path === 'provider'}
 				onclick={chooseProvider}
 				class={cn(
-					'flex min-h-28 flex-col items-start gap-2 rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+					'h-full min-h-28 w-full flex-col items-start text-left',
 					path === 'provider'
 						? 'border-primary bg-primary/5'
 						: 'hover:bg-muted/50',
 				)}
 			>
-				<div class="flex items-center gap-2">
-					<KeyRoundIcon
-						class={cn(
-							'size-4',
-							path === 'provider'
-								? 'text-primary'
-								: 'text-muted-foreground',
-						)}
-					/>
-					<span class="font-medium">
+				<Item.Content class="w-full">
+					<Item.Title class="w-full gap-2">
+						<KeyRoundIcon
+							class={cn(
+								'size-4',
+								path === 'provider'
+									? 'text-primary'
+									: 'text-muted-foreground',
+							)}
+						/>
+						<span>
+							{selectedRemoteProvider?.access === 'endpoint'
+								? 'Custom server'
+								: 'Provider API'}
+						</span>
+					</Item.Title>
+					<Item.Description class="line-clamp-none">
 						{selectedRemoteProvider?.access === 'endpoint'
-							? 'Custom server'
-							: 'Provider API'}
-					</span>
-				</div>
-				<span class="text-sm text-muted-foreground">
-					{selectedRemoteProvider?.access === 'endpoint'
-						? `Connect to your ${selectedRemoteProvider.label} endpoint.`
-						: `Use ${selectedRemoteProvider?.access === 'key' ? selectedRemoteProvider.label : (fallbackKeyProvider?.label ?? 'your provider')} with your own API key.`}
-				</span>
-			</button>
+							? `Connect to your ${selectedRemoteProvider.label} endpoint.`
+							: `Use ${selectedRemoteProvider?.access === 'key' ? selectedRemoteProvider.label : (fallbackKeyProvider?.label ?? 'your provider')} with your own API key.`}
+					</Item.Description>
+				</Item.Content>
+			</Item.Button>
 		</div>
 	{/if}
 
