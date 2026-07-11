@@ -28,7 +28,7 @@
 					{#snippet child({ props })}
 						<button {...props} onclick={sidebar.toggle}>
 							<div
-								class="bg-sidebar-primary text-sidebar-primary-foreground flex size-8 items-center justify-center rounded-lg"
+								class="bg-sidebar-accent flex size-8 items-center justify-center rounded-lg"
 							>
 								<img src={studioMicrophone} alt="" class="size-4" />
 							</div>
