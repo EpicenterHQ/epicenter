@@ -3,18 +3,19 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Card from '@epicenter/ui/card';
 	import * as Collapsible from '@epicenter/ui/collapsible';
-	import * as Empty from '@epicenter/ui/empty';
+	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Item from '@epicenter/ui/item';
 	import { Progress } from '@epicenter/ui/progress';
 	import { toast } from '@epicenter/ui/sonner';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Download from '@lucide/svelte/icons/download';
-	import HardDriveDownload from '@lucide/svelte/icons/hard-drive-download';
 	import Trash from '@lucide/svelte/icons/trash-2';
 	import X from '@lucide/svelte/icons/x';
 	import { environment } from '#runtime';
+	import LocalModelOnboarding from '$lib/components/LocalModelOnboarding.svelte';
 	import type { ModelInfo } from '$lib/tauri/commands.types';
+	import { formatModelSize } from '$lib/utils/local-model-display';
 
 	/**
 	 * The one local-model picker: a flat list of Rust-catalog GGUF models, each
@@ -37,15 +38,6 @@
 		localModels.refresh();
 	});
 
-	/** The recommended model; the empty-state hero builds its action around it. */
-	const recommended = $derived(
-		localModels.models.find((model) => model.recommended) ??
-			localModels.models[0],
-	);
-	const recommendedState = $derived(
-		recommended ? localModels.stateOf(recommended) : null,
-	);
-
 	/** The active model, when the selection resolves to a downloaded catalog one. */
 	const activeModel = $derived(localModels.find(value) ?? null);
 	const anyDownloaded = $derived(
@@ -59,12 +51,6 @@
 	);
 
 	let allModelsOpen = $state(false);
-
-	function formatSize(bytes: number | null): string {
-		if (!bytes) return '';
-		const mb = bytes / 1_000_000;
-		return mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-	}
 
 	function activate(model: ModelInfo) {
 		value = model.id;
@@ -114,7 +100,9 @@
 			<Item.Root variant="outline">
 				<Item.Content>
 					<Item.Title>{activeModel.name}</Item.Title>
-					<Item.Description>{formatSize(activeModel.sizeBytes)}</Item.Description>
+					<Item.Description
+						>{formatModelSize(activeModel.sizeBytes)}</Item.Description
+					>
 				</Item.Content>
 				<Item.Actions>
 					<Badge class="text-xs">Active</Badge>
@@ -127,41 +115,8 @@
 					</Button>
 				</Item.Actions>
 			</Item.Root>
-		{:else if !anyDownloaded && recommended && recommendedState}
-			<Empty.Root class="py-8">
-				<Empty.Media variant="icon">
-					<HardDriveDownload class="size-5" />
-				</Empty.Media>
-				<Empty.Title>No local model installed</Empty.Title>
-				<Empty.Description>
-					Runs on this device: private, offline, and free. Download the
-					recommended model to start transcribing.
-				</Empty.Description>
-				<Empty.Content>
-					{#if recommendedState.type === 'downloading'}
-						<div class="flex w-full max-w-xs flex-col items-center gap-2">
-							<Progress value={recommendedState.progress} class="h-2" />
-							<span class="text-sm text-muted-foreground">
-								Downloading {recommended.name}: {recommendedState.progress}%
-							</span>
-							<Button
-								variant="ghost"
-								size="sm"
-								onclick={() => localModels.cancel(recommended)}
-								disabled={recommendedState.cancelling}
-							>
-								<X class="size-4" />
-								{recommendedState.cancelling ? 'Cancelling…' : 'Cancel'}
-							</Button>
-						</div>
-					{:else}
-						<Button onclick={() => download(recommended)}>
-							<Download class="size-4" />
-							Download {recommended.name} ({formatSize(recommended.sizeBytes)})
-						</Button>
-					{/if}
-				</Empty.Content>
-			</Empty.Root>
+		{:else if !anyDownloaded}
+			<LocalModelOnboarding bind:value />
 		{/if}
 
 		{#if isSelectionMissing}
@@ -190,7 +145,7 @@
 					{@const isActive = value === model.id && model.downloaded}
 					<div
 						class="flex items-center gap-3 rounded-lg border p-3 {isActive
-							? 'border-primary bg-primary/5'
+							? 'bg-muted/50'
 							: ''}"
 					>
 						<div class="min-w-0 flex-1">
@@ -206,7 +161,7 @@
 								{/if}
 							</div>
 							<div class="text-sm text-muted-foreground">
-								{model.description} · {formatSize(model.sizeBytes)}
+								{model.description} · {formatModelSize(model.sizeBytes)}
 							</div>
 						</div>
 
@@ -239,7 +194,23 @@
 										Activate
 									</Button>
 								{/if}
-								<Button size="sm" variant="ghost" onclick={() => remove(model)}>
+								<Button
+									size="icon-sm"
+									variant="ghost-destructive"
+									tooltip="Delete {model.name}"
+									aria-label="Delete {model.name}"
+									onclick={() => {
+										confirmationDialog.open({
+											title: `Delete ${model.name}?`,
+											description: `This removes ${formatModelSize(model.sizeBytes)} from the shared Hugging Face cache.${isActive ? ' Local transcription will be unavailable until you activate another model.' : ''} You can download it again later.`,
+											confirm: {
+												text: 'Delete model',
+												variant: 'destructive',
+											},
+											onConfirm: () => remove(model),
+										});
+									}}
+								>
 									<Trash class="size-4" />
 								</Button>
 							{:else}

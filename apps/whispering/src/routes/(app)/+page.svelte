@@ -9,8 +9,8 @@
 	import DesktopPromotion from '#desktop-promotion';
 	import { environment } from '#runtime';
 	import DictationCapabilityNotice from '$lib/components/DictationCapabilityNotice.svelte';
+	import TranscriptionOnboarding from '$lib/components/TranscriptionOnboarding.svelte';
 	import { TranscriptionSelector } from '$lib/components/settings';
-	import ProviderConfigFields from '$lib/components/settings/ProviderConfigFields.svelte';
 	import ManualDeviceSelector from '$lib/components/settings/selectors/ManualDeviceSelector.svelte';
 	import VadDeviceSelector from '$lib/components/settings/selectors/VadDeviceSelector.svelte';
 	import {
@@ -28,10 +28,7 @@
 	import { selectCaptureSurface } from '$lib/operations/recording';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/recordings';
 	import { report } from '$lib/report';
-	import {
-		getSelectedTranscriptionProvider,
-		getTranscriptionReadiness,
-	} from '$lib/settings/transcription-validation';
+	import { getTranscriptionReadiness } from '$lib/settings/transcription-validation';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
 	import { recordings } from '$lib/state/recordings.svelte';
 	import {
@@ -52,17 +49,12 @@
 		environment.captureSurfaces.includes(option.value),
 	);
 	const transcriptionReadiness = $derived(getTranscriptionReadiness());
-	// Home is onboarding, not configuration: when transcription is not ready, ask
-	// for only the one required credential inline. A cloud provider needs a single
-	// API key, so we render just that field (via `secretsOnly`) and delegate the
-	// full provider/model/endpoint choice to Privacy & Processing. Local and
-	// self-hosted setups (a model download, a server URL and model id) are too
-	// heavy for the record screen, so those route to Privacy & Processing instead
-	// of rendering a second setup surface here.
-	const inlineKeyProvider = $derived.by(() => {
-		const provider = getSelectedTranscriptionProvider();
-		return provider?.access === 'key' ? provider : null;
-	});
+	// First success belongs to the real recorder, not a parallel practice wizard.
+	// Live readiness plus the real recordings table owns this prompt, so setup
+	// reloads cannot lose it and the first saved result dismisses it automatically.
+	const showFirstDictationPrompt = $derived(
+		transcriptionReadiness.isReady && !latestRecording,
+	);
 	// The verb fragments the hint drops around each key, per mode. `here` and
 	// `anywhere` annotate the in-app and global keys with their reach; `fresh` is the
 	// bare prompt shown when nothing is bound at all.
@@ -165,50 +157,44 @@
 <div
 	class="flex flex-1 flex-col items-center justify-start gap-4 w-full max-w-lg mx-auto px-4 pt-6 pb-24 sm:justify-center sm:py-0"
 >
-	<SectionHeader.Root class="flex flex-col items-center gap-3">
+	<SectionHeader.Root
+		class="flex flex-col items-center {transcriptionReadiness.isReady
+			? 'gap-3'
+			: 'gap-2'}"
+	>
 		<div class="flex items-center gap-3">
-			<img src={studioMicrophone} alt="" class="size-12" />
+			<img
+				src={studioMicrophone}
+				alt=""
+				class={transcriptionReadiness.isReady ? 'size-12' : 'size-10'}
+			/>
 			<SectionHeader.Title
 				level={1}
-				class="scroll-m-20 text-4xl tracking-tight lg:text-5xl"
+				class={transcriptionReadiness.isReady
+					? 'scroll-m-20 text-4xl tracking-tight lg:text-5xl'
+					: 'scroll-m-20 text-3xl tracking-tight'}
 			>
 				Whispering
 			</SectionHeader.Title>
 		</div>
-		<SectionHeader.Description class="text-center">
-			Press shortcut → speak → get text. Free and open source ❤️
-		</SectionHeader.Description>
+		{#if transcriptionReadiness.isReady && !showFirstDictationPrompt}
+			<SectionHeader.Description class="text-center">
+				Press shortcut → speak → get text. Free and open source ❤️
+			</SectionHeader.Description>
+		{/if}
 	</SectionHeader.Root>
 
-	<DictationCapabilityNotice />
-
 	{#if !transcriptionReadiness.isReady}
-		<div class="w-full space-y-3">
-			<div class="space-y-1">
-				<h2 class="text-base font-semibold">Set up transcription</h2>
-				<p class="text-sm text-muted-foreground">
-					{transcriptionReadiness.primaryIssue ??
-						'Choose how Whispering turns your speech into text.'}
-				</p>
-			</div>
-			{#if inlineKeyProvider}
-				<ProviderConfigFields provider={inlineKeyProvider.id} secretsOnly />
-				<p class="text-muted-foreground text-sm">
-					<Link href={whisperingPath('/settings/processing')}>
-						Change provider, model, or endpoint in Privacy &amp; Processing
-					</Link>
-				</p>
-			{:else}
-				<Button
-					href={whisperingPath('/settings/processing')}
-					variant="outline"
-					class="w-full"
-				>
-					Set up in Privacy &amp; Processing
-				</Button>
-			{/if}
-		</div>
+		<TranscriptionOnboarding />
 	{:else}
+		{#if showFirstDictationPrompt}
+			<h2 class="text-xl font-semibold tracking-tight">
+				Try your first dictation
+			</h2>
+		{/if}
+
+		<DictationCapabilityNotice />
+
 		<ToggleGroup.Root
 			type="single"
 			bind:value={() => captureSurface.current,

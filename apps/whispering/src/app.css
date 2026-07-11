@@ -1,32 +1,14 @@
-/* Whispering brand rebrand, layered over the shared @epicenter/ui/app.css (imported
-   first in +layout.svelte). The light-mode --background/--card separation now lives
-   in the shared theme (packages/ui/src/app.css) since dark mode already had it; this
-   file only carries Whispering-specific branding.
-
-   --primary becomes Whispering's brand indigo (it was the neutral shadcn default,
-   near-black in light / near-white in dark). The record button is the app's primary
-   action, so it now reads as a real, inviting CTA. The active/recording state keeps
-   using --destructive (red), already this app's convention. No new "recording"
-   token: idle = --primary, recording = --destructive.
-
-   --primary is intentionally rebranded in BOTH modes, so it is set under :root and
-   .dark together (and must stay paired: a bare :root override leaks into dark via
-   source order). */
+/* Whispering keeps ordinary product controls on Epicenter's neutral shared
+   palette. The one app-owned accent belongs to the microphone action itself:
+   idle recording = restrained cobalt, active recording = destructive red. */
 :root {
-	--primary: oklch(0.51 0.2 275);
-	--primary-foreground: oklch(0.985 0 0);
+	--recording-accent: oklch(0.5 0.14 250);
+	--recording-accent-foreground: oklch(0.985 0 0);
 }
 
 .dark {
-	/* Lightness is capped at 0.55 (a deeper indigo than the page would otherwise
-	   invite) so white --primary-foreground text clears WCAG AA on every primary
-	   surface in dark mode, not just the record circle. The rebrand puts real text
-	   on --primary in several settings selectors; at 0.62 lightness white-on-indigo
-	   falls to ~3.7:1 (under the 4.5:1 body-text floor), and 0.55 lifts it to ~4.9:1.
-	   The record circle holds only an icon, so it would pass either way; these other
-	   surfaces are why the ceiling exists. */
-	--primary: oklch(0.55 0.19 275);
-	--primary-foreground: oklch(0.985 0 0);
+	--recording-accent: oklch(0.58 0.13 250);
+	--recording-accent-foreground: oklch(0.985 0 0);
 }
 
 /* Native audio players (home result, recordings row, detail modal). The controls

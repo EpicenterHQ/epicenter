@@ -55,7 +55,7 @@
 		<!-- The controller owns the state machine and the icon (mic -> stop square);
 		this glyph only paints it. The floating pill, not this card, is the live
 		recording surface on every platform and route, so the glyph never animates
-		or meters: it is a static brand-primary CTA that turns tinted destructive
+		or meters: it is a static recording-accent CTA that turns tinted destructive
 		while active. -->
 		<span
 			aria-hidden="true"
@@ -63,7 +63,7 @@
 				'relative flex size-14 shrink-0 items-center justify-center rounded-lg shadow-sm transition-colors duration-200 sm:size-16',
 				controller.active
 					? 'bg-destructive/10 text-destructive'
-					: 'bg-primary text-primary-foreground',
+					: 'bg-(--recording-accent) text-(--recording-accent-foreground)',
 			)}
 		>
 			{#if controller.pending}
