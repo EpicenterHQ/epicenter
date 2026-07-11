@@ -4,6 +4,8 @@ description: Disciplined diagnosis loop for hard bugs and performance regression
 metadata:
   upstream: mattpocock/skills
   forked: 2026-05-17
+  upstream-skill: diagnosing-bugs
+  upstream-reviewed: 391a2701dd948f94f56a39f7533f8eea9a859c87
 ---
 
 # Diagnose
@@ -33,9 +35,9 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 
 Build the right feedback loop, and the bug is 90% fixed.
 
-### Iterate on the loop itself
+### Tighten the loop
 
-Treat the loop as a product. Once you have _a_ loop, ask:
+Treat the loop as a product. Once you have _a_ loop, tighten it:
 
 - Can I make it faster? (Cache setup, skip unrelated init, narrow the test scope.)
 - Can I make the signal sharper? (Assert on the specific symptom, not "didn't crash".)
@@ -51,9 +53,19 @@ The goal is not a clean repro but a **higher reproduction rate**. Loop the trigg
 
 Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or (c) permission to add temporary production instrumentation. Do **not** proceed to hypothesise without a loop.
 
-Do not proceed to Phase 2 until you have a loop you believe in.
+### Completion criterion: a tight loop that goes red
 
-## Phase 2 - Reproduce
+Phase 1 is done when you can name one command that you have already run and
+show its output. The command must be:
+
+- **Red-capable**: it drives the actual bug path and asserts the user's exact symptom.
+- **Deterministic**: it gives the same verdict every run. For flaky bugs, pin a high reproduction rate.
+- **Fast**: seconds rather than minutes, unless the system makes that impossible.
+- **Agent-runnable**: it runs unattended, with a human involved only through the HITL script.
+
+If you start building a theory before this command exists, stop. No red-capable command, no Phase 2.
+
+## Phase 2 - Reproduce + minimise
 
 Run the loop. Watch the bug appear.
 
@@ -63,7 +75,14 @@ Confirm:
 - [ ] The failure is reproducible across multiple runs (or, for non-deterministic bugs, reproducible at a high enough rate to debug against).
 - [ ] You have captured the exact symptom (error message, wrong output, slow timing) so later phases can verify the fix actually addresses it.
 
-Do not proceed until you reproduce the bug.
+### Minimise
+
+Shrink the red repro to the smallest scenario that still fails. Remove inputs,
+callers, configuration, data, and steps one at a time, rerunning the loop after
+each removal. Every remaining element should be load-bearing: removing any one
+of them makes the loop green.
+
+Do not proceed until you have reproduced and minimised the bug.
 
 ## Phase 3 - Hypothesise
 
@@ -114,7 +133,7 @@ Required before declaring done:
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
 - [ ] Regression test passes (or absence of seam is documented)
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
-- [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
+- [ ] Throwaway prototypes deleted (or moved to a clearly marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message - so the next debugger learns
 
-**Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam, tangled callers, hidden coupling), capture the concrete follow-up where the team tracks follow-up work. Make the recommendation **after** the fix is in, not before - you have more information now than when you started.
+**Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam, tangled callers, hidden coupling), capture a concrete follow-up where the team tracks work and use the architecture or refactoring skill that owns it. Make the recommendation **after** the fix is in, not before: you have more information now than when you started.
