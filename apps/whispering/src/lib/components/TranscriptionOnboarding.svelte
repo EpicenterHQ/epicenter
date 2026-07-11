@@ -1,14 +1,13 @@
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Card from '@epicenter/ui/card';
-	import * as Item from '@epicenter/ui/item';
+	import * as Collapsible from '@epicenter/ui/collapsible';
 	import { Link } from '@epicenter/ui/link';
+	import { Separator } from '@epicenter/ui/separator';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import { cn } from '@epicenter/ui/utils';
 	import { createMutation } from '@tanstack/svelte-query';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
-	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { environment } from '#runtime';
@@ -38,23 +37,22 @@
 	const sessionProvider = availableRemoteProviders.find(
 		(provider) => provider.access === 'session',
 	);
+	const availableDirectProviders = availableRemoteProviders.filter(
+		(provider) =>
+			provider.access === 'key' || provider.access === 'endpoint',
+	);
 	const fallbackKeyProvider =
-		availableRemoteProviders.find((provider) => provider.id === 'OpenAI') ??
-		availableRemoteProviders.find((provider) => provider.access === 'key');
-	const selectedRemoteProvider = $derived(
-		selectedProvider?.access !== 'onDevice' &&
-			availableRemoteProviders.some(
+		availableDirectProviders.find((provider) => provider.id === 'OpenAI') ??
+		availableDirectProviders.find((provider) => provider.access === 'key');
+	const selectedDirectProvider = $derived(
+		(selectedProvider?.access === 'key' ||
+			selectedProvider?.access === 'endpoint') &&
+			availableDirectProviders.some(
 				(provider) => provider.id === selectedProvider?.id,
 			)
 			? selectedProvider
-			: (fallbackKeyProvider ?? availableRemoteProviders[0]),
+			: (fallbackKeyProvider ?? availableDirectProviders[0]),
 	);
-	const path = $derived.by(() => {
-		if (hasLocal) {
-			return selectedProvider?.access === 'onDevice' ? 'local' : 'cloud';
-		}
-		return selectedProvider?.access === 'session' ? 'session' : 'provider';
-	});
 	const startSignIn = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['transcription-onboarding', 'startSignIn'],
@@ -66,208 +64,33 @@
 		settings.set('transcription.service', 'local');
 	}
 
-	function chooseCloud() {
-		if (selectedRemoteProvider) {
-			settings.set('transcription.service', selectedRemoteProvider.id);
-		}
-	}
-
 	function chooseSession() {
 		if (sessionProvider) settings.set('transcription.service', sessionProvider.id);
 	}
 
-	function chooseProvider() {
-		if (
-			selectedRemoteProvider?.access === 'key' ||
-			selectedRemoteProvider?.access === 'endpoint'
-		) {
-			settings.set('transcription.service', selectedRemoteProvider.id);
-		} else if (fallbackKeyProvider) {
-			settings.set('transcription.service', fallbackKeyProvider.id);
+	function chooseDirectProvider() {
+		if (selectedDirectProvider) {
+			settings.set('transcription.service', selectedDirectProvider.id);
 		}
 	}
 </script>
 
-<div class="w-full space-y-5">
-	<div class="space-y-1 text-center">
-		<h2 class="text-xl font-semibold tracking-tight">
-			{hasLocal
-				? 'Choose where transcription runs'
-				: 'Choose how to connect transcription'}
-		</h2>
-		<p class="text-sm text-muted-foreground">
-			{hasLocal
-				? 'Keep audio on this device, or send it to a cloud provider you choose.'
-				: 'Use your Epicenter account, or connect a transcription provider directly.'}
-		</p>
-	</div>
-
-	{#if hasLocal}
-		<div
-			role="group"
-			aria-label="Where transcription runs"
-			class="grid grid-cols-1 gap-3 sm:grid-cols-2"
-		>
-			<Item.Button
-				variant="outline"
-				aria-pressed={path === 'local'}
-				onclick={chooseLocal}
-				class={cn(
-					'h-full min-h-28 w-full flex-col items-start text-left',
-					path === 'local'
-						? 'border-primary bg-primary/5'
-						: 'hover:bg-muted/50',
-				)}
-			>
-				<Item.Content class="w-full">
-					<Item.Title class="w-full gap-2">
-						<CpuIcon
-							class={cn(
-								'size-4',
-								path === 'local'
-									? 'text-primary'
-									: 'text-muted-foreground',
-							)}
-						/>
-						<span>On this device</span>
-						<Badge variant="outline" class="ml-auto text-xs">Recommended</Badge>
-					</Item.Title>
-					<Item.Description class="line-clamp-none">
-						Private, offline, and free after one model download.
-					</Item.Description>
-				</Item.Content>
-			</Item.Button>
-
-			<Item.Button
-				variant="outline"
-				aria-pressed={path === 'cloud'}
-				onclick={chooseCloud}
-				class={cn(
-					'h-full min-h-28 w-full flex-col items-start text-left',
-					path === 'cloud'
-						? 'border-primary bg-primary/5'
-						: 'hover:bg-muted/50',
-				)}
-			>
-				<Item.Content class="w-full">
-					<Item.Title class="w-full gap-2">
-						<CloudIcon
-							class={cn(
-								'size-4',
-								path === 'cloud'
-									? 'text-primary'
-									: 'text-muted-foreground',
-							)}
-						/>
-						<span>Cloud</span>
-					</Item.Title>
-					<Item.Description class="line-clamp-none">
-						Use {selectedRemoteProvider?.label ?? 'a supported provider'} with an account
-						or API key.
-					</Item.Description>
-				</Item.Content>
-			</Item.Button>
-		</div>
-	{:else}
-		<div
-			role="group"
-			aria-label="How transcription is connected"
-			class="grid grid-cols-1 gap-3 sm:grid-cols-2"
-		>
-			{#if sessionProvider}
-				<Item.Button
-					variant="outline"
-					aria-pressed={path === 'session'}
-					onclick={chooseSession}
-					class={cn(
-						'h-full min-h-28 w-full flex-col items-start text-left',
-						path === 'session'
-							? 'border-primary bg-primary/5'
-							: 'hover:bg-muted/50',
-					)}
-				>
-					<Item.Content class="w-full">
-						<Item.Title class="w-full gap-2">
-							<CloudIcon
-								class={cn(
-									'size-4',
-									path === 'session'
-										? 'text-primary'
-										: 'text-muted-foreground',
-								)}
-							/>
-							<span>Epicenter</span>
-							<Badge variant="outline" class="ml-auto text-xs">Simplest</Badge>
-						</Item.Title>
-						<Item.Description class="line-clamp-none">
-							Sign in for hosted transcription. No API key needed.
-						</Item.Description>
-					</Item.Content>
-				</Item.Button>
-			{/if}
-
-			<Item.Button
-				variant="outline"
-				aria-pressed={path === 'provider'}
-				onclick={chooseProvider}
-				class={cn(
-					'h-full min-h-28 w-full flex-col items-start text-left',
-					path === 'provider'
-						? 'border-primary bg-primary/5'
-						: 'hover:bg-muted/50',
-				)}
-			>
-				<Item.Content class="w-full">
-					<Item.Title class="w-full gap-2">
-						<KeyRoundIcon
-							class={cn(
-								'size-4',
-								path === 'provider'
-									? 'text-primary'
-									: 'text-muted-foreground',
-							)}
-						/>
-						<span>
-							{selectedRemoteProvider?.access === 'endpoint'
-								? 'Custom server'
-								: 'Provider API'}
-						</span>
-					</Item.Title>
-					<Item.Description class="line-clamp-none">
-						{selectedRemoteProvider?.access === 'endpoint'
-							? `Connect to your ${selectedRemoteProvider.label} endpoint.`
-							: `Use ${selectedRemoteProvider?.access === 'key' ? selectedRemoteProvider.label : (fallbackKeyProvider?.label ?? 'your provider')} with your own API key.`}
-					</Item.Description>
-				</Item.Content>
-			</Item.Button>
-		</div>
-	{/if}
-
+{#snippet directProviderSetup()}
 	<Card.Root>
 		<Card.Header>
 			<Card.Title class="text-base">
-				{path === 'local'
-					? 'Prepare on-device transcription'
-					: `Connect ${selectedRemoteProvider?.label ?? 'a transcription provider'}`}
+				Connect {selectedDirectProvider?.label ?? 'a transcription provider'}
 			</Card.Title>
 			<Card.Description>
-				{path === 'local'
-					? 'Download the recommended model. Whispering manages it and runs transcription locally.'
-					: 'Your audio is sent to this provider for transcription. You can change providers at any time.'}
+				Your audio is sent directly to this provider. You can change providers at
+				any time.
 			</Card.Description>
 		</Card.Header>
 		<Card.Content>
-			{#if path === 'local'}
-				<LocalModelOnboarding
-					bind:value={() =>
-						deviceConfig.get('transcription.local.selectedModel'),
-						(value) =>
-							deviceConfig.set('transcription.local.selectedModel', value)}
-				/>
-			{:else if selectedRemoteProvider?.access === 'key'}
+			{#if selectedDirectProvider?.access === 'key'}
 				<div class="space-y-4">
 					<ProviderConfigFields
-						provider={selectedRemoteProvider.id}
+						provider={selectedDirectProvider.id}
 						secretsOnly
 					/>
 					<p class="text-sm text-muted-foreground">
@@ -277,29 +100,82 @@
 						</Link>
 					</p>
 				</div>
-			{:else if selectedRemoteProvider?.access === 'session'}
-				<div class="space-y-3">
-					{#if startSignIn.error}
-						<p class="text-sm text-destructive">{startSignIn.error.message}</p>
-					{/if}
-					<Button
-						disabled={startSignIn.isPending}
-						onclick={() => startSignIn.mutate()}
-					>
-						{#if startSignIn.isPending}<Spinner class="size-4" />{/if}
-						{environment.auth.state.status === 'reauth-required'
-							? 'Reconnect Epicenter'
-							: 'Sign in with Epicenter'}
-					</Button>
-					<p class="text-sm text-muted-foreground">
-						Your account supplies hosted transcription and syncs your workspace.
-					</p>
-				</div>
 			{:else}
 				<Link href={whisperingPath('/settings/processing')}>
-					Finish setting up {selectedRemoteProvider?.label ?? 'transcription'}
+					Finish setting up {selectedDirectProvider?.label ?? 'transcription'}
 				</Link>
 			{/if}
 		</Card.Content>
 	</Card.Root>
-</div>
+{/snippet}
+
+{#if hasLocal}
+	<LocalModelOnboarding
+		bind:value={() => deviceConfig.get('transcription.local.selectedModel'),
+		(value) => deviceConfig.set('transcription.local.selectedModel', value)}
+		onActivate={chooseLocal}
+	/>
+{:else}
+	<section class="w-full space-y-6">
+		<header class="space-y-1 text-center">
+			<h2 class="text-xl font-semibold tracking-tight">Connect transcription</h2>
+			<p class="text-sm text-muted-foreground">
+				Continue with Epicenter, or use a transcription provider you already
+				have.
+			</p>
+		</header>
+
+		{#if sessionProvider}
+			<div class="flex flex-col items-center gap-2">
+				{#if startSignIn.error}
+					<p class="text-sm text-destructive">{startSignIn.error.message}</p>
+				{/if}
+				<Button
+					size="lg"
+					class="w-full sm:w-auto"
+					disabled={startSignIn.isPending}
+					onclick={() => {
+						chooseSession();
+						if (environment.auth.state.status !== 'signed-in') {
+							startSignIn.mutate();
+						}
+					}}
+				>
+					{#if startSignIn.isPending}
+						<Spinner class="size-4" />
+					{:else}
+						<CloudIcon class="size-4" />
+					{/if}
+					{startSignIn.isPending
+						? 'Connecting to Epicenter...'
+						: environment.auth.state.status === 'reauth-required'
+							? 'Reconnect Epicenter'
+							: 'Continue with Epicenter'}
+				</Button>
+				<p class="text-xs text-muted-foreground">No API key required.</p>
+			</div>
+
+			{#if selectedDirectProvider}
+				<Collapsible.Root>
+					<div class="flex items-center gap-3">
+						<Separator class="flex-1" />
+						<Collapsible.Trigger
+							onclick={chooseDirectProvider}
+							class="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground [&[data-state=open]>svg:last-child]:rotate-180"
+						>
+							<KeyRoundIcon class="size-4" />
+							Use my own provider
+							<ChevronDownIcon class="size-4 transition-transform" />
+						</Collapsible.Trigger>
+						<Separator class="flex-1" />
+					</div>
+					<Collapsible.Content class="pt-4">
+						{@render directProviderSetup()}
+					</Collapsible.Content>
+				</Collapsible.Root>
+			{/if}
+		{:else}
+			{@render directProviderSetup()}
+		{/if}
+	</section>
+{/if}

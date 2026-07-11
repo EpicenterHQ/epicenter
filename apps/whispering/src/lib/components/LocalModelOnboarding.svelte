@@ -4,8 +4,8 @@
 	import { Progress } from '@epicenter/ui/progress';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
+	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import DownloadIcon from '@lucide/svelte/icons/download';
-	import HardDriveDownloadIcon from '@lucide/svelte/icons/hard-drive-download';
 	import XIcon from '@lucide/svelte/icons/x';
 	import type { Snippet } from 'svelte';
 	import { environment } from '#runtime';
@@ -14,9 +14,11 @@
 	let {
 		value = $bindable(),
 		children,
+		onActivate,
 	}: {
 		value: string;
 		children?: Snippet;
+		onActivate?: () => void;
 	} = $props();
 
 	const localModels = environment.transcription.localModels;
@@ -39,20 +41,18 @@
 {:else if suggested && state}
 	<Empty.Root class="py-8">
 		<Empty.Media variant="icon">
-			<HardDriveDownloadIcon class="size-5" />
+			<CpuIcon class="size-5" />
 		</Empty.Media>
 		<Empty.Title>
 			{state.type === 'ready'
-				? 'Use a downloaded transcription model'
-				: 'Download a transcription model'}
+				? 'On-device transcription is ready'
+				: 'Transcribe privately on this device'}
 		</Empty.Title>
 		<Empty.Description>
 			{#if state.type === 'ready'}
-				{suggested.name} is already downloaded and ready to use privately on this
-				device.
+				{suggested.name} is downloaded and ready to use privately on this device.
 			{:else}
-				{suggested.name} is the recommended starting point. It runs privately on
-				this device and works offline.
+				{suggested.name} runs locally and works offline. Download it once to begin.
 			{/if}
 		</Empty.Description>
 		<Empty.Content>
@@ -74,6 +74,7 @@
 				</div>
 			{:else}
 				<Button
+					size="lg"
 					onclick={async () => {
 						const result = await localModels.download(suggested);
 						if (!result) return;
@@ -83,6 +84,7 @@
 							});
 							return;
 						}
+						onActivate?.();
 						value = result.data.modelId;
 						toast.success(
 							result.data.outcome === 'already-installed'
