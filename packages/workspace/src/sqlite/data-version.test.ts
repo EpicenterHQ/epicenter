@@ -1,11 +1,11 @@
 /**
- * Application Generation Lock Tests
+ * Application Data Version Lock Tests
  *
  * Verifies that source declarations produce one canonical durable-plane map
  * and that only an exact published entry authorizes a workspace at runtime.
  *
  * Key behaviors:
- * - App and generation derive the only workspace identity
+ * - App and version derive the only workspace identity
  * - KV defaults are excluded while durable schemas and formats are locked
  * - Lock parsing rejects drift, malformed history, and noncanonical planes
  */
@@ -13,6 +13,10 @@
 import { describe, expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import { openStandaloneWorkspace as openBrowserWorkspace } from './browser.js';
+import {
+	applicationWorkspaceId,
+	parseApplicationDataVersionLock,
+} from './data-version.js';
 import {
 	defineKv,
 	defineTable,
@@ -23,26 +27,22 @@ import {
 	type WorkspaceDefinition,
 } from './definition.js';
 import { document } from './document-format.js';
-import {
-	applicationWorkspaceId,
-	parseApplicationGenerationLock,
-} from './generation.js';
 
 function lockFor(
 	candidate: ReturnType<typeof defineWorkspace>,
 	entries: unknown[] = [candidate.proposedLockEntry],
 ) {
 	return {
-		format: 'epicenter.application-generation-lock/1',
+		format: 'epicenter.application-data-version-lock/1',
 		appId: candidate.appId,
-		generations: entries,
+		versions: entries,
 	};
 }
 
-function candidateFor(dataGeneration = 1) {
+function candidateFor(dataVersion = 1) {
 	return defineWorkspace({
-		appId: 'generation-test',
-		dataGeneration,
+		appId: 'version-test',
+		dataVersion,
 		tables: {
 			notes: defineTable({
 				fields: { id: field.string(), title: field.string() },
@@ -54,14 +54,14 @@ function candidateFor(dataGeneration = 1) {
 	});
 }
 
-describe('application generation source', () => {
-	test('derives one generation-qualified identity and canonical plane map', () => {
+describe('application data version source', () => {
+	test('derives one version-qualified identity and canonical plane map', () => {
 		const candidate = candidateFor(2);
 
-		expect(candidate.workspaceId).toBe('generation-test-g2');
-		expect(candidate.kvDocumentGuid).toBe('generation-test-g2.kv');
+		expect(candidate.workspaceId).toBe('version-test-v2');
+		expect(candidate.kvDocumentGuid).toBe('version-test-v2.kv');
 		expect(candidate.blobs.attachments).toEqual({
-			identity: 'generation-test-g2.blob.attachments',
+			identity: 'version-test-v2.blob.attachments',
 			contract: 'epicenter.test-attachment/1',
 		});
 		expect(Object.keys(candidate.proposedLockEntry.planes)).toEqual([
@@ -70,15 +70,15 @@ describe('application generation source', () => {
 			'kv',
 			'kv.theme',
 		]);
-		expect(candidate.proposedLockEntry.planes.kv).toBe('generation-test-g2.kv');
+		expect(candidate.proposedLockEntry.planes.kv).toBe('version-test-v2.kv');
 		expect(candidate.proposedLockEntry.planes['kv.theme']).toMatch(
 			/^sha256:[0-9a-f]{64}$/,
 		);
 		expect(candidate.proposedLockEntry.planes['document.notes.body']).toMatch(
-			/^epicenter\.sqlite-child-document-guid\/1;row-id=epicenter\.document-row\/1;guid=generation-test-g2\.notes\.<row-id-sha256>\.body\.[0-9a-f]{64}$/,
+			/^epicenter\.sqlite-child-document-guid\/1;row-id=epicenter\.document-row\/1;guid=version-test-v2\.notes\.<row-id-sha256>\.body\.[0-9a-f]{64}$/,
 		);
 		expect(candidate.proposedLockEntry.planes['blob.attachments']).toMatch(
-			/^generation-test-g2\.blob\.attachments@sha256:[0-9a-f]{64}$/,
+			/^version-test-v2\.blob\.attachments@sha256:[0-9a-f]{64}$/,
 		);
 		expect(Object.isFrozen(candidate.proposedLockEntry)).toBe(true);
 		expect(Object.isFrozen(candidate.proposedLockEntry.planes)).toBe(true);
@@ -88,7 +88,7 @@ describe('application generation source', () => {
 		function planes(defaultValue: string) {
 			return defineWorkspace({
 				appId: 'defaults-test',
-				dataGeneration: 1,
+				dataVersion: 1,
 				tables: {
 					rows: defineTable({ fields: { id: field.string() } }),
 				},
@@ -99,7 +99,7 @@ describe('application generation source', () => {
 		expect(planes('light')).toEqual(planes('dark'));
 	});
 
-	test('rejects unsafe app ids and non-positive generations', () => {
+	test('rejects unsafe app ids and non-positive versions', () => {
 		expect(() => applicationWorkspaceId('Unsafe', 1)).toThrow(
 			'Invalid application id',
 		);
@@ -148,67 +148,67 @@ describe('lockWorkspace', () => {
 		});
 	});
 
-	test('authorizes a published historical generation in a later lock', () => {
-		const generationOne = candidateFor(1);
-		const generationTwo = candidateFor(2);
-		const lock = lockFor(generationOne, [
-			generationOne.proposedLockEntry,
-			generationTwo.proposedLockEntry,
+	test('authorizes a published historical version in a later lock', () => {
+		const versionOne = candidateFor(1);
+		const versionTwo = candidateFor(2);
+		const lock = lockFor(versionOne, [
+			versionOne.proposedLockEntry,
+			versionTwo.proposedLockEntry,
 		]);
 
-		const workspace = lockWorkspace(generationOne, lock);
-		expect(workspace.workspaceId).toBe('generation-test-g1');
+		const workspace = lockWorkspace(versionOne, lock);
+		expect(workspace.workspaceId).toBe('version-test-v1');
 		expect(Object.isFrozen(workspace)).toBe(true);
 	});
 
 	test('rejects a missing or drifted source entry', () => {
-		const generationOne = candidateFor(1);
-		const generationTwo = candidateFor(2);
+		const versionOne = candidateFor(1);
+		const versionTwo = candidateFor(2);
 		expect(() =>
 			lockWorkspace(
-				generationOne,
-				lockFor(generationOne, [generationTwo.proposedLockEntry]),
+				versionOne,
+				lockFor(versionOne, [versionTwo.proposedLockEntry]),
 			),
-		).toThrow('does not publish generation 1');
+		).toThrow('does not publish version 1');
 
 		const drifted = {
-			...generationOne.proposedLockEntry,
+			...versionOne.proposedLockEntry,
 			planes: {
-				...generationOne.proposedLockEntry.planes,
+				...versionOne.proposedLockEntry.planes,
 				'kv.theme': `sha256:${'0'.repeat(64)}`,
 			},
 		};
 		expect(() =>
-			lockWorkspace(generationOne, lockFor(generationOne, [drifted])),
-		).toThrow('does not publish generation 1');
+			lockWorkspace(versionOne, lockFor(versionOne, [drifted])),
+		).toThrow('does not publish version 1');
 	});
 });
 
-describe('parseApplicationGenerationLock', () => {
+describe('parseApplicationDataVersionLock', () => {
 	test('returns an immutable exact lock', () => {
 		const candidate = candidateFor();
-		const parsed = parseApplicationGenerationLock(lockFor(candidate));
+		const parsed = parseApplicationDataVersionLock(lockFor(candidate));
 
 		expect(parsed.appId).toBe(candidate.appId);
-		expect(parsed.generations).toEqual([candidate.proposedLockEntry]);
+		expect(parsed.versions).toEqual([candidate.proposedLockEntry]);
 		expect(Object.isFrozen(parsed)).toBe(true);
-		expect(Object.isFrozen(parsed.generations)).toBe(true);
-		expect(Object.isFrozen(parsed.generations[0]?.planes)).toBe(true);
+		expect(Object.isFrozen(parsed.versions)).toBe(true);
+		expect(Object.isFrozen(parsed.versions[0]?.planes)).toBe(true);
 	});
 
 	test('rejects extra keys, invalid generated ids, and unordered history', () => {
 		const one = candidateFor(1);
 		const two = candidateFor(2);
 		expect(() =>
-			parseApplicationGenerationLock({ ...lockFor(one), extra: true }),
-		).toThrow('Invalid application generation lock');
+			parseApplicationDataVersionLock({ ...lockFor(one), extra: true }),
+		).toThrow('Invalid application data version lock');
 		expect(() =>
-			parseApplicationGenerationLock(
+			parseApplicationDataVersionLock(
 				lockFor(one, [{ ...one.proposedLockEntry, workspaceId: 'forged' }]),
 			),
 		).toThrow('invalid workspace id');
 		expect(() =>
-			parseApplicationGenerationLock(
+			parseApplicationDataVersionLock(
 				lockFor(one, [two.proposedLockEntry, one.proposedLockEntry]),
 			),
 		).toThrow('strictly increasing');
@@ -220,7 +220,7 @@ describe('parseApplicationGenerationLock', () => {
 			{ ...candidate.proposedLockEntry, planes },
 		];
 		expect(() =>
-			parseApplicationGenerationLock(
+			parseApplicationDataVersionLock(
 				lockFor(
 					candidate,
 					entries({ kv: candidate.kvDocumentGuid, 'blob.bad': 'bad' }),
@@ -228,12 +228,12 @@ describe('parseApplicationGenerationLock', () => {
 			),
 		).toThrow('canonically sorted');
 		expect(() =>
-			parseApplicationGenerationLock(
+			parseApplicationDataVersionLock(
 				lockFor(
 					candidate,
 					entries({ kv: candidate.kvDocumentGuid, unknown: 'value' }),
 				),
 			),
-		).toThrow("Unknown application generation plane 'unknown'");
+		).toThrow("Unknown application data version plane 'unknown'");
 	});
 });

@@ -2,11 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { inspectWorkspaceCandidate } from '../packages/workspace/src/sqlite/definition.js';
 import {
-	APPLICATION_GENERATION_LOCK_FORMAT,
-	parseApplicationGenerationLock,
-} from '../packages/workspace/src/sqlite/generation.js';
+	APPLICATION_DATA_VERSION_LOCK_FORMAT,
+	parseApplicationDataVersionLock,
+} from '../packages/workspace/src/sqlite/data-version.js';
+import { inspectWorkspaceCandidate } from '../packages/workspace/src/sqlite/definition.js';
 
 type Mode = 'check' | 'check-history' | 'write';
 
@@ -25,7 +25,7 @@ type Options =
 function usage(message?: string): never {
 	if (message) console.error(message);
 	console.error(
-		'Usage:\n  bun run scripts/check-application-generation-locks.ts --check-history [--base <full-commit-sha>]\n  bun run scripts/check-application-generation-locks.ts (--check | --write) --lock <path> --candidate <module> [--candidate <module> ...] [--base <full-commit-sha>]',
+		'Usage:\n  bun run scripts/check-application-data-version-locks.ts --check-history [--base <full-commit-sha>]\n  bun run scripts/check-application-data-version-locks.ts (--check | --write) --lock <path> --candidate <module> [--candidate <module> ...] [--base <full-commit-sha>]',
 	);
 	process.exit(1);
 }
@@ -71,14 +71,14 @@ function parseArguments(argv: string[]): Options {
 	}
 
 	if (!mode) usage('Choose exactly one mode.');
-	const baseEnvironment = process.env.GENERATION_LOCK_BASE;
+	const baseEnvironment = process.env.DATA_VERSION_LOCK_BASE;
 	if (baseFlag && baseEnvironment && baseFlag !== baseEnvironment) {
-		usage('--base and GENERATION_LOCK_BASE disagree.');
+		usage('--base and DATA_VERSION_LOCK_BASE disagree.');
 	}
 
 	const base = baseFlag ?? baseEnvironment;
 	if (process.env.CI && !base) {
-		usage('CI requires --base or GENERATION_LOCK_BASE.');
+		usage('CI requires --base or DATA_VERSION_LOCK_BASE.');
 	}
 	if (mode === 'check-history') {
 		if (lockPath || candidatePaths.length > 0) {
@@ -109,9 +109,11 @@ function readLock(path: string) {
 	try {
 		value = JSON.parse(readFileSync(path, 'utf8'));
 	} catch (error) {
-		throw new Error(`Cannot read generation lock '${path}'.`, { cause: error });
+		throw new Error(`Cannot read data version lock '${path}'.`, {
+			cause: error,
+		});
 	}
-	return parseApplicationGenerationLock(value);
+	return parseApplicationDataVersionLock(value);
 }
 
 async function readCandidate(path: string) {
@@ -125,13 +127,13 @@ async function readCandidate(path: string) {
 	const candidate = inspectWorkspaceCandidate(
 		candidateModule.workspaceCandidate,
 	);
-	const parsed = parseApplicationGenerationLock({
-		format: APPLICATION_GENERATION_LOCK_FORMAT,
+	const parsed = parseApplicationDataVersionLock({
+		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
 		appId: candidate.appId,
-		generations: [candidate.proposedLockEntry],
+		versions: [candidate.proposedLockEntry],
 	});
-	const [entry] = parsed.generations;
-	if (!entry) throw new Error(`Candidate module '${path}' has no generation.`);
+	const [entry] = parsed.versions;
+	if (!entry) throw new Error(`Candidate module '${path}' has no version.`);
 	return { path, appId: parsed.appId, entry };
 }
 
@@ -146,20 +148,20 @@ function git(cwd: string, args: string[]): string {
 function exactBaseSha(repoRoot: string, base: string): string {
 	if (!/^[0-9a-f]{40}$/.test(base)) {
 		throw new Error(
-			`Generation lock base '${base}' must be an exact full commit SHA.`,
+			`Data version lock base '${base}' must be an exact full commit SHA.`,
 		);
 	}
 	let resolved: string;
 	try {
 		resolved = git(repoRoot, ['rev-parse', '--verify', `${base}^{commit}`]);
 	} catch (error) {
-		throw new Error(`Generation lock base '${base}' is unavailable.`, {
+		throw new Error(`Data version lock base '${base}' is unavailable.`, {
 			cause: error,
 		});
 	}
 	if (resolved !== base) {
 		throw new Error(
-			`Generation lock base '${base}' did not resolve to that exact commit.`,
+			`Data version lock base '${base}' did not resolve to that exact commit.`,
 		);
 	}
 	return base;
@@ -173,7 +175,7 @@ function repoPath(repoRoot: string, path: string): string {
 		pathFromRoot === ''
 	) {
 		throw new Error(
-			`Generation lock '${path}' must be inside the git repository.`,
+			`Data version lock '${path}' must be inside the git repository.`,
 		);
 	}
 	return pathFromRoot.split(sep).join('/');
@@ -187,9 +189,9 @@ function parseLockText(text: string, label: string) {
 		throw new Error(`${label} is not valid JSON.`, { cause: error });
 	}
 	try {
-		return parseApplicationGenerationLock(value);
+		return parseApplicationDataVersionLock(value);
 	} catch (error) {
-		throw new Error(`${label} is not a valid application generation lock.`, {
+		throw new Error(`${label} is not a valid application data version lock.`, {
 			cause: error,
 		});
 	}
@@ -208,11 +210,11 @@ function readBaseLock({
 }) {
 	try {
 		const text = git(repoRoot, ['show', `${base}:${path}`]);
-		return parseLockText(text, `Base generation lock '${path}'`);
+		return parseLockText(text, `Base data version lock '${path}'`);
 	} catch (error) {
 		if (
 			error instanceof Error &&
-			error.message.startsWith(`Base generation lock '${path}'`)
+			error.message.startsWith(`Base data version lock '${path}'`)
 		) {
 			throw error;
 		}
@@ -224,7 +226,7 @@ function readBaseLock({
 			'grep',
 			'-l',
 			'-F',
-			APPLICATION_GENERATION_LOCK_FORMAT,
+			APPLICATION_DATA_VERSION_LOCK_FORMAT,
 			base,
 			'--',
 			'*.json',
@@ -235,18 +237,18 @@ function readBaseLock({
 	for (const match of matches.split('\n').filter(Boolean)) {
 		const oldPath = match.slice(`${base}:`.length);
 		if (oldPath === path) continue;
-		let oldLock: ReturnType<typeof parseApplicationGenerationLock>;
+		let oldLock: ReturnType<typeof parseApplicationDataVersionLock>;
 		try {
 			oldLock = parseLockText(
 				git(repoRoot, ['show', `${base}:${oldPath}`]),
-				`Base generation lock '${oldPath}'`,
+				`Base data version lock '${oldPath}'`,
 			);
 		} catch {
 			continue;
 		}
 		if (oldLock.appId === appId) {
 			throw new Error(
-				`Generation lock for app '${appId}' was renamed from '${oldPath}' to '${path}'. Published locks cannot be renamed.`,
+				`Data version lock for app '${appId}' was renamed from '${oldPath}' to '${path}'. Published locks cannot be renamed.`,
 			);
 		}
 	}
@@ -261,63 +263,62 @@ function trackedFiles(repoRoot: string, revision?: string): string[] {
 	).split('\n');
 }
 
-function trackedGenerationLocks(repoRoot: string, revision?: string): string[] {
+function trackedVersionLocks(repoRoot: string, revision?: string): string[] {
 	return trackedFiles(repoRoot, revision).filter(
 		(path) =>
-			path === 'generation-lock.json' || path.endsWith('/generation-lock.json'),
+			path === 'data-version-lock.json' ||
+			path.endsWith('/data-version-lock.json'),
 	);
 }
 
 async function verifyTrackedSources(
 	repoRoot: string,
 	lockPath: string,
-	lock: ReturnType<typeof parseApplicationGenerationLock>,
+	lock: ReturnType<typeof parseApplicationDataVersionLock>,
 ): Promise<void> {
 	const lockDirectory = dirname(lockPath);
-	const generationsDirectory =
-		lockDirectory === '.'
-			? 'src/generations'
-			: `${lockDirectory}/src/generations`;
+	const versionsDirectory =
+		lockDirectory === '.' ? 'src/versions' : `${lockDirectory}/src/versions`;
 	const candidatePaths = trackedFiles(repoRoot).filter(
 		(path) =>
-			path.startsWith(`${generationsDirectory}/`) &&
-			/^g[1-9][0-9]*\/workspace\.ts$/.test(
-				path.slice(`${generationsDirectory}/`.length),
+			path.startsWith(`${versionsDirectory}/`) &&
+			/^v[1-9][0-9]*\/workspace\.ts$/.test(
+				path.slice(`${versionsDirectory}/`.length),
 			),
 	);
 	if (candidatePaths.length === 0) {
 		throw new Error(
-			`Tracked generation lock '${lockPath}' has no tracked source candidates under '${generationsDirectory}/gN/workspace.ts'.`,
+			`Tracked data version lock '${lockPath}' has no tracked source candidates under '${versionsDirectory}/vN/workspace.ts'.`,
 		);
 	}
 	const candidates = await Promise.all(
 		candidatePaths.map((path) => readCandidate(resolve(repoRoot, path))),
 	);
 	for (const candidate of candidates) {
-		const generation = candidate.entry.dataGeneration;
-		const expectedPath = `${generationsDirectory}/g${generation}/workspace.ts`;
+		const version = candidate.entry.dataVersion;
+		const expectedPath = `${versionsDirectory}/v${version}/workspace.ts`;
 		const actualPath = repoPath(repoRoot, candidate.path);
 		if (actualPath !== expectedPath) {
 			throw new Error(
-				`Candidate '${actualPath}' proposes data generation ${generation}; expected '${expectedPath}'.`,
+				`Candidate '${actualPath}' proposes data version ${version}; expected '${expectedPath}'.`,
 			);
 		}
 	}
 	const ordered = candidates.toSorted(
-		(left, right) => left.entry.dataGeneration - right.entry.dataGeneration,
+		(left, right) => left.entry.dataVersion - right.entry.dataVersion,
 	);
 	const appId = ordered[0]?.appId;
 	if (!appId || ordered.some((candidate) => candidate.appId !== appId)) {
 		throw new Error(`Source candidates for '${lockPath}' span multiple apps.`);
 	}
-	const sourceLock = parseApplicationGenerationLock({
-		format: APPLICATION_GENERATION_LOCK_FORMAT,
+	const sourceLock = parseApplicationDataVersionLock({
+		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
 		appId,
-		generations: ordered.map(({ entry }) => entry),
+		versions: ordered.map(({ entry }) => entry),
 	});
 	if (!sameJson(sourceLock, lock)) {
 		throw new Error(
-			`Tracked generation lock '${lockPath}' does not exactly match its source candidates.`,
+			`Tracked data version lock '${lockPath}' does not exactly match its source candidates.`,
 		);
 	}
 }
@@ -327,22 +328,22 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 function verifyBasePrefix(
-	baseLock: ReturnType<typeof parseApplicationGenerationLock>,
-	currentLock: ReturnType<typeof parseApplicationGenerationLock>,
+	baseLock: ReturnType<typeof parseApplicationDataVersionLock>,
+	currentLock: ReturnType<typeof parseApplicationDataVersionLock>,
 ): void {
 	if (
 		baseLock.format !== currentLock.format ||
 		baseLock.appId !== currentLock.appId
 	) {
-		throw new Error('Published generation lock identity changed.');
+		throw new Error('Published data version lock identity changed.');
 	}
-	if (currentLock.generations.length < baseLock.generations.length) {
-		throw new Error('Published generation lock entries were removed.');
+	if (currentLock.versions.length < baseLock.versions.length) {
+		throw new Error('Published data version lock entries were removed.');
 	}
-	for (const [index, entry] of baseLock.generations.entries()) {
-		if (!sameJson(entry, currentLock.generations[index])) {
+	for (const [index, entry] of baseLock.versions.entries()) {
+		if (!sameJson(entry, currentLock.versions[index])) {
 			throw new Error(
-				`Published generation lock entry ${index + 1} changed or moved.`,
+				`Published data version lock entry ${index + 1} changed or moved.`,
 			);
 		}
 	}
@@ -350,7 +351,7 @@ function verifyBasePrefix(
 
 async function checkHistory(baseInput: string | undefined): Promise<void> {
 	const repoRoot = git(process.cwd(), ['rev-parse', '--show-toplevel']);
-	const currentPaths = trackedGenerationLocks(repoRoot);
+	const currentPaths = trackedVersionLocks(repoRoot);
 	const currentLocks = new Map(
 		currentPaths.map((path) => [path, readLock(resolve(repoRoot, path))]),
 	);
@@ -358,21 +359,21 @@ async function checkHistory(baseInput: string | undefined): Promise<void> {
 	let base: string | undefined;
 	if (baseInput) {
 		base = exactBaseSha(repoRoot, baseInput);
-		const basePaths = trackedGenerationLocks(repoRoot, base);
+		const basePaths = trackedVersionLocks(repoRoot, base);
 		const currentPathSet = new Set(currentPaths);
 		for (const path of basePaths) {
 			if (!currentPathSet.has(path)) {
 				throw new Error(
-					`Published generation lock '${path}' was deleted or renamed.`,
+					`Published data version lock '${path}' was deleted or renamed.`,
 				);
 			}
 			const baseLock = parseLockText(
 				git(repoRoot, ['show', `${base}:${path}`]),
-				`Base generation lock '${path}'`,
+				`Base data version lock '${path}'`,
 			);
 			const currentLock = currentLocks.get(path);
 			if (!currentLock)
-				throw new Error(`Generation lock '${path}' is unavailable.`);
+				throw new Error(`Data version lock '${path}' is unavailable.`);
 			verifyBasePrefix(baseLock, currentLock);
 		}
 	}
@@ -383,8 +384,8 @@ async function checkHistory(baseInput: string | undefined): Promise<void> {
 	);
 	console.log(
 		base
-			? `generation-locks: ${currentPaths.length} tracked lock(s) match sources and preserve base ${base}.`
-			: `generation-locks: ${currentPaths.length} tracked lock(s) match sources; no base comparison requested.`,
+			? `data-version-locks: ${currentPaths.length} tracked lock(s) match sources and preserve base ${base}.`
+			: `data-version-locks: ${currentPaths.length} tracked lock(s) match sources; no base comparison requested.`,
 	);
 }
 
@@ -402,10 +403,10 @@ async function main(): Promise<void> {
 		throw new Error('Every candidate must belong to the same application.');
 	}
 
-	const candidateLock = parseApplicationGenerationLock({
-		format: APPLICATION_GENERATION_LOCK_FORMAT,
+	const candidateLock = parseApplicationDataVersionLock({
+		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
 		appId,
-		generations: candidates.map(({ entry }) => entry),
+		versions: candidates.map(({ entry }) => entry),
 	});
 	const currentLock =
 		options.mode === 'write' && !existsSync(options.lockPath)
@@ -413,7 +414,7 @@ async function main(): Promise<void> {
 			: readLock(options.lockPath);
 	if (currentLock && currentLock.appId !== appId) {
 		throw new Error(
-			`Generation lock app '${currentLock.appId}' does not match candidate app '${appId}'.`,
+			`Data version lock app '${currentLock.appId}' does not match candidate app '${appId}'.`,
 		);
 	}
 
@@ -426,56 +427,53 @@ async function main(): Promise<void> {
 	}
 
 	const sharedLength = Math.min(
-		currentLock?.generations.length ?? 0,
-		candidateLock.generations.length,
+		currentLock?.versions.length ?? 0,
+		candidateLock.versions.length,
 	);
 	for (let index = 0; index < sharedLength; index += 1) {
 		if (
-			!sameJson(
-				currentLock?.generations[index],
-				candidateLock.generations[index],
-			)
+			!sameJson(currentLock?.versions[index], candidateLock.versions[index])
 		) {
 			throw new Error(
-				`Candidate for data generation ${candidateLock.generations[index]?.dataGeneration} drifted from the committed lock.`,
+				`Candidate for data version ${candidateLock.versions[index]?.dataVersion} drifted from the committed lock.`,
 			);
 		}
 	}
 	if (
 		currentLock &&
-		candidateLock.generations.length < currentLock.generations.length
+		candidateLock.versions.length < currentLock.versions.length
 	) {
-		throw new Error('A candidate for a published generation is missing.');
+		throw new Error('A candidate for a published version is missing.');
 	}
 
-	const newEntries = candidateLock.generations.slice(
-		currentLock?.generations.length ?? 0,
+	const newEntries = candidateLock.versions.slice(
+		currentLock?.versions.length ?? 0,
 	);
 	if (options.mode === 'check') {
 		if (newEntries.length > 0) {
 			throw new Error(
-				`${newEntries.length} candidate generation(s) are not recorded in '${options.lockPath}'. Run with --write to append them.`,
+				`${newEntries.length} candidate version(s) are not recorded in '${options.lockPath}'. Run with --write to append them.`,
 			);
 		}
 		console.log(
-			`generation-locks: ${appId} has ${currentLock?.generations.length ?? 0} locked generation(s); sources match.`,
+			`data-version-locks: ${appId} has ${currentLock?.versions.length ?? 0} locked version(s); sources match.`,
 		);
 		return;
 	}
 
 	if (newEntries.length === 0) {
-		console.log(`generation-locks: ${appId} is already current.`);
+		console.log(`data-version-locks: ${appId} is already current.`);
 		return;
 	}
 	const nextLock = currentLock
-		? parseApplicationGenerationLock({
+		? parseApplicationDataVersionLock({
 				...currentLock,
-				generations: [...currentLock.generations, ...newEntries],
+				versions: [...currentLock.versions, ...newEntries],
 			})
 		: candidateLock;
 	writeFileSync(options.lockPath, `${JSON.stringify(nextLock, null, '\t')}\n`);
 	console.log(
-		`generation-locks: appended ${newEntries.length} generation(s) to '${options.lockPath}'.`,
+		`data-version-locks: appended ${newEntries.length} version(s) to '${options.lockPath}'.`,
 	);
 }
 

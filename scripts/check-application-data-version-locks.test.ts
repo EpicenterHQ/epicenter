@@ -1,5 +1,5 @@
 /**
- * Application generation lock gate tests.
+ * Application data version lock gate tests.
  *
  * Runs the CLI against throwaway git repositories so both Git-history
  * immutability and source-to-lock drift checks exercise their real process and
@@ -25,15 +25,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { field } from '../packages/field/src/index.js';
+import { APPLICATION_DATA_VERSION_LOCK_FORMAT } from '../packages/workspace/src/sqlite/data-version.js';
 import {
 	defineKv,
 	defineTable,
 	defineWorkspace,
 } from '../packages/workspace/src/sqlite/definition.js';
-import { APPLICATION_GENERATION_LOCK_FORMAT } from '../packages/workspace/src/sqlite/generation.js';
 
 const scriptPath = fileURLToPath(
-	new URL('./check-application-generation-locks.ts', import.meta.url),
+	new URL('./check-application-data-version-locks.ts', import.meta.url),
 );
 const definitionModuleUrl = new URL(
 	'../packages/workspace/src/sqlite/definition.js',
@@ -43,21 +43,18 @@ const fieldModuleUrl = new URL(
 	'../packages/field/src/index.js',
 	import.meta.url,
 ).href;
-const lockPath = 'app/generation-lock.json';
+const lockPath = 'app/data-version-lock.json';
 
 type CandidateVariant = 'base' | 'plane-drift' | 'schema-drift';
 
-function candidateFor(
-	dataGeneration: number,
-	variant: CandidateVariant = 'base',
-) {
+function candidateFor(dataVersion: number, variant: CandidateVariant = 'base') {
 	if (variant === 'schema-drift') {
 		const rows = defineTable({
 			fields: { id: field.string(), title: field.string() },
 		});
 		return defineWorkspace({
 			appId: 'fixture',
-			dataGeneration,
+			dataVersion,
 			tables: { rows },
 		});
 	}
@@ -66,7 +63,7 @@ function candidateFor(
 	});
 	return defineWorkspace({
 		appId: 'fixture',
-		dataGeneration,
+		dataVersion,
 		tables: { rows },
 		...(variant === 'plane-drift'
 			? { kv: { preference: defineKv(field.string(), () => '') } }
@@ -74,17 +71,17 @@ function candidateFor(
 	});
 }
 
-function generation(dataGeneration: number) {
-	return candidateFor(dataGeneration).proposedLockEntry;
+function version(dataVersion: number) {
+	return candidateFor(dataVersion).proposedLockEntry;
 }
 
-type Entry = ReturnType<typeof generation>;
+type Entry = ReturnType<typeof version>;
 
-function lock(generations: Entry[]) {
+function lock(versions: Entry[]) {
 	return {
-		format: APPLICATION_GENERATION_LOCK_FORMAT,
+		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
 		appId: 'fixture',
-		generations,
+		versions,
 	};
 }
 
@@ -104,11 +101,11 @@ function writeJson(cwd: string, relativePath: string, value: unknown): void {
 
 function writeCandidate(
 	cwd: string,
-	dataGeneration: number,
+	dataVersion: number,
 	variant: CandidateVariant = 'base',
 	extraExport = '',
 ): string {
-	const candidatePath = `app/src/generations/g${dataGeneration}/workspace.ts`;
+	const candidatePath = `app/src/versions/v${dataVersion}/workspace.ts`;
 	const absolutePath = path.join(cwd, candidatePath);
 	mkdirSync(path.dirname(absolutePath), { recursive: true });
 	writeFileSync(
@@ -126,7 +123,7 @@ const rows = defineTable({
 
 export const workspaceCandidate = defineWorkspace({
 	appId: 'fixture',
-	dataGeneration: ${dataGeneration},
+	dataVersion: ${dataVersion},
 	tables: { rows },${
 		variant === 'plane-drift'
 			? "\n\tkv: { preference: defineKv(field.string(), () => '') },"
@@ -138,27 +135,27 @@ ${extraExport}`,
 	return candidatePath;
 }
 
-function candidatePath(dataGeneration: number): string {
-	return `app/src/generations/g${dataGeneration}/workspace.ts`;
+function candidatePath(dataVersion: number): string {
+	return `app/src/versions/v${dataVersion}/workspace.ts`;
 }
 
 function setup({
-	initialGenerations = [generation(1)],
+	initialVersions = [version(1)],
 	withLock = true,
 }: {
-	initialGenerations?: Entry[];
+	initialVersions?: Entry[];
 	withLock?: boolean;
 } = {}) {
-	const cwd = mkdtempSync(path.join(os.tmpdir(), 'generation-locks-'));
+	const cwd = mkdtempSync(path.join(os.tmpdir(), 'data-version-locks-'));
 	git(cwd, ['init', '-q', '-b', 'main']);
 	git(cwd, ['config', 'user.email', 'fixture@test.local']);
 	git(cwd, ['config', 'user.name', 'Fixture']);
 	git(cwd, ['config', 'commit.gpgsign', 'false']);
 	mkdirSync(path.join(cwd, 'app'), { recursive: true });
-	for (const entry of initialGenerations) {
-		writeCandidate(cwd, entry.dataGeneration);
+	for (const entry of initialVersions) {
+		writeCandidate(cwd, entry.dataVersion);
 	}
-	if (withLock) writeJson(cwd, lockPath, lock(initialGenerations));
+	if (withLock) writeJson(cwd, lockPath, lock(initialVersions));
 	git(cwd, ['add', 'app']);
 	git(cwd, ['commit', '-q', '-m', 'fixture base']);
 	const base = git(cwd, ['rev-parse', 'HEAD']);
@@ -172,7 +169,7 @@ function run(
 ) {
 	const env = { ...process.env };
 	delete env.CI;
-	delete env.GENERATION_LOCK_BASE;
+	delete env.DATA_VERSION_LOCK_BASE;
 	Object.assign(env, environment);
 	const result = spawnSync('bun', [scriptPath, ...args], {
 		cwd,
@@ -248,7 +245,7 @@ test('check rejects a forged candidate with a valid proposed lock entry', () => 
 			path.join(cwd, forgedPath),
 			`export const workspaceCandidate = ${JSON.stringify({
 				appId: 'fixture',
-				proposedLockEntry: generation(1),
+				proposedLockEntry: version(1),
 			})};\n`,
 		);
 		const result = run(cwd, sourceArgs([forgedPath]));
@@ -259,16 +256,16 @@ test('check rejects a forged candidate with a valid proposed lock entry', () => 
 	});
 });
 
-test('check requires every published generation candidate', () => {
+test('check requires every published version candidate', () => {
 	withRepo(
 		({ cwd }) => {
 			const result = run(cwd, sourceArgs([candidatePath(1)]));
 			expect(result.code).toBe(1);
 			expect(result.output).toContain(
-				'candidate for a published generation is missing',
+				'candidate for a published version is missing',
 			);
 		},
-		{ initialGenerations: [generation(1), generation(2)] },
+		{ initialVersions: [version(1), version(2)] },
 	);
 });
 
@@ -290,9 +287,9 @@ test('write creates an absent lock from explicit candidates', () => {
 			expect(result.code).toBe(0);
 			expect(
 				JSON.parse(readFileSync(path.join(cwd, lockPath), 'utf8')),
-			).toEqual(lock([generation(1)]));
+			).toEqual(lock([version(1)]));
 		},
-		{ initialGenerations: [generation(1)], withLock: false },
+		{ initialVersions: [version(1)], withLock: false },
 	);
 });
 
@@ -305,7 +302,7 @@ test('write appends only a new candidate tail', () => {
 		);
 		expect(result.code).toBe(0);
 		expect(JSON.parse(readFileSync(path.join(cwd, lockPath), 'utf8'))).toEqual(
-			lock([generation(1), generation(2)]),
+			lock([version(1), version(2)]),
 		);
 	});
 });
@@ -329,7 +326,7 @@ test('history check accepts only an appended lock tail', () => {
 	withRepo(({ cwd, base }) => {
 		const secondCandidate = writeCandidate(cwd, 2);
 		git(cwd, ['add', secondCandidate]);
-		writeJson(cwd, lockPath, lock([generation(1), generation(2)]));
+		writeJson(cwd, lockPath, lock([version(1), version(2)]));
 		const result = run(cwd, ['--check-history', '--base', base]);
 		expect(result.code).toBe(0);
 		expect(result.output).toContain(`preserve base ${base}`);
@@ -338,7 +335,7 @@ test('history check accepts only an appended lock tail', () => {
 
 test('history check rejects a changed published entry', () => {
 	withRepo(({ cwd, base }) => {
-		const baseline = generation(1);
+		const baseline = version(1);
 		writeJson(
 			cwd,
 			lockPath,
@@ -358,24 +355,24 @@ test('history check rejects a changed published entry', () => {
 test('history check rejects removed published entries', () => {
 	withRepo(
 		({ cwd, base }) => {
-			writeJson(cwd, lockPath, lock([generation(1)]));
+			writeJson(cwd, lockPath, lock([version(1)]));
 			const result = run(cwd, ['--check-history', '--base', base]);
 			expect(result.code).toBe(1);
 			expect(result.output).toContain('entries were removed');
 		},
-		{ initialGenerations: [generation(1), generation(2)] },
+		{ initialVersions: [version(1), version(2)] },
 	);
 });
 
 test('history check rejects reordered published entries', () => {
 	withRepo(
 		({ cwd, base }) => {
-			writeJson(cwd, lockPath, lock([generation(2), generation(1)]));
+			writeJson(cwd, lockPath, lock([version(2), version(1)]));
 			const result = run(cwd, ['--check-history', '--base', base]);
 			expect(result.code).toBe(1);
 			expect(result.output).toContain('strictly increasing');
 		},
-		{ initialGenerations: [generation(1), generation(2)] },
+		{ initialVersions: [version(1), version(2)] },
 	);
 });
 
@@ -391,7 +388,7 @@ test('history check rejects deletion of a published lock', () => {
 test('history check rejects rename of a published lock', () => {
 	withRepo(({ cwd, base }) => {
 		mkdirSync(path.join(cwd, 'renamed'));
-		git(cwd, ['mv', lockPath, 'renamed/generation-lock.json']);
+		git(cwd, ['mv', lockPath, 'renamed/data-version-lock.json']);
 		const result = run(cwd, ['--check-history', '--base', base]);
 		expect(result.code).toBe(1);
 		expect(result.output).toContain('was deleted or renamed');
@@ -400,10 +397,10 @@ test('history check rejects rename of a published lock', () => {
 
 test('history check validates the exact current artifact shape', () => {
 	withRepo(({ cwd }) => {
-		writeJson(cwd, lockPath, { ...lock([generation(1)]), mutable: true });
+		writeJson(cwd, lockPath, { ...lock([version(1)]), mutable: true });
 		const result = run(cwd, ['--check-history']);
 		expect(result.code).toBe(1);
-		expect(result.output).toContain('Invalid application generation lock');
+		expect(result.output).toContain('Invalid application data version lock');
 	});
 });
 
@@ -430,7 +427,7 @@ test('history check rejects tracked source drift without a package script', () =
 
 test('history check supports a root-level tracked lock and source convention', () => {
 	withRepo(({ cwd }) => {
-		git(cwd, ['mv', lockPath, 'generation-lock.json']);
+		git(cwd, ['mv', lockPath, 'data-version-lock.json']);
 		git(cwd, ['mv', 'app/src', 'src']);
 		const result = run(cwd, ['--check-history']);
 		expect(result.code).toBe(0);
@@ -440,22 +437,24 @@ test('history check supports a root-level tracked lock and source convention', (
 
 test('history check validates the exact base artifact shape', () => {
 	withRepo(({ cwd }) => {
-		writeJson(cwd, lockPath, { ...lock([generation(1)]), mutable: true });
+		writeJson(cwd, lockPath, { ...lock([version(1)]), mutable: true });
 		git(cwd, ['add', lockPath]);
 		git(cwd, ['commit', '-q', '-m', 'invalid base shape']);
 		const invalidBase = git(cwd, ['rev-parse', 'HEAD']);
-		writeJson(cwd, lockPath, lock([generation(1)]));
+		writeJson(cwd, lockPath, lock([version(1)]));
 		const result = run(cwd, ['--check-history', '--base', invalidBase]);
 		expect(result.code).toBe(1);
-		expect(result.output).toContain('Base generation lock');
-		expect(result.output).toContain('not a valid application generation lock');
+		expect(result.output).toContain('Base data version lock');
+		expect(result.output).toContain(
+			'not a valid application data version lock',
+		);
 	});
 });
 
-test('history check accepts GENERATION_LOCK_BASE', () => {
+test('history check accepts DATA_VERSION_LOCK_BASE', () => {
 	withRepo(({ cwd, base }) => {
 		const result = run(cwd, ['--check-history'], {
-			GENERATION_LOCK_BASE: base,
+			DATA_VERSION_LOCK_BASE: base,
 		});
 		expect(result.code).toBe(0);
 		expect(result.output).toContain(`preserve base ${base}`);

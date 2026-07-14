@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 const rootEntry = new URL('./index.html', import.meta.url).pathname;
-const generationOneEntry = new URL('./previous/g1/index.html', import.meta.url)
+const versionOneEntry = new URL('./previous/v1/index.html', import.meta.url)
 	.pathname;
 
 const isolationHeaders = {
@@ -19,7 +19,7 @@ export default defineConfig({
 		rollupOptions: {
 			input: {
 				current: rootEntry,
-				previousGenerationOne: generationOneEntry,
+				previousVersionOne: versionOneEntry,
 			},
 		},
 	},

@@ -6,7 +6,7 @@ import {
 	type WorkspaceReplica,
 } from '@epicenter/workspace/sqlite/browser';
 import * as Y from 'yjs';
-import generationLock from '../../../generation-lock.json' with {
+import dataVersionLock from '../../../data-version-lock.json' with {
 	type: 'json',
 };
 import { workspaceDefinition } from './definition.js';
@@ -31,8 +31,8 @@ const workspaceKind = new URLSearchParams(location.search).has('replica')
 	? 'replica'
 	: 'standalone';
 
-const hasPredecessors = generationLock.generations.some(
-	({ dataGeneration }) => dataGeneration < workspaceDefinition.dataGeneration,
+const hasPredecessors = dataVersionLock.versions.some(
+	({ dataVersion }) => dataVersion < workspaceDefinition.dataVersion,
 );
 let workspace: Workspace | undefined;
 let preferencesDoc: Y.Doc | undefined;
@@ -40,7 +40,7 @@ let preferencesDoc: Y.Doc | undefined;
 function requireApp(): HTMLElement {
 	const element = document.querySelector('main');
 	if (!(element instanceof HTMLElement)) {
-		throw new Error('Current generation root is missing');
+		throw new Error('Current version root is missing');
 	}
 	return element;
 }
@@ -73,7 +73,7 @@ function renderGate(): void {
 	start.type = 'button';
 	start.textContent = 'Start current version';
 	const previous = document.createElement('a');
-	previous.href = `/previous/g1/${location.search}`;
+	previous.href = `/previous/v1/${location.search}`;
 	previous.textContent = 'Continue with previous version';
 	start.addEventListener(
 		'click',
@@ -82,7 +82,7 @@ function renderGate(): void {
 			renderState(
 				'loading',
 				'Starting current version',
-				'Creating the Generation 2 data namespace.',
+				"Creating version 2's separate data space.",
 			);
 			openCurrent().catch(renderOperationalError);
 		},
@@ -116,7 +116,7 @@ async function openCurrent(): Promise<void> {
 		nextPreferencesDoc.destroy();
 		throw cause;
 	}
-	window.generationTwoSmoke = {
+	window.versionTwoSmoke = {
 		create(note) {
 			return getWorkspace().tables.notes.create(note);
 		},
@@ -141,18 +141,18 @@ async function openCurrent(): Promise<void> {
 	renderState(
 		'ready',
 		'Current version ready',
-		'Generation 2 is open in its own data namespace.',
+		'Version 2 is open in its separate data space.',
 	);
 }
 
 function getWorkspace(): Workspace {
-	if (!workspace) throw new Error('Generation two is not open');
+	if (!workspace) throw new Error('Version two is not open');
 	return workspace;
 }
 
 function identity() {
 	const kvDocumentGuid = preferencesDoc?.guid;
-	if (!kvDocumentGuid) throw new Error('Generation two KV is not open');
+	if (!kvDocumentGuid) throw new Error('Version two KV is not open');
 	return {
 		workspaceId: workspaceDefinition.workspaceId,
 		kvDocumentGuid,
@@ -170,7 +170,7 @@ function renderOperationalError(cause: unknown): void {
 renderState(
 	'loading',
 	'Checking this version',
-	'Looking for an initialized Generation 2 data namespace.',
+	"Looking for version 2's initialized data space.",
 );
 try {
 	const inspection = await inspectLocalWorkspace(workspaceDefinition, {
@@ -192,7 +192,7 @@ try {
 			renderState(
 				'invalid',
 				'Current data cannot open',
-				`Generation 2 storage exists but is invalid: ${inspection.reason}`,
+				`Version 2 storage exists but is invalid: ${inspection.reason}`,
 			);
 			break;
 	}
@@ -202,7 +202,7 @@ try {
 
 declare global {
 	interface Window {
-		generationTwoSmoke: {
+		versionTwoSmoke: {
 			create(note: Omit<Note, 'id'>): Promise<Note>;
 			get(id: string): Promise<Note | null>;
 			list(): Promise<Note[]>;

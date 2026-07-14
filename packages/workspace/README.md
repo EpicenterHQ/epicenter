@@ -2,10 +2,10 @@
 
 > Transition note: this page documents the current production Yjs-record
 > entrypoint. The greenfield records target lives at
-> `@epicenter/workspace/sqlite`: one locked application data generation owns
+> `@epicenter/workspace/sqlite`: one locked application data version owns
 > typed records, synchronized KV, child-document identities, and app-owned blob
 > identities under a generated workspace namespace. See
-> [ADR-0134](../../docs/adr/0134-application-data-generations-own-immutable-workspace-namespaces.md)
+> [ADR-0136](../../docs/adr/0136-applications-declare-immutable-data-versions.md)
 > and [ADR-0135](../../docs/adr/0135-new-builds-ask-before-initializing-a-new-data-generation.md).
 
 A local-first workspace engine for TypeScript apps: Yjs is the source of truth; SQLite and Markdown are read-only materialized projections.

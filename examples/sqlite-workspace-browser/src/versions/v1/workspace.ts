@@ -10,15 +10,14 @@ const notes = defineTable({
 	fields: {
 		id: field.string(),
 		title: field.string(),
-		archived: field.boolean(),
 	},
 	documents: { body: document.plainText },
 });
 
 export const workspaceCandidate = defineWorkspace({
-	appId: 'records-generation-fixture',
-	dataGeneration: 2,
-	name: 'Records generation fixture',
+	appId: 'records-version-fixture',
+	dataVersion: 1,
+	name: 'Records version fixture',
 	tables: { notes },
 	kv: {
 		theme: defineKv(field.select(['light', 'dark']), () => 'light' as const),

@@ -34,10 +34,10 @@ jobs:
         run: bun run lint:check
       - name: Type check
         run: bun run typecheck
-      - name: Check application generation locks
-        run: bun run check:generation-locks
+      - name: Check application data version locks
+        run: bun run check:data-version-locks
         env:
-          GENERATION_LOCK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DATA_VERSION_LOCK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       # Rejects backtick-wrapped repo-rooted file paths in living docs that are
       # not tracked. Excludes specs, articles, skills, agent prompts, and
       # ignore-file-marked docs. See scripts/check-doc-paths.ts.

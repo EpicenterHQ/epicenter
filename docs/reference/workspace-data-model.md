@@ -1,6 +1,6 @@
 # Workspace data model
 
-An application data generation owns queryable records, synchronized
+An application data version owns queryable records, synchronized
 preferences, collaborative documents attached to record identities, and
 app-owned blobs. It freezes those durable contracts under one generated
 workspace ID. Each plane still has its own runtime and synchronization model.
@@ -9,8 +9,8 @@ That sentence is the target architecture. It is also the rule for deciding
 where new data belongs.
 
 ```text
-application data generation N
-`-- workspace ID: <appId>-gN
+application data version N
+`-- workspace ID: <appId>-vN
     |-- active records epoch
     |   `-- records database
     |       `-- record tables
@@ -23,9 +23,9 @@ application data generation N
     `-- app-owned blob namespace
 ```
 
-An application publishes ordered generations, not a runtime workspace catalog.
-Any durable contract change creates a new generation and a new namespace.
-Several UI-only builds may keep using the same generation.
+An application publishes ordered data versions, not a runtime workspace catalog.
+Any durable contract change creates a new data version and a new namespace.
+Several UI-only builds may keep using the same data version.
 
 ## Records are identified rows of atomic cells
 
@@ -59,18 +59,18 @@ logical records database
 
 SQLite pages, indexes, triggers, cursors, outboxes, and mutation history do not
 define the logical records database. They also do not enter the records schema
-hash or application generation. The runtime storage revision owns and fences
+hash or application data version. The runtime storage revision owns and fences
 physical representation changes.
 
 Use records for product facts that need identity, queries, relationships,
 explicit creation or deletion, or atomic updates alongside other fields. A
 record can be primary product data, not merely metadata.
 
-## KV is the generation's preference plane
+## KV is the data version's preference plane
 
 Workspace KV is a bounded set of synchronized preferences. Its identity is
 independent of the active records epoch and fixed inside one application data
-generation.
+version.
 
 ```text
 editor.theme
@@ -80,7 +80,7 @@ transcription.language
 
 KV has no row identity or record lifecycle. Missing or invalid values read as
 fresh defaults. Adding a key, removing a key, or changing a key's meaning
-publishes a new application data generation. KV does not participate in records
+publishes a new application data version. KV does not participate in records
 snapshots or the records schema hash.
 
 Use KV for bounded settings and preferences that do not need to change
@@ -111,40 +111,40 @@ disposal.
 Not every table declares documents, and a declared document remains unopened
 until a caller needs it. Child-document formats have compatibility identities
 independent of the records schema. Adding a document or changing its format or
-address publishes a new application data generation.
+address publishes a new application data version.
 
 Fields and documents use separate declaration namespaces. A field and a child
 document may both be named `body`: callers still distinguish `row.body` from
 `table.docs.body`. Matching names do not make the two planes consistent or
 choose an authority. Table and document names participate in persistent room
-addresses, so renaming either creates a new generation. Capability-owned
+addresses, so renaming either creates a new data version. Capability-owned
 internal Yjs root names are isolated from both public maps.
 
 Use a child document when independent edits inside one value must survive and
 converge. Do not put a large JSON object in one cell and expect its members to
 merge; an atomic JSON cell is still replaced as a whole.
 
-## The generation freezes every durable plane
+## The data version freezes every durable plane
 
 The generated workspace namespace composes four durable planes:
 
 | Plane | Unit | Best for | Evolution |
 | --- | --- | --- | --- |
-| Records | Identified record | Queryable product facts and metadata | Ordinary mutations stay in the generation; a schema change creates a new generation |
-| Synchronized KV | Declared key | Bounded preferences with defaults | A declaration or meaning change creates a new generation |
-| Child documents | Format-addressed Yjs document | Merge-sensitive bodies and collections | A format or address change creates a new generation |
-| App-owned blobs | App-declared identity | Large binaries and artifacts | A naming or layout change creates a new generation |
+| Records | Identified record | Queryable product facts and metadata | Ordinary mutations stay in the data version; a schema change creates a new data version |
+| Synchronized KV | Declared key | Bounded preferences with defaults | A declaration or meaning change creates a new data version |
+| Child documents | Format-addressed Yjs document | Merge-sensitive bodies and collections | A format or address change creates a new data version |
+| App-owned blobs | App-declared identity | Large binaries and artifacts | A naming or layout change creates a new data version |
 
 The separation remains intentional, but the lifecycle boundary is shared. A
-generation lock records each plane's exact identity. It does not describe
-compatibility, migration edges, copying, or retirement. Old generations remain
+data version lock records each plane's exact identity. It does not describe
+compatibility, migration edges, copying, or retirement. Old data versions remain
 independent and writable.
 
 ## Schema identity follows the owned data
 
 The records schema hash includes record tables and fields only. Workspace
 identity, KV declarations, child documents, blobs, local indexes, and physical
-SQLite storage do not enter it. The generation lock binds that records hash to
+SQLite storage do not enter it. The data version lock binds that records hash to
 the identities of every other durable plane.
 
 This gives each compatibility boundary one owner:
@@ -152,33 +152,33 @@ This gives each compatibility boundary one owner:
 ```text
 record tables + fields  -> records schema hash
 child-document content  -> document format hash
-KV preferences          -> generation-qualified KV identity
-app-owned blobs          -> generation-qualified blob identity
+KV preferences          -> version-qualified KV identity
+app-owned blobs          -> version-qualified blob identity
 physical SQLite layout  -> runtime storage version
 ```
 
 Ordinary record changes use ordinary mutations. The authority may mint a new
-records epoch for same-descriptor restore or repair inside one generation. A
+records epoch for same-descriptor restore or repair inside one data version. A
 records schema change never mints a new epoch inside the same workspace; it
-publishes a new application data generation.
+publishes a new application data version.
 
-## Builds open one locked generation
+## Builds open one locked data version
 
-Developers author `appId` and a positive `dataGeneration`. Tooling derives
-`<appId>-gN`, records that value and every durable-plane token in an append-only
-generation lock, and refuses published-entry drift. Runtime openers accept only
+Developers author `appId` and a positive `dataVersion`. Tooling derives
+`<appId>-vN`, records that value and every durable-plane token in an append-only
+data version lock, and refuses published-entry drift. Runtime openers accept only
 a definition validated against that lock.
 
 The current build inspects its own local root identity without creating storage.
 An initialized identity opens normally. An invalid or partial identity refuses
-to open. If the current generation is absent and its lock has predecessors, the
+to open. If the current data version is absent and its lock has predecessors, the
 build asks before it creates anything: start the current version, or navigate to
 an available historical build. The choice is not persisted. Once the current
 root identity exists, its durable state selects normal boot.
 
-Synchronization does not interpret application generations. It receives the
+Synchronization does not interpret application data versions. It receives the
 generated workspace ID and the authority-minted records epoch. It exposes no
-generation manifest, predecessor lookup, or copy route.
+data version manifest, predecessor lookup, or copy route.
 
 ## Placement rule
 
@@ -213,9 +213,9 @@ share an authority. Convenience alone is not a reason to cross storage planes.
 ## Current adoption
 
 The SQLite records path under `packages/workspace/src/sqlite` is the first
-generation-aware implementation. Other workspace paths do not gain a fallback,
+data-version-aware implementation. Other workspace paths do not gain a fallback,
 alias, or import bridge from it. Each adopting application must inventory every
-durable plane before it publishes its own generation lock.
+durable plane before it publishes its own data version lock.
 
 This page states the current product model. The ADRs retain the detailed
 identity, boot, synchronization, and refusal rationale.

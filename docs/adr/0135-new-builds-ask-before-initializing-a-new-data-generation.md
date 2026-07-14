@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-13
+- **Amended by:** [ADR-0136](0136-applications-declare-immutable-data-versions.md)
 - **Relates:** [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md), [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md), [ADR-0132](0132-an-obsolete-replica-exports-one-read-only-recovery-checkpoint.md)
 
 ## Context

@@ -15,6 +15,12 @@ export {
 	type WorkspaceWriteBatch,
 } from './client.js';
 export {
+	APPLICATION_DATA_VERSION_LOCK_FORMAT,
+	type ApplicationDataVersionLock,
+	type ApplicationDataVersionLockEntry,
+	parseApplicationDataVersionLock,
+} from './data-version.js';
+export {
 	type ApplicationDatabase,
 	type ApplicationDatabaseIdentityInspection,
 	type ApplicationDatabaseOptions,
@@ -53,12 +59,6 @@ export {
 	type DocumentHandle,
 	document,
 } from './document-format.js';
-export {
-	APPLICATION_GENERATION_LOCK_FORMAT,
-	type ApplicationGenerationLock,
-	type ApplicationGenerationLockEntry,
-	parseApplicationGenerationLock,
-} from './generation.js';
 export type {
 	OpenedWorkspace,
 	StandaloneWorkspace,

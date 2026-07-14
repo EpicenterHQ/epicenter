@@ -1,12 +1,12 @@
 # Epicenter architecture
 
 Epicenter is a local-first workspace platform. Apps publish immutable data
-generations, clients keep complete local data, and a hosted or self-hosted star
+versions, clients keep complete local data, and a hosted or self-hosted star
 keeps devices synchronized while they sleep.
 
 The workspace model is the center of the architecture:
 
-> An application data generation freezes records, synchronized preferences,
+> An application data version freezes records, synchronized preferences,
 > child-document identities, and app-owned blobs under one generated workspace
 > namespace.
 
@@ -50,16 +50,16 @@ orders logical record mutations; Yjs sync carries KV and child-document
 updates. Middleware turns those capabilities into reactive state, filesystems,
 agent tools, and other app-shaped surfaces.
 
-## A generation composes four storage planes
+## A data version composes four storage planes
 
 The application owns a stable `appId` and publishes a positive, increasing
-`dataGeneration`. The framework derives `<appId>-gN` as the workspace ID and
+`dataVersion`. The framework derives `<appId>-vN` as the workspace ID and
 uses it as the storage, synchronization, and access-policy boundary for that
-generation.
+data version.
 
 ```text
-application data generation N
-`-- workspace ID: <appId>-gN
+application data version N
+`-- workspace ID: <appId>-vN
     |-- active records epoch
     |   `-- records database
     |       `-- tables
@@ -72,7 +72,7 @@ application data generation N
     `-- app-owned blob namespace
 ```
 
-Any durable contract change publishes a new generation. UI-only builds may keep
+Any durable contract change publishes a new data version. UI-only builds may keep
 using the same one.
 
 ### Records are queryable product facts
@@ -94,9 +94,9 @@ than part of the records schema.
 ### KV is for bounded synchronized preferences
 
 Workspace KV stores declared preferences such as theme, language, or collapsed
-UI state. Its identity is fixed inside one application data generation. Missing
+UI state. Its identity is fixed inside one application data version. Missing
 or invalid values read as defaults. Adding a key or changing its meaning
-publishes a new generation.
+publishes a new data version.
 
 KV has no row lifecycle and does not participate in records snapshots or schema
 hashes. A value that must commit atomically with a record belongs in
@@ -111,26 +111,26 @@ plain text, an XML fragment, or validated keyed records.
 
 The record gives the document its product relationship and row identity, but
 the document bytes do not live in the record. Its address includes the
-generation-qualified workspace ID, table, a collision-resistant digest of the
+version-qualified workspace ID, table, a collision-resistant digest of the
 full row ID, document name, and document format hash. Document format identity
-is independent of the records schema hash but frozen inside the generation.
+is independent of the records schema hash but frozen inside the data version.
 
 ## Definitions travel; locks freeze them
 
 The SQLite workspace candidate is pure. It declares `appId`,
-`dataGeneration`, tables, KV preferences, child documents, and app-owned blob
+`dataVersion`, tables, KV preferences, child documents, and app-owned blob
 identities without opening storage or a network connection. Tooling records its
-derived identities in an append-only generation lock. Runtime openers accept
+derived identities in an append-only data version lock. Runtime openers accept
 only the validated locked definition.
 
 ```text
-defineWorkspace({ appId, dataGeneration, tables, kv, blobs })
+defineWorkspace({ appId, dataVersion, tables, kv, blobs })
         |
         | pure candidate
         v
-lockWorkspace(candidate, generationLock)
+lockWorkspace(candidate, dataVersionLock)
         |
-        | validated immutable generation
+        | validated immutable data version
         v
 openStandaloneWorkspace(...)        local runtime
 openWorkspaceReplica(...)           synchronized runtime
@@ -188,35 +188,35 @@ Child-document edits follow their own Yjs path. KV edits use the eager KV Yjs
 document. The workspace composes these paths but does not pretend they have one
 conflict model.
 
-## Durable contract changes start a new generation
+## Durable contract changes start a new data version
 
-One application data generation has one records schema and one exact identity
+One application data version has one records schema and one exact identity
 for every other durable plane. A change to any of them publishes a new
-generation, even when the change is additive. Epicenter does not translate
-mutations, KV, child documents, or blobs between generations. Older generations
+data version, even when the change is additive. Epicenter does not translate
+mutations, KV, child documents, or blobs between data versions. Older versions
 remain independent and writable.
 
 A records epoch is narrower. The authority mints it for one continuous records
-history inside one generation. Same-descriptor restore or repair may mint a new
+history inside one data version. Same-descriptor restore or repair may mint a new
 epoch to fence stale cursors and writes. An epoch-fenced replica can export one
 self-describing recovery checkpoint containing its local rows and pending
 logical mutations. The checkpoint has no automatic import or replay operation.
 
-The current build owns generation-aware boot:
+The current build owns data-version-aware boot:
 
 ```text
 inspect current root identity without creating storage
         |
-        |-- initialized -> open current generation
+        |-- initialized -> open current data version
         |-- invalid     -> refuse to open
         `-- absent
-              |-- no predecessors -> initialize current generation
+              |-- no predecessors -> initialize current data version
               `-- predecessors    -> ask before creating anything
                     |-- start current version
                     `-- continue at a historical build route
 ```
 
-The choice is not persisted. Starting the current generation leaves every
+The choice is not persisted. Starting the current data version leaves every
 predecessor unchanged. Continuing to a previous version does not initialize the
 current namespace. The first implementation adds no copy, seed, importer,
 migration chain, or read-only retirement fence.
@@ -229,7 +229,7 @@ but resolve principals differently.
 
 The records authority owns ordering, the current records epoch, and ordinary
 snapshot bootstrap. It receives the generated workspace ID but knows nothing
-about application IDs, data-generation numbers, predecessor order, or current
+about application IDs, data versions, predecessor order, or current
 builds. Yjs rooms carry KV and child-document updates. The blob store holds
 large binaries by reference.
 
@@ -239,11 +239,11 @@ and product policy at the client boundary.
 
 ## Current adoption
 
-The generation-aware SQLite implementation lives under
+The data-version-aware SQLite implementation lives under
 `packages/workspace/src/sqlite`. The older public workspace path still stores
-record tables and KV in one root Y.Doc. It does not gain a generation-one alias,
+record tables and KV in one root Y.Doc. It does not gain a version-one alias,
 fallback probe, or import bridge from the SQLite path.
 
 Each adopting application must inventory records, KV, child documents, and
-app-owned blobs before it publishes a generation lock. The code and accepted
+app-owned blobs before it publishes a data version lock. The code and accepted
 ADRs remain current implementation truth.

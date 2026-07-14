@@ -21,13 +21,13 @@ import { isKvDefinition } from '../document/define-kv.js';
 import type { KvDefinitions } from '../document/kv.js';
 import { assertSafeSegment } from '../shared/safe-segment.js';
 import { sha256Hex } from '../shared/sha256.js';
+import {
+	type ApplicationDataVersionLockEntry,
+	applicationWorkspaceId,
+	parseApplicationDataVersionLock,
+} from './data-version.js';
 import { type DocumentFormat, isDocumentFormat } from './document-format.js';
 import { createDocumentGuidIdentity } from './document-guid.js';
-import {
-	type ApplicationGenerationLockEntry,
-	applicationWorkspaceId,
-	parseApplicationGenerationLock,
-} from './generation.js';
 import {
 	canonicalJson,
 	createRecordsDescriptor,
@@ -199,7 +199,7 @@ type WorkspaceSource<
 	TBlobs extends BlobPlaneContracts,
 > = {
 	readonly appId: string;
-	readonly dataGeneration: number;
+	readonly dataVersion: number;
 	readonly workspaceId: string;
 	readonly recordsDescriptor: string;
 	readonly recordsSchemaHash: string;
@@ -210,7 +210,7 @@ type WorkspaceSource<
 	readonly blobs: BlobPlaneDefinitions<TBlobs>;
 	/** Eager preference-document guid: `<workspaceId>.kv` (ADR-0124). */
 	readonly kvDocumentGuid: string;
-	readonly proposedLockEntry: ApplicationGenerationLockEntry;
+	readonly proposedLockEntry: ApplicationDataVersionLockEntry;
 };
 
 export type WorkspaceCandidate<
@@ -235,20 +235,20 @@ export function defineWorkspace<
 	const TBlobs extends BlobPlaneContracts = Record<never, never>,
 >({
 	appId,
-	dataGeneration,
+	dataVersion,
 	name,
 	tables,
 	kv,
 	blobs,
 }: {
 	appId: string;
-	dataGeneration: number;
+	dataVersion: number;
 	name?: string;
 	tables: TTables;
 	kv?: TKv;
 	blobs?: TBlobs;
 }): WorkspaceCandidate<TTables, TKv, TBlobs> {
-	const workspaceId = applicationWorkspaceId(appId, dataGeneration);
+	const workspaceId = applicationWorkspaceId(appId, dataVersion);
 	const displayName = name ?? appId;
 	if (displayName.trim() === '') {
 		throw new Error('Workspace name must not be empty');
@@ -355,7 +355,7 @@ export function defineWorkspace<
 		),
 	);
 	const proposedLockEntry = Object.freeze({
-		dataGeneration,
+		dataVersion,
 		workspaceId,
 		recordsSchemaHash,
 		planes,
@@ -363,7 +363,7 @@ export function defineWorkspace<
 
 	const candidate = Object.freeze({
 		appId,
-		dataGeneration,
+		dataVersion,
 		workspaceId,
 		name: displayName,
 		tables: ownedTables,
@@ -419,7 +419,7 @@ export function assertWorkspaceDefinition(
 	}
 }
 
-/** Validate the committed lock and authorize this declared generation at runtime. */
+/** Validate the committed lock and authorize this declared version at runtime. */
 export function lockWorkspace<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
@@ -429,21 +429,21 @@ export function lockWorkspace<
 	lockValue: unknown,
 ): WorkspaceDefinition<TTables, TKv, TBlobs> {
 	inspectWorkspaceCandidate(candidate);
-	const lock = parseApplicationGenerationLock(lockValue);
+	const lock = parseApplicationDataVersionLock(lockValue);
 	if (lock.appId !== candidate.appId) {
 		throw new Error(
-			`Application generation lock belongs to '${lock.appId}', not '${candidate.appId}'`,
+			`Application data version lock belongs to '${lock.appId}', not '${candidate.appId}'`,
 		);
 	}
-	const published = lock.generations.find(
-		(entry) => entry.dataGeneration === candidate.dataGeneration,
+	const published = lock.versions.find(
+		(entry) => entry.dataVersion === candidate.dataVersion,
 	);
 	if (
 		published === undefined ||
 		canonicalJson(published) !== canonicalJson(candidate.proposedLockEntry)
 	) {
 		throw new Error(
-			`Application generation lock does not publish generation ${candidate.dataGeneration}`,
+			`Application data version lock does not publish version ${candidate.dataVersion}`,
 		);
 	}
 	const definition = Object.freeze({

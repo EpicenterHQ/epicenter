@@ -17,12 +17,12 @@ import {
 import { Hono } from 'hono';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium } from 'playwright';
-import { workspaceDefinition as generationOneDefinition } from './src/generations/g1/definition.js';
-import { workspaceDefinition as generationTwoDefinition } from './src/generations/g2/definition.js';
+import { workspaceDefinition as versionOneDefinition } from './src/versions/v1/definition.js';
+import { workspaceDefinition as versionTwoDefinition } from './src/versions/v2/definition.js';
 
 const port = 5198;
 const origin = `http://127.0.0.1:${port}`;
-const generationOnePath = '/previous/g1/';
+const versionOnePath = '/previous/v1/';
 const recordsDirectory = mkdtempSync(join(tmpdir(), 'epicenter-records-'));
 const records = createBunRecords({
 	dir: recordsDirectory,
@@ -132,9 +132,9 @@ async function pollFor<T>(
 	return value;
 }
 
-function generationTwoSyncRequestCount(): number {
+function versionTwoSyncRequestCount(): number {
 	return observedSyncPaths.filter((path) =>
-		path.startsWith(`/api/records/${generationTwoDefinition.workspaceId}/`),
+		path.startsWith(`/api/records/${versionTwoDefinition.workspaceId}/`),
 	).length;
 }
 
@@ -164,7 +164,7 @@ function collectCurrentJavaScript(html: string): Map<string, string> {
 	return sources;
 }
 
-async function proveGenerationOneReplication(
+async function proveVersionOneReplication(
 	browser: Browser,
 ): Promise<BrowserContext[]> {
 	const contextA = await browser.newContext();
@@ -173,26 +173,26 @@ async function proveGenerationOneReplication(
 	const pageB = await contextB.newPage();
 	for (const page of [pageA, pageB]) {
 		observeErrors(page);
-		await page.goto(`${origin}${generationOnePath}?replica`);
+		await page.goto(`${origin}${versionOnePath}?replica`);
 		await waitForState(page, 'ready');
 	}
 	const created = await pageA.evaluate(() =>
-		window.generationOneSmoke.create({ title: 'Generation 1 synchronized' }),
+		window.versionOneSmoke.create({ title: 'Version 1 synchronized' }),
 	);
 	const replicated = await pollFor(
-		() => pageB.evaluate((id) => window.generationOneSmoke.get(id), created.id),
+		() => pageB.evaluate((id) => window.versionOneSmoke.get(id), created.id),
 		(row) => row?.title === created.title,
 	);
 	assert(
 		replicated?.title === created.title,
-		'Generation one replicas did not converge',
+		'Version one replicas did not converge',
 	);
-	await pageA.evaluate(() => window.generationOneSmoke.dispose());
-	await pageB.evaluate(() => window.generationOneSmoke.dispose());
+	await pageA.evaluate(() => window.versionOneSmoke.dispose());
+	await pageB.evaluate(() => window.versionOneSmoke.dispose());
 	return [contextA, contextB];
 }
 
-async function proveGenerationTwoReplication(
+async function proveVersionTwoReplication(
 	browser: Browser,
 ): Promise<BrowserContext[]> {
 	const contextA = await browser.newContext();
@@ -201,11 +201,11 @@ async function proveGenerationTwoReplication(
 	const pageB = await contextB.newPage();
 	for (const page of [pageA, pageB]) {
 		observeErrors(page);
-		const requestsBeforeGate = generationTwoSyncRequestCount();
+		const requestsBeforeGate = versionTwoSyncRequestCount();
 		await page.goto(`${origin}/?replica`);
 		await waitForState(page, 'gate');
 		assert(
-			generationTwoSyncRequestCount() === requestsBeforeGate,
+			versionTwoSyncRequestCount() === requestsBeforeGate,
 			'Fresh current build contacted sync before consent',
 		);
 		assert(
@@ -225,32 +225,32 @@ async function proveGenerationTwoReplication(
 		await waitForState(page, 'ready');
 	}
 	const created = await pageA.evaluate(() =>
-		window.generationTwoSmoke.create({
-			title: 'Generation 2 synchronized',
+		window.versionTwoSmoke.create({
+			title: 'Version 2 synchronized',
 			archived: false,
 		}),
 	);
 	const replicated = await pollFor(
-		() => pageB.evaluate((id) => window.generationTwoSmoke.get(id), created.id),
+		() => pageB.evaluate((id) => window.versionTwoSmoke.get(id), created.id),
 		(row) => row?.title === created.title,
 	);
 	assert(
 		replicated?.title === created.title,
-		'Generation two replicas did not converge',
+		'Version two replicas did not converge',
 	);
-	await pageA.evaluate(() => window.generationTwoSmoke.dispose());
+	await pageA.evaluate(() => window.versionTwoSmoke.dispose());
 	await pageA.reload();
 	await waitForState(pageA, 'ready');
 	const reopened = await pageA.evaluate(
-		(id) => window.generationTwoSmoke.get(id),
+		(id) => window.versionTwoSmoke.get(id),
 		created.id,
 	);
 	assert(
 		reopened?.title === created.title,
-		'Initialized generation two replica did not reopen',
+		'Initialized version two replica did not reopen',
 	);
-	await pageA.evaluate(() => window.generationTwoSmoke.dispose());
-	await pageB.evaluate(() => window.generationTwoSmoke.dispose());
+	await pageA.evaluate(() => window.versionTwoSmoke.dispose());
+	await pageB.evaluate(() => window.versionTwoSmoke.dispose());
 	return [contextA, contextB];
 }
 
@@ -274,14 +274,14 @@ try {
 	const currentJavaScript = collectCurrentJavaScript(currentHtml);
 	const currentBundle = [...currentJavaScript.values()].join('\n');
 	assert(
-		currentBundle.includes('dataGeneration:2') &&
+		currentBundle.includes('dataVersion:2') &&
 			currentBundle.includes('archived'),
-		'Current bundle did not author the generation two records schema',
+		'Current bundle did not author the version two records schema',
 	);
 	assert(
-		!currentBundle.includes(generationOneDefinition.recordsDescriptor) &&
-			!currentBundle.includes('generationOneSmoke'),
-		'Current bundle contains the historical generation records schema',
+		!currentBundle.includes(versionOneDefinition.recordsDescriptor) &&
+			!currentBundle.includes('versionOneSmoke'),
+		'Current bundle contains the historical version records schema',
 	);
 	for (const worker of [
 		'replica-inspector.worker',
@@ -295,18 +295,18 @@ try {
 		);
 	}
 	for (const source of [
-		'src/generations/g2/main.ts',
-		'src/generations/g2/definition.ts',
-		'src/generations/g2/workspace.ts',
-		'src/generations/g2/replica-inspector.worker.ts',
-		'src/generations/g2/standalone-inspector.worker.ts',
-		'src/generations/g2/standalone.worker.ts',
-		'src/generations/g2/replica.worker.ts',
+		'src/versions/v2/main.ts',
+		'src/versions/v2/definition.ts',
+		'src/versions/v2/workspace.ts',
+		'src/versions/v2/replica-inspector.worker.ts',
+		'src/versions/v2/standalone-inspector.worker.ts',
+		'src/versions/v2/standalone.worker.ts',
+		'src/versions/v2/replica.worker.ts',
 	]) {
 		const sourceText = readFileSync(join(import.meta.dir, source), 'utf8');
 		assert(
 			!/(?:from\s+|import\()["'][^"']*g1\//.test(sourceText),
-			`Current generation source imports historical code: ${source}`,
+			`Current version source imports historical code: ${source}`,
 		);
 	}
 
@@ -315,28 +315,28 @@ try {
 
 	const lifecycleContext = await browser.newContext();
 	contexts.push(lifecycleContext);
-	const generationOne = await lifecycleContext.newPage();
-	observeErrors(generationOne);
-	await generationOne.goto(`${origin}${generationOnePath}`);
-	await waitForState(generationOne, 'ready');
-	const originalGenerationOneRow = await generationOne.evaluate(() =>
-		window.generationOneSmoke.create({ title: 'Existing generation one row' }),
+	const versionOne = await lifecycleContext.newPage();
+	observeErrors(versionOne);
+	await versionOne.goto(`${origin}${versionOnePath}`);
+	await waitForState(versionOne, 'ready');
+	const originalVersionOneRow = await versionOne.evaluate(() =>
+		window.versionOneSmoke.create({ title: 'Existing version one row' }),
 	);
-	const generationOneBeforeStart = await generationOne.evaluate(() =>
-		window.generationOneSmoke.list(),
+	const versionOneBeforeStart = await versionOne.evaluate(() =>
+		window.versionOneSmoke.list(),
 	);
-	const entriesWithOnlyGenerationOne = await opfsEntries(generationOne);
+	const entriesWithOnlyVersionOne = await opfsEntries(versionOne);
 	assert(
-		entriesWithOnlyGenerationOne.includes(
-			`${generationOneDefinition.workspaceId}.sqlite3`,
+		entriesWithOnlyVersionOne.includes(
+			`${versionOneDefinition.workspaceId}.sqlite3`,
 		),
-		'Generation one SQLite file was not initialized',
+		'Version one SQLite file was not initialized',
 	);
 	assert(
-		!entriesWithOnlyGenerationOne.includes(
-			`${generationTwoDefinition.workspaceId}.sqlite3`,
+		!entriesWithOnlyVersionOne.includes(
+			`${versionTwoDefinition.workspaceId}.sqlite3`,
 		),
-		'Generation two SQLite file existed before its build loaded',
+		'Version two SQLite file existed before its build loaded',
 	);
 
 	const current = await lifecycleContext.newPage();
@@ -345,36 +345,36 @@ try {
 	await waitForState(current, 'gate');
 	assert(
 		JSON.stringify(await opfsEntries(current)) ===
-			JSON.stringify(entriesWithOnlyGenerationOne),
+			JSON.stringify(entriesWithOnlyVersionOne),
 		'Current build changed OPFS storage before consent',
 	);
 	await current.reload();
 	await waitForState(current, 'gate');
 	assert(
 		JSON.stringify(await opfsEntries(current)) ===
-			JSON.stringify(entriesWithOnlyGenerationOne),
+			JSON.stringify(entriesWithOnlyVersionOne),
 		'Reloading the gate changed OPFS storage before consent',
 	);
 	await current
 		.getByRole('link', { name: 'Continue with previous version' })
 		.click();
-	await current.waitForURL(`${origin}${generationOnePath}`);
+	await current.waitForURL(`${origin}${versionOnePath}`);
 	await waitForState(current, 'ready');
 	assert(
 		(
 			await current.evaluate(
-				(id) => window.generationOneSmoke.get(id),
-				originalGenerationOneRow.id,
+				(id) => window.versionOneSmoke.get(id),
+				originalVersionOneRow.id,
 			)
-		)?.title === originalGenerationOneRow.title,
-		'Continue did not open generation one',
+		)?.title === originalVersionOneRow.title,
+		'Continue did not open version one',
 	);
 	assert(
 		JSON.stringify(await opfsEntries(current)) ===
-			JSON.stringify(entriesWithOnlyGenerationOne),
-		'Continue changed OPFS storage or initialized generation two',
+			JSON.stringify(entriesWithOnlyVersionOne),
+		'Continue changed OPFS storage or initialized version two',
 	);
-	await current.evaluate(() => window.generationOneSmoke.dispose());
+	await current.evaluate(() => window.versionOneSmoke.dispose());
 	await current.close();
 
 	const currentAfterContinue = await lifecycleContext.newPage();
@@ -385,46 +385,46 @@ try {
 		.getByRole('button', { name: 'Start current version' })
 		.click();
 	await waitForState(currentAfterContinue, 'ready');
-	const generationOneAfterStart = await generationOne.evaluate(() =>
-		window.generationOneSmoke.list(),
+	const versionOneAfterStart = await versionOne.evaluate(() =>
+		window.versionOneSmoke.list(),
 	);
 	assert(
-		JSON.stringify(generationOneAfterStart) ===
-			JSON.stringify(generationOneBeforeStart),
-		'Starting generation two changed generation one records',
+		JSON.stringify(versionOneAfterStart) ===
+			JSON.stringify(versionOneBeforeStart),
+		'Starting version two changed version one records',
 	);
 
-	const generationTwoRow = await currentAfterContinue.evaluate(() =>
-		window.generationTwoSmoke.create({
-			title: 'Independent generation two row',
+	const versionTwoRow = await currentAfterContinue.evaluate(() =>
+		window.versionTwoSmoke.create({
+			title: 'Independent version two row',
 			archived: false,
 		}),
 	);
 	assert(
-		(await generationOne.evaluate(
-			(id) => window.generationOneSmoke.get(id),
-			generationTwoRow.id,
+		(await versionOne.evaluate(
+			(id) => window.versionOneSmoke.get(id),
+			versionTwoRow.id,
 		)) === null,
-		'Generation one could read a generation two record',
+		'Version one could read a version two record',
 	);
-	const laterGenerationOneRow = await generationOne.evaluate(() =>
-		window.generationOneSmoke.create({
-			title: 'Generation one stays writable',
+	const laterVersionOneRow = await versionOne.evaluate(() =>
+		window.versionOneSmoke.create({
+			title: 'Version one stays writable',
 		}),
 	);
 	assert(
 		(await currentAfterContinue.evaluate(
-			(id) => window.generationTwoSmoke.get(id),
-			laterGenerationOneRow.id,
+			(id) => window.versionTwoSmoke.get(id),
+			laterVersionOneRow.id,
 		)) === null,
-		'Generation two could read a generation one record',
+		'Version two could read a version one record',
 	);
 
-	const generationOneIdentity = await generationOne.evaluate(() =>
-		window.generationOneSmoke.identity(),
+	const versionOneIdentity = await versionOne.evaluate(() =>
+		window.versionOneSmoke.identity(),
 	);
-	const generationTwoIdentity = await currentAfterContinue.evaluate(() =>
-		window.generationTwoSmoke.identity(),
+	const versionTwoIdentity = await currentAfterContinue.evaluate(() =>
+		window.versionTwoSmoke.identity(),
 	);
 	for (const key of [
 		'workspaceId',
@@ -433,33 +433,31 @@ try {
 		'declaredBlobIdentity',
 	] as const) {
 		assert(
-			generationOneIdentity[key] !== generationTwoIdentity[key],
-			`Generation identity did not differ for ${key}`,
+			versionOneIdentity[key] !== versionTwoIdentity[key],
+			`Version identity did not differ for ${key}`,
 		);
 	}
 	assert(
-		generationOneIdentity.childDocumentGuid.includes(
-			generationOneIdentity.workspaceId,
+		versionOneIdentity.childDocumentGuid.includes(
+			versionOneIdentity.workspaceId,
 		) &&
-			generationTwoIdentity.childDocumentGuid.includes(
-				generationTwoIdentity.workspaceId,
+			versionTwoIdentity.childDocumentGuid.includes(
+				versionTwoIdentity.workspaceId,
 			),
-		'Child-document guid roots did not use their generation workspace ids',
+		'Child-document guid roots did not use their version-specific workspace ids',
 	);
 
-	await currentAfterContinue.evaluate(() =>
-		window.generationTwoSmoke.dispose(),
-	);
+	await currentAfterContinue.evaluate(() => window.versionTwoSmoke.dispose());
 	await currentAfterContinue.reload();
 	await waitForState(currentAfterContinue, 'ready');
 	assert(
 		(
 			await currentAfterContinue.evaluate(
-				(id) => window.generationTwoSmoke.get(id),
-				generationTwoRow.id,
+				(id) => window.versionTwoSmoke.get(id),
+				versionTwoRow.id,
 			)
-		)?.title === generationTwoRow.title,
-		'Generation two did not persist across reload',
+		)?.title === versionTwoRow.title,
+		'Version two did not persist across reload',
 	);
 
 	const invalidContext = await browser.newContext();
@@ -471,7 +469,7 @@ try {
 	await invalidPage.evaluate(async (filename) => {
 		const root = await navigator.storage.getDirectory();
 		await root.getFileHandle(filename, { create: true });
-	}, `${generationTwoDefinition.workspaceId}.sqlite3`);
+	}, `${versionTwoDefinition.workspaceId}.sqlite3`);
 	await invalidPage.reload();
 	await waitForState(invalidPage, 'invalid');
 	assert(
@@ -481,15 +479,15 @@ try {
 		'Invalid current storage still offered initialization',
 	);
 
-	contexts.push(...(await proveGenerationOneReplication(browser)));
-	contexts.push(...(await proveGenerationTwoReplication(browser)));
+	contexts.push(...(await proveVersionOneReplication(browser)));
+	contexts.push(...(await proveVersionTwoReplication(browser)));
 
 	assert(
 		JSON.stringify([...openedAuthorityWorkspaceIds].toSorted()) ===
 			JSON.stringify(
 				[
-					generationOneDefinition.workspaceId,
-					generationTwoDefinition.workspaceId,
+					versionOneDefinition.workspaceId,
+					versionTwoDefinition.workspaceId,
 				].toSorted(),
 			),
 		`Record authority opened unexpected workspaces: ${JSON.stringify([...openedAuthorityWorkspaceIds])}`,
@@ -506,7 +504,7 @@ try {
 			observedSyncPaths.some((path) =>
 				path.startsWith(`/api/records/${workspaceId}/`),
 			),
-			`No generation-blind sync request was observed for ${workspaceId}`,
+			`No data-version-blind sync request was observed for ${workspaceId}`,
 		);
 	}
 	assert(

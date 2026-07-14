@@ -344,7 +344,7 @@ test('a foreign kv identity disposes the service before hydration', async () => 
 			disposed++;
 		},
 	};
-	const doc = new Y.Doc({ guid: 'another-app-g1.kv' });
+	const doc = new Y.Doc({ guid: 'another-app-v1.kv' });
 
 	await expect(
 		openWorkspaceFromService(definition, {
@@ -352,7 +352,7 @@ test('a foreign kv identity disposes the service before hydration', async () => 
 			expectedKind: 'standalone',
 			kv: { doc },
 		}),
-	).rejects.toThrow("KV document 'another-app-g1.kv' does not match");
+	).rejects.toThrow("KV document 'another-app-v1.kv' does not match");
 	expect(disposed).toBe(1);
 	doc.destroy();
 });

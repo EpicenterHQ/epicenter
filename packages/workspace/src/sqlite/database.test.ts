@@ -1021,7 +1021,7 @@ describe('database identity', () => {
 			),
 		).toMatchObject({
 			status: 'invalid',
-			reason: expect.stringContaining("belongs to 'inspection-test-g1'"),
+			reason: expect.stringContaining("belongs to 'inspection-test-v1'"),
 		});
 
 		const wrongDescriptor = initializedIdentity();
@@ -1112,7 +1112,7 @@ describe('database identity', () => {
 
 		const candidate = defineWorkspaceCandidate({
 			appId: 'unlocked-inspection-test',
-			dataGeneration: 1,
+			dataVersion: 1,
 			tables: { rows: defineTable({ fields: { id: field.string() } }) },
 		});
 		reads = 0;
@@ -1199,7 +1199,7 @@ describe('database identity', () => {
 				sqlite,
 				{ kind: 'standalone', onObserverError() {} },
 			),
-		).toThrow("belongs to 'identity-test-g1'");
+		).toThrow("belongs to 'identity-test-v1'");
 
 		const nullableColumnAdded = defineTable({
 			fields: {

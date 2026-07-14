@@ -1,7 +1,8 @@
 # 0134. Application data generations own immutable workspace namespaces
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-13
+- **Superseded by:** [ADR-0136](0136-applications-declare-immutable-data-versions.md)
 - **Supersedes:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md)
 - **Amends:** [ADR-0120](0120-persisted-fields-are-atomic-cells-and-collaborative-bodies-are-yjs-documents.md), [ADR-0121](0121-background-sync-is-automatic-and-database-boundary-merges-are-reviewable.md), [ADR-0124](0124-workspace-kv-keeps-one-logical-identity-outside-the-record-database.md), [ADR-0126](0126-child-documents-use-format-capabilities-and-evolve-outside-records-databases.md), [ADR-0133](0133-ordinary-record-sync-requests-carry-only-the-records-epoch.md)
 - **Relates:** [ADR-0131](0131-every-durable-records-materialization-carries-its-canonical-descriptor.md), [ADR-0132](0132-an-obsolete-replica-exports-one-read-only-recovery-checkpoint.md)

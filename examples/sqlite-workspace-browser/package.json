@@ -5,8 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"build": "vite build",
-		"check:generation-lock": "bun run ../../scripts/check-application-generation-locks.ts --check --lock generation-lock.json --candidate src/generations/g1/workspace.ts --candidate src/generations/g2/workspace.ts",
-		"generation-lock": "bun run ../../scripts/check-application-generation-locks.ts --write --lock generation-lock.json --candidate src/generations/g1/workspace.ts --candidate src/generations/g2/workspace.ts",
+		"check:data-version-lock": "bun run ../../scripts/check-application-data-version-locks.ts --check --lock data-version-lock.json --candidate src/versions/v1/workspace.ts --candidate src/versions/v2/workspace.ts",
+		"data-version-lock": "bun run ../../scripts/check-application-data-version-locks.ts --write --lock data-version-lock.json --candidate src/versions/v1/workspace.ts --candidate src/versions/v2/workspace.ts",
 		"smoke": "bun run build && bun run smoke.ts",
 		"typecheck": "tsc --noEmit"
 	},

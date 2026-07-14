@@ -55,22 +55,22 @@ const enabled = defineKv(field.boolean(), () => true);
 const enabledValue: boolean = null as unknown as Static<typeof enabled.schema>;
 const candidate = defineWorkspace({
 	appId: 'notes',
-	dataGeneration: 1,
+	dataVersion: 1,
 	tables: { notes },
 	kv: { enabled },
 });
 // @ts-expect-error — source candidates cannot open storage before lock validation
 const unlocked: WorkspaceDefinition = candidate;
 const workspace = lockWorkspace(candidate, {
-	format: 'epicenter.application-generation-lock/1',
+	format: 'epicenter.application-data-version-lock/1',
 	appId: candidate.appId,
-	generations: [candidate.proposedLockEntry],
+	versions: [candidate.proposedLockEntry],
 });
 void applicationWorkspaceId;
 
 defineWorkspace({
 	appId: 'notes',
-	dataGeneration: 1,
+	dataVersion: 1,
 	// @ts-expect-error — applications cannot author an independent workspace id
 	id: 'forged-workspace',
 	tables: { notes },
@@ -99,7 +99,7 @@ const tableLookalike = {
 };
 defineWorkspace({
 	appId: 'forged-table',
-	dataGeneration: 1,
+	dataVersion: 1,
 	// @ts-expect-error — only defineTable products carry table-definition identity
 	tables: { notes: tableLookalike },
 });
@@ -110,7 +110,7 @@ const kvLookalike = {
 };
 defineWorkspace({
 	appId: 'forged-kv',
-	dataGeneration: 1,
+	dataVersion: 1,
 	tables: { notes },
 	// @ts-expect-error — only defineKv products carry KV-definition identity
 	kv: { enabled: kvLookalike },

@@ -210,7 +210,8 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0131](0131-every-durable-records-materialization-carries-its-canonical-descriptor.md) | Every durable records materialization carries its canonical descriptor | Accepted |
 | [0132](0132-an-obsolete-replica-exports-one-read-only-recovery-checkpoint.md) | An obsolete replica exports one read-only recovery checkpoint | Accepted |
 | [0133](0133-ordinary-record-sync-requests-carry-only-the-records-epoch.md) | Ordinary record sync requests carry only the records epoch | Accepted |
-| [0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) | Application data generations own immutable workspace namespaces | Accepted |
-| [0135](0135-new-builds-ask-before-initializing-a-new-data-generation.md) | New builds ask before initializing a new data generation | Accepted |
+| [0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) | Application data generations own immutable workspace namespaces | Superseded by 0136 |
+| [0135](0135-new-builds-ask-before-initializing-a-new-data-generation.md) | New builds ask before initializing a new data generation | Accepted (terminology amended by 0136) |
+| [0136](0136-applications-declare-immutable-data-versions.md) | Applications declare immutable data versions | Accepted |
 
 When you add an ADR, add its row here.

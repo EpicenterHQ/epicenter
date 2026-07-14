@@ -7,21 +7,21 @@ shapes, see `docs/adr/`.
 
 ## Platform and topology
 
-- **Workspace**: one generation-qualified identity and access-policy boundary.
+- **Workspace**: one version-qualified identity and access-policy boundary.
   It owns synchronized KV, child documents, app-owned blobs, and one active
   records epoch.
-- **Application data generation**: one immutable durable application contract
+- **Application data version**: one immutable durable application contract
   spanning records, KV, child-document identities and formats, and app-owned
-  blobs. Any durable contract change publishes a new generation.
-- **Generation lock**: the committed append-only list of an application's
+  blobs. Any durable contract change publishes a new data version.
+- **Data version lock**: the committed append-only list of an application's
   generated workspace IDs, records hashes, and durable-plane identity tokens.
   It carries no compatibility or migration graph.
-- **Workspace ID**: the framework-generated `<appId>-gN` namespace for one
-  application data generation. Applications author only `appId` and a positive
-  `dataGeneration`.
-- **Generation-aware boot**: the current build inspects its own local root
+- **Workspace ID**: the framework-generated `<appId>-vN` namespace for one
+  application data version. Applications author only `appId` and a positive
+  `dataVersion`.
+- **Data-version-aware boot**: the current build inspects its own local root
   identity without creating storage. If it is absent and predecessors exist,
-  the build asks before starting its generation or navigating to a previous one.
+  the build asks before starting its data version or navigating to a previous one.
 - **Room**: one server-side synchronization address. Yjs rooms store document
   updates; the records authority stores logical rows, mutations, and
   snapshots. Cloudflare may colocate several such logical stores in one Durable
@@ -114,15 +114,15 @@ shapes, see `docs/adr/`.
   materializes it in local SQLite; the authority stores logical records, not a
   device's SQLite file.
 - **Records epoch**: the authority-minted identity of one continuous records
-  history inside one application data generation. Restore or repair may mint a
-  new epoch, but a schema change always publishes a new generation.
+  history inside one application data version. Restore or repair may mint a
+  new epoch, but a schema change always publishes a new data version.
 - **Sequence**: the authority-assigned position of an accepted mutation inside
   one records epoch. A sequence has no meaning without its epoch.
 - **Records schema hash**: the canonical identity of synchronized record tables,
   fields, and every portable constraint that changes accepted values or their
   interpretation. Workspace identity, KV, child documents, local indexes,
   physical storage, and the records epoch do not enter it. The hash is frozen
-  inside one application data generation; applications author neither the hash
+  inside one application data version; applications author neither the hash
   nor the epoch.
 - **Records descriptor**: canonical, hash-bound JSON that explains the record
   tables, fields, and code-independent constraints. Every authority epoch and
@@ -139,8 +139,8 @@ shapes, see `docs/adr/`.
 - **Logical snapshot**: live table, row, field, and value state without SQLite
   pages, indexes, actor identity, cursors, outboxes, or deleted history.
 - **`defineTable` / `defineKv`**: builders for the records tables and synchronized
-  preferences frozen into one application data generation. Adding or renaming a
-  table, field, KV key, or child-document declaration requires a new generation.
+  preferences frozen into one application data version. Adding or renaming a
+  table, field, KV key, or child-document declaration requires a new data version.
   Every `define*` call snapshots caller-owned inputs into a framework-owned
   immutable definition.
 - **Recovery checkpoint**: a read-only export from an epoch-fenced replica. It
@@ -155,12 +155,12 @@ shapes, see `docs/adr/`.
   nonconforming, and newer-writer, plus point probes. The valid-only read family
   (`getAllValid`, `getAllInvalid`, `getAll`, `conformance`, `filter`) was deleted.
 - **`_v`**: the legacy Yjs-table row version tuple. The SQLite records path does
-  not use it; one application data generation has one frozen records schema.
+  not use it; one application data version has one frozen records schema.
 - **Conformance**: whether a stored row matches the current schema. Nonconforming
   rows surface in `scan()`, never silently dropped.
 - **Child document**: a separate, lazy Y.Doc owned by one row and reached through
   `ws.tables.X.docs.name.open(rowId)`. The workspace derives its address from the
-  generation-qualified workspace ID, table, a collision-resistant digest of the
+  version-qualified workspace ID, table, a collision-resistant digest of the
   full row ID, document name, and document format hash; the format capability
   attaches the typed content handle after the runtime opens the doc.
 - **Worker**: running behavior that observes workspace state and writes results

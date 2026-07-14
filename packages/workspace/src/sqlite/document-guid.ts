@@ -12,7 +12,7 @@ const DOCUMENT_ROW_ID_DIGEST_DOMAIN = 'epicenter.document-row/1';
 
 export type DocumentGuidIdentity = {
 	readonly workspaceId: string;
-	/** Versioned durable contract recorded in the application generation lock. */
+	/** Versioned durable contract recorded in the application data version lock. */
 	readonly lockToken: string;
 	guid(rowId: string): Guid;
 };

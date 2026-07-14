@@ -1,89 +1,89 @@
 import { assertSafeSegment } from '../shared/safe-segment.js';
 import { isDocumentGuidLockTokenFor } from './document-guid.js';
 
-export const APPLICATION_GENERATION_LOCK_FORMAT =
-	'epicenter.application-generation-lock/1' as const;
+export const APPLICATION_DATA_VERSION_LOCK_FORMAT =
+	'epicenter.application-data-version-lock/1' as const;
 const SHA256_TOKEN = /^sha256:[0-9a-f]{64}$/;
 
-export type ApplicationGenerationLockEntry = {
-	readonly dataGeneration: number;
+export type ApplicationDataVersionLockEntry = {
+	readonly dataVersion: number;
 	readonly workspaceId: string;
 	readonly recordsSchemaHash: string;
 	readonly planes: Readonly<Record<string, string>>;
 };
 
-export type ApplicationGenerationLock = {
-	readonly format: typeof APPLICATION_GENERATION_LOCK_FORMAT;
+export type ApplicationDataVersionLock = {
+	readonly format: typeof APPLICATION_DATA_VERSION_LOCK_FORMAT;
 	readonly appId: string;
-	readonly generations: readonly ApplicationGenerationLockEntry[];
+	readonly versions: readonly ApplicationDataVersionLockEntry[];
 };
 
-/** Derive the one storage and synchronization namespace for an app generation. */
+/** Derive the one storage and synchronization namespace for an app version. */
 export function applicationWorkspaceId(
 	appId: string,
-	dataGeneration: number,
+	dataVersion: number,
 ): string {
 	assertSafeSegment(appId, 'application id');
-	assertDataGeneration(dataGeneration);
-	return `${appId}-g${dataGeneration}`;
+	assertDataVersion(dataVersion);
+	return `${appId}-v${dataVersion}`;
 }
 
-/** Parse the exact append-only application generation lock representation. */
-export function parseApplicationGenerationLock(
+/** Parse the exact append-only application data version lock representation. */
+export function parseApplicationDataVersionLock(
 	value: unknown,
-): ApplicationGenerationLock {
+): ApplicationDataVersionLock {
 	if (
 		!isPlainRecord(value) ||
-		!hasExactKeys(value, ['appId', 'format', 'generations']) ||
-		value.format !== APPLICATION_GENERATION_LOCK_FORMAT ||
+		!hasExactKeys(value, ['appId', 'format', 'versions']) ||
+		value.format !== APPLICATION_DATA_VERSION_LOCK_FORMAT ||
 		typeof value.appId !== 'string' ||
-		!Array.isArray(value.generations) ||
-		value.generations.length === 0
+		!Array.isArray(value.versions) ||
+		value.versions.length === 0
 	) {
-		throw new Error('Invalid application generation lock');
+		throw new Error('Invalid application data version lock');
 	}
 	assertSafeSegment(value.appId, 'application id');
 	const appId = value.appId;
 
-	let previousGeneration = 0;
-	const generations = value.generations.map((entry) => {
+	let previousVersion = 0;
+	const versions = value.versions.map((entry) => {
 		if (
 			!isPlainRecord(entry) ||
 			!hasExactKeys(entry, [
-				'dataGeneration',
+				'dataVersion',
 				'planes',
 				'recordsSchemaHash',
 				'workspaceId',
 			]) ||
-			typeof entry.dataGeneration !== 'number' ||
+			typeof entry.dataVersion !== 'number' ||
 			typeof entry.workspaceId !== 'string' ||
 			typeof entry.recordsSchemaHash !== 'string' ||
 			!isPlainRecord(entry.planes)
 		) {
-			throw new Error('Invalid application generation lock entry');
+			throw new Error('Invalid application data version lock entry');
 		}
-		assertDataGeneration(entry.dataGeneration);
-		if (entry.dataGeneration <= previousGeneration) {
+		assertDataVersion(entry.dataVersion);
+		if (entry.dataVersion <= previousVersion) {
 			throw new Error(
-				'Application generation lock entries must be strictly increasing',
+				'Application data version lock entries must be strictly increasing',
 			);
 		}
-		previousGeneration = entry.dataGeneration;
+		previousVersion = entry.dataVersion;
 		if (
-			entry.workspaceId !== applicationWorkspaceId(appId, entry.dataGeneration)
+			entry.workspaceId !== applicationWorkspaceId(appId, entry.dataVersion)
 		) {
 			throw new Error(
-				`Application generation ${entry.dataGeneration} has an invalid workspace id`,
+				`Application data version ${entry.dataVersion} has an invalid workspace id`,
 			);
 		}
 		if (!SHA256_TOKEN.test(entry.recordsSchemaHash)) {
-			throw new Error('Invalid application generation records schema hash');
+			throw new Error('Invalid application data version records schema hash');
 		}
 
 		const planeNames = Object.keys(entry.planes);
 		if (!isStrictlySorted(planeNames)) {
 			throw new Error(
-				'Application generation planes must be canonically sorted',
+				'Application data version planes must be canonically sorted',
 			);
 		}
 		const planes: Record<string, string> = {};
@@ -94,14 +94,14 @@ export function parseApplicationGenerationLock(
 				typeof planeValue !== 'string' ||
 				planeValue.trim() === ''
 			) {
-				throw new Error('Invalid application generation plane');
+				throw new Error('Invalid application data version plane');
 			}
 			planes[planeName] = planeValue;
 		}
 		assertPlaneMap(entry.workspaceId, planes);
 
 		return Object.freeze({
-			dataGeneration: entry.dataGeneration,
+			dataVersion: entry.dataVersion,
 			workspaceId: entry.workspaceId,
 			recordsSchemaHash: entry.recordsSchemaHash,
 			planes: Object.freeze(planes),
@@ -109,9 +109,9 @@ export function parseApplicationGenerationLock(
 	});
 
 	return Object.freeze({
-		format: APPLICATION_GENERATION_LOCK_FORMAT,
+		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
 		appId,
-		generations: Object.freeze(generations),
+		versions: Object.freeze(versions),
 	});
 }
 
@@ -120,13 +120,13 @@ function assertPlaneMap(
 	planes: Readonly<Record<string, string>>,
 ): void {
 	if (planes.kv !== `${workspaceId}.kv`) {
-		throw new Error('Application generation has an invalid KV identity');
+		throw new Error('Application data version has an invalid KV identity');
 	}
 	for (const [planeName, token] of Object.entries(planes)) {
 		if (planeName === 'kv') continue;
 		if (planeName.startsWith('kv.')) {
 			if (planeName.length === 'kv.'.length || !SHA256_TOKEN.test(token)) {
-				throw new Error('Application generation has an invalid KV plane');
+				throw new Error('Application data version has an invalid KV plane');
 			}
 			continue;
 		}
@@ -139,7 +139,7 @@ function assertPlaneMap(
 			const documentName = documentMatch[2];
 			if (tableName === undefined || documentName === undefined) {
 				throw new Error(
-					'Application generation has an invalid child-document plane',
+					'Application data version has an invalid child-document plane',
 				);
 			}
 			if (
@@ -150,7 +150,7 @@ function assertPlaneMap(
 				})
 			) {
 				throw new Error(
-					'Application generation has an invalid child-document plane',
+					'Application data version has an invalid child-document plane',
 				);
 			}
 			continue;
@@ -163,17 +163,17 @@ function assertPlaneMap(
 				!token.startsWith(prefix) ||
 				!SHA256_TOKEN.test(token.slice(prefix.length))
 			) {
-				throw new Error('Application generation has an invalid blob plane');
+				throw new Error('Application data version has an invalid blob plane');
 			}
 			continue;
 		}
-		throw new Error(`Unknown application generation plane '${planeName}'`);
+		throw new Error(`Unknown application data version plane '${planeName}'`);
 	}
 }
 
-function assertDataGeneration(dataGeneration: number): void {
-	if (!Number.isSafeInteger(dataGeneration) || dataGeneration <= 0) {
-		throw new Error('Application data generation must be a positive integer');
+function assertDataVersion(dataVersion: number): void {
+	if (!Number.isSafeInteger(dataVersion) || dataVersion <= 0) {
+		throw new Error('Application data version must be a positive integer');
 	}
 }
 

@@ -12,7 +12,7 @@ import { createDocumentGuidIdentity } from './document-guid.js';
 
 test('the lock token contains the exact runtime hash domain and guid grammar', () => {
 	const identity = createDocumentGuidIdentity({
-		workspaceId: 'notes-g2',
+		workspaceId: 'notes-v2',
 		table: 'entries',
 		document: 'body',
 		format: document.plainText,
@@ -26,7 +26,7 @@ test('the lock token contains the exact runtime hash domain and guid grammar', (
 	).formatHash.slice('sha256:'.length);
 	const contract =
 		`epicenter.sqlite-child-document-guid/1;row-id=epicenter.document-row/1;guid=` +
-		`notes-g2.entries.<row-id-sha256>.body.${formatDigest}`;
+		`notes-v2.entries.<row-id-sha256>.body.${formatDigest}`;
 
 	expect(identity.lockToken).toBe(contract);
 	expect(String(identity.guid(rowId))).toBe(

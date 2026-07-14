@@ -30,7 +30,7 @@ let workspace: Workspace | undefined;
 function requireApp(): HTMLElement {
 	const element = document.querySelector('main');
 	if (!(element instanceof HTMLElement)) {
-		throw new Error('Historical generation root is missing');
+		throw new Error('Historical version root is missing');
 	}
 	return element;
 }
@@ -66,7 +66,7 @@ async function open(): Promise<void> {
 }
 
 function getWorkspace(): Workspace {
-	if (!workspace) throw new Error('Generation one is not open');
+	if (!workspace) throw new Error('Version one is not open');
 	return workspace;
 }
 
@@ -83,11 +83,11 @@ function identity() {
 renderState(
 	'loading',
 	'Opening previous version',
-	'Generation 1 keeps its own records and remains writable.',
+	'Version 1 keeps its own records and remains writable.',
 );
 try {
 	await open();
-	window.generationOneSmoke = {
+	window.versionOneSmoke = {
 		create(note) {
 			return getWorkspace().tables.notes.create(note);
 		},
@@ -107,7 +107,7 @@ try {
 	renderState(
 		'ready',
 		'Previous version ready',
-		'Generation 1 is open in its original data namespace.',
+		'Version 1 is open in its original data space.',
 	);
 } catch (cause) {
 	const message = cause instanceof Error ? cause.message : String(cause);
@@ -116,7 +116,7 @@ try {
 
 declare global {
 	interface Window {
-		generationOneSmoke: {
+		versionOneSmoke: {
 			create(note: Omit<Note, 'id'>): Promise<Note>;
 			get(id: string): Promise<Note | null>;
 			list(): Promise<Note[]>;
