@@ -1,4 +1,4 @@
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 import type { Guid } from '../shared/id.js';
 import {
 	type DocumentFormat,
@@ -47,6 +47,8 @@ export type OpenedDocument<TFormat extends DocumentFormat> = {
 	guid: Guid;
 	content: DocumentHandle<TFormat>;
 	whenReady: Promise<void>;
+	/** Encode the complete convergent document state after `whenReady`. */
+	encodeState(): Uint8Array;
 	[Symbol.dispose](): void;
 };
 
@@ -113,6 +115,7 @@ export function createWorkspaceDocumentOpener(
 					guid,
 					content,
 					whenReady,
+					encodeState: () => Y.encodeStateAsUpdateV2(session.doc),
 					[Symbol.dispose]: dispose,
 				};
 			} catch (cause) {

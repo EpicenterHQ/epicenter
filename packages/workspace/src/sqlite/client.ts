@@ -1,3 +1,4 @@
+import type { SnapshotRow } from '@epicenter/record-sync';
 import type { Static, TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import type { Guid } from '../shared/id.js';
@@ -122,6 +123,8 @@ export type AsyncWorkspace<
 	TDocumentOpener extends WorkspaceDocumentOpener | undefined = undefined,
 > = {
 	tables: AsyncTables<TTables, TDocumentOpener>;
+	/** Read one stable logical snapshot of every live application table. */
+	readTablesSnapshot(): Promise<readonly SnapshotRow[]>;
 	/** Execute one SELECT and validate every returned row. */
 	sql<TResultSchema extends TSchema>(
 		query: string,
@@ -323,6 +326,10 @@ export function createWorkspaceClient<TTables extends TableDefinitions>(
 
 	return {
 		tables,
+		async readTablesSnapshot() {
+			const response = await port.request({ kind: 'readTablesSnapshot' });
+			return expectResponse(response, 'tablesSnapshot').rows;
+		},
 		async sql(query, parameters, resultSchema) {
 			const response = await port.request({
 				kind: 'sql',

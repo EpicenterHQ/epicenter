@@ -6,6 +6,7 @@ import { initCommand } from './commands/init.js';
 import { logsCommand } from './commands/logs.js';
 import { matterCommand } from './commands/matter.js';
 import { statusCommand } from './commands/status.js';
+import { tablesCommand } from './commands/tables.js';
 import { upCommand } from './commands/up.js';
 
 /**
@@ -36,6 +37,7 @@ export function createCLI() {
 				.command(blobsCommand)
 				.command(initCommand)
 				.command(matterCommand)
+				.command(tablesCommand)
 				.demandCommand(1)
 				.strict()
 				.exitProcess(false)

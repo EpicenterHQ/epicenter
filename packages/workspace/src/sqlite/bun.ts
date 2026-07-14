@@ -41,6 +41,16 @@ import {
 import { createWorkspaceService } from './service.js';
 
 export type { StandaloneWorkspace, WorkspaceReplica } from './open.js';
+export {
+	type ExportPortableWorkspaceOptions,
+	exportPortableWorkspace,
+	readPortableTables,
+} from './portable-workspace-bun.js';
+export {
+	type ApplyPortableTablesOptions,
+	type ApplyPortableTablesResult,
+	applyPortableTables,
+} from './tables-apply-bun.js';
 
 export type OpenStandaloneWorkspaceOptions<
 	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,

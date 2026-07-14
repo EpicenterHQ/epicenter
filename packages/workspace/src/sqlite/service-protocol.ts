@@ -1,3 +1,4 @@
+import { SnapshotRowSchema } from '@epicenter/record-sync';
 import { type Static, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { RecordsRecoveryCheckpointSchema } from './recovery-checkpoint.js';
@@ -55,6 +56,7 @@ const workspaceMutation = Type.Union([
 
 export const WorkspaceServiceRequestSchema = Type.Union([
 	Type.Object({ kind: Type.Literal('describe') }, CLOSED),
+	Type.Object({ kind: Type.Literal('readTablesSnapshot') }, CLOSED),
 	Type.Object({ kind: Type.Literal('readRecoveryCheckpoint') }, CLOSED),
 	Type.Object(
 		{
@@ -122,6 +124,13 @@ export const WorkspaceServiceResponseSchema = Type.Union([
 	),
 	Type.Object(
 		{ kind: Type.Literal('row'), row: Type.Union([row, Type.Null()]) },
+		CLOSED,
+	),
+	Type.Object(
+		{
+			kind: Type.Literal('tablesSnapshot'),
+			rows: Type.Array(SnapshotRowSchema),
+		},
 		CLOSED,
 	),
 	Type.Object({ kind: Type.Literal('rows'), rows: Type.Array(row) }, CLOSED),

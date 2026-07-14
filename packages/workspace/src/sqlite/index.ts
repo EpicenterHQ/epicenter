@@ -66,6 +66,19 @@ export type {
 	WorkspaceReplica,
 } from './open.js';
 export {
+	type CollectPortableWorkspaceOptions,
+	collectPortableWorkspace,
+	PORTABLE_WORKSPACE_FORMAT,
+	type PortableBlob,
+	type PortableDocument,
+	type PortableFileManifest,
+	type PortableWorkspaceContent,
+	type PortableWorkspaceManifest,
+	planTablesApply,
+	type TablesApplyMutation,
+	type TablesApplyPlan,
+} from './portable-workspace.js';
+export {
 	RECORDS_RECOVERY_CHECKPOINT_FORMAT,
 	type RecordsRecoveryCheckpoint,
 	RecordsRecoveryCheckpointSchema,
@@ -78,6 +91,7 @@ export {
 export {
 	type CreateHttpReplicaSyncPortOptions,
 	createHttpReplicaSyncPort,
+	type TablesAuthorityPort,
 } from './replica-http.js';
 export {
 	parseWorkspaceVersionLock,

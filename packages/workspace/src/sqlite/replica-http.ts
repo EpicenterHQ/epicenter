@@ -1,4 +1,12 @@
-import type { RecordAuthorityOpenRequest } from '@epicenter/record-sync';
+import {
+	parseTablesApplyResponse,
+	parseTablesStateResponse,
+	type RecordAuthorityOpenRequest,
+	type TablesApplyRequest,
+	type TablesApplyResponse,
+	type TablesStateRequest,
+	type TablesStateResponse,
+} from '@epicenter/record-sync';
 import type {
 	ReplicaAuthorityOpenRequest,
 	ReplicaSyncPort,
@@ -11,11 +19,22 @@ export type CreateHttpReplicaSyncPortOptions = {
 	fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 };
 
+export type TablesAuthorityPort = {
+	readTablesState(
+		request: TablesStateRequest,
+		signal?: AbortSignal,
+	): Promise<TablesStateResponse>;
+	applyTables(
+		request: TablesApplyRequest,
+		signal?: AbortSignal,
+	): Promise<TablesApplyResponse>;
+};
+
 /** Bind the record-sync HTTP routes to one workspace replica runtime. */
 export function createHttpReplicaSyncPort({
 	baseUrl,
 	fetch,
-}: CreateHttpReplicaSyncPortOptions): ReplicaSyncPort {
+}: CreateHttpReplicaSyncPortOptions): ReplicaSyncPort & TablesAuthorityPort {
 	const origin = new URL(baseUrl);
 	let workspaceId: string | undefined;
 
@@ -80,7 +99,17 @@ export function createHttpReplicaSyncPort({
 		snapshotChunk(request, signal) {
 			return post(route('snapshot-chunk'), request, signal);
 		},
-	} satisfies ReplicaSyncPort;
+		async readTablesState(request, signal) {
+			return parseTablesStateResponse(
+				await post(route('tables-state'), request, signal),
+			);
+		},
+		async applyTables(request, signal) {
+			return parseTablesApplyResponse(
+				await post(route('tables-apply'), request, signal),
+			);
+		},
+	} satisfies ReplicaSyncPort & TablesAuthorityPort;
 }
 
 function isProtocolMismatch(

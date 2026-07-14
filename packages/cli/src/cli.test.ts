@@ -54,6 +54,7 @@ describe('createCLI', () => {
 		expect(help).toMatch(/\bepicenter logs\b/);
 		expect(help).toMatch(/\bauth\b/);
 		expect(help).toMatch(/\bblobs\b/);
+		expect(help).toMatch(/\btables\b/);
 		expect(help).toMatch(/\binit\b/);
 		expect(help).toMatch(/\bmatter\b/);
 		expect(help).not.toMatch(/\bdaemon\b/);
