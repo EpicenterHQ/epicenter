@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-11
 - **Relates:** [ADR-0005](0005-child-docs-are-bound-through-the-workspace.md), [ADR-0106](0106-a-child-doc-body-owns-one-layout-the-polymorphic-timeline-is-refused-until-a-product-earns-it.md), [ADR-0107](0107-a-child-doc-text-body-is-a-plain-y-text-the-timeline-array-is-deleted.md)
-- **Amended by:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md) (records replacement starts a new epoch without shared succession machinery); [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (durable contract changes publish a new application data generation)
+- **Amended by:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md) (records replacement starts a new epoch without shared succession machinery); [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (durable contract changes publish a new application data generation); [ADR-0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md) (one field map declares cells, documents, and blob references)
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-12
-- **Amended by:** [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (KV declaration and identity are frozen inside one application data generation)
+- **Amended by:** [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (KV declaration and identity are frozen inside one application data generation); [ADR-0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) (portable workspace folders encode declared KV separately as `kv.json`)
 - **Relates:** [ADR-0093](0093-kv-metadata-belongs-to-the-workspace-kv-namespace.md) (reaffirmed), [ADR-0119](0119-complete-metadata-replicas-sync-through-schema-blind-server-ordered-mutations.md), [ADR-0120](0120-persisted-fields-are-atomic-cells-and-collaborative-bodies-are-yjs-documents.md), [ADR-0123](0123-bounded-metadata-uses-record-authority-merge-sensitive-state-uses-lazy-child-documents.md)
 
 ## Context

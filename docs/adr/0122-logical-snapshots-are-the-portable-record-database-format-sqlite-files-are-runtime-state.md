@@ -1,9 +1,10 @@
 # 0122. Logical snapshots are the portable records database format; SQLite files are runtime state
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-11
 - **Relates:** [ADR-0119](0119-complete-metadata-replicas-sync-through-schema-blind-server-ordered-mutations.md), [ADR-0121](0121-background-sync-is-automatic-and-database-boundary-merges-are-reviewable.md), [ADR-0096](0096-local-workspace-persistence-is-environment-injected.md)
 - **Amended by:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md) (replacement reuses the logical snapshot format but has no shared staging protocol); [ADR-0131](0131-every-durable-records-materialization-carries-its-canonical-descriptor.md) (SQLite remains runtime state but carries the canonical descriptor for independent inspection)
+- **Superseded by:** [ADR-0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md)
 
 ## Context
 

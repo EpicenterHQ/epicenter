@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
-- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md)
+- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md); [ADR-0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md) (`BlobRef` fields are the workspace manifest and the application `rm` surface is removed)
 
 > **2026-07-02 amendment:** The durable read URL is now `<origin>/api/blobs/<sha256>`. Auth resolves the principal, so the URL no longer echoes the owner or principal id.
 

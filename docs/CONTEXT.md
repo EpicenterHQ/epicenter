@@ -10,18 +10,18 @@ shapes, see `docs/adr/`.
 - **Workspace**: one version-qualified identity and access-policy boundary.
   It owns synchronized KV, child documents, app-owned blobs, and one active
   records epoch.
-- **Application data version**: one immutable durable application contract
+- **Workspace version**: one immutable durable application contract
   spanning records, KV, child-document identities and formats, and app-owned
-  blobs. Any durable contract change publishes a new data version.
-- **Data version lock**: the committed append-only list of an application's
+  blobs. Any durable contract change publishes a new workspace version.
+- **Workspace version lock**: the committed append-only list of an application's
   generated workspace IDs, records hashes, and durable-plane identity tokens.
   It carries no compatibility or migration graph.
 - **Workspace ID**: the framework-generated `<appId>-vN` namespace for one
-  application data version. Applications author only `appId` and a positive
-  `dataVersion`.
-- **Data-version-aware boot**: the current build inspects its own local root
+  workspace version. Applications author only `appId` and a positive
+  `version`.
+- **Workspace-version-aware boot**: the current build inspects its own local root
   identity without creating storage. If it is absent and predecessors exist,
-  the build asks before starting its data version or navigating to a previous one.
+  the build asks before starting its workspace version or navigating to a previous one.
 - **Room**: one server-side synchronization address. Yjs rooms store document
   updates; the records authority stores logical rows, mutations, and
   snapshots. Cloudflare may colocate several such logical stores in one Durable
@@ -100,29 +100,30 @@ shapes, see `docs/adr/`.
 
 ## Workspace API
 
-- **Cell**: one named atomic value in a record. An update replaces the complete
+- **Cell**: one named atomic value in a row. An update replaces the complete
   cell value; values that need structural or character-level merging belong in
   a child document instead.
-- **Record**: one identified row in a typed table, consisting of a stable row ID
-  and named atomic cells. Records have explicit create, update, and delete
+- **Row**: one identified value in a typed table, consisting of a stable ID and
+  named atomic cells. Rows have explicit create, update, and delete
   lifecycles.
-- **Record table**: one named, typed collection of records. The table defines
-  record fields and may declare separately stored child documents addressed
-  through each record.
+- **Table**: one named, typed collection of rows. Its one `fields` map declares
+  SQLite cells, external blob references, and derived child documents.
+- **BlobRef**: the immutable `{ hash, size, mediaType }` value stored in a table
+  cell by `field.blob()`. Bytes live in content-addressed blob storage.
 - **Records database**: storage terminology for the complete queryable
   collection of record tables in one records epoch. Every synchronized device
   materializes it in local SQLite; the authority stores logical records, not a
   device's SQLite file.
 - **Records epoch**: the authority-minted identity of one continuous records
-  history inside one application data version. Restore or repair may mint a
-  new epoch, but a schema change always publishes a new data version.
+  history inside one workspace version. Restore or repair may mint a
+  new epoch, but a schema change always publishes a new workspace version.
 - **Sequence**: the authority-assigned position of an accepted mutation inside
   one records epoch. A sequence has no meaning without its epoch.
 - **Records schema hash**: the canonical identity of synchronized record tables,
   fields, and every portable constraint that changes accepted values or their
   interpretation. Workspace identity, KV, child documents, local indexes,
   physical storage, and the records epoch do not enter it. The hash is frozen
-  inside one application data version; applications author neither the hash
+  inside one workspace version; applications author neither the hash
   nor the epoch.
 - **Records descriptor**: canonical, hash-bound JSON that explains the record
   tables, fields, and code-independent constraints. Every authority epoch and
@@ -138,9 +139,9 @@ shapes, see `docs/adr/`.
   enter the new history.
 - **Logical snapshot**: live table, row, field, and value state without SQLite
   pages, indexes, actor identity, cursors, outboxes, or deleted history.
-- **`defineTable` / `defineKv`**: builders for the records tables and synchronized
-  preferences frozen into one application data version. Adding or renaming a
-  table, field, KV key, or child-document declaration requires a new data version.
+- **`defineTable` / `defineKv`**: builders for the tables and synchronized
+  preferences frozen into one workspace version. Adding or renaming a
+  table, field, KV key, or child-document declaration requires a new workspace version.
   Every `define*` call snapshots caller-owned inputs into a framework-owned
   immutable definition.
 - **Recovery checkpoint**: a read-only export from an epoch-fenced replica. It
@@ -155,7 +156,7 @@ shapes, see `docs/adr/`.
   nonconforming, and newer-writer, plus point probes. The valid-only read family
   (`getAllValid`, `getAllInvalid`, `getAll`, `conformance`, `filter`) was deleted.
 - **`_v`**: the legacy Yjs-table row version tuple. The SQLite records path does
-  not use it; one application data version has one frozen records schema.
+  not use it; one workspace version has one frozen records schema.
 - **Conformance**: whether a stored row matches the current schema. Nonconforming
   rows surface in `scan()`, never silently dropped.
 - **Child document**: a separate, lazy Y.Doc owned by one row and reached through
@@ -163,6 +164,11 @@ shapes, see `docs/adr/`.
   version-qualified workspace ID, table, a collision-resistant digest of the
   full row ID, document name, and document format hash; the format capability
   attaches the typed content handle after the runtime opens the doc.
+- **Portable workspace**: `workspace.json`, `tables.sqlite3`, `kv.json`, and
+  content-addressed `documents/` and `blobs/` folders containing complete
+  logical application state without replica-private runtime state. An edited
+  tables file becomes live only through a reviewed expected-head apply, never
+  by replacing a runtime database.
 - **Worker**: running behavior that observes workspace state and writes results
   back. Workers may be local (every node runs them) or agent-bound (one
   configured agent answers). A conversation is answered by the client agent loop

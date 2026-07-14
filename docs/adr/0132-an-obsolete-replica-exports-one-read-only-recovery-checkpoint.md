@@ -4,6 +4,7 @@
 - **Date:** 2026-07-13
 - **Amends:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md)
 - **Relates:** [ADR-0131](0131-every-durable-records-materialization-carries-its-canonical-descriptor.md)
+- **Amended by:** [ADR-0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) (a complete ownership backup spans every declared plane and never implies live rollback)
 
 ## Context
 

@@ -198,7 +198,7 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0119](0119-complete-metadata-replicas-sync-through-schema-blind-server-ordered-mutations.md) | Complete metadata replicas sync through schema-blind server-ordered mutations | Accepted |
 | [0120](0120-persisted-fields-are-atomic-cells-and-collaborative-bodies-are-yjs-documents.md) | Persisted fields are atomic cells and collaborative bodies are Yjs documents | Accepted |
 | [0121](0121-background-sync-is-automatic-and-database-boundary-merges-are-reviewable.md) | Background sync is automatic and database-boundary merges are reviewable | Accepted |
-| [0122](0122-logical-snapshots-are-the-portable-record-database-format-sqlite-files-are-runtime-state.md) | Logical snapshots are the portable records database format; SQLite files are runtime state | Accepted |
+| [0122](0122-logical-snapshots-are-the-portable-record-database-format-sqlite-files-are-runtime-state.md) | Logical snapshots are the portable records database format; SQLite files are runtime state | Superseded by 0139 |
 | [0123](0123-bounded-metadata-uses-record-authority-merge-sensitive-state-uses-lazy-child-documents.md) | Bounded metadata uses record authority; merge-sensitive state uses lazy child documents | Accepted |
 | [0124](0124-workspace-kv-keeps-one-logical-identity-outside-the-record-database.md) | Workspace KV keeps one logical identity outside the records database | Accepted |
 | [0125](0125-record-schemas-are-immutable-evolution-creates-a-successor-database.md) | Records schemas are immutable; evolution creates a successor database | Superseded by 0130 |
@@ -212,6 +212,9 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0133](0133-ordinary-record-sync-requests-carry-only-the-records-epoch.md) | Ordinary record sync requests carry only the records epoch | Accepted |
 | [0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) | Application data generations own immutable workspace namespaces | Superseded by 0136 |
 | [0135](0135-new-builds-ask-before-initializing-a-new-data-generation.md) | New builds ask before initializing a new data generation | Accepted (terminology amended by 0136) |
-| [0136](0136-applications-declare-immutable-data-versions.md) | Applications declare immutable data versions | Accepted |
+| [0136](0136-applications-declare-immutable-data-versions.md) | Applications declare immutable data versions | Superseded by 0137 |
+| [0137](0137-applications-declare-one-live-workspace-per-contract-version.md) | Applications declare one live workspace per contract version | Accepted |
+| [0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md) | Tables declare cells, documents, and blobs in one field map | Accepted |
+| [0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) | Portable workspaces are schema-directed folders applied as forward mutations | Accepted |
 
 When you add an ADR, add its row here.

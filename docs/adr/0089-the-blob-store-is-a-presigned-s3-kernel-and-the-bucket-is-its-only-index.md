@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
-- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md)
+- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md); [ADR-0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md) (applications publish references but cannot delete stored bytes)
 
 > **2026-07-02 amendment:** Blob keys now use `principals/<principalId>/blobs/<sha256>`. The bucket-only index and presigned-S3 kernel decision are unchanged.
 

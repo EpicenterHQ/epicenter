@@ -1,9 +1,10 @@
 # 0136. Applications declare immutable data versions
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-13
 - **Supersedes:** [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md)
 - **Amends:** [ADR-0135](0135-new-builds-ask-before-initializing-a-new-data-generation.md)
+- **Superseded by:** [ADR-0137](0137-applications-declare-one-live-workspace-per-contract-version.md)
 
 ## Context
 

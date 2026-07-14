@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-12
-- **Amended by:** [ADR-0128](0128-tables-do-not-declare-document-edit-touch-policy-without-a-runtime-owner.md) (the inert `touchOnDocumentEdit` declaration is withdrawn; document formats, addressing, openers, and conversion ownership are unchanged); [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (child-document formats and addresses are frozen inside one application data generation)
+- **Amended by:** [ADR-0128](0128-tables-do-not-declare-document-edit-touch-policy-without-a-runtime-owner.md) (the inert `touchOnDocumentEdit` declaration is withdrawn; document formats, addressing, openers, and conversion ownership are unchanged); [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (child-document formats and addresses are frozen inside one application data generation); [ADR-0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md) (`field.doc(format)` moves document declarations into the table field map)
 - **Supersedes:** [ADR-0005](0005-child-docs-are-bound-through-the-workspace.md)
 - **Relates:** [ADR-0120](0120-persisted-fields-are-atomic-cells-and-collaborative-bodies-are-yjs-documents.md), [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md)
 
