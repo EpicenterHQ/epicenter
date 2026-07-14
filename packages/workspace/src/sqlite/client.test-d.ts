@@ -1,13 +1,14 @@
 /**
  * SQLite Workspace Client Type Tests
  *
- * Locks fresh-id creation at the public async and batch table boundaries.
- * Callers provide only authored cells, while returned identities retain the
- * brand declared by the table schema.
+ * Locks default ID allocation and explicit ID preservation at the public async
+ * and batch table boundaries. Returned identities retain the brand declared by
+ * the table schema.
  */
 
 import { asPrincipalId } from '@epicenter/identity';
 import type { Brand } from 'wellcrafted/brand';
+import type { Id } from '../shared/id.js';
 import {
 	type OpenBrowserLocalWorkspaceOptions as BrowserOpenOptions,
 	openBrowserWorkspace,
@@ -33,12 +34,12 @@ import { field } from './field.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
 import type { WorkspaceAuthority } from './workspace-authority.js';
 
-type NoteId = string & Brand<'NoteId'>;
-type RecordingId = string & Brand<'RecordingId'>;
+type NoteId = Id & Brand<'NoteId'>;
+type RecordingId = Id & Brand<'RecordingId'>;
 
 const notes = defineTable({
 	fields: {
-		id: field.string<NoteId>(),
+		id: field.id<NoteId>(),
 		title: field.string(),
 	},
 });
@@ -51,21 +52,22 @@ const created: Promise<Note> = table.create({ title: 'Created' });
 const allocatedId: NoteId = batch.tables.notes.create({ title: 'Batched' });
 const existing = null as unknown as Note;
 
-// @ts-expect-error — callers cannot preserve or choose a row id
-table.create({ id: 'caller-chosen' as NoteId, title: 'Rejected' });
-
-// @ts-expect-error — an existing full row is not a valid create input
-table.create(existing);
-
-// @ts-expect-error — transaction builders also own id allocation
-batch.tables.notes.create(existing);
+const preserved: Promise<Note> = table.create({
+	id: 'caller-chosen' as NoteId,
+	title: 'Preserved',
+});
+const recreated: Promise<Note> = table.create(existing);
+const batchPreservedId: NoteId = batch.tables.notes.create(existing);
 
 void created;
 void allocatedId;
+void preserved;
+void recreated;
+void batchPreservedId;
 
 const notesWithDocuments = defineTable({
 	fields: {
-		id: field.string<NoteId>(),
+		id: field.id<NoteId>(),
 		title: field.string(),
 		body: field.doc(document.plainText),
 	},

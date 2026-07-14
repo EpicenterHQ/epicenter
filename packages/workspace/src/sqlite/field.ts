@@ -1,5 +1,6 @@
 import { field as cellField } from '@epicenter/field';
 import { type TSchema, type TUnsafe, Type } from 'typebox';
+import { ID_MAX_LENGTH, ID_PATTERN } from '../shared/id.js';
 import type { DocumentFormat } from './document-format.js';
 
 export const BLOB_REF_KEYWORD = 'x-epicenter-blob-ref' as const;
@@ -24,7 +25,42 @@ export type DocumentField<TFormat extends DocumentFormat = DocumentFormat> = {
 	readonly [DOCUMENT_FIELD]: TFormat;
 };
 
+/** A row ID schema carrying the shared Epicenter ID envelope. */
+export type IdField<TId extends string = string> = TUnsafe<TId> & {
+	readonly minLength: 1;
+	readonly maxLength: typeof ID_MAX_LENGTH;
+	readonly pattern: typeof ID_PATTERN;
+};
+
 const documentFields = new WeakMap<object, DocumentFormat>();
+
+/**
+ * Declare an opaque, URL-safe row ID.
+ *
+ * Ordinary `table.create(...)` calls omit this value and receive an Epicenter
+ * NanoID. Copy-forward and import code may provide an existing ID that matches
+ * this same envelope, including a UUID.
+ */
+function id<TId extends string = string>(): IdField<TId> {
+	return cellField.string<TId>({
+		minLength: 1,
+		maxLength: ID_MAX_LENGTH,
+		pattern: ID_PATTERN,
+	}) as unknown as IdField<TId>;
+}
+
+/** Declare a reference to another table's Epicenter row ID. */
+function reference<TId extends string = string>(
+	table: string,
+	opts?: Parameters<typeof cellField.reference>[1],
+) {
+	return cellField.reference<TId>(table, {
+		...opts,
+		minLength: 1,
+		maxLength: ID_MAX_LENGTH,
+		pattern: ID_PATTERN,
+	});
+}
 
 /**
  * Declare a SQLite cell that stores a portable reference to external bytes.
@@ -37,7 +73,7 @@ const documentFields = new WeakMap<object, DocumentFormat>();
  * ```ts
  * const recordings = defineTable({
  *   fields: {
- *     id: field.string(),
+ *     id: field.id(),
  *     audio: field.blob(),
  *   },
  * });
@@ -70,7 +106,7 @@ function blob(): BlobField {
  * ```ts
  * const notes = defineTable({
  *   fields: {
- *     id: field.string(),
+ *     id: field.id(),
  *     body: field.doc(document.plainText),
  *   },
  * });
@@ -114,6 +150,8 @@ export function documentFormatOf<TFormat extends DocumentFormat>(
 /** Composed field catalog for every value a SQLite workspace table can own. */
 export const field = Object.freeze({
 	...cellField,
+	id,
+	reference,
 	blob,
 	doc,
 });

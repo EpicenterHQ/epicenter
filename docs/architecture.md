@@ -84,6 +84,11 @@ atomic cells, and explicit create, update, and delete lifecycles. The records
 database is the complete queryable collection of those tables under one
 immutable logical schema.
 
+Row IDs use one opaque, URL-safe envelope. Ordinary creation generates an
+Epicenter NanoID. Copy-forward may preserve an existing UUID or NanoID through
+the same create method when it represents the same logical object. Natural keys
+remain separate fields.
+
 Every synchronized device materializes the records database in local SQLite.
 The authority stores the same logical records, mutations, snapshots, and
 canonical head. Every durable materialization also stores the canonical records

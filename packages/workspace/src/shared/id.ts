@@ -40,6 +40,19 @@ const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
  */
 const ID_LENGTH = 16;
 
+/** Maximum characters admitted by the shared, URL-safe row ID envelope. */
+export const ID_MAX_LENGTH = 128;
+
+/**
+ * Canonical syntax for an opaque Epicenter row ID.
+ *
+ * The envelope deliberately admits both Epicenter NanoIDs and standard UUIDs.
+ * It excludes separators and whitespace that require URL escaping. Syntax does
+ * not make a value collision-resistant: fresh IDs should come from
+ * {@link generateId}; explicit values are for preserving an existing identity.
+ */
+export const ID_PATTERN = `^[A-Za-z0-9_-]{1,${ID_MAX_LENGTH}}$`;
+
 const nanoid = customAlphabet(ALPHABET, ID_LENGTH);
 
 /**
@@ -49,29 +62,6 @@ const nanoid = customAlphabet(ALPHABET, ID_LENGTH);
  * {@link generateId}.
  */
 export type Id = string & Brand<'Id'>;
-
-/**
- * Create a branded Id from an arbitrary string.
- *
- * Validates that the string does not contain ':' (reserved for cell-key separator).
- * Use this when you have a string ID that needs to be used as a row identifier.
- *
- * @param value - The string to brand as an Id
- * @returns A branded Id
- * @throws If the value contains ':'
- *
- * @example
- * ```typescript
- * const id = Id('my-custom-id');
- * const generated = generateId(); // Also returns Id
- * ```
- */
-export function Id(value: string): Id {
-	if (value.includes(':')) {
-		throw new Error(`Id cannot contain ':': "${value}"`);
-	}
-	return value as Id;
-}
 
 /**
  * Branded string for a broader-scope identifier: workspace ids, derived

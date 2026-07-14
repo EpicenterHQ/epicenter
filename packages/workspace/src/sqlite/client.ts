@@ -1,7 +1,7 @@
 import type { SnapshotRow } from '@epicenter/record-sync';
 import type { Static, TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import type { Guid } from '../shared/id.js';
+import { type Guid, generateId } from '../shared/id.js';
 import {
 	assertWorkspaceDefinition,
 	type RowFor,
@@ -84,7 +84,7 @@ export type AsyncTable<
 	}): Promise<TRow[]>;
 	has(id: TRow['id']): Promise<boolean>;
 	count(): Promise<number>;
-	/** Allocate a fresh UUID and return the committed row. */
+	/** Create a row, allocating an ID when one is not supplied. */
 	create(cells: CreateInput<TRow>): Promise<TRow>;
 	patch(id: TRow['id'], cells: Partial<Omit<TRow, 'id'>>): Promise<TRow | null>;
 	remove(id: TRow['id']): Promise<void>;
@@ -111,7 +111,7 @@ type BatchTable<TRow extends { id: string }> = {
 };
 
 type CreateInput<TRow extends { id: string }> = Omit<TRow, 'id'> & {
-	id?: never;
+	id?: TRow['id'];
 };
 
 export type WorkspaceWriteBatch<TTables extends TableDefinitions> = {
@@ -282,7 +282,7 @@ export function createWorkspaceClient<TTables extends TableDefinitions>(
 					return expectResponse(response, 'count').value;
 				},
 				async create(cells) {
-					const id = crypto.randomUUID();
+					const id = cells.id ?? generateId();
 					const results = await sendMutations([
 						{
 							kind: 'create',
@@ -371,7 +371,7 @@ export function createWorkspaceClient<TTables extends TableDefinitions>(
 					tableName,
 					{
 						create(cells: Record<string, unknown>) {
-							const id = crypto.randomUUID();
+							const id = (cells.id as string | undefined) ?? generateId();
 							mutations.push({
 								kind: 'create',
 								table: tableName,

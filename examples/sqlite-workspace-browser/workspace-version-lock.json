@@ -5,7 +5,7 @@
 		{
 			"version": 1,
 			"workspaceId": "records-version-fixture-v1",
-			"tablesSchemaHash": "sha256:0ee92a86e819899832fc054539a41a16116b53640691de4a699c05e8b54c9211",
+			"tablesSchemaHash": "sha256:c6712e31449d9c2ddfb8f758e00010917456de148951dd91ed4ddc6a298ad58f",
 			"planes": {
 				"document.notes.body": "epicenter.sqlite-child-document-guid/1;row-id=epicenter.document-row/1;guid=records-version-fixture-v1.notes.<row-id-sha256>.body.fd255dcbe1bb14a4e4f1262fa591037672ea76a3cbc3bb003fd04b3b5e54b06e",
 				"kv": "records-version-fixture-v1.kv",
@@ -15,7 +15,7 @@
 		{
 			"version": 2,
 			"workspaceId": "records-version-fixture-v2",
-			"tablesSchemaHash": "sha256:183a74d894f4a4f847661c7a108abc557305ed6a0d9784ed9ff3993b0f6fef40",
+			"tablesSchemaHash": "sha256:e25067011abafa7934201d136137abf3898e9d1e23abb6378061f009a755613a",
 			"planes": {
 				"document.notes.body": "epicenter.sqlite-child-document-guid/1;row-id=epicenter.document-row/1;guid=records-version-fixture-v2.notes.<row-id-sha256>.body.fd255dcbe1bb14a4e4f1262fa591037672ea76a3cbc3bb003fd04b3b5e54b06e",
 				"kv": "records-version-fixture-v2.kv",

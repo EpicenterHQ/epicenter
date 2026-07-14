@@ -1,9 +1,9 @@
-import { field } from '@epicenter/field';
 import type { Kv } from '@epicenter/workspace';
 import type { ApplicationTable, AsyncTable } from '@epicenter/workspace/sqlite';
 import {
 	defineKv,
 	defineTable,
+	field,
 	type RowFor,
 } from '@epicenter/workspace/sqlite';
 import { fromKv } from './from-kv.svelte.js';
@@ -28,7 +28,7 @@ fromKv(kv, 'missing');
 
 const notesDefinition = defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		title: field.string(),
 	},
 });
@@ -47,8 +47,10 @@ void note;
 
 declare const asyncNotes: AsyncTable<Note>;
 const created: Promise<Note> = asyncNotes.create({ title: 'Created' });
-// @ts-expect-error — public creation owns fresh row identity
-asyncNotes.create({ id: 'caller-supplied', title: 'Invalid' });
+const preserved: Promise<Note> = asyncNotes.create({
+	id: 'caller-supplied',
+	title: 'Preserved',
+});
 const asyncNoteView = fromTable(asyncNotes);
 const asyncNotesList: readonly Note[] = asyncNoteView.all;
 const asyncNote: Note | undefined = asyncNoteView.byId('note-1');
@@ -58,3 +60,4 @@ void asyncNotesList;
 void asyncNote;
 void notesReady;
 void created;
+void preserved;

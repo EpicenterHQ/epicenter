@@ -11,7 +11,7 @@ test('desired table planning previews exact row and unreachable-content fallout'
 		tables: {
 			notes: defineTable({
 				fields: {
-					id: field.string(),
+					id: field.id(),
 					title: field.string(),
 					attachment: field.blob(),
 					body: field.doc(document.plainText),

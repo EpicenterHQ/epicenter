@@ -8,7 +8,7 @@ import {
 
 const notes = defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		title: field.string(),
 		body: field.doc(document.plainText),
 	},

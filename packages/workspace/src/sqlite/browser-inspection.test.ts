@@ -7,7 +7,6 @@
  */
 
 import { expect, test } from 'bun:test';
-import { field } from '@epicenter/field';
 import {
 	type InspectBrowserWorkspaceOptions,
 	inspectBrowserWorkspace,
@@ -22,6 +21,7 @@ import {
 	defineWorkspace,
 	type WorkspaceDefinition,
 } from './definition.js';
+import { field } from './field.js';
 import { defineTestWorkspace } from './test-workspace.js';
 
 type Listener = (event: { data?: unknown; message?: string }) => void;
@@ -73,7 +73,7 @@ function createWorker() {
 	};
 }
 
-const rows = defineTable({ fields: { id: field.string() } });
+const rows = defineTable({ fields: { id: field.id() } });
 const definition = defineTestWorkspace({
 	appId: 'browser-inspection-test',
 	tables: { rows },

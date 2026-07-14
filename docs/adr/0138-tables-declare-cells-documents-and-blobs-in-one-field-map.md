@@ -18,7 +18,7 @@ A table declares every row-owned value in one `fields` map:
 ```ts
 defineTable({
 	fields: {
-		id: field.string<RecordingId>(),
+		id: field.id<RecordingId>(),
 		title: field.string(),
 		audio: field.blob(),
 		transcript: field.doc(document.plainText),
@@ -34,6 +34,20 @@ workspace blob registry and no application delete operation. Initial retention
 is indefinite; platform garbage collection may be added only when its
 reachability and safety contract is proven.
 
+Every row declares `id: field.id<TableId>()`. The runtime envelope is one to
+128 URL-safe ASCII characters: letters, numbers, `_`, and `-`. Epicenter's
+default generator returns a 16-character lowercase NanoID. UUIDs also fit the
+envelope, which lets a copy-forward operation preserve an existing opaque ID
+without introducing a second table API. A table-specific brand prevents IDs
+from different tables being mixed in TypeScript; the field schema validates
+the serialized value.
+
+`table.create(cells)` generates an ID when `id` is absent. Copy-forward and
+import code may call the same method with `id` present. A supplied ID must be
+stable, opaque, collision-resistant, and already belong to the logical object
+being copied. Natural keys, slugs, filenames, and other editable product values
+remain separate fields. The table's primary key rejects a duplicate ID.
+
 `field.doc(format)` emits no SQLite column. It declares one lazy child document
 whose address is derived from the workspace ID, table name, SHA-256 digest of
 the complete row ID string, field name, and format hash. No other row content
@@ -44,8 +58,9 @@ Deleting a row makes its derived documents and blob references unreachable from
 the live workspace and from new exports. Physical bytes may remain. The platform
 does not coordinate cross-plane deletion, call an application cleanup hook, or
 check row existence on every document session. A stale update to an absent row
-is an idempotent no-op and never resurrects it. Fresh public creation uses a
-fresh random ID; the platform does not retain a permanent deleted-ID set.
+is an idempotent no-op and never resurrects it. Ordinary public creation omits
+`id` and receives a fresh generated value. The platform does not retain a
+permanent deleted-ID set.
 
 The composed `field` catalog belongs to `@epicenter/workspace/sqlite` because
 document formats are workspace capabilities. `@epicenter/field` remains the
@@ -72,5 +87,10 @@ lower-level catalog for persisted cell schemas.
   policy while a content hash is stable and portable.
 - **Give documents independent IDs.** Rejected because relocation, orphaning,
   and another registry buy no current product behavior.
+- **Require the exact bytes emitted by Epicenter's NanoID generator.** Rejected
+  because UUIDs are equally opaque and URL-safe, and excluding them would force
+  needless identity remapping during copy-forward.
+- **Accept any non-empty string as a row ID.** Rejected because whitespace and
+  separators create avoidable URL, log, and interchange ambiguity.
 - **Synchronously delete every physical child on row deletion.** Rejected
   because SQLite, Yjs, and blob storage do not share one transaction.

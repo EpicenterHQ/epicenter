@@ -46,7 +46,7 @@ function candidateFor(version = 1) {
 		tables: {
 			notes: defineTable({
 				fields: {
-					id: field.string(),
+					id: field.id(),
 					title: field.string(),
 					body: field.doc(document.plainText),
 					attachment: field.blob(),
@@ -88,7 +88,7 @@ describe('workspace version source', () => {
 				appId: 'defaults-test',
 				version: 1,
 				tables: {
-					rows: defineTable({ fields: { id: field.string() } }),
+					rows: defineTable({ fields: { id: field.id() } }),
 				},
 				kv: { theme: defineKv(field.string(), () => defaultValue) },
 			}).proposedLockEntry.planes;

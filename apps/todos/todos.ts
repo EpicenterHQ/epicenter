@@ -3,6 +3,7 @@ import {
 	type AsyncWorkspace,
 	defineTable,
 	field,
+	type Id,
 	nullable,
 	type RowFor,
 } from '@epicenter/workspace/sqlite';
@@ -11,7 +12,7 @@ import type { Brand } from 'wellcrafted/brand';
 
 export const TODOS_APP_ID = 'epicenter-todos';
 
-export type TodoId = string & Brand<'TodoId'>;
+export type TodoId = Id & Brand<'TodoId'>;
 
 /**
  * Built-in contexts are the complete fixed set in version 1. They are code
@@ -43,7 +44,7 @@ const contextSlugSchema = Type.Unsafe<ContextSlug>(Type.String());
 
 export const todosTable = defineTable({
 	fields: {
-		id: field.string<TodoId>(),
+		id: field.id<TodoId>(),
 		title: field.string({ minLength: 1 }),
 		body: field.string(),
 		dueDate: nullable(field.date()),
@@ -76,7 +77,7 @@ export function createTodosActions({ tables }: Pick<TodosWorkspace, 'tables'>) {
 			);
 		},
 
-		/** Validate user input and create a fresh framework-owned todo identity. */
+		/** Validate user input and create a todo with a generated identity. */
 		async todos_create(input: {
 			title: string;
 			body?: string;

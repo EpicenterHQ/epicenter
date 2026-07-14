@@ -17,7 +17,6 @@
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { field } from '@epicenter/field';
 import {
 	createRecordAuthority,
 	type Mutation,
@@ -27,6 +26,7 @@ import {
 import { createBunSqliteAdapter } from '@epicenter/record-sync/bun';
 import { ReplicaInvariantViolationError } from './database.js';
 import { defineTable } from './definition.js';
+import { field } from './field.js';
 import {
 	createReplicaRuntime,
 	ReplicaAdmissionConflictError,
@@ -42,7 +42,7 @@ const definition = defineWorkspace({
 	tables: {
 		notes: defineTable({
 			fields: {
-				id: field.string(),
+				id: field.id(),
 				title: field.string(),
 				pinned: field.boolean(),
 			},

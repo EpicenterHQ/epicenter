@@ -33,6 +33,11 @@ A row is one identified value in a typed table. It consists of a stable row ID
 and named atomic cells, and it has an explicit create, update, and delete
 lifecycle.
 
+Row IDs are opaque URL-safe strings. Ordinary `create` calls omit `id` and get
+an Epicenter NanoID. Copy-forward may supply an existing ID through the same
+method when the target row is the same logical object. UUIDs fit the envelope;
+editable names and slugs stay in separate fields.
+
 ```text
 notes table
 `-- note row

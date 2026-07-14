@@ -20,7 +20,7 @@ function setup() {
 		tables: {
 			notes: defineTable({
 				fields: {
-					id: field.string(),
+					id: field.id(),
 					body: field.doc(document.plainText),
 				},
 			}),
@@ -212,7 +212,7 @@ function setupWithKv() {
 	const definition = defineWorkspace({
 		appId: 'open-kv-test',
 		name: 'Open KV test',
-		tables: { notes: defineTable({ fields: { id: field.string() } }) },
+		tables: { notes: defineTable({ fields: { id: field.id() } }) },
 		kv: {
 			theme: defineKv(field.select(['light', 'dark']), () => 'light' as const),
 		},
@@ -365,7 +365,7 @@ test('document runtime opens current format-addressed endpoints', async () => {
 		tables: {
 			recordings: defineTable({
 				fields: {
-					id: field.string(),
+					id: field.id(),
 					transcript: field.doc(document.xmlFragment),
 				},
 			}),

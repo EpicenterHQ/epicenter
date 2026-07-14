@@ -12,12 +12,12 @@
 
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { field } from '@epicenter/field';
 import type { RecordSyncSqlite, SqliteRow } from '@epicenter/record-sync';
 import { Type } from 'typebox';
 import { createWorkspaceClient } from './client.js';
 import { createApplicationDatabase } from './database.js';
 import { defineTable } from './definition.js';
+import { field } from './field.js';
 import { createWorkspaceService } from './service.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
 
@@ -43,13 +43,13 @@ function setup() {
 	};
 	const notes = defineTable({
 		fields: {
-			id: field.string(),
+			id: field.id(),
 			title: field.string(),
 			pinned: field.boolean(),
 		},
 	});
 	const labels = defineTable({
-		fields: { id: field.string(), name: field.string() },
+		fields: { id: field.id(), name: field.string() },
 	});
 	const definition = defineWorkspace({
 		appId: 'service-test',

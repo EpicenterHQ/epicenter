@@ -9,6 +9,7 @@
 import { type Static, Type } from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
 import { nullable } from '../document/nullable.js';
+import type { Id } from '../shared/id.js';
 import {
 	defineKv,
 	defineTable,
@@ -22,11 +23,11 @@ import { type BlobRef, field } from './field.js';
 // @ts-expect-error — generated workspace ids are not a public authoring API
 import { deriveWorkspaceId } from './index.js';
 
-type NoteId = string & Brand<'NoteId'>;
+type NoteId = Id & Brand<'NoteId'>;
 
 const notes = defineTable({
 	fields: {
-		id: field.string<NoteId>(),
+		id: field.id<NoteId>(),
 		title: field.string(),
 		folderId: nullable(field.string()),
 		updatedAt: field.instant(),
@@ -35,6 +36,9 @@ const notes = defineTable({
 		attachment: field.blob(),
 	},
 });
+
+// @ts-expect-error: row ids use the shared Epicenter ID envelope
+defineTable({ fields: { id: field.string() } });
 
 const row: RowFor<typeof notes> = {
 	id: 'note-1' as NoteId,
@@ -130,7 +134,7 @@ defineTable({ fields: { title: field.string() } });
 
 defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		// @ts-expect-error: field.doc accepts only the closed capability catalog
 		body: field.doc('records'),
 	},
@@ -138,7 +142,7 @@ defineTable({
 
 const documentTable = defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		body: field.doc(document.plainText),
 	},
 });
@@ -153,7 +157,7 @@ const lastFolderValue: string | null = null as unknown as Static<
 
 defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		// @ts-expect-error — null-admitting table fields require the explicit nullable wrapper
 		payload: field.json(Type.Unknown()),
 	},
@@ -161,7 +165,7 @@ defineTable({
 
 defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		payload: nullable(field.json(Type.Unknown())),
 	},
 });

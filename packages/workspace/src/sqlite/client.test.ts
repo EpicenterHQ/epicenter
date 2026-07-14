@@ -5,7 +5,7 @@
  * validation, commit deltas, and child-document identity at the async port.
  *
  * Key behaviors:
- * - create allocates UUID identities and returns committed rows
+ * - create allocates Epicenter NanoIDs or preserves a supplied ID
  * - transaction builders allocate ids synchronously and send one batch
  * - malformed service rows and results are rejected
  */
@@ -41,7 +41,7 @@ test('async client sends one write-only transaction and filters table deltas', a
 		},
 	};
 	const notes = defineTable({
-		fields: { id: field.string(), title: field.string() },
+		fields: { id: field.id(), title: field.string() },
 	});
 	const definition = defineWorkspace({
 		appId: 'client-test',
@@ -57,9 +57,7 @@ test('async client sends one write-only transaction and filters table deltas', a
 		createdId = batch.tables.notes.create({ title: 'One' });
 		batch.tables.notes.patch(createdId, { title: 'Updated' });
 	});
-	expect(createdId).toMatch(
-		/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-	);
+	expect(createdId).toMatch(/^[a-z0-9]{16}$/);
 	expect(requests).toEqual([
 		{
 			kind: 'mutate',
@@ -91,7 +89,7 @@ test('async client sends one write-only transaction and filters table deltas', a
 	]);
 });
 
-test('create returns committed rows with distinct UUID identities', async () => {
+test('create returns committed rows with distinct Epicenter IDs', async () => {
 	const port: WorkspaceServicePort = {
 		async request(request) {
 			if (request.kind !== 'mutate') throw new Error('unexpected read');
@@ -111,7 +109,7 @@ test('create returns committed rows with distinct UUID identities', async () => 
 		name: 'Client create test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});
@@ -123,9 +121,16 @@ test('create returns committed rows with distinct UUID identities', async () => 
 	expect(first).toEqual({ id: first.id, title: 'Draft' });
 	expect(second).toEqual({ id: second.id, title: 'Draft' });
 	expect(first.id).not.toBe(second.id);
-	expect(first.id).toMatch(
-		/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-	);
+	expect(first.id).toMatch(/^[a-z0-9]{16}$/);
+
+	const preserved = await client.tables.notes.create({
+		id: '550e8400-e29b-41d4-a716-446655440000',
+		title: 'Imported',
+	});
+	expect(preserved.id).toBe('550e8400-e29b-41d4-a716-446655440000');
+	await expect(
+		client.tables.notes.create({ id: 'contains a space', title: 'Invalid' }),
+	).rejects.toThrow("invalid 'notes' row");
 });
 
 test('empty and async transaction builders never send a partial mutation', async () => {
@@ -144,7 +149,7 @@ test('empty and async transaction builders never send a partial mutation', async
 		name: 'Client builder test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});
@@ -183,7 +188,7 @@ test('typed client rejects malformed rows, deltas, and mutation results', async 
 		name: 'Client validation test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});
@@ -222,7 +227,7 @@ test('sql validates every result row against the caller schema', async () => {
 		name: 'Client SQL validation test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});
@@ -258,7 +263,7 @@ test('declared documents have format-addressed identity without becoming row cel
 		tables: {
 			notes: defineTable({
 				fields: {
-					id: field.string(),
+					id: field.id(),
 					body: field.doc(document.xmlFragment),
 					summary: field.doc(document.plainText),
 				},

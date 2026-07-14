@@ -36,7 +36,7 @@ test('exports a complete folder and replans edited tables at the latest head', a
 		tables: {
 			notes: defineTable({
 				fields: {
-					id: field.string(),
+					id: field.id(),
 					title: field.string(),
 					attachment: field.blob(),
 					body: field.doc(document.plainText),
@@ -264,7 +264,7 @@ test('complete export leaves no destination when referenced blob bytes fail vali
 		appId: 'portable-fail-test',
 		tables: {
 			files: defineTable({
-				fields: { id: field.string(), value: field.blob() },
+				fields: { id: field.id(), value: field.blob() },
 			}),
 		},
 	});

@@ -4,8 +4,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { field } from '@epicenter/field';
 import {
 	createRecordAuthority,
 	RECORD_SYNC_PROTOCOL_MAJOR,
@@ -17,6 +15,7 @@ import {
 	defineWorkspace as defineWorkspaceCandidate,
 	type WorkspaceDefinition,
 } from './definition.js';
+import { field } from './field.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
 
 test('Bun refuses unlocked definitions before creating storage', async () => {
@@ -26,7 +25,7 @@ test('Bun refuses unlocked definitions before creating storage', async () => {
 		appId: 'bun-unlocked-test',
 		version: 1,
 		tables: {
-			notes: defineTable({ fields: { id: field.string() } }),
+			notes: defineTable({ fields: { id: field.id() } }),
 		},
 	});
 
@@ -53,7 +52,7 @@ test('Bun reopens a valid initialized database with no user rows', async () => {
 		appId: 'bun-empty-test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});
@@ -85,7 +84,7 @@ test('Bun standalone workspace persists typed rows across service lifecycles', a
 		name: 'Bun local test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});
@@ -111,7 +110,7 @@ test('Bun standalone workspace persists typed rows across service lifecycles', a
 			tables: {
 				notes: defineTable({
 					fields: {
-						id: field.string(),
+						id: field.id(),
 						title: field.string(),
 						body: field.string(),
 					},
@@ -146,7 +145,7 @@ test('Bun workspace replicas synchronize automatically through one authority', a
 		name: 'Bun replica test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
+				fields: { id: field.id(), title: field.string() },
 			}),
 		},
 	});

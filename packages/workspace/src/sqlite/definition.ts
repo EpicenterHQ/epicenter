@@ -19,6 +19,7 @@ import {
 } from 'typebox';
 import { isKvDefinition } from '../document/define-kv.js';
 import type { KvDefinitions } from '../document/kv.js';
+import { ID_MAX_LENGTH, ID_PATTERN } from '../shared/id.js';
 import { assertSafeSegment } from '../shared/safe-segment.js';
 import { sha256Hex } from '../shared/sha256.js';
 import type { DocumentFormat } from './document-format.js';
@@ -27,6 +28,7 @@ import {
 	type BlobField,
 	type DocumentField,
 	documentFormatOf,
+	type IdField,
 	isBlobField,
 	isDocumentField,
 	type WorkspaceField,
@@ -51,7 +53,7 @@ export { defineKv } from '../document/define-kv.js';
 export type { KvDefinition, KvDefinitions } from '../document/kv.js';
 
 export type Fields = Record<string, WorkspaceField>;
-type TableFields = Fields & { id: TSchema };
+type TableFields = Fields & { id: IdField };
 type DocumentFormats = Record<string, DocumentFormat>;
 
 type CellFields<TFields extends TableFields> = {
@@ -160,10 +162,18 @@ export function defineTable<const TFields extends TableFields>(config: {
 	Object.freeze(compiledColumns);
 
 	const id = (compiledColumns as Record<string, CompiledColumn>).id;
-	if (!id || id.kind !== 'string' || id.isNullable) {
-		throw new Error(
-			"Table column 'id' must be a non-null field.string() schema",
-		);
+	const idSchema = (ownedColumns as Record<string, TSchema>).id as
+		| (TSchema & Record<string, unknown>)
+		| undefined;
+	if (
+		!id ||
+		id.kind !== 'string' ||
+		id.isNullable ||
+		idSchema?.minLength !== 1 ||
+		idSchema.maxLength !== ID_MAX_LENGTH ||
+		idSchema.pattern !== ID_PATTERN
+	) {
+		throw new Error("Table column 'id' must be a non-null field.id() schema");
 	}
 
 	// Fail at definition time instead of a cryptic runtime parseMutation

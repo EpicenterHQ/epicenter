@@ -5,7 +5,7 @@
 		{
 			"version": 1,
 			"workspaceId": "epicenter-todos-v1",
-			"tablesSchemaHash": "sha256:c9cb7448cd29790e2a3ab45bda9f6d46a7e67aeea1ca0d1e59718b844e829cc4",
+			"tablesSchemaHash": "sha256:b31d31277209a44d7498d58aa9cd6658854b32322ab4d318b6023c4141e55f15",
 			"planes": {
 				"kv": "epicenter-todos-v1.kv"
 			}

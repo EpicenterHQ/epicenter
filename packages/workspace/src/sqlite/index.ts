@@ -6,6 +6,7 @@
  */
 
 export { nullable } from '../document/nullable.js';
+export { generateId, type Id } from '../shared/id.js';
 
 export {
 	type AsyncTable,

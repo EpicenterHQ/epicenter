@@ -40,7 +40,7 @@ import { mountRecordsApp } from './records.js';
 
 const notes = defineTable({
 	fields: {
-		id: field.string(),
+		id: field.id(),
 		title: field.string(),
 	},
 });
