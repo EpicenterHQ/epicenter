@@ -1,11 +1,11 @@
 import { asPrincipalId } from '@epicenter/identity';
+import { createNodeId } from '@epicenter/workspace';
 import {
 	inspectBrowserWorkspace,
 	openBrowserWorkspace,
 	type StandaloneWorkspace,
 	type WorkspaceReplica,
 } from '@epicenter/workspace/sqlite/browser';
-import * as Y from 'yjs';
 import versionLock from '../../../workspace-version-lock.json' with {
 	type: 'json',
 };
@@ -41,8 +41,13 @@ const authority =
 const hasPredecessors = versionLock.versions.some(
 	({ version }) => version < workspaceDefinition.version,
 );
+const documentSync = {
+	nodeId: createNodeId({ storage: localStorage }),
+	openWebSocket: (url: string | URL, protocols?: string[]) =>
+		new WebSocket(url, protocols),
+	onReconnectSignal: (_reconnect: () => void) => () => undefined,
+};
 let workspace: Workspace | undefined;
-let preferencesDoc: Y.Doc | undefined;
 
 function requireApp(): HTMLElement {
 	const element = document.querySelector('main');
@@ -100,36 +105,25 @@ function renderGate(): void {
 }
 
 async function openCurrent(): Promise<void> {
-	const nextPreferencesDoc = new Y.Doc({
-		guid: workspaceDefinition.kvDocumentGuid,
-	});
-	const options = {
-		kv: { doc: nextPreferencesDoc },
-		onObserverError: reportError,
-	};
-	try {
-		workspace =
-			workspaceKind === 'replica'
-				? await openBrowserWorkspace(workspaceDefinition, {
-						...options,
-						authority: {
-							kind: 'server',
-							baseURL: syncOrigin.origin,
-							principalId: asPrincipalId('browser-smoke'),
-						},
-						fetch,
-						worker: () => new WorkspaceWorker(),
-					})
-				: await openBrowserWorkspace(workspaceDefinition, {
-						...options,
-						authority: { kind: 'local' },
-						worker: () => new WorkspaceWorker(),
-					});
-		preferencesDoc = nextPreferencesDoc;
-	} catch (cause) {
-		nextPreferencesDoc.destroy();
-		throw cause;
-	}
+	const options = { onObserverError: reportError };
+	workspace =
+		workspaceKind === 'replica'
+			? await openBrowserWorkspace(workspaceDefinition, {
+					...options,
+					authority: {
+						kind: 'server',
+						baseURL: syncOrigin.origin,
+						principalId: asPrincipalId('browser-smoke'),
+					},
+					fetch,
+					documentSync,
+					worker: () => new WorkspaceWorker(),
+				})
+			: await openBrowserWorkspace(workspaceDefinition, {
+					...options,
+					authority: { kind: 'local' },
+					worker: () => new WorkspaceWorker(),
+				});
 	window.versionTwoSmoke = {
 		create(note) {
 			return getWorkspace().tables.notes.create(note);
@@ -142,13 +136,8 @@ async function openCurrent(): Promise<void> {
 		},
 		identity,
 		async dispose() {
-			try {
-				await workspace?.[Symbol.asyncDispose]();
-			} finally {
-				workspace = undefined;
-				preferencesDoc?.destroy();
-				preferencesDoc = undefined;
-			}
+			await workspace?.[Symbol.asyncDispose]();
+			workspace = undefined;
 		},
 	};
 	document.body.dataset.workspaceId = workspaceDefinition.workspaceId;
@@ -165,11 +154,9 @@ function getWorkspace(): Workspace {
 }
 
 function identity() {
-	const kvDocumentGuid = preferencesDoc?.guid;
-	if (!kvDocumentGuid) throw new Error('Version two KV is not open');
 	return {
 		workspaceId: workspaceDefinition.workspaceId,
-		kvDocumentGuid,
+		kvDocumentGuid: workspaceDefinition.kvDocumentGuid,
 		childDocumentGuid:
 			getWorkspace().tables.notes.docs.body.guid('identity-proof-row'),
 	};

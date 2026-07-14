@@ -44,8 +44,8 @@
 
 	let newEntry = $state('');
 
-	function addEntry() {
-		if (entriesState.save(newEntry)) {
+	async function addEntry() {
+		if (await entriesState.save(newEntry)) {
 			newEntry = '';
 		}
 	}
@@ -71,7 +71,7 @@
 			class="flex items-center gap-1 px-2 py-1"
 			onsubmit={(event) => {
 				event.preventDefault();
-				addEntry();
+				void addEntry().catch(reportError);
 			}}
 		>
 			<Input bind:value={newEntry} placeholder="Entry" class="h-7 text-sm" />

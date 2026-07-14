@@ -24,12 +24,12 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { field } from '../packages/field/src/index.js';
 import {
 	defineKv,
 	defineTable,
 	defineWorkspace,
 } from '../packages/workspace/src/sqlite/definition.js';
+import { field } from '../packages/workspace/src/sqlite/field.js';
 import { WORKSPACE_VERSION_LOCK_FORMAT } from '../packages/workspace/src/sqlite/workspace-version.js';
 
 const scriptPath = fileURLToPath(
@@ -40,7 +40,7 @@ const definitionModuleUrl = new URL(
 	import.meta.url,
 ).href;
 const fieldModuleUrl = new URL(
-	'../packages/field/src/index.js',
+	'../packages/workspace/src/sqlite/field.js',
 	import.meta.url,
 ).href;
 const lockPath = 'app/workspace-version-lock.json';
@@ -50,7 +50,7 @@ type CandidateVariant = 'base' | 'plane-drift' | 'schema-drift';
 function candidateFor(version: number, variant: CandidateVariant = 'base') {
 	if (variant === 'schema-drift') {
 		const rows = defineTable({
-			fields: { id: field.string(), title: field.string() },
+			fields: { id: field.id(), title: field.string() },
 		});
 		return defineWorkspace({
 			appId: 'fixture',
@@ -59,7 +59,7 @@ function candidateFor(version: number, variant: CandidateVariant = 'base') {
 		});
 	}
 	const rows = defineTable({
-		fields: { id: field.string() },
+		fields: { id: field.id() },
 	});
 	return defineWorkspace({
 		appId: 'fixture',
@@ -116,8 +116,8 @@ import { defineKv, defineTable, defineWorkspace } from ${JSON.stringify(definiti
 const rows = defineTable({
 	fields: ${
 		variant === 'schema-drift'
-			? '{ id: field.string(), title: field.string() }'
-			: '{ id: field.string() }'
+			? '{ id: field.id(), title: field.string() }'
+			: '{ id: field.id() }'
 	},
 });
 

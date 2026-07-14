@@ -10,7 +10,10 @@ import {
 	type WorkspaceInspectionEvent,
 } from './browser-inspection.js';
 import { createBrowserReplicaSyncPort } from './browser-replica-sync-bridge.js';
-import { parseBrowserWorkspaceWorkerInitialization } from './browser-runtime-protocol.js';
+import {
+	BROWSER_WORKSPACE_RUNTIME_PROTOCOL,
+	parseBrowserWorkspaceWorkerInitialization,
+} from './browser-runtime-protocol.js';
 import {
 	exposeWorkspaceService,
 	type WorkerWorkspaceService,
@@ -63,6 +66,23 @@ type ServeWorkspaceReplicaWorkerOptions = {
 type BrowserWorkspaceWorkerScope = WorkspaceWorkerScope & {
 	postMessage(message: WorkspaceInspectionEvent): void;
 };
+
+function exposeWorkspaceServiceAfterInitialization(
+	scope: BrowserWorkspaceWorkerScope,
+	service: Promise<WorkerWorkspaceService>,
+): void {
+	exposeWorkspaceService(scope, service, {
+		ignoreMessage(event) {
+			return (
+				typeof event.data === 'object' &&
+				event.data !== null &&
+				(event.data as { protocol?: unknown }).protocol ===
+					BROWSER_WORKSPACE_RUNTIME_PROTOCOL &&
+				(event.data as { type?: unknown }).type === 'initialize'
+			);
+		},
+	});
+}
 
 function postInspectionError(
 	scope: BrowserWorkspaceWorkerScope,
@@ -394,29 +414,25 @@ export function serveBrowserWorkspaceWorker<TTables extends TableDefinitions>(
 			);
 			isInitialized = true;
 			if (initialization.workspaceKind === 'standalone') {
-				exposeWorkspaceService(
-					scope,
-					openOpfsWorkspaceService(definition, {
-						databaseName: initialization.databaseName,
-						onError: options.onError,
-						workspaceKind: 'standalone',
-					}),
-				);
+				const service = openOpfsWorkspaceService(definition, {
+					databaseName: initialization.databaseName,
+					onError: options.onError,
+					workspaceKind: 'standalone',
+				});
+				exposeWorkspaceServiceAfterInitialization(scope, service);
 				return;
 			}
 			syncBridge = createBrowserReplicaSyncPort(initialization.syncPort);
-			exposeWorkspaceService(
-				scope,
-				openOpfsWorkspaceService(definition, {
-					databaseName: initialization.databaseName,
-					sync: syncBridge,
-					disposeSync: () => syncBridge?.[Symbol.dispose](),
-					onSyncError: options.onSyncError,
-					onError: options.onError,
-					pollIntervalMs: options.pollIntervalMs,
-					workspaceKind: 'replica',
-				}),
-			);
+			const service = openOpfsWorkspaceService(definition, {
+				databaseName: initialization.databaseName,
+				sync: syncBridge,
+				disposeSync: () => syncBridge?.[Symbol.dispose](),
+				onSyncError: options.onSyncError,
+				onError: options.onError,
+				pollIntervalMs: options.pollIntervalMs,
+				workspaceKind: 'replica',
+			});
+			exposeWorkspaceServiceAfterInitialization(scope, service);
 		} catch (cause) {
 			isInitialized = true;
 			syncBridge?.[Symbol.dispose]();

@@ -4,7 +4,8 @@
 	"version": "0.1.0",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./sqlite": "./src/sqlite.ts"
 	},
 	"files": [
 		"src",
@@ -18,10 +19,12 @@
 	"dependencies": {
 		"@epicenter/field": "workspace:*",
 		"@epicenter/workspace": "workspace:*",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"yjs": "catalog:"
 	}
 }

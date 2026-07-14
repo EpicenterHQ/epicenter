@@ -1,0 +1,15 @@
+{
+	"format": "epicenter.workspace-version-lock/1",
+	"appId": "epicenter-honeycrisp",
+	"versions": [
+		{
+			"version": 1,
+			"workspaceId": "epicenter-honeycrisp-v1",
+			"tablesSchemaHash": "sha256:818b569c2206646a62123deaab3604d34c85487935b86fcb744ab1ab79e13d14",
+			"planes": {
+				"document.notes.body": "epicenter.sqlite-child-document-guid/1;row-id=epicenter.document-row/1;guid=epicenter-honeycrisp-v1.notes.<row-id-sha256>.body.16e3eb230dbc11c0e1bb4e3ab74d31226f9aef9558219b6f1e83c7845e03e3db",
+				"kv": "epicenter-honeycrisp-v1.kv"
+			}
+		}
+	]
+}

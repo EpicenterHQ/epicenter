@@ -1,26 +1,46 @@
 /**
  * Vocab browser composition: the one boot call (ADR-0088/ADR-0094).
  *
- * `toConnection` reads `auth.state` once: signed out projects to `null` (bare
- * guid-named IndexedDB, cross-tab channel, no relay), signed in projects to
- * the principal's connection (principal-scoped storage plus relay). Both arms return
- * the same bundle shape, per-conversation message-doc openers and `wipe()`
- * included, so nothing downstream branches on auth again.
+ * Auth is projected once into a local or server authority. Both branches open
+ * the same version-locked contract; the shared browser opener owns SQLite,
+ * KV, child-document persistence, synchronization, and teardown.
  */
 
 import type { SyncAuthClient } from '@epicenter/auth';
-import { toConnection } from '@epicenter/svelte/auth';
+import { toWorkspaceAuthority } from '@epicenter/svelte/auth';
 import type { NodeId } from '@epicenter/workspace';
-import { vocabWorkspace } from './vocab.js';
+import { openBrowserWorkspace } from '@epicenter/workspace/sqlite/browser';
+import { vocabWorkspaceDefinition } from './src/versions/v1/definition.js';
+import WorkspaceWorker from './src/versions/v1/workspace.worker?worker';
 
-export function openVocabBrowser({
+export async function openVocabBrowser({
 	auth,
 	nodeId,
 }: {
 	auth: SyncAuthClient;
 	nodeId: NodeId;
 }) {
-	return vocabWorkspace.connect(toConnection(auth, nodeId));
+	const authority = toWorkspaceAuthority(auth);
+	const common = {
+		worker: () => new WorkspaceWorker(),
+		onObserverError: reportError,
+	};
+	if (authority.kind === 'server') {
+		return openBrowserWorkspace(vocabWorkspaceDefinition, {
+			...common,
+			authority,
+			fetch: auth.fetch,
+			documentSync: {
+				nodeId,
+				openWebSocket: auth.openWebSocket,
+				onReconnectSignal: auth.onStateChange,
+			},
+		});
+	}
+	return openBrowserWorkspace(vocabWorkspaceDefinition, {
+		...common,
+		authority,
+	});
 }
 
-export type VocabBrowser = ReturnType<typeof openVocabBrowser>;
+export type VocabBrowser = Awaited<ReturnType<typeof openVocabBrowser>>;

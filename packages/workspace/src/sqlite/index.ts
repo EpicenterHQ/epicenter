@@ -13,6 +13,7 @@ export {
 	type AsyncTables,
 	type AsyncWorkspace,
 	asyncWorkspaceHandle,
+	type OpenedTable,
 	type TableCommitDelta,
 	type WorkspaceCommitDelta,
 	type WorkspaceWriteBatch,

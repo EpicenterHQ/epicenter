@@ -9,7 +9,6 @@
 	import { instanceSetting } from '$lib/instance';
 	import { auth } from '$lib/platform/auth';
 	import { dictation } from '$lib/state/dictation.svelte';
-	import { vocab } from '$lib/vocab';
 	import EntriesPanel from './EntriesPanel.svelte';
 
 	let {
@@ -37,12 +36,10 @@
 			<span class="text-sm font-semibold">Vocab</span>
 			<AccountPopover
 				{auth}
-				collaboration={vocab.collaboration}
 				syncNoun="conversations"
 				disabledReason={dictation.status !== 'idle'
 					? 'Finish dictating to change your account'
 					: undefined}
-				onForgetDevice={() => vocab.wipe()}
 				instanceConnect={{ appName: 'Vocab', setting: instanceSetting }}
 			/>
 		</div>

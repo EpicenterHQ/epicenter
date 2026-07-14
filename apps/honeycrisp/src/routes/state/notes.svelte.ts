@@ -1,9 +1,9 @@
 /**
  * Reactive notes state for Honeycrisp.
  *
- * Manages note CRUD operations and reactive note collections. Backed by
- * a Y.Doc CRDT table, so notes sync across devices. Clears URL search
- * param selection when a selected note is deleted.
+ * Manages async note mutations and reactive SQLite projections. Rich-text
+ * bodies remain separate Yjs child documents. Clears URL search parameters
+ * when a selected note is deleted.
  *
  * @example
  * ```svelte
@@ -19,11 +19,7 @@
  */
 
 import { InstantString } from '@epicenter/field';
-import {
-	type FolderId,
-	generateNoteId,
-	type NoteId,
-} from '@epicenter/honeycrisp';
+import type { FolderId, NoteId } from '@epicenter/honeycrisp';
 import { fromTable } from '@epicenter/svelte';
 import type { HoneycrispBrowser } from '$lib/workspace/browser';
 import type { createFolders } from './folders.svelte';
@@ -65,6 +61,7 @@ export function createNotes({
 	// ─── Public API ──────────────────────────────────────────────────────
 
 	return {
+		whenReady: notesView.whenReady,
 		/**
 		 * Look up a note by ID. Returns `undefined` if not found.
 		 */
@@ -95,10 +92,8 @@ export function createNotes({
 		 * app.state.view.selectNote(id);
 		 * ```
 		 */
-		create(folderId: FolderId | null) {
-			const id = generateNoteId();
-			honeycrisp.tables.notes.set({
-				id,
+		async create(folderId: FolderId | null) {
+			const row = await honeycrisp.tables.notes.create({
 				folderId,
 				title: '',
 				preview: '',
@@ -108,7 +103,7 @@ export function createNotes({
 				createdAt: InstantString.now(),
 				updatedAt: InstantString.now(),
 			});
-			return { id };
+			return { id: row.id };
 		},
 
 		/**
@@ -125,9 +120,9 @@ export function createNotes({
 		 * ```
 		 */
 		softDelete(noteId: NoteId) {
-			honeycrisp.tables.notes.update(noteId, {
-				deletedAt: InstantString.now(),
-			});
+			void honeycrisp.tables.notes
+				.patch(noteId, { deletedAt: InstantString.now() })
+				.catch(reportError);
 			if (searchParams.note === noteId) {
 				searchParams.update({ note: null });
 			}
@@ -151,10 +146,12 @@ export function createNotes({
 			const folderExists = note.folderId
 				? folders.all.some((f) => f.id === note.folderId)
 				: true;
-			honeycrisp.tables.notes.update(noteId, {
-				deletedAt: null,
-				...(folderExists ? {} : { folderId: null }),
-			});
+			void honeycrisp.tables.notes
+				.patch(noteId, {
+					deletedAt: null,
+					...(folderExists ? {} : { folderId: null }),
+				})
+				.catch(reportError);
 		},
 
 		/**
@@ -170,7 +167,7 @@ export function createNotes({
 		 * ```
 		 */
 		permanentlyDelete(noteId: NoteId) {
-			honeycrisp.tables.notes.delete(noteId);
+			void honeycrisp.tables.notes.remove(noteId).catch(reportError);
 			if (searchParams.note === noteId) {
 				searchParams.update({ note: null });
 			}
@@ -191,9 +188,9 @@ export function createNotes({
 		togglePin(noteId: NoteId) {
 			const note = notesView.byId(noteId);
 			if (!note) return;
-			honeycrisp.tables.notes.update(noteId, {
-				pinned: !note.pinned,
-			});
+			void honeycrisp.tables.notes
+				.patch(noteId, { pinned: !note.pinned })
+				.catch(reportError);
 		},
 
 		/**
@@ -211,7 +208,9 @@ export function createNotes({
 		 * ```
 		 */
 		moveToFolder(noteId: NoteId, folderId: FolderId | null) {
-			honeycrisp.tables.notes.update(noteId, { folderId });
+			void honeycrisp.tables.notes
+				.patch(noteId, { folderId })
+				.catch(reportError);
 		},
 
 		/**
@@ -242,11 +241,19 @@ export function createNotes({
 				wordCount: number;
 			},
 		) {
-			honeycrisp.tables.notes.update(noteId, {
-				title,
-				preview,
-				wordCount,
-			});
+			void honeycrisp.tables.notes
+				.patch(noteId, { title, preview, wordCount })
+				.catch(reportError);
+		},
+
+		/** Stamp recency after one local rich-text document update. */
+		touch(noteId: NoteId) {
+			void honeycrisp.tables.notes
+				.patch(noteId, { updatedAt: InstantString.now() })
+				.catch(reportError);
+		},
+		[Symbol.dispose]() {
+			notesView[Symbol.dispose]();
 		},
 	};
 }

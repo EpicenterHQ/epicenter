@@ -41,9 +41,13 @@ import {
 	asConversationId,
 	type Conversation,
 	type ConversationId,
-	type ConversationsTable,
 	generateConversationId,
+	type ConversationsTable as LegacyConversationsTable,
 } from '@epicenter/chat';
+import type {
+	OpenedConversationMessages,
+	ConversationsTable as SqliteConversationsTable,
+} from '@epicenter/chat/sqlite';
 import { createOpenAiAgentEngine } from '@epicenter/client';
 import { bindAgentConversation, fromTable } from '@epicenter/svelte';
 import { generateId, InstantString } from '@epicenter/workspace';
@@ -55,6 +59,7 @@ import {
 	defaultApprovalDecision,
 	type ToolCatalog,
 } from '@epicenter/workspace/agent';
+import { asyncWorkspaceHandle } from '@epicenter/workspace/sqlite';
 import { SvelteMap } from 'svelte/reactivity';
 import type { InferenceConnections } from '../inference-picker/connections.svelte.js';
 
@@ -76,6 +81,8 @@ export type AgentChatState = ReturnType<typeof createAgentChatState>;
 
 /** A reactive handle for a single conversation backed by the client loop. */
 export type ConversationHandle = NonNullable<AgentChatState['active']>;
+
+type ConversationsTable = LegacyConversationsTable | SqliteConversationsTable;
 
 /**
  * What the agent can do: the persona and capabilities an app gives its chat
@@ -117,7 +124,10 @@ export function createAgentChatState({
 	/** What the agent can do: the app's persona and capabilities. */
 	agent: AgentKit;
 }) {
-	const conversationsView = fromTable(table);
+	const isAsyncTable = asyncWorkspaceHandle in table;
+	const conversationsView = isAsyncTable
+		? fromTable(table as SqliteConversationsTable)
+		: fromTable(table as LegacyConversationsTable);
 
 	// The selected conversation: an injected source (a URL, say), or an internal
 	// `$state` default minted only when no source is given.
@@ -140,7 +150,14 @@ export function createAgentChatState({
 		conversationId: ConversationId,
 		patch: Partial<Omit<Conversation, 'id'>>,
 	) {
-		table.update(conversationId, { ...patch, updatedAt: InstantString.now() });
+		const cells = { ...patch, updatedAt: InstantString.now() };
+		if (isAsyncTable) {
+			void (table as SqliteConversationsTable)
+				.patch(conversationId, cells)
+				.catch(reportError);
+			return;
+		}
+		(table as LegacyConversationsTable).update(conversationId, cells);
 	}
 
 	// ── Handle Registry (one handle per conversation row) ──────────────
@@ -186,9 +203,24 @@ export function createAgentChatState({
 		// Bind the conversation's child doc to the loop. The engine reads this
 		// conversation's model and the live system prompts per turn, so a
 		// mid-conversation model switch takes effect on the next answer.
+		const messageStore = isAsyncTable
+			? (() => {
+					const opened = (table as SqliteConversationsTable).docs.messages.open(
+						conversationId,
+					) as OpenedConversationMessages;
+					return {
+						set: opened.content.set,
+						entries: opened.content.entries,
+						observe: opened.content.observe,
+						[Symbol.dispose]() {
+							opened[Symbol.dispose]();
+						},
+					};
+				})()
+			: (table as LegacyConversationsTable).docs.messages.open(conversationId);
 		const convo = bindAgentConversation(
 			createAgentConversation({
-				store: table.docs.messages.open(conversationId),
+				store: messageStore,
 				engine: createOpenAiAgentEngine({
 					// The conversation's model (ADR-0055) is resolved per turn against this
 					// device's connection set (ADR-0059), so a switch lands on the next
@@ -398,7 +430,7 @@ export function createAgentChatState({
 			},
 
 			delete() {
-				deleteConversation(conversationId);
+				void deleteConversation(conversationId).catch(reportError);
 			},
 		};
 	}
@@ -414,8 +446,9 @@ export function createAgentChatState({
 	 * dispose one whose row is gone, and keep a live conversation selected.
 	 */
 	function reconcileHandles() {
+		const liveIds = new Set(conversationsView.all.map((row) => row.id));
 		for (const id of handles.keys()) {
-			if (!table.has(id)) destroyConversation(id);
+			if (!liveIds.has(id)) destroyConversation(id);
 		}
 		for (const id of conversationsView.all.map((c) => c.id)) {
 			const conversationId = asConversationId(id);
@@ -436,10 +469,16 @@ export function createAgentChatState({
 
 	// Once the synced doc has loaded, mirror it in and guarantee a conversation
 	// to land in (a fresh install has none).
-	void whenLoaded.then(() => {
-		reconcileHandles();
-		if (conversationList.length === 0) createConversation();
-	});
+	const tableReady =
+		'whenReady' in conversationsView
+			? conversationsView.whenReady
+			: Promise.resolve();
+	void Promise.all([whenLoaded, tableReady])
+		.then(() => {
+			reconcileHandles();
+			if (conversationList.length === 0) return createConversation();
+		})
+		.catch(reportError);
 
 	reconcileHandles();
 
@@ -450,32 +489,46 @@ export function createAgentChatState({
 	 * forward, and select it. The handle is created synchronously so the UI never
 	 * sees a momentarily-missing active conversation.
 	 */
-	function createConversation(): ConversationId {
-		const id = generateConversationId();
+	async function createConversation(): Promise<ConversationId> {
 		const nowIso = InstantString.now();
 		const current =
 			selection.current === null ? undefined : handles.get(selection.current);
-
-		table.set({
-			id,
-			title: 'New Chat',
-			model: current?.model ?? defaultModel,
-			createdAt: nowIso,
-			updatedAt: nowIso,
-		});
+		let id: ConversationId;
+		if (isAsyncTable) {
+			const row = await (table as SqliteConversationsTable).create({
+				title: 'New Chat',
+				model: current?.model ?? defaultModel,
+				createdAt: nowIso,
+				updatedAt: nowIso,
+			});
+			id = row.id;
+		} else {
+			id = generateConversationId();
+			(table as LegacyConversationsTable).set({
+				id,
+				title: 'New Chat',
+				model: current?.model ?? defaultModel,
+				createdAt: nowIso,
+				updatedAt: nowIso,
+			});
+		}
 		if (!handles.has(id)) handles.set(id, createConversationHandle(id));
 		selection.select(id);
 		return id;
 	}
 
-	function deleteConversation(conversationId: ConversationId) {
-		table.delete(conversationId);
+	async function deleteConversation(conversationId: ConversationId) {
+		if (isAsyncTable) {
+			await (table as SqliteConversationsTable).remove(conversationId);
+		} else {
+			(table as LegacyConversationsTable).delete(conversationId);
+		}
 		destroyConversation(conversationId);
 
 		if (selection.current === conversationId) {
 			const next = conversationList[0];
 			if (next) selection.select(next.id);
-			else createConversation();
+			else await createConversation();
 		}
 	}
 
@@ -484,6 +537,9 @@ export function createAgentChatState({
 	return {
 		[Symbol.dispose]() {
 			_unobserve();
+			if ('whenReady' in conversationsView) {
+				conversationsView[Symbol.dispose]();
+			}
 			for (const id of [...handles.keys()]) destroyConversation(id);
 		},
 

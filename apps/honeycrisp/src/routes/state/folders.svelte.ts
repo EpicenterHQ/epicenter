@@ -1,9 +1,8 @@
 /**
  * Reactive folder state for Honeycrisp.
  *
- * Manages folder CRUD operations and the reactive folder list. Backed by
- * a Y.Doc CRDT table, so folders sync across devices. Clears URL search
- * param selections when the active folder is deleted.
+ * Manages async folder mutations and the reactive SQLite projection. Clears
+ * URL search param selections when the active folder is deleted.
  *
  * @example
  * ```svelte
@@ -18,7 +17,7 @@
  * ```
  */
 
-import { type FolderId, generateFolderId } from '@epicenter/honeycrisp';
+import type { FolderId } from '@epicenter/honeycrisp';
 import { fromTable } from '@epicenter/svelte';
 import type { HoneycrispBrowser } from '$lib/workspace/browser';
 import { searchParams } from './search-params.svelte';
@@ -33,6 +32,7 @@ export function createFolders(honeycrisp: HoneycrispBrowser) {
 	// ─── Public API ──────────────────────────────────────────────────────
 
 	return {
+		whenReady: foldersView.whenReady,
 		/**
 		 * Look up a folder by ID. Returns `undefined` if not found.
 		 */
@@ -56,10 +56,8 @@ export function createFolders(honeycrisp: HoneycrispBrowser) {
 		 * // Folder appears in sidebar with name "New Folder"
 		 * ```
 		 */
-		create() {
-			const id = generateFolderId();
-			honeycrisp.tables.folders.set({
-				id,
+		async create() {
+			await honeycrisp.tables.folders.create({
 				name: 'New Folder',
 				icon: null,
 				sortOrder: foldersView.all.length,
@@ -78,19 +76,20 @@ export function createFolders(honeycrisp: HoneycrispBrowser) {
 		 * ```
 		 */
 		rename(folderId: FolderId, name: string) {
-			honeycrisp.tables.folders.update(folderId, { name });
+			void honeycrisp.tables.folders
+				.patch(folderId, { name })
+				.catch(reportError);
 		},
 
 		/**
 		 * Delete a folder and move all its notes to unfiled.
 		 *
 		 * The folder is removed from the sidebar. All notes that were in this
-		 * folder are moved to the unfiled section (folderId set to undefined).
+		 * folder are moved to the unfiled section (`folderId` set to `null`).
 		 * If the deleted folder was selected, the folder and note selections are cleared.
 		 *
-		 * Calls the workspace action directly (`honeycrisp.actions`): the action
-		 * is a local table mutation, not a network RPC. Collaboration is sync and
-		 * presence only, and is `undefined` signed out (ADR-0088).
+		 * Calls the runtime action directly. It commits the folder removal and note
+		 * patches as one SQLite workspace mutation.
 		 *
 		 * @example
 		 * ```typescript
@@ -99,10 +98,13 @@ export function createFolders(honeycrisp: HoneycrispBrowser) {
 		 * ```
 		 */
 		delete(folderId: FolderId) {
-			honeycrisp.actions.folders_delete({ folderId });
+			void honeycrisp.actions.folders_delete({ folderId }).catch(reportError);
 			if (searchParams.folder === folderId) {
 				searchParams.update({ folder: null, note: null });
 			}
+		},
+		[Symbol.dispose]() {
+			foldersView[Symbol.dispose]();
 		},
 	};
 }

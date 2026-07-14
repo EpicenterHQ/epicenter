@@ -270,10 +270,15 @@ export type WorkspaceWorkerScope = {
 	): void;
 };
 
+type ExposeWorkspaceServiceOptions = {
+	ignoreMessage?(event: MessageEvent<unknown>): boolean;
+};
+
 /** Expose one asynchronously opened workspace service from a module Worker. */
 export function exposeWorkspaceService(
 	scope: WorkspaceWorkerScope,
 	openService: Promise<WorkerWorkspaceService>,
+	options: ExposeWorkspaceServiceOptions = {},
 ): void {
 	let service: WorkerWorkspaceService | undefined;
 	let stopObserving: (() => void) | undefined;
@@ -383,11 +388,21 @@ export function exposeWorkspaceService(
 
 	scope.addEventListener('message', (event) => {
 		if (isFatal) return;
+		if (options.ignoreMessage?.(event)) return;
 		let command: WorkspaceWorkerCommand;
 		try {
 			command = parseWorkspaceWorkerCommand(event.data);
 		} catch (cause) {
-			void becomeFatal(cause);
+			const envelope =
+				typeof event.data === 'object' && event.data !== null
+					? (event.data as { protocol?: unknown; type?: unknown })
+					: {};
+			void becomeFatal(
+				new Error(
+					`Invalid workspace worker command envelope (protocol: ${String(envelope.protocol)}, type: ${String(envelope.type)})`,
+					{ cause },
+				),
+			);
 			return;
 		}
 		tail = tail

@@ -9,17 +9,23 @@
 </script>
 
 <svelte:window
-	onkeydown={(e) => {
+	onkeydown={async (e) => {
 		const meta = e.metaKey || e.ctrlKey;
 		if (!meta) return;
 
 		if (e.key === 'n' && e.shiftKey) {
 			e.preventDefault();
-			honeycrisp.state.folders.create();
+			void honeycrisp.state.folders.create().catch(reportError);
 		} else if (e.key === 'n') {
 			e.preventDefault();
-			const { id } = honeycrisp.state.notes.create(honeycrisp.state.view.selectedFolderId);
-			honeycrisp.state.view.selectNote(id);
+			try {
+				const { id } = await honeycrisp.state.notes.create(
+					honeycrisp.state.view.selectedFolderId,
+				);
+				honeycrisp.state.view.selectNote(id);
+			} catch (cause) {
+				reportError(cause);
+			}
 		}
 	}}
 />

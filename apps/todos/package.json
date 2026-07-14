@@ -6,7 +6,8 @@
 	"type": "module",
 	"exports": {
 		".": "./todos.ts",
-		"./browser": "./todos.browser.ts"
+		"./browser": "./todos.browser.ts",
+		"./legacy": "./todos.legacy.ts"
 	},
 	"scripts": {
 		"dev": "vite dev",

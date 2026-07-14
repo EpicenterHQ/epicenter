@@ -1,0 +1,16 @@
+{
+	"format": "epicenter.workspace-version-lock/1",
+	"appId": "epicenter-vocab",
+	"versions": [
+		{
+			"version": 1,
+			"workspaceId": "epicenter-vocab-v1",
+			"tablesSchemaHash": "sha256:7c1d5a914d63f5839f3aa20aed4a8f3a102dccdd40a6be84140a8fdd3c0a0261",
+			"planes": {
+				"document.conversations.messages": "epicenter.sqlite-child-document-guid/1;row-id=epicenter.document-row/1;guid=epicenter-vocab-v1.conversations.<row-id-sha256>.messages.f3f219dbb4944a4950d7cb3627acfdd1d09462082009029b42fe88a55a4fcdd5",
+				"kv": "epicenter-vocab-v1.kv",
+				"kv.showReadings": "sha256:7cb541e84f226754a46c21c79f131fa2898354e1242456e6fd1c162bce319553"
+			}
+		}
+	]
+}

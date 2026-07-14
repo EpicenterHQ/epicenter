@@ -19,7 +19,7 @@
 	// on. The active conversation lives in internal state (Vocab has no URL seam).
 	const chat = createAgentChatState({
 		table: vocab.tables.conversations,
-		whenLoaded: vocab.storage.whenLoaded,
+		whenLoaded: vocab.whenReady,
 		connections: inferenceConnections,
 		agent: {
 			buildSystemPrompts: () => [VOCAB_SYSTEM_PROMPT],
@@ -32,9 +32,9 @@
 	/** Compile the chosen entries into a practice turn and send it. Focus lands in
 	 * the active conversation, opening one only when none exists. The passage
 	 * comes back under the tutor system prompt; nothing is written to the entries. */
-	function practice(entryTexts: string[]) {
+	async function practice(entryTexts: string[]) {
 		if (entryTexts.length === 0) return;
-		if (!chat.active) chat.createConversation();
+		if (!chat.active) await chat.createConversation();
 		chat.active?.sendMessage(buildPracticePrompt(entryTexts));
 	}
 </script>
@@ -43,7 +43,7 @@
 	<VocabSidebar
 		conversations={chat.conversations}
 		activeConversationId={chat.activeConversationId}
-		onCreate={() => chat.createConversation()}
+		onCreate={() => void chat.createConversation().catch(reportError)}
 		onSwitch={(conversationId) => chat.switchTo(conversationId)}
 		onPractice={practice}
 		generating={chat.active?.isLoading ?? false}

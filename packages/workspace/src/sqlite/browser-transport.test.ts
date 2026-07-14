@@ -13,8 +13,8 @@ import type {
 import {
 	parseWorkspaceWorkerCommand,
 	parseWorkspaceWorkerEvent,
-	type WorkspaceWorkerEvent,
 	WORKSPACE_WORKER_PROTOCOL,
+	type WorkspaceWorkerEvent,
 } from './service-protocol.js';
 
 type Listener = (event: { data: unknown }) => void;
@@ -194,6 +194,26 @@ describe('workspace worker protocol', () => {
 });
 
 describe('workspace worker transport', () => {
+	test('an explicitly ignored initialization event does not poison commands', async () => {
+		const pair = createWorkerPair();
+		const service = createService(async () => description);
+		let isFirstMessage = true;
+		exposeWorkspaceService(pair.scope, Promise.resolve(service), {
+			ignoreMessage(event) {
+				if (!isFirstMessage) return false;
+				isFirstMessage = false;
+				return (event.data as { type?: unknown }).type === 'initialize';
+			},
+		});
+		pair.worker.postMessage({ type: 'initialize' });
+
+		const port = createWorkspaceWorkerPort(pair.worker, {
+			onObserverError() {},
+		});
+		expect(await port.request({ kind: 'describe' })).toEqual(description);
+		await port[Symbol.asyncDispose]();
+	});
+
 	test('describe is the readiness handshake and mutations publish before resolving', async () => {
 		const pair = createWorkerPair();
 		const timeline: string[] = [];

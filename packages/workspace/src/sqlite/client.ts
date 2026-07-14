@@ -5,6 +5,7 @@ import { type Guid, generateId } from '../shared/id.js';
 import {
 	assertWorkspaceDefinition,
 	type RowFor,
+	type TableDefinition,
 	type TableDefinitions,
 	type WorkspaceDefinition,
 } from './definition.js';
@@ -103,6 +104,13 @@ export type AsyncTables<
 		TDocumentOpener
 	>;
 };
+
+/** One opened table with its declared child-document formats available. */
+export type OpenedTable<TDefinition extends TableDefinition> = AsyncTable<
+	RowFor<TDefinition>,
+	TDefinition['documents'],
+	WorkspaceDocumentOpener
+>;
 
 type BatchTable<TRow extends { id: string }> = {
 	create(cells: CreateInput<TRow>): TRow['id'];
@@ -260,7 +268,9 @@ export function createWorkspaceClient<TTables extends TableDefinitions>(
 					const response = await port.request({
 						kind: 'list',
 						table: tableName,
-						options: options as TableListOptions | undefined,
+						...(options && {
+							options: options as TableListOptions,
+						}),
 					});
 					return expectResponse(response, 'rows').rows.map((row) =>
 						rowForTable(tableName, row),

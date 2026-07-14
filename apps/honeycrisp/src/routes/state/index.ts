@@ -9,11 +9,16 @@ export function createHoneycrispState(honeycrisp: HoneycrispBrowser) {
 	const view = createView({ folders, notes });
 
 	return {
+		whenReady: Promise.all([folders.whenReady, notes.whenReady]).then(
+			() => undefined,
+		),
 		folders,
 		notes,
 		view,
 		[Symbol.dispose]() {
 			view[Symbol.dispose]();
+			folders[Symbol.dispose]();
+			notes[Symbol.dispose]();
 		},
 	};
 }

@@ -40,8 +40,8 @@
 			label: 'New Note',
 			group: 'Actions',
 			icon: PlusIcon,
-			onSelect: () => {
-				const { id } = honeycrisp.state.notes.create(
+			onSelect: async () => {
+				const { id } = await honeycrisp.state.notes.create(
 					honeycrisp.state.view.selectedFolderId,
 				);
 				honeycrisp.state.view.selectNote(id);
@@ -52,7 +52,7 @@
 			label: 'New Folder',
 			group: 'Actions',
 			icon: FolderPlusIcon,
-			onSelect: () => honeycrisp.state.folders.create(),
+			onSelect: () => void honeycrisp.state.folders.create().catch(reportError),
 		},
 	]);
 </script>

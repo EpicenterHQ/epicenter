@@ -20,8 +20,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { type Conversation, generateConversationId } from '@epicenter/chat';
-import { honeycrispWorkspace } from '@epicenter/honeycrisp';
-import { todosWorkspace } from '@epicenter/todos';
+import { honeycrispWorkspace } from '@epicenter/honeycrisp/legacy';
+import { todosWorkspace } from '@epicenter/todos/legacy';
 import { createNodeId, generateId, InstantString } from '@epicenter/workspace';
 import {
 	type AgentEngine,

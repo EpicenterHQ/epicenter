@@ -5,14 +5,12 @@
  * `openHoneycrispBrowser` reads the persisted `auth.state` ONCE at startup
  * and picks the workspace preset: bare local IndexedDB (signed out) or
  * principal-scoped storage plus relay sync (signed in / reauth-required).
- * Construction is synchronous; data still loads async behind `whenReady`.
+ * Construction and hydration complete before the singleton is exported.
  * Identity changes are never an in-place swap: `reloadOnPrincipalChange` (mounted
  * in the root layout) reloads the page so the next boot re-runs this selection.
  *
- * `honeycrisp` composes that browser bundle with `createHoneycrispState`, the
- * app's reactive folder/note/view state. There is no `require*()` accessor
- * and no HMR dispose block: the workspace is never `null`, so nothing gates
- * on it existing (matches Whispering's `whispering` singleton).
+ * `honeycrisp` composes that browser bundle with the app's reactive
+ * folder/note/view state. The workspace is never nullable.
  */
 
 import { createNodeId } from '@epicenter/workspace';
@@ -22,12 +20,12 @@ import { openHoneycrispBrowser } from './workspace/browser';
 
 const nodeId = createNodeId({ storage: localStorage });
 
-const browser = openHoneycrispBrowser({ auth, nodeId });
+const browser = await openHoneycrispBrowser({ auth, nodeId });
 const state = createHoneycrispState(browser);
 
 export const honeycrisp = {
 	...browser,
 	state,
-	/** Resolves when local persistence has hydrated the root doc. */
-	whenReady: browser.storage.whenLoaded,
+	/** Resolves after both SQLite row projections have their initial snapshot. */
+	whenReady: state.whenReady,
 };

@@ -408,11 +408,17 @@ test('document runtime opens current format-addressed endpoints', async () => {
 	const target = workspace.tables.recordings.docs.transcript.open(rowId);
 	await target.whenReady;
 
+	let localUpdates = 0;
+	const stopLocalUpdates = target.observeLocalUpdate(() => {
+		localUpdates++;
+	});
 	target.content.write('current transcript');
 
 	expect(target.content.read()).toBe('current transcript');
+	expect(localUpdates).toBe(1);
 	expect(target.guid.split('.')).toHaveLength(5);
 
+	stopLocalUpdates();
 	target[Symbol.dispose]();
 	expect(disposed).toEqual([target.guid]);
 	await workspace[Symbol.asyncDispose]();

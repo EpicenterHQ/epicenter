@@ -18,9 +18,7 @@
 			<div class="flex items-center gap-1">
 				<AccountPopover
 					{auth}
-					collaboration={honeycrisp.collaboration}
 					syncNoun="notes"
-					onForgetDevice={() => honeycrisp.wipe()}
 					instanceConnect={{ appName: 'Honeycrisp', setting: instanceSetting }}
 				/>
 				<Sidebar.Trigger />
@@ -76,7 +74,8 @@
 				</Collapsible.Trigger>
 				<Sidebar.GroupAction
 					title="New Folder"
-					onclick={() => honeycrisp.state.folders.create()}
+					onclick={() =>
+					void honeycrisp.state.folders.create().catch(reportError)}
 				>
 					<PlusIcon />
 					<span class="sr-only">New Folder</span>

@@ -1,5 +1,6 @@
 import type { WorkspaceAuthority } from '@epicenter/workspace/sqlite';
 import {
+	type BrowserWorkspaceDocumentSync,
 	type BrowserWorkspaceFetch,
 	openBrowserWorkspace,
 } from '@epicenter/workspace/sqlite/browser';
@@ -15,6 +16,7 @@ export type OpenTodosBrowserOptions =
 	| {
 			authority: Extract<WorkspaceAuthority, { kind: 'server' }>;
 			fetch: BrowserWorkspaceFetch;
+			documentSync: BrowserWorkspaceDocumentSync;
 	  };
 
 /** Open Todos version 1 against exactly one boot-time authority. */
@@ -31,6 +33,7 @@ export async function openTodosBrowser(options: OpenTodosBrowserOptions) {
 			...common,
 			authority: options.authority,
 			fetch,
+			documentSync: options.documentSync,
 		});
 		return {
 			...workspace,

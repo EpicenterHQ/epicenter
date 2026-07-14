@@ -13,18 +13,15 @@
  *      → `openVocabBrowser({ auth, nodeId })`
  */
 
-import { conversationsTable } from '@epicenter/chat';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
-import { field } from '@epicenter/field';
+import type { AgentMessage } from '@epicenter/workspace/agent';
 import {
 	defineKv,
 	defineTable,
-	defineWorkspace,
-	generateId,
+	field,
 	type Id,
-	type InferTableRow,
-} from '@epicenter/workspace';
-import type { AgentMessage } from '@epicenter/workspace/agent';
+	type RowFor,
+} from '@epicenter/workspace/sqlite';
 import type { Brand } from 'wellcrafted/brand';
 
 /**
@@ -88,11 +85,8 @@ export type VocabMessage = AgentMessage;
 // Entries
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Branded entry id: a nanoid minted when an entry is saved. */
+/** Framework-allocated entry row ID. */
 export type EntryId = Id & Brand<'EntryId'>;
-
-/** Mint a unique {@link EntryId}. */
-export const generateEntryId = (): EntryId => generateId<EntryId>();
 
 /**
  * The entries table: the user-curated store of language units of any length
@@ -102,37 +96,17 @@ export const generateEntryId = (): EntryId => generateId<EntryId>();
  * human-owned: no code path machine-writes it.
  */
 export const entriesTable = defineTable({
-	id: field.string<EntryId>(),
-	text: field.string(),
-	note: field.string(),
-	stage: field.select(['new', 'understood', 'usable']),
-	createdAt: field.instant(),
+	fields: {
+		id: field.id<EntryId>(),
+		text: field.string(),
+		note: field.string(),
+		stage: field.select(['new', 'understood', 'usable']),
+		createdAt: field.instant(),
+	},
 });
 
 /** One entry row. */
-export type Entry = InferTableRow<typeof entriesTable>;
+export type Entry = RowFor<typeof entriesTable>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Workspace Factory
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The isomorphic Vocab workspace definition.
- *
- * Conversation transcripts are not rows: each `conversations.messages` handle
- * opens a synced child doc derived from the conversation id, holding one
- * {@link VocabMessage} per key (ADR-0046). The open client tab answers
- * in-process (ADR-0043): it streams the live turn in component state and writes
- * each finished message into this store.
- */
-export const vocabWorkspace = defineWorkspace({
-	id: 'epicenter-vocab',
-	name: 'vocab',
-	tables: {
-		conversations: conversationsTable,
-		entries: entriesTable,
-	},
-	kv: {
-		showReadings: defineKv(field.boolean(), () => true),
-	},
-});
+/** Synchronized reading-overlay preference for Vocab version 1. */
+export const showReadings = defineKv(field.boolean(), () => true);

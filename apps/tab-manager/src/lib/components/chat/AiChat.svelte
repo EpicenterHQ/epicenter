@@ -33,7 +33,7 @@
 		conversations={aiChat.conversations}
 		activeConversationId={aiChat.activeConversationId}
 		onSwitch={(id) => aiChat.switchTo(id)}
-		onCreate={() => aiChat.createConversation()}
+		onCreate={() => void aiChat.createConversation().catch(reportError)}
 	/>
 
 	{#if active}

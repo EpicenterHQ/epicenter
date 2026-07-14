@@ -11,6 +11,7 @@ import type { Brand } from 'wellcrafted/brand';
 import type { Id } from '../shared/id.js';
 import {
 	type OpenBrowserLocalWorkspaceOptions as BrowserOpenOptions,
+	type BrowserWorkspaceDocumentSync,
 	openBrowserWorkspace,
 } from './browser.js';
 import {
@@ -83,6 +84,7 @@ declare const tableWithDocuments: AsyncTable<
 >;
 declare const documentOpener: WorkspaceDocumentOpener;
 declare const documentRuntime: WorkspaceDocumentRuntime;
+declare const documentSync: BrowserWorkspaceDocumentSync;
 declare const noteId: NoteId;
 declare const recordingId: RecordingId;
 
@@ -92,9 +94,9 @@ type CurrentBodyValue = ReturnType<typeof currentBody.content.read>;
 const currentBodyValue: CurrentBodyValue = 'current';
 
 tableWithDocuments.docs.body.guid(noteId);
-// @ts-expect-error — current table documents retain their owning row-id brand
+// @ts-expect-error: current table documents retain their owning row-id brand
 tableWithDocuments.docs.body.open(recordingId);
-// @ts-expect-error — guid derivation retains the same owning row-id brand
+// @ts-expect-error: guid derivation retains the same owning row-id brand
 tableWithDocuments.docs.body.guid(recordingId);
 
 declare const guidOnlyTable: AsyncTable<
@@ -104,10 +106,10 @@ declare const guidOnlyTable: AsyncTable<
 declare const workspaceWithoutDocuments: AsyncWorkspace<{
 	notes: typeof notesWithDocuments;
 }>;
-// @ts-expect-error — historical document opening is not a workspace surface
+// @ts-expect-error: historical document opening is not a workspace surface
 workspaceWithoutDocuments.documents;
 guidOnlyTable.docs.body.guid(noteId);
-// @ts-expect-error — opening requires a composed document runtime
+// @ts-expect-error: opening requires a composed document runtime
 guidOnlyTable.docs.body.open(noteId);
 
 declare const servicePort: WorkspaceServicePort;
@@ -116,26 +118,13 @@ createWorkspaceClient(
 	servicePort,
 	documentOpener,
 );
-// @ts-expect-error — a document-enabled client requires the runtime argument
+// @ts-expect-error: a document-enabled client requires the runtime argument
 createWorkspaceClient<
 	{ notes: typeof notesWithDocuments },
 	WorkspaceDocumentOpener
 >(workspaceWithDocumentsDefinition, servicePort);
 
-const browserWithDocuments: BrowserOpenOptions<
-	undefined,
-	WorkspaceDocumentRuntime
-> = {
-	authority: { kind: 'local' },
-	worker: () => null as never,
-	documents: documentRuntime,
-	onObserverError() {},
-};
-// @ts-expect-error — a non-undefined runtime generic makes documents required
-const browserMissingDocuments: BrowserOpenOptions<
-	undefined,
-	WorkspaceDocumentRuntime
-> = {
+const browserWithDocuments: BrowserOpenOptions = {
 	authority: { kind: 'local' },
 	worker: () => null as never,
 	onObserverError() {},
@@ -145,7 +134,7 @@ const bunWithDocuments: BunOpenOptions<WorkspaceDocumentRuntime> = {
 	documents: documentRuntime,
 	onObserverError() {},
 };
-// @ts-expect-error — a non-undefined runtime generic makes documents required
+// @ts-expect-error: a non-undefined runtime generic makes documents required
 const bunMissingDocuments: BunOpenOptions<WorkspaceDocumentRuntime> = {
 	storage: { kind: 'memory' },
 	onObserverError() {},
@@ -153,7 +142,6 @@ const bunMissingDocuments: BunOpenOptions<WorkspaceDocumentRuntime> = {
 const browserOpen = openBrowserWorkspace(workspaceWithDocumentsDefinition, {
 	authority: { kind: 'local' },
 	worker: () => null as never,
-	documents: documentRuntime,
 	onObserverError() {},
 });
 declare const selectedAuthority: WorkspaceAuthority;
@@ -163,8 +151,8 @@ const selectedAuthorityBrowserOpen = openBrowserWorkspace(
 	{
 		authority: selectedAuthority,
 		fetch: authFetch,
+		documentSync,
 		worker: () => null as never,
-		documents: documentRuntime,
 		onObserverError() {},
 	},
 );
@@ -176,24 +164,22 @@ openBrowserWorkspace(workspaceWithDocumentsDefinition, {
 		principalId: asPrincipalId('principal-1'),
 	},
 	worker: () => null as never,
-	documents: documentRuntime,
 	onObserverError() {},
 });
-// @ts-expect-error — browser openings expose only table-owned document opening
+// @ts-expect-error: browser openings expose only table-owned document opening
 browserOpen.then((workspace) => workspace.documents);
 const bunOpen = openBunWorkspace(workspaceWithDocumentsDefinition, {
 	storage: { kind: 'memory' },
 	documents: documentRuntime,
 	onObserverError() {},
 });
-// @ts-expect-error — Bun openings expose only table-owned document opening
+// @ts-expect-error: Bun openings expose only table-owned document opening
 bunOpen.then((workspace) => workspace.documents);
 
 void currentBody;
 void currentReady;
 void currentBodyValue;
 void browserWithDocuments;
-void browserMissingDocuments;
 void selectedAuthorityBrowserOpen;
 void bunWithDocuments;
 void bunMissingDocuments;

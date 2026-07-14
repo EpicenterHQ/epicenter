@@ -1,4 +1,9 @@
 import {
+	type BrowserWorkspaceDocumentPlanes,
+	type BrowserWorkspaceDocumentSync,
+	createBrowserWorkspaceDocumentPlanes,
+} from './browser-document-runtime.js';
+import {
 	type LocalWorkspaceInspection,
 	parseWorkspaceInspectionEvent,
 	WORKSPACE_INSPECTION_PROTOCOL,
@@ -20,16 +25,13 @@ import {
 	type WorkspaceDefinition,
 } from './definition.js';
 import type {
-	WorkspaceDocumentOpenerFor,
+	WorkspaceDocumentOpener,
 	WorkspaceDocumentRuntime,
-	WorkspaceDocumentRuntimeOption,
 } from './document-client.js';
 import {
 	type OpenedWorkspace,
 	openWorkspaceFromService,
-	type WorkspaceKvFor,
 	type WorkspaceKvMount,
-	type WorkspaceKvMountOption,
 } from './open.js';
 import { createHttpReplicaSyncPort } from './replica-http.js';
 import {
@@ -39,6 +41,7 @@ import {
 	workspaceAuthorityHash,
 } from './workspace-authority.js';
 
+export type { BrowserWorkspaceDocumentSync } from './browser-document-runtime.js';
 export type { LocalWorkspaceInspection } from './browser-inspection.js';
 export type {
 	StandaloneWorkspace,
@@ -51,144 +54,117 @@ export type BrowserWorkspaceFetch = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
-type OpenBrowserWorkspaceBaseOptions<
-	TKvMount extends WorkspaceKvMount | undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined,
-> = WorkspaceWorkerPortOptions &
-	WorkspaceKvMountOption<TKvMount> &
-	WorkspaceDocumentRuntimeOption<TDocumentRuntime> & {
-		/** Create the one app-owned module Worker that imports this definition. */
-		worker(): Worker;
+type OpenBrowserWorkspaceBaseOptions = WorkspaceWorkerPortOptions & {
+	/** Create the one app-owned module Worker that imports this definition. */
+	worker(): Worker;
+};
+
+export type OpenBrowserLocalWorkspaceOptions =
+	OpenBrowserWorkspaceBaseOptions & {
+		authority: Extract<WorkspaceAuthority, { kind: 'local' }>;
+		fetch?: never;
+		documentSync?: never;
 	};
 
-export type OpenBrowserLocalWorkspaceOptions<
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
-> = OpenBrowserWorkspaceBaseOptions<TKvMount, TDocumentRuntime> & {
-	authority: Extract<WorkspaceAuthority, { kind: 'local' }>;
-	fetch?: never;
-};
+export type OpenBrowserServerWorkspaceOptions =
+	OpenBrowserWorkspaceBaseOptions & {
+		authority: ServerWorkspaceAuthority;
+		/** Auth-owned HTTP boundary. Credentials never cross into the Worker. */
+		fetch: BrowserWorkspaceFetch;
+		/** Auth-owned WebSocket boundary for the KV and child-document rooms. */
+		documentSync: BrowserWorkspaceDocumentSync;
+	};
 
-export type OpenBrowserServerWorkspaceOptions<
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
-> = OpenBrowserWorkspaceBaseOptions<TKvMount, TDocumentRuntime> & {
-	authority: ServerWorkspaceAuthority;
-	/** Auth-owned HTTP boundary. Credentials never cross into the Worker. */
-	fetch: BrowserWorkspaceFetch;
-};
-
-export type OpenBrowserWorkspaceOptions<
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
-> =
-	| OpenBrowserLocalWorkspaceOptions<TKvMount, TDocumentRuntime>
-	| OpenBrowserServerWorkspaceOptions<TKvMount, TDocumentRuntime>
-	| (OpenBrowserWorkspaceBaseOptions<TKvMount, TDocumentRuntime> & {
+export type OpenBrowserWorkspaceOptions =
+	| OpenBrowserLocalWorkspaceOptions
+	| OpenBrowserServerWorkspaceOptions
+	| (OpenBrowserWorkspaceBaseOptions & {
 			authority: WorkspaceAuthority;
 			/** Auth-owned HTTP available before the boot-time authority is narrowed. */
 			fetch: BrowserWorkspaceFetch;
+			documentSync: BrowserWorkspaceDocumentSync;
 	  });
 
 /**
  * Open one browser workspace through the shared authority composition.
  *
  * Signed-out data uses one standalone OPFS file. A synchronized replica uses a
- * deployment-and-principal-scoped filename, while its authenticated HTTP stays
- * on the page behind a MessagePort. The app Worker remains the sole SQLite and
- * synchronization owner in both modes.
+ * deployment-and-principal-scoped filename. Authenticated HTTP and WebSocket
+ * creation stay on the page. The app Worker owns SQLite and record sync; the
+ * page-owned document runtime owns KV and child-document sync.
  */
 export function openBrowserWorkspace<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
 >(
 	definition: WorkspaceDefinition<TTables, TKv>,
-	options: OpenBrowserLocalWorkspaceOptions<TKvMount, TDocumentRuntime>,
+	options: OpenBrowserLocalWorkspaceOptions,
 ): Promise<
-	OpenedWorkspace<
-		TTables,
-		WorkspaceKvFor<TKvMount, TKv>,
-		'standalone',
-		WorkspaceDocumentOpenerFor<TDocumentRuntime>
-	>
+	OpenedWorkspace<TTables, TKv, 'standalone', WorkspaceDocumentOpener>
 >;
 export function openBrowserWorkspace<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
 >(
 	definition: WorkspaceDefinition<TTables, TKv>,
-	options: OpenBrowserServerWorkspaceOptions<TKvMount, TDocumentRuntime>,
-): Promise<
-	OpenedWorkspace<
-		TTables,
-		WorkspaceKvFor<TKvMount, TKv>,
-		'replica',
-		WorkspaceDocumentOpenerFor<TDocumentRuntime>
-	>
->;
+	options: OpenBrowserServerWorkspaceOptions,
+): Promise<OpenedWorkspace<TTables, TKv, 'replica', WorkspaceDocumentOpener>>;
 export function openBrowserWorkspace<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
 >(
 	definition: WorkspaceDefinition<TTables, TKv>,
-	options: OpenBrowserWorkspaceBaseOptions<TKvMount, TDocumentRuntime> & {
+	options: OpenBrowserWorkspaceBaseOptions & {
 		authority: WorkspaceAuthority;
 		fetch: BrowserWorkspaceFetch;
+		documentSync: BrowserWorkspaceDocumentSync;
 	},
 ): Promise<
-	| OpenedWorkspace<
-			TTables,
-			WorkspaceKvFor<TKvMount, TKv>,
-			'standalone',
-			WorkspaceDocumentOpenerFor<TDocumentRuntime>
-	  >
-	| OpenedWorkspace<
-			TTables,
-			WorkspaceKvFor<TKvMount, TKv>,
-			'replica',
-			WorkspaceDocumentOpenerFor<TDocumentRuntime>
-	  >
+	| OpenedWorkspace<TTables, TKv, 'standalone', WorkspaceDocumentOpener>
+	| OpenedWorkspace<TTables, TKv, 'replica', WorkspaceDocumentOpener>
 >;
 export async function openBrowserWorkspace<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
-	TKvMount extends WorkspaceKvMount | undefined = undefined,
-	TDocumentRuntime extends WorkspaceDocumentRuntime | undefined = undefined,
 >(
 	definition: WorkspaceDefinition<TTables, TKv>,
-	options: OpenBrowserWorkspaceOptions<TKvMount, TDocumentRuntime>,
+	options: OpenBrowserWorkspaceOptions,
 ): Promise<
-	| OpenedWorkspace<
-			TTables,
-			WorkspaceKvFor<TKvMount, TKv>,
-			'standalone',
-			WorkspaceDocumentOpenerFor<TDocumentRuntime>
-	  >
-	| OpenedWorkspace<
-			TTables,
-			WorkspaceKvFor<TKvMount, TKv>,
-			'replica',
-			WorkspaceDocumentOpenerFor<TDocumentRuntime>
-	  >
+	| OpenedWorkspace<TTables, TKv, 'standalone', WorkspaceDocumentOpener>
+	| OpenedWorkspace<TTables, TKv, 'replica', WorkspaceDocumentOpener>
 > {
 	assertWorkspaceDefinition(definition);
 	const authority = normalizeWorkspaceAuthority(options.authority);
-	const worker = options.worker();
+	const documentSync = options.documentSync;
+	let documentPlanes: BrowserWorkspaceDocumentPlanes;
+	if (authority.kind === 'server') {
+		if (!documentSync) {
+			throw new TypeError(
+				'A server workspace authority requires document synchronization',
+			);
+		}
+		documentPlanes = await createBrowserWorkspaceDocumentPlanes(definition, {
+			authority,
+			sync: documentSync,
+		});
+	} else {
+		documentPlanes = await createBrowserWorkspaceDocumentPlanes(definition, {
+			authority,
+		});
+	}
+	let worker: Worker;
+	try {
+		worker = options.worker();
+	} catch (cause) {
+		await documentPlanes[Symbol.asyncDispose]();
+		throw cause;
+	}
 	let stopSyncBridge: (() => void) | undefined;
 	let initialization: BrowserWorkspaceWorkerInitialization;
 	let transfer: Transferable[] = [];
 	try {
 		if (authority.kind === 'server') {
-			const serverOptions = options as OpenBrowserServerWorkspaceOptions<
-				TKvMount,
-				TDocumentRuntime
-			>;
+			const serverOptions = options as OpenBrowserServerWorkspaceOptions;
 			const channel = new MessageChannel();
 			stopSyncBridge = attachBrowserReplicaSyncPort(
 				channel.port1,
@@ -217,6 +193,7 @@ export async function openBrowserWorkspace<
 	} catch (cause) {
 		stopSyncBridge?.();
 		worker.terminate();
+		await documentPlanes[Symbol.asyncDispose]();
 		throw cause;
 	}
 
@@ -237,29 +214,56 @@ export async function openBrowserWorkspace<
 		},
 	};
 
-	return authority.kind === 'server'
-		? openWorkspaceFromService<
-				TTables,
-				TKv,
-				'replica',
-				TKvMount,
-				TDocumentRuntime
-			>(definition, {
-				...options,
-				service,
-				expectedKind: 'replica',
-			})
-		: openWorkspaceFromService<
-				TTables,
-				TKv,
-				'standalone',
-				TKvMount,
-				TDocumentRuntime
-			>(definition, {
-				...options,
-				service,
-				expectedKind: 'standalone',
-			});
+	try {
+		const opened =
+			authority.kind === 'server'
+				? await openWorkspaceFromService<
+						TTables,
+						TKv,
+						'replica',
+						WorkspaceKvMount,
+						WorkspaceDocumentRuntime
+					>(definition, {
+						service,
+						expectedKind: 'replica',
+						kv: documentPlanes.kv,
+						documents: documentPlanes.documents,
+					})
+				: await openWorkspaceFromService<
+						TTables,
+						TKv,
+						'standalone',
+						WorkspaceKvMount,
+						WorkspaceDocumentRuntime
+					>(definition, {
+						service,
+						expectedKind: 'standalone',
+						kv: documentPlanes.kv,
+						documents: documentPlanes.documents,
+					});
+		let browserDispose: Promise<void> | undefined;
+		return {
+			...opened,
+			[Symbol.asyncDispose]() {
+				browserDispose ??= Promise.all([
+					opened[Symbol.asyncDispose](),
+					documentPlanes[Symbol.asyncDispose](),
+				]).then(() => undefined);
+				return browserDispose;
+			},
+		};
+	} catch (cause) {
+		try {
+			await documentPlanes[Symbol.asyncDispose]();
+		} catch (cleanupCause) {
+			throw new AggregateError(
+				[cause, cleanupCause],
+				'Browser workspace open failed and document cleanup also failed',
+				{ cause },
+			);
+		}
+		throw cause;
+	}
 }
 
 /** Deterministic OPFS filename without exposing the principal id on disk. */

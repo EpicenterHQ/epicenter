@@ -1,4 +1,4 @@
-<script lang="ts">
+	<script lang="ts">
 	import type { NoteId } from '@epicenter/honeycrisp';
 	import { fromDisposableCache } from '@epicenter/svelte';
 	import { Loading } from '@epicenter/ui/loading';
@@ -9,13 +9,16 @@
 		$props();
 
 	const doc = fromDisposableCache(honeycrisp.tables.notes.docs.body, () => noteId);
+	$effect(() =>
+		doc.current.observeLocalUpdate(() => honeycrisp.state.notes.touch(noteId)),
+	);
 </script>
 
-{#await doc.current.whenLoaded}
+{#await doc.current.whenReady}
 	<Loading class="h-full" />
-{:then}
+{:then _}
 	<HoneycripEditor
-		yxmlfragment={doc.current.binding}
+		yxmlfragment={doc.current.content.binding}
 		{focusRequest}
 		onContentChange={(change) => honeycrisp.state.notes.updateContent(noteId, change)}
 	/>

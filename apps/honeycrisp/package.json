@@ -5,7 +5,8 @@
 	"version": "0.0.2",
 	"type": "module",
 	"exports": {
-		".": "./src/lib/workspace/index.ts"
+		".": "./src/lib/workspace/index.ts",
+		"./legacy": "./src/lib/workspace/legacy.ts"
 	},
 	"imports": {
 		"#platform/auth": {
@@ -18,12 +19,15 @@
 		"dev:web": "vite dev",
 		"dev:desktop": "tauri dev",
 		"build": "NODE_ENV=production vite build",
+		"check:workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --check --lock workspace-version-lock.json --candidate src/lib/workspace/workspace.ts",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
+		"smoke": "bun run build && bun run smoke.ts",
 		"test": "bun test",
 		"tauri": "tauri",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --write --lock workspace-version-lock.json --candidate src/lib/workspace/workspace.ts"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
@@ -36,6 +40,7 @@
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"mode-watcher": "catalog:",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",

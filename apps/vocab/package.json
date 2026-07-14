@@ -11,10 +11,13 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"check:workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --check --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts",
+		"smoke": "bun run build && bun run smoke.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "if find src -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.spec.ts' | grep -q .; then bun test; fi",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --write --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts",
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
@@ -46,6 +49,7 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",

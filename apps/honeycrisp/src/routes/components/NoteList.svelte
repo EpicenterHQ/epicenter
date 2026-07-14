@@ -123,11 +123,15 @@
 					variant="ghost"
 					size="icon"
 					class="size-7"
-					onclick={() => {
-						const { id } = honeycrisp.state.notes.create(
-							honeycrisp.state.view.selectedFolderId,
-						);
-						honeycrisp.state.view.selectNote(id);
+					onclick={async () => {
+						try {
+							const { id } = await honeycrisp.state.notes.create(
+								honeycrisp.state.view.selectedFolderId,
+							);
+							honeycrisp.state.view.selectNote(id);
+						} catch (cause) {
+							reportError(cause);
+						}
 					}}
 				>
 					<PlusIcon class="size-4" />

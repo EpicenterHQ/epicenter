@@ -158,6 +158,7 @@
         "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
+        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "svelte-sonner": "catalog:",
@@ -559,6 +560,7 @@
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
         "@types/bun": "catalog:",
+        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "tailwindcss": "catalog:",
@@ -766,11 +768,13 @@
       "dependencies": {
         "@epicenter/field": "workspace:*",
         "@epicenter/workspace": "workspace:*",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
         "typescript": "catalog:",
+        "yjs": "catalog:",
       },
     },
     "packages/cli": {

@@ -1,15 +1,14 @@
 /**
  * Reactive entries state: the user-curated entry pool captured by selection.
  *
- * Backed by `fromTable()` over the `entries` table for reads and the connected
- * table's `set` / `update` / `delete` for writes. One device-wide singleton,
+ * Backed by `fromTable()` over the async `entries` table. One app-wide singleton,
  * like `dictation` and `inferenceConnections`: there is one entry pool per
  * workspace, not one per component.
  */
 
 import { InstantString } from '@epicenter/field';
 import { fromTable } from '@epicenter/svelte';
-import { type Entry, type EntryId, generateEntryId } from '@epicenter/vocab';
+import type { Entry, EntryId } from '@epicenter/vocab';
 import { vocab } from '$lib/vocab';
 
 function createEntriesState() {
@@ -26,6 +25,8 @@ function createEntriesState() {
 	);
 
 	return {
+		/** Resolves after the first SQLite table snapshot reaches the view. */
+		whenReady: entriesView.whenReady,
 		get entries() {
 			return entries;
 		},
@@ -40,12 +41,11 @@ function createEntriesState() {
 		 * duplicate row. `note` starts empty because it is human-owned; no code
 		 * path prefills it.
 		 */
-		save(text: string): boolean {
+		async save(text: string): Promise<boolean> {
 			const trimmed = text.trim();
 			if (!trimmed) return false;
 			if (entries.some((entry) => entry.text === trimmed)) return false;
-			vocab.tables.entries.set({
-				id: generateEntryId(),
+			await vocab.tables.entries.create({
 				text: trimmed,
 				note: '',
 				stage: 'new',
@@ -56,17 +56,17 @@ function createEntriesState() {
 
 		/** Change an entry's acquisition stage. */
 		setStage(id: EntryId, stage: Entry['stage']) {
-			vocab.tables.entries.update(id, { stage });
+			void vocab.tables.entries.patch(id, { stage }).catch(reportError);
 		},
 
 		/** Edit an entry's note. Note is human-owned: only ever written from user edits. */
 		setNote(id: EntryId, note: string) {
-			vocab.tables.entries.update(id, { note });
+			void vocab.tables.entries.patch(id, { note }).catch(reportError);
 		},
 
 		/** Remove an entry from the pool. */
 		remove(id: EntryId) {
-			vocab.tables.entries.delete(id);
+			void vocab.tables.entries.remove(id).catch(reportError);
 		},
 	};
 }

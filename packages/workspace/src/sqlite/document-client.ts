@@ -1,4 +1,5 @@
 import * as Y from 'yjs';
+import { onLocalUpdate } from '../document/on-local-update.js';
 import type { Guid } from '../shared/id.js';
 import {
 	type DocumentFormat,
@@ -49,6 +50,8 @@ export type OpenedDocument<TFormat extends DocumentFormat> = {
 	whenReady: Promise<void>;
 	/** Encode the complete convergent document state after `whenReady`. */
 	encodeState(): Uint8Array;
+	/** Observe local edits for application-owned metadata policy. */
+	observeLocalUpdate(callback: () => void): () => void;
 	[Symbol.dispose](): void;
 };
 
@@ -80,9 +83,12 @@ export function createWorkspaceDocumentOpener(
 			const guid = owner.identity.guid(rowId);
 			const session = runtime.open(guid);
 			let disposed = false;
+			const localObservers = new Set<() => void>();
 			function dispose(): void {
 				if (disposed) return;
 				disposed = true;
+				for (const stop of localObservers) stop();
+				localObservers.clear();
 				session[Symbol.dispose]();
 			}
 			function failAfterDispose(cause: unknown): never {
@@ -116,6 +122,15 @@ export function createWorkspaceDocumentOpener(
 					content,
 					whenReady,
 					encodeState: () => Y.encodeStateAsUpdateV2(session.doc),
+					observeLocalUpdate(callback) {
+						if (disposed) throw new Error('Document handle is disposed');
+						const stop = onLocalUpdate(session.doc, callback);
+						localObservers.add(stop);
+						return () => {
+							if (!localObservers.delete(stop)) return;
+							stop();
+						};
+					},
 					[Symbol.dispose]: dispose,
 				};
 			} catch (cause) {

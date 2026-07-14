@@ -1,10 +1,10 @@
 import { asPrincipalId } from '@epicenter/identity';
+import { createNodeId } from '@epicenter/workspace';
 import {
 	openBrowserWorkspace,
 	type StandaloneWorkspace,
 	type WorkspaceReplica,
 } from '@epicenter/workspace/sqlite/browser';
-import * as Y from 'yjs';
 import { workspaceDefinition } from './definition.js';
 import WorkspaceWorker from './workspace.worker?worker';
 
@@ -21,9 +21,12 @@ type Workspace =
 
 const app = requireApp();
 
-const preferencesDoc = new Y.Doc({
-	guid: workspaceDefinition.kvDocumentGuid,
-});
+const documentSync = {
+	nodeId: createNodeId({ storage: localStorage }),
+	openWebSocket: (url: string | URL, protocols?: string[]) =>
+		new WebSocket(url, protocols),
+	onReconnectSignal: (_reconnect: () => void) => () => undefined,
+};
 let workspace: Workspace | undefined;
 
 function requireApp(): HTMLElement {
@@ -49,10 +52,7 @@ function renderState(
 }
 
 async function open(): Promise<void> {
-	const options = {
-		kv: { doc: preferencesDoc },
-		onObserverError: reportError,
-	};
+	const options = { onObserverError: reportError };
 	const replica = new URLSearchParams(location.search).has('replica');
 	const syncOrigin = new URL(location.href);
 	syncOrigin.port = '5199';
@@ -65,6 +65,7 @@ async function open(): Promise<void> {
 					principalId: asPrincipalId('browser-smoke'),
 				},
 				fetch,
+				documentSync,
 				worker: () => new WorkspaceWorker(),
 			})
 		: await openBrowserWorkspace(workspaceDefinition, {
@@ -82,7 +83,7 @@ function getWorkspace(): Workspace {
 function identity() {
 	return {
 		workspaceId: workspaceDefinition.workspaceId,
-		kvDocumentGuid: preferencesDoc.guid,
+		kvDocumentGuid: workspaceDefinition.kvDocumentGuid,
 		childDocumentGuid:
 			getWorkspace().tables.notes.docs.body.guid('identity-proof-row'),
 	};

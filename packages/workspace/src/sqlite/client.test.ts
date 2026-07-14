@@ -133,6 +133,32 @@ test('create returns committed rows with distinct Epicenter IDs', async () => {
 	).rejects.toThrow("invalid 'notes' row");
 });
 
+test('list omits absent options from the JSON wire request', async () => {
+	const requests: unknown[] = [];
+	const port: WorkspaceServicePort = {
+		async request(request) {
+			requests.push(request);
+			return { kind: 'rows', rows: [] };
+		},
+		observe() {
+			return () => undefined;
+		},
+	};
+	const definition = defineWorkspace({
+		appId: 'client-list-test',
+		name: 'Client list test',
+		tables: {
+			notes: defineTable({
+				fields: { id: field.id(), title: field.string() },
+			}),
+		},
+	});
+	const client = createWorkspaceClient(definition, port);
+
+	await client.tables.notes.list();
+	expect(requests).toEqual([{ kind: 'list', table: 'notes' }]);
+});
+
 test('empty and async transaction builders never send a partial mutation', async () => {
 	const requests: unknown[] = [];
 	const port: WorkspaceServicePort = {

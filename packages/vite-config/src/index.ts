@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import {
 	defaultClientConditions,
+	type Plugin,
 	searchForWorkspaceRoot,
 	type UserConfig,
 } from 'vite';
@@ -9,6 +10,38 @@ import {
 type WorkspaceAppViteConfigOptions = {
 	tauri?: boolean;
 };
+
+const SQLITE_ISOLATION_HEADERS = {
+	'Cross-Origin-Opener-Policy': 'same-origin',
+	'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
+function sqliteIsolationHeadersPlugin(): Plugin {
+	const install = (server: {
+		middlewares: {
+			use(
+				middleware: (
+					_request: unknown,
+					response: { setHeader(name: string, value: string): void },
+					next: () => void,
+				) => void,
+			): void;
+		};
+	}) => {
+		server.middlewares.use((_request, response, next) => {
+			for (const [name, value] of Object.entries(SQLITE_ISOLATION_HEADERS)) {
+				response.setHeader(name, value);
+			}
+			next();
+		});
+	};
+
+	return {
+		name: 'epicenter-sqlite-isolation-headers',
+		configureServer: install,
+		configurePreviewServer: install,
+	};
+}
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -35,7 +68,11 @@ export function workspaceAppViteConfig(
 		// vs `+<hashB>`), which makes identical `Plugin` types compare unequal
 		// across app configs. Keep the cast here, the one place every workspace
 		// app's plugins come from, instead of leaking the workaround into each app.
-		plugins: [sveltekit(), tailwindcss()] as UserConfig['plugins'],
+		plugins: [
+			sqliteIsolationHeadersPlugin(),
+			sveltekit(),
+			tailwindcss(),
+		] as UserConfig['plugins'],
 		resolve: {
 			// Custom conditions replace Vite's defaults, so keep the default
 			// client conditions when a Tauri build opts into platform DI.
