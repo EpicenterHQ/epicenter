@@ -10,6 +10,7 @@
  * - Failed first initialization can retry without a half-open object
  * - Principal and workspace pairs route to independent Durable Objects
  * - Push and pull cross the Records registry through the DO RPC contract
+ * - Reviewed table changes admit atomically only at the expected head
  * - Production compaction sends stale cursors through bounded snapshots
  */
 
@@ -252,6 +253,58 @@ test('authenticated principal and workspace pair determine the object name', asy
 	expect(new Set(names)).toEqual(
 		new Set(['["alice","wiki"]', '["bob","wiki"]', '["alice","notes"]']),
 	);
+});
+
+test('tables apply persists one expected-head transition', async () => {
+	const { records } = await setup();
+	const envelope = await open(records);
+	expect(
+		await records.applyTables(partition, {
+			...envelope,
+			kind: 'tablesApply',
+			expectedHead: 0,
+			operations: [
+				{
+					kind: 'createRow',
+					table: 'pages',
+					rowId: 'page-1',
+					cells: { title: 'Reviewed' },
+				},
+			],
+		}),
+	).toEqual({ kind: 'tablesApply', ok: true, newHead: 1 });
+	expect(
+		await records.applyTables(partition, {
+			...envelope,
+			kind: 'tablesApply',
+			expectedHead: 0,
+			operations: [
+				{
+					kind: 'updateRow',
+					table: 'pages',
+					rowId: 'page-1',
+					cells: { title: 'Stale' },
+				},
+			],
+		}),
+	).toEqual({ kind: 'tablesApply', ok: false, reason: 'head-moved' });
+	expect(
+		await records.readTablesState(partition, {
+			...envelope,
+			kind: 'tablesState',
+		}),
+	).toEqual({
+		kind: 'tablesState',
+		ok: true,
+		head: 1,
+		rows: [
+			{
+				table: 'pages',
+				rowId: 'page-1',
+				cells: { title: 'Reviewed' },
+			},
+		],
+	});
 });
 
 test('production compaction serves a snapshot and chunks to a stale cursor', async () => {
