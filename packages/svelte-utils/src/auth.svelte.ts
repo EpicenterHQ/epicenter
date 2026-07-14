@@ -13,10 +13,10 @@ import { createBrowserOAuthLauncher } from '@epicenter/auth/oauth-launchers';
 import { createSubscriber } from 'svelte/reactivity';
 
 export { reloadOnPrincipalChange } from './reload-on-principal-change.js';
-// The one composition shape (ADR-0088/ADR-0094): boot-time doc selection plus
-// reload-on-principal-change. Apps boot with one call:
-// `model.connect(toConnection(auth, nodeId), compose?)`.
+// Legacy Yjs apps project auth with `toConnection`. SQLite workspace apps
+// project the same one-time boot decision with `toWorkspaceAuthority`.
 export { toConnection } from './to-connection.js';
+export { toWorkspaceAuthority } from './to-workspace-authority.js';
 
 /**
  * Make an auth client's `state` Svelte-reactive: spread the closure-bound
