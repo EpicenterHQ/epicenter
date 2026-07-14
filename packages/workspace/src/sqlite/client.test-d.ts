@@ -6,7 +6,6 @@
  * brand declared by the table schema.
  */
 
-import { field } from '@epicenter/field';
 import type { Brand } from 'wellcrafted/brand';
 import {
 	type OpenStandaloneWorkspaceOptions as BrowserOpenOptions,
@@ -29,6 +28,7 @@ import type {
 	WorkspaceDocumentRuntime,
 } from './document-client.js';
 import { document } from './document-format.js';
+import { field } from './field.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
 
 type NoteId = string & Brand<'NoteId'>;
@@ -62,8 +62,11 @@ void created;
 void allocatedId;
 
 const notesWithDocuments = defineTable({
-	fields: { id: field.string<NoteId>(), title: field.string() },
-	documents: { body: document.plainText },
+	fields: {
+		id: field.string<NoteId>(),
+		title: field.string(),
+		body: field.doc(document.plainText),
+	},
 });
 const workspaceWithDocumentsDefinition = defineWorkspace({
 	appId: 'client-type-test',

@@ -24,7 +24,7 @@ test('Bun refuses unlocked definitions before creating storage', async () => {
 	const path = join(directory, 'forged.db');
 	const candidate = defineWorkspaceCandidate({
 		appId: 'bun-unlocked-test',
-		dataVersion: 1,
+		version: 1,
 		tables: {
 			notes: defineTable({ fields: { id: field.string() } }),
 		},

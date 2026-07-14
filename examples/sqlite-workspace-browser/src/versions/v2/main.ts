@@ -6,7 +6,7 @@ import {
 	type WorkspaceReplica,
 } from '@epicenter/workspace/sqlite/browser';
 import * as Y from 'yjs';
-import dataVersionLock from '../../../data-version-lock.json' with {
+import versionLock from '../../../workspace-version-lock.json' with {
 	type: 'json',
 };
 import { workspaceDefinition } from './definition.js';
@@ -31,8 +31,8 @@ const workspaceKind = new URLSearchParams(location.search).has('replica')
 	? 'replica'
 	: 'standalone';
 
-const hasPredecessors = dataVersionLock.versions.some(
-	({ dataVersion }) => dataVersion < workspaceDefinition.dataVersion,
+const hasPredecessors = versionLock.versions.some(
+	({ version }) => version < workspaceDefinition.version,
 );
 let workspace: Workspace | undefined;
 let preferencesDoc: Y.Doc | undefined;
@@ -158,7 +158,6 @@ function identity() {
 		kvDocumentGuid,
 		childDocumentGuid:
 			getWorkspace().tables.notes.docs.body.guid('identity-proof-row'),
-		declaredBlobIdentity: workspaceDefinition.blobs.attachments.identity,
 	};
 }
 

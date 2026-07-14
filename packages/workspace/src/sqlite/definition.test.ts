@@ -11,7 +11,6 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { field } from '@epicenter/field';
 import { RECORD_SYNC_ADMISSION_LIMITS } from '@epicenter/record-sync';
 import { type TObject, type TString, Type } from 'typebox';
 import { Value } from 'typebox/value';
@@ -19,6 +18,7 @@ import { nullable } from '../document/nullable.js';
 import { sha256Hex } from '../shared/sha256.js';
 import { defineKv, defineTable, defineWorkspace } from './definition.js';
 import { document } from './document-format.js';
+import { field } from './field.js';
 
 describe('defineTable', () => {
 	test('compiles fields and accepts closed document capabilities', () => {
@@ -28,8 +28,8 @@ describe('defineTable', () => {
 				title: field.string({ minLength: 1 }),
 				folderId: nullable(field.reference('folders')),
 				pinned: field.boolean(),
+				body: field.doc(document.xmlFragment),
 			},
-			documents: { body: document.xmlFragment },
 		});
 
 		expect(notes.compiledColumns.title.storage).toBe('TEXT');
@@ -40,14 +40,33 @@ describe('defineTable', () => {
 		expect(notes.documents.body).toBe(document.xmlFragment);
 	});
 
-	test('keeps field and document names in separate namespaces', () => {
+	test('derives columns and documents from one field map', () => {
 		const notes = defineTable({
-			fields: { id: field.string(), body: field.string() },
-			documents: { body: document.plainText },
+			fields: {
+				id: field.string(),
+				body: field.doc(document.plainText),
+				audio: field.blob(),
+			},
 		});
 
-		expect(notes.compiledColumns.body.kind).toBe('string');
+		expect('body' in notes.compiledColumns).toBe(false);
 		expect(notes.documents.body).toBe(document.plainText);
+		expect(notes.compiledColumns.audio.kind).toBe('json');
+		expect(
+			notes.compiledColumns.audio.check({
+				hash: '0'.repeat(64),
+				size: 1,
+				mediaType: 'audio/wav',
+			}),
+		).toBe(true);
+		expect(
+			notes.compiledColumns.audio.check({
+				hash: '0'.repeat(64),
+				size: 0,
+				mediaType: 'audio/wav',
+			}),
+		).toBe(false);
+		expect(notes.blobs.audio).toEqual(notes.fields.audio);
 	});
 
 	test('rejects raw TypeBox schemas and invalid table options', () => {
@@ -61,15 +80,17 @@ describe('defineTable', () => {
 		).toThrow("Persisted field 'raw' must use field.* or nullable(field.*)");
 		expect(() =>
 			defineTable({
-				fields: { id: field.string() },
-				documents: { 'bad.name': document.plainText },
+				fields: {
+					id: field.string(),
+					'bad.name': field.doc(document.plainText),
+				},
 			}),
-		).toThrow('Invalid child document name');
+		).toThrow('Invalid child document field name');
 		expect(() =>
 			defineTable({
 				fields: { id: field.string(), constructor: field.string() },
 			}),
-		).toThrow("table column 'constructor' collides with Object.prototype");
+		).toThrow("table field 'constructor' collides with Object.prototype");
 	});
 
 	test('requires a non-null string id', () => {
@@ -118,12 +139,15 @@ describe('defineTable', () => {
 
 	test('owns immutable field and document snapshots', () => {
 		const title = field.string({ minLength: 2 });
-		const fields = { id: field.string(), title };
-		const documents = { body: document.plainText };
-		const notes = defineTable({ fields, documents });
+		const fields = {
+			id: field.string(),
+			title,
+			body: field.doc(document.plainText),
+		};
+		const notes = defineTable({ fields });
 		const workspace = defineWorkspace({
 			appId: 'notes',
-			dataVersion: 1,
+			version: 1,
 			tables: { notes },
 		});
 		const descriptor = workspace.recordsDescriptor;
@@ -131,7 +155,7 @@ describe('defineTable', () => {
 
 		Object.assign(title, { minLength: 100 });
 		Object.assign(fields, { title: field.number() });
-		Object.assign(documents, { body: document.xmlFragment });
+		Object.assign(fields, { body: field.doc(document.xmlFragment) });
 
 		expect(notes.fields.title).not.toBe(title);
 		expect(notes.compiledColumns.title.check('ok')).toBe(true);
@@ -160,7 +184,7 @@ describe('defineKv', () => {
 		expect(lastFolder.defaultValue()).toBeNull();
 		const workspace = defineWorkspace({
 			appId: 'nullable-kv',
-			dataVersion: 1,
+			version: 1,
 			tables: { rows: defineTable({ fields: { id: field.string() } }) },
 			kv: { lastFolder },
 		});
@@ -181,7 +205,7 @@ describe('defineWorkspace', () => {
 		});
 		const workspace = defineWorkspace({
 			appId: 'notes',
-			dataVersion: 1,
+			version: 1,
 			tables: { folders, notes },
 		});
 
@@ -192,7 +216,7 @@ describe('defineWorkspace', () => {
 		expect(
 			defineWorkspace({
 				appId: 'notes',
-				dataVersion: 1,
+				version: 1,
 				name: 'Notes',
 				tables: { notes: folders },
 			}).name,
@@ -200,7 +224,7 @@ describe('defineWorkspace', () => {
 		expect(() =>
 			defineWorkspace({
 				appId: 'broken',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					notes: defineTable({
 						fields: {
@@ -216,7 +240,7 @@ describe('defineWorkspace', () => {
 	test('recordsSchemaHash is a labelled digest of the canonical descriptor bytes', () => {
 		const workspace = defineWorkspace({
 			appId: 'notes',
-			dataVersion: 1,
+			version: 1,
 			tables: {
 				notes: defineTable({
 					fields: { id: field.string(), title: field.string() },
@@ -234,7 +258,7 @@ describe('defineWorkspace', () => {
 		const hash = (maxBytes: number) =>
 			defineWorkspace({
 				appId: 'notes',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					notes: defineTable({
 						fields: {
@@ -254,7 +278,7 @@ describe('defineWorkspace', () => {
 	test('recordsSchemaHash is stable across declaration order, display name, kv, and documents', () => {
 		const first = defineWorkspace({
 			appId: 'notes',
-			dataVersion: 1,
+			version: 1,
 			name: 'First display name',
 			tables: {
 				notes: defineTable({
@@ -262,10 +286,8 @@ describe('defineWorkspace', () => {
 						id: field.string(),
 						title: field.string(),
 						updatedAt: field.instant(),
-					},
-					documents: {
-						summary: document.plainText,
-						body: document.xmlFragment,
+						summary: field.doc(document.plainText),
+						body: field.doc(document.xmlFragment),
 					},
 				}),
 				folders: defineTable({
@@ -282,7 +304,7 @@ describe('defineWorkspace', () => {
 		});
 		const reordered = defineWorkspace({
 			appId: 'notes',
-			dataVersion: 1,
+			version: 1,
 			name: 'Different display name',
 			tables: {
 				folders: defineTable({
@@ -293,10 +315,8 @@ describe('defineWorkspace', () => {
 						title: field.string(),
 						updatedAt: field.instant(),
 						id: field.string(),
-					},
-					documents: {
-						body: document.xmlFragment,
-						summary: document.plainText,
+						body: field.doc(document.xmlFragment),
+						summary: field.doc(document.plainText),
 					},
 				}),
 			},
@@ -311,7 +331,7 @@ describe('defineWorkspace', () => {
 		function hashWithTitle(title: string | undefined) {
 			return defineWorkspace({
 				appId: 'notes',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					notes: defineTable({
 						fields: {
@@ -333,7 +353,7 @@ describe('defineWorkspace', () => {
 		function hashWithPayload(payload: TObject) {
 			return defineWorkspace({
 				appId: 'notes',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					notes: defineTable({
 						fields: {
@@ -379,11 +399,10 @@ describe('defineWorkspace', () => {
 		}: IdentityOptions = {}) {
 			return defineWorkspace({
 				appId,
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					notes: defineTable({
-						fields: { id: field.string(), title },
-						documents: { body: doc },
+						fields: { id: field.string(), title, body: field.doc(doc) },
 					}),
 				},
 			}).recordsSchemaHash;
@@ -403,7 +422,7 @@ describe('defineWorkspace', () => {
 		function withKv(kv: Record<string, ReturnType<typeof defineKv>>) {
 			return defineWorkspace({
 				appId: 'notes',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					notes: defineTable({
 						fields: { id: field.string(), title: field.string() },
@@ -426,20 +445,22 @@ describe('defineWorkspace', () => {
 
 	test('document identity rejects unsafe workspace and table segments', () => {
 		const documented = defineTable({
-			fields: { id: field.string() },
-			documents: { body: document.plainText },
+			fields: {
+				id: field.string(),
+				body: field.doc(document.plainText),
+			},
 		});
 		expect(() =>
 			defineWorkspace({
 				appId: 'Unsafe',
-				dataVersion: 1,
+				version: 1,
 				tables: { notes: documented },
 			}),
 		).toThrow('Invalid application id');
 		expect(() =>
 			defineWorkspace({
 				appId: 'safe',
-				dataVersion: 1,
+				version: 1,
 				tables: { 'bad.table': documented },
 			}),
 		).toThrow('Invalid child document table name');
@@ -450,14 +471,14 @@ describe('defineWorkspace', () => {
 		expect(() =>
 			defineWorkspace({
 				appId: 'rows',
-				dataVersion: 1,
+				version: 1,
 				tables: { constructor: rows },
 			}),
 		).toThrow("workspace table 'constructor' collides with Object.prototype");
 		expect(() =>
 			defineWorkspace({
 				appId: 'rows',
-				dataVersion: 1,
+				version: 1,
 				tables: { rows },
 				kv: { toString: defineKv(field.string(), () => '') },
 			}),
@@ -465,14 +486,14 @@ describe('defineWorkspace', () => {
 		expect(() =>
 			defineWorkspace({
 				appId: 'rows',
-				dataVersion: 1,
+				version: 1,
 				tables: { rows, __proto__: rows },
 			}),
 		).toThrow('workspace tables must be a plain record');
 		expect(() =>
 			defineWorkspace({
 				appId: 'rows',
-				dataVersion: 1,
+				version: 1,
 				tables: { rows, ['__proto__']: rows },
 			}),
 		).toThrow("workspace table '__proto__' collides with Object.prototype");
@@ -482,7 +503,7 @@ describe('defineWorkspace', () => {
 		expect(() =>
 			defineWorkspace({
 				appId: 'empty-kv-key',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					rows: defineTable({ fields: { id: field.string() } }),
 				},
@@ -498,7 +519,7 @@ describe('defineWorkspace', () => {
 		const kv: Record<string, typeof theme> = { theme };
 		const workspace = defineWorkspace({
 			appId: 'notes',
-			dataVersion: 1,
+			version: 1,
 			tables,
 			kv,
 		});
@@ -526,14 +547,14 @@ describe('defineWorkspace', () => {
 		expect(() =>
 			defineWorkspace({
 				appId: 'forged-table',
-				dataVersion: 1,
+				version: 1,
 				tables: { notes: { ...notes } },
 			}),
 		).toThrow("Workspace table 'notes' must use defineTable()");
 		expect(() =>
 			defineWorkspace({
 				appId: 'forged-kv',
-				dataVersion: 1,
+				version: 1,
 				tables: { notes },
 				kv: { theme: { ...theme } },
 			}),

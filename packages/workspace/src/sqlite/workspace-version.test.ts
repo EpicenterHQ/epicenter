@@ -1,5 +1,5 @@
 /**
- * Application Data Version Lock Tests
+ * Workspace Version Lock Tests
  *
  * Verifies that source declarations produce one canonical durable-plane map
  * and that only an exact published entry authorizes a workspace at runtime.
@@ -11,12 +11,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { field } from '@epicenter/field';
 import { openStandaloneWorkspace as openBrowserWorkspace } from './browser.js';
-import {
-	applicationWorkspaceId,
-	parseApplicationDataVersionLock,
-} from './data-version.js';
 import {
 	defineKv,
 	defineTable,
@@ -27,45 +22,48 @@ import {
 	type WorkspaceDefinition,
 } from './definition.js';
 import { document } from './document-format.js';
+import { field } from './field.js';
+import {
+	deriveWorkspaceId,
+	parseWorkspaceVersionLock,
+} from './workspace-version.js';
 
 function lockFor(
 	candidate: ReturnType<typeof defineWorkspace>,
 	entries: unknown[] = [candidate.proposedLockEntry],
 ) {
 	return {
-		format: 'epicenter.application-data-version-lock/1',
+		format: 'epicenter.workspace-version-lock/1',
 		appId: candidate.appId,
 		versions: entries,
 	};
 }
 
-function candidateFor(dataVersion = 1) {
+function candidateFor(version = 1) {
 	return defineWorkspace({
 		appId: 'version-test',
-		dataVersion,
+		version,
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), title: field.string() },
-				documents: { body: document.plainText },
+				fields: {
+					id: field.string(),
+					title: field.string(),
+					body: field.doc(document.plainText),
+					attachment: field.blob(),
+				},
 			}),
 		},
 		kv: { theme: defineKv(field.string(), () => 'light') },
-		blobs: { attachments: 'epicenter.test-attachment/1' },
 	});
 }
 
-describe('application data version source', () => {
+describe('workspace version source', () => {
 	test('derives one version-qualified identity and canonical plane map', () => {
 		const candidate = candidateFor(2);
 
 		expect(candidate.workspaceId).toBe('version-test-v2');
 		expect(candidate.kvDocumentGuid).toBe('version-test-v2.kv');
-		expect(candidate.blobs.attachments).toEqual({
-			identity: 'version-test-v2.blob.attachments',
-			contract: 'epicenter.test-attachment/1',
-		});
 		expect(Object.keys(candidate.proposedLockEntry.planes)).toEqual([
-			'blob.attachments',
 			'document.notes.body',
 			'kv',
 			'kv.theme',
@@ -77,8 +75,8 @@ describe('application data version source', () => {
 		expect(candidate.proposedLockEntry.planes['document.notes.body']).toMatch(
 			/^epicenter\.sqlite-child-document-guid\/1;row-id=epicenter\.document-row\/1;guid=version-test-v2\.notes\.<row-id-sha256>\.body\.[0-9a-f]{64}$/,
 		);
-		expect(candidate.proposedLockEntry.planes['blob.attachments']).toMatch(
-			/^version-test-v2\.blob\.attachments@sha256:[0-9a-f]{64}$/,
+		expect(candidate.tables.notes.blobs.attachment).toEqual(
+			candidate.tables.notes.fields.attachment,
 		);
 		expect(Object.isFrozen(candidate.proposedLockEntry)).toBe(true);
 		expect(Object.isFrozen(candidate.proposedLockEntry.planes)).toBe(true);
@@ -88,7 +86,7 @@ describe('application data version source', () => {
 		function planes(defaultValue: string) {
 			return defineWorkspace({
 				appId: 'defaults-test',
-				dataVersion: 1,
+				version: 1,
 				tables: {
 					rows: defineTable({ fields: { id: field.string() } }),
 				},
@@ -100,13 +98,11 @@ describe('application data version source', () => {
 	});
 
 	test('rejects unsafe app ids and non-positive versions', () => {
-		expect(() => applicationWorkspaceId('Unsafe', 1)).toThrow(
+		expect(() => deriveWorkspaceId('Unsafe', 1)).toThrow(
 			'Invalid application id',
 		);
-		expect(() => applicationWorkspaceId('safe', 0)).toThrow('positive integer');
-		expect(() => applicationWorkspaceId('safe', 1.5)).toThrow(
-			'positive integer',
-		);
+		expect(() => deriveWorkspaceId('safe', 0)).toThrow('positive integer');
+		expect(() => deriveWorkspaceId('safe', 1.5)).toThrow('positive integer');
 	});
 });
 
@@ -184,10 +180,10 @@ describe('lockWorkspace', () => {
 	});
 });
 
-describe('parseApplicationDataVersionLock', () => {
+describe('parseWorkspaceVersionLock', () => {
 	test('returns an immutable exact lock', () => {
 		const candidate = candidateFor();
-		const parsed = parseApplicationDataVersionLock(lockFor(candidate));
+		const parsed = parseWorkspaceVersionLock(lockFor(candidate));
 
 		expect(parsed.appId).toBe(candidate.appId);
 		expect(parsed.versions).toEqual([candidate.proposedLockEntry]);
@@ -200,15 +196,15 @@ describe('parseApplicationDataVersionLock', () => {
 		const one = candidateFor(1);
 		const two = candidateFor(2);
 		expect(() =>
-			parseApplicationDataVersionLock({ ...lockFor(one), extra: true }),
-		).toThrow('Invalid application data version lock');
+			parseWorkspaceVersionLock({ ...lockFor(one), extra: true }),
+		).toThrow('Invalid workspace version lock');
 		expect(() =>
-			parseApplicationDataVersionLock(
+			parseWorkspaceVersionLock(
 				lockFor(one, [{ ...one.proposedLockEntry, workspaceId: 'forged' }]),
 			),
 		).toThrow('invalid workspace id');
 		expect(() =>
-			parseApplicationDataVersionLock(
+			parseWorkspaceVersionLock(
 				lockFor(one, [two.proposedLockEntry, one.proposedLockEntry]),
 			),
 		).toThrow('strictly increasing');
@@ -220,7 +216,7 @@ describe('parseApplicationDataVersionLock', () => {
 			{ ...candidate.proposedLockEntry, planes },
 		];
 		expect(() =>
-			parseApplicationDataVersionLock(
+			parseWorkspaceVersionLock(
 				lockFor(
 					candidate,
 					entries({ kv: candidate.kvDocumentGuid, 'blob.bad': 'bad' }),
@@ -228,12 +224,12 @@ describe('parseApplicationDataVersionLock', () => {
 			),
 		).toThrow('canonically sorted');
 		expect(() =>
-			parseApplicationDataVersionLock(
+			parseWorkspaceVersionLock(
 				lockFor(
 					candidate,
 					entries({ kv: candidate.kvDocumentGuid, unknown: 'value' }),
 				),
 			),
-		).toThrow("Unknown application data version plane 'unknown'");
+		).toThrow("Unknown workspace version plane 'unknown'");
 	});
 });

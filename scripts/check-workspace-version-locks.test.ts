@@ -1,5 +1,5 @@
 /**
- * Application data version lock gate tests.
+ * Workspace version lock gate tests.
  *
  * Runs the CLI against throwaway git repositories so both Git-history
  * immutability and source-to-lock drift checks exercise their real process and
@@ -25,15 +25,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { field } from '../packages/field/src/index.js';
-import { APPLICATION_DATA_VERSION_LOCK_FORMAT } from '../packages/workspace/src/sqlite/data-version.js';
 import {
 	defineKv,
 	defineTable,
 	defineWorkspace,
 } from '../packages/workspace/src/sqlite/definition.js';
+import { WORKSPACE_VERSION_LOCK_FORMAT } from '../packages/workspace/src/sqlite/workspace-version.js';
 
 const scriptPath = fileURLToPath(
-	new URL('./check-application-data-version-locks.ts', import.meta.url),
+	new URL('./check-workspace-version-locks.ts', import.meta.url),
 );
 const definitionModuleUrl = new URL(
 	'../packages/workspace/src/sqlite/definition.js',
@@ -43,18 +43,18 @@ const fieldModuleUrl = new URL(
 	'../packages/field/src/index.js',
 	import.meta.url,
 ).href;
-const lockPath = 'app/data-version-lock.json';
+const lockPath = 'app/workspace-version-lock.json';
 
 type CandidateVariant = 'base' | 'plane-drift' | 'schema-drift';
 
-function candidateFor(dataVersion: number, variant: CandidateVariant = 'base') {
+function candidateFor(version: number, variant: CandidateVariant = 'base') {
 	if (variant === 'schema-drift') {
 		const rows = defineTable({
 			fields: { id: field.string(), title: field.string() },
 		});
 		return defineWorkspace({
 			appId: 'fixture',
-			dataVersion,
+			version,
 			tables: { rows },
 		});
 	}
@@ -63,7 +63,7 @@ function candidateFor(dataVersion: number, variant: CandidateVariant = 'base') {
 	});
 	return defineWorkspace({
 		appId: 'fixture',
-		dataVersion,
+		version,
 		tables: { rows },
 		...(variant === 'plane-drift'
 			? { kv: { preference: defineKv(field.string(), () => '') } }
@@ -71,15 +71,15 @@ function candidateFor(dataVersion: number, variant: CandidateVariant = 'base') {
 	});
 }
 
-function version(dataVersion: number) {
-	return candidateFor(dataVersion).proposedLockEntry;
+function version(version: number) {
+	return candidateFor(version).proposedLockEntry;
 }
 
 type Entry = ReturnType<typeof version>;
 
 function lock(versions: Entry[]) {
 	return {
-		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
+		format: WORKSPACE_VERSION_LOCK_FORMAT,
 		appId: 'fixture',
 		versions,
 	};
@@ -101,11 +101,11 @@ function writeJson(cwd: string, relativePath: string, value: unknown): void {
 
 function writeCandidate(
 	cwd: string,
-	dataVersion: number,
+	version: number,
 	variant: CandidateVariant = 'base',
 	extraExport = '',
 ): string {
-	const candidatePath = `app/src/versions/v${dataVersion}/workspace.ts`;
+	const candidatePath = `app/src/versions/v${version}/workspace.ts`;
 	const absolutePath = path.join(cwd, candidatePath);
 	mkdirSync(path.dirname(absolutePath), { recursive: true });
 	writeFileSync(
@@ -123,7 +123,7 @@ const rows = defineTable({
 
 export const workspaceCandidate = defineWorkspace({
 	appId: 'fixture',
-	dataVersion: ${dataVersion},
+	version: ${version},
 	tables: { rows },${
 		variant === 'plane-drift'
 			? "\n\tkv: { preference: defineKv(field.string(), () => '') },"
@@ -135,8 +135,8 @@ ${extraExport}`,
 	return candidatePath;
 }
 
-function candidatePath(dataVersion: number): string {
-	return `app/src/versions/v${dataVersion}/workspace.ts`;
+function candidatePath(version: number): string {
+	return `app/src/versions/v${version}/workspace.ts`;
 }
 
 function setup({
@@ -146,14 +146,14 @@ function setup({
 	initialVersions?: Entry[];
 	withLock?: boolean;
 } = {}) {
-	const cwd = mkdtempSync(path.join(os.tmpdir(), 'data-version-locks-'));
+	const cwd = mkdtempSync(path.join(os.tmpdir(), 'workspace-version-locks-'));
 	git(cwd, ['init', '-q', '-b', 'main']);
 	git(cwd, ['config', 'user.email', 'fixture@test.local']);
 	git(cwd, ['config', 'user.name', 'Fixture']);
 	git(cwd, ['config', 'commit.gpgsign', 'false']);
 	mkdirSync(path.join(cwd, 'app'), { recursive: true });
 	for (const entry of initialVersions) {
-		writeCandidate(cwd, entry.dataVersion);
+		writeCandidate(cwd, entry.version);
 	}
 	if (withLock) writeJson(cwd, lockPath, lock(initialVersions));
 	git(cwd, ['add', 'app']);
@@ -169,7 +169,7 @@ function run(
 ) {
 	const env = { ...process.env };
 	delete env.CI;
-	delete env.DATA_VERSION_LOCK_BASE;
+	delete env.WORKSPACE_VERSION_LOCK_BASE;
 	Object.assign(env, environment);
 	const result = spawnSync('bun', [scriptPath, ...args], {
 		cwd,
@@ -342,7 +342,7 @@ test('history check rejects a changed published entry', () => {
 			lock([
 				{
 					...baseline,
-					recordsSchemaHash: `sha256:${'f'.repeat(64)}`,
+					tablesSchemaHash: `sha256:${'f'.repeat(64)}`,
 				},
 			]),
 		);
@@ -388,7 +388,7 @@ test('history check rejects deletion of a published lock', () => {
 test('history check rejects rename of a published lock', () => {
 	withRepo(({ cwd, base }) => {
 		mkdirSync(path.join(cwd, 'renamed'));
-		git(cwd, ['mv', lockPath, 'renamed/data-version-lock.json']);
+		git(cwd, ['mv', lockPath, 'renamed/workspace-version-lock.json']);
 		const result = run(cwd, ['--check-history', '--base', base]);
 		expect(result.code).toBe(1);
 		expect(result.output).toContain('was deleted or renamed');
@@ -400,7 +400,7 @@ test('history check validates the exact current artifact shape', () => {
 		writeJson(cwd, lockPath, { ...lock([version(1)]), mutable: true });
 		const result = run(cwd, ['--check-history']);
 		expect(result.code).toBe(1);
-		expect(result.output).toContain('Invalid application data version lock');
+		expect(result.output).toContain('Invalid workspace version lock');
 	});
 });
 
@@ -427,7 +427,7 @@ test('history check rejects tracked source drift without a package script', () =
 
 test('history check supports a root-level tracked lock and source convention', () => {
 	withRepo(({ cwd }) => {
-		git(cwd, ['mv', lockPath, 'data-version-lock.json']);
+		git(cwd, ['mv', lockPath, 'workspace-version-lock.json']);
 		git(cwd, ['mv', 'app/src', 'src']);
 		const result = run(cwd, ['--check-history']);
 		expect(result.code).toBe(0);
@@ -444,17 +444,15 @@ test('history check validates the exact base artifact shape', () => {
 		writeJson(cwd, lockPath, lock([version(1)]));
 		const result = run(cwd, ['--check-history', '--base', invalidBase]);
 		expect(result.code).toBe(1);
-		expect(result.output).toContain('Base data version lock');
-		expect(result.output).toContain(
-			'not a valid application data version lock',
-		);
+		expect(result.output).toContain('Base workspace version lock');
+		expect(result.output).toContain('not a valid workspace version lock');
 	});
 });
 
-test('history check accepts DATA_VERSION_LOCK_BASE', () => {
+test('history check accepts WORKSPACE_VERSION_LOCK_BASE', () => {
 	withRepo(({ cwd, base }) => {
 		const result = run(cwd, ['--check-history'], {
-			DATA_VERSION_LOCK_BASE: base,
+			WORKSPACE_VERSION_LOCK_BASE: base,
 		});
 		expect(result.code).toBe(0);
 		expect(result.output).toContain(`preserve base ${base}`);

@@ -169,7 +169,7 @@
 		"check:doc-paths": "bun run scripts/check-doc-paths.ts",
 		"check:doc-hygiene": "bun run scripts/check-doc-hygiene.ts",
 		"check:catalog-pins": "bun run scripts/check-catalog-pins.ts",
-		"check:data-version-locks": "bun run scripts/check-application-data-version-locks.ts --check-history",
+		"check:workspace-version-locks": "bun run scripts/check-workspace-version-locks.ts --check-history",
 		"gen:spec-history": "bun run scripts/generate-spec-history.ts",
 		"bump-version": "bun run scripts/bump-version.ts",
 		"clean": "bun run scripts/clean.ts",

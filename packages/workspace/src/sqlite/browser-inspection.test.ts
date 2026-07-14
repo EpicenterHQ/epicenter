@@ -201,7 +201,7 @@ test('remote error, Worker crash, and timeout clean up inspector Workers', async
 test('unlocked candidate is rejected before an inspector Worker is created', () => {
 	const candidate = defineWorkspace({
 		appId: 'unlocked-inspection-test',
-		dataVersion: 1,
+		version: 1,
 		tables: { rows },
 	});
 	let workerCreated = false;

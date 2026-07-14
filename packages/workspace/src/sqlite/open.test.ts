@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { field } from '@epicenter/field';
 import * as Y from 'yjs';
 import type {
 	WorkspaceServiceRequest,
@@ -7,6 +6,7 @@ import type {
 } from './client.js';
 import { defineKv, defineTable } from './definition.js';
 import { document } from './document-format.js';
+import { field } from './field.js';
 import {
 	type OwnedWorkspaceServicePort,
 	openWorkspaceFromService,
@@ -19,8 +19,10 @@ function setup() {
 		name: 'Open test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string() },
-				documents: { body: document.plainText },
+				fields: {
+					id: field.string(),
+					body: field.doc(document.plainText),
+				},
 			}),
 		},
 	});
@@ -362,8 +364,10 @@ test('document runtime opens current format-addressed endpoints', async () => {
 		appId: 'document-conversion-test',
 		tables: {
 			recordings: defineTable({
-				fields: { id: field.string(), transcript: field.string() },
-				documents: { transcript: document.xmlFragment },
+				fields: {
+					id: field.string(),
+					transcript: field.doc(document.xmlFragment),
+				},
 			}),
 		},
 	});

@@ -2,11 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-	APPLICATION_DATA_VERSION_LOCK_FORMAT,
-	parseApplicationDataVersionLock,
-} from '../packages/workspace/src/sqlite/data-version.js';
 import { inspectWorkspaceCandidate } from '../packages/workspace/src/sqlite/definition.js';
+import {
+	parseWorkspaceVersionLock,
+	WORKSPACE_VERSION_LOCK_FORMAT,
+} from '../packages/workspace/src/sqlite/workspace-version.js';
 
 type Mode = 'check' | 'check-history' | 'write';
 
@@ -25,7 +25,7 @@ type Options =
 function usage(message?: string): never {
 	if (message) console.error(message);
 	console.error(
-		'Usage:\n  bun run scripts/check-application-data-version-locks.ts --check-history [--base <full-commit-sha>]\n  bun run scripts/check-application-data-version-locks.ts (--check | --write) --lock <path> --candidate <module> [--candidate <module> ...] [--base <full-commit-sha>]',
+		'Usage:\n  bun run scripts/check-workspace-version-locks.ts --check-history [--base <full-commit-sha>]\n  bun run scripts/check-workspace-version-locks.ts (--check | --write) --lock <path> --candidate <module> [--candidate <module> ...] [--base <full-commit-sha>]',
 	);
 	process.exit(1);
 }
@@ -71,14 +71,14 @@ function parseArguments(argv: string[]): Options {
 	}
 
 	if (!mode) usage('Choose exactly one mode.');
-	const baseEnvironment = process.env.DATA_VERSION_LOCK_BASE;
+	const baseEnvironment = process.env.WORKSPACE_VERSION_LOCK_BASE;
 	if (baseFlag && baseEnvironment && baseFlag !== baseEnvironment) {
-		usage('--base and DATA_VERSION_LOCK_BASE disagree.');
+		usage('--base and WORKSPACE_VERSION_LOCK_BASE disagree.');
 	}
 
 	const base = baseFlag ?? baseEnvironment;
 	if (process.env.CI && !base) {
-		usage('CI requires --base or DATA_VERSION_LOCK_BASE.');
+		usage('CI requires --base or WORKSPACE_VERSION_LOCK_BASE.');
 	}
 	if (mode === 'check-history') {
 		if (lockPath || candidatePaths.length > 0) {
@@ -109,11 +109,11 @@ function readLock(path: string) {
 	try {
 		value = JSON.parse(readFileSync(path, 'utf8'));
 	} catch (error) {
-		throw new Error(`Cannot read data version lock '${path}'.`, {
+		throw new Error(`Cannot read workspace version lock '${path}'.`, {
 			cause: error,
 		});
 	}
-	return parseApplicationDataVersionLock(value);
+	return parseWorkspaceVersionLock(value);
 }
 
 async function readCandidate(path: string) {
@@ -127,8 +127,8 @@ async function readCandidate(path: string) {
 	const candidate = inspectWorkspaceCandidate(
 		candidateModule.workspaceCandidate,
 	);
-	const parsed = parseApplicationDataVersionLock({
-		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
+	const parsed = parseWorkspaceVersionLock({
+		format: WORKSPACE_VERSION_LOCK_FORMAT,
 		appId: candidate.appId,
 		versions: [candidate.proposedLockEntry],
 	});
@@ -148,20 +148,20 @@ function git(cwd: string, args: string[]): string {
 function exactBaseSha(repoRoot: string, base: string): string {
 	if (!/^[0-9a-f]{40}$/.test(base)) {
 		throw new Error(
-			`Data version lock base '${base}' must be an exact full commit SHA.`,
+			`Workspace version lock base '${base}' must be an exact full commit SHA.`,
 		);
 	}
 	let resolved: string;
 	try {
 		resolved = git(repoRoot, ['rev-parse', '--verify', `${base}^{commit}`]);
 	} catch (error) {
-		throw new Error(`Data version lock base '${base}' is unavailable.`, {
+		throw new Error(`Workspace version lock base '${base}' is unavailable.`, {
 			cause: error,
 		});
 	}
 	if (resolved !== base) {
 		throw new Error(
-			`Data version lock base '${base}' did not resolve to that exact commit.`,
+			`Workspace version lock base '${base}' did not resolve to that exact commit.`,
 		);
 	}
 	return base;
@@ -175,7 +175,7 @@ function repoPath(repoRoot: string, path: string): string {
 		pathFromRoot === ''
 	) {
 		throw new Error(
-			`Data version lock '${path}' must be inside the git repository.`,
+			`Workspace version lock '${path}' must be inside the git repository.`,
 		);
 	}
 	return pathFromRoot.split(sep).join('/');
@@ -189,9 +189,9 @@ function parseLockText(text: string, label: string) {
 		throw new Error(`${label} is not valid JSON.`, { cause: error });
 	}
 	try {
-		return parseApplicationDataVersionLock(value);
+		return parseWorkspaceVersionLock(value);
 	} catch (error) {
-		throw new Error(`${label} is not a valid application data version lock.`, {
+		throw new Error(`${label} is not a valid workspace version lock.`, {
 			cause: error,
 		});
 	}
@@ -210,11 +210,11 @@ function readBaseLock({
 }) {
 	try {
 		const text = git(repoRoot, ['show', `${base}:${path}`]);
-		return parseLockText(text, `Base data version lock '${path}'`);
+		return parseLockText(text, `Base workspace version lock '${path}'`);
 	} catch (error) {
 		if (
 			error instanceof Error &&
-			error.message.startsWith(`Base data version lock '${path}'`)
+			error.message.startsWith(`Base workspace version lock '${path}'`)
 		) {
 			throw error;
 		}
@@ -226,7 +226,7 @@ function readBaseLock({
 			'grep',
 			'-l',
 			'-F',
-			APPLICATION_DATA_VERSION_LOCK_FORMAT,
+			WORKSPACE_VERSION_LOCK_FORMAT,
 			base,
 			'--',
 			'*.json',
@@ -237,18 +237,18 @@ function readBaseLock({
 	for (const match of matches.split('\n').filter(Boolean)) {
 		const oldPath = match.slice(`${base}:`.length);
 		if (oldPath === path) continue;
-		let oldLock: ReturnType<typeof parseApplicationDataVersionLock>;
+		let oldLock: ReturnType<typeof parseWorkspaceVersionLock>;
 		try {
 			oldLock = parseLockText(
 				git(repoRoot, ['show', `${base}:${oldPath}`]),
-				`Base data version lock '${oldPath}'`,
+				`Base workspace version lock '${oldPath}'`,
 			);
 		} catch {
 			continue;
 		}
 		if (oldLock.appId === appId) {
 			throw new Error(
-				`Data version lock for app '${appId}' was renamed from '${oldPath}' to '${path}'. Published locks cannot be renamed.`,
+				`Workspace version lock for app '${appId}' was renamed from '${oldPath}' to '${path}'. Published locks cannot be renamed.`,
 			);
 		}
 	}
@@ -266,15 +266,15 @@ function trackedFiles(repoRoot: string, revision?: string): string[] {
 function trackedVersionLocks(repoRoot: string, revision?: string): string[] {
 	return trackedFiles(repoRoot, revision).filter(
 		(path) =>
-			path === 'data-version-lock.json' ||
-			path.endsWith('/data-version-lock.json'),
+			path === 'workspace-version-lock.json' ||
+			path.endsWith('/workspace-version-lock.json'),
 	);
 }
 
 async function verifyTrackedSources(
 	repoRoot: string,
 	lockPath: string,
-	lock: ReturnType<typeof parseApplicationDataVersionLock>,
+	lock: ReturnType<typeof parseWorkspaceVersionLock>,
 ): Promise<void> {
 	const lockDirectory = dirname(lockPath);
 	const versionsDirectory =
@@ -288,37 +288,37 @@ async function verifyTrackedSources(
 	);
 	if (candidatePaths.length === 0) {
 		throw new Error(
-			`Tracked data version lock '${lockPath}' has no tracked source candidates under '${versionsDirectory}/vN/workspace.ts'.`,
+			`Tracked workspace version lock '${lockPath}' has no tracked source candidates under '${versionsDirectory}/vN/workspace.ts'.`,
 		);
 	}
 	const candidates = await Promise.all(
 		candidatePaths.map((path) => readCandidate(resolve(repoRoot, path))),
 	);
 	for (const candidate of candidates) {
-		const version = candidate.entry.dataVersion;
+		const version = candidate.entry.version;
 		const expectedPath = `${versionsDirectory}/v${version}/workspace.ts`;
 		const actualPath = repoPath(repoRoot, candidate.path);
 		if (actualPath !== expectedPath) {
 			throw new Error(
-				`Candidate '${actualPath}' proposes data version ${version}; expected '${expectedPath}'.`,
+				`Candidate '${actualPath}' proposes workspace version ${version}; expected '${expectedPath}'.`,
 			);
 		}
 	}
 	const ordered = candidates.toSorted(
-		(left, right) => left.entry.dataVersion - right.entry.dataVersion,
+		(left, right) => left.entry.version - right.entry.version,
 	);
 	const appId = ordered[0]?.appId;
 	if (!appId || ordered.some((candidate) => candidate.appId !== appId)) {
 		throw new Error(`Source candidates for '${lockPath}' span multiple apps.`);
 	}
-	const sourceLock = parseApplicationDataVersionLock({
-		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
+	const sourceLock = parseWorkspaceVersionLock({
+		format: WORKSPACE_VERSION_LOCK_FORMAT,
 		appId,
 		versions: ordered.map(({ entry }) => entry),
 	});
 	if (!sameJson(sourceLock, lock)) {
 		throw new Error(
-			`Tracked data version lock '${lockPath}' does not exactly match its source candidates.`,
+			`Tracked workspace version lock '${lockPath}' does not exactly match its source candidates.`,
 		);
 	}
 }
@@ -328,22 +328,22 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 function verifyBasePrefix(
-	baseLock: ReturnType<typeof parseApplicationDataVersionLock>,
-	currentLock: ReturnType<typeof parseApplicationDataVersionLock>,
+	baseLock: ReturnType<typeof parseWorkspaceVersionLock>,
+	currentLock: ReturnType<typeof parseWorkspaceVersionLock>,
 ): void {
 	if (
 		baseLock.format !== currentLock.format ||
 		baseLock.appId !== currentLock.appId
 	) {
-		throw new Error('Published data version lock identity changed.');
+		throw new Error('Published workspace version lock identity changed.');
 	}
 	if (currentLock.versions.length < baseLock.versions.length) {
-		throw new Error('Published data version lock entries were removed.');
+		throw new Error('Published workspace version lock entries were removed.');
 	}
 	for (const [index, entry] of baseLock.versions.entries()) {
 		if (!sameJson(entry, currentLock.versions[index])) {
 			throw new Error(
-				`Published data version lock entry ${index + 1} changed or moved.`,
+				`Published workspace version lock entry ${index + 1} changed or moved.`,
 			);
 		}
 	}
@@ -364,16 +364,16 @@ async function checkHistory(baseInput: string | undefined): Promise<void> {
 		for (const path of basePaths) {
 			if (!currentPathSet.has(path)) {
 				throw new Error(
-					`Published data version lock '${path}' was deleted or renamed.`,
+					`Published workspace version lock '${path}' was deleted or renamed.`,
 				);
 			}
 			const baseLock = parseLockText(
 				git(repoRoot, ['show', `${base}:${path}`]),
-				`Base data version lock '${path}'`,
+				`Base workspace version lock '${path}'`,
 			);
 			const currentLock = currentLocks.get(path);
 			if (!currentLock)
-				throw new Error(`Data version lock '${path}' is unavailable.`);
+				throw new Error(`Workspace version lock '${path}' is unavailable.`);
 			verifyBasePrefix(baseLock, currentLock);
 		}
 	}
@@ -384,8 +384,8 @@ async function checkHistory(baseInput: string | undefined): Promise<void> {
 	);
 	console.log(
 		base
-			? `data-version-locks: ${currentPaths.length} tracked lock(s) match sources and preserve base ${base}.`
-			: `data-version-locks: ${currentPaths.length} tracked lock(s) match sources; no base comparison requested.`,
+			? `workspace-version-locks: ${currentPaths.length} tracked lock(s) match sources and preserve base ${base}.`
+			: `workspace-version-locks: ${currentPaths.length} tracked lock(s) match sources; no base comparison requested.`,
 	);
 }
 
@@ -403,8 +403,8 @@ async function main(): Promise<void> {
 		throw new Error('Every candidate must belong to the same application.');
 	}
 
-	const candidateLock = parseApplicationDataVersionLock({
-		format: APPLICATION_DATA_VERSION_LOCK_FORMAT,
+	const candidateLock = parseWorkspaceVersionLock({
+		format: WORKSPACE_VERSION_LOCK_FORMAT,
 		appId,
 		versions: candidates.map(({ entry }) => entry),
 	});
@@ -414,7 +414,7 @@ async function main(): Promise<void> {
 			: readLock(options.lockPath);
 	if (currentLock && currentLock.appId !== appId) {
 		throw new Error(
-			`Data version lock app '${currentLock.appId}' does not match candidate app '${appId}'.`,
+			`Workspace version lock app '${currentLock.appId}' does not match candidate app '${appId}'.`,
 		);
 	}
 
@@ -435,7 +435,7 @@ async function main(): Promise<void> {
 			!sameJson(currentLock?.versions[index], candidateLock.versions[index])
 		) {
 			throw new Error(
-				`Candidate for data version ${candidateLock.versions[index]?.dataVersion} drifted from the committed lock.`,
+				`Candidate for workspace version ${candidateLock.versions[index]?.version} drifted from the committed lock.`,
 			);
 		}
 	}
@@ -456,24 +456,24 @@ async function main(): Promise<void> {
 			);
 		}
 		console.log(
-			`data-version-locks: ${appId} has ${currentLock?.versions.length ?? 0} locked version(s); sources match.`,
+			`workspace-version-locks: ${appId} has ${currentLock?.versions.length ?? 0} locked version(s); sources match.`,
 		);
 		return;
 	}
 
 	if (newEntries.length === 0) {
-		console.log(`data-version-locks: ${appId} is already current.`);
+		console.log(`workspace-version-locks: ${appId} is already current.`);
 		return;
 	}
 	const nextLock = currentLock
-		? parseApplicationDataVersionLock({
+		? parseWorkspaceVersionLock({
 				...currentLock,
 				versions: [...currentLock.versions, ...newEntries],
 			})
 		: candidateLock;
 	writeFileSync(options.lockPath, `${JSON.stringify(nextLock, null, '\t')}\n`);
 	console.log(
-		`data-version-locks: appended ${newEntries.length} version(s) to '${options.lockPath}'.`,
+		`workspace-version-locks: appended ${newEntries.length} version(s) to '${options.lockPath}'.`,
 	);
 }
 

@@ -21,18 +21,26 @@ import { isKvDefinition } from '../document/define-kv.js';
 import type { KvDefinitions } from '../document/kv.js';
 import { assertSafeSegment } from '../shared/safe-segment.js';
 import { sha256Hex } from '../shared/sha256.js';
-import {
-	type ApplicationDataVersionLockEntry,
-	applicationWorkspaceId,
-	parseApplicationDataVersionLock,
-} from './data-version.js';
-import { type DocumentFormat, isDocumentFormat } from './document-format.js';
+import type { DocumentFormat } from './document-format.js';
 import { createDocumentGuidIdentity } from './document-guid.js';
+import {
+	type BlobField,
+	type DocumentField,
+	documentFormatOf,
+	isBlobField,
+	isDocumentField,
+	type WorkspaceField,
+} from './field.js';
 import {
 	canonicalJson,
 	createRecordsDescriptor,
 	recordsSchemaHashOf,
 } from './schema-descriptor.js';
+import {
+	deriveWorkspaceId,
+	parseWorkspaceVersionLock,
+	type WorkspaceVersionLockEntry,
+} from './workspace-version.js';
 
 // The preference plane shares one declaration vocabulary across storage
 // planes: `defineKv` lives with the document KV implementation, and this
@@ -42,9 +50,29 @@ import {
 export { defineKv } from '../document/define-kv.js';
 export type { KvDefinition, KvDefinitions } from '../document/kv.js';
 
-export type Fields = Record<string, TSchema>;
+export type Fields = Record<string, WorkspaceField>;
 type TableFields = Fields & { id: TSchema };
 type DocumentFormats = Record<string, DocumentFormat>;
+
+type CellFields<TFields extends TableFields> = {
+	readonly [TName in keyof TFields as TFields[TName] extends DocumentField
+		? never
+		: TName]: TFields[TName] extends TSchema ? TFields[TName] : never;
+};
+
+type Documents<TFields extends TableFields> = {
+	readonly [TName in keyof TFields as TFields[TName] extends DocumentField
+		? TName
+		: never]: TFields[TName] extends DocumentField<infer TFormat>
+		? TFormat
+		: never;
+};
+
+type BlobFields<TFields extends TableFields> = {
+	readonly [TName in keyof TFields as TFields[TName] extends BlobField
+		? TName
+		: never]: TFields[TName] extends BlobField ? TFields[TName] : never;
+};
 
 export type CompiledColumn = {
 	readonly name: string;
@@ -59,12 +87,15 @@ declare const tableDefinitionBrand: unique symbol;
 const tableDefinitions = new WeakSet<object>();
 
 export type TableDefinition<
-	TColumns extends TableFields = TableFields,
+	TFields extends TableFields = TableFields,
+	TColumns extends CellFields<TFields> = CellFields<TFields>,
 	TDocuments extends DocumentFormats = DocumentFormats,
 > = {
-	readonly fields: Readonly<TColumns>;
+	readonly fields: Readonly<TFields>;
+	readonly columns: Readonly<TColumns>;
 	readonly schema: TObject<TColumns>;
 	readonly documents: Readonly<TDocuments>;
+	readonly blobs: Readonly<BlobFields<TFields>>;
 	readonly compiledColumns: Readonly<{
 		[TName in keyof TColumns]: CompiledColumn;
 	}>;
@@ -85,28 +116,34 @@ type ConstrainNullAxis<TSchemaValue extends TSchema> =
 			: NullableFieldError
 		: TSchemaValue;
 
-type ConstrainTableColumns<TColumns extends TableFields> = {
-	[TName in keyof TColumns]: ConstrainNullAxis<TColumns[TName]>;
+type ConstrainTableFields<TFields extends TableFields> = {
+	[TName in keyof TFields]: TFields[TName] extends DocumentField
+		? TFields[TName]
+		: TFields[TName] extends TSchema
+			? ConstrainNullAxis<TFields[TName]>
+			: never;
 };
 
-type TableConfig<
-	TColumns extends TableFields = TableFields,
-	TDocuments extends DocumentFormats = DocumentFormats,
-> = {
-	fields: TColumns;
-	documents?: TDocuments;
-};
-
-export function defineTable<
-	const TColumns extends TableFields,
-	const TDocuments extends DocumentFormats = Readonly<Record<never, never>>,
->(
-	config: Omit<TableConfig<TColumns, TDocuments>, 'fields'> & {
-		fields: ConstrainTableColumns<TColumns>;
-	},
-): TableDefinition<TColumns, Readonly<TDocuments>> {
-	const authoredColumns = config.fields as TColumns;
-	assertSchemaRecord(authoredColumns, 'table columns', 'table column');
+export function defineTable<const TFields extends TableFields>(config: {
+	fields: ConstrainTableFields<TFields>;
+}): TableDefinition<TFields, CellFields<TFields>, Documents<TFields>> {
+	const authoredFields = config.fields as TFields;
+	assertSchemaRecord(authoredFields, 'table fields', 'table field');
+	const authoredColumns: Record<string, TSchema> = {};
+	const authoredDocuments: Record<string, DocumentFormat> = {};
+	const authoredBlobs: Record<string, BlobField> = {};
+	for (const [name, declaration] of Object.entries(authoredFields)) {
+		if (isDocumentField(declaration)) {
+			assertSafeSegment(name, 'child document field name');
+			authoredDocuments[name] = documentFormatOf(declaration);
+			continue;
+		}
+		authoredColumns[name] = declaration;
+		if (isBlobField(declaration)) authoredBlobs[name] = declaration;
+	}
+	if (!Object.hasOwn(authoredColumns, 'id')) {
+		throw new Error("Table field 'id' must be a persisted cell");
+	}
 	const ownedColumns = Object.freeze(
 		Object.fromEntries(
 			Object.entries(authoredColumns).map(([name, schema]) => [
@@ -114,17 +151,16 @@ export function defineTable<
 				snapshotSchema(schema),
 			]),
 		),
-	) as TColumns;
+	) as CellFields<TFields>;
 	const compiledColumns = Object.fromEntries(
-		Object.entries(ownedColumns).map(([name, schema]) => [
-			name,
-			Object.freeze(compileColumn(name, schema)),
-		]),
-	) as { [TName in keyof TColumns]: CompiledColumn };
+		Object.entries(ownedColumns as Record<string, TSchema>).map(
+			([name, schema]) => [name, Object.freeze(compileColumn(name, schema))],
+		),
+	) as { [TName in keyof CellFields<TFields>]: CompiledColumn };
 	Object.freeze(compiledColumns);
 
-	const id = compiledColumns.id;
-	if (id.kind !== 'string' || id.isNullable) {
+	const id = (compiledColumns as Record<string, CompiledColumn>).id;
+	if (!id || id.kind !== 'string' || id.isNullable) {
 		throw new Error(
 			"Table column 'id' must be a non-null field.string() schema",
 		);
@@ -151,38 +187,40 @@ export function defineTable<
 		}
 	}
 
-	const authoredDocuments = config.documents ?? ({} as TDocuments);
-	assertSchemaRecord(authoredDocuments, 'table documents', 'table document');
-	for (const [name, type] of Object.entries(authoredDocuments)) {
-		assertSafeSegment(name, 'child document name');
-		if (!isDocumentFormat(type)) {
-			throw new Error(`Table document '${name}' must use document.*`);
-		}
-	}
-	const ownedDocuments = Object.freeze({ ...authoredDocuments }) as TDocuments;
+	const ownedDocuments = Object.freeze({
+		...authoredDocuments,
+	}) as Documents<TFields>;
+	const ownedBlobs = Object.freeze({ ...authoredBlobs }) as BlobFields<TFields>;
+	const ownedFields = Object.freeze(
+		Object.fromEntries(
+			Object.entries(authoredFields).map(([name, declaration]) => [
+				name,
+				isDocumentField(declaration)
+					? declaration
+					: (ownedColumns as Record<string, TSchema>)[name],
+			]),
+		),
+	) as TFields;
 
 	const definition = Object.freeze({
-		fields: ownedColumns,
+		fields: ownedFields,
+		columns: ownedColumns,
 		schema: freezeOwnedJson(
 			Type.Object(ownedColumns, { additionalProperties: false }),
 		),
 		documents: ownedDocuments,
+		blobs: ownedBlobs,
 		compiledColumns,
-	}) as TableDefinition<TColumns, Readonly<TDocuments>>;
+	}) as unknown as TableDefinition<
+		TFields,
+		CellFields<TFields>,
+		Documents<TFields>
+	>;
 	tableDefinitions.add(definition);
 	return definition;
 }
 
 export type TableDefinitions = Record<string, TableDefinition>;
-
-export type BlobPlaneContracts = Record<string, string>;
-
-type BlobPlaneDefinitions<TContracts extends BlobPlaneContracts> = Readonly<{
-	[TName in keyof TContracts]: {
-		readonly identity: string;
-		readonly contract: TContracts[TName];
-	};
-}>;
 
 const workspaceCandidateBrand: unique symbol = Symbol(
 	'epicenter.workspace-candidate',
@@ -196,10 +234,9 @@ const workspaceDefinitions = new WeakSet<object>();
 type WorkspaceSource<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
-	TBlobs extends BlobPlaneContracts,
 > = {
 	readonly appId: string;
-	readonly dataVersion: number;
+	readonly version: number;
 	readonly workspaceId: string;
 	readonly recordsDescriptor: string;
 	readonly recordsSchemaHash: string;
@@ -207,48 +244,59 @@ type WorkspaceSource<
 	readonly name: string;
 	readonly tables: Readonly<TTables>;
 	readonly kv: Readonly<TKv>;
-	readonly blobs: BlobPlaneDefinitions<TBlobs>;
 	/** Eager preference-document guid: `<workspaceId>.kv` (ADR-0124). */
 	readonly kvDocumentGuid: string;
-	readonly proposedLockEntry: ApplicationDataVersionLockEntry;
+	readonly proposedLockEntry: WorkspaceVersionLockEntry;
 };
 
 export type WorkspaceCandidate<
 	TTables extends TableDefinitions = TableDefinitions,
 	TKv extends KvDefinitions = KvDefinitions,
-	TBlobs extends BlobPlaneContracts = BlobPlaneContracts,
-> = WorkspaceSource<TTables, TKv, TBlobs> & {
+> = WorkspaceSource<TTables, TKv> & {
 	readonly [workspaceCandidateBrand]: true;
 };
 
 export type WorkspaceDefinition<
 	TTables extends TableDefinitions = TableDefinitions,
 	TKv extends KvDefinitions = KvDefinitions,
-	TBlobs extends BlobPlaneContracts = BlobPlaneContracts,
-> = WorkspaceSource<TTables, TKv, TBlobs> & {
+> = WorkspaceSource<TTables, TKv> & {
 	readonly [workspaceDefinitionBrand]: true;
 };
 
+/**
+ * Declare one immutable application data contract before validating its lock.
+ *
+ * `version` changes only when the durable table, KV, document, or blob contract
+ * breaks. Ordinary software releases keep the same version. One `appId` and
+ * version pair resolves one forward-moving workspace per principal; append the
+ * candidate to `workspace-version-lock.json` before opening storage.
+ *
+ * @example
+ * ```ts
+ * const candidate = defineWorkspace({
+ *   appId: 'whispering',
+ *   version: 2,
+ *   tables: { recordings },
+ * });
+ * ```
+ */
 export function defineWorkspace<
 	const TTables extends TableDefinitions,
 	const TKv extends KvDefinitions = Record<never, never>,
-	const TBlobs extends BlobPlaneContracts = Record<never, never>,
 >({
 	appId,
-	dataVersion,
+	version,
 	name,
 	tables,
 	kv,
-	blobs,
 }: {
 	appId: string;
-	dataVersion: number;
+	version: number;
 	name?: string;
 	tables: TTables;
 	kv?: TKv;
-	blobs?: TBlobs;
-}): WorkspaceCandidate<TTables, TKv, TBlobs> {
-	const workspaceId = applicationWorkspaceId(appId, dataVersion);
+}): WorkspaceCandidate<TTables, TKv> {
+	const workspaceId = deriveWorkspaceId(appId, version);
 	const displayName = name ?? appId;
 	if (displayName.trim() === '') {
 		throw new Error('Workspace name must not be empty');
@@ -284,28 +332,6 @@ export function defineWorkspace<
 		}
 	}
 	const ownedKv = Object.freeze({ ...declaredKv }) as TKv;
-	const declaredBlobs = (blobs ?? {}) as TBlobs;
-	assertSchemaRecord(declaredBlobs, 'workspace blobs', 'workspace blob plane');
-	const ownedBlobs = Object.freeze(
-		Object.fromEntries(
-			Object.entries(declaredBlobs).map(([blobName, contract]) => {
-				assertSafeSegment(blobName, 'blob plane name');
-				if (typeof contract !== 'string' || contract.trim() === '') {
-					throw new Error(
-						`Workspace blob plane '${blobName}' must declare a non-empty contract token`,
-					);
-				}
-				return [
-					blobName,
-					Object.freeze({
-						identity: `${workspaceId}.blob.${blobName}`,
-						contract,
-					}),
-				];
-			}),
-		),
-	) as BlobPlaneDefinitions<TBlobs>;
-
 	// KV, documents, and display name are deliberately absent.
 	// They have independent identities or are runtime behavior, not accepted
 	// SQLite record state.
@@ -313,7 +339,7 @@ export function defineWorkspace<
 		Object.entries(ownedTables).map(([tableName, table]) => ({
 			name: tableName,
 			fields: Object.fromEntries(
-				Object.entries(table.fields).map(([columnName, schema]) => [
+				Object.entries(table.columns).map(([columnName, schema]) => [
 					columnName,
 					toAtRestSchema(schema),
 				]),
@@ -340,12 +366,6 @@ export function defineWorkspace<
 				},
 			),
 		),
-		...Object.entries(ownedBlobs).map(
-			([blobName, { identity, contract }]): [string, string] => [
-				`blob.${blobName}`,
-				`${identity}@sha256:${sha256Hex(contract)}`,
-			],
-		),
 	];
 	const planes = Object.freeze(
 		Object.fromEntries(
@@ -355,20 +375,19 @@ export function defineWorkspace<
 		),
 	);
 	const proposedLockEntry = Object.freeze({
-		dataVersion,
+		version,
 		workspaceId,
-		recordsSchemaHash,
+		tablesSchemaHash: recordsSchemaHash,
 		planes,
 	});
 
 	const candidate = Object.freeze({
 		appId,
-		dataVersion,
+		version,
 		workspaceId,
 		name: displayName,
 		tables: ownedTables,
 		kv: ownedKv,
-		blobs: ownedBlobs,
 		kvDocumentGuid: `${workspaceId}.kv`,
 		recordsDescriptor,
 		recordsSchemaHash,
@@ -381,7 +400,7 @@ export function defineWorkspace<
 
 export type WorkspaceCandidateInspection = Readonly<
 	Pick<
-		WorkspaceSource<TableDefinitions, KvDefinitions, BlobPlaneContracts>,
+		WorkspaceSource<TableDefinitions, KvDefinitions>,
 		'appId' | 'proposedLockEntry'
 	>
 >;
@@ -423,27 +442,26 @@ export function assertWorkspaceDefinition(
 export function lockWorkspace<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
-	TBlobs extends BlobPlaneContracts,
 >(
-	candidate: WorkspaceCandidate<TTables, TKv, TBlobs>,
+	candidate: WorkspaceCandidate<TTables, TKv>,
 	lockValue: unknown,
-): WorkspaceDefinition<TTables, TKv, TBlobs> {
+): WorkspaceDefinition<TTables, TKv> {
 	inspectWorkspaceCandidate(candidate);
-	const lock = parseApplicationDataVersionLock(lockValue);
+	const lock = parseWorkspaceVersionLock(lockValue);
 	if (lock.appId !== candidate.appId) {
 		throw new Error(
-			`Application data version lock belongs to '${lock.appId}', not '${candidate.appId}'`,
+			`Workspace version lock belongs to '${lock.appId}', not '${candidate.appId}'`,
 		);
 	}
 	const published = lock.versions.find(
-		(entry) => entry.dataVersion === candidate.dataVersion,
+		(entry) => entry.version === candidate.version,
 	);
 	if (
 		published === undefined ||
 		canonicalJson(published) !== canonicalJson(candidate.proposedLockEntry)
 	) {
 		throw new Error(
-			`Application data version lock does not publish version ${candidate.dataVersion}`,
+			`Workspace version lock does not publish version ${candidate.version}`,
 		);
 	}
 	const definition = Object.freeze({

@@ -371,7 +371,7 @@ function createApplicationTable<TDefinition extends TableDefinition>({
 	observe: (callback: (changedIds: ReadonlySet<string>) => void) => () => void;
 }): ApplicationTable<RowFor<TDefinition>> {
 	type TRow = RowFor<TDefinition>;
-	const columns = definition.fields as Record<string, TSchema>;
+	const columns = definition.columns as Record<string, TSchema>;
 	const compiledColumns = definition.compiledColumns as Record<
 		string,
 		CompiledColumn
@@ -607,7 +607,7 @@ function initializeDatabase(
 					`Table name '${tableName}' uses the reserved internal prefix`,
 				);
 			}
-			const columns = tableDefinition.fields as Record<string, TSchema>;
+			const columns = tableDefinition.columns as Record<string, TSchema>;
 			const compiledColumns = tableDefinition.compiledColumns as Record<
 				string,
 				CompiledColumn
@@ -909,7 +909,7 @@ function readProjectionCells(
 	if (quarantined) return JSON.parse(quarantined.cellsJson) as Cells;
 	const tableDefinition = definition.tables[table];
 	if (!tableDefinition) return undefined;
-	const columns = tableDefinition.fields as Record<string, TSchema>;
+	const columns = tableDefinition.columns as Record<string, TSchema>;
 	const codecs = codecsFor(tableDefinition);
 	const stored = sqlite.all<SqliteRow>(
 		`SELECT ${Object.keys(columns).map(quoteIdentifier).join(', ')} FROM ${quoteIdentifier(table)} WHERE "id" = ?`,
@@ -1018,7 +1018,7 @@ function writeTypedProjectionRow(
 	definition: TableDefinition,
 	row: Record<string, unknown>,
 ): void {
-	const columns = Object.keys(definition.fields);
+	const columns = Object.keys(definition.columns);
 	const codecs = codecsFor(definition);
 	sqlite.run(
 		`INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,

@@ -11,12 +11,12 @@
  */
 
 import { expect, test } from 'bun:test';
-import { field } from '@epicenter/field';
 import { Type } from 'typebox';
 import { sha256Hex } from '../shared/sha256.js';
 import { createWorkspaceClient, type WorkspaceServicePort } from './client.js';
 import { defineTable } from './definition.js';
 import { document, inspectDocumentFormat } from './document-format.js';
+import { field } from './field.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
 
 test('async client sends one write-only transaction and filters table deltas', async () => {
@@ -237,13 +237,13 @@ test('sql validates every result row against the caller schema', async () => {
 	).rejects.toThrow('invalid row at index 1');
 });
 
-test('same-named cells and documents coexist with format-addressed identity', async () => {
+test('declared documents have format-addressed identity without becoming row cells', async () => {
 	const port: WorkspaceServicePort = {
 		async request(request) {
 			if (request.kind === 'get') {
 				return {
 					kind: 'row',
-					row: { id: request.rowId, body: 'record body' },
+					row: { id: request.rowId },
 				};
 			}
 			throw new Error('document guid derivation must not use the service');
@@ -257,10 +257,10 @@ test('same-named cells and documents coexist with format-addressed identity', as
 		name: 'Client docs test',
 		tables: {
 			notes: defineTable({
-				fields: { id: field.string(), body: field.string() },
-				documents: {
-					body: document.xmlFragment,
-					summary: document.plainText,
+				fields: {
+					id: field.string(),
+					body: field.doc(document.xmlFragment),
+					summary: field.doc(document.plainText),
 				},
 			}),
 		},
@@ -276,7 +276,7 @@ test('same-named cells and documents coexist with format-addressed identity', as
 	expect(bodyGuid).toBe(
 		`${definition.workspaceId}.notes.${rowDigest}.body.${inspectDocumentFormat(document.xmlFragment).formatHash.slice('sha256:'.length)}`,
 	);
-	expect(row?.body).toBe('record body');
+	expect(row?.id).toBe('row-1');
 	expect(summaryGuid).toBe(
 		`${definition.workspaceId}.notes.${rowDigest}.summary.${inspectDocumentFormat(document.plainText).formatHash.slice('sha256:'.length)}`,
 	);

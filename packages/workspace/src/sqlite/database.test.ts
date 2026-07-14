@@ -1112,7 +1112,7 @@ describe('database identity', () => {
 
 		const candidate = defineWorkspaceCandidate({
 			appId: 'unlocked-inspection-test',
-			dataVersion: 1,
+			version: 1,
 			tables: { rows: defineTable({ fields: { id: field.string() } }) },
 		});
 		reads = 0;

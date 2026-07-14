@@ -15,12 +15,6 @@ export {
 	type WorkspaceWriteBatch,
 } from './client.js';
 export {
-	APPLICATION_DATA_VERSION_LOCK_FORMAT,
-	type ApplicationDataVersionLock,
-	type ApplicationDataVersionLockEntry,
-	parseApplicationDataVersionLock,
-} from './data-version.js';
-export {
 	type ApplicationDatabase,
 	type ApplicationDatabaseIdentityInspection,
 	type ApplicationDatabaseOptions,
@@ -34,7 +28,6 @@ export {
 	ReplicaInvariantViolationError,
 } from './database.js';
 export {
-	type BlobPlaneContracts,
 	type CompiledColumn,
 	defineKv,
 	defineTable,
@@ -59,6 +52,13 @@ export {
 	type DocumentHandle,
 	document,
 } from './document-format.js';
+export {
+	BLOB_REF_KEYWORD,
+	type BlobField,
+	type BlobRef,
+	type DocumentField,
+	field,
+} from './field.js';
 export type {
 	OpenedWorkspace,
 	StandaloneWorkspace,
@@ -79,3 +79,9 @@ export {
 	type CreateHttpReplicaSyncPortOptions,
 	createHttpReplicaSyncPort,
 } from './replica-http.js';
+export {
+	parseWorkspaceVersionLock,
+	WORKSPACE_VERSION_LOCK_FORMAT,
+	type WorkspaceVersionLock,
+	type WorkspaceVersionLockEntry,
+} from './workspace-version.js';

@@ -76,7 +76,6 @@ function identity() {
 		kvDocumentGuid: preferencesDoc.guid,
 		childDocumentGuid:
 			getWorkspace().tables.notes.docs.body.guid('identity-proof-row'),
-		declaredBlobIdentity: workspaceDefinition.blobs.attachments.identity,
 	};
 }
 

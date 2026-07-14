@@ -274,8 +274,7 @@ try {
 	const currentJavaScript = collectCurrentJavaScript(currentHtml);
 	const currentBundle = [...currentJavaScript.values()].join('\n');
 	assert(
-		currentBundle.includes('dataVersion:2') &&
-			currentBundle.includes('archived'),
+		currentBundle.includes('version:2') && currentBundle.includes('archived'),
 		'Current bundle did not author the version two records schema',
 	);
 	assert(
@@ -430,7 +429,6 @@ try {
 		'workspaceId',
 		'kvDocumentGuid',
 		'childDocumentGuid',
-		'declaredBlobIdentity',
 	] as const) {
 		assert(
 			versionOneIdentity[key] !== versionTwoIdentity[key],
@@ -504,7 +502,7 @@ try {
 			observedSyncPaths.some((path) =>
 				path.startsWith(`/api/records/${workspaceId}/`),
 			),
-			`No data-version-blind sync request was observed for ${workspaceId}`,
+			`No workspace-version-blind sync request was observed for ${workspaceId}`,
 		);
 	}
 	assert(
