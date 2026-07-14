@@ -11,10 +11,13 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"check:workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --check --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
+		"smoke": "bun run build && bun run smoke.ts",
 		"test": "bun test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --write --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts"
 	},
 	"dependencies": {
 		"@epicenter/field": "workspace:*",
@@ -23,8 +26,7 @@
 		"@epicenter/workspace": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:",
-		"yjs": "catalog:"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/constants": "workspace:*",
@@ -35,6 +37,7 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"mode-watcher": "catalog:",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",

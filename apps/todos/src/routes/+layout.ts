@@ -1,4 +1,4 @@
-import { todos } from '$lib/todos/client';
+import { todosState } from '$lib/todos/client';
 import type { LayoutLoad } from './$types';
 
 export const ssr = false;
@@ -11,5 +11,5 @@ export const ssr = false;
  * it resolves once and a reload never re-blocks.
  */
 export const load: LayoutLoad = async () => {
-	await todos.whenReady;
+	await todosState.whenReady;
 };

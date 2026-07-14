@@ -1,0 +1,14 @@
+{
+	"format": "epicenter.workspace-version-lock/1",
+	"appId": "epicenter-todos",
+	"versions": [
+		{
+			"version": 1,
+			"workspaceId": "epicenter-todos-v1",
+			"tablesSchemaHash": "sha256:c9cb7448cd29790e2a3ab45bda9f6d46a7e67aeea1ca0d1e59718b844e829cc4",
+			"planes": {
+				"kv": "epicenter-todos-v1.kv"
+			}
+		}
+	]
+}

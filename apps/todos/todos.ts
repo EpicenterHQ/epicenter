@@ -1,28 +1,21 @@
-import { field, InstantString } from '@epicenter/field';
+import { InstantString } from '@epicenter/field';
 import {
-	defineActions,
-	defineMutation,
-	defineQuery,
+	type AsyncWorkspace,
 	defineTable,
-	defineWorkspace,
-	generateId,
-	type InferTableRow,
+	field,
 	nullable,
-} from '@epicenter/workspace';
+	type RowFor,
+} from '@epicenter/workspace/sqlite';
 import Type from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
 
-export const TODOS_ID = 'epicenter-todos';
+export const TODOS_APP_ID = 'epicenter-todos';
 
 export type TodoId = string & Brand<'TodoId'>;
-const generateTodoId = (): TodoId => generateId<TodoId>();
 
 /**
- * Built-in contexts are the complete, fixed set of contexts in this slice:
- * code constants, never table rows, always present and undeletable. A todo's
- * `contexts` is a subset of these slugs. The constants-not-rows shape (and the
- * tolerant stored schema below) leaves room to layer user-created contexts back
- * in as rows in a later slice without changing the file format.
+ * Built-in contexts are the complete fixed set in version 1. They are code
+ * constants rather than durable rows, so every workspace sees the same set.
  */
 export const BUILT_IN_CONTEXTS = [
 	{ id: 'phone', name: 'Phone', color: 'sky' },
@@ -43,23 +36,26 @@ function isContextSlug(value: unknown): value is ContextSlug {
 }
 
 /**
- * The stored `contexts` field tolerates any string, so a hand-edited file or a
- * mid-sync row carrying an unknown slug stays legal (the UI renders it as a
- * neutral chip). The create path is stricter: it only accepts built-in slugs.
+ * Stored rows tolerate an unknown string from external table editing. The
+ * application create path accepts only the built-in version 1 slugs.
  */
 const contextSlugSchema = Type.Unsafe<ContextSlug>(Type.String());
 
-const todosTable = defineTable({
-	id: field.string<TodoId>(),
-	title: field.string({ minLength: 1 }),
-	body: field.string(),
-	dueDate: nullable(field.date()),
-	contexts: field.json(Type.Array(contextSlugSchema)),
-	completedAt: nullable(field.instant()),
-	deletedAt: nullable(field.instant()),
-	createdAt: field.instant(),
+export const todosTable = defineTable({
+	fields: {
+		id: field.string<TodoId>(),
+		title: field.string({ minLength: 1 }),
+		body: field.string(),
+		dueDate: nullable(field.date()),
+		contexts: field.json(Type.Array(contextSlugSchema)),
+		completedAt: nullable(field.instant()),
+		deletedAt: nullable(field.instant()),
+		createdAt: field.instant(),
+	},
 });
-export type Todo = InferTableRow<typeof todosTable>;
+
+export type Todo = RowFor<typeof todosTable>;
+export type TodosWorkspace = AsyncWorkspace<{ todos: typeof todosTable }>;
 
 function normalizeContextSlugs(slugs: readonly string[]): ContextSlug[] {
 	const unique = new Set<ContextSlug>();
@@ -70,62 +66,54 @@ function normalizeContextSlugs(slugs: readonly string[]): ContextSlug[] {
 	return [...unique];
 }
 
-export const todosWorkspace = defineWorkspace({
-	id: TODOS_ID,
-	name: 'Todos',
-	tables: { todos: todosTable },
-	kv: {},
-	actions({ tables }) {
-		return defineActions({
-			todos_list: defineQuery({
-				description: 'List todos',
-				handler: () =>
-					tables.todos.scan().rows.filter((todo) => todo.deletedAt === null),
-			}),
-			todos_create: defineMutation({
-				description: 'Create a todo',
-				input: Type.Object({
-					title: Type.String(),
-					body: Type.Optional(Type.String()),
-					dueDate: Type.Optional(Type.Union([field.date(), Type.Null()])),
-					contexts: Type.Optional(Type.Array(contextSlugSchema)),
-				}),
-				handler: (input) => {
-					const title = input.title.trim();
-					if (title === '') throw new Error('Todo title is required');
-					const row: Todo = {
-						id: generateTodoId(),
-						title,
-						body: input.body ?? '',
-						dueDate: input.dueDate ?? null,
-						contexts: normalizeContextSlugs(input.contexts ?? []),
-						completedAt: null,
-						deletedAt: null,
-						createdAt: InstantString.now(),
-					};
-					tables.todos.set(row);
-					return row.id;
-				},
-			}),
-			todos_set_completed: defineMutation({
-				description: 'Mark a todo complete or incomplete',
-				input: Type.Object({
-					id: Type.Unsafe<TodoId>(Type.String()),
-					completed: Type.Boolean(),
-				}),
-				handler: (input) => {
-					tables.todos.update(input.id, {
-						completedAt: input.completed ? InstantString.now() : null,
-					});
-				},
-			}),
-			todos_delete: defineMutation({
-				description: 'Soft-delete a todo',
-				input: Type.Object({ id: Type.Unsafe<TodoId>(Type.String()) }),
-				handler: (input) => {
-					tables.todos.update(input.id, { deletedAt: InstantString.now() });
-				},
-			}),
-		});
-	},
-});
+/** Compose executable Todos behavior over one already-open async workspace. */
+export function createTodosActions({ tables }: Pick<TodosWorkspace, 'tables'>) {
+	return {
+		/** List every visible todo from the current workspace authority. */
+		async todos_list(): Promise<Todo[]> {
+			return (await tables.todos.list()).filter(
+				(todo) => todo.deletedAt === null,
+			);
+		},
+
+		/** Validate user input and create a fresh framework-owned todo identity. */
+		async todos_create(input: {
+			title: string;
+			body?: string;
+			dueDate?: Todo['dueDate'];
+			contexts?: ContextSlug[];
+		}): Promise<TodoId> {
+			const title = input.title.trim();
+			if (title === '') throw new Error('Todo title is required');
+			const row = await tables.todos.create({
+				title,
+				body: input.body ?? '',
+				dueDate: input.dueDate ?? null,
+				contexts: normalizeContextSlugs(input.contexts ?? []),
+				completedAt: null,
+				deletedAt: null,
+				createdAt: InstantString.now(),
+			});
+			return row.id;
+		},
+
+		/** Mark an existing todo complete or incomplete without recreating it. */
+		async todos_set_completed(input: {
+			id: TodoId;
+			completed: boolean;
+		}): Promise<void> {
+			await tables.todos.patch(input.id, {
+				completedAt: input.completed ? InstantString.now() : null,
+			});
+		},
+
+		/** Hide a todo through its application-level soft-delete field. */
+		async todos_delete(input: { id: TodoId }): Promise<void> {
+			await tables.todos.patch(input.id, {
+				deletedAt: InstantString.now(),
+			});
+		},
+	};
+}
+
+export type TodosActions = ReturnType<typeof createTodosActions>;

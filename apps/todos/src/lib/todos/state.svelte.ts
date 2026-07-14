@@ -39,6 +39,8 @@ export function createTodosState(todos: TodosBrowser) {
 	);
 
 	return {
+		/** Resolves after the initial SQLite table snapshot reaches the view. */
+		whenReady: todosView.whenReady,
 		get contexts() {
 			return BUILT_IN_CONTEXTS;
 		},
@@ -77,10 +79,13 @@ export function createTodosState(todos: TodosBrowser) {
 			return todos.actions.todos_create(input);
 		},
 		toggleTodo(id: TodoId, completed: boolean) {
-			todos.actions.todos_set_completed({ id, completed });
+			return todos.actions.todos_set_completed({ id, completed });
 		},
 		softDeleteTodo(id: TodoId) {
-			todos.actions.todos_delete({ id });
+			return todos.actions.todos_delete({ id });
+		},
+		[Symbol.dispose]() {
+			todosView[Symbol.dispose]();
 		},
 	};
 }

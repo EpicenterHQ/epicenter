@@ -57,10 +57,15 @@
 		}).format(new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1));
 	}
 
-	function createTodo(event: SubmitEvent) {
+	async function createTodo(event: SubmitEvent) {
 		event.preventDefault();
 		if (!title.trim()) return;
-		todosState.createTodo({ title, body, dueDate, contexts: pickedContexts });
+		await todosState.createTodo({
+			title,
+			body,
+			dueDate,
+			contexts: pickedContexts,
+		});
 		title = '';
 		body = '';
 		dueDate = null;
@@ -78,7 +83,7 @@
 		<Checkbox
 			checked={done}
 			onCheckedChange={(checked: boolean) =>
-				todosState.toggleTodo(todo.id, checked === true)}
+				void todosState.toggleTodo(todo.id, checked === true)}
 			aria-label={done ? `Reopen ${todo.title}` : `Complete ${todo.title}`}
 			class="mt-0.5 shrink-0"
 		/>
@@ -120,7 +125,7 @@
 			size="icon-sm"
 			tooltip="Delete todo"
 			class="text-muted-foreground shrink-0 opacity-0 transition-opacity group-hover/todo:opacity-100 focus-visible:opacity-100"
-			onclick={() => todosState.softDeleteTodo(todo.id)}
+			onclick={() => void todosState.softDeleteTodo(todo.id)}
 		>
 			<Trash2Icon class="size-4" />
 		</Button>

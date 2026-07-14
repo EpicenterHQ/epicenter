@@ -508,7 +508,6 @@
         "@lucide/svelte": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
-        "yjs": "catalog:",
       },
       "devDependencies": {
         "@epicenter/constants": "workspace:*",
@@ -519,6 +518,7 @@
         "@tailwindcss/vite": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
+        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "svelte-sonner": "catalog:",
