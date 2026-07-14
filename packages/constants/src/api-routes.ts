@@ -57,7 +57,7 @@ export const API_ROUTES = {
 	},
 	/**
 	 * Content-addressed blob store. POST mints an upload ticket (presigned R2
-	 * PUT); GET on the collection lists; GET/DELETE by `:sha256` read/remove a
+	 * PUT); GET on the collection lists; GET by `:sha256` reads a
 	 * blob. R2 is the only index: there is no database row. See
 	 * `docs/adr/0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md`.
 	 */

@@ -8,7 +8,6 @@
  *                       nothing to disk
  *   ls                  list the current principal's stored blobs (the store is the index)
  *   get <sha256|url>    download one blob by content address to a file
- *   rm  <sha256|url>    delete one blob from the store (breaks every citation)
  *
  * Every subcommand is a direct cloud round-trip built from the resolved machine
  * auth client (the persisted OAuth cell, or a configured instance token for a
@@ -86,7 +85,7 @@ const addCommand = cmd({
 			return;
 		}
 		output(
-			{ sha256: result.sha256, url: result.url, duplicate: result.duplicate },
+			{ ref: result.ref, url: result.url, duplicate: result.duplicate },
 			{ format: argv.format },
 		);
 	},
@@ -180,38 +179,6 @@ const getCommand = cmd({
 });
 
 // Removes the cloud object only; local files are yours to manage.
-const rmCommand = cmd({
-	command: 'rm <blob>',
-	describe:
-		'Delete a blob from the store by content address; every URL citing it breaks forever (idempotent)',
-	builder: (yargs) =>
-		yargs
-			.positional('blob', {
-				type: 'string',
-				demandOption: true,
-				describe: 'A lowercase-hex sha256 content address, or a blob URL',
-			})
-			.options(formatOptions)
-			.strict(),
-	handler: async (argv) => {
-		const { data: sha256, error: parseError } = parseSha256(argv.blob);
-		if (parseError !== null) {
-			fail(parseError);
-			return;
-		}
-
-		const epicenter = await connectCloud();
-		if (!epicenter) return;
-
-		const { error } = await epicenter.blobs.delete(sha256);
-		if (error !== null) {
-			fail(error.message, { code: 2 });
-			return;
-		}
-		output({ sha256, deleted: true }, { format: argv.format });
-	},
-});
-
 export const blobsCommand = cmd({
 	command: 'blobs <subcommand>',
 	describe: 'Archive and retrieve bytes in the content-addressed blob store',
@@ -220,8 +187,7 @@ export const blobsCommand = cmd({
 			.command(addCommand)
 			.command(lsCommand)
 			.command(getCommand)
-			.command(rmCommand)
-			.demandCommand(1, 'Specify a subcommand: add, ls, get, rm'),
+			.demandCommand(1, 'Specify a subcommand: add, ls, get'),
 	handler: () => {},
 });
 
@@ -254,7 +220,7 @@ async function connectCloud(): Promise<EpicenterClient | null> {
  * Accept a bare content address or a pasted blob URL and return the
  * lowercase-hex sha256. The URL form matches the read-URL shape
  * (`.../blobs/<sha256>`), so a citation can be pasted back verbatim to `get`
- * or `rm` without extracting the hash by hand.
+ * without extracting the hash by hand.
  */
 function parseSha256(input: string): Result<string, string> {
 	if (/^[a-f0-9]{64}$/.test(input)) return Ok(input);

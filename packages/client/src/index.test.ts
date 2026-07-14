@@ -40,6 +40,82 @@ describe('blobs.add fails closed', () => {
 		expect(putReached).toBe(false);
 		expect(ticketCalls).toHaveLength(1);
 	});
+
+	test('returns a BlobRef only after the store accepts the bytes', async () => {
+		let stored = false;
+		globalThis.fetch = (async () => {
+			stored = true;
+			return new Response(null, { status: 200 });
+		}) as unknown as typeof fetch;
+
+		const client = createEpicenterClient({
+			baseURL,
+			fetch: async () =>
+				Response.json({
+					status: 'upload',
+					url: `${baseURL}/api/blobs/hash`,
+					uploadUrl: 'https://store.example.com/upload',
+					requiredHeaders: {},
+				}),
+		});
+
+		const { data, error } = await client.blobs.add(
+			new Blob([new Uint8Array([1, 2, 3])], { type: 'text/plain' }),
+		);
+
+		expect(error).toBeNull();
+		expect(stored).toBe(true);
+		expect(data?.ref).toEqual({
+			hash: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+			size: 3,
+			mediaType: 'text/plain;charset=utf-8',
+		});
+	});
+
+	test('duplicate BlobRef uses the durable object media type', async () => {
+		const client = createEpicenterClient({
+			baseURL,
+			fetch: async () =>
+				Response.json({
+					status: 'duplicate',
+					url: `${baseURL}/api/blobs/hash`,
+					size: 3,
+					mediaType: 'application/x-original',
+				}),
+		});
+
+		const { data, error } = await client.blobs.add(
+			new Blob([new Uint8Array([1, 2, 3])], { type: 'text/plain' }),
+		);
+
+		expect(error).toBeNull();
+		expect(data?.ref).toEqual({
+			hash: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+			size: 3,
+			mediaType: 'application/x-original',
+		});
+	});
+});
+
+test('blobs.head returns exact durable reference metadata', async () => {
+	const hash = 'a'.repeat(64);
+	const client = createEpicenterClient({
+		baseURL,
+		fetch: async () =>
+			new Response(null, {
+				status: 200,
+				headers: {
+					'content-length': '42',
+					'content-type': 'audio/webm',
+					'x-epicenter-sha256': hash,
+				},
+			}),
+	});
+
+	expect(await client.blobs.head(hash)).toEqual({
+		data: { hash, size: 42, mediaType: 'audio/webm' },
+		error: null,
+	});
 });
 
 describe('blobs.get follows the 302 by hand', () => {

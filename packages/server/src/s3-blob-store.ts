@@ -11,7 +11,7 @@
  *
  * Blob bytes never pass through the server. PUT and GET are presigned and the
  * client talks to the store directly; only the cheap control-plane operations
- * (exists for dedup, list for the index, delete) are signed and made
+ * (HEAD for dedup and durable metadata, list for the index, delete) are signed and made
  * server-side here. Grounded against the aws4fetch source and Cloudflare R2
  * docs; see
  * ADR-0089 (the blob store is a presigned-S3 kernel and the bucket is its only index).
@@ -67,6 +67,7 @@ export type PresignedPut = {
 
 /** One object returned by {@link createS3BlobStore.list}. */
 export type S3Object = { key: string; size: number; uploaded: string };
+export type S3ObjectHead = { size: number; mediaType: string };
 
 /** The store handle returned by {@link createS3BlobStore}. */
 export type S3BlobStore = ReturnType<typeof createS3BlobStore>;
@@ -169,21 +170,21 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 			return signed.url;
 		},
 
-		/**
-		 * HeadObject existence check: does this key already exist? Used for
-		 * content-addressed dedup (skip the upload if the object is already there)
-		 * and as the existence gate before a read. Size and upload time are the
-		 * `list` path's job, so this answers only the boolean the callers need.
-		 */
-		async exists(key: string): Promise<boolean> {
+		/** Read the immutable metadata pinned when the object was uploaded. */
+		async head(key: string): Promise<S3ObjectHead | null> {
 			const res = await client.fetch(objectUrl(key).toString(), {
 				method: 'HEAD',
 			});
-			if (res.status === 404) return false;
+			if (res.status === 404) return null;
 			if (!res.ok) {
 				throw new Error(`S3 HEAD ${key} failed: ${res.status}`);
 			}
-			return true;
+			const size = Number(res.headers.get('content-length'));
+			const mediaType = res.headers.get('content-type');
+			if (!Number.isSafeInteger(size) || size < 1 || !mediaType) {
+				throw new Error(`S3 HEAD ${key} returned invalid object metadata`);
+			}
+			return { size, mediaType };
 		},
 
 		/**

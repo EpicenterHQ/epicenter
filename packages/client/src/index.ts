@@ -64,10 +64,12 @@ export type EpicenterClientOptions = {
 /** One row of the current principal's blob listing (`GET /blobs`). */
 export type BlobRow = { sha256: string; size: number; uploaded: string };
 
+export type BlobRef = { hash: string; size: number; mediaType: string };
+
 /** Result of the client's `blobs.add`. */
 export type AddBlobResult = {
-	/** Lowercase-hex content address of the stored bytes. */
-	sha256: string;
+	/** Durable table value. It is returned only after the bytes exist. */
+	ref: BlobRef;
 	/** Content-addressed read URL (`GET /blobs/:sha256`, a 302 to a presigned GET). */
 	url: string;
 	/** True when the object already existed, so no bytes were uploaded. */
@@ -80,7 +82,7 @@ export type AddBlobResult = {
  * headers the client must echo verbatim (`upload`). Internal to `blobs.add`.
  */
 type BlobTicket =
-	| { status: 'duplicate'; url: string }
+	| { status: 'duplicate'; url: string; size: number; mediaType: string }
 	| {
 			status: 'upload';
 			url: string;
@@ -235,7 +237,15 @@ export function createEpicenterClient(opts: EpicenterClientOptions) {
 			const ticket = (await ticketRes.json()) as BlobTicket;
 
 			if (ticket.status === 'duplicate') {
-				return Ok({ sha256, url: ticket.url, duplicate: true });
+				return Ok({
+					ref: {
+						hash: sha256,
+						size: ticket.size,
+						mediaType: ticket.mediaType,
+					},
+					url: ticket.url,
+					duplicate: true,
+				});
 			}
 
 			const { data: put, error: putError } = await tryAsync({
@@ -257,7 +267,11 @@ export function createEpicenterClient(opts: EpicenterClientOptions) {
 					detail,
 				});
 			}
-			return Ok({ sha256, url: ticket.url, duplicate: false });
+			return Ok({
+				ref: { hash: sha256, size: bytes.byteLength, mediaType: contentType },
+				url: ticket.url,
+				duplicate: false,
+			});
 		},
 
 		/**
@@ -334,14 +348,30 @@ export function createEpicenterClient(opts: EpicenterClientOptions) {
 			return Ok((await res.json()) as BlobRow[]);
 		},
 
-		async delete(sha256: string): Promise<Result<void, ClientError>> {
-			const { error: reqError } = await request(
+		/** Read exact durable BlobRef metadata without transferring bytes. */
+		async head(sha256: string): Promise<Result<BlobRef, ClientError>> {
+			const { data: response, error } = await request(
 				API_ROUTES.blobs.byHash.url(base, sha256),
-				{ method: 'DELETE' },
-				'DELETE /blobs/:sha256',
+				{ method: 'HEAD' },
+				`HEAD /blobs/${sha256}`,
 			);
-			if (reqError !== null) return Err(reqError);
-			return Ok(undefined);
+			if (error) return Err(error);
+			const size = Number(response.headers.get('content-length'));
+			const mediaType = response.headers.get('content-type');
+			const storedHash = response.headers.get('x-epicenter-sha256');
+			if (
+				storedHash !== sha256 ||
+				!Number.isSafeInteger(size) ||
+				size < 1 ||
+				!mediaType
+			) {
+				return ClientError.RequestFailed({
+					operation: `HEAD /blobs/${sha256}`,
+					status: response.status,
+					detail: 'invalid blob metadata',
+				});
+			}
+			return Ok({ hash: sha256, size, mediaType });
 		},
 	};
 

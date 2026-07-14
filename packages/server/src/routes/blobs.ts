@@ -4,12 +4,12 @@
  * Uniform principal-partitioned URL shape:
  *   POST   /api/blobs              authed: request an upload ticket
  *   GET    /api/blobs              authed: list the principal's blobs
+ *   HEAD   /api/blobs/:sha256      authed: read durable blob metadata
  *   GET    /api/blobs/:sha256      authed: read (302 to presigned GET)
- *   DELETE /api/blobs/:sha256      authed: delete
  *
  * There is NO database row, NO queue, and NO event notification. The blob's
- * key IS its sha256 content address, so the store itself answers "does it
- * exist" (exists) and "what do I have" (list). Rich metadata (source URL,
+ * key IS its sha256 content address, so the store itself answers "what is at
+ * this address" (HEAD) and "what do I have" (list). Rich metadata (source URL,
  * references) lives in the documents that cite the blob, not here.
  *
  * The store is a PORTABLE S3 client (`s3-blob-store.ts`): plain S3-over-HTTPS
@@ -160,8 +160,19 @@ const blobsApp = new Hono<BlobEnv>()
 			// Dedup within the principal boundary: if the object already exists, the
 			// upload is a no-op. Content addressing makes this safe and cheap (one
 			// HEAD).
-			if (await c.var.blobStore.exists(key)) {
-				return c.json({ status: 'duplicate' as const, url });
+			const existing = await c.var.blobStore.head(key);
+			if (existing) {
+				if (existing.size !== sizeBytes) {
+					throw new Error(
+						`Stored blob '${sha256}' size does not match its content address`,
+					);
+				}
+				return c.json({
+					status: 'duplicate' as const,
+					url,
+					size: existing.size,
+					mediaType: existing.mediaType,
+				});
 			}
 
 			const { url: uploadUrl, requiredHeaders } =
@@ -197,6 +208,24 @@ const blobsApp = new Hono<BlobEnv>()
 			return c.json(blobs);
 		},
 	)
+	// HEAD by hash: exact durable BlobRef metadata without transferring bytes.
+	.on('HEAD', API_ROUTES.blobs.byHash.pattern, async (c) => {
+		const principalId = c.var.principal.id;
+		const sha256 = c.req.param('sha256');
+		const stored = await c.var.blobStore.head(blobKey(principalId, sha256));
+		if (!stored) {
+			const err = BlobError.NotFound();
+			return c.json(err, err.error.status);
+		}
+		return new Response(null, {
+			status: 200,
+			headers: {
+				'content-length': String(stored.size),
+				'content-type': stored.mediaType,
+				'x-epicenter-sha256': sha256,
+			},
+		});
+	})
 	// GET by hash: read (302 to short-TTL presigned GET).
 	.get(
 		API_ROUTES.blobs.byHash.pattern,
@@ -209,7 +238,7 @@ const blobsApp = new Hono<BlobEnv>()
 			const principalId = c.var.principal.id;
 			const sha256 = c.req.param('sha256');
 			const key = blobKey(principalId, sha256);
-			if (!(await c.var.blobStore.exists(key))) {
+			if (!(await c.var.blobStore.head(key))) {
 				const err = BlobError.NotFound();
 				return c.json(err, err.error.status);
 			}
@@ -218,20 +247,6 @@ const blobsApp = new Hono<BlobEnv>()
 				expiresInSeconds: GET_TTL_SECONDS,
 			});
 			return c.redirect(presignedGet, 302);
-		},
-	)
-	// DELETE by hash: principal-local, idempotent.
-	.delete(
-		API_ROUTES.blobs.byHash.pattern,
-		describeRoute({
-			description: 'Delete a blob for the current principal.',
-			tags: ['blobs'],
-		}),
-		async (c) => {
-			const principalId = c.var.principal.id;
-			const sha256 = c.req.param('sha256');
-			await c.var.blobStore.delete(blobKey(principalId, sha256));
-			return c.body(null, 204);
 		},
 	);
 
@@ -279,6 +294,6 @@ export function mountBlobsApp<E extends Env = Env>(
 	];
 
 	app.use(API_ROUTES.blobs.list.pattern, ...chain);
-	app.on(['GET', 'DELETE'], API_ROUTES.blobs.byHash.pattern, ...chain);
+	app.use(API_ROUTES.blobs.byHash.pattern, ...chain);
 	app.route('/', blobsApp);
 }
