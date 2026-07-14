@@ -66,6 +66,22 @@ export function createBunRecords({
 		}
 	}
 
+	async function compact(opened: OpenAuthority): Promise<void> {
+		const compaction = (opened.compaction ?? Promise.resolve())
+			.catch(() => {})
+			.then(() =>
+				opened.authority.maybePublishSnapshot(RECORDS_COMPACTION_POLICY),
+			)
+			.then(() => {})
+			.catch(() => {});
+		opened.compaction = compaction;
+		try {
+			await compaction;
+		} finally {
+			if (opened.compaction === compaction) opened.compaction = undefined;
+		}
+	}
+
 	const records: Records = {
 		async open(partition, request) {
 			if (isClosed) throw new Error('Bun records backend is closed');
@@ -118,21 +134,7 @@ export function createBunRecords({
 		async push(partition, request) {
 			const opened = load(partition);
 			const response = opened.authority.push(request);
-			if (response.ok) {
-				const compaction = (opened.compaction ?? Promise.resolve())
-					.catch(() => {})
-					.then(() =>
-						opened.authority.maybePublishSnapshot(RECORDS_COMPACTION_POLICY),
-					)
-					.then(() => {})
-					.catch(() => {});
-				opened.compaction = compaction;
-				try {
-					await compaction;
-				} finally {
-					if (opened.compaction === compaction) opened.compaction = undefined;
-				}
-			}
+			if (response.ok) await compact(opened);
 			return response;
 		},
 		async pull(partition, request) {
@@ -140,6 +142,15 @@ export function createBunRecords({
 		},
 		async snapshotChunk(partition, request) {
 			return load(partition).authority.snapshotChunk(request);
+		},
+		async readTablesState(partition, request) {
+			return load(partition).authority.readTablesState(request);
+		},
+		async applyTables(partition, request) {
+			const opened = load(partition);
+			const response = opened.authority.applyTables(request);
+			if (response.ok) await compact(opened);
+			return response;
 		},
 	};
 

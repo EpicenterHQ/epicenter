@@ -20,6 +20,10 @@ import {
 	parsePushResponse,
 	parseSnapshotChunkRequest,
 	parseSnapshotChunkResponse,
+	parseTablesApplyRequest,
+	parseTablesApplyResponse,
+	parseTablesStateRequest,
+	parseTablesStateResponse,
 	RECORD_SYNC_PROTOCOL_MAJOR,
 } from './protocol.js';
 
@@ -74,6 +78,50 @@ test('protocol parsers accept the closed wire shapes and nested JSON cells', () 
 			index: 0,
 		}),
 	).toMatchObject({ generation: 1, index: 0 });
+});
+
+test('tables state and apply parsers keep review and admission shapes closed', () => {
+	expect(parseTablesStateRequest({ ...envelope, kind: 'tablesState' })).toEqual(
+		{ ...envelope, kind: 'tablesState' },
+	);
+	expect(
+		parseTablesStateResponse({
+			kind: 'tablesState',
+			ok: true,
+			head: 3,
+			rows: [{ table: 'notes', rowId: 'n1', cells: { title: 'One' } }],
+		}),
+	).toMatchObject({ ok: true, head: 3 });
+	expect(
+		parseTablesApplyRequest({
+			...envelope,
+			kind: 'tablesApply',
+			expectedHead: 3,
+			operations: [
+				{
+					kind: 'updateRow',
+					table: 'notes',
+					rowId: 'n1',
+					cells: { title: 'Two' },
+				},
+			],
+		}),
+	).toMatchObject({ expectedHead: 3 });
+	expect(
+		parseTablesApplyResponse({
+			kind: 'tablesApply',
+			ok: false,
+			reason: 'head-moved',
+		}),
+	).toMatchObject({ ok: false, reason: 'head-moved' });
+	expect(() =>
+		parseTablesApplyRequest({
+			...envelope,
+			kind: 'tablesApply',
+			expectedHead: 3,
+			operations: [],
+		}),
+	).toThrow('Invalid tables apply request');
 });
 
 test('mutation parser rejects malformed durable outbox values', () => {

@@ -3,6 +3,7 @@ import { Value } from 'typebox/value';
 import {
 	encodedBytes,
 	isAdmissibleMutation,
+	isAdmissibleOperationSet,
 	isAdmissibleSnapshotRow,
 	isBoundedIdentifier,
 	RECORD_SYNC_ADMISSION_LIMITS,
@@ -258,6 +259,69 @@ export const SnapshotChunkResponseSchema = Type.Union([
 ]);
 export type SnapshotChunkResponse = Static<typeof SnapshotChunkResponseSchema>;
 
+export const TablesStateRequestSchema = Type.Object(
+	{ ...envelopeProperties, kind: Type.Literal('tablesState') },
+	CLOSED,
+);
+export type TablesStateRequest = Static<typeof TablesStateRequestSchema>;
+
+export const TablesStateResponseSchema = Type.Union([
+	Type.Object(
+		{
+			kind: Type.Literal('tablesState'),
+			ok: Type.Literal(true),
+			head: sequence,
+			rows: Type.Array(SnapshotRowSchema),
+		},
+		CLOSED,
+	),
+	Type.Object(
+		{
+			kind: Type.Literal('tablesState'),
+			ok: Type.Literal(false),
+			reason: requestRefusalSchema,
+		},
+		CLOSED,
+	),
+]);
+export type TablesStateResponse = Static<typeof TablesStateResponseSchema>;
+
+export const TablesApplyRequestSchema = Type.Object(
+	{
+		...envelopeProperties,
+		kind: Type.Literal('tablesApply'),
+		expectedHead: sequence,
+		operations: mutationProperties.operations,
+	},
+	CLOSED,
+);
+export type TablesApplyRequest = Static<typeof TablesApplyRequestSchema>;
+
+export const TablesApplyResponseSchema = Type.Union([
+	Type.Object(
+		{
+			kind: Type.Literal('tablesApply'),
+			ok: Type.Literal(true),
+			newHead: positiveSequence,
+		},
+		CLOSED,
+	),
+	Type.Object(
+		{
+			kind: Type.Literal('tablesApply'),
+			ok: Type.Literal(false),
+			reason: Type.Union([
+				requestRefusalSchema,
+				Type.Literal('head-moved'),
+				Type.Literal('create-conflict'),
+				Type.Literal('row-too-large'),
+			]),
+		},
+		CLOSED,
+	),
+]);
+export type TablesApplyResponse = Static<typeof TablesApplyResponseSchema>;
+
 function mutationsAreAdmissible(mutations: Mutation[]): boolean {
 	return mutations.every(isAdmissibleMutation);
 }
@@ -306,6 +370,46 @@ export function parseSnapshotChunkRequest(
 		!requestEnvelopeIsAdmissible(value)
 	)
 		throw new TypeError('Invalid record-sync snapshot chunk request');
+	return value;
+}
+
+export function parseTablesStateRequest(value: unknown): TablesStateRequest {
+	if (
+		!Value.Check(TablesStateRequestSchema, value) ||
+		!requestEnvelopeIsAdmissible(value)
+	) {
+		throw new TypeError('Invalid tables state request');
+	}
+	return value;
+}
+
+export function parseTablesApplyRequest(value: unknown): TablesApplyRequest {
+	if (
+		!Value.Check(TablesApplyRequestSchema, value) ||
+		!requestEnvelopeIsAdmissible(value) ||
+		!isAdmissibleOperationSet(value.operations) ||
+		encodedBytes(JSON.stringify(value)) >
+			RECORD_SYNC_ADMISSION_LIMITS.encodedPushBytes
+	) {
+		throw new TypeError('Invalid tables apply request');
+	}
+	return value;
+}
+
+export function parseTablesStateResponse(value: unknown): TablesStateResponse {
+	if (!Value.Check(TablesStateResponseSchema, value)) {
+		throw new TypeError('Invalid tables state response');
+	}
+	if (value.ok && !snapshotRowsAreAdmissible(value.rows)) {
+		throw new TypeError('Invalid tables state response');
+	}
+	return value;
+}
+
+export function parseTablesApplyResponse(value: unknown): TablesApplyResponse {
+	if (!Value.Check(TablesApplyResponseSchema, value)) {
+		throw new TypeError('Invalid tables apply response');
+	}
 	return value;
 }
 

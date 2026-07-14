@@ -21,8 +21,17 @@ import type {
 	SnapshotChunkResponse,
 	SnapshotManifest,
 	SnapshotRow,
+	TablesApplyRequest,
+	TablesApplyResponse,
+	TablesStateRequest,
+	TablesStateResponse,
 } from './protocol.js';
-import { RECORD_SYNC_PROTOCOL_MAJOR, requestRefusal } from './protocol.js';
+import {
+	parseTablesApplyRequest,
+	parseTablesStateRequest,
+	RECORD_SYNC_PROTOCOL_MAJOR,
+	requestRefusal,
+} from './protocol.js';
 import {
 	createSnapshotChunk,
 	createSnapshotManifest,
@@ -31,6 +40,7 @@ import {
 import type { RecordSyncSqlite } from './sqlite.js';
 
 const STORAGE_VERSION = 2;
+const TABLES_APPLY_ACTOR_ID = 'epicenter-tables-apply';
 
 export type RecordAuthorityOpenRequest = {
 	protocolMajor: number;
@@ -64,10 +74,8 @@ export function parseRecordAuthorityOpenRequest(
 	) {
 		throw new TypeError('Invalid record authority open request');
 	}
-	const { protocolMajor, recordsDescriptor, recordsSchemaHash } = value as Record<
-		string,
-		unknown
-	>;
+	const { protocolMajor, recordsDescriptor, recordsSchemaHash } =
+		value as Record<string, unknown>;
 	if (
 		!Number.isSafeInteger(protocolMajor) ||
 		(protocolMajor as number) < 1 ||
@@ -555,6 +563,76 @@ export function createRecordAuthority({
 	}
 
 	return {
+		readTablesState(request: TablesStateRequest): TablesStateResponse {
+			request = parseTablesStateRequest(request);
+			return database.transaction(() => {
+				const refusal = currentRequestRefusal(database, request, identity);
+				if (refusal) {
+					return { kind: 'tablesState', ok: false, reason: refusal };
+				}
+				const capture = captureSnapshot(database);
+				return {
+					kind: 'tablesState',
+					ok: true,
+					head: capture.snapshotSequence,
+					rows: capture.rows,
+				};
+			});
+		},
+
+		applyTables(request: TablesApplyRequest): TablesApplyResponse {
+			request = parseTablesApplyRequest(request);
+			try {
+				return database.transaction(() => {
+					const refusal = currentRequestRefusal(database, request, identity);
+					if (refusal) {
+						return { kind: 'tablesApply', ok: false, reason: refusal };
+					}
+					const currentHead = readMeta(database, 'serverSequence');
+					if (request.expectedHead !== currentHead) {
+						return { kind: 'tablesApply', ok: false, reason: 'head-moved' };
+					}
+					for (const operation of request.operations) {
+						applyOperation(database, operation);
+					}
+					const actorSequence =
+						(one<{ sequence: number }>(
+							database,
+							`SELECT sequence FROM record_sync_actor_high_water WHERE actor_id = ?`,
+							[TABLES_APPLY_ACTOR_ID],
+						)?.sequence ?? 0) + 1;
+					const newHead = currentHead + 1;
+					database.run(
+						`INSERT INTO record_sync_mutation_log(
+							server_sequence, actor_id, actor_sequence, operations_json
+						) VALUES (?, ?, ?, ?)`,
+						[
+							newHead,
+							TABLES_APPLY_ACTOR_ID,
+							actorSequence,
+							JSON.stringify(request.operations),
+						],
+					);
+					database.run(
+						`INSERT INTO record_sync_actor_high_water(actor_id, sequence)
+						 VALUES (?, ?)
+						 ON CONFLICT(actor_id) DO UPDATE SET sequence = excluded.sequence`,
+						[TABLES_APPLY_ACTOR_ID, actorSequence],
+					);
+					writeMeta(database, 'serverSequence', newHead);
+					return { kind: 'tablesApply', ok: true, newHead };
+				});
+			} catch (error) {
+				if (error instanceof RowTooLargeError) {
+					return { kind: 'tablesApply', ok: false, reason: 'row-too-large' };
+				}
+				if (error instanceof CreateConflictError) {
+					return { kind: 'tablesApply', ok: false, reason: 'create-conflict' };
+				}
+				throw error;
+			}
+		},
+
 		push(request: PushRequest): PushResponse {
 			try {
 				const refused = database.transaction(() => {

@@ -75,6 +75,166 @@ test('first open persists one records epoch and restore reuses it', () => {
 	}
 });
 
+test('competing table applies serialize under one server-assigned actor', () => {
+	const { database, native } = setup();
+	try {
+		const opened = openRecordAuthority({ database, request, sha256 });
+		if (!opened.ok) throw new Error('Expected authority to open');
+		expect(
+			opened.authority.readTablesState({
+				...opened.envelope,
+				kind: 'tablesState',
+			}),
+		).toEqual({ kind: 'tablesState', ok: true, head: 0, rows: [] });
+
+		expect(
+			opened.authority.applyTables({
+				...opened.envelope,
+				kind: 'tablesApply',
+				expectedHead: 0,
+				operations: [
+					{
+						kind: 'createRow',
+						table: 'notes',
+						rowId: 'n1',
+						cells: { title: 'Imported' },
+					},
+				],
+			}),
+		).toEqual({ kind: 'tablesApply', ok: true, newHead: 1 });
+		expect(
+			opened.authority.applyTables({
+				...opened.envelope,
+				kind: 'tablesApply',
+				expectedHead: 0,
+				operations: [
+					{
+						kind: 'updateRow',
+						table: 'notes',
+						rowId: 'n1',
+						cells: { title: 'Must replan' },
+					},
+				],
+			}),
+		).toEqual({ kind: 'tablesApply', ok: false, reason: 'head-moved' });
+		expect(
+			opened.authority.readTablesState({
+				...opened.envelope,
+				kind: 'tablesState',
+			}),
+		).toEqual({
+			kind: 'tablesState',
+			ok: true,
+			head: 1,
+			rows: [
+				{
+					table: 'notes',
+					rowId: 'n1',
+					cells: { title: 'Imported' },
+				},
+			],
+		});
+		expect(
+			opened.authority.applyTables({
+				...opened.envelope,
+				kind: 'tablesApply',
+				expectedHead: 1,
+				operations: [
+					{
+						kind: 'updateRow',
+						table: 'notes',
+						rowId: 'n1',
+						cells: { title: 'Replanned' },
+					},
+				],
+			}),
+		).toEqual({ kind: 'tablesApply', ok: true, newHead: 2 });
+		expect(
+			opened.authority.pull({
+				...opened.envelope,
+				kind: 'pull',
+				cursor: 0,
+				limit: 10,
+			}),
+		).toMatchObject({
+			kind: 'pull',
+			ok: true,
+			newCursor: 2,
+			mutations: [
+				{
+					serverSequence: 1,
+					actorId: 'epicenter-tables-apply',
+					actorSequence: 1,
+				},
+				{
+					serverSequence: 2,
+					actorId: 'epicenter-tables-apply',
+					actorSequence: 2,
+				},
+			],
+		});
+	} finally {
+		native.close();
+	}
+});
+
+test('table apply rolls back every operation when one create conflicts', () => {
+	const { database, native } = setup();
+	try {
+		const opened = openRecordAuthority({ database, request, sha256 });
+		if (!opened.ok) throw new Error('Expected authority to open');
+		expect(
+			opened.authority.applyTables({
+				...opened.envelope,
+				kind: 'tablesApply',
+				expectedHead: 0,
+				operations: [
+					{
+						kind: 'createRow',
+						table: 'notes',
+						rowId: 'n1',
+						cells: { title: 'First' },
+					},
+				],
+			}),
+		).toMatchObject({ ok: true, newHead: 1 });
+		expect(
+			opened.authority.applyTables({
+				...opened.envelope,
+				kind: 'tablesApply',
+				expectedHead: 1,
+				operations: [
+					{
+						kind: 'createRow',
+						table: 'notes',
+						rowId: 'n2',
+						cells: { title: 'Rolled back' },
+					},
+					{
+						kind: 'createRow',
+						table: 'notes',
+						rowId: 'n1',
+						cells: { title: 'Conflict' },
+					},
+				],
+			}),
+		).toEqual({ kind: 'tablesApply', ok: false, reason: 'create-conflict' });
+		expect(
+			opened.authority.readTablesState({
+				...opened.envelope,
+				kind: 'tablesState',
+			}),
+		).toMatchObject({ ok: true, head: 1 });
+		expect(
+			database.all<{ row_id: string }>(
+				'SELECT row_id FROM record_sync_canonical_rows ORDER BY row_id',
+			),
+		).toEqual([{ row_id: 'n1' }]);
+	} finally {
+		native.close();
+	}
+});
+
 test('restore refuses durable identity outside the wire contract', () => {
 	const { database, native } = setup();
 	try {
@@ -105,14 +265,14 @@ test('open reports the stored descriptor without replacing the records epoch', (
 			sha256,
 		});
 		if (!opened.ok) throw new Error('Expected authority to open');
-			expect(
-				openRecordAuthority({
-					database,
-					request: {
-						...request,
-						recordsDescriptor: 'different descriptor',
-						recordsSchemaHash: 'different',
-					},
+		expect(
+			openRecordAuthority({
+				database,
+				request: {
+					...request,
+					recordsDescriptor: 'different descriptor',
+					recordsSchemaHash: 'different',
+				},
 				sha256,
 			}),
 		).toMatchObject({

@@ -3,6 +3,8 @@ import {
 	parsePushRequest,
 	parseRecordAuthorityOpenRequest,
 	parseSnapshotChunkRequest,
+	parseTablesApplyRequest,
+	parseTablesStateRequest,
 	RECORD_SYNC_ADMISSION_LIMITS,
 } from '@epicenter/record-sync';
 import { type Context, Hono, type MiddlewareHandler } from 'hono';
@@ -120,6 +122,20 @@ function createRecordsApp<E extends Env>(
 			}
 			return c.json(
 				await resolveRecords(c.env).snapshotChunk(partition(c), parsed.value),
+			);
+		})
+		.post(`${RECORDS_ROUTE}/tables-state`, async (c) => {
+			const parsed = await parseJson(c, parseTablesStateRequest);
+			if (!parsed.ok) return invalidRequest(c, parsed.reason);
+			return c.json(
+				await resolveRecords(c.env).readTablesState(partition(c), parsed.value),
+			);
+		})
+		.post(`${RECORDS_ROUTE}/tables-apply`, async (c) => {
+			const parsed = await parseJson(c, parseTablesApplyRequest);
+			if (!parsed.ok) return invalidRequest(c, parsed.reason);
+			return c.json(
+				await resolveRecords(c.env).applyTables(partition(c), parsed.value),
 			);
 		});
 }

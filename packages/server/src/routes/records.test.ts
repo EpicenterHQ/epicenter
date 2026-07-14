@@ -58,6 +58,14 @@ function setup() {
 				reason: 'snapshot-replaced',
 			};
 		},
+		async readTablesState(partition) {
+			partitions.push(partition);
+			return { kind: 'tablesState', ok: true, head: 4, rows: [] };
+		},
+		async applyTables(partition) {
+			partitions.push(partition);
+			return { kind: 'tablesApply', ok: true, newHead: 5 };
+		},
 	};
 	const app = new Hono<Env>();
 	mountRecordsApp(app, {
@@ -210,6 +218,49 @@ test('push and pull parse exact protocol requests and return backend responses',
 		mutations: [],
 		newCursor: 0,
 		hasMore: false,
+	});
+	expect(partitions).toEqual([
+		{
+			principalId: asPrincipalId('authenticated-alice'),
+			workspaceId: 'wiki',
+		},
+		{
+			principalId: asPrincipalId('authenticated-alice'),
+			workspaceId: 'wiki',
+		},
+	]);
+});
+
+test('tables apply is an authenticated expected-head authority transition', async () => {
+	const { app, partitions } = setup();
+	const stateResponse = await post(app, 'tables-state', {
+		...envelope,
+		kind: 'tablesState',
+	});
+	const applyResponse = await post(app, 'tables-apply', {
+		...envelope,
+		kind: 'tablesApply',
+		expectedHead: 4,
+		operations: [
+			{
+				kind: 'updateRow',
+				table: 'pages',
+				rowId: 'page-1',
+				cells: { title: 'Reviewed' },
+			},
+		],
+	});
+
+	expect((await stateResponse.json()) as unknown).toEqual({
+		kind: 'tablesState',
+		ok: true,
+		head: 4,
+		rows: [],
+	});
+	expect((await applyResponse.json()) as unknown).toEqual({
+		kind: 'tablesApply',
+		ok: true,
+		newHead: 5,
 	});
 	expect(partitions).toEqual([
 		{

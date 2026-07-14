@@ -8,6 +8,10 @@ import type {
 	RecordAuthorityOpenResult,
 	SnapshotChunkRequest,
 	SnapshotChunkResponse,
+	TablesApplyRequest,
+	TablesApplyResponse,
+	TablesStateRequest,
+	TablesStateResponse,
 } from '@epicenter/record-sync';
 
 /** The authenticated server partition selected outside the record-sync protocol. */
@@ -34,4 +38,12 @@ export type Records = {
 		partition: RecordsPartition,
 		request: SnapshotChunkRequest,
 	): Promise<SnapshotChunkResponse>;
+	readTablesState(
+		partition: RecordsPartition,
+		request: TablesStateRequest,
+	): Promise<TablesStateResponse>;
+	applyTables(
+		partition: RecordsPartition,
+		request: TablesApplyRequest,
+	): Promise<TablesApplyResponse>;
 };

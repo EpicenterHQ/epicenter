@@ -11,6 +11,10 @@ import {
 	restoreRecordAuthority,
 	type SnapshotChunkRequest,
 	type SnapshotChunkResponse,
+	type TablesApplyRequest,
+	type TablesApplyResponse,
+	type TablesStateRequest,
+	type TablesStateResponse,
 } from '@epicenter/record-sync';
 import { createDurableObjectSqliteAdapter } from '@epicenter/record-sync/durable-object';
 import { RECORDS_COMPACTION_POLICY } from './compaction.js';
@@ -65,19 +69,7 @@ export class RecordAuthorityDurableObject extends DurableObject {
 	async push(request: PushRequest): Promise<PushResponse> {
 		const authority = this.requireAuthority();
 		const response = authority.push(request);
-		if (response.ok) {
-			const compaction = (this.compaction ?? Promise.resolve())
-				.catch(() => {})
-				.then(() => authority.maybePublishSnapshot(RECORDS_COMPACTION_POLICY))
-				.then(() => {})
-				.catch(() => {});
-			this.compaction = compaction;
-			try {
-				await compaction;
-			} finally {
-				if (this.compaction === compaction) this.compaction = undefined;
-			}
-		}
+		if (response.ok) await this.compact(authority);
 		return response;
 	}
 
@@ -89,6 +81,33 @@ export class RecordAuthorityDurableObject extends DurableObject {
 		request: SnapshotChunkRequest,
 	): Promise<SnapshotChunkResponse> {
 		return this.requireAuthority().snapshotChunk(request);
+	}
+
+	async readTablesState(
+		request: TablesStateRequest,
+	): Promise<TablesStateResponse> {
+		return this.requireAuthority().readTablesState(request);
+	}
+
+	async applyTables(request: TablesApplyRequest): Promise<TablesApplyResponse> {
+		const authority = this.requireAuthority();
+		const response = authority.applyTables(request);
+		if (response.ok) await this.compact(authority);
+		return response;
+	}
+
+	private async compact(authority: RecordAuthority): Promise<void> {
+		const compaction = (this.compaction ?? Promise.resolve())
+			.catch(() => {})
+			.then(() => authority.maybePublishSnapshot(RECORDS_COMPACTION_POLICY))
+			.then(() => {})
+			.catch(() => {});
+		this.compaction = compaction;
+		try {
+			await compaction;
+		} finally {
+			if (this.compaction === compaction) this.compaction = undefined;
+		}
 	}
 
 	private requireAuthority(): RecordAuthority {
@@ -105,6 +124,8 @@ type RecordsRpc = {
 	push(request: PushRequest): Promise<PushResponse>;
 	pull(request: PullRequest): Promise<PullResponse>;
 	snapshotChunk(request: SnapshotChunkRequest): Promise<SnapshotChunkResponse>;
+	readTablesState(request: TablesStateRequest): Promise<TablesStateResponse>;
+	applyTables(request: TablesApplyRequest): Promise<TablesApplyResponse>;
 };
 
 /** Build the portable records backend over the hosted Worker's DO namespace. */
@@ -126,5 +147,8 @@ export function createDurableObjectRecords(
 		pull: (partition, request) => get(partition).pull(request),
 		snapshotChunk: (partition, request) =>
 			get(partition).snapshotChunk(request),
+		readTablesState: (partition, request) =>
+			get(partition).readTablesState(request),
+		applyTables: (partition, request) => get(partition).applyTables(request),
 	};
 }
