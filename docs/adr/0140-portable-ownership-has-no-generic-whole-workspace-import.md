@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-14
 - **Amends:** [ADR-0121](0121-background-sync-is-automatic-and-database-boundary-merges-are-reviewable.md), [ADR-0132](0132-an-obsolete-replica-exports-one-read-only-recovery-checkpoint.md), [ADR-0137](0137-applications-declare-one-live-workspace-per-contract-version.md), [ADR-0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md)
+- **Amended by:** [ADR-0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) (local and server authorities never imply a generic copy relationship)
 
 ## Context
 

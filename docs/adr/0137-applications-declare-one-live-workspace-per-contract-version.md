@@ -4,7 +4,7 @@
 - **Date:** 2026-07-14
 - **Supersedes:** [ADR-0136](0136-applications-declare-immutable-data-versions.md)
 - **Amends:** [ADR-0135](0135-new-builds-ask-before-initializing-a-new-data-generation.md)
-- **Amended by:** [ADR-0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) (the deterministic live identity has no generic imported copy or same-ID replacement)
+- **Amended by:** [ADR-0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) (the deterministic live identity has no generic imported copy or same-ID replacement); [ADR-0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) (one workspace ID has an independent live materialization per authority)
 
 ## Context
 

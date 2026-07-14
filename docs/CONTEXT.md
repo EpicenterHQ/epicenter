@@ -19,6 +19,12 @@ shapes, see `docs/adr/`.
 - **Workspace ID**: the framework-generated `<appId>-vN` namespace for one
   workspace version. Applications author only `appId` and a positive
   `version`.
+- **Workspace authority**: the one owner selected at boot for a workspace
+  runtime: either device-local or one server deployment and principal. It owns
+  one independent local database; a principal change boots another runtime.
+- **Standalone / replica**: derived runtime roles, not application modes. A
+  local authority opens a standalone database; a server authority opens its
+  complete local replica and synchronizes it with that authority.
 - **Workspace-version-aware boot**: the current build inspects its own local root
   identity without creating storage. If it is absent and predecessors exist,
   the build asks before starting its workspace version or navigating to a previous one.

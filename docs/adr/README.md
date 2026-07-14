@@ -217,5 +217,6 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md) | Tables declare cells, documents, and blobs in one field map | Accepted |
 | [0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) | Portable workspaces are schema-directed folders applied as forward mutations | Accepted |
 | [0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) | Portable ownership has no generic whole-workspace import | Accepted |
+| [0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) | Workspace authority is selected once and owns one local database | Accepted |
 
 When you add an ADR, add its row here.

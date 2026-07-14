@@ -1,16 +1,15 @@
 # SQLite workspace application adoption
 
 **Date**: 2026-07-14
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Epicenter workspace and application owners
 **Branch**: `codex/records-epoch-clean-break`
 
 ## One Sentence
 
-Each application declares one version-locked SQLite workspace, opens it through
-one runtime composition that owns the records worker, KV document, child
-documents, and sync, and reads or writes only through the resulting asynchronous
-handles.
+Each application declares one version-locked SQLite workspace, selects one local
+or server authority at boot, and opens it through one runtime composition that
+owns the records Worker, KV document, child documents, and synchronization.
 
 ## Current State
 
@@ -21,15 +20,17 @@ exports, and reviewed tables apply. The HTTP apply path is covered through the
 shared authenticated route and a persistent records authority; the Cloudflare
 Durable Object adapter has matching apply coverage.
 
-Application adoption has not started:
+The first application-shaped browser runtime is now proven:
 
-- No application imports `@epicenter/workspace/sqlite`.
-- No application has a `workspace-version-lock.json`.
-- Every workspace-backed application still uses synchronous Yjs record tables
-  from `@epicenter/workspace`.
+- Todos imports `@epicenter/workspace/sqlite`, owns one Worker, and commits a
+  `workspace-version-lock.json`.
+- Browser apps open through one authority-selected runtime. Local and server
+  authorities own independent OPFS databases.
+- The page owns authenticated HTTP and the Worker receives only a semantic
+  record-sync port.
 - Shared table owners in `@epicenter/chat`, `@epicenter/filesystem`, and
   `@epicenter/skills` still expose legacy table definitions and child-document
-  layouts.
+  layouts. The remaining applications still use the legacy Yjs record path.
 
 The old application shape is:
 
@@ -46,7 +47,11 @@ The new storage shape is:
 ```ts
 const candidate = defineWorkspace({ appId, version, tables, kv });
 const definition = lockWorkspace(candidate, versionLock);
-const workspace = await openWorkspaceReplica(definition, runtime);
+const workspace = await openBrowserWorkspace(definition, {
+	authority: toWorkspaceAuthority(auth),
+	worker: () => new Worker(new URL('./workspace.worker.ts', import.meta.url)),
+	fetch: auth.fetch,
+});
 
 await workspace.tables.notes.create(cells);
 await workspace.tables.notes.list();
@@ -67,8 +72,9 @@ app definition
         |
         v
 app runtime opener
+|-- authority: local | server(baseURL, principalId)
 |-- records: app-owned SQLite Worker
-|-- sync: HTTP records authority
+|-- sync: semantic ReplicaSyncPort bridge when server-owned
 |-- KV: eager version-qualified Y.Doc
 |-- documents: lazy version-qualified Y.Doc sessions
 `-- app actions and reactive state over async handles
@@ -89,12 +95,12 @@ ID to the generated `<appId>-vN` namespace.
 
 | Gap | Evidence | Consequence |
 | --- | --- | --- |
-| Production composition | `openWorkspaceReplica` requires an app Worker, optional KV mount, and optional document runtime; no app composes them | Migrating apps independently would duplicate lifecycle and sync wiring |
+| Remaining composition | The browser records runtime is proven, but no migrated app yet mounts synchronized KV or child documents | The next wave must prove those planes before shared schema owners migrate |
 | Nullable export | SQLite definitions use the existing `nullable(...)`, but the SQLite entry point does not export it | A clean app import still needs the legacy root package for schema construction |
 | Async records | SQLite tables expose `get`, `list`, `create`, `patch`, `remove`, and `transact` as asynchronous operations | Actions, Svelte state, tests, and event handlers must stop assuming immediate reads after writes |
 | Framework-owned IDs | Public `create` allocates a UUID and forbids caller-supplied IDs | Natural-key tables must add a separate field or move to a different plane |
 | Shared table owners | Chat, filesystem, and skills definitions are imported by several apps | These packages must migrate before their consumers can migrate cleanly |
-| Existing user data | Current app data lives under unversioned Yjs workspace IDs | Cutover policy must be explicit before any shipped app stops importing the old path |
+| Existing user data | Current app data lives under unversioned Yjs workspace IDs | Historical inspection and export is the default; any forward import is app-owned product work |
 
 ### Application inventory
 
@@ -125,7 +131,8 @@ part of this migration unless the caller audit finds an indirect dependency.
 | Actions | 2 coherence | Compose actions after opening the runtime workspace | Executable behavior is not part of a workspace version and the SQLite definition intentionally excludes it |
 | Migration order | 1 evidence | Pilot, shared table owners, product apps, old-path deletion | Callers show that chat, filesystem, and skills block several apps |
 | Compatibility | 2 coherence | No dual reader, writer, ID alias, or fallback | The accepted clean break and ADR-0137 refuse mixed namespaces |
-| Existing data | Open | Decide per shipped app before cutover | Silently abandoning an existing local workspace is a product decision, not an implementation detail |
+| Authority | 2 coherence | Select `local` or one `(baseURL, principalId)` server authority once at boot | ADR-0141 makes standalone and replica derived roles and gives each authority one local database |
+| Existing data | 2 coherence | Keep historical data inspectable and exportable by default; add no platform importer | ADR-0140 and ADR-0141 keep live-target import application-specific |
 
 ## Real Call-Site Translations
 
@@ -190,13 +197,20 @@ The same review applies to Wiki type slugs and Tab Manager tool-trust keys.
 
 ### Phase 1: Prove one application-shaped runtime
 
-- [ ] Export every schema primitive an app needs from the SQLite entry point,
+- [x] Export every schema primitive an app needs from the SQLite entry point,
   starting with `nullable`.
-- [ ] Migrate Todos as the records-only browser pilot with an app-owned Worker,
+- [x] Add `WorkspaceAuthority` and deterministic authority-qualified OPFS
+  identity. Use the same identity for cross-tab invalidation.
+- [x] Replace the experimental generic fetch bridge with a semantic
+  `ReplicaSyncPort` MessagePort bridge. Authenticated fetch stays page-owned.
+- [x] Replace the separate browser standalone and replica openers with one
+  `openBrowserWorkspace(definition, { authority, ... })` composition and one
+  `serveBrowserWorkspaceWorker(...)` app Worker entry point.
+- [x] Migrate Todos as the records-only browser pilot with an app-owned Worker,
   one version lock, async actions, reactive state, and end-to-end browser smoke.
-- [ ] Use the pilot to identify the smallest reusable runtime composition. Do
+- [x] Use the pilot to identify the smallest reusable runtime composition. Do
   not preserve `connect(...)` merely to make the call site look unchanged.
-- [ ] Prove local reload, synchronized reload, offline mutation, reconnect, and
+- [x] Prove local reload, synchronized reload, offline mutation, reconnect, and
   workspace-version identity before another app adopts the path.
 
 ### Phase 2: Compose the remaining storage planes
@@ -249,13 +263,16 @@ Code migration and user-data migration are different decisions. The accepted
 platform architecture provides no generic whole-workspace importer and no
 mixed-history compatibility path.
 
-Before each shipped app cuts over, choose one explicit product policy:
+Before each shipped app cuts over, apply this default policy:
 
-1. Start the new workspace version empty and keep the historical build
-   available for inspection and export.
-2. Build an app-specific, reviewed forward-copy workflow using ordinary APIs.
-3. Delay that app until its ownership promise can be met without a compatibility
-   layer.
+1. Start the new workspace version empty and keep historical data available for
+   inspection and export.
+2. Add no generic platform copy into either an absent or live target.
+3. If product evidence later requires it, build an app-specific forward import
+   through ordinary APIs. That application owns selection, identity collisions,
+   review, retry, and partial failure.
+4. Delay an app instead of adding a compatibility reader when inspection and
+   export do not satisfy its ownership promise.
 
 The migration must not silently read the old Yjs workspace and dual-write into
 SQLite. That would recreate the compatibility system this clean break removed.
@@ -287,22 +304,17 @@ bun run check:licenses
 
 ## Open Questions
 
-1. **What is the existing-data policy for each shipped app?**
-   - Recommendation: use historical inspection and export by default. Earn an
-     app-specific forward-copy workflow only for data whose product value
-     justifies it.
-
-2. **Which runtime composition becomes shared after the Todos pilot?**
+1. **Which runtime composition becomes shared after the Todos pilot?**
    - Recommendation: share ownership of records Worker creation, KV hydration,
      child-document sessions, and teardown. Keep auth and platform-specific
      resources injected. Do not recreate a legacy-shaped `connect` facade.
 
-3. **Does any product require caller-authored row IDs?**
+2. **Does any product require caller-authored row IDs?**
    - Recommendation: first model natural keys as unique ordinary fields. Reopen
      the framework-owned UUID rule only if a real app cannot express its
      identity or atomicity honestly that way.
 
-4. **Where should application actions be constructed?**
+3. **Where should application actions be constructed?**
    - Recommendation: a runtime-neutral factory takes the opened async workspace
      and returns the action registry. Environment actions compose beside it in
      the browser, extension, Tauri, or Bun opener.
@@ -326,6 +338,7 @@ bun run check:licenses
 - `docs/adr/0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md`
 - `docs/adr/0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md`
 - `docs/adr/0140-portable-ownership-has-no-generic-whole-workspace-import.md`
+- `docs/adr/0141-workspace-authority-is-selected-once-and-owns-one-local-database.md`
 - `packages/workspace/src/sqlite/definition.ts`
 - `packages/workspace/src/sqlite/browser.ts`
 - `packages/workspace/src/sqlite/browser-worker.ts`

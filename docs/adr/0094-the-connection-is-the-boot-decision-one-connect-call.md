@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-02
+- **Amended by:** [ADR-0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) (SQLite apps project boot auth into one workspace authority instead of a nullable Yjs connection)
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
+- **Amended by:** [ADR-0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) (SQLite workspaces keep signed-out and signed-in state in independent authority-owned databases)
 
 ## Context
 
