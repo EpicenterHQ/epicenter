@@ -115,7 +115,7 @@ shapes, see `docs/adr/`.
   materializes it in local SQLite; the authority stores logical records, not a
   device's SQLite file.
 - **Records epoch**: the authority-minted identity of one continuous records
-  history inside one workspace version. Restore or repair may mint a
+  history inside one workspace version. Records-authority repair may mint a
   new epoch, but a schema change always publishes a new workspace version.
 - **Sequence**: the authority-assigned position of an accepted mutation inside
   one records epoch. A sequence has no meaning without its epoch.
@@ -166,9 +166,10 @@ shapes, see `docs/adr/`.
   attaches the typed content handle after the runtime opens the doc.
 - **Portable workspace**: `workspace.json`, `tables.sqlite3`, `kv.json`, and
   content-addressed `documents/` and `blobs/` folders containing complete
-  logical application state without replica-private runtime state. An edited
-  tables file becomes live only through a reviewed expected-head apply, never
-  by replacing a runtime database.
+  logical application state without replica-private runtime state. It is a
+  one-way ownership archive, not a restorable backup. An edited tables file
+  becomes live only through a reviewed expected-head apply; the platform has no
+  generic whole-folder importer or runtime database replacement.
 - **Worker**: running behavior that observes workspace state and writes results
   back. Workers may be local (every node runs them) or agent-bound (one
   configured agent answers). A conversation is answered by the client agent loop

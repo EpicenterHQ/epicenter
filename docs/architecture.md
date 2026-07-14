@@ -6,7 +6,7 @@ keeps devices synchronized while they sleep.
 
 The workspace model is the center of the architecture:
 
-> An workspace version freezes records, synchronized preferences,
+> A workspace version freezes records, synchronized preferences,
 > child-document identities, and app-owned blobs under one generated workspace
 > namespace.
 
@@ -208,12 +208,14 @@ replica. It excludes actor identity, cursors, outboxes, indexes, and pending syn
 machinery. The locked table declarations identify blob references and document
 fields, so export follows the schema instead of guessing from SQLite metadata.
 
-Exports are immutable backups and escape hatches. They do not make live
-workspaces roll backward. Import creates a fresh destination before clients
-join. `epicenter tables apply` may translate an edited `tables.sqlite3` into
-reviewed forward mutations guarded by the current server head. It validates the
-sibling `workspace.json`, replans and asks again when the head moves, and never
-replaces history or merges the other storage planes.
+Exports are immutable ownership archives and escape hatches. They do not make
+live workspaces roll backward, and Epicenter provides no generic whole-folder
+importer. An application may deliberately re-ingest files through its ordinary
+APIs. `epicenter tables apply` is the one generic path back into a live
+workspace: it translates an edited `tables.sqlite3` into reviewed forward
+mutations guarded by the current server head. It validates the sibling
+`workspace.json`, replans and asks again when the head moves, and never replaces
+history or merges the other storage planes.
 
 ## Durable contract changes start a new workspace version
 
@@ -224,7 +226,7 @@ mutations, KV, child documents, or blobs between workspace versions. Older versi
 remain independent and writable.
 
 A records epoch is narrower. The authority mints it for one continuous records
-history inside one workspace version. Same-descriptor restore or repair may mint a new
+history inside one workspace version. Records-authority repair may mint a new
 epoch to fence stale cursors and writes. An epoch-fenced replica can export one
 self-describing recovery checkpoint containing its local rows and pending
 logical mutations. The checkpoint has no automatic import or replay operation.

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-11
 - **Relates:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md)
-- **Amended by:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md) (schema change and records replacement start a new records epoch); [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (schema changes publish a new application data generation while ordinary sync remains generation-blind); [ADR-0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) (edited table state is reviewed against the latest head and admitted as forward intent)
+- **Amended by:** [ADR-0130](0130-records-replacement-starts-a-new-epoch-without-an-online-succession-protocol.md) (schema change and records replacement start a new records epoch); [ADR-0134](0134-application-data-generations-own-immutable-workspace-namespaces.md) (schema changes publish a new application data generation while ordinary sync remains generation-blind); [ADR-0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) (edited table state is reviewed against the latest head and admitted as forward intent); [ADR-0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) (the platform has no generic database or whole-workspace import planner)
 
 ## Context
 

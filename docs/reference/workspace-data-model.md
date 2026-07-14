@@ -156,7 +156,7 @@ physical SQLite layout  -> runtime storage version
 ```
 
 Ordinary record changes use ordinary mutations. The authority may mint a new
-records epoch for same-descriptor restore or repair inside one workspace version. A
+records epoch for records-authority repair inside one workspace version. A
 records schema change never mints a new epoch inside the same workspace; it
 publishes a new workspace version.
 
@@ -209,9 +209,11 @@ it is not a copied replica file and carries no actor, cursor, outbox, or pending
 sync identity. Export follows the locked field declarations, never SQLite
 introspection that guesses which values are blobs or documents.
 
-The folder is an immutable backup and ownership escape hatch. It does not imply
-that a live workspace can roll backward. Import targets a fresh destination.
-`epicenter tables apply <tables.sqlite3> --definition <module>` validates the
+The folder is an immutable ownership archive and escape hatch. It does not
+imply that a live workspace can roll backward, and Epicenter provides no generic
+whole-folder importer. Applications may deliberately re-ingest files through
+their ordinary APIs. `epicenter tables apply <tables.sqlite3> --definition
+<module>` is the one generic path back into a live workspace. It validates the
 sibling manifest and locked definition, reads the latest authority state,
 previews the exact desired-state diff and unreachable content, and requires
 approval. The authority commits the whole bounded operation set only when the

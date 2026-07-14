@@ -64,7 +64,8 @@ blobs/
 
 The durable decisions are [ADR-0137](../docs/adr/0137-applications-declare-one-live-workspace-per-contract-version.md),
 [ADR-0138](../docs/adr/0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md),
-and [ADR-0139](../docs/adr/0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md).
+[ADR-0139](../docs/adr/0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md),
+and [ADR-0140](../docs/adr/0140-portable-ownership-has-no-generic-whole-workspace-import.md).
 
 ## Implementation Plan
 
@@ -74,9 +75,9 @@ and [ADR-0139](../docs/adr/0139-portable-workspaces-are-schema-directed-folders-
   `version` and `workspace-version-lock.json` with no compatibility reader.
 - Wave 2 is implemented: one table `fields` map declares cells, documents, and
   BlobRefs; application blob deletion and the workspace blob registry are gone.
-- Wave 3 export is implemented: complete export rebuilds `tables.sqlite3`,
-  writes KV, encodes Yjs document state, verifies every blob, and publishes the
-  folder atomically. Fresh-destination import still needs its proof.
+- Wave 3 is implemented: complete export rebuilds `tables.sqlite3`, writes KV,
+  encodes Yjs document state, verifies every blob, and publishes the folder
+  atomically. ADR-0140 deliberately refuses a generic whole-folder importer.
 - Wave 4 is implemented through the authority and CLI: edited SQLite is parsed
   against its sibling manifest, planned against latest live state, previewed,
   approved, and admitted as one expected-head transaction. End-to-end hosted
@@ -115,12 +116,12 @@ tests use the declared field name; lock tests reject drift in either declaration
   of copying runtime storage.
 - Export declared KV into `kv.json`, reachable documents into `documents/`, and
   referenced blob bytes into `blobs/`.
-- Fail complete export when referenced bytes are unavailable. Name any partial
-  export explicitly.
+- Fail complete export when referenced bytes are unavailable. There is no
+  partial export mode.
 
 Proof: a fixture exports, opens its SQLite file in a separate process, verifies
-all logical values and content hashes, imports into a fresh identity, and
-produces the same logical export.
+all logical values and content hashes, decodes the Yjs document, and verifies
+the exported blob bytes. A missing or mismatched blob leaves no destination.
 
 ### Wave 4: Apply edited tables as forward intent
 
@@ -143,7 +144,7 @@ the edited tables file.
   records-only portability claims, and any obsolete recovery wording.
 - Update `docs/CONTEXT.md`, `docs/architecture.md`, workspace reference docs,
   package README examples, and ADR index relationships.
-- Accept ADRs 0137 through 0139 and delete this spec only after all proof passes.
+- Accept ADRs 0137 through 0140 and delete this spec only after all proof passes.
 
 ## Invariants
 
@@ -154,7 +155,7 @@ the edited tables file.
   deletion in another storage plane.
 - Export contains logical application state, never replica identity or pending
   transport machinery.
-- Restore never rewinds a live workspace under the same identity.
+- Portable export has no generic inverse or workspace replacement meaning.
 - Apply emits ordinary forward mutations and wins one expected-head compare and
   swap or changes nothing.
 
@@ -166,7 +167,7 @@ the edited tables file.
 - No permanent tombstone set or synchronous Yjs and blob deletion transaction.
 - No first-class relocatable document IDs or application blob deletion API.
 - No same-ID restore, rollback, client authority promotion, or three-way apply.
-- No whole-folder atomic apply in the first implementation.
+- No generic whole-folder import or cross-plane restore transaction.
 
 ## Verification
 

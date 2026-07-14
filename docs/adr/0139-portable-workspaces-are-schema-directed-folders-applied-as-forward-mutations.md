@@ -4,6 +4,7 @@
 - **Date:** 2026-07-14
 - **Supersedes:** [ADR-0122](0122-logical-snapshots-are-the-portable-record-database-format-sqlite-files-are-runtime-state.md)
 - **Amends:** [ADR-0121](0121-background-sync-is-automatic-and-database-boundary-merges-are-reviewable.md), [ADR-0124](0124-workspace-kv-keeps-one-logical-identity-outside-the-record-database.md), [ADR-0132](0132-an-obsolete-replica-exports-one-read-only-recovery-checkpoint.md)
+- **Amended by:** [ADR-0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) (portable ownership is one-way; there is no generic whole-folder importer)
 
 ## Context
 

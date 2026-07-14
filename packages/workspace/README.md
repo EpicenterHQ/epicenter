@@ -8,6 +8,7 @@
 > [ADR-0137](../../docs/adr/0137-applications-declare-one-live-workspace-per-contract-version.md)
 > and [ADR-0138](../../docs/adr/0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md)
 > and [ADR-0139](../../docs/adr/0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md)
+> and [ADR-0140](../../docs/adr/0140-portable-ownership-has-no-generic-whole-workspace-import.md)
 > and [ADR-0135](../../docs/adr/0135-new-builds-ask-before-initializing-a-new-data-generation.md).
 
 A local-first workspace engine for TypeScript apps: Yjs is the source of truth; SQLite and Markdown are read-only materialized projections.
