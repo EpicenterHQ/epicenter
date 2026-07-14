@@ -54,6 +54,12 @@ the complete row ID string, field name, and format hash. No other row content
 enters that address. The row and declared field own its identity and lifecycle.
 There is no first-class relocatable document ID.
 
+Document formats describe durable content only. Product metadata derived from
+edits, such as Honeycrisp's `updatedAt`, is application behavior. An opened
+document may expose local-update observation, but the application decides which
+row mutation that event means. Touch columns and callbacks do not enter the
+field declaration or version lock.
+
 Deleting a row makes its derived documents and blob references unreachable from
 the live workspace and from new exports. Physical bytes may remain. The platform
 does not coordinate cross-plane deletion, call an application cleanup hook, or

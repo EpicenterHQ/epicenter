@@ -141,9 +141,10 @@ lockWorkspace(candidate, versionLock)
         v
 openBrowserWorkspace({ authority })
         |
-        | local                         server(baseURL, principalId)
-        v                               v
-<workspaceId>.standalone.sqlite3     <workspaceId>.replica-<hash>.sqlite3
+        | local                              server(baseURL, principalId)
+        v                                    v
+SQLite: <workspaceId>.standalone.sqlite3   <workspaceId>.replica-<hash>.sqlite3
+Yjs:    <documentGuid>.standalone          <documentGuid>.replica-<hash>
 ```
 
 `defineTable` declares one field map. Ordinary fields become atomic SQLite cells
@@ -155,10 +156,11 @@ factory; KV keeps its separate storage and conflict model.
 Runtime openers supply the resources that cannot travel with the definition:
 the environment's SQLite service, workspace authority, record sync port, Yjs
 persistence and collaboration, and platform APIs. The browser page owns
-authenticated HTTP and gives its app-owned Worker a semantic `ReplicaSyncPort`;
-credentials and a generic fetch proxy never cross that boundary. App-facing
-code should enter through the workspace definition instead of rebuilding
-addresses or storage topology itself.
+authenticated HTTP and WebSocket creation. It gives its app-owned Worker a
+semantic `ReplicaSyncPort`; credentials and a generic fetch proxy never cross
+that boundary. The opener hydrates the eager KV document before returning and
+owns the lazy refcounted child-document cache. App-facing code enters through
+the workspace definition instead of rebuilding addresses or storage topology.
 
 ## The records path
 

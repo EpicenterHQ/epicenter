@@ -34,17 +34,27 @@ Browser storage names are deterministic:
 ```text
 <workspaceId>.standalone.sqlite3
 <workspaceId>.replica-<authorityHash>.sqlite3
+
+<documentGuid>.standalone
+<documentGuid>.replica-<authorityHash>
 ```
 
 `authorityHash` is lowercase hexadecimal SHA-256 over a versioned domain
 separator, the normalized server base URL, and the principal ID, separated by
 NUL bytes. It is an internal non-secret partition key. The same derived database
-name scopes OPFS access and same-origin invalidation channels.
+name scopes OPFS access and same-origin invalidation channels. The same role
+suffix scopes the eager KV document and every lazy child-document IndexedDB and
+BroadcastChannel. The document guid remains the server room identity; authority
+qualifies only its local materialization.
 
-The page owns authenticated HTTP. The application Worker owns SQLite and the
-replica supervisor. They communicate through a semantic `ReplicaSyncPort`
-MessagePort protocol that carries record-sync operations, never a generic fetch
-proxy or credentials.
+The browser opener owns the complete runtime composition. It creates the eager
+KV document before returning, waits for local hydration before exposing default
+reads, and lazily opens refcounted child-document sessions. The page owns
+authenticated HTTP and WebSocket creation. The application Worker owns SQLite
+and the record replica supervisor. Page and Worker communicate through a
+semantic `ReplicaSyncPort` MessagePort protocol that carries record-sync
+operations, never a generic fetch proxy or credentials. Yjs rooms stay on their
+existing authenticated WebSocket transport and never enter the Worker.
 
 Changing authority requires closing the current runtime and booting another;
 applications reload on principal changes rather than swapping authority in
@@ -62,12 +72,12 @@ platform runtime.
 - Signed-out and signed-in data cannot silently overwrite or resurrect one
   another.
 - Two principals or deployments on one browser never share SQLite replica
-  state, outboxes, cursors, or broadcast invalidations.
+  state, outboxes, cursors, Yjs persistence, or broadcast invalidations.
 - The Worker receives no bearer, refresh token, cookie, or arbitrary HTTP
   capability.
 - There is one browser opener and one app-owned Worker entry point for both
-  authority kinds; the former standalone and replica browser openers are
-  removed rather than aliased.
+  authority kinds. Apps inject auth-owned transport capabilities, not
+  caller-built KV mounts or document caches.
 - Sign-in may reveal a different independent workspace. Preserving or importing
   local domain data is explicit application product work, not an auth side
   effect.

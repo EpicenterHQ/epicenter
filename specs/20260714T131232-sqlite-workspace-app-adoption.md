@@ -20,7 +20,7 @@ exports, and reviewed tables apply. The HTTP apply path is covered through the
 shared authenticated route and a persistent records authority; the Cloudflare
 Durable Object adapter has matching apply coverage.
 
-The first application-shaped browser runtime is now proven:
+Three application-shaped browser runtimes are now proven:
 
 - Todos imports `@epicenter/workspace/sqlite`, owns one Worker, and commits a
   `workspace-version-lock.json`.
@@ -28,9 +28,16 @@ The first application-shaped browser runtime is now proven:
   authorities own independent OPFS databases.
 - The page owns authenticated HTTP and the Worker receives only a semantic
   record-sync port.
-- Shared table owners in `@epicenter/chat`, `@epicenter/filesystem`, and
-  `@epicenter/skills` still expose legacy table definitions and child-document
-  layouts. The remaining applications still use the legacy Yjs record path.
+- The browser opener owns the eager authority-qualified KV document and the
+  lazy refcounted child-document cache. Apps inject only auth-owned transport
+  capabilities.
+- Vocab proves SQLite rows, hydrated KV, and validated keyed chat documents.
+  Honeycrisp proves rich-text documents and app-owned edit metadata.
+- `@epicenter/chat/sqlite` is the new shared definition path. The legacy root
+  export stays on disk for unmigrated consumers until they stop importing it.
+  The unmigrated Epicenter host likewise uses explicit Honeycrisp and Todos
+  `/legacy` subpaths. Filesystem, skills, and the remaining applications still
+  use legacy records.
 
 The old application shape is:
 
@@ -47,11 +54,24 @@ The new storage shape is:
 ```ts
 const candidate = defineWorkspace({ appId, version, tables, kv });
 const definition = lockWorkspace(candidate, versionLock);
-const workspace = await openBrowserWorkspace(definition, {
-	authority: toWorkspaceAuthority(auth),
+const authority = toWorkspaceAuthority(auth);
+const common = {
 	worker: () => new Worker(new URL('./workspace.worker.ts', import.meta.url)),
-	fetch: auth.fetch,
-});
+	onObserverError: reportError,
+};
+const workspace =
+	authority.kind === 'server'
+		? await openBrowserWorkspace(definition, {
+				...common,
+				authority,
+				fetch: auth.fetch,
+				documentSync: {
+					nodeId,
+					openWebSocket: auth.openWebSocket,
+					onReconnectSignal: auth.onStateChange,
+				},
+			})
+		: await openBrowserWorkspace(definition, { ...common, authority });
 
 await workspace.tables.notes.create(cells);
 await workspace.tables.notes.list();
@@ -95,11 +115,9 @@ ID to the generated `<appId>-vN` namespace.
 
 | Gap | Evidence | Consequence |
 | --- | --- | --- |
-| Remaining composition | The browser records runtime is proven, but no migrated app yet mounts synchronized KV or child documents | The next wave must prove those planes before shared schema owners migrate |
-| Nullable export | SQLite definitions use the existing `nullable(...)`, but the SQLite entry point does not export it | A clean app import still needs the legacy root package for schema construction |
 | Async records | SQLite tables expose `get`, `list`, `create`, `patch`, `remove`, and `transact` as asynchronous operations | Actions, Svelte state, tests, and event handlers must stop assuming immediate reads after writes |
-| Framework-owned IDs | Public `create` allocates a UUID and forbids caller-supplied IDs | Natural-key tables must add a separate field or move to a different plane |
-| Shared table owners | Chat, filesystem, and skills definitions are imported by several apps | These packages must migrate before their consumers can migrate cleanly |
+| Opaque row IDs | Public `create` generates an Epicenter NanoID when `id` is absent and preserves a supplied URL-safe ID when present | Normal app code omits `id`; copy-forward can preserve identity without a privileged importer API, while natural keys remain separate fields |
+| Shared table owners | Chat now has a transitional SQLite export; filesystem and skills still expose legacy definitions | Those remaining packages must migrate before their consumers can migrate cleanly |
 | Existing user data | Current app data lives under unversioned Yjs workspace IDs | Historical inspection and export is the default; any forward import is app-owned product work |
 
 ### Application inventory
@@ -108,11 +126,11 @@ ID to the generated `<appId>-vN` namespace.
 | --- | --- | --- | --- |
 | Todos | One table, no KV or documents, browser-only | Async actions and Svelte state | First pilot |
 | Wiki | Two tables, app actions, Markdown and SQLite projections | `types.id` is a user-authored slug, so add a separate slug field or justify a lower-level identity door | Second pilot |
-| Chat package | Conversation metadata plus keyed-message child documents | Shared by Epicenter, Vocab, and Tab Manager | Shared definition wave |
+| Chat package | Conversation metadata plus keyed-message child documents | SQLite export is live in Vocab; legacy consumers remain | Phase 2 complete, remove legacy after consumers migrate |
 | Filesystem package | File metadata plus plain-text child documents | Shared by Opensidian; path operations assume synchronous table reads | Shared definition wave |
 | Skills package and app | Two tables plus plain-text child documents in browser and Bun runtimes | Dual-runtime serialization and actions assume synchronous tables | Shared definition wave |
-| Vocab | Entries, one KV preference, shared conversations and message documents | Needs KV and document composition | Browser composition proof |
-| Honeycrisp | Folders, notes, rich-text documents, app action, sign-in migration | `touch: updatedAt` must become an app-owned document observer | Document lifecycle proof |
+| Vocab | Entries, one KV preference, shared conversations and message documents | Proves browser KV and keyed child-document composition | Phase 2 complete |
+| Honeycrisp | Folders, notes, rich-text documents, and one runtime action | Proves app-owned `updatedAt` policy over local document edits | Phase 2 complete |
 | Tab Manager | Five tables, shared conversations, extension boot, browser-only actions | Device and tool-trust rows currently use caller-authored IDs | Extension composition proof |
 | Whispering | Two tables, roughly forty KV preferences, browser and Tauri runtimes | Largest KV surface; existing recordings make cutover policy high stakes | Late product migration |
 | Opensidian | Shared filesystem table, child documents, browser and daemon mounts, materializers | Broadest composition surface and strongest shared-package dependency | Final browser and daemon proof |
@@ -162,7 +180,7 @@ action and all following reads.
 ```ts
 const notes = defineTable({
 	fields: {
-		id: field.string<NoteId>(),
+		id: field.id<NoteId>(),
 		title: field.string(),
 		updatedAt: field.instant(),
 		body: field.doc(document.richText),
@@ -174,15 +192,16 @@ The old declaration-level `touch: 'updatedAt'` policy does not move into the
 durable format. The Honeycrisp runtime observes local body edits and patches the
 row because the application owns the meaning of `updatedAt`.
 
-### Tab Manager: natural key becomes an ordinary field
+### Tab Manager: natural keys remain ordinary fields
 
-The `devices` table currently uses the framework node ID as its row ID. Under
-framework-owned row IDs, it stores that value separately and queries it:
+The `devices` table currently uses the framework node ID as its row ID. A fresh
+row normally receives the default Epicenter ID, while the node ID stays an
+ordinary product field that can be queried and changed independently:
 
 ```ts
 const devices = defineTable({
 	fields: {
-		id: field.string<DeviceRowId>(),
+		id: field.id<DeviceRowId>(),
 		nodeId: field.string<NodeId>(),
 		name: field.string(),
 		lastSeen: field.instant(),
@@ -215,15 +234,16 @@ The same review applies to Wiki type slugs and Tab Manager tool-trust keys.
 
 ### Phase 2: Compose the remaining storage planes
 
-- [ ] Add one production KV mount over the version-qualified eager Y.Doc and
+- [x] Add one production KV mount over the version-qualified eager Y.Doc and
   prove hydration precedes default reads.
-- [ ] Add one child-document runtime that owns persistence, sync, refcounting,
+- [x] Add one child-document runtime that owns persistence, sync, refcounting,
   and disposal for derived document guids.
-- [ ] Move `@epicenter/chat` to SQLite fields and document formats, then update
-  its async table and message-store types.
-- [ ] Migrate Vocab after Chat to prove tables, KV, and shared conversation
+- [x] Publish `@epicenter/chat/sqlite` with SQLite fields, a validated message
+  format, and async table and opened-message types. Keep the legacy root export
+  only as the rollback path for consumers scheduled in later phases.
+- [x] Migrate Vocab after Chat to prove tables, KV, and shared conversation
   documents in a browser app.
-- [ ] Migrate Honeycrisp to prove rich-text documents and app-owned touch policy.
+- [x] Migrate Honeycrisp to prove rich-text documents and app-owned touch policy.
 
 ### Phase 3: Migrate shared schema owners
 
@@ -309,10 +329,11 @@ bun run check:licenses
      child-document sessions, and teardown. Keep auth and platform-specific
      resources injected. Do not recreate a legacy-shaped `connect` facade.
 
-2. **Does any product require caller-authored row IDs?**
-   - Recommendation: first model natural keys as unique ordinary fields. Reopen
-     the framework-owned UUID rule only if a real app cannot express its
-     identity or atomicity honestly that way.
+2. **Which legacy IDs should copy-forward preserve?**
+   - Recommendation: preserve an ID only when the target row is the same
+     logical object and the source ID fits the Epicenter envelope. Generate a
+     new ID and remap references when the target represents a different object.
+     Natural keys remain ordinary fields in both cases.
 
 3. **Where should application actions be constructed?**
    - Recommendation: a runtime-neutral factory takes the opened async workspace

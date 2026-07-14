@@ -1,7 +1,8 @@
 # 0087. Honeycrisp is the maintained notes product from one isomorphic workspace surface
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-01
+- **Amended by:** [ADR-0137](0137-applications-declare-one-live-workspace-per-contract-version.md), [ADR-0138](0138-tables-declare-cells-documents-and-blobs-in-one-field-map.md), [ADR-0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md)
 
 ## Context
 
@@ -9,11 +10,22 @@ Fuji has been removed, and Honeycrisp is the notes app that still has a live wor
 
 ## Decision
 
-Honeycrisp is the maintained Epicenter notes product. It ships from one SvelteKit codebase on web and desktop, with one package root export that exposes the isomorphic workspace definition. Runtime-specific concerns live behind `#platform/*` imports and environment factories under `src/lib/workspace/`; the auth lifecycle follows the repo-wide composition in [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md): sign-in is an enhancement over a local-first boot, not a gate. Honeycrisp does not regain Fuji, a daemon mount, or a `./mount` export.
+Honeycrisp is the maintained Epicenter notes product. It ships from one SvelteKit
+codebase on web and desktop. Its package root exposes the pure table and row
+vocabulary; `src/lib/workspace/workspace.ts` declares the versioned candidate,
+and a committed lock freezes version 1. Runtime actions and platform resources
+compose after `openBrowserWorkspace` rather than entering the durable contract.
+Runtime-specific concerns stay behind `#platform/*` imports and environment
+factories under `src/lib/workspace/`. Honeycrisp does not regain Fuji, a daemon
+mount, or a `./mount` export.
 
 ## Consequences
 
-The `@epicenter/honeycrisp` package root remains the integration contract for code that needs the schema and actions. Web and desktop peers stay compatible because they open the same workspace definition and attach different runtime capabilities around it. Desktop work can add Tauri auth, updater, window, and OS seams without touching the schema. The cost is that Honeycrisp is no longer a generic daemon example; project-mounted note materialization would need a new live consumer and a new decision before it returns.
+The `@epicenter/honeycrisp` package root remains the integration contract for
+code that needs Honeycrisp's table and row types. Actions belong to an opened
+runtime, not the package schema. Web and desktop peers stay compatible because
+they validate the same append-only workspace lock. Desktop work can add Tauri
+auth, updater, window, and OS seams without touching that contract.
 
 ## Considered alternatives
 

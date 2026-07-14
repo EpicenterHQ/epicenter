@@ -1,7 +1,7 @@
 # @epicenter/workspace
 
-> Transition note: this page documents the current production Yjs-record
-> entrypoint. The greenfield records target lives at
+> Transition note: most of this page documents the legacy Yjs-record entrypoint
+> that unmigrated applications still use. New application work enters through
 > `@epicenter/workspace/sqlite`: one locked workspace version owns
 > typed rows, synchronized KV, declared child documents, and external blob
 > references under a generated workspace namespace. See
@@ -10,6 +10,48 @@
 > and [ADR-0139](../../docs/adr/0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md)
 > and [ADR-0140](../../docs/adr/0140-portable-ownership-has-no-generic-whole-workspace-import.md)
 > and [ADR-0135](../../docs/adr/0135-new-builds-ask-before-initializing-a-new-data-generation.md).
+
+## Versioned SQLite workspaces
+
+New apps declare a pure candidate, freeze it with a committed version lock, and
+open exactly one local or server authority at boot. The browser opener owns the
+records Worker, hydrated KV document, lazy child-document cache, local
+persistence, cross-tab updates, room sync, and teardown.
+
+```typescript
+const authority = toWorkspaceAuthority(auth);
+const common = {
+	worker: () => new WorkspaceWorker(),
+	onObserverError: reportError,
+};
+
+const workspace =
+	authority.kind === 'server'
+		? await openBrowserWorkspace(definition, {
+				...common,
+				authority,
+				fetch: auth.fetch,
+				documentSync: {
+					nodeId,
+					openWebSocket: auth.openWebSocket,
+					onReconnectSignal: auth.onStateChange,
+				},
+			})
+		: await openBrowserWorkspace(definition, { ...common, authority });
+```
+
+Apps inject auth-owned HTTP and WebSocket capabilities; they do not build
+storage mounts. The generated `<appId>-v<version>` workspace ID and selected
+authority qualify every local plane. See
+`apps/honeycrisp/src/lib/workspace/browser.ts` for production composition.
+
+SQLite tables declare branded IDs with `field.id<TableId>()`. Ordinary
+`table.create({ ...cells })` calls omit `id` and receive a URL-safe Epicenter
+NanoID. Copy-forward code may use the same method with an existing URL-safe ID,
+including a UUID, when the target row is the same logical object. Slugs and
+other editable product identifiers remain separate fields.
+
+## Legacy Yjs-record entrypoint
 
 A local-first workspace engine for TypeScript apps: Yjs is the source of truth; SQLite and Markdown are read-only materialized projections.
 
@@ -191,63 +233,6 @@ export const myAppWorkspace = defineWorkspace({
 		}),
 });
 ```
-
-Minimal browser workspace: pick the local or signed-in preset once at boot.
-
-```typescript
-import {
-	createNodeId,
-	type NodeId,
-} from '@epicenter/workspace';
-import type { SyncAuthClient } from '@epicenter/auth';
-import { toConnection } from '@epicenter/svelte/auth';
-import { auth } from '$lib/auth';
-import { myAppWorkspace } from '$lib/workspace';
-
-export function openMyAppBrowser({
-	auth,
-	nodeId,
-}: {
-	auth: SyncAuthClient;
-	nodeId: NodeId;
-}) {
-	return myAppWorkspace.connect(toConnection(auth, nodeId));
-}
-
-export const myApp = openMyAppBrowser({
-	auth,
-	nodeId: createNodeId({ storage: localStorage }),
-});
-```
-
-`connect(null)` uses bare IndexedDB storage under the doc guid and does not
-open relay sync. `connect(connection)` pairs principal-scoped IndexedDB with a
-BroadcastChannel, opens root collaboration, wires `wipe()`, and gives each
-table handle a `.docs` namespace of row child-doc openers such as
-`workspace.tables.items.docs.body.open(itemId)`. Two tabs of the same principal share
-both persisted state and live updates, while two different principals on the same
-browser profile never see each other's data.
-
-`openCollaboration` remains the lower-level sync primitive behind this opener.
-It wraps the sync supervisor, mirrors the relay's server-owned presence channel
-as `collaboration.peers`. See [SYNC_ARCHITECTURE.md](./SYNC_ARCHITECTURE.md)
-for the full model.
-
-The `id` you pass to `defineWorkspace(...)` becomes `workspace.ydoc.guid` when
-you call `.connect(...)`. Namespace it to your app (e.g. `epicenter.my-app`) to
-avoid collisions when multiple apps share the same IndexedDB origin. Cloud sync
-targets the single uniform shape `/api/rooms/:roomId` in hosted Cloud and
-self-hosted instance deployments: build the URL with
-`roomWsUrl({ baseURL, guid: workspace.ydoc.guid, nodeId })`. A cloud doc is
-partitioned by the authenticated `PrincipalId`, so the server resolves the Durable
-Object name `principals/${principalId}/rooms/${room}` from the auth token, with
-no workspace lookup.
-
-For production-shaped browser wiring, see
-`apps/honeycrisp/src/lib/workspace/browser.ts`. For the boot-time doc selection, see
-`apps/honeycrisp/src/lib/honeycrisp.ts`.
-
-## Core Philosophy
 
 ### Yjs is the source of truth
 
