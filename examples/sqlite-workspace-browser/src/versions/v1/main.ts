@@ -1,13 +1,12 @@
+import { asPrincipalId } from '@epicenter/identity';
 import {
-	openStandaloneWorkspace,
-	openWorkspaceReplica,
+	openBrowserWorkspace,
 	type StandaloneWorkspace,
 	type WorkspaceReplica,
 } from '@epicenter/workspace/sqlite/browser';
 import * as Y from 'yjs';
 import { workspaceDefinition } from './definition.js';
-import ReplicaWorker from './replica.worker?worker';
-import StandaloneWorker from './standalone.worker?worker';
+import WorkspaceWorker from './workspace.worker?worker';
 
 type Note = { id: string; title: string };
 type Workspace =
@@ -54,14 +53,24 @@ async function open(): Promise<void> {
 		kv: { doc: preferencesDoc },
 		onObserverError: reportError,
 	};
-	workspace = new URLSearchParams(location.search).has('replica')
-		? await openWorkspaceReplica(workspaceDefinition, {
+	const replica = new URLSearchParams(location.search).has('replica');
+	const syncOrigin = new URL(location.href);
+	syncOrigin.port = '5199';
+	workspace = replica
+		? await openBrowserWorkspace(workspaceDefinition, {
 				...options,
-				worker: () => new ReplicaWorker(),
+				authority: {
+					kind: 'server',
+					baseURL: syncOrigin.origin,
+					principalId: asPrincipalId('browser-smoke'),
+				},
+				fetch,
+				worker: () => new WorkspaceWorker(),
 			})
-		: await openStandaloneWorkspace(workspaceDefinition, {
+		: await openBrowserWorkspace(workspaceDefinition, {
 				...options,
-				worker: () => new StandaloneWorker(),
+				authority: { kind: 'local' },
+				worker: () => new WorkspaceWorker(),
 			});
 }
 

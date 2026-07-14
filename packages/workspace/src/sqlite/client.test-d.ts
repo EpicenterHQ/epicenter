@@ -6,10 +6,11 @@
  * brand declared by the table schema.
  */
 
+import { asPrincipalId } from '@epicenter/identity';
 import type { Brand } from 'wellcrafted/brand';
 import {
-	type OpenStandaloneWorkspaceOptions as BrowserOpenOptions,
-	openStandaloneWorkspace as openBrowserWorkspace,
+	type OpenBrowserLocalWorkspaceOptions as BrowserOpenOptions,
+	openBrowserWorkspace,
 } from './browser.js';
 import {
 	type OpenStandaloneWorkspaceOptions as BunOpenOptions,
@@ -30,6 +31,7 @@ import type {
 import { document } from './document-format.js';
 import { field } from './field.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
+import type { WorkspaceAuthority } from './workspace-authority.js';
 
 type NoteId = string & Brand<'NoteId'>;
 type RecordingId = string & Brand<'RecordingId'>;
@@ -122,6 +124,7 @@ const browserWithDocuments: BrowserOpenOptions<
 	undefined,
 	WorkspaceDocumentRuntime
 > = {
+	authority: { kind: 'local' },
 	worker: () => null as never,
 	documents: documentRuntime,
 	onObserverError() {},
@@ -131,6 +134,7 @@ const browserMissingDocuments: BrowserOpenOptions<
 	undefined,
 	WorkspaceDocumentRuntime
 > = {
+	authority: { kind: 'local' },
 	worker: () => null as never,
 	onObserverError() {},
 };
@@ -145,6 +149,30 @@ const bunMissingDocuments: BunOpenOptions<WorkspaceDocumentRuntime> = {
 	onObserverError() {},
 };
 const browserOpen = openBrowserWorkspace(workspaceWithDocumentsDefinition, {
+	authority: { kind: 'local' },
+	worker: () => null as never,
+	documents: documentRuntime,
+	onObserverError() {},
+});
+declare const selectedAuthority: WorkspaceAuthority;
+declare const authFetch: typeof fetch;
+const selectedAuthorityBrowserOpen = openBrowserWorkspace(
+	workspaceWithDocumentsDefinition,
+	{
+		authority: selectedAuthority,
+		fetch: authFetch,
+		worker: () => null as never,
+		documents: documentRuntime,
+		onObserverError() {},
+	},
+);
+// @ts-expect-error: an explicit server authority cannot open without HTTP
+openBrowserWorkspace(workspaceWithDocumentsDefinition, {
+	authority: {
+		kind: 'server',
+		baseURL: 'https://api.example.com',
+		principalId: asPrincipalId('principal-1'),
+	},
 	worker: () => null as never,
 	documents: documentRuntime,
 	onObserverError() {},
@@ -164,5 +192,6 @@ void currentReady;
 void currentBodyValue;
 void browserWithDocuments;
 void browserMissingDocuments;
+void selectedAuthorityBrowserOpen;
 void bunWithDocuments;
 void bunMissingDocuments;

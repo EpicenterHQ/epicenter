@@ -7,6 +7,13 @@ export type LocalWorkspaceInspection =
 	| { status: 'absent' }
 	| ApplicationDatabaseIdentityInspection;
 
+export type WorkspaceInspectionCommand = {
+	protocol: typeof WORKSPACE_INSPECTION_PROTOCOL;
+	type: 'inspect';
+	workspaceKind: 'standalone' | 'replica';
+	databaseName: string;
+};
+
 export type WorkspaceInspectionEvent =
 	| {
 			protocol: typeof WORKSPACE_INSPECTION_PROTOCOL;
@@ -62,6 +69,29 @@ export function parseWorkspaceInspectionEvent(
 		throw new Error('Invalid workspace inspection worker result');
 	}
 	return value as WorkspaceInspectionEvent;
+}
+
+export function parseWorkspaceInspectionCommand(
+	value: unknown,
+): WorkspaceInspectionCommand {
+	if (
+		!isRecord(value) ||
+		!hasExactKeys(value, [
+			'databaseName',
+			'protocol',
+			'type',
+			'workspaceKind',
+		]) ||
+		value.protocol !== WORKSPACE_INSPECTION_PROTOCOL ||
+		value.type !== 'inspect' ||
+		(value.workspaceKind !== 'standalone' &&
+			value.workspaceKind !== 'replica') ||
+		typeof value.databaseName !== 'string' ||
+		!/^[A-Za-z0-9._-]+\.sqlite3$/.test(value.databaseName)
+	) {
+		throw new Error('Invalid workspace inspection worker command');
+	}
+	return value as WorkspaceInspectionCommand;
 }
 
 function isInspection(value: unknown): value is LocalWorkspaceInspection {

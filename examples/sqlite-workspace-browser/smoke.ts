@@ -14,6 +14,7 @@ import {
 	type Env,
 	mountRecordsApp,
 } from '@epicenter/server/bun';
+import { browserWorkspaceDatabaseName } from '@epicenter/workspace/sqlite/browser';
 import { Hono } from 'hono';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium } from 'playwright';
@@ -30,6 +31,14 @@ const records = createBunRecords({
 });
 const openedAuthorityWorkspaceIds = new Set<string>();
 const observedSyncPaths: string[] = [];
+const versionOneLocalDatabaseName = await browserWorkspaceDatabaseName(
+	versionOneDefinition,
+	{ kind: 'local' },
+);
+const versionTwoLocalDatabaseName = await browserWorkspaceDatabaseName(
+	versionTwoDefinition,
+	{ kind: 'local' },
+);
 const recordsBackend = {
 	...records.records,
 	async open(
@@ -123,9 +132,10 @@ async function opfsEntries(page: Page): Promise<string[]> {
 async function pollFor<T>(
 	read: () => Promise<T>,
 	accept: (value: T) => boolean,
+	attempts = 200,
 ) {
 	let value = await read();
-	for (let attempt = 0; attempt < 200 && !accept(value); attempt++) {
+	for (let attempt = 0; attempt < attempts && !accept(value); attempt++) {
 		await Bun.sleep(10);
 		value = await read();
 	}
@@ -238,6 +248,33 @@ async function proveVersionTwoReplication(
 		replicated?.title === created.title,
 		'Version two replicas did not converge',
 	);
+	await contextA.setOffline(true);
+	const offlineCreated = await pageA.evaluate(() =>
+		window.versionTwoSmoke.create({
+			title: 'Version 2 created offline',
+			archived: false,
+		}),
+	);
+	assert(
+		(
+			await pageA.evaluate(
+				(id) => window.versionTwoSmoke.get(id),
+				offlineCreated.id,
+			)
+		)?.title === offlineCreated.title,
+		'Offline mutation was not immediately readable from the local replica',
+	);
+	await contextA.setOffline(false);
+	const replicatedAfterReconnect = await pollFor(
+		() =>
+			pageB.evaluate((id) => window.versionTwoSmoke.get(id), offlineCreated.id),
+		(row) => row?.title === offlineCreated.title,
+		1_500,
+	);
+	assert(
+		replicatedAfterReconnect?.title === offlineCreated.title,
+		'Offline mutation did not synchronize after reconnect',
+	);
 	await pageA.evaluate(() => window.versionTwoSmoke.dispose());
 	await pageA.reload();
 	await waitForState(pageA, 'ready');
@@ -282,25 +319,17 @@ try {
 			!currentBundle.includes('versionOneSmoke'),
 		'Current bundle contains the historical version records schema',
 	);
-	for (const worker of [
-		'replica-inspector.worker',
-		'standalone-inspector.worker',
-		'standalone.worker',
-		'replica.worker',
-	]) {
-		assert(
-			[...currentJavaScript.keys()].some((source) => source.includes(worker)),
-			`Current bundle traversal missed ${worker}`,
-		);
-	}
+	assert(
+		[...currentJavaScript.keys()].some((source) =>
+			source.includes('workspace.worker'),
+		),
+		'Current bundle traversal missed workspace.worker',
+	);
 	for (const source of [
 		'src/versions/v2/main.ts',
 		'src/versions/v2/definition.ts',
 		'src/versions/v2/workspace.ts',
-		'src/versions/v2/replica-inspector.worker.ts',
-		'src/versions/v2/standalone-inspector.worker.ts',
-		'src/versions/v2/standalone.worker.ts',
-		'src/versions/v2/replica.worker.ts',
+		'src/versions/v2/workspace.worker.ts',
 	]) {
 		const sourceText = readFileSync(join(import.meta.dir, source), 'utf8');
 		assert(
@@ -326,15 +355,11 @@ try {
 	);
 	const entriesWithOnlyVersionOne = await opfsEntries(versionOne);
 	assert(
-		entriesWithOnlyVersionOne.includes(
-			`${versionOneDefinition.workspaceId}.sqlite3`,
-		),
+		entriesWithOnlyVersionOne.includes(versionOneLocalDatabaseName),
 		'Version one SQLite file was not initialized',
 	);
 	assert(
-		!entriesWithOnlyVersionOne.includes(
-			`${versionTwoDefinition.workspaceId}.sqlite3`,
-		),
+		!entriesWithOnlyVersionOne.includes(versionTwoLocalDatabaseName),
 		'Version two SQLite file existed before its build loaded',
 	);
 
@@ -467,7 +492,7 @@ try {
 	await invalidPage.evaluate(async (filename) => {
 		const root = await navigator.storage.getDirectory();
 		await root.getFileHandle(filename, { create: true });
-	}, `${versionTwoDefinition.workspaceId}.sqlite3`);
+	}, versionTwoLocalDatabaseName);
 	await invalidPage.reload();
 	await waitForState(invalidPage, 'invalid');
 	assert(

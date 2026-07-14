@@ -9,10 +9,11 @@
 import { expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import {
-	type InspectLocalWorkspaceOptions,
-	inspectLocalWorkspace,
+	type InspectBrowserWorkspaceOptions,
+	inspectBrowserWorkspace,
 } from './browser.js';
 import {
+	parseWorkspaceInspectionCommand,
 	parseWorkspaceInspectionEvent,
 	WORKSPACE_INSPECTION_PROTOCOL,
 } from './browser-inspection.js';
@@ -28,6 +29,10 @@ type Listener = (event: { data?: unknown; message?: string }) => void;
 function createWorker() {
 	const listeners = new Map<string, Set<Listener>>();
 	let terminated = false;
+	let markPosted!: () => void;
+	const whenPosted = new Promise<void>((resolve) => {
+		markPosted = resolve;
+	});
 
 	function listenersFor(type: string): Set<Listener> {
 		let values = listeners.get(type);
@@ -39,6 +44,9 @@ function createWorker() {
 	}
 
 	const worker = {
+		postMessage() {
+			markPosted();
+		},
 		addEventListener(type: string, listener: Listener) {
 			listenersFor(type).add(listener);
 		},
@@ -52,6 +60,7 @@ function createWorker() {
 
 	return {
 		worker,
+		whenPosted,
 		emit(type: string, event: { data?: unknown; message?: string }) {
 			for (const listener of [...listenersFor(type)]) listener(event);
 		},
@@ -71,6 +80,19 @@ const definition = defineTestWorkspace({
 });
 
 test('inspection protocol accepts exact results and rejects malformed events', () => {
+	expect(
+		parseWorkspaceInspectionCommand({
+			protocol: WORKSPACE_INSPECTION_PROTOCOL,
+			type: 'inspect',
+			workspaceKind: 'standalone',
+			databaseName: 'notes-v1.standalone.sqlite3',
+		}),
+	).toEqual({
+		protocol: WORKSPACE_INSPECTION_PROTOCOL,
+		type: 'inspect',
+		workspaceKind: 'standalone',
+		databaseName: 'notes-v1.standalone.sqlite3',
+	});
 	const initialized = {
 		protocol: WORKSPACE_INSPECTION_PROTOCOL,
 		type: 'result',
@@ -99,10 +121,11 @@ test('inspection protocol accepts exact results and rejects malformed events', (
 
 test('successful inspection resolves and cleans up its Worker', async () => {
 	const fake = createWorker();
-	const inspection = inspectLocalWorkspace(definition, {
+	const inspection = inspectBrowserWorkspace(definition, {
 		worker: () => fake.worker,
-		workspaceKind: 'standalone',
+		authority: { kind: 'local' },
 	});
+	await fake.whenPosted;
 	fake.emit('message', {
 		data: {
 			protocol: WORKSPACE_INSPECTION_PROTOCOL,
@@ -121,10 +144,11 @@ test('successful inspection resolves and cleans up its Worker', async () => {
 
 test('lifecycle mismatch terminates the inspector', async () => {
 	const fake = createWorker();
-	const inspection = inspectLocalWorkspace(definition, {
+	const inspection = inspectBrowserWorkspace(definition, {
 		worker: () => fake.worker,
-		workspaceKind: 'standalone',
+		authority: { kind: 'local' },
 	});
+	await fake.whenPosted;
 	fake.emit('message', {
 		data: {
 			protocol: WORKSPACE_INSPECTION_PROTOCOL,
@@ -143,10 +167,11 @@ test('lifecycle mismatch terminates the inspector', async () => {
 
 test('same-workspace schema mismatch terminates the inspector', async () => {
 	const fake = createWorker();
-	const inspection = inspectLocalWorkspace(definition, {
+	const inspection = inspectBrowserWorkspace(definition, {
 		worker: () => fake.worker,
-		workspaceKind: 'standalone',
+		authority: { kind: 'local' },
 	});
+	await fake.whenPosted;
 	fake.emit('message', {
 		data: {
 			protocol: WORKSPACE_INSPECTION_PROTOCOL,
@@ -164,10 +189,11 @@ test('same-workspace schema mismatch terminates the inspector', async () => {
 
 test('remote error, Worker crash, and timeout clean up inspector Workers', async () => {
 	const failed = createWorker();
-	const remoteFailure = inspectLocalWorkspace(definition, {
+	const remoteFailure = inspectBrowserWorkspace(definition, {
 		worker: () => failed.worker,
-		workspaceKind: 'standalone',
+		authority: { kind: 'local' },
 	});
+	await failed.whenPosted;
 	failed.emit('message', {
 		data: {
 			protocol: WORKSPACE_INSPECTION_PROTOCOL,
@@ -179,42 +205,46 @@ test('remote error, Worker crash, and timeout clean up inspector Workers', async
 	expect(failed.isCleanedUp).toBe(true);
 
 	const crashed = createWorker();
-	const workerCrash = inspectLocalWorkspace(definition, {
+	const workerCrash = inspectBrowserWorkspace(definition, {
 		worker: () => crashed.worker,
-		workspaceKind: 'standalone',
+		authority: { kind: 'local' },
 	});
+	await crashed.whenPosted;
 	crashed.emit('error', { message: 'worker crashed' });
 	await expect(workerCrash).rejects.toThrow('worker crashed');
 	expect(crashed.isCleanedUp).toBe(true);
 
 	const timedOut = createWorker();
 	await expect(
-		inspectLocalWorkspace(definition, {
+		inspectBrowserWorkspace(definition, {
 			worker: () => timedOut.worker,
-			workspaceKind: 'standalone',
+			authority: { kind: 'local' },
 			timeoutMs: 1,
 		}),
 	).rejects.toThrow('timed out');
 	expect(timedOut.isCleanedUp).toBe(true);
 });
 
-test('unlocked candidate is rejected before an inspector Worker is created', () => {
+test('unlocked candidate is rejected before an inspector Worker is created', async () => {
 	const candidate = defineWorkspace({
 		appId: 'unlocked-inspection-test',
 		version: 1,
 		tables: { rows },
 	});
 	let workerCreated = false;
-	const options: InspectLocalWorkspaceOptions = {
-		workspaceKind: 'standalone',
+	const options: InspectBrowserWorkspaceOptions = {
+		authority: { kind: 'local' },
 		worker() {
 			workerCreated = true;
 			return createWorker().worker;
 		},
 	};
 
-	expect(() =>
-		inspectLocalWorkspace(candidate as unknown as WorkspaceDefinition, options),
-	).toThrow('lockWorkspace');
+	await expect(
+		inspectBrowserWorkspace(
+			candidate as unknown as WorkspaceDefinition,
+			options,
+		),
+	).rejects.toThrow('lockWorkspace');
 	expect(workerCreated).toBe(false);
 });

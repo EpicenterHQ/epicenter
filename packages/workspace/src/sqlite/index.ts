@@ -5,6 +5,8 @@
  * SQLite owns records, while Yjs remains a separate child-document concern.
  */
 
+export { nullable } from '../document/nullable.js';
+
 export {
 	type AsyncTable,
 	type AsyncTables,
@@ -93,6 +95,10 @@ export {
 	createHttpReplicaSyncPort,
 	type TablesAuthorityPort,
 } from './replica-http.js';
+export type {
+	ServerWorkspaceAuthority,
+	WorkspaceAuthority,
+} from './workspace-authority.js';
 export {
 	parseWorkspaceVersionLock,
 	WORKSPACE_VERSION_LOCK_FORMAT,

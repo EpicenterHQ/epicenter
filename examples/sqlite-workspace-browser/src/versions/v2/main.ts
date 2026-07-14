@@ -1,7 +1,7 @@
+import { asPrincipalId } from '@epicenter/identity';
 import {
-	inspectLocalWorkspace,
-	openStandaloneWorkspace,
-	openWorkspaceReplica,
+	inspectBrowserWorkspace,
+	openBrowserWorkspace,
 	type StandaloneWorkspace,
 	type WorkspaceReplica,
 } from '@epicenter/workspace/sqlite/browser';
@@ -10,10 +10,7 @@ import versionLock from '../../../workspace-version-lock.json' with {
 	type: 'json',
 };
 import { workspaceDefinition } from './definition.js';
-import ReplicaWorker from './replica.worker?worker';
-import ReplicaInspectorWorker from './replica-inspector.worker?worker';
-import StandaloneWorker from './standalone.worker?worker';
-import StandaloneInspectorWorker from './standalone-inspector.worker?worker';
+import WorkspaceWorker from './workspace.worker?worker';
 
 type Note = { id: string; title: string; archived: boolean };
 type Workspace =
@@ -30,6 +27,16 @@ const app = requireApp();
 const workspaceKind = new URLSearchParams(location.search).has('replica')
 	? 'replica'
 	: 'standalone';
+const syncOrigin = new URL(location.href);
+syncOrigin.port = '5199';
+const authority =
+	workspaceKind === 'replica'
+		? ({
+				kind: 'server',
+				baseURL: syncOrigin.origin,
+				principalId: asPrincipalId('browser-smoke'),
+			} as const)
+		: ({ kind: 'local' } as const);
 
 const hasPredecessors = versionLock.versions.some(
 	({ version }) => version < workspaceDefinition.version,
@@ -103,13 +110,20 @@ async function openCurrent(): Promise<void> {
 	try {
 		workspace =
 			workspaceKind === 'replica'
-				? await openWorkspaceReplica(workspaceDefinition, {
+				? await openBrowserWorkspace(workspaceDefinition, {
 						...options,
-						worker: () => new ReplicaWorker(),
+						authority: {
+							kind: 'server',
+							baseURL: syncOrigin.origin,
+							principalId: asPrincipalId('browser-smoke'),
+						},
+						fetch,
+						worker: () => new WorkspaceWorker(),
 					})
-				: await openStandaloneWorkspace(workspaceDefinition, {
+				: await openBrowserWorkspace(workspaceDefinition, {
 						...options,
-						worker: () => new StandaloneWorker(),
+						authority: { kind: 'local' },
+						worker: () => new WorkspaceWorker(),
 					});
 		preferencesDoc = nextPreferencesDoc;
 	} catch (cause) {
@@ -172,12 +186,9 @@ renderState(
 	"Looking for version 2's initialized data space.",
 );
 try {
-	const inspection = await inspectLocalWorkspace(workspaceDefinition, {
-		workspaceKind,
-		worker: () =>
-			workspaceKind === 'replica'
-				? new ReplicaInspectorWorker()
-				: new StandaloneInspectorWorker(),
+	const inspection = await inspectBrowserWorkspace(workspaceDefinition, {
+		authority,
+		worker: () => new WorkspaceWorker(),
 	});
 	switch (inspection.status) {
 		case 'initialized':

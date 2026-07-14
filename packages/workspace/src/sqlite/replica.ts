@@ -128,11 +128,14 @@ type ReplicaEpochMismatch = {
 
 /** A durable authority refusal that cannot converge through transport retries. */
 export class ReplicaSyncRefusalError extends Error {
+	readonly reason: string;
+
 	constructor(reason: string) {
 		super(
 			`Replica synchronization refused: ${reason}; synchronization is stopped until the authority binding or local replica is replaced`,
 		);
 		this.name = 'ReplicaSyncRefusalError';
+		this.reason = reason;
 	}
 }
 

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { openStandaloneWorkspace as openBrowserWorkspace } from './browser.js';
+import { openBrowserWorkspace } from './browser.js';
 import {
 	defineKv,
 	defineTable,
@@ -115,6 +115,7 @@ describe('lockWorkspace', () => {
 			openBrowserWorkspace(
 				candidate as unknown as WorkspaceDefinition<typeof candidate.tables>,
 				{
+					authority: { kind: 'local' },
 					worker() {
 						workerCreated = true;
 						return null as never;

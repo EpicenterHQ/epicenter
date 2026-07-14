@@ -5,9 +5,12 @@ import {
 } from '@epicenter/record-sync/browser';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import {
+	parseWorkspaceInspectionCommand,
 	WORKSPACE_INSPECTION_PROTOCOL,
 	type WorkspaceInspectionEvent,
 } from './browser-inspection.js';
+import { createBrowserReplicaSyncPort } from './browser-replica-sync-bridge.js';
+import { parseBrowserWorkspaceWorkerInitialization } from './browser-runtime-protocol.js';
 import {
 	exposeWorkspaceService,
 	type WorkerWorkspaceService,
@@ -33,16 +36,23 @@ import { createWorkspaceService } from './service.js';
 import {
 	parseWorkspaceInvalidationMessage,
 	WORKSPACE_INVALIDATION_PROTOCOL,
+	WORKSPACE_WORKER_PROTOCOL,
 	type WorkspaceInvalidation,
+	type WorkspaceWorkerEvent,
 } from './service-protocol.js';
 
-export type ServeStandaloneWorkspaceWorkerOptions = {
+type ServeStandaloneWorkspaceWorkerOptions = {
+	/** OPFS filename selected by the page-side browser runtime. */
+	databaseName?: string;
 	/** Receives worker-side observer, broadcast, and cleanup failures. */
 	onError(error: unknown): void;
 };
 
-export type ServeWorkspaceReplicaWorkerOptions = {
+type ServeWorkspaceReplicaWorkerOptions = {
 	sync: ReplicaSyncPort;
+	disposeSync?: () => void;
+	/** OPFS filename selected by the page-side browser runtime. */
+	databaseName?: string;
 	/** Receives retryable or paused synchronization failures. */
 	onSyncError(error: unknown): void;
 	/** Receives worker-side observer, broadcast, and cleanup failures. */
@@ -50,50 +60,33 @@ export type ServeWorkspaceReplicaWorkerOptions = {
 	pollIntervalMs?: number;
 };
 
-export type WorkspaceInspectorScope = {
+type BrowserWorkspaceWorkerScope = WorkspaceWorkerScope & {
 	postMessage(message: WorkspaceInspectionEvent): void;
 };
 
-/** Inspect one locked OPFS namespace from an app-owned one-shot Worker. */
-export function serveWorkspaceInspectorWorker(
-	definition: WorkspaceDefinition,
-	workspaceKind: 'standalone' | 'replica',
-	scope: WorkspaceInspectorScope = self as unknown as WorkspaceInspectorScope,
+function postInspectionError(
+	scope: BrowserWorkspaceWorkerScope,
+	cause: unknown,
 ): void {
-	assertWorkspaceDefinition(definition);
-	inspectOpfsWorkspace(definition, workspaceKind).then(
-		(inspection) => {
-			scope.postMessage({
-				protocol: WORKSPACE_INSPECTION_PROTOCOL,
-				type: 'result',
-				workspaceId: definition.workspaceId,
-				recordsDescriptor: definition.recordsDescriptor,
-				recordsSchemaHash: definition.recordsSchemaHash,
-				workspaceKind,
-				inspection,
-			});
-		},
-		(cause: unknown) => {
-			const error =
-				cause instanceof Error
-					? { name: cause.name || 'Error', message: cause.message }
-					: { name: 'Error', message: String(cause) };
-			scope.postMessage({
-				protocol: WORKSPACE_INSPECTION_PROTOCOL,
-				type: 'error',
-				error,
-			});
-		},
-	);
+	const error =
+		cause instanceof Error
+			? { name: cause.name || 'Error', message: cause.message }
+			: { name: 'Error', message: String(cause) };
+	scope.postMessage({
+		protocol: WORKSPACE_INSPECTION_PROTOCOL,
+		type: 'error',
+		error,
+	});
 }
 
 async function inspectOpfsWorkspace(
 	definition: WorkspaceDefinition,
 	workspaceKind: 'standalone' | 'replica',
+	databaseName: string,
 ) {
 	const root = await navigator.storage.getDirectory();
 	try {
-		await root.getFileHandle(`${definition.workspaceId}.sqlite3`);
+		await root.getFileHandle(opfsDatabaseName(definition, databaseName));
 	} catch (cause) {
 		if (cause instanceof DOMException && cause.name === 'NotFoundError') {
 			return { status: 'absent' } as const;
@@ -114,7 +107,7 @@ async function inspectOpfsWorkspace(
 	let native: (BrowserSqliteDatabase & { close(): void }) | undefined;
 	try {
 		native = new sqlite3.oo1.DB(
-			`/${definition.workspaceId}.sqlite3`,
+			opfsDatabasePath(definition, databaseName),
 			'r',
 			'opfs',
 		) as unknown as BrowserSqliteDatabase & { close(): void };
@@ -197,6 +190,11 @@ async function openOpfsWorkspaceService<TTables extends TableDefinitions>(
 			cleanupErrors.push(error);
 		}
 		try {
+			if (workspaceKind === 'replica') options.disposeSync?.();
+		} catch (error) {
+			cleanupErrors.push(error);
+		}
+		try {
 			await refreshQueue?.dispose();
 		} catch (error) {
 			cleanupErrors.push(error);
@@ -223,12 +221,12 @@ async function openOpfsWorkspaceService<TTables extends TableDefinitions>(
 
 	try {
 		native = new sqlite3.oo1.DB(
-			`/${definition.workspaceId}.sqlite3`,
+			opfsDatabasePath(definition, options.databaseName),
 			'c',
 			'opfs',
 		) as unknown as BrowserSqliteDatabase & { close(): void };
 		channel = new BroadcastChannel(
-			`epicenter.sqlite.${workspaceKind}/${definition.workspaceId}`,
+			`epicenter.sqlite/${opfsDatabaseName(definition, options.databaseName)}`,
 		);
 		const senderId = crypto.randomUUID();
 		native.exec({ sql: 'PRAGMA busy_timeout = 5000' });
@@ -314,38 +312,130 @@ async function openOpfsWorkspaceService<TTables extends TableDefinitions>(
 	};
 }
 
-/** Start the worker-side OPFS owner for one app-imported workspace definition. */
-export function serveStandaloneWorkspaceWorker<
-	TTables extends TableDefinitions,
->(
-	definition: WorkspaceDefinition<TTables>,
-	options: ServeStandaloneWorkspaceWorkerOptions,
-	scope: WorkspaceWorkerScope = self as unknown as WorkspaceWorkerScope,
-): void {
-	assertWorkspaceDefinition(definition);
-	exposeWorkspaceService(
-		scope,
-		openOpfsWorkspaceService(definition, {
-			...options,
-			workspaceKind: 'standalone',
-		}),
-	);
+function opfsDatabasePath(
+	definition: WorkspaceDefinition,
+	databaseName?: string,
+): string {
+	return `/${opfsDatabaseName(definition, databaseName)}`;
 }
 
-/** Start the worker-side OPFS owner for one synchronized workspace replica. */
-export function serveWorkspaceReplicaWorker<TTables extends TableDefinitions>(
+function opfsDatabaseName(
+	definition: WorkspaceDefinition,
+	databaseName?: string,
+): string {
+	const name = databaseName ?? `${definition.workspaceId}.sqlite3`;
+	if (!/^[A-Za-z0-9._-]+\.sqlite3$/.test(name)) {
+		throw new Error('Invalid OPFS workspace database name');
+	}
+	return name;
+}
+
+export type ServeBrowserWorkspaceWorkerOptions = {
+	/**
+	 * Receives retryable or paused synchronization failures. Do not pass the
+	 * Worker global `reportError`: it emits a fatal `error` event.
+	 */
+	onSyncError(error: unknown): void;
+	/** Receives worker-side protocol, observer, broadcast, and cleanup failures. */
+	onError(error: unknown): void;
+	pollIntervalMs?: number;
+};
+
+/**
+ * Start the one app-owned Worker used by the shared browser runtime.
+ *
+ * The page selects standalone or principal-scoped replica storage exactly once
+ * at boot. Replica HTTP crosses a MessagePort so OAuth credentials stay owned
+ * by the page's auth client while SQLite and synchronization stay Worker-owned.
+ */
+export function serveBrowserWorkspaceWorker<TTables extends TableDefinitions>(
 	definition: WorkspaceDefinition<TTables>,
-	options: ServeWorkspaceReplicaWorkerOptions,
-	scope: WorkspaceWorkerScope = self as unknown as WorkspaceWorkerScope,
+	options: ServeBrowserWorkspaceWorkerOptions,
+	scope: BrowserWorkspaceWorkerScope = self as unknown as BrowserWorkspaceWorkerScope,
 ): void {
 	assertWorkspaceDefinition(definition);
-	exposeWorkspaceService(
-		scope,
-		openOpfsWorkspaceService(definition, {
-			...options,
-			workspaceKind: 'replica',
-		}),
-	);
+	let isInitialized = false;
+	let syncBridge: ReturnType<typeof createBrowserReplicaSyncPort> | undefined;
+	scope.addEventListener('message', (event) => {
+		if (isInitialized) return;
+		try {
+			let inspectionCommand:
+				| ReturnType<typeof parseWorkspaceInspectionCommand>
+				| undefined;
+			try {
+				inspectionCommand = parseWorkspaceInspectionCommand(event.data);
+			} catch {
+				// The same entry also accepts the runtime initialization protocol.
+			}
+			if (inspectionCommand) {
+				isInitialized = true;
+				inspectOpfsWorkspace(
+					definition,
+					inspectionCommand.workspaceKind,
+					inspectionCommand.databaseName,
+				).then(
+					(inspection) => {
+						scope.postMessage({
+							protocol: WORKSPACE_INSPECTION_PROTOCOL,
+							type: 'result',
+							workspaceId: definition.workspaceId,
+							recordsDescriptor: definition.recordsDescriptor,
+							recordsSchemaHash: definition.recordsSchemaHash,
+							workspaceKind: inspectionCommand.workspaceKind,
+							inspection,
+						});
+					},
+					(cause: unknown) => postInspectionError(scope, cause),
+				);
+				return;
+			}
+			const initialization = parseBrowserWorkspaceWorkerInitialization(
+				event.data,
+			);
+			isInitialized = true;
+			if (initialization.workspaceKind === 'standalone') {
+				exposeWorkspaceService(
+					scope,
+					openOpfsWorkspaceService(definition, {
+						databaseName: initialization.databaseName,
+						onError: options.onError,
+						workspaceKind: 'standalone',
+					}),
+				);
+				return;
+			}
+			syncBridge = createBrowserReplicaSyncPort(initialization.syncPort);
+			exposeWorkspaceService(
+				scope,
+				openOpfsWorkspaceService(definition, {
+					databaseName: initialization.databaseName,
+					sync: syncBridge,
+					disposeSync: () => syncBridge?.[Symbol.dispose](),
+					onSyncError: options.onSyncError,
+					onError: options.onError,
+					pollIntervalMs: options.pollIntervalMs,
+					workspaceKind: 'replica',
+				}),
+			);
+		} catch (cause) {
+			isInitialized = true;
+			syncBridge?.[Symbol.dispose]();
+			try {
+				options.onError(cause);
+			} catch {
+				// A broken error sink must not hide the protocol failure.
+			}
+			const error =
+				cause instanceof Error
+					? { name: cause.name || 'Error', message: cause.message }
+					: { name: 'Error', message: String(cause) };
+			scope.postMessage({
+				protocol: WORKSPACE_WORKER_PROTOCOL,
+				type: 'fatal',
+				error,
+			} satisfies WorkspaceWorkerEvent);
+		}
+	});
 }
 
 async function sha256(value: string): Promise<string> {
