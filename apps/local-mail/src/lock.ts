@@ -8,7 +8,7 @@ import { join } from 'node:path';
  * (`query`/`status`) open the mirror read-only, and triage writes go Gmail-first
  * with a best-effort local fold, so neither needs it. The holders are the open
  * desktop `app` (holds it for its whole lifetime while the loop runs), a CLI
- * `sync --watch` loop, and a one-shot `sync` for the duration of its single pass.
+ * `watch` loop, and a one-shot `sync` for the duration of its single pass.
  *
  * A dedicated `lock.db` held with `BEGIN EXCLUSIVE` is the lock: a second holder
  * fails to open the transaction instantly (`busy_timeout = 0`) and yields rather

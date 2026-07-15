@@ -100,8 +100,8 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) | Actions are the only surface that crosses a process boundary | Accepted |
 | [0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md) | Rust owns the models folder, the webview owns the catalog | Accepted |
 | [0023](0023-whispering-separates-its-identity-mark-from-lucide-controls.md) | Whispering separates its identity mark from Lucide controls | Accepted |
-| [0024](0024-an-always-on-worker-runs-app-semantics-beside-the-app-blind-anchor.md) | An always-on worker runs app semantics beside the app-blind anchor | Proposed |
-| [0025](0025-agent-conversations-are-durable-child-docs-driven-by-an-observing-worker.md) | Agent conversations are durable child docs driven by an observing worker | Proposed |
+| [0024](0024-an-always-on-worker-runs-app-semantics-beside-the-app-blind-anchor.md) | An always-on worker runs app semantics beside the app-blind anchor | Superseded by 0043 |
+| [0025](0025-agent-conversations-are-durable-child-docs-driven-by-an-observing-worker.md) | Agent conversations are durable child docs driven by an observing worker | Superseded by 0031 |
 | [0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md) | The Matter vault's SQLite mirror is a read-only projection, never a verdict source | Accepted |
 | [0027](0027-playback-pause-tracks-the-speaking-window.md) | Playback pause tracks the speaking window; VAD pauses per utterance | Accepted |
 | [0028](0028-both-shortcut-tiers-share-one-physical-keybinding-model.md) | Both shortcut tiers share one physical KeyBinding model | Accepted |
@@ -188,7 +188,7 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0109](0109-hosted-tauri-auth-keeps-app-owned-keyring-edges-until-three-real-callers-earn-sharing.md) | Hosted Tauri auth keeps app-owned keyring edges until three real callers earn sharing | Accepted |
 | [0110](0110-edit-write-timing-follows-the-value-owner-there-is-no-debounce-tier.md) | Edit write timing follows the value owner; there is no debounce tier | Accepted |
 | [0111](0111-super-chat-v1-exposes-built-in-epicenter-apps-and-defers-extension-surfaces.md) | Super Chat v1 exposes built-in Epicenter apps and defers extension surfaces | Accepted |
-| [0112](0112-the-cli-watcher-is-not-a-callable-action-server.md) | The CLI watcher is not a callable action server | Accepted |
+| [0112](0112-the-cli-watcher-is-not-a-callable-action-server.md) | The CLI watcher is not a callable action server | Superseded by 0144 |
 | [0113](0113-super-chat-session-commands-are-host-owned-transports-only-frame-them.md) | Super Chat session commands are host-owned; transports only frame them | Accepted |
 | [0114](0114-hosted-auth-surfaces-are-plain-tool-logins-not-marketing-pages.md) | Hosted auth surfaces are plain tool logins, not marketing pages | Accepted |
 | [0115](0115-super-chat-remote-attach-rides-an-endpoint-addressed-trusted-relay.md) | Super Chat remote attach rides an endpoint-addressed trusted AttachRelay; one consumer, not the deleted route-addressed relay floor | Accepted |
@@ -218,5 +218,10 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) | Portable workspaces are schema-directed folders applied as forward mutations | Accepted |
 | [0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) | Portable ownership has no generic whole-workspace import | Accepted |
 | [0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) | Workspace authority is selected once and owns one local database | Accepted |
+| [0142](0142-workspace-apps-receive-one-connection-while-storage-planes-keep-their-own-protocols.md) | Workspace apps receive one connection while storage planes keep their own protocols | Proposed |
+| [0143](0143-document-synchronization-addresses-rooms-not-installations.md) | Document synchronization addresses rooms, not installations | Proposed |
+| [0144](0144-open-applications-own-local-execution.md) | Open applications own local execution | Accepted |
+| [0145](0145-external-systems-of-record-keep-local-mirrors-outside-epicenter-sync.md) | External systems of record keep local mirrors outside Epicenter sync | Accepted |
+| [0146](0146-tab-manager-is-a-synchronized-web-capture-inbox.md) | Tab Manager is a synchronized web-capture inbox | Proposed |
 
 When you add an ADR, add its row here.

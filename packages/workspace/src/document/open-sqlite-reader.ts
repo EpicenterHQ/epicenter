@@ -1,7 +1,7 @@
 /**
- * Read-only handle on the daemon's materialized SQLite mirror file.
+ * Read-only handle on an application's materialized SQLite mirror file.
  *
- * `attachBunSqliteMaterializer` runs on the daemon side and writes the mirror
+ * `attachBunSqliteMaterializer` runs in the owning application and writes the mirror
  * in WAL journal mode (one writer, many readers, MVCC snapshots). Script peers
  * open the same file via `openSqliteReader({ filePath })`, get a read-only
  * `Database` handle plus an FTS5 `search()` helper that uses the writer's
@@ -20,7 +20,7 @@
  * or an explicit `[Symbol.dispose]()` call.
  *
  * The mirror does not observe schema changes or ydoc state. It is a thin
- * wrapper around an on-disk file the daemon owns; if the daemon hasn't
+ * wrapper around an on-disk file the application owns; if the application has not
  * created the file yet, opening throws and the script can decide whether
  * to retry, fall back to the synced Y.Doc, or surface the error.
  */
@@ -39,19 +39,18 @@ import {
  */
 export type OpenSqliteReaderOptions = {
 	/**
-	 * Absolute path to the daemon's mirror SQLite file. Typically
-	 * `sqlitePath(epicenterRoot, ydoc.guid)`.
+	 * Absolute path to the application's mirror SQLite file.
 	 */
 	filePath: string;
 };
 
 /**
- * Open the daemon's SQLite mirror file read-only.
+ * Open an application's SQLite mirror file read-only.
  *
  * The mirror is opened with `{ readonly: true }`; we additionally execute
  * `PRAGMA query_only = ON` so any unintentional write inside a
  * caller-supplied raw SQL string fails. Reads run against WAL snapshot
- * pages without blocking the daemon's writes. The returned handle is
+ * pages without blocking the owning application's writes. The returned handle is
  * disposable via the explicit-resource-management protocol: declare with
  * `using reader = openSqliteReader(...)` and the underlying database handle
  * closes on scope exit.
@@ -59,7 +58,7 @@ export type OpenSqliteReaderOptions = {
  * @example
  * ```ts
  * using reader = openSqliteReader({
- *   filePath: sqlitePath(epicenterRoot, fuji.ydoc.guid),
+ *   filePath: '/absolute/path/to/fuji.sqlite',
  * });
  * const hits = reader.search('entries', 'hello world', { limit: 25 });
  * const rows = reader.db.query('SELECT * FROM entries').all();

@@ -1,7 +1,7 @@
 /**
  * Resolve the right machine auth client from this node's configuration.
  *
- * The CLI and daemon talk to one of two kinds of star, and the credential model
+ * Node-side CLI and administrative tools talk to one of two kinds of star, and the credential model
  * differs by kind (the same fork the browser makes off `Instance.token`):
  *
  *   - a HOSTED star authenticates with a managed OAuth grant the user enrolled
@@ -14,8 +14,8 @@
  *     `EPICENTER_TOKEN` (or `EPICENTER_TOKEN_FILE`) and consumed by
  *     {@link createInstanceTokenAuth}. It is never written to disk.
  *
- * This is the single choke point both consumers (`epicenter up`,
- * `epicenter blobs`) call so neither re-implements the fork. The rule: a
+ * This is the single choke point for Node-side consumers such as
+ * `epicenter blobs` and `epicenter tables`, so neither re-implements the fork. The rule: a
  * configured static token wins and selects the instance-token client; otherwise
  * fall back to the persisted OAuth cell.
  *
@@ -67,12 +67,12 @@ export type ResolveMachineAuthClientConfig = {
  * OAuth client's cached cell). Its first `/api/session` confirmation is awaited so
  * the returned client reports a settled result: the await only rewrites `state`
  * when the token is rejected (drops to signed-out); an offline star leaves it
- * signed-in and cloud sync retries in the background. The daemon and `blobs` read
- * `auth.state` synchronously right after this call.
+ * signed-in and cloud sync retries in the background. Callers such as `blobs`
+ * read `auth.state` synchronously right after this call.
  *
  * With no configured token, this is exactly {@link createMachineAuthClient}: the
  * persisted OAuth cell, including its `NoSavedSession` arm (which callers map to
- * a signed-out daemon).
+ * a signed-out Node client).
  */
 export async function resolveMachineAuthClient({
 	baseURL = EPICENTER_API_URL,
@@ -92,13 +92,13 @@ export async function resolveMachineAuthClient({
 			fetch,
 			log,
 		});
-		// Await the first confirmation so the daemon reads a settled `state` (settle
-		// semantics are in the JSDoc above). A failure here is not fatal: local
-		// mounts still serve, so log it and hand back the client rather than erroring.
+		// Await the first confirmation so the caller reads a settled `state` (settle
+		// semantics are in the JSDoc above). A network failure is not fatal: the
+		// client can retry, so log it and return the client rather than erroring.
 		const { error } = await client.startSignIn();
 		if (error) {
 			log.debug(
-				'Instance token could not be verified against /api/session; the daemon keeps serving local mounts.',
+				'Instance token could not be verified against /api/session; the client remains available for retry.',
 				{ baseURL, cause: error },
 			);
 		}

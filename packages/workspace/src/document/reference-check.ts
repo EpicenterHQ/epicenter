@@ -47,7 +47,7 @@ function referenceTarget(schema: TSchema): string | null {
 /**
  * Assert every `field.reference(table)` column names a table defined in this workspace.
  * Throws on a dangling target. Called once at workspace construction (`createWorkspace`),
- * so a bad target is a build-time failure for every runtime (browser, daemon, tests) that
+ * so a bad target is a build-time failure for every runtime (browser, Bun, tests) that
  * instantiates the workspace, not a silent mistake surfaced at query time.
  *
  * A no-op for every existing app: only columns authored with `field.reference()` carry the

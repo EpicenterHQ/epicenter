@@ -5,7 +5,7 @@
  * mutation it produces in the StructStore for the life of the document.
  * Naive ephemeral peers (vault scripts launched per invocation) would mint
  * a fresh random clientID per process, leaving one StructStore entry per
- * invocation in the daemon's state vector.
+ * invocation in the durable document's state vector.
  *
  * `hashYDocClientId(path)` derives a stable 53-bit positive integer from a
  * string identity (typically `Bun.main`). Two invocations of the same

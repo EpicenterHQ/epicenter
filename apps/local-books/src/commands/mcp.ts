@@ -54,6 +54,7 @@ import { type ParsedArgs, VERSION } from '../cli.ts';
 import { resolveRealm } from '../companies.ts';
 import { type AppConfig, loadConfig } from '../config.ts';
 import { openBooksDb } from '../db.ts';
+import { acquireSyncLock, syncOwnerBusyMessage } from '../lock.ts';
 import { dbPath } from '../paths.ts';
 import { syncRealm } from '../sync.ts';
 import { createFileTokenStore, type TokenStore } from '../token-store.ts';
@@ -172,10 +173,18 @@ const TOOLS: ToolDescriptor[] = [
 		}),
 		tier: 'write',
 		async run(ctx, args) {
+			const lock = acquireSyncLock({
+				dataDir: ctx.config.dataDir,
+				realmId: ctx.realmId,
+			});
+			if (!lock) return Err({ message: syncOwnerBusyMessage(ctx.realmId) });
 			// The opener loads the token and returns a ready QB client, or a "run
 			// auth" reason. No bespoke not-connected error.
 			const { data: client, error } = await ctx.openQb();
-			if (error !== null) return Err(error);
+			if (error !== null) {
+				lock.release();
+				return Err(error);
+			}
 			const db = openBooksDb(ctx.dbPath);
 			try {
 				const outcome = await syncRealm(
@@ -185,6 +194,7 @@ const TOOLS: ToolDescriptor[] = [
 				return Ok(outcome);
 			} finally {
 				db.close();
+				lock.release();
 			}
 		},
 	}),

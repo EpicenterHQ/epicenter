@@ -1,6 +1,6 @@
 # Apps
 
-Each app under `apps/` owns its hosted UI plus, when needed, one reusable headless mount.
+Each app under `apps/` owns its UI and any local execution its product needs.
 
 The current center is:
 
@@ -9,8 +9,8 @@ defineWorkspace()
   app's shared isomorphic definition
 
 open<App>Browser()
-<app>()
 open<App>Tauri()
+<app> sync/status/watch
   runtime-specific wiring
 
 createWorkspace()
@@ -22,16 +22,16 @@ satisfiesWorkspace()
 
 ```
 apps/<app>/
-├── mount.ts         optional `<app>()` headless mount factory
 ├── workspace.ts     shared schema, branded IDs, workspace definition, actions
+├── engine.ts        optional application-specific local engine
 ├── src/             SvelteKit app
-└── package.json     "exports": { ".": "./workspace.ts", "./mount": "./mount.ts" }
+└── package.json     exports only the surfaces real consumers import
 ```
 
 Some apps keep the shared workspace contract under `src/lib/workspace.ts`
 instead of the package root. Follow the existing package shape. The important
 boundary is the same: shared model in the workspace file, runtime wiring in
-`browser.ts`, `mount.ts`, or `tauri.ts`.
+`browser.ts`, `tauri.ts`, or an application-specific engine.
 
 ## Boundaries
 
@@ -42,15 +42,21 @@ app migrates; do not mix both record authorities inside one app.
 
 `workspace.ts` is the sync contract. It defines table shapes, KV schemas, branded IDs, actions, child-doc layouts, and the app's `defineWorkspace(...)` value. Forking that file means forking sync compatibility.
 
-`mount.ts` is the reusable mount factory. It opens the shared workspace with Node-only attachments: Yjs persistence, collaboration, SQLite and Markdown materializers, and app-owned background work.
+Browser and desktop code open the definition with runtime-specific composition.
+If an application needs command-line execution, that application owns a Bun
+engine and may expose `sync`, `status`, and foreground `watch`. Scripts usually
+skip Yjs entirely and read application SQLite or exported files.
 
-Browser and desktop code open the same definition with runtime-specific composition. Scripts usually skip Yjs entirely: they read materialized files or SQLite. Generic off-process daemon action calls are not part of the app contract.
+## Adding application execution
 
-## Adding a Daemon Mount
-
-1. Add `apps/<app>/workspace.ts` or `apps/<app>/src/lib/workspace.ts`, following the package's existing layout.
-2. Point `package.json` `exports["."]` at the workspace contract file.
-3. Add an exported `defineWorkspace({ id, tables, kv, actions })` value. Declare row child docs with `table.docs(...)`.
-4. Add `apps/<app>/mount.ts` exporting `<app>(opts?)`, a factory that returns `defineSessionMount({ name, open })` (or `defineMount` for a mount that can run signed out).
-5. Point `package.json` `exports["./mount"]` at `./mount.ts`.
-6. Run `epicenter up -C <epicenter-root>` and confirm the watcher starts, syncs, and materializes the expected files.
+1. Put the engine beside the application that owns the data and upstream
+   service.
+2. Make `sync` one idempotent or cursor-based pass that exits.
+3. Make `status` read durable freshness, pending work, and upstream health. Do
+   not report process liveness as data health.
+4. Add `watch` only when continuous catch-up is a product need. Keep it in the
+   foreground and stop on Ctrl-C.
+5. Use an application-owned writer lock when the app, `sync`, and `watch` can
+   overlap.
+6. Let `launchd`, cron, systemd, or another service manager own scheduling,
+   restart, shutdown, and logs.

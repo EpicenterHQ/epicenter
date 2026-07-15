@@ -65,8 +65,7 @@ export type PersistedAuth = typeof PersistedAuth.infer;
 
 /**
  * Canonical `/api/session` response shape. The single contract between the
- * API and every Epicenter auth client (browser, extension, CLI machine,
- * daemon).
+ * API and every Epicenter auth client (browser, extension, and Node process).
  *
  * The session endpoint exposes Epicenter's resource-server projection, not
  * Better Auth's internal session shape.

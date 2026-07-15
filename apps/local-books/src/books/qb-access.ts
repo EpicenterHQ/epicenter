@@ -5,8 +5,7 @@
  * always starts from the newest persisted (possibly rotated) credentials.
  *
  * It is its own seam so the live capabilities never reach into the token store
- * directly, and so a future daemon (ADR-0072) can hand the same opener to the
- * action wrappers it builds over these cores.
+ * directly, and so app-owned CLI, HTTP, or MCP adapters can share one opener.
  */
 
 import { defineErrors, type InferErrors } from 'wellcrafted/error';

@@ -4,7 +4,7 @@
  * The sibling `smoke.ts` drives the server over raw HTTP; this one drives the
  * actual CLI credential entry, `resolveMachineAuthClient` from
  * `@epicenter/auth/node`, against a running star. It proves the path a prebuilt
- * daemon takes to a self-hosted box: a static instance token resolves to a
+ * headless Node client takes to a self-hosted box: a static instance token resolves to a
  * settled, signed-in `SyncAuthClient` with no OAuth cell and no interactive
  * login.
  *

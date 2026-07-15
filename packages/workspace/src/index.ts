@@ -68,11 +68,6 @@ export {
 	createNodeIdAsync,
 } from './document/node-id.js';
 
-// Daemon, config, and Epicenter-root surfaces are node-only (they resolve real
-// paths or sit on the mount contract) and ship from `@epicenter/workspace/node`
-// and `@epicenter/workspace/daemon`. Keeping them out of this root barrel stops
-// browser bundles (honeycrisp, whispering, etc.) from traversing `node:*` modules.
-
 // ════════════════════════════════════════════════════════════════════════════
 // ID + DATE PRIMITIVES
 // ════════════════════════════════════════════════════════════════════════════
@@ -97,7 +92,6 @@ export { nullable } from './document/nullable';
 // ════════════════════════════════════════════════════════════════════════════
 
 export { debounce } from './shared/debounce.js';
-export type { Drainable } from './shared/types.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // DOCUMENT PRIMITIVES
@@ -116,14 +110,6 @@ export {
 	type RecordsHandle,
 } from './document/attach-records.js';
 export { attachRichText } from './document/attach-rich-text.js';
-// `attachChildDocWorker` and its type family (`ChildDocWorker`,
-// `ChildDocWorkerContext`, `ChildDocWorkerFactory`, `ChildDocWorkerHandle`,
-// `ConnectedChildDoc`, `ObservableChildDocLayout`) are intentionally NOT
-// exported: they are the daemon-side host-loop's internal wiring, consumed only
-// by `workspace.ts`'s mount composition. Apps enter this seam through the public
-// `MountWorker*` types below, never the raw loop. Re-export from
-// `@epicenter/workspace/daemon` if a mount author outside this package ever
-// needs to name one.
 export { type ConnectionConfig, connectDoc } from './document/connect-doc.js';
 export { defineKv } from './document/define-kv.js';
 export { defineTable } from './document/define-table.js';
@@ -160,8 +146,8 @@ export {
 // Transport URL builder.
 //
 // `roomWsUrl({ baseURL, guid, nodeId })` builds the WebSocket URL for the
-// principal-authenticated `/api/rooms/:roomId` endpoint. Browser apps and the
-// daemon use this one builder.
+// principal-authenticated `/api/rooms/:roomId` endpoint. Browser apps and other
+// app-owned runtimes use this one builder.
 export { type RoomWsUrlOptions, roomWsUrl } from './document/transport.js';
 export {
 	wipeBareStorage,
@@ -181,11 +167,6 @@ export {
 	type LocalPersistence,
 	type LocalPersistenceAttachment,
 	type LocalWorkspace,
-	type MountComposeContext,
-	type MountOptions,
-	type MountWorkerContext,
-	type MountWorkerFactory,
-	type MountWorkers,
 	satisfiesWorkspace,
 	type Workspace,
 	type WorkspaceActionContext,

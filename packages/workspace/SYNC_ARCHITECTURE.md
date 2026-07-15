@@ -130,7 +130,7 @@ This is the consumer Google Docs model and the first of three account layers, in
 
 `nodeId` is appended as a query parameter (`?nodeId=`) on every connect, including reconnects. It is a routing label stamped on the socket at upgrade, not an auth principal: the relay authorizes the room from the token, and within that room `nodeId` decides how presence identifies this install.
 
-`/api/rooms/:room` is the single cloud sync route shape. Browser apps and the workspace daemon both build their URL with `roomWsUrl`.
+`/api/rooms/:room` is the single cloud sync route shape. Browser apps and other app-owned runtimes build their URL with `roomWsUrl`.
 
 ## Supervisor lifecycle
 

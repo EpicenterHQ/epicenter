@@ -5,8 +5,8 @@
  * ambiguous or unsafe flag values.
  *
  * Key behaviors:
- * - `--watch` accepts only positive millisecond values
- * - invalid watch intervals fail before the sync loop can start polling
+ * - `watch --interval` accepts only positive millisecond values
+ * - `sync` and `watch` stay distinct commands
  */
 
 import { expect, test } from 'bun:test';
@@ -20,36 +20,30 @@ import type { MessageWriteOutcome } from './modify.ts';
 import { createFileTokenStore } from './token-store.ts';
 import type { TokenSet } from './tokens.ts';
 
-test('--watch rejects unit-suffixed intervals', () => {
-	expect(() => parseArgs(['sync', '--watch=30s'])).toThrow(
-		'Invalid --watch interval "30s"',
+test('--interval rejects unit-suffixed intervals', () => {
+	expect(() => parseArgs(['watch', '--interval=30s'])).toThrow(
+		'Invalid --interval "30s"',
 	);
 });
 
-test('--watch rejects zero milliseconds', () => {
-	expect(() => parseArgs(['sync', '--watch=0'])).toThrow(
-		'Invalid --watch interval "0"',
+test('--interval rejects zero milliseconds', () => {
+	expect(() => parseArgs(['watch', '--interval=0'])).toThrow(
+		'Invalid --interval "0"',
 	);
 });
 
-test('--watch accepts a space-separated interval', () => {
-	const args = parseArgs(['sync', '--watch', '5000']);
-	expect(args.watch).toBe(true);
-	expect(args.watchIntervalMs).toBe(5000);
+test('watch accepts a space-separated interval', () => {
+	const args = parseArgs(['watch', '--interval', '5000']);
+	expect(args.command).toBe('watch');
+	expect(args.intervalMs).toBe(5000);
 	expect(args.positionals).toEqual([]);
 });
 
-test('--watch space form validates the value instead of swallowing it', () => {
-	expect(() => parseArgs(['sync', '--watch', '30s'])).toThrow(
-		'Invalid --watch interval "30s"',
-	);
-});
-
-test('--watch followed by another flag stays flag-only', () => {
-	const args = parseArgs(['sync', '--watch', '--full']);
-	expect(args.watch).toBe(true);
+test('watch composes with --full without changing command identity', () => {
+	const args = parseArgs(['watch', '--full']);
+	expect(args.command).toBe('watch');
 	expect(args.full).toBe(true);
-	expect(args.watchIntervalMs).toBeUndefined();
+	expect(args.intervalMs).toBeUndefined();
 });
 
 test('app parses the port flag', () => {

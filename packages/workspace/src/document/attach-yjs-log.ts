@@ -6,8 +6,7 @@
  * replayed in id order; periodically the log is compacted into a single
  * state-as-update row. Pairs with `openCollaboration` (workspace or content
  * doc) for cross-machine convergence; pairs with `attachYjsLogReader` for
- * read-only consumers (script-side mirrors, the daemon-as-materializer-worker
- * design).
+ * read-only consumers in app-owned execution paths.
  *
  * Distinct from `attachBunSqliteMaterializer`, which writes a different file
  * with derived per-table rows for SQL queries. This module is the Y.Doc
@@ -115,7 +114,7 @@ export function attachYjsLog(
 	for (const row of rows) {
 		// A corrupt BLOB (a half-written or truncated row) makes
 		// Y.applyUpdateV2 throw mid-replay. Unguarded, that aborts construction
-		// and the daemon cannot open the mount at all. Skip the bad row: the
+		// and the owning application cannot open the document. Skip the bad row: the
 		// doc still hydrates from the good rows, and cloud resync supplies
 		// whatever the skipped row carried (same contract as the y-indexeddb
 		// load patch on the browser side).

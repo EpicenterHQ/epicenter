@@ -68,7 +68,7 @@ Build or refresh the mirror:
 ```sh
 bun run src/bin.ts sync --full
 
-bun run src/bin.ts sync --watch
+bun run src/bin.ts watch
 ```
 
 Check connection and mirror state:

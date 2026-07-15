@@ -11,7 +11,7 @@
  *
  * Every subcommand is a direct cloud round-trip built from the resolved machine
  * auth client (the persisted OAuth cell, or a configured instance token for a
- * self-hosted star); none route through the local daemon, unlike `run`. See
+ * self-hosted star); none route through a resident local process. See
  * `docs/adr/0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md`.
  *
  * Exit codes: 1 for a local problem (auth, reading a source file), 2 when the
@@ -194,7 +194,7 @@ export const blobsCommand = cmd({
 /**
  * Build the authenticated cloud client from the resolved machine auth client, or
  * print a ready-to-read failure and return `null`. Every `blobs` subcommand is a
- * direct cloud round-trip (no daemon), so each one starts here.
+ * direct cloud round-trip, so each one starts here.
  * `resolveMachineAuthClient` settles the credential (OAuth cell or a configured
  * instance token) before returning, so `auth.state` is readable synchronously.
  * The blob client never re-resolves `/api/session` itself.

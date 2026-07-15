@@ -5,8 +5,7 @@
 	"type": "module",
 	"private": true,
 	"exports": {
-		".": "./src/lib/workspace/index.ts",
-		"./mount": "./mount.ts"
+		".": "./src/lib/workspace/index.ts"
 	},
 	"scripts": {
 		"dev": "wxt",

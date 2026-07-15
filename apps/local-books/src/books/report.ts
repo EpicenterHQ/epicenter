@@ -9,8 +9,7 @@
  * QuickBooks computes the opinions (ADR-0061). A report is one cheap call asked a
  * few times a day, so live is both correct and affordable.
  *
- * The `report` CLI verb is a thin adapter over this; a future daemon re-exposes
- * it with `defineQuery` over the same function (ADR-0072).
+ * The `report` CLI verb and app-owned adapters call this same function.
  */
 
 import Type, { type Static } from 'typebox';

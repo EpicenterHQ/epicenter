@@ -6,6 +6,7 @@ import { resolveCompany } from './commands/context.ts';
 import type { CliConfigOverrides } from './config.ts';
 import { openBooksDb } from './db.ts';
 import { createApiApp, mintToken, type SyncPassResult } from './http/api.ts';
+import { acquireSyncLock, syncOwnerBusyMessage } from './lock.ts';
 import { dbPath } from './paths.ts';
 import { type SyncDeps, syncRealm } from './sync.ts';
 
@@ -157,13 +158,15 @@ export async function runApp(
 	const readOnly = config.readOnly;
 	const mirrorPath = dbPath(config.dataDir, realmId);
 
-	const lock = acquireRealmLock(join(config.dataDir, realmId));
-	if (!lock) {
+	const appLock = acquireRealmLock(join(config.dataDir, realmId));
+	if (!appLock) {
 		console.error(
 			`local-books app is already running for company ${realmId}. Stop it first, or open the URL it printed.`,
 		);
 		return 1;
 	}
+	const syncLock = acquireSyncLock({ dataDir: config.dataDir, realmId });
+	if (!syncLock) console.error(syncOwnerBusyMessage(realmId));
 
 	// The valid-bearer set. Dev pre-seeds the fixed proxy token; prod fills it only
 	// through the bootstrap exchange handled inside the Hono app.
@@ -172,7 +175,8 @@ export async function runApp(
 	if (DEV) {
 		const devToken = process.env.LOCAL_BOOKS_TOKEN;
 		if (!devToken) {
-			lock.release();
+			syncLock?.release();
+			appLock.release();
 			console.error(
 				'LOCAL_BOOKS_DEV=1 requires LOCAL_BOOKS_TOKEN so the Vite proxy can authenticate.',
 			);
@@ -201,6 +205,7 @@ export async function runApp(
 	 * not a boot failure, so `app` opens the books even when auth has lapsed.
 	 */
 	async function syncNow(): Promise<SyncPassResult> {
+		if (!syncLock) return { failed: syncOwnerBusyMessage(realmId) };
 		const { data: client, error: openError } = await openQb();
 		if (openError !== null) return { failed: openError.message };
 		const db = openBooksDb(mirrorPath);
@@ -247,15 +252,17 @@ export async function runApp(
 	});
 
 	// The background sync loop, serialized through the same gate as POST /api/sync.
-	(async () => {
-		while (!controller.signal.aborted) {
-			await gate(syncNow).catch((cause) =>
-				console.error(`[sync] loop pass failed: ${cause}`),
-			);
-			if (controller.signal.aborted) break;
-			await Bun.sleep(SYNC_INTERVAL_MS);
-		}
-	})();
+	if (syncLock) {
+		(async () => {
+			while (!controller.signal.aborted) {
+				await gate(syncNow).catch((cause) =>
+					console.error(`[sync] loop pass failed: ${cause}`),
+				);
+				if (controller.signal.aborted) break;
+				await Bun.sleep(SYNC_INTERVAL_MS);
+			}
+		})();
+	}
 
 	const origin = `http://127.0.0.1:${server.port}`;
 	if (DEV) {
@@ -278,12 +285,20 @@ export async function runApp(
 	}
 
 	await new Promise<void>((resolve) => {
-		process.on('SIGINT', () => {
+		let stopping = false;
+		const stop = () => {
+			if (stopping) return;
+			stopping = true;
+			process.off('SIGINT', stop);
+			process.off('SIGTERM', stop);
 			controller.abort();
 			server.stop();
-			lock.release();
+			syncLock?.release();
+			appLock.release();
 			resolve();
-		});
+		};
+		process.on('SIGINT', stop);
+		process.on('SIGTERM', stop);
 	});
 	return 0;
 }

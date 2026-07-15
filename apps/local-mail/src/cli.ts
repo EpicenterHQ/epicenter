@@ -20,8 +20,7 @@ export type ParsedArgs = {
 	command: string;
 	positionals: string[];
 	full: boolean;
-	watch: boolean;
-	watchIntervalMs?: number;
+	intervalMs?: number;
 	port?: number;
 	addLabels: string[];
 	removeLabels: string[];
@@ -37,7 +36,8 @@ const HELP = `local-mail: keep a private local copy of Gmail for local tools and
 Usage:
   local-mail connect
   local-mail seed-token <refreshToken>
-  local-mail sync [--full] [--watch [intervalMs]] [--json]
+  local-mail sync [--full] [--json]
+  local-mail watch [--full] [--interval <milliseconds>] [--json]
   local-mail status [--json]
   local-mail query "<sql>"
   local-mail archive|unarchive|mark-read|mark-unread <id...> [--json]
@@ -50,7 +50,8 @@ Commands:
   seed-token   Redeem an existing refresh token for headless bootstrap.
                Verifies it against Google; the account email comes from
                the Gmail profile.
-  sync         Refresh the local mirror. Use --watch to keep polling.
+  sync         Refresh the local mirror once, then exit.
+  watch        Keep the local mirror fresh in the foreground. Ctrl-C stops it.
   status       Show connection state, cursor, and row counts.
   query        Run a read-only SQL query over the local mirror (JSON output).
   archive      Archive messages by removing INBOX, then fold Gmail's response.
@@ -63,7 +64,7 @@ Commands:
 
 Options:
   --full                Force a full pull on the first sync pass.
-  --watch [intervalMs]  Keep syncing on a loop. Default: 30000.
+  --interval <ms>       Poll interval for watch. Default: 30000.
   --add <label>         Add a Gmail label by exact name or id. Repeatable.
   --remove <label>      Remove a Gmail label by exact name or id. Repeatable.
   --port <n>            Pin the app server port (app only; default: ephemeral).
@@ -99,11 +100,11 @@ const TRIAGE_VERBS: Record<
 	},
 };
 
-function parseWatchInterval(input: string): number {
+function parseInterval(input: string): number {
 	const value = Number(input.trim());
 	if (!Number.isFinite(value) || value <= 0) {
 		throw new Error(
-			`Invalid --watch interval "${input}". Use a positive number of milliseconds.`,
+			`Invalid --interval "${input}". Use a positive number of milliseconds.`,
 		);
 	}
 	return value;
@@ -114,7 +115,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
 		command: '',
 		positionals: [],
 		full: false,
-		watch: false,
 		addLabels: [],
 		removeLabels: [],
 		json: false,
@@ -145,17 +145,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
 			case '--full':
 				args.full = true;
 				break;
-			case '--watch': {
-				args.watch = true;
-				// Accept both --watch=5000 and --watch 5000; the space form was
-				// previously swallowed into positionals and silently ignored.
-				const next = argv[i + 1];
-				if (inlineValue !== undefined) {
-					args.watchIntervalMs = parseWatchInterval(inlineValue);
-				} else if (next !== undefined && !next.startsWith('-')) {
-					i += 1;
-					args.watchIntervalMs = parseWatchInterval(next);
-				}
+			case '--interval': {
+				args.intervalMs = parseInterval(takeValue());
 				break;
 			}
 			case '--port': {
@@ -251,10 +242,15 @@ function renderSyncOutcome(outcome: SyncOutcome): string {
 }
 
 async function runSync(args: ParsedArgs): Promise<number> {
+	const watching = args.command === 'watch';
 	if (args.positionals.length > 0) {
 		console.error(
-			`sync takes no positional arguments (got: ${args.positionals.join(' ')}).`,
+			`${args.command} takes no positional arguments (got: ${args.positionals.join(' ')}).`,
 		);
+		return 1;
+	}
+	if (!watching && args.intervalMs !== undefined) {
+		console.error('--interval is only valid with local-mail watch.');
 		return 1;
 	}
 	const { data: runtime, error: runtimeError } = await openLocalMailRuntime();
@@ -298,7 +294,7 @@ async function runSync(args: ParsedArgs): Promise<number> {
 	}
 
 	try {
-		if (!args.watch) {
+		if (!watching) {
 			const outcome = await syncMailbox(session.deps, { forceFull: args.full });
 			console.log(
 				args.json
@@ -308,28 +304,35 @@ async function runSync(args: ParsedArgs): Promise<number> {
 			return outcome.failure ? 1 : 0;
 		}
 
-		const intervalMs = args.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
+		const intervalMs = args.intervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
 		console.error(`Watching every ${intervalMs}ms. Ctrl-C to stop.`);
 		const controller = new AbortController();
-		process.on('SIGINT', () => controller.abort());
+		const stop = () => controller.abort();
+		process.on('SIGINT', stop);
+		process.on('SIGTERM', stop);
 		// The exit code reflects the LAST pass, so a supervisor restarting on
 		// nonzero sees current health, not a transient failure hours ago.
 		let lastPassFailed = false;
-		await runSyncLoop(session.deps, {
-			forceFull: args.full,
-			intervalMs,
-			signal: controller.signal,
-			onPass: (outcome, pass) => {
-				lastPassFailed = outcome.failure !== null;
-				if (args.json) {
-					console.log(JSON.stringify(outcome));
-				} else {
-					console.log(`=== pass ${pass} ===`);
-					console.log(renderSyncOutcome(outcome));
-				}
-			},
-		});
-		return lastPassFailed ? 1 : 0;
+		try {
+			await runSyncLoop(session.deps, {
+				forceFull: args.full,
+				intervalMs,
+				signal: controller.signal,
+				onPass: (outcome, pass) => {
+					lastPassFailed = outcome.failure !== null;
+					if (args.json) {
+						console.log(JSON.stringify(outcome));
+					} else {
+						console.log(`=== pass ${pass} ===`);
+						console.log(renderSyncOutcome(outcome));
+					}
+				},
+			});
+			return lastPassFailed ? 1 : 0;
+		} finally {
+			process.off('SIGINT', stop);
+			process.off('SIGTERM', stop);
+		}
 	} finally {
 		session.close();
 		lock.release();
@@ -500,6 +503,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		case 'seed-token':
 			return runSeedToken(args);
 		case 'sync':
+		case 'watch':
 			return runSync(args);
 		case 'status':
 			return runStatus(args);

@@ -19,8 +19,7 @@ gets `Promise<Result<T, unknown>>` from `invokeAction`.
 
 2. ADAPTER
    invokeAction(action, input)
-   epicenter run tabs_close '{}'
-   AI or MCP tool bridge
+   app CLI, AI, or MCP tool bridge
    Input validates against the action schema before the handler runs.
 
 3. COLLABORATION
@@ -34,7 +33,7 @@ gets `Promise<Result<T, unknown>>` from `invokeAction`.
 | --- | --- | --- | --- |
 | Direct local call | raw value | `{ data: null, error: BrowserApiFailed }` | throws |
 | `invokeAction` | `Ok(raw)` | same `Err(BrowserApiFailed)` | `Err(cause)` |
-| CLI `epicenter run` | prints success payload | usage/runtime error response | runtime error response |
+| App CLI adapter | prints success payload | usage/runtime error response | runtime error response |
 | AI bridge | tool success payload | tool failure | tool failure |
 
 `invokeAction` is the adapter boundary. It:
@@ -76,9 +75,9 @@ if (adapter.error) {
 console.log(adapter.data.closedCount);
 ```
 
-If a cross-device surface needs this action, expose it through the daemon or a
-tool adapter. Do not resurrect in-room peer dispatch: current collaboration
-publishes presence and syncs Yjs updates only.
+If another surface needs this action, expose it through an application-specific
+tool or service adapter. Do not resurrect in-room peer dispatch: current
+collaboration publishes presence and syncs Yjs updates only.
 
 ## Invariants
 

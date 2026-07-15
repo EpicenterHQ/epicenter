@@ -7,10 +7,6 @@
  *   .create()            bare isomorphic doc for tests and advanced runtimes
  *   .connect(connection) local runtime: storage, optional sync, wipe, row
  *                        child-doc openers
- *   .mount(options)      daemon runtime: the same root plus Yjs-log persistence,
- *                        cloud sync, and materializers, with every node
- *                        dependency injected through `options.runtime`
- *                        (`nodeMountRuntime()` from `@epicenter/workspace/node`)
  *
  * `createWorkspace({ id, tables, kv })` remains the low-level root constructor
  * for package internals and tests:
@@ -45,32 +41,11 @@ import { InstantString } from '@epicenter/field';
 import { once } from 'wellcrafted/function';
 import * as Y from 'yjs';
 import { createDisposableCache } from '../cache/disposable-cache.js';
-// Type-only daemon imports: `verbatimModuleSyntax` erases them, so the browser
-// barrel never traverses the node-only mount runtime. `.mount()` is a pure
-// coordinator that receives every node capability through its `runtime`
-// argument (built by `nodeMountRuntime()` from `@epicenter/workspace/node`).
-import type {
-	Mount,
-	MountSession,
-	SessionMountContext,
-} from '../daemon/define-mount.js';
-import type { NodeMountRuntime } from '../daemon/mount-runtime.js';
 import { type ActionRegistry, defineActions } from '../shared/actions.js';
 import type { Guid } from '../shared/id.js';
 import { assertSafeSegment } from '../shared/safe-segment.js';
-import type { Drainable } from '../shared/types.js';
-import type { AgentId } from './agent-id.js';
 import { attachBroadcastChannel } from './attach-broadcast-channel.js';
 import { attachIndexedDb } from './attach-indexed-db.js';
-import {
-	attachChildDocWorker,
-	type ChildDocWorker,
-	type ChildDocWorkerContext,
-	type ChildDocWorkerFactory,
-	type ChildDocWorkerHandle,
-	type ConnectedChildDoc,
-	type ObservableChildDocLayout,
-} from './child-doc-worker.js';
 import { type ConnectionConfig, connectDoc } from './connect-doc.js';
 import { docGuid } from './doc-guid.js';
 import { KV_KEY, TableKey } from './keys.js';
@@ -191,8 +166,8 @@ type ChildDocHandle<TLayout extends (ydoc: Y.Doc) => object> =
 /**
  * The guid-only entry every `.docs.<field>` exposes: derive a row's child-doc
  * guid without a connection. Pure (workspace id + table + row id + field), so it
- * is available on the unconnected root too, and a daemon reading one body over
- * HTTP derives the same guid the browser opener uses.
+ * is available on the unconnected root too, and any app-owned process derives
+ * the same guid the browser opener uses.
  */
 type RowDocGuid<TRowId extends string> = {
 	guid(rowId: TRowId): Guid;
@@ -300,10 +275,9 @@ export type ConnectOptions<
  * every richer connected type builds additively on top of it instead of
  * re-omitting `tables` again.
  *
- * Receive-side twin of {@link MountComposeContext}, but deliberately not shaped
- * to rhyme with it: this *is* the connected workspace (it also bases
- * {@link ConnectedWorkspace}), so the composer extends it, whereas a mount
- * composer receives the workspace wrapped in a `{ workspace, scope }` bag.
+ * This is the connected workspace before infrastructure is attached, and it
+ * also forms the base of {@link ConnectedWorkspace}. A runtime composer extends
+ * this value directly.
  */
 export type ConnectedWorkspaceContext<
 	TTables extends TableDefinitions,
@@ -380,176 +354,6 @@ type LocalWorkspaceWithRuntime<
 > = LocalWorkspace<TTables, TKv, TRuntime['actions']> &
 	Omit<TRuntime, 'actions' | typeof Symbol.dispose>;
 
-/**
- * The ambient capabilities a mount's `open()` hands its `compose` body: the
- * signed-in session `ctx` (durable node id, resolved Epicenter root, transport
- * refs), the resolved sync `baseURL`, and `registerDrain`, the lifecycle sink
- * that enrolls a materializer's teardown barrier for ordered drain on shutdown.
- *
- * `registerDrain` is what makes a dropped projection write impossible to cause
- * by hand. `attachMountSqlite` / `attachMountMarkdown` call it when they attach,
- * so a `compose` body never lists materializers and cannot forget to drain one:
- * the obligation is discharged by the same call that creates the side effect.
- * It is plain data (a closure over an array the coordinator owns), so the
- * browser barrel that ships `.mount()` stays free of any node import.
- */
-export type MountComposeScope = {
-	readonly ctx: SessionMountContext;
-	readonly baseURL: string;
-	readonly registerDrain: (drainable: Drainable) => void;
-};
-
-/**
- * What a mount's `compose` callback sees: the bare daemon root `workspace` and
- * the ambient `scope` (session ctx, resolved baseURL, drain sink).
- *
- * Materializers are attached by the body itself: a mount's `compose` is node
- * code, so it imports `attachMountSqlite` / `attachMountMarkdown` from
- * `@epicenter/workspace/node` and calls them with `scope` (for ctx and drain
- * registration) and `workspace` (the subject to project). The coordinator never
- * touches a materializer, which is why it stays browser-safe.
- *
- * `workspace` is the unconnected root, so `workspace.tables.<t>.docs.<f>.guid`
- * is the same guid deriver the browser opener uses, letting a daemon read a
- * child-doc body over HTTP at the address the browser writes it.
- *
- * Receive-side twin of {@link ConnectedWorkspaceContext}, but deliberately not
- * shaped to rhyme: that one *is* the connected workspace, while this one wraps
- * the unconnected root in a `{ workspace, scope }` bag, since a mount composer
- * attaches its own materializers rather than extending the workspace.
- */
-export type MountComposeContext<
-	TTables extends TableDefinitions,
-	TKv extends KvDefinitions,
-	TActions extends ActionRegistry,
-> = {
-	readonly workspace: Workspace<TTables, TKv, TActions>;
-	readonly scope: MountComposeScope;
-};
-
-/**
- * The daemon child-doc workers a mount registers, keyed by table then by
- * child-doc field, to a per-body {@link ChildDocWorkerFactory}. The keys are
- * typed against the schema (only declared tables, and only each table's declared
- * child-doc fields), and each factory's `handle` is the field's declared layout
- * return type. So the app supplies behavior alone: the table, the field's guid
- * deriver, and the layout all come from the schema, never re-passed at the call
- * site.
- *
- * Registering a field is what makes the daemon host and observe its bodies; a
- * field left out is opened on demand by browser UI, not held live by the worker.
- *
- * Only fields whose layout exposes `observe` can be registered: the loop watches
- * each body through it, so a layout without one (e.g. `attachPlainText`) collapses
- * to `never` and the field cannot carry a worker. `attachRecords` does.
- */
-export type MountWorkers<TTables extends TableDefinitions> = {
-	[T in keyof TTables]?: TTables[T] extends TableDefinition<
-		any,
-		infer TDecls extends ChildDocDeclarations
-	>
-		? {
-				[F in keyof TDecls]?: ReturnType<LayoutOf<TDecls[F]>> extends {
-					observe(callback: () => void): () => void;
-				}
-					? MountWorkerFactory<
-							InferTableRow<TTables[T]>['id'],
-							ReturnType<LayoutOf<TDecls[F]>>
-						>
-					: never;
-			}
-		: never;
-};
-
-/**
- * Per-body context a mount's worker factory receives: the generic observe-loop
- * body context ({@link ChildDocWorkerContext}: the row id, the layout handle, and
- * the body `Y.Doc`) plus the daemon's mount environment, the two things every
- * hosted body shares but the loop itself stays agnostic to:
- *
- *  - `session` is the mount's signed-in capability kit ({@link MountSession}: the
- *    `AuthedFetch`, the principal id, the sockets). Always present, because workers
- *    are only ever wired under a `defineSessionMount` open. A factory uses it to
- *    answer on the cloud (the engine's per-turn `data()` returns `session.fetch`
- *    plus the base URL for the metered inference backend).
- *  - `baseURL` is the resolved sync base URL the daemon authenticates against, so
- *    a factory's cloud calls target the same deployment its sync does.
- *
- * The generic loop ({@link attachChildDocWorker}) never sees these: its test
- * drives it with no session, so the mount environment is injected here, at the
- * daemon coordinator, not threaded through the transport-agnostic loop.
- */
-export type MountWorkerContext<
-	TRowId extends string,
-	THandle,
-> = ChildDocWorkerContext<TRowId, THandle> & {
-	readonly session: MountSession;
-	readonly baseURL: string;
-};
-
-/**
- * Build the per-body behavior for one hosted child doc, with the daemon's mount
- * environment in hand ({@link MountWorkerContext}). The mount-facing twin of
- * {@link ChildDocWorkerFactory}: the app registers one of these per child-doc
- * field, and {@link connectMountWorkers} adapts it down to the loop's plain
- * factory by injecting `session` and `baseURL`.
- */
-export type MountWorkerFactory<TRowId extends string, THandle> = (
-	context: MountWorkerContext<TRowId, THandle>,
-) => ChildDocWorkerHandle;
-
-/**
- * Options for `definition.mount(...)`, the daemon runtime. The mount's display
- * label comes from the definition's `name` (see `defineWorkspace`), so the only
- * per-mount inputs are the sync base URL, the injected node runtime, the
- * optional composer, and the optional child-doc workers.
- *
- * `runtime` is the injected node bag from `nodeMountRuntime()`; `.mount()`
- * itself imports no node module. `compose` is optional: omit it for a pure
- * sync-and-persist mirror; provide it to attach materializers, each enrolling
- * its own drain through `scope.registerDrain`. It returns nothing: the watcher
- * is not a callable action server (ADR-0112), so there is no served action set
- * to choose. Workspace actions stay an in-process concept on the workspace
- * bundles apps open themselves.
- */
-export type MountOptions<
-	TTables extends TableDefinitions,
-	TKv extends KvDefinitions,
-	TActions extends ActionRegistry,
-> = {
-	/**
-	 * Explicit sync base URL. Omit to fall back through `EPICENTER_API_URL` to
-	 * the hosted API (resolved by `runtime.resolveBaseURL`).
-	 */
-	readonly baseURL?: string;
-	/** Injected node runtime, built by `nodeMountRuntime()`. */
-	readonly runtime: NodeMountRuntime;
-	/**
-	 * Attach materializers, each enrolling its own drain through
-	 * `scope.registerDrain`. Omit for a pure sync-and-persist mirror.
-	 */
-	readonly compose?: (
-		context: MountComposeContext<TTables, TKv, TActions>,
-	) => void;
-	/**
-	 * Register daemon child-doc workers: the always-on observe loops that host a
-	 * live replica of a row's child doc and watch it (ADR-0024/0025). Keyed by
-	 * table then field, to a per-body factory. Identity and shape (the table, the
-	 * guid, the layout) come from the schema; the factory supplies only behavior.
-	 * See {@link MountWorkers}.
-	 */
-	readonly workers?: MountWorkers<TTables>;
-	/**
-	 * The agent identity this daemon answers as (ADR-0025). A conversation row
-	 * names the one agent it is bound to in its `agent` column; the observe loop
-	 * hosts and answers exactly the rows whose `agent` equals this id. Authored in
-	 * configuration (the durable, stable address), not derived from the per-install
-	 * `nodeId`. Omit it for a daemon with no configured agent: it then hosts
-	 * nothing, leaving every conversation to its own bound agent.
-	 */
-	readonly agentId?: AgentId;
-};
-
 export type WorkspaceDefinition<
 	TTables extends TableDefinitions,
 	TKv extends KvDefinitions,
@@ -585,7 +389,6 @@ export type WorkspaceDefinition<
 		connection: null,
 		options: ConnectOptions<TTables, TKv, TActions, TRuntime>,
 	): LocalWorkspaceWithRuntime<TTables, TKv, TRuntime>;
-	mount(options: MountOptions<TTables, TKv, TActions>): Mount;
 };
 
 /** The unconnected root workspace returned by `definition.create()`. */
@@ -702,9 +505,7 @@ export function createWorkspace<
  * `create()` constructs; `connect()` connects:
  *
  *   create()                     Bare root: Y.Doc + tables + KV + actions. No
- *                                persistence, no sync, no child-doc openers. Daemon
- *                                and test runtimes attach their own storage and
- *                                transport around it.
+ *                                persistence, no sync, no child-doc openers.
  *   connect(connection | null)   The browser preset. The connection IS the boot
  *                                decision (ADR-0088/ADR-0094): credentials wire
  *                                principal-scoped IndexedDB plus the WebSocket relay
@@ -724,18 +525,8 @@ export function createWorkspace<
  *                                serves). That ordering is why `compose` is a
  *                                callback here, not a step you run after
  *                                `connect()`.
- *   mount(options)               The daemon preset: `create()` plus Yjs-log
- *                                persistence, cloud sync, and materializers, with
- *                                node dependencies injected through
- *                                `options.runtime`. Its `compose` mirrors the
- *                                browser one (select watcher-local actions, attach
- *                                materializers); see `mount` below.
- *
  * `connect()` is `create()` plus the browser storage/transport bundle
- * (`connectTableChildDocs` + relay or bare wiring). `mount(options)` is
- * `create()` plus the daemon storage/transport bundle, coordinated over
- * injected node functions so the browser barrel that ships this definition
- * never imports a node module.
+ * (`connectTableChildDocs` + relay or bare wiring).
  */
 export function defineWorkspace<
 	TTables extends TableDefinitions,
@@ -746,8 +537,8 @@ export function defineWorkspace<
 ): WorkspaceDefinition<TTables, TKv, TActions> {
 	/**
 	 * Bare root: Y.Doc + tables + KV + actions. No persistence, no sync, no
-	 * child-doc openers. Daemon and test runtimes attach their own
-	 * storage/transport around it (see each app's `project.ts`).
+	 * child-doc openers. Tests and specialized runtimes may attach their own
+	 * storage or transport around it.
 	 *
 	 * `createWorkspace` builds the doc, tables, and KV with an empty action
 	 * registry; the action builder closes over that live root and the result is
@@ -892,95 +683,12 @@ export function defineWorkspace<
 		});
 	}
 
-	/**
-	 * Daemon runtime: the bare root plus disk persistence, cloud sync, and
-	 * materializers. A pure coordinator over the injected `options.runtime`, so
-	 * this method (and the browser barrel that ships it) never imports a node
-	 * module. It collapses the ritual every mount used to repeat by hand: wrap in
-	 * `defineSessionMount`, resolve the base URL, `create()` the root, run the
-	 * caller's `compose`, attach mount infrastructure, and assemble the runtime.
-	 *
-	 * `compose` exists to attach materializers, which enroll their own drain
-	 * through `scope.registerDrain`; omit it for a pure sync-and-persist mirror.
-	 *
-	 * The mount's display label is the definition's `name`, declared once on the
-	 * definition rather than restated at every call site.
-	 */
-	function mount(mountOptions: MountOptions<TTables, TKv, TActions>): Mount {
-		const { runtime } = mountOptions;
-		return runtime.defineSessionMount({
-			name: options.name,
-			open(ctx) {
-				const baseURL = runtime.resolveBaseURL(mountOptions.baseURL);
-				const workspace = create();
-				// The coordinator owns the drain registry for this open(): the
-				// `scope.registerDrain` it hands compose pushes here, and the
-				// collected barriers go to infrastructure so a shutdown awaits every
-				// materializer's pending projection write. compose never returns
-				// materializers; the attach helpers enroll themselves.
-				const drains: Drainable[] = [];
-				const scope: MountComposeScope = {
-					ctx,
-					baseURL,
-					registerDrain: (drainable) => {
-						drains.push(drainable);
-					},
-				};
-				// compose is side-effect only: it attaches materializers, which
-				// enroll their own drain through `scope.registerDrain`. Nothing to
-				// collect from its return; the watcher serves no actions (ADR-0112).
-				mountOptions.compose?.({ workspace, scope });
-				// Schema-driven child-doc workers. The coordinator reads the layout
-				// and guid deriver from the definition (never re-passed by the app),
-				// so a worker cannot interpret a body with a layout that disagrees
-				// with the schema. Each worker enrolls its own drain. Runs before
-				// infrastructure so the loops are observing the root table by the
-				// time sync starts to fill it.
-				if (mountOptions.workers) {
-					connectMountWorkers({
-						workers: mountOptions.workers,
-						workspace,
-						definitions: options.tables,
-						connectBody: runtime.connectChildDoc(ctx, baseURL),
-						selfAgentId: mountOptions.agentId,
-						registerDrain: scope.registerDrain,
-						// The mount environment every worker factory answers with: the
-						// signed-in session (guaranteed by `defineSessionMount`) and the
-						// resolved sync base URL its cloud calls target.
-						session: ctx.session,
-						baseURL,
-					});
-				}
-				// `attachInfrastructure` wires sync/presence and drains every
-				// registered materializer in order on shutdown, so it runs after
-				// compose has registered them.
-				const infrastructure = runtime.attachInfrastructure(
-					workspace.ydoc,
-					ctx,
-					{
-						baseURL,
-						// Publish the mount's agent so peers can decorate it as live in
-						// a picker (ADR-0025); the same id the child-doc workers use for
-						// designation. Absent when the mount answers as no named agent.
-						agentId: mountOptions.agentId,
-						materializers: drains,
-					},
-				);
-				return {
-					...workspace,
-					...infrastructure,
-				};
-			},
-		});
-	}
-
 	return {
 		id: options.id,
 		tables: options.tables,
 		kv: options.kv,
 		create,
 		connect,
-		mount,
 	};
 }
 
@@ -1124,104 +832,4 @@ function connectTableChildDocs<TTableDefinitions extends TableDefinitions>({
 	}
 
 	return connectedTables as ConnectedTables<TTableDefinitions>;
-}
-
-/**
- * Wire the schema-driven daemon child-doc workers for a mount, the browser-safe
- * twin of {@link connectTableChildDocs}.
- *
- * For every `(table, field)` the mount registered a worker on, read the field's
- * layout from the definition and its guid deriver from the workspace's own
- * `.docs` namespace, then run {@link attachChildDocWorker} over the injected node
- * `connectBody`. The app supplied only the per-body factory, so identity (the
- * guid) and shape (the layout) stay single-owner: a worker can never read a body
- * with a layout that disagrees with the schema, the way a hand-passed `layout`
- * would allow.
- *
- * Each worker enrolls its drain through `registerDrain`; its body teardown
- * cascades off the root `ydoc.destroy()` inside {@link attachChildDocWorker}, so
- * there is no handle to thread back.
- */
-function connectMountWorkers<TTableDefinitions extends TableDefinitions>({
-	workers,
-	workspace,
-	definitions,
-	connectBody,
-	selfAgentId,
-	registerDrain,
-	session,
-	baseURL,
-}: {
-	workers: MountWorkers<TTableDefinitions>;
-	workspace: Workspace<TTableDefinitions, KvDefinitions, ActionRegistry>;
-	definitions: TTableDefinitions;
-	connectBody: (guid: string) => ConnectedChildDoc;
-	/**
-	 * The agent identity this daemon answers as, or `undefined` when no agent is
-	 * configured (it then designates nothing). The loop hosts exactly the rows
-	 * whose `agent` equals it.
-	 */
-	selfAgentId: AgentId | undefined;
-	registerDrain: (drainable: ChildDocWorker) => void;
-	/**
-	 * The mount environment injected into every per-body factory: the signed-in
-	 * session and the resolved sync base URL ({@link MountWorkerContext}). The
-	 * generic loop never sees these; this coordinator adapts the app's
-	 * session-aware factory down to the loop's plain one.
-	 */
-	session: MountSession;
-	baseURL: string;
-}): void {
-	// `Object.entries` erases the per-table types the public `MountWorkers` already
-	// enforced, so the loop body works in the widened `string`/`unknown` forms and
-	// casts at the schema reads (layout, guid) and the designation read.
-	for (const [collection, fieldWorkers] of Object.entries(workers) as [
-		string,
-		Record<string, MountWorkerFactory<string, unknown>> | undefined,
-	][]) {
-		if (fieldWorkers === undefined) continue;
-		const definition = definitions[collection as keyof TTableDefinitions]!;
-		// One structural view of the connected table: the loop reads its
-		// schema-derived guid derivers, scans/observes its rows, and reads a row's
-		// bound `agent` to decide designation. `get` returns the row or `null`.
-		const table = workspace.tables[
-			collection as keyof TTableDefinitions
-		] as unknown as {
-			docs: Record<string, RowDocGuid<string>>;
-			scan(): { rows: ReadonlyArray<{ id: string }> };
-			observe(callback: () => void): () => void;
-			get(id: string): { data: { agent?: AgentId } | null };
-		};
-		// The designation contract (ADR-0025): a daemon hosts and answers exactly
-		// the rows bound to the agent it answers as. Composed once here, the single
-		// owner of the rule, so an app's worker factory supplies behavior alone. A
-		// daemon with no configured agent (`selfAgentId` undefined) designates
-		// nothing, so every conversation is left to its own bound agent.
-		const isDesignated = (rowId: string): boolean =>
-			selfAgentId !== undefined && table.get(rowId).data?.agent === selfAgentId;
-
-		for (const [field, workerFor] of Object.entries(fieldWorkers)) {
-			if (workerFor === undefined) continue;
-			// Layout and guid both come from the schema, never the call site.
-			const declaration = definition.docDecls[field] as ChildDocDeclaration;
-			const layout =
-				typeof declaration === 'function' ? declaration : declaration.layout;
-			const guidEntry = table.docs[field]!;
-			// Adapt the app's session-aware factory down to the loop's plain one by
-			// injecting the mount environment. The loop stays transport-agnostic; the
-			// daemon environment lives only here.
-			const loopWorkerFor: ChildDocWorkerFactory<string, unknown> = (context) =>
-				workerFor({ ...context, session, baseURL });
-			const worker = attachChildDocWorker<string, unknown>({
-				rootDoc: workspace.ydoc,
-				table,
-				guidFor: (rowId) => guidEntry.guid(rowId),
-				connectBody,
-				layout: layout as unknown as ObservableChildDocLayout<unknown>,
-				workerFor: loopWorkerFor,
-				isDesignated,
-			});
-			registerDrain(worker);
-		}
-	}
 }

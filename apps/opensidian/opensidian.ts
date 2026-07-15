@@ -4,14 +4,13 @@
  * state, browser shell APIs, or daemon process lifecycle.
  *
  * Distribution: `apps/opensidian/package.json` exports this file as the
- * `opensidian` package root. Browser code, daemon code, and tests all import
- * from here. The table shapes here are the wire contract for sync; forking a
+ * `opensidian` package root. Browser code and tests import from here. The table
+ * shapes here are the wire contract for sync; forking a
  * column shape breaks sync compatibility with peers running the canonical
  * schema.
  *
  * Composition lives elsewhere:
- *  - `apps/opensidian/opensidian.browser.ts` -> `openOpensidianBrowser({ signedIn, nodeId })`
- *  - `apps/opensidian/mount.ts`                      -> `opensidian()` mount factory
+ *  - `apps/opensidian/opensidian.browser.ts` -> `openOpensidianBrowser(...)`
  */
 
 import { filesTable } from '@epicenter/filesystem';

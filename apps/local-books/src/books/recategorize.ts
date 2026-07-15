@@ -13,12 +13,12 @@
  * QuickBooks rejects the stale token (a 409 `Http` error) rather than clobbering
  * their change; the caller should re-sync and retry.
  *
- * Running the `recategorize` verb is the approval, the human gate ADR-0072 keeps
- * in place of the daemon loop's synchronous approval pause.
+ * Running the `recategorize` verb is the approval. No background loop infers
+ * approval from queued work.
  *
  * Read-only is a CORE invariant, not an adapter check: the write is refused here
  * (the single owner) when `readOnly` is set, so the verb-core seam ADR-0072
- * promises is safe to wrap. A future daemon/MCP adapter over this core cannot
+ * promises is safe to wrap. An MCP or HTTP adapter over this core cannot
  * forget the gate and move money, because `readOnly` is a required argument.
  */
 
@@ -160,7 +160,7 @@ export async function recategorizeExpense({
 	input: RecategorizeInput;
 	/**
 	 * Whether writes are forbidden. Required (no default) so every caller, the
-	 * CLI today and any future daemon/MCP adapter, must decide explicitly; a
+	 * CLI, HTTP, and MCP adapters must decide explicitly; a
 	 * wrapper cannot silently skip the gate. This core is the single owner of the
 	 * read-only invariant.
 	 */

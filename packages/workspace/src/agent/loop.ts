@@ -2,7 +2,7 @@
  * The client-side agent loop (ADR-0047): one shape for every agent, run in the
  * client, in memory. It streams the live turn into a snapshot the UI renders,
  * drives the multi-step model/tool dance, and persists only finished messages
- * as last-write-wins records. The daemon never runs this loop; tools reach it as
+ * as last-write-wins records. A background process never runs this loop; tools reach it as
  * dispatched actions through the injected {@link ToolCatalog}.
  *
  * This is the framework-agnostic core. A Svelte binding mirrors its

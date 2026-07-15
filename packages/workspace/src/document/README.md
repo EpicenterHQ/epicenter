@@ -11,14 +11,14 @@ A typed interface over Y.js for apps that need to evolve their data schema over 
 
 This is a wrapper around Y.js that handles schema versioning. Local-first apps can't run migration scripts, so data has to evolve gracefully. Old data coexists with new. The Workspace API bakes that into the design: define your schemas once with versions, write a migration function, and everything else is typed.
 
-The pattern: `defineWorkspace({ id, tables, kv, actions })` declares the shared isomorphic model. `definition.create()` builds the unconnected root doc for daemon composition. `definition.connect(connection | null)` creates the runtime with local storage, optional sync, wipe, and table child-doc openers. `definition.connect(connection, compose)` lets a runtime add extras and expose its final action registry on the workspace bundle; `definition.connect(null, { persistence, compose })` additionally injects a non-browser local persistence environment (the options object is only accepted on the local arm). `createWorkspace({ id, tables, kv })` and `satisfiesWorkspace(...)` remain lower-level primitives for internals, tests, and ports that have not moved to definitions yet.
+The pattern: `defineWorkspace({ id, tables, kv, actions })` declares the shared isomorphic model. `definition.create()` builds an unconnected root doc for tests and specialized runtimes. `definition.connect(connection | null)` creates the runtime with local storage, optional sync, wipe, and table child-doc openers. `definition.connect(connection, compose)` lets a runtime add extras and expose its final action registry on the workspace bundle; `definition.connect(null, { persistence, compose })` additionally injects a non-browser local persistence environment (the options object is only accepted on the local arm). `createWorkspace({ id, tables, kv })` and `satisfiesWorkspace(...)` remain lower-level primitives for internals, tests, and ports that have not moved to definitions yet.
 
 ```
 +----------------------------------------------------------------+
 | Your App                                                       |
 +----------------------------------------------------------------+
 | defineWorkspace(...): shared definition                        |
-| open<App>Browser/Daemon/Tauri(): runtime attachments              |
+| open<App>Browser/Tauri(): runtime attachments                     |
 +----------------------------------------------------------------+
 | defineWorkspace({ id, tables, kv, actions }).connect(...)         |
 |   -> { ydoc, tables, kv, actions, child-doc openers, ... }     |
@@ -38,7 +38,7 @@ Three prefixes, each with a consistent meaning:
 
 - **`define*`** is pure: no Y.Doc, no side effects. Schemas, KV definitions, action factories, and app workspace definitions.
 - **`create*`** constructs a model, registry, or cache. `createWorkspace` creates the low-level Y.Doc bundle for internals and tests.
-- **`open*`** constructs or receives a model and attaches runtime lifecycle: browser storage, daemon sync, SQLite readers, or Tauri services.
+- **`open*`** constructs or receives a model and attaches runtime lifecycle: browser storage, SQLite readers, or Tauri services.
 - **`attach*`** binds a capability to an existing `Y.Doc` (or, in one documented cross-package case, to a sibling attachment). Side-effectful: registers observers or destroy listeners at call time. Returns a typed handle.
 
 See `.agents/skills/attach-primitive/SKILL.md` for the full contract (shape, invariants, barrier naming).
@@ -108,10 +108,10 @@ Tables stay lean (ids, titles, metadata). Rich content lives in table-declared
 child docs: `.docs({ body: attachRichText })`. The opener derives each doc
 guid from the workspace id, table name, row id, and field; rows do not store
 those guids. Browser runtimes use `tables.notes.docs.body.open(noteId)` when a
-surface needs the content doc. Daemon projections can derive the same guid,
-read one doc for one row, and destroy it.
+surface needs the content doc. Specialized one-shot readers can derive the same
+guid, read one doc for one row, and destroy it.
 See `apps/honeycrisp/src/lib/workspace/browser.ts` for the current browser-side
-child doc pattern. No shipped daemon currently projects rich-text child docs.
+child doc pattern.
 
 ## Design Decisions
 
@@ -137,6 +137,5 @@ Tests live in `*.test.ts` next to the implementation. Use `createWorkspace({ id:
 
 - `apps/whispering/src/lib/whispering/whispering.tauri.ts`: IndexedDB + BroadcastChannel + recording markdown export
 - `apps/honeycrisp/src/lib/workspace/browser.ts`: IndexedDB + sync + per-row child docs
-- `apps/tab-manager/mount.ts`: daemon materializers for root-table projections
 - `packages/workspace/README.md`: quick start
 - `packages/workspace/SYNC_ARCHITECTURE.md`: multi-node sync design

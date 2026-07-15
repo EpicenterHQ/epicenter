@@ -6,7 +6,7 @@ This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and 
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See `apps/self-host` for the self-hosted reference and the trust model below.
 
-Runs on Cloudflare Workers with Durable Objects. Cloud sync opens documents through `/api/rooms/:room` (the same path for either deployment): a cloud doc is partitioned by the authenticated `principalId` and addressed by its `ydoc.guid`, and the route resolves the DO name `principals/${principalId}/rooms/${room}` from the auth token. Browser apps and the workspace daemon both use this route. The Hono route's auth middleware authorizes the caller before it builds the internal room name.
+Runs on Cloudflare Workers with Durable Objects. Cloud sync opens documents through `/api/rooms/:room` (the same path for either deployment): a cloud doc is partitioned by the authenticated `principalId` and addressed by its `ydoc.guid`, and the route resolves the DO name `principals/${principalId}/rooms/${room}` from the auth token. Browser apps and app-owned runtimes use this route. The Hono route's auth middleware authorizes the caller before it builds the internal room name.
 
 ## Why a hub exists
 

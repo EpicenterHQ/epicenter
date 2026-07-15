@@ -292,8 +292,8 @@ export function defineMutation({ handler, ...rest }: any): Action {
  * Raised by {@link invokeAction} when the supplied input fails the action's
  * declared `input` schema. This is the one place the schema is enforced at
  * runtime: a value that reaches a handler has already matched the contract the
- * action published. The daemon maps it to a usage error (bad input, not a
- * handler crash).
+ * action published. An app-specific CLI or tool adapter can map it to a usage
+ * error (bad input, not a handler crash).
  */
 export const ActionInputError = defineErrors({
 	InvalidInput: ({

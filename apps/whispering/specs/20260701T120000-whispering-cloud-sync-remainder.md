@@ -1,13 +1,13 @@
-# Whispering Cloud Sync: Remainder (Audio to R2, Daemon Mount)
+# Whispering cloud sync remainder: audio to R2
 
 **Date**: 2026-07-01
 **Status**: Draft
 **Owner**: Braden
-**Carries forward from**: `apps/whispering/specs/20260602T140000-cloud-sync-and-account.md` (deleted). That spec's Phases 1 (auth wiring), 2 (optional synced workspace, reload-on-auth), and 4 (first-sign-in migration) shipped and are verified live in `apps/whispering/src/lib/whispering/whispering.active.ts`, `apps/whispering/src/lib/whispering/reload-on-principal-change.ts`, and `apps/whispering/src/lib/migration/sign-in-migration.svelte.ts`, so they are not repeated here. Phase 3 (settings sync allowlist) needed no work; the `deviceConfig` vs `whispering.kv` split already implemented it. This file carries only what was never built: Phase 5 (audio to R2), Phase 6 (Tauri daemon mount), and the parent spec's four open questions. Read the deleted spec's body with `git log --all --full-history -- "apps/whispering/specs/20260602T140000-cloud-sync-and-account.md"` then `git show <sha>:<path>` if deeper context is needed; this file does not redesign anything, it is the unexecuted remainder verbatim.
+**Carries forward from**: `apps/whispering/specs/20260602T140000-cloud-sync-and-account.md` (deleted). That spec's Phases 1 (auth wiring), 2 (optional synced workspace, reload-on-auth), and 4 (first-sign-in migration) shipped and are verified live in `apps/whispering/src/lib/whispering/whispering.active.ts`, `apps/whispering/src/lib/whispering/reload-on-principal-change.ts`, and `apps/whispering/src/lib/migration/sign-in-migration.svelte.ts`, so they are not repeated here. Phase 3 (settings sync allowlist) needed no work; the `deviceConfig` vs `whispering.kv` split already implemented it. The generic Tauri daemon remainder is dropped by ADR-0144. This file now carries only opt-in audio upload and the parent spec's remaining open questions.
 
 ## One Sentence
 
-Recording audio stays device-local by default; the unbuilt remainder is an opt-in per-recording upload to R2 through principal-scoped bearer-authed routes, plus a headless Tauri daemon mount for background sync, both still undecided on the open questions below.
+Recording audio stays device-local by default; the unbuilt remainder is an opt-in per-recording upload to R2 through principal-scoped bearer-authenticated routes.
 
 ## Phase 5: Audio to R2 (opt-in)
 
@@ -43,10 +43,6 @@ GET  /api/audio/:recordingId    # download/stream
 ### Billing note
 
 R2 storage/egress is hosted-personal-cloud only; keep it in `apps/api/worker`, never in the shared library seam.
-
-## Phase 6 (deferred): Tauri daemon mount
-
-- [ ] **6.1** `workspaces/whispering/daemon.ts` via `defineMount` for headless background sync.
 
 ## Open Questions
 

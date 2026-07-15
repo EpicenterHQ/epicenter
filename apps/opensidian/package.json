@@ -6,8 +6,7 @@
 	"type": "module",
 	"exports": {
 		".": "./opensidian.ts",
-		"./browser": "./opensidian.browser.ts",
-		"./mount": "./mount.ts"
+		"./browser": "./opensidian.browser.ts"
 	},
 	"scripts": {
 		"dev": "vite dev",

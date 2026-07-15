@@ -18,6 +18,7 @@
 	"scripts": {
 		"connect": "bun run src/bin.ts connect",
 		"sync": "bun run src/bin.ts sync",
+		"watch": "bun run src/bin.ts watch",
 		"status": "bun run src/bin.ts status",
 		"app": "bun run src/bin.ts app",
 		"app:desktop": "tauri dev",

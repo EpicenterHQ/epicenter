@@ -16,7 +16,7 @@ export type ParsedArgs = {
 	positionals: string[];
 	full: boolean;
 	entities: string[];
-	/** When set, `sync` loops on this interval (ms) instead of running once. */
+	/** Poll interval for the foreground `watch` command. */
 	intervalMs?: number;
 	dataDir?: string;
 	realm?: string;
@@ -44,6 +44,7 @@ const HELP = `local-books: keep a private local copy of your QuickBooks books, t
 Usage:
   local-books auth [options]
   local-books sync [--full] [--entity <name>]... [options]
+  local-books watch [--full] [--interval <duration>] [options]
   local-books status [options]
   local-books query "<sql>" [options]
   local-books report <Name> [--start <date>] [--end <date>] [--method <basis>]
@@ -59,7 +60,8 @@ First run:
 
 Commands:
   auth          Connect a QuickBooks company once (opens a browser). Saves tokens to a 0600 credentials file.
-  sync          Refresh the local copy. Full vs incremental is chosen automatically; --full forces full.
+  sync          Refresh the local copy once, then exit. Full vs incremental is chosen automatically; --full forces full.
+  watch         Keep the local copy fresh in the foreground. Ctrl-C stops it.
   status        Show connection state, what is synced, and row counts.
   query         Run a read-only SQL query over the local copy (point an AI agent here too).
   report        Run a live QuickBooks statement: ProfitAndLoss, BalanceSheet, CashFlow, AgedReceivables, AgedPayables, TrialBalance.
@@ -71,7 +73,7 @@ Commands:
 Options:
   --full                          Force a full pull (sync only).
   --entity <name>                 Limit sync to these record types (repeatable). Default: all.
-  --interval <dur>                Keep syncing on a loop, e.g. 30m or 1h (sync only; Ctrl-C to stop).
+  --interval <dur>                Poll interval for watch, e.g. 30m or 1h (default: 5m).
   --start <YYYY-MM-DD>            Report period start (report only).
   --end <YYYY-MM-DD>              Report period end (report only).
   --method <Cash|Accrual>         Report basis (report only; defaults to the company setting).
@@ -234,6 +236,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		case 'auth':
 			return runAuth(args);
 		case 'sync':
+		case 'watch':
 			return runSync(args);
 		case 'status':
 			return runStatus(args);

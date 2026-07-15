@@ -3,7 +3,7 @@
  *
  * Both `attachYjsLog` (the Y.Doc update-log writer) and
  * `attachBunSqliteMaterializer` (the queryable projection writer) sit on the
- * same axis: a single daemon writes the file, many script peers open it
+ * same axis: one application-owned process writes the file, while scripts open it
  * `{ readonly: true }` and snapshot-read in parallel. This factory is the one
  * place that handles the writer-side preamble: ensure the parent dir exists,
  * open the database, and apply the standard concurrency PRAGMAs.
@@ -65,7 +65,7 @@ const SqliteWriterError = defineErrors({
 type SqliteWriterError = InferErrors<typeof SqliteWriterError>;
 
 /**
- * Open (or create) a writer-side SQLite file ready for the daemon's
+ * Open (or create) a writer-side SQLite file ready for an application's
  * many-readers + one-writer design.
  *
  * - Ensures the parent directory exists (`mkdirSync` recursive).

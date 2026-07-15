@@ -6,41 +6,40 @@ Canonical positioning for Epicenter. This doc owns the public claims and the rul
 
 The product picture all messaging derives from. This section describes the end state, not public copy. Public copy quotes the Spine. The Destination is the compass, never quoted directly.
 
-One folder on your disk is one app. Drop an `epicenter.config.ts` into a folder
-and that folder becomes an Epicenter app; its name is your choice. The config
-default-exports one app, and that app's read-only Markdown projection, its
-machine state, and its sync all run from that one folder. A workspace is the
-folder where you keep those app folders side by side with the folders you own:
+One purpose-built app owns one synchronized collection. The app opens its local
+data directly while it runs. Typed records live in SQLite; synchronized
+preferences and collaborative documents live in Yjs. One connection chooses
+local-only or server-backed operation without exposing those two protocols to
+the app:
 
 ```txt
-~/workspace/
-|-- apps/
-|   |-- whispering/
-|   |   |-- epicenter.config.ts   default-exports the whispering app
-|   |   |-- recordings/           read-only Markdown projection of live app state
-|   |   `-- .epicenter/           machine state; ignore it
-|   `-- tabs/
-|       |-- epicenter.config.ts   default-exports the tabs app
-|       |-- saved/                read-only Markdown projection of live app state
-|       `-- .epicenter/           machine state; ignore it
-|-- journal/                      yours forever
-|-- ideas/                        yours forever
-`-- publish/                      yours forever
+application
+|-- records: local SQLite <-> authenticated HTTP replication
+|-- documents: local Yjs <-> authenticated room WebSockets
+|-- optional Markdown and SQLite projections into folders you own
+`-- app-owned execution while open, or explicit sync/status/watch commands
 ```
 
-Each app is its own folder, so each runs its own daemon and is its own sync
-peer; nothing multiplexes. Group the app folders however you like: the `apps/`
-container is convention, not a rule, and nothing reserves the name. Your own
-folders (`journal/`, `ideas/`, `publish/`) sit beside them as plain files you
-keep forever.
+There is no generic daemon, mounted project root, installation registry, or
+process-oriented Epicenter status. An open app owns its runtime. An app that
+needs command-line catch-up exposes its own one-shot `sync`, data-oriented
+`status`, and foreground `watch`; the operating system may schedule or supervise
+those commands. Your own folders remain plain files you keep forever.
 
 You speak a thought into Whispering and it lands in your Whispering app folder as Markdown. You save tabs, draft entries, capture whatever, each through a purpose-built app, and every capture becomes a file you can grep. An agent reads the same files, queries the SQLite mirrors with plain SQL, and when it needs to change app state it goes through the same gate you do: a workspace action, validated against the app's schema and exposed to the agent as a tool. Nothing mutates by editing generated files; the projection is one-way on purpose.
 
-The loop is capture, curate, keep. App output is a disposable inbox, regenerable from the CRDT at any time. What matters graduates into folders you own: ordinary Markdown, tracked in git, still yours after every app in this repo is gone.
+The loop is capture, curate, keep. An app inbox is synchronized working state.
+What matters graduates into folders you own: ordinary Markdown, tracked in git,
+still yours after every app in this repo is gone.
 
 The quiet bet: the properties that make a workspace durable for you are the same ones that make it legible to agents. Plain files are the context window. SQLite is the query surface. The action registry is the tool list. Epicenter is the workspace where you and your agents are co-writers under one set of rules.
 
-What we refuse to build is the strategy. No partial sync: a workspace is one full local replica, which is what lets Yjs carry it instead of a private protocol. No row-level permissions: the app corpus is the unit of sharing; the folder is a local projection and runtime site for that corpus. No editing generated projections back into apps: one validated write path, for humans and agents alike. Each refusal pays for the simplicity of everything else.
+What we refuse to build is the strategy. No partial sync: a workspace is one
+full local replica. No row-level permissions: the app corpus is the unit of
+sharing. No editing generated projections back into apps: one validated write
+path, for humans and agents alike. No universal sync protocol: records use HTTP
+replication and Yjs documents use their native room protocol. Each refusal pays
+for the simplicity of everything else.
 
 ## The Spine
 
@@ -60,7 +59,7 @@ One paragraph, for anyone giving us thirty seconds (website about page, CONTRIBU
 
 The developer cut, for `@epicenter/workspace` and other toolkit surfaces (npm, package READMEs, technical talks):
 
-> A local-first workspace engine for TypeScript apps: Yjs as the source of truth, Markdown and SQLite as the outputs.
+> A local-first workspace engine for TypeScript apps: SQLite records, Yjs documents, and files you own.
 
 The public cut, for epicenter.so and other general-audience surfaces:
 
@@ -76,7 +75,12 @@ The long-form narrative, for surfaces with room to breathe (landing page body, l
 
 Most tools store your data in their own silo. Epicenter gives purpose-built apps a shared local-first workspace: app data can be browsed as Markdown, queried through SQLite, and curated into folders you control. Your folders are ordinary Markdown: grep them, open them in Obsidian, version them with Git, publish them with whatever static site stack you like. Your transcripts can inform your notes. Your saved tabs can become drafts. Good captures graduate into your long-term workspace instead of staying trapped in the app that caught them.
 
-Under the hood, app-owned state lives in Yjs, materializes to SQLite for fast queries, and materializes to Markdown for human-readable projections. Sync happens over the Yjs protocol when you turn it on, through a relay that reads your data in plaintext: hosted Epicenter holds it, and self-hosting puts it on infrastructure you control. Privacy is a topology choice, not an encryption layer.
+Under the hood, app-owned records live in SQLite and collaborative documents
+live in Yjs. Apps may project either into Markdown for human-readable output.
+Records replicate through authenticated HTTP; Yjs documents synchronize through
+authenticated room WebSockets. Hosted Epicenter reads synchronized data in
+plaintext, while self-hosting puts it on infrastructure you control. Privacy is
+a topology choice, not an encryption layer.
 
 ## The Proof Line
 
@@ -109,7 +113,7 @@ Do not use hype words: `AI-native`, `agentic`, `next-gen`, `revolutionary`, `red
 
 - An **open-source, local-first workspace**: purpose-built apps plus Markdown folders you own
 - A **TypeScript library** (`@epicenter/workspace`) for building CRDT-backed apps with typed schemas, materializers, and actions
-- A **CLI** (`epicenter`) for running a headless watcher that syncs and materializes one workspace root
+- A **CLI** (`epicenter`) for explicit auth, cloud storage, typed Markdown, and portable table workflows
 - A **sync server** (AGPL, self-hostable) that relays CRDT updates between your devices
 
 ## What Epicenter Is Not
@@ -125,7 +129,7 @@ Every claim we make publicly should be provable by inspecting the repo:
 | Claim | Proof |
 |---|---|
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Readable Markdown and queryable SQLite" | Markdown materializers write `.md` files with YAML frontmatter. SQLite materializers keep rebuildable query mirrors. |
+| "Readable Markdown and queryable SQLite" | Workspace records use SQLite directly; Markdown materializers can write `.md` files with YAML frontmatter. |
 | "A workspace you own" | The local project layout separates user-owned folders from generated app projections and hidden machine state. |
 | "CRDT-powered sync" | App-owned live state uses Yjs documents; sync uses the Yjs protocol over WebSocket. |
 | "Trusted relay, not an encryption layer" | The relay runs Yjs and reads plaintext. Privacy comes from who holds the data, not from a key we ship. See `docs/trust-model.md`. |

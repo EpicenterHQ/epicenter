@@ -84,9 +84,12 @@ Finding: `schedule`, `batch`, `digest` belong to a sibling product. The cohesion
 
 Bad: *"A CLI for managing your workspace."* Vague. Could be anything.
 
-Good: *"Introspect and invoke `defineQuery`/`defineMutation` actions in `epicenter.config.ts`, either locally or on a peer that's online right now."*
+Good: *"Refresh one QuickBooks company into a local SQLite mirror, report its durable freshness, and answer read-only queries from that mirror."*
 
-The good sentence names the objects (actions), their source (config file), the verbs (introspect, invoke), and the scope (local or live peer). Every CLI command maps to one of those verbs or objects. Anything else is a surface that does not belong.
+The good sentence names the objects (company and mirror), the verbs (refresh,
+report, answer), and the authority boundary (QuickBooks to local SQLite). Every
+CLI command maps to one of those verbs or objects. Anything else is a surface
+that does not belong.
 
 ## Application B: Value-Add Audit (bottom-up)
 

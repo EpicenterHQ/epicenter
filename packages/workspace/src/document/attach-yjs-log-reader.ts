@@ -6,9 +6,7 @@
  * listener, no compaction timer, no writes. The reader's Y.Doc can mutate
  * freely afterwards; mutations stay in memory and never flow back to disk.
  *
- * Use case: script-side mirror of a daemon's Yjs log file (the
- * daemon-as-materializer-worker design at
- * `specs/20260429T235500-daemon-as-materializer-worker.md`).
+ * Use case: a read-only script opening the Yjs log written by an application.
  *
  * Missing files are a no-op: `fileExisted` is `false` with no replay
  * (the Y.Doc stays empty) so the caller falls through to cloud sync.
@@ -79,7 +77,7 @@ export function attachYjsLogReader(
 	return {
 		/**
 		 * `true` if the file existed at open time and rows were replayed;
-		 * `false` if the daemon has not written here yet. Snapshot value,
+		 * `false` if the owning application has not written here yet. Snapshot value,
 		 * taken once at construction; the file is not re-checked later.
 		 */
 		fileExisted,

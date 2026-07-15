@@ -1,64 +1,11 @@
 /**
- * Node and Bun-only workspace APIs.
+ * Node and Bun-only workspace primitives.
  *
- * Keep these exports out of the root `@epicenter/workspace` barrel so browser
- * bundles do not traverse modules that import `node:*` or `bun:*`.
+ * Keep these exports out of the browser-safe root barrel because they use
+ * filesystem and SQLite APIs. Application-specific runtimes compose them
+ * directly; this entrypoint owns no process or mount lifecycle.
  */
 
-export { findEpicenterRoot } from './client/find-epicenter-root.js';
-export { DEFAULT_EPICENTER_CONFIG_SOURCE } from './config/epicenter-config-source.js';
-export { EpicenterConfigError } from './config/load-epicenter-config.js';
-export {
-	type InactiveMount,
-	type OpenEpicenterRootOptions,
-	type OpenedMount,
-	openEpicenterRoot,
-	WorkspaceAppError,
-	type WorkspaceAuthClient,
-} from './config/open-epicenter-root.js';
-export {
-	type AttachMountInfrastructureOptions,
-	attachMountInfrastructure,
-} from './daemon/attach-mount-infrastructure.js';
-export {
-	defineMount,
-	defineSessionMount,
-	inactive,
-	isInactive,
-	type Mount,
-	type MountContext,
-	type MountInactive,
-	type MountSession,
-	type SessionMountContext,
-} from './daemon/define-mount.js';
-export {
-	claimDaemonLease,
-	type DaemonLease,
-} from './daemon/lease.js';
-export {
-	type DaemonMetadata,
-	enumerateDaemons,
-	readMetadata,
-	unlinkMetadata,
-	writeMetadata,
-} from './daemon/metadata.js';
-export {
-	attachMountMarkdown,
-	attachMountSqlite,
-	type MarkdownMountOptions,
-	type NodeMountRuntime,
-	nodeMountRuntime,
-	type SqliteMountOptions,
-} from './daemon/mount-runtime.js';
-export {
-	dirHash,
-	leasePathFor,
-	logPathFor,
-	metadataPathFor,
-} from './daemon/paths.js';
-export { sweepDaemonRuntimeFiles } from './daemon/runtime-files.js';
-export { StartupError } from './daemon/startup-errors.js';
-export type { DaemonRuntime, StartedMount } from './daemon/types.js';
 export {
 	attachYjsLog,
 	type YjsLogAttachment,
@@ -76,11 +23,4 @@ export {
 	openSqliteReader,
 	type SqliteReader,
 } from './document/open-sqlite-reader.js';
-export { openWorkspaceSqlite } from './document/open-workspace-sqlite.js';
-export {
-	markdownPath,
-	sqlitePath,
-	yjsPath,
-} from './document/workspace-paths.js';
 export { hashYDocClientId } from './shared/client-id.js';
-export type { EpicenterRoot } from './shared/types.js';

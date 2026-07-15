@@ -5,7 +5,7 @@ import { type TokenSet, TokenSetSchema } from './tokens.ts';
 
 /**
  * Where a realm's OAuth `TokenSet` lives, keyed by `realmId`: `auth` writes it,
- * `sync` / `status` / the daemon read it. The set never lives inside a company's
+ * `sync`, `status`, `watch`, and the app read it. The set never lives inside a company's
  * mirror db, so the agent's read-only SQL surface can never read it. `get`
  * returns `null` when nothing is stored; `set` throws if the write fails (disk,
  * permissions), which bubbles to the top-level CLI handler (`bin.ts`) rather than

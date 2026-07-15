@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/cli",
 	"version": "0.3.0",
-	"description": "CLI for Epicenter workspaces. Runs the headless watcher that keeps a folder synced and materialized.",
+	"description": "CLI for explicit Epicenter auth, cloud, and portable data workflows.",
 	"keywords": [
 		"local-first",
 		"CLI",
@@ -42,10 +42,7 @@
 		"yjs": "catalog:"
 	},
 	"devDependencies": {
-		"typebox": "catalog:",
 		"@epicenter/api": "workspace:*",
-		"@epicenter/honeycrisp": "workspace:*",
-		"@epicenter/tab-manager": "workspace:*",
 		"@types/bun": "catalog:",
 		"@types/yargs": "catalog:",
 		"typescript": "catalog:"

@@ -17,7 +17,7 @@
 
 ## Overview
 
-The hosted hub at `https://api.epicenter.so` handles auth, real-time sync, and AI inference. It runs on Cloudflare Workers with Durable Objects. Cloud sync enters through `/api/rooms/:roomId` (the same path in Cloud and self-hosted instance deployments): a cloud doc is scoped to the resolved `principalId` and addressed by its `ydoc.guid`, and the server resolves the room from the auth token. Browser apps and the workspace daemon both use this route.
+The hosted hub at `https://api.epicenter.so` handles auth, real-time sync, and AI inference. It runs on Cloudflare Workers with Durable Objects. Cloud sync enters through `/api/rooms/:roomId` (the same path in Cloud and self-hosted instance deployments): a cloud doc is scoped to the resolved `principalId` and addressed by its `ydoc.guid`, and the server resolves the room from the auth token. Browser apps and app-owned runtimes use this route.
 
 On the client, `@epicenter/workspace` exposes the preset directly: define your schema with `defineTable` / `defineKv`, wrap it with `defineWorkspace({ id, tables, kv, actions })`, then connect once at boot. `toConnection(auth, nodeId)` projects the auth snapshot: `null` signed out (bare local IndexedDB storage), the principal's connection signed in (principal-scoped storage plus relay sync).
 

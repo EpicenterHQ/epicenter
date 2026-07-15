@@ -9,8 +9,8 @@
  * statement, so even arbitrary SQL cannot mutate the mirror. Results are
  * row-capped so a broad query cannot flood a caller (or a model's context).
  *
- * This core is the seam ADR-0072 leaves open: a future daemon re-exposes it with
- * `defineQuery({ handler: queryBooks })` without changing this function.
+ * This core is shared by the CLI and the app-owned MCP server without changing
+ * the read-only database boundary.
  */
 
 import { Database } from 'bun:sqlite';

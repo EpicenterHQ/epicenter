@@ -152,7 +152,7 @@ describe('attachYjsLog', () => {
 		await writer.whenDisposed;
 
 		// Append a corrupt row after it. Pre-fix, replaying this row threw and
-		// aborted construction (the daemon could not open the mount at all).
+		// aborted construction (the owning application could not open the document).
 		appendCorruptRow(filePath);
 		expect(countRows(filePath)).toBe(2);
 

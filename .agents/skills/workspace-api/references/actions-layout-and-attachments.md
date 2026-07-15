@@ -1,7 +1,7 @@
 # Workspace Actions, Layout, And Attachments
 
 Detailed guidance for `defineWorkspace` actions, JSDoc, runtime action
-composition, workspace file layout, attachment ordering, and script/daemon
+composition, workspace file layout, attachment ordering, and application command
 boundaries.
 
 ## Actions
@@ -86,9 +86,8 @@ const workspace = tabManagerWorkspace.connect(connection, ({ actions }) => ({
 ```
 
 The registry returned from `compose` is the final registry exposed on the
-workspace bundle and, for daemon mounts, served through daemon action surfaces.
-That ordering is why runtime actions are composed inside `connect(...)` or
-`mount(...)`, not patched onto the bundle after construction.
+workspace bundle. That ordering is why browser runtime actions are composed
+inside `connect(...)`, not patched onto the bundle after construction.
 
 ### Return Shapes: Direct vs Adapter Contract
 
@@ -107,7 +106,7 @@ Rule of thumb:
 
 There is no in-room peer action dispatch through `openCollaboration`. The
 collaboration wire syncs Yjs updates and presence; actions stay local and are
-projected by daemon, CLI, MCP, or other adapter surfaces.
+projected by application CLI, MCP, or other explicit adapter surfaces.
 
 For the full matrix (every caller's view of every handler shape, all the
 decision trees, and the normalization boundaries), read
@@ -156,7 +155,7 @@ src/lib/
 |
 |-- workspace.ts       <- isomorphic schema, branded IDs, defineWorkspace(), pure actions
 |-- browser.ts         <- browser/local opener around workspaceDefinition.connect(...)
-|-- daemon.ts          <- daemon mount or daemon-specific composition when present
+|-- engine.ts          <- optional app-owned Bun/Node engine
 |
 +-- client.ts          <- optional runtime singleton
 ```
@@ -170,9 +169,9 @@ browser.ts / tauri.ts / extension.ts
   workspaceDefinition.connect(connection | null, compose?)
     -> runtime-specific actions and UI-side dependencies
 
-mount.ts
-  workspaceDefinition.mount(...)
-    -> Yjs log, cloud sync, materializers, daemon actions
+engine.ts
+  app-owned sync/status/watch or export work
+    -> explicit upstream client, cursor, lock, and local projection
 ```
 
 ### Layering Rules
@@ -181,8 +180,8 @@ mount.ts
    `defineWorkspace(...)`, isomorphic actions, and child-doc declarations.
 2. `browser.ts`, `extension.ts`, `tauri.ts`, or similar: runtime openers. Read
    auth once, call `.connect(...)`, and compose runtime-specific actions.
-3. `mount.ts`: daemon/runtime mount factory. Attach materializers and daemon
-   actions through `.mount(...)`.
+3. `engine.ts`: optional application-specific engine. It owns durable cursors,
+   writer locks, and explicit `sync`, `status`, or foreground `watch` commands.
 4. `client.ts`: optional singleton. It owns side effects such as auth
    subscriptions, persisted UI state, and module-level construction.
 
@@ -207,8 +206,7 @@ Each app exports its shared workspace surface from the package root or a single
 ```json
 {
 	"exports": {
-		".": "./workspace.ts",
-		"./mount": "./mount.ts"
+		".": "./workspace.ts"
 	}
 }
 ```
@@ -248,18 +246,18 @@ This ordering matters because sync exchanges the delta between local state and
 the server. If collaboration starts before local state loads, cold starts
 download more than they need.
 
-## Scripts And Daemon Actions
+## Scripts And Application Commands
 
 Do not use a nonexistent `connectWorkspace()` shortcut. Current one-off scripts
 usually take one of these shapes:
 
 - Read materialized files or SQLite when they only need a read model.
-- Call daemon actions through the daemon client when they need live app
+- Call an explicit application command or tool adapter when they need live app
   behavior.
 - Use `createWorkspace(...)` directly only for in-memory tests, package
   internals, migrations, or older ports that intentionally bypass the app-facing
   `defineWorkspace(...).connect(...)` path.
 
-Long-running Node behavior belongs in `epicenter.config.ts` / `mount.ts` as a
-daemon mount or materializer, not as an ad hoc script that opens its own
-parallel sync topology.
+Long-running Node behavior belongs to the application whose data it handles.
+Expose `watch` as a foreground process, use a product-owned writer lock, and let
+the invoking service manager own backgrounding, restart, shutdown, and logs.

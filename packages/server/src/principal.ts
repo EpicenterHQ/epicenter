@@ -3,7 +3,7 @@
  *
  * `PrincipalId` itself lives in `@epicenter/identity` because it flows through
  * `/api/session`, the persisted auth cell, and every client (browser,
- * extension, CLI, daemon). What lives here are the durable strings only
+ * extension, CLI, application process). What lives here are the durable strings only
  * a server cares about: Durable Object names, R2 object keys, and the
  * partition path segment they all share.
  *

@@ -109,7 +109,7 @@ export function openBooksDb(
 		db.exec('PRAGMA busy_timeout = 5000;');
 	} else {
 		// The mirror's concurrency contract, set once for every writer connection.
-		// The daemon's recategorize write-back and `local-books sync` are separate
+		// The app's recategorize write-back and `local-books sync` are separate
 		// processes on one file, so: WAL (readers never block the writer), a
 		// busy_timeout (a writer waits for a concurrent writer's lock instead of
 		// failing instantly with SQLITE_BUSY), and synchronous=NORMAL (the mirror is

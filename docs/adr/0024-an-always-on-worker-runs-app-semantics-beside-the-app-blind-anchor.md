@@ -1,6 +1,6 @@
 # 0024. An always-on worker runs app semantics beside the app-blind anchor
 
-- **Status:** Proposed (load-bearing for the worker concept of [ADR-0041](0041-every-answerer-is-a-worker-the-browser-never-answers.md) → [ADR-0043](0043-an-agent-answers-where-its-capability-lives.md), 2026-06-20)
+- **Status:** Superseded by [ADR-0043](0043-an-agent-answers-where-its-capability-lives.md)
 - **Date:** 2026-06-16
 - **Note (2026-06-20):** ADR-0041 resolved the latent tension between this ADR and [ADR-0033](0033-a-conversation-has-one-transport-and-two-triggers.md) by realizing the "hosted worker" quadrant as an on-demand Epicenter-hosted answerer. **Superseded same day by [ADR-0043](0043-an-agent-answers-where-its-capability-lives.md):** that quadrant is *not* built (it served a phantom cell), so Epicenter hosts no answerer. What stands from this ADR: the worker is a separate app-aware spoke beside the app-blind anchor, never fused into the anchor/room DO. What changes: an agent answers where its capability lives, so the answerer is the client tab (capability-free agent) or the user's own daemon (local-data agent), never a worker Epicenter runs for you.
 

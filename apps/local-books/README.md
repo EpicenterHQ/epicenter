@@ -114,7 +114,7 @@ The bearer gate is never disabled in any mode; dev just moves the credential ser
 
 ```sh
 local-books sync                  # refresh now; full vs incremental is chosen automatically
-local-books sync --interval 30m   # refresh now, then every 30 minutes until Ctrl-C
+local-books watch --interval 30m  # refresh now, then every 30 minutes until Ctrl-C
 ```
 
 `sync` is safe to stop and restart anytime (its position lives in the file). To keep it running across logout or reboot, wrap it in a launchd agent (macOS) or a systemd user service.

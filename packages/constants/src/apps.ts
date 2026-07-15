@@ -91,7 +91,7 @@ export const prodOrigins = (app: {
 }): readonly string[] => [app.url, ...(app.aliases ?? [])];
 
 /**
- * Default API base URL for Node consumers (CLI, daemon, tests). The constant
+ * Default API base URL for Node consumers (CLI, applications, tests). The constant
  * resolves to `process.env.EPICENTER_API_URL` when set, else
  * {@link PRODUCTION_API_URL}. Browsers and Workers lack `process.env`, so
  * they fall through to the production default automatically.

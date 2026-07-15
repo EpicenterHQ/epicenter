@@ -1,9 +1,9 @@
 /**
  * CLI entry-point tests.
  *
- * The binary surfaces daily workspace commands plus namespaced supporting
- * systems. These tests assert registration via `--help` output so they stay
- * decoupled from command semantics.
+ * The binary surfaces explicit cloud and portable-data workflows. These tests
+ * assert registration via `--help` output so they stay decoupled from command
+ * semantics.
  */
 import { describe, expect, spyOn, test } from 'bun:test';
 import { createCLI } from './cli.js';
@@ -48,27 +48,38 @@ describe('createCLI', () => {
 
 	test('help output registers supported top-level commands', async () => {
 		const help = await captureHelp();
-		expect(help).toMatch(/\bepicenter up\b/);
-		expect(help).toMatch(/\bepicenter down\b/);
-		expect(help).toMatch(/\bepicenter status\b/);
-		expect(help).toMatch(/\bepicenter logs\b/);
 		expect(help).toMatch(/\bauth\b/);
 		expect(help).toMatch(/\bblobs\b/);
 		expect(help).toMatch(/\btables\b/);
-		expect(help).toMatch(/\binit\b/);
 		expect(help).toMatch(/\bmatter\b/);
-		expect(help).not.toMatch(/\bdaemon\b/);
-		expect(help).not.toMatch(/\bepicenter ps\b/);
-		expect(help).not.toMatch(/\blist\b/);
-		expect(help).not.toMatch(/\bpeers\b/);
-		expect(help).not.toMatch(/\bepicenter run\b/);
+		for (const removed of [
+			'up',
+			'down',
+			'status',
+			'logs',
+			'init',
+			'daemon',
+			'ps',
+			'peers',
+			'run',
+		]) {
+			expect(help).not.toMatch(new RegExp(`\\bepicenter ${removed}\\b`));
+		}
 	});
 
-	test('the daemon namespace and ps alias are gone', async () => {
+	test('generic process lifecycle commands are gone', async () => {
 		const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
 		try {
-			for (const command of ['daemon', 'ps']) {
+			for (const command of [
+				'up',
+				'down',
+				'status',
+				'logs',
+				'init',
+				'daemon',
+				'ps',
+			]) {
 				await expect(createCLI().run([command])).rejects.toThrow(
 					`Unknown argument: ${command}`,
 				);

@@ -3,7 +3,7 @@
  *
  * A node id is a stable string that identifies one Epicenter app on one
  * persistent storage scope. Browser tabs sharing localStorage share an id;
- * separate browsers, the extension, Tauri windows, and the CLI daemon each
+ * separate browsers, the extension, Tauri windows, and Node processes each
  * get distinct ids because their storage scopes are distinct. The id is
  * generated on first call and persisted in the supplied storage; subsequent
  * calls return the persisted value.

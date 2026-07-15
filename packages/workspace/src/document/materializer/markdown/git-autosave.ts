@@ -224,7 +224,7 @@ export function attachGitAutosave({
 			dirty.add(join(baseDir as string, filename.toString()));
 			// Re-checked per event (cached after the first): the startup probe may
 			// have run before the directory became a repo, so a later `git init`
-			// turns autosave on without restarting the daemon.
+			// turns autosave on without restarting the owning application.
 			void ensureEnabled().then(
 				(enabled) => {
 					if (enabled && !isDisposed) schedule();

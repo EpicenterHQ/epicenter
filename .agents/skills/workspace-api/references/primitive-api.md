@@ -231,7 +231,7 @@ new Y.Doc({ guid, gc: true });
 ## Code References
 
 - `packages/workspace/src/document/workspace.ts`: `defineWorkspace`,
-  `connect(...)`, `mount(...)`, and low-level `createWorkspace`.
+  `connect(...)`, and low-level `createWorkspace`.
 - `packages/workspace/src/document/table.ts`: `defineTable`, `_v`, migrations,
   and `table.docs(...)`.
 - `packages/workspace/src/document/connect-doc.ts`: storage plus collaboration

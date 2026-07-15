@@ -2,7 +2,7 @@
  * The branded `AgentId` type: the stable, durable address of an answering agent.
  *
  * An agent is a participant declared by configuration (a hosted cloud agent, an
- * always-on home daemon, a laptop daemon) with a fixed model, a curated toolset,
+ * explicit local agent, or cloud job) with a fixed model, a curated toolset,
  * and a runtime. The `AgentId` is how a conversation names the one agent it is
  * bound to (`conversations.agent`, ADR-0025): the durable, human-authored address
  * that survives a redeploy or a move to a new machine, unlike the per-install
@@ -10,7 +10,7 @@
  * that churn underneath it.
  *
  * Agent ids are authored in configuration, not generated: a constant like
- * `epicenter-cloud` for the hosted cloud agent, or a name a user gives a daemon.
+ * `epicenter-cloud` for the hosted cloud agent, or a user-given agent name.
  * Presence resolves a live `AgentId` to whatever `NodeId` currently hosts it.
  */
 

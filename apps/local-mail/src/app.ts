@@ -317,7 +317,12 @@ export async function runApp(options: { port?: number }): Promise<number> {
 	}
 
 	await new Promise<void>((resolve) => {
-		process.on('SIGINT', () => {
+		let stopping = false;
+		const stop = () => {
+			if (stopping) return;
+			stopping = true;
+			process.off('SIGINT', stop);
+			process.off('SIGTERM', stop);
 			controller.abort();
 			server.stop();
 			for (const engine of engines) {
@@ -326,7 +331,9 @@ export async function runApp(options: { port?: number }): Promise<number> {
 			}
 			clearPresence(config.dataDir);
 			resolve();
-		});
+		};
+		process.on('SIGINT', stop);
+		process.on('SIGTERM', stop);
 	});
 	return 0;
 }

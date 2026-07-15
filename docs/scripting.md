@@ -1,95 +1,60 @@
 # Scripting
 
-Scripts read Epicenter materializations directly. SQLite and Markdown are files on
-disk, so a Bun script can inspect them without opening a Y.Doc, joining sync, or
-calling a running watcher.
+Scripts use an application's explicit data or command surface. There is no
+Epicenter root, mount discovery, resident watcher, or generic action protocol.
 
-Generic off-process writes are deliberately not part of the scripting surface.
-The watcher keeps a folder synchronized and materialized; it is not a callable
-action server. When a real shell workflow needs to mutate app data, add an
-app-specific command or script that opens the workspace in-process under that
-workflow's ownership.
+## Read local SQLite directly
 
-## The whole read shape
+External-source products such as Local Mail and Local Books own disposable
+SQLite mirrors. Read those files directly when a script only needs facts:
 
 ```ts
-import { findEpicenterRoot, openWorkspaceSqlite } from '@epicenter/workspace/node';
+import { openSqliteReader } from '@epicenter/workspace/node';
 
-const epicenterRoot = findEpicenterRoot();
-const cutoff = '2026-01-01T00:00:00Z';
+using mirror = openSqliteReader({
+	filePath: '/absolute/path/to/books.db',
+});
 
-const db = openWorkspaceSqlite(epicenterRoot, 'notes');
-const stale = db
-  .query('SELECT id FROM notes WHERE pinned = 1 AND updatedAt < ?')
-  .all(cutoff);
-
-db.close();
+const stale = mirror.db
+	.query('SELECT id FROM invoices WHERE deleted = 0 AND updated_at < ?')
+	.all('2026-01-01T00:00:00Z');
 ```
 
-The Epicenter root is the folder that holds `epicenter.config.ts`. That config
-default-exports one mount. `epicenter up` opens the mount, joins sync when
-signed in, and refreshes materializers. Scripts can read the materialized files
-whether or not the watcher is currently running.
+The path belongs to the application, not to a shared `.epicenter/` convention.
+Use the app's `status` output or configuration to find it. The reader opens
+SQLite read-only, so an accidental write fails instead of diverging from the
+upstream system.
 
-## SQLite materializer
+## Refresh and monitor
 
-`openWorkspaceSqlite(epicenterRoot, workspaceId)` opens the guid-keyed convention
-path `.epicenter/sqlite/<workspaceId>.db` read-only. First-party mounts write
-there. A mount that passed a custom `filePath` to its materializer needs
-`openSqliteReader({ filePath })` with that same explicit path.
+Applications that need command-line catch-up expose the same operator model:
 
-Neither helper inspects `epicenter.config.ts`. `.epicenter/` is generated machine
-state, not a source layout or route registry. The watcher's
-`attachBunSqliteMaterializer` keeps that file fresh; the script opens it
-read-only with `PRAGMA query_only = 1`, so an errant `INSERT` fails at the driver
-instead of silently diverging.
+```text
+<app> sync     refresh once, then exit
+<app> status   report durable freshness, cursor, and upstream health
+<app> watch    refresh in the foreground until Ctrl-C
+```
 
-The materializer is the same SQL surface an app can use for fast local reads:
-column-typed rows, FTS5 indexes, and normal joins. Query cost is
-`O(rows-returned)` rather than `O(history)`, so cron jobs do not pay the
-seconds-of-Y.Doc-replay tax that an in-process snapshot would cost.
-
-For ranked search with snippets, use `openSqliteReader({ filePath })`; it wraps
-the same database and exposes a `search()` helper. For typed Drizzle queries,
-pass the returned `db` to `drizzle(db, { schema })`; the per-app schema lives in
-the app's npm package.
-
-## Markdown materializer
-
-Markdown exports are read-only projections. A script can scan, publish, archive,
-or lint them like ordinary files. It must not edit generated Markdown to mutate
-app data, because the materializer never reads Markdown back into Yjs.
-
-If an app wants Markdown as an authoring format, that parser/editor belongs in an
-app action, UI surface, or app-specific CLI command that writes Yjs directly.
-The generic materialized Markdown export is not a round-trip format.
+Use `launchd`, cron, systemd, or another scheduler to run `sync` periodically.
+A service manager may supervise `watch`; it owns restart, shutdown, and log
+capture. Epicenter does not add a second process manager around it.
 
 ## Writes
 
-There is no replacement for `connectDaemonActions` in this wave. That is the
-point of the collapse: a live watcher is not a local action server.
+Write through the source of truth. Local Mail mutates Gmail first. Local Books
+mutates QuickBooks first. Workspace-backed apps expose product-specific actions
+or commands that open their own runtime and use the app's forward APIs.
 
-Choose one of these shapes when a concrete write workflow appears:
+Do not add a generic `run <action>` command, peer address, or workspace mount to
+make one script possible. Name the workflow and put it beside the application
+that owns its invariants, validation, approval, and retry behavior.
 
-```txt
-App UI or local tool:
-  open the workspace in-process
-  call the app's action registry
+## Markdown and portable tables
 
-App-specific CLI command:
-  parse the workflow's real inputs
-  claim or respect the root lease
-  open the workspace in-process
-  call the app action or direct domain service
-  exit
-```
+Markdown exports are read-only projections unless an application explicitly
+declares Markdown as its source of truth. Scripts may scan, publish, archive, or
+lint them like normal files.
 
-Do not reintroduce a generic `run <action>` protocol unless a real caller needs
-stable off-process action names, schemas, concurrency semantics, and error
-mapping.
-
-## What if the watcher is not running?
-
-SQLite and Markdown reads still work against the last materialized state. They
-may be stale. Start `epicenter up` when the script needs the folder to
-keep syncing and refreshing in the background.
+Portable `tables.sqlite3` edits use `epicenter tables apply`. That command
+previews forward mutations against a locked workspace definition; it does not
+open a resident runtime.

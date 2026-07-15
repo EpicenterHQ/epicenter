@@ -2,7 +2,7 @@
 
 <!-- doc-path-check: ignore-file (historical record; its paths are frozen) -->
 
-> **Historical.** This document describes the October 2025 `createWorkspace({ setupYDoc })` + `defineEpicenter({ workspaces: [...] })` flow. Both of those APIs are gone. Persistence today is a single `attachSqlite(ydoc, { filePath })` (or `attachIndexedDb(ydoc)` in the browser) call inside a `defineDocument((id) => { ... })` builder: see `apps/whispering/src/lib/client.ts` and `playground/opensidian-e2e/epicenter.config.ts` for the current pattern. Preserved for history.
+> **Historical.** This document describes the October 2025 `createWorkspace({ setupYDoc })` + `defineEpicenter({ workspaces: [...] })` flow. Both APIs are gone. The current versioned SQLite workspace path is documented in [`packages/workspace/README.md`](../../packages/workspace/README.md). The body below is preserved for history.
 
 **Date**: October 14, 2025
 **Status**: Ready for Implementation

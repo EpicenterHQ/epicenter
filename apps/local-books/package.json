@@ -24,6 +24,8 @@
 		"auth:production": "infisical run --path=/apps/local-books -- bun run src/bin.ts auth --qb-env production",
 		"sync:sandbox": "infisical run --path=/apps/local-books -- bun run src/bin.ts sync --qb-env sandbox",
 		"sync:production": "infisical run --path=/apps/local-books -- bun run src/bin.ts sync --qb-env production",
+		"watch:sandbox": "infisical run --path=/apps/local-books -- bun run src/bin.ts watch --qb-env sandbox",
+		"watch:production": "infisical run --path=/apps/local-books -- bun run src/bin.ts watch --qb-env production",
 		"status:sandbox": "infisical run --path=/apps/local-books -- bun run src/bin.ts status --qb-env sandbox",
 		"status:production": "infisical run --path=/apps/local-books -- bun run src/bin.ts status --qb-env production",
 		"test": "bun test",

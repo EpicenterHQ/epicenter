@@ -323,7 +323,7 @@ function interruptibleSleep(ms: number, signal: AbortSignal): Promise<void> {
 /**
  * Run `syncRealm` on a loop until the signal aborts. The first pass honors
  * `forceFull`; every later pass is incremental (the cursor has advanced), so
- * `--full --interval` means "one full pull, then keep up with CDC".
+ * `watch --full` means "one full pull, then keep up with CDC".
  */
 export async function runSyncLoop(
 	deps: SyncDeps,

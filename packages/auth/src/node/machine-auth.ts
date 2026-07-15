@@ -1,15 +1,16 @@
 /**
- * Machine auth API surface for CLI and daemons.
+ * Machine auth API surface for CLI and other Node processes.
  *
  * `loginWithOob` runs the OOB OAuth dance once, fetches `/api/session` to derive
  * the local workspace identity, and persists a `PersistedAuth` cell to the
  * API-target-specific machine auth file (mode 0o600). `status` and `logout`
  * read that cell and reach the server through a regular `createOAuthAppAuth`
- * client. `createMachineAuthClient` is the daemon entry point: it loads the
- * cell, constructs the auth client, and never spawns an interactive launcher.
+ * client. `createMachineAuthClient` is the long-lived Node entry point: it
+ * loads the cell, constructs the auth client, and never spawns an interactive
+ * launcher.
  *
  * Architectural note: `loginWithOob` deliberately bypasses
- * `createOAuthAppAuth`. The factory is for daemons (long-lived, refresh on
+ * `createOAuthAppAuth`. The factory is for long-lived clients (refresh on
  * 401, network gate); login is a one-shot human action that fetches a grant,
  * calls `/api/session`, persists, and exits. Routing login through the factory
  * would double the round-trip count (the factory would call `/api/session`
@@ -488,9 +489,9 @@ export async function createMachineAuthClient({
 				},
 			},
 			fetch,
-			// Forward the daemon's log sink so the long-lived client's background
+			// Forward the caller's log sink so the long-lived client's background
 			// refresh failures land in it, not a default logger. This is the
-			// noisiest, most operationally important path for a daemon.
+			// noisiest, most operationally important path for a Node process.
 			log,
 			now,
 		}),

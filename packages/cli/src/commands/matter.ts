@@ -2,7 +2,7 @@
  * `epicenter matter`: work with a folder of typed markdown as a SQLite-backed table, backed by
  * `@epicenter/matter-core`. Disk is the source of truth; the SQLite mirror is a read-only projection
  * (ADR-0026, ADR-0065). Namespaced under `epicenter` so the disk-as-truth verbs stay quarantined from
- * the daemon and Yjs verbs.
+ * workspace and Yjs verbs.
  *
  * Today the one subcommand is `check`. `query`, `add`, and an MCP server are deferred (see the launch
  * spec's Adjacent Work).

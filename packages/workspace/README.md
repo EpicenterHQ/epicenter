@@ -84,7 +84,6 @@ defineWorkspace()
   app's shared isomorphic definition: id, tables, kv, actions, child-doc layouts
 
 open<App>Browser()
-open<App>Daemon()
 open<App>Tauri()
   runtime-specific wiring: storage, sync, materializers, platform services
 
@@ -95,7 +94,7 @@ satisfiesWorkspace()
 ```
 
 The app-facing path is `defineWorkspace({ id, tables, kv, actions }).connect(...)`.
-`create()` returns only the root document for daemon and test composition. The connection
+`create()` returns only the root document for tests and specialized runtimes. The connection
 is the boot decision: `connect(null)` adds bare browser storage, wipe, and
 table child-doc openers with no relay; `connect(connection)` adds principal-scoped
 browser storage, root sync, wipe, and table child-doc openers.
@@ -171,7 +170,7 @@ offline. Sync is the credentialed arm of the same call. See [Sync](#sync).
 
 Singleton apps (one workspace per app) call `connect(...)` once at module
 scope. Browser child documents are declared on tables and opened through
-the connected table handle. One-shot Node scripts and daemon projections can
+the connected table handle. One-shot Node scripts can
 derive the same child-doc guid for one row, read it, and destroy it. See
 [Per-row content documents](#per-row-content-documents) below.
 
@@ -184,7 +183,7 @@ Every exported function in this package falls into one of three verbs. The prefi
 | `define*` | **None**: pure data or type contract | Schemas, defaults, typed bundle values | Plain config object or same value back | `defineTable`, `defineKv`, `defineMutation`, `defineQuery`, `defineWorkspace` |
 | `create*` | **Constructs**: bundles, models, registries, or pure definitions | Definitions, options | Disposable bundle or pure value | `createWorkspace` (root bundle: ydoc + tables + kv + empty actions + dispose), `createDisposableCache` (refcounted per-row cache) |
 | `attach*` | **Mutates a Y.Doc**: binds a slot, registers `ydoc.on('destroy')` | An existing `Y.Doc` + config (workspace materializers take the bundle from `createWorkspace`) | Typed handle, non-idempotent, hold the reference | `attachRichText`, `attachPlainText`, `attachRecords`, `attachIndexedDb`, `attachLocalStorage`, `attachYjsLog`, `attachBroadcastChannel`, `attachMarkdownExport`, `attachBunSqliteMaterializer` |
-| `open*` | **Opens a runtime over a Y.Doc or a local resource**: returns a typed handle with its own teardown. The Y.Doc-bound case (`openCollaboration`) registers `ydoc.on('destroy')` like `attach*` does; the resource case (`openSqliteReader`) takes no Y.Doc and returns a `[Symbol.dispose]()` handle. | Y.Doc + config, or resource config | Typed runtime handle | `openCollaboration`, `openSqliteReader`, `openWorkspaceSqlite` |
+| `open*` | **Opens a runtime over a Y.Doc or a local resource**: returns a typed handle with its own teardown. The Y.Doc-bound case (`openCollaboration`) registers `ydoc.on('destroy')` like `attach*` does; the resource case (`openSqliteReader`) takes no Y.Doc and returns a `[Symbol.dispose]()` handle. | Y.Doc + config, or resource config | Typed runtime handle | `openCollaboration`, `openSqliteReader` |
 
 `createDisposableCache(build, opts?)` is the refcounted cache primitive. The
 user owns construction; the cache owns identity keyed by id,
@@ -243,8 +242,8 @@ That matters because conflict resolution only has to happen once. Yjs handles me
 ### Definitions are pure; builders are live
 
 `defineTable` and `defineKv` are pure. They do not create a `Y.Doc`, open a
-socket, or touch IndexedDB. The opener you call, whether root-only for a daemon
-or connected for a browser session, is the boundary where the live bundle
+socket, or touch IndexedDB. The opener you call, whether root-only or connected
+for a browser session, is the boundary where the live bundle
 appears.
 
 That split is not cosmetic. It lets you share definitions across modules, infer types once, and instantiate different bundles in different runtimes without rewriting the schema layer.
@@ -456,7 +455,7 @@ KV entries are for settings and scalar preferences. They are keyed by string and
 
 "Extensions" in Epicenter are just `attach*` calls inside your builder or runtime composer. There is no `.withExtension` chain, no extension registry, no priority flag: just lexical scope.
 
-- Call the relevant `attach*` or `open*` function inside `create()` daemon composition or `connect(connection, compose)` browser composition, then include the handle in the returned bundle.
+- Call the relevant `attach*` or `open*` function inside an application opener or `connect(connection, compose)`, then include the handle in the returned bundle.
 - Order matters only through lexical scope: later `attach*` calls see earlier handles directly.
 - For browser per-row content docs, declare a child-doc layout on the table and open it from the connected table handle. Daemon projections can use the same guid grammar to read one doc snapshot.
 
@@ -631,7 +630,7 @@ Per-row content (one Y.Doc per file/note/entry) is declared on the table and
 opened from the connected table handle. The root workspace holds the metadata
 row; `connect(connection)` owns live content Y.Docs, local storage, sync, and wipe.
 The workspace owns guid derivation: every `.docs.<field>` exposes
-`guid(rowId)`, available on the unconnected root too, so a daemon one-shot
+`guid(rowId)`, available on the unconnected root too, so a one-shot
 reader derives the same guid with `workspace.tables.files.docs.content.guid(id)`
 when it needs an HTTP snapshot.
 
@@ -834,13 +833,13 @@ import { attachYjsLog } from '@epicenter/workspace/node';
 
 ### Persistence
 
-Browser apps use `attachIndexedDb(ydoc)` for unauthenticated docs, or `attachLocalStorage(ydoc, { server, principalId })` for an authenticated workspace that needs principal-scoped persistence plus cross-tab pairing. Bun/Node daemons use `attachYjsLog(ydoc, { filePath })`. All bind to the Y.Doc and tear down on `ydoc.destroy()`.
+Browser apps use `attachIndexedDb(ydoc)` for unauthenticated docs, or `attachLocalStorage(ydoc, { server, principalId })` for an authenticated workspace that needs principal-scoped persistence plus cross-tab pairing. Bun/Node application runtimes may use `attachYjsLog(ydoc, { filePath })`. All bind to the Y.Doc and tear down on `ydoc.destroy()`.
 
 | Primitive | Runtime | Barrier | Other | Purpose |
 |---|---|---|---|---|
 | `attachIndexedDb(ydoc)` | browser | `whenLoaded`, `whenDisposed` | `clearLocal()` | Local Yjs persistence via `y-indexeddb` |
 | `attachLocalStorage(ydoc, { server, principalId })` | browser | `whenLoaded`, `whenDisposed` | paired BroadcastChannel | Principal-scoped IDB plus cross-tab pairing |
-| `attachYjsLog(ydoc, { filePath })` | Bun/Node | `whenDisposed` (sync replay; no `whenLoaded` needed) | `clearLocal()` | Append-log SQLite file the daemon writes |
+| `attachYjsLog(ydoc, { filePath })` | Bun/Node | `whenDisposed` (sync replay; no `whenLoaded` needed) | `clearLocal()` | Application-owned append-log SQLite file |
 
 For authenticated apps, call `await wipeLocalStorage({ server, principalId })` after disposing the bundle to delete every principal-scoped IDB database on the current browser profile (sign-out, "delete my local data", account switch).
 
@@ -1018,7 +1017,7 @@ function openBlog() {
 void openBlog;
 ```
 
-The Bun SQLite materializer owns the daemon's queryable SQLite mirror file. When you pass `fts: {...}`, the result exposes `search(...)`; omit `fts` and `search` is undefined.
+The Bun SQLite materializer owns an application's queryable SQLite mirror file. When you pass `fts: {...}`, the result exposes `search(...)`; omit `fts` and `search` is undefined.
 
 ## Workspace Dependencies
 
@@ -1289,7 +1288,7 @@ browser-safe entry point.
 | Import path | What it exports | Public today |
 | --- | --- | --- |
 | `@epicenter/workspace` | `createDisposableCache`, `defineTable`, `defineKv`, browser-safe `attach*` (tables, kv, indexeddb, broadcast-channel, rich-text, plain-text, timeline), `openCollaboration`, `roomWsUrl`, action helpers, `onLocalUpdate`, `docGuid`, ids, dates, types | Yes |
-| `@epicenter/workspace/node` | Bun/Node `attach*` and `open*` (`attachYjsLog`, `attachYjsLogReader`, `openSqliteReader`, `openWorkspaceSqlite`), Epicenter root discovery (`findEpicenterRoot`), workspace paths | Yes |
+| `@epicenter/workspace/node` | Bun/Node primitives (`attachYjsLog`, `attachYjsLogReader`, `bunLocalPersistence`, `openSqliteReader`) | Yes |
 | `@epicenter/workspace/document/materializer/markdown` | `attachMarkdownExport`, `attachGitAutosave`, `MarkdownShape` | Yes |
 | `@epicenter/workspace/document/materializer/sqlite` | `attachBunSqliteMaterializer`, `generateDdl`, types | Yes |
 
@@ -1435,7 +1434,7 @@ returned, so `ydoc`, `content`, `idb`, and any composed `whenReady` are all
 things you explicitly put in the bundle.
 
 For singleton apps, connect once at module scope. For Node
-one-shot operations and daemon row projections, call the child builder directly
+one-shot operations and app-owned projections, call the child builder directly
 inside `using`. Use the cache when browser components have a real same-process
 reuse invariant.
 

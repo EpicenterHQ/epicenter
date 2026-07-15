@@ -1,8 +1,9 @@
 # 0112. The CLI watcher is not a callable action server
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-06
 - **Supersedes:** [ADR-0009](0009-the-cli-dispatches-through-a-mandatory-daemon.md)
+- **Superseded by:** [ADR-0144](0144-open-applications-own-local-execution.md)
 - **Relates:** [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md), [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md), [ADR-0111](0111-super-chat-v1-exposes-built-in-epicenter-apps-and-defers-extension-surfaces.md)
 
 ## Context

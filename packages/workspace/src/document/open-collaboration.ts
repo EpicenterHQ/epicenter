@@ -80,8 +80,8 @@ export type OpenCollaborationConfig = {
 	log?: Logger;
 	/**
 	 * The catalog agent this peer answers as (ADR-0025), published in presence so
-	 * peers can see which agent ids are live. Set only by a resident agent mount
-	 * (e.g. a daemon); omit for ordinary participants and content docs.
+	 * peers can see which agent ids are live. Set only by a long-lived agent
+	 * process; omit for ordinary participants and content docs.
 	 */
 	agentId?: string;
 };

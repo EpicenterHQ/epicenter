@@ -30,7 +30,7 @@ import { Compile } from 'typebox/compile';
  * `nodeId` is the peer's sync/presence participant identity; `connectedAt`
  * lets receivers render an "online since" affordance. `agentId` is the catalog
  * agent this peer answers as (ADR-0025), present only on a peer that mounted
- * with one (a resident daemon) and absent for ordinary participants. It is the
+ * with one (a long-lived agent process) and absent for ordinary participants. It is the
  * join key a picker uses to decorate a durable agent as live: the catalog owns
  * the agent's properties, presence only reports which agent ids are online now.
  */
@@ -63,7 +63,7 @@ export type PresenceFrame = Static<typeof PresenceFrameSchema>;
  * Client -> server: publish this node's presence identity (its agent
  * designation). The relay stores it against the sending
  * socket's nodeId and rebroadcasts presence so peers see the update. Sent once
- * on connect. `agentId` is set only by a peer that mounted as a resident agent
+ * on connect. `agentId` is set only by a peer acting as a resident agent
  * (ADR-0025); ordinary participants omit it.
  */
 export const PresencePublishFrameSchema = Type.Object(

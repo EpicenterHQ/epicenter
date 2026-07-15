@@ -370,7 +370,7 @@ describe('Room presence: agent designation', () => {
 				agentId: 'vocab-home',
 			}),
 		);
-		// A node connecting after the publish sees the daemon's designation in its
+		// A node connecting after the publish sees the peer's designation in its
 		// directed snapshot: the join key a picker uses to light up that agent.
 		const observer = await upgrade(room, 'observer');
 		const daemon = presenceFrames(observer)[0]!.peers.find(
