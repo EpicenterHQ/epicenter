@@ -6,7 +6,6 @@
  */
 
 import type { Principal } from '@epicenter/auth';
-import type { PrincipalId } from '@epicenter/identity';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { Context } from 'hono';
 import type { Result } from 'wellcrafted/result';
@@ -52,36 +51,6 @@ export type ResolveBearerPrincipal<E extends Env = Env> = (
 	c: Context<E>,
 	bearer: string,
 ) => Promise<Result<Principal, OAuthError>>;
-
-/**
- * Per-connection identity and runtime state, stamped onto the Cloudflare
- * Durable Object WebSocket attachment so presence survives hibernation.
- *
- * `nodeId` identifies one Epicenter app on one persistent storage scope
- * (browser tab, Tauri window, extension service worker, CLI process; tabs
- * sharing localStorage share an id). The client generates and persists its
- * own; lifespan is the client's concern.
- *
- * `connectedAt` is stamped at upgrade time and surfaced in presence frames so
- * receivers can render an "online since" affordance and tie-break multi-tab
- * same-node (newest wins).
- *
- * Every connection to a given room carries the authenticated principal id that
- * selected the partition. The room stays deployment-blind and never branches on
- * where that principal came from.
- */
-export type Connection = {
-	principalId: PrincipalId;
-	nodeId: string;
-	connectedAt: number;
-	/**
-	 * The catalog agent this connection answers as (ADR-0025), set from the
-	 * node's `presence_publish` and mirrored on the wire so a picker can decorate
-	 * a durable agent as live. Undefined until published; ordinary participants
-	 * never set it. Opaque to the relay (forwarded, never inspected).
-	 */
-	agentId?: string;
-};
 
 /**
  * The PORTABLE Hono context, shared by every library sub-app and BOTH

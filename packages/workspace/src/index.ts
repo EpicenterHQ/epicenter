@@ -9,14 +9,13 @@
  * `@epicenter/workspace` builds typed Yjs-backed workspaces: tables, KV,
  * plain/rich text, and an action registry. Runtime openers wire the
  * workspace's `Y.Doc` to IndexedDB persistence and WebSocket sync via
- * `openCollaboration`, which consumes the server-owned presence channel and
- * exposes the live-peer surface (`peers.list()`).
+ * `openCollaboration`.
  *
  * @example
  * ```typescript
  * import {
  *   attachRichText,
- *   type ConnectionConfig,
+ *   type WorkspaceConnection,
  *   defineTable,
  *   defineWorkspace,
  * } from '@epicenter/workspace';
@@ -34,7 +33,7 @@
  *   kv: {},
  * });
  *
- * declare const connection: ConnectionConfig;
+ * declare const connection: WorkspaceConnection;
  * using workspace = notesWorkspace.connect(connection);
  * using body = workspace.tables.posts.docs.body.open('post-1');
  * await body.whenLoaded;
@@ -56,17 +55,13 @@ export {
 } from './shared/actions';
 
 // ════════════════════════════════════════════════════════════════════════════
-// NODE IDENTITY
+// WORKSPACE CONNECTION
 // ════════════════════════════════════════════════════════════════════════════
 
-export type { AgentId } from './document/agent-id.js';
-export { asAgentId } from './document/agent-id.js';
-export type { NodeId } from './document/node-id.js';
-export {
-	asNodeId,
-	createNodeId,
-	createNodeIdAsync,
-} from './document/node-id.js';
+export type {
+	WorkspaceConnection,
+	WorkspaceFetch,
+} from './workspace-connection.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // ID + DATE PRIMITIVES
@@ -110,7 +105,7 @@ export {
 	type RecordsHandle,
 } from './document/attach-records.js';
 export { attachRichText } from './document/attach-rich-text.js';
-export { type ConnectionConfig, connectDoc } from './document/connect-doc.js';
+export { connectDoc } from './document/connect-doc.js';
 export { defineKv } from './document/define-kv.js';
 export { defineTable } from './document/define-table.js';
 // `docGuid` is intentionally NOT exported: child-doc guid derivation is an
@@ -130,7 +125,6 @@ export {
 	type OpenWebSocketFn,
 	openCollaboration,
 } from './document/open-collaboration.js';
-export type { Peer } from './document/presence-protocol.js';
 export {
 	type BaseRow,
 	type InferTableRow,
@@ -145,7 +139,7 @@ export {
 } from './document/table.js';
 // Transport URL builder.
 //
-// `roomWsUrl({ baseURL, guid, nodeId })` builds the WebSocket URL for the
+// `roomWsUrl({ baseURL, guid })` builds the WebSocket URL for the
 // principal-authenticated `/api/rooms/:roomId` endpoint. Browser apps and other
 // app-owned runtimes use this one builder.
 export { type RoomWsUrlOptions, roomWsUrl } from './document/transport.js';

@@ -81,9 +81,9 @@ shapes, see `docs/adr/`.
 - **Cross-device planes**: cross-device work splits by responsibility. *Inference* (the
   chat brain) streams tokens from an OpenAI-compatible endpoint (ADR-0050),
   over the inference seam. *Sync* (convergent state) carries document history
-  over the relay, and server-owned presence reports which workspace peers are
-  online. *Invoke* (the agent's hands) is local to the host that owns the tool
-  process, unless a future product re-earns a direct URL-addressed box surface.
+  over principal-owned rooms without installation identity. *Invoke* (the
+  agent's hands) is local to the host that owns the tool process, unless a
+  future product re-earns a direct URL-addressed box surface.
 - **Infisical project**: the owner and access-control boundary. Each secret-using
   runnable surface owns its own `.infisical.json`: `apps/api` and `ops` point
   at Epicenter's hosted/operator project, and personal local apps use ignored

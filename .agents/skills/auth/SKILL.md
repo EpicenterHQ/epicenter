@@ -116,12 +116,11 @@ The public surface lives in one package plus a Svelte subpath:
   gate, authenticated fetch, and WebSocket opening. Also exports the Node
   machine-auth surface (`@epicenter/auth/node`) for CLI and daemons.
 - `@epicenter/svelte/auth`: Svelte 5 wrapper (in the `@epicenter/svelte`
-  package, which also exports `toConnection`, `reloadOnPrincipalChange`,
+  package, which also exports `toWorkspaceConnection`, `reloadOnPrincipalChange`,
   `createSession`, and `SignedIn`). Mirrors `auth.state` through
   `createSubscriber` so templates and `$derived` reads are reactive.
-- `toConnection` from `@epicenter/svelte/auth`: the boot-time projection a
-  workspace `connect()` call consumes (`ConnectionConfig` signed in, `null`
-  signed out).
+- `toWorkspaceConnection` from `@epicenter/svelte/auth`: the boot-time
+  projection every workspace opener consumes.
 
 The API server composes Better Auth like this:
 
@@ -407,7 +406,7 @@ Use `auth.openWebSocket` for sync:
 
 ```ts
 const collaboration = openCollaboration(workspace.ydoc, {
-	url: roomWsUrl({ baseURL, principalId, guid: workspace.ydoc.guid, nodeId }),
+	url: roomWsUrl({ baseURL, guid: workspace.ydoc.guid }),
 	waitFor: idb.whenLoaded,
 	openWebSocket: signedIn.openWebSocket,
 	onReconnectSignal: signedIn.onReconnectSignal,
@@ -465,9 +464,9 @@ stateless JWT access token  ->  cannot revoke before exp
 ## Workspace Boot Selection
 
 Workspace apps read identity once at boot with one call.
-`toConnection(auth, nodeId)` projects the auth snapshot: signed out returns
-`null` (bare local IndexedDB storage), signed in returns the principal's
-`ConnectionConfig` (principal-scoped storage plus relay sync).
+`toWorkspaceConnection(auth)` projects the auth snapshot: signed out returns a
+local connection, signed in returns the principal's authenticated server
+connection.
 `reloadOnPrincipalChange(auth)` reloads the page when the principal changes, so
 the next boot re-projects. `AccountPopover` is the account surface; do not gate
 the app shell on sign-in.
@@ -476,17 +475,10 @@ Use it in the browser opener:
 
 ```ts
 import type { SyncAuthClient } from '@epicenter/auth';
-import { toConnection } from '@epicenter/svelte/auth';
-import type { NodeId } from '@epicenter/workspace';
+import { toWorkspaceConnection } from '@epicenter/svelte/auth';
 
-export function openMyAppBrowser({
-	auth,
-	nodeId,
-}: {
-	auth: SyncAuthClient;
-	nodeId: NodeId;
-}) {
-	return myAppWorkspace.connect(toConnection(auth, nodeId));
+export function openMyAppBrowser(auth: SyncAuthClient) {
+	return myAppWorkspace.connect(toWorkspaceConnection(auth));
 }
 ```
 
@@ -585,4 +577,4 @@ mode flag on it.
 - Do not import `requireSignedIn`, `InferSignedIn`, `openFuji`,
   `encryptionKeys`, `EncryptionKeys`, `keyring`, or `Keyring`. They do not
   exist in Epicenter workspace auth. Workspace boot selection goes through
-  one call: `connect(toConnection(auth, nodeId))`.
+  one call: `connect(toWorkspaceConnection(auth))`.

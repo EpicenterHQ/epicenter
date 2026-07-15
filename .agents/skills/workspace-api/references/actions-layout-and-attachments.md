@@ -226,7 +226,7 @@ internals, tests, older ports, or a custom runtime below `connect(...)`.
 |---|---|---|
 | `createWorkspace({ id, tables, kv })` | none | Allocates the root `Y.Doc` and wires tables + KV |
 | `attachIndexedDb` / `attachLocalStorage` | none | Starts local load immediately |
-| `openCollaboration` | `storage.whenLoaded` | Opens sync and presence after local replay |
+| `openCollaboration` | `storage.whenLoaded` | Opens sync after local replay |
 | Materializers | caller-chosen `waitFor` when available | Mirrors workspace state to SQLite, Markdown, or another read model |
 
 The manual shape is persistence first, then collaboration with `waitFor`:
@@ -235,7 +235,7 @@ The manual shape is persistence first, then collaboration with `waitFor`:
 const root = createWorkspace({ id: 'test', tables, kv: {} });
 const storage = attachIndexedDb(root.ydoc);
 const collaboration = openCollaboration(root.ydoc, {
-	url: roomWsUrl({ baseURL, guid: root.ydoc.guid, nodeId }),
+	url: roomWsUrl({ baseURL, guid: root.ydoc.guid }),
 	openWebSocket,
 	onReconnectSignal,
 	waitFor: storage.whenLoaded,

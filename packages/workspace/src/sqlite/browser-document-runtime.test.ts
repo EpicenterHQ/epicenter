@@ -63,7 +63,7 @@ function createDefinition() {
 test('KV and child documents hydrate from the authority-owned local stores', async () => {
 	const definition = createDefinition();
 	const firstPlanes = await createBrowserWorkspaceDocumentPlanes(definition, {
-		authority: { kind: 'local' },
+		kind: 'local',
 		documentGcTime: 0,
 	});
 	const first = await openWorkspaceFromService(definition, {
@@ -82,7 +82,7 @@ test('KV and child documents hydrate from the authority-owned local stores', asy
 	await firstPlanes[Symbol.asyncDispose]();
 
 	const secondPlanes = await createBrowserWorkspaceDocumentPlanes(definition, {
-		authority: { kind: 'local' },
+		kind: 'local',
 		documentGcTime: 0,
 	});
 	const second = await openWorkspaceFromService(definition, {
@@ -104,7 +104,7 @@ test('KV and child documents hydrate from the authority-owned local stores', asy
 test('child rooms share one document until the last session is released', async () => {
 	const definition = createDefinition();
 	const planes = await createBrowserWorkspaceDocumentPlanes(definition, {
-		authority: { kind: 'local' },
+		kind: 'local',
 		documentGcTime: 0,
 	});
 	const guid = `${definition.workspaceId}.shared-room` as Guid;
@@ -127,7 +127,7 @@ test('child rooms share one document until the last session is released', async 
 test('disposing one opened document releases only its local observers', async () => {
 	const definition = createDefinition();
 	const planes = await createBrowserWorkspaceDocumentPlanes(definition, {
-		authority: { kind: 'local' },
+		kind: 'local',
 		documentGcTime: 0,
 	});
 	const workspace = await openWorkspaceFromService(definition, {

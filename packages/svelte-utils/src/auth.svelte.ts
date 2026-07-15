@@ -13,10 +13,9 @@ import { createBrowserOAuthLauncher } from '@epicenter/auth/oauth-launchers';
 import { createSubscriber } from 'svelte/reactivity';
 
 export { reloadOnPrincipalChange } from './reload-on-principal-change.js';
-// Legacy Yjs apps project auth with `toConnection`. SQLite workspace apps
-// project the same one-time boot decision with `toWorkspaceAuthority`.
-export { toConnection } from './to-connection.js';
-export { toWorkspaceAuthority } from './to-workspace-authority.js';
+// Every workspace app projects auth's one-time boot decision with
+// `toWorkspaceConnection`.
+export { toWorkspaceConnection } from './to-workspace-connection.js';
 
 /**
  * Make an auth client's `state` Svelte-reactive: spread the closure-bound
@@ -65,7 +64,7 @@ function reactiveAuthClient<T extends AuthClient>(auth: T): T {
  * Svelte 5 wrapper around `createAppAuthClient`: the one client-side choke point
  * that turns a persisted `Instance` into a hosted-OAuth or self-host-token
  * client (the branch is internal). Returns a Svelte-reactive `SyncAuthClient`,
- * so workspace boots can project it with `toConnection(auth, nodeId)`.
+ * so workspace boots can project it with `toWorkspaceConnection(auth)`.
  */
 export function createAppAuthClient(
 	instance: Instance,

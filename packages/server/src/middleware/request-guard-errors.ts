@@ -9,8 +9,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
  *
  *   - `ForbiddenOrigin` (403): middleware-level CSRF refusal: origin
  *     missing or not in the trusted-origin allowlist.
- *   - `MissingNodeId` (400): route-level input refusal: WebSocket
- *     upgrade is missing the required `nodeId` query parameter.
  *
  * Owned by the server middleware that emits them. The server calls the
  * factories at runtime; client SDKs only narrow branches on `body.error.name`
@@ -31,11 +29,6 @@ export const RequestGuardError = defineErrors({
 	ForbiddenOrigin: () => ({
 		message: 'Origin header is missing or not in the trusted-origin allowlist.',
 		status: 403 as const,
-	}),
-	MissingNodeId: () => ({
-		message:
-			'WebSocket upgrade is missing the required nodeId query parameter.',
-		status: 400 as const,
 	}),
 });
 

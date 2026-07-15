@@ -1,9 +1,9 @@
 /**
  * Tab-manager browser composition: the one boot call (ADR-0088/ADR-0094).
  *
- * `toConnection` reads `auth.state` once: signed out projects to `null` (bare
- * guid-named IndexedDB, cross-tab channel, no relay), signed in projects to
- * the owner's connection. Both arms return the same bundle shape (per-row
+ * `toWorkspaceConnection` reads `auth.state` once: signed out selects local
+ * storage, while signed in selects the owner's synchronized storage. Both arms
+ * return the same bundle shape (per-row
  * conversation child-doc openers from `@epicenter/chat` included), so nothing
  * downstream branches on auth again. `compose` wires tab and bookmark actions
  * against the connected tables, with Y.Doc transaction batching.
@@ -17,13 +17,12 @@
 
 import type { SyncAuthClient } from '@epicenter/auth';
 import { InstantString } from '@epicenter/field';
-import { toConnection } from '@epicenter/svelte/auth';
+import { toWorkspaceConnection } from '@epicenter/svelte/auth';
 import {
 	type ComposeContext,
 	defineActions,
 	defineMutation,
 	defineQuery,
-	type NodeId,
 } from '@epicenter/workspace';
 import Type from 'typebox';
 import {
@@ -77,42 +76,17 @@ export type BrowserApiFailed = Extract<TabError, { name: 'BrowserApiFailed' }>;
 export type SaveCloseFailed = Extract<TabError, { name: 'SaveCloseFailed' }>;
 
 /**
- * Build the tab-manager binding. Synchronous: callers must resolve the
- * node id before invoking (the extension's node id comes from
- * `chrome.storage.local` via `createDeviceProfile()` in `device.ts`). Reads
- * `auth.state` exactly once, at call time, to pick the preset branch.
+ * Build the tab-manager binding. Reads `auth.state` exactly once, at call time,
+ * to pick the workspace connection.
  *
  * Consumers gate UI render on `tabManager.storage.whenLoaded`.
  */
-export function openTabManagerBrowser({
-	auth,
-	nodeId,
-}: {
-	auth: SyncAuthClient;
-	nodeId: NodeId;
-}) {
+export function openTabManagerBrowser({ auth }: { auth: SyncAuthClient }) {
 	function compose(workspace: ComposeContext<typeof tabManagerWorkspace>) {
 		const { tables } = workspace;
 		const batch = (fn: () => void) => workspace.ydoc.transact(fn);
 		return {
-			nodeId,
 			actions: defineActions({
-				devices_list: defineQuery({
-					title: 'List Devices',
-					description:
-						'List all synced devices with their names, browsers, and last-seen times.',
-					handler: () => {
-						const devices = tables.devices.scan().rows;
-						return {
-							devices: devices.map((d) => ({
-								id: d.id,
-								name: d.name,
-								browser: d.browser,
-								lastSeen: d.lastSeen,
-							})),
-						};
-					},
-				}),
 				tabs_list: defineQuery({
 					title: 'List Open Tabs',
 					description:
@@ -190,7 +164,6 @@ export function openTabManagerBrowser({
 						close: Type.Optional(Type.Boolean()),
 					}),
 					handler: async ({ tabIds, close }) => {
-						const sourceNodeId = nodeId;
 						const results = await Promise.allSettled(
 							tabIds.map((id) => browser.tabs.get(id)),
 						);
@@ -205,7 +178,6 @@ export function openTabManagerBrowser({
 								title: tab.title || 'Untitled',
 								favIconUrl: tab.favIconUrl ?? null,
 								pinned: tab.pinned ?? false,
-								sourceNodeId,
 								savedAt: InstantString.now(),
 							});
 						}
@@ -316,14 +288,12 @@ export function openTabManagerBrowser({
 						pinned: Type.Boolean(),
 					}),
 					handler: async ({ browserTabId, url, title, favIconUrl, pinned }) => {
-						const sourceNodeId = nodeId;
 						tables.savedTabs.set({
 							id: generateSavedTabId(),
 							url,
 							title,
 							favIconUrl: favIconUrl ?? null,
 							pinned,
-							sourceNodeId,
 							savedAt: InstantString.now(),
 						});
 						// The save (Y.Doc write) always succeeded by here. The close
@@ -421,14 +391,12 @@ export function openTabManagerBrowser({
 								removedCount: allMatching.length,
 							};
 						}
-						const sourceNodeId = nodeId;
 						tables.bookmarks.set({
 							id: generateBookmarkId(),
 							url,
 							title,
 							favIconUrl: favIconUrl ?? null,
 							description: null,
-							sourceNodeId,
 							createdAt: InstantString.now(),
 						});
 						return { action: 'added' as const, removedCount: 0 };
@@ -476,7 +444,7 @@ export function openTabManagerBrowser({
 		};
 	}
 
-	return tabManagerWorkspace.connect(toConnection(auth, nodeId), compose);
+	return tabManagerWorkspace.connect(toWorkspaceConnection(auth), compose);
 }
 
 export type TabManagerBrowser = ReturnType<typeof openTabManagerBrowser>;

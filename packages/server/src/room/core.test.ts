@@ -3,33 +3,28 @@
  * against the pure core rather than partially re-derived per backend.
  *
  * `createRoomCore` imports nothing Cloudflare and never branches on runtime, so
- * every invariant a backend relies on lives here: presence (debounce, the 4401
- * immediate path, multi-tab same-node dedup), the unknown-text-frame close,
- * binary sync, compaction, the connection-lifetime bound (`handleMessage`
+ * every invariant a backend relies on lives here: the unknown-text-frame
+ * close, binary sync, compaction, the connection-lifetime bound (`handleMessage`
  * for active sockets, `sweepExpiredConnections` for idle ones), and liveness
  * ping/pong. The backends only own their adapter glue (the
  * Durable Object hibernation accept + alarm, the Bun `server.upgrade` + timer),
  * which their own tests cover; both inherit this behavior unchanged.
  *
  * Time is controlled by construction, not fake timers: the lifetime bound reads
- * a connection's `connectedAt` (set old to age a socket) and
- * `sweepExpiredConnections(now)` takes the clock as a parameter. Only the 300ms
- * presence debounce uses a real `setTimeout`, so the one test that asserts it
- * FIRES waits the window; the rest assert the synchronous immediate/deferred
- * split. The 2MB compaction cap is a defensive guard not exercised here (it
+ * a connection's `authenticatedAt` (set old to age a socket) and
+ * `sweepExpiredConnections(now)` takes the clock as a parameter. The 2MB
+ * compaction cap is a defensive guard not exercised here (it
  * needs a >2MB doc).
  */
 
 import { describe, expect, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/identity';
 import {
 	encodeSyncStep1,
 	encodeSyncUpdate,
 	SYNC_MESSAGE_TYPE,
 } from '@epicenter/sync';
 import * as Y from 'yjs';
-import type { Connection } from '../types.js';
-import type { RoomSocket, RoomUpdateLog } from './contracts.js';
+import type { RoomSocket, RoomSocketAuth, RoomUpdateLog } from './contracts.js';
 import { createRoomCore } from './core.js';
 
 const MINUTE_MS = 60_000;
@@ -67,16 +62,6 @@ class StubSocket implements RoomSocket {
 	get codes(): number[] {
 		return this.closes.map((c) => c.code);
 	}
-	/** Presence peer-id lists, one per `presence` frame, in order. */
-	presence(): string[][] {
-		return this.sent
-			.filter((f): f is string => typeof f === 'string')
-			.map(
-				(t) => JSON.parse(t) as { type: string; peers?: { nodeId: string }[] },
-			)
-			.filter((m) => m.type === 'presence')
-			.map((m) => (m.peers ?? []).map((p) => p.nodeId));
-	}
 	/** Decoded text frames of one `type`. */
 	json(type: string): Array<Record<string, unknown>> {
 		return this.sent
@@ -89,93 +74,23 @@ class StubSocket implements RoomSocket {
 	}
 }
 
-function conn(nodeId: string, opts?: { connectedAt?: number }): Connection {
-	return {
-		principalId: asPrincipalId('u1'),
-		nodeId,
-		connectedAt: opts?.connectedAt ?? Date.now(),
-	};
+function auth(opts?: { authenticatedAt?: number }): RoomSocketAuth {
+	return { authenticatedAt: opts?.authenticatedAt ?? Date.now() };
 }
 
 function newRoom() {
 	return createRoomCore({ updateLog: memoryUpdateLog() });
 }
 
-/** Connect a fresh stub socket as `nodeId` and return it. */
+/** Connect a fresh stub socket and return it. */
 function connect(
 	core: ReturnType<typeof createRoomCore>,
-	nodeId: string,
-	opts?: { connectedAt?: number },
+	opts?: { authenticatedAt?: number },
 ): StubSocket {
 	const ws = new StubSocket();
-	core.addConnection(ws, conn(nodeId, opts));
+	core.addConnection(ws, auth(opts));
 	return ws;
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// ────────────────────────────────────────────────────────────────────────────
-// Presence
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('RoomCore: presence', () => {
-	test('the first socket receives an empty peer list', () => {
-		const a = connect(newRoom(), 'A');
-		expect(a.presence()).toEqual([[]]);
-	});
-
-	test('a second node sees the first in its directed snapshot, and the first is rebroadcast', () => {
-		const core = newRoom();
-		const a = connect(core, 'A');
-		const before = a.presence().length;
-		const b = connect(core, 'B');
-		expect(b.presence().at(0)).toEqual(['A']);
-		expect(a.presence().slice(before).at(-1)).toEqual(['B']);
-	});
-
-	test('a second tab of the same node does not rebroadcast and is deduped to one peer', () => {
-		const core = newRoom();
-		const a = connect(core, 'A');
-		connect(core, 'B');
-		const aFrames = a.presence().length;
-		expect(a.presence().at(-1)).toEqual(['B']);
-		connect(core, 'B'); // second tab of node B
-		expect(a.presence().length).toBe(aFrames); // membership unchanged: no rebroadcast
-	});
-
-	test('a 4401 close rebroadcasts immediately, bypassing the grace window', () => {
-		const core = newRoom();
-		const a = connect(core, 'A');
-		const b = connect(core, 'B');
-		const before = a.presence().length;
-		core.removeConnection(b, 4401);
-		expect(a.presence().length).toBe(before + 1);
-		expect(a.presence().at(-1)).toEqual([]);
-	});
-
-	test('a non-4401 close defers the rebroadcast to the grace window', async () => {
-		const core = newRoom();
-		const a = connect(core, 'A');
-		const b = connect(core, 'B');
-		const before = a.presence().length;
-		core.removeConnection(b, 1000);
-		expect(a.presence().length).toBe(before); // nothing immediate
-		await sleep(400); // past PRESENCE_REBROADCAST_GRACE_MS (300)
-		expect(a.presence().length).toBe(before + 1);
-		expect(a.presence().at(-1)).toEqual([]);
-	});
-
-	test('a reconnect within the grace window supersedes the pending rebroadcast (no flap)', async () => {
-		const core = newRoom();
-		const a = connect(core, 'A');
-		const b1 = connect(core, 'B');
-		core.removeConnection(b1, 1000); // last B socket closes: arms the debounce
-		connect(core, 'B'); // reconnect within the window cancels the pending rebroadcast
-		await sleep(400);
-		// A never ends on a "B gone" frame; the handoff was seamless.
-		expect(a.presence().at(-1)).toContain('B');
-	});
-});
 
 // ────────────────────────────────────────────────────────────────────────────
 // Text frames
@@ -184,7 +99,7 @@ describe('RoomCore: presence', () => {
 describe('RoomCore: text frames', () => {
 	test('an unparseable or unknown text frame closes the socket with 4400', () => {
 		const core = newRoom();
-		const ws = connect(core, 'A');
+		const ws = connect(core);
 		core.handleMessage(ws, JSON.stringify({ type: 'totally-bogus' }));
 		expect(ws.codes).toEqual([4400]);
 	});
@@ -197,7 +112,7 @@ describe('RoomCore: text frames', () => {
 describe('RoomCore: sync', () => {
 	test('a binary SyncStep1 frame gets a SyncStep2 reply', () => {
 		const core = newRoom();
-		const ws = connect(core, 'A');
+		const ws = connect(core);
 		const before = ws.binary().length;
 		core.handleMessage(ws, encodeSyncStep1({ doc: new Y.Doc() }));
 		const replies = ws.binary().slice(before);
@@ -207,8 +122,8 @@ describe('RoomCore: sync', () => {
 
 	test('a doc update fans out to peers but never echoes to its origin', () => {
 		const core = newRoom();
-		const a = connect(core, 'A');
-		const b = connect(core, 'B');
+		const a = connect(core);
+		const b = connect(core);
 		const beforeA = a.binary().length;
 		const beforeB = b.binary().length;
 		const src = new Y.Doc();
@@ -231,7 +146,7 @@ describe('RoomCore: compaction', () => {
 		const updateLog = memoryUpdateLog();
 		const core = createRoomCore({ updateLog });
 		const ws = new StubSocket();
-		core.addConnection(ws, conn('A'));
+		core.addConnection(ws, auth());
 		for (const v of ['a', 'b', 'c']) {
 			const d = new Y.Doc();
 			d.getMap('m').set('k', v);
@@ -264,7 +179,7 @@ describe('RoomCore: connection lifetime', () => {
 		const ws = new StubSocket();
 		core.addConnection(
 			ws,
-			conn('A', { connectedAt: Date.now() - (LIFETIME_MS + MINUTE_MS) }),
+			auth({ authenticatedAt: Date.now() - (LIFETIME_MS + MINUTE_MS) }),
 		);
 		const beforeBinary = ws.binary().length;
 		// A STEP1 would normally get a STEP2 reply; instead the socket is closed.
@@ -278,9 +193,9 @@ describe('RoomCore: connection lifetime', () => {
 		const old = new StubSocket();
 		core.addConnection(
 			old,
-			conn('old', { connectedAt: Date.now() - (LIFETIME_MS + MINUTE_MS) }),
+			auth({ authenticatedAt: Date.now() - (LIFETIME_MS + MINUTE_MS) }),
 		);
-		const fresh = connect(core, 'fresh');
+		const fresh = connect(core);
 		core.sweepExpiredConnections(Date.now());
 		expect(old.codes).toEqual([4408]);
 		expect(fresh.codes).toEqual([]);
@@ -294,7 +209,7 @@ describe('RoomCore: connection lifetime', () => {
 describe('RoomCore: liveness', () => {
 	test('a literal `ping` text frame is answered `pong` and never treated as a protocol error', () => {
 		const core = newRoom();
-		const ws = connect(core, 'A');
+		const ws = connect(core);
 		const before = ws.sent.length;
 		core.handleMessage(ws, 'ping');
 		expect(ws.sent.slice(before)).toEqual(['pong']);

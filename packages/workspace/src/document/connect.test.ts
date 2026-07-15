@@ -12,7 +12,6 @@ import { asPrincipalId } from '@epicenter/identity';
 import { IDBKeyRange, indexedDB } from 'fake-indexeddb';
 import type * as Y from 'yjs';
 import { defineTable } from './define-table.js';
-import { asNodeId } from './node-id.js';
 import { defineWorkspace } from './workspace.js';
 
 Object.assign(globalThis, { indexedDB, IDBKeyRange });
@@ -59,7 +58,7 @@ afterEach(() => {
 });
 
 test('bare root + bare child docs persist under guid names, no relay', async () => {
-	const bundle = model.connect(null);
+	const bundle = model.connect({ kind: 'local' });
 
 	expect(bundle.collaboration).toBeUndefined();
 	await bundle.storage.whenLoaded;
@@ -81,9 +80,10 @@ test('bare root + bare child docs persist under guid names, no relay', async () 
 
 test('signed-in root persists under the principal-scoped database name', async () => {
 	const bundle = model.connect({
+		kind: 'server',
 		baseURL: 'https://api.example.com',
 		principalId: asPrincipalId('owner-1'),
-		nodeId: asNodeId('node-test'),
+		fetch,
 		openWebSocket: () => new Promise<never>(() => {}),
 		onReconnectSignal: () => () => {},
 	});
@@ -98,7 +98,7 @@ test('signed-in root persists under the principal-scoped database name', async (
 });
 
 test('wipe() clears the whole bare guid family', async () => {
-	const bundle = model.connect(null);
+	const bundle = model.connect({ kind: 'local' });
 	await bundle.storage.whenLoaded;
 	bundle.tables.notes.set({ id: 'n2', title: 'doomed' });
 	const body = bundle.tables.notes.docs.body.open('n2');

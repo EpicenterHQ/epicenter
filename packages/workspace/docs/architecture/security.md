@@ -54,16 +54,6 @@ const provider = createSyncExtension({
 
 Server rejects connections without a valid key.
 
-##### Node Allowlist
-
-Maintain a list of allowed node IDs:
-
-```typescript
-const ALLOWED_DEVICES = ['laptop-a-abc123', 'laptop-b-def456', 'phone-ghi789'];
-
-// Server validates node ID on connection
-```
-
 ##### End-to-End Encryption
 
 Encrypt blobs before storing:
@@ -220,5 +210,4 @@ The blob registry is public within the network. Anyone who can sync the Y.Doc ca
 ## Related Documentation
 
 - [Network Topology](./network-topology.md): Connection architecture
-- [Node Identity](./node-identity.md): How nodes identify themselves via `nodeId`
 - [Blob Sync Protocol](../blobs/sync-protocol.md): Blob transfer security

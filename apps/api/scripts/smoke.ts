@@ -108,7 +108,7 @@ async function main() {
 	// rooms are WebSocket-only.
 	{
 		const roomId = `smoke-${randHex(4)}`;
-		const url = `${BASE_URL}/api/rooms/${encodeURIComponent(roomId)}?nodeId=smoke`;
+		const url = `${BASE_URL}/api/rooms/${encodeURIComponent(roomId)}`;
 		const res = await fetch(url, { headers: authHeaders });
 		const body = await res.text();
 		record(

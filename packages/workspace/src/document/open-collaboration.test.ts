@@ -17,7 +17,7 @@ import { describe, expect, test } from 'bun:test';
 import * as Y from 'yjs';
 import { openCollaboration } from './open-collaboration.js';
 
-const url = 'wss://ignored.invalid/api/rooms/test?nodeId=self';
+const url = 'wss://ignored.invalid/api/rooms/test';
 
 /**
  * Minimal fake WebSocket. Stays in CONNECTING (readyState 0) until `close()`
@@ -49,15 +49,6 @@ function setup() {
 }
 
 describe('openCollaboration', () => {
-	test('peers.list() returns [] when no remote peers have published liveness', () => {
-		const { ydoc, collaboration } = setup();
-		try {
-			expect(collaboration.peers.list()).toEqual([]);
-		} finally {
-			ydoc.destroy();
-		}
-	});
-
 	test('dispose destroys the underlying ydoc', () => {
 		const { ydoc, collaboration } = setup();
 		let destroyed = 0;

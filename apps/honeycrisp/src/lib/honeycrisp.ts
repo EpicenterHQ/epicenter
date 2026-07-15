@@ -13,14 +13,11 @@
  * folder/note/view state. The workspace is never nullable.
  */
 
-import { createNodeId } from '@epicenter/workspace';
 import { auth } from '#platform/auth';
 import { createHoneycrispState } from '../routes/state';
 import { openHoneycrispBrowser } from './workspace/browser';
 
-const nodeId = createNodeId({ storage: localStorage });
-
-const browser = await openHoneycrispBrowser({ auth, nodeId });
+const browser = await openHoneycrispBrowser({ auth });
 const state = createHoneycrispState(browser);
 
 export const honeycrisp = {

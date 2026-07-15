@@ -1,6 +1,6 @@
 # 0142. Workspace apps receive one connection while storage planes keep their own protocols
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-14
 - **Amends:** [ADR-0094](0094-the-connection-is-the-boot-decision-one-connect-call.md), [ADR-0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md)
 
@@ -40,12 +40,24 @@ openBrowserWorkspace(definition, {
 });
 ```
 
+The connection is immutable for that workspace lifetime. A principal change
+closes the current runtime and reopens the application against a new boot
+snapshot, as decided by ADR-0141. A local workspace and a principal-owned
+workspace are distinct stores. Sign-in never silently adopts local rows or
+documents; any product that offers adoption owns an explicit, reviewed import.
+
 The workspace runtime derives authority-qualified database names and owns both
 network planes. Records synchronize through the semantic HTTP replication
 protocol for open, push, pull, and snapshots. Each active Yjs document
 synchronizes through its authenticated room WebSocket. Reconnect signals wake
 both planes, but neither protocol is wrapped in the other and the server does
 not gain a universal synchronization socket.
+
+`baseURL` and `principalId` qualify the local storage namespace. On the wire,
+the principal is carried only by the authenticated transport: it never appears
+in a room URL, query parameter, or Yjs frame. `onReconnectSignal` remains a
+capability because an auth transition from `reauth-required` back to
+`signed-in` must wake a parked document supervisor without changing authority.
 
 ## Consequences
 

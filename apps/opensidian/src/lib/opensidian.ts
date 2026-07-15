@@ -23,7 +23,6 @@
  * session.
  */
 
-import { createNodeId } from '@epicenter/workspace';
 import { openOpensidianBrowser } from 'opensidian/browser';
 import { auth } from '$lib/platform/auth';
 import { createEditorState } from './state/editor-state.svelte';
@@ -33,9 +32,7 @@ import { createSidebarSearchState } from './state/sidebar-search-state.svelte';
 import { createTerminalState } from './state/terminal-state.svelte';
 import { createSampleDataLoader } from './utils/load-sample-data.svelte';
 
-const nodeId = createNodeId({ storage: localStorage });
-
-const browser = openOpensidianBrowser({ auth, nodeId });
+const browser = openOpensidianBrowser({ auth });
 
 const editor = createEditorState();
 const files = createFilesState({ workspace: browser });

@@ -14,12 +14,9 @@
  */
 
 import { openVocabBrowser } from '@epicenter/vocab/browser';
-import { createNodeId } from '@epicenter/workspace';
 import { auth } from '$lib/platform/auth';
 
-const nodeId = createNodeId({ storage: localStorage });
-
-const browser = await openVocabBrowser({ auth, nodeId });
+const browser = await openVocabBrowser({ auth });
 
 export const vocab = {
 	...browser,

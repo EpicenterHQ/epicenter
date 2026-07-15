@@ -30,9 +30,8 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import { asPrincipalId } from '@epicenter/identity';
 import { MAIN_SUBPROTOCOL, parseSubprotocols } from '@epicenter/sync';
-import type { Connection } from '../../../types.js';
+import type { RoomSocketAuth } from '../../contracts.js';
 import { createRoomCore, type RoomCore } from '../../core.js';
 import { createDurableObjectUpdateLog } from './update-log.js';
 
@@ -110,14 +109,9 @@ export class Room extends DurableObject {
 			// WebSocket structurally satisfies RoomSocket (send/close/
 			// readyState), so we pass the raw ws directly.
 			//
-			// Presence is rebuilt implicitly: the core's connections map is
-			// the source of truth, so once these entries are restored,
-			// presence helpers return correct results immediately. No
-			// broadcast, no clock seeding, no force-clear; any subsequent
-			// upgrade or close drives the next presence delta the same way
-			// it would on a never-hibernated DO.
+			// Re-register hibernated sockets with their connection timestamps.
 			for (const ws of ctx.getWebSockets()) {
-				const attachment = ws.deserializeAttachment() as Connection | null;
+				const attachment = ws.deserializeAttachment() as RoomSocketAuth | null;
 				if (!attachment) continue;
 				this.core.addConnection(ws, attachment);
 			}
@@ -127,12 +121,8 @@ export class Room extends DurableObject {
 	/**
 	 * Handles WebSocket upgrades, the room's only surface.
 	 *
-	 * Trusts the rooms route to have validated and stamped both `principalId`
-	 * (from auth) and `nodeId` (from the client query, presence-checked
-	 * at the route boundary) onto the URL before forwarding. Together they
-	 * form the {@link Connection} stamped on the socket attachment for the
-	 * lifetime of the connection. `nodeId` is the participant identity presence
-	 * carries to peers.
+	 * The room partition has already been selected by the authenticated route.
+	 * The socket attachment stores only its connection timestamp.
 	 *
 	 * Cancels any pending compaction alarm: a new client just connected,
 	 * so compacting now would be wasteful.
@@ -146,18 +136,6 @@ export class Room extends DurableObject {
 			return new Response('Method not allowed', { status: 405 });
 		}
 
-		const url = new URL(request.url);
-		const rawPrincipalId = url.searchParams.get('principalId');
-		const nodeId = url.searchParams.get('nodeId');
-		if (!rawPrincipalId || !nodeId) {
-			// Contract violation: the auth-gated rooms route is responsible
-			// for validating and stamping both params before forwarding.
-			// 500 (not 400) signals this is a server bug, not a client error.
-			return new Response(null, { status: 500 });
-		}
-		// The URL stamp is the binding; brand principalId once at the boundary.
-		const principalId = asPrincipalId(rawPrincipalId);
-
 		// Ensure the lifetime sweep is running. This also supersedes any pending
 		// compaction alarm: if one fires while a client is connected, `alarm()`
 		// sees connections and sweeps instead of compacting.
@@ -168,19 +146,11 @@ export class Room extends DurableObject {
 
 		this.ctx.acceptWebSocket(server);
 
-		// Stash the connection attachment so presence survives hibernation. The
-		// node's catalog-agent identity arrives later via `presence_publish`, and
-		// the core re-serializes the attachment when it does.
-		const attachment: Connection = {
-			principalId,
-			nodeId,
-			connectedAt: Date.now(),
-		};
+		// Stash the connection timestamp so the lifetime bound survives hibernation.
+		const attachment: RoomSocketAuth = { authenticatedAt: Date.now() };
 		server.serializeAttachment(attachment);
 
-		// Register with the core. addConnection sends the initial
-		// SyncStep1 and presence snapshot, and rebroadcasts presence to
-		// peers if this is the first socket for the client.
+		// Register with the core. addConnection sends the initial SyncStep1.
 		this.core.addConnection(server, attachment);
 
 		const responseHeaders = new Headers();

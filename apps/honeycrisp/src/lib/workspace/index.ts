@@ -7,7 +7,7 @@
  * here. The locked workspace candidate composes these tables separately.
  *
  * Composition lives elsewhere:
- *  - `apps/honeycrisp/src/lib/workspace/browser.ts` -> `openHoneycrispBrowser({ auth, nodeId })`
+ *  - `apps/honeycrisp/src/lib/workspace/browser.ts` -> `openHoneycrispBrowser({ auth })`
  */
 
 import {

@@ -103,6 +103,12 @@ multiplexing protocol, reconnection scheduler, and room authorization layer. It
 does not simplify the app API further, so it is refused until measurements show
 that socket count is a real problem.
 
+`WorkspaceConnection` is a boot snapshot, not a live account switcher. A
+principal change tears down and reopens the workspace. Local and server-backed
+stores remain independent; automatic local-to-account adoption is explicitly
+refused. A future app-specific import may offer that promotion with its own
+review and conflict semantics.
+
 ## Automation model
 
 The word automation currently hides three different promises:
@@ -286,11 +292,11 @@ generic daemon, mount runtime, or watcher lifecycle.
 
 ## Completion criteria
 
-- [ ] Every workspace-backed app passes exactly one `WorkspaceConnection` at
+- [x] Every workspace-backed app passes exactly one `WorkspaceConnection` at
   boot.
-- [ ] Records use HTTP replication and Yjs documents use authenticated room
+- [x] Records use HTTP replication and Yjs documents use authenticated room
   WebSockets behind that connection.
-- [ ] No production or documentation path uses `NodeId`, generic peers, or
+- [x] No production or documentation path uses `NodeId`, generic peers, or
   device presence.
 - [x] No generic Epicenter process remains meaningful after every app and
   explicit command closes.

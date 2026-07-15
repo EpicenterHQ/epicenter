@@ -14,15 +14,10 @@
  * @module
  */
 
-import type { PrincipalId } from '@epicenter/identity';
 import type * as Y from 'yjs';
+import type { WorkspaceConnection } from '../workspace-connection.js';
 import { attachLocalStorage } from './attach-local-storage.js';
-import type { NodeId } from './node-id.js';
-import {
-	type OnReconnectSignal,
-	type OpenWebSocketFn,
-	openCollaboration,
-} from './open-collaboration.js';
+import { openCollaboration } from './open-collaboration.js';
 import { roomWsUrl } from './transport.js';
 
 /**
@@ -30,22 +25,6 @@ import { roomWsUrl } from './transport.js';
  * shared by the root doc and every body. Typed against workspace-native types
  * so the runtime never imports the auth/Svelte layer.
  */
-export type ConnectionConfig = {
-	/**
-	 * Full API origin URL (e.g. `https://api.epicenter.so`). The scheme upgrades
-	 * to `wss://` for the room socket, and the URL's host partitions local
-	 * storage (see `attachLocalStorage`), so sync target and storage scope can
-	 * never disagree.
-	 */
-	baseURL: string;
-	principalId: PrincipalId;
-	/** Bearer-attached WebSocket opener (`auth.openWebSocket`). */
-	openWebSocket: OpenWebSocketFn;
-	/** Auth state-change publication; sync reconnects after token refreshes. */
-	onReconnectSignal: OnReconnectSignal;
-	nodeId: NodeId;
-};
-
 /**
  * Wire `ydoc` to local IndexedDB persistence and the relay room for its guid.
  *
@@ -54,7 +33,10 @@ export type ConnectionConfig = {
  * @returns `{ idb, collaboration }` - local persistence + sync handles, both
  *          disposed when `ydoc.destroy()` fires.
  */
-export function connectDoc(ydoc: Y.Doc, config: ConnectionConfig) {
+export function connectDoc(
+	ydoc: Y.Doc,
+	config: Extract<WorkspaceConnection, { kind: 'server' }>,
+) {
 	const idb = attachLocalStorage(ydoc, {
 		server: new URL(config.baseURL).host,
 		principalId: config.principalId,
@@ -63,7 +45,6 @@ export function connectDoc(ydoc: Y.Doc, config: ConnectionConfig) {
 		url: roomWsUrl({
 			baseURL: config.baseURL,
 			guid: ydoc.guid,
-			nodeId: config.nodeId,
 		}),
 		openWebSocket: config.openWebSocket,
 		onReconnectSignal: config.onReconnectSignal,

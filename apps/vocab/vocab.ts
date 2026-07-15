@@ -10,7 +10,7 @@
  *
  * Composition lives elsewhere:
  *  - `apps/vocab/vocab.browser.ts`
- *      → `openVocabBrowser({ auth, nodeId })`
+ *      → `openVocabBrowser({ auth })`
  */
 
 import type { ServableModel } from '@epicenter/constants/ai-providers';

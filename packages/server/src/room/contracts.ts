@@ -23,7 +23,6 @@
  * @see `room/backends/cloudflare/` for the Cloudflare backend.
  */
 
-import type { PrincipalId } from '@epicenter/identity';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -75,7 +74,7 @@ export type RoomUpdateLog = {
  * socket to {@link RoomCore.addConnection}.
  *
  * Per-connection state that must survive runtime quirks (the
- * `Connection`) is tracked inside `RoomCore`'s own map. This contract
+ * `RoomSocketAuth`) is tracked inside `RoomCore`'s own map. This contract
  * carries no attachment slot, because attachment persistence is
  * backend-specific (`serializeAttachment` on Cloudflare's hibernation API,
  * `ws.data` on Bun) and the adapter owns it.
@@ -91,11 +90,14 @@ export type RoomSocket = {
 	 * Persist per-connection state across the runtime's hibernate cycle.
 	 * Cloudflare's hibernation API provides this; Bun and other backends
 	 * with in-memory connection sets leave it undefined. The core calls it
-	 * (if present) whenever the in-memory `Connection` changes, so peer
+	 * (if present) whenever the in-memory room connection state changes, so
 	 * state survives a DO eviction.
 	 */
 	serializeAttachment?(value: unknown): void;
 };
+
+/** State retained only to bound one authenticated room socket's lifetime. */
+export type RoomSocketAuth = { authenticatedAt: number };
 
 // ============================================================================
 // ResolvedRoom / Rooms
@@ -111,18 +113,16 @@ export type RoomSocket = {
  */
 export type ResolvedRoom = {
 	/**
-	 * Accept a WebSocket upgrade for this room. The route resolves identity
-	 * out-of-band ({@link RoomUpgrade}: `principalId` from auth, `nodeId` from the
-	 * client query) and the backend performs its runtime-specific accept,
+	 * Accept a WebSocket upgrade for this already-partitioned room. The backend
+	 * performs its runtime-specific accept,
 	 * returning the HTTP response the route returns verbatim.
 	 *
 	 * Identity reaches the backend as data, not re-derived from auth, but each
 	 * runtime then accepts the socket differently: the Cloudflare backend
-	 * forwards the request to its Durable Object (which returns a 101), stamping
-	 * the server-resolved `principalId` into the forwarded URL the DO reads; the Bun
+	 * forwards the request to its Durable Object (which returns a 101); the Bun
 	 * backend hands the ORIGINAL request to `server.upgrade(request, { data })`
 	 * (a reconstructed request cannot be upgraded) and carries the identity on
-	 * the socket's `ws.data`. Both land the same {@link Connection} on
+	 * the socket's `ws.data`. Both land the same state on
 	 * `RoomCore.addConnection`.
 	 */
 	handleUpgrade(upgrade: RoomUpgrade): Promise<Response>;
@@ -133,19 +133,15 @@ export type ResolvedRoom = {
  * `request` is the untouched inbound request with its runtime identity intact:
  * nothing upstream rewrites `c.req.raw`, because Bun's `server.upgrade` only
  * accepts the exact object its `fetch` handler received (the Cloudflare
- * backend forwards a principalId-stamped copy to its DO instead, which is fine
+ * backend forwards the request to its selected DO, which is fine
  * there: Cloudflare matches the socket by the DO it routes to, not by
- * request-object identity). `principalId` is the authenticated principal
- * stamped server-side; `nodeId` is the client's own address the relay routes
- * by, validated present at the route boundary. The route also guarantees the
+ * request-object identity). The route also guarantees the
  * request offered either the main subprotocol or no subprotocols at all, so a
  * backend echoing only the main subprotocol never breaks a handshake and never
  * echoes a `bearer.<token>` entry.
  */
 export type RoomUpgrade = {
 	request: Request;
-	principalId: PrincipalId;
-	nodeId: string;
 };
 
 /**

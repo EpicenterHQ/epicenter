@@ -26,13 +26,10 @@ import { tabManagerWorkspace } from '$lib/workspace/definition';
  * this never collides with the active synced doc. `dispose()` tears down the
  * connection without deleting data (`clearLocal` does the deletion).
  *
- * Only the rows a person actually creates are staged for copy: `devices`
- * self-registers fresh in whichever doc is active (same node id either way)
- * and `toolTrust` is a small local preference, so both are left out of the
- * copy set. Add still clears the WHOLE bare root afterward (`idb.clearLocal`
- * has no per-table granularity), so any local device or tool-trust rows are
- * dropped too; that is the intended "local device state does not follow
- * you" behavior, not a leak.
+ * Only the rows a person actually creates are staged for copy. `toolTrust` is
+ * a small local preference, so it is left out of the copy set. Add still
+ * clears the whole bare root afterward (`idb.clearLocal` has no per-table
+ * granularity), so local tool-trust rows are dropped too.
  */
 function openLocalSource() {
 	const workspace = tabManagerWorkspace.create();

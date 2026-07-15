@@ -113,8 +113,10 @@ the relay to move with it.
   unnecessary, and private facts never leave the machine.
 - A worker is the existing daemon body plus an observe loop, not a new process
   kind. The mount runtime gains a child-doc observe loop
+  <!-- doc-path-check: ignore-next-line -->
   (`packages/workspace/src/document/child-doc-worker.ts`) over a node-only body
   connector injected through `nodeMountRuntime().connectChildDoc`
+  <!-- doc-path-check: ignore-next-line -->
   (`packages/workspace/src/daemon/mount-runtime.ts`); both are additive.
 - Hosting is schema-driven, symmetric with the browser child-doc opener. A
   browser `connect()` reads the table's `docDecls` and hands the UI

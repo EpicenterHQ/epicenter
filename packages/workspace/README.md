@@ -19,25 +19,11 @@ records Worker, hydrated KV document, lazy child-document cache, local
 persistence, cross-tab updates, room sync, and teardown.
 
 ```typescript
-const authority = toWorkspaceAuthority(auth);
-const common = {
+const workspace = await openBrowserWorkspace(definition, {
 	worker: () => new WorkspaceWorker(),
 	onObserverError: reportError,
-};
-
-const workspace =
-	authority.kind === 'server'
-		? await openBrowserWorkspace(definition, {
-				...common,
-				authority,
-				fetch: auth.fetch,
-				documentSync: {
-					nodeId,
-					openWebSocket: auth.openWebSocket,
-					onReconnectSignal: auth.onStateChange,
-				},
-			})
-		: await openBrowserWorkspace(definition, { ...common, authority });
+	connection: toWorkspaceConnection(auth),
+});
 ```
 
 Apps inject auth-owned HTTP and WebSocket capabilities; they do not build
@@ -95,7 +81,7 @@ satisfiesWorkspace()
 
 The app-facing path is `defineWorkspace({ id, tables, kv, actions }).connect(...)`.
 `create()` returns only the root document for tests and specialized runtimes. The connection
-is the boot decision: `connect(null)` adds bare browser storage, wipe, and
+is the boot decision: `connect({ kind: 'local' })` adds bare browser storage, wipe, and
 table child-doc openers with no relay; `connect(connection)` adds principal-scoped
 browser storage, root sync, wipe, and table child-doc openers.
 `connect(connection, compose)` lets a runtime add extras and expose its final
@@ -136,7 +122,7 @@ const blogWorkspace = defineWorkspace({
 });
 
 // Singleton style: connect once at module scope, use everywhere.
-export const blog = blogWorkspace.connect(null);
+export const blog = blogWorkspace.connect({ kind: 'local' });
 
 async function quickStart() {
 	await blog.storage.whenLoaded;
@@ -160,8 +146,8 @@ void quickStart;
 That example uses the current public API end to end:
 
 - `defineTable(...)` with a real schema
-- `defineWorkspace(...)` for the shared contract and `connect(null)` for the live local bundle
-- a module-scope singleton: `export const blog = blogWorkspace.connect(null)`
+- `defineWorkspace(...)` for the shared contract and `connect({ kind: 'local' })` for the live local bundle
+- a module-scope singleton: `export const blog = blogWorkspace.connect({ kind: 'local' })`
 - direct property access via `blog.tables.posts`
 - `set`, `get`, `update`, `delete`, `scan`, and `observe`
 
@@ -255,7 +241,7 @@ There is no builder chain. Runtime-specific extras are composed inline in
 collaboration starts:
 
 ```typescript
-function openBlog(connection: ConnectionConfig) {
+function openBlog(connection: WorkspaceConnection) {
 	return blogWorkspace.connect(connection, (workspace) => {
 		const search = createBlogSearch(workspace.tables.posts);
 		const actions = defineActions({
@@ -384,7 +370,7 @@ Yjs supports multiple providers simultaneously. A phone can connect to desktop, 
 
 1. Define tables and KV entries with `defineTable` and `defineKv`.
 2. Export a `defineWorkspace({ id, tables, kv, actions })` value beside the schema.
-3. For singleton apps: call `definition.connect(null)` once at module scope. For cloud
+3. For singleton apps: call `definition.connect({ kind: 'local' })` once at module scope. For cloud
    browser apps: call `definition.connect(connection)`. For browser child documents:
    declare them with `table.docs(...)` and call `tables.<table>.docs.<field>.open(rowId)`.
    For one-shot Node operations: derive the same child-doc guid and read the room directly.
@@ -393,7 +379,7 @@ Yjs supports multiple providers simultaneously. A phone can connect to desktop, 
    - **Two or more subsystems to compose into one barrier.** Then `whenReady` earns its place: `whenReady: Promise.all([persistence.whenLoaded, unlock.whenChecked, sync.whenConnected])`. Because the field is typed `Promise<unknown>`, `Promise.all([...])` is assignable directly. Consumers `await bundle.whenReady`. Migrations, `@epicenter/filesystem` ops, the sqlite-index materializer, and `{#await}` gates in editors all consume this aggregate.
    - **App singletons may expose an app-level `whenReady`.** When one promise is the product-level readiness contract (the load gate, the sign-in migration), an app singleton aliasing `whenReady: storage.whenLoaded` is legitimate: the app owns that contract and its consumers should not care which subsystem backs it.
 
-5. Read and write through `bundle.tables`, `bundle.kv`, and `bundle.collaboration.peers`, and (for per-row content docs) whatever you exposed in the returned bundle.
+5. Read and write through `bundle.tables`, `bundle.kv`, and `bundle.collaboration`, and (for per-row content docs) whatever you exposed in the returned bundle.
 6. Iterate `Object.entries(bundle.actions)` and read each action's metadata (`type`, `title`, `description`, `input`) if you want to build adapters such as HTTP, CLI, or MCP.
 7. Dispose with `bundle[Symbol.dispose]()` for singletons or `handle[Symbol.dispose]()` for cache handles when you're done. Use `cache[Symbol.dispose]()` to flush every live entry.
 
@@ -598,32 +584,6 @@ KV is validate-or-default. The default argument is a factory (`() => value`),
 not a bare value, so each consumer gets a fresh instance. There is no
 migration function.
 
-### Presence
-
-Presence (which installs are connected right now) is not a client-defined
-schema. The relay owns it: it tracks live WebSocket connections and, on every
-connection change, pushes one `presence` text frame carrying the full list of
-connected installs. `openCollaboration` stores the latest list and exposes it
-as `collaboration.peers`:
-
-```typescript
-const online = workspace.collaboration.peers.list();
-// -> [{ nodeId: 'phone' }, { nodeId: 'laptop' }]
-
-const unsubscribe = workspace.collaboration.peers.subscribe((peers) => {
-	console.log('online:', peers.map((peer) => peer.nodeId));
-});
-```
-
-Each entry is a `Peer` (`{ nodeId, connectedAt, agentId? }`);
-the local install is excluded. Product-level data (display name, cursor, capability list)
-lives in app-owned tables, not on the presence wire. See
-[SYNC_ARCHITECTURE.md](./SYNC_ARCHITECTURE.md) for the full model.
-
-Cursor and selection sync (genuine ephemeral peer-to-peer state) is future
-work; when it lands it will use a dedicated awareness primitive, kept
-separate from this server-owned presence channel.
-
 ### Document-backed tables
 
 Per-row content (one Y.Doc per file/note/entry) is declared on the table and
@@ -638,7 +598,7 @@ when it needs an HTTP snapshot.
 import { field } from '@epicenter/field';
 import {
 	attachPlainText,
-	type ConnectionConfig,
+	type WorkspaceConnection,
 	defineTable,
 	defineWorkspace,
 	onLocalUpdate,
@@ -657,11 +617,11 @@ export const filesWorkspace = defineWorkspace({
 	kv: {},
 });
 
-export function openFilesBrowser(connection: ConnectionConfig) {
+export function openFilesBrowser(connection: WorkspaceConnection) {
 	return filesWorkspace.connect(connection);
 }
 
-async function documentExample(connection: ConnectionConfig) {
+async function documentExample(connection: WorkspaceConnection) {
 	using workspace = openFilesBrowser(connection);
 	workspace.tables.files.set({
 		id: 'file-1',
@@ -876,13 +836,12 @@ void openNotes;
 
 ### Sync
 
-One primitive wraps the WebSocket transport: `openCollaboration`. Actions live on the workspace bundle; collaboration is sync and presence only. Compose it with `attachBroadcastChannel(ydoc)` for unauthenticated local-only documents. Authenticated browser workspaces use `attachLocalStorage(ydoc, { server, principalId })`, which pairs principal-scoped IDB with a principal-scoped BroadcastChannel in one call.
+One primitive wraps the WebSocket transport: `openCollaboration`. Actions live on the workspace bundle; collaboration is sync only. Compose it with `attachBroadcastChannel(ydoc)` for unauthenticated local-only documents. Authenticated browser workspaces use `attachLocalStorage(ydoc, { server, principalId })`, which pairs principal-scoped IDB with a principal-scoped BroadcastChannel in one call.
 
 ```typescript
 import { field } from '@epicenter/field';
 import {
 	attachLocalStorage,
-	createNodeId,
 	createWorkspace,
 	defineTable,
 	openCollaboration,
@@ -915,12 +874,10 @@ function openTabs({
 		server: new URL(baseURL).host,
 		principalId,
 	});
-	const nodeId = createNodeId({ storage: localStorage });
 	const collaboration = openCollaboration(workspace.ydoc, {
 		url: roomWsUrl({
 			baseURL,
 			guid: workspace.ydoc.guid,
-			nodeId,
 		}),
 		waitFor: idb.whenLoaded,
 		openWebSocket,
@@ -1308,7 +1265,7 @@ Two composition shapes, one builder contract.
 │     kv: {},                                               │
 │     actions: ({ tables }) => defineActions({ ... }),      │
 │ });                                                       │
-│ export const workspace = appWorkspace.connect(null);         │
+│ export const workspace = appWorkspace.connect({ kind: 'local' });         │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -1326,7 +1283,7 @@ const filesWorkspace = defineWorkspace({
 	kv: {},
 });
 
-declare const connection: ConnectionConfig | null;
+declare const connection: WorkspaceConnection;
 const workspace = filesWorkspace.connect(connection);
 
 using handle = workspace.tables.files.docs.content.open('file-1');
@@ -1406,7 +1363,7 @@ What the package does give you is the raw material a server adapter needs:
 - action metadata fields (`type`, `title`, `description`, and `input`) for
   adapters that need a discovery surface
 - iterate with `Object.entries(actions)`
-- direct access to `bundle.tables`, `bundle.kv`, `bundle.collaboration.peers`, and per-row content factories
+- direct access to `bundle.tables`, `bundle.kv`, `bundle.collaboration`, and per-row content factories
 
 If you want HTTP, CLI, or MCP on top, build or import an adapter around those primitives.
 
@@ -1534,20 +1491,6 @@ Public KV methods:
 - `delete(key)`
 - `observe(key, callback)`
 - `observeAll(callback)`
-
-### Presence
-
-```typescript
-import {
-	type Collaboration,
-	type Peer,
-} from '@epicenter/workspace';
-```
-
-`openCollaboration` returns a `Collaboration`. Online peers are relay-owned presence rows with each peer's `nodeId`, `connectedAt`, and optional `agentId`. Actions live on the workspace bundle, not the collaboration handle:
-
-- `collaboration.peers.list()`: `Peer[]`, the local install excluded
-- `collaboration.peers.subscribe(fn)`: returns an unsubscribe function
 
 ### Introspection
 

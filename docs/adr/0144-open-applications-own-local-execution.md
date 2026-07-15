@@ -29,6 +29,13 @@ them:
 - `watch` runs that application's catch-up loop in the foreground until the
   operator stops it.
 
+The `epicenter` CLI may later offer a terminating convenience command that
+discovers configured applications, invokes each app's `sync`, reports their
+results, and exits. That is fan-out, not a folder runtime. It may not own PID
+files, restart policy, process status, resident logs, or a process that outlives
+the invoked app engines. Adding those responsibilities would be a new daemon
+product decision, not a harmless CLI simplification.
+
 These are application commands over one named engine. They are not generic
 mounts, daemon fallbacks, or an Epicenter automation host. `watch` owns no
 process registry, PID metadata, installation identity, backgrounding, log

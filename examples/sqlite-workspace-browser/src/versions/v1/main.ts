@@ -1,5 +1,4 @@
 import { asPrincipalId } from '@epicenter/identity';
-import { createNodeId } from '@epicenter/workspace';
 import {
 	openBrowserWorkspace,
 	type StandaloneWorkspace,
@@ -21,8 +20,7 @@ type Workspace =
 
 const app = requireApp();
 
-const documentSync = {
-	nodeId: createNodeId({ storage: localStorage }),
+const serverCapabilities = {
 	openWebSocket: (url: string | URL, protocols?: string[]) =>
 		new WebSocket(url, protocols),
 	onReconnectSignal: (_reconnect: () => void) => () => undefined,
@@ -59,18 +57,18 @@ async function open(): Promise<void> {
 	workspace = replica
 		? await openBrowserWorkspace(workspaceDefinition, {
 				...options,
-				authority: {
+				connection: {
 					kind: 'server',
 					baseURL: syncOrigin.origin,
 					principalId: asPrincipalId('browser-smoke'),
+					fetch,
+					...serverCapabilities,
 				},
-				fetch,
-				documentSync,
 				worker: () => new WorkspaceWorker(),
 			})
 		: await openBrowserWorkspace(workspaceDefinition, {
 				...options,
-				authority: { kind: 'local' },
+				connection: { kind: 'local' },
 				worker: () => new WorkspaceWorker(),
 			});
 }

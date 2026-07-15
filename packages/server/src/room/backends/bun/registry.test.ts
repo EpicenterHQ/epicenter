@@ -32,7 +32,7 @@ import { createBunSqliteUpdateLog } from './update-log.js';
 // STUB SOCKET (the ServerWebSocket surface RoomCore actually touches)
 // ────────────────────────────────────────────────────────────────────────────
 
-type SocketData = { roomName: string; principalId: string; nodeId: string };
+type SocketData = { surface: 'rooms'; kind: 'room'; roomName: string };
 
 class StubWs {
 	readyState = 1;
@@ -51,19 +51,6 @@ class StubWs {
 	textFrames(): string[] {
 		return this.sent.filter((f): f is string => typeof f === 'string');
 	}
-}
-
-type PresenceFrame = { type: 'presence'; peers: { nodeId: string }[] };
-
-function presenceFrames(ws: StubWs): PresenceFrame[] {
-	return ws
-		.textFrames()
-		.map((t) => JSON.parse(t) as { type: string })
-		.filter((f): f is PresenceFrame => f.type === 'presence');
-}
-
-function nodeIds(frame: PresenceFrame): string[] {
-	return frame.peers.map((p) => p.nodeId);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -98,42 +85,11 @@ function makeRooms() {
 	};
 }
 
-function connect(
-	open: (ws: StubWs) => void,
-	nodeId: string,
-	roomName = ROOM,
-): StubWs {
-	const ws = new StubWs({ roomName, principalId: 'u1', nodeId });
+function connect(open: (ws: StubWs) => void, roomName = ROOM): StubWs {
+	const ws = new StubWs({ surface: 'rooms', kind: 'room', roomName });
 	open(ws);
 	return ws;
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// PRESENCE
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('Node backend: presence', () => {
-	test('first socket receives an empty peer list', () => {
-		const { open } = makeRooms();
-		const ws = connect(open, 'A');
-		expect(presenceFrames(ws).map(nodeIds)).toEqual([[]]);
-	});
-
-	test('second node sees the first in its directed frame', () => {
-		const { open } = makeRooms();
-		connect(open, 'A');
-		const ws = connect(open, 'B');
-		expect(presenceFrames(ws).map(nodeIds)).toEqual([['A']]);
-	});
-
-	test('first socket for a node rebroadcasts to existing peers', () => {
-		const { open } = makeRooms();
-		const wsA = connect(open, 'A');
-		const before = presenceFrames(wsA).length;
-		connect(open, 'B');
-		expect(presenceFrames(wsA).slice(before).map(nodeIds)).toEqual([['B']]);
-	});
-});
 
 // ────────────────────────────────────────────────────────────────────────────
 // BINARY SYNC
@@ -142,7 +98,7 @@ describe('Node backend: presence', () => {
 describe('Node backend: binary sync', () => {
 	test('a STEP1 frame receives a STEP2 reply', () => {
 		const { open, message } = makeRooms();
-		const ws = connect(open, 'A');
+		const ws = connect(open);
 		const before = ws.sent.length;
 		message(ws, encodeSyncStep1({ doc: new Y.Doc() }));
 		const replies = ws.sent
@@ -154,8 +110,8 @@ describe('Node backend: binary sync', () => {
 
 	test('an update from one socket reaches peers but not its origin', () => {
 		const { open, message } = makeRooms();
-		const wsA = connect(open, 'A');
-		const wsB = connect(open, 'B');
+		const wsA = connect(open);
+		const wsB = connect(open);
 		const beforeA = wsA.sent.length;
 		const beforeB = wsB.sent.length;
 
@@ -177,7 +133,7 @@ describe('Node backend: binary sync', () => {
 describe('Node backend: text frames', () => {
 	test('an unknown text frame closes the socket with 4400', () => {
 		const { open, message } = makeRooms();
-		const caller = connect(open, 'caller');
+		const caller = connect(open);
 		message(caller, JSON.stringify({ type: 'totally_bogus' }));
 		expect(caller.closeCalls.map((c) => c.code)).toEqual([4400]);
 	});

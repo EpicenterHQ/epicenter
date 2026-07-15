@@ -7,39 +7,16 @@
  */
 
 import type { SyncAuthClient } from '@epicenter/auth';
-import { toWorkspaceAuthority } from '@epicenter/svelte/auth';
-import type { NodeId } from '@epicenter/workspace';
+import { toWorkspaceConnection } from '@epicenter/svelte/auth';
 import { openBrowserWorkspace } from '@epicenter/workspace/sqlite/browser';
 import { vocabWorkspaceDefinition } from './src/versions/v1/definition.js';
 import WorkspaceWorker from './src/versions/v1/workspace.worker?worker';
 
-export async function openVocabBrowser({
-	auth,
-	nodeId,
-}: {
-	auth: SyncAuthClient;
-	nodeId: NodeId;
-}) {
-	const authority = toWorkspaceAuthority(auth);
-	const common = {
+export async function openVocabBrowser({ auth }: { auth: SyncAuthClient }) {
+	return openBrowserWorkspace(vocabWorkspaceDefinition, {
 		worker: () => new WorkspaceWorker(),
 		onObserverError: reportError,
-	};
-	if (authority.kind === 'server') {
-		return openBrowserWorkspace(vocabWorkspaceDefinition, {
-			...common,
-			authority,
-			fetch: auth.fetch,
-			documentSync: {
-				nodeId,
-				openWebSocket: auth.openWebSocket,
-				onReconnectSignal: auth.onStateChange,
-			},
-		});
-	}
-	return openBrowserWorkspace(vocabWorkspaceDefinition, {
-		...common,
-		authority,
+		connection: toWorkspaceConnection(auth),
 	});
 }
 

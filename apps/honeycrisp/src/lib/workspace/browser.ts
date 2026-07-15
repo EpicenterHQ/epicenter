@@ -7,41 +7,22 @@
  */
 
 import type { SyncAuthClient } from '@epicenter/auth';
-import { toWorkspaceAuthority } from '@epicenter/svelte/auth';
-import type { NodeId } from '@epicenter/workspace';
+import { toWorkspaceConnection } from '@epicenter/svelte/auth';
 import { openBrowserWorkspace } from '@epicenter/workspace/sqlite/browser';
-import { createHoneycrispActions } from './actions.js';
 import { honeycrispWorkspaceDefinition } from './definition.js';
 import WorkspaceWorker from './workspace.worker?worker';
+import { createHoneycrispActions } from './actions.js';
 
 export async function openHoneycrispBrowser({
 	auth,
-	nodeId,
 }: {
 	auth: SyncAuthClient;
-	nodeId: NodeId;
 }) {
-	const authority = toWorkspaceAuthority(auth);
-	const common = {
+	const workspace = await openBrowserWorkspace(honeycrispWorkspaceDefinition, {
 		worker: () => new WorkspaceWorker(),
 		onObserverError: reportError,
-	};
-	const workspace =
-		authority.kind === 'server'
-			? await openBrowserWorkspace(honeycrispWorkspaceDefinition, {
-					...common,
-					authority,
-					fetch: auth.fetch,
-					documentSync: {
-						nodeId,
-						openWebSocket: auth.openWebSocket,
-						onReconnectSignal: auth.onStateChange,
-					},
-				})
-			: await openBrowserWorkspace(honeycrispWorkspaceDefinition, {
-					...common,
-					authority,
-				});
+		connection: toWorkspaceConnection(auth),
+	});
 	return {
 		...workspace,
 		actions: createHoneycrispActions(workspace),

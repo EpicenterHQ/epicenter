@@ -1,16 +1,12 @@
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { hashYDocClientId } from '../shared/client-id.js';
 import { attachYjsLog } from './attach-yjs-log.js';
-import type { NodeId } from './node-id.js';
 import type { LocalPersistence } from './workspace.js';
 
 export type BunLocalPersistenceOptions = {
 	/** Directory that owns this host's local Yjs update logs. */
 	readonly dir: string;
-	/** Stable node identity for this storage scope. Pins Y.Doc clientID. */
-	readonly nodeId?: NodeId;
 };
 
 function storageFileName(guid: string): string {
@@ -23,14 +19,12 @@ function storageDir(dir: string): string {
 
 export function bunLocalPersistence({
 	dir,
-	nodeId,
 }: BunLocalPersistenceOptions): LocalPersistence {
 	return {
 		attach(ydoc) {
 			const yjsLog = attachYjsLog(ydoc, {
 				filePath: join(storageDir(dir), storageFileName(ydoc.guid)),
 			});
-			if (nodeId) ydoc.clientID = hashYDocClientId(nodeId);
 			return {
 				whenLoaded: Promise.resolve(),
 				whenDisposed: yjsLog.whenDisposed,

@@ -1,6 +1,6 @@
 ---
 name: workspace-app-composition
-description: 'Compose or migrate an Epicenter workspace-backed app around a version-locked SQLite contract, one authority-selected browser opener, an app-owned Worker, hydrated KV, lazy child documents, async actions, and first-paint readiness. Use when creating or changing apps/* workspace definitions, browser or Tauri openers, workspace-version-lock.json, workspace.worker.ts, app singletons, or legacy connect(toConnection(...)) and sign-in migration paths.'
+description: 'Compose or migrate an Epicenter workspace-backed app around a version-locked SQLite contract, one workspace connection, an app-owned Worker, hydrated KV, lazy child documents, async actions, and first-paint readiness. Use when creating or changing apps/* workspace definitions, browser or Tauri openers, workspace-version-lock.json, workspace.worker.ts, app singletons, or legacy Yjs and sign-in migration paths.'
 metadata:
   author: epicenter
   version: '7.0'
@@ -9,7 +9,7 @@ metadata:
 # Workspace App Composition
 
 New application work uses the versioned SQLite workspace path. Some unmigrated
-apps still call `connect(toConnection(...))`; treat that as a deletion target,
+apps still use the legacy Yjs record path; treat that as a deletion target,
 not a template.
 
 ## One Runtime Shape
@@ -24,14 +24,14 @@ defineWorkspace({ appId, version, tables, kv })
 lockWorkspace(candidate, workspace-version-lock.json)
         |
         v
-openBrowserWorkspace(definition, { authority, worker, ...auth transport })
+openBrowserWorkspace(definition, { connection, worker })
         |
         +-- SQLite records in the app-owned Worker
         +-- eager authority-qualified KV document
         `-- lazy authority-qualified child-document sessions
 ```
 
-The app selects `local` or `server(baseURL, principalId)` once at boot. A
+The app passes one local or server `WorkspaceConnection` once at boot. A
 principal change reloads the app. Never swap storage in place, dual-read an old
 workspace, or add a generic sign-in copy.
 
@@ -68,30 +68,14 @@ native resources. Do not fork the durable definition by platform.
 
 ## Browser Factory
 
-`open<App>Browser` is async. It projects auth once with
-`toWorkspaceAuthority(auth)` and calls `openBrowserWorkspace` in one of two
-branches:
+`open<App>Browser` is async. It projects auth once and passes one connection:
 
 ```ts
-const authority = toWorkspaceAuthority(auth);
-const common = {
+return openBrowserWorkspace(definition, {
 	worker: () => new WorkspaceWorker(),
 	onObserverError: reportError,
-};
-
-if (authority.kind === 'server') {
-	return openBrowserWorkspace(definition, {
-		...common,
-		authority,
-		fetch: auth.fetch,
-		documentSync: {
-			nodeId,
-			openWebSocket: auth.openWebSocket,
-			onReconnectSignal: auth.onStateChange,
-		},
-	});
-}
-return openBrowserWorkspace(definition, { ...common, authority });
+	connection: toWorkspaceConnection(auth),
+});
 ```
 
 The opener owns KV hydration, IndexedDB, BroadcastChannel, document

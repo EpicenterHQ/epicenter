@@ -42,8 +42,8 @@ so self-hosting is functionally zero-knowledge against Epicenter.
 
 That confidentiality covers content, not the wire, and it does not erase three
 things a self-hoster should weigh. The relay operator still sees the metadata
-around the bytes (user id, node id, per-room co-presence, dispatched action
-names, message timing, size, and IP); that operator is Epicenter when hosted and
+around the bytes (principal partition, room name, message timing, size, and
+IP); that operator is Epicenter when hosted and
 you when self-hosted, and even a future blind relay keeps seeing this envelope.
 Blobs land wherever `BLOBS_S3_ENDPOINT` points, so renting Epicenter's blob
 service puts your media in Epicenter's R2 even on a self-hosted star; point the

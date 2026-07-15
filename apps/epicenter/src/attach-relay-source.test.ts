@@ -240,9 +240,12 @@ async function readTranscript(dataDir: string): Promise<{
 	tableNames: string[];
 	messages: AgentMessage[];
 }> {
-	const replica = queryWorkspace.connect(null, {
-		persistence: bunLocalPersistence({ dir: dataDir }),
-	});
+	const replica = queryWorkspace.connect(
+		{ kind: 'local' },
+		{
+			persistence: bunLocalPersistence({ dir: dataDir }),
+		},
+	);
 	await replica.storage.whenLoaded;
 	try {
 		const tableNames = Object.keys(replica.tables);

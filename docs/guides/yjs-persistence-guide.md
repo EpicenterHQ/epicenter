@@ -17,7 +17,7 @@ YJS is a **CRDT (Conflict-free Replicated Data Type)** library. In Epicenter, YJ
 
 ## Current sync model
 
-The example below uses cloud sync: the client builds the URL with `roomWsUrl({ baseURL, guid, nodeId })` and the server resolves the room from the auth token.
+The example below uses cloud sync: the client builds the URL with `roomWsUrl({ baseURL, guid })` and the server resolves the principal-owned room from the auth token.
 
 Each app composes its workspace inline in a browser opener:
 
@@ -36,8 +36,8 @@ export function openMyApp() {
 		kv: {},
 	});
 	const idb = attachIndexedDb(workspace.ydoc);                  // local persistence
-	const collaboration = openCollaboration(workspace.ydoc, {     // sync + presence
-		url: roomWsUrl({ baseURL: auth.deployment.baseURL, guid: workspace.ydoc.guid, nodeId }),
+	const collaboration = openCollaboration(workspace.ydoc, {     // sync
+		url: roomWsUrl({ baseURL: auth.deployment.baseURL, guid: workspace.ydoc.guid }),
 		openWebSocket: auth.openWebSocket,
 		onReconnectSignal: auth.onStateChange,
 		waitFor: idb.whenLoaded,                                    // delta-only on reconnect
@@ -56,6 +56,6 @@ Offline and sync behavior:
 3. `openCollaboration` waits for `idb.whenLoaded` before opening the WebSocket, so the first remote exchange is a CRDT delta against an already-populated local state, not a full document transfer.
 4. When offline, writes accumulate in IndexedDB/SQLite; when back online, Yjs replays them against whatever peers did in the meantime. CRDT merge rules guarantee convergence.
 
-For content documents that only need bytes on the wire, use `openCollaboration` for the byte transport and presence channel. Actions stay on the workspace bundle.
+For content documents that only need bytes on the wire, use `openCollaboration` for the byte transport. Actions stay on the workspace bundle.
 
 For the server side that accepts these connections, see the `apps/api/` hub: a Hono app on Cloudflare Workers with Durable Objects. Its [README](../../apps/api/README.md) covers the route family and trust model.

@@ -7,7 +7,6 @@ System architecture documentation for Epicenter's distributed sync system.
 | Document                                  | Description                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------- |
 | [Network Topology](./network-topology.md) | Node types (client/server), connection rules, example topologies |
-| [Node Identity](./node-identity.md)   | How nodes identify themselves: the install-stable `nodeId` and presence |
 | [Security](./security.md)                 | Security layers (Tailscale, content-addressing), threat model    |
 
 ## Quick Reference
@@ -24,11 +23,13 @@ System architecture documentation for Epicenter's distributed sync system.
 ### Connection Rules
 
 ```
-Client ──► Remote Server  ✅  (WebSocket, HTTP: data sync, presence, AI, auth)
+Client ──► Remote Server  ✅  (WebSocket, HTTP: data sync, AI, auth)
 Server ──► Server         ✅  (WebSocket)
 ```
 
-Note: Direct connections are only possible **to** servers. The old relay-floor route exposure path was deleted; presence now reports liveness only. A future box-access surface would be direct URL-addressed capability reach outside Epicenter's sync relay.
+Note: Direct connections are only possible **to** servers. The old relay-floor
+route exposure and generic presence paths were deleted. A future box-access
+surface would be a product-scoped capability outside document sync.
 
 ### Typical Setup
 

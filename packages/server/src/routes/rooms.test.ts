@@ -66,7 +66,7 @@ function setup({ goodToken = 'good-token' } = {}) {
 	return { app, observed };
 }
 
-const ROOM_URL = `${ROOM_ROUTE.url('https://x', 'r1')}?nodeId=n1`;
+const ROOM_URL = ROOM_ROUTE.url('https://x', 'r1');
 
 test('a subprotocol bearer upgrade resolves the bare token and upgrades the original request', async () => {
 	const { app, observed } = setup();
@@ -86,8 +86,6 @@ test('a subprotocol bearer upgrade resolves the bare token and upgrades the orig
 	// The backend receives the exact request object (Bun's server.upgrade
 	// requires runtime identity), with the server-resolved principal as data.
 	expect(observed.upgrade?.request).toBe(request);
-	expect(observed.upgrade?.principalId).toBe(PRINCIPAL.id);
-	expect(observed.upgrade?.nodeId).toBe('n1');
 	expect(observed.upgrade?.roomName).toBe('principals/p1/rooms/r1');
 });
 
@@ -198,21 +196,6 @@ test('an upgrade offering no subprotocols authenticates via Authorization alone'
 
 	expect(await res.text()).toBe('upgraded');
 	expect(observed.upgrade?.request).toBe(request);
-});
-
-test('a missing nodeId is refused at the route boundary', async () => {
-	const { app, observed } = setup();
-	const res = await app.request(ROOM_ROUTE.url('https://x', 'r1'), {
-		headers: {
-			'sec-websocket-protocol': 'epicenter, bearer.good-token',
-			upgrade: 'websocket',
-		},
-	});
-
-	expect(res.status).toBe(400);
-	const body = (await res.json()) as { error: { name: string } };
-	expect(body.error.name).toBe('MissingNodeId');
-	expect(observed.upgrade).toBeUndefined();
 });
 
 test('a non-upgrade request answers 426, never doc bytes', async () => {

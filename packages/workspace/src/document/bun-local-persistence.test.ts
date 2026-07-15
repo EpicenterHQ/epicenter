@@ -28,9 +28,12 @@ describe('bunLocalPersistence', () => {
 	test('replays root rows and child docs from a shared dir', async () => {
 		const dir = testDir();
 		{
-			const workspace = model.connect(null, {
-				persistence: bunLocalPersistence({ dir }),
-			});
+			const workspace = model.connect(
+				{ kind: 'local' },
+				{
+					persistence: bunLocalPersistence({ dir }),
+				},
+			);
 			await workspace.storage.whenLoaded;
 			workspace.tables.notes.set({ id: 'note-1', title: 'first' });
 			const body = workspace.tables.notes.docs.body.open('note-1');
@@ -42,9 +45,12 @@ describe('bunLocalPersistence', () => {
 			await Promise.all([workspace.storage.whenDisposed, bodyDisposed]);
 		}
 
-		const workspace = model.connect(null, {
-			persistence: bunLocalPersistence({ dir }),
-		});
+		const workspace = model.connect(
+			{ kind: 'local' },
+			{
+				persistence: bunLocalPersistence({ dir }),
+			},
+		);
 		try {
 			await workspace.storage.whenLoaded;
 			expect(workspace.tables.notes.get('note-1').data?.title).toBe('first');
@@ -63,9 +69,12 @@ describe('bunLocalPersistence', () => {
 
 	test('wipe removes the root and child-doc log files', async () => {
 		const dir = testDir();
-		const workspace = model.connect(null, {
-			persistence: bunLocalPersistence({ dir }),
-		});
+		const workspace = model.connect(
+			{ kind: 'local' },
+			{
+				persistence: bunLocalPersistence({ dir }),
+			},
+		);
 		await workspace.storage.whenLoaded;
 		workspace.tables.notes.set({ id: 'note-2', title: 'doomed' });
 		const body = workspace.tables.notes.docs.body.open('note-2');
@@ -75,9 +84,12 @@ describe('bunLocalPersistence', () => {
 
 		await workspace.wipe();
 
-		const reopened = model.connect(null, {
-			persistence: bunLocalPersistence({ dir }),
-		});
+		const reopened = model.connect(
+			{ kind: 'local' },
+			{
+				persistence: bunLocalPersistence({ dir }),
+			},
+		);
 		try {
 			await reopened.storage.whenLoaded;
 			expect(reopened.tables.notes.get('note-2').data).toBeNull();

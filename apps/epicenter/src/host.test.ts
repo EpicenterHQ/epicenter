@@ -91,9 +91,12 @@ function toolResults(parts: AgentMessagePart[]) {
 
 /** Read the conversation rows a disposed host left behind in its data dir. */
 async function readConversationRows(dataDir: string) {
-	const replica = queryWorkspace.connect(null, {
-		persistence: bunLocalPersistence({ dir: dataDir }),
-	});
+	const replica = queryWorkspace.connect(
+		{ kind: 'local' },
+		{
+			persistence: bunLocalPersistence({ dir: dataDir }),
+		},
+	);
 	try {
 		await replica.storage.whenLoaded;
 		return replica.tables.conversations.scan().rows;

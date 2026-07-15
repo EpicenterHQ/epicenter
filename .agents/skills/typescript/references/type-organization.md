@@ -50,7 +50,7 @@ type User = z.infer<typeof userSchema>;
 
 // Bad: manually declaring what already exists as a runtime value
 // types.ts
-export type Tab = { id: string; nodeId: string /* ... */ };
+export type Tab = { id: string; url: string /* ... */ };
 ```
 
 If every type in a `types.ts` can be derived with `typeof`, `z.infer`, `InferTableRow`, `ReturnType`, etc., the file is redundant. Put each type next to the runtime value it's computed from.

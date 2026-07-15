@@ -115,7 +115,7 @@ describe('lockWorkspace', () => {
 			openBrowserWorkspace(
 				candidate as unknown as WorkspaceDefinition<typeof candidate.tables>,
 				{
-					authority: { kind: 'local' },
+					connection: { kind: 'local' },
 					worker() {
 						workerCreated = true;
 						return null as never;

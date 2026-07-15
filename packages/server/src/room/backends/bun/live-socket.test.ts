@@ -16,7 +16,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { asPrincipalId } from '@epicenter/identity';
 import { encodeSyncUpdate, MAIN_SUBPROTOCOL } from '@epicenter/sync';
 import type { Server } from 'bun';
 import * as Y from 'yjs';
@@ -42,11 +41,8 @@ beforeAll(() => {
 						reason: 'rejected',
 					});
 				}
-				const nodeId = url.searchParams.get('nodeId') ?? '';
 				return bunRooms.rooms.get(ROOM).handleUpgrade({
 					request: req,
-					principalId: asPrincipalId('u1'),
-					nodeId,
 				});
 			}
 			return new Response('ok');
@@ -64,14 +60,13 @@ afterAll(() => {
 type Frame = { text?: string; binary?: Uint8Array };
 
 /** Open a client, collecting every frame it receives. */
-async function openClient(nodeId: string): Promise<{
+async function openClient(): Promise<{
 	ws: WebSocket;
 	frames: Frame[];
 }> {
-	const ws = new WebSocket(
-		`ws://localhost:${server.port}/ws?nodeId=${nodeId}`,
-		[MAIN_SUBPROTOCOL],
-	);
+	const ws = new WebSocket(`ws://localhost:${server.port}/ws`, [
+		MAIN_SUBPROTOCOL,
+	]);
 	ws.binaryType = 'arraybuffer';
 	const frames: Frame[] = [];
 	ws.onmessage = (e) => {
@@ -80,7 +75,7 @@ async function openClient(nodeId: string): Promise<{
 	};
 	await new Promise<void>((resolve, reject) => {
 		ws.onopen = () => resolve();
-		ws.onerror = () => reject(new Error(`socket ${nodeId} errored`));
+		ws.onerror = () => reject(new Error('socket errored'));
 	});
 	return { ws, frames };
 }
@@ -92,14 +87,6 @@ async function waitFor(pred: () => boolean, timeoutMs = 1500): Promise<void> {
 		if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out');
 		await new Promise((r) => setTimeout(r, 10));
 	}
-}
-
-function presenceNodeIds(frames: Frame[]): string[][] {
-	return frames
-		.filter((f) => f.text)
-		.map((f) => JSON.parse(f.text as string))
-		.filter((m) => m.type === 'presence')
-		.map((m: { peers: { nodeId: string }[] }) => m.peers.map((p) => p.nodeId));
 }
 
 async function readRawHandshake(
@@ -135,17 +122,11 @@ async function readRawHandshake(
 	});
 }
 
-test('a real WebSocket upgrade syncs presence and a binary update across clients', async () => {
-	// Client A connects: it gets a binary SyncStep1 and an empty presence list.
-	const a = await openClient('A');
+test('a real WebSocket upgrade syncs a binary update across clients', async () => {
+	const a = await openClient();
 	await waitFor(() => a.frames.some((f) => f.binary));
-	await waitFor(() => presenceNodeIds(a.frames).length > 0);
-	expect(presenceNodeIds(a.frames)[0]).toEqual([]);
-
-	// Client B connects: B's directed presence lists A, and A is rebroadcast B.
-	const b = await openClient('B');
-	await waitFor(() => presenceNodeIds(b.frames).some((p) => p.includes('A')));
-	await waitFor(() => presenceNodeIds(a.frames).some((p) => p.includes('B')));
+	const b = await openClient();
+	await waitFor(() => b.frames.some((f) => f.binary));
 
 	// A sends a Yjs update; B receives it as a binary frame, A does not echo.
 	const aBinaryBefore = a.frames.filter((f) => f.binary).length;
@@ -168,7 +149,7 @@ test('the 101 echoes only the main subprotocol, never a bearer entry', async () 
 	// socket reads the actual 101 header bytes; the WebSocket client API hides
 	// them.
 	const statusAndProtocols = await readRawHandshake(
-		'/ws?nodeId=raw',
+		'/ws',
 		`bearer.secret-token, ${MAIN_SUBPROTOCOL}`,
 	);
 

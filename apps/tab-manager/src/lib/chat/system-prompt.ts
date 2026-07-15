@@ -8,9 +8,6 @@
  * Kept minimal: the LLM already sees tool schemas with descriptions.
  * This just provides context about the environment and behavioral norms.
  *
- * Device-specific constraints are injected separately via
- * {@link buildDeviceConstraints} so they remain immutable even when
- * a conversation overrides the base prompt.
  */
 export const TAB_MANAGER_SYSTEM_PROMPT = `You are a browser tab management assistant running inside a Chrome extension sidebar. You help users organize, find, and manage their browser tabs across devices.
 
@@ -31,32 +28,3 @@ export const TAB_MANAGER_SYSTEM_PROMPT = `You are a browser tab management assis
 - When listing tabs, include the URL and title so the user can identify them
 - Use exact tab IDs returned by tools: never guess or construct a tab ID
 - If an action fails, report the error clearly without retrying automatically`;
-
-/**
- * Build the immutable current-device constraint block for the system prompt.
- *
- * Sent as a **separate** system message from the base prompt so it cannot
- * be overridden by a custom conversation prompt. This is the hard security
- * boundary: live-tab tools are backed by Chrome APIs in this extension process,
- * so they can only mutate tabs in the current browser. Injecting that fact into
- * the prompt keeps the model from inventing cross-device live-tab operations.
- *
- * @example
- * ```ts
- * const nodeId = await getNodeId();
- * const systemPrompts = [
- *   buildDeviceConstraints(nodeId),
- *   conv?.systemPrompt ?? TAB_MANAGER_SYSTEM_PROMPT,
- * ];
- * ```
- */
-export function buildDeviceConstraints(nodeId: string): string {
-	return `## Current Device: Hard Constraints
-
-- Current node ID for this device: "${nodeId}".
-- Live-tab tools operate only on Chrome's numeric tab IDs in the current browser.
-- Mutating live-tab actions include close, activate, pin, mute, reload, group, open, save, and restore.
-- Saved tabs and bookmarks from other devices are workspace records. You may read, restore, open, or remove them through the available tools.
-- If the user's request is ambiguous across devices, inspect current state first and ask a brief disambiguation question before acting.
-- Use exact IDs returned by tools; never guess or construct an ID.`;
-}

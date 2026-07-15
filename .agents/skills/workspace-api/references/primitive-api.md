@@ -123,7 +123,7 @@ exchanges only the missing delta.
 const root = createWorkspace({ id: 'test', tables, kv: {} });
 const storage = attachIndexedDb(root.ydoc);
 const collaboration = openCollaboration(root.ydoc, {
-	url: roomWsUrl({ baseURL, guid: root.ydoc.guid, nodeId }),
+	url: roomWsUrl({ baseURL, guid: root.ydoc.guid }),
 	openWebSocket,
 	onReconnectSignal,
 	waitFor: storage.whenLoaded,

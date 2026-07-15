@@ -66,7 +66,7 @@ the doc's guid.
 ```
 route     /api/rooms/:room                          (all deployments)
 DO name   principals/${principalId}/rooms/${room}    (room = ydoc.guid)
-builder   roomWsUrl({ baseURL, guid: ydoc.guid, nodeId })
+builder   roomWsUrl({ baseURL, guid: ydoc.guid })
 ```
 
 The DO partition is `principals/<principalId>` in every deployment. In Cloud,
@@ -122,6 +122,6 @@ require content to be owned by anything other than the user.
 
 - `docs/articles/20260522T170000-documents-belong-to-you-not-a-workspace.md` - the narrative
 - `specs/20260522T160000-revert-cloud-workspace-sync-layer.md` - the spec that reverted the code to this model
-- `packages/workspace/SYNC_ARCHITECTURE.md` - the sync transport and presence surfaces
+- `packages/workspace/SYNC_ARCHITECTURE.md` - the document sync transport
 - `docs/trust-model.md` - the trust model: the relay reads plaintext, so
   privacy is a topology choice (who runs the anchor) rather than an encryption layer

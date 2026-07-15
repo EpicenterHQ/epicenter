@@ -8,8 +8,7 @@
  *
  * The Durable Object name is the principal-partitioned identifier produced by
  * {@link doName}; nothing here interpolates strings inline. The DO itself
- * is principal-blind: every connection is identified by the
- * `(principalId, nodeId)` pair stamped onto its WebSocket attachment.
+ * is principal-blind because the route has already selected its partition.
  *
  * The route reads neither `c.var.db` nor `c.var.afterResponseQueue`: it records
  * no telemetry, so it composes no Postgres dependency on any deployment.
@@ -42,7 +41,6 @@ import { extractUpgradeBearer } from '../auth/extract-upgrade-bearer.js';
 import { OAuthError } from '../auth/oauth-errors.js';
 import { createOAuthUnauthorizedResourceResponse } from '../auth/oauth-resource.js';
 import { isWebSocketUpgrade } from '../is-websocket-upgrade.js';
-import { RequestGuardError } from '../middleware/request-guard-errors.js';
 import { setPrincipalOrReject } from '../middleware/require-auth.js';
 import { doName } from '../principal.js';
 import type { Env, ResolveBearerPrincipal } from '../types.js';
@@ -64,16 +62,6 @@ function createRoomsApp(): Hono<Env> {
 		(c) => {
 			if (!isWebSocketUpgrade(c)) {
 				return new Response('Rooms are WebSocket-only', { status: 426 });
-			}
-
-			// Validate nodeId presence at the route boundary so the backend
-			// can trust it is set. nodeId is the participant identity the
-			// relay reports in presence; a missing one would produce a
-			// presence-ghost connection.
-			const nodeId = c.req.query('nodeId');
-			if (!nodeId) {
-				const err = RequestGuardError.MissingNodeId();
-				return c.json(err, err.error.status);
 			}
 
 			// An upgrade that offers subprotocols must offer the main one. The
@@ -99,14 +87,10 @@ function createRoomsApp(): Hono<Env> {
 			const principalId = c.var.principal.id;
 			const room = c.var.rooms.get(doName(principalId, roomId));
 
-			// Identity goes to the backend as data, not stamped into a
-			// reconstructed request URL: principalId from auth (authoritative,
-			// never the client's), nodeId the client's own. The backend
-			// performs its runtime-specific accept (see ResolvedRoom).
+			// The backend receives the original request and performs its
+			// runtime-specific accept (see ResolvedRoom).
 			return room.handleUpgrade({
 				request: c.req.raw,
-				principalId,
-				nodeId,
 			});
 		},
 	);

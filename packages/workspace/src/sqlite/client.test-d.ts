@@ -9,9 +9,9 @@
 import { asPrincipalId } from '@epicenter/identity';
 import type { Brand } from 'wellcrafted/brand';
 import type { Id } from '../shared/id.js';
+import type { WorkspaceConnection } from '../workspace-connection.js';
 import {
 	type OpenBrowserLocalWorkspaceOptions as BrowserOpenOptions,
-	type BrowserWorkspaceDocumentSync,
 	openBrowserWorkspace,
 } from './browser.js';
 import {
@@ -33,7 +33,6 @@ import type {
 import { document } from './document-format.js';
 import { field } from './field.js';
 import { defineTestWorkspace as defineWorkspace } from './test-workspace.js';
-import type { WorkspaceAuthority } from './workspace-authority.js';
 
 type NoteId = Id & Brand<'NoteId'>;
 type RecordingId = Id & Brand<'RecordingId'>;
@@ -84,7 +83,6 @@ declare const tableWithDocuments: AsyncTable<
 >;
 declare const documentOpener: WorkspaceDocumentOpener;
 declare const documentRuntime: WorkspaceDocumentRuntime;
-declare const documentSync: BrowserWorkspaceDocumentSync;
 declare const noteId: NoteId;
 declare const recordingId: RecordingId;
 
@@ -125,7 +123,7 @@ createWorkspaceClient<
 >(workspaceWithDocumentsDefinition, servicePort);
 
 const browserWithDocuments: BrowserOpenOptions = {
-	authority: { kind: 'local' },
+	connection: { kind: 'local' },
 	worker: () => null as never,
 	onObserverError() {},
 };
@@ -140,25 +138,22 @@ const bunMissingDocuments: BunOpenOptions<WorkspaceDocumentRuntime> = {
 	onObserverError() {},
 };
 const browserOpen = openBrowserWorkspace(workspaceWithDocumentsDefinition, {
-	authority: { kind: 'local' },
+	connection: { kind: 'local' },
 	worker: () => null as never,
 	onObserverError() {},
 });
-declare const selectedAuthority: WorkspaceAuthority;
-declare const authFetch: typeof fetch;
+declare const selectedConnection: WorkspaceConnection;
 const selectedAuthorityBrowserOpen = openBrowserWorkspace(
 	workspaceWithDocumentsDefinition,
 	{
-		authority: selectedAuthority,
-		fetch: authFetch,
-		documentSync,
+		connection: selectedConnection,
 		worker: () => null as never,
 		onObserverError() {},
 	},
 );
-// @ts-expect-error: an explicit server authority cannot open without HTTP
+// @ts-expect-error: an explicit server connection requires transport capabilities
 openBrowserWorkspace(workspaceWithDocumentsDefinition, {
-	authority: {
+	connection: {
 		kind: 'server',
 		baseURL: 'https://api.example.com',
 		principalId: asPrincipalId('principal-1'),

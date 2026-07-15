@@ -193,6 +193,5 @@ When offline:
 
 ## Related Documentation
 
-- [Node Identity](./node-identity.md): How nodes identify themselves
 - [Security](./security.md): Network security model
 - [Blob Sync](../blobs/README.md): How binary files sync across the network

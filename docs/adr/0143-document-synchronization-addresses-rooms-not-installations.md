@@ -1,6 +1,6 @@
 # 0143. Document synchronization addresses rooms, not installations
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-14
 - **Amends:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0094](0094-the-connection-is-the-boot-decision-one-connect-call.md), [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md)
 - **Relates:** [ADR-0115](0115-super-chat-remote-attach-rides-an-endpoint-addressed-trusted-relay.md) (scoped live-session endpoints are not installation identity)

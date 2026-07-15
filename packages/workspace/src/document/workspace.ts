@@ -44,9 +44,10 @@ import { createDisposableCache } from '../cache/disposable-cache.js';
 import { type ActionRegistry, defineActions } from '../shared/actions.js';
 import type { Guid } from '../shared/id.js';
 import { assertSafeSegment } from '../shared/safe-segment.js';
+import type { WorkspaceConnection } from '../workspace-connection.js';
 import { attachBroadcastChannel } from './attach-broadcast-channel.js';
 import { attachIndexedDb } from './attach-indexed-db.js';
-import { type ConnectionConfig, connectDoc } from './connect-doc.js';
+import { connectDoc } from './connect-doc.js';
 import { docGuid } from './doc-guid.js';
 import { KV_KEY, TableKey } from './keys.js';
 import { createKv, type Kv, type KvDefinitions } from './kv.js';
@@ -364,12 +365,12 @@ export type WorkspaceDefinition<
 	readonly kv: TKv;
 	create(): Workspace<TTables, TKv, TActions>;
 	connect(
-		connection: ConnectionConfig | null,
+		connection: WorkspaceConnection,
 	):
 		| LocalWorkspace<TTables, TKv, TActions>
 		| ConnectedWorkspace<TTables, TKv, TActions>;
 	connect(
-		connection: null,
+		connection: Extract<WorkspaceConnection, { kind: 'local' }>,
 		options: ConnectOptions<
 			TTables,
 			TKv,
@@ -378,7 +379,7 @@ export type WorkspaceDefinition<
 		>,
 	): LocalWorkspace<TTables, TKv, TActions>;
 	connect<TRuntime extends ConnectComposition>(
-		connection: ConnectionConfig | null,
+		connection: WorkspaceConnection,
 		compose: (
 			workspace: ConnectedWorkspaceContext<TTables, TKv, TActions>,
 		) => TRuntime,
@@ -386,7 +387,7 @@ export type WorkspaceDefinition<
 		| LocalWorkspaceWithRuntime<TTables, TKv, TRuntime>
 		| ConnectedWorkspaceWithRuntime<TTables, TKv, TRuntime>;
 	connect<TRuntime extends ConnectComposition>(
-		connection: null,
+		connection: Extract<WorkspaceConnection, { kind: 'local' }>,
 		options: ConnectOptions<TTables, TKv, TActions, TRuntime>,
 	): LocalWorkspaceWithRuntime<TTables, TKv, TRuntime>;
 };
@@ -558,12 +559,12 @@ export function defineWorkspace<
 	}
 
 	function connect(
-		connection: ConnectionConfig | null,
+		connection: WorkspaceConnection,
 	):
 		| LocalWorkspace<TTables, TKv, TActions>
 		| ConnectedWorkspace<TTables, TKv, TActions>;
 	function connect(
-		connection: null,
+		connection: Extract<WorkspaceConnection, { kind: 'local' }>,
 		connectOptions: ConnectOptions<
 			TTables,
 			TKv,
@@ -572,7 +573,7 @@ export function defineWorkspace<
 		>,
 	): LocalWorkspace<TTables, TKv, TActions>;
 	function connect<TRuntime extends ConnectComposition>(
-		connection: ConnectionConfig | null,
+		connection: WorkspaceConnection,
 		compose: (
 			workspace: ConnectedWorkspaceContext<TTables, TKv, TActions>,
 		) => TRuntime,
@@ -580,11 +581,11 @@ export function defineWorkspace<
 		| LocalWorkspaceWithRuntime<TTables, TKv, TRuntime>
 		| ConnectedWorkspaceWithRuntime<TTables, TKv, TRuntime>;
 	function connect<TRuntime extends ConnectComposition>(
-		connection: null,
+		connection: Extract<WorkspaceConnection, { kind: 'local' }>,
 		connectOptions: ConnectOptions<TTables, TKv, TActions, TRuntime>,
 	): LocalWorkspaceWithRuntime<TTables, TKv, TRuntime>;
 	function connect(
-		connection: ConnectionConfig | null,
+		connection: WorkspaceConnection,
 		connectOptions:
 			| ((
 					workspace: ConnectedWorkspaceContext<TTables, TKv, TActions>,
@@ -641,7 +642,7 @@ export function defineWorkspace<
 		// local infrastructure through the local persistence environment, with no
 		// relay; credentials wire principal-scoped storage plus the relay. Both
 		// arms return the same bundle shape, discriminated by `collaboration`.
-		if (connection === null) {
+		if (connection.kind === 'local') {
 			const storage = localPersistence.attach(workspace.ydoc);
 			return satisfiesWorkspace({
 				...workspace,
@@ -737,7 +738,7 @@ function connectTableChildDocs<TTableDefinitions extends TableDefinitions>({
 	 * Connection coordinates, or `null` for the bare local-first wiring:
 	 * injected local persistence and no relay.
 	 */
-	connection: ConnectionConfig | null;
+	connection: WorkspaceConnection;
 	localPersistence: LocalPersistence;
 	registerChildStorage: (storage: LocalPersistenceAttachment) => void;
 }): ConnectedTables<TTableDefinitions> {
@@ -779,7 +780,7 @@ function connectTableChildDocs<TTableDefinitions extends TableDefinitions>({
 				// in); bare, it gets the same injected local persistence the bare root
 				// gets.
 				let storage: LocalPersistenceAttachment;
-				if (connection) {
+				if (connection.kind === 'server') {
 					({ idb: storage } = connectDoc(bodyDoc, connection));
 				} else {
 					storage = localPersistence.attach(bodyDoc);

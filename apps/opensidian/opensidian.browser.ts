@@ -1,9 +1,9 @@
 /**
  * Opensidian browser composition: the one boot call (ADR-0088/ADR-0094).
  *
- * `toConnection` reads `auth.state` once: signed out projects to `null` (bare
- * guid-named IndexedDB, cross-tab channel, no relay), signed in projects to
- * the principal's connection (principal-scoped storage plus relay). `compose` adds
+ * `toWorkspaceConnection` reads `auth.state` once: signed out selects local
+ * storage, while signed in selects the principal's synchronized storage.
+ * `compose` adds
  * browser-only filesystem, search, shell, and action surfaces on top of
  * whichever root wiring the connection chose:
  *
@@ -23,26 +23,19 @@ import {
 	createSqliteIndex,
 	type FileId,
 } from '@epicenter/filesystem';
-import { toConnection } from '@epicenter/svelte/auth';
+import { toWorkspaceConnection } from '@epicenter/svelte/auth';
 import {
 	type ComposeContext,
 	defineActions,
 	defineMutation,
 	defineQuery,
-	type NodeId,
 } from '@epicenter/workspace';
 import { Bash } from 'just-bash';
 import Type from 'typebox';
 import { Ok } from 'wellcrafted/result';
 import { opensidianWorkspace } from './opensidian.js';
 
-export function openOpensidianBrowser({
-	auth,
-	nodeId,
-}: {
-	auth: SyncAuthClient;
-	nodeId: NodeId;
-}) {
+export function openOpensidianBrowser({ auth }: { auth: SyncAuthClient }) {
 	function compose(workspace: ComposeContext<typeof opensidianWorkspace>) {
 		const { ydoc, tables } = workspace;
 		// The runtime bumps `files.updatedAt` on local body edits (declared via
@@ -215,7 +208,7 @@ export function openOpensidianBrowser({
 		};
 	}
 
-	return opensidianWorkspace.connect(toConnection(auth, nodeId), compose);
+	return opensidianWorkspace.connect(toWorkspaceConnection(auth), compose);
 }
 
 export type OpensidianBrowser = ReturnType<typeof openOpensidianBrowser>;

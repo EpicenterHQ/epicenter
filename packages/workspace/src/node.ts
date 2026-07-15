@@ -23,4 +23,3 @@ export {
 	openSqliteReader,
 	type SqliteReader,
 } from './document/open-sqlite-reader.js';
-export { hashYDocClientId } from './shared/client-id.js';

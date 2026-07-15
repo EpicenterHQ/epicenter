@@ -1,6 +1,6 @@
+import type { WorkspaceConnection } from '../workspace-connection.js';
 import {
 	type BrowserWorkspaceDocumentPlanes,
-	type BrowserWorkspaceDocumentSync,
 	createBrowserWorkspaceDocumentPlanes,
 } from './browser-document-runtime.js';
 import {
@@ -36,23 +36,16 @@ import {
 import { createHttpReplicaSyncPort } from './replica-http.js';
 import {
 	normalizeWorkspaceAuthority,
-	type ServerWorkspaceAuthority,
 	type WorkspaceAuthority,
 	workspaceAuthorityHash,
 } from './workspace-authority.js';
 
-export type { BrowserWorkspaceDocumentSync } from './browser-document-runtime.js';
 export type { LocalWorkspaceInspection } from './browser-inspection.js';
 export type {
 	StandaloneWorkspace,
 	WorkspaceKvMount,
 	WorkspaceReplica,
 } from './open.js';
-
-export type BrowserWorkspaceFetch = (
-	input: Request | string | URL,
-	init?: RequestInit,
-) => Promise<Response>;
 
 type OpenBrowserWorkspaceBaseOptions = WorkspaceWorkerPortOptions & {
 	/** Create the one app-owned module Worker that imports this definition. */
@@ -61,29 +54,17 @@ type OpenBrowserWorkspaceBaseOptions = WorkspaceWorkerPortOptions & {
 
 export type OpenBrowserLocalWorkspaceOptions =
 	OpenBrowserWorkspaceBaseOptions & {
-		authority: Extract<WorkspaceAuthority, { kind: 'local' }>;
-		fetch?: never;
-		documentSync?: never;
+		connection: Extract<WorkspaceConnection, { kind: 'local' }>;
 	};
 
 export type OpenBrowserServerWorkspaceOptions =
 	OpenBrowserWorkspaceBaseOptions & {
-		authority: ServerWorkspaceAuthority;
-		/** Auth-owned HTTP boundary. Credentials never cross into the Worker. */
-		fetch: BrowserWorkspaceFetch;
-		/** Auth-owned WebSocket boundary for the KV and child-document rooms. */
-		documentSync: BrowserWorkspaceDocumentSync;
+		connection: Extract<WorkspaceConnection, { kind: 'server' }>;
 	};
 
 export type OpenBrowserWorkspaceOptions =
 	| OpenBrowserLocalWorkspaceOptions
-	| OpenBrowserServerWorkspaceOptions
-	| (OpenBrowserWorkspaceBaseOptions & {
-			authority: WorkspaceAuthority;
-			/** Auth-owned HTTP available before the boot-time authority is narrowed. */
-			fetch: BrowserWorkspaceFetch;
-			documentSync: BrowserWorkspaceDocumentSync;
-	  });
+	| OpenBrowserServerWorkspaceOptions;
 
 /**
  * Open one browser workspace through the shared authority composition.
@@ -115,9 +96,7 @@ export function openBrowserWorkspace<
 >(
 	definition: WorkspaceDefinition<TTables, TKv>,
 	options: OpenBrowserWorkspaceBaseOptions & {
-		authority: WorkspaceAuthority;
-		fetch: BrowserWorkspaceFetch;
-		documentSync: BrowserWorkspaceDocumentSync;
+		connection: WorkspaceConnection;
 	},
 ): Promise<
 	| OpenedWorkspace<TTables, TKv, 'standalone', WorkspaceDocumentOpener>
@@ -128,30 +107,21 @@ export async function openBrowserWorkspace<
 	TKv extends KvDefinitions,
 >(
 	definition: WorkspaceDefinition<TTables, TKv>,
-	options: OpenBrowserWorkspaceOptions,
+	options: OpenBrowserWorkspaceBaseOptions & {
+		connection: WorkspaceConnection;
+	},
 ): Promise<
 	| OpenedWorkspace<TTables, TKv, 'standalone', WorkspaceDocumentOpener>
 	| OpenedWorkspace<TTables, TKv, 'replica', WorkspaceDocumentOpener>
 > {
 	assertWorkspaceDefinition(definition);
-	const authority = normalizeWorkspaceAuthority(options.authority);
-	const documentSync = options.documentSync;
+	const connection = options.connection;
+	const authority = normalizeWorkspaceAuthority(connection);
 	let documentPlanes: BrowserWorkspaceDocumentPlanes;
-	if (authority.kind === 'server') {
-		if (!documentSync) {
-			throw new TypeError(
-				'A server workspace authority requires document synchronization',
-			);
-		}
-		documentPlanes = await createBrowserWorkspaceDocumentPlanes(definition, {
-			authority,
-			sync: documentSync,
-		});
-	} else {
-		documentPlanes = await createBrowserWorkspaceDocumentPlanes(definition, {
-			authority,
-		});
-	}
+	documentPlanes = await createBrowserWorkspaceDocumentPlanes(
+		definition,
+		options.connection,
+	);
 	let worker: Worker;
 	try {
 		worker = options.worker();
@@ -163,14 +133,13 @@ export async function openBrowserWorkspace<
 	let initialization: BrowserWorkspaceWorkerInitialization;
 	let transfer: Transferable[] = [];
 	try {
-		if (authority.kind === 'server') {
-			const serverOptions = options as OpenBrowserServerWorkspaceOptions;
+		if (connection.kind === 'server') {
 			const channel = new MessageChannel();
 			stopSyncBridge = attachBrowserReplicaSyncPort(
 				channel.port1,
 				createHttpReplicaSyncPort({
-					baseUrl: authority.baseURL,
-					fetch: serverOptions.fetch,
+					baseUrl: connection.baseURL,
+					fetch: connection.fetch,
 				}),
 			);
 			initialization = {

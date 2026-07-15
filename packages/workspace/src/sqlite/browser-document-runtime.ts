@@ -4,14 +4,10 @@ import * as Y from 'yjs';
 import { createDisposableCache } from '../cache/disposable-cache.js';
 import { attachBroadcastChannel } from '../document/attach-broadcast-channel.js';
 import { attachIndexedDb } from '../document/attach-indexed-db.js';
-import type { NodeId } from '../document/node-id.js';
-import {
-	type OnReconnectSignal,
-	type OpenWebSocketFn,
-	openCollaboration,
-} from '../document/open-collaboration.js';
+import { openCollaboration } from '../document/open-collaboration.js';
 import { roomWsUrl } from '../document/transport.js';
 import type { Guid } from '../shared/id.js';
+import type { WorkspaceConnection } from '../workspace-connection.js';
 import type { WorkspaceDefinition } from './definition.js';
 import type {
 	WorkspaceDocumentRuntime,
@@ -20,17 +16,9 @@ import type {
 import type { WorkspaceKvMount } from './open.js';
 import {
 	normalizeWorkspaceAuthority,
-	type ServerWorkspaceAuthority,
 	type WorkspaceAuthority,
 	workspaceAuthorityHash,
 } from './workspace-authority.js';
-
-/** Auth-owned capabilities required to synchronize the Yjs workspace planes. */
-export type BrowserWorkspaceDocumentSync = {
-	readonly nodeId: NodeId;
-	readonly openWebSocket: OpenWebSocketFn;
-	readonly onReconnectSignal: OnReconnectSignal;
-};
 
 export type BrowserWorkspaceDocumentPlanes = AsyncDisposable & {
 	readonly kv: WorkspaceKvMount;
@@ -67,28 +55,9 @@ async function browserWorkspaceDocumentAuthoritySuffix(
  */
 export async function createBrowserWorkspaceDocumentPlanes(
 	definition: WorkspaceDefinition,
-	options:
-		| (BrowserWorkspaceDocumentPlaneOptions & {
-				authority: Extract<WorkspaceAuthority, { kind: 'local' }>;
-				sync?: never;
-		  })
-		| (BrowserWorkspaceDocumentPlaneOptions & {
-				authority: ServerWorkspaceAuthority;
-				sync: BrowserWorkspaceDocumentSync;
-		  })
-		| (BrowserWorkspaceDocumentPlaneOptions & {
-				authority: WorkspaceAuthority;
-				sync: BrowserWorkspaceDocumentSync;
-		  }),
+	connection: WorkspaceConnection & BrowserWorkspaceDocumentPlaneOptions,
 ): Promise<BrowserWorkspaceDocumentPlanes> {
-	const authority = normalizeWorkspaceAuthority(options.authority);
-	const sync = 'sync' in options ? options.sync : undefined;
-	const serverSync = authority.kind === 'server' ? sync : undefined;
-	if (authority.kind === 'server' && !serverSync) {
-		throw new TypeError(
-			'A server workspace authority requires document synchronization',
-		);
-	}
+	const authority = normalizeWorkspaceAuthority(connection);
 	const authoritySuffix =
 		await browserWorkspaceDocumentAuthoritySuffix(authority);
 	const storageClosures = new Set<Promise<unknown>>();
@@ -104,20 +73,14 @@ export async function createBrowserWorkspaceDocumentPlanes(
 			storageClosures.delete(storage.whenDisposed),
 		);
 		attachBroadcastChannel(doc, databaseName);
-		if (authority.kind === 'server') {
-			if (!serverSync) {
-				throw new TypeError(
-					'A server workspace authority requires document synchronization',
-				);
-			}
+		if (connection.kind === 'server') {
 			openCollaboration(doc, {
 				url: roomWsUrl({
-					baseURL: authority.baseURL,
+					baseURL: connection.baseURL,
 					guid,
-					nodeId: serverSync.nodeId,
 				}),
-				openWebSocket: serverSync.openWebSocket,
-				onReconnectSignal: serverSync.onReconnectSignal,
+				openWebSocket: connection.openWebSocket,
+				onReconnectSignal: connection.onReconnectSignal,
 				waitFor: storage.whenLoaded,
 			});
 		}
@@ -132,7 +95,7 @@ export async function createBrowserWorkspaceDocumentPlanes(
 
 	const kvSession = openRoom(definition.kvDocumentGuid as Guid);
 	const sessions = createDisposableCache((guid: Guid) => openRoom(guid), {
-		gcTime: options.documentGcTime,
+		gcTime: connection.documentGcTime,
 	});
 	let disposePromise: Promise<void> | undefined;
 	const dispose = async (): Promise<void> => {

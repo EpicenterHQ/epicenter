@@ -121,7 +121,7 @@ const model = defineWorkspace({
 });
 
 test('a live workspace survives its databases being deleted by another connection', async () => {
-	const workspace = model.connect(null);
+	const workspace = model.connect({ kind: 'local' });
 	await workspace.storage.whenLoaded;
 
 	workspace.tables.conversations.set({ id: 'c1', model: 'hosted' });

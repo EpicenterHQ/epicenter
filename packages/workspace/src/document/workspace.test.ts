@@ -10,11 +10,10 @@ import { IDBKeyRange, indexedDB } from 'fake-indexeddb';
 import { Type } from 'typebox';
 import * as Y from 'yjs';
 import { defineActions, defineQuery } from '../shared/actions.js';
+import type { WorkspaceConnection } from '../workspace-connection.js';
 import { attachPlainText } from './attach-plain-text.js';
-import type { ConnectionConfig } from './connect-doc.js';
 import { defineKv } from './define-kv.js';
 import { defineTable } from './define-table.js';
-import { asNodeId } from './node-id.js';
 import {
 	createWorkspace,
 	defineWorkspace,
@@ -36,12 +35,13 @@ function fakeWebSocket(): Promise<WebSocket> {
 	return Promise.resolve(ws as unknown as WebSocket);
 }
 
-const connection: ConnectionConfig = {
+const connection: WorkspaceConnection = {
+	kind: 'server',
 	baseURL: 'https://api.test.invalid',
 	principalId: asPrincipalId('principal-1'),
+	fetch,
 	openWebSocket: fakeWebSocket,
 	onReconnectSignal: () => () => {},
-	nodeId: asNodeId('node-1'),
 };
 
 const notesDefinition = defineTable({
@@ -270,7 +270,7 @@ describe('defineWorkspace', () => {
 			name: 'ws-wipe-child-storage',
 			tables: { notes: notesDefinition.docs({ body: attachPlainText }) },
 			kv: {},
-		}).connect(null, { persistence });
+		}).connect({ kind: 'local' }, { persistence });
 
 		workspace.tables.notes.docs.body.open('note-1');
 		const wipe = workspace.wipe();

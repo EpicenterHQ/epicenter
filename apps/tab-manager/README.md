@@ -48,17 +48,15 @@ The main UI has a search bar with case-sensitive, regex, and exact-match toggles
 
 ## Workspace schema
 
-Workspace ID: `epicenter-tab-manager`. Five root tables:
+Workspace ID: `epicenter-tab-manager`. Four root tables:
 
 | Table | Key | Notable fields |
 |---|---|---|
-| `devices` | `NodeId` | `name`, `lastSeen`, `browser` |
-| `savedTabs` | `SavedTabId` | `url`, `title`, `favIconUrl?`, `pinned`, `sourceNodeId`, `savedAt` |
-| `bookmarks` | `BookmarkId` | `url`, `title`, `favIconUrl?`, `description?`, `sourceNodeId`, `createdAt` |
+| `savedTabs` | `SavedTabId` | `url`, `title`, `favIconUrl?`, `pinned`, `savedAt` |
+| `bookmarks` | `BookmarkId` | `url`, `title`, `favIconUrl?`, `description?`, `createdAt` |
 | `conversations` | `ConversationId` | `title`, `model`, `createdAt`, `updatedAt` |
 | `toolTrust` | tool name | presence row for "always allow" |
 
-Relay presence carries `nodeId`; Tab Manager maps that framework node to its app-owned `devices` table so the UI can show named browser devices.
 Conversation messages live in the per-row `conversations.messages` child doc, not a root `chatMessages` table.
 
 ---

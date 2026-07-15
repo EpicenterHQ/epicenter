@@ -1,7 +1,7 @@
 /**
  * Runtime-agnostic Yjs sync room.
  *
- * Owns: the Yjs document, the connection set, and server-owned presence.
+ * Owns the Yjs document and its open socket set.
  * Does NOT own the WebSocket lifecycle (fetch/upgrade/`webSocketMessage`
  * callbacks), the alarm scheduling, or the update-log storage; those are
  * backend-specific and live in the adapter.
@@ -11,22 +11,6 @@
  * {@link createRoomCore} instance through the methods listed on its return
  * object. Connection-lifetime enforcement and liveness ping/pong are
  * room-core invariants here, so neither backend can forget them.
- *
- * ## Wire surfaces
- *
- * Two wire surfaces share one authenticated socket but are independent at
- * the protocol level:
- *
- *   binary WS frames  -> standard y-protocols SYNC.
- *   text WS frames    -> the server-owned presence channel (`presence` /
- *                        `presence_publish`).
- *
- * ## Presence
- *
- * Presence is server-owned: the `connections` map is the source of truth.
- * On every connection change a `presence` text frame is broadcast carrying
- * the FULL client list (computed per-recipient, self excluded), so clients
- * store the list verbatim with no delta reassembly.
  *
  * ## Adapter contract
  *
@@ -47,18 +31,17 @@ import {
 	handleSyncPayload,
 	type SyncMessageType,
 } from '@epicenter/sync';
-import {
-	checkPresencePublishFrame,
-	type Peer,
-	type PresenceFrame,
-} from '@epicenter/workspace/document/presence';
 import * as decoding from 'lib0/decoding';
 import { createLogger } from 'wellcrafted/logger';
 import { trySync } from 'wellcrafted/result';
 import * as Y from 'yjs';
 import { MAX_PAYLOAD_BYTES } from '../constants.js';
-import type { Connection } from '../types.js';
-import { RoomError, type RoomSocket, type RoomUpdateLog } from './contracts.js';
+import {
+	RoomError,
+	type RoomSocket,
+	type RoomSocketAuth,
+	type RoomUpdateLog,
+} from './contracts.js';
 
 const log = createLogger('server/room/core');
 
@@ -77,36 +60,6 @@ const log = createLogger('server/room/core');
 const MAX_COMPACTED_BYTES = 2 * 1024 * 1024;
 
 /**
- * Grace window before the debounced presence rebroadcast fires after the
- * last socket for a client closes.
- *
- * A graceful tab handoff (T1 closes, T2 connects within a few hundred ms)
- * would otherwise broadcast the client as gone and then back, even though
- * it was continuously present from the user's perspective. The debounce
- * lets a reconnecting socket supersede the pending rebroadcast before
- * peers ever see the flap.
- *
- * Close-code policy: WebSocket close code 4401 (permanent auth failure)
- * bypasses the debounce and rebroadcasts immediately. There is no
- * legitimate handoff for an auth-failed socket, and forcing peers to wait
- * 300 ms to learn a client is permanently offline yields no benefit.
- * All other close codes (1000, 1006, 1009, 1011, 4400, ...) respect the
- * window.
- */
-const PRESENCE_REBROADCAST_GRACE_MS = 300;
-
-/**
- * WebSocket close code emitted by the auth layer when the connection's
- * credentials are permanently invalid. Bypasses the presence grace window:
- * peers see the client drop immediately instead of waiting 300 ms for a
- * handoff that cannot happen.
- */
-const CLOSE_CODE_AUTH_FAILED = 4401;
-
-/** WebSocket-spec OPEN readyState. */
-const WS_READY_OPEN = 1;
-
-/**
  * Maximum lifetime of a single WebSocket connection before the room forces a
  * reconnect (30 minutes).
  *
@@ -116,7 +69,7 @@ const WS_READY_OPEN = 1;
  * age forces the client to reconnect and re-authenticate at a fresh upgrade: a
  * signed-out or revoked client then fails closed, while a healthy client
  * refreshes its token transparently. Coarser than the access-token TTL to limit
- * reconnect and presence churn.
+ * reconnect churn.
  *
  * This is a room-core invariant, not an adapter detail: every backend inherits
  * it through {@link RoomCore.handleMessage} (active sockets) and
@@ -129,8 +82,8 @@ const MAX_CONNECTION_LIFETIME_MS = 30 * 60_000;
  * Close code emitted when a connection exceeds {@link MAX_CONNECTION_LIFETIME_MS}.
  *
  * App-defined (4000-4999) and deliberately NOT the permanent-auth code
- * ({@link CLOSE_CODE_AUTH_FAILED}): the client's sync supervisor reconnects on
- * every close except 4401, so this code recycles the socket through a fresh
+ * (4401): the client's sync supervisor reconnects on every other close, so
+ * this code recycles the socket through a fresh
  * authenticated upgrade instead of making the client give up.
  */
 const CLOSE_CODE_CONNECTION_LIFETIME = 4408;
@@ -165,16 +118,8 @@ export function createRoomCore({ updateLog }: { updateLog: RoomUpdateLog }) {
 	/** The shared Yjs document for this room. Always `gc: true`. */
 	const doc = new Y.Doc({ gc: true });
 
-	/** Open connections, mapped to their per-connection {@link Connection}. */
-	const connections = new Map<RoomSocket, Connection>();
-
-	/**
-	 * Pending debounced presence rebroadcast, or `null` if none is armed.
-	 * Armed when the last socket for a client closes; cleared by the
-	 * timer firing (real disconnect) or by a connect superseding it
-	 * (handoff).
-	 */
-	let pendingRebroadcast: ReturnType<typeof setTimeout> | null = null;
+	/** Open sockets and the timestamp used by the auth-lifetime bound. */
+	const connections = new Map<RoomSocket, RoomSocketAuth>();
 
 	// ==========================================================================
 	// Init
@@ -206,136 +151,7 @@ export function createRoomCore({ updateLog }: { updateLog: RoomUpdateLog }) {
 		}
 	});
 
-	// ==========================================================================
-	// Presence helpers
-	// ==========================================================================
-
-	/**
-	 * Deduped snapshot of currently-connected peers, newest-wins per
-	 * `nodeId`. Pass `exclude` to omit the caller's own socket; if the
-	 * caller's node still has other open sockets (multi-tab same-node
-	 * edge case), those siblings are excluded too. The result is the
-	 * "peers" from the perspective of the receiver, sorted by
-	 * `nodeId` for deterministic output.
-	 */
-	function snapshotPeers(exclude?: RoomSocket): Peer[] {
-		const excludeNode = exclude ? connections.get(exclude)?.nodeId : undefined;
-		const seen = new Map<string, Peer>();
-		for (const [ws, attachment] of connections) {
-			if (ws === exclude) continue;
-			if (excludeNode && attachment.nodeId === excludeNode) {
-				continue;
-			}
-			const existing = seen.get(attachment.nodeId);
-			if (existing && existing.connectedAt >= attachment.connectedAt) continue;
-			seen.set(attachment.nodeId, {
-				nodeId: attachment.nodeId,
-				connectedAt: attachment.connectedAt,
-				agentId: attachment.agentId,
-			});
-		}
-		return Array.from(seen.values()).sort((a, b) =>
-			a.nodeId.localeCompare(b.nodeId),
-		);
-	}
-
-	/**
-	 * Count OPEN sockets currently associated with `nodeId`. Used to
-	 * detect the first socket for a node (on connect) and the last (on
-	 * close): the two events that change room membership.
-	 */
-	function countNodeSockets(nodeId: string): number {
-		let count = 0;
-		for (const [, data] of connections) {
-			if (data.nodeId === nodeId) count++;
-		}
-		return count;
-	}
-
-	/**
-	 * Push the current presence list to every open socket, optionally
-	 * skipping `exclude` (a freshly-upgraded socket that was already sent
-	 * its list directly). A wedged socket's `send` is swallowed; its
-	 * close event runs the full cleanup path.
-	 */
-	function broadcastPresence(exclude?: RoomSocket): void {
-		for (const [peer] of connections) {
-			if (peer === exclude) continue;
-			if (peer.readyState !== WS_READY_OPEN) continue;
-			try {
-				peer.send(
-					JSON.stringify({
-						type: 'presence',
-						peers: snapshotPeers(peer),
-					} satisfies PresenceFrame),
-				);
-			} catch {
-				/* close cleanup handles the entry */
-			}
-		}
-	}
-
-	/**
-	 * Arm the debounced presence rebroadcast after the grace window.
-	 * Called when the last socket for a client closes. A single shared
-	 * timer: if one is already pending, leave it, so a burst of departures
-	 * is announced at most one grace window after the FIRST departure.
-	 * When it fires it broadcasts the then-current full list, reflecting
-	 * every departure (and any reconnect) that happened during the window.
-	 */
-	function schedulePresenceRebroadcast(): void {
-		if (pendingRebroadcast) return;
-		pendingRebroadcast = setTimeout(() => {
-			pendingRebroadcast = null;
-			broadcastPresence();
-		}, PRESENCE_REBROADCAST_GRACE_MS);
-	}
-
-	/**
-	 * Cancel a pending debounced rebroadcast. Called on connect: the
-	 * connect path broadcasts the live list immediately, which supersedes
-	 * whatever the debounced timer would have sent. A graceful tab handoff
-	 * lands here (T1 closes and arms the timer, T2 connects and cancels
-	 * it), so peers never observe the client leave.
-	 */
-	function cancelPendingRebroadcast(): void {
-		if (!pendingRebroadcast) return;
-		clearTimeout(pendingRebroadcast);
-		pendingRebroadcast = null;
-	}
-
-	/**
-	 * Node -> relay: publish this socket's presence identity (optional agent
-	 * designation). The relay stores it against the
-	 * connection attachment, persists them via `serializeAttachment` when the
-	 * runtime supports hibernation, and rebroadcasts presence so peers see the
-	 * update. A malformed payload is dropped silently: the relay never trusts
-	 * client input but never tears down a sync socket for one bad publish either.
-	 */
-	function handlePresencePublish(socket: RoomSocket, frame: unknown): void {
-		if (!checkPresencePublishFrame.Check(frame)) return;
-		const existing = connections.get(socket);
-		if (!existing) return;
-		const updated: Connection = {
-			...existing,
-			agentId: frame.agentId,
-		};
-		connections.set(socket, updated);
-		socket.serializeAttachment?.(updated);
-		broadcastPresence();
-	}
-
-	/**
-	 * Route a client -> relay text frame. The only recognized type is
-	 * `presence_publish`. The TypeBox-compiled validator inside the handler
-	 * narrows the frame; this dispatcher only owns the `type` switch and the
-	 * protocol-error close path.
-	 *
-	 * Unparseable JSON or an unknown frame type is a genuine protocol desync and
-	 * closes the socket with `4400 protocol-error`. A recognized frame with
-	 * malformed fields is dropped without closing, because one bad text frame
-	 * must not tear down sync and presence.
-	 */
+	/** Reply to the sync supervisor's liveness frame and reject other text. */
 	function handleTextFrame(ws: RoomSocket, message: string): void {
 		// Liveness ping/pong. The client sends a literal `ping` text frame on an
 		// interval (and on tab focus); reply `pong` so a document-idle socket
@@ -347,27 +163,7 @@ export function createRoomCore({ updateLog }: { updateLog: RoomUpdateLog }) {
 			ws.send('pong');
 			return;
 		}
-
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(message);
-		} catch {
-			ws.close(4400, 'protocol-error');
-			return;
-		}
-
-		const type =
-			parsed && typeof parsed === 'object' && 'type' in parsed
-				? (parsed as { type: unknown }).type
-				: undefined;
-
-		switch (type) {
-			case 'presence_publish':
-				handlePresencePublish(ws, parsed);
-				return;
-			default:
-				ws.close(4400, 'protocol-error');
-		}
+		ws.close(4400, 'protocol-error');
 	}
 
 	// ==========================================================================
@@ -375,78 +171,21 @@ export function createRoomCore({ updateLog }: { updateLog: RoomUpdateLog }) {
 	// ==========================================================================
 
 	return {
-		/**
-		 * Register a newly-accepted socket and run the connect-time
-		 * presence flow.
-		 *
-		 * Sends the new socket its initial Yjs `SyncStep1` and a peer
-		 * snapshot (the receiver's "peers"). If this is the FIRST
-		 * socket for `nodeId`, room membership changed, so peers are
-		 * rebroadcast the live list. Subsequent tabs of the same node
-		 * leave the list unchanged and need no rebroadcast.
-		 *
-		 * A connect supersedes any pending debounced rebroadcast (the
-		 * graceful tab handoff case).
-		 *
-		 * @param socket - The accepted WebSocket. The backend is
-		 *   responsible for the runtime-specific accept (hibernation API
-		 *   or `Bun.serve` upgrade) before calling this.
-		 * @param connection - The connection attachment URL-stamped at
-		 *   upgrade. `nodeId` is the presence participant identity;
-		 *   `principalId` is the auth principal; `connectedAt` and `agentId`
-		 *   are mirrored on the wire so receivers can render node affordances.
-		 */
-		addConnection(socket: RoomSocket, connection: Connection): void {
+		/** Register a socket and start its Yjs handshake. */
+		addConnection(socket: RoomSocket, connection: RoomSocketAuth): void {
 			connections.set(socket, connection);
-
 			socket.send(encodeSyncStep1({ doc }));
-			socket.send(
-				JSON.stringify({
-					type: 'presence',
-					peers: snapshotPeers(socket),
-				} satisfies PresenceFrame),
-			);
-
-			if (countNodeSockets(connection.nodeId) === 1) {
-				cancelPendingRebroadcast();
-				broadcastPresence(socket);
-			}
 		},
 
-		/**
-		 * Drop a closed socket and run the disconnect-time flow.
-		 *
-		 * - Removes the socket from `connections`.
-		 * - If this was the LAST socket for the client, schedules the
-		 *   debounced presence rebroadcast (or fires it immediately on
-		 *   close code 4401, permanent auth failure).
-		 *
-		 * The backend is responsible for any runtime-specific close
-		 * cleanup (hibernation defensive `ws.close`, alarm scheduling)
-		 * after this call.
-		 */
-		removeConnection(socket: RoomSocket, code: number): void {
-			const data = connections.get(socket);
-			if (!data) return;
-
+		/** Drop a closed socket. */
+		removeConnection(socket: RoomSocket, _code: number): void {
 			connections.delete(socket);
-
-			if (countNodeSockets(data.nodeId) === 0) {
-				if (code === CLOSE_CODE_AUTH_FAILED) {
-					cancelPendingRebroadcast();
-					broadcastPresence();
-				} else {
-					schedulePresenceRebroadcast();
-				}
-			}
 		},
 
 		/**
 		 * Handle one inbound WebSocket message.
 		 *
-		 * Routes on the message envelope:
-		 * - text frames: presence frames.
-		 * - binary frames: standard y-protocols SYNC.
+		 * Binary frames carry y-protocols sync. Text is reserved for ping/pong.
 		 *
 		 * Oversized messages close the socket with `1009 Message too
 		 * large`. A `MessageDecode` failure is logged and dropped without
@@ -469,7 +208,7 @@ export function createRoomCore({ updateLog }: { updateLog: RoomUpdateLog }) {
 			// instead of served, forcing a reconnect that re-authenticates; the
 			// transient close code recycles it rather than parking the client.
 			// Idle sockets are covered by `sweepExpiredConnections`.
-			if (Date.now() - data.connectedAt >= MAX_CONNECTION_LIFETIME_MS) {
+			if (Date.now() - data.authenticatedAt >= MAX_CONNECTION_LIFETIME_MS) {
 				socket.close(
 					CLOSE_CODE_CONNECTION_LIFETIME,
 					'connection lifetime exceeded',
@@ -538,7 +277,7 @@ export function createRoomCore({ updateLog }: { updateLog: RoomUpdateLog }) {
 		 */
 		sweepExpiredConnections(now: number): void {
 			for (const [socket, connection] of connections) {
-				if (now - connection.connectedAt >= MAX_CONNECTION_LIFETIME_MS) {
+				if (now - connection.authenticatedAt >= MAX_CONNECTION_LIFETIME_MS) {
 					socket.close(
 						CLOSE_CODE_CONNECTION_LIFETIME,
 						'connection lifetime exceeded',

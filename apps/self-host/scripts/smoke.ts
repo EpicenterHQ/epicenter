@@ -103,7 +103,7 @@ async function main() {
 	// instance principal, proven by the relay's first frame arriving.
 	{
 		const roomId = `smoke-${randHex(4)}`;
-		const url = `${BASE_URL}/api/rooms/${encodeURIComponent(roomId)}?nodeId=smoke`;
+		const url = `${BASE_URL}/api/rooms/${encodeURIComponent(roomId)}`;
 
 		const res = await fetch(url, { headers: bearer(TOKEN) });
 		record(

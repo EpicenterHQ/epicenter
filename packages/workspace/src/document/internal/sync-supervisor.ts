@@ -145,8 +145,7 @@ const PERMANENT_AUTH_CLOSE_CODE = 4401;
  * bounded lifetime (the relay authenticates only at upgrade, so it closes
  * over-age sockets to force a fresh authenticated handshake). A scheduled
  * close, not a failure: the supervisor reconnects immediately instead of
- * sleeping through backoff, so the fresh socket lands inside the server's
- * presence-rebroadcast grace window and peers never see a departure.
+ * sleeping through backoff.
  */
 const CONNECTION_LIFETIME_CLOSE_CODE = 4408;
 /**
@@ -491,7 +490,7 @@ export function createSyncSupervisor(
 
 				// A lifetime close after a real session is the server's scheduled
 				// re-handshake, not a failure: reconnect without the backoff sleep
-				// so peers never see a presence departure. The duration floor keeps
+				// to minimize the offline interval. The duration floor keeps
 				// a misbehaving server from turning this into a zero-delay loop.
 				const scheduledReconnect =
 					result === 'connected' &&

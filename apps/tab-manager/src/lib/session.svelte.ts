@@ -4,11 +4,10 @@
  *
  * `chrome.storage.local` is async, so unlike Honeycrisp's synchronous
  * top-level singleton, everything here is deferred-init: the reactive auth
- * client, the workspace bundle (`openTabManagerBrowser`'s preset branch, see
- * `tab-manager/extension.ts`), and the composed app state (savedTabs,
- * bookmarks, toolTrust, unifiedView, aiChat) are all built exactly once,
- * inside `whenReady`, after the persisted auth cell, the instance setting,
- * and the device profile have resolved. `reloadOnPrincipalChange` is wired the
+ * client, the workspace bundle (`openTabManagerBrowser`'s connection branch,
+ * see `tab-manager/extension.ts`), and the composed app state are all built
+ * exactly once inside `whenReady`, after the persisted auth cell and instance
+ * setting resolve. `reloadOnPrincipalChange` is wired the
  * moment the auth client exists, so an identity change reloads the sidepanel
  * document and the next boot re-runs the preset branch.
  *
@@ -31,11 +30,7 @@ import {
 	defaultApprovalDecision,
 } from '@epicenter/workspace/agent';
 import { DEFAULT_MODEL } from './chat/models';
-import {
-	buildDeviceConstraints,
-	TAB_MANAGER_SYSTEM_PROMPT,
-} from './chat/system-prompt';
-import { createDeviceProfile, registerDevice } from './device';
+import { TAB_MANAGER_SYSTEM_PROMPT } from './chat/system-prompt';
 import { createTabManagerSignInMigration } from './migration/sign-in-migration';
 import {
 	instanceSettingPromise,
@@ -71,8 +66,7 @@ let signInMigrationValue:
 const whenReady = Promise.all([
 	persistedAuthStoragePromise,
 	instanceSettingPromise,
-	createDeviceProfile(),
-]).then(([persistedAuthStorage, instanceSetting, profile]) => {
+]).then(([persistedAuthStorage, instanceSetting]) => {
 	// One choke point: the persisted instance picks hosted OAuth vs a self-host
 	// token (ADR-0071). The launcher is the hosted-constant extension launcher,
 	// used only by the OAuth branch.
@@ -83,7 +77,7 @@ const whenReady = Promise.all([
 	});
 	authClient = auth;
 	instanceSettingValue = instanceSetting;
-	bundle = buildTabManager(auth, profile);
+	bundle = buildTabManager(auth);
 	signInMigrationValue = createTabManagerSignInMigration(auth, bundle);
 	// Option A (ADR-0088): the doc is picked once at boot (the preset branch
 	// inside `openTabManagerBrowser`); a principal identity change reloads the
@@ -91,11 +85,8 @@ const whenReady = Promise.all([
 	reloadOnPrincipalChange(auth);
 });
 
-function buildTabManager(
-	auth: SyncAuthClient,
-	profile: Awaited<ReturnType<typeof createDeviceProfile>>,
-) {
-	const tabManager = openTabManagerBrowser({ auth, nodeId: profile.nodeId });
+function buildTabManager(auth: SyncAuthClient) {
+	const tabManager = openTabManagerBrowser({ auth });
 
 	const savedTabs = createSavedTabState(tabManager);
 	const bookmarks = createBookmarkState(tabManager);
@@ -110,10 +101,7 @@ function buildTabManager(
 		whenLoaded: tabManager.storage.whenLoaded,
 		connections: inferenceConnections,
 		agent: {
-			buildSystemPrompts: () => [
-				buildDeviceConstraints(tabManager.nodeId),
-				TAB_MANAGER_SYSTEM_PROMPT,
-			],
+			buildSystemPrompts: () => [TAB_MANAGER_SYSTEM_PROMPT],
 			defaultModel: DEFAULT_MODEL,
 			toolCatalog: createLocalToolCatalog(tabManager.actions),
 			// A tool the user chose to "Always Allow" auto-approves; otherwise a
@@ -131,10 +119,6 @@ function buildTabManager(
 		unifiedView,
 		aiChat,
 	};
-
-	void tabManager.storage.whenLoaded.then(() =>
-		registerDevice(tabManager, profile.defaultName),
-	);
 
 	return {
 		...tabManager,

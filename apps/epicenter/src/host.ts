@@ -6,23 +6,22 @@
  * agent loop consumes the composed catalog and never learns where a verb lives.
  *
  * The in-process apps open through the ungated durable local preset:
- * `connect(null, { persistence })`. Sign-in is still an enhancement; the Bun
- * host gets disk-backed replicas without constructing an auth client.
+ * `connect({ kind: 'local' }, { persistence })`. Sign-in is still an
+ * enhancement; the Bun host gets disk-backed replicas without constructing an auth client.
  *
  * Transcripts are durable the same way: the host's own workspace holds the
- * canonical conversations table (ADR-0055), null-connected, so finished
+ * canonical conversations table (ADR-0055), locally connected, so finished
  * messages survive restarts on this machine without touching a relay. Boot
  * resumes the most recent conversation row; `clear` starts a fresh one. Sync
  * is a deliberate later wave that arrives with host sign-in.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { type Conversation, generateConversationId } from '@epicenter/chat';
 import { honeycrispWorkspace } from '@epicenter/honeycrisp/legacy';
 import { todosWorkspace } from '@epicenter/todos/legacy';
-import { createNodeId, generateId, InstantString } from '@epicenter/workspace';
+import { generateId, InstantString } from '@epicenter/workspace';
 import {
 	type AgentEngine,
 	type AgentToolCall,
@@ -74,7 +73,7 @@ export type QueryHostOptions = {
 	 * so the source stays host-owned and never becomes reachable over the relay.
 	 */
 	localSource?: LocalSourceCatalogOptions;
-	/** Host-owned data directory for built-in app replicas and node identity. */
+	/** Host-owned data directory for built-in app replicas. */
 	dataDir?: string;
 };
 
@@ -217,14 +216,14 @@ export async function createQueryHost(
 	// Arm A: in-process Yjs apps. Each app's namespace keeps same-named verbs
 	// distinct in the composed surface; the prefix must not contain `__`.
 	const dataDir = options.dataDir ?? defaultDataDir();
-	const nodeId = createNodeId({
-		storage: fileStorage(join(dataDir, 'node-id')),
-	});
-	const persistence = bunLocalPersistence({ dir: dataDir, nodeId });
-	const honeycrisp = honeycrispWorkspace.connect(null, { persistence });
-	const todos = todosWorkspace.connect(null, { persistence });
+	const persistence = bunLocalPersistence({ dir: dataDir });
+	const honeycrisp = honeycrispWorkspace.connect(
+		{ kind: 'local' },
+		{ persistence },
+	);
+	const todos = todosWorkspace.connect({ kind: 'local' }, { persistence });
 	// The host's own workspace: durable transcripts, same ungated local preset.
-	const query = queryWorkspace.connect(null, { persistence });
+	const query = queryWorkspace.connect({ kind: 'local' }, { persistence });
 	await Promise.all([
 		honeycrisp.storage.whenLoaded,
 		todos.storage.whenLoaded,
@@ -546,19 +545,4 @@ function defaultDataDir(): string {
 	const xdgDataHome = process.env.XDG_DATA_HOME;
 	if (xdgDataHome) return join(xdgDataHome, 'epicenter-query');
 	return join(homedir(), '.local', 'share', 'epicenter-query');
-}
-
-function fileStorage(filePath: string) {
-	return {
-		getItem(key: string): string | null {
-			if (key !== 'epicenter.node.id') return null;
-			if (!existsSync(filePath)) return null;
-			return readFileSync(filePath, 'utf8');
-		},
-		setItem(key: string, value: string): void {
-			if (key !== 'epicenter.node.id') return;
-			mkdirSync(dirname(filePath), { recursive: true });
-			writeFileSync(filePath, value);
-		},
-	};
 }

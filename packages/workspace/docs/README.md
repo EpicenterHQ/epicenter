@@ -8,7 +8,6 @@ Technical documentation for the Epicenter package.
 docs/
 ├── architecture/       # System architecture
 │   ├── network-topology.md    # Node types, connections
-│   ├── node-identity.md     # Server URLs, identity
 │   └── security.md            # Security model
 │
 ├── blobs/              # Blob sync system
@@ -25,7 +24,6 @@ docs/
 ### Architecture
 
 - **[Network Topology](./architecture/network-topology.md)**: How devices connect (clients, servers, mesh)
-- **[Node Identity](./architecture/node-identity.md)**: Server URLs and identity management
 - **[Security](./architecture/security.md)**: Tailscale, content-addressing, threat model
 
 ### Blob System

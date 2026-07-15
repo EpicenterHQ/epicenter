@@ -2,7 +2,7 @@
  * Workspace schema: branded IDs, table definitions, and awareness shape.
  *
  * Browser-agnostic: no Chrome APIs, no IndexedDB, no Svelte imports.
- * This file can be safely imported by the CLI daemon or any Node/Bun process.
+ * This file is isomorphic and safe to import from browser or Node/Bun code.
  *
  * The extension-bound wiring lives in `lib/tab-manager/extension.ts`, which
  * imports this schema and composes every attachment inside its `openTabManagerBrowser`
@@ -17,7 +17,6 @@ import {
 	generateId,
 	type Id,
 	type InferTableRow,
-	type NodeId,
 	nullable,
 	type WorkspaceFromDefinition,
 } from '@epicenter/workspace';
@@ -88,15 +87,6 @@ export const generateBookmarkId = (): BookmarkId => generateId() as BookmarkId;
  * This enables syncing tabs across multiple computers while preventing ID
  * collisions.
  */
-const devicesTable = defineTable({
-	// id is the framework node id (one per persistent storage scope); shown to the user as a device.
-	id: field.string<NodeId>(), // NanoID, generated once on install
-	name: field.string(), // User-editable: "Chrome on macOS", "Firefox on Windows"
-	lastSeen: field.instant(), // canonical UTC instant, updated on each sync
-	browser: field.string(), // 'chrome' | 'firefox' | 'safari' | 'edge' | 'opera'
-});
-export type Device = InferTableRow<typeof devicesTable>;
-
 /**
  * Saved tabs: explicitly saved tabs that can be restored later.
  *
@@ -113,7 +103,6 @@ const savedTabsTable = defineTable({
 	title: field.string(), // Tab title at time of save
 	favIconUrl: nullable(field.string()), // Favicon URL (null when missing)
 	pinned: field.boolean(), // Whether tab was pinned
-	sourceNodeId: field.string<NodeId>(), // Node that saved this tab
 	savedAt: field.instant(), // canonical UTC instant of save
 });
 export type SavedTab = InferTableRow<typeof savedTabsTable>;
@@ -131,7 +120,6 @@ const bookmarksTable = defineTable({
 	title: field.string(), // Title at time of bookmark
 	favIconUrl: nullable(field.string()), // Favicon URL (null when missing)
 	description: nullable(field.string()), // Optional user note (null when absent)
-	sourceNodeId: field.string<NodeId>(), // Node that created the bookmark
 	createdAt: field.instant(), // canonical UTC instant of creation
 });
 export type Bookmark = InferTableRow<typeof bookmarksTable>;
@@ -149,18 +137,13 @@ const toolTrustTable = defineTable({
 });
 
 /**
- * The Tab Manager workspace definition, shared by the extension and the daemon.
- *
- * No headless tab/bookmark actions live here: the extension layers browser-only
- * actions in `tab-manager/extension.ts`, and the daemon only keeps sync and
- * materializers alive. The browser composes the root via `.create()`; the daemon
- * mounts it via `.mount()`.
+ * The Tab Manager workspace definition. Browser-only actions are composed by
+ * the extension because Chrome is the authority for live tabs.
  */
 export const tabManagerWorkspace = defineWorkspace({
 	id: 'epicenter-tab-manager',
 	name: 'tab-manager',
 	tables: {
-		devices: devicesTable,
 		savedTabs: savedTabsTable,
 		bookmarks: bookmarksTable,
 		toolTrust: toolTrustTable,

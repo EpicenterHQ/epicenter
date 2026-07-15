@@ -43,11 +43,14 @@
 import { Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import type { PrincipalId } from '@epicenter/identity';
 import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
 import { sanitizeUpgradeSubprotocols } from '../../../sanitize-upgrade-subprotocols.js';
-import type { Connection } from '../../../types.js';
-import type { ResolvedRoom, Rooms, RoomUpgrade } from '../../contracts.js';
+import type {
+	ResolvedRoom,
+	RoomSocketAuth,
+	Rooms,
+	RoomUpgrade,
+} from '../../contracts.js';
 import { createRoomCore, type RoomCore } from '../../core.js';
 import { createBunSqliteUpdateLog } from './update-log.js';
 
@@ -92,7 +95,7 @@ function serverNotBound(): Promise<Response> {
  * discriminant, never a wire field.
  */
 export type BunRoomSocketData = { surface: 'rooms' } & (
-	| { kind: 'room'; roomName: string; principalId: PrincipalId; nodeId: string }
+	| { kind: 'room'; roomName: string }
 	| { kind: 'reject'; code: number; reason: string }
 );
 
@@ -181,7 +184,7 @@ export function createBunRooms({ dir }: { dir: string }): {
 	const rooms: Rooms = {
 		get(name: string): ResolvedRoom {
 			return {
-				handleUpgrade: ({ request, principalId, nodeId }: RoomUpgrade) => {
+				handleUpgrade: ({ request }: RoomUpgrade) => {
 					if (!server) return serverNotBound();
 					// Resolve the room now (creating it if needed); `getOrCreate`
 					// cancels any pending eviction, so the entry survives the gap
@@ -192,8 +195,6 @@ export function createBunRooms({ dir }: { dir: string }): {
 						surface: 'rooms',
 						kind: 'room',
 						roomName: name,
-						principalId,
-						nodeId,
 					};
 					sanitizeUpgradeSubprotocols(request);
 					const upgraded = server.upgrade(request, { data });
@@ -240,16 +241,12 @@ export function createBunRooms({ dir }: { dir: string }): {
 				ws.close(ws.data.code, ws.data.reason);
 				return;
 			}
-			const { roomName, principalId, nodeId } = ws.data;
+			const { roomName } = ws.data;
 			// `getOrCreate` cancels any pending eviction, so a socket landing in
 			// the grace window keeps its room alive.
 			const entry = getOrCreate(roomName);
-			const connection: Connection = {
-				principalId,
-				nodeId,
-				connectedAt: Date.now(),
-			};
-			entry.core.addConnection(ws, connection);
+			const socketAuth: RoomSocketAuth = { authenticatedAt: Date.now() };
+			entry.core.addConnection(ws, socketAuth);
 		},
 		message(ws: ServerWebSocket<BunRoomSocketData>, message) {
 			if (ws.data.kind === 'reject') return;
