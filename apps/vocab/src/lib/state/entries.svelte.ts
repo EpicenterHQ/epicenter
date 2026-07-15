@@ -1,17 +1,17 @@
 /**
  * Reactive entries state: the user-curated entry pool captured by selection.
  *
- * Backed by `fromTable()` over the async `entries` table. One app-wide singleton,
- * like `dictation` and `inferenceConnections`: there is one entry pool per
- * workspace, not one per component.
+ * Backed by `fromTable()` over the async `entries` table. The app creates one
+ * instance because there is one entry pool per workspace, not one per
+ * component.
  */
 
 import { InstantString } from '@epicenter/field';
 import { fromTable } from '@epicenter/svelte';
 import type { Entry, EntryId } from '@epicenter/vocab';
-import { vocab } from '$lib/vocab';
+import type { VocabBrowser } from '@epicenter/vocab/browser';
 
-function createEntriesState() {
+export function createEntriesState(vocab: VocabBrowser) {
 	const entriesView = fromTable(vocab.tables.entries);
 
 	/** Every saved entry, newest first. */
@@ -68,7 +68,9 @@ function createEntriesState() {
 		remove(id: EntryId) {
 			void vocab.tables.entries.remove(id).catch(reportError);
 		},
+
+		[Symbol.dispose]() {
+			entriesView[Symbol.dispose]();
+		},
 	};
 }
-
-export const entriesState = createEntriesState();

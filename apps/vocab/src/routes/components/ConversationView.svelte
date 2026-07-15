@@ -13,9 +13,11 @@
 	} from '$lib/entry-candidates';
 	import { auth } from '$lib/platform/auth';
 	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
-	import { entriesState } from '$lib/state/entries.svelte';
+	import { vocab } from '$lib/vocab';
 	import DictationButton from './DictationButton.svelte';
 	import ReadingMarkdown from './ReadingMarkdown.svelte';
+
+	const entriesState = vocab.state.entries;
 
 	let {
 		active,

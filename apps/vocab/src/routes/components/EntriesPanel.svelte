@@ -5,7 +5,9 @@
 	import type { Entry, EntryId } from '@epicenter/vocab';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash';
-	import { entriesState } from '$lib/state/entries.svelte';
+	import { vocab } from '$lib/vocab';
+
+	const entriesState = vocab.state.entries;
 
 	let {
 		onPractice,

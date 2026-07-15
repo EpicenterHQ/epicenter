@@ -2,7 +2,7 @@
  * Headless reproduction of the vocab chat over the REAL agent loop
  * (`createConversation`), with an in-memory store, against local Ollama. It logs
  * the exact prompt the engine receives on each step and the messages the loop
- * persists, so a multi-turn rendering bug can be seen without the auth-gated UI.
+ * persists, so a multi-turn rendering bug can be seen without the browser UI.
  *
  *   bun run apps/vocab/scripts/loop-repro.ts qwen3:30b-a3b-instruct-2507-q4_K_M
  */
@@ -12,9 +12,9 @@ import {
 	createOpenAiAgentEngine,
 	resolveConnection,
 } from '@epicenter/client';
-import type { RecordsHandle } from '@epicenter/workspace';
 import {
 	type AgentMessage,
+	type AgentMessageStore,
 	agentMessageText,
 	createConversation,
 } from '@epicenter/workspace/agent';
@@ -23,18 +23,13 @@ import { VOCAB_SYSTEM_PROMPT } from '../vocab.js';
 const model = process.argv[2] ?? 'qwen3:30b-a3b-instruct-2507-q4_K_M';
 const baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
 
-/** Minimal in-memory RecordsHandle<AgentMessage> & Disposable for the loop. */
-function inMemoryStore(): RecordsHandle<AgentMessage> & Disposable {
+/** Minimal in-memory store implementing exactly the agent loop's seam. */
+function inMemoryStore(): AgentMessageStore {
 	const map = new Map<string, AgentMessage>();
 	const handlers = new Set<() => void>();
 	return {
-		get: (k) => map.get(k),
 		set: (k, v) => {
 			map.set(k, v);
-			for (const h of handlers) h();
-		},
-		delete: (k) => {
-			map.delete(k);
 			for (const h of handlers) h();
 		},
 		*entries() {

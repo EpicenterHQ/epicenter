@@ -1,33 +1,14 @@
 <script lang="ts">
-	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';
 	import { fromKv } from '@epicenter/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import * as Sidebar from '@epicenter/ui/sidebar';
-	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '@epicenter/vocab';
-	import { onDestroy } from 'svelte';
 	import { buildPracticePrompt } from '$lib/practice';
-	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
 	import { vocab } from '$lib/vocab';
 	import ConversationView from './components/ConversationView.svelte';
 	import VocabSidebar from './components/VocabSidebar.svelte';
 
 	const showReadings = fromKv(vocab.kv, 'showReadings');
-
-	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
-	// capability-free (no tools, no approval), one general multilingual system
-	// prompt, and the hosted VOCAB_MODEL as the default a new conversation starts
-	// on. The active conversation lives in internal state (Vocab has no URL seam).
-	const chat = createAgentChatState({
-		table: vocab.tables.conversations,
-		whenLoaded: vocab.whenReady,
-		connections: inferenceConnections,
-		agent: {
-			buildSystemPrompts: () => [VOCAB_SYSTEM_PROMPT],
-			defaultModel: VOCAB_MODEL,
-		},
-	});
-
-	onDestroy(() => chat[Symbol.dispose]());
+	const { chat } = vocab.state;
 
 	/** Compile the chosen entries into a practice turn and send it. Focus lands in
 	 * the active conversation, opening one only when none exists. The passage

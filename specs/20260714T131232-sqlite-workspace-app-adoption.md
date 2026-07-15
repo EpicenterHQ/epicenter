@@ -31,8 +31,9 @@ Three application-shaped browser runtimes are now proven:
 - The browser opener owns the eager authority-qualified KV document and the
   lazy refcounted child-document cache. Apps inject only auth-owned transport
   capabilities.
-- Vocab proves SQLite rows, hydrated KV, and validated keyed chat documents.
-  Honeycrisp proves rich-text documents and app-owned edit metadata.
+- Vocab proves SQLite rows, hydrated KV, validated keyed chat documents, and
+  one app-owned reactive state lifetime. Honeycrisp proves rich-text documents
+  and app-owned edit metadata.
 - `@epicenter/chat` is the canonical SQLite definition path.
   `@epicenter/chat/legacy` stays on disk for the Epicenter host and Tab Manager
   until those consumers migrate. The host also uses explicit Honeycrisp and

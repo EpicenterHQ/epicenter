@@ -2,11 +2,10 @@
  * Boot-time Vocab client (ADR-0088: sign-in is an enhancement, never a
  * door).
  *
- * `openVocabBrowser` reads the persisted `auth.state` ONCE at startup and
- * wires either bare local IndexedDB (signed out) or principal-scoped storage
- * plus relay sync (signed in / reauth-required), including the
- * per-conversation message child docs. Construction and KV hydration complete
- * before the singleton is exported. Identity changes are never an
+ * `openVocabBrowser` reads the persisted `auth.state` once at startup and
+ * opens either local storage or the principal's synchronized storage,
+ * including per-conversation message documents. Construction and initial row
+ * projections complete before the layout renders. Identity changes are never an
  * in-place swap: `reloadOnPrincipalChange` (mounted in the root layout) reloads
  * the page so the next boot re-runs this selection.
  *
@@ -15,14 +14,21 @@
 
 import { openVocabBrowser } from '@epicenter/vocab/browser';
 import { auth } from '$lib/platform/auth';
+import { createVocabState } from '$lib/state/index.svelte';
 
 const browser = await openVocabBrowser({ auth });
+const state = createVocabState(browser);
 
 export const vocab = {
 	...browser,
-	/** KV is hydrated by open; these reads gate first paint on both row planes. */
-	whenReady: Promise.all([
-		browser.tables.conversations.list(),
-		browser.tables.entries.list(),
-	]).then(() => undefined),
+	state,
+	/** Resolves after both live SQLite projections have their initial state. */
+	whenReady: state.whenReady,
 };
+
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => {
+		state[Symbol.dispose]();
+		void browser[Symbol.asyncDispose]();
+	});
+}
