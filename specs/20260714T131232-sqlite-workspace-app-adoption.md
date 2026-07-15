@@ -56,24 +56,11 @@ The new storage shape is:
 ```ts
 const candidate = defineWorkspace({ appId, version, tables, kv });
 const definition = lockWorkspace(candidate, versionLock);
-const authority = toWorkspaceAuthority(auth);
-const common = {
+const workspace = await openBrowserWorkspace(definition, {
 	worker: () => new Worker(new URL('./workspace.worker.ts', import.meta.url)),
+	connection: toWorkspaceConnection(auth),
 	onObserverError: reportError,
-};
-const workspace =
-	authority.kind === 'server'
-		? await openBrowserWorkspace(definition, {
-				...common,
-				authority,
-				fetch: auth.fetch,
-				documentSync: {
-					nodeId,
-					openWebSocket: auth.openWebSocket,
-					onReconnectSignal: auth.onStateChange,
-				},
-			})
-		: await openBrowserWorkspace(definition, { ...common, authority });
+});
 
 await workspace.tables.notes.create(cells);
 await workspace.tables.notes.list();
