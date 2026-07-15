@@ -1,5 +1,10 @@
 import { InstantString } from '@epicenter/field';
 import {
+	defineActions,
+	defineMutation,
+	defineQuery,
+} from '@epicenter/workspace';
+import {
 	type AsyncWorkspace,
 	defineTable,
 	field,
@@ -69,52 +74,64 @@ function normalizeContextSlugs(slugs: readonly string[]): ContextSlug[] {
 
 /** Compose executable Todos behavior over one already-open async workspace. */
 export function createTodosActions({ tables }: Pick<TodosWorkspace, 'tables'>) {
-	return {
+	return defineActions({
 		/** List every visible todo from the current workspace authority. */
-		async todos_list(): Promise<Todo[]> {
-			return (await tables.todos.list()).filter(
-				(todo) => todo.deletedAt === null,
-			);
-		},
+		todos_list: defineQuery({
+			description: 'List todos',
+			handler: async (): Promise<Todo[]> =>
+				(await tables.todos.list()).filter((todo) => todo.deletedAt === null),
+		}),
 
 		/** Validate user input and create a todo with a generated identity. */
-		async todos_create(input: {
-			title: string;
-			body?: string;
-			dueDate?: Todo['dueDate'];
-			contexts?: ContextSlug[];
-		}): Promise<TodoId> {
-			const title = input.title.trim();
-			if (title === '') throw new Error('Todo title is required');
-			const row = await tables.todos.create({
-				title,
-				body: input.body ?? '',
-				dueDate: input.dueDate ?? null,
-				contexts: normalizeContextSlugs(input.contexts ?? []),
-				completedAt: null,
-				deletedAt: null,
-				createdAt: InstantString.now(),
-			});
-			return row.id;
-		},
+		todos_create: defineMutation({
+			description: 'Create a todo',
+			input: Type.Object({
+				title: todosTable.columns.title,
+				body: Type.Optional(todosTable.columns.body),
+				dueDate: Type.Optional(todosTable.columns.dueDate),
+				contexts: Type.Optional(todosTable.columns.contexts),
+			}),
+			handler: async (input): Promise<TodoId> => {
+				const title = input.title.trim();
+				if (title === '') throw new Error('Todo title is required');
+				const row = await tables.todos.create({
+					title,
+					body: input.body ?? '',
+					dueDate: input.dueDate ?? null,
+					contexts: normalizeContextSlugs(input.contexts ?? []),
+					completedAt: null,
+					deletedAt: null,
+					createdAt: InstantString.now(),
+				});
+				return row.id;
+			},
+		}),
 
 		/** Mark an existing todo complete or incomplete without recreating it. */
-		async todos_set_completed(input: {
-			id: TodoId;
-			completed: boolean;
-		}): Promise<void> {
-			await tables.todos.patch(input.id, {
-				completedAt: input.completed ? InstantString.now() : null,
-			});
-		},
+		todos_set_completed: defineMutation({
+			description: 'Mark a todo complete or incomplete',
+			input: Type.Object({
+				id: todosTable.columns.id,
+				completed: Type.Boolean(),
+			}),
+			handler: async ({ id, completed }): Promise<void> => {
+				await tables.todos.patch(id, {
+					completedAt: completed ? InstantString.now() : null,
+				});
+			},
+		}),
 
 		/** Hide a todo through its application-level soft-delete field. */
-		async todos_delete(input: { id: TodoId }): Promise<void> {
-			await tables.todos.patch(input.id, {
-				deletedAt: InstantString.now(),
-			});
-		},
-	};
+		todos_delete: defineMutation({
+			description: 'Soft-delete a todo',
+			input: Type.Object({ id: todosTable.columns.id }),
+			handler: async ({ id }): Promise<void> => {
+				await tables.todos.patch(id, {
+					deletedAt: InstantString.now(),
+				});
+			},
+		}),
+	});
 }
 
 export type TodosActions = ReturnType<typeof createTodosActions>;

@@ -1,13 +1,13 @@
 /**
  * The Query host: one local desktop chat session; built-in apps enter
- * through one verb catalog (ADR-0080). Built-in Yjs apps mount in-process
- * as action registries (arm A); boxed apps an upstream forces off the mesh
- * may join as local stdio MCP subprocesses (arm B, Local Books today). One
- * agent loop consumes the composed catalog and never learns where a verb lives.
+ * through one verb catalog (ADR-0080). Built-in apps open in-process and expose
+ * action registries (arm A); boxed apps an upstream forces off the mesh may
+ * join as local stdio MCP subprocesses (arm B, Local Books today). One agent
+ * loop consumes the composed catalog and never learns where a verb lives.
  *
- * The in-process apps open through the ungated durable local preset:
- * `connect({ kind: 'local' }, { persistence })`. Sign-in is still an
- * enhancement; the Bun host gets disk-backed replicas without constructing an auth client.
+ * Each in-process app owns its Bun storage composition. Sign-in is still an
+ * enhancement; the host opens disk-backed local workspaces without constructing
+ * an auth client.
  *
  * Transcripts are durable the same way: the host's own workspace holds the
  * canonical conversations table (ADR-0055), locally connected, so finished
@@ -18,9 +18,12 @@
 
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
-import { type Conversation, generateConversationId } from '@epicenter/chat';
+import {
+	type Conversation,
+	generateConversationId,
+} from '@epicenter/chat/legacy';
 import { honeycrispWorkspace } from '@epicenter/honeycrisp/legacy';
-import { todosWorkspace } from '@epicenter/todos/legacy';
+import { openTodosBun } from '@epicenter/todos/bun';
 import { generateId, InstantString } from '@epicenter/workspace';
 import {
 	type AgentEngine,
@@ -213,22 +216,11 @@ const INVOCATION_LIMIT = 20;
 export async function createQueryHost(
 	options: QueryHostOptions,
 ): Promise<QueryHost> {
-	// Arm A: in-process Yjs apps. Each app's namespace keeps same-named verbs
-	// distinct in the composed surface; the prefix must not contain `__`.
+	// Arm A: in-process apps. Each namespace keeps same-named verbs distinct in
+	// the composed surface; the prefix must not contain `__`.
 	const dataDir = options.dataDir ?? defaultDataDir();
-	const persistence = bunLocalPersistence({ dir: dataDir });
-	const honeycrisp = honeycrispWorkspace.connect(
-		{ kind: 'local' },
-		{ persistence },
-	);
-	const todos = todosWorkspace.connect({ kind: 'local' }, { persistence });
-	// The host's own workspace: durable transcripts, same ungated local preset.
-	const query = queryWorkspace.connect({ kind: 'local' }, { persistence });
-	await Promise.all([
-		honeycrisp.storage.whenLoaded,
-		todos.storage.whenLoaded,
-		query.storage.whenLoaded,
-	]);
+	const apps = await openBuiltInApps(dataDir);
+	const { honeycrisp, todos, query } = apps;
 	const catalogs: ToolCatalog[] = [
 		namespaceToolCatalog(
 			'honeycrisp',
@@ -251,10 +243,8 @@ export async function createQueryHost(
 
 	// Arm B: boxed apps join as stdio MCP subprocesses behind the same seam.
 	const localBooks = options.localBooks
-		? await createStdioMcpCatalog(options.localBooks).catch((error) => {
-				honeycrisp[Symbol.dispose]();
-				todos[Symbol.dispose]();
-				query[Symbol.dispose]();
+		? await createStdioMcpCatalog(options.localBooks).catch(async (error) => {
+				await apps[Symbol.asyncDispose]();
 				throw error;
 			})
 		: undefined;
@@ -446,18 +436,45 @@ export async function createQueryHost(
 			invokeAbort.abort();
 			sessionApproval.cancelAll();
 			await localBooks?.[Symbol.asyncDispose]();
-			honeycrisp[Symbol.dispose]();
-			todos[Symbol.dispose]();
-			query[Symbol.dispose]();
 			await Promise.all([
-				honeycrisp.storage.whenDisposed,
-				todos.storage.whenDisposed,
-				query.storage.whenDisposed,
+				apps[Symbol.asyncDispose](),
 				// Transcript flushes: the active store plus any `clear` left behind.
 				activeStore.whenDisposed,
 				...storeFlushes,
 			]);
 		},
+	};
+}
+
+/** Open and jointly own the host's three in-process application runtimes. */
+async function openBuiltInApps(dataDir: string) {
+	await using stack = new AsyncDisposableStack();
+	const persistence = bunLocalPersistence({ dir: dataDir });
+	const honeycrisp = honeycrispWorkspace.connect(
+		{ kind: 'local' },
+		{ persistence },
+	);
+	stack.defer(async () => {
+		honeycrisp[Symbol.dispose]();
+		await honeycrisp.storage.whenDisposed;
+	});
+	// The host's own workspace: durable transcripts, same ungated local preset.
+	const query = queryWorkspace.connect({ kind: 'local' }, { persistence });
+	stack.defer(async () => {
+		query[Symbol.dispose]();
+		await query.storage.whenDisposed;
+	});
+	await Promise.all([honeycrisp.storage.whenLoaded, query.storage.whenLoaded]);
+	const todos = await openTodosBun({
+		path: join(dataDir, 'epicenter-todos-v1.sqlite'),
+	});
+	stack.defer(() => todos[Symbol.asyncDispose]());
+	const teardown = stack.move();
+	return {
+		honeycrisp,
+		todos,
+		query,
+		[Symbol.asyncDispose]: () => teardown.disposeAsync(),
 	};
 }
 

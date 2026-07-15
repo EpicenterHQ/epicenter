@@ -22,8 +22,8 @@ Durable Object adapter has matching apply coverage.
 
 Three application-shaped browser runtimes are now proven:
 
-- Todos imports `@epicenter/workspace/sqlite`, owns one Worker, and commits a
-  `workspace-version-lock.json`.
+- Todos imports `@epicenter/workspace/sqlite`, owns browser Worker and Bun
+  openers, and commits a `workspace-version-lock.json`.
 - Browser apps open through one authority-selected runtime. Local and server
   authorities own independent OPFS databases.
 - The page owns authenticated HTTP and the Worker receives only a semantic
@@ -36,8 +36,9 @@ Three application-shaped browser runtimes are now proven:
   and app-owned edit metadata.
 - `@epicenter/chat` is the canonical SQLite definition path.
   `@epicenter/chat/legacy` stays on disk for the Epicenter host and Tab Manager
-  until those consumers migrate. The host also uses explicit Honeycrisp and
-  Todos `/legacy` paths. Filesystem, skills, and the remaining applications
+  until those consumers migrate. The host keeps only Honeycrisp and Chat on
+  explicit legacy paths; Todos now opens its canonical SQLite definition
+  through its Bun runtime. Filesystem, skills, and the remaining applications
   still use legacy records.
 
 The old application shape is:
@@ -125,7 +126,7 @@ ID to the generated `<appId>-vN` namespace.
 
 | Owner | Durable shape and runtime | Dependencies or redesign pressure | Recommended wave |
 | --- | --- | --- | --- |
-| Todos | One table, no KV or documents, browser-only | Async actions and Svelte state | First pilot |
+| Todos | One table, no KV or documents, browser and Bun openers | Async actions and Svelte state | First pilot and host adoption proof |
 | Wiki | Two tables, app actions, Markdown and SQLite projections | `types.id` is a user-authored slug, so add a separate slug field or justify a lower-level identity door | Second pilot |
 | Chat package | Conversation metadata plus keyed-message child documents | SQLite export is live in Vocab; legacy consumers remain | Phase 2 complete, remove legacy after consumers migrate |
 | Filesystem package | File metadata plus plain-text child documents | Shared by Opensidian; path operations assume synchronous table reads | Shared definition wave |

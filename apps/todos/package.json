@@ -7,7 +7,7 @@
 	"exports": {
 		".": "./todos.ts",
 		"./browser": "./todos.browser.ts",
-		"./legacy": "./todos.legacy.ts"
+		"./bun": "./todos.bun.ts"
 	},
 	"scripts": {
 		"dev": "vite dev",
