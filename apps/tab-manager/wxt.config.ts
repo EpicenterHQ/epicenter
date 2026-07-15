@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'wxt';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// WXT auto-imports `storage` into workspace-package source but resolves its
+// compatibility subpath from that package. Pin it to the extension's actual
+// storage entry so shared auth modules with local `storage` bindings still build.
+const wxtStorageEntry = fileURLToPath(import.meta.resolve('@wxt-dev/storage'));
 
 export default defineConfig({
 	srcDir: 'src',
@@ -23,6 +27,7 @@ export default defineConfig({
 		resolve: {
 			dedupe: ['yjs'],
 			alias: {
+				'wxt/utils/storage': wxtStorageEntry,
 				$lib: resolve(__dirname, 'src/lib'),
 			},
 		},

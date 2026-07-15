@@ -6,6 +6,7 @@
  * exists to configure the side panel to open on extension icon click.
  */
 
+import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
 
 export default defineBackground(() => {

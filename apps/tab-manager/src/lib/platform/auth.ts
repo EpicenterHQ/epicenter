@@ -13,6 +13,7 @@ import { createExtensionOAuthLauncher } from '@epicenter/auth/oauth-launchers';
 import { EPICENTER_TAB_MANAGER_OAUTH_CLIENT_ID } from '@epicenter/constants/oauth-clients';
 import { APP_URLS } from '@epicenter/constants/vite';
 import { storage } from '@wxt-dev/storage';
+import { browser } from 'wxt/browser';
 
 /**
  * Persisted auth cell in `chrome.storage.local`.

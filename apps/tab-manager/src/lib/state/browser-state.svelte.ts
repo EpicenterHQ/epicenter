@@ -5,9 +5,8 @@
  * surgical updates via browser event listeners. Uses a single
  * `SvelteMap<number, WindowState>` where each window owns its tabs.
  *
- * Chrome is the sole authority for live tab state. No Y.Doc/CRDT
- * persistence. Only user-created data (saved tabs, bookmarks, chat)
- * uses Y.Doc.
+ * Chrome is the sole authority for live tab state. Only explicit web captures
+ * cross into Epicenter's synchronized SQLite workspace.
  *
  * Lifecycle: Created when side panel opens. All listeners die when panel closes.
  * Next open → fresh seed + fresh listeners. No cleanup needed.
@@ -28,6 +27,7 @@
 
 import { SvelteMap } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
+import { type Browser, browser } from 'wxt/browser';
 
 const TAB_ID_NONE = -1;
 

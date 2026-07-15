@@ -1,7 +1,7 @@
 /**
  * Tab Display Formatting Tests
  *
- * Verifies the relative-time helper used by saved tabs and bookmarks after
+ * Verifies the relative-time helper used by web captures after
  * lifecycle timestamps moved from epoch milliseconds to canonical UTC instants.
  */
 
