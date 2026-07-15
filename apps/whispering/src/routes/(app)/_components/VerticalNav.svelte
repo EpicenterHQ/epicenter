@@ -77,7 +77,7 @@
 			<Sidebar.MenuItem>
 				<AccountPopover
 					{auth}
-					collaboration={whispering.collaboration}
+					sync={whispering.collaboration}
 					syncNoun="recordings"
 					disabledReason={recordingActive.current
 						? 'Stop recording to change your account'

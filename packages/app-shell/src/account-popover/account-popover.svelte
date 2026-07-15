@@ -5,7 +5,7 @@
 	import * as Popover from '@epicenter/ui/popover';
 	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import type { Collaboration, SyncStatus } from '@epicenter/workspace';
+	import type { SyncStatus } from '@epicenter/workspace';
 	import CircleUser from '@lucide/svelte/icons/circle-user';
 	import DatabaseZap from '@lucide/svelte/icons/database-zap';
 	import LogOut from '@lucide/svelte/icons/log-out';
@@ -31,16 +31,21 @@
 	/**
 	 * Shared account popover.
 	 *
-	 * Renders auth identity and sign-out. When a collaboration runtime is
+	 * Renders auth identity and sign-out. When a synchronization runtime is
 	 * present, it also renders sync status from the three fields it actually
-	 * needs (`status`, `onStatusChange`, `reconnect`) rather than the full
-	 * `Collaboration` value, so RPC, peers, and presence do not leak into the
-	 * account UI surface.
+	 * needs: `status`, `onStatusChange`, and `reconnect`. Document protocols,
+	 * peers, and presence do not enter the account UI surface.
 	 *
 	 * Mount once in each app's root layout, alongside `<ConfirmationDialog />`
 	 * and inside a `<Tooltip.Provider>`: the trigger pill renders a tooltip,
 	 * which a `Tooltip.Root` needs as an ancestor.
 	 */
+	type WorkspaceSync = {
+		readonly status: SyncStatus;
+		onStatusChange(fn: (status: SyncStatus) => void): () => void;
+		reconnect(): void;
+	};
+
 	type AccountPopoverProps = {
 		/**
 		 * The app's auth client (from `createAppAuthClient()`). Its `deployment`
@@ -49,13 +54,9 @@
 		 */
 		auth: AuthClient;
 		/**
-		 * Sync surface slice from the binding's optional `collaboration`.
-		 * Omit it until Cloud sync is attached.
+		 * Product-level synchronization status. Omit it for a local-only runtime.
 		 */
-		collaboration?: Pick<
-			Collaboration,
-			'status' | 'onStatusChange' | 'reconnect'
-		>;
+		sync?: WorkspaceSync;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**
@@ -95,7 +96,7 @@
 
 	let {
 		auth,
-		collaboration,
+		sync: workspaceSync,
 		syncNoun,
 		onForgetDevice,
 		disabledReason,
@@ -172,12 +173,12 @@
 	);
 
 	$effect(() => {
-		if (!collaboration) {
+		if (!workspaceSync) {
 			syncStatus = undefined;
 			return;
 		}
-		syncStatus = collaboration.status;
-		const unsubscribe = collaboration.onStatusChange((status) => {
+		syncStatus = workspaceSync.status;
+		const unsubscribe = workspaceSync.onStatusChange((status) => {
 			syncStatus = status;
 		});
 		return unsubscribe;
@@ -226,7 +227,7 @@
 		if (!isSignedIn) return sync ? 'Sign in to sync across devices' : 'Sign in';
 		return sync ? `Account · ${sync.tooltip}` : 'Account';
 	});
-	// The dot is presence for sync: it appears only when a signed-in account
+	// The dot reports sync state: it appears only when a signed-in account
 	// has a sync surface attached. Signed out renders a dimmed glyph instead
 	// of a nudge dot; local-only is a valid resting state, not a notification.
 	const triggerDot = $derived.by(() => {
@@ -270,7 +271,7 @@
 		{#snippet child({ props })}
 			<Button {...props} variant="ghost" size="icon-sm" {tooltip}>
 				<!-- Identity glyph stays fixed; the sync dot sits at its
-				     bottom-right like a presence badge (top-right would read
+				     bottom-right like a status badge (top-right would read
 				     as a notification). -->
 				<span class="relative">
 					<CircleUser
@@ -314,9 +315,9 @@
 				{#if disabledReason}
 					<p class="text-xs text-muted-foreground">{disabledReason}</p>
 				{/if}
-				{#if collaboration && sync}
+				{#if workspaceSync && sync}
 					<!-- Same dot as the trigger, beside its meaning: this line is
-					     the legend for the trigger's presence badge. -->
+					     the legend for the trigger's status badge. -->
 					<div
 						class="border-t pt-3 flex items-center gap-1.5 text-xs text-muted-foreground"
 					>
@@ -325,12 +326,12 @@
 					</div>
 				{/if}
 				<div class="border-t pt-3 flex gap-2">
-					{#if collaboration && syncStatus?.phase !== 'connected'}
+					{#if workspaceSync && syncStatus?.phase !== 'connected'}
 						<Button
 							variant="outline"
 							size="sm"
 							class="flex-1"
-							onclick={() => collaboration.reconnect()}
+							onclick={() => workspaceSync.reconnect()}
 						>
 							<RefreshCw class="size-3.5" />
 							Reconnect

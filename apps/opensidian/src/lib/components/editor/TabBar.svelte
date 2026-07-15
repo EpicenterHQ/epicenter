@@ -56,7 +56,7 @@
 		</a>
 		<AccountPopover
 			{auth}
-			collaboration={opensidian.collaboration}
+			sync={opensidian.collaboration}
 			syncNoun="notes"
 			onForgetDevice={() => opensidian.wipe()}
 			instanceConnect={{ appName: 'Opensidian', setting: instanceSetting }}

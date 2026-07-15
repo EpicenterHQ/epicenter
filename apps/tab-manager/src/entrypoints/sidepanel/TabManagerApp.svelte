@@ -202,7 +202,7 @@
 				</Button>
 				<AccountPopover
 					{auth}
-					collaboration={tabManager.collaboration}
+					sync={tabManager.collaboration}
 					syncNoun="tabs"
 					onForgetDevice={() => tabManager.wipe()}
 					instanceConnect={{ appName: 'Epicenter', setting: tabManagerBoot.instanceSetting }}
