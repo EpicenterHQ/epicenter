@@ -5,7 +5,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./sqlite": "./src/sqlite.ts"
+		"./legacy": "./src/legacy.ts"
 	},
 	"files": [
 		"src",

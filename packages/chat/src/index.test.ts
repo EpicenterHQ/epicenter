@@ -1,5 +1,5 @@
 /**
- * SQLite Chat Storage Tests
+ * Canonical Chat Storage Tests
  *
  * Verifies async conversation creation and validated keyed-message documents.
  */
@@ -14,7 +14,7 @@ import {
 } from '@epicenter/workspace/sqlite';
 import { openStandaloneWorkspace } from '@epicenter/workspace/sqlite/bun';
 import * as Y from 'yjs';
-import { conversationsTable } from './sqlite.js';
+import { conversationsTable } from './index.js';
 
 const candidate = defineWorkspace({
 	appId: 'chat-sqlite-test',

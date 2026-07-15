@@ -33,11 +33,11 @@ Three application-shaped browser runtimes are now proven:
   capabilities.
 - Vocab proves SQLite rows, hydrated KV, and validated keyed chat documents.
   Honeycrisp proves rich-text documents and app-owned edit metadata.
-- `@epicenter/chat/sqlite` is the new shared definition path. The legacy root
-  export stays on disk for unmigrated consumers until they stop importing it.
-  The unmigrated Epicenter host likewise uses explicit Honeycrisp and Todos
-  `/legacy` subpaths. Filesystem, skills, and the remaining applications still
-  use legacy records.
+- `@epicenter/chat` is the canonical SQLite definition path.
+  `@epicenter/chat/legacy` stays on disk for the Epicenter host and Tab Manager
+  until those consumers migrate. The host also uses explicit Honeycrisp and
+  Todos `/legacy` paths. Filesystem, skills, and the remaining applications
+  still use legacy records.
 
 The old application shape is:
 
@@ -238,9 +238,9 @@ The same review applies to Wiki type slugs and Tab Manager tool-trust keys.
   prove hydration precedes default reads.
 - [x] Add one child-document runtime that owns persistence, sync, refcounting,
   and disposal for derived document guids.
-- [x] Publish `@epicenter/chat/sqlite` with SQLite fields, a validated message
-  format, and async table and opened-message types. Keep the legacy root export
-  only as the rollback path for consumers scheduled in later phases.
+- [x] Make `@epicenter/chat` the canonical SQLite contract with SQLite fields,
+  a validated message format, and async table and opened-message types. Keep
+  `@epicenter/chat/legacy` only for consumers scheduled in later phases.
 - [x] Migrate Vocab after Chat to prove tables, KV, and shared conversation
   documents in a browser app.
 - [x] Migrate Honeycrisp to prove rich-text documents and app-owned touch policy.

@@ -42,12 +42,10 @@ import {
 	type Conversation,
 	type ConversationId,
 	generateConversationId,
-	type ConversationsTable as LegacyConversationsTable,
+	type OpenedConversationMessages,
+	type ConversationsTable as SqliteConversationsTable,
 } from '@epicenter/chat';
-import type {
-	OpenedConversationMessages,
-	ConversationsTable as SqliteConversationsTable,
-} from '@epicenter/chat/sqlite';
+import type { ConversationsTable as LegacyConversationsTable } from '@epicenter/chat/legacy';
 import { createOpenAiAgentEngine } from '@epicenter/client';
 import { bindAgentConversation, fromTable } from '@epicenter/svelte';
 import { generateId, InstantString } from '@epicenter/workspace';
@@ -103,7 +101,7 @@ export type AgentKit = {
 
 export function createAgentChatState({
 	table,
-	whenLoaded,
+	whenLoaded = Promise.resolve(),
 	connections,
 	activeConversation,
 	agent: {
@@ -115,8 +113,8 @@ export function createAgentChatState({
 }: {
 	/** The conversations table handle (`workspace.tables.conversations`). */
 	table: ConversationsTable;
-	/** Resolves once the synced doc has loaded; guarantees one conversation. */
-	whenLoaded: Promise<unknown>;
+	/** Legacy-table hydration barrier. SQLite callers rely on the table view. */
+	whenLoaded?: Promise<unknown>;
 	/** The device connection registry (ADR-0059); resolves a model to a transport. */
 	connections: InferenceConnections;
 	/** The active-conversation source; defaults to internal `$state`. */
@@ -466,6 +464,7 @@ export function createAgentChatState({
 	const _unobserve = table.observe(() => {
 		reconcileHandles();
 	});
+	let isDisposed = false;
 
 	// Once the synced doc has loaded, mirror it in and guarantee a conversation
 	// to land in (a fresh install has none).
@@ -473,12 +472,12 @@ export function createAgentChatState({
 		'whenReady' in conversationsView
 			? conversationsView.whenReady
 			: Promise.resolve();
-	void Promise.all([whenLoaded, tableReady])
-		.then(() => {
-			reconcileHandles();
-			if (conversationList.length === 0) return createConversation();
-		})
-		.catch(reportError);
+	const whenReady = Promise.all([whenLoaded, tableReady]).then(async () => {
+		if (isDisposed) return;
+		reconcileHandles();
+		if (conversationList.length === 0) await createConversation();
+	});
+	void whenReady.catch(reportError);
 
 	reconcileHandles();
 
@@ -490,6 +489,7 @@ export function createAgentChatState({
 	 * sees a momentarily-missing active conversation.
 	 */
 	async function createConversation(): Promise<ConversationId> {
+		if (isDisposed) throw new Error('Agent chat state is disposed');
 		const nowIso = InstantString.now();
 		const current =
 			selection.current === null ? undefined : handles.get(selection.current);
@@ -512,6 +512,9 @@ export function createAgentChatState({
 				updatedAt: nowIso,
 			});
 		}
+		// An async SQLite create may settle after disposal. The durable row is a
+		// completed write, but no reactive handle may be resurrected afterward.
+		if (isDisposed) return id;
 		if (!handles.has(id)) handles.set(id, createConversationHandle(id));
 		selection.select(id);
 		return id;
@@ -535,7 +538,12 @@ export function createAgentChatState({
 	// ── Public API ────────────────────────────────────────────────────
 
 	return {
+		/** Resolves after the initial table snapshot and first conversation exist. */
+		whenReady,
+
 		[Symbol.dispose]() {
+			if (isDisposed) return;
+			isDisposed = true;
 			_unobserve();
 			if ('whenReady' in conversationsView) {
 				conversationsView[Symbol.dispose]();

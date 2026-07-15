@@ -9,7 +9,7 @@
  * data directory and read what the host wrote.
  */
 
-import { conversationsTable } from '@epicenter/chat';
+import { conversationsTable } from '@epicenter/chat/legacy';
 import { defineWorkspace } from '@epicenter/workspace';
 
 export const queryWorkspace = defineWorkspace({

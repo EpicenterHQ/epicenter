@@ -1,4 +1,4 @@
-import { conversationsTable } from '@epicenter/chat/sqlite';
+import { conversationsTable } from '@epicenter/chat';
 import { defineWorkspace } from '@epicenter/workspace/sqlite';
 import { entriesTable, showReadings } from '../../../vocab.js';
 
