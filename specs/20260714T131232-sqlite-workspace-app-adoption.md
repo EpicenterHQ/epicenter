@@ -133,9 +133,9 @@ ID to the generated `<appId>-vN` namespace.
 | Skills package and app | Two tables plus plain-text child documents in browser and Bun runtimes | Dual-runtime serialization and actions assume synchronous tables | Shared definition wave |
 | Vocab | Entries, one KV preference, shared conversations and message documents | Proves browser KV and keyed child-document composition | Phase 2 complete |
 | Honeycrisp | Folders, notes, rich-text documents, and one runtime action | Proves app-owned `updatedAt` policy over local document edits | Phase 2 complete |
-| Tab Manager | Five tables, shared conversations, extension boot, browser-only actions | Device and tool-trust rows currently use caller-authored IDs | Extension composition proof |
+| Tab Manager | One synchronized web-capture inbox beside browser-owned live tabs | Rebuilt contract deliberately drops devices, bookmarks, tool trust, and conversations | Extension composition proof; ADR-0146 |
 | Whispering | Two tables, roughly forty KV preferences, browser and Tauri runtimes | Largest KV surface; existing recordings make cutover policy high stakes | Late product migration |
-| Opensidian | Shared filesystem table, child documents, browser and daemon mounts, materializers | Broadest composition surface and strongest shared-package dependency | Final browser and daemon proof |
+| Opensidian | Shared filesystem table, child documents, browser or desktop runtime, materializers | Broadest composition surface and strongest shared-package dependency; generic mounts are refused | Final open-app proof |
 | Epicenter host | Shared conversations with Bun-local persistence | Host lifecycle and chat package must already be migrated | Final host adoption |
 
 API, self-host, landing, Local Books, Local Mail, Matter, Reddit, and the
@@ -194,25 +194,26 @@ The old declaration-level `touch: 'updatedAt'` policy does not move into the
 durable format. The Honeycrisp runtime observes local body edits and patches the
 row because the application owns the meaning of `updatedAt`.
 
-### Tab Manager: natural keys remain ordinary fields
+### Tab Manager: rebuild one consumable collection
 
-The `devices` table currently uses the framework node ID as its row ID. A fresh
-row normally receives the default Epicenter ID, while the node ID stays an
-ordinary product field that can be queried and changed independently:
+Tab Manager does not migrate its device-shaped legacy model. Its new data
+version owns one ordinary SQLite table:
 
 ```ts
-const devices = defineTable({
+const webCaptures = defineTable({
 	fields: {
-		id: field.id<DeviceRowId>(),
-		nodeId: field.string<NodeId>(),
-		name: field.string(),
-		lastSeen: field.instant(),
-		browser: field.string(),
+		id: field.id<WebCaptureId>(),
+		url: field.string(),
+		title: field.string(),
+		favIconUrl: nullable(field.string()),
+		capturedAt: field.instant(),
 	},
 });
 ```
 
-The same review applies to Wiki type slugs and Tab Manager tool-trust keys.
+The browser remains authoritative for live tabs. Capture writes an inbox row;
+open and discard consume one. Promotion to Honeycrisp or another destination is
+deferred and destination-owned. ADR-0146 records the product boundary.
 
 ## Implementation Plan
 
@@ -259,12 +260,13 @@ The same review applies to Wiki type slugs and Tab Manager tool-trust keys.
 ### Phase 4: Migrate product-specific runtimes
 
 - [ ] Migrate Wiki and resolve its user-authored type slug as an ordinary field.
-- [ ] Migrate Tab Manager and resolve device and tool-trust natural keys before
-  changing extension boot.
+- [ ] Rebuild Tab Manager as the ADR-0146 web-capture inbox on a fresh data
+  version. Do not migrate devices, bookmarks, tool trust, or conversations.
 - [ ] Migrate Whispering only after the KV runtime is proven; inventory whether
   recording audio earns `field.blob()` or remains outside workspace ownership.
-- [ ] Migrate Opensidian after the filesystem package, covering browser, daemon,
-  Markdown export, SQLite projection, and document cleanup.
+- [ ] Migrate Opensidian after the filesystem package, covering its open app,
+  app-owned or explicit Markdown export, SQLite projection, and document cleanup.
+  Do not build a new daemon or mount adapter.
 - [ ] Migrate the Epicenter host after the chat package and Bun composition are
   stable.
 
@@ -273,7 +275,7 @@ The same review applies to Wiki type slugs and Tab Manager tool-trust keys.
 - [ ] Make every app and shared package stop importing legacy record tables
   while the old implementation remains on disk as a rollback point.
 - [ ] Run all app builds, typechecks, tests, browser smokes, extension smoke,
-  Tauri smoke, daemon smoke, and hosted or self-host synchronization proof.
+  Tauri smoke, and hosted or self-host synchronization proof.
 - [ ] Delete legacy Yjs record tables, synchronous table adapters, `connect`
   paths that exist only for them, sign-in copy machinery that no surviving flow
   uses, fixtures, examples, and documentation.
@@ -362,6 +364,12 @@ bun run check:licenses
 - `docs/adr/0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md`
 - `docs/adr/0140-portable-ownership-has-no-generic-whole-workspace-import.md`
 - `docs/adr/0141-workspace-authority-is-selected-once-and-owns-one-local-database.md`
+- `docs/adr/0142-workspace-apps-receive-one-connection-while-storage-planes-keep-their-own-protocols.md`
+- `docs/adr/0143-document-synchronization-addresses-rooms-not-installations.md`
+- `docs/adr/0144-open-applications-own-local-execution.md`
+- `docs/adr/0145-external-systems-of-record-keep-local-mirrors-outside-epicenter-sync.md`
+- `docs/adr/0146-tab-manager-is-a-synchronized-web-capture-inbox.md`
+- `specs/20260714T162816-synchronized-data-open-runtime-clean-break.md`
 - `packages/workspace/src/sqlite/definition.ts`
 - `packages/workspace/src/sqlite/browser.ts`
 - `packages/workspace/src/sqlite/browser-worker.ts`
