@@ -1,6 +1,6 @@
 # 0146. Tab Manager is a synchronized web-capture inbox
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-14
 - **Relates:** [ADR-0051](0051-one-agent-loop-its-store-seam-chooses-persistence.md) (the prior Tab Manager conversation surface is not part of the new first version)
 

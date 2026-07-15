@@ -77,7 +77,7 @@ The destination has five durable decisions:
 | Room identity only | `NodeId` crosses workspace, auth projection, server rooms, Bun and Cloudflare backends, CLI, and Tab Manager | Node storage, query parameters, attachment fields, presence protocol, peer APIs, stable Yjs seeding |
 | Open-process execution | The generic daemon, mount runtime, root discovery, and CLI process lifecycle are deleted; Local Mail and Local Books own explicit execution | Verify repository-wide imports and docs, then keep the boundary closed |
 | External authority | Local Mail and Local Books own standalone SQLite mirrors of Gmail and QuickBooks | Keep future mirror work out of Epicenter replication |
-| Web-capture inbox | Tab Manager has devices, saved tabs, bookmarks, tool trust, conversations, and source node fields | Four tables, device registration, device prompts, duplicate saved/bookmark state |
+| Web-capture inbox | Tab Manager owns one version-locked SQLite `webCaptures` table beside browser-owned live tabs | Two-browser-profile synchronization smoke remains |
 
 ## Target application API
 
@@ -301,9 +301,9 @@ generic daemon, mount runtime, or watcher lifecycle.
 - [x] No generic Epicenter process remains meaningful after every app and
   explicit command closes.
 - [x] External-authority mirrors do not join Epicenter synchronization.
-- [ ] Tab Manager owns one synchronized `webCaptures` collection and no device
+- [x] Tab Manager owns one synchronized `webCaptures` collection and no device
   model.
 - [ ] All old imports are stopped and verified before their implementations are
   deleted.
-- [ ] The five ADRs are accepted as their corresponding code lands,
+- [x] The five ADRs are accepted as their corresponding code lands,
   and this spec is then deleted.

@@ -20,7 +20,7 @@ exports, and reviewed tables apply. The HTTP apply path is covered through the
 shared authenticated route and a persistent records authority; the Cloudflare
 Durable Object adapter has matching apply coverage.
 
-Three application-shaped browser runtimes are now proven:
+The application-shaped browser runtime is now proven across several products:
 
 - Todos imports `@epicenter/workspace/sqlite`, owns browser Worker and Bun
   openers, and commits a `workspace-version-lock.json`.
@@ -34,12 +34,13 @@ Three application-shaped browser runtimes are now proven:
 - Vocab proves SQLite rows, hydrated KV, validated keyed chat documents, and
   one app-owned reactive state lifetime. Honeycrisp proves rich-text documents
   and app-owned edit metadata.
+- Tab Manager proves the same runtime inside a WXT side panel with one
+  synchronized `webCaptures` table beside browser-owned live-tab observation.
 - `@epicenter/chat` is the canonical SQLite definition path.
-  `@epicenter/chat/legacy` stays on disk for the Epicenter host and Tab Manager
-  until those consumers migrate. The host keeps only Honeycrisp and Chat on
-  explicit legacy paths; Todos now opens its canonical SQLite definition
-  through its Bun runtime. Filesystem, skills, and the remaining applications
-  still use legacy records.
+  `@epicenter/chat/legacy` stays on disk only for the Epicenter host. The host
+  keeps only Honeycrisp and Chat on explicit legacy paths; Todos opens its
+  canonical SQLite definition through its Bun runtime. Filesystem, skills, and
+  the remaining applications still use legacy records.
 
 The old application shape is:
 
@@ -247,7 +248,7 @@ deferred and destination-owned. ADR-0146 records the product boundary.
 ### Phase 4: Migrate product-specific runtimes
 
 - [ ] Migrate Wiki and resolve its user-authored type slug as an ordinary field.
-- [ ] Rebuild Tab Manager as the ADR-0146 web-capture inbox on a fresh data
+- [x] Rebuild Tab Manager as the ADR-0146 web-capture inbox on a fresh data
   version. Do not migrate devices, bookmarks, tool trust, or conversations.
 - [ ] Migrate Whispering only after the KV runtime is proven; inventory whether
   recording audio earns `field.blob()` or remains outside workspace ownership.

@@ -218,10 +218,10 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0139](0139-portable-workspaces-are-schema-directed-folders-applied-as-forward-mutations.md) | Portable workspaces are schema-directed folders applied as forward mutations | Accepted |
 | [0140](0140-portable-ownership-has-no-generic-whole-workspace-import.md) | Portable ownership has no generic whole-workspace import | Accepted |
 | [0141](0141-workspace-authority-is-selected-once-and-owns-one-local-database.md) | Workspace authority is selected once and owns one local database | Accepted |
-| [0142](0142-workspace-apps-receive-one-connection-while-storage-planes-keep-their-own-protocols.md) | Workspace apps receive one connection while storage planes keep their own protocols | Proposed |
-| [0143](0143-document-synchronization-addresses-rooms-not-installations.md) | Document synchronization addresses rooms, not installations | Proposed |
+| [0142](0142-workspace-apps-receive-one-connection-while-storage-planes-keep-their-own-protocols.md) | Workspace apps receive one connection while storage planes keep their own protocols | Accepted |
+| [0143](0143-document-synchronization-addresses-rooms-not-installations.md) | Document synchronization addresses rooms, not installations | Accepted |
 | [0144](0144-open-applications-own-local-execution.md) | Open applications own local execution | Accepted |
 | [0145](0145-external-systems-of-record-keep-local-mirrors-outside-epicenter-sync.md) | External systems of record keep local mirrors outside Epicenter sync | Accepted |
-| [0146](0146-tab-manager-is-a-synchronized-web-capture-inbox.md) | Tab Manager is a synchronized web-capture inbox | Proposed |
+| [0146](0146-tab-manager-is-a-synchronized-web-capture-inbox.md) | Tab Manager is a synchronized web-capture inbox | Accepted |
 
 When you add an ADR, add its row here.
