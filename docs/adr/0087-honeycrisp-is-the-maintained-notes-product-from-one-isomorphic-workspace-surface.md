@@ -12,7 +12,7 @@ Fuji has been removed, and Honeycrisp is the notes app that still has a live wor
 
 Honeycrisp is the maintained Epicenter notes product. It ships from one SvelteKit
 codebase on web and desktop. Its package root exposes the pure table and row
-vocabulary; `src/lib/workspace/workspace.ts` declares the versioned candidate,
+vocabulary; `src/versions/v1/workspace.ts` declares the versioned candidate,
 and a committed lock freezes version 1. Runtime actions and platform resources
 compose after `openBrowserWorkspace` rather than entering the durable contract.
 Runtime-specific concerns stay behind `#platform/*` imports and environment

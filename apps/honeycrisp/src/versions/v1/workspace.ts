@@ -1,5 +1,5 @@
 import { defineWorkspace } from '@epicenter/workspace/sqlite';
-import { foldersTable, notesTable } from './index.js';
+import { foldersTable, notesTable } from '../../lib/workspace/index.js';
 
 export const workspaceCandidate = defineWorkspace({
 	appId: 'epicenter-honeycrisp',

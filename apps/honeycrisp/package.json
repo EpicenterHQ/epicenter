@@ -19,7 +19,7 @@
 		"dev:web": "vite dev",
 		"dev:desktop": "tauri dev",
 		"build": "NODE_ENV=production vite build",
-		"check:workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --check --lock workspace-version-lock.json --candidate src/lib/workspace/workspace.ts",
+		"check:workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --check --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
@@ -27,7 +27,7 @@
 		"test": "bun test",
 		"tauri": "tauri",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --write --lock workspace-version-lock.json --candidate src/lib/workspace/workspace.ts"
+		"workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --write --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",

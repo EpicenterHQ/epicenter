@@ -2,10 +2,9 @@
  * Boot-time Honeycrisp client (ADR-0088: sign-in is an enhancement, never a
  * door).
  *
- * `openHoneycrispBrowser` reads the persisted `auth.state` ONCE at startup
- * and picks the workspace preset: bare local IndexedDB (signed out) or
- * principal-scoped storage plus relay sync (signed in / reauth-required).
- * Construction and hydration complete before the singleton is exported.
+ * `openHoneycrispBrowser` reads the persisted `auth.state` once at startup and
+ * opens either local storage or the principal's synchronized storage.
+ * Construction and initial row projections complete before the layout renders.
  * Identity changes are never an in-place swap: `reloadOnPrincipalChange` (mounted
  * in the root layout) reloads the page so the next boot re-runs this selection.
  *
@@ -26,3 +25,10 @@ export const honeycrisp = {
 	/** Resolves after both SQLite row projections have their initial snapshot. */
 	whenReady: state.whenReady,
 };
+
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => {
+		state[Symbol.dispose]();
+		void browser[Symbol.asyncDispose]();
+	});
+}

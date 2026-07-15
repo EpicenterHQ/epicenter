@@ -1,6 +1,6 @@
 import { browserWorkspaceDatabaseName } from '@epicenter/workspace/sqlite/browser';
 import { chromium } from 'playwright';
-import { honeycrispWorkspaceDefinition } from './src/lib/workspace/definition.js';
+import { honeycrispWorkspaceDefinition } from './src/versions/v1/definition.js';
 
 const port = 5179;
 const origin = `http://127.0.0.1:${port}`;

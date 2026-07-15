@@ -9,8 +9,8 @@
 import type { SyncAuthClient } from '@epicenter/auth';
 import { toWorkspaceConnection } from '@epicenter/svelte/auth';
 import { openBrowserWorkspace } from '@epicenter/workspace/sqlite/browser';
-import { honeycrispWorkspaceDefinition } from './definition.js';
-import WorkspaceWorker from './workspace.worker?worker';
+import { honeycrispWorkspaceDefinition } from '../../versions/v1/definition.js';
+import WorkspaceWorker from '../../versions/v1/workspace.worker?worker';
 import { createHoneycrispActions } from './actions.js';
 
 export async function openHoneycrispBrowser({
