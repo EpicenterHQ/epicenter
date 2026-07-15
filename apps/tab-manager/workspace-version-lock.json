@@ -1,0 +1,14 @@
+{
+	"format": "epicenter.workspace-version-lock/1",
+	"appId": "epicenter-tab-manager",
+	"versions": [
+		{
+			"version": 1,
+			"workspaceId": "epicenter-tab-manager-v1",
+			"tablesSchemaHash": "sha256:c2603363e68d0a10d3f4e47330ebed062c483f5149800b161d27017b1032f3b8",
+			"planes": {
+				"kv": "epicenter-tab-manager-v1.kv"
+			}
+		}
+	]
+}

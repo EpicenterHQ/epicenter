@@ -1,21 +1,24 @@
 {
 	"name": "@epicenter/tab-manager",
-	"description": "Browser extension for managing tabs with workspace sync and AI chat",
+	"description": "Browser extension for live tabs and synchronized web captures",
 	"version": "0.0.2",
 	"type": "module",
 	"private": true,
 	"exports": {
-		".": "./src/lib/workspace/index.ts"
+		".": "./tab-manager.ts",
+		"./browser": "./tab-manager.browser.ts"
 	},
 	"scripts": {
 		"dev": "wxt",
 		"dev:firefox": "wxt -b firefox",
 		"build": "wxt build",
 		"build:firefox": "wxt build -b firefox",
+		"check:workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --check --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts",
 		"zip": "wxt zip",
 		"zip:firefox": "wxt zip -b firefox",
 		"typecheck": "wxt prepare && svelte-check --tsconfig ./tsconfig.json",
 		"test": "bun test",
+		"workspace-version-lock": "bun run ../../scripts/check-workspace-version-locks.ts --write --lock workspace-version-lock.json --candidate src/versions/v1/workspace.ts",
 		"postinstall": "wxt prepare"
 	},
 	"dependencies": {
