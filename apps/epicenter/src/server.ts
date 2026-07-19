@@ -448,6 +448,17 @@ export function createHomeServer({
 				Ok(await workspaceOwner.execute(workspaceId, await c.req.json())),
 			);
 		} catch (cause) {
+			// A displaced surface's request carries the shared moved-error name
+			// so the WebView can flip its blocking moved screen.
+			if (
+				cause instanceof Error &&
+				cause.name === 'WorkspaceStorageMovedError'
+			) {
+				return c.json(
+					DesktopWorkspaceError.WorkspaceStorageMovedError({ workspaceId }),
+					409,
+				);
+			}
 			return c.json(DesktopWorkspaceError.InvalidRequest({ cause }), 400);
 		}
 	});

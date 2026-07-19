@@ -1,21 +1,14 @@
 import { Type } from 'typebox';
-// The Bun runtime hands out document-provider handles, so the transport
-// bridge must come from the same module that owns their Y.Doc registry.
-import {
-	applyRowDocumentUpdate,
-	encodeRowDocumentState,
-} from '../document-provider/runtime/index.js';
 import { createDeviceBunWorkspaceRuntime } from './bun-runtime.js';
-import {
-	decodeDocumentBytes,
-	encodeDocumentBytes,
-} from './canonical-documents.js';
 
 export { DesktopWorkspaceError } from './desktop-protocol.js';
 
 import {
 	type DesktopRecordOperation,
+	type DesktopRecordRequest,
 	encodeDesktopRecordResult,
+	encodeDocumentBytes,
+	decodeDocumentBytes,
 } from './desktop-protocol.js';
 import type { WorkspaceHandle } from './runtime.js';
 import type { WorkspaceDefinition } from './runtime-definition.js';
@@ -49,6 +42,13 @@ export function createDesktopWorkspaceOwner({
 	}
 	const runtime = createDeviceBunWorkspaceRuntime({ workspacesRoot });
 	const handles = new Map<string, Promise<ErasedWorkspace>>();
+	/**
+	 * The one live renderer surface per workspace. An `open` from a newer
+	 * surface displaces the previous owner; the displaced surface's later
+	 * requests fail with the named moved error. In-process host consumers of
+	 * owner-opened handles are not surfaces and are unaffected.
+	 */
+	const surfaces = new Map<string, string>();
 
 	const openRegistered = (workspaceId: string): Promise<ErasedWorkspace> => {
 		const definition = catalog.get(workspaceId);
@@ -83,10 +83,22 @@ export function createDesktopWorkspaceOwner({
 			return catalog.has(workspaceId);
 		},
 		async execute(workspaceId: string, input: unknown): Promise<unknown> {
-			const operation = parseDesktopRecordOperation(input);
+			const { surfaceId, operation } = parseDesktopRecordRequest(input);
 			const workspace = await openRegistered(workspaceId);
-			// The awaited acquisition above IS the handshake's work.
-			if (operation.kind === 'open') return undefined;
+			if (operation.kind === 'open') {
+				// Newest surface wins: opening claims the workspace and displaces
+				// any previous surface. The awaited acquisition above IS the
+				// handshake's work.
+				surfaces.set(workspaceId, surfaceId);
+				return undefined;
+			}
+			if (surfaces.get(workspaceId) !== surfaceId) {
+				const moved = new Error(
+					`Workspace '${workspaceId}' moved to a newer window`,
+				);
+				moved.name = 'WorkspaceStorageMovedError';
+				throw moved;
+			}
 			if (operation.kind === 'sql') {
 				return workspace.sql(operation.query, operation.parameters, sqliteRows);
 			}
@@ -108,28 +120,27 @@ export function createDesktopWorkspaceOwner({
 			if (operation.kind === 'read-current-row') {
 				const table = workspace.tables[operation.table];
 				if (!table) throw new Error(`Unknown table '${operation.table}'`);
-				try {
-					using _document = await table.document.open(operation.rowId);
-					return {};
-				} catch (cause) {
-					if (cause instanceof Error && /absent row/.test(cause.message)) {
-						return undefined;
-					}
-					throw cause;
+				const result = await table.get(operation.rowId);
+				// A projection error still proves the row exists; only a clean
+				// undefined read means the address is dead.
+				if (result.error === null && result.data === undefined) {
+					return undefined;
 				}
+				return {};
 			}
-			if (operation.kind === 'read-current-document') {
-				const table = workspace.tables[operation.table];
-				if (!table) throw new Error(`Unknown table '${operation.table}'`);
-				using document = await table.document.open(operation.rowId);
-				return encodeDocumentBytes(encodeRowDocumentState(document));
+			if (operation.kind === 'document-load') {
+				const parts = await runtime.loadDocument(workspaceId, {
+					table: operation.table,
+					rowId: operation.rowId,
+				});
+				return parts.map(encodeDocumentBytes);
 			}
-			if (operation.kind === 'persist-document-update') {
-				const table = workspace.tables[operation.table];
-				if (!table) throw new Error(`Unknown table '${operation.table}'`);
-				await using document = await table.document.open(operation.rowId);
-				applyRowDocumentUpdate(document, decodeDocumentBytes(operation.update));
-				await document.whenDurable();
+			if (operation.kind === 'document-append') {
+				await runtime.appendDocument(
+					workspaceId,
+					{ table: operation.table, rowId: operation.rowId },
+					decodeDocumentBytes(operation.update),
+				);
 				return undefined;
 			}
 			const table = workspace.tables[operation.table];
@@ -160,6 +171,7 @@ export function createDesktopWorkspaceOwner({
 		},
 		async [Symbol.asyncDispose]() {
 			handles.clear();
+			surfaces.clear();
 			await runtime[Symbol.asyncDispose]();
 		},
 	});
@@ -168,6 +180,20 @@ export function createDesktopWorkspaceOwner({
 export type DesktopWorkspaceOwner = ReturnType<
 	typeof createDesktopWorkspaceOwner
 >;
+
+function parseDesktopRecordRequest(input: unknown): DesktopRecordRequest {
+	if (
+		!isPlainObject(input) ||
+		typeof input.surfaceId !== 'string' ||
+		input.surfaceId.length === 0
+	) {
+		throw new TypeError('Invalid desktop record request');
+	}
+	return {
+		surfaceId: input.surfaceId,
+		operation: parseDesktopRecordOperation(input.operation),
+	};
+}
 
 function parseDesktopRecordOperation(input: unknown): DesktopRecordOperation {
 	if (!isPlainObject(input) || typeof input.kind !== 'string') {
@@ -186,10 +212,10 @@ function parseDesktopRecordOperation(input: unknown): DesktopRecordOperation {
 			if (typeof input.key !== 'string' || !('value' in input)) break;
 			return { kind: 'kv-set', key: input.key, value: input.value };
 		case 'read-current-row':
-		case 'read-current-document':
+		case 'document-load':
 			if (!table || typeof input.rowId !== 'string') break;
 			return { kind: input.kind, table, rowId: input.rowId };
-		case 'persist-document-update':
+		case 'document-append':
 			if (
 				!table ||
 				typeof input.rowId !== 'string' ||
@@ -197,7 +223,7 @@ function parseDesktopRecordOperation(input: unknown): DesktopRecordOperation {
 			)
 				break;
 			return {
-				kind: 'persist-document-update',
+				kind: 'document-append',
 				table,
 				rowId: input.rowId,
 				update: input.update,

@@ -99,6 +99,14 @@ export function createDeviceBunWorkspaceRuntime({
 			await runtime.open(definition);
 			await runtime.deleteLocal(definition.id);
 		},
+		/**
+		 * Owner-side document seam for a host that serves renderer surfaces
+		 * (the desktop WebView carrier). The renderer owns the live Y.Doc; the
+		 * host forwards only load and append into this runtime's log, where
+		 * append checks row liveness in the same transaction as its insert.
+		 */
+		loadDocument: runtime.loadDocument,
+		appendDocument: runtime.appendDocument,
 		[Symbol.asyncDispose]: runtime[Symbol.asyncDispose],
 	});
 }
@@ -347,20 +355,35 @@ function createBunRuntimeWithPersistence({
 	});
 
 	let isDisposed = false;
+	function deviceWorkspace(workspaceId: string) {
+		const state = localWorkspaces.get(workspaceId);
+		if (!state)
+			throw new Error(`Device workspace '${workspaceId}' is not open`);
+		return state;
+	}
 	return Object.freeze({
 		open: runtime.open,
 		captureDurability: runtime.captureDurability,
 		whenReady: runtime.whenReady,
+		async loadDocument(
+			workspaceId: string,
+			address: { table: string; rowId: string },
+		): Promise<Uint8Array[]> {
+			return deviceWorkspace(workspaceId).documents.load(address);
+		},
+		async appendDocument(
+			workspaceId: string,
+			address: { table: string; rowId: string },
+			update: Uint8Array,
+		): Promise<void> {
+			deviceWorkspace(workspaceId).documents.append(address, update);
+		},
 		async captureLocal(workspaceId: string): Promise<LogicalWorkspaceCopy> {
-			const state = localWorkspaces.get(workspaceId);
-			if (!state)
-				throw new Error(`Device workspace '${workspaceId}' is not open`);
+			const state = deviceWorkspace(workspaceId);
 			return captureLocalWorkspace(state.sqlite, state.documents.capture);
 		},
 		async deleteLocal(workspaceId: string): Promise<void> {
-			const state = localWorkspaces.get(workspaceId);
-			if (!state)
-				throw new Error(`Device workspace '${workspaceId}' is not open`);
+			const state = deviceWorkspace(workspaceId);
 			// Revoke live handles first so already-captured edits drain into the
 			// log before deletion; then scalar and document death commit in one
 			// transaction.

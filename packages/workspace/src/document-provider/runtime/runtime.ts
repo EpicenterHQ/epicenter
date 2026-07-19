@@ -35,32 +35,6 @@ type CachedDocument<TConnection> = {
 	revoked: Error | undefined;
 };
 
-const ownedDocuments = new WeakMap<
-	RowDocument<unknown>,
-	CachedDocument<unknown>
->();
-
-/** Runtime-only bridge for transporting one hydrated row document. */
-export function encodeRowDocumentState(
-	document: RowDocument<unknown>,
-): Uint8Array {
-	const entry = ownedDocuments.get(document);
-	if (!entry) throw new TypeError('Row document is not owned by this runtime');
-	if (entry.revoked) throw entry.revoked;
-	return Y.encodeStateAsUpdate(entry.document);
-}
-
-/** Runtime-only bridge for applying one opaque transported update. */
-export function applyRowDocumentUpdate(
-	document: RowDocument<unknown>,
-	update: Uint8Array,
-): void {
-	const entry = ownedDocuments.get(document);
-	if (!entry) throw new TypeError('Row document is not owned by this runtime');
-	if (entry.revoked) throw entry.revoked;
-	Y.applyUpdate(entry.document, Uint8Array.from(update));
-}
-
 /**
  * Own independently loadable row documents above one workspace document store.
  *
@@ -242,17 +216,12 @@ export function createRowDocumentRuntime<TConnection = never>({
 			[Symbol.dispose](): void {
 				if (disposed) return;
 				disposed = true;
-				// The transport bridge must refuse a disposed handle exactly like
-				// get/transact do; dropping the registry entry makes its lookup
-				// fail loudly.
-				ownedDocuments.delete(handle);
 				entry.references -= 1;
 				if (entry.references === 0 && entry.revoked === undefined) {
 					void startTeardown(key, entry).catch(() => undefined);
 				}
 			},
 		};
-		ownedDocuments.set(handle, entry);
 		return handle;
 	}
 

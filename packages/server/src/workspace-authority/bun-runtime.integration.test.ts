@@ -459,11 +459,13 @@ test('Device delete revokes an open document handle before deleting storage', as
 		document.get('editor').insert(0, 'draft');
 		await document.whenDurable();
 
-		// Destructive cleanup disposes active leases first (ADR-0146): an open
+		// Destructive cleanup revokes and drains active handles first: an open
 		// handle must not turn explicit deletion into a partial failure that has
 		// already destroyed the scalar rows.
 		await device.delete(definition);
-		expect(() => document.get('editor')).toThrow('revoked');
+		expect(() => document.get('editor')).toThrow(
+			'Device workspace data was deleted',
+		);
 		expect((await workspace.tables.notes.list()).rows).toEqual([]);
 		const recaptured = await device.capture(definition);
 		expect(recaptured.rows).toEqual([]);
