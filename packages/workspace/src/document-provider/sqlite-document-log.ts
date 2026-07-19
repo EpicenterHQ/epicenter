@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from '@epicenter/sqlite';
 import * as Y from '@y/y';
-import type { RowAddress } from './persistence.js';
+import { assertRowAddress, type RowAddress } from './persistence.js';
 
 const LOG_TABLE = 'workspace_document_updates';
 const DEFAULT_COMPACTION_THRESHOLD = 64;
@@ -26,17 +26,6 @@ type StoredUpdate = {
 
 function asError(cause: unknown, fallback: string): Error {
 	return cause instanceof Error ? cause : new Error(fallback, { cause });
-}
-
-function validateAddress(address: RowAddress): void {
-	if (
-		typeof address.table !== 'string' ||
-		address.table.length === 0 ||
-		typeof address.rowId !== 'string' ||
-		address.rowId.length === 0
-	) {
-		throw new TypeError('Document row address must contain a table and row id');
-	}
 }
 
 function updateBytes(value: Uint8Array | ArrayBuffer): Uint8Array {
@@ -127,7 +116,7 @@ export function createSqliteDocumentLog({
 		/** Read one document's ordered durable updates for hydration. */
 		load(address: RowAddress): Uint8Array[] {
 			requireHealthy();
-			validateAddress(address);
+			assertRowAddress(address);
 			try {
 				return readUpdates(address).map((stored) =>
 					updateBytes(stored.update),
@@ -144,7 +133,7 @@ export function createSqliteDocumentLog({
 		 */
 		append(address: RowAddress, update: Uint8Array): void {
 			requireHealthy();
-			validateAddress(address);
+			assertRowAddress(address);
 			try {
 				database.transaction(() => {
 					if (!isRowLive({ table: address.table, rowId: address.rowId })) {
@@ -200,7 +189,7 @@ export function createSqliteDocumentLog({
 		 */
 		capture(address: RowAddress): Uint8Array | undefined {
 			requireHealthy();
-			validateAddress(address);
+			assertRowAddress(address);
 			try {
 				const updates = readUpdates(address);
 				if (updates.length === 0) return undefined;
@@ -224,7 +213,7 @@ export function createSqliteDocumentLog({
 			requireHealthy();
 			try {
 				for (const address of addresses) {
-					validateAddress(address);
+					assertRowAddress(address);
 					database.run(
 						`DELETE FROM ${LOG_TABLE}
 						 WHERE table_name = ? AND row_id = ?`,

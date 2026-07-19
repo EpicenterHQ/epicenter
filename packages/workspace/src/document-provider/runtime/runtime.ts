@@ -1,8 +1,9 @@
 import * as Y from '@y/y';
-import type {
-	DocumentPersistenceLease,
-	DocumentStore,
-	RowAddress,
+import {
+	type DocumentPersistenceLease,
+	type DocumentStore,
+	type RowAddress,
+	rowAddressKey,
 } from '../persistence.js';
 
 export type RowDocumentConnectionLease<TConnection> = {
@@ -63,11 +64,6 @@ export function createRowDocumentRuntime<TConnection = never>({
 
 	function requireRuntimeOpen(): void {
 		if (disposed) throw new Error('Row document runtime is disposed');
-	}
-
-	function keyOf(address: RowAddress): string {
-		assertAddress(address);
-		return JSON.stringify([address.table, address.rowId]);
 	}
 
 	function epochOf(key: string): number {
@@ -168,7 +164,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 		address: RowAddress,
 	): Promise<CachedDocument<TConnection>> {
 		requireRuntimeOpen();
-		const key = keyOf(address);
+		const key = rowAddressKey(address);
 		const existing = cached.get(key);
 		if (existing) return Promise.resolve(existing);
 		const pending = opening.get(key);
@@ -193,7 +189,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 	function createHandle(
 		entry: CachedDocument<TConnection>,
 	): RowDocument<TConnection> {
-		const key = keyOf(entry.address);
+		const key = rowAddressKey(entry.address);
 		let disposed = false;
 		entry.references += 1;
 
@@ -236,7 +232,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 		address: RowAddress,
 		cause?: Error,
 	): Promise<void> {
-		const key = keyOf(address);
+		const key = rowAddressKey(address);
 		epochs.set(key, epochOf(key) + 1);
 		const pending = opening.get(key);
 		const pendingImport = importing.get(key);
@@ -305,7 +301,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 		async importUpdate(address: RowAddress, update: Uint8Array): Promise<void> {
 			requireRuntimeOpen();
 			const owned = new Uint8Array(update);
-			const key = keyOf(address);
+			const key = rowAddressKey(address);
 			const epoch = epochOf(key);
 			const previous = importing.get(key);
 			const pending = (async () => {
@@ -366,7 +362,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 				for (const entry of [...cached.values()]) {
 					entry.revoked = new Error('Row document runtime is disposed');
 					try {
-						await startTeardown(keyOf(entry.address), entry);
+						await startTeardown(rowAddressKey(entry.address), entry);
 					} catch (cause) {
 						failures.push(cause);
 					}
@@ -382,17 +378,6 @@ export function createRowDocumentRuntime<TConnection = never>({
 			return disposal;
 		},
 	};
-}
-
-function assertAddress(address: RowAddress): void {
-	if (
-		typeof address.table !== 'string' ||
-		address.table.length === 0 ||
-		typeof address.rowId !== 'string' ||
-		address.rowId.length === 0
-	) {
-		throw new TypeError('Document row address must contain a table and row id');
-	}
 }
 
 function copyAddress(address: RowAddress): RowAddress {

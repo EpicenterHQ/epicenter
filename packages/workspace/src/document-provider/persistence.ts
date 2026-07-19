@@ -38,7 +38,8 @@ export type DocumentStore = {
 
 const hydrationOrigin = Object.freeze({ kind: 'document-log-hydration' });
 
-function addressKey(address: RowAddress): string {
+/** The one owner of the row-address invariant shared by every document seam. */
+export function assertRowAddress(address: RowAddress): void {
 	if (
 		typeof address.table !== 'string' ||
 		address.table.length === 0 ||
@@ -47,6 +48,11 @@ function addressKey(address: RowAddress): string {
 	) {
 		throw new TypeError('Document row address must contain a table and row id');
 	}
+}
+
+/** Stable structured-address cache key; asserts the address before keying. */
+export function rowAddressKey(address: RowAddress): string {
+	assertRowAddress(address);
 	return JSON.stringify([address.table, address.rowId]);
 }
 
@@ -77,7 +83,7 @@ export function createDocumentStore(
 		address: RowAddress,
 		document: Y.Doc,
 	): DocumentPersistenceLease {
-		const key = addressKey(address);
+		const key = rowAddressKey(address);
 		if (active.has(key)) {
 			throw new Error('Document persistence is already attached for this row');
 		}
