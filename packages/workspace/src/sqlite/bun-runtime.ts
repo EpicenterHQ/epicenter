@@ -28,7 +28,6 @@ import {
 	type LogicalWorkspaceCopy,
 	type LogicalWorkspaceExport,
 	logicalWorkspaceIntents,
-	withCapturedDocuments,
 } from './canonical-addition.js';
 import {
 	createCanonicalSyncSupervisor,
@@ -264,20 +263,23 @@ function createBunRuntimeWithPersistence({
 					pull: (request) => abortable(transport.pull(request), signal),
 					acquire: (request) => abortable(transport.acquire(request), signal),
 				};
+				// The log reads liveness through the replica's current projection;
+				// the closure is only invoked on appends, after both exist.
+				const documents = createSqliteDocumentLog({
+					database: sqlite,
+					isRowLive: ({ table, rowId }) =>
+						replica.readCurrentRow(table, rowId) !== undefined,
+				});
 				const replica = createCurrentStateReplica({
 					sqlite,
 					transport: cancellableTransport,
+					documents,
 					onRemoteCommit() {
 						emitRecordsChanged();
 					},
 					onRowsDeleted(addresses) {
 						for (const listener of deletionListeners) listener(addresses);
 					},
-				});
-				const documents = createSqliteDocumentLog({
-					database: sqlite,
-					isRowLive: ({ table, rowId }) =>
-						replica.readCurrentRow(table, rowId) !== undefined,
 				});
 				const supervisor = createCanonicalSyncSupervisor({
 					driver: classifyCurrentStateTransport(replica),
@@ -382,13 +384,8 @@ function createBunRuntimeWithPersistence({
 			// blocks export; the outcome reports the quality of the scalar cut.
 			const settlement = await state.settle();
 			await runtime.captureDurability(workspaceId);
-			return {
-				settlement,
-				...(await withCapturedDocuments(
-					state.replica.captureVisible(),
-					async (address) => state.documents.capture(address),
-				)),
-			};
+			// captureVisible folds each row's compact document state owner-side.
+			return { settlement, ...state.replica.captureVisible() };
 		},
 		async addToAccount(
 			workspaceId: string,

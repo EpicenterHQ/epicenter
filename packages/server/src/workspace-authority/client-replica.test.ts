@@ -24,6 +24,8 @@ import {
 	rowRoundDigest,
 } from '@epicenter/row-sync';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import * as Y from '@y/y';
+import { createSqliteDocumentLog } from '../../../workspace/src/document-provider/sqlite-document-log.js';
 import {
 	type CurrentStateReplica,
 	type CurrentStateReplicaTransport,
@@ -998,5 +1000,212 @@ test('opening the new synchronized owner resets old canonical storage and stale 
 	} finally {
 		database.close();
 		authorityState.database.close();
+	}
+});
+
+function encodeDocumentText(text: string): Uint8Array {
+	const document = new Y.Doc();
+	try {
+		document.get('editor').insert(0, text);
+		return new Uint8Array(Y.encodeStateAsUpdateV2(document));
+	} finally {
+		document.destroy();
+	}
+}
+
+/** Replica plus its co-located owner-side document log over one database. */
+function setupWithDocuments(options?: {
+	transport?: CurrentStateReplicaTransport;
+	authorityState?: ReturnType<typeof openAuthority>;
+}) {
+	const authorityState = options?.authorityState ?? openAuthority();
+	const database = new Database(':memory:');
+	const sqlite = createBunSqliteAdapter(database);
+	const documents = createSqliteDocumentLog({
+		database: sqlite,
+		isRowLive: ({ table, rowId }) =>
+			replica.readCurrentRow(table, rowId) !== undefined,
+	});
+	const replica = createCurrentStateReplica({
+		sqlite,
+		transport: options?.transport ?? createTransport(authorityState.authority),
+		documents,
+	});
+	return {
+		authorityState,
+		database,
+		documents,
+		replica,
+		dispose() {
+			database.close();
+			if (options?.authorityState === undefined) {
+				authorityState.database.close();
+			}
+		},
+	};
+}
+
+test('locally admitted deletion removes the document log with the intent', () => {
+	const { documents, replica, dispose } = setupWithDocuments();
+	try {
+		// The row exists only as a local create intent; a foreign key from a
+		// confirmed rows table could never see it.
+		replica.admit(createRow(ROW_A, 'intent only'));
+		documents.append(
+			{ table: 'notes', rowId: ROW_A },
+			encodeDocumentText('draft'),
+		);
+		expect(
+			documents.capture({ table: 'notes', rowId: ROW_A }),
+		).toBeInstanceOf(Uint8Array);
+
+		replica.admit({ kind: 'delete', table: 'notes', rowId: ROW_A });
+		expect(documents.capture({ table: 'notes', rowId: ROW_A })).toBeUndefined();
+		expect(() =>
+			documents.append(
+				{ table: 'notes', rowId: ROW_A },
+				encodeDocumentText('late'),
+			),
+		).toThrow('absent row');
+	} finally {
+		dispose();
+	}
+});
+
+test('installed authority deletion markers remove the document log', async () => {
+	const authorityState = openAuthority();
+	const writerDatabase = new Database(':memory:');
+	const reader = setupWithDocuments({ authorityState });
+	try {
+		const writer = createCurrentStateReplica({
+			sqlite: createBunSqliteAdapter(writerDatabase),
+			transport: createTransport(authorityState.authority),
+		});
+		writer.admit(createRow(ROW_A, 'shared'));
+		await settleCut(writer, writer.captureAdmissionCut());
+
+		await reader.replica.synchronizeOnce();
+		reader.documents.append(
+			{ table: 'notes', rowId: ROW_A },
+			encodeDocumentText('reader content'),
+		);
+
+		writer.admit({ kind: 'delete', table: 'notes', rowId: ROW_A });
+		await settleCut(writer, writer.captureAdmissionCut());
+		await reader.replica.synchronizeOnce();
+
+		expect(reader.replica.readCurrentRow('notes', ROW_A)).toBeUndefined();
+		expect(
+			reader.documents.capture({ table: 'notes', rowId: ROW_A }),
+		).toBeUndefined();
+	} finally {
+		writerDatabase.close();
+		reader.dispose();
+	}
+});
+
+test('acquisition promotion removes vanished rows’ logs and keeps intent-only logs', async () => {
+	const authorityState = openAuthority();
+	const writerDatabase = new Database(':memory:');
+	const reader = setupWithDocuments({ authorityState });
+	try {
+		const writer = createCurrentStateReplica({
+			sqlite: createBunSqliteAdapter(writerDatabase),
+			transport: createTransport(authorityState.authority),
+		});
+		writer.admit(createRow(ROW_A, 'confirmed'));
+		await settleCut(writer, writer.captureAdmissionCut());
+
+		await reader.replica.synchronizeOnce();
+		reader.documents.append(
+			{ table: 'notes', rowId: ROW_A },
+			encodeDocumentText('confirmed doc'),
+		);
+		reader.replica.admit(createRow(ROW_B, 'pending create'));
+		reader.documents.append(
+			{ table: 'notes', rowId: ROW_B },
+			encodeDocumentText('pending doc'),
+		);
+
+		writer.admit({ kind: 'delete', table: 'notes', rowId: ROW_A });
+		await settleCut(writer, writer.captureAdmissionCut());
+		authorityState.authority.compactThrough(2);
+
+		await reader.replica.synchronizeOnce();
+		expect(reader.replica.readCurrentRow('notes', ROW_A)).toBeUndefined();
+		expect(
+			reader.documents.capture({ table: 'notes', rowId: ROW_A }),
+		).toBeUndefined();
+		// The pending create is untouched by promotion; its document survives.
+		expect(reader.replica.readCurrentRow('notes', ROW_B)).toEqual({
+			title: 'pending create',
+		});
+		expect(
+			reader.documents.capture({ table: 'notes', rowId: ROW_B }),
+		).toBeInstanceOf(Uint8Array);
+	} finally {
+		writerDatabase.close();
+		reader.dispose();
+	}
+});
+
+test('captureVisible folds compact document state and startFresh clears logs', async () => {
+	const { authorityState, database, documents, replica, dispose } =
+		setupWithDocuments();
+	try {
+		replica.admit(createRow(ROW_A, 'kept'));
+		await settleCut(replica, replica.captureAdmissionCut());
+		documents.append(
+			{ table: 'notes', rowId: ROW_A },
+			encodeDocumentText('captured content'),
+		);
+
+		const copy = replica.captureVisible();
+		const captured = copy.rows[0]?.document;
+		expect(captured).toBeInstanceOf(Uint8Array);
+		const replay = new Y.Doc();
+		try {
+			Y.applyUpdateV2(replay, captured as Uint8Array);
+			expect(replay.get('editor').toString()).toBe('captured content');
+		} finally {
+			replay.destroy();
+		}
+
+		// Force a lineage mismatch, then prove the fresh lineage clears logs.
+		const replicaId = database
+			.query<{ replica_id: string }, []>('SELECT replica_id FROM replica')
+			.get()?.replica_id;
+		if (!replicaId) throw new Error('Expected durable replica id');
+		const divergent: CurrentStateWireRowIntent[] = [createRow(ROW_B, 'clone')];
+		expect(
+			authorityState.authority.push({
+				protocolMajor: CURRENT_STATE_ROW_SYNC_PROTOCOL_MAJOR,
+				kind: 'push',
+				replicaId,
+				round: 2,
+				requestDigest: rowRoundDigest(divergent),
+				intents: divergent,
+			}).result,
+		).toBe('accepted');
+		replica.admit({
+			kind: 'update',
+			table: 'notes',
+			rowId: ROW_A,
+			fields: { set: { title: 'diverged' }, unset: [] },
+		});
+		await expect(replica.synchronizeOnce()).resolves.toEqual({
+			outcome: 'recovery-required',
+			reason: 'lineage-mismatch',
+		});
+		// The recovery copy still folds locally durable document state.
+		expect(replica.captureRecovery()?.rows[0]?.document).toBeInstanceOf(
+			Uint8Array,
+		);
+
+		replica.startFreshLineage();
+		expect(documents.capture({ table: 'notes', rowId: ROW_A })).toBeUndefined();
+		expect(documents.load({ table: 'notes', rowId: ROW_A })).toEqual([]);
+	} finally {
+		dispose();
 	}
 });
