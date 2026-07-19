@@ -58,7 +58,6 @@ type BoundWorkspace = {
 	revokeDocuments(cause: Error): Promise<void>;
 	captureDurability(): Promise<void>;
 	disposeDocuments(): Promise<void>;
-	importDocuments(copy: LogicalWorkspaceCopy): Promise<void>;
 };
 
 type RowAddress = { table: string; rowId: string };
@@ -643,15 +642,6 @@ function createBrowserRuntimeWithPersistence({
 			},
 			captureDurability: documents.captureDurabilityBarrier,
 			disposeDocuments: documents[Symbol.asyncDispose],
-			async importDocuments(copy: LogicalWorkspaceCopy) {
-				for (const row of copy.rows) {
-					if (row.document === undefined) continue;
-					await documents.importUpdate(
-						{ table: row.table, rowId: row.rowId },
-						row.document,
-					);
-				}
-			},
 		};
 	}
 
@@ -783,8 +773,10 @@ function createBrowserRuntimeWithPersistence({
 					new Error(`Account workspace '${workspaceId}' is not open`),
 				);
 			}
+			// The Worker admits the scalar rows and appends each copied document
+			// snapshot into its own log inside this one logical-add; the page
+			// never re-ships document bytes it already sent in the copy.
 			await request(bound.manifest, { kind: 'logical-add', copy });
-			await bound.importDocuments(copy);
 		},
 		async [Symbol.asyncDispose](): Promise<void> {
 			if (isDisposed) return;

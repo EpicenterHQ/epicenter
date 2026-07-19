@@ -151,8 +151,18 @@ class FakeWorker {
 					this.documentLogs.set(key, log);
 					return undefined;
 				}
-				case 'logical-add':
+				case 'logical-add': {
+					// Mirrors the real Worker: after admitting scalar rows it appends
+					// each copied document snapshot into its own co-located log.
+					for (const row of message.operation.copy.rows) {
+						if (row.document === undefined) continue;
+						const key = `${row.table}\0${row.rowId}`;
+						const log = this.documentLogs.get(key) ?? [];
+						log.push(new Uint8Array(row.document));
+						this.documentLogs.set(key, log);
+					}
 					return undefined;
+				}
 				case 'logical-delete':
 					this.row = undefined;
 					this.theme = undefined;
@@ -364,6 +374,43 @@ test('Device capture/delete and Account add are explicit logical actions', async
 		kind: 'logical-add',
 		copy,
 	});
+});
+
+test('Account add makes copied document snapshots durable owner-side', async () => {
+	globalThis.Worker = FakeWorker as unknown as typeof Worker;
+	const authored = new Y.Doc();
+	authored.get('content').insert(0, 'carried over');
+	const snapshot = new Uint8Array(Y.encodeStateAsUpdateV2(authored));
+	authored.destroy();
+
+	await using account = createAccountBrowserWorkspaceRuntime({
+		account: {
+			deploymentId: 'https://example.test',
+			principalId: asPrincipalId('alice'),
+			transport: {
+				baseUrl: 'https://example.test',
+				openWebSocket: neverOpenWebSocket,
+			},
+		},
+		createBroadcastChannel: () => undefined,
+	});
+	await account.add(definition, {
+		rows: [
+			{ table: 'notes', rowId: ROW_ID, fields: { title: 'Migrated' }, document: snapshot },
+		],
+		kv: {},
+	});
+
+	// The snapshot rode inside logical-add; the page never re-ships it as a
+	// separate document-append round trip.
+	const kinds = FakeWorker.latest?.operations.map(({ kind }) => kind);
+	expect(kinds).not.toContain('document-append');
+	expect(kinds?.at(-1)).toBe('logical-add');
+
+	// The owner made it durable, so opening the row hydrates the imported content.
+	const workspace = await account.open(definition);
+	using document = await workspace.tables.notes.document.open(ROW_ID);
+	expect(document.get('content').toString()).toBe('carried over');
 });
 
 test('Device export reports a null settlement over the local capture', async () => {

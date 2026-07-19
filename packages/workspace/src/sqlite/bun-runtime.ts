@@ -418,13 +418,13 @@ function createBunRuntimeWithPersistence({
 			if (!state)
 				throw new Error(`Account workspace '${workspaceId}' is not open`);
 			state.replica.admitMany(logicalWorkspaceIntents(copy));
-			// The runtime importer applies through an already-open destination
-			// document (so retry-add never conflicts with its persistence lease)
-			// and otherwise imports through a disposed transient lease.
+			// The scalar rows are admitted and live, so the owner appends each
+			// copied document snapshot straight into its own log. Append checks
+			// row liveness in the same transaction as its insert, exactly like an
+			// ordinary edit; the renderer never sees a transient import document.
 			for (const row of copy.rows) {
 				if (row.document === undefined) continue;
-				await runtime.importDocument(
-					workspaceId,
+				state.documents.append(
 					{ table: row.table, rowId: row.rowId },
 					row.document,
 				);

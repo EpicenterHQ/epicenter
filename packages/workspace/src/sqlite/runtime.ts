@@ -343,17 +343,6 @@ export function createWorkspaceRuntime({
 			const opened = await openedFor(entry);
 			await opened.documents.revokeAll(cause);
 		},
-		/** Apply portable Yjs 14 state as ordinary locally durable document work. */
-		async importDocument(
-			workspaceId: string,
-			address: RowAddress,
-			update: Uint8Array,
-		): Promise<void> {
-			const entry = entries.get(workspaceId);
-			if (!entry) throw new Error(`Workspace '${workspaceId}' is not open`);
-			const opened = await openedFor(entry);
-			await opened.documents.importUpdate(address, update);
-		},
 		async whenReady(workspaceId: string): Promise<void> {
 			const entry = entries.get(workspaceId);
 			if (!entry) throw new Error(`Workspace '${workspaceId}' is not open`);

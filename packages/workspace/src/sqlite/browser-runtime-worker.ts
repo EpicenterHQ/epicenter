@@ -448,12 +448,23 @@ async function execute(
 				throw new Error('Only Account workspaces expose visible capture');
 			}
 			return state.replica.captureVisible();
-		case 'logical-add':
+		case 'logical-add': {
 			if (!state.replica) {
 				throw new Error('Only Account workspaces accept logical additions');
 			}
 			state.replica.admitMany(logicalWorkspaceIntents(operation.copy));
+			// The rows are admitted and live now, so append each copied document
+			// snapshot straight into the co-located log. The page no longer
+			// re-ships these bytes as separate document-append round trips.
+			for (const row of operation.copy.rows) {
+				if (row.document === undefined) continue;
+				state.documents.append(
+					{ table: row.table, rowId: row.rowId },
+					row.document,
+				);
+			}
 			return undefined;
+		}
 		case 'logical-delete':
 			if (state.replica) {
 				throw new Error('Only Device workspaces expose logical deletion');
