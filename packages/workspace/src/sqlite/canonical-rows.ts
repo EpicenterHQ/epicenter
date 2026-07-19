@@ -21,7 +21,6 @@ import {
 import { listLocalRows, readLocalRow } from './local-workspace-storage.js';
 
 const ROWS_TABLE = 'rows';
-const DOCUMENTS_TABLE = 'documents';
 const ROW_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const mintRowId = customAlphabet(ROW_ID_ALPHABET, 24);
 
@@ -174,11 +173,6 @@ export function createCanonicalRows<const TTables extends TableLensDefinitions>(
 						sqlite.transaction(() => {
 							sqlite.run(
 								`DELETE FROM "${ROWS_TABLE}"
-								 WHERE table_key = ? AND row_id = ?`,
-								[tableName, id],
-							);
-							sqlite.run(
-								`DELETE FROM "${DOCUMENTS_TABLE}"
 								 WHERE table_key = ? AND row_id = ?`,
 								[tableName, id],
 							);

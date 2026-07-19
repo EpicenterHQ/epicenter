@@ -149,7 +149,6 @@ export function deleteLocalWorkspace(
 	deleteDocumentRows: () => void = () => undefined,
 ): void {
 	sqlite.transaction(() => {
-		sqlite.run('DELETE FROM "documents"');
 		sqlite.run('DELETE FROM "rows"');
 		deleteDocumentRows();
 	});
