@@ -72,6 +72,11 @@ export const DesktopWorkspaceError = defineErrors({
 		message: `Workspace '${workspaceId}' moved to a newer window.`,
 		workspaceId,
 	}),
+	/** A document append lost its race with scalar row deletion. */
+	DocumentRowAbsentError: ({ workspaceId }: { workspaceId: string }) => ({
+		message: `The document row in workspace '${workspaceId}' no longer exists.`,
+		workspaceId,
+	}),
 });
 export type DesktopWorkspaceError = InferErrors<typeof DesktopWorkspaceError>;
 

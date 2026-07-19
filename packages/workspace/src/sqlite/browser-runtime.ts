@@ -20,6 +20,7 @@ import {
 	type BrowserRuntimeMessage,
 	type BrowserRuntimeRequest,
 	type BrowserWorkspaceManifest,
+	isWorkspaceStorageMovedError,
 	serializeTableLenses,
 } from './browser-runtime-protocol.js';
 import type {
@@ -185,6 +186,7 @@ function createBrowserRuntimeWithPersistence({
 	const persistenceHash = sha256Hex(persistenceKey);
 	const transport = normalizeTransport(transportInput);
 	const pending = new Map<number, PendingRequest>();
+	const transportControllers = new Map<number, AbortController>();
 	const workspaces = new Map<string, BoundWorkspace>();
 	const invalidationChannel = createBroadcastChannel(
 		`epicenter-${persistenceHash}-records`,
@@ -256,6 +258,12 @@ function createBrowserRuntimeWithPersistence({
 					case 'background-error': {
 						const cause = new Error(message.message);
 						cause.name = message.name;
+						if (isWorkspaceStorageMovedError(cause)) {
+							for (const controller of transportControllers.values()) {
+								controller.abort(cause);
+							}
+							transportControllers.clear();
+						}
 						onBackgroundError(cause, message.workspaceId);
 						return;
 					}
@@ -294,6 +302,8 @@ function createBrowserRuntimeWithPersistence({
 		ownedWorker: Worker,
 		message: Extract<BrowserRuntimeMessage, { type: 'transport-request' }>,
 	): Promise<void> {
+		const controller = new AbortController();
+		transportControllers.set(message.transportId, controller);
 		try {
 			if (!transport) {
 				throw new Error('Browser workspace transport is not bound');
@@ -312,6 +322,7 @@ function createBrowserRuntimeWithPersistence({
 							'content-type': 'application/json',
 						},
 						credentials: transport.credentials,
+						signal: controller.signal,
 						body: JSON.stringify(message.body),
 					},
 				);
@@ -371,6 +382,8 @@ function createBrowserRuntimeWithPersistence({
 						: {}),
 				});
 			}
+		} finally {
+			transportControllers.delete(message.transportId);
 		}
 	}
 
@@ -776,19 +789,35 @@ function createBrowserRuntimeWithPersistence({
 		async [Symbol.asyncDispose](): Promise<void> {
 			if (isDisposed) return;
 			isDisposed = true;
-			worker?.terminate();
 			const cause = new Error('Browser workspace runtime is disposed');
-			// Revoke page-side row documents so retained handles fail loudly
-			// instead of queueing persistence at a terminated Worker.
+			for (const controller of transportControllers.values()) {
+				controller.abort(cause);
+			}
+			transportControllers.clear();
+			// Drain admitted document appends while their Worker is still alive.
+			// Terminating it first strands the persistence tail waiting for results
+			// that only the terminated Worker could deliver.
+			const failures: unknown[] = [];
 			for (const bound of workspaces.values()) {
-				await bound.disposeDocuments();
+				try {
+					await bound.disposeDocuments();
+				} catch (failure) {
+					failures.push(failure);
+				}
 				bound.rejectReadiness(cause);
 			}
 			ready?.reject(cause);
 			for (const request of pending.values()) request.reject(cause);
 			pending.clear();
+			worker?.terminate();
 			workspaces.clear();
 			invalidationChannel?.close();
+			if (failures.length > 0) {
+				throw new AggregateError(
+					failures,
+					'Browser row-document disposal failed',
+				);
+			}
 		},
 	};
 }

@@ -8,15 +8,15 @@ import {
 	type RowAddress,
 } from '../document-provider/persistence.js';
 import {
-	createSqliteDocumentLog,
-	type SqliteDocumentLog,
-} from '../document-provider/sqlite-document-log.js';
-import {
 	createRowDocumentRuntime,
 	type RowDocument,
 	type RowDocumentConnectionLease,
 	type RowDocumentRuntime,
 } from '../document-provider/runtime/index.js';
+import {
+	createSqliteDocumentLog,
+	type SqliteDocumentLog,
+} from '../document-provider/sqlite-document-log.js';
 import {
 	type LogicalWorkspaceCopy,
 	withCapturedDocuments,
@@ -428,10 +428,8 @@ function bindWorkspaceSync(
 			return copy === null ? null : captureDocuments(copy);
 		},
 		startFresh() {
-			// This explicit recovery action discards the halted private lineage.
-			// Local document logs deliberately survive it: same-address Yjs merge
-			// is the document plane's ordinary convergence law, and conforming
-			// runtimes never reuse a row address across lifetimes (ADR-0145).
+			// This explicit recovery action discards the halted private lineage,
+			// including its row-document logs, in the replica's reset transaction.
 			return ownerSync.startFresh();
 		},
 	});

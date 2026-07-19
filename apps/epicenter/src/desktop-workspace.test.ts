@@ -180,9 +180,7 @@ test('one surface owns a workspace, documents persist, and state survives restar
 			using stolenDocument = await secondSkills.tables.skills.document.open(
 				survivingSkill.id,
 			);
-			expect(stolenDocument.get('content').toString()).toBe(
-				'Survives restart',
-			);
+			expect(stolenDocument.get('content').toString()).toBe('Survives restart');
 		}
 		await waitFor(() => movedNotices.length === 1);
 		expect(movedNotices[0]?.workspaceId).toBe('epicenter-skills');
@@ -236,8 +234,7 @@ test('one surface owns a workspace, documents persist, and state survives restar
 				(await skills.tables.skills.get(survivingSkill.id)).data?.name,
 			).toBe('Surviving');
 			expect(
-				(await whispering.tables.recordings.get(recording.id)).data
-					?.transcript,
+				(await whispering.tables.recordings.get(recording.id)).data?.transcript,
 			).toBe('Updated transcript');
 			expect((await whispering.kv.get('analytics.enabled')).data).toBeFalse();
 			using restartedDocument = await skills.tables.skills.document.open(
@@ -269,6 +266,68 @@ test('one surface owns a workspace, documents persist, and state survives restar
 			await client[Symbol.asyncDispose]();
 		} finally {
 			await restarted.dispose();
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('host generations prevent delayed open inversion and disposal rejects pending work', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'epicenter-desktop-surface-races-'));
+	const createBroadcastChannel = createBroadcastChannelFactory();
+	try {
+		const server = await startDesktopServer(root);
+		try {
+			const firstResponse = Promise.withResolvers<void>();
+			const firstReached = Promise.withResolvers<void>();
+			const first = createClient(server.origin, server.cookie, {
+				createBroadcastChannel,
+				async interceptResponse(operation, response) {
+					if (operation.kind === 'open') {
+						firstReached.resolve();
+						await firstResponse.promise;
+					}
+					return response;
+				},
+			});
+			const delayedFirstOpen = first.open(skillsWorkspace);
+			await firstReached.promise;
+
+			const second = createClient(server.origin, server.cookie, {
+				createBroadcastChannel,
+			});
+			const secondSkills = await second.open(skillsWorkspace);
+			const delayedFailure = await delayedFirstOpen.then(
+				() => undefined,
+				(cause: unknown) => cause,
+			);
+			expect(isWorkspaceStorageMovedError(delayedFailure)).toBeTrue();
+			firstResponse.resolve();
+			expect((await secondSkills.tables.skills.list()).rows).toBeArray();
+
+			const pendingResponse = Promise.withResolvers<void>();
+			const pendingReached = Promise.withResolvers<void>();
+			const disposing = createClient(server.origin, server.cookie, {
+				createBroadcastChannel: () => undefined,
+				async interceptResponse(operation, response) {
+					if (operation.kind === 'list') {
+						pendingReached.resolve();
+						await pendingResponse.promise;
+					}
+					return response;
+				},
+			});
+			const disposingSkills = await disposing.open(skillsWorkspace);
+			const pendingList = disposingSkills.tables.skills.list();
+			await pendingReached.promise;
+			await disposing[Symbol.asyncDispose]();
+			await expect(pendingList).rejects.toThrow('disposed');
+			pendingResponse.resolve();
+
+			await first[Symbol.asyncDispose]();
+			await second[Symbol.asyncDispose]();
+		} finally {
+			await server.dispose();
 		}
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -330,16 +389,27 @@ function createClient(
 	options: Pick<
 		CreateDesktopWorkspaceRuntimeOptions,
 		'createBroadcastChannel' | 'onBackgroundError'
-	>,
+	> & {
+		interceptResponse?(
+			operation: { kind: string },
+			response: Response,
+		): Promise<Response>;
+	},
 ) {
+	const { interceptResponse, ...runtimeOptions } = options;
 	return createDesktopWorkspaceRuntime({
 		baseUrl: origin,
-		...options,
-		fetch(input, init) {
-			return fetch(input, {
+		...runtimeOptions,
+		async fetch(input, init) {
+			const response = await fetch(input, {
 				...init,
 				headers: { ...init?.headers, cookie, origin },
 			});
+			if (!interceptResponse) return response;
+			const body = JSON.parse(String(init?.body)) as {
+				operation: { kind: string };
+			};
+			return interceptResponse(body.operation, response);
 		},
 	});
 }

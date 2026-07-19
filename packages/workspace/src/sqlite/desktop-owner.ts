@@ -7,9 +7,9 @@ export { DesktopWorkspaceError } from './desktop-protocol.js';
 import {
 	type DesktopRecordOperation,
 	type DesktopRecordRequest,
+	decodeDocumentBytes,
 	encodeDesktopRecordResult,
 	encodeDocumentBytes,
-	decodeDocumentBytes,
 } from './desktop-protocol.js';
 import type { WorkspaceHandle } from './runtime.js';
 import type { WorkspaceDefinition } from './runtime-definition.js';
@@ -49,7 +49,12 @@ export function createDesktopWorkspaceOwner({
 	 * requests fail with the named moved error. In-process host consumers of
 	 * owner-opened handles are not surfaces and are unaffected.
 	 */
-	const surfaces = new Map<string, string>();
+	const surfaces = new Map<string, { surfaceId: string; generation: number }>();
+	// Serialize each workspace's surface claim and operations. Once a newer
+	// surface's `open` claims the tail, every older operation has either
+	// completed before that claim or observes the new owner and rejects. This
+	// closes the check-then-await race for document and scalar mutations.
+	const operationTails = new Map<string, Promise<void>>();
 
 	const openRegistered = (workspaceId: string): Promise<ErasedWorkspace> => {
 		const definition = catalog.get(workspaceId);
@@ -84,93 +89,111 @@ export function createDesktopWorkspaceOwner({
 			return catalog.has(workspaceId);
 		},
 		async execute(workspaceId: string, input: unknown): Promise<unknown> {
-			const { surfaceId, operation } = parseDesktopRecordRequest(input);
-			const workspace = await openRegistered(workspaceId);
-			if (operation.kind === 'open') {
-				// Newest surface wins: opening claims the workspace and displaces
-				// any previous surface. The awaited acquisition above IS the
-				// handshake's work.
-				surfaces.set(workspaceId, surfaceId);
-				return undefined;
-			}
-			if (surfaces.get(workspaceId) !== surfaceId) {
-				const moved = new Error(
-					`Workspace '${workspaceId}' moved to a newer window`,
-				);
-				moved.name = WORKSPACE_STORAGE_MOVED_ERROR_NAME;
-				throw moved;
-			}
-			if (operation.kind === 'sql') {
-				return workspace.sql(operation.query, operation.parameters, sqliteRows);
-			}
-			if (operation.kind === 'kv-get') {
-				return encodeDesktopRecordResult(
-					operation,
-					await (workspace.kv as unknown as ErasedKv).get(operation.key),
-				);
-			}
-			if (operation.kind === 'kv-set') {
-				return (workspace.kv as unknown as ErasedKv).set(
-					operation.key,
-					operation.value,
-				);
-			}
-			if (operation.kind === 'kv-unset') {
-				return (workspace.kv as unknown as ErasedKv).unset(operation.key);
-			}
-			if (operation.kind === 'read-current-row') {
-				const table = workspace.tables[operation.table];
-				if (!table) throw new Error(`Unknown table '${operation.table}'`);
-				const result = await table.get(operation.rowId);
-				// A projection error still proves the row exists; only a clean
-				// undefined read means the address is dead.
-				if (result.error === null && result.data === undefined) {
+			const previous = operationTails.get(workspaceId) ?? Promise.resolve();
+			const execution = previous.then(async () => {
+				const { surfaceId, operation } = parseDesktopRecordRequest(input);
+				const workspace = await openRegistered(workspaceId);
+				if (operation.kind === 'open') {
+					// Newest surface wins: opening claims the workspace and displaces
+					// any previous surface. The awaited acquisition above IS the
+					// handshake's work.
+					const generation = (surfaces.get(workspaceId)?.generation ?? 0) + 1;
+					surfaces.set(workspaceId, { surfaceId, generation });
+					return generation;
+				}
+				if (surfaces.get(workspaceId)?.surfaceId !== surfaceId) {
+					const moved = new Error(
+						`Workspace '${workspaceId}' moved to a newer window`,
+					);
+					moved.name = WORKSPACE_STORAGE_MOVED_ERROR_NAME;
+					throw moved;
+				}
+				if (operation.kind === 'sql') {
+					return workspace.sql(
+						operation.query,
+						operation.parameters,
+						sqliteRows,
+					);
+				}
+				if (operation.kind === 'kv-get') {
+					return encodeDesktopRecordResult(
+						operation,
+						await (workspace.kv as unknown as ErasedKv).get(operation.key),
+					);
+				}
+				if (operation.kind === 'kv-set') {
+					return (workspace.kv as unknown as ErasedKv).set(
+						operation.key,
+						operation.value,
+					);
+				}
+				if (operation.kind === 'kv-unset') {
+					return (workspace.kv as unknown as ErasedKv).unset(operation.key);
+				}
+				if (operation.kind === 'read-current-row') {
+					const table = workspace.tables[operation.table];
+					if (!table) throw new Error(`Unknown table '${operation.table}'`);
+					const result = await table.get(operation.rowId);
+					// A projection error still proves the row exists; only a clean
+					// undefined read means the address is dead.
+					if (result.error === null && result.data === undefined) {
+						return undefined;
+					}
+					return {};
+				}
+				if (operation.kind === 'document-load') {
+					const parts = await runtime.loadDocument(workspaceId, {
+						table: operation.table,
+						rowId: operation.rowId,
+					});
+					return parts.map(encodeDocumentBytes);
+				}
+				if (operation.kind === 'document-append') {
+					await runtime.appendDocument(
+						workspaceId,
+						{ table: operation.table, rowId: operation.rowId },
+						decodeDocumentBytes(operation.update),
+					);
 					return undefined;
 				}
-				return {};
-			}
-			if (operation.kind === 'document-load') {
-				const parts = await runtime.loadDocument(workspaceId, {
-					table: operation.table,
-					rowId: operation.rowId,
-				});
-				return parts.map(encodeDocumentBytes);
-			}
-			if (operation.kind === 'document-append') {
-				await runtime.appendDocument(
-					workspaceId,
-					{ table: operation.table, rowId: operation.rowId },
-					decodeDocumentBytes(operation.update),
-				);
-				return undefined;
-			}
-			const table = workspace.tables[operation.table];
-			if (!table) throw new Error(`Unknown table '${operation.table}'`);
-			switch (operation.kind) {
-				case 'get':
-					return encodeDesktopRecordResult(
-						operation,
-						await table.get(operation.id),
-					);
-				case 'list':
-					return table.list();
-				case 'create':
-					return table.create(operation.input);
-				case 'update': {
-					const changes: Record<string, unknown> = { ...operation.set };
-					for (const name of operation.unset) changes[name] = undefined;
-					return encodeDesktopRecordResult(
-						operation,
-						await table.update(operation.id, changes),
-					);
+				const table = workspace.tables[operation.table];
+				if (!table) throw new Error(`Unknown table '${operation.table}'`);
+				switch (operation.kind) {
+					case 'get':
+						return encodeDesktopRecordResult(
+							operation,
+							await table.get(operation.id),
+						);
+					case 'list':
+						return table.list();
+					case 'create':
+						return table.create(operation.input);
+					case 'update': {
+						const changes: Record<string, unknown> = { ...operation.set };
+						for (const name of operation.unset) changes[name] = undefined;
+						return encodeDesktopRecordResult(
+							operation,
+							await table.update(operation.id, changes),
+						);
+					}
+					case 'delete':
+						return table.delete(operation.id);
+					default:
+						return operation satisfies never;
 				}
-				case 'delete':
-					return table.delete(operation.id);
-				default:
-					return operation satisfies never;
-			}
+			});
+			operationTails.set(
+				workspaceId,
+				execution.then(
+					() => undefined,
+					() => undefined,
+				),
+			);
+			return execution;
 		},
 		async [Symbol.asyncDispose]() {
+			await Promise.allSettled(operationTails.values());
+			operationTails.clear();
 			handles.clear();
 			surfaces.clear();
 			await runtime[Symbol.asyncDispose]();

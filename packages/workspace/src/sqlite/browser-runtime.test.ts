@@ -39,6 +39,7 @@ class FakeWorker {
 	static openMode: 'resolve' | 'defer' | 'reject' = 'resolve';
 	/** Mirrors the real Worker after a newer tab steals the storage lease. */
 	static stolen = false;
+	static deferDocumentAppend = false;
 	readonly operations: BrowserRuntimeRequest['operation'][] = [];
 	readonly manifests: BrowserRuntimeRequest['manifest'][] = [];
 	readonly transportResponses: { type: string; pendingReason?: string }[] = [];
@@ -51,6 +52,8 @@ class FakeWorker {
 	>();
 	private deferredOpen: BrowserRuntimeRequest | undefined;
 	private deferredSettlement: BrowserRuntimeRequest | undefined;
+	private deferredDocumentAppend: BrowserRuntimeRequest | undefined;
+	terminated = false;
 
 	constructor() {
 		FakeWorker.latest = this;
@@ -106,6 +109,13 @@ class FakeWorker {
 		if (message.operation.kind === 'sync-settle') {
 			this.deferredSettlement = message;
 			this.finishSettlement();
+			return;
+		}
+		if (
+			message.operation.kind === 'document-append' &&
+			FakeWorker.deferDocumentAppend
+		) {
+			this.deferredDocumentAppend = message;
 			return;
 		}
 		const value = (() => {
@@ -176,7 +186,23 @@ class FakeWorker {
 		this.emit({ type: 'result', id: request.id, value: { isReady: true } });
 	}
 
-	private captureDocument(table: string, rowId: string): Uint8Array | undefined {
+	resolveDocumentAppend(): void {
+		const request = this.deferredDocumentAppend;
+		if (!request || request.operation.kind !== 'document-append') {
+			throw new Error('No deferred document append request');
+		}
+		this.deferredDocumentAppend = undefined;
+		const key = `${request.operation.table}\0${request.operation.rowId}`;
+		const log = this.documentLogs.get(key) ?? [];
+		log.push(new Uint8Array(request.operation.update));
+		this.documentLogs.set(key, log);
+		this.emit({ type: 'result', id: request.id, value: undefined });
+	}
+
+	private captureDocument(
+		table: string,
+		rowId: string,
+	): Uint8Array | undefined {
 		const updates = this.documentLogs.get(`${table}\0${rowId}`);
 		if (!updates || updates.length === 0) return undefined;
 		const folded = new Y.Doc();
@@ -207,7 +233,9 @@ class FakeWorker {
 		}
 	}
 
-	terminate(): void {}
+	terminate(): void {
+		this.terminated = true;
+	}
 }
 
 afterEach(() => {
@@ -215,6 +243,7 @@ afterEach(() => {
 	FakeWorker.latest = undefined;
 	FakeWorker.openMode = 'resolve';
 	FakeWorker.stolen = false;
+	FakeWorker.deferDocumentAppend = false;
 });
 
 const definition = defineWorkspace({
@@ -535,6 +564,84 @@ test('a storage steal rejects document work with the moved error', async () => {
 	);
 	expect(failure).toBeInstanceOf(Error);
 	expect(isWorkspaceStorageMovedError(failure)).toBe(true);
+});
+
+test('disposal drains admitted document appends before terminating the Worker', async () => {
+	const runtime = createRuntime();
+	const workspace = await runtime.open(definition);
+	const document = await workspace.tables.notes.document.open(ROW_ID);
+	FakeWorker.deferDocumentAppend = true;
+	document.get('content').insert(0, 'durable before shutdown');
+	const durability = document.whenDurable();
+	await waitFor(() =>
+		Boolean(
+			FakeWorker.latest?.operations.some(
+				(operation) => operation.kind === 'document-append',
+			),
+		),
+	);
+	const disposal = runtime[Symbol.asyncDispose]();
+	await Promise.resolve();
+	expect(FakeWorker.latest?.terminated).toBeFalse();
+	FakeWorker.latest?.resolveDocumentAppend();
+	const durabilityFailure = await durability.then(
+		() => undefined,
+		(cause: unknown) => cause,
+	);
+	expect(durabilityFailure).toBeInstanceOf(Error);
+	await disposal;
+	expect(FakeWorker.latest?.documentLogs.get(`notes\0${ROW_ID}`)).toHaveLength(
+		1,
+	);
+	expect(FakeWorker.latest?.terminated).toBeTrue();
+});
+
+test('storage-moved notification aborts a stalled authority fetch', async () => {
+	globalThis.Worker = FakeWorker as unknown as typeof Worker;
+	let signal: AbortSignal | undefined;
+	await using runtime = createAccountBrowserWorkspaceRuntime({
+		account: {
+			deploymentId: 'https://example.test',
+			principalId: asPrincipalId('alice'),
+			transport: {
+				baseUrl: 'https://example.test',
+				openWebSocket: neverOpenWebSocket,
+				fetch(_input, init) {
+					signal = init?.signal ?? undefined;
+					return new Promise<Response>((_resolve, reject) => {
+						signal?.addEventListener('abort', () => reject(signal?.reason), {
+							once: true,
+						});
+					});
+				},
+			},
+		},
+		createBroadcastChannel: () => undefined,
+	});
+	await runtime.open(definition);
+	FakeWorker.latest?.emit({
+		type: 'transport-request',
+		transportId: 1,
+		workspaceId: definition.id,
+		action: 'pull',
+		body: {},
+	});
+	await waitFor(() => signal !== undefined);
+	FakeWorker.latest?.emit({
+		type: 'background-error',
+		workspaceId: definition.id,
+		name: 'WorkspaceStorageMovedError',
+		message: 'Workspace storage moved to a newer tab',
+	});
+	await waitFor(() => signal?.aborted === true);
+	expect(signal?.aborted).toBeTrue();
+	await waitFor(() =>
+		Boolean(
+			FakeWorker.latest?.transportResponses.some(
+				(response) => response.type === 'transport-error',
+			),
+		),
+	);
 });
 
 test('browser transport serializes only known interruptions as retryable', async () => {

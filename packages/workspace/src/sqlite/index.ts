@@ -13,6 +13,7 @@ export {
 	rowDocumentConnection,
 } from '../document-provider/connection/index.js';
 export type { RowDocument } from '../document-provider/runtime/index.js';
+export { isDocumentRowAbsentError } from '../document-provider/sqlite-document-log.js';
 export {
 	isWorkspaceStorageHeldError,
 	isWorkspaceStorageMovedError,

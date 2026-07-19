@@ -333,6 +333,15 @@ function markStolen(state: OpenedRecords): void {
 		`Workspace '${state.manifest.workspaceId}' storage moved to a newer tab`,
 	);
 	state.stolen.name = WORKSPACE_STORAGE_MOVED_ERROR_NAME;
+	// Notify the page before awaiting sync disposal. The page aborts any
+	// in-flight authority fetch, which lets an active sync run settle so this
+	// Worker can close SQLite and release its OPFS handles to the newer tab.
+	scope.postMessage({
+		type: 'background-error',
+		workspaceId: state.manifest.workspaceId,
+		name: state.stolen.name,
+		message: state.stolen.message,
+	});
 	tail = tail.then(async () => {
 		try {
 			await state.sync?.[Symbol.asyncDispose]();
@@ -351,13 +360,6 @@ function markStolen(state: OpenedRecords): void {
 			// Pause can fail if another database still uses the pool; the
 			// thief's acquisition retry loop absorbs the delay.
 		}
-		scope.postMessage({
-			type: 'background-error',
-			workspaceId: state.manifest.workspaceId,
-			name: state.stolen?.name ?? WORKSPACE_STORAGE_MOVED_ERROR_NAME,
-			message:
-				state.stolen?.message ?? 'Workspace storage moved to a newer tab',
-		});
 	});
 }
 
