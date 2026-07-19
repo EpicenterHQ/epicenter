@@ -30,7 +30,11 @@ Renderer-facing code owns live `Y.Doc` objects through one shared runtime
 (`createRowDocumentRuntime`) and one shared persistence attachment
 (`createDocumentStore`). The renderer-facing persistence capability is exactly
 `load(address)` and `append(address, updateV2)`; owner lifecycle is never
-reachable through renderer persistence. Carriers differ per runtime and are
+reachable through renderer persistence. The renderer runtime owns only live
+open documents: account-copy import is an owner append, not a renderer
+operation, because the copy already carries each row's document snapshot and
+the owner appends it (through the same liveness-gated append an edit uses)
+right after it admits the copied scalar rows. Carriers differ per runtime and are
 serialization only: in-process calls for Bun and native hosts, structured
 Worker messages for the browser page, and base64 JSON over the same-origin
 records route for the desktop WebView. There is no universal transport
