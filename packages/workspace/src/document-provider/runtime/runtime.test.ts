@@ -424,18 +424,6 @@ class FakeStore implements DocumentStore {
 	resolveDurability(address: RowAddress): void {
 		this.#durability.get(addressKey(address))?.resolve();
 	}
-
-	capture(): Promise<Uint8Array | undefined> {
-		return Promise.resolve(undefined);
-	}
-
-	delete(): Promise<void> {
-		return Promise.resolve();
-	}
-
-	deleteAll(): Promise<void> {
-		return Promise.resolve();
-	}
 }
 
 function addressKey(address: RowAddress): string {
