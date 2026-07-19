@@ -3,7 +3,10 @@ import type { Static, TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { createDocumentStore } from '../document-provider/persistence.js';
 import { createRowDocumentRuntime } from '../document-provider/runtime/index.js';
-import { isWorkspaceStorageMovedError } from './browser-runtime-protocol.js';
+import {
+	isWorkspaceStorageMovedError,
+	WORKSPACE_STORAGE_MOVED_ERROR_NAME,
+} from './browser-runtime-protocol.js';
 import {
 	decodeDesktopRecordResult,
 	type DesktopRecordOperation,
@@ -39,7 +42,6 @@ type BoundWorkspace = {
 	/** Set once this surface was displaced; every later operation throws it. */
 	moved: Error | undefined;
 	markMoved(cause: Error): void;
-	revokeDocuments(cause: Error): Promise<void>;
 	disposeDocuments(): Promise<void>;
 };
 
@@ -94,7 +96,7 @@ export function createDesktopWorkspaceRuntime({
 			const moved = new Error(
 				`Workspace '${message.workspaceId}' moved to a newer window`,
 			);
-			moved.name = 'WorkspaceStorageMovedError';
+			moved.name = WORKSPACE_STORAGE_MOVED_ERROR_NAME;
 			bound.markMoved(moved);
 		};
 	}
@@ -273,9 +275,6 @@ export function createDesktopWorkspaceRuntime({
 				bound.moved = cause;
 				void documents.revokeAll(cause);
 				onBackgroundError(cause, definition.id);
-			},
-			revokeDocuments(cause: Error) {
-				return documents.revokeAll(cause);
 			},
 			disposeDocuments: documents[Symbol.asyncDispose],
 		};

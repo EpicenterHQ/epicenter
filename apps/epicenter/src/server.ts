@@ -10,6 +10,7 @@ import { getProfileVia } from '@epicenter/auth';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import type { AgentToolDefinition } from '@epicenter/workspace/agent';
+import { isWorkspaceStorageMovedError } from '@epicenter/workspace/sqlite';
 import type { DesktopWorkspaceOwner } from '@epicenter/workspace/sqlite/desktop-owner';
 import { DesktopWorkspaceError } from '@epicenter/workspace/sqlite/desktop-owner';
 import { type Context, Hono, type Next } from 'hono';
@@ -450,10 +451,7 @@ export function createHomeServer({
 		} catch (cause) {
 			// A displaced surface's request carries the shared moved-error name
 			// so the WebView can flip its blocking moved screen.
-			if (
-				cause instanceof Error &&
-				cause.name === 'WorkspaceStorageMovedError'
-			) {
+			if (isWorkspaceStorageMovedError(cause)) {
 				return c.json(
 					DesktopWorkspaceError.WorkspaceStorageMovedError({ workspaceId }),
 					409,

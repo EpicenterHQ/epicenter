@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { WORKSPACE_STORAGE_MOVED_ERROR_NAME } from './browser-runtime-protocol.js';
 import { createDeviceBunWorkspaceRuntime } from './bun-runtime.js';
 
 export { DesktopWorkspaceError } from './desktop-protocol.js';
@@ -96,7 +97,7 @@ export function createDesktopWorkspaceOwner({
 				const moved = new Error(
 					`Workspace '${workspaceId}' moved to a newer window`,
 				);
-				moved.name = 'WorkspaceStorageMovedError';
+				moved.name = WORKSPACE_STORAGE_MOVED_ERROR_NAME;
 				throw moved;
 			}
 			if (operation.kind === 'sql') {
