@@ -82,16 +82,18 @@ instead of rebuilding addresses or storage topology itself.
 The client planes meet only at the workspace handle and the server authority:
 
 ```text
-Browser page: Yjs 14 + IndexedDB  ---- socket per open document --------+
-                                                                      |
-Browser Worker: OPFS SQLite  -------- scalar row HTTP protocol --------+-- workspace authority
+Browser page: live Yjs 14 docs  ------ socket per open document --------+
+Browser Worker: OPFS SQLite                                             |
+  (scalar rows + document log)  ------ scalar row HTTP protocol --------+-- workspace authority
 
-Native host: private document store -- socket per open document --------+
-Native host: scalar SQLite ----------- scalar row HTTP protocol --------+
+Native host: live Yjs 14 docs  ------- socket per open document --------+
+Native host: SQLite
+  (scalar rows + document log)  ------ scalar row HTTP protocol --------+
 ```
 
-One physical native database may implement both local stores, but that is not a
-cross-plane transaction contract.
+One `store.sqlite3` per workspace holds both scalar rows and the document
+update log (ADR-0156), but co-location is not a cross-plane transaction
+contract: the planes stay independently synchronized.
 
 ## The scalar row plane is the ordered queryable core
 
@@ -142,11 +144,12 @@ ordinary row owns latent Yjs state under the same identity and lifecycle as its
 fields. The workspace API exposes that state through the row's singular
 document handle.
 
-Opening a document hydrates its runtime-native update log before networking.
-Browser documents use an Epicenter-owned IndexedDB provider; native runtimes
-use private SQLite persistence. Releasing the last handle unloads live state
-without deleting it. Deleting the row revokes its handles and eventually clears
-client-local bytes.
+Opening a document hydrates its durable update log before networking. Every
+runtime persists documents in the workspace's own SQLite store: the records
+Worker owns it in the browser, the Bun host owns it natively, and renderer
+surfaces reach it through a narrow asynchronous load/append seam (ADR-0156).
+Releasing the last handle unloads live state without deleting it. Deleting the
+row revokes its handles and deletes its durable log in the same transaction.
 
 Each currently open row document uses one Yjs 14 WebSocket. Every such
 connection and the scalar HTTP protocol terminate at the same account

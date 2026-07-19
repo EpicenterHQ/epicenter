@@ -16,12 +16,12 @@ workspace.tables.notes
   document.open(id)          lazy Yjs 14 document
 
 Browser
-  scalar owner               OPFS SQLite Worker
-  document owner             page Y.Doc + workspace IndexedDB update log
+  storage owner              OPFS SQLite Worker (scalar rows + document log)
+  live documents             page Y.Doc over a load/append seam
 
 Native
-  scalar owner               native SQLite
-  document owner             Y.Doc + private native SQLite update log
+  storage owner              native SQLite (scalar rows + document log)
+  live documents             Y.Doc over the same load/append seam
 ```
 
 `RowIntent` carries scalar row and KV changes only. Scalar rows remain bounded,
@@ -47,7 +47,7 @@ The two planes are deliberately eventual rather than remotely atomic. A row may
 arrive before its document. `workspace.sync` covers scalar work only;
 `document.whenDurable()` covers local document persistence only. Export,
 Device Add, and recovery coordinate logical scalar and document copies without
-claiming one cross-plane snapshot or copying private SQLite or IndexedDB state.
+claiming one cross-plane snapshot or copying private SQLite state.
 
 Read-only SQL is a first-class scalar surface, not a projection of one giant
 in-memory Yjs document. Browser and native runtimes may use different physical

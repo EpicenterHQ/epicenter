@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-17
 - **Amends:** [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md), [ADR-0141](0141-authority-current-state-and-receipt-watermarks-drive-row-convergence.md)
+- **Amended by:** [ADR-0156](0156-row-documents-persist-in-one-owner-side-sqlite-update-log.md) — the browser document owner is the records Worker's OPFS SQLite update log, not a page-side IndexedDB log; the independent-planes contract itself is unchanged.
 
 ## Context
 

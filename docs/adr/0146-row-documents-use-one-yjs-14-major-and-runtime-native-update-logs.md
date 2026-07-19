@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-17
 - **Amends:** [ADR-0135](0135-row-documents-have-application-owned-roots.md)
+- **Amended by:** [ADR-0156](0156-row-documents-persist-in-one-owner-side-sqlite-update-log.md) — the per-runtime `DocumentStore` implementations collapse to one owner-side SQLite update log plus one shared attachment over a load/append seam; capture and deletion move to the owner. The Yjs-14-only rule, bounds, and `document-full` semantics stand.
 
 ## Context
 
