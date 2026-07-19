@@ -6,10 +6,7 @@ import {
 } from '@epicenter/row-sync';
 import type { SqliteDatabase } from '@epicenter/sqlite';
 import type { WorkspaceSyncSettlement } from './canonical-sync-supervisor.js';
-import {
-	readLocalDocumentParts,
-	readLocalRow,
-} from './local-workspace-storage.js';
+import { readLocalRow } from './local-workspace-storage.js';
 
 export type LogicalWorkspaceRow = {
 	table: string;
@@ -44,13 +41,15 @@ export type LogicalWorkspaceExport = LogicalWorkspaceCopy & {
 export function captureLogicalWorkspace({
 	addresses,
 	readCurrentRow,
-	readCurrentDocumentParts,
-	mergeUpdates,
+	captureDocument,
 }: {
 	addresses: readonly { table: string; rowId: string }[];
 	readCurrentRow(table: string, rowId: string): JsonObject | undefined;
-	readCurrentDocumentParts?(table: string, rowId: string): Uint8Array[];
-	mergeUpdates?(parts: readonly Uint8Array[]): Uint8Array;
+	/** Owner-side compact document capture; undefined means no durable state. */
+	captureDocument?(address: {
+		table: string;
+		rowId: string;
+	}): Uint8Array | undefined;
 }): LogicalWorkspaceCopy {
 	const rows: LogicalWorkspaceRow[] = [];
 	let kv: JsonObject = {};
@@ -61,14 +60,12 @@ export function captureLogicalWorkspace({
 			kv = structuredClone(fields);
 			continue;
 		}
-		const parts = readCurrentDocumentParts?.(table, rowId) ?? [];
+		const document = captureDocument?.({ table, rowId });
 		rows.push({
 			table,
 			rowId,
 			fields: structuredClone(fields),
-			...(parts.length === 0 || mergeUpdates === undefined
-				? {}
-				: { document: mergeUpdates(parts) }),
+			...(document === undefined ? {} : { document }),
 		});
 	}
 	return { rows, kv };
@@ -126,7 +123,10 @@ export async function withCapturedDocuments(
 
 export function captureLocalWorkspace(
 	source: SqliteDatabase,
-	mergeUpdates: (parts: readonly Uint8Array[]) => Uint8Array,
+	captureDocument?: (address: {
+		table: string;
+		rowId: string;
+	}) => Uint8Array | undefined,
 ): LogicalWorkspaceCopy {
 	const addresses = source.all<{ table: string; rowId: string }>(
 		`SELECT table_key AS "table", row_id AS "rowId" FROM "rows"
@@ -135,16 +135,22 @@ export function captureLocalWorkspace(
 	return captureLogicalWorkspace({
 		addresses,
 		readCurrentRow: (table, rowId) => readLocalRow(source, table, rowId),
-		readCurrentDocumentParts: (table, rowId) =>
-			readLocalDocumentParts(source, table, rowId),
-		mergeUpdates,
+		captureDocument,
 	});
 }
 
-/** Delete only logical content from a local Device workspace. */
-export function deleteLocalWorkspace(sqlite: SqliteDatabase): void {
+/**
+ * Delete only logical content from a local Device workspace. The optional
+ * callback deletes the workspace's document logs inside the same transaction
+ * so scalar death and document death commit together.
+ */
+export function deleteLocalWorkspace(
+	sqlite: SqliteDatabase,
+	deleteDocumentRows: () => void = () => undefined,
+): void {
 	sqlite.transaction(() => {
 		sqlite.run('DELETE FROM "documents"');
 		sqlite.run('DELETE FROM "rows"');
+		deleteDocumentRows();
 	});
 }

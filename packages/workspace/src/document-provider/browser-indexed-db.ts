@@ -3,7 +3,6 @@
 import * as Y from '@y/y';
 import type {
 	DocumentPersistenceLease,
-	DocumentStore,
 	RowAddress,
 } from './persistence.js';
 
@@ -123,7 +122,7 @@ export function createBrowserIndexedDbDocumentStore({
 	keyRange?: typeof IDBKeyRange;
 	compactionThreshold?: number;
 	createBroadcastChannel?: (name: string) => DocumentBroadcastChannel;
-}): DocumentStore {
+}) {
 	if (!Number.isSafeInteger(compactionThreshold) || compactionThreshold < 2) {
 		throw new TypeError('Document compaction threshold must be at least two');
 	}
@@ -452,9 +451,9 @@ export function createBrowserIndexedDbDocumentStore({
 		return lease;
 	}
 
-	const store: DocumentStore = {
+	const store = {
 		attach,
-		async capture(address) {
+		async capture(address: RowAddress) {
 			requireHealthy();
 			const addressKey = encodeAddress(address);
 			const activeCut = active.get(addressKey)?.whenDurable();
@@ -475,7 +474,7 @@ export function createBrowserIndexedDbDocumentStore({
 				throw poison(cause);
 			}
 		},
-		async delete(address) {
+		async delete(address: RowAddress) {
 			requireHealthy();
 			const addressKey = encodeAddress(address);
 			if (active.has(addressKey)) {

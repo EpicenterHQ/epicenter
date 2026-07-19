@@ -1,13 +1,15 @@
 import { sha256Hex } from '@epicenter/row-sync';
 import type { SqliteValue } from '@epicenter/sqlite';
 import type { Static, TSchema } from 'typebox';
-import { createBrowserIndexedDbDocumentStore } from '../document-provider/browser-indexed-db.js';
+import {
+	type BrowserIndexedDbDocumentStore,
+	createBrowserIndexedDbDocumentStore,
+} from '../document-provider/browser-indexed-db.js';
 import {
 	attachAuthenticatedDocumentConnection,
 	type DocumentConnection,
 	rowDocumentWebSocketUrl,
 } from '../document-provider/connection/index.js';
-import type { DocumentStore } from '../document-provider/persistence.js';
 import { createRowDocumentRuntime } from '../document-provider/runtime/index.js';
 
 import {
@@ -845,8 +847,10 @@ function documentDatabaseName(
 	return `epicenter-${persistenceHash}-${sha256Hex(workspaceId)}-documents-v1`;
 }
 
-function lazyBrowserDocumentStore(databaseName: string): DocumentStore {
-	let store: DocumentStore | undefined;
+function lazyBrowserDocumentStore(
+	databaseName: string,
+): BrowserIndexedDbDocumentStore {
+	let store: BrowserIndexedDbDocumentStore | undefined;
 	const opened = () =>
 		(store ??= createBrowserIndexedDbDocumentStore({ databaseName }));
 	return {

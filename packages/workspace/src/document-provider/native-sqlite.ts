@@ -2,7 +2,6 @@ import type { SqliteDatabase } from '@epicenter/sqlite';
 import * as Y from '@y/y';
 import type {
 	DocumentPersistenceLease,
-	DocumentStore,
 	RowAddress,
 } from './persistence.js';
 
@@ -55,7 +54,7 @@ export function createNativeSqliteDocumentStore({
 }: {
 	database: SqliteDatabase;
 	compactionThreshold?: number;
-}): DocumentStore {
+}) {
 	if (!Number.isSafeInteger(compactionThreshold) || compactionThreshold < 2) {
 		throw new TypeError('Document compaction threshold must be at least two');
 	}
@@ -227,7 +226,7 @@ export function createNativeSqliteDocumentStore({
 
 	return {
 		attach,
-		async capture(address) {
+		async capture(address: RowAddress) {
 			requireHealthy();
 			validateAddress(address);
 			const activeCut = active.get(addressKey(address))?.whenDurable();
@@ -246,7 +245,7 @@ export function createNativeSqliteDocumentStore({
 				throw poison(cause);
 			}
 		},
-		async delete(address) {
+		async delete(address: RowAddress) {
 			requireHealthy();
 			const key = addressKey(address);
 			if (active.has(key)) {

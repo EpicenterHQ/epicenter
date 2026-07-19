@@ -13,8 +13,10 @@ import {
 	attachAuthenticatedDocumentConnection,
 	rowDocumentWebSocketUrl,
 } from '../document-provider/connection/index.js';
-import { createNativeSqliteDocumentStore } from '../document-provider/native-sqlite.js';
-import type { DocumentStore } from '../document-provider/persistence.js';
+import {
+	createSqliteDocumentLog,
+	type SqliteDocumentLog,
+} from '../document-provider/sqlite-document-log.js';
 
 import {
 	accountStorageIdentity,
@@ -28,7 +30,6 @@ import {
 	logicalWorkspaceIntents,
 	withCapturedDocuments,
 } from './canonical-addition.js';
-import { mergeDocumentUpdates } from './canonical-documents.js';
 import {
 	createCanonicalSyncSupervisor,
 	type WorkspaceSyncSettlement,
@@ -38,7 +39,10 @@ import {
 	createCurrentStateReplica,
 } from './current-state-replica.js';
 import { classifyCurrentStateTransport } from './current-state-transport.js';
-import { initializeLocalWorkspaceStorage } from './local-workspace-storage.js';
+import {
+	initializeLocalWorkspaceStorage,
+	readLocalRow,
+} from './local-workspace-storage.js';
 import { createWorkspaceRuntime } from './runtime.js';
 import type { WorkspaceDefinition } from './runtime-definition.js';
 
@@ -151,7 +155,7 @@ function createBunRuntimeWithPersistence({
 		string,
 		{
 			sqlite: ReturnType<typeof createBunSqliteAdapter>;
-			documents: DocumentStore;
+			documents: SqliteDocumentLog;
 			notifyDeleted(addresses: { table: string; rowId: string }[]): void;
 			emitChanged(): void;
 		}
@@ -160,7 +164,7 @@ function createBunRuntimeWithPersistence({
 		string,
 		{
 			replica: ReturnType<typeof createCurrentStateReplica>;
-			documents: DocumentStore;
+			documents: SqliteDocumentLog;
 			settle(): Promise<WorkspaceSyncSettlement>;
 			wake(): void;
 			emitChanged(): void;
@@ -190,7 +194,6 @@ function createBunRuntimeWithPersistence({
 				database.exec('PRAGMA busy_timeout = 5000');
 				database.exec('PRAGMA journal_mode = WAL');
 				const sqlite = createBunSqliteAdapter(database);
-				const documents = createNativeSqliteDocumentStore({ database: sqlite });
 				const transport = await abortable(
 					Promise.resolve(recordTransport?.(workspaceId)),
 					signal,
@@ -213,6 +216,11 @@ function createBunRuntimeWithPersistence({
 				};
 				if (!transport) {
 					initializeLocalWorkspaceStorage(sqlite);
+					const documents = createSqliteDocumentLog({
+						database: sqlite,
+						isRowLive: ({ table, rowId }) =>
+							readLocalRow(sqlite, table, rowId) !== undefined,
+					});
 					const deletionListeners = new Set<
 						(addresses: { table: string; rowId: string }[]) => void
 					>();
@@ -232,7 +240,7 @@ function createBunRuntimeWithPersistence({
 					});
 					return {
 						sqlite,
-						documentStore: documents,
+						documentLog: documents,
 						onLocalCommit() {
 							queueMicrotask(emitRecordsChanged);
 						},
@@ -266,6 +274,11 @@ function createBunRuntimeWithPersistence({
 						for (const listener of deletionListeners) listener(addresses);
 					},
 				});
+				const documents = createSqliteDocumentLog({
+					database: sqlite,
+					isRowLive: ({ table, rowId }) =>
+						replica.readCurrentRow(table, rowId) !== undefined,
+				});
 				const supervisor = createCanonicalSyncSupervisor({
 					driver: classifyCurrentStateTransport(replica),
 					pollIntervalMs: recordPollIntervalMs,
@@ -282,7 +295,7 @@ function createBunRuntimeWithPersistence({
 				});
 				return {
 					sqlite,
-					documentStore: documents,
+					documentLog: documents,
 					...(documentTransport
 						? {
 								connectDocument(address, document) {
@@ -340,28 +353,25 @@ function createBunRuntimeWithPersistence({
 			const state = localWorkspaces.get(workspaceId);
 			if (!state)
 				throw new Error(`Device workspace '${workspaceId}' is not open`);
-			return withCapturedDocuments(
-				captureLocalWorkspace(state.sqlite, mergeDocumentUpdates),
-				state.documents.capture,
-			);
+			return captureLocalWorkspace(state.sqlite, state.documents.capture);
 		},
 		async deleteLocal(workspaceId: string): Promise<void> {
 			const state = localWorkspaces.get(workspaceId);
 			if (!state)
 				throw new Error(`Device workspace '${workspaceId}' is not open`);
-			const addresses = captureLocalWorkspace(
-				state.sqlite,
-				mergeDocumentUpdates,
-			).rows.map(({ table, rowId }) => ({ table, rowId }));
-			deleteLocalWorkspace(state.sqlite);
-			state.notifyDeleted(addresses);
-			// Destructive cleanup disposes active leases before the store deletes
-			// (ADR-0146); the browser facade awaits the same revocation.
+			// Revoke live handles first so already-captured edits drain into the
+			// log before deletion; then scalar and document death commit in one
+			// transaction.
 			await runtime.revokeDocuments(
 				workspaceId,
 				new Error('Device workspace data was deleted'),
 			);
-			await state.documents.deleteAll();
+			const addresses = state.sqlite.all<{ table: string; rowId: string }>(
+				`SELECT table_key AS "table", row_id AS "rowId" FROM "rows"
+				 ORDER BY table_key, row_id`,
+			);
+			deleteLocalWorkspace(state.sqlite, state.documents.deleteAllRows);
+			state.notifyDeleted(addresses);
 			state.emitChanged();
 		},
 		async exportAccount(workspaceId: string): Promise<LogicalWorkspaceExport> {
@@ -376,7 +386,7 @@ function createBunRuntimeWithPersistence({
 				settlement,
 				...(await withCapturedDocuments(
 					state.replica.captureVisible(),
-					state.documents.capture,
+					async (address) => state.documents.capture(address),
 				)),
 			};
 		},

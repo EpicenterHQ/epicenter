@@ -3,11 +3,14 @@ import type { SqliteDatabase, SqliteValue } from '@epicenter/sqlite';
 import type * as Y from '@y/y';
 import type { Static, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { createNativeSqliteDocumentStore } from '../document-provider/native-sqlite.js';
-import type {
-	DocumentStore,
-	RowAddress,
+import {
+	createDocumentStore,
+	type RowAddress,
 } from '../document-provider/persistence.js';
+import {
+	createSqliteDocumentLog,
+	type SqliteDocumentLog,
+} from '../document-provider/sqlite-document-log.js';
 import {
 	createRowDocumentRuntime,
 	type RowDocument,
@@ -47,8 +50,8 @@ export type WorkspaceOwner<TAdmission extends void | Promise<void> = void> = {
 	/** Present only for synchronized files. */
 	admitIntent?(intent: WireRowIntent): TAdmission;
 	readCurrentRow?(table: string, rowId: string): JsonObject | undefined;
-	/** Independent row-document provider. Scalar synchronization never supplies it. */
-	documentStore?: DocumentStore;
+	/** Owner-side row-document update log. Scalar synchronization never supplies it. */
+	documentLog?: SqliteDocumentLog;
 	connectDocument?(
 		address: RowAddress,
 		document: Y.Doc,
@@ -167,11 +170,19 @@ export function createWorkspaceRuntime({
 					owner.readCurrentRow ??
 					((table: string, rowId: string) =>
 						readLocalRow(owner.sqlite, table, rowId));
-				const documentStore =
-					owner.documentStore ??
-					createNativeSqliteDocumentStore({ database: owner.sqlite });
+				const documentLog =
+					owner.documentLog ??
+					createSqliteDocumentLog({
+						database: owner.sqlite,
+						isRowLive: ({ table, rowId }) =>
+							currentRow(table, rowId) !== undefined,
+					});
 				const documents = createRowDocumentRuntime<unknown>({
-					store: documentStore,
+					store: createDocumentStore({
+						load: async (address) => documentLog.load(address),
+						append: async (address, update) =>
+							documentLog.append(address, update),
+					}),
 					isLive: ({ table, rowId }) => currentRow(table, rowId) !== undefined,
 					...(owner.connectDocument ? { connect: owner.connectDocument } : {}),
 				});
@@ -182,6 +193,7 @@ export function createWorkspaceRuntime({
 						admitIntent: owner.admitIntent,
 						readCurrentRow: currentRow,
 						onLocalCommit: owner.onLocalCommit,
+						deleteDocumentRows: documentLog.deleteRows,
 						onRowsDeleted(addresses) {
 							for (const address of addresses) void documents.revoke(address);
 						},
@@ -198,7 +210,9 @@ export function createWorkspaceRuntime({
 				owner.subscribeAcquisitionPromoted?.(documents.revokeAll);
 				const sync = bindWorkspaceSync(owner.sync, async (copy) => {
 					await documents.captureDurabilityBarrier();
-					return withCapturedDocuments(copy, documentStore.capture);
+					return withCapturedDocuments(copy, async (address) =>
+						documentLog.capture(address),
+					);
 				});
 				return { owner, rows, kv, documents, sync };
 			} catch (cause) {

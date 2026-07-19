@@ -24,7 +24,6 @@ import {
 	deleteLocalWorkspace,
 	logicalWorkspaceIntents,
 } from './canonical-addition.js';
-import { mergeDocumentUpdates } from './canonical-documents.js';
 import { type CanonicalKv, createCanonicalKv } from './canonical-kv.js';
 import { type CanonicalRows, createCanonicalRows } from './canonical-rows.js';
 import {
@@ -412,7 +411,7 @@ async function execute(
 			if (state.replica) {
 				throw new Error('Only Device workspaces expose logical capture');
 			}
-			return captureLocalWorkspace(state.sqlite, mergeDocumentUpdates);
+			return captureLocalWorkspace(state.sqlite);
 		case 'capture-visible':
 			if (!state.replica) {
 				throw new Error('Only Account workspaces expose visible capture');

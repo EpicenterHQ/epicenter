@@ -53,6 +53,12 @@ export type CanonicalRowsOptions = {
 	/** Read confirmed state plus any synchronized optimistic overlay. */
 	readCurrentRow?(table: string, rowId: string): JsonObject | undefined;
 	onLocalCommit?(): void;
+	/**
+	 * Delete durable document logs inside the local-mode delete transaction,
+	 * so scalar death and document death commit together. Synchronized mode
+	 * never calls this; the replica owns its own lifecycle transactions.
+	 */
+	deleteDocumentRows?(addresses: readonly { table: string; rowId: string }[]): void;
 	/** Revoke cached row documents as soon as local deletion changes liveness. */
 	onRowsDeleted?(addresses: { table: string; rowId: string }[]): void;
 };
@@ -65,6 +71,7 @@ export function createCanonicalRows<const TTables extends TableLensDefinitions>(
 		admitIntent,
 		readCurrentRow = (table, rowId) => readLocalRow(sqlite, table, rowId),
 		onLocalCommit = () => undefined,
+		deleteDocumentRows = () => undefined,
 		onRowsDeleted = () => undefined,
 	}: CanonicalRowsOptions = {},
 ) {
@@ -175,6 +182,7 @@ export function createCanonicalRows<const TTables extends TableLensDefinitions>(
 								 WHERE table_key = ? AND row_id = ?`,
 								[tableName, id],
 							);
+							deleteDocumentRows([{ table: tableName, rowId: id }]);
 						});
 						onLocalCommit();
 					}
