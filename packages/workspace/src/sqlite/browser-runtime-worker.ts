@@ -8,6 +8,10 @@ import sqlite3InitModule, {
 	type SAHPoolUtil,
 } from '@sqlite.org/sqlite-wasm';
 import {
+	createSqliteDocumentLog,
+	type SqliteDocumentLog,
+} from '../document-provider/sqlite-document-log.js';
+import {
 	type BrowserRecordOperation,
 	type BrowserRuntimeMessage,
 	type BrowserWorkerInbound,
@@ -61,6 +65,7 @@ type OpenedRecords = {
 	sqlite: SqliteDatabase;
 	records: CanonicalRows;
 	kv: CanonicalKv<KvDefinitions>;
+	documents: SqliteDocumentLog;
 	replica?: CurrentStateReplica;
 	sync?: CanonicalSyncSupervisor;
 	/** Held until Worker termination so this storage has one SQLite owner. */
@@ -193,10 +198,21 @@ async function openRecords(
 					database as unknown as BrowserSqliteDatabase,
 				);
 				if (!manifest.rowSync) initializeLocalWorkspaceStorage(sqlite);
+				// The log reads liveness through the replica projection when one
+				// exists (the closure runs only on appends, after both exist) and
+				// through confirmed local rows otherwise.
+				const documents = createSqliteDocumentLog({
+					database: sqlite,
+					isRowLive: ({ table, rowId }) =>
+						(replica
+							? replica.readCurrentRow(table, rowId)
+							: readLocalRow(sqlite, table, rowId)) !== undefined,
+				});
 				const replica = manifest.rowSync
 					? createCurrentStateReplica({
 							sqlite,
 							transport: createRecordTransport(manifest.workspaceId),
+							documents,
 							onRemoteCommit() {
 								scope.postMessage({
 									type: 'records-changed',
@@ -215,6 +231,7 @@ async function openRecords(
 				const records = createCanonicalRows(sqlite, definitions, {
 					admitIntent: replica?.admit,
 					readCurrentRow: replica?.readCurrentRow,
+					deleteDocumentRows: documents.deleteRows,
 				});
 				const kv = createCanonicalKv(
 					sqlite,
@@ -253,6 +270,7 @@ async function openRecords(
 					sqlite,
 					records,
 					kv,
+					documents,
 					replica,
 					sync,
 					retainedLease,
@@ -396,6 +414,17 @@ async function execute(
 			return state.replica
 				? state.replica.readCurrentRow(operation.table, operation.rowId)
 				: readLocalRow(state.sqlite, operation.table, operation.rowId);
+		case 'document-load':
+			return state.documents.load({
+				table: operation.table,
+				rowId: operation.rowId,
+			});
+		case 'document-append':
+			state.documents.append(
+				{ table: operation.table, rowId: operation.rowId },
+				new Uint8Array(operation.update),
+			);
+			return undefined;
 		case 'sync-settle':
 			throw new Error('Sync settlement must not block the Worker request tail');
 		case 'sync-start-fresh':
@@ -411,7 +440,7 @@ async function execute(
 			if (state.replica) {
 				throw new Error('Only Device workspaces expose logical capture');
 			}
-			return captureLocalWorkspace(state.sqlite);
+			return captureLocalWorkspace(state.sqlite, state.documents.capture);
 		case 'capture-visible':
 			if (!state.replica) {
 				throw new Error('Only Account workspaces expose visible capture');
@@ -427,7 +456,7 @@ async function execute(
 			if (state.replica) {
 				throw new Error('Only Device workspaces expose logical deletion');
 			}
-			deleteLocalWorkspace(state.sqlite);
+			deleteLocalWorkspace(state.sqlite, state.documents.deleteAllRows);
 			return undefined;
 		case 'list':
 			return tableFor(records, operation.table).list();

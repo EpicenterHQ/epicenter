@@ -11,9 +11,9 @@
  */
 
 import { afterEach, expect, test } from 'bun:test';
-import 'fake-indexeddb/auto';
 import { field } from '@epicenter/field';
 import { asPrincipalId } from '@epicenter/identity';
+import * as Y from '@y/y';
 import {
 	createAccountBrowserWorkspaceRuntime,
 	createDeviceBrowserWorkspaceRuntime,
@@ -22,6 +22,7 @@ import {
 	type BrowserRuntimeMessage,
 	type BrowserRuntimeRequest,
 	isWorkspaceStorageHeldError,
+	isWorkspaceStorageMovedError,
 } from './browser-runtime-protocol.js';
 import { defineTable } from './lens-definition.js';
 import { defineWorkspace } from './runtime-definition.js';
@@ -36,9 +37,13 @@ function neverOpenWebSocket(): Promise<WebSocket> {
 class FakeWorker {
 	static latest: FakeWorker | undefined;
 	static openMode: 'resolve' | 'defer' | 'reject' = 'resolve';
+	/** Mirrors the real Worker after a newer tab steals the storage lease. */
+	static stolen = false;
 	readonly operations: BrowserRuntimeRequest['operation'][] = [];
 	readonly manifests: BrowserRuntimeRequest['manifest'][] = [];
 	readonly transportResponses: { type: string; pendingReason?: string }[] = [];
+	/** Worker-owned durable document update log, keyed by row address. */
+	readonly documentLogs = new Map<string, Uint8Array[]>();
 	row: Record<string, unknown> | undefined = { title: 'Browser row' };
 	theme: 'light' | 'dark' | undefined = 'light';
 	private readonly messageListeners = new Set<
@@ -66,6 +71,17 @@ class FakeWorker {
 		}
 		this.operations.push(message.operation);
 		this.manifests.push(message.manifest);
+		if (FakeWorker.stolen) {
+			queueMicrotask(() => {
+				this.emit({
+					type: 'error',
+					id: message.id,
+					name: 'WorkspaceStorageMovedError',
+					message: 'Workspace storage moved to a newer tab',
+				});
+			});
+			return;
+		}
 		if (message.operation.kind === 'open') {
 			if (FakeWorker.openMode === 'defer') {
 				this.deferredOpen = message;
@@ -96,17 +112,35 @@ class FakeWorker {
 			switch (message.operation.kind) {
 				case 'logical-capture':
 				case 'capture-visible':
-				case 'sync-capture-recovery':
+				case 'sync-capture-recovery': {
+					// The real Worker folds each row's compact document state from
+					// its co-located SQLite log into the copy.
+					const document = this.captureDocument('notes', ROW_ID);
 					return {
 						rows: [
 							{
 								table: 'notes',
 								rowId: ROW_ID,
 								fields: { title: 'Browser row' },
+								...(document === undefined ? {} : { document }),
 							},
 						],
 						kv: { theme: 'light' },
 					};
+				}
+				case 'document-load': {
+					const key = `${message.operation.table}\0${message.operation.rowId}`;
+					return (this.documentLogs.get(key) ?? []).map(
+						(update) => new Uint8Array(update),
+					);
+				}
+				case 'document-append': {
+					const key = `${message.operation.table}\0${message.operation.rowId}`;
+					const log = this.documentLogs.get(key) ?? [];
+					log.push(new Uint8Array(message.operation.update));
+					this.documentLogs.set(key, log);
+					return undefined;
+				}
 				case 'logical-add':
 					return undefined;
 				case 'logical-delete':
@@ -142,6 +176,18 @@ class FakeWorker {
 		this.emit({ type: 'result', id: request.id, value: { isReady: true } });
 	}
 
+	private captureDocument(table: string, rowId: string): Uint8Array | undefined {
+		const updates = this.documentLogs.get(`${table}\0${rowId}`);
+		if (!updates || updates.length === 0) return undefined;
+		const folded = new Y.Doc();
+		try {
+			for (const update of updates) Y.applyUpdateV2(folded, update);
+			return new Uint8Array(Y.encodeStateAsUpdateV2(folded));
+		} finally {
+			folded.destroy();
+		}
+	}
+
 	private finishSettlement(): void {
 		const request = this.deferredSettlement;
 		if (!request) return;
@@ -168,6 +214,7 @@ afterEach(() => {
 	globalThis.Worker = NativeWorker;
 	FakeWorker.latest = undefined;
 	FakeWorker.openMode = 'resolve';
+	FakeWorker.stolen = false;
 });
 
 const definition = defineWorkspace({
@@ -300,7 +347,7 @@ test('Device export reports a null settlement over the local capture', async () 
 	});
 });
 
-test('Account export settles first, then captures visible state with page documents', async () => {
+test('Account export settles first, then captures visible state with documents', async () => {
 	globalThis.Worker = FakeWorker as unknown as typeof Worker;
 	await using runtime = createAccountBrowserWorkspaceRuntime({
 		account: {
@@ -349,13 +396,21 @@ test('page sends list and update operations', async () => {
 	]);
 });
 
-test('browser row documents use the page-owned IndexedDB provider', async () => {
+test('browser row documents persist through the Worker-owned update log', async () => {
 	await using runtime = createRuntime();
 	const workspace = await runtime.open(definition);
-	using document = await workspace.tables.notes.document.open(ROW_ID);
-	document.get('content').insert(0, 'local');
-	await document.whenDurable();
-	expect(document.get('content').toString()).toBe('local');
+	{
+		using document = await workspace.tables.notes.document.open(ROW_ID);
+		document.get('content').insert(0, 'local');
+		await document.whenDurable();
+		expect(document.get('content').toString()).toBe('local');
+	}
+	const kinds = FakeWorker.latest?.operations.map(({ kind }) => kind);
+	expect(kinds).toContain('document-load');
+	expect(kinds).toContain('document-append');
+	// A later open hydrates the same content back from the Worker's log.
+	using reopened = await workspace.tables.notes.document.open(ROW_ID);
+	expect(reopened.get('content').toString()).toBe('local');
 });
 
 test('worker transport uses the workspace record routes', async () => {
@@ -462,10 +517,24 @@ test('Account sync status is reactive across the Worker boundary', async () => {
 	expect(copy).toMatchObject({
 		rows: [{ table: 'notes', rowId: ROW_ID }],
 	});
-	// The page folds its locally durable IndexedDB document state into the
-	// Worker's scalar recovery copy (ADR-0142's compact document state).
+	// The Worker folds locally durable document state from its co-located
+	// SQLite log into the recovery copy (ADR-0142's compact document state).
 	expect(copy?.rows[0]?.document).toBeInstanceOf(Uint8Array);
 	unsubscribe?.();
+});
+
+test('a storage steal rejects document work with the moved error', async () => {
+	await using runtime = createRuntime();
+	const workspace = await runtime.open(definition);
+	using document = await workspace.tables.notes.document.open(ROW_ID);
+	FakeWorker.stolen = true;
+	document.get('content').insert(0, 'after steal');
+	const failure = await document.whenDurable().then(
+		() => undefined,
+		(cause: unknown) => cause,
+	);
+	expect(failure).toBeInstanceOf(Error);
+	expect(isWorkspaceStorageMovedError(failure)).toBe(true);
 });
 
 test('browser transport serializes only known interruptions as retryable', async () => {

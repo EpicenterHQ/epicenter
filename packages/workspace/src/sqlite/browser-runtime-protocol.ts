@@ -73,6 +73,8 @@ export type BrowserRecordOperation =
 	| { kind: 'kv-set'; key: string; value: unknown }
 	| { kind: 'kv-unset'; key: string }
 	| { kind: 'read-current-row'; table: string; rowId: string }
+	| { kind: 'document-load'; table: string; rowId: string }
+	| { kind: 'document-append'; table: string; rowId: string; update: Uint8Array }
 	| { kind: 'sync-settle' }
 	| { kind: 'sync-capture-recovery' }
 	| { kind: 'sync-start-fresh' }
