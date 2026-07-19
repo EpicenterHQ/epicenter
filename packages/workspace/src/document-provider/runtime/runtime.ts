@@ -55,6 +55,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 }) {
 	const cached = new Map<string, CachedDocument<TConnection>>();
 	const opening = new Map<string, Promise<CachedDocument<TConnection>>>();
+	const importing = new Map<string, Promise<void>>();
 	const closing = new Map<string, Promise<void>>();
 	const epochs = new Map<string, number>();
 	let disposed = false;
@@ -75,7 +76,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 
 	function requireCurrent(key: string, epoch: number): void {
 		if (epochOf(key) !== epoch) {
-			throw new Error('Row document was revoked while opening');
+			throw new Error('Row document was revoked during an active operation');
 		}
 	}
 
@@ -172,6 +173,12 @@ export function createRowDocumentRuntime<TConnection = never>({
 		if (existing) return Promise.resolve(existing);
 		const pending = opening.get(key);
 		if (pending) return pending;
+		const pendingImport = importing.get(key);
+		if (pendingImport) {
+			return pendingImport
+				.catch(() => undefined)
+				.then(() => getOrCreate(copyAddress(address)));
+		}
 		const epoch = epochOf(key);
 		const created = createEntry(copyAddress(address), key, epoch);
 		opening.set(key, created);
@@ -232,6 +239,7 @@ export function createRowDocumentRuntime<TConnection = never>({
 		const key = keyOf(address);
 		epochs.set(key, epochOf(key) + 1);
 		const pending = opening.get(key);
+		const pendingImport = importing.get(key);
 		const entry = cached.get(key);
 		if (entry) {
 			entry.revoked =
@@ -239,8 +247,9 @@ export function createRowDocumentRuntime<TConnection = never>({
 				new Error(
 					`Row document was revoked because '${address.table}.${address.rowId}' is no longer live`,
 				);
-			await startTeardown(key, entry);
 		}
+		await pendingImport?.catch(() => undefined);
+		if (entry) await startTeardown(key, entry);
 		await pending?.catch(() => undefined);
 	}
 
@@ -262,6 +271,10 @@ export function createRowDocumentRuntime<TConnection = never>({
 				const parsed = JSON.parse(key) as [string, string];
 				addresses.set(key, { table: parsed[0], rowId: parsed[1] });
 			}
+			for (const [key] of importing) {
+				const parsed = JSON.parse(key) as [string, string];
+				addresses.set(key, { table: parsed[0], rowId: parsed[1] });
+			}
 			await Promise.all(
 				[...addresses.values()].map((address) =>
 					revokeEntry(
@@ -271,12 +284,13 @@ export function createRowDocumentRuntime<TConnection = never>({
 				),
 			);
 		},
-		/** Wait for the local durability cut of every document open right now. */
+		/** Wait for the local durability cut of open documents and admitted imports. */
 		captureDurabilityBarrier(): Promise<void> {
 			requireRuntimeOpen();
-			const cuts = [...cached.values()].map((entry) =>
-				entry.persistence.whenDurable(),
-			);
+			const cuts = [
+				...importing.values(),
+				...[...cached.values()].map((entry) => entry.persistence.whenDurable()),
+			];
 			return Promise.all(cuts).then(() => undefined);
 		},
 		/**
@@ -292,39 +306,61 @@ export function createRowDocumentRuntime<TConnection = never>({
 			requireRuntimeOpen();
 			const owned = new Uint8Array(update);
 			const key = keyOf(address);
-			const applyThroughLiveEntry = async (): Promise<boolean> => {
-				const entry =
-					cached.get(key) ??
-					(await opening.get(key)?.catch(() => undefined));
-				if (!entry || cached.get(key) !== entry || entry.revoked) return false;
-				Y.applyUpdateV2(entry.document, owned);
-				await entry.persistence.whenDurable();
-				return true;
-			};
-			if (await applyThroughLiveEntry()) return;
-			await closing.get(key);
-			await requireLive(address);
-			// An open() may have raced the liveness check; prefer its live entry
-			// over a second store attachment.
-			if (await applyThroughLiveEntry()) return;
-			const document = new Y.Doc({ gc: true });
-			const persistence = store.attach(copyAddress(address), document);
-			try {
-				await persistence.whenLoaded;
-				Y.applyUpdateV2(document, owned);
-				await persistence.whenDurable();
-			} finally {
+			const epoch = epochOf(key);
+			const previous = importing.get(key);
+			const pending = (async () => {
+				await previous?.catch(() => undefined);
+				requireRuntimeOpen();
+				requireCurrent(key, epoch);
+				const applyThroughLiveEntry = async (): Promise<boolean> => {
+					const entry =
+						cached.get(key) ?? (await opening.get(key)?.catch(() => undefined));
+					if (!entry || cached.get(key) !== entry || entry.revoked)
+						return false;
+					Y.applyUpdateV2(entry.document, owned);
+					await entry.persistence.whenDurable();
+					requireRuntimeOpen();
+					requireCurrent(key, epoch);
+					if (entry.revoked) throw entry.revoked;
+					return true;
+				};
+				if (await applyThroughLiveEntry()) return;
+				await closing.get(key);
+				requireRuntimeOpen();
+				requireCurrent(key, epoch);
+				await requireLive(address);
+				requireRuntimeOpen();
+				requireCurrent(key, epoch);
+				const document = new Y.Doc({ gc: true });
+				const persistence = store.attach(copyAddress(address), document);
 				try {
-					await persistence.dispose();
+					await persistence.whenLoaded;
+					requireRuntimeOpen();
+					requireCurrent(key, epoch);
+					Y.applyUpdateV2(document, owned);
+					await persistence.whenDurable();
+					requireRuntimeOpen();
+					requireCurrent(key, epoch);
 				} finally {
-					document.destroy();
+					try {
+						await persistence.dispose();
+					} finally {
+						document.destroy();
+					}
 				}
+			})();
+			importing.set(key, pending);
+			try {
+				await pending;
+			} finally {
+				if (importing.get(key) === pending) importing.delete(key);
 			}
 		},
 		async [Symbol.asyncDispose](): Promise<void> {
 			if (disposal !== undefined) return disposal;
 			disposed = true;
 			disposal = (async () => {
+				await Promise.allSettled(importing.values());
 				await Promise.allSettled(opening.values());
 				const failures: unknown[] = [];
 				for (const entry of [...cached.values()]) {

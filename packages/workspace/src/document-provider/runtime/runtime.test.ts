@@ -1,3 +1,14 @@
+/**
+ * Row Document Runtime Tests
+ *
+ * Verifies hydration, caching, persistence durability, imports, revocation,
+ * and disposal across independently addressed Yjs row documents.
+ *
+ * Key behaviors:
+ * - Concurrent opens and imports never create overlapping leases per address
+ * - Durability barriers include admitted live and transient document work
+ * - Revocation and disposal stop in-flight lifecycle operations
+ */
 import { describe, expect, test } from 'bun:test';
 import * as Y from '@y/y';
 import type {
@@ -123,7 +134,10 @@ describe('provider-owned row document runtime', () => {
 		const fixture = setup();
 		fixture.store.resolveLoad(noteA);
 
-		await fixture.runtime.importUpdate(noteA, createUpdate('content', 'imported'));
+		await fixture.runtime.importUpdate(
+			noteA,
+			createUpdate('content', 'imported'),
+		);
 
 		// The import is persistence-only: no network connection was opened and
 		// the transient store lease was disposed once the bytes were durable.
@@ -144,11 +158,112 @@ describe('provider-owned row document runtime', () => {
 		fixture.store.resolveLoad(noteA);
 		using document = await opening;
 
-		await fixture.runtime.importUpdate(noteA, createUpdate('content', 'imported'));
+		await fixture.runtime.importUpdate(
+			noteA,
+			createUpdate('content', 'imported'),
+		);
 
 		expect(document.get('content').toString()).toBe('imported');
 		expect(fixture.store.attaches).toBe(1);
 		expect(fixture.connections).toBe(1);
+	});
+
+	test('opening waits for a transient import to release its persistence lease', async () => {
+		const fixture = setup();
+		fixture.store.resolveLoad(noteA);
+		fixture.store.blockDurability(noteA);
+		const importing = fixture.runtime.importUpdate(
+			noteA,
+			createUpdate('content', 'imported'),
+		);
+		await waitFor(() => fixture.store.durabilityCuts === 1);
+
+		const opening = fixture.runtime.open(noteA);
+		await flush();
+		expect(fixture.store.attaches).toBe(1);
+		expect(fixture.store.activeLeases).toBe(1);
+		expect(fixture.store.maximumActiveLeases).toBe(1);
+
+		fixture.store.resolveDurability(noteA);
+		await importing;
+		using document = await opening;
+
+		expect(fixture.store.attaches).toBe(2);
+		expect(fixture.store.maximumActiveLeases).toBe(1);
+		expect(document.get('content')).toBeDefined();
+	});
+
+	test('captureDurabilityBarrier includes a transient import admitted before the cut', async () => {
+		const fixture = setup();
+		fixture.store.resolveLoad(noteA);
+		fixture.store.blockDurability(noteA);
+		const importing = fixture.runtime.importUpdate(
+			noteA,
+			createUpdate('content', 'imported'),
+		);
+		await waitFor(() => fixture.store.durabilityCuts === 1);
+
+		let captured = false;
+		const barrier = fixture.runtime.captureDurabilityBarrier().then(() => {
+			captured = true;
+		});
+		await flush();
+		expect(captured).toBe(false);
+
+		fixture.store.resolveDurability(noteA);
+		await Promise.all([importing, barrier]);
+		expect(captured).toBe(true);
+	});
+
+	test('runtime disposal waits for a transient import and prevents it from applying after disposal starts', async () => {
+		const fixture = setup();
+		const importing = fixture.runtime.importUpdate(
+			noteA,
+			createUpdate('content', 'imported'),
+		);
+		await waitFor(() => fixture.store.attaches === 1);
+
+		let disposed = false;
+		const disposal = fixture.runtime[Symbol.asyncDispose]().then(() => {
+			disposed = true;
+		});
+		await flush();
+		expect(disposed).toBe(false);
+
+		fixture.store.resolveLoad(noteA);
+		await expect(importing).rejects.toThrow('runtime is disposed');
+		await disposal;
+
+		expect(disposed).toBe(true);
+		expect(fixture.store.updates).toHaveLength(0);
+		expect(fixture.store.activeLeases).toBe(0);
+		expect(fixture.events).toEqual(['persistence:notes/a']);
+	});
+
+	test('revocation waits for a transient import and prevents it from applying after the epoch changes', async () => {
+		const fixture = setup();
+		const importing = fixture.runtime.importUpdate(
+			noteA,
+			createUpdate('content', 'imported'),
+		);
+		await waitFor(() => fixture.store.attaches === 1);
+
+		let revoked = false;
+		const revocation = fixture.runtime.revoke(noteA).then(() => {
+			revoked = true;
+		});
+		await flush();
+		expect(revoked).toBe(false);
+
+		fixture.store.resolveLoad(noteA);
+		await expect(importing).rejects.toThrow(
+			'revoked during an active operation',
+		);
+		await revocation;
+
+		expect(revoked).toBe(true);
+		expect(fixture.store.updates).toHaveLength(0);
+		expect(fixture.store.activeLeases).toBe(0);
 	});
 
 	test('importing a document for an absent row is refused before persistence', async () => {
@@ -238,12 +353,15 @@ function setup({
 
 class FakeStore implements DocumentStore {
 	readonly #loads = new Map<string, PromiseWithResolvers<void>>();
+	readonly #durability = new Map<string, PromiseWithResolvers<void>>();
 	readonly #hydration = new Map<string, Uint8Array>();
 	readonly events: string[];
 	readonly onAttach:
 		| ((address: RowAddress, document: Y.Doc) => void)
 		| undefined;
 	attaches = 0;
+	activeLeases = 0;
+	maximumActiveLeases = 0;
 	durabilityCuts = 0;
 	updates: Uint8Array[] = [];
 
@@ -257,6 +375,11 @@ class FakeStore implements DocumentStore {
 
 	attach(address: RowAddress, document: Y.Doc): DocumentPersistenceLease {
 		this.attaches += 1;
+		this.activeLeases += 1;
+		this.maximumActiveLeases = Math.max(
+			this.maximumActiveLeases,
+			this.activeLeases,
+		);
 		const key = addressKey(address);
 		const loaded = this.#loads.get(key) ?? Promise.withResolvers<void>();
 		this.#loads.set(key, loaded);
@@ -273,9 +396,11 @@ class FakeStore implements DocumentStore {
 			}),
 			whenDurable: async () => {
 				this.durabilityCuts += 1;
+				await this.#durability.get(key)?.promise;
 			},
 			dispose: async () => {
 				document.off('updateV2', updateHandler);
+				this.activeLeases -= 1;
 				this.events.push(`persistence:${formatAddress(address)}`);
 			},
 		};
@@ -290,6 +415,14 @@ class FakeStore implements DocumentStore {
 		const loaded = this.#loads.get(key) ?? Promise.withResolvers<void>();
 		this.#loads.set(key, loaded);
 		loaded.resolve();
+	}
+
+	blockDurability(address: RowAddress): void {
+		this.#durability.set(addressKey(address), Promise.withResolvers<void>());
+	}
+
+	resolveDurability(address: RowAddress): void {
+		this.#durability.get(addressKey(address))?.resolve();
 	}
 
 	capture(): Promise<Uint8Array | undefined> {
