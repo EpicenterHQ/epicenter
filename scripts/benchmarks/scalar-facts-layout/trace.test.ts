@@ -12,6 +12,11 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 
 import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
 import {
+	encodedFactBytes,
+	parseFact,
+} from '../../../packages/data/src/protocol/v1/facts.js';
+import { makeLimits } from '../../../packages/data/src/protocol/v1/kernel.test-support.js';
+import {
 	addressKey,
 	canonicalFactRecord,
 	type Fact,
@@ -22,6 +27,7 @@ import {
 	presentCountFor,
 	type TraceOptions,
 	traceSelfTest,
+	utf8Len,
 } from './trace.js';
 
 const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
@@ -358,5 +364,43 @@ describe('determinism', () => {
 		}).measure();
 		expect(a).toEqual(b);
 		expect(c.digestHex).not.toBe(a.digestHex);
+	});
+});
+
+// Bind a representative corpus sample to the REAL private V1 kernel: every
+// generated fact must be admissible through `parseFact`, and the trace's own
+// protocol-fact byte accounting must equal the kernel's `encodedFactBytes`. This
+// proves the corpus is made of real V1 facts, not a look-alike shape.
+describe('trace facts bind to the private V1 kernel', () => {
+	const limits = makeLimits({
+		maxEncodedFactBytes: 1 << 20,
+		maxFactsResponseBytes: 1 << 30,
+		maxSubmissionResponseBytes: 1 << 30,
+		propertiesPerObject: 8192,
+		maxFieldKeyBytes: 512,
+	});
+	const trace = makeTrace({
+		...BASE,
+		targetLogicalStateBytes: BASE.facts * 200,
+	});
+
+	test('finalFactAt samples parse as V1 facts and agree on byte length', () => {
+		// Cover value-first indices and row indices (finalFactAt(0) is a value).
+		const indices = [0, 1, 2, 50, 500, BASE.facts - 1];
+		for (const index of indices) {
+			const fact = trace.finalFactAt(index);
+			const parsed = parseFact(fact as unknown, limits);
+			expect(parsed.error).toBeNull();
+			// The trace's protocol-fact bytes are the kernel's encodedFactBytes.
+			expect(encodedFactBytes(fact as never)).toBe(
+				utf8Len(canonicalFactRecord(fact)),
+			);
+		}
+	});
+
+	test('a corrupt fact (extra field) is refused by parseFact', () => {
+		const fact = trace.finalFactAt(1);
+		const corrupt = { ...fact, extra: 1 } as unknown;
+		expect(parseFact(corrupt, limits).error).not.toBeNull();
 	});
 });
