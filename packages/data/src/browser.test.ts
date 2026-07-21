@@ -9,7 +9,8 @@
  * - typed table and value operations round-trip through worker RPC
  * - concurrent tabs observe and commit against one durable owner
  * - incremental row-document updates persist and deletion revokes handles
- * - sync attachment errors and owner disposal cross the RPC boundary
+ * - sync failover cancels stale generations without overlapping page callbacks
+ * - vanished sync ports retire on a bounded timeout while disposal stays graceful
  */
 
 import { Database } from 'bun:sqlite';
@@ -37,10 +38,12 @@ type MessageListener = (event: { data: never }) => void;
 
 class FakeMessagePort {
 	peer: FakeMessagePort | undefined;
+	readonly sent: unknown[] = [];
 	private readonly listeners = new Set<MessageListener>();
 
 	postMessage(message: unknown): void {
 		const cloned = structuredClone(message);
+		this.sent.push(cloned);
 		queueMicrotask(() => this.peer?.emit(cloned));
 	}
 
@@ -50,7 +53,15 @@ class FakeMessagePort {
 
 	start(): void {}
 
-	close(): void {}
+	close(): void {
+		this.vanish();
+	}
+
+	vanish(): void {
+		const peer = this.peer;
+		this.peer = undefined;
+		if (peer?.peer === this) peer.peer = undefined;
+	}
 
 	private emit(message: unknown): void {
 		for (const listener of this.listeners) {
@@ -62,6 +73,10 @@ class FakeMessagePort {
 function createPortPair(): {
 	page: ClientMessagePort;
 	worker: MessagePortLike;
+	vanish(): void;
+	pageMessages: unknown[];
+	sendWorkerMessage(message: unknown): void;
+	workerMessages: unknown[];
 } {
 	const page = new FakeMessagePort();
 	const worker = new FakeMessagePort();
@@ -70,6 +85,10 @@ function createPortPair(): {
 	return {
 		page: page as ClientMessagePort,
 		worker: worker as MessagePortLike,
+		vanish: () => page.vanish(),
+		pageMessages: page.sent,
+		sendWorkerMessage: (message) => worker.postMessage(message),
+		workerMessages: worker.sent,
 	};
 }
 
@@ -178,8 +197,10 @@ const theme = defineValue({
 
 async function setup({
 	exchangeTimeoutMs,
+	transportRetirementMs,
 }: {
 	exchangeTimeoutMs?: number;
+	transportRetirementMs?: number;
 } = {}) {
 	const owner = createStoreOwner();
 	const broadcasts = new FakeBroadcastHub();
@@ -187,18 +208,43 @@ async function setup({
 		openStore: owner.openStore,
 		hostId: 'browser-test-host',
 		...(exchangeTimeoutMs === undefined ? {} : { exchangeTimeoutMs }),
+		...(transportRetirementMs === undefined ? {} : { transportRetirementMs }),
 	});
 
-	async function openTab(): Promise<BrowserEpicenter> {
-		const { page, worker } = createPortPair();
+	async function openControlledTab(): Promise<{
+		epicenter: BrowserEpicenter;
+		vanish(): void;
+		pageMessages: unknown[];
+		sendWorkerMessage(message: unknown): void;
+		workerMessages: unknown[];
+	}> {
+		const {
+			page,
+			worker,
+			vanish,
+			pageMessages,
+			sendWorkerMessage,
+			workerMessages,
+		} = createPortPair();
 		host.connect(worker);
-		return openBrowserEpicenter({
+		const epicenter = await openBrowserEpicenter({
 			createSharedWorker: () => ({ port: page }),
 			createBroadcastChannel: broadcasts.create,
 		});
+		return {
+			epicenter,
+			vanish,
+			pageMessages,
+			sendWorkerMessage,
+			workerMessages,
+		};
 	}
 
-	return { broadcasts, openTab, owner };
+	async function openTab(): Promise<BrowserEpicenter> {
+		return (await openControlledTab()).epicenter;
+	}
+
+	return { broadcasts, openControlledTab, openTab, owner };
 }
 
 function bindTestData(epicenter: BrowserEpicenter) {
@@ -442,10 +488,14 @@ test('sync retries the exact request through another tab when the selected trans
 	await waitFor(() => first.syncStatus.state === 'authentication-required');
 });
 
-test('a late reply re-enables the current sole sync transport', async () => {
+test('timed-out generations serialize page callbacks before a fresh retry', async () => {
 	const { openTab } = await setup({ exchangeTimeoutMs: 10 });
 	await using epicenter = await openTab();
 	const requests: ExchangeRequest[] = [];
+	let activeExchanges = 0;
+	let maximumActiveExchanges = 0;
+	let releaseStall: (() => void) | undefined;
+	let stallNext = false;
 
 	expectOk(
 		await epicenter.attachSync({
@@ -453,28 +503,105 @@ test('a late reply re-enables the current sole sync transport', async () => {
 			principalId: 'alice',
 			async exchange(request) {
 				requests.push(request);
-				if (requests.length === 2) await Bun.sleep(25);
+				activeExchanges += 1;
+				maximumActiveExchanges = Math.max(
+					maximumActiveExchanges,
+					activeExchanges,
+				);
+				try {
+					if (stallNext) {
+						stallNext = false;
+						await new Promise<void>((resolve) => {
+							releaseStall = resolve;
+						});
+					}
+					return acknowledge(request);
+				} finally {
+					activeExchanges -= 1;
+				}
+			},
+		}),
+	);
+	const beforeWrite = requests.length;
+	stallNext = true;
+
+	await bindTestData(epicenter).tables.notes.create({
+		title: 'Serialize retry',
+	});
+	await waitFor(() => releaseStall !== undefined);
+	await Bun.sleep(30);
+	expect(maximumActiveExchanges).toBe(1);
+	expect(requests).toHaveLength(beforeWrite + 1);
+	releaseStall?.();
+	await waitFor(
+		() =>
+			requests.length >= beforeWrite + 2 &&
+			epicenter.syncStatus.state === 'idle',
+	);
+	expect(requests.at(-1)).toEqual(requests.at(-2));
+	expect(maximumActiveExchanges).toBe(1);
+});
+
+test('exchange cancellation requires both generation and transport key', async () => {
+	const { openControlledTab } = await setup({ exchangeTimeoutMs: 1_000 });
+	const tab = await openControlledTab();
+	await using epicenter = tab.epicenter;
+	let releaseExchange: (() => void) | undefined;
+	let stallNext = false;
+
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			async exchange(request) {
+				if (stallNext) {
+					stallNext = false;
+					await new Promise<void>((resolve) => {
+						releaseExchange = resolve;
+					});
+				}
 				return acknowledge(request);
 			},
 		}),
 	);
-
-	await bindTestData(epicenter).tables.notes.create({ title: 'Recover late' });
+	stallNext = true;
+	await bindTestData(epicenter).tables.notes.create({ title: 'Correlate' });
+	await waitFor(() => releaseExchange !== undefined);
+	const request = lastMessageOfType(tab.workerMessages, 'exchange-request');
+	if (
+		request === undefined ||
+		typeof request.transportId !== 'number' ||
+		typeof request.transportKey !== 'number'
+	)
+		throw new Error('Expected a correlated exchange request');
+	tab.sendWorkerMessage({
+		type: 'exchange-cancel',
+		transportId: request.transportId + 1,
+		transportKey: request.transportKey,
+	});
+	tab.sendWorkerMessage({
+		type: 'exchange-cancel',
+		transportId: request.transportId,
+		transportKey: request.transportKey + 1,
+	});
+	releaseExchange?.();
 	await waitFor(
-		() => requests.length >= 3 && epicenter.syncStatus.state === 'idle',
+		() =>
+			lastMessageOfType(tab.pageMessages, 'exchange-result')?.transportId ===
+			request.transportId,
 	);
-	expect(requests[2]).toEqual(requests[1]);
 });
 
-test('a timed-out sole transport half-opens without losing credential state', async () => {
-	const { openTab } = await setup({ exchangeTimeoutMs: 10 });
+test('a timed-out sole transport keeps credentials until bounded retirement', async () => {
+	const { openTab } = await setup({
+		exchangeTimeoutMs: 10,
+		transportRetirementMs: 50,
+	});
 	await using epicenter = await openTab();
 	const states: string[] = [];
-	const requests: ExchangeRequest[] = [];
 	const unsubscribe = epicenter.subscribeSyncStatus(({ state }) => {
 		states.push(state);
 	});
-	let exchanges = 0;
 	let stallNext = false;
 
 	expectOk(
@@ -482,8 +609,6 @@ test('a timed-out sole transport half-opens without losing credential state', as
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
 			exchange(request) {
-				exchanges += 1;
-				requests.push(request);
 				if (stallNext) {
 					stallNext = false;
 					return new Promise<ExchangeResponse>(() => undefined);
@@ -492,15 +617,12 @@ test('a timed-out sole transport half-opens without losing credential state', as
 			},
 		}),
 	);
-	const beforeWrite = exchanges;
 	stallNext = true;
 
-	await bindTestData(epicenter).tables.notes.create({ title: 'Half open' });
-	await waitFor(
-		() => exchanges >= beforeWrite + 2 && epicenter.syncStatus.state === 'idle',
-	);
-	expect(requests.at(-1)).toEqual(requests.at(-2));
+	await bindTestData(epicenter).tables.notes.create({ title: 'Retire stale' });
+	await waitFor(() => epicenter.syncStatus.state === 'offline');
 	expect(states).not.toContain('authentication-required');
+	await waitFor(() => epicenter.syncStatus.state === 'authentication-required');
 	unsubscribe();
 });
 
@@ -526,11 +648,11 @@ test('a quarantined transport recovers after its healthy peer disconnects', asyn
 		await first.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
-			exchange(request) {
+			async exchange(request) {
 				firstExchanges += 1;
 				if (firstStalls) {
 					firstStalls = false;
-					return new Promise<ExchangeResponse>(() => undefined);
+					await Bun.sleep(25);
 				}
 				return acknowledge(request);
 			},
@@ -547,6 +669,279 @@ test('a quarantined transport recovers after its healthy peer disconnects', asyn
 		() =>
 			firstExchanges > firstBeforeDisconnect &&
 			first.syncStatus.state === 'idle',
+	);
+});
+
+test('an abruptly vanished sync port is retired after bounded time', async () => {
+	const { openControlledTab, openTab } = await setup({
+		exchangeTimeoutMs: 10,
+		transportRetirementMs: 40,
+	});
+	await using first = await openTab();
+	const second = await openControlledTab();
+	let firstExchanges = 0;
+
+	expectOk(
+		await first.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				firstExchanges += 1;
+				return acknowledge(request);
+			},
+		}),
+	);
+	expectOk(
+		await second.epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange: acknowledge,
+		}),
+	);
+	second.vanish();
+	const firstBeforeFailover = firstExchanges;
+	const retirementsBeforeFailure = countMessages(
+		second.workerMessages,
+		'exchange-retire',
+	);
+
+	await bindTestData(first).tables.notes.create({ title: 'Vanished peer' });
+	await waitFor(() => firstExchanges > firstBeforeFailover);
+	await waitFor(
+		() =>
+			countMessages(second.workerMessages, 'exchange-retire') >
+			retirementsBeforeFailure,
+	);
+	const vanishedRequestsAfterRetirement = countMessages(
+		second.workerMessages,
+		'exchange-request',
+	);
+	const firstBeforeNextWrite = firstExchanges;
+	await bindTestData(first).tables.notes.create({ title: 'Retired peer' });
+	await waitFor(() => firstExchanges > firstBeforeNextWrite);
+	expect(countMessages(second.workerMessages, 'exchange-request')).toBe(
+		vanishedRequestsAfterRetirement,
+	);
+});
+
+test('retired transports can reattach repeatedly without reviving old callbacks', async () => {
+	const { openControlledTab } = await setup({
+		exchangeTimeoutMs: 10,
+		transportRetirementMs: 30,
+	});
+	const tab = await openControlledTab();
+	await using epicenter = tab.epicenter;
+	const attachments = [
+		{ count: 0, stallNext: false },
+		{ count: 0, stallNext: false },
+		{ count: 0, stallNext: false },
+	];
+
+	async function attach(index: number): Promise<void> {
+		const attachment = attachments[index];
+		if (attachment === undefined) throw new Error('Missing test attachment');
+		expectOk(
+			await epicenter.attachSync({
+				deploymentId: 'https://example.test/',
+				principalId: 'alice',
+				exchange(request) {
+					attachment.count += 1;
+					if (attachment.stallNext) {
+						attachment.stallNext = false;
+						return new Promise<ExchangeResponse>(() => undefined);
+					}
+					return acknowledge(request);
+				},
+			}),
+		);
+	}
+
+	for (let index = 0; index < 2; index += 1) {
+		await attach(index);
+		const attachment = attachments[index];
+		if (attachment === undefined) throw new Error('Missing test attachment');
+		attachment.stallNext = true;
+		const retirementsBeforeWrite = countMessages(
+			tab.workerMessages,
+			'exchange-retire',
+		);
+		await bindTestData(epicenter).tables.notes.create({
+			title: `Retire ${index}`,
+		});
+		await waitFor(
+			() =>
+				countMessages(tab.workerMessages, 'exchange-retire') >
+				retirementsBeforeWrite,
+		);
+		await waitFor(
+			() => epicenter.syncStatus.state === 'authentication-required',
+		);
+	}
+
+	const retiredCounts = attachments.slice(0, 2).map(({ count }) => count);
+	await attach(2);
+	const healthy = attachments[2];
+	if (healthy === undefined) throw new Error('Missing healthy attachment');
+	const healthyBeforeWrite = healthy.count;
+	await bindTestData(epicenter).tables.notes.create({ title: 'Healthy again' });
+	await waitFor(() => healthy.count > healthyBeforeWrite);
+	expect(attachments.slice(0, 2).map(({ count }) => count)).toEqual(
+		retiredCounts,
+	);
+});
+
+test('replacing an in-flight transport terminally retires its callback capability', async () => {
+	const { openControlledTab } = await setup({
+		exchangeTimeoutMs: 60_000,
+		transportRetirementMs: 60_000,
+	});
+	const tab = await openControlledTab();
+	await using epicenter = tab.epicenter;
+	let firstExchanges = 0;
+	let secondExchanges = 0;
+	let stallFirst = false;
+
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				firstExchanges += 1;
+				if (stallFirst) return new Promise<ExchangeResponse>(() => undefined);
+				return acknowledge(request);
+			},
+		}),
+	);
+	stallFirst = true;
+	await bindTestData(epicenter).tables.notes.create({ title: 'Stall old' });
+	await waitFor(() => firstExchanges >= 2);
+	const retirementsBeforeReplacement = countMessages(
+		tab.workerMessages,
+		'exchange-retire',
+	);
+
+	expectOk(
+		await settleWithin(
+			epicenter.attachSync({
+				deploymentId: 'https://example.test/',
+				principalId: 'alice',
+				exchange(request) {
+					secondExchanges += 1;
+					return acknowledge(request);
+				},
+			}),
+			1_000,
+		),
+	);
+	expect(countMessages(tab.workerMessages, 'exchange-retire')).toBe(
+		retirementsBeforeReplacement + 1,
+	);
+	const firstAfterReplacement = firstExchanges;
+	const secondBeforeWrite = secondExchanges;
+	await bindTestData(epicenter).tables.notes.create({
+		title: 'Use replacement',
+	});
+	await waitFor(() => secondExchanges > secondBeforeWrite);
+	expect(firstExchanges).toBe(firstAfterReplacement);
+});
+
+test('disposing during replacement fails the new exchange without its timeout', async () => {
+	const { openControlledTab } = await setup({
+		exchangeTimeoutMs: 60_000,
+		transportRetirementMs: 60_000,
+	});
+	const tab = await openControlledTab();
+	let firstExchanges = 0;
+	let secondExchanges = 0;
+	let stallFirst = false;
+
+	expectOk(
+		await tab.epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				firstExchanges += 1;
+				if (stallFirst) return new Promise<ExchangeResponse>(() => undefined);
+				return acknowledge(request);
+			},
+		}),
+	);
+	stallFirst = true;
+	await bindTestData(tab.epicenter).tables.notes.create({ title: 'Stall old' });
+	await waitFor(() => firstExchanges >= 2);
+	const replacing = tab.epicenter.attachSync({
+		deploymentId: 'https://example.test/',
+		principalId: 'alice',
+		exchange(request) {
+			secondExchanges += 1;
+			return acknowledge(request);
+		},
+	});
+	const disposing = tab.epicenter[Symbol.asyncDispose]();
+	const [replacement, disposal] = await settleWithin(
+		Promise.allSettled([replacing, disposing]),
+		1_000,
+	);
+	expect(replacement.status).toBe('rejected');
+	expect(disposal.status).toBe('fulfilled');
+	expect(secondExchanges).toBe(0);
+});
+
+test('disposing a page cancels its active exchange generation', async () => {
+	const { openControlledTab } = await setup({ exchangeTimeoutMs: 100 });
+	const tab = await openControlledTab();
+	let releaseExchange: (() => void) | undefined;
+	let stallNext = false;
+	let exchanges = 0;
+
+	expectOk(
+		await tab.epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			async exchange(request) {
+				exchanges += 1;
+				if (stallNext) {
+					stallNext = false;
+					await new Promise<void>((resolve) => {
+						releaseExchange = resolve;
+					});
+				}
+				return acknowledge(request);
+			},
+		}),
+	);
+	stallNext = true;
+	await bindTestData(tab.epicenter).tables.notes.create({ title: 'Dispose' });
+	await waitFor(() => releaseExchange !== undefined);
+	const activeRequest = lastMessageOfType(
+		tab.workerMessages,
+		'exchange-request',
+	);
+	const exchangesAtDisposal = exchanges;
+	const disposal = tab.epicenter[Symbol.asyncDispose]();
+	expect(() =>
+		bindTestData(tab.epicenter).tables.notes.create({ title: 'Too late' }),
+	).toThrow('disposed');
+	if (
+		activeRequest === undefined ||
+		typeof activeRequest.transportKey !== 'number' ||
+		typeof activeRequest.request !== 'object'
+	)
+		throw new Error('Expected an active exchange request');
+	tab.sendWorkerMessage({
+		type: 'exchange-request',
+		transportId: Number.MAX_SAFE_INTEGER,
+		transportKey: activeRequest.transportKey,
+		request: activeRequest.request,
+	});
+	await Promise.resolve();
+	expect(exchanges).toBe(exchangesAtDisposal);
+	await disposal;
+	const resultsAtDisposal = countMessages(tab.pageMessages, 'exchange-result');
+	releaseExchange?.();
+	await Bun.sleep(10);
+	expect(countMessages(tab.pageMessages, 'exchange-result')).toBe(
+		resultsAtDisposal,
 	);
 });
 
@@ -573,6 +968,24 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 	}
 }
 
+async function settleWithin<TValue>(
+	promise: Promise<TValue>,
+	timeoutMs: number,
+): Promise<TValue> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`Operation exceeded ${timeoutMs}ms`)),
+			timeoutMs,
+		);
+	});
+	try {
+		return await Promise.race([promise, timeout]);
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+}
+
 function acknowledge(request: ExchangeRequest): ExchangeResponse {
 	return {
 		...(request.batch === undefined
@@ -588,6 +1001,29 @@ function acknowledge(request: ExchangeRequest): ExchangeResponse {
 		records: [],
 		next: null,
 	};
+}
+
+function countMessages(messages: unknown[], type: string): number {
+	return messages.filter(
+		(message) =>
+			typeof message === 'object' &&
+			message !== null &&
+			'type' in message &&
+			message.type === type,
+	).length;
+}
+
+function lastMessageOfType(
+	messages: unknown[],
+	type: string,
+): (Record<string, unknown> & { type: string }) | undefined {
+	return messages.findLast(
+		(message): message is Record<string, unknown> & { type: string } =>
+			typeof message === 'object' &&
+			message !== null &&
+			'type' in message &&
+			message.type === type,
+	);
 }
 
 function createMutableCredentials() {

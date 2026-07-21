@@ -130,6 +130,15 @@ export type BrowserWorkerMessage =
 			transportId: number;
 			transportKey: number;
 			request: ExchangeRequest;
+	  }
+	| {
+			type: 'exchange-cancel';
+			transportId: number;
+			transportKey: number;
+	  }
+	| {
+			type: 'exchange-retire';
+			transportKey: number;
 	  };
 
 export type BrowserInvalidationSignal = Omit<BrowserInvalidation, 'broadcast'>;

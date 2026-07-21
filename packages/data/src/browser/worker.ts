@@ -64,9 +64,11 @@ type Client = {
 	syncTransportKey: number | undefined;
 	syncAttachmentOrder: number;
 	syncTransportAvailable: boolean;
+	syncTransportRetirement: ReturnType<typeof setTimeout> | undefined;
 	transports: Map<
 		number,
 		{
+			transportKey: number;
 			resolve(value: unknown): void;
 			reject(cause: unknown): void;
 		}
@@ -107,10 +109,12 @@ export function createBrowserWorkerHost({
 	openStore = openBrowserWorkerStore,
 	hostId = crypto.randomUUID(),
 	exchangeTimeoutMs = DEFAULT_EXCHANGE_TIMEOUT_MS,
+	transportRetirementMs = Math.max(exchangeTimeoutMs * 2, 1_000),
 }: {
 	openStore?: (options: { onStolen(): void }) => Promise<BrowserWorkerStore>;
 	hostId?: string;
 	exchangeTimeoutMs?: number;
+	transportRetirementMs?: number;
 } = {}) {
 	const clients = new Set<Client>();
 	const syncCredentialListeners = new Set<() => void>();
@@ -139,6 +143,81 @@ export function createBrowserWorkerHost({
 		for (const listener of syncCredentialListeners) listener();
 	}
 
+	function cancelTransportRetirement(client: Client): void {
+		if (client.syncTransportRetirement === undefined) return;
+		clearTimeout(client.syncTransportRetirement);
+		client.syncTransportRetirement = undefined;
+	}
+
+	function cancelExchange(
+		client: Client,
+		transportId: number,
+		transportKey: number,
+	): void {
+		try {
+			client.port.postMessage({
+				type: 'exchange-cancel',
+				transportId,
+				transportKey,
+			});
+		} catch {
+			// The transport is already unreachable.
+		}
+	}
+
+	function retireTransportCapability(
+		client: Client,
+		transportKey: number,
+	): void {
+		if (client.syncTransportKey === transportKey) {
+			cancelTransportRetirement(client);
+			client.syncTransportKey = undefined;
+			client.syncAttachmentOrder = 0;
+			client.syncTransportAvailable = false;
+		}
+		for (const [transportId, pending] of client.transports) {
+			if (pending.transportKey !== transportKey) continue;
+			client.transports.delete(transportId);
+			cancelExchange(client, transportId, transportKey);
+			pending.reject(new Error('Browser sync transport was retired'));
+		}
+		client.credentials.delete(transportKey);
+		try {
+			client.port.postMessage({ type: 'exchange-retire', transportKey });
+		} catch {
+			// The page vanished; the worker-side capability is still retired.
+		}
+		notifySyncCredentials();
+	}
+
+	function retireSyncTransport(client: Client, transportKey: number): void {
+		if (
+			client.syncTransportKey !== transportKey ||
+			client.syncTransportAvailable
+		)
+			return;
+		retireTransportCapability(client, transportKey);
+	}
+
+	function quarantineSyncTransport(client: Client, transportKey: number): void {
+		if (client.syncTransportKey !== transportKey) return;
+		client.syncTransportAvailable = false;
+		client.syncAttachmentOrder = 0;
+		// MessagePort has no remote-close event. Retire only the sync capability:
+		// the same page may still have a healthy local-data RPC connection.
+		client.syncTransportRetirement ??= setTimeout(
+			() => retireSyncTransport(client, transportKey),
+			transportRetirementMs,
+		);
+	}
+
+	function markSyncTransportLive(client: Client, transportKey: number): void {
+		if (client.syncTransportKey !== transportKey) return;
+		cancelTransportRetirement(client);
+		client.syncTransportAvailable = true;
+		client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
+	}
+
 	const syncCredentials = {
 		get(): string | undefined {
 			return syncClients().some((client) => {
@@ -164,13 +243,12 @@ export function createBrowserWorkerHost({
 			if (!client.credentials.get(transportKey)?.hasCredentials) continue;
 			try {
 				const response = await exchange(client, transportKey, request);
-				if (!client.syncTransportAvailable) {
-					client.syncTransportAvailable = true;
-					client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
-				}
+				markSyncTransportLive(client, transportKey);
 				return response;
 			} catch (cause) {
-				client.syncAttachmentOrder = 0;
+				if (client.syncTransportKey === transportKey) {
+					client.syncAttachmentOrder = 0;
+				}
 				lastFailure = cause;
 			}
 		}
@@ -264,7 +342,11 @@ export function createBrowserWorkerHost({
 		isStolen = true;
 		const cause = storageMovedError();
 		for (const client of clients) {
-			for (const pending of client.transports.values()) pending.reject(cause);
+			cancelTransportRetirement(client);
+			for (const [transportId, pending] of client.transports) {
+				cancelExchange(client, transportId, pending.transportKey);
+				pending.reject(cause);
+			}
 			client.transports.clear();
 		}
 		requestTail = requestTail.then(() => disposeStore());
@@ -286,7 +368,11 @@ export function createBrowserWorkerHost({
 			await closeDocument(client, documentId);
 		}
 		const cause = new Error('Browser Epicenter client disconnected');
-		for (const pending of client.transports.values()) pending.reject(cause);
+		cancelTransportRetirement(client);
+		for (const [transportId, pending] of client.transports) {
+			cancelExchange(client, transportId, pending.transportKey);
+			pending.reject(cause);
+		}
 		client.transports.clear();
 		client.credentials.clear();
 		clients.delete(client);
@@ -364,20 +450,23 @@ export function createBrowserWorkerHost({
 				return undefined;
 			case 'attach-sync': {
 				const previousTransportKey = client.syncTransportKey;
-				const previousAttachmentOrder = client.syncAttachmentOrder;
-				const previousTransportAvailable = client.syncTransportAvailable;
+				if (previousTransportKey !== undefined) {
+					const accepted = store.replica.attach({
+						deploymentId: operation.deploymentId,
+						principalId: operation.principalId,
+					});
+					if (accepted.error !== null) return accepted;
+				}
 				client.credentials.set(operation.transportKey, {
 					hasCredentials: operation.hasCredentials,
 				});
 				client.syncTransportKey = operation.transportKey;
 				client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
 				client.syncTransportAvailable = true;
-				const restorePreviousTransport = () => {
-					client.credentials.delete(operation.transportKey);
-					client.syncTransportKey = previousTransportKey;
-					client.syncAttachmentOrder = previousAttachmentOrder;
-					client.syncTransportAvailable = previousTransportAvailable;
-				};
+				cancelTransportRetirement(client);
+				if (previousTransportKey !== undefined) {
+					retireTransportCapability(client, previousTransportKey);
+				}
 				let attached: Awaited<ReturnType<Epicenter['attachSync']>>;
 				try {
 					attached = await store.epicenter.attachSync({
@@ -387,13 +476,11 @@ export function createBrowserWorkerHost({
 						credentials: syncCredentials,
 					});
 				} catch (cause) {
-					restorePreviousTransport();
+					retireTransportCapability(client, operation.transportKey);
 					throw cause;
 				}
 				if (attached.error !== null) {
-					restorePreviousTransport();
-				} else if (previousTransportKey !== undefined) {
-					client.credentials.delete(previousTransportKey);
+					retireTransportCapability(client, operation.transportKey);
 				}
 				return attached;
 			}
@@ -402,6 +489,7 @@ export function createBrowserWorkerHost({
 				if (credential === undefined) return undefined;
 				credential.hasCredentials = operation.hasCredentials;
 				client.syncTransportAvailable = true;
+				cancelTransportRetirement(client);
 				if (operation.hasCredentials) {
 					client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
 				}
@@ -445,10 +533,12 @@ export function createBrowserWorkerHost({
 		return new Promise<ExchangeResponse>((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				if (!client.transports.delete(transportId)) return;
-				client.syncTransportAvailable = false;
+				cancelExchange(client, transportId, transportKey);
+				quarantineSyncTransport(client, transportKey);
 				reject(new Error('Browser sync transport timed out'));
 			}, exchangeTimeoutMs);
 			client.transports.set(transportId, {
+				transportKey,
 				resolve(value) {
 					clearTimeout(timeout);
 					resolve(value as ExchangeResponse);
@@ -468,7 +558,7 @@ export function createBrowserWorkerHost({
 			} catch (cause) {
 				clearTimeout(timeout);
 				client.transports.delete(transportId);
-				client.syncTransportAvailable = false;
+				quarantineSyncTransport(client, transportKey);
 				reject(cause);
 			}
 		});
@@ -479,19 +569,13 @@ export function createBrowserWorkerHost({
 		message: BrowserExchangeResult,
 	): void {
 		const pending = client.transports.get(message.transportId);
-		if (pending === undefined) {
-			if (
-				message.transportKey === client.syncTransportKey &&
-				!client.syncTransportAvailable
-			) {
-				client.syncTransportAvailable = true;
-				notifySyncCredentials();
-			}
-			return;
-		}
+		if (pending === undefined) return;
+		if (pending.transportKey !== message.transportKey) return;
 		client.transports.delete(message.transportId);
-		if (message.type === 'exchange-result') pending.resolve(message.response);
-		else {
+		if (message.type === 'exchange-result') {
+			markSyncTransportLive(client, message.transportKey);
+			pending.resolve(message.response);
+		} else {
 			const cause = new Error(message.message);
 			cause.name = message.name;
 			pending.reject(cause);
@@ -505,6 +589,7 @@ export function createBrowserWorkerHost({
 			syncTransportKey: undefined,
 			syncAttachmentOrder: 0,
 			syncTransportAvailable: false,
+			syncTransportRetirement: undefined,
 			transports: new Map(),
 			credentials: new Map(),
 		};
