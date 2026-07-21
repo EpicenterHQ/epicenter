@@ -424,13 +424,17 @@ coordinate layout
 Run all four combinations. Reject any candidate that fails the scan, install,
 reopen, integrity, or constraint proofs. Define fixed material performance and
 storage thresholds before running and retain the raw samples and query plans.
-Treat measurement instability as a reason to add repetitions or refuse a
-recommendation, never as permission to widen equivalence. A replica winner
-requires both native SQLite and browser SQLite/OPFS evidence. An authority
-winner requires both Bun SQLite and Cloudflare Durable Object SQLite evidence,
-including Cloudflare rows-read, rows-written, row-size, parameter, and CPU
-limits. A result from only one runtime is explicitly provisional and cannot
-freeze the owner's universal format.
+Treat measurement instability as a reason to refuse and diagnose the estimator,
+never as permission to widen equivalence. More outer repetitions do not cure a
+biased or under-sampled within-run estimator, while genuinely independent outer
+units can reduce uncertainty after that estimator is sound. Change the
+estimator only for a source-grounded, predeclared defect, then run a fresh pilot
+before another decision run. A
+replica winner requires both native SQLite and browser SQLite/OPFS evidence. An
+authority winner requires both Bun SQLite and Cloudflare Durable Object SQLite
+evidence, including Cloudflare rows-read, rows-written, row-size, parameter,
+and CPU limits. A result from only one runtime is explicitly provisional and
+cannot freeze the owner's universal format.
 When candidates are materially equivalent, break the tie in this order:
 direct SQLite enforcement of address and global-sequence uniqueness, fewer
 relations, indexes, and feed branches, then fewer sentinel, nullable, and
@@ -443,6 +447,138 @@ The 24-character lowercase row-ID grammar remains a permanent storage invariant;
 no private sentinel or nullable column escapes into protocol or public types.
 The fold distinguishes terminal row deletion from nonterminal value unset
 through the typed fact shape rather than relying on physical coincidence.
+
+### Local layout evidence checkpoint
+
+The 2026-07-21 Bun/native full run from source commit `670309550e` exercised all
+four layouts for both owners at
+one million facts and approximately 512 MiB of logical payload across five
+paired seeds. All 40 cells passed the constraint, scan, install, semantic-hash,
+integrity, reopen, and cleanup proofs. Normalized coordinates used about 631 MiB
+of live SQLite pages versus about 782 to 788 MiB for inline coordinates, with
+paired storage dispersion below 0.0005. This is stable evidence that normalized
+coordinates reduce storage by about 20% for this envelope. It does not select a
+relation layout or establish browser or Cloudflare costs.
+
+The retained schema-v3 report records the exact command, configuration, fixture
+DDL hash, raw timing samples, query plans, and environment (Bun 1.3.1, SQLite
+3.51.0, Apple M4 Max, macOS 25.5.0). Its uncompressed SHA-256 is
+`a97bf03f8f4d659dc88bed21d076c215e81d3ea65e5b65989c1449ceabd102c5`;
+the durable compressed artifact and reproduction notes live under
+`docs/benchmarks/scalar-facts-layout/`.
+
+The run establishes no latency ranking. Several critical per-repetition p95
+values were the maximum of only 16 samples; warm reopen had one sample; and
+sub-millisecond reads were timed one call at a time without explicit warmup.
+Unbalanced candidate position, database-build variation, process drift,
+checkpoint behavior, and operating-system scheduling may also contribute. The
+run therefore establishes that its latency estimator is inadequate, not that
+the physical layouts are stable or unstable. Do not combine those timings with
+a later run or use them to prune the four-layout matrix.
+
+Before another decision run, execute one measurement-method pilot. The pilot
+cannot issue a layout recommendation. Predeclare and enforce all of the
+following:
+
+- Keep all four candidates and both owners. Use four fresh paired seeds as the
+  independent outer units. For one seed at a time, construct and retain one
+  full-envelope database per owner and candidate, then delete all eight only
+  after that seed's pilot blocks and raw checkpoint commit. Blocks nested inside
+  one database build measure temporal repeatability; they are never treated as
+  independent seed evidence.
+- Before timing, make the modular trace the only workload source and bind
+  representative generated facts to the private V1 parser and encoded-byte
+  oracle. Keep trace generation, framing, and incremental hashing portable to
+  browser runtimes; Bun owns only the local runner and SQLite lifecycle. Define
+  and hash separate owner-specific auxiliary traces for pending intents, sealed
+  work, parked rows, row-document liveness, and authority retry state. The
+  physical coordinate decision applies to every address-bearing owner table,
+  not only confirmed facts, so no universal owner recommendation is admissible
+  while those auxiliary states are absent from the workload.
+- Measure acquisition once per outer unit and candidate on a fresh empty
+  database as total elapsed time and throughput. Measure a complete fresh feed
+  the same way after construction. These macro observations remain seed-level;
+  they are not page-p95 or block-pseudo-replicates.
+- For read-only point, traversal, overlay, resume-feed, fold, and exact-retry
+  work, interleave the same metric across candidates. Inside every seed use
+  three complete cycles of the four Williams sequences `A B D C`, `B C A D`,
+  `C D B A`, `D A C B`. Record both the seed-specific layout-to-letter mapping
+  and sequence order. Order sequences in end-to-start self-transition pairs
+  (`A B D C` then `C D B A`; `B C A D` then `D A C B`), balance the pair order
+  across seeds, and record a fixed idle plus connection-reopen boundary between
+  pairs and cycles. Model boundary position explicitly; connection reopen is
+  not claimed to clear the operating-system cache or thermal history.
+- Run a separate balanced calibration pass before any timed block. Record every
+  calibration trial and use disjoint deterministic probes. For each owner and
+  metric, choose the smallest power-of-two operation count for which every
+  candidate takes at least 20 ms, then freeze the common count. Immediately
+  before each timed candidate block, run three untimed warmup batches with a
+  second disjoint probe set. Retain every timed block and delete no outlier.
+- Measure warm reopen through at least 20 close/open observations per seed and
+  candidate, interleaved in complete balanced candidate sequences. Reduce the
+  balanced series to one seed-level estimator; do not treat serial reopens as
+  independent units or call a single observation p50, p95, or p99.
+- Treat monotonic install, row-tombstone document cleanup, and authority
+  submission settlement as mutating checkpoint-tail experiments, not reads.
+  For every seed and candidate, reconstruct a byte-equivalent logical pre-state
+  from the same canonical trace outside timing, run `ANALYZE`, checkpoint and
+  truncate the WAL, close, and reopen. Run three untimed disjoint warmup
+  transactions, restore the pre-state again, then time at least 400 sequential
+  protocol-sized transactions under production autocheckpoint behavior. Record
+  checkpoint boundaries and report the transaction p50, p95, and p99 plus total
+  throughput. A rollback, reused mutated database, or file clone with undeclared
+  copy-on-write behavior is not an admissible reset.
+- Preserve seed, database-build, cycle, sequence, boundary predecessor,
+  position, candidate, owner,
+  metric, calibration, warmup, block, and checkpoint identity in the raw output.
+  Summarize paired log ratios without pooling away the seed hierarchy. Keep
+  block dispersion, position, carryover, and checkpoint effects as diagnostics,
+  not independent experimental units or automatic refusal statistics.
+- Before retaining eight full-envelope databases, preflight measured live-page
+  bytes plus bounded WAL and temporary-copy headroom with a 25% safety margin.
+  Record the required and available bytes and the wall-time estimate. Abort
+  before a seed begins when the bound fails. Resume only at a committed seed
+  boundary from the retained raw manifest; never resume a partial timing block.
+- Predeclare a maximum of 64 measured read blocks per seed, candidate, owner,
+  and metric and an eight-hour estimated wall-time cap for one runtime's pilot
+  or final run. The pilot freezes final seed and block counts before final data
+  collection. Never add final observations after inspecting a final interval.
+- Use the pilot only to prove minimum 20 ms timed blocks, removal of cold-first
+  inflation, balanced position and carryover, deterministic state reset, and a
+  feasible final sample size. Pilot calibration, warmup, and timed blocks are
+  excluded from the independent final decision run.
+
+The final Bun/native run may make only a provisional owner recommendation. It
+uses at least eight fresh paired seeds. The fixed read-block count is a multiple
+of four from 32 through 64 per seed, candidate, owner, and metric. The pilot may
+raise the seed count, up to 32 seeds, until the estimated simultaneous
+half-width is at most `log(1.10) / 2` for latency and `log(1.05) / 2` for
+storage. A required count or wall-time above either cap refuses the decision as
+infeasible under this method.
+
+For each owner, the multiplicity family is every critical-metric and storage
+contrast across all six candidate pairs. Construct 95% familywise simultaneous
+max-t intervals from a deterministic 10,000-draw paired bootstrap over whole
+fresh seeds. First reduce each metric to one seed-level estimator: median read
+block time for a complete balanced Williams design; median balanced reopen
+series; total acquisition and fresh-feed throughput; transaction-tail summary
+for each mutating workload; and live storage bytes. Never resample an
+individual read block, reopen, or checkpoint-correlated transaction. Each
+studentized paired seed-level log contrast enters the common owner maximum
+statistic.
+
+Use log-ratio margins of `log(1.10)` for latency and `log(1.05)` for storage.
+For an interval `[L, U]` on `log(left / right)`, equivalence requires
+`[-margin, +margin]` to contain the entire interval. Reversing the comparison
+uses `[-U, -L]`. A direction is non-regressing only when its upper bound is
+within the positive margin; it is materially better only when its upper bound
+is below the negative margin. Any bound that prevents the candidate pool from
+being classified refuses the recommendation. Apply the existing architectural
+tie-break only when every surviving pair is simultaneously equivalent inside
+both margins.
+
+Browser SQLite/OPFS and Cloudflare Durable Object SQLite evidence remain
+mandatory before either universal owner format freezes.
 
 Each store's metadata is one explicit single-row table with named columns, not
 `PRAGMA user_version` (unsupported on Durable Object SQLite) and not key-value

@@ -2225,7 +2225,7 @@ function recommendations(results: RunResult[], options: Options) {
 				requiresCloudflareEvidence,
 				recommendation: null,
 				reason:
-					'paired candidate log-ratio dispersion exceeds the predeclared stability limit; add repetitions instead of widening equivalence',
+					'paired candidate timing is not reproducible under the current estimator; refuse pending a predeclared measurement-method pilot',
 				criticalMetrics: critical,
 				effectiveMateriality,
 				effectiveStorageMateriality,
@@ -2440,7 +2440,15 @@ function main(): void {
 		}
 	}
 
-	const ownerRecommendations = recommendations(results, options);
+	const ownerRecommendations = recommendations(results, options).map(
+		(recommendation) => ({
+			...recommendation,
+			decisionEligible: false,
+			recommendation: null,
+			reason:
+				'the monolithic runner does not consume the exact modular trace or the predeclared measurement-method pilot; conformance and storage diagnostics only',
+		}),
+	);
 	const simulatedFailure = results.map((result, index) =>
 		index === 0 ? { ...result, correct: false } : result,
 	);
@@ -2525,7 +2533,7 @@ function main(): void {
 		) &&
 		unstableSyntheticRecommendation?.recommendation === null &&
 		unstableSyntheticRecommendation.reason.startsWith(
-			'paired candidate log-ratio dispersion',
+			'paired candidate timing is not reproducible',
 		) &&
 		'unstableComparisons' in unstableSyntheticRecommendation &&
 		Array.isArray(unstableSyntheticRecommendation.unstableComparisons) &&

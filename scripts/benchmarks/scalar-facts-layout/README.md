@@ -9,6 +9,12 @@ never a frozen conformance run; see the qualification note below).
 It is a decision instrument, not a reusable benchmark framework, and not a
 layout freeze.
 
+Implementation status: only the exact analytical trace and its tests are
+modular today. The parent `scalar-facts-layout.ts` still owns the older corpus
+and runner, so it is hard-disabled from issuing a recommendation. It remains a
+conformance and storage diagnostic until the trace, owner-specific auxiliary
+states, layouts, runner, and decision procedure are connected behind one CLI.
+
 ## Scope (deliberately narrow)
 
 This tool compares four candidate layouts of the **confirmed-facts table only**,
@@ -173,7 +179,9 @@ builds; short operations retain raw samples.
 
 ## Files
 
-- `scalar-facts-layout.ts` (parent): CLI, profiles, argument parsing, report.
+- `scalar-facts-layout.ts` (legacy parent): CLI, profiles, argument parsing,
+  conformance/storage report, and an unconditional decision refusal until the
+  modular path replaces it.
 - `trace.ts`: deterministic corpus, aging events, and the independent oracle.
 - `layouts.ts`: the four DDL candidates, their stores, and negative constraint
   proofs.
