@@ -87,22 +87,27 @@ function cell(
 	};
 }
 
-/** A complete, correct matrix: 2 owners x 4 candidates x 5 reps, seed 100+rep. */
+// The declared repetition count for these tests: this tool's local pre-pilot
+// default (4), NOT a qualification policy.
+const REQUIRED_REPS = 4;
+
+/** A complete, correct matrix: 2 owners x 4 candidates x REQUIRED_REPS reps. */
 function fullMatrix(): RunResult[] {
 	const out: RunResult[] = [];
-	for (let rep = 0; rep < 5; rep += 1)
+	for (let rep = 0; rep < REQUIRED_REPS; rep += 1)
 		for (const owner of OWNERS)
 			for (const id of IDS) out.push(cell(owner, id, rep, 100 + rep));
 	return out;
 }
 
 const OPTIONS = {
-	profile: 'full' as const,
 	expectedRuntime: 'bun',
 	expectedProfile: 'full',
+	// Must equal the fixture cell's storage.presentCount / presentLogicalStateBytes.
+	expectedCorpus: { presentCount: 100, presentLogicalStateBytes: 1000 },
 	expectedOwners: OWNERS,
 	expectedCandidateIds: IDS,
-	requiredRepetitions: 5,
+	requiredRepetitions: REQUIRED_REPS,
 };
 
 test('a complete passing matrix is provisional, never a candidate, never ready', () => {
@@ -116,9 +121,9 @@ test('a complete passing matrix is provisional, never a candidate, never ready',
 	expect(report.passedCells).toBe(report.expectedCells);
 });
 
-test('fewer than five repetitions is incomplete', () => {
-	const three = fullMatrix().filter((r) => r.repetition < 3);
-	expect(classifyEvidence(three, OPTIONS).status).toBe('incomplete');
+test('fewer than the declared required repetitions is incomplete', () => {
+	const fewer = fullMatrix().filter((r) => r.repetition < REQUIRED_REPS - 1);
+	expect(classifyEvidence(fewer, OPTIONS).status).toBe('incomplete');
 });
 
 test('a missing cell is incomplete', () => {
@@ -226,6 +231,16 @@ describe('fails closed to invalid', () => {
 	test('witness count disagrees with storage current count', () => {
 		const results = fullMatrix();
 		(results[0] as RunResult).storage.currentCount = 121; // witness says 120
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a forged present count (not the declared corpus target)', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).storage.presentCount = 101; // declared is 100
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a forged present-proxy byte total (not the declared corpus target)', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).storage.presentLogicalStateBytes = 1001; // declared 1000
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 	test('the full forged counterexample cell', () => {

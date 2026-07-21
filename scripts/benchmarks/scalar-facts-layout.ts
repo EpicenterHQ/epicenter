@@ -93,13 +93,14 @@ never drift.
 
 Profiles:
   smoke   10,000 live addresses / 5 MiB; the default; 1 repetition; illustrative.
-  full    1,000,000 live addresses / 512 MiB (exact); 5 repetitions; the 1M
-          candidate matrix is GATED and requires --run-full-matrix.
+  full    1,000,000 live addresses / 512 MiB (exact); a local pre-pilot default of
+          4 repetitions (not a qualification policy); the 1M candidate matrix is
+          GATED and requires --run-full-matrix.
 
 Options:
   --profile <smoke|full>   default: smoke
   --seed <int>             base data seed (default 1)
-  --repetitions <int>      override the profile default (smoke 1, full 5)
+  --repetitions <int>      override the profile default (smoke 1, full 4)
   --namespaces <int>       namespace cardinality (default 25)
   --tables <int>           table cardinality (default 1000)
   --iterations <int>       timed-op iteration count (default 25)
@@ -174,7 +175,7 @@ function parseArgs(argv: string[]): Args {
 	}
 	if (args.runFullMatrix && profile === 'smoke')
 		throw new Error('--run-full-matrix is only valid with --profile full');
-	// Profile-default repetitions: smoke 1 (illustrative), full 5.
+	// Profile-default repetitions: smoke 1 (illustrative), full the local pre-pilot default.
 	return {
 		...args,
 		profile,
@@ -444,9 +445,12 @@ async function main(): Promise<number> {
 	// is this run's own pre-pilot default (or an explicit override); it is a local
 	// completeness bar, never a qualification policy.
 	const report = classifyEvidence(results, {
-		profile: args.profile,
 		expectedRuntime: 'bun',
 		expectedProfile: args.profile,
+		expectedCorpus: {
+			presentCount: liveTarget,
+			presentLogicalStateBytes: logicalTarget,
+		},
 		expectedOwners: owners,
 		expectedCandidateIds: CANDIDATES.map((c) => c.id),
 		requiredRepetitions: args.repetitions,

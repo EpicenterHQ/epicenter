@@ -92,10 +92,14 @@ export type EvidenceReport = {
 };
 
 export type ClassifyOptions = {
-	profile: 'smoke' | 'full';
 	/** The only runtime/profile identity this run may carry; any other cell is invalid. */
 	expectedRuntime: string;
 	expectedProfile: string;
+	/** The exact corpus targets every cell must have measured; forged targets are invalid. */
+	expectedCorpus: {
+		presentCount: number;
+		presentLogicalStateBytes: number;
+	};
 	expectedOwners: readonly Owner[];
 	expectedCandidateIds: readonly string[];
 	/** The pre-pilot repetition count this run declares (local, not qualification). */
@@ -252,6 +256,19 @@ export function classifyEvidence(
 			fail(`witness count disagrees with storage currentCount in ${key}`);
 		if (result.witness.before.bytes !== s.currentProtocolFactBytes)
 			fail(`witness bytes disagree with storage protocol bytes in ${key}`);
+		// The measured corpus must EXACTLY equal the run's declared target; a forged
+		// present count or present-proxy byte total is invalid.
+		if (s.presentCount !== options.expectedCorpus.presentCount)
+			fail(
+				`present count ${s.presentCount} != declared ${options.expectedCorpus.presentCount} in ${key}`,
+			);
+		if (
+			s.presentLogicalStateBytes !==
+			options.expectedCorpus.presentLogicalStateBytes
+		)
+			fail(
+				`present proxy bytes ${s.presentLogicalStateBytes} != declared ${options.expectedCorpus.presentLogicalStateBytes} in ${key}`,
+			);
 
 		// Every timing metric array (not merely the required ones) must be nonempty
 		// with finite non-negative samples.
