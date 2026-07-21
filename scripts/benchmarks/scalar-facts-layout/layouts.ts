@@ -94,6 +94,13 @@ BEGIN SELECT RAISE(ABORT, 'coordinate identity is immutable once referenced'); E
 		`CREATE TRIGGER coordinates_immutable_delete BEFORE DELETE ON coordinates
 WHEN EXISTS (${referenced})
 BEGIN SELECT RAISE(ABORT, 'coordinate is referenced'); END;`,
+		// A BEFORE INSERT guard, so INSERT OR REPLACE cannot replace an existing
+		// coordinate id or identity (its internal delete bypasses BEFORE DELETE when
+		// recursive_triggers is off). The store's select-then-insert never collides.
+		`CREATE TRIGGER coordinates_insert_no_replace BEFORE INSERT ON coordinates
+WHEN EXISTS (SELECT 1 FROM coordinates c WHERE c.coordinate_id = NEW.coordinate_id)
+  OR EXISTS (SELECT 1 FROM coordinates c WHERE c.kind = NEW.kind AND c.namespace = NEW.namespace AND c.local_key = NEW.local_key)
+BEGIN SELECT RAISE(ABORT, 'coordinate identity is immutable'); END;`,
 	];
 }
 
@@ -141,6 +148,7 @@ function rowTombstoneTriggers(
 	table: string,
 	rowCond: string,
 	addressChanged: string,
+	insertCollision: string,
 ): string[] {
 	const tomb = `${rowCond} AND OLD.present = 0`;
 	return [
@@ -153,6 +161,12 @@ BEGIN SELECT RAISE(ABORT, 'row tombstone address is immutable'); END;`,
 		`CREATE TRIGGER ${table}_tomb_no_delete BEFORE DELETE ON ${table}
 WHEN ${rowCond} AND OLD.present = 0
 BEGIN SELECT RAISE(ABORT, 'row tombstone cannot be deleted'); END;`,
+		// A BEFORE INSERT collision guard, so INSERT OR REPLACE cannot resurrect a
+		// terminal row tombstone. Its internal conflict-delete bypasses BEFORE DELETE
+		// when recursive_triggers is off, so the insert side must refuse it directly.
+		`CREATE TRIGGER ${table}_tomb_no_insert_replace BEFORE INSERT ON ${table}
+WHEN ${insertCollision}
+BEGIN SELECT RAISE(ABORT, 'row tombstone is terminal'); END;`,
 	];
 }
 
@@ -193,6 +207,7 @@ export function ddlStatements(candidate: Candidate): string[] {
 				'facts',
 				"OLD.kind = 'row'",
 				'NEW.kind <> OLD.kind OR NEW.namespace <> OLD.namespace OR NEW.local_key <> OLD.local_key OR NEW.row_id <> OLD.row_id',
+				"NEW.kind = 'row' AND EXISTS (SELECT 1 FROM facts f WHERE f.kind = 'row' AND f.namespace = NEW.namespace AND f.local_key = NEW.local_key AND f.row_id = NEW.row_id AND f.present = 0)",
 			),
 		];
 	}
@@ -213,6 +228,7 @@ export function ddlStatements(candidate: Candidate): string[] {
 				'facts',
 				"(SELECT kind FROM coordinates WHERE coordinate_id = OLD.coordinate_id) = 'row'",
 				'NEW.coordinate_id <> OLD.coordinate_id OR NEW.row_id <> OLD.row_id',
+				"(SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) = 'row' AND EXISTS (SELECT 1 FROM facts f WHERE f.coordinate_id = NEW.coordinate_id AND f.row_id = NEW.row_id AND f.present = 0)",
 			),
 		];
 	}
@@ -242,6 +258,7 @@ export function ddlStatements(candidate: Candidate): string[] {
 				'row_facts',
 				'1',
 				'NEW.namespace <> OLD.namespace OR NEW.local_key <> OLD.local_key OR NEW.row_id <> OLD.row_id',
+				'EXISTS (SELECT 1 FROM row_facts f WHERE f.namespace = NEW.namespace AND f.local_key = NEW.local_key AND f.row_id = NEW.row_id AND f.present = 0)',
 			),
 			...SPLIT_SEQUENCE_TRIGGER_STATEMENTS,
 		];
@@ -270,6 +287,7 @@ export function ddlStatements(candidate: Candidate): string[] {
 			'row_facts',
 			'1',
 			'NEW.coordinate_id <> OLD.coordinate_id OR NEW.row_id <> OLD.row_id',
+			'EXISTS (SELECT 1 FROM row_facts f WHERE f.coordinate_id = NEW.coordinate_id AND f.row_id = NEW.row_id AND f.present = 0)',
 		),
 		...SPLIT_SEQUENCE_TRIGGER_STATEMENTS,
 	];
@@ -421,8 +439,15 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 	}
 
 	function ensureCoordinate(address: Address): number {
+		// Select-then-insert inside the install transaction, never INSERT OR IGNORE
+		// or OR REPLACE, so no conflict path can replace a referenced coordinate.
+		const existing = db.all<{ coordinate_id: number }>(
+			'SELECT coordinate_id FROM coordinates WHERE kind = ? AND namespace = ? AND local_key = ?',
+			[address.kind, address.namespace, localKeyOf(address)],
+		)[0];
+		if (existing) return existing.coordinate_id;
 		db.run(
-			'INSERT OR IGNORE INTO coordinates (kind, namespace, local_key) VALUES (?, ?, ?)',
+			'INSERT INTO coordinates (kind, namespace, local_key) VALUES (?, ?, ?)',
 			[address.kind, address.namespace, localKeyOf(address)],
 		);
 		const found = db.all<{ coordinate_id: number }>(
@@ -907,6 +932,29 @@ export function negativeConstraintProofs(
 				'coordinate delete',
 				rejects(() => db.run('DELETE FROM coordinates')),
 			);
+			// INSERT OR REPLACE cannot replace a referenced coordinate id/identity.
+			const referenced = db.all<{ id: number }>(
+				'SELECT coordinate_id AS id FROM coordinates',
+			)[0];
+			if (!referenced) throw new Error('no coordinate');
+			check(
+				'raw INSERT OR REPLACE referenced coordinate id',
+				rejects(() =>
+					db.run(
+						'INSERT OR REPLACE INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (?, ?, ?, ?)',
+						[referenced.id, 'value', 'so.epicenter.ns88', 'settingq'],
+					),
+				),
+			);
+			check(
+				'raw INSERT OR REPLACE referenced coordinate identity',
+				rejects(() =>
+					db.run(
+						'INSERT OR REPLACE INTO coordinates (kind, namespace, local_key) VALUES (?, ?, ?)',
+						['row', ROW.namespace, ROW.table],
+					),
+				),
+			);
 		}
 		// A fact table refuses a cross-kind coordinate (raw insert).
 		{
@@ -1015,6 +1063,33 @@ export function negativeConstraintProofs(
 					`UPDATE ${table} SET row_id = '00000000000000000000000z', sequence = 3`,
 				),
 			),
+		);
+		// INSERT OR REPLACE would delete-then-insert; with recursive_triggers off the
+		// BEFORE DELETE guard is skipped, so the BEFORE INSERT collision guard refuses.
+		check(
+			'raw INSERT OR REPLACE resurrection',
+			rejects(() => {
+				if (candidate.coordinates === 'normalized') {
+					const c = db.all<{ id: number }>(
+						'SELECT coordinate_id AS id FROM coordinates',
+					)[0];
+					if (!c) throw new Error('no coordinate');
+					db.run(
+						`INSERT OR REPLACE INTO ${table} (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, 1, '{}', 99)`,
+						[c.id, ROW.rowId],
+					);
+				} else if (candidate.relation === 'unified') {
+					db.run(
+						"INSERT OR REPLACE INTO facts (kind, namespace, local_key, row_id, present, payload, sequence) VALUES ('row', ?, ?, ?, 1, '{}', 99)",
+						[ROW.namespace, ROW.table, ROW.rowId],
+					);
+				} else {
+					db.run(
+						"INSERT OR REPLACE INTO row_facts (namespace, local_key, row_id, present, payload, sequence) VALUES (?, ?, ?, 1, '{}', 99)",
+						[ROW.namespace, ROW.table, ROW.rowId],
+					);
+				}
+			}),
 		);
 	}
 	return failures;
