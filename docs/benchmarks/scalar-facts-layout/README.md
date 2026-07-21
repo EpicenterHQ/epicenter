@@ -47,6 +47,12 @@ Normalized coordinates used about 631 MiB of live pages versus about 782 to
 storage reduction for its one-million-fact, approximately 512 MiB payload
 envelope.
 
+These are whole-database, post-phase-WAL page measurements (the entire database
+file, including fixture tables and WAL state after a phase), not
+candidate-table-only true filesystem peaks. Treat the roughly 20% figure as
+directional whole-database evidence at this envelope, not a frozen
+candidate-table peak.
+
 The report does not establish a latency ranking and does not recommend or
 freeze a layout. Several critical p95 values were maxima of only 16 samples,
 warm reopen had one observation, candidate position was not balanced, and

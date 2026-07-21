@@ -1,189 +1,99 @@
 # scalar-facts-layout
 
-A decision instrument for one narrow question in Wave 2b: how should the
-**confirmed scalar-facts table(s)** of the local replica and the server
-authority store their structured coordinates and relation split, measured on
-Bun `bun:sqlite` at a provisional stress profile (a labeled logical-state proxy,
-never a frozen conformance run; see the qualification note below).
+A decision instrument for one narrow question in Wave 2b: how should the scalar
+state tables of the local replica and the server authority store their structured
+coordinates and relation split, measured on Bun `bun:sqlite` at the conformance
+envelope.
 
-It is a decision instrument, not a reusable benchmark framework, and not a
-layout freeze.
+## Classifier-only policy (read first)
 
-Implementation status: only the exact analytical trace and its tests are
-modular today. The parent `scalar-facts-layout.ts` still owns the older corpus
-and runner, so it is hard-disabled from issuing a recommendation. It remains a
-conformance and storage diagnostic until the trace, owner-specific auxiliary
-states, layouts, runner, and decision procedure are connected behind one CLI.
+Per ADR-0161 and `specs/20260720T002337-epicenter-data-clean-break.md` (424-444,
+555-562), **evidence never selects, ranks, recommends, applies a tie-break, or
+returns a candidate id.** Nothing in this directory produces a winner. The
+future evidence classifier only classifies each candidate-pair contrast against
+fixed equivalence margins and against absolute performance SLOs; a human ADR
+process, not this code, decides.
 
-## Scope (deliberately narrow)
+Two consequences are enforced mechanically here:
 
-This tool compares four candidate layouts of the **confirmed-facts table only**,
-across two axes:
+- A **measurement-method pilot** validates the method. It is never
+  decision-eligible and can never make evidence ADR-ready. Its only product is
+  `methodValidated` plus explicit proof refusals (`evidence-status.ts`).
+- Evidence readiness is **fail-closed**. While the absolute performance SLO
+  policy is unconfigured (the install, open, read, write, feed, traversal, and
+  restart ceilings are unmade ADR/product choices), evidence status is forced to
+  `provisional`, even for a complete, correct, fully classified matrix. This code
+  ships only the unconfigured SLO shape and invents no numeric ceilings.
 
-- relation layout: one unified `facts` table, or separate `row_facts` /
-  `value_facts` tables;
-- coordinate layout: inline structured coordinates, or a normalized
-  `coordinates` dictionary keyed by `(kind, namespace, local_key)`.
+## Modular pilot architecture
 
-It compares those four candidates against two owners with distinct workloads:
-the **replica** (monotonic install, point reads, traversal, overlay,
-tombstone-driven document cleanup) and the **authority** (ordered feed,
-submission settlement, exact-retry, fold reads).
+The modular exact-trace pilot is a set of cohesive, independently tested modules.
+Bun owns only the local runner and SQLite lifecycle; trace generation, framing,
+hashing, scheduling, statistics, and status are portable to browser runtimes.
 
-### What this instrument does NOT decide
+- `portable-hash.ts`: a streaming SHA-256, byte-identical to the V1 kernel's
+  `sha256Hex`, plus `utf8ByteLength`. Removes the Bun `CryptoHasher`/`Buffer`
+  dependence so the workload hashes reproduce in a browser.
+- `trace.ts`: the deterministic corpus, aging events, and the analytical oracle.
+  Its `Fact`/`Address` types ARE the private V1 kernel types, and its byte oracle
+  is the kernel encoder, so it cannot emit a fact the protocol would reject.
+- `v1-binding.ts`: proves, against the real kernel `parseFact`/`encodedFactBytes`,
+  that representative generated facts admit and that the trace byte oracle equals
+  the kernel's. This binding is the **independent correctness proof**.
+- `auxiliary-traces.ts`: owner-specific pending, sealed, parked, document, and
+  retry traces, each deterministic, hashed, and bound to the V1 intent/submission/
+  parked shapes. The coordinate-layout decision applies to every address-bearing
+  owner table, so no universal owner claim is admissible without these.
+- `schedule.ts`: the balanced Williams read schedule (three cycles, self-transition
+  pairs, seed-rotated letter mapping, recorded idle+reopen boundaries) and the
+  power-of-two calibration sizing to reach a minimum timed-block duration.
+- `statistics.ts`: the declared estimator. Its input is structurally seed-level,
+  so it cannot bootstrap below the whole seed. It runs a deterministic studentized
+  paired bootstrap over whole seeds, builds 95% familywise simultaneous max-t
+  intervals, and classifies each contrast against fixed log-ratio margins.
+- `checkpoint.ts`: per-seed checkpointing and source/config provenance identity;
+  refuses to resume across a changed source or config, and only at a committed
+  whole-seed boundary.
+- `evidence-status.ts`: the classifier-only method validation and fail-closed
+  evidence-readiness contract described above.
 
-The spec's physical-format break carries structured identity through confirmed
-facts, pending intents, sealed submission state, parked diagnostics, and
-document-liveness joins (spec Wave 2b, lines 847-864). Whether the
-inline-vs-normalized coordinate *encoding* is a schema-wide choice binding every
-address-bearing table is **source-silent**, and the non-facts stores
-(sealed-submission ledger, document publication, blob publication, blob bytes,
-metadata) are not yet designed in detail.
+## Correctness vs consistency
 
-Therefore this instrument:
+- **Independent correctness**: a candidate store reproduces the analytical,
+  V1-bound oracle witness (exact current-fact count, exact current-protocol-fact
+  bytes, and one ordered SHA-256 over the current facts). The oracle is a
+  closed-form function of the trace, not a peer read path.
+- **Consistency, not correctness**: candidates agreeing with one another, or a
+  reopened database agreeing with itself, is cross-candidate / reopen consistency.
+  It is a separate proof gate and never stands in for the oracle correctness proof.
 
-- measures **only** the confirmed-facts table layout;
-- scopes its storage metric to the **candidate-varying tables** (`facts`, plus
-  `coordinates` for the normalized candidates), so the normalized-vs-inline
-  delta is not diluted or biased by fixture tables hard-wired to one encoding;
-- **refuses to freeze** the schema-wide coordinate encoding or the layout of any
-  non-facts store, and says so in its own report.
+## Two distinct byte measures (ADR-0161, ADR-0167)
 
-If Wave 2b intends a single schema-wide coordinate representation across every
-address-bearing table, this instrument is the wrong shape and must be extended
-(candidates, workloads, and constraint proofs) across those tables before any
-freeze. That is an open ownership fork returned to Codex.
-
-## Provisional by construction
-
-Bun can decide native schema and query-plan evidence but cannot qualify OPFS,
-storage quota, WebKit, worker locks, mobile memory, backgrounding, or Durable
-Object SQLite. Per ADR-0161 (65-68) and ADR-0163 (305-307), the exact V1
-constants and the physical layout must be chosen by the browser, Bun, and
-Cloudflare scale proof before ADR-0163 is Accepted. **Every recommendation this
-tool emits is provisional** and names the platform evidence it still requires.
-
-### The 512 MiB / 1,000,000-live-address target is not a portability guarantee
-
-No fixed 512 MiB portability guarantee is defensible. Treat it as a
-**conditional normal-profile qualification** where runtime quota admits, with
-peak headroom and quota-refusal atomic recovery measured. The tiers are:
-
-- PR smoke: 10k addresses / 5 MiB, every run.
-- physical mobile floor: 250k / 128 MiB (physical iOS Safari and Android).
-- conditional normal profile: 1,000,000 live addresses / 512 MiB where quota
-  admits.
-- informational desktop stress: 2M / 1 GiB.
-- private/incognito is a **negative** compatibility/refusal test (persistence
-  denied), never a durable qualification cell.
-
-### Why the 512 MiB *logical* target cannot be claimed here
-
-ADR-0161 states the target as 1,000,000 live scalar addresses and 512 MiB of
-canonical encoded **logical state**. ADR-0167 defines logical state as present
-rows and values only, explicitly excluding authority sequences and terminal
-tombstones, but it leaves the exact canonical logical-state encoding an unfrozen
-implementation decision ("the exact container, seal, and physical filename
-encoding remain implementation decisions until a round-trip proof chooses
-them"). So this instrument **cannot claim the 512 MiB logical qualification**: it
-reports present-logical-state bytes under a clearly labeled proxy (canonical JSON
-of the ADR-0167 logical columns) as a stress target, and separately reports the
-current protocol-fact bytes. Do not miscite the ADR by calling total current
-facts the live-address count.
-
-## Measurement honesty (four distinct quantities)
-
-The report never conflates these and prints an amplification ratio only when
-both its numerator and denominator are measured:
-
-1. **present logical-state bytes** (the ADR-0167 proxy, the target quantity):
-   the sum of the exact canonical bytes of the logical content of every
-   final-**present** row and value, excluding sequences and terminal tombstones.
-   Row filler is calibrated so this hits the profile's byte target exactly, over
-   exactly the profile's live-address count, or the run is marked non-qualifying.
-2. **current protocol-fact bytes** (a storage/workload diagnostic): the sum of
-   the exact V1 fact record (structured address, `presence`, sequence, payload)
-   over **every** current fact, including terminal absences. Framing and
-   absences push this above (1); the two are never assumed to order and both are
-   reported.
-3. **steady physical DB footprint**: on-disk page bytes after checkpoint/settle.
-4. **peak filesystem footprint / WAL amplification**: the high-water disk use
-   during the bulk build.
-
-Physical amplification is reported against the logical-state denominator: steady
-= (3) / (1) and peak = (4) / (1). The (2) / (1) ratio is reported as a separate
-protocol-overhead diagnostic. No ratio is printed unless both its numerator and
-denominator were measured.
-
-## No-winner policy
-
-- The fixed independent SLO/materiality gates are **declared before any layout
-  run**, never chosen from the data afterward.
-- A **single repetition can never produce a winner**: one repetition cannot
-  establish stability, so it registers as inconclusive regardless of its numbers.
-- Every owner-critical metric is compared **independently**; no geomean or
-  latency-plus-storage sum can average away a material regression in one metric.
-- Materiality thresholds are **fixed, predeclared, and owner-metric-specific**.
-  They are never derived or widened from observed variance. Widening a band by
-  observed noise is backwards for a noninferiority test: a noisier metric would
-  let a *larger* real regression pass as equivalent, which is the opposite of
-  what safety requires.
-- Comparisons are **paired per seed**: two candidates are differenced on the same
-  trace, and the decision reasons about an interval on the mean paired
-  difference against the fixed threshold.
-- A metric is **inconclusive** when its paired-difference interval crosses a
-  materiality boundary, or when its variance is too high to place the difference
-  on one side of the threshold. Any inconclusive owner-critical metric returns
-  **no winner**; noise never resolves in favor of a winner.
-- A **real tradeoff** (more than one non-dominated candidate that are not all
-  materially equivalent) returns **no winner**.
-- A **missing or failed** owner x candidate x repetition cell returns **no
-  recommendation**: partial evidence cannot recommend, and failed repetitions
-  are never dropped.
-- The declared tie-break (unified before split, inline before normalized) is
-  applied **only** when the candidates are materially equivalent on every metric,
-  and the report states that it was a tie, not a measured win.
-
-## Independent oracle
-
-Correctness never trusts a layout's own read path. The oracle is **analytical
-and streaming**: the final current fact at any address is a closed-form function
-of its index (each event lands in a disjoint, strictly-increasing sequence band,
-and the highest band wins), and every emitted change gets a dense unique
-sequence, so at full scale it retains neither the payload corpus nor a per-fact
-map. Every candidate's post-aging state is checked against the oracle's
-**three-part witness**: exact current-fact count, exact current-protocol-fact
-bytes, and **one ordered SHA-256** over the current facts in ascending sequence
-(length-prefixed framing; a 32-bit hash would be too collision-prone for a
-million rows, and peer hashes alone are not trusted). A candidate reproduces all
-three by scanning `ORDER BY sequence`. A small map-backed fold survives only for
-the self-test.
-
-The lifecycles are real events, not counted assumptions: initially-absent values
-that later become present, value unset-then-present, and row tombstones. Row
-tombstone non-resurrection is proven in the **trace-oracle self-test** by an
-attempted higher-sequence present that the fold refuses, not by counting final
-tombstones. Each candidate **store** must additionally prove the same refusal
-(and the stale / equal-identical / equal-different install outcomes) against its
-own physical layout; that per-candidate proof is required, and is future work in
-`layouts.ts`, not yet landed. The observed namespace/table/value/lifecycle
-cardinalities are asserted and reported.
+The trace keeps present-logical-state bytes (the ADR-0167 proxy, the 512 MiB /
+1,000,000-live-address target quantity) separate from current-protocol-fact bytes
+(a storage and workload diagnostic over every current fact, including terminal
+absences). `trace.calibration.traceAdmissible` is a narrow trace-construction
+flag (the corpus hit its byte target and no fact exceeds the ceiling); it is not
+an ADR/evidence-cell qualification and never implies a cell is decision-eligible.
 
 ## Determinism
 
-Seeded PRNG only; no wall-clock or `Math.random`. Namespace and table are chosen
-by two independently salted hashes (never one correlated modulo). Paired
-candidates within one repetition see exactly the same trace; each repetition
-draws an independent data seed. Full evidence requires at least five independent
-builds; short operations retain raw samples.
+Seeded PRNG only; no wall clock or `Math.random` in the workload or statistics.
+Paired candidates within one seed see exactly the same trace; each seed is an
+independent outer unit. Same seed and config reproduce byte-identical trace
+identity, schedule, estimator inputs, bootstrap draws, and status.
 
-## Files
+## Historical monolith (`scalar-facts-layout.ts`): decision-disabled
 
-- `scalar-facts-layout.ts` (legacy parent): CLI, profiles, argument parsing,
-  conformance/storage report, and an unconditional decision refusal until the
-  modular path replaces it.
-- `trace.ts`: deterministic corpus, aging events, and the independent oracle.
-- `layouts.ts`: the four DDL candidates, their stores, and negative constraint
-  proofs.
-- `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans.
-- `decision.ts`: completeness, per-metric materiality, and the no-winner policy.
+The parent `scalar-facts-layout.ts` retains the first benchmark implementation and
+its 2026-07-21 Bun/native full run. It is retained as **provisional evidence
+only** and is **decision-disabled**: it issues no recommendation and its latency
+estimator was found inadequate by two independent reviews. It predates and does
+not use the modular exact trace.
+
+Its storage numbers are **whole-database, post-phase-WAL page evidence**, not
+candidate-table-only true filesystem peaks: they measure the entire database file
+(including fixture tables and WAL state after a phase) rather than the isolated
+candidate-varying tables' peak filesystem bytes. Treat the roughly 20% normalized
+storage finding as directional whole-database evidence at this envelope, not a
+frozen candidate-table peak.
