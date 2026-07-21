@@ -118,16 +118,43 @@ describe('validation allocates nothing proportional to ceilings', () => {
 
 describe('validateLimits is total over unknown input', () => {
 	test('non-object and exotic inputs refuse without throwing', () => {
-		// A throwing proxy trips a reflection trap inside admission; it must become a
-		// typed Invalid, never an escaping exception.
-		const throwingProxy = new Proxy(
-			{},
-			{
-				ownKeys() {
-					throw new Error('trap');
+		// Hostile proxies can fail at every reflective stage of admission. Each trap
+		// must become a typed Invalid, never an escaping exception.
+		const hostileProxies = [
+			new Proxy(
+				{},
+				{
+					getPrototypeOf() {
+						throw new Error('getPrototypeOf trap');
+					},
 				},
-			},
-		);
+			),
+			new Proxy(
+				{},
+				{
+					ownKeys() {
+						throw new Error('ownKeys trap');
+					},
+				},
+			),
+			new Proxy(
+				{ ...BASE_LIMITS },
+				{
+					getOwnPropertyDescriptor() {
+						throw new Error('getOwnPropertyDescriptor trap');
+					},
+				},
+			),
+			new Proxy(
+				{ ...BASE_LIMITS },
+				{
+					get(target, key, receiver) {
+						if (key === 'maxNamespaceBytes') throw new Error('get trap');
+						return Reflect.get(target, key, receiver);
+					},
+				},
+			),
+		];
 		for (const value of [
 			null,
 			undefined,
@@ -136,7 +163,7 @@ describe('validateLimits is total over unknown input', () => {
 			true,
 			[BASE_LIMITS],
 			new Date(),
-			throwingProxy,
+			...hostileProxies,
 		]) {
 			expect(() => validateLimits(value)).not.toThrow();
 			expectErr(validateLimits(value));
@@ -148,6 +175,58 @@ describe('validateLimits is total over unknown input', () => {
 		expectErr(validateLimits(missing));
 		expectErr(validateLimits({ ...BASE_LIMITS, extra: 1 }));
 		expectErr(validateLimits({ ...BASE_LIMITS, maxEncodedFactBytes: '4096' }));
+	});
+
+	test('an inherited expected key cannot balance a missing own key with an extra key', () => {
+		const original = Object.getOwnPropertyDescriptor(
+			Object.prototype,
+			'maxNamespaceBytes',
+		);
+		try {
+			Object.defineProperty(Object.prototype, 'maxNamespaceBytes', {
+				configurable: true,
+				value: BASE_LIMITS.maxNamespaceBytes,
+			});
+			const { maxNamespaceBytes: _dropped, ...missing } = BASE_LIMITS;
+			expectErr(validateLimits({ ...missing, extra: 1 }));
+		} finally {
+			if (original === undefined) {
+				Reflect.deleteProperty(Object.prototype, 'maxNamespaceBytes');
+			} else {
+				Object.defineProperty(Object.prototype, 'maxNamespaceBytes', original);
+			}
+		}
+	});
+
+	test('validated properties bypass inherited setters and are immutable own data', () => {
+		const input = { ...BASE_LIMITS };
+		const original = Object.getOwnPropertyDescriptor(
+			Object.prototype,
+			'maxNamespaceBytes',
+		);
+		try {
+			Object.defineProperty(Object.prototype, 'maxNamespaceBytes', {
+				configurable: true,
+				set() {
+					throw new Error('inherited setter must not run');
+				},
+			});
+			const validated = expectOk(validateLimits(input));
+			expect(
+				Object.getOwnPropertyDescriptor(validated, 'maxNamespaceBytes'),
+			).toEqual({
+				configurable: false,
+				enumerable: true,
+				value: BASE_LIMITS.maxNamespaceBytes,
+				writable: false,
+			});
+		} finally {
+			if (original === undefined) {
+				Reflect.deleteProperty(Object.prototype, 'maxNamespaceBytes');
+			} else {
+				Object.defineProperty(Object.prototype, 'maxNamespaceBytes', original);
+			}
+		}
 	});
 
 	test('the validated value is a fresh, detached, deep-frozen copy', () => {

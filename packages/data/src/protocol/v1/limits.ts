@@ -248,16 +248,25 @@ export function validateLimits(
 		if (Object.keys(record).length !== ALL_LIMIT_KEYS.length) {
 			return ScalarProtocolError.Invalid({ boundary: 'limits' });
 		}
-		// Read each expected key into a fresh, detached object; every value must be
-		// a number. Exactly N own keys plus every expected key present leaves no key
-		// missing or extra.
+		// Read each expected own key into a fresh, detached object; every value must
+		// be a number. Exactly N own keys plus every expected key present leaves no
+		// key missing or extra. Define immutable data properties directly so a
+		// polluted Object.prototype setter cannot intercept construction.
 		const clean = {} as Record<keyof ScalarSyncLimits, number>;
 		for (const key of ALL_LIMIT_KEYS) {
+			if (!Object.hasOwn(record, key)) {
+				return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
+			}
 			const value = record[key];
 			if (typeof value !== 'number') {
 				return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
 			}
-			clean[key] = value;
+			Object.defineProperty(clean, key, {
+				configurable: false,
+				enumerable: true,
+				value,
+				writable: false,
+			});
 		}
 		for (const key of POSITIVE_LIMIT_KEYS) {
 			if (!isNonNegativeSafeInteger(clean[key]) || clean[key] < 1) {
