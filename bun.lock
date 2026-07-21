@@ -5,11 +5,13 @@
       "name": "epicenter",
       "dependencies": {
         "@epicenter/constants": "workspace:*",
+        "@epicenter/sqlite": "workspace:*",
         "tinyexec": "^1.0.4",
       },
       "devDependencies": {
         "@biomejs/biome": "catalog:",
         "@changesets/cli": "^2.31.0",
+        "@noble/hashes": "^2.0.1",
         "@types/bun": "catalog:",
         "jsrepo": "^3.6.2",
         "wrangler": "catalog:",
