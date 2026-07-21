@@ -50,6 +50,7 @@ type MessagePortLike = {
 		listener: (event: { data: BrowserWorkerInbound }) => void,
 	): void;
 	start?(): void;
+	close?(): void;
 };
 
 export type BrowserWorkerStore = {
@@ -61,6 +62,13 @@ export type BrowserWorkerStore = {
 type Client = {
 	port: MessagePortLike;
 	documents: Map<number, WorkerDocument>;
+	detachedDocuments: WorkerDocument[];
+	disconnection: Promise<void> | undefined;
+	isDisconnected: boolean;
+	terminalCause: Error | undefined;
+	livenessSequence: number;
+	livenessProbe: ReturnType<typeof setTimeout> | undefined;
+	livenessTimeout: ReturnType<typeof setTimeout> | undefined;
 	syncTransportKey: number | undefined;
 	syncAttachmentOrder: number;
 	syncTransportAvailable: boolean;
@@ -104,18 +112,54 @@ type UntypedValueLens = {
 
 const documentRpcOrigin = Object.freeze({ kind: 'browser-document-rpc' });
 const DEFAULT_EXCHANGE_TIMEOUT_MS = 30_000;
+// MessagePort does not report when its remote page vanishes. A worker-driven
+// probe bounds leaked client state without relying on throttled page timers.
+// A page whose JavaScript cannot service messages for the entire timeout is
+// indistinguishable from a vanished page, so the production grace is generous.
+export type BrowserClientLivenessPolicy = {
+	probeIntervalMs: number;
+	responseTimeoutMs: number;
+};
+
+// This fail-closed policy is provisional engineering scaffolding, not an
+// accepted browser suspension budget. Physical Safari/mobile evidence and
+// product approval must settle the production values before browser rollout.
+const PROVISIONAL_CLIENT_LIVENESS_POLICY: BrowserClientLivenessPolicy = {
+	probeIntervalMs: 60_000,
+	responseTimeoutMs: 5 * 60_000,
+};
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export function createBrowserWorkerHost({
 	openStore = openBrowserWorkerStore,
 	hostId = crypto.randomUUID(),
 	exchangeTimeoutMs = DEFAULT_EXCHANGE_TIMEOUT_MS,
 	transportRetirementMs = Math.max(exchangeTimeoutMs * 2, 1_000),
+	clientLivenessPolicy = PROVISIONAL_CLIENT_LIVENESS_POLICY,
 }: {
 	openStore?: (options: { onStolen(): void }) => Promise<BrowserWorkerStore>;
 	hostId?: string;
 	exchangeTimeoutMs?: number;
 	transportRetirementMs?: number;
+	clientLivenessPolicy?: BrowserClientLivenessPolicy;
 } = {}) {
+	const {
+		probeIntervalMs: clientLivenessIntervalMs,
+		responseTimeoutMs: clientLivenessTimeoutMs,
+	} = clientLivenessPolicy;
+	if (
+		!Number.isSafeInteger(clientLivenessIntervalMs) ||
+		clientLivenessIntervalMs < 1 ||
+		clientLivenessIntervalMs > MAX_TIMER_DELAY_MS ||
+		!Number.isSafeInteger(clientLivenessTimeoutMs) ||
+		clientLivenessTimeoutMs < 1 ||
+		clientLivenessTimeoutMs > MAX_TIMER_DELAY_MS ||
+		!Number.isSafeInteger(clientLivenessIntervalMs + clientLivenessTimeoutMs)
+	) {
+		throw new Error(
+			'Browser client liveness intervals must be positive supported timer values',
+		);
+	}
 	const clients = new Set<Client>();
 	const syncCredentialListeners = new Set<() => void>();
 	let storePromise: Promise<BrowserWorkerStore> | undefined;
@@ -126,7 +170,99 @@ export function createBrowserWorkerHost({
 	let nextTransportId = 0;
 	let nextInvalidationId = 0;
 	let nextSyncAttachmentOrder = 0;
+	let pendingClientCleanups = 0;
 	let isStolen = false;
+
+	function clearClientLiveness(client: Client): void {
+		if (client.livenessProbe !== undefined) {
+			clearTimeout(client.livenessProbe);
+			client.livenessProbe = undefined;
+		}
+		if (client.livenessTimeout !== undefined) {
+			clearTimeout(client.livenessTimeout);
+			client.livenessTimeout = undefined;
+		}
+	}
+
+	function sendToClient(
+		client: Client,
+		message: BrowserWorkerMessage,
+		{ afterDisconnect = false }: { afterDisconnect?: boolean } = {},
+	): boolean {
+		if (client.isDisconnected && !afterDisconnect) return false;
+		try {
+			client.port.postMessage(message);
+			return true;
+		} catch (cause) {
+			const failure = new Error('Browser Epicenter client port failed', {
+				cause,
+			});
+			if (client.disconnection === undefined) {
+				scheduleTerminalReclamation(client, failure, false);
+			}
+			client.port.close?.();
+			return false;
+		}
+	}
+
+	function scheduleTerminalReclamation(
+		client: Client,
+		cause: Error,
+		notifyPage: boolean,
+	): void {
+		if (client.isDisconnected) return;
+		if (notifyPage) {
+			try {
+				client.port.postMessage({
+					type: 'client-revoked',
+					name: cause.name,
+					message: cause.message,
+				});
+			} catch {
+				// Cleanup below owns an unreachable port.
+			}
+		}
+		markClientTerminal(client, cause);
+		setTimeout(() => client.port.close?.(), 0);
+		void serializeLocal(async () => {
+			try {
+				await performDisconnect(client);
+			} catch {
+				// Page-visible capability cleanup is already complete.
+			}
+		}).catch(() => undefined);
+	}
+
+	function scheduleClientLivenessProbe(client: Client): void {
+		clearClientLiveness(client);
+		if (client.isDisconnected) return;
+		client.livenessProbe = setTimeout(() => {
+			client.livenessProbe = undefined;
+			const sequence = ++client.livenessSequence;
+			if (!sendToClient(client, { type: 'liveness-probe', sequence })) return;
+			client.livenessTimeout = setTimeout(() => {
+				client.livenessTimeout = undefined;
+				reclaimVanishedClient(client, sequence);
+			}, clientLivenessTimeoutMs);
+		}, clientLivenessIntervalMs);
+	}
+
+	function markClientLive(client: Client): void {
+		if (client.isDisconnected) return;
+		client.livenessSequence += 1;
+		scheduleClientLivenessProbe(client);
+	}
+
+	function serializeLocal<TResult>(
+		operation: () => Promise<TResult>,
+	): Promise<TResult> {
+		const result = requestTail.then(operation);
+		requestTail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	}
 
 	function syncClients(): Client[] {
 		return [...clients]
@@ -154,15 +290,15 @@ export function createBrowserWorkerHost({
 		transportId: number,
 		transportKey: number,
 	): void {
-		try {
-			client.port.postMessage({
+		sendToClient(
+			client,
+			{
 				type: 'exchange-cancel',
 				transportId,
 				transportKey,
-			});
-		} catch {
-			// The transport is already unreachable.
-		}
+			},
+			{ afterDisconnect: true },
+		);
 	}
 
 	function retireTransportCapability(
@@ -182,11 +318,7 @@ export function createBrowserWorkerHost({
 			pending.reject(new Error('Browser sync transport was retired'));
 		}
 		client.credentials.delete(transportKey);
-		try {
-			client.port.postMessage({ type: 'exchange-retire', transportKey });
-		} catch {
-			// The page vanished; the worker-side capability is still retired.
-		}
+		sendToClient(client, { type: 'exchange-retire', transportKey });
 		notifySyncCredentials();
 	}
 
@@ -288,7 +420,7 @@ export function createBrowserWorkerHost({
 			stopSyncStatusSubscription = store.epicenter.subscribeSyncStatus(
 				(status) => {
 					for (const client of clients) {
-						client.port.postMessage({
+						sendToClient(client, {
 							type: 'sync-status',
 							state: status.state,
 							...(status.lastError === undefined
@@ -311,13 +443,13 @@ export function createBrowserWorkerHost({
 		const token = `${hostId}:${++nextInvalidationId}`;
 		let broadcaster: Client | undefined;
 		for (const client of clients) {
-			client.port.postMessage({
+			const delivered = sendToClient(client, {
 				type: 'invalidation',
 				token,
 				change,
 				broadcast: broadcaster === undefined,
 			});
-			broadcaster ??= client;
+			if (delivered) broadcaster ??= client;
 		}
 	}
 
@@ -327,7 +459,7 @@ export function createBrowserWorkerHost({
 			for (const [documentId, entry] of client.documents) {
 				if (entry.address.key !== key || entry.address.rowId !== rowId)
 					continue;
-				client.port.postMessage({
+				sendToClient(client, {
 					type: 'document-revoked',
 					documentId,
 					message,
@@ -341,15 +473,14 @@ export function createBrowserWorkerHost({
 		if (isStolen) return;
 		isStolen = true;
 		const cause = storageMovedError();
-		for (const client of clients) {
-			cancelTransportRetirement(client);
-			for (const [transportId, pending] of client.transports) {
-				cancelExchange(client, transportId, pending.transportKey);
-				pending.reject(cause);
-			}
-			client.transports.clear();
+		const connected = [...clients];
+		if (connected.length === 0) {
+			void serializeLocal(disposeStore).catch(() => undefined);
+			return;
 		}
-		requestTail = requestTail.then(() => disposeStore());
+		for (const client of connected) {
+			scheduleTerminalReclamation(client, cause, true);
+		}
 	}
 
 	async function closeDocument(
@@ -363,11 +494,19 @@ export function createBrowserWorkerHost({
 		await entry.document[Symbol.asyncDispose]();
 	}
 
-	async function disconnect(client: Client): Promise<void> {
-		for (const documentId of [...client.documents.keys()]) {
-			await closeDocument(client, documentId);
-		}
-		const cause = new Error('Browser Epicenter client disconnected');
+	function disconnect(
+		client: Client,
+		cause = new Error('Browser Epicenter client disconnected'),
+	): Promise<void> {
+		markClientTerminal(client, cause);
+		return performDisconnect(client);
+	}
+
+	function markClientTerminal(client: Client, cause: Error): void {
+		if (client.isDisconnected) return;
+		client.isDisconnected = true;
+		client.terminalCause = cause;
+		clearClientLiveness(client);
 		cancelTransportRetirement(client);
 		for (const [transportId, pending] of client.transports) {
 			cancelExchange(client, transportId, pending.transportKey);
@@ -375,9 +514,58 @@ export function createBrowserWorkerHost({
 		}
 		client.transports.clear();
 		client.credentials.clear();
+		client.syncTransportKey = undefined;
+		client.syncAttachmentOrder = 0;
+		client.syncTransportAvailable = false;
+		for (const document of client.documents.values()) {
+			document.stopUpdates();
+			client.detachedDocuments.push(document);
+		}
+		client.documents.clear();
 		clients.delete(client);
+		pendingClientCleanups += 1;
 		notifySyncCredentials();
-		if (clients.size === 0) await disposeStore();
+	}
+
+	function reclaimVanishedClient(
+		client: Client,
+		unansweredSequence: number,
+	): void {
+		if (client.isDisconnected || client.livenessSequence !== unansweredSequence)
+			return;
+		const cause = new Error('Browser Epicenter client stopped responding');
+		cause.name = 'BrowserClientReclaimedError';
+		scheduleTerminalReclamation(client, cause, true);
+	}
+
+	function performDisconnect(client: Client): Promise<void> {
+		client.disconnection ??= finishDisconnect(client);
+		return client.disconnection;
+	}
+
+	function requireConnected(client: Client): void {
+		if (!client.isDisconnected) return;
+		throw (
+			client.terminalCause ?? new Error('Browser Epicenter client disconnected')
+		);
+	}
+
+	async function finishDisconnect(client: Client): Promise<void> {
+		const closedDocuments = await Promise.allSettled(
+			client.detachedDocuments.map((entry) =>
+				entry.document[Symbol.asyncDispose](),
+			),
+		);
+		client.detachedDocuments.length = 0;
+		pendingClientCleanups -= 1;
+		// An in-flight SQLite/openStore operation cannot be preempted safely. Store
+		// and lease disposal completes after that serialized operation settles; all
+		// page-visible capabilities and membership are already terminal above.
+		if (clients.size === 0 && pendingClientCleanups === 0) await disposeStore();
+		const failedDocument = closedDocuments.find(
+			(result) => result.status === 'rejected',
+		);
+		if (failedDocument?.status === 'rejected') throw failedDocument.reason;
 	}
 
 	async function disposeStore(): Promise<void> {
@@ -392,7 +580,7 @@ export function createBrowserWorkerHost({
 		await store?.dispose();
 	}
 
-	async function execute(
+	async function executeLocal(
 		client: Client,
 		operation: BrowserOperation,
 	): Promise<unknown> {
@@ -400,7 +588,12 @@ export function createBrowserWorkerHost({
 			await disconnect(client);
 			return undefined;
 		}
+		requireConnected(client);
+		if (operation.kind === 'attach-sync') {
+			throw new Error('Sync attachment cannot run as a local RPC');
+		}
 		const store = await openedStore();
+		requireConnected(client);
 		switch (operation.kind) {
 			case 'open':
 				return undefined;
@@ -448,42 +641,6 @@ export function createBrowserWorkerHost({
 			case 'document-close':
 				await closeDocument(client, operation.documentId);
 				return undefined;
-			case 'attach-sync': {
-				const previousTransportKey = client.syncTransportKey;
-				if (previousTransportKey !== undefined) {
-					const accepted = store.replica.attach({
-						deploymentId: operation.deploymentId,
-						principalId: operation.principalId,
-					});
-					if (accepted.error !== null) return accepted;
-				}
-				client.credentials.set(operation.transportKey, {
-					hasCredentials: operation.hasCredentials,
-				});
-				client.syncTransportKey = operation.transportKey;
-				client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
-				client.syncTransportAvailable = true;
-				cancelTransportRetirement(client);
-				if (previousTransportKey !== undefined) {
-					retireTransportCapability(client, previousTransportKey);
-				}
-				let attached: Awaited<ReturnType<Epicenter['attachSync']>>;
-				try {
-					attached = await store.epicenter.attachSync({
-						deploymentId: operation.deploymentId,
-						principalId: operation.principalId,
-						exchange: exchangeThroughLiveClient,
-						credentials: syncCredentials,
-					});
-				} catch (cause) {
-					retireTransportCapability(client, operation.transportKey);
-					throw cause;
-				}
-				if (attached.error !== null) {
-					retireTransportCapability(client, operation.transportKey);
-				}
-				return attached;
-			}
 			case 'sync-credentials': {
 				const credential = client.credentials.get(operation.transportKey);
 				if (credential === undefined) return undefined;
@@ -501,6 +658,53 @@ export function createBrowserWorkerHost({
 		}
 	}
 
+	async function attachSync(
+		client: Client,
+		operation: Extract<BrowserOperation, { kind: 'attach-sync' }>,
+	): Promise<Awaited<ReturnType<Epicenter['attachSync']>>> {
+		const store = await serializeLocal(async () => {
+			requireConnected(client);
+			const opened = await openedStore();
+			requireConnected(client);
+			const accepted = opened.replica.attach({
+				deploymentId: operation.deploymentId,
+				principalId: operation.principalId,
+			});
+			if (accepted.error !== null) return { accepted, opened };
+			const previousTransportKey = client.syncTransportKey;
+			client.credentials.set(operation.transportKey, {
+				hasCredentials: operation.hasCredentials,
+			});
+			client.syncTransportKey = operation.transportKey;
+			client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
+			client.syncTransportAvailable = true;
+			cancelTransportRetirement(client);
+			if (previousTransportKey !== undefined) {
+				retireTransportCapability(client, previousTransportKey);
+			}
+			return { accepted, opened };
+		});
+		if (store.accepted.error !== null) return store.accepted;
+		try {
+			const attached = await store.opened.epicenter.attachSync({
+				deploymentId: operation.deploymentId,
+				principalId: operation.principalId,
+				exchange: exchangeThroughLiveClient,
+				credentials: syncCredentials,
+			});
+			if (client.isDisconnected) {
+				throw new Error('Browser Epicenter client disconnected');
+			}
+			if (attached.error !== null) {
+				retireTransportCapability(client, operation.transportKey);
+			}
+			return attached;
+		} catch (cause) {
+			retireTransportCapability(client, operation.transportKey);
+			throw cause;
+		}
+	}
+
 	async function openDocument(
 		client: Client,
 		epicenter: Epicenter,
@@ -508,20 +712,32 @@ export function createBrowserWorkerHost({
 	): Promise<{ documentId: number; update: Uint8Array }> {
 		const lens = tableLens(epicenter, operation.definition);
 		const document = await lens.openDocument(operation.rowId);
+		if (client.isDisconnected) {
+			await document[Symbol.asyncDispose]();
+			requireConnected(client);
+		}
 		const documentId = ++nextDocumentId;
-		const stopUpdates = observeRowDocumentUpdates(document, (update) => {
-			client.port.postMessage({
-				type: 'document-update',
-				documentId,
-				update: new Uint8Array(update),
+		let stopUpdates: (() => void) | undefined;
+		try {
+			stopUpdates = observeRowDocumentUpdates(document, (update) => {
+				sendToClient(client, {
+					type: 'document-update',
+					documentId,
+					update: new Uint8Array(update),
+				});
 			});
-		});
-		client.documents.set(documentId, {
-			address: { key: operation.definition.key, rowId: operation.rowId },
-			document,
-			stopUpdates,
-		});
-		return { documentId, update: encodeRowDocumentState(document) };
+			const update = encodeRowDocumentState(document);
+			client.documents.set(documentId, {
+				address: { key: operation.definition.key, rowId: operation.rowId },
+				document,
+				stopUpdates,
+			});
+			return { documentId, update };
+		} catch (cause) {
+			stopUpdates?.();
+			await document[Symbol.asyncDispose]();
+			throw cause;
+		}
 	}
 
 	function exchange(
@@ -548,18 +764,18 @@ export function createBrowserWorkerHost({
 					reject(cause);
 				},
 			});
-			try {
-				client.port.postMessage({
+			if (
+				!sendToClient(client, {
 					type: 'exchange-request',
 					transportId,
 					transportKey,
 					request,
-				});
-			} catch (cause) {
+				})
+			) {
 				clearTimeout(timeout);
 				client.transports.delete(transportId);
 				quarantineSyncTransport(client, transportKey);
-				reject(cause);
+				reject(new Error('Browser Epicenter client port failed'));
 			}
 		});
 	}
@@ -583,9 +799,31 @@ export function createBrowserWorkerHost({
 	}
 
 	function connect(port: MessagePortLike): void {
+		if (isStolen) {
+			const cause = storageMovedError();
+			try {
+				port.postMessage({
+					type: 'client-revoked',
+					name: cause.name,
+					message: cause.message,
+				});
+			} catch {
+				// The refused page is already unreachable.
+			} finally {
+				setTimeout(() => port.close?.(), 0);
+			}
+			return;
+		}
 		const client: Client = {
 			port,
 			documents: new Map(),
+			detachedDocuments: [],
+			disconnection: undefined,
+			isDisconnected: false,
+			terminalCause: undefined,
+			livenessSequence: 0,
+			livenessProbe: undefined,
+			livenessTimeout: undefined,
 			syncTransportKey: undefined,
 			syncAttachmentOrder: 0,
 			syncTransportAvailable: false,
@@ -595,6 +833,21 @@ export function createBrowserWorkerHost({
 		};
 		clients.add(client);
 		port.addEventListener('message', ({ data: message }) => {
+			if (client.isDisconnected) return;
+			if (message.type === 'worker-health-probe') {
+				markClientLive(client);
+				sendToClient(client, {
+					type: 'worker-health-ack',
+					sequence: message.sequence,
+				});
+				return;
+			}
+			if (message.type === 'liveness-ack') {
+				if (message.sequence === client.livenessSequence)
+					markClientLive(client);
+				return;
+			}
+			markClientLive(client);
 			if (
 				message.type === 'exchange-result' ||
 				message.type === 'exchange-error'
@@ -602,21 +855,41 @@ export function createBrowserWorkerHost({
 				handleExchangeResult(client, message);
 				return;
 			}
-			requestTail = requestTail.then(async () => {
+			const respond = async (): Promise<void> => {
 				try {
-					const value = await execute(client, message.operation);
-					port.postMessage({ type: 'result', id: message.id, value });
+					const value =
+						message.operation.kind === 'attach-sync'
+							? await attachSync(client, message.operation)
+							: await executeLocal(client, message.operation);
+					if (
+						!client.isDisconnected ||
+						message.operation.kind === 'disconnect'
+					) {
+						sendToClient(
+							client,
+							{ type: 'result', id: message.id, value },
+							{ afterDisconnect: message.operation.kind === 'disconnect' },
+						);
+					}
 				} catch (cause) {
-					port.postMessage({
-						type: 'error',
-						id: message.id,
-						name: cause instanceof Error ? cause.name : 'Error',
-						message: cause instanceof Error ? cause.message : String(cause),
-					});
+					if (!client.isDisconnected) {
+						sendToClient(client, {
+							type: 'error',
+							id: message.id,
+							name: cause instanceof Error ? cause.name : 'Error',
+							message: cause instanceof Error ? cause.message : String(cause),
+						});
+					}
 				}
-			});
+			};
+			if (message.operation.kind === 'attach-sync') {
+				void respond();
+				return;
+			}
+			void serializeLocal(respond);
 		});
 		port.start?.();
+		scheduleClientLivenessProbe(client);
 	}
 
 	return Object.freeze({ connect });

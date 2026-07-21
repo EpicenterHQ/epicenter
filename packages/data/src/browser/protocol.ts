@@ -95,7 +95,11 @@ export type BrowserExchangeResult =
 			message: string;
 	  };
 
-export type BrowserWorkerInbound = BrowserRequest | BrowserExchangeResult;
+export type BrowserWorkerInbound =
+	| BrowserRequest
+	| BrowserExchangeResult
+	| { type: 'liveness-ack'; sequence: number }
+	| { type: 'worker-health-probe'; sequence: number };
 
 export type BrowserInvalidation = {
 	type: 'invalidation';
@@ -139,6 +143,9 @@ export type BrowserWorkerMessage =
 	| {
 			type: 'exchange-retire';
 			transportKey: number;
-	  };
+	  }
+	| { type: 'liveness-probe'; sequence: number }
+	| { type: 'worker-health-ack'; sequence: number }
+	| { type: 'client-revoked'; name: string; message: string };
 
 export type BrowserInvalidationSignal = Omit<BrowserInvalidation, 'broadcast'>;

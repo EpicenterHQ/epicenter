@@ -79,19 +79,50 @@ export type OpenBrowserEpicenterOptions = {
 		): void;
 	};
 	createBroadcastChannel?(name: string): RuntimeBroadcastChannel | undefined;
+	workerHealthPolicy?: BrowserWorkerHealthPolicy;
 	log?: Logger;
+};
+
+export type BrowserWorkerHealthPolicy = {
+	probeIntervalMs: number;
+	responseTimeoutMs: number;
 };
 
 const remoteDocumentOrigin = Object.freeze({ kind: 'browser-document-remote' });
 const INVALIDATION_CHANNEL = 'epicenter-data-invalidation-v1';
+// Provisional fail-closed page policy. Browser qualification must settle this
+// alongside the worker liveness policy before production rollout.
+const PROVISIONAL_WORKER_HEALTH_POLICY: BrowserWorkerHealthPolicy = {
+	probeIntervalMs: 60_000,
+	responseTimeoutMs: 60_000,
+};
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /** Open the page-side proxy for this origin's worker-owned Epicenter replica. */
 export async function openBrowserEpicenter({
 	createSharedWorker = defaultSharedWorker,
 	createBroadcastChannel = defaultBroadcastChannel,
+	workerHealthPolicy = PROVISIONAL_WORKER_HEALTH_POLICY,
 	log = createLogger('data/browser'),
 }: OpenBrowserEpicenterOptions = {}): Promise<Epicenter> {
 	if (isEpicenterDesktopSurface()) return openDesktopEpicenter();
+	const {
+		probeIntervalMs: workerHealthIntervalMs,
+		responseTimeoutMs: workerHealthTimeoutMs,
+	} = workerHealthPolicy;
+	if (
+		!Number.isSafeInteger(workerHealthIntervalMs) ||
+		workerHealthIntervalMs < 1 ||
+		workerHealthIntervalMs > MAX_TIMER_DELAY_MS ||
+		!Number.isSafeInteger(workerHealthTimeoutMs) ||
+		workerHealthTimeoutMs < 1 ||
+		workerHealthTimeoutMs > MAX_TIMER_DELAY_MS ||
+		!Number.isSafeInteger(workerHealthIntervalMs + workerHealthTimeoutMs)
+	) {
+		throw new Error(
+			'Browser worker health intervals must be positive supported timer values',
+		);
+	}
 	const worker = createSharedWorker();
 	const port = worker.port;
 	const pending = new Map<number, PendingRequest>();
@@ -114,6 +145,47 @@ export async function openBrowserEpicenter({
 	let isDisposing = false;
 	let isDisposed = false;
 	let workerFailure: Error | undefined;
+	let workerHealthSequence = 0;
+	let workerHealthProbe: ReturnType<typeof setTimeout> | undefined;
+	let workerHealthTimeout: ReturnType<typeof setTimeout> | undefined;
+
+	function clearWorkerHealth(): void {
+		if (workerHealthProbe !== undefined) {
+			clearTimeout(workerHealthProbe);
+			workerHealthProbe = undefined;
+		}
+		if (workerHealthTimeout !== undefined) {
+			clearTimeout(workerHealthTimeout);
+			workerHealthTimeout = undefined;
+		}
+	}
+
+	function scheduleWorkerHealthProbe(): void {
+		clearWorkerHealth();
+		if (isDisposing || isDisposed || workerFailure !== undefined) return;
+		workerHealthProbe = setTimeout(() => {
+			workerHealthProbe = undefined;
+			const sequence = ++workerHealthSequence;
+			try {
+				port.postMessage({ type: 'worker-health-probe', sequence });
+			} catch (cause) {
+				failWorker(
+					new Error('Browser Epicenter worker port failed', { cause }),
+				);
+				return;
+			}
+			workerHealthTimeout = setTimeout(() => {
+				workerHealthTimeout = undefined;
+				const cause = new Error('Browser Epicenter worker stopped responding');
+				cause.name = 'BrowserWorkerHealthTimeoutError';
+				failWorker(cause);
+			}, workerHealthTimeoutMs);
+		}, workerHealthIntervalMs);
+	}
+
+	function markWorkerLive(): void {
+		scheduleWorkerHealthProbe();
+	}
 
 	function requireOpen(): void {
 		if (isDisposing || isDisposed)
@@ -126,12 +198,40 @@ export async function openBrowserEpicenter({
 		return new Promise<TResult>((resolve, reject) => {
 			pending.set(id, {
 				resolve(value) {
+					pending.delete(id);
 					resolve(value as TResult);
 				},
-				reject,
+				reject(cause) {
+					pending.delete(id);
+					reject(cause);
+				},
 			});
-			port.postMessage({ type: 'request', id, operation });
+			try {
+				port.postMessage({ type: 'request', id, operation });
+			} catch (cause) {
+				const failure = new Error('Browser Epicenter worker port failed', {
+					cause,
+				});
+				pending.get(id)?.reject(failure);
+				failWorker(failure);
+			}
 		});
+	}
+
+	function failWorker(cause: Error): void {
+		if (workerFailure !== undefined) return;
+		workerFailure = cause;
+		clearWorkerHealth();
+		stopCredentials?.();
+		stopCredentials = undefined;
+		activeTransportKey = undefined;
+		for (const exchange of pendingExchanges.values())
+			exchange.isCanceled = true;
+		exchanges.clear();
+		for (const request of pending.values()) request.reject(cause);
+		pending.clear();
+		for (const document of documents.values()) document.revoke(cause.message);
+		port.close?.();
 	}
 
 	function request<TResult>(operation: BrowserOperation): Promise<TResult> {
@@ -180,6 +280,7 @@ export async function openBrowserEpicenter({
 	function proxyExchange(
 		message: Extract<BrowserWorkerMessage, { type: 'exchange-request' }>,
 	): void {
+		if (workerFailure !== undefined) return;
 		if (isDisposing) {
 			port.postMessage({
 				type: 'exchange-error',
@@ -237,7 +338,26 @@ export async function openBrowserEpicenter({
 	}
 
 	port.addEventListener('message', ({ data: message }) => {
+		if (message.type === 'worker-health-ack') {
+			if (message.sequence === workerHealthSequence) markWorkerLive();
+			return;
+		}
+		markWorkerLive();
 		switch (message.type) {
+			case 'liveness-probe':
+				if (!isDisposed && workerFailure === undefined) {
+					port.postMessage({
+						type: 'liveness-ack',
+						sequence: message.sequence,
+					});
+				}
+				return;
+			case 'client-revoked': {
+				const cause = new Error(message.message);
+				cause.name = message.name;
+				failWorker(cause);
+				return;
+			}
 			case 'result':
 				pending.get(message.id)?.resolve(message.value);
 				pending.delete(message.id);
@@ -306,11 +426,10 @@ export async function openBrowserEpicenter({
 	});
 	worker.addEventListener?.('error', ({ message }) => {
 		const cause = new Error(message || 'Browser Epicenter SharedWorker failed');
-		workerFailure = cause;
-		for (const request of pending.values()) request.reject(cause);
-		pending.clear();
+		failWorker(cause);
 	});
 	port.start?.();
+	scheduleWorkerHealthProbe();
 
 	if (invalidationChannel !== undefined) {
 		invalidationChannel.onmessage = ({ data }) => {
@@ -454,6 +573,7 @@ export async function openBrowserEpicenter({
 			definition,
 			rowId,
 		});
+		requireOpen();
 		const document = new Y.Doc({ gc: true });
 		let isHandleDisposed = false;
 		let revoked: Error | undefined;
@@ -508,7 +628,7 @@ export async function openBrowserEpicenter({
 					persistenceFailure = cause;
 				}
 				try {
-					if (!isDisposed) {
+					if (!isDisposed && workerFailure === undefined) {
 						await sendRequest<void>({
 							kind: 'document-close',
 							documentId: opened.documentId,
@@ -549,6 +669,9 @@ export async function openBrowserEpicenter({
 			},
 		});
 
+		// Keep registration and publication in one synchronous turn. If a terminal
+		// worker message follows the result task, failWorker() must see and revoke
+		// this handle before any later task can use it again.
 		documents.set(opened.documentId, {
 			apply(update) {
 				if (isHandleDisposed || revoked !== undefined) return;
@@ -617,6 +740,7 @@ export async function openBrowserEpicenter({
 	function dispose(): Promise<void> {
 		if (disposalPromise !== undefined) return disposalPromise;
 		isDisposing = true;
+		clearWorkerHealth();
 		stopCredentials?.();
 		stopCredentials = undefined;
 		for (const exchange of pendingExchanges.values())
