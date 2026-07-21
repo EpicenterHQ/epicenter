@@ -29,7 +29,12 @@
 
 import type { SqliteDatabase } from '@epicenter/sqlite';
 
-import { type Candidate, createStore, ddlStatements } from './layouts.js';
+import {
+	type Candidate,
+	createStore,
+	ddlStatements,
+	type QueryPlan,
+} from './layouts.js';
 import {
 	type Fact,
 	factSetDigest,
@@ -82,22 +87,24 @@ export type StorageMeasure = {
 };
 
 export type QueryPlans = {
-	feed: string;
-	rowPoint: string;
-	valuePoint: string;
-	traverse: string;
+	feed: QueryPlan;
+	rowPoint: QueryPlan;
+	valuePoint: QueryPlan;
+	traverse: QueryPlan;
 };
 
 /**
- * Plan-semantics proof, evaluated per operation from the raw EXPLAIN QUERY PLAN
- * text (never truthiness). The classifier RECOMPUTES this from the raw plans and
- * never trusts the retained booleans.
+ * Plan-semantics proof, recomputed per operation from the raw structured plans
+ * (never truthiness, never a concatenated string). The classifier RECOMPUTES this
+ * from the raw plans and never trusts the retained booleans.
  *
- * - feed must order by an index range on the sequence column (SQLite prints
- *   `... USING INDEX ... (sequence>?)`), with no full-table SCAN and no temp
- *   b-tree; a bare `SCAN facts` that sorts with a temp b-tree is refused.
- * - every point and the traverse must be an indexed SEARCH (USING PRIMARY KEY /
- *   INDEX / COVERING INDEX), no full SCAN, no temp b-tree.
+ * - feed: EVERY branch must order by an index range on the sequence column
+ *   (SQLite prints `... USING INDEX ... (sequence>?)` on the driving detail),
+ *   with no full-table SCAN and no temp b-tree in any branch detail. A split feed
+ *   with one good branch and one broken branch is invalid.
+ * - every point and the traverse: EVERY branch, and every detail in it, must be an
+ *   indexed SEARCH (USING PRIMARY KEY / INDEX / COVERING INDEX), no full SCAN, no
+ *   temp b-tree.
  */
 export type PlanProof = {
 	feedOrderedIndex: boolean;
@@ -109,28 +116,53 @@ export type PlanProof = {
 /** A candidate's DDL-level constraint proof (raw-attack refusals), retained per cell. */
 export type ConstraintProof = { failures: string[]; ok: boolean };
 
-/** An indexed SEARCH with no full SCAN and no temp b-tree. */
-const isIndexedSearch = (plan: string): boolean => {
-	const p = plan.toUpperCase();
-	if (p.trim().length === 0) return false;
-	if (p.includes('TEMP B-TREE') || p.includes('SCAN')) return false;
-	return p.includes('SEARCH') && p.includes('USING ');
+/**
+ * A single detail row is acceptable when it is not a full SCAN and not a temp
+ * b-tree, and any table-access SEARCH it names uses an index. Structural markers
+ * (SCALAR SUBQUERY, CO-ROUTINE, MATERIALIZE, LIST SUBQUERY) are neither and pass.
+ */
+const detailAcceptable = (detail: string): boolean => {
+	const d = detail.toUpperCase();
+	if (d.includes('TEMP B-TREE') || d.includes('SCAN')) return false;
+	if (d.includes('SEARCH')) return d.includes('USING ');
+	return true;
 };
 
-/** The feed orders by an index range on the sequence column, no scan, no temp b-tree. */
-const isFeedOrderedIndex = (plan: string): boolean => {
-	const p = plan.toUpperCase();
-	if (p.trim().length === 0) return false;
-	if (p.includes('TEMP B-TREE') || p.includes('SCAN')) return false;
-	return p.includes('USING INDEX') && p.includes('SEQUENCE>');
-};
+/**
+ * A branch is a well-formed indexed access iff it has details, every detail is
+ * acceptable, and at least one detail is a real indexed SEARCH (never vacuous).
+ */
+const branchIndexed = (branch: string[]): boolean =>
+	branch.length > 0 &&
+	branch.every(detailAcceptable) &&
+	branch.some((d) => d.toUpperCase().includes('SEARCH'));
 
-/** Validate plan semantics per operation from the raw plans. */
+/**
+ * A feed branch orders by an index range on the sequence column: every detail is
+ * acceptable, and at least one detail drives the scan by a `sequence` index range
+ * (`USING INDEX ... (sequence>?)`). A bare primary-key SEARCH is not ordered.
+ */
+const feedBranchOrdered = (branch: string[]): boolean =>
+	branch.length > 0 &&
+	branch.every(detailAcceptable) &&
+	branch.some((d) => {
+		const u = d.toUpperCase();
+		return u.includes('USING INDEX') && u.includes('SEQUENCE>');
+	});
+
+/** Validate plan semantics per operation from the raw structured plans, per branch. */
 export function evaluatePlanProof(plans: QueryPlans): PlanProof {
-	const feedOrderedIndex = isFeedOrderedIndex(plans.feed);
+	const feedOrderedIndex =
+		plans.feed.branches.length > 0 &&
+		plans.feed.branches.every(feedBranchOrdered);
 	const pointIndexed =
-		isIndexedSearch(plans.rowPoint) && isIndexedSearch(plans.valuePoint);
-	const traverseIndexed = isIndexedSearch(plans.traverse);
+		plans.rowPoint.branches.length > 0 &&
+		plans.rowPoint.branches.every(branchIndexed) &&
+		plans.valuePoint.branches.length > 0 &&
+		plans.valuePoint.branches.every(branchIndexed);
+	const traverseIndexed =
+		plans.traverse.branches.length > 0 &&
+		plans.traverse.branches.every(branchIndexed);
 	return {
 		feedOrderedIndex,
 		pointIndexed,
@@ -179,11 +211,12 @@ const ZERO_STORAGE: StorageMeasure = {
 	presentCount: 0,
 	currentCount: 0,
 };
+const EMPTY_PLAN: QueryPlan = { branches: [] };
 const EMPTY_PLANS: QueryPlans = {
-	feed: '',
-	rowPoint: '',
-	valuePoint: '',
-	traverse: '',
+	feed: EMPTY_PLAN,
+	rowPoint: EMPTY_PLAN,
+	valuePoint: EMPTY_PLAN,
+	traverse: EMPTY_PLAN,
 };
 
 /** Time `run` `iterations` times, returning raw millisecond samples. */

@@ -35,10 +35,11 @@ function makeDb(statements: string[]): SqliteDatabase {
 	return db;
 }
 
-/** A makeDb that pins recursive_triggers and foreign_keys, for the attack matrix. */
+/** A makeDb that pins the correctness-relevant pragmas, for the attack matrix. */
 function makeDbWith(opts: {
 	recursiveTriggers: boolean;
 	foreignKeys: boolean;
+	ignoreCheckConstraints: boolean;
 }): (statements: string[]) => SqliteDatabase {
 	return (statements) => {
 		const db = createBunSqliteAdapter(new Database(':memory:'));
@@ -46,6 +47,9 @@ function makeDbWith(opts: {
 			`PRAGMA recursive_triggers = ${opts.recursiveTriggers ? 'ON' : 'OFF'}`,
 		);
 		db.run(`PRAGMA foreign_keys = ${opts.foreignKeys ? 'ON' : 'OFF'}`);
+		db.run(
+			`PRAGMA ignore_check_constraints = ${opts.ignoreCheckConstraints ? 'ON' : 'OFF'}`,
+		);
 		for (const statement of statements) db.run(statement);
 		return db;
 	};
@@ -55,23 +59,31 @@ test('every candidate passes its constraint and transaction proofs', () => {
 	expect(layoutsSelfTest(makeDb)).toEqual([]);
 });
 
-// The corruption attack matrix must hold under recursive_triggers OFF and ON for
-// every candidate, and additionally under foreign_keys OFF and ON for the
-// normalized candidates (whose orphan-refusal must not depend on FK enforcement).
+// The corruption/grammar attack matrix must hold under recursive_triggers and
+// ignore_check_constraints OFF and ON for every candidate, and additionally under
+// foreign_keys OFF and ON for the normalized candidates (whose orphan-refusal and
+// grammar must not depend on FK or CHECK enforcement).
 describe('attack matrix holds across the pragma matrix', () => {
 	for (const candidate of CANDIDATES) {
 		const foreignKeyModes =
 			candidate.coordinates === 'normalized' ? [false, true] : [true];
 		for (const recursiveTriggers of [false, true]) {
-			for (const foreignKeys of foreignKeyModes) {
-				test(`${candidate.id} recursive_triggers=${recursiveTriggers ? 'on' : 'off'} foreign_keys=${foreignKeys ? 'on' : 'off'}`, () => {
-					expect(
-						attackMatrixProofs(
-							candidate,
-							makeDbWith({ recursiveTriggers, foreignKeys }),
-						),
-					).toEqual([]);
-				});
+			for (const ignoreCheckConstraints of [false, true]) {
+				for (const foreignKeys of foreignKeyModes) {
+					const label = `rt=${recursiveTriggers ? 'on' : 'off'} icc=${ignoreCheckConstraints ? 'on' : 'off'} fk=${foreignKeys ? 'on' : 'off'}`;
+					test(`${candidate.id} ${label}`, () => {
+						expect(
+							attackMatrixProofs(
+								candidate,
+								makeDbWith({
+									recursiveTriggers,
+									foreignKeys,
+									ignoreCheckConstraints,
+								}),
+							),
+						).toEqual([]);
+					});
+				}
 			}
 		}
 	}
@@ -101,22 +113,34 @@ describe('candidate reconstructs the exact oracle state', () => {
 	}
 });
 
+/** Flatten a structured plan to uppercased text for coarse substring checks. */
+function planText(plan: { branches: string[][] }): string {
+	return plan.branches.flat().join(' | ').toUpperCase();
+}
+
 describe('query plans', () => {
 	for (const candidate of CANDIDATES) {
-		test(`${candidate.id}: feed avoids a temp b-tree and value point plan exists`, () => {
+		test(`${candidate.id}: every feed branch is an ordered sequence index, points/traverse indexed`, () => {
 			const db = makeDb(ddlStatements(candidate));
 			const store = createStore(db, candidate);
-			const feed = store.queryPlan('feed').toUpperCase();
-			expect(feed).not.toContain('TEMP B-TREE');
-			expect(feed).not.toContain('USE TEMP');
-			// The value point read must have its own plan, never be omitted.
-			expect(store.queryPlan('valuePoint').length).toBeGreaterThan(0);
-			expect(store.queryPlan('rowPoint').length).toBeGreaterThan(0);
-			expect(store.queryPlan('traverse').length).toBeGreaterThan(0);
-			// Traverse uses an ordered index, no temp b-tree.
-			expect(store.queryPlan('traverse').toUpperCase()).not.toContain(
-				'TEMP B-TREE',
-			);
+			const feed = store.queryPlan('feed');
+			// EVERY feed branch, on its own, must be an ordered sequence-index range.
+			expect(feed.branches.length).toBeGreaterThan(0);
+			for (const branchRows of feed.branches) {
+				const branch = branchRows.join(' | ').toUpperCase();
+				expect(branch).not.toContain('TEMP B-TREE');
+				expect(branch).not.toContain('SCAN');
+				expect(branch).toContain('USING INDEX');
+				expect(branch).toContain('SEQUENCE>');
+			}
+			// Points and traverse have their own indexed plans, never a full scan.
+			for (const op of ['valuePoint', 'rowPoint', 'traverse'] as const) {
+				const plan = store.queryPlan(op);
+				expect(plan.branches.flat().length).toBeGreaterThan(0);
+				expect(planText(plan)).not.toContain('TEMP B-TREE');
+				expect(planText(plan)).not.toContain('SCAN');
+				expect(planText(plan)).toContain('SEARCH');
+			}
 		});
 	}
 });
@@ -216,15 +240,13 @@ describe('point and traverse plans are indexed SEARCH, never a full SCAN', () =>
 			const db = makeDb(ddlStatements(candidate));
 			const store = createStore(db, candidate);
 			for (const op of ['rowPoint', 'valuePoint', 'traverse'] as const) {
-				const plan = store.queryPlan(op).toUpperCase();
+				const plan = planText(store.queryPlan(op));
 				expect(plan).toContain('SEARCH'); // uses an index / primary key
 				expect(plan).not.toContain('SCAN'); // never a full-table scan
 			}
 			// Normalized reads must go through the coordinates index and the fact PK.
 			if (candidate.coordinates === 'normalized') {
-				expect(store.queryPlan('rowPoint').toUpperCase()).toContain(
-					'COORDINATES',
-				);
+				expect(planText(store.queryPlan('rowPoint'))).toContain('COORDINATES');
 			}
 		});
 	}

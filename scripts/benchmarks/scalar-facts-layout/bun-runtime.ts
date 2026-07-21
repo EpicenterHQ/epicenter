@@ -86,10 +86,11 @@ export function makeInMemoryBunDb(statements: string[]): SqliteDatabase {
 	return db;
 }
 
-/** An in-memory Bun database factory that pins recursive_triggers and foreign_keys. */
+/** An in-memory Bun database factory that pins the correctness-relevant pragmas. */
 export function makeInMemoryBunDbWith(opts: {
 	recursiveTriggers: boolean;
 	foreignKeys: boolean;
+	ignoreCheckConstraints: boolean;
 }): (statements: string[]) => SqliteDatabase {
 	return (statements) => {
 		const db = createBunSqliteAdapter(new Database(':memory:'));
@@ -97,6 +98,9 @@ export function makeInMemoryBunDbWith(opts: {
 			`PRAGMA recursive_triggers = ${opts.recursiveTriggers ? 'ON' : 'OFF'}`,
 		);
 		db.run(`PRAGMA foreign_keys = ${opts.foreignKeys ? 'ON' : 'OFF'}`);
+		db.run(
+			`PRAGMA ignore_check_constraints = ${opts.ignoreCheckConstraints ? 'ON' : 'OFF'}`,
+		);
 		for (const statement of statements) db.run(statement);
 		return db;
 	};

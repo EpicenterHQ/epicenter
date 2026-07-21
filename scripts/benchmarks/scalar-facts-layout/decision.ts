@@ -91,15 +91,37 @@ export type EvidenceReport = {
 	cells: CellEvidence[];
 };
 
+/**
+ * The declared oracle for one repetition, computed from that repetition's seed by
+ * the same independent trace the cells measured against. Every cell of that
+ * repetition must match it exactly, which automatically binds paired cells to one
+ * agreed current state (count, protocol bytes, digest) and one seed.
+ */
+export type RepetitionOracle = {
+	repetition: number;
+	dataSeed: number;
+	count: number;
+	currentProtocolFactBytes: number;
+	digestHex: string;
+	presentCount: number;
+	presentLogicalStateBytes: number;
+	totalFacts: number;
+	finalAbsent: number;
+	lifecycle: {
+		rewrites: number;
+		rowTombstones: number;
+		valueUnsets: number;
+		valueResurrections: number;
+		initialAbsentThenPresent: number;
+	};
+};
+
 export type ClassifyOptions = {
 	/** The only runtime/profile identity this run may carry; any other cell is invalid. */
 	expectedRuntime: string;
 	expectedProfile: string;
-	/** The exact corpus targets every cell must have measured; forged targets are invalid. */
-	expectedCorpus: {
-		presentCount: number;
-		presentLogicalStateBytes: number;
-	};
+	/** The declared per-repetition oracle; every cell binds to its repetition's entry. */
+	expectedRepetitionOracles: RepetitionOracle[];
 	expectedOwners: readonly Owner[];
 	expectedCandidateIds: readonly string[];
 	/** The pre-pilot repetition count this run declares (local, not qualification). */
@@ -145,6 +167,27 @@ export function classifyEvidence(
 		reasons.push(message);
 		invalid = true;
 	};
+
+	// Index the declared per-repetition oracles and validate each is internally
+	// consistent (a wrong lifecycle/count declaration is itself invalid).
+	const oracleByRep = new Map<number, RepetitionOracle>();
+	for (const oracle of options.expectedRepetitionOracles) {
+		if (oracleByRep.has(oracle.repetition))
+			fail(`duplicate oracle for repetition ${oracle.repetition}`);
+		oracleByRep.set(oracle.repetition, oracle);
+		if (oracle.count !== oracle.totalFacts)
+			fail(`oracle rep ${oracle.repetition}: count != totalFacts`);
+		if (oracle.presentCount + oracle.finalAbsent !== oracle.totalFacts)
+			fail(
+				`oracle rep ${oracle.repetition}: present + finalAbsent != totalFacts`,
+			);
+		if (oracle.presentCount > oracle.count)
+			fail(`oracle rep ${oracle.repetition}: presentCount > count`);
+		for (const [name, n] of Object.entries(oracle.lifecycle)) {
+			if (!isFiniteNonNegInt(n) || n > oracle.totalFacts)
+				fail(`oracle rep ${oracle.repetition}: lifecycle ${name} out of range`);
+		}
+	}
 
 	// Index cells; fail closed on any duplicate, failed outcome, out-of-range or
 	// unexpected cell, degenerate timing/storage/witness field, plan-semantics
@@ -256,19 +299,39 @@ export function classifyEvidence(
 			fail(`witness count disagrees with storage currentCount in ${key}`);
 		if (result.witness.before.bytes !== s.currentProtocolFactBytes)
 			fail(`witness bytes disagree with storage protocol bytes in ${key}`);
-		// The measured corpus must EXACTLY equal the run's declared target; a forged
-		// present count or present-proxy byte total is invalid.
-		if (s.presentCount !== options.expectedCorpus.presentCount)
-			fail(
-				`present count ${s.presentCount} != declared ${options.expectedCorpus.presentCount} in ${key}`,
-			);
-		if (
-			s.presentLogicalStateBytes !==
-			options.expectedCorpus.presentLogicalStateBytes
-		)
-			fail(
-				`present proxy bytes ${s.presentLogicalStateBytes} != declared ${options.expectedCorpus.presentLogicalStateBytes} in ${key}`,
-			);
+
+		// Bind the cell to its repetition's declared oracle: dataSeed, both
+		// witnesses, and the four storage quantities must equal it EXACTLY. This
+		// binds paired cells to one agreed current state (a forged count, a wrong
+		// digest, wrong bytes, mixed digests within a repetition, or a wrong seed
+		// all fail here), not just self-equality.
+		const oracle = oracleByRep.get(result.repetition);
+		if (!oracle) {
+			fail(`no declared oracle for repetition ${result.repetition} in ${key}`);
+		} else {
+			if (result.dataSeed !== oracle.dataSeed)
+				fail(`dataSeed != oracle in ${key}`);
+			for (const [label, w] of [
+				['before', result.witness.before],
+				['after', result.witness.after],
+			] as const) {
+				if (
+					w.count !== oracle.count ||
+					w.bytes !== oracle.currentProtocolFactBytes ||
+					w.digestHex !== oracle.digestHex
+				) {
+					fail(`witness (${label}) != oracle in ${key}`);
+				}
+			}
+			if (s.currentCount !== oracle.count)
+				fail(`storage currentCount != oracle in ${key}`);
+			if (s.currentProtocolFactBytes !== oracle.currentProtocolFactBytes)
+				fail(`storage currentProtocolFactBytes != oracle in ${key}`);
+			if (s.presentCount !== oracle.presentCount)
+				fail(`storage presentCount != oracle in ${key}`);
+			if (s.presentLogicalStateBytes !== oracle.presentLogicalStateBytes)
+				fail(`storage presentLogicalStateBytes != oracle in ${key}`);
+		}
 
 		// Every timing metric array (not merely the required ones) must be nonempty
 		// with finite non-negative samples.

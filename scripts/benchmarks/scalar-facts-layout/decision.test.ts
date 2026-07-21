@@ -9,11 +9,21 @@
  */
 import { describe, expect, test } from 'bun:test';
 
-import { classifyEvidence } from './decision.js';
+import { classifyEvidence, type RepetitionOracle } from './decision.js';
 import { CANDIDATES } from './layouts.js';
 import type { Owner, RunResult } from './runner.js';
 
 const HEX64 = 'a'.repeat(64);
+
+// Structured plan builders. A good feed branch is an ordered sequence index; a
+// good point/traverse is a primary-key SEARCH.
+const onePlan = (detail: string) => ({ branches: [[detail]] });
+const GOOD_FEED = onePlan(
+	'SEARCH facts USING INDEX sqlite_autoindex_facts_1 (sequence>?)',
+);
+const GOOD_POINT = onePlan(
+	'SEARCH facts USING PRIMARY KEY (kind=? AND row_id=?)',
+);
 
 const OWNERS: Owner[] = ['replica', 'authority'];
 const IDS = CANDIDATES.map((c) => c.id);
@@ -63,12 +73,12 @@ function cell(
 			presentCount: 100,
 			currentCount: 120,
 		},
-		// Realistic plans so the classifier's recomputation agrees with the proof.
+		// Realistic structured plans so the classifier's recomputation agrees.
 		plans: {
-			feed: 'SEARCH facts USING INDEX sqlite_autoindex_facts_1 (sequence>?)',
-			rowPoint: 'SEARCH facts USING PRIMARY KEY (kind=? AND namespace=?)',
-			valuePoint: 'SEARCH facts USING PRIMARY KEY (kind=? AND namespace=?)',
-			traverse: 'SEARCH facts USING PRIMARY KEY (kind=? AND namespace=?)',
+			feed: GOOD_FEED,
+			rowPoint: GOOD_POINT,
+			valuePoint: GOOD_POINT,
+			traverse: GOOD_POINT,
 		},
 		planProof: {
 			feedOrderedIndex: true,
@@ -100,11 +110,36 @@ function fullMatrix(): RunResult[] {
 	return out;
 }
 
+// The declared per-repetition oracles, matching the fixture cell exactly:
+// dataSeed 100+rep, current 120/1200/HEX64, present 100/1000, totalFacts 120,
+// finalAbsent 20. Internally consistent (count == totalFacts; present+absent ==
+// totalFacts).
+const ORACLES: RepetitionOracle[] = Array.from(
+	{ length: REQUIRED_REPS },
+	(_unused, rep) => ({
+		repetition: rep,
+		dataSeed: 100 + rep,
+		count: 120,
+		currentProtocolFactBytes: 1200,
+		digestHex: HEX64,
+		presentCount: 100,
+		presentLogicalStateBytes: 1000,
+		totalFacts: 120,
+		finalAbsent: 20,
+		lifecycle: {
+			rewrites: 0,
+			rowTombstones: 0,
+			valueUnsets: 0,
+			valueResurrections: 0,
+			initialAbsentThenPresent: 0,
+		},
+	}),
+);
+
 const OPTIONS = {
 	expectedRuntime: 'bun',
 	expectedProfile: 'full',
-	// Must equal the fixture cell's storage.presentCount / presentLogicalStateBytes.
-	expectedCorpus: { presentCount: 100, presentLogicalStateBytes: 1000 },
+	expectedRepetitionOracles: ORACLES,
 	expectedOwners: OWNERS,
 	expectedCandidateIds: IDS,
 	requiredRepetitions: REQUIRED_REPS,
@@ -152,7 +187,7 @@ describe('fails closed to invalid', () => {
 	test('a failed query-plan proof (raw plan and proof both bad)', () => {
 		const results = fullMatrix();
 		const r = results[0] as RunResult;
-		r.plans = { ...r.plans, feed: 'SCAN facts' };
+		r.plans = { ...r.plans, feed: onePlan('SCAN facts') };
 		r.planProof = {
 			feedOrderedIndex: false,
 			pointIndexed: true,
@@ -167,9 +202,31 @@ describe('fails closed to invalid', () => {
 		// Raw feed is a full SCAN with a temp b-tree, but the retained proof lies.
 		r.plans = {
 			...r.plans,
-			feed: 'SCAN facts | USE TEMP B-TREE FOR ORDER BY',
+			feed: { branches: [['SCAN facts', 'USE TEMP B-TREE FOR ORDER BY']] },
 		};
 		// planProof still claims ok:true; the classifier recomputes and rejects.
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a split feed with one good branch and one broken branch', () => {
+		const results = fullMatrix();
+		const r = results[0] as RunResult;
+		// Row branch is a proper ordered sequence index; value branch is an
+		// unrelated primary-key SEARCH (not ordered by sequence). Every branch must
+		// be independently valid, so this is invalid even though one branch is good.
+		r.plans = {
+			...r.plans,
+			feed: {
+				branches: [
+					[
+						'SEARCH row_facts USING INDEX sqlite_autoindex_row_facts_1 (sequence>?)',
+					],
+					[
+						'SEARCH value_facts USING PRIMARY KEY (namespace=? AND local_key=?)',
+					],
+				],
+			},
+		};
+		// A forged proof claiming ok:true must not save it; recomputation rejects.
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 	test('a forged constraint proof (ok:true with nonempty failures)', () => {
@@ -233,15 +290,66 @@ describe('fails closed to invalid', () => {
 		(results[0] as RunResult).storage.currentCount = 121; // witness says 120
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
-	test('a forged present count (not the declared corpus target)', () => {
+	test('a forged present count (not the repetition oracle)', () => {
 		const results = fullMatrix();
-		(results[0] as RunResult).storage.presentCount = 101; // declared is 100
+		(results[0] as RunResult).storage.presentCount = 101; // oracle is 100
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
-	test('a forged present-proxy byte total (not the declared corpus target)', () => {
+	test('a forged present-proxy byte total (not the repetition oracle)', () => {
 		const results = fullMatrix();
-		(results[0] as RunResult).storage.presentLogicalStateBytes = 1001; // declared 1000
+		(results[0] as RunResult).storage.presentLogicalStateBytes = 1001;
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a forged current count that agrees with its own witness but not the oracle', () => {
+		const results = fullMatrix();
+		const r = results[0] as RunResult;
+		// Self-consistent (witness matches storage) but wrong vs the oracle (120).
+		r.storage.currentCount = 130;
+		r.witness.before = { ...r.witness.before, count: 130 };
+		r.witness.after = { ...r.witness.after, count: 130 };
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a wrong digest (self-equal but not the oracle)', () => {
+		const results = fullMatrix();
+		const r = results[0] as RunResult;
+		const other = 'b'.repeat(64);
+		r.witness.before = { ...r.witness.before, digestHex: other };
+		r.witness.after = { ...r.witness.after, digestHex: other };
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a wrong protocol byte total (self-consistent but not the oracle)', () => {
+		const results = fullMatrix();
+		const r = results[0] as RunResult;
+		r.storage.currentProtocolFactBytes = 1300;
+		r.witness.before = { ...r.witness.before, bytes: 1300 };
+		r.witness.after = { ...r.witness.after, bytes: 1300 };
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('mixed digests within one repetition (one cell disagrees with the oracle)', () => {
+		const results = fullMatrix();
+		// Flip a single rep-0 cell's digest; every other rep-0 cell still matches
+		// the oracle, so this odd-one-out is caught by the oracle binding.
+		const r = results.find((c) => c.repetition === 0) as RunResult;
+		const other = 'c'.repeat(64);
+		r.witness.before = { ...r.witness.before, digestHex: other };
+		r.witness.after = { ...r.witness.after, digestHex: other };
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a wrong data seed (not the oracle seed)', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).dataSeed = 999; // oracle rep 0 seed is 100
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a wrong lifecycle declaration in the oracle (internally inconsistent)', () => {
+		const badOracles = ORACLES.map((o, i) =>
+			i === 0 ? { ...o, finalAbsent: 25 } : o,
+		); // present(100)+absent(25) != totalFacts(120)
+		expect(
+			classifyEvidence(fullMatrix(), {
+				...OPTIONS,
+				expectedRepetitionOracles: badOracles,
+			}).status,
+		).toBe('invalid');
 	});
 	test('the full forged counterexample cell', () => {
 		// Every spoof at once must still classify invalid, never provisional.
@@ -254,10 +362,10 @@ describe('fails closed to invalid', () => {
 			correct: false,
 			reason: 'ok',
 			plans: {
-				feed: 'SCAN facts',
-				rowPoint: 'SCAN facts',
-				valuePoint: 'SCAN facts',
-				traverse: 'SCAN facts',
+				feed: onePlan('SCAN facts'),
+				rowPoint: onePlan('SCAN facts'),
+				valuePoint: onePlan('SCAN facts'),
+				traverse: onePlan('SCAN facts'),
 			},
 			planProof: {
 				feedOrderedIndex: true,

@@ -11,7 +11,8 @@
  * scalar-fields-and-values proxy, and Bun cannot qualify OPFS, quota, WebKit,
  * mobile, or Durable Object SQLite.
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 
@@ -21,7 +22,10 @@ import {
 	makeInMemoryBunDbWith,
 	openTempDatabase,
 } from './scalar-facts-layout/bun-runtime.js';
-import { classifyEvidence } from './scalar-facts-layout/decision.js';
+import {
+	classifyEvidence,
+	type RepetitionOracle,
+} from './scalar-facts-layout/decision.js';
 import {
 	attackMatrixProof,
 	CANDIDATES,
@@ -31,6 +35,12 @@ import {
 	shapeProofs,
 	storeTransactionProofs,
 } from './scalar-facts-layout/layouts.js';
+import {
+	deriveProvenance,
+	type GitRunner,
+	type Provenance,
+	type SourceFile,
+} from './scalar-facts-layout/provenance.js';
 import {
 	type Owner,
 	type RunResult,
@@ -49,6 +59,42 @@ const SCHEMA_VERSION = 2;
 const INSTALL_BATCH = 1024;
 const INSTRUMENT_LABEL =
 	'pre-pilot confirmed-facts correctness/storage evidence';
+
+// The exact evidence-producing sources whose bytes the artifact digests and whose
+// dirtiness gates provenance: the non-test benchmark modules plus the ONE private
+// V1 protocol file the trace and store import at runtime (canonical.ts). Test
+// files and unrelated app code are deliberately excluded, so unrelated dirt never
+// poisons the scoped digest or the scoped dirty check.
+const RELEVANT_SOURCES = [
+	'scripts/benchmarks/scalar-facts-layout.ts',
+	'scripts/benchmarks/scalar-facts-layout/layouts.ts',
+	'scripts/benchmarks/scalar-facts-layout/trace.ts',
+	'scripts/benchmarks/scalar-facts-layout/runner.ts',
+	'scripts/benchmarks/scalar-facts-layout/decision.ts',
+	'scripts/benchmarks/scalar-facts-layout/bun-runtime.ts',
+	'scripts/benchmarks/scalar-facts-layout/provenance.ts',
+	'packages/data/src/protocol/v1/canonical.ts',
+];
+
+/** The repo root, two levels above this script (scripts/benchmarks/). */
+const REPO_ROOT = join(import.meta.dir, '..', '..');
+
+/** Observe provenance from the exact sources on disk and the local git, if any. */
+function gatherProvenance(): Provenance {
+	const files: SourceFile[] = RELEVANT_SOURCES.map((path) => ({
+		path,
+		content: readFileSync(join(REPO_ROOT, path), 'utf8'),
+	}));
+	const runGit: GitRunner = (gitArgs) => {
+		try {
+			const proc = Bun.spawnSync(['git', ...gitArgs], { cwd: REPO_ROOT });
+			return { ok: proc.exitCode === 0, stdout: proc.stdout.toString() };
+		} catch {
+			return { ok: false, stdout: '' };
+		}
+	};
+	return deriveProvenance(files, runGit);
+}
 
 const FULL_LOGICAL_TARGET = 536_870_912; // 512 MiB, exact
 const FULL_LIVE_ADDRESSES = 1_000_000;
@@ -258,10 +304,46 @@ async function main(): Promise<number> {
 	}
 	const { base, liveTarget, logicalTarget } = resolveTrace(args);
 
-	// One reference trace to report cardinalities and assert the qualification gate.
-	const reference = makeTrace({ ...base, dataSeed: args.seed });
-	const observed = reference.observed();
-	const measured = reference.measure();
+	// The per-repetition oracle: for each rep, the SAME seed the measured cells use
+	// (hash32(seed, rep)), computed by the independent trace. These own every
+	// seed-dependent witness value (current count, protocol bytes, digest, and the
+	// observed lifecycle); the corpus shape below is seed-invariant.
+	const repetitionOracles: RepetitionOracle[] = [];
+	for (let rep = 0; rep < args.repetitions; rep += 1) {
+		const dataSeed = hash32(args.seed, rep);
+		const trace = makeTrace({ ...base, dataSeed });
+		const m = trace.measure();
+		const o = trace.observed();
+		if (!trace.calibration.qualifying) {
+			console.error(
+				`CORPUS PRECONDITION FAILED (rep ${rep}): calibration not qualifying (${trace.calibration.disqualifiedBy}).`,
+			);
+			return 1;
+		}
+		repetitionOracles.push({
+			repetition: rep,
+			dataSeed,
+			count: m.currentCount,
+			currentProtocolFactBytes: m.currentProtocolFactBytes,
+			digestHex: m.digestHex,
+			presentCount: m.presentCount,
+			presentLogicalStateBytes: m.presentLogicalStateBytes,
+			totalFacts: o.facts,
+			finalAbsent: o.finalAbsent,
+			lifecycle: {
+				rewrites: o.rewrites,
+				rowTombstones: o.rowTombstones,
+				valueUnsets: o.valueUnsets,
+				valueResurrections: o.valueResurrections,
+				initialAbsentThenPresent: o.initialAbsentThenPresent,
+			},
+		});
+	}
+	// Rep 0 is a real measured seed, illustrative of the seed-dependent shape.
+	const rep0 = repetitionOracles[0];
+	if (!rep0) throw new Error('at least one repetition is required');
+	const rep0Trace = makeTrace({ ...base, dataSeed: rep0.dataSeed });
+	const rep0Observed = rep0Trace.observed();
 
 	console.log('# scalar-facts-layout');
 	console.log(`(${INSTRUMENT_LABEL})`);
@@ -278,44 +360,36 @@ async function main(): Promise<number> {
 		'proxy for the ADR-0161 final-present scalar-fields-and-values benchmark proxy.',
 	);
 	console.log('');
-	console.log('## corpus');
 	console.log(
-		`total addresses: ${observed.facts}   final-present (live): ${observed.finalPresent}   final-absent: ${observed.finalAbsent}`,
+		'## corpus (shape seed-invariant; witness values are per-repetition)',
 	);
 	console.log(
-		`namespaces: ${observed.namespaces}   tables: ${observed.tables}   values: ${observed.values}   rows: ${observed.rows}`,
+		`total addresses: ${rep0.totalFacts}   final-present (live): ${rep0.presentCount}   final-absent: ${rep0.finalAbsent}`,
 	);
 	console.log(
-		`lifecycle: rewrites ${observed.rewrites}, row tombstones ${observed.rowTombstones}, value unsets ${observed.valueUnsets}, resurrections ${observed.valueResurrections}, initial-absent-then-present ${observed.initialAbsentThenPresent}`,
+		`present logical-state proxy: ${fmtBytes(rep0.presentLogicalStateBytes)} (${rep0.presentLogicalStateBytes} bytes)`,
 	);
 	console.log(
-		`present logical-state proxy: ${fmtBytes(measured.presentLogicalStateBytes)} (${measured.presentLogicalStateBytes} bytes)`,
-	);
-	console.log(
-		`current protocol facts: ${fmtBytes(measured.currentProtocolFactBytes)} over ${measured.currentCount} facts; max fact ${measured.maxProtocolFactBytes} bytes`,
-	);
-	console.log(
-		`calibration qualifying: ${reference.calibration.qualifying} (${reference.calibration.disqualifiedBy})`,
+		`[repetition 0 sample] namespaces ${rep0Observed.namespaces}, tables ${rep0Observed.tables}, current facts ${rep0.count}, protocol bytes ${rep0.currentProtocolFactBytes}, lifecycle rewrites ${rep0.lifecycle.rewrites}, row tombstones ${rep0.lifecycle.rowTombstones}`,
 	);
 	console.log('');
 
-	// Corpus precondition (both profiles): the corpus must hit EXACTLY the live
-	// address count and the present-logical byte target, and every fact must fit
-	// the ceiling. This is a corpus precondition, not a qualification claim: the
-	// evidence STATUS is decided later by the classifier, never from the corpus.
+	// Corpus precondition (both profiles): the seed-invariant corpus shape must hit
+	// EXACTLY the live address count and the present-logical byte target (present
+	// count and present bytes are seed-invariant, so rep 0 is representative). This
+	// is a corpus precondition, not a qualification claim: the evidence STATUS is
+	// decided later by the classifier, never from the corpus.
 	console.log('## corpus precondition');
-	const liveOk = measured.presentCount === liveTarget;
-	const bytesOk = measured.presentLogicalStateBytes === logicalTarget;
-	const gateOk = reference.calibration.qualifying;
+	const liveOk = rep0.presentCount === liveTarget;
+	const bytesOk = rep0.presentLogicalStateBytes === logicalTarget;
 	console.log(
-		`live addresses == ${liveTarget}: ${liveOk} (${measured.presentCount})`,
+		`live addresses == ${liveTarget}: ${liveOk} (${rep0.presentCount})`,
 	);
 	console.log(
-		`present proxy == ${logicalTarget}: ${bytesOk} (${measured.presentLogicalStateBytes})`,
+		`present proxy == ${logicalTarget}: ${bytesOk} (${rep0.presentLogicalStateBytes})`,
 	);
-	console.log(`per-fact ceiling gate: ${gateOk}`);
 	console.log('');
-	if (!liveOk || !bytesOk || !gateOk) {
+	if (!liveOk || !bytesOk) {
 		console.error('CORPUS PRECONDITION FAILED. Aborting.');
 		return 1;
 	}
@@ -328,19 +402,28 @@ async function main(): Promise<number> {
 	}
 
 	// One DDL constraint proof per candidate: the full attack matrix across the
-	// pragma matrix (recursive_triggers OFF/ON; normalized also foreign_keys
-	// OFF/ON), plus the shape and install proofs. The typed per-pragma records
-	// (baseline witness, integrity, and each attack's rejection/witness/integrity)
-	// are retained in the artifact; each cell carries the derived {ok, failures}.
-	const pragmaCombos = (
-		candidate: Candidate,
-	): { recursiveTriggers: boolean; foreignKeys: boolean }[] => {
+	// pragma matrix (recursive_triggers and ignore_check_constraints OFF/ON;
+	// normalized also foreign_keys OFF/ON), plus the shape and install proofs. The
+	// typed per-pragma records (baseline witness, integrity, and each attack's
+	// rejection/witness/integrity) are retained in the artifact; each cell carries
+	// the derived {ok, failures}.
+	type PragmaCombo = {
+		recursiveTriggers: boolean;
+		foreignKeys: boolean;
+		ignoreCheckConstraints: boolean;
+	};
+	const pragmaCombos = (candidate: Candidate): PragmaCombo[] => {
 		const foreignKeyModes =
 			candidate.coordinates === 'normalized' ? [false, true] : [true];
-		const combos: { recursiveTriggers: boolean; foreignKeys: boolean }[] = [];
+		const combos: PragmaCombo[] = [];
 		for (const recursiveTriggers of [false, true])
-			for (const foreignKeys of foreignKeyModes)
-				combos.push({ recursiveTriggers, foreignKeys });
+			for (const ignoreCheckConstraints of [false, true])
+				for (const foreignKeys of foreignKeyModes)
+					combos.push({
+						recursiveTriggers,
+						foreignKeys,
+						ignoreCheckConstraints,
+					});
 		return combos;
 	};
 	const constraintEvidence = CANDIDATES.map((candidate) => {
@@ -351,13 +434,10 @@ async function main(): Promise<number> {
 			...shapeProofs(candidate, makeInMemoryBunDb),
 			...storeTransactionProofs(candidate, makeInMemoryBunDb),
 		];
+		const label = (r: ConstraintProofRecord): string =>
+			`rt=${r.pragmas.recursiveTriggers ? 'on' : 'off'} fk=${r.pragmas.foreignKeys ? 'on' : 'off'} icc=${r.pragmas.ignoreCheckConstraints ? 'on' : 'off'}`;
 		const failures = [
-			...records.flatMap((r) =>
-				r.failures.map(
-					(f) =>
-						`[rt=${r.pragmas.recursiveTriggers ? 'on' : 'off'} fk=${r.pragmas.foreignKeys ? 'on' : 'off'}] ${f}`,
-				),
-			),
+			...records.flatMap((r) => r.failures.map((f) => `[${label(r)}] ${f}`)),
 			...otherFailures,
 		];
 		return {
@@ -419,8 +499,8 @@ async function main(): Promise<number> {
 		);
 	}
 	console.log(
-		'protocol/logical overhead (data-level, same for all candidates):',
-		ratio(measured.currentProtocolFactBytes, measured.presentLogicalStateBytes),
+		'protocol/logical overhead (repetition 0; seed-dependent):',
+		ratio(rep0.currentProtocolFactBytes, rep0.presentLogicalStateBytes),
 	);
 	console.log('');
 
@@ -447,10 +527,7 @@ async function main(): Promise<number> {
 	const report = classifyEvidence(results, {
 		expectedRuntime: 'bun',
 		expectedProfile: args.profile,
-		expectedCorpus: {
-			presentCount: liveTarget,
-			presentLogicalStateBytes: logicalTarget,
-		},
+		expectedRepetitionOracles: repetitionOracles,
 		expectedOwners: owners,
 		expectedCandidateIds: CANDIDATES.map((c) => c.id),
 		requiredRepetitions: args.repetitions,
@@ -478,11 +555,11 @@ async function main(): Promise<number> {
 		`evidence status: ${report.status} (${INSTRUMENT_LABEL}; never reaches ready-for-ADR-review; the ADR owns the choice)`,
 	);
 
-	// One versioned JSON artifact: complete reproduction metadata (runtime
-	// identity, pragmas, parsed args, install batch, candidate order, command,
-	// source commit, DDL/schema digest) plus full raw results (timing arrays,
-	// storage, plans, plan/constraint proofs, before/after witnesses, integrity)
-	// and the classifier report. The classifier summarizes; the raw arrays are the
+	// One versioned JSON artifact: reproduction metadata (runtime identity,
+	// pragmas, parsed args, install batch, candidate order, command, observed
+	// provenance, DDL/schema digest) plus full raw results (timing arrays, storage,
+	// plans, plan/constraint proofs, before/after witnesses, integrity) and the
+	// classifier report. The classifier summarizes; the raw arrays are the
 	// evidence, and medians are never the artifact.
 	if (args.output !== undefined) {
 		const ddlDigest = bytesToHex(
@@ -492,8 +569,6 @@ async function main(): Promise<number> {
 				),
 			),
 		);
-		const sourceCommit =
-			process.env.SOURCE_COMMIT ?? process.env.GITHUB_SHA ?? null;
 		const artifact = {
 			artifactVersion: ARTIFACT_VERSION,
 			label: INSTRUMENT_LABEL,
@@ -501,21 +576,28 @@ async function main(): Promise<number> {
 			runtime: describeBunRuntime(),
 			profile: args.profile,
 			schema: { version: SCHEMA_VERSION, ddlDigest },
+			// Observed provenance: a validated git HEAD, a scoped dirty check, and a
+			// deterministic digest over the exact evidence-producing sources. A null
+			// HEAD or a dirty relevant tree is honest but not source-admissible.
+			provenance: gatherProvenance(),
 			repro: {
 				command: process.argv,
 				args,
 				installBatch: INSTALL_BATCH,
-				sourceCommit,
 				candidateOrderByRep,
 			},
+			// Seed-invariant corpus shape only; every seed-dependent witness value
+			// lives in repetitionOracles, which the classifier binds each cell to.
 			corpus: {
 				liveTarget,
 				logicalTarget,
 				facts: base.facts,
 				valueRatio: base.valueRatio,
-				observed,
-				measured,
+				presentCount: rep0.presentCount,
+				presentLogicalStateBytes: rep0.presentLogicalStateBytes,
+				finalAbsent: rep0.finalAbsent,
 			},
+			repetitionOracles,
 			// The full typed attack-matrix records across the pragma matrix, with
 			// each combo's baseline witness/integrity and every attack's result.
 			constraintEvidence,

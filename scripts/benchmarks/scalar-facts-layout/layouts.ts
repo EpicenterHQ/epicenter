@@ -55,6 +55,15 @@ export type InstallOutcome = 'installed' | 'ignored' | 'corruption';
 export type PlanOp = 'feed' | 'rowPoint' | 'valuePoint' | 'traverse';
 
 /**
+ * A structured query plan: one entry per independently-executed branch (the split
+ * feed runs two, everything else one), each branch the ordered array of
+ * `EXPLAIN QUERY PLAN` detail rows. Kept structured so EVERY branch and detail can
+ * be validated on its own, never a concatenated string where one good branch
+ * hides a broken sibling.
+ */
+export type QueryPlan = { branches: string[][] };
+
+/**
  * The result of an atomic page install: either the whole page committed (with the
  * per-fact outcomes) or the whole page rolled back on the first corruption (with
  * its index). A corruption page writes nothing and advances no progress.
@@ -83,8 +92,8 @@ export type Store = {
 	traverse(namespace: string, table: string): Fact[];
 	feedPage(afterSequence: number, limit: number): Fact[];
 	scanBySequence(): Iterable<Fact>;
-	/** `EXPLAIN QUERY PLAN` of the exact SQL each op executes (split feed: both branches). */
-	queryPlan(op: PlanOp): string;
+	/** Structured `EXPLAIN QUERY PLAN` of the exact SQL each op executes, per branch. */
+	queryPlan(op: PlanOp): QueryPlan;
 	storageTables(): string[];
 };
 
@@ -102,6 +111,82 @@ function inlinePayloadCheck(kind: 'row' | 'value'): string {
 			? "payload IS NOT NULL AND json_valid(payload) AND json_type(payload) = 'object'"
 			: 'payload IS NOT NULL AND json_valid(payload)';
 	return `CHECK (CASE WHEN present = 0 THEN payload IS NULL ELSE ${presentRule} END)`;
+}
+
+// Grammar predicates over NEW, so a BEFORE trigger enforces them even when
+// PRAGMA ignore_check_constraints is ON and every CHECK is bypassed. The CHECKs
+// stay as defense-in-depth; the triggers own closure.
+const PRESENT_OK = "typeof(NEW.present) = 'integer' AND NEW.present IN (0, 1)";
+const SEQUENCE_OK =
+	"typeof(NEW.sequence) = 'integer' AND NEW.sequence >= 1 AND NEW.sequence <= 9007199254740991";
+const textNonEmpty = (col: string): string =>
+	`typeof(${col}) = 'text' AND length(${col}) > 0`;
+/** Two-valued present/absent payload rule for a kind expression over NEW. */
+function payloadRuleFor(kindExpr: string): string {
+	return `(CASE WHEN NEW.present = 0 THEN NEW.payload IS NULL WHEN ${kindExpr} = 'row' THEN NEW.payload IS NOT NULL AND json_valid(NEW.payload) AND json_type(NEW.payload) = 'object' ELSE NEW.payload IS NOT NULL AND json_valid(NEW.payload) END)`;
+}
+/** A BEFORE INSERT/UPDATE trigger pair that RAISE(ABORT)s when the predicate fails. */
+function shapeTriggerPair(
+	table: string,
+	tag: string,
+	predicate: string,
+): string[] {
+	const body = `WHEN NOT (${predicate})
+BEGIN SELECT RAISE(ABORT, 'invalid ${tag}'); END;`;
+	return [
+		`CREATE TRIGGER ${table}_${tag}_insert BEFORE INSERT ON ${table} ${body}`,
+		`CREATE TRIGGER ${table}_${tag}_update BEFORE UPDATE ON ${table} ${body}`,
+	];
+}
+
+/**
+ * Grammar triggers for an INLINE fact table, mirroring every correctness-critical
+ * CHECK (kind, namespace/local-key non-empty, per-kind row-id grammar, per-kind
+ * present/absent payload, present in {0,1}, sequence range) so ignore_check_
+ * constraints cannot admit a malformed inline fact.
+ */
+function inlineGrammarTriggers(
+	table: string,
+	shape: 'unified' | 'row' | 'value',
+): string[] {
+	const parts: string[] = [];
+	if (shape === 'unified') {
+		parts.push("NEW.kind IN ('row', 'value')");
+		parts.push(textNonEmpty('NEW.namespace'), textNonEmpty('NEW.local_key'));
+		parts.push(
+			`(CASE WHEN NEW.kind = 'row' THEN ${ROW_ID_OK('NEW.row_id')} ELSE NEW.row_id = '' END)`,
+		);
+		parts.push(payloadRuleFor('NEW.kind'));
+	} else if (shape === 'row') {
+		parts.push(textNonEmpty('NEW.namespace'), textNonEmpty('NEW.local_key'));
+		parts.push(`(${ROW_ID_OK('NEW.row_id')})`);
+		parts.push(payloadRuleFor("'row'"));
+	} else {
+		parts.push(textNonEmpty('NEW.namespace'), textNonEmpty('NEW.local_key'));
+		parts.push(payloadRuleFor("'value'"));
+	}
+	parts.push(PRESENT_OK, SEQUENCE_OK);
+	return shapeTriggerPair(table, 'grammar', parts.join(' AND '));
+}
+
+/**
+ * Grammar trigger for the coordinates table, surviving ignore_check_constraints.
+ * `coordinate_id` is the INTEGER PRIMARY KEY (rowid alias) and is NULL in a BEFORE
+ * INSERT when auto-assigned, so it is not checked here (NOT NULL and the CHECK
+ * cover it); the kind and namespace/local-key grammar is what must not be bypassed.
+ */
+function coordinateGrammarTriggers(): string[] {
+	const predicate = [
+		"NEW.kind IN ('row', 'value')",
+		textNonEmpty('NEW.namespace'),
+		textNonEmpty('NEW.local_key'),
+	].join(' AND ');
+	// Coordinates are already immutable (no update/delete), so INSERT alone.
+	return [
+		`CREATE TRIGGER coordinates_grammar_insert BEFORE INSERT ON coordinates
+WHEN NOT (${predicate})
+BEGIN SELECT RAISE(ABORT, 'invalid coordinate shape'); END;`,
+	];
 }
 
 /**
@@ -130,6 +215,7 @@ BEGIN SELECT RAISE(ABORT, 'coordinates are never deleted'); END;`,
 WHEN EXISTS (SELECT 1 FROM coordinates c WHERE c.coordinate_id = NEW.coordinate_id)
   OR EXISTS (SELECT 1 FROM coordinates c WHERE c.kind = NEW.kind AND c.namespace = NEW.namespace AND c.local_key = NEW.local_key)
 BEGIN SELECT RAISE(ABORT, 'coordinate identity is immutable'); END;`,
+		...coordinateGrammarTriggers(),
 	];
 }
 
@@ -157,8 +243,9 @@ function normalizedShapeTriggerStatements(
 			: tableKind === 'row'
 				? `(${ROW_ID_OK('NEW.row_id')})`
 				: `(CASE WHEN ${coordKind} = 'row' THEN ${ROW_ID_OK('NEW.row_id')} ELSE NEW.row_id = '' END)`;
-	const payloadRule = `(CASE WHEN NEW.present = 0 THEN NEW.payload IS NULL WHEN ${kindExpr} = 'row' THEN NEW.payload IS NOT NULL AND json_valid(NEW.payload) AND json_type(NEW.payload) = 'object' ELSE NEW.payload IS NOT NULL AND json_valid(NEW.payload) END)`;
-	const body = `WHEN NOT (${kindMatch} AND ${rowIdRule} AND ${payloadRule})
+	const payloadRule = payloadRuleFor(kindExpr);
+	// present/sequence added so ignore_check_constraints cannot bypass them either.
+	const body = `WHEN NOT (${kindMatch} AND ${rowIdRule} AND ${payloadRule} AND ${PRESENT_OK} AND ${SEQUENCE_OK})
 BEGIN SELECT RAISE(ABORT, 'invalid normalized fact shape'); END;`;
 	return [
 		`CREATE TRIGGER ${table}_shape_insert BEFORE INSERT ON ${table} ${body}`,
@@ -239,6 +326,7 @@ export function ddlStatements(candidate: Candidate): string[] {
 				rowResurrection:
 					"OLD.kind = 'row' AND OLD.present = 0 AND NEW.present = 1",
 			}),
+			...inlineGrammarTriggers('facts', 'unified'),
 		];
 	}
 
@@ -306,6 +394,8 @@ export function ddlStatements(candidate: Candidate): string[] {
 				siblingTables: ['row_facts'],
 				rowResurrection: '0',
 			}),
+			...inlineGrammarTriggers('row_facts', 'row'),
+			...inlineGrammarTriggers('value_facts', 'value'),
 		];
 	}
 
@@ -751,18 +841,21 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 			db.all<Row>(traverseSql(), [namespace, table]).map(rowToFact),
 		feedPage,
 		scanBySequence,
-		queryPlan: (op) => {
-			const explain = (sql: string) =>
+		queryPlan: (op): QueryPlan => {
+			const branch = (sql: string): string[] =>
 				db
 					.all<{ detail: string }>(`EXPLAIN QUERY PLAN ${sql}`)
-					.map((r) => r.detail)
-					.join(' | ');
-			if (op === 'feed') {
-				if (!split) return explain(unifiedFeedSql);
-				return `${explain(rowBranchSql)} || ${explain(valueBranchSql)} || + application merge`;
-			}
-			if (op === 'traverse') return explain(traverseSql());
-			return explain(pointSqlFor(op === 'rowPoint' ? 'row' : 'value'));
+					.map((r) => r.detail);
+			if (op === 'feed')
+				return {
+					branches: split
+						? [branch(rowBranchSql), branch(valueBranchSql)]
+						: [branch(unifiedFeedSql)],
+				};
+			if (op === 'traverse') return { branches: [branch(traverseSql())] };
+			return {
+				branches: [branch(pointSqlFor(op === 'rowPoint' ? 'row' : 'value'))],
+			};
 		},
 		storageTables: () =>
 			split
@@ -1123,7 +1216,11 @@ export type AttackResult = {
  */
 export type ConstraintProofRecord = {
 	candidateId: string;
-	pragmas: { recursiveTriggers: boolean; foreignKeys: boolean };
+	pragmas: {
+		recursiveTriggers: boolean;
+		foreignKeys: boolean;
+		ignoreCheckConstraints: boolean;
+	};
 	baseline: { count: number; bytes: number; digest: string; integrity: string };
 	attacks: AttackResult[];
 	legalTransitionsOk: boolean;
@@ -1156,6 +1253,7 @@ export function attackMatrixProof(
 	const pragmas = {
 		recursiveTriggers: pragmaOn(db, 'recursive_triggers'),
 		foreignKeys: pragmaOn(db, 'foreign_keys'),
+		ignoreCheckConstraints: pragmaOn(db, 'ignore_check_constraints'),
 	};
 	const store = createStore(db, candidate);
 	// Known state: row A tombstoned (present@1, absent@2), row B present@5, value
@@ -1249,6 +1347,59 @@ export function attackMatrixProof(
 	attack('raw row absent -> present', () =>
 		rawSetPresent(db, candidate, ROW, 99),
 	);
+	// Grammar refusals: these must hold even when checks are ignored (they run in
+	// the pragma matrix with ignore_check_constraints ON), so a trigger, not a
+	// CHECK, must reject each. Fresh addresses/sequences isolate the grammar cause.
+	attack('raw short row id', () =>
+		rawInsertFact(db, candidate, { ...ROW, rowId: 'short' }, 1, '{}', 50),
+	);
+	attack('raw scalar row payload', () =>
+		rawInsertFact(
+			db,
+			candidate,
+			{ ...ROW, rowId: '00000000000000000000000e' },
+			1,
+			'123',
+			51,
+		),
+	);
+	attack('raw present row null payload', () =>
+		rawInsertFact(
+			db,
+			candidate,
+			{ ...ROW, rowId: '00000000000000000000000f' },
+			1,
+			null,
+			52,
+		),
+	);
+	attack('raw absent fact carrying a payload', () =>
+		rawInsertFact(
+			db,
+			candidate,
+			{ ...ROW, rowId: '00000000000000000000000g' },
+			0,
+			'{}',
+			53,
+		),
+	);
+	attack('raw invalid value payload', () =>
+		rawInsertFact(
+			db,
+			candidate,
+			{ ...VAL, value: 'settingx' },
+			1,
+			'not json',
+			54,
+		),
+	);
+	attack('raw UPDATE to an invalid payload (checks ignored)', () => {
+		const p = physOf(db, candidate, ROW_B);
+		db.run(
+			`UPDATE ${p.table} SET payload = '123', sequence = 60 WHERE ${whereByKey(p)}`,
+			p.keyParams,
+		);
+	});
 	if (candidate.relation === 'split')
 		attack('split cross-table sequence insert', () =>
 			rawInsertFact(db, candidate, VAL_W, 1, '"x"', 5),
@@ -1299,6 +1450,22 @@ export function attackMatrixProof(
 				[999999, ROW.rowId],
 			);
 		});
+		// Coordinate grammar refusals (must survive ignore_check_constraints).
+		attack('raw invalid coordinate kind', () =>
+			db.run(
+				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('bogus', 'so.epicenter.ns00', 'settingk')",
+			),
+		);
+		attack('raw empty coordinate namespace', () =>
+			db.run(
+				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', '', 'settingk')",
+			),
+		);
+		attack('raw empty coordinate local key', () =>
+			db.run(
+				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', 'so.epicenter.ns00', '')",
+			),
+		);
 	}
 
 	// Legal transitions the invariants must still allow.
