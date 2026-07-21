@@ -5,16 +5,20 @@ export type BrowserStorageLease = {
 type LockManagerPort = {
 	request(
 		name: string,
-		options: { mode: 'exclusive'; steal: true },
+		options: { mode: 'exclusive'; signal?: AbortSignal },
 		callback: () => Promise<void>,
 	): Promise<void>;
 };
 
-/** Retain one stealable exclusive Web Lock for the OPFS SQLite owner. */
+/** Retain one exclusive Web Lock for the OPFS SQLite owner. */
 export async function acquireBrowserStorageLease(
 	locks: LockManagerPort,
-	{ onStolen = () => undefined }: { onStolen?: () => void } = {},
+	{
+		onStolen = () => undefined,
+		signal,
+	}: { onStolen?: () => void; signal?: AbortSignal } = {},
 ): Promise<BrowserStorageLease> {
+	signal?.throwIfAborted();
 	const acquired = Promise.withResolvers<BrowserStorageLease>();
 	const released = Promise.withResolvers<void>();
 	let isAcquired = false;
@@ -28,7 +32,7 @@ export async function acquireBrowserStorageLease(
 
 	const completion = locks.request(
 		'epicenter-data-sqlite',
-		{ mode: 'exclusive', steal: true },
+		{ mode: 'exclusive', ...(signal === undefined ? {} : { signal }) },
 		async () => {
 			isAcquired = true;
 			acquired.resolve(

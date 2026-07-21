@@ -111,6 +111,7 @@ export async function openBrowserEpicenter({
 	let requestId = 0;
 	let transportKey = 0;
 	let disposalPromise: Promise<void> | undefined;
+	const disposalFailures: unknown[] = [];
 	let isDisposing = false;
 	let isDisposed = false;
 	let workerFailure: Error | undefined;
@@ -126,12 +127,54 @@ export async function openBrowserEpicenter({
 		return new Promise<TResult>((resolve, reject) => {
 			pending.set(id, {
 				resolve(value) {
+					pending.delete(id);
 					resolve(value as TResult);
 				},
-				reject,
+				reject(cause) {
+					pending.delete(id);
+					reject(cause);
+				},
 			});
-			port.postMessage({ type: 'request', id, operation });
+			try {
+				port.postMessage({ type: 'request', id, operation });
+			} catch (cause) {
+				const failure = new Error('Browser Epicenter worker port failed', {
+					cause,
+				});
+				pending.get(id)?.reject(failure);
+				failWorker(failure);
+			}
 		});
+	}
+
+	function failWorker(cause: Error): void {
+		if (workerFailure !== undefined) return;
+		workerFailure = cause;
+		try {
+			stopCredentials?.();
+		} catch (cleanupCause) {
+			log.error(
+				new Error('Browser sync credential cleanup failed', {
+					cause: cleanupCause,
+				}),
+			);
+		}
+		stopCredentials = undefined;
+		activeTransportKey = undefined;
+		for (const exchange of pendingExchanges.values())
+			exchange.isCanceled = true;
+		exchanges.clear();
+		for (const request of [...pending.values()]) request.reject(cause);
+		for (const document of documents.values()) document.revoke(cause.message);
+		try {
+			port.close?.();
+		} catch (cleanupCause) {
+			log.error(
+				new Error('Browser worker port cleanup failed', {
+					cause: cleanupCause,
+				}),
+			);
+		}
 	}
 
 	function request<TResult>(operation: BrowserOperation): Promise<TResult> {
@@ -180,6 +223,7 @@ export async function openBrowserEpicenter({
 	function proxyExchange(
 		message: Extract<BrowserWorkerMessage, { type: 'exchange-request' }>,
 	): void {
+		if (workerFailure !== undefined) return;
 		if (isDisposing) {
 			port.postMessage({
 				type: 'exchange-error',
@@ -238,15 +282,19 @@ export async function openBrowserEpicenter({
 
 	port.addEventListener('message', ({ data: message }) => {
 		switch (message.type) {
+			case 'client-revoked': {
+				const cause = new Error(message.message);
+				cause.name = message.name;
+				failWorker(cause);
+				return;
+			}
 			case 'result':
 				pending.get(message.id)?.resolve(message.value);
-				pending.delete(message.id);
 				return;
 			case 'error': {
 				const cause = new Error(message.message);
 				cause.name = message.name;
 				pending.get(message.id)?.reject(cause);
-				pending.delete(message.id);
 				return;
 			}
 			case 'invalidation': {
@@ -306,9 +354,7 @@ export async function openBrowserEpicenter({
 	});
 	worker.addEventListener?.('error', ({ message }) => {
 		const cause = new Error(message || 'Browser Epicenter SharedWorker failed');
-		workerFailure = cause;
-		for (const request of pending.values()) request.reject(cause);
-		pending.clear();
+		failWorker(cause);
 	});
 	port.start?.();
 
@@ -454,6 +500,7 @@ export async function openBrowserEpicenter({
 			definition,
 			rowId,
 		});
+		requireOpen();
 		const document = new Y.Doc({ gc: true });
 		let isHandleDisposed = false;
 		let revoked: Error | undefined;
@@ -501,23 +548,28 @@ export async function openBrowserEpicenter({
 				isHandleDisposed = true;
 				documents.delete(opened.documentId);
 				document.off('updateV2', persist);
-				let persistenceFailure: unknown;
+				const failures: unknown[] = [];
 				try {
 					await persistenceTail;
 				} catch (cause) {
-					persistenceFailure = cause;
+					failures.push(cause);
 				}
 				try {
-					if (!isDisposed) {
+					if (!isDisposed && workerFailure === undefined) {
 						await sendRequest<void>({
 							kind: 'document-close',
 							documentId: opened.documentId,
 						});
 					}
+				} catch (cause) {
+					failures.push(cause);
 				} finally {
 					document.destroy();
 				}
-				if (persistenceFailure !== undefined) throw persistenceFailure;
+				if (failures.length === 1) throw failures[0];
+				if (failures.length > 1) {
+					throw new AggregateError(failures, 'Browser document cleanup failed');
+				}
 			},
 		};
 		registerRowDocumentConnectionTarget(handle, {
@@ -549,6 +601,9 @@ export async function openBrowserEpicenter({
 			},
 		});
 
+		// Keep registration and publication in one synchronous turn. If a terminal
+		// worker message follows the result task, failWorker() must see and revoke
+		// this handle before any later task can use it again.
 		documents.set(opened.documentId, {
 			apply(update) {
 				if (isHandleDisposed || revoked !== undefined) return;
@@ -617,7 +672,11 @@ export async function openBrowserEpicenter({
 	function dispose(): Promise<void> {
 		if (disposalPromise !== undefined) return disposalPromise;
 		isDisposing = true;
-		stopCredentials?.();
+		try {
+			stopCredentials?.();
+		} catch (cause) {
+			disposalFailures.push(cause);
+		}
 		stopCredentials = undefined;
 		for (const exchange of pendingExchanges.values())
 			exchange.isCanceled = true;
@@ -626,22 +685,24 @@ export async function openBrowserEpicenter({
 	}
 
 	async function performDispose(): Promise<void> {
-		await Promise.allSettled(
+		const failures: unknown[] = [...disposalFailures];
+		const documentResults = await Promise.allSettled(
 			[...documents.values()].map((document) => document.dispose()),
 		);
-		let disconnectFailure: unknown;
+		for (const result of documentResults) {
+			if (result.status === 'rejected') failures.push(result.reason);
+		}
 		try {
 			if (workerFailure === undefined) {
 				await sendRequest<void>({ kind: 'disconnect' });
 			}
 		} catch (cause) {
-			disconnectFailure = cause;
+			failures.push(cause);
 		}
 		isDisposed = true;
-		for (const request of pending.values()) {
+		for (const request of [...pending.values()]) {
 			request.reject(new Error('Browser Epicenter is disposed'));
 		}
-		pending.clear();
 		tableListeners.clear();
 		valueListeners.clear();
 		exchanges.clear();
@@ -650,9 +711,20 @@ export async function openBrowserEpicenter({
 		activeTransportKey = undefined;
 		syncStatusListeners.clear();
 		documents.clear();
-		invalidationChannel?.close();
-		port.close?.();
-		if (disconnectFailure !== undefined) throw disconnectFailure;
+		try {
+			invalidationChannel?.close();
+		} catch (cause) {
+			failures.push(cause);
+		}
+		try {
+			port.close?.();
+		} catch (cause) {
+			failures.push(cause);
+		}
+		if (failures.length === 1) throw failures[0];
+		if (failures.length > 1) {
+			throw new AggregateError(failures, 'Browser Epicenter cleanup failed');
+		}
 	}
 
 	return Object.freeze({

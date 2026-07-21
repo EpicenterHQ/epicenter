@@ -139,6 +139,7 @@ export type BrowserWorkerMessage =
 	| {
 			type: 'exchange-retire';
 			transportKey: number;
-	  };
+	  }
+	| { type: 'client-revoked'; name: string; message: string };
 
 export type BrowserInvalidationSignal = Omit<BrowserInvalidation, 'broadcast'>;

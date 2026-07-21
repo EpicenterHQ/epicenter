@@ -47,9 +47,15 @@ Private or incognito storage is a negative refusal environment, never a durable
 qualification environment. The maintained benchmark contract owns exact
 footprint measurement and outcome classification.
 
-Browser tests also cover concurrent tabs, Worker termination, lock release,
-backgrounding, restart, and clean ownership handoff. Playwright WebKit does not
-replace physical Safari evidence.
+Qualification must also cover concurrent tabs, Worker termination, lock
+release, backgrounding, restart, and clean ownership handoff. Playwright WebKit
+does not replace physical Safari evidence.
+
+The current adapter requires cooperative page disconnect and does not infer
+death from silence. Browser suspension makes silence ambiguous, while a
+`MessagePort` supplies no durable peer-lifetime signal. Worker termination and
+vanished-page recovery therefore remain unresolved qualification work, not
+evidence supplied by the in-process lifecycle tests.
 
 ## Considered alternatives
 
