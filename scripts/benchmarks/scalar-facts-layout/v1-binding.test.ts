@@ -48,14 +48,33 @@ describe('the trace is bound to the V1 kernel', () => {
 		expect(report.checkedFacts).toBeGreaterThan(0);
 	});
 
-	test('all four fact shapes are exercised', () => {
+	test('all four fact shapes are exercised and admitted, even with a small sample', () => {
+		// A deliberately tiny stride sample: the binding must still parse-check the
+		// first occurrence of each shape, so all four are admitted, not only present.
 		const report = verifyTraceV1Binding(trace(), pilotLimits(), {
-			sampleSize: 6000,
+			sampleSize: 8,
 		});
+		expect(report.bound).toBe(true);
 		expect(report.shapes.rowPresent).toBeGreaterThan(0);
 		expect(report.shapes.rowAbsent).toBeGreaterThan(0);
 		expect(report.shapes.valuePresent).toBeGreaterThan(0);
 		expect(report.shapes.valueAbsent).toBeGreaterThan(0);
+	});
+
+	test('a corpus missing an absent shape fails the binding (non-vacuous)', () => {
+		// A tiny corpus with no tombstones or unsets lacks the absent shapes, so the
+		// all-four requirement must refuse rather than pass on present shapes alone.
+		const tiny = makeTrace({
+			...BASE,
+			facts: 20,
+			valueRatio: 0.1,
+			targetLogicalStateBytes: 20 * 80,
+		});
+		const report = verifyTraceV1Binding(tiny, pilotLimits());
+		if (tiny.observed().finalAbsent === 0) {
+			expect(report.bound).toBe(false);
+			expect(report.failures.join(' ')).toContain('never exercised');
+		}
 	});
 
 	test('the byte oracle equals encodedFactBytes fact-by-fact', () => {

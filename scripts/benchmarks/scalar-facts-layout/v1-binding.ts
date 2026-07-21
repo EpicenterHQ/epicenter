@@ -193,38 +193,71 @@ export function verifyTraceV1Binding(
 		valuePresent: 0,
 		valueAbsent: 0,
 	};
+	const parseChecked = {
+		rowPresent: false,
+		rowAbsent: false,
+		valuePresent: false,
+		valueAbsent: false,
+	};
 	const failures: string[] = [];
 	let checkedFacts = 0;
 	let allPassed = true;
 
-	// Final facts: strided across the whole corpus so every lifecycle outcome is
-	// reachable (surviving rows, tombstones, present and unset values).
-	for (const index of stridedIndices(trace.options.facts, options.sampleSize)) {
-		if (!checkFact(trace.finalFactAt(index), limits, shapes, failures)) {
-			allPassed = false;
+	// Walk the whole final corpus to count the true final-shape distribution (cheap:
+	// finalFactAt is O(1) and this runs no parser). Parse-check every strided index
+	// AND the FIRST occurrence of each of the four shapes, so all four wire shapes
+	// (present/absent row, present/absent value) are admitted by the real kernel
+	// parser, never assumed. This makes the binding non-vacuous for every shape the
+	// corpus contains rather than only the present ones.
+	const strideSet = new Set(
+		stridedIndices(trace.options.facts, options.sampleSize),
+	);
+	for (let index = 0; index < trace.options.facts; index += 1) {
+		const fact = trace.finalFactAt(index);
+		const shape = shapeOf(fact);
+		shapes[shape] += 1;
+		const firstOfShape = !parseChecked[shape];
+		if (firstOfShape || strideSet.has(index)) {
+			if (!checkFact(fact, limits, shapes, failures)) allPassed = false;
+			parseChecked[shape] = true;
+			checkedFacts += 1;
 		}
-		checkedFacts += 1;
 	}
 
 	// Build/aging events: a prefix so the pre-final present facts (initial payload,
-	// phase-1 rewrites, phase-2 resurrections) are bound too, not only final state.
+	// phase-1 rewrites, phase-2 resurrections) are parse-checked too, not only final
+	// state. Their shape hits accumulate in a separate counter so the reported
+	// distribution stays exactly the final-corpus scan above.
 	let seen = 0;
+	const eventShapes = {
+		rowPresent: 0,
+		rowAbsent: 0,
+		valuePresent: 0,
+		valueAbsent: 0,
+	};
 	for (const fact of trace.events()) {
 		if (seen >= options.sampleSize) break;
-		if (!checkFact(fact, limits, shapes, failures)) allPassed = false;
+		if (!checkFact(fact, limits, eventShapes, failures)) allPassed = false;
 		checkedFacts += 1;
 		seen += 1;
 	}
 
-	// A corpus that never emits a shape must not pass vacuously. Absent-value facts
-	// require value unsets in the sample; small corpora may not reach one, so this
-	// only requires the row and present shapes universally, and reports the counts.
+	// A corpus that never exercised a shape must not pass vacuously: require all
+	// four wire shapes to have been both present in the final corpus and admitted.
 	const missingShapes: string[] = [];
-	if (shapes.rowPresent === 0) missingShapes.push('rowPresent');
-	if (shapes.valuePresent === 0) missingShapes.push('valuePresent');
+	for (const shape of [
+		'rowPresent',
+		'rowAbsent',
+		'valuePresent',
+		'valueAbsent',
+	] as const) {
+		if (shapes[shape] === 0 || !parseChecked[shape]) missingShapes.push(shape);
+	}
 	if (missingShapes.length > 0) {
 		allPassed = false;
-		failures.push(`fact shapes never exercised: ${missingShapes.join(', ')}`);
+		failures.push(
+			`fact shapes never exercised or admitted: ${missingShapes.join(', ')}`,
+		);
 	}
 
 	return { bound: allPassed, checkedFacts, shapes, failures };
