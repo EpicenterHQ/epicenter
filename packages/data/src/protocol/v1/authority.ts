@@ -76,15 +76,20 @@ export type AuthorityState = {
 /**
  * Construct a fresh authority under an admitted opaque lifetime.
  *
- * The lifetime is admitted against the same bound the wire uses, so a created
- * authority can never emit a facts response its own parser would reject or throw
- * while packing facts. An empty, oversized, or lone-surrogate lifetime refuses.
+ * Total over unknown input. The lifetime is the one non-branded value the
+ * authority admits, so it is typed `unknown` and every non-string (number,
+ * `null`, `undefined`, symbol, object, or proxy) returns a typed `Invalid`
+ * rather than throwing: the `typeof` guard short-circuits before any string
+ * method runs. Only a non-empty, well-formed string within the wire's lifetime
+ * bound is admitted, so a created authority can never emit a facts response its
+ * own parser would reject or throw while packing facts.
  */
 export function createAuthority(
-	lifetime: string,
+	lifetime: unknown,
 	limits: ValidatedLimits,
 ): Result<AuthorityState, ScalarProtocolError> {
 	if (
+		typeof lifetime !== 'string' ||
 		lifetime.length === 0 ||
 		!isWellFormedString(lifetime) ||
 		utf8ByteLength(lifetime) > limits.maxLifetimeBytes

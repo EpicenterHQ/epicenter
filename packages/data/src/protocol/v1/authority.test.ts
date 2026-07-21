@@ -694,6 +694,34 @@ describe('authority lifetime admission', () => {
 		expectErr(createAuthority(`L${String.fromCharCode(0xd800)}`, LIMITS));
 	});
 
+	test('a non-string lifetime is total: numbers, null, symbols, and proxies refuse without throwing', () => {
+		// A number must not coerce to a string; a hostile proxy must not throw. The
+		// `typeof` guard short-circuits before any string method or trap runs.
+		const throwingProxy = new Proxy(
+			{},
+			{
+				get() {
+					throw new Error('trap');
+				},
+			},
+		);
+		for (const lifetime of [
+			42,
+			0,
+			Number.NaN,
+			true,
+			null,
+			undefined,
+			Symbol('lifetime'),
+			{ toString: () => 'coerced' },
+			['lifetime'],
+			throwingProxy,
+		]) {
+			expect(() => createAuthority(lifetime, LIMITS)).not.toThrow();
+			expectErr(createAuthority(lifetime, LIMITS));
+		}
+	});
+
 	test('a created authority emits a request-compatible facts page', () => {
 		const state = advance(
 			makeAuthority(LIFETIME, LIMITS),
