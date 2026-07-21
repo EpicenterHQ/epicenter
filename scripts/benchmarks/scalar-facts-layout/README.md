@@ -119,9 +119,12 @@ deliberately absent. The ADR owns the choice.
 
 `classifyEvidence` returns one of four statuses and **never a candidate id**:
 
-- **invalid** (fail closed): any duplicate or failed cell, an empty query plan, a
-  seed that is inconsistent within a repetition or not distinct across
-  repetitions, or a globally required metric missing.
+- **invalid** (fail closed): any duplicate or failed cell, a cell for an
+  unexpected owner/candidate or an out-of-range repetition, an empty query plan,
+  a witness that changed across close/reopen, a failed `PRAGMA integrity_check`,
+  an empty or non-finite timing sample, a seed that is inconsistent within a
+  repetition or not distinct across repetitions, or a globally required metric
+  missing.
 - **incomplete**: the expected owner x candidate x repetition matrix (five
   repetitions for full evidence) is not fully populated and correct.
 - **provisional**: the matrix is complete and correct, but unsupported real
@@ -176,6 +179,13 @@ builds; short operations retain raw samples.
 - `layouts.ts`: the four DDL candidates, their stores, and negative constraint
   proofs.
 - `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans.
+  Runtime-neutral: it imports no `bun:sqlite` or `node:*` and receives its
+  database lifecycle through an injected async-capable `RuntimeFactory`, so a
+  future Worker/OPFS runtime reuses it unchanged. The authority replays the full
+  event log (`trace.events()`); the replica acquires only the settled current
+  facts in sequence order (`trace.finalFactsBySequence()`). After close/reopen it
+  recomputes the three-part witness and requires equality, keeping both witnesses
+  and `integrity_check` in the per-cell result.
 - `decision.ts`: the evidence-status classifier (invalid/incomplete/provisional;
   never a winner). Neutral over `@epicenter/sqlite`.
 - `bun-runtime.ts`: Bun/node-only DB lifecycle (open/WAL/reopen), temp files, and

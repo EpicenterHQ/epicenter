@@ -187,6 +187,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
 		"@changesets/cli": "^2.31.0",
+		"@epicenter/sqlite": "workspace:*",
 		"@noble/hashes": "^2.0.1",
 		"@types/bun": "catalog:",
 		"jsrepo": "^3.6.2",
@@ -194,7 +195,6 @@
 	},
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/sqlite": "workspace:*",
 		"tinyexec": "^1.0.4"
 	},
 	"patchedDependencies": {
