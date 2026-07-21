@@ -8,7 +8,10 @@
  * ceiling still proves its limits are internally consistent (or asserts the
  * validator rejects them via `validateLimits` directly).
  *
- * This module is imported only by `*.test.ts`; it is not part of the kernel.
+ * This module is test-only fixtures, not part of the kernel. The
+ * `*.test-support.ts` suffix keeps it out of the published package (see the
+ * `files` exclusion in package.json, parallel to `*.test.ts`) and out of the
+ * `bun test` file set, while still letting `*.test.ts` import it.
  */
 import type { Result } from 'wellcrafted/result';
 
