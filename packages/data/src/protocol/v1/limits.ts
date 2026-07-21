@@ -201,11 +201,22 @@ const NON_NEGATIVE_LIMIT_KEYS = [
 	'maxUnsetKeysPerIntent',
 ] as const satisfies readonly (keyof ScalarSyncLimits)[];
 
+function exhaustiveLimitKeys<
+	const Keys extends readonly (keyof ScalarSyncLimits)[],
+>(
+	keys: Keys &
+		(Exclude<keyof ScalarSyncLimits, Keys[number]> extends never
+			? unknown
+			: never),
+): Keys {
+	return keys;
+}
+
 /** The exact set of limits keys. The two groups partition it with none spare. */
-const ALL_LIMIT_KEYS: readonly (keyof ScalarSyncLimits)[] = [
+const ALL_LIMIT_KEYS = exhaustiveLimitKeys([
 	...POSITIVE_LIMIT_KEYS,
 	...NON_NEGATIVE_LIMIT_KEYS,
-];
+]);
 
 /**
  * Validate an untrusted limits object into opaque, sealed `ValidatedLimits`.

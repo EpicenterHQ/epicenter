@@ -336,10 +336,12 @@ function wordAt(words: Uint32Array, index: number): number {
  * authority keeps a synchronous pure implementation so `submit` stays one
  * deterministic `(state, request, limits)` transition with no `crypto` global.
  * The real server authority (Wave 2c) owns its own platform hashing (for
- * example Web Crypto) and is free to differ, because the hash never crosses a
- * boundary; the RFC 8785 canonicalization it hashes is the only shared law. The
- * v1 barrel is absent from the package `exports` map, so no consumer can freeze
- * this primitive as a contract.
+ * example Web Crypto) and may use a different implementation because the hash
+ * is not exchanged between peers. Within one authority lifetime, its persisted
+ * retry-ledger semantics must nevertheless remain stable across restarts and
+ * upgrades. RFC 8785 canonicalization is the shared input law. The v1 barrel is
+ * absent from the package `exports` map, so no consumer can freeze this
+ * primitive as a public contract.
  */
 export function sha256Hex(input: string): string {
 	const message = textEncoder.encode(input);
