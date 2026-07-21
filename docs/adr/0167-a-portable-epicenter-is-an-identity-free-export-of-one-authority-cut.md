@@ -50,13 +50,12 @@ rows(
 values(namespace_key, value_key, value_json)
 ```
 
-ADR-0161's 512 MiB scalar conformance quantity covers only the named scalar
-projection of structured addresses, row fields, and value content. It excludes
+ADR-0161's representative 512 MiB quantity is a versioned benchmark proxy over
+structured addresses, row fields, and value content. It excludes
 `document_update_v2`, `blob_sha256`, raw blob bytes, container framing, and
-private synchronization state. It is therefore neither a maximum row size nor
-a maximum portable-Epicenter size. Until the round-trip proof freezes this
-artifact's canonical encoding, a benchmark using canonical JSON over those
-scalar columns calls its byte count a proxy.
+private synchronization state. It is neither a maximum row size, a maximum
+portable-Epicenter size, nor a claim that the portable artifact has canonical
+bytes. The maintained benchmark contract owns the proxy encoding.
 
 `document_update_v2` is one self-contained compact Yjs V2 update for the whole
 document, never a state vector or copied live update log. `NULL` means no

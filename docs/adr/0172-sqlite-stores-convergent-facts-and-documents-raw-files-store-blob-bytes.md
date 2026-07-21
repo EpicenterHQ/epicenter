@@ -68,24 +68,20 @@ oracle while the row remains live.
 
 ## Acceptance evidence
 
-Every qualifying ADR-0161 SQLite owner and runtime cell:
+Before this ADR becomes Accepted, each storage adapter must prove that bounded
+document chains remain transactional SQLite state, blob bytes remain streamable
+raw files, and row deletion cannot resurrect either medium. Failure injection
+must leave a complete committed SQLite state plus either valid row-owned blob
+bytes or removable debris, never live bytes for a deleted row.
 
-- matches the independent oracle's exact current-fact count, exact
-  current-protocol-fact byte count, and ordered SHA-256 witness;
-- closes and reopens the database, requires `PRAGMA integrity_check` to return
-  exactly `ok`, and reproduces the same witness after reopen;
-- proves indexed `SEARCH` plans for required point, feed, and traversal
-  operations, including cross-kind isolation, rather than accepting any
-  nonempty query plan;
-- proves that quota, I/O, crash, and transaction-boundary failures preserve the
-  previous complete committed witness and durable progress, never a partial
-  prefix; and
-- reports allocated pages, non-freelist pages, freelist ratio, WAL and temporary
-  bytes, and storage-root peak separately.
-
-ADR-0161's physical ceilings apply to its scalar-only fixture. They do not cap
-bounded Yjs chains or raw blob bytes, and this evidence does not choose a
-physical scalar layout.
+Physical measurements are adapter-specific. Evidence from native SQLite and
+browser OPFS reports the database and the file-level measurements that the
+adapter can observe. Cloudflare Durable Object evidence reports its exposed
+database size, SQL row counts, execution cost, and platform-limit refusals; it
+does not invent WAL, temporary-file, or storage-root measurements that the
+managed runtime does not expose. ADR-0161's scalar-only layout evidence remains
+separate and does not cap document chains, raw blob bytes, or choose a scalar
+layout.
 
 ## Considered alternatives
 
