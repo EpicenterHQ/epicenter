@@ -249,7 +249,12 @@ export async function runCandidate(
 		const acquisition = timeRaw(1, () => {
 			let batch: Fact[] = [];
 			const flush = (): void => {
-				store.installPage(batch);
+				const result = store.installPage(batch);
+				// A corrupt page rolled back; the cell fails and must not continue.
+				if (result.status === 'corruption')
+					throw new Error(
+						`page corruption at fact ${result.index}: ${result.reason}`,
+					);
 				batch = [];
 			};
 			for (const fact of source) {

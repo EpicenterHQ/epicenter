@@ -314,8 +314,14 @@ describe('installPage is exactly one transaction with in-transaction progress', 
 				presence: 'present' as const,
 				content: n,
 			}));
-			const outcomes = store.installPage(page, () => log.push('progress@1'));
-			expect(outcomes).toEqual(['installed', 'installed', 'installed']);
+			const result = store.installPage(page, () => log.push('progress@1'));
+			expect(result.status).toBe('committed');
+			if (result.status === 'committed')
+				expect(result.outcomes).toEqual([
+					'installed',
+					'installed',
+					'installed',
+				]);
 			// Exactly one transaction, and never a nested one.
 			expect(log.filter((l) => l === 'begin@1').length).toBe(1);
 			expect(log.filter((l) => l === 'end@1').length).toBe(1);
@@ -326,6 +332,107 @@ describe('installPage is exactly one transaction with in-transaction progress', 
 			expect(progress).toBeLessThan(log.indexOf('end@1'));
 			// All three facts reconstruct.
 			expect([...store.scanBySequence()].length).toBe(3);
+		});
+	}
+});
+
+describe('a corrupt page rolls back entirely and advances no progress', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: full rollback, no progress, witness unchanged, one transaction`, () => {
+			const inner = makeDb(ddlStatements(candidate));
+			const { db, log } = spyDb(inner);
+			const store = createStore(db, candidate);
+			// The reproduced probe page: new value A@1; same address+sequence but
+			// divergent content (corruption); new value B@2.
+			const a = {
+				kind: 'value' as const,
+				namespace: 'so.epicenter.ns00',
+				value: 'settinga',
+			};
+			const b = {
+				kind: 'value' as const,
+				namespace: 'so.epicenter.ns00',
+				value: 'settingb',
+			};
+			const page = [
+				{ address: a, sequence: 1, presence: 'present' as const, content: 1 },
+				{ address: a, sequence: 1, presence: 'present' as const, content: 999 },
+				{ address: b, sequence: 2, presence: 'present' as const, content: 2 },
+			];
+			let progressCalled = false;
+			const before = [...store.scanBySequence()].length;
+			const result = store.installPage(page, () => {
+				progressCalled = true;
+			});
+			// The page reports corruption at the middle fact and rolls the whole page back.
+			expect(result.status).toBe('corruption');
+			if (result.status === 'corruption') expect(result.index).toBe(1);
+			// Progress was never written.
+			expect(progressCalled).toBe(false);
+			// Nothing was committed: A and B are both absent, witness unchanged.
+			expect([...store.scanBySequence()].length).toBe(before);
+			expect(store.get(a)).toBeUndefined();
+			expect(store.get(b)).toBeUndefined();
+			// Exactly one transaction, rolled back, never nested.
+			expect(log.filter((l) => l === 'begin@1').length).toBe(1);
+			expect(log.some((l) => l === 'begin@2')).toBe(false);
+			// Integrity intact after the rollback.
+			expect(
+				db.all<{ integrity_check: string }>('PRAGMA integrity_check')[0]
+					?.integrity_check,
+			).toBe('ok');
+		});
+	}
+});
+
+describe('one-fact install preserves its outcome contract', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: installed, ignored (stale/equal), corruption`, () => {
+			const store = createStore(makeDb(ddlStatements(candidate)), candidate);
+			const v = {
+				kind: 'value' as const,
+				namespace: 'so.epicenter.ns00',
+				value: 'settingz',
+			};
+			expect(
+				store.install({
+					address: v,
+					sequence: 5,
+					presence: 'present',
+					content: 1,
+				}),
+			).toBe('installed');
+			// Stale sequence is ignored.
+			expect(
+				store.install({
+					address: v,
+					sequence: 4,
+					presence: 'present',
+					content: 2,
+				}),
+			).toBe('ignored');
+			// Equal sequence, identical content is ignored (a no-op).
+			expect(
+				store.install({
+					address: v,
+					sequence: 5,
+					presence: 'present',
+					content: 1,
+				}),
+			).toBe('ignored');
+			// Equal sequence, divergent content is corruption; state unchanged.
+			expect(
+				store.install({
+					address: v,
+					sequence: 5,
+					presence: 'present',
+					content: 999,
+				}),
+			).toBe('corruption');
+			const read = store.get(v);
+			expect(
+				read?.presence === 'present' && 'content' in read && read.content,
+			).toBe(1);
 		});
 	}
 });

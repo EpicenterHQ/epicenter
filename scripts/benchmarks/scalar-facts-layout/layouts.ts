@@ -54,13 +54,30 @@ export const CANDIDATES: Candidate[] = [
 export type InstallOutcome = 'installed' | 'ignored' | 'corruption';
 export type PlanOp = 'feed' | 'rowPoint' | 'valuePoint' | 'traverse';
 
+/**
+ * The result of an atomic page install: either the whole page committed (with the
+ * per-fact outcomes) or the whole page rolled back on the first corruption (with
+ * its index). A corruption page writes nothing and advances no progress.
+ */
+export type PageResult =
+	| { status: 'committed'; outcomes: InstallOutcome[] }
+	| { status: 'corruption'; index: number; reason: string };
+
+/** Internal sentinel: thrown inside the page transaction to force a full ROLLBACK. */
+class PageRollback extends Error {
+	constructor(readonly index: number) {
+		super(`page rolled back at fact ${index}`);
+	}
+}
+
 export type Store = {
 	/**
-	 * Install a page of facts in exactly one transaction; optional durable
-	 * progress is written in that same transaction. The atomic batch seam.
+	 * Install a page of facts in exactly one transaction; optional durable progress
+	 * is written in that same transaction only if the whole page commits. Any
+	 * corruption rolls the entire page back and writes no progress. The atomic seam.
 	 */
-	installPage(facts: Fact[], commitProgress?: () => void): InstallOutcome[];
-	/** One-fact page. */
+	installPage(facts: Fact[], commitProgress?: () => void): PageResult;
+	/** One-fact page, preserving the ignored/installed/corruption contract. */
 	install(fact: Fact): InstallOutcome;
 	get(address: Address): Fact | undefined;
 	traverse(namespace: string, table: string): Fact[];
@@ -627,27 +644,47 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 	}
 
 	/**
-	 * Install a page of facts in EXACTLY ONE transaction: every fact is applied
-	 * through the non-transaction-opening inner op, then optional durable progress
-	 * (an afterSequence watermark, a replica cursor) is written in that same
-	 * transaction, so the batch and its progress commit or roll back together. This
-	 * is the atomic seam a Worker/OPFS runtime needs; there is no nested-transaction
-	 * per fact. Returns the per-fact outcomes in order.
+	 * Install a page of facts in EXACTLY ONE transaction. Every fact is applied
+	 * through the non-transaction-opening inner op. If ANY fact is `corruption`, the
+	 * WHOLE page rolls back and progress is NOT written: a corrupt page must never
+	 * be half-applied nor advance a watermark. Otherwise (only `installed`/`ignored`
+	 * outcomes) the optional durable progress is written in that same transaction
+	 * and the page commits. Rollback is driven by a sentinel thrown inside the
+	 * SQLite transaction (forcing ROLLBACK) and caught outside it, so the discarded
+	 * writes never reach disk. Returns a discriminated result.
 	 */
-	function installPage(
-		facts: Fact[],
-		commitProgress?: () => void,
-	): InstallOutcome[] {
-		return db.transaction((): InstallOutcome[] => {
-			const outcomes = facts.map(applyInstall);
-			commitProgress?.();
-			return outcomes;
-		});
+	function installPage(facts: Fact[], commitProgress?: () => void): PageResult {
+		try {
+			return db.transaction((): PageResult => {
+				const outcomes: InstallOutcome[] = [];
+				for (let index = 0; index < facts.length; index += 1) {
+					const outcome = applyInstall(facts[index] as Fact);
+					outcomes.push(outcome);
+					if (outcome === 'corruption') throw new PageRollback(index);
+				}
+				commitProgress?.();
+				return { status: 'committed', outcomes };
+			});
+		} catch (error) {
+			if (error instanceof PageRollback)
+				return {
+					status: 'corruption',
+					index: error.index,
+					reason: `fact ${error.index} is corruption; page rolled back`,
+				};
+			throw error;
+		}
 	}
 
-	/** One-fact page: the whole transition is one transaction. */
+	/**
+	 * One-fact page, preserving the ignored/installed/corruption contract. A corrupt
+	 * fact rolls the (empty) page back and reports `corruption`, exactly as before.
+	 */
 	function install(fact: Fact): InstallOutcome {
-		return installPage([fact])[0] as InstallOutcome;
+		const result = installPage([fact]);
+		return result.status === 'committed'
+			? (result.outcomes[0] as InstallOutcome)
+			: 'corruption';
 	}
 
 	const unifiedFeedSql = `${selectAll('facts', null, normalized)} WHERE sequence > ? ORDER BY sequence LIMIT ?`;
@@ -1062,10 +1099,17 @@ function integrityOf(db: SqliteDatabase): string {
 	);
 }
 
-/** One attack's structured result: it must be rejected with a stable witness and ok integrity. */
+/**
+ * One attack's structured result. The RAW observations (the exact after-attack
+ * witness and integrity string) are retained as the auditable transcript; the
+ * booleans are derived from them for convenience, never a substitute for the raw
+ * observation.
+ */
 export type AttackResult = {
 	name: string;
 	rejected: boolean;
+	observedWitness: { count: number; bytes: number; digest: string };
+	observedIntegrity: string;
 	witnessStable: boolean;
 	integrityOk: boolean;
 };
@@ -1146,13 +1190,21 @@ export function attackMatrixProof(
 
 	const attack = (name: string, run: () => void): void => {
 		const rejected = rejects(run);
-		const w = witnessOf(store);
+		const observedWitness = witnessOf(store);
+		const observedIntegrity = integrityOf(db);
 		const witnessStable =
-			w.count === base.count &&
-			w.bytes === base.bytes &&
-			w.digest === base.digest;
-		const integrityOk = integrityOf(db) === 'ok';
-		attacks.push({ name, rejected, witnessStable, integrityOk });
+			observedWitness.count === base.count &&
+			observedWitness.bytes === base.bytes &&
+			observedWitness.digest === base.digest;
+		const integrityOk = observedIntegrity === 'ok';
+		attacks.push({
+			name,
+			rejected,
+			observedWitness,
+			observedIntegrity,
+			witnessStable,
+			integrityOk,
+		});
 		if (!rejected)
 			failures.push(`${candidate.id}: attack "${name}" was NOT rejected`);
 		if (!witnessStable)
