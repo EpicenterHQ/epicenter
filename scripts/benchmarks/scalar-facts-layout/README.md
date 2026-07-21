@@ -18,12 +18,36 @@ Two consequences are enforced mechanically here:
 
 - A **measurement-method pilot** validates the method. It is never
   decision-eligible and can never make evidence ADR-ready. Its only product is
-  `methodValidated` plus explicit proof refusals (`evidence-status.ts`).
-- Evidence readiness is **fail-closed**. While the absolute performance SLO
-  policy is unconfigured (the install, open, read, write, feed, traversal, and
-  restart ceilings are unmade ADR/product choices), evidence status is forced to
-  `provisional`, even for a complete, correct, fully classified matrix. This code
-  ships only the unconfigured SLO shape and invents no numeric ceilings.
+  `methodValidated` plus explicit proof refusals (`evidence-status.ts`), and
+  `methodValidated` is derived from RECORDED operations, never a hardcoded
+  boolean.
+- Evidence readiness is **fail-closed** with four states: `invalid`,
+  `incomplete`, `provisional`, `ready-for-adr-review`. Readiness requires a
+  configured SLO policy with a positive finite ceiling for every required metric
+  AND an observed within-ceiling per-cell measurement for every metric; a
+  configured flag with an empty or partial ceiling set is `invalid`. The absolute
+  install, open, read, write, feed, traversal, and restart ceilings are unmade
+  ADR/product choices, so this code ships only the unconfigured SLO shape and
+  invents no numeric ceilings; a pilot is always at most `provisional`.
+
+## Executable status: a smoke, not a validated pilot
+
+`pilot.ts` is deliberately a **smoke**. Its gates are derived from recorded
+operations (calibration checks every recorded block against the 20 ms floor;
+each block records its own immediate warmup; the balanced Williams order is
+executed and its balance recomputed from the recorded blocks; reopen retains
+witnesses; a real 400-transaction mutating tail runs after a true byte-equivalent
+reset verified by pre-state witness equality; the headroom preflight runs before
+retaining databases and fails closed; the checkpoint is persisted atomically and
+resumed cross-process). Because the full declared owner workload matrix is not
+yet implemented, the `owner-workloads` gate fails by construction and
+`methodValidated` is **unreachable**: the executable never claims to be a
+validated pilot. Implemented owner metrics are a subset of the declared set
+(`acquisitionInstall`, `confirmedPointRead`, `monotonicInstallTail`,
+`warmReopen` for the replica; `orderedFreshFeed`, `foldPointRead`,
+`submissionSettlementTail`, `warmReopen` for the authority); overlay,
+resume-feed, exact-retry, tombstone-document-cleanup, and the remaining mutating
+tails are declared-but-pending and returned to Codex.
 
 ## Modular pilot architecture
 
@@ -51,11 +75,18 @@ hashing, scheduling, statistics, and status are portable to browser runtimes.
   so it cannot bootstrap below the whole seed. It runs a deterministic studentized
   paired bootstrap over whole seeds, builds 95% familywise simultaneous max-t
   intervals, and classifies each contrast against fixed log-ratio margins.
-- `checkpoint.ts`: per-seed checkpointing and source/config provenance identity;
-  refuses to resume across a changed source or config, and only at a committed
-  whole-seed boundary.
-- `evidence-status.ts`: the classifier-only method validation and fail-closed
-  evidence-readiness contract described above.
+- `checkpoint.ts`: atomically persisted, schema-validated, cross-process
+  per-seed checkpointing. Identity binds the exact source, whole config,
+  per-candidate DDL hashes, limits digest, runtime and SQLite versions, execution
+  settings, and workload and auxiliary digests; resume happens only at a committed
+  whole-seed boundary and fails closed on any mismatch, truncation, or partial seed.
+- `layouts.ts`: the four SQLite candidate stores. Coordinates are an immutable
+  append-only dictionary; normalized fact tables enforce coordinate kind and
+  row_id shape; install is monotonic and tombstone-dominant; storage counts every
+  candidate-owned btree including autoindexes. `layouts-invariants.test.ts` proves
+  each with direct hostile SQL.
+- `evidence-status.ts`: the classifier-only method validation and four-state
+  fail-closed evidence-readiness contract described above.
 
 ## Correctness vs consistency
 
