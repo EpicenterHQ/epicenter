@@ -158,6 +158,27 @@ function confirmedFactsDdl(candidate: Candidate): string {
 		`;
 	}
 	if (candidate.relation === 'unified') {
+		// The coordinate kind decides the row_id shape: a row coordinate needs a
+		// 24-char lowercase runtime id, a value coordinate needs the empty row_id.
+		// This refuses a value fact carrying a non-empty row_id, which would sit
+		// beside the '' row and let one value address hold multiple physical rows,
+		// and refuses a row fact with a malformed id. The fact CHECK still enforces
+		// payload/presence semantics by looking up the kind through the coordinate.
+		const shapeExpr = `(
+			(SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) = 'row'
+				AND length(NEW.row_id) = 24 AND NEW.row_id NOT GLOB '*[^a-z0-9]*'
+			OR (SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) = 'value'
+				AND NEW.row_id = ''
+		)`;
+		const payloadExpr = `(
+			CASE (SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id)
+				WHEN 'row' THEN
+					CASE NEW.present WHEN 1 THEN json_valid(NEW.payload) = 1 AND json_type(NEW.payload) = 'object' ELSE NEW.payload IS NULL END
+				WHEN 'value' THEN
+					CASE NEW.present WHEN 1 THEN json_valid(NEW.payload) = 1 ELSE NEW.payload IS NULL END
+				ELSE 0
+			END
+		)`;
 		return `
 			CREATE TABLE facts (
 				coordinate_id INTEGER NOT NULL REFERENCES coordinates(coordinate_id),
@@ -167,6 +188,12 @@ function confirmedFactsDdl(candidate: Candidate): string {
 				sequence INTEGER NOT NULL UNIQUE ${sequence},
 				PRIMARY KEY (coordinate_id, row_id)
 			) WITHOUT ROWID;
+			CREATE TRIGGER facts_shape_insert BEFORE INSERT ON facts
+			WHEN NOT (${shapeExpr} AND ${payloadExpr})
+			BEGIN SELECT RAISE(ABORT, 'invalid unified normalized fact shape'); END;
+			CREATE TRIGGER facts_shape_update BEFORE UPDATE ON facts
+			WHEN NOT (${shapeExpr} AND ${payloadExpr})
+			BEGIN SELECT RAISE(ABORT, 'invalid unified normalized fact shape'); END;
 		`;
 	}
 	const rowCoord =
@@ -181,6 +208,25 @@ function confirmedFactsDdl(candidate: Candidate): string {
 		candidate.coordinates === 'normalized'
 			? 'PRIMARY KEY (coordinate_id)'
 			: 'PRIMARY KEY (namespace, local_key)';
+	// Under normalized coordinates each fact table may reference only its own kind:
+	// row_facts a row coordinate, value_facts a value coordinate. Without this a
+	// row_facts row could point at a value coordinate and reinterpret it.
+	const kindTriggers =
+		candidate.coordinates === 'normalized'
+			? `
+		CREATE TRIGGER row_facts_kind_insert BEFORE INSERT ON row_facts
+		WHEN (SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) IS NOT 'row'
+		BEGIN SELECT RAISE(ABORT, 'row_facts requires a row coordinate'); END;
+		CREATE TRIGGER row_facts_kind_update BEFORE UPDATE OF coordinate_id ON row_facts
+		WHEN (SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) IS NOT 'row'
+		BEGIN SELECT RAISE(ABORT, 'row_facts requires a row coordinate'); END;
+		CREATE TRIGGER value_facts_kind_insert BEFORE INSERT ON value_facts
+		WHEN (SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) IS NOT 'value'
+		BEGIN SELECT RAISE(ABORT, 'value_facts requires a value coordinate'); END;
+		CREATE TRIGGER value_facts_kind_update BEFORE UPDATE OF coordinate_id ON value_facts
+		WHEN (SELECT kind FROM coordinates WHERE coordinate_id = NEW.coordinate_id) IS NOT 'value'
+		BEGIN SELECT RAISE(ABORT, 'value_facts requires a value coordinate'); END;`
+			: '';
 	return `
 		CREATE TABLE row_facts (
 			${rowCoord}
@@ -199,6 +245,7 @@ function confirmedFactsDdl(candidate: Candidate): string {
 			${fixedKindCheck('value')},
 			${valuePrimary}
 		) WITHOUT ROWID;
+		${kindTriggers}
 		${splitSequenceTriggers()}
 	`;
 }
@@ -206,14 +253,23 @@ function confirmedFactsDdl(candidate: Candidate): string {
 /** Coordinate dictionary plus coordinate-aware auxiliary tables. */
 function coordinateAndAuxiliaryDdl(candidate: Candidate): string {
 	const normalized = candidate.coordinates === 'normalized';
+	// Coordinates are an append-only immutable dictionary. Any UPDATE or DELETE is
+	// refused, so an existing coordinate_id can never be reinterpreted (a value
+	// coordinate turned into a row coordinate, a namespace swapped) and INSERT OR
+	// REPLACE, which deletes then reinserts, is refused before it can reinterpret a
+	// fact. Combined with the unique triple, coordinate identity is immutable.
 	const coordinates = normalized
 		? `CREATE TABLE coordinates (
 			coordinate_id INTEGER PRIMARY KEY,
 			kind TEXT NOT NULL CHECK (kind IN ('row', 'value')),
-			namespace TEXT NOT NULL,
-			local_key TEXT NOT NULL,
+			namespace TEXT NOT NULL CHECK (typeof(namespace) = 'text' AND length(namespace) > 0),
+			local_key TEXT NOT NULL CHECK (typeof(local_key) = 'text' AND length(local_key) > 0),
 			UNIQUE (kind, namespace, local_key)
-		);`
+		);
+		CREATE TRIGGER coordinates_immutable_update BEFORE UPDATE ON coordinates
+		BEGIN SELECT RAISE(ABORT, 'coordinates are an immutable append-only dictionary'); END;
+		CREATE TRIGGER coordinates_immutable_delete BEFORE DELETE ON coordinates
+		BEGIN SELECT RAISE(ABORT, 'coordinates are an immutable append-only dictionary'); END;`
 		: '';
 	// Address columns are inline or a coordinate reference, so the auxiliary tables
 	// honor the same coordinate decision as the confirmed facts.
@@ -274,6 +330,10 @@ export function configureNewDatabase(database: Database): void {
 	database.exec(`PRAGMA page_size=${PAGE_SIZE}`);
 	database.exec(`PRAGMA cache_size=-${CACHE_KIB}`);
 	database.exec('PRAGMA foreign_keys=ON');
+	// REPLACE fires BEFORE DELETE triggers only when recursive triggers are on, so
+	// this is load-bearing: it lets the coordinate-immutability delete trigger catch
+	// an INSERT OR REPLACE that would otherwise silently reinterpret a coordinate.
+	database.exec('PRAGMA recursive_triggers=ON');
 	database.exec('PRAGMA journal_mode=WAL');
 	database.exec('PRAGMA synchronous=NORMAL');
 	database.exec('PRAGMA temp_store=MEMORY');
@@ -282,6 +342,7 @@ export function configureNewDatabase(database: Database): void {
 export function configureReopenedDatabase(database: Database): void {
 	database.exec(`PRAGMA cache_size=-${CACHE_KIB}`);
 	database.exec('PRAGMA foreign_keys=ON');
+	database.exec('PRAGMA recursive_triggers=ON');
 	database.exec('PRAGMA synchronous=NORMAL');
 	database.exec('PRAGMA temp_store=MEMORY');
 }
@@ -474,9 +535,19 @@ export function createLayoutStore(
 			return pointStore.point(address);
 		},
 		candidateTableBytes() {
+			// Count every candidate-owned btree: the tables themselves AND all of
+			// their indexes, including the sqlite_autoindex_* btrees SQLite creates for
+			// PRIMARY KEY and UNIQUE constraints. `sqlite_schema.tbl_name` groups a
+			// table with its own indexes and autoindexes, so joining dbstat through it
+			// captures storage an earlier table-name-only filter silently omitted.
+			const placeholders = CANDIDATE_TABLE_NAMES.map(() => '?').join(',');
 			const rows = database
 				.prepare(
-					`SELECT SUM(pgsize) AS bytes FROM dbstat WHERE name IN (${CANDIDATE_TABLE_NAMES.map(() => '?').join(',')})`,
+					`SELECT COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat
+					 WHERE name IN (
+						 SELECT name FROM sqlite_schema
+						 WHERE type IN ('table', 'index') AND tbl_name IN (${placeholders})
+					 )`,
 				)
 				.get(...CANDIDATE_TABLE_NAMES) as { bytes: number | null };
 			return rows.bytes ?? 0;
@@ -508,17 +579,38 @@ type ResolveCoordinate = (
 	localKey: string,
 ) => number;
 
+const UPDATE_SET =
+	'present=excluded.present, payload=excluded.payload, sequence=excluded.sequence';
+
+/**
+ * A monotonic upsert tail: a conflicting write applies only when its sequence is
+ * strictly higher, and a present intent never resurrects a terminal row tombstone
+ * (a row whose current fact is absent). `rowTombstoneExpr` is a boolean SQL
+ * expression true iff the EXISTING row is such a tombstone, or null for value
+ * tables where absence is non-terminal. This makes install monotonic and
+ * tombstone-dominant, so a lower sequence cannot overwrite a higher one and a
+ * later present cannot revive a deleted row.
+ */
+function monotonicUpsert(
+	conflictColumns: string,
+	table: string,
+	rowTombstoneExpr: string | null,
+): string {
+	const tombstone = rowTombstoneExpr
+		? ` AND NOT (${rowTombstoneExpr} AND excluded.present = 1)`
+		: '';
+	return `ON CONFLICT(${conflictColumns}) DO UPDATE SET ${UPDATE_SET} WHERE excluded.sequence > ${table}.sequence${tombstone}`;
+}
+
 /** A confirmed-fact writer that hides all relation/coordinate/kind branching. */
 function buildFactWriter(
 	prepare: Prepare,
 	candidate: Candidate,
 ): { run(row: Row, resolve: ResolveCoordinate): void } {
-	const set =
-		'present=excluded.present, payload=excluded.payload, sequence=excluded.sequence';
 	if (candidate.relation === 'unified') {
 		if (candidate.coordinates === 'inline') {
 			const stmt = prepare(
-				`INSERT INTO facts (kind, namespace, local_key, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(kind, namespace, local_key, row_id) DO UPDATE SET ${set}`,
+				`INSERT INTO facts (kind, namespace, local_key, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?, ?, ?) ${monotonicUpsert('kind, namespace, local_key, row_id', 'facts', "facts.kind = 'row' AND facts.present = 0")}`,
 			);
 			return {
 				run(row) {
@@ -535,7 +627,7 @@ function buildFactWriter(
 			};
 		}
 		const stmt = prepare(
-			`INSERT INTO facts (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?) ON CONFLICT(coordinate_id, row_id) DO UPDATE SET ${set}`,
+			`INSERT INTO facts (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?) ${monotonicUpsert('coordinate_id, row_id', 'facts', "(SELECT kind FROM coordinates WHERE coordinate_id = facts.coordinate_id) = 'row' AND facts.present = 0")}`,
 		);
 		return {
 			run(row, resolve) {
@@ -551,10 +643,10 @@ function buildFactWriter(
 	}
 	if (candidate.coordinates === 'inline') {
 		const rowStmt = prepare(
-			`INSERT INTO row_facts (namespace, local_key, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(namespace, local_key, row_id) DO UPDATE SET ${set}`,
+			`INSERT INTO row_facts (namespace, local_key, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?, ?) ${monotonicUpsert('namespace, local_key, row_id', 'row_facts', 'row_facts.present = 0')}`,
 		);
 		const valueStmt = prepare(
-			`INSERT INTO value_facts (namespace, local_key, present, payload, sequence) VALUES (?, ?, ?, ?, ?) ON CONFLICT(namespace, local_key) DO UPDATE SET ${set}`,
+			`INSERT INTO value_facts (namespace, local_key, present, payload, sequence) VALUES (?, ?, ?, ?, ?) ${monotonicUpsert('namespace, local_key', 'value_facts', null)}`,
 		);
 		return {
 			run(row) {
@@ -580,10 +672,10 @@ function buildFactWriter(
 		};
 	}
 	const rowStmt = prepare(
-		`INSERT INTO row_facts (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?) ON CONFLICT(coordinate_id, row_id) DO UPDATE SET ${set}`,
+		`INSERT INTO row_facts (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, ?, ?, ?) ${monotonicUpsert('coordinate_id, row_id', 'row_facts', 'row_facts.present = 0')}`,
 	);
 	const valueStmt = prepare(
-		`INSERT INTO value_facts (coordinate_id, present, payload, sequence) VALUES (?, ?, ?, ?) ON CONFLICT(coordinate_id) DO UPDATE SET ${set}`,
+		`INSERT INTO value_facts (coordinate_id, present, payload, sequence) VALUES (?, ?, ?, ?) ${monotonicUpsert('coordinate_id', 'value_facts', null)}`,
 	);
 	return {
 		run(row, resolve) {
