@@ -11,13 +11,14 @@
  * - incremental row-document updates persist and deletion revokes handles
  * - sync failover cancels stale generations without overlapping page callbacks
  * - stalled sync attachment never blocks local RPC
- * - vanished pages are reclaimed whole after bounded worker-driven liveness probes
+ * - explicit disconnect aborts store opening and disposes late resources
  */
 
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type BrowserWorkerStore,
@@ -26,7 +27,6 @@ import {
 } from './browser/worker.js';
 import {
 	type BrowserEpicenter,
-	type BrowserWorkerHealthPolicy,
 	type ClientMessagePort,
 	openBrowserEpicenter,
 	type RuntimeBroadcastChannel,
@@ -46,9 +46,7 @@ type MessageListener = (event: { data: never }) => void;
 class FakeMessagePort {
 	peer: FakeMessagePort | undefined;
 	readonly sent: unknown[] = [];
-	isClosed = false;
 	private readonly listeners = new Set<MessageListener>();
-	private readonly blockedIncomingTypes = new Set<string>();
 	private readonly heldIncomingTypes = new Set<string>();
 	private readonly heldIncoming = new Map<string, unknown[]>();
 	private readonly throwingOutgoingTypes = new Set<string>();
@@ -74,7 +72,6 @@ class FakeMessagePort {
 	start(): void {}
 
 	close(): void {
-		this.isClosed = true;
 		this.vanish();
 	}
 
@@ -82,10 +79,6 @@ class FakeMessagePort {
 		const peer = this.peer;
 		this.peer = undefined;
 		if (peer?.peer === this) peer.peer = undefined;
-	}
-
-	blockIncomingType(type: string): void {
-		this.blockedIncomingTypes.add(type);
 	}
 
 	holdIncomingType(type: string): void {
@@ -111,7 +104,6 @@ class FakeMessagePort {
 			typeof message.type === 'string'
 				? message.type
 				: undefined;
-		if (type !== undefined && this.blockedIncomingTypes.has(type)) return;
 		if (type !== undefined && this.heldIncomingTypes.has(type)) {
 			const held = this.heldIncoming.get(type) ?? [];
 			held.push(message);
@@ -127,15 +119,12 @@ class FakeMessagePort {
 function createPortPair(): {
 	page: ClientMessagePort;
 	worker: MessagePortLike;
-	vanish(): void;
 	pageMessages: unknown[];
 	sendWorkerMessage(message: unknown): void;
 	workerMessages: unknown[];
-	blockPageMessageType(type: string): void;
 	holdPageMessageType(type: string): void;
 	releasePageMessageType(type: string): void;
 	throwWorkerMessageType(type: string): void;
-	isWorkerClosed(): boolean;
 } {
 	const page = new FakeMessagePort();
 	const worker = new FakeMessagePort();
@@ -144,15 +133,12 @@ function createPortPair(): {
 	return {
 		page: page as ClientMessagePort,
 		worker: worker as MessagePortLike,
-		vanish: () => page.vanish(),
 		pageMessages: page.sent,
 		sendWorkerMessage: (message) => worker.postMessage(message),
 		workerMessages: worker.sent,
-		blockPageMessageType: (type) => page.blockIncomingType(type),
 		holdPageMessageType: (type) => page.holdIncomingType(type),
 		releasePageMessageType: (type) => page.releaseIncomingType(type),
 		throwWorkerMessageType: (type) => worker.throwOutgoingType(type),
-		isWorkerClosed: () => worker.isClosed,
 	};
 }
 
@@ -337,15 +323,9 @@ const theme = defineValue({
 async function setup({
 	exchangeTimeoutMs,
 	transportRetirementMs,
-	clientLivenessIntervalMs,
-	clientLivenessTimeoutMs,
-	workerHealthPolicy,
 }: {
 	exchangeTimeoutMs?: number;
 	transportRetirementMs?: number;
-	clientLivenessIntervalMs?: number;
-	clientLivenessTimeoutMs?: number;
-	workerHealthPolicy?: BrowserWorkerHealthPolicy;
 } = {}) {
 	const owner = createStoreOwner();
 	const broadcasts = new FakeBroadcastHub();
@@ -354,59 +334,40 @@ async function setup({
 		hostId: 'browser-test-host',
 		...(exchangeTimeoutMs === undefined ? {} : { exchangeTimeoutMs }),
 		...(transportRetirementMs === undefined ? {} : { transportRetirementMs }),
-		...(clientLivenessIntervalMs === undefined &&
-		clientLivenessTimeoutMs === undefined
-			? {}
-			: {
-					clientLivenessPolicy: {
-						probeIntervalMs: clientLivenessIntervalMs ?? 60_000,
-						responseTimeoutMs: clientLivenessTimeoutMs ?? 5 * 60_000,
-					},
-				}),
 	});
 
 	async function openControlledTab(): Promise<{
 		epicenter: BrowserEpicenter;
-		vanish(): void;
 		pageMessages: unknown[];
 		sendWorkerMessage(message: unknown): void;
 		workerMessages: unknown[];
-		blockPageMessageType(type: string): void;
 		holdPageMessageType(type: string): void;
 		releasePageMessageType(type: string): void;
 		throwWorkerMessageType(type: string): void;
-		isWorkerClosed(): boolean;
 	}> {
 		const {
 			page,
 			worker,
-			vanish,
 			pageMessages,
 			sendWorkerMessage,
 			workerMessages,
-			blockPageMessageType,
 			holdPageMessageType,
 			releasePageMessageType,
 			throwWorkerMessageType,
-			isWorkerClosed,
 		} = createPortPair();
 		host.connect(worker);
 		const epicenter = await openBrowserEpicenter({
 			createSharedWorker: () => ({ port: page }),
 			createBroadcastChannel: broadcasts.create,
-			...(workerHealthPolicy === undefined ? {} : { workerHealthPolicy }),
 		});
 		return {
 			epicenter,
-			vanish,
 			pageMessages,
 			sendWorkerMessage,
 			workerMessages,
-			blockPageMessageType,
 			holdPageMessageType,
 			releasePageMessageType,
 			throwWorkerMessageType,
-			isWorkerClosed,
 		};
 	}
 
@@ -420,28 +381,6 @@ async function setup({
 function bindTestData(epicenter: BrowserEpicenter) {
 	return epicenter.bind({ tables: { notes }, values: { theme } });
 }
-
-test('worker host refuses liveness values unsupported by browser timers', () => {
-	expect(() =>
-		createBrowserWorkerHost({
-			clientLivenessPolicy: {
-				probeIntervalMs: 2_147_483_648,
-				responseTimeoutMs: 1,
-			},
-		}),
-	).toThrow('supported timer values');
-});
-
-test('page proxy refuses health values unsupported by browser timers', async () => {
-	await expect(
-		openBrowserEpicenter({
-			workerHealthPolicy: {
-				probeIntervalMs: 2_147_483_648,
-				responseTimeoutMs: 1,
-			},
-		}),
-	).rejects.toThrow('supported timer values');
-});
 
 test('page CRUD, scan, and value operations round-trip through the worker', async () => {
 	const { openTab } = await setup();
@@ -490,9 +429,7 @@ test('a committed write invalidates subscribers in a second tab', async () => {
 });
 
 test('a throwing stale port cannot suppress invalidation for a healthy peer', async () => {
-	const { openControlledTab, owner } = await setup({
-		workerHealthPolicy: { probeIntervalMs: 10, responseTimeoutMs: 20 },
-	});
+	const { openControlledTab, owner } = await setup();
 	const stale = await openControlledTab();
 	const healthy = await openControlledTab();
 	const observed: string[][] = [];
@@ -505,10 +442,6 @@ test('a throwing stale port cannot suppress invalidation for a healthy peer', as
 		title: 'Healthy peer still notified',
 	});
 	await waitFor(() => observed.flat().includes(row.id));
-	await expect(
-		settleWithin(bindTestData(stale.epicenter).tables.notes.get(row.id), 1_000),
-	).rejects.toThrow('stopped responding');
-	expect(() => bindTestData(stale.epicenter)).toThrow('stopped responding');
 	expect(owner.activeStores).toBe(1);
 	unsubscribe();
 	await healthy.epicenter[Symbol.asyncDispose]();
@@ -972,223 +905,329 @@ test('a quarantined transport recovers after its healthy peer disconnects', asyn
 	);
 });
 
-test('an abruptly vanished page is reclaimed with documents and pending sync', async () => {
-	const { openControlledTab, openTab, owner } = await setup({
-		exchangeTimeoutMs: 60_000,
-		clientLivenessIntervalMs: 10,
-		clientLivenessTimeoutMs: 20,
-	});
-	const tab = await openControlledTab();
-	const survivor = await openTab();
-	const notes = bindTestData(tab.epicenter).tables.notes;
-	const row = await notes.create({ title: 'Vanishing page' });
-	const document = await notes.openDocument(row.id);
-	document.get('content').insert(0, 'owned by the vanished client');
-	await document.whenDurable();
-	let stallNext = false;
-	let stalledExchangeStarted = false;
-	expectOk(
-		await tab.epicenter.attachSync({
-			deploymentId: 'https://example.test/',
-			principalId: 'alice',
-			exchange(request) {
-				if (stallNext) {
-					stalledExchangeStarted = true;
-					return new Promise<ExchangeResponse>(() => undefined);
-				}
-				return acknowledge(request);
-			},
-		}),
-	);
-	stallNext = true;
-	await notes.create({ title: 'Starts a pending generation' });
-	await waitFor(() => stalledExchangeStarted);
-	const cancellationsBeforeVanish = countMessages(
-		tab.workerMessages,
-		'exchange-cancel',
-	);
-
-	tab.vanish();
-	await waitFor(
-		() => countMessages(tab.workerMessages, 'client-revoked') === 1,
-	);
-	expect(countMessages(tab.workerMessages, 'exchange-cancel')).toBeGreaterThan(
-		cancellationsBeforeVanish,
-	);
-	expect(owner.activeStores).toBe(1);
-	const survivorRow = await bindTestData(survivor).tables.notes.create({
-		title: 'Surviving page remains local',
-	});
-	expect(survivorRow.title).toBe('Surviving page remains local');
-	await survivor[Symbol.asyncDispose]();
-	await waitFor(() => owner.activeStores === 0);
-	expect(owner.disposeCount).toBe(1);
-
-	await using replacement = await openTab();
-	expect(replacement).toBeDefined();
-	expect(owner.activeStores).toBe(1);
-	expect(owner.openCount).toBe(2);
-});
-
-test('a nonresponsive connected page receives a terminal client failure', async () => {
-	const { openControlledTab, owner } = await setup({
-		clientLivenessIntervalMs: 10,
-		clientLivenessTimeoutMs: 20,
-	});
-	const tab = await openControlledTab();
-	tab.blockPageMessageType('liveness-probe');
-	await waitFor(() => owner.activeStores === 0);
-	expect(countMessages(tab.workerMessages, 'client-revoked')).toBe(1);
-	await waitFor(() => {
-		try {
-			bindTestData(tab.epicenter);
-			return false;
-		} catch {
-			return true;
-		}
-	});
-	expect(() => bindTestData(tab.epicenter)).toThrow('stopped responding');
-	await tab.epicenter[Symbol.asyncDispose]();
-});
-
-test('an acknowledgement after the deadline cannot revive a terminal client', async () => {
-	const owner = createStoreOwner();
-	const broadcasts = new FakeBroadcastHub();
-	let releaseStore: (() => void) | undefined;
-	const storeGate = new Promise<void>((resolve) => {
-		releaseStore = resolve;
-	});
+test('explicit disconnect aborts a stalled store opening and bypasses its queue', async () => {
+	const openingStarted = Promise.withResolvers<AbortSignal>();
 	const host = createBrowserWorkerHost({
-		async openStore(options) {
-			await storeGate;
-			return owner.openStore(options);
+		openStore({ signal }) {
+			openingStarted.resolve(signal);
+			return new Promise<BrowserWorkerStore>((_resolve, reject) => {
+				signal.addEventListener('abort', () => reject(signal.reason), {
+					once: true,
+				});
+			});
 		},
-		clientLivenessPolicy: { probeIntervalMs: 10, responseTimeoutMs: 20 },
-	});
-	const ports = createPortPair();
-	ports.holdPageMessageType('liveness-probe');
-	host.connect(ports.worker);
-	const opening = openBrowserEpicenter({
-		createSharedWorker: () => ({ port: ports.page }),
-		createBroadcastChannel: broadcasts.create,
-	}).then(
-		() => undefined,
-		(cause: unknown) => cause,
-	);
-	await waitFor(
-		() => countMessages(ports.workerMessages, 'liveness-probe') === 1,
-	);
-	await Bun.sleep(25);
-	ports.releasePageMessageType('liveness-probe');
-	const failure = await settleWithin(opening, 1_000);
-	expect(failure).toBeInstanceOf(Error);
-	expect((failure as Error).message).toContain('stopped responding');
-	releaseStore?.();
-	await waitFor(() => owner.activeStores === 0);
-	expect(countMessages(ports.workerMessages, 'client-revoked')).toBe(1);
-});
-
-test('terminal reclamation during store open cannot publish sync ownership', async () => {
-	const owner = createStoreOwner();
-	let releaseStore!: () => void;
-	const storeGate = new Promise<void>((resolve) => {
-		releaseStore = resolve;
-	});
-	const host = createBrowserWorkerHost({
-		async openStore(options) {
-			await storeGate;
-			return owner.openStore(options);
-		},
-		clientLivenessPolicy: { probeIntervalMs: 10, responseTimeoutMs: 20 },
 	});
 	const ports = createPortPair();
 	host.connect(ports.worker);
 	ports.page.postMessage({
 		type: 'request',
 		id: 1,
-		operation: {
-			kind: 'attach-sync',
-			transportKey: 1,
-			deploymentId: 'https://example.test/',
-			principalId: 'alice',
-			hasCredentials: true,
-		},
+		operation: { kind: 'open' },
+	});
+	const signal = await openingStarted.promise;
+	ports.page.postMessage({
+		type: 'request',
+		id: 2,
+		operation: { kind: 'disconnect' },
 	});
 
-	await waitFor(
-		() => countMessages(ports.workerMessages, 'client-revoked') === 1,
-	);
-	releaseStore();
-	await waitFor(() => owner.activeStores === 0);
-	expect(owner.attachmentAtDisposal).toBeUndefined();
-	expect(countMessages(ports.workerMessages, 'exchange-request')).toBe(0);
-	expect(countMessages(ports.workerMessages, 'result')).toBe(0);
+	await waitFor(() => hasResult(ports.workerMessages, 2));
+	expect(signal.aborted).toBe(true);
+	expect(hasResult(ports.workerMessages, 1)).toBe(false);
 });
 
-test('worker health remains responsive during a legitimate slow local RPC', async () => {
+test('a store that resolves after disconnect is disposed without delaying it', async () => {
 	const owner = createStoreOwner();
-	const broadcasts = new FakeBroadcastHub();
-	let releaseStore!: () => void;
-	const storeGate = new Promise<void>((resolve) => {
-		releaseStore = resolve;
-	});
+	const openingStarted = Promise.withResolvers<AbortSignal>();
+	const releaseStore = Promise.withResolvers<void>();
 	const host = createBrowserWorkerHost({
 		async openStore(options) {
-			await storeGate;
+			openingStarted.resolve(options.signal);
+			await releaseStore.promise;
 			return owner.openStore(options);
 		},
 	});
 	const ports = createPortPair();
 	host.connect(ports.worker);
-	let settled = false;
-	const opening = openBrowserEpicenter({
-		createSharedWorker: () => ({ port: ports.page }),
-		createBroadcastChannel: broadcasts.create,
-		workerHealthPolicy: { probeIntervalMs: 10, responseTimeoutMs: 20 },
-	}).finally(() => {
-		settled = true;
+	ports.page.postMessage({
+		type: 'request',
+		id: 1,
+		operation: { kind: 'open' },
+	});
+	const signal = await openingStarted.promise;
+	ports.page.postMessage({
+		type: 'request',
+		id: 2,
+		operation: { kind: 'disconnect' },
 	});
 
-	await waitFor(
-		() => countMessages(ports.workerMessages, 'worker-health-ack') > 0,
-	);
-	await Bun.sleep(50);
-	expect(settled).toBe(false);
-	releaseStore();
-	const epicenter = await settleWithin(opening, 1_000);
-	await epicenter[Symbol.asyncDispose]();
-	await waitFor(() => owner.activeStores === 0);
+	await waitFor(() => hasResult(ports.workerMessages, 2));
+	expect(signal.aborted).toBe(true);
+	expect(owner.openCount).toBe(0);
+	const replacementPorts = createPortPair();
+	const replacementRequestReceived = Promise.withResolvers<void>();
+	replacementPorts.worker.addEventListener('message', ({ data }) => {
+		if (data.type === 'request' && data.operation.kind === 'open') {
+			replacementRequestReceived.resolve();
+		}
+	});
+	host.connect(replacementPorts.worker);
+	let replacementSettled = false;
+	const replacementOpening = openBrowserEpicenter({
+		createSharedWorker: () => ({ port: replacementPorts.page }),
+		createBroadcastChannel: () => undefined,
+	}).finally(() => {
+		replacementSettled = true;
+	});
+	await replacementRequestReceived.promise;
+	await Promise.resolve();
+	expect(replacementSettled).toBe(false);
+	expect(owner.openCount).toBe(0);
+	releaseStore.resolve();
+	const replacement = await settleWithin(replacementOpening, 1_000);
+	expect(owner.disposeCount).toBe(1);
+	expect(owner.activeStores).toBe(1);
+	expect(owner.openCount).toBe(2);
+	expect(owner.attachmentAtDisposal).toBeUndefined();
+	expect(hasResult(ports.workerMessages, 1)).toBe(false);
+	await replacement[Symbol.asyncDispose]();
+	expect(owner.activeStores).toBe(0);
+	expect(owner.disposeCount).toBe(2);
 });
 
-test('liveness deadline fails closed while a local operation never settles', async () => {
+test('last-client disconnect fences replacement work from the draining store', async () => {
+	const documentOpeningStarted = Promise.withResolvers<void>();
+	const releaseDocument = Promise.withResolvers<void>();
+	const owner = createStoreOwner({
+		async transformDocument(document) {
+			documentOpeningStarted.resolve();
+			await releaseDocument.promise;
+			return document;
+		},
+	});
+	const host = createBrowserWorkerHost({ openStore: owner.openStore });
+	const firstPorts = createPortPair();
+	const disconnectReceived = Promise.withResolvers<void>();
+	firstPorts.worker.addEventListener('message', ({ data }) => {
+		if (data.type === 'request' && data.operation.kind === 'disconnect') {
+			disconnectReceived.resolve();
+		}
+	});
+	host.connect(firstPorts.worker);
+	const first = await openBrowserEpicenter({
+		createSharedWorker: () => ({ port: firstPorts.page }),
+		createBroadcastChannel: () => undefined,
+	});
+	const firstNotes = bindTestData(first).tables.notes;
+	const row = await firstNotes.create({ title: 'Drain old store' });
+	const delayedDocument = firstNotes.openDocument(row.id);
+	await documentOpeningStarted.promise;
+
+	const firstDisposal = first[Symbol.asyncDispose]();
+	await disconnectReceived.promise;
+	const replacementPorts = createPortPair();
+	const replacementRequestReceived = Promise.withResolvers<void>();
+	replacementPorts.worker.addEventListener('message', ({ data }) => {
+		if (data.type === 'request' && data.operation.kind === 'open') {
+			replacementRequestReceived.resolve();
+		}
+	});
+	host.connect(replacementPorts.worker);
+	const replacementOpening = openBrowserEpicenter({
+		createSharedWorker: () => ({ port: replacementPorts.page }),
+		createBroadcastChannel: () => undefined,
+	});
+	await replacementRequestReceived.promise;
+	expect(owner.openCount).toBe(1);
+	expect(owner.disposeCount).toBe(0);
+	releaseDocument.resolve();
+	const [documentResult, disposalResult] = await Promise.allSettled([
+		delayedDocument,
+		firstDisposal,
+	]);
+	expect(documentResult.status).toBe('rejected');
+	expect(disposalResult.status).toBe('fulfilled');
+	const replacement = await settleWithin(replacementOpening, 1_000);
+	expect(owner.openCount).toBe(2);
+	expect(owner.disposeCount).toBe(1);
+	expect(owner.activeStores).toBe(1);
+	const replacementRow = await bindTestData(replacement).tables.notes.create({
+		title: 'Fresh store only',
+	});
+	expect(replacementRow.title).toBe('Fresh store only');
+	await replacement[Symbol.asyncDispose]();
+	expect(owner.activeStores).toBe(0);
+	expect(owner.disposeCount).toBe(2);
+});
+
+test('a disconnected waiter cannot create or retire the next store generation', async () => {
+	const documentOpeningStarted = Promise.withResolvers<void>();
+	const releaseDocument = Promise.withResolvers<void>();
+	const oldDisposalStarted = Promise.withResolvers<void>();
+	const releaseOldDisposal = Promise.withResolvers<void>();
+	const owner = createStoreOwner({
+		async transformDocument(document) {
+			documentOpeningStarted.resolve();
+			await releaseDocument.promise;
+			return document;
+		},
+	});
 	const host = createBrowserWorkerHost({
-		openStore: () => new Promise<BrowserWorkerStore>(() => undefined),
-		clientLivenessPolicy: { probeIntervalMs: 10, responseTimeoutMs: 20 },
+		async openStore(options) {
+			const store = await owner.openStore(options);
+			if (owner.openCount !== 1) return store;
+			return {
+				...store,
+				async dispose() {
+					oldDisposalStarted.resolve();
+					await releaseOldDisposal.promise;
+					await store.dispose();
+				},
+			};
+		},
+	});
+
+	const firstPorts = createPortPair();
+	const firstDisconnectReceived = Promise.withResolvers<void>();
+	firstPorts.worker.addEventListener('message', ({ data }) => {
+		if (data.type === 'request' && data.operation.kind === 'disconnect') {
+			firstDisconnectReceived.resolve();
+		}
+	});
+	host.connect(firstPorts.worker);
+	const first = await openBrowserEpicenter({
+		createSharedWorker: () => ({ port: firstPorts.page }),
+		createBroadcastChannel: () => undefined,
+	});
+	const firstNotes = bindTestData(first).tables.notes;
+	const row = await firstNotes.create({ title: 'Retire first generation' });
+	const delayedDocument = firstNotes.openDocument(row.id);
+	await documentOpeningStarted.promise;
+
+	const firstDisposal = first[Symbol.asyncDispose]();
+	await firstDisconnectReceived.promise;
+	const waitingPorts = createPortPair();
+	const waitingDisconnectReceived = Promise.withResolvers<void>();
+	waitingPorts.worker.addEventListener('message', ({ data }) => {
+		if (data.type === 'request' && data.operation.kind === 'disconnect') {
+			waitingDisconnectReceived.resolve();
+		}
+	});
+	host.connect(waitingPorts.worker);
+	waitingPorts.page.postMessage({
+		type: 'request',
+		id: 1,
+		operation: { kind: 'open' },
+	});
+
+	releaseDocument.resolve();
+	await oldDisposalStarted.promise;
+	await Promise.resolve();
+	waitingPorts.page.postMessage({
+		type: 'request',
+		id: 2,
+		operation: { kind: 'disconnect' },
+	});
+	await waitingDisconnectReceived.promise;
+
+	const replacementPorts = createPortPair();
+	const replacementRequestReceived = Promise.withResolvers<void>();
+	replacementPorts.worker.addEventListener('message', ({ data }) => {
+		if (data.type === 'request' && data.operation.kind === 'open') {
+			replacementRequestReceived.resolve();
+		}
+	});
+	host.connect(replacementPorts.worker);
+	const replacementOpening = openBrowserEpicenter({
+		createSharedWorker: () => ({ port: replacementPorts.page }),
+		createBroadcastChannel: () => undefined,
+	});
+	await replacementRequestReceived.promise;
+	expect(owner.openCount).toBe(1);
+	expect(owner.disposeCount).toBe(0);
+
+	releaseOldDisposal.resolve();
+	const [documentResult, firstDisposalResult] = await Promise.allSettled([
+		delayedDocument,
+		firstDisposal,
+	]);
+	expect(documentResult.status).toBe('rejected');
+	expect(firstDisposalResult.status).toBe('fulfilled');
+	const replacement = await settleWithin(replacementOpening, 1_000);
+	expect(owner.openCount).toBe(2);
+	expect(owner.disposeCount).toBe(1);
+	expect(owner.activeStores).toBe(1);
+	const replacementRow = await bindTestData(replacement).tables.notes.create({
+		title: 'Only the live client owns this generation',
+	});
+	expect(replacementRow.title).toBe(
+		'Only the live client owns this generation',
+	);
+	await replacement[Symbol.asyncDispose]();
+	expect(owner.activeStores).toBe(0);
+	expect(owner.disposeCount).toBe(2);
+});
+
+test('explicit disposal returns a store cleanup failure after releasing ownership', async () => {
+	const owner = createStoreOwner();
+	const host = createBrowserWorkerHost({
+		async openStore(options) {
+			const store = await owner.openStore(options);
+			return {
+				...store,
+				async dispose() {
+					await store.dispose();
+					throw new Error('Injected store cleanup failure');
+				},
+			};
+		},
 	});
 	const ports = createPortPair();
-	ports.blockPageMessageType('liveness-probe');
 	host.connect(ports.worker);
-	const opening = openBrowserEpicenter({
+	const epicenter = await openBrowserEpicenter({
 		createSharedWorker: () => ({ port: ports.page }),
 		createBroadcastChannel: () => undefined,
-	}).then(
-		() => undefined,
-		(cause: unknown) => cause,
-	);
+	});
 
-	const failure = await settleWithin(opening, 1_000);
-	expect(failure).toBeInstanceOf(Error);
-	expect((failure as Error).message).toContain('stopped responding');
-	expect(countMessages(ports.workerMessages, 'client-revoked')).toBe(1);
-	await waitFor(() => ports.isWorkerClosed());
-	const probesAtDeadline = countMessages(
-		ports.workerMessages,
-		'liveness-probe',
+	await expect(epicenter[Symbol.asyncDispose]()).rejects.toThrow(
+		'Injected store cleanup failure',
 	);
-	await Bun.sleep(40);
-	expect(countMessages(ports.workerMessages, 'liveness-probe')).toBe(
-		probesAtDeadline,
-	);
+	expect(owner.activeStores).toBe(0);
+	expect(owner.disposeCount).toBe(1);
+});
+
+test('unreachable terminal cleanup failures are logged after ownership release', async () => {
+	const owner = createStoreOwner();
+	const { sink, events } = memorySink();
+	const host = createBrowserWorkerHost({
+		async openStore(options) {
+			const store = await owner.openStore(options);
+			return {
+				...store,
+				async dispose() {
+					await store.dispose();
+					throw new Error('Injected background cleanup failure');
+				},
+			};
+		},
+		log: createLogger('test/browser-worker', sink),
+	});
+	const ports = createPortPair();
+	host.connect(ports.worker);
+	const epicenter = await openBrowserEpicenter({
+		createSharedWorker: () => ({ port: ports.page }),
+		createBroadcastChannel: () => undefined,
+	});
+
+	owner.steal();
+	await waitFor(() => events.length === 1);
+	expect(events[0]).toMatchObject({
+		level: 'error',
+		source: 'test/browser-worker',
+	});
+	expect(owner.activeStores).toBe(0);
+	expect(owner.disposeCount).toBe(1);
+	await epicenter[Symbol.asyncDispose]();
 });
 
 test('storage theft terminally revokes clients and disposes their store', async () => {
@@ -1314,7 +1353,11 @@ test('document revocation closes every client after one disposer rejects', async
 		},
 	});
 	const broadcasts = new FakeBroadcastHub();
-	const host = createBrowserWorkerHost({ openStore: owner.openStore });
+	const { sink, events } = memorySink();
+	const host = createBrowserWorkerHost({
+		openStore: owner.openStore,
+		log: createLogger('test/browser-worker', sink),
+	});
 
 	async function openTab(): Promise<BrowserEpicenter> {
 		const ports = createPortPair();
@@ -1336,6 +1379,11 @@ test('document revocation closes every client after one disposer rejects', async
 	await firstNotes.delete(row.id);
 	await settleWithin(firstDisposalStarted, 1_000);
 	await settleWithin(secondDisposalCompleted, 1_000);
+	await waitFor(() => events.length === 1);
+	expect(events[0]).toMatchObject({
+		level: 'error',
+		source: 'test/browser-worker',
+	});
 	await waitFor(() => {
 		try {
 			firstDocument.get('content');
@@ -1390,7 +1438,7 @@ test('document-open cannot escape a concurrent terminal page failure', async () 
 	await tab.epicenter[Symbol.asyncDispose]();
 });
 
-test('a document opened after terminal reclamation is disposed before publication', async () => {
+test('a late document cleanup failure is logged before publication stays suppressed', async () => {
 	let releaseDocument!: () => void;
 	const documentGate = new Promise<void>((resolve) => {
 		releaseDocument = resolve;
@@ -1409,13 +1457,18 @@ test('a document opened after terminal reclamation is disposed before publicatio
 					async value() {
 						delayedDocumentDisposals += 1;
 						await document[Symbol.asyncDispose]();
+						throw new Error('Injected late document cleanup failure');
 					},
 				},
 			}) as RowDocument;
 		},
 	});
 	const broadcasts = new FakeBroadcastHub();
-	const host = createBrowserWorkerHost({ openStore: owner.openStore });
+	const { sink, events } = memorySink();
+	const host = createBrowserWorkerHost({
+		openStore: owner.openStore,
+		log: createLogger('test/browser-worker', sink),
+	});
 	const ports = createPortPair();
 	host.connect(ports.worker);
 	const epicenter = await openBrowserEpicenter({
@@ -1436,30 +1489,14 @@ test('a document opened after terminal reclamation is disposed before publicatio
 	expect((failure as Error).message).toContain('storage moved');
 	releaseDocument();
 	await waitFor(() => owner.activeStores === 0);
+	await waitFor(() => events.length === 1);
+	expect(events[0]).toMatchObject({
+		level: 'error',
+		source: 'test/browser-worker',
+	});
 	expect(delayedDocumentDisposals).toBe(1);
 	expect(countMessages(ports.workerMessages, 'result')).toBe(2);
 	await epicenter[Symbol.asyncDispose]();
-});
-
-test('an idle live page answers probes and explicit disposal stops probing', async () => {
-	const { openControlledTab, owner } = await setup({
-		clientLivenessIntervalMs: 10,
-		clientLivenessTimeoutMs: 20,
-	});
-	const tab = await openControlledTab();
-	await Bun.sleep(50);
-	expect(countMessages(tab.workerMessages, 'liveness-probe')).toBeGreaterThan(
-		0,
-	);
-	expect(owner.activeStores).toBe(1);
-
-	await tab.epicenter[Symbol.asyncDispose]();
-	const probesAtDisposal = countMessages(tab.workerMessages, 'liveness-probe');
-	await Bun.sleep(40);
-	expect(countMessages(tab.workerMessages, 'liveness-probe')).toBe(
-		probesAtDisposal,
-	);
-	expect(owner.activeStores).toBe(0);
 });
 
 test('retired transports can reattach repeatedly without reviving old callbacks', async () => {
@@ -1749,6 +1786,18 @@ function countMessages(messages: unknown[], type: string): number {
 			'type' in message &&
 			message.type === type,
 	).length;
+}
+
+function hasResult(messages: unknown[], id: number): boolean {
+	return messages.some(
+		(message) =>
+			typeof message === 'object' &&
+			message !== null &&
+			'type' in message &&
+			message.type === 'result' &&
+			'id' in message &&
+			message.id === id,
+	);
 }
 
 function lastMessageOfType(

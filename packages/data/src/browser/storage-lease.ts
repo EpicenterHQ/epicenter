@@ -13,8 +13,12 @@ type LockManagerPort = {
 /** Retain one stealable exclusive Web Lock for the OPFS SQLite owner. */
 export async function acquireBrowserStorageLease(
 	locks: LockManagerPort,
-	{ onStolen = () => undefined }: { onStolen?: () => void } = {},
+	{
+		onStolen = () => undefined,
+		signal,
+	}: { onStolen?: () => void; signal?: AbortSignal } = {},
 ): Promise<BrowserStorageLease> {
+	signal?.throwIfAborted();
 	const acquired = Promise.withResolvers<BrowserStorageLease>();
 	const released = Promise.withResolvers<void>();
 	let isAcquired = false;
@@ -25,6 +29,13 @@ export async function acquireBrowserStorageLease(
 		isReleased = true;
 		released.resolve();
 	}
+
+	function abort(): void {
+		acquired.reject(signal?.reason);
+		finishRelease();
+	}
+
+	signal?.addEventListener('abort', abort, { once: true });
 
 	const completion = locks.request(
 		'epicenter-data-sqlite',
@@ -52,6 +63,10 @@ export async function acquireBrowserStorageLease(
 		finishRelease();
 		if (!wasReleased) onStolen();
 	});
+	void completion.then(
+		() => signal?.removeEventListener('abort', abort),
+		() => signal?.removeEventListener('abort', abort),
+	);
 	return acquired.promise;
 }
 

@@ -7,6 +7,7 @@ import sqlite3InitModule, {
 	type SAHPoolUtil,
 } from '@sqlite.org/sqlite-wasm';
 import type { TSchema } from 'typebox';
+import { createLogger, type Logger } from 'wellcrafted/logger';
 
 import {
 	defineTable,
@@ -64,10 +65,10 @@ type Client = {
 	documents: Map<number, WorkerDocument>;
 	disconnection: Promise<void> | undefined;
 	isDisconnected: boolean;
+	storeClosure:
+		| { lifecycle: StoreLifecycle | undefined; drain: Promise<void> }
+		| undefined;
 	terminalCause: Error | undefined;
-	livenessSequence: number;
-	livenessProbe: ReturnType<typeof setTimeout> | undefined;
-	livenessTimeout: ReturnType<typeof setTimeout> | undefined;
 	syncTransportKey: number | undefined;
 	syncAttachmentOrder: number;
 	syncTransportAvailable: boolean;
@@ -94,6 +95,18 @@ type WorkerDocument = {
 	stopUpdates(): void;
 };
 
+type StoreLifecycle = {
+	token: object;
+	controller: AbortController;
+	ready: Promise<BrowserWorkerStore>;
+	closed: Promise<void>;
+	resolveClosed(): void;
+	store: BrowserWorkerStore | undefined;
+	disposal: Promise<unknown[]> | undefined;
+	stopReplicaSubscription: (() => void) | undefined;
+	stopSyncStatusSubscription: (() => void) | undefined;
+};
+
 type UntypedTableLens = {
 	create(fields: Record<string, unknown>): Promise<unknown>;
 	get(rowId: string): Promise<unknown>;
@@ -111,59 +124,27 @@ type UntypedValueLens = {
 
 const documentRpcOrigin = Object.freeze({ kind: 'browser-document-rpc' });
 const DEFAULT_EXCHANGE_TIMEOUT_MS = 30_000;
-// MessagePort does not report when its remote page vanishes. A worker-driven
-// probe bounds leaked client state without relying on throttled page timers.
-// A page whose JavaScript cannot service messages for the entire timeout is
-// indistinguishable from a vanished page, so the production grace is generous.
-export type BrowserClientLivenessPolicy = {
-	probeIntervalMs: number;
-	responseTimeoutMs: number;
-};
-
-// This fail-closed policy is provisional engineering scaffolding, not an
-// accepted browser suspension budget. Physical Safari/mobile evidence and
-// product approval must settle the production values before browser rollout.
-const PROVISIONAL_CLIENT_LIVENESS_POLICY: BrowserClientLivenessPolicy = {
-	probeIntervalMs: 60_000,
-	responseTimeoutMs: 5 * 60_000,
-};
-const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export function createBrowserWorkerHost({
 	openStore = openBrowserWorkerStore,
 	hostId = crypto.randomUUID(),
 	exchangeTimeoutMs = DEFAULT_EXCHANGE_TIMEOUT_MS,
 	transportRetirementMs = Math.max(exchangeTimeoutMs * 2, 1_000),
-	clientLivenessPolicy = PROVISIONAL_CLIENT_LIVENESS_POLICY,
+	log = createLogger('data/browser-worker'),
 }: {
-	openStore?: (options: { onStolen(): void }) => Promise<BrowserWorkerStore>;
+	openStore?: (options: {
+		onStolen(): void;
+		signal: AbortSignal;
+	}) => Promise<BrowserWorkerStore>;
 	hostId?: string;
 	exchangeTimeoutMs?: number;
 	transportRetirementMs?: number;
-	clientLivenessPolicy?: BrowserClientLivenessPolicy;
+	log?: Logger;
 } = {}) {
-	const {
-		probeIntervalMs: clientLivenessIntervalMs,
-		responseTimeoutMs: clientLivenessTimeoutMs,
-	} = clientLivenessPolicy;
-	if (
-		!Number.isSafeInteger(clientLivenessIntervalMs) ||
-		clientLivenessIntervalMs < 1 ||
-		clientLivenessIntervalMs > MAX_TIMER_DELAY_MS ||
-		!Number.isSafeInteger(clientLivenessTimeoutMs) ||
-		clientLivenessTimeoutMs < 1 ||
-		clientLivenessTimeoutMs > MAX_TIMER_DELAY_MS
-	) {
-		throw new Error(
-			'Browser client liveness intervals must be positive supported timer values',
-		);
-	}
 	const clients = new Set<Client>();
 	const documentClosures = new Set<Promise<void>>();
 	const syncCredentialListeners = new Set<() => void>();
-	let storePromise: Promise<BrowserWorkerStore> | undefined;
-	let stopReplicaSubscription: (() => void) | undefined;
-	let stopSyncStatusSubscription: (() => void) | undefined;
+	let storeLifecycle: StoreLifecycle | undefined;
 	let requestTail = Promise.resolve();
 	let nextDocumentId = 0;
 	let nextTransportId = 0;
@@ -171,14 +152,16 @@ export function createBrowserWorkerHost({
 	let nextSyncAttachmentOrder = 0;
 	let isStolen = false;
 
-	function clearClientLiveness(client: Client): void {
-		if (client.livenessProbe !== undefined) {
-			clearTimeout(client.livenessProbe);
-			client.livenessProbe = undefined;
-		}
-		if (client.livenessTimeout !== undefined) {
-			clearTimeout(client.livenessTimeout);
-			client.livenessTimeout = undefined;
+	function logCleanupFailures(message: string, failures: unknown[]): void {
+		if (failures.length === 0) return;
+		log.error(new AggregateError(failures, message));
+	}
+
+	function closePort(port: MessagePortLike): void {
+		try {
+			port.close?.();
+		} catch (cause) {
+			log.error(new Error('Browser client port cleanup failed', { cause }));
 		}
 	}
 
@@ -198,7 +181,7 @@ export function createBrowserWorkerHost({
 			if (client.disconnection === undefined) {
 				scheduleTerminalReclamation(client, failure, false);
 			}
-			client.port.close?.();
+			closePort(client.port);
 			return false;
 		}
 	}
@@ -221,34 +204,16 @@ export function createBrowserWorkerHost({
 			}
 		}
 		markClientTerminal(client, cause);
-		setTimeout(() => client.port.close?.(), 0);
-		void serializeLocal(async () => {
+		setTimeout(() => closePort(client.port), 0);
+		void (async () => {
 			try {
 				await performDisconnect(client);
-			} catch {
-				// Page-visible capability cleanup is already complete.
+			} catch (cause) {
+				log.error(
+					new Error('Browser client terminal cleanup failed', { cause }),
+				);
 			}
-		}).catch(() => undefined);
-	}
-
-	function scheduleClientLivenessProbe(client: Client): void {
-		clearClientLiveness(client);
-		if (client.isDisconnected) return;
-		client.livenessProbe = setTimeout(() => {
-			client.livenessProbe = undefined;
-			const sequence = ++client.livenessSequence;
-			if (!sendToClient(client, { type: 'liveness-probe', sequence })) return;
-			client.livenessTimeout = setTimeout(() => {
-				client.livenessTimeout = undefined;
-				reclaimVanishedClient(client, sequence);
-			}, clientLivenessTimeoutMs);
-		}, clientLivenessIntervalMs);
-	}
-
-	function markClientLive(client: Client): void {
-		if (client.isDisconnected) return;
-		client.livenessSequence += 1;
-		scheduleClientLivenessProbe(client);
+		})();
 	}
 
 	function serializeLocal<TResult>(
@@ -387,50 +352,134 @@ export function createBrowserWorkerHost({
 		});
 	}
 
-	function openedStore(): Promise<BrowserWorkerStore> {
+	async function openedStore(client: Client): Promise<BrowserWorkerStore> {
+		requireConnected(client);
 		if (isStolen) throw storageMovedError();
-		storePromise ??= openStore({
-			onStolen() {
-				markStolen();
-			},
-		}).then(async (store) => {
-			if (isStolen) {
-				await store.dispose();
-				throw storageMovedError();
-			}
-			stopReplicaSubscription = store.replica.subscribe((changes) => {
-				for (const change of changes) {
-					if (change.kind === 'row') {
-						emitInvalidation({
-							kind: 'table',
-							key: change.key,
-							rowIds: [change.rowId],
-						});
-						const row = store.replica.readRow(change.key, change.rowId);
-						if (row.error === null && row.data === undefined) {
-							void revokeDocuments(change.key, change.rowId);
-						}
-						continue;
+		const current = storeLifecycle;
+		if (current !== undefined) {
+			if (!current.controller.signal.aborted) return current.ready;
+			await current.closed;
+			requireConnected(client);
+			return openedStore(client);
+		}
+
+		const token = {};
+		const controller = new AbortController();
+		const closed = Promise.withResolvers<void>();
+		const ready = Promise.resolve()
+			.then(() =>
+				openStore({
+					onStolen() {
+						markStolen();
+					},
+					signal: controller.signal,
+				}),
+			)
+			.then(async (store) => {
+				if (
+					controller.signal.aborted ||
+					storeLifecycle?.token !== token ||
+					isStolen
+				) {
+					try {
+						await store.dispose();
+					} catch (cause) {
+						log.error(
+							new Error('Late browser store disposal failed', { cause }),
+						);
 					}
-					emitInvalidation({ kind: 'value', key: change.key });
+					if (isStolen) throw storageMovedError();
+					throw storeClosingError(controller.signal.reason);
+				}
+				const lifecycle = storeLifecycle;
+				if (lifecycle?.token !== token) {
+					throw new Error('Browser store lifecycle was replaced while opening');
+				}
+				let stopReplica: (() => void) | undefined;
+				let stopStatus: (() => void) | undefined;
+				try {
+					stopReplica = store.replica.subscribe((changes) => {
+						for (const change of changes) {
+							if (change.kind === 'row') {
+								emitInvalidation({
+									kind: 'table',
+									key: change.key,
+									rowIds: [change.rowId],
+								});
+								const row = store.replica.readRow(change.key, change.rowId);
+								if (row.error === null && row.data === undefined) {
+									void revokeDocuments(change.key, change.rowId);
+								}
+								continue;
+							}
+							emitInvalidation({ kind: 'value', key: change.key });
+						}
+					});
+					stopStatus = store.epicenter.subscribeSyncStatus((status) => {
+						for (const client of clients) {
+							sendToClient(client, {
+								type: 'sync-status',
+								state: status.state,
+								...(status.lastError === undefined
+									? {}
+									: { lastError: status.lastError.message }),
+							});
+						}
+					});
+					if (controller.signal.aborted || storeLifecycle?.token !== token) {
+						throw storeClosingError(controller.signal.reason);
+					}
+					lifecycle.stopReplicaSubscription = stopReplica;
+					lifecycle.stopSyncStatusSubscription = stopStatus;
+					lifecycle.store = store;
+					return store;
+				} catch (cause) {
+					const failures = [cause];
+					try {
+						stopReplica?.();
+					} catch (cleanupCause) {
+						failures.push(cleanupCause);
+					}
+					try {
+						stopStatus?.();
+					} catch (cleanupCause) {
+						failures.push(cleanupCause);
+					}
+					try {
+						await store.dispose();
+					} catch (cleanupCause) {
+						failures.push(cleanupCause);
+					}
+					if (failures.length === 1) throw cause;
+					throw new AggregateError(
+						failures,
+						'Browser store setup and cleanup failed',
+					);
 				}
 			});
-			stopSyncStatusSubscription = store.epicenter.subscribeSyncStatus(
-				(status) => {
-					for (const client of clients) {
-						sendToClient(client, {
-							type: 'sync-status',
-							state: status.state,
-							...(status.lastError === undefined
-								? {}
-								: { lastError: status.lastError.message }),
-						});
-					}
-				},
-			);
-			return store;
-		});
-		return storePromise;
+		const lifecycle: StoreLifecycle = {
+			token,
+			controller,
+			ready,
+			closed: closed.promise,
+			resolveClosed: closed.resolve,
+			store: undefined,
+			disposal: undefined,
+			stopReplicaSubscription: undefined,
+			stopSyncStatusSubscription: undefined,
+		};
+		storeLifecycle = lifecycle;
+		void ready
+			.then(
+				() => undefined,
+				() => undefined,
+			)
+			.then(() => {
+				if (!controller.signal.aborted && lifecycle.store !== undefined) return;
+				if (storeLifecycle?.token === token) storeLifecycle = undefined;
+				closed.resolve();
+			});
+		return ready;
 	}
 
 	function emitInvalidation(
@@ -466,7 +515,11 @@ export function createBrowserWorkerHost({
 				closures.push(closeDocument(client, documentId));
 			}
 		}
-		await Promise.allSettled(closures);
+		const failures: unknown[] = [];
+		for (const result of await Promise.allSettled(closures)) {
+			if (result.status === 'rejected') failures.push(result.reason);
+		}
+		logCleanupFailures('Browser document revocation cleanup', failures);
 	}
 
 	function markStolen(): void {
@@ -475,7 +528,10 @@ export function createBrowserWorkerHost({
 		const cause = storageMovedError();
 		const connected = [...clients];
 		if (connected.length === 0) {
-			void serializeLocal(disposeStore).catch(() => undefined);
+			void disposeStore(storeLifecycle).then((failures) => {
+				if (failures.length > 0)
+					logCleanupFailures('Browser store cleanup', failures);
+			});
 			return;
 		}
 		for (const client of connected) {
@@ -483,16 +539,18 @@ export function createBrowserWorkerHost({
 		}
 	}
 
-	function trackDocumentClosure(document: RowDocument): Promise<void> {
-		const closure = Promise.resolve().then(() =>
-			document[Symbol.asyncDispose](),
-		);
+	function trackClosure(cleanup: () => Promise<void>): Promise<void> {
+		const closure = Promise.resolve().then(cleanup);
 		documentClosures.add(closure);
 		void closure.then(
 			() => documentClosures.delete(closure),
 			() => documentClosures.delete(closure),
 		);
 		return closure;
+	}
+
+	function trackDocumentClosure(document: RowDocument): Promise<void> {
+		return trackClosure(() => document[Symbol.asyncDispose]());
 	}
 
 	async function settleDocumentClosures(): Promise<unknown[]> {
@@ -509,10 +567,24 @@ export function createBrowserWorkerHost({
 	function closeDocument(client: Client, documentId: number): Promise<void> {
 		const entry = client.documents.get(documentId);
 		if (entry === undefined) return Promise.resolve();
-		entry.stopUpdates();
-		const closure = trackDocumentClosure(entry.document);
 		client.documents.delete(documentId);
-		return closure;
+		const failures: unknown[] = [];
+		try {
+			entry.stopUpdates();
+		} catch (cause) {
+			failures.push(cause);
+		}
+		return trackClosure(async () => {
+			try {
+				await entry.document[Symbol.asyncDispose]();
+			} catch (cause) {
+				failures.push(cause);
+			}
+			if (failures.length === 1) throw failures[0];
+			if (failures.length > 1) {
+				throw new AggregateError(failures, 'Browser document cleanup failed');
+			}
+		});
 	}
 
 	function disconnect(
@@ -527,7 +599,6 @@ export function createBrowserWorkerHost({
 		if (client.isDisconnected) return;
 		client.isDisconnected = true;
 		client.terminalCause = cause;
-		clearClientLiveness(client);
 		cancelTransportRetirement(client);
 		for (const [transportId, pending] of client.transports) {
 			cancelExchange(client, transportId, pending.transportKey);
@@ -542,22 +613,19 @@ export function createBrowserWorkerHost({
 			void closeDocument(client, documentId);
 		}
 		clients.delete(client);
+		if (clients.size === 0) {
+			const lifecycle = storeLifecycle;
+			client.storeClosure = {
+				lifecycle,
+				drain: lifecycle?.store === undefined ? Promise.resolve() : requestTail,
+			};
+			lifecycle?.controller.abort(storeClosingError());
+		}
 		notifySyncCredentials();
 	}
 
-	function reclaimVanishedClient(
-		client: Client,
-		unansweredSequence: number,
-	): void {
-		if (client.isDisconnected || client.livenessSequence !== unansweredSequence)
-			return;
-		const cause = new Error('Browser Epicenter client stopped responding');
-		cause.name = 'BrowserClientReclaimedError';
-		scheduleTerminalReclamation(client, cause, true);
-	}
-
 	function performDisconnect(client: Client): Promise<void> {
-		client.disconnection ??= finishDisconnect();
+		client.disconnection ??= finishDisconnect(client);
 		return client.disconnection;
 	}
 
@@ -568,26 +636,63 @@ export function createBrowserWorkerHost({
 		);
 	}
 
-	async function finishDisconnect(): Promise<void> {
-		const documentFailures = await settleDocumentClosures();
-		// An in-flight SQLite/openStore operation cannot be preempted safely. Store
-		// and lease disposal completes after that serialized operation settles; all
-		// page-visible capabilities and membership are already terminal above.
-		if (clients.size === 0) await disposeStore();
-		if (documentFailures.length > 0) throw documentFailures[0];
+	async function finishDisconnect(client: Client): Promise<void> {
+		const failures = await settleDocumentClosures();
+		if (client.storeClosure !== undefined) {
+			// Store acquisition owns an AbortSignal and is safe to terminate outside
+			// the local queue. Once opened, SQLite and document operations must finish
+			// before their shared store is disposed.
+			await client.storeClosure.drain;
+			failures.push(...(await disposeStore(client.storeClosure.lifecycle)));
+		}
+		if (failures.length === 1) throw failures[0];
+		if (failures.length > 1) {
+			throw new AggregateError(failures, 'Browser client cleanup failed');
+		}
 	}
 
-	async function disposeStore(): Promise<void> {
-		await settleDocumentClosures();
-		const opening = storePromise;
-		storePromise = undefined;
-		if (opening === undefined) return;
-		const store = await opening.catch(() => undefined);
-		stopReplicaSubscription?.();
-		stopReplicaSubscription = undefined;
-		stopSyncStatusSubscription?.();
-		stopSyncStatusSubscription = undefined;
-		await store?.dispose();
+	async function disposeStore(
+		lifecycle: StoreLifecycle | undefined,
+	): Promise<unknown[]> {
+		const failures = await settleDocumentClosures();
+		if (lifecycle === undefined) return failures;
+		lifecycle.disposal ??= disposeStoreLifecycle(lifecycle);
+		failures.push(...(await lifecycle.disposal));
+		return failures;
+	}
+
+	async function disposeStoreLifecycle(
+		lifecycle: StoreLifecycle,
+	): Promise<unknown[]> {
+		const failures: unknown[] = [];
+		lifecycle.controller.abort(storeClosingError());
+		const store = lifecycle.store;
+		if (store === undefined) return failures;
+		const stopReplica = lifecycle.stopReplicaSubscription;
+		lifecycle.stopReplicaSubscription = undefined;
+		const stopStatus = lifecycle.stopSyncStatusSubscription;
+		lifecycle.stopSyncStatusSubscription = undefined;
+		try {
+			stopReplica?.();
+		} catch (cause) {
+			failures.push(cause);
+		}
+		try {
+			stopStatus?.();
+		} catch (cause) {
+			failures.push(cause);
+		}
+		try {
+			await store.dispose();
+		} catch (cause) {
+			failures.push(cause);
+		} finally {
+			if (storeLifecycle?.token === lifecycle.token) {
+				storeLifecycle = undefined;
+			}
+			lifecycle.resolveClosed();
+		}
+		return failures;
 	}
 
 	async function executeLocal(
@@ -602,7 +707,7 @@ export function createBrowserWorkerHost({
 		if (operation.kind === 'attach-sync') {
 			throw new Error('Sync attachment cannot run as a local RPC');
 		}
-		const store = await openedStore();
+		const store = await openedStore(client);
 		requireConnected(client);
 		switch (operation.kind) {
 			case 'open':
@@ -674,7 +779,7 @@ export function createBrowserWorkerHost({
 	): Promise<Awaited<ReturnType<Epicenter['attachSync']>>> {
 		const store = await serializeLocal(async () => {
 			requireConnected(client);
-			const opened = await openedStore();
+			const opened = await openedStore(client);
 			requireConnected(client);
 			const accepted = opened.replica.attach({
 				deploymentId: operation.deploymentId,
@@ -723,7 +828,12 @@ export function createBrowserWorkerHost({
 		const lens = tableLens(epicenter, operation.definition);
 		const document = await lens.openDocument(operation.rowId);
 		if (client.isDisconnected) {
-			await trackDocumentClosure(document);
+			try {
+				await trackDocumentClosure(document);
+			} catch (cause) {
+				log.error(new Error('Late browser document cleanup failed', { cause }));
+				throw cause;
+			}
 			requireConnected(client);
 		}
 		const documentId = ++nextDocumentId;
@@ -820,7 +930,7 @@ export function createBrowserWorkerHost({
 			} catch {
 				// The refused page is already unreachable.
 			} finally {
-				setTimeout(() => port.close?.(), 0);
+				setTimeout(() => closePort(port), 0);
 			}
 			return;
 		}
@@ -829,10 +939,8 @@ export function createBrowserWorkerHost({
 			documents: new Map(),
 			disconnection: undefined,
 			isDisconnected: false,
+			storeClosure: undefined,
 			terminalCause: undefined,
-			livenessSequence: 0,
-			livenessProbe: undefined,
-			livenessTimeout: undefined,
 			syncTransportKey: undefined,
 			syncAttachmentOrder: 0,
 			syncTransportAvailable: false,
@@ -843,20 +951,6 @@ export function createBrowserWorkerHost({
 		clients.add(client);
 		port.addEventListener('message', ({ data: message }) => {
 			if (client.isDisconnected) return;
-			if (message.type === 'worker-health-probe') {
-				markClientLive(client);
-				sendToClient(client, {
-					type: 'worker-health-ack',
-					sequence: message.sequence,
-				});
-				return;
-			}
-			if (message.type === 'liveness-ack') {
-				if (message.sequence === client.livenessSequence)
-					markClientLive(client);
-				return;
-			}
-			markClientLive(client);
 			if (
 				message.type === 'exchange-result' ||
 				message.type === 'exchange-error'
@@ -881,24 +975,40 @@ export function createBrowserWorkerHost({
 						);
 					}
 				} catch (cause) {
-					if (!client.isDisconnected) {
-						sendToClient(client, {
-							type: 'error',
-							id: message.id,
-							name: cause instanceof Error ? cause.name : 'Error',
-							message: cause instanceof Error ? cause.message : String(cause),
-						});
+					if (
+						!client.isDisconnected ||
+						message.operation.kind === 'disconnect'
+					) {
+						const delivered = sendToClient(
+							client,
+							{
+								type: 'error',
+								id: message.id,
+								name: cause instanceof Error ? cause.name : 'Error',
+								message: cause instanceof Error ? cause.message : String(cause),
+							},
+							{ afterDisconnect: message.operation.kind === 'disconnect' },
+						);
+						if (!delivered && message.operation.kind === 'disconnect') {
+							log.error(
+								new Error('Browser disconnect result was unreachable', {
+									cause,
+								}),
+							);
+						}
 					}
 				}
 			};
-			if (message.operation.kind === 'attach-sync') {
+			if (
+				message.operation.kind === 'attach-sync' ||
+				message.operation.kind === 'disconnect'
+			) {
 				void respond();
 				return;
 			}
 			void serializeLocal(respond);
 		});
 		port.start?.();
-		scheduleClientLivenessProbe(client);
 	}
 
 	return Object.freeze({ connect });
@@ -948,24 +1058,36 @@ function storageMovedError(): Error {
 	return cause;
 }
 
+function storeClosingError(cause?: unknown): Error {
+	return new Error('Browser Epicenter store opening was aborted', { cause });
+}
+
 let sqliteModule: Awaited<ReturnType<typeof sqlite3InitModule>> | undefined;
 let sahPool: SAHPoolUtil | undefined;
 
 async function openBrowserWorkerStore({
 	onStolen,
+	signal,
 }: {
 	onStolen(): void;
+	signal: AbortSignal;
 }): Promise<BrowserWorkerStore> {
 	let lease: BrowserStorageLease | undefined;
 	let rawDatabase: Database | undefined;
+	let pool: SAHPoolUtil | undefined;
 	try {
+		signal.throwIfAborted();
 		lease = await acquireBrowserStorageLease(
 			navigator.locks as unknown as LockManagerPort,
-			{ onStolen },
+			{ onStolen, signal },
 		);
+		signal.throwIfAborted();
 		sqliteModule ??= await sqlite3InitModule();
-		const pool = await acquireSahPool(sqliteModule);
-		rawDatabase = new pool.OpfsSAHPoolDb('/epicenter-data.sqlite3');
+		signal.throwIfAborted();
+		const openedPool = await acquireSahPool(sqliteModule);
+		pool = openedPool;
+		signal.throwIfAborted();
+		rawDatabase = new openedPool.OpfsSAHPoolDb('/epicenter-data.sqlite3');
 		rawDatabase.exec(`
 			PRAGMA busy_timeout = 5000;
 			PRAGMA journal_mode = DELETE;
@@ -977,6 +1099,7 @@ async function openBrowserWorkerStore({
 		);
 		const opened = openReplica({ database });
 		if (opened.error !== null) throw opened.error;
+		signal.throwIfAborted();
 		const epicenter = createEpicenter({
 			replica: opened.data,
 			database,
@@ -990,7 +1113,7 @@ async function openBrowserWorkerStore({
 					await epicenter[Symbol.asyncDispose]();
 				} finally {
 					try {
-						pool.pauseVfs();
+						openedPool.pauseVfs();
 					} finally {
 						await lease?.release();
 					}
@@ -1001,7 +1124,11 @@ async function openBrowserWorkerStore({
 		try {
 			rawDatabase?.close();
 		} finally {
-			await lease?.release();
+			try {
+				pool?.pauseVfs();
+			} finally {
+				await lease?.release();
+			}
 		}
 		throw cause;
 	}
