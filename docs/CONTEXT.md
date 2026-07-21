@@ -20,8 +20,9 @@ shapes, see `docs/adr/`.
 - **Account**: one resolved principal inside one deployment. Credentials may
   rotate, but deployment identity plus `principalId` is the stable identity of
   the person's synchronized Epicenter.
-- **Epicenter**: one person's logical body of rows, values, and row-owned
-  documents. Applications bind typed Lenses to it; no workspace or database
+- **Epicenter**: one person's logical body of rows and values. Every row owns
+  scalar fields, zero or one persisted Yjs document, and zero or one immutable
+  blob. Applications bind typed Lenses to it; no workspace or database
   lifecycle exists beneath it.
 - **Replica**: one complete local or server copy of an Epicenter. A native
   installation, browser origin, OS profile, or server actor may impose its own
@@ -51,11 +52,11 @@ shapes, see `docs/adr/`.
 - **Row-document connection**: one authenticated Yjs 14 WebSocket for one
   currently open `(namespace key, table key, row ID)`. Its structured route address
   is lifecycle identity, not a secret; it is separate from the whole-Epicenter
-  scalar exchange.
+  scalar facts and submissions protocol.
 - **Row liveness**: the owner-local fact that a row address is currently
   live. Deletion replaces scalar state with a permanent compact tombstone and
-  removes document bytes, so an offline replica cannot recreate that lifetime.
-  Liveness is a lifecycle invariant, not a per-row ACL.
+  removes document and blob state, so an offline replica cannot recreate that
+  lifetime. Liveness is a lifecycle invariant, not a per-row ACL.
 - **Star**: the one runnable program that holds your data, composing anchor,
   store, sync, and identity/auth into a deployment (ADR-0069). The star is the
   unit of self-host and the entire privacy question: Epicenter runs it (hosted)
@@ -100,10 +101,11 @@ shapes, see `docs/adr/`.
 - **Cross-device planes**: cross-device work splits by responsibility. _Inference_ (the
   chat brain) streams tokens from an OpenAI-compatible endpoint (ADR-0050),
   over the inference seam. _Scalar sync_ carries rows and values through the
-  Epicenter authority. _Document sync_ carries lazy Yjs history and row-scoped
-  presence over row-document connections. _Invoke_ (the agent's hands) is local
-  to the host that owns the tool process, unless a future product re-earns a
-  direct URL-addressed box surface.
+  Epicenter authority. _Document sync_ publishes durable Yjs updates
+  automatically and uses row-document connections only for lazy acquisition and
+  low-latency edits; it carries no awareness or presence. _Invoke_ (the agent's
+  hands) is local to the host that owns the tool process, unless a future product
+  re-earns a direct URL-addressed box surface.
 - **Infisical project**: the owner and access-control boundary. Each secret-using
   runnable surface owns its own `.infisical.json`: `apps/api` and `ops` point
   at Epicenter's hosted/operator project, and personal local apps use ignored
@@ -147,8 +149,10 @@ shapes, see `docs/adr/`.
 - **Bound lens**: the synchronous borrowed typed view returned when a Lens binds
   to an open Epicenter. It creates no storage and owns no disposal.
 - **Row**: one identified application value in a table. It is the public
-  lifecycle aggregate. Its globally unique runtime-minted ID is never reused.
-  Deletion installs a compact tombstone and removes document state.
+  lifecycle aggregate over scalar fields, zero or one persisted Yjs document,
+  and zero or one immutable blob. Its globally unique runtime-minted ID is never
+  reused. Deletion installs a compact tombstone and removes document and blob
+  state.
 - **Row tombstone**: terminal scalar state proving that a structured row address
   was deleted. It carries no application payload and remains so an indefinitely
   offline or restored replica cannot recreate that row lifetime. Value unset is
@@ -161,10 +165,10 @@ shapes, see `docs/adr/`.
 - **Field**: one `field.*` schema for a present JSON value. Table fields are
   required by default; a table's `optional` key array names fields that may be
   absent. Missing and `null` remain distinct.
-- **Row-owned document**: the latent collaborative document owned by a row.
-  It has no public id, authority, or lifecycle independent from the row. Its
-  runtime-native provider persists and synchronizes it independently from
-  scalar row sync.
+- **Row-owned document**: the zero-or-one persisted collaborative Yjs state
+  owned by a row. It has no public id, authority, or lifecycle independent from
+  the row. Live stores use private bounded baseline-plus-tail chains; logical
+  artifacts expose one nullable compact update on the row.
 - **Record**: not a platform lifecycle noun in the canonical data model.
   Use row for the durable application aggregate, fields for JSON values, and
   document for the row-owned CRDT state. Historical docs and transitional code
@@ -184,12 +188,31 @@ shapes, see `docs/adr/`.
   open. It exposes application roots, local provider durability, and document
   connection status. Releasing the final handle may unload live Yjs state but
   never deletes persisted or synchronized content.
-- **Scalar exchange**: the one whole-Epicenter HTTP operation that submits
-  bounded pending local changes and pages authority latest state. Push, pull,
-  and acquisition are not separate product or network operations.
-- **Blob**: immutable bytes addressed by an opaque `BlobId` outside Epicenter
-  scalar state. Rows and values may reference blobs; row-owned documents are
-  bounded interactive CRDT state, not a media or large-file plane.
+- **Document publication receipt**: post-commit authority proof for one exact
+  frozen document update, bound to its authority lifetime, row address, protocol
+  version, and payload digest. State vectors are transfer hints, never receipts.
+- **Scalar fact**: the authority's current state at one structured row or value
+  address. A fact carries one global authority sequence and explicit presence.
+  Present rows carry fields, present values carry content, absent rows are
+  terminal tombstones for the authority lifetime, and absent values are
+  reversible unsets.
+- **Scalar intent**: one compacted desired transition at a structured address.
+  Typed row create and update both lower to row-present field patches; row
+  delete lowers to row-absent. Value set and unset lower to value-present and
+  value-absent.
+- **Facts feed**: the whole-Epicenter HTTP read of current authority facts after
+  one `afterSequence`. Each installed bounded prefix advances that one durable
+  watermark. `hasMore` only reports whether the same read snapshot contained
+  another qualifying fact.
+- **Scalar submission**: one replica's numbered, bounded, exactly retryable set
+  of intents. The current authority fact for every touched address is its
+  settlement proof. There is no public request digest, receipt, global
+  settlement watermark, or transaction meaning.
+- **Row blob**: the zero-or-one write-once immutable byte stream owned by one
+  live row. The row address is its sole identity; SHA-256 proves the accepted
+  bytes and makes publication idempotent. Application fields or documents give
+  the bytes meaning. Large media remains a separate transfer plane from scalar
+  state and the row's bounded interactive CRDT document.
 - **Data runtime**: one Epicenter replica composes typed table/value lenses and
   lazy Yjs 14 row documents over one private store.
 - **Transitional root-Yjs workspace**: the still-active `@epicenter/workspace`
@@ -257,9 +280,6 @@ shapes, see `docs/adr/`.
   It opens the root's mount, owns the lease, joins sync when signed in, and keeps
   materializers alive. It is not a callable action server. Internal code still
   uses `daemon` names (`DaemonMetadata`, `claimDaemonLease`) for this process.
-- **Peer**: a device currently present in the same row-document subscription.
-  Presence is server-owned and carried by that document's connection, then
-  surfaced by app UI or watcher logs, not a generic CLI query.
 - **Watcher lifecycle commands**: `up`, `down`, `status`, and `logs`. They use
   metadata, pid liveness, logs, and OS signals. No Unix socket or daemon action
   client exists.

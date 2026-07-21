@@ -30,7 +30,14 @@ and the same installed Lens catalog.
 The stable raw inspection relations preserve structured addresses:
 
 ```sql
-rows(namespace_key, table_key, row_id, fields_json)
+rows(
+  namespace_key,
+  table_key,
+  row_id,
+  fields_json,
+  document_update_v2 BLOB NULL,
+  blob_sha256 TEXT NULL
+)
 values(namespace_key, value_key, value_json)
 ```
 
@@ -38,6 +45,12 @@ Their natural keys are `(namespace_key, table_key, row_id)` and
 `(namespace_key, value_key)`. This is a logical contract, not a promise that the
 private live store uses these physical tables. A live implementation may use a
 different schema, compact identifiers, or another adapter representation.
+
+`document_update_v2` contains one self-contained compact Yjs V2 update produced
+from the complete document, never a state vector or concatenated live update
+log. `NULL` means no document state has ever been persisted for the row.
+`blob_sha256` records the accepted bytes in the row's universal zero-or-one blob
+slot. Both columns are platform-owned structural state outside Lens fields.
 
 Lenses let Home render typed tables over these relations. The naming and
 lifetime of optional Lens-generated SQL views remain open. This ADR does not

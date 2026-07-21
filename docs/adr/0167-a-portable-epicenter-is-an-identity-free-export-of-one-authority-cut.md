@@ -30,18 +30,37 @@ The logical artifact contains:
 
 ```txt
 portable Epicenter
-├── scalar rows and values
-├── compact current row-document states
-├── blob inventory
-└── every blob byte owned by the selected owner at the cut
+├── logical SQLite
+│   ├── rows with scalar fields, compact documents, and blob digests
+│   └── scalar values
+└── one raw blob file for every row whose blob digest is present
 ```
 
-Its scalar relations expose the stable structured logical addresses:
+Its relations expose the stable structured logical addresses:
 
 ```sql
-rows(namespace_key, table_key, row_id, fields_json)
+rows(
+  namespace_key,
+  table_key,
+  row_id,
+  fields_json,
+  document_update_v2 BLOB NULL,
+  blob_sha256 TEXT NULL
+)
 values(namespace_key, value_key, value_json)
 ```
+
+`document_update_v2` is one self-contained compact Yjs V2 update for the whole
+document, never a state vector or copied live update log. `NULL` means no
+document state has ever been persisted for the row. `blob_sha256` records the
+accepted bytes in the row's zero-or-one blob slot. The row relation is therefore
+the complete document and blob membership inventory.
+
+Export requires one matching raw file for every non-null `blob_sha256` and
+verifies its digest. It carries no separate blob relation, document inventory,
+blob metadata file, or membership `manifest.json`. A generic container seal may
+still protect artifact completeness and format integrity; it must not recreate
+a second logical inventory.
 
 The artifact always represents the complete selected authority. Namespace
 filtering is an inspection operation, never a partial portable-Epicenter export.
@@ -53,11 +72,10 @@ runtime indexes. Terminal tombstones from the source authority are not logical
 user data and do not enter the artifact.
 
 The portable representation must be inspectable with ordinary tools. The
-leading encoding is a documented SQLite file plus blob files and integrity
-metadata, carried as a directory or archive. The exact container, auxiliary
-relations, and physical encodings remain implementation decisions until a
-round-trip proof chooses them. Neither encoding may become the private schema
-of a live store.
+leading encoding is a documented SQLite file plus blob files, carried as a
+directory or archive. The exact container, seal, and physical filename encoding
+remain implementation decisions until a round-trip proof chooses them. Neither
+representation may become the private schema of a live store.
 
 The portable representation supports three substrate operations:
 
@@ -67,9 +85,9 @@ Inspect the artifact
 Initialize an empty Epicenter
 ```
 
-Initialization validates the complete artifact, preserves logical row and blob
-identities, and creates a fresh authority and synchronization lifetime. It does
-not preserve a relationship with the source.
+Initialization validates the complete artifact, preserves row identities and
+their accepted bytes, and creates a fresh authority and synchronization
+lifetime. It does not preserve a relationship with the source.
 
 [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
 gives this representation a product lifecycle. A host-managed `Backup` is one

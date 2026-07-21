@@ -45,8 +45,10 @@ does not define an identified field; the containing `fields` entry does. It
 does not repeat that key in an `id` or `key` property. This does not require
 every stored row to contain `transcript`: the table's `optional` list decides
 whether that key may be absent when the Lens interprets a row. The
-runtime-owned row ID is separate structural identity and cannot appear in
-`fields`.
+runtime-owned row ID, latent document, and zero-or-one blob slot are separate
+platform-owned row structure and cannot appear in `fields`. Tables declare
+neither a document nor blob capability; both exist universally and inertly until
+the row stores corresponding content.
 
 This follows one identity rule across the model: the containing owner supplies
 identity. The Lens supplies its namespace, the `tables` and `values` objects

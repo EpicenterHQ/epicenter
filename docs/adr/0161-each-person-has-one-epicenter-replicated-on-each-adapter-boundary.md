@@ -16,8 +16,12 @@ actors are physical isolation boundaries, not additional product data owners.
 
 One principal owns one logical Epicenter. The authority stores that entire
 Epicenter in one SQLite database. Each native installation, browser origin, or
-other adapter isolation boundary stores one complete local SQLite replica.
-Every replica synchronizes the person's whole Epicenter.
+other adapter isolation boundary stores one complete scalar address universe in
+one local SQLite replica. It persists document state and blob bytes that are
+created or opened there. Every replica synchronizes the person's whole scalar
+Epicenter, publishes its durable document and blob work automatically, and
+hydrates remote documents and blobs lazily. The authority owns the complete
+accepted document and blob holdings.
 
 "One replica per device" is product shorthand, not a physical guarantee.
 Browsers cannot share storage across origins, and separate OS profiles or
@@ -27,7 +31,7 @@ to a durable data address.
 
 A local replica begins unattached and works offline. Its first successful
 sign-in permanently attaches it to the resolved principal and converges its
-existing rows, values, deletions, and documents with that principal's
+existing rows, values, deletions, documents, and blobs with that principal's
 Epicenter. This is not Device-to-Account adoption between two local stores:
 the same local replica gains a synchronization attachment.
 
@@ -44,7 +48,8 @@ database inventory, alias, grant, rekey map, or per-database lifecycle exists.
 
 The private SQLite schema has one format/version root plus relations for current
 scalar state, replica progress, pending local work, and row-document updates as
-needed by the adapter. Application data addresses contain an address kind,
+needed by the adapter. Large row-owned blob bytes live as raw files under the
+same adapter lifecycle owner. Application data addresses contain an address kind,
 namespace key, table or value key, and, for rows, a row ID. A namespace never
 changes the whole-replica boundary. Private relation names and layouts are
 adapter implementation details, not native-reader contracts.

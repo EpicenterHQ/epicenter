@@ -3,12 +3,12 @@
 - **Status:** Proposed
 - **Date:** 2026-07-20
 - **Supersedes:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md)
-- **Amends:** [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md), [ADR-0163](0163-latest-scalar-state-synchronizes-through-one-epicenter-exchange.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
+- **Amends:** [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md), [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
 
 ## Context
 
 Scalar writes already become locally durable with a pending intent and clear
-that intent only after an authority receipt. Row-document updates are durable
+that intent only after the authority returns current settlement facts. Row-document updates are durable
 in SQLite, but their publication currently depends on an open document
 connection. Blob replication is an explicit application action. These three
 rules make identical user intent produce different durability outcomes and
@@ -46,22 +46,22 @@ one runtime-owned drain
           authority commit
                   |
                   v
-        plane-specific receipt
+        plane-specific proof
                   |
                   v
        conditional local clear
 ```
 
-The receipt proves a committed authority fact. The transport that carried the
+The proof establishes committed authority state. The transport that carried the
 request or response has no durable meaning.
 
 The law has three independent protocol realizations:
 
-| Plane | Durable local work | Authority proof |
-| --- | --- | --- |
-| Scalar | latest-state intent in the scalar outbox | matching accepted-batch receipt |
+| Plane    | Durable local work                                                                                | Authority proof                                           |
+| -------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Scalar   | compacted desired-state intent in the scalar outbox                                               | current authority fact for every touched address          |
 | Document | bounded Yjs baseline-plus-tail chain plus a dirty revision and optional frozen `inflight` payload | post-commit receipt for the exact frozen `inflight` bytes |
-| Blob | immutable local bytes plus a row-addressed publication record | accepted content digest at the live row address |
+| Blob     | one immutable local byte stream plus its row-addressed publication record                         | accepted SHA-256 for the live row's blob slot             |
 
 These are independent convergence units, not one transaction. They share one
 runtime lifecycle owner for attachment, credentials, wakeups, retry, backoff,
@@ -111,6 +111,13 @@ but leaves the SQLite revision and any in-flight retry image intact. A
 background drain therefore publishes dirty documents without depending on open
 handles.
 
+A row's blob publication is also write-once. The authority accepts an absent
+slot with digest A, treats a retry of A as idempotent, and refuses or parks a
+different digest B while that row remains live. The obligation clears only
+after the authority acknowledges matching bytes at the active lifetime and row
+address. New bytes require a new row rather than another blob member or mutable
+replacement protocol.
+
 Document publication is outbound and automatic. Remote document state remains
 lazy and arrives when the row document is next opened. A realtime connection
 for an open document may reduce edit latency, but it is an overlay, not the only
@@ -133,8 +140,8 @@ device is not part of a Backup.
   authority.
 - Ordinary applications contain no networking policy, retry loop, upload
   bookkeeping, or settlement choreography.
-- Scalar batching never becomes a semantic commit. Documents and blobs do not
-  enter that batch merely to make the implementation look unified.
+- A scalar submission never becomes a semantic commit. Documents and blobs do
+  not enter it merely to make the implementation look unified.
 - Closed documents can converge without eager inbound hydration or permanent
   live `Y.Doc` instances.
 - A realtime document socket may report connection and low-latency convergence,
@@ -158,8 +165,8 @@ following laws across the three planes:
 - a crash or lost response after authority commit cannot create a false clean
   state, and an exact retry is idempotent;
 - scalar or document work created while an earlier attempt is in flight remains
-  pending after the earlier receipt arrives;
-- no connection, state vector, cursor, or fanout observation can clear an
+  pending after the earlier authority proof arrives;
+- no connection, state vector, sequence watermark, or fanout observation can clear an
   obligation without its plane-specific post-commit proof;
 - a row deletion racing document or blob publication cannot resurrect row-owned
   state; and

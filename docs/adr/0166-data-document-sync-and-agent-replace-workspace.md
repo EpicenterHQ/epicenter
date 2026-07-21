@@ -15,8 +15,8 @@ the package would preserve a miscellaneous dependency owner under another noun.
 Three concrete capability packages replace the surviving Workspace families:
 
 ```txt
-@epicenter/data           pure JSON Lenses, typed access, local replica, scalar sync
-@epicenter/document-sync row-document protocol, persistence, and presence
+@epicenter/data           Lenses, typed access, local owner, scalar sync, row blobs
+@epicenter/document-sync row-document protocol and realtime collaboration
 @epicenter/agent          UI-free agent loop over an explicit data interface
 ```
 
@@ -26,6 +26,12 @@ and Server have substantial direct use for it; otherwise its implementation is
 owned by Data and Server without a public package. `@epicenter/server` owns the
 authority schema and depends on portable protocols, never on application typed
 lenses.
+
+Data owns the one runtime lifecycle for attachment, credentials, wakeups,
+automatic scalar, document, and blob obligations, status, and disposal.
+Document Sync owns Yjs wire and realtime mechanics without becoming a second
+runtime owner. Row blob storage and publication stay in Data because their
+lifecycle is the owning row and the local Epicenter storage root.
 
 No `database-address`, `database-control`, or `database-migration` package
 survives. There are no database addresses, controls, or migrations to own.

@@ -3,13 +3,14 @@
 - **Status:** In Progress
 - **Date:** 2026-07-20
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-latest-scalar-state-synchronizes-through-one-epicenter-exchange.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-finalized-row-owned-blobs-use-content-digests-as-identity.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), and [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)
+- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), and [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)
 
 ## Product sentence
 
-Epicenter persists and synchronizes one person's rows, values, and row-owned
-documents; applications bind pure JSON Lenses over durable namespaces in that
-shared data.
+Epicenter persists and synchronizes one person's values and row aggregates.
+Every row owns scalar fields, zero or one persisted collaborative document, and
+zero or one write-once immutable blob; applications bind pure JSON Lenses over
+durable namespaces in that shared data.
 
 ## Accepted premises
 
@@ -19,12 +20,13 @@ shared data.
   projection store, with an expected ceiling around one million rows.
   Ingested mirrors (mail, accounting, photos, tabs) and derived projections
   keep their own disposable app-local stores outside the synchronized plane;
-  admission limits, transport paging, and private runtime indexes are sized for
-  curated personal scale, never for bulk ingestion throughput. These are not
-  application table-query capabilities.
+  admission limits, bounded facts responses, and private runtime indexes are
+  sized for curated personal scale, never for bulk ingestion throughput. These
+  are not application table-query capabilities.
 - Every attached replica synchronizes the person's whole Epicenter.
 - One person has one logical Epicenter and one server authority.
-- Each adapter isolation boundary has one complete local replica.
+- Each adapter isolation boundary has the complete scalar address universe and
+  lazily materializes remote documents and blobs.
 - Namespaces structure durable addresses only. They never create storage,
   ownership, lifecycle, transaction, export, or synchronization scopes.
 - Applications receive no SQL. Epicenter Home owns human and agent relational
@@ -32,6 +34,9 @@ shared data.
 - Scalar facts converge independently. Epicenter exposes no public
   multi-address transaction and promises no atomic remote visibility across
   scalar addresses.
+- Scalar sync reads current authority facts after one sequence and submits one
+  replica's numbered desired-state intents. Current facts settle submissions;
+  there is no combined exchange, public digest, receipt, or checkpoint.
 - Row IDs are globally unique, runtime-minted, and never reused.
 - Compact row tombstones are permanent synchronization facts within one
   authority lifetime.
@@ -42,11 +47,12 @@ shared data.
 - Every locally durable scalar, document, or blob write leaves durable evidence
   of what the authority is owed. One Epicenter runtime owner drains those
   obligations automatically and applications expose no sync or publish action.
-- SQLite stores scalar state, Yjs update logs, and publication evidence. Raw
-  files store row-owned immutable blob bytes. Browser SQLite itself lives in
-  OPFS.
-- A finalized blob is addressed by its row address and SHA-256 digest. An
-  incomplete capture has no permanent blob identity.
+- SQLite stores scalar state, bounded Yjs baseline-plus-tail chains, and exact
+  publication retry evidence. Raw files store row-owned immutable blob bytes.
+  Browser SQLite itself lives in OPFS.
+- Every row has one universal undeclared zero-or-one blob slot. The row address
+  is its sole identity; SHA-256 is integrity and idempotency evidence. The slot
+  is write-once, and incomplete capture has no permanent identity.
 
 If any premise changes before merge, stop. Do not hide the change behind an
 alias, migration bridge, optional scope, or second runtime.
@@ -133,9 +139,11 @@ const recording = await data.whispering.tables.recordings.create({
   transcript: "Hello",
 });
 
+await data.whispering.tables.recordings.blob.put(recording.id, audioSource);
+const audio = await data.whispering.tables.recordings.blob.open(recording.id);
+
 const found = await data.whispering.tables.recordings.get(recording.id);
-const { rows, nonconforming } =
-  await data.whispering.tables.recordings.scan();
+const { rows, nonconforming } = await data.whispering.tables.recordings.scan();
 for await (const entry of data.whispering.tables.recordings.entries()) {
   // entry is Result<Recording, NonconformingRowError>
 }
@@ -143,14 +151,15 @@ await data.whispering.tables.recordings.update(recording.id, {
   note: undefined,
 });
 
-const stopRecordings = data.whispering.tables.recordings.subscribe((changedIds) => {
-  // fires after committed local or synchronized changes
-});
+const stopRecordings = data.whispering.tables.recordings.subscribe(
+  (changedIds) => {
+    // fires after committed local or synchronized changes
+  },
+);
 const stopLanguage = data.whispering.values.language.subscribe(() => {});
 
-await using document = await data.home.tables.conversations.openDocument(
-  conversationId,
-);
+await using document =
+  await data.home.tables.conversations.openDocument(conversationId);
 await data.whispering.values.language.set("en");
 await data.whispering.values.language.unset();
 
@@ -277,12 +286,24 @@ sharing one structured row address disagree about a capability neither owns. Ope
 document on a table that never uses one is inert: no bytes exist until the
 first update is persisted, and the row tombstone deletes whatever exists.
 
+Row-owned blobs are also universal and undeclared. Every live row latently owns
+one zero-or-one write-once immutable blob slot. Table lenses expose a singular
+`blob` surface addressed only by row ID. The first finalized byte stream records
+its SHA-256 and schedules automatic authority publication. The same digest is
+idempotent; a different digest at that live row is refused or parked. New bytes
+require a new row. Several attachments therefore use several ordinary asset
+rows with non-enforcing references and no atomic parent cascade.
+
 ### Status and errors
 
 Expose only states a maintained UI actually distinguishes. A starting candidate
 is `local`, `syncing`, `idle`, `offline`, and `authentication-required`, plus a
 generic last error, pending counts, and address-scoped parked work for
-diagnostics. Status is observation, not settlement. Do not expose `settle`,
+diagnostics. Document-bound parked work identifies the row address, whether
+encoded bytes or decoded structs crossed the bound, and the measured value and
+limit. Epicenter Home must surface it; applications may observe the same Data
+status, but locally accepted editor mutations do not become write errors. Status
+is observation, not settlement. Do not expose `settle`,
 `synchronizeThrough`, protocol floors, lineage recovery, database transitions,
 or storage migration errors.
 
@@ -303,6 +324,7 @@ boundaries, not around every expected collection operation by reflex.
 table row  (namespace key, table key, row ID)
 value      (namespace key, value key)
 document   (namespace key, table key, row ID)
+blob       (namespace key, table key, row ID)
 ```
 
 Address kind distinguishes rows from values, so their local keys need not share
@@ -321,20 +343,25 @@ Authority responsibilities:
 
 ```txt
 metadata
-  physical format version, active authority lifetime, next authority sequence
+  physical format version, immutable authority lifetime identity,
+  next authority sequence
 
 replicas
-  replica ID, last accepted local batch, request digest, receipt
+  replica ID, last completed submission number, internal request hash,
+  bounded parked results for exact retry
 
 state
   address kind, namespace key, table-or-value key, optional row ID,
-  live-or-deleted state, JSON payload when live, changed sequence
+  present-or-absent state, JSON payload when present, authority sequence
 
-document updates
-  row address, ordered baseline-or-update bytes
+document state
+  row address, zero-or-one compact gc:true baseline, bounded ordered V2 tail
+
+blob slot
+  row address, nullable accepted SHA-256
 
 blob bytes
-  row address and SHA-256 digest, stored outside SQLite
+  at most one immutable byte file per live row, stored outside SQLite
 ```
 
 Local responsibilities:
@@ -342,26 +369,28 @@ Local responsibilities:
 ```txt
 metadata
   physical format version, replica ID, optional attached principal,
-  attached authority lifetime, last fully applied authority sequence
+  attached authority lifetime, after sequence, next submission number
 
 state
-  the same latest live-or-deleted scalar shape
+  confirmed authority facts in the same present-or-absent scalar shape
 
 outbox
-  bounded ordered local scalar changes awaiting authority receipt
+  compacted pending scalar intents, at most one per address, plus at most one
+  immutable sealed submission and address-scoped parked work
 
-document updates
-  row address, ordered baseline-or-update bytes
+document state
+  row address, zero-or-one compact gc:true baseline, bounded ordered V2 tail
 
 document publication
-  row address, local state vector, last proven authority state vector,
+  row address, revision and dirty state,
+  optional frozen inflight update, digest, and captured revision,
   optional parked reason
 
 blob publication
-  row address and digest for immutable bytes awaiting authority acceptance
+  row address and SHA-256 for the one immutable byte stream awaiting authority acceptance
 
 blob bytes
-  row-scoped immutable files outside SQLite
+  at most one row-scoped immutable file per live row outside SQLite
 ```
 
 Do not create `__epicenter_databases`, database aliases, retired-row tables,
@@ -371,16 +400,27 @@ must reject unknown physical formats and a local replica must remember its
 principal attachment. It is not an application-facing catalog and does not
 make the store portable SQL.
 
-Rows and values share one physical state relation, settled by schema analysis:
-the dominant sync query is one global `changed_sequence` range scan, which one
-relation serves with one unique index while also enforcing global sequence
-uniqueness directly. Values use an empty row-ID sentinel guarded by CHECK
-constraints on an address-kind discriminator (`row` requires a nonempty row ID
-and `live`/`deleted`; `value` requires the empty sentinel and `live`/`unset`;
-payload is non-null exactly when live). The 24-character lowercase row-ID
-grammar is thereby a permanent storage invariant, and the sentinel never
-appears in protocol or public types. The fold distinguishes terminal row
-deletion from nonterminal value unset through the discriminator.
+The logical facts feed does not freeze one physical state relation. Before the
+replica and authority format break, benchmark two honest candidates at the
+million-address envelope:
+
+```txt
+one checked facts table
+  one sequence index and direct global uniqueness
+  address-kind checks and a private missing-row representation
+
+separate row_facts and value_facts tables
+  no mixed status, payload, or row-ID sentinels
+  ordered UNION over two sequence indexes
+```
+
+Choose the smaller schema that satisfies the measured scan, install, reopen,
+and constraint proofs. Do not retain both layouts or add a compatibility reader.
+The authority transaction owns global sequence allocation under either layout.
+The 24-character lowercase row-ID grammar remains a permanent storage invariant;
+no private sentinel or nullable column escapes into protocol or public types.
+The fold distinguishes terminal row deletion from nonterminal value unset
+through the typed fact shape rather than relying on physical coincidence.
 
 Each store's metadata is one explicit single-row table with named columns, not
 `PRAGMA user_version` (unsupported on Durable Object SQLite) and not key-value
@@ -390,67 +430,97 @@ qualified key. The proof must include both namespace repetition and any compact
 dictionary encoding chosen by a private live store.
 
 Row deletion changes the latest state to a terminal tombstone and removes the
-payload and row-document bytes. Later create and update operations for that row
-address are no-ops. It does not append to a separate retired-row family. Value
-unset stores payload-free latest state that a later set may replace.
+payload and row-document bytes. Later row-present intents for that address
+settle to the existing tombstone. They do not resurrect it. The tombstone does
+not append to a separate retired-row family. Value-absent stores payload-free
+latest state that a later value-present intent may replace.
 
 ## Scalar synchronization
 
 The semantic contract is fixed at independently convergent addresses and one
-whole-Epicenter synchronization scope. The transport mechanism below is the
-current protocol candidate, not a reason to assume that batches, checkpoints,
-receipts, cursors, or authority sequences have earned permanent product status.
-ADR-0163 remains Proposed until an adversarial protocol review either proves
-this candidate or replaces it with a smaller mechanism.
-
-One endpoint synchronizes the complete scalar Epicenter:
+whole-Epicenter synchronization scope. One automatic runtime coordinates two
+bounded scalar operations:
 
 ```txt
-POST /api/sync/v1
+GET  /api/sync/v1/facts
+POST /api/sync/v1/submissions
 ```
 
-The wire owns one bounded bidirectional exchange. Request and response names
-should describe cursors, batches, records, and receipts, not push, pull, or
-acquire product operations.
+The facts operation returns current authority facts whose `sequence` is greater
+than one replica-owned `afterSequence`, ordered by sequence. Each response is
+the largest prefix that fits its byte and execution budget. `hasMore` means the
+same read snapshot contained another qualifying fact. The replica atomically
+installs the prefix and advances `afterSequence` to the final returned sequence.
+No `next`, `through`, `position`, opaque cursor, completed checkpoint, or
+separate acquisition state exists.
 
-The authority assigns every accepted latest-state change a unique increasing
-`changed_sequence`. A response fixes `through` before paging and returns latest
-records in `(after, through]`. Updating a record while a response is paged moves
-that record above `through`; the next exchange returns it. The client persists
-`through` only after every page is installed.
+A fresh replica begins from zero and binds the response's authority lifetime.
+Every later facts request and every submission carries that lifetime. Restore
+causes a terminal mismatch, local erasure, and reacquisition from zero. A
+sequence ahead in the same lifetime is corruption rather than a recovery mode.
 
-The pagination and retry invariants are model-checked and proven. A bounded
-executable model (`tmp/pagination-model/`, 9 tests, 240 assertions, all
-passing; Wave 2 moves it into the owning package as protocol model tests)
-verified all of:
+Typed table create and update both lower to a row-present intent containing
+top-level `set` and `unset` fields. Delete lowers to row-absent. Value set and
+unset lower to value-present and value-absent. The replica compacts pending work
+to at most one intent per address before sealing one numbered submission. It
+never has more than one submission in flight.
 
-1. Concurrent changes to an unreturned address do not cause it to be skipped.
-2. Concurrent changes to an already returned address are seen next exchange.
-3. Retrying the same local batch returns the same receipt and applies it once.
-4. A fresh replica at sequence zero receives all current live states and
-   tombstones through bounded pages.
-5. An offline replica's stale live row loses to the authority tombstone.
-6. A failed page install cannot advance the durable cursor.
-7. Continuous concurrent replacement cannot livelock the reader: `through` is
-   fixed at exchange start, so the cursor makes strict progress each exchange.
+The submission request carries authority lifetime, replica ID, submission
+number, and bounded intents. An exact retry repeats those semantic fields. The
+authority privately hashes the canonical parsed request to distinguish an
+exact retry from a fork; no digest appears on the wire. A skipped submission
+number is refused. One authority transaction owns lifetime and number
+admission, intent folds, assigned fact sequences, the canonical request hash,
+bounded parked results, and result-fact reads.
 
-The receipt contract is minimal: the authority stores one row per replica with
-the last accepted batch sequence, request digest, and receipt. The client
-assigns each sealed batch a per-replica monotonically increasing sequence and
-never sends batch N+1 before holding batch N's receipt. An exact retry returns
-the stored receipt without reapplying; a skipped sequence is refused. The model
-proved a full receipt table adds nothing under this discipline.
+RFC 8785 canonical UTF-8 bytes of the validated semantic request own retry
+hashing and semantic size admission across runtimes. V1 separately bounds every
+string coordinate, identity, sequence, array, parked result, and envelope. Raw
+HTTP body caps protect parsing but do not define semantic equality.
 
-A forked replica (a restored file copy submitting the same batch sequence with
-a different digest) receives a batch-conflict refusal and mutates nothing. Its
-recovery is local and tiny: mint a fresh replica ID, keep the applied cursor
-(pull cursors are client-held), and resubmit pending outbox changes as new
-batches; unique row IDs and idempotent folding make the resubmission safe.
-There is no lineage-recovery protocol, acquisition mode, or recovery-required
-verdict. The only other refusal is a retryable storage-limit at the physical
-wall, unchanged from ADR-0145.
+The submission response returns the current authority fact for every touched
+address. Those facts are the settlement proof. Inside one local transaction,
+the replica verifies that the response lifetime still equals its attached
+lifetime, then installs facts monotonically per address: higher sequence
+replaces, lower sequence is ignored, and equal sequence with different content
+is corruption. It retires the sealed submission and normally keeps explicit
+address-scoped parked work as a visible but non-retrying local overlay. After
+monotonic installation, it inspects the resulting stored confirmed fact. A
+terminal row tombstone discards a remembered parked row overlay as superseded,
+including when the returned live fact was older and therefore ignored.
+Otherwise, a later local write compacts with parked work and requeues it. There
+is no receipt, applied flag, learned-through watermark, or authority touch.
+Submission facts never advance `afterSequence`.
 
-The endpoint route carries scalar protocol version `v1`. Document publication
+The local truth model is:
+
+```txt
+confirmed authority facts
++ compacted pending intents
+= visible local state
+```
+
+Every learned fact is stored even when its address remains pending. A private
+visible materialization may optimize reads but cannot discard or replace the
+confirmed authority fact beneath the overlay. A learned terminal row tombstone
+immediately supersedes unsealed row intents. An already sealed intent remains
+immutable for exact retry but stops overlaying the tombstone.
+
+V1 bounds fact size, facts-response bytes, submission bytes, and distinct
+submission addresses. At least one maximum-size fact must fit. Because
+submission settlement is not paged, the final constants must satisfy:
+
+```txt
+maxSubmissionAddresses * maxEncodedFactBytes
++ worstCaseResponseEnvelopeBytes
+<= maxSubmissionResponseBytes
+```
+
+The current 64-fact page cap is transitional and must not become wire
+semantics. Browser, Bun, and Cloudflare scale tests choose the inclusive V1
+constants before ADR-0163 becomes Accepted.
+
+Both endpoint routes carry scalar protocol version `v1`. Document publication
 and any row-document realtime connection negotiate their own versions.
 Physical SQLite format versions remain adapter-local. Do not persist a
 cross-product of protocol floors.
@@ -458,42 +528,59 @@ cross-product of protocol floors.
 ## Row-document synchronization
 
 Local document durability and authority publication are separate facts. Every
-local Yjs update appends its V2 bytes and advances the document's local state
-vector in one SQLite transaction. A runtime-owned background drain enumerates
-dirty addresses without requiring an application handle, hydrates one dirty
-document at a time, sends only state missing at the authority, and receives the
-authority's post-commit state vector. The local obligation clears only when
-that vector covers the current local vector. Closing a document destroys its
-live `Y.Doc` and any realtime connection but never deletes the obligation.
+local Yjs update appends its V2 bytes and advances a lightweight dirty revision
+in one SQLite transaction. It does not duplicate each offline edit into a
+continually merged pending BLOB. A runtime-owned background drain enumerates
+dirty addresses without requiring an application handle, reads the document
+chain and revision in one snapshot, hydrates the current document, and uses the
+authority state vector only as a transfer hint. It freezes the resulting exact
+V2 payload, digest, and captured revision only if the revision still matches,
+then retries those immutable bytes until it receives a post-commit receipt bound
+to the active authority lifetime, row address, document protocol version, and
+payload digest. The owner marks the row clean only if its revision still equals
+the captured revision; a racing edit remains dirty for the next attempt. State
+vectors never prove durability because delete-only updates need not advance
+their struct clocks, but the frozen V2 payload still carries the delete set.
+Closing a document destroys its live `Y.Doc` and any realtime connection but
+never deletes the publication obligation.
 
 Inbound document state stays lazy. An unopened document is not eagerly
 hydrated merely because another device changed it. Opening the document
 performs state-vector exchange and may attach a realtime collaboration overlay
-for low-latency peer edits and ephemeral presence. That overlay cannot be the
-only authority-publication path, and connection or initial-sync status cannot
-stand in for a durable authority acknowledgement.
+for low-latency peer edits. That overlay carries no awareness or presence and
+cannot be the only authority-publication path. Connection or initial-sync
+status cannot stand in for a durable authority acknowledgement.
 
 The exact realtime topology remains open for the live-collaboration dialectic.
 One fixed-address socket per open row is the leading candidate; multiplexing
 must replace it rather than coexist if measured browser socket limits earn the
 extra subscription machinery. The authority stores no permanently live
-`Y.Doc`. It may hydrate compact state for admission, publication, and
-state-vector exchange. Compaction preserves convergence but shares no scalar
-cursor or transport-batch semantics.
+`Y.Doc`. It is the trusted Yjs joiner, validator, and compactor, but never an
+editing peer. Every live owner privately stores zero-or-one compact `gc: true`
+baseline plus a tail bounded by both entry count and total encoded bytes.
+Crossing either threshold atomically compacts the covered chain. A wire-valid
+update too large for one physical tail row is applied directly into a new
+compact baseline when the resulting canonical document remains within product
+bounds. Derived live-document caches are adapter tuning. Compaction preserves
+convergence but shares no scalar cursor or transport-batch semantics.
 
 ## Blob synchronization
 
-Finalized immutable bytes live as raw row-scoped files. SQLite records only
-the row address and SHA-256 digest still owed to the authority. The runtime
-publishes those bytes automatically, retries idempotently, and clears the
-record only after the active authority accepts matching bytes at the live row
-address. Other replicas fetch cited bytes on demand; they do not mirror every
-authority blob eagerly.
+Every live row has one universal undeclared zero-or-one blob slot. Finalized
+immutable bytes live as one raw row-scoped file. SQLite records the accepted
+nullable SHA-256 and, while publication is owed, one small row-addressed
+obligation. The runtime publishes those bytes automatically, retries the same
+digest idempotently, and clears the obligation only after the active authority
+accepts matching bytes at the live row address. A different digest at an
+occupied live row is refused or parked. Other replicas fetch the row's bytes on
+demand; they do not mirror every authority blob eagerly.
 
 There is no blob metadata store, application upload state, explicit remote
 copy API, or generic outbox payload. Row deletion installs terminal scalar
 deletion state, removes document and publication records transactionally, and
-then reclaims the row's blob directory idempotently.
+then reclaims the row's blob file idempotently. The runtime never scans
+schema-opaque citations for garbage collection. Multiple assets use multiple
+rows; reference updates and asset-row deletion remain non-atomic.
 
 ## SQL, inspection, and export
 
@@ -506,9 +593,22 @@ live Epicenter through the storage owner, or opens an inert portable artifact,
 and presents the stable logical relations:
 
 ```sql
-rows(namespace_key, table_key, row_id, fields_json)
+rows(
+  namespace_key,
+  table_key,
+  row_id,
+  fields_json,
+  document_update_v2 BLOB NULL,
+  blob_sha256 TEXT NULL
+)
 values(namespace_key, value_key, value_json)
 ```
+
+`document_update_v2` is one self-contained compact V2 update for the complete
+Yjs document, never a state vector or copied live log. The two nullable columns
+are platform-owned row structure outside Lens fields. This logical projection
+does not replace the private live bounded chain or exact publication retry
+evidence.
 
 Installed Lenses provide typed interpretations for Home's table browser. The
 naming, collision behavior, and lifetime of optional Lens-generated friendly
@@ -537,6 +637,13 @@ through the selected authority cut, including every blob byte that authority
 owns. They may be listed through metadata, downloaded, restored, and deleted.
 They are never live databases, synchronization targets, browsable host-side
 application stores, partial exports, or merge inputs.
+
+Backup capture snapshots the accepted logical rows, derives byte membership
+from non-null `blob_sha256`, pins the selected external files against deletion,
+copies and verifies them, and seals the artifact only after every selected byte
+is present. There is no document inventory, blob relation, blob metadata JSON,
+or blob-membership `manifest.json`. A generic container seal may still prove
+artifact completeness without becoming another logical inventory.
 
 The host control plane owns active-lifetime selection and Backup lifecycle
 outside the replaceable authority. Hosted, self-hosted, and local-only hosts
@@ -606,7 +713,7 @@ Candidate packages:
   defineLens, parseLens, defineTable, defineValue, bind, local replica, sync attachment
 
 @epicenter/document-sync
-  row-document protocol, persistence, connection, presence
+  row-document protocol, persistence, connection
 
 @epicenter/agent
   agent loop over an explicit table/value capability
@@ -618,11 +725,13 @@ Candidate packages:
 Do not create packages for database address, database control, database
 migration, inventory, capture, or lifecycle. `row-sync` does not earn a
 package: the caller map found 17 server files and zero client files importing
-it outside the legacy Workspace tree. The portable scalar wire schemas, fold,
-admission limits, and digest live in `@epicenter/data` under a protocol subpath
-export that `@epicenter/server` consumes; the MIT leaf direction is already how
-server consumes `@epicenter/sqlite` and `@epicenter/identity`. Delete
-`packages/row-sync` after both sides import the new protocol leaf.
+it outside the legacy Workspace tree. The portable scalar wire schemas, folds,
+admission limits, and canonical semantic encoder live in `@epicenter/data`
+under a protocol subpath export that `@epicenter/server` consumes; the MIT leaf
+direction is already how server consumes `@epicenter/sqlite` and
+`@epicenter/identity`. The authority's private submission request hash remains
+server retry metadata. Delete `packages/row-sync` after both sides import the
+new protocol leaf.
 
 `@epicenter/server` owns the authority schema and transactions. It must not
 import application definitions or the local Data runtime. MIT code may not be
@@ -639,9 +748,9 @@ and manifest dependencies. Do not leave a compatibility barrel.
 
 - Replace the database ADR/spec vocabulary with the decisions above. Done in
   this spec revision.
-- Add protocol model tests for latest-state pagination, idempotency, deletion,
-  and first attachment. Done as `tmp/pagination-model/`; Wave 2 adopts them
-  into the owning package.
+- Freeze the scalar V1 model-test matrix for facts-feed progress, direct
+  settlement facts, numbered exact retry, deletion, and first attachment. Wave
+  2 implements it in the owning protocol package.
 - Inventory exact retained Workspace callers and classify each as migrate,
   delete, or temporarily break. Done; the caller map, schema inventory, API
   evidence, and identity trace live in `tmp/architecture-evidence/`.
@@ -652,14 +761,73 @@ Rollback point: docs and tests only.
 
 ### Wave 2: build the new scalar core
 
-- Implement the minimal latest-state and tombstone fold independently of the
-  old Workspace runtime.
-- Implement one sync exchange and authority conformance suite.
-- Implement the local replica schema, outbox, cursor installation, and sync
-  attachment.
-- Prove that one local store reopens identically and refuses another principal.
-- Bind every exchange and receipt to one authority-lifetime identity and prove
-  restored authorities refuse stale cursors and batches.
+#### Wave 2a: executable protocol kernel
+
+- Add structured row and value address schemas, the four fact shapes, the four
+  intent shapes, both operation schemas, RFC 8785 canonical semantic encoding,
+  and pure authority folds under the protocol owner.
+- Keep typed application create and update while lowering both to row-present.
+- Prove sequence-prefix learning, concurrent rewrites, direct settlement facts,
+  exact retry, fork and gap refusal, lifetime mismatch, terminal tombstones,
+  parked stability, parametric admission validators, and the
+  settlement-response inequality in runtime-free model tests. Exact inclusive
+  constants wait for adapter measurements in Wave 2e.
+- Import none of this path from production yet. It is a complete executable
+  contract and the first standalone implementation commit, not a compatibility
+  adapter over the old exchange.
+
+#### Wave 2b: local replica format
+
+- Benchmark one checked facts table against separate row and value fact tables
+  against both replica and authority workloads. Freeze one layout per owner;
+  choose the same layout only if evidence earns the shared shape.
+- Replace flat scalar and document address columns together. The physical-format
+  break carries structured identity through confirmed facts, pending intents,
+  sealed submission state, parked diagnostics, and document liveness joins.
+  Refuse the old format; do not add a migration reader.
+- Persist confirmed authority facts independently from compacted pending and
+  parked overlays. Persist the bound authority lifetime, `afterSequence`, and
+  next submission number.
+- Prove lifetime-gated monotonic fact installation, confirmed-plus-pending
+  visible state, terminal tombstone dominance, per-prefix atomic watermark
+  advancement, crash recovery, and reopen.
+- Do not combine this address-only document-column break with the later Yjs
+  baseline, tail, compaction, or publication redesign.
+
+#### Wave 2c: authority format and operations
+
+- Make the host control plane supply the authority lifetime identity. Persist
+  and check it inside the authority; the replaceable authority constructor does
+  not mint, select, or own active Restore state.
+- Persist structured current facts, one global sequence, and each replica's last
+  submission number, canonical request hash, and bounded parked results.
+- Implement `readFacts` and `submit` as separate authority transactions. The
+  submission transaction owns admission, folds, sequences, retry metadata,
+  parked results, and result-fact reads.
+
+#### Wave 2d: in-process conformance
+
+- Connect the replica capability directly to authority operations before adding
+  HTTP. Prove lost responses, fork and gap refusal, concurrent rewrites, direct
+  settlement replay, delayed older facts, equal-sequence corruption, stale
+  lifetime reset, same-lifetime sequence-ahead corruption, and fault-injected
+  transaction boundaries.
+- Prove `hasMore` comes from the same authority snapshot and no fixed `through`,
+  `position`, or count enters wire semantics.
+
+#### Wave 2e: wire, adapters, and supervisor
+
+- Mount authenticated `GET /api/sync/v1/facts` and
+  `POST /api/sync/v1/submissions` only after in-process conformance passes.
+- Implement Bun and Cloudflare authority adapters, then browser and desktop
+  transports, against the same schemas and state-machine suite.
+- Build a new supervisor capability with independent fact and submission drains
+  under one lifecycle owner for auth, wakeups, backoff, status, and disposal.
+  Do not switch production composition roots yet, and do not recombine the
+  operations behind an exchange-shaped helper.
+- Derive and freeze inclusive V1 fact, response, submission, raw-body, identity,
+  and distinct-address limits from the settlement-response inequality and
+  measured browser, Bun, and Cloudflare evidence.
 
 Rollback point: the old path still exists and no caller imports the new core.
 
@@ -686,8 +854,8 @@ Rollback point: the old path still exists and no caller imports the new core.
 - Preserve structured parked refusal details and expose them through Data and
   Epicenter Home. This presentation may follow the core protocol, but no
   intermediate implementation may report refused work as synchronized.
-- Replace browser IndexedDB blobs with row-scoped OPFS files, content-digest
-  identity, and durable automatic publication records.
+- Replace browser IndexedDB blobs with one write-once OPFS file per owning row,
+  nullable SHA-256 state, and durable automatic publication records.
 - Bind open row documents through the separately owned realtime collaboration
   overlay.
 - Add browser and native adapter conformance tests.
@@ -703,14 +871,16 @@ files), packages/skills (5 runtime files), apps/honeycrisp, packages/chat
 migration and workspace-gate adoption surfaces outright; migrate agent-chat),
 packages/svelte-utils (`from-table`/`from-kv` become Data-backed), packages/ui
 (relocate the natural-language date-input's Workspace utility imports),
-packages/server (`room/core.ts` presence import moves to Document Sync), and
+packages/server (the legacy room presence path is deleted), and
 packages/cli (daemon/mount: six runtime files; decide migrate-to-data-backed
 mounts versus explicit retirement before this wave ends; it migrates last
 either way).
 
 - Migrate Epicenter, Whispering, and other maintained applications from their
   composition roots inward.
-- Migrate Server to the one scalar route and new document addresses.
+- Switch production Data and Server composition roots to the V1 authority,
+  transports, and supervisor. Stop every import of the old exchange path, but
+  leave its files on disk until Wave 5 proves the replacement.
 - Migrate Agent through its explicit data interface.
 - Remove imports of database-address, database-control, database-migration, and
   provisional database inventory/scheduler code.
@@ -735,27 +905,32 @@ Workspace remains on disk but unreachable.
   injection for transaction boundaries, and pairwise adapter coverage around
   these end-to-end stories.
 
-  | Narrative | Required proof |
-  | --- | --- |
-  | Ordinary edit | Local commit survives closure; authority commit precedes receipt and fanout |
-  | Delete-only edit | Exact receipt proves the submitted delete set even when the state vector does not advance |
-  | Racing local edit | Receipt clears only its captured revision; later work remains dirty |
-  | Lost acknowledgement | Exact bytes retry idempotently without permanent request history |
-  | Concurrent clients | Reordered valid updates converge through the authority join |
-  | Compaction failure | Reopen sees the old chain or new baseline, never a partial state |
-  | Oversized tail entry | Valid bounded state stores directly as a compact baseline |
-  | Product-bound refusal | Below, at, and above byte and struct limits are deterministic and visibly parked |
-  | Row deletion race | Neither publication nor fanout resurrects the document |
-  | Hibernation and reopen | SQLite alone reconstructs state and outstanding publication work |
-  | Restore race | Work commits before activation or receives lifetime mismatch; it never crosses lifetimes |
-  | Backup cut | The nullable compact cell decodes to exactly the accepted authority document |
+  | Narrative              | Required proof                                                                            |
+  | ---------------------- | ----------------------------------------------------------------------------------------- |
+  | Ordinary edit          | Local commit survives closure; authority commit precedes receipt and fanout               |
+  | Delete-only edit       | Exact receipt proves the submitted delete set even when the state vector does not advance |
+  | Racing local edit      | Receipt clears only its captured revision; later work remains dirty                       |
+  | Lost acknowledgement   | Exact bytes retry idempotently without permanent request history                          |
+  | Concurrent clients     | Reordered valid updates converge through the authority join                               |
+  | Compaction failure     | Reopen sees the old chain or new baseline, never a partial state                          |
+  | Oversized tail entry   | Valid bounded state stores directly as a compact baseline                                 |
+  | Product-bound refusal  | Below, at, and above byte and struct limits are deterministic and visibly parked          |
+  | Row deletion race      | Neither publication nor fanout resurrects the document                                    |
+  | Hibernation and reopen | SQLite alone reconstructs state and outstanding publication work                          |
+  | Restore race           | Work commits before activation or receives lifetime mismatch; it never crosses lifetimes  |
+  | Backup cut             | The nullable compact cell decodes to exactly the accepted authority document              |
 
 - Prove the whole-replica trade at 1,000,000 live scalar addresses and 512 MiB
   of canonical encoded logical state. Measure authority scan, transfer,
   browser and native installation, reopen, and peak memory. Inject crashes
-  between pages and prove durable progress resumes without reinstalling prior
-  pages. Treat this as a conformance envelope, not a hard product limit or a
-  protocol constant.
+  between fact prefixes and prove `afterSequence` resumes without reinstalling
+  committed facts. Prove concurrent rewrites remain discoverable without a
+  frozen `through` ceiling. Treat this as a conformance envelope, not a hard
+  product limit or a protocol constant.
+- Exercise sparse and dense zero-or-one blob fixtures inside that envelope.
+  Prove same-digest retry, different-digest refusal, row-terminal cleanup,
+  byte-complete Backup capture, crash recovery during pin/copy/verify/seal, and
+  round-trip restoration without consulting a membership manifest.
 - Smoke first sign-in with local data, sign-out/reopen, same-principal sign-in,
   wrong-principal refusal, two-device convergence, offline deletion, and browser
   multi-tab writes.
@@ -816,13 +991,23 @@ without learning historical vocabulary:
   additional live Epicenters.
 - What does Restore do? It creates a fresh authority lifetime from one complete
   Backup or uploaded portable Epicenter and invalidates every old replica.
-- How does scalar sync work? One whole-Epicenter latest-state exchange.
+- How does scalar sync work? The runtime reads current authority facts after one
+  sequence and submits one replica's numbered desired-state intents. Current
+  facts are both learned state and submission settlement proof.
 - How do documents sync? Local updates publish automatically after handles
   close; remote state hydrates lazily when a document opens.
-- What are document WebSockets for? Optional low-latency collaboration and
-  ephemeral presence, never the sole durability path.
-- How do blobs sync? Row-scoped immutable bytes publish automatically and
-  download on demand.
+- How are documents represented portably? As one nullable self-contained Yjs
+  V2 update on the logical row, never the private live update log.
+- What are document WebSockets for? Optional low-latency collaboration, never
+  awareness, presence, or the sole durability path.
+- How do blobs sync? Each row's zero-or-one write-once immutable byte stream
+  publishes automatically and downloads on demand.
+- What identifies a blob? Its owning row address. SHA-256 proves the accepted
+  bytes and makes retries idempotent; it is not a separate BlobId.
+- How do several attachments work? As several ordinary asset rows with
+  non-enforcing references and no generic cascade.
+- What inventories a Backup? Its logical row relation. Nullable document and
+  blob columns replace separate inventories and membership manifests.
 - Can applications run SQL on the live store? No.
 - Who can inspect relationally? Epicenter Home, for people and agents, over one
   stable logical model.
@@ -852,4 +1037,5 @@ weaken the ADR destination above:
    one fixed-address WebSocket per open row, one multiplexed connection, or no
    dedicated overlay until a concrete collaborative surface ships. Preserve
    automatic background publication, lazy inbound hydration, post-commit
-   authority proof, and ephemeral presence under every option.
+   authority proof, and the refusal of awareness and presence under every
+   option.

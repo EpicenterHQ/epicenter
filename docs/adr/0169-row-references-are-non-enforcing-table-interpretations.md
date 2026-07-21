@@ -34,6 +34,13 @@ uniqueness rule, reference array, foreign key, or generic relationship record.
 Applications that need independently convergent many-to-many membership use
 ordinary relationship rows or own an application-specific representation.
 
+The same rule applies when several binary assets belong conceptually to one
+parent. Each asset is an ordinary row with its own zero-or-one blob slot and may
+store or receive a non-enforcing parent reference. Deleting the parent never
+cascades. Reference changes and asset-row deletion are independent operations,
+so valid orphan asset rows may temporarily or permanently remain until the
+application or person deletes them.
+
 Epicenter references may name a table in another namespace. Namespace
 proximity grants no ownership or lifecycle semantics. Missing or unavailable
 target Lenses do not invalidate canonical data; raw addresses and stored IDs
