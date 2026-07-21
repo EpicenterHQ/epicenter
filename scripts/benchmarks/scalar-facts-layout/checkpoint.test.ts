@@ -60,7 +60,14 @@ function seedRecord(seedId: number): SeedRecord {
 		seedId,
 		estimators: { 'replica/unified-inline/confirmedPointRead': 1.23 },
 		hashes: { trace: 'abc' },
-		raw: { blocks: [], reopens: [], tails: [], macros: [], cells: [] },
+		raw: {
+			blocks: [],
+			boundaries: [],
+			reopens: [],
+			tails: [],
+			macros: [],
+			cells: [],
+		},
 		seedGatesPassed: true,
 	};
 }
@@ -167,7 +174,14 @@ describe('atomic persistence and schema-validated cross-process resume', () => {
 					seedId: 1000,
 					estimators: {},
 					hashes: { t: 'x' },
-					raw: { blocks: [], reopens: [], tails: [], macros: [], cells: [] },
+					raw: {
+						blocks: [],
+						boundaries: [],
+						reopens: [],
+						tails: [],
+						macros: [],
+						cells: [],
+					},
 					seedGatesPassed: true,
 				},
 			],
@@ -191,6 +205,20 @@ describe('atomic persistence and schema-validated cross-process resume', () => {
 			],
 		};
 		expect(parseManifest(JSON.stringify(missingRaw))).toBeNull();
+	});
+
+	test('a raw observation with a non-finite numeric field is refused (corruption)', () => {
+		// JSON cannot hold Infinity, so inject a raw 1e999 literal that JSON.parse
+		// turns into Infinity, simulating a corrupted manifest on disk.
+		const serialized = serializeManifest(
+			commitSeed(createManifest(CONFIG), seedRecord(1000)),
+		);
+		const corrupt = serialized.replace(
+			'"blocks": []',
+			'"blocks": [{ "elapsedMs": 1e999 }]',
+		);
+		expect(corrupt).not.toBe(serialized); // the replacement actually happened
+		expect(parseManifest(corrupt)).toBeNull();
 	});
 
 	test('a committed seed outside the config seed list is refused', () => {

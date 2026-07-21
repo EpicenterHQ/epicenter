@@ -34,6 +34,8 @@ const ALL_GATES_PASS: ProofGateInputs = {
 	headroomPreflightPassed: true,
 	ownerWorkloadsExecuted: true,
 	rawObservationsRetained: true,
+	exactEnvelopeConformant: true,
+	checkpointBoundariesTruthful: true,
 };
 
 const FULL_CEILINGS = Object.fromEntries(

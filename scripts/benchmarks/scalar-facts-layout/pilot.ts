@@ -77,7 +77,7 @@ import {
 } from './schedule.js';
 import { computeFamilywise, type SeedLevelMetric } from './statistics.js';
 import type { Address, Fact, RowAddress } from './trace.js';
-import { makeTrace, type Trace } from './trace.js';
+import { factsForPresentTarget, makeTrace, type Trace } from './trace.js';
 import { pilotLimits, verifyTraceV1Binding } from './v1-binding.js';
 
 type Owner = 'replica' | 'authority';
@@ -115,10 +115,28 @@ function declaredMetrics(owner: Owner): string[] {
 	];
 }
 
-// --- Profile -----------------------------------------------------------------
+// --- Profiles ----------------------------------------------------------------
+
+const VALUE_RATIO = 0.08;
+
+/**
+ * The frozen exact-envelope pilot dimensions (spec 483-553). Only a run at these
+ * exact dimensions can be method-validated; a bounded smoke never can.
+ */
+const EXACT_PRESENT_ADDRESSES = 1_000_000;
+const EXACT_PROXY_BYTES = 536_870_912; // 512 MiB
+const EXACT_CYCLES = 3;
+const EXACT_SEEDS = 4;
+const EXACT_MIN_REOPENS = 20;
+const EXACT_MIN_TAIL_TRANSACTIONS = 400;
+const WALL_TIME_CAP_SECONDS = 8 * 60 * 60;
 
 type Profile = {
 	name: string;
+	/** Whether this profile is the frozen exact-envelope pilot. */
+	exact: boolean;
+	/** Intended final-present address count. */
+	present: number;
 	facts: number;
 	targetLogicalStateBytes: number;
 	maxEncodedFactBytes: number;
@@ -130,29 +148,69 @@ type Profile = {
 	tailTransactions: number;
 };
 
+/** The frozen exact-envelope pilot. Never run in-process here; estimated then refused. */
+function exactPilotProfile(): Profile {
+	const facts = factsForPresentTarget(EXACT_PRESENT_ADDRESSES, VALUE_RATIO);
+	if (facts === null) {
+		throw new Error('no exact corpus reaches 1,000,000 present addresses');
+	}
+	return {
+		name: 'exact-envelope-pilot',
+		exact: true,
+		present: EXACT_PRESENT_ADDRESSES,
+		facts,
+		targetLogicalStateBytes: EXACT_PROXY_BYTES,
+		maxEncodedFactBytes: 4096,
+		seedCount: EXACT_SEEDS,
+		cycles: EXACT_CYCLES,
+		minBlockMs: 20,
+		maxBlockOps: 1 << 20,
+		reopenObservations: EXACT_MIN_REOPENS,
+		tailTransactions: EXACT_MIN_TAIL_TRANSACTIONS,
+	};
+}
+
+/**
+ * A bounded complete-method smoke. It exercises the full method wiring but at
+ * small dimensions, so it can NEVER be method-validated (the exact-envelope gate
+ * fails). Cycles are kept at the frozen three so the schedule shape is faithful.
+ */
 const SMOKE: Profile = {
-	name: 'pilot-smoke',
-	facts: 4000,
-	targetLogicalStateBytes: 4000 * 160,
+	name: 'complete-method-smoke',
+	exact: false,
+	present: 2400,
+	facts: factsForPresentTarget(2400, VALUE_RATIO) ?? 2600,
+	targetLogicalStateBytes: 2400 * 160,
 	maxEncodedFactBytes: 4096,
-	seedCount: 4,
-	cycles: 1,
+	seedCount: EXACT_SEEDS,
+	cycles: EXACT_CYCLES,
 	minBlockMs: 20,
 	maxBlockOps: 1 << 20,
-	reopenObservations: 20,
-	tailTransactions: 400,
+	reopenObservations: EXACT_MIN_REOPENS,
+	tailTransactions: EXACT_MIN_TAIL_TRANSACTIONS,
 };
 
 const NAMESPACE_COUNT = 12;
 const TABLE_COUNT = 200;
-const VALUE_RATIO = 0.08;
 const BASE_SEED = 1000;
 const BOOTSTRAP_DRAWS = 10_000;
 const BOOTSTRAP_SEED = 0x5ca1ab1e;
 const HEADROOM_MARGIN = 1.25;
 const MIN_TIMED_BLOCK_MS = 20;
 const MAX_READ_BLOCKS = 64; // spec cap per seed/candidate/owner/metric
-const BOUNDARY_IDLE_MS = 3; // fixed modeled idle at pair/cycle boundaries
+
+/** Whether a run's dimensions match the frozen exact-envelope pilot exactly. */
+function isExactEnvelope(profile: Profile): boolean {
+	return (
+		profile.exact &&
+		profile.present === EXACT_PRESENT_ADDRESSES &&
+		profile.targetLogicalStateBytes === EXACT_PROXY_BYTES &&
+		profile.seedCount === EXACT_SEEDS &&
+		profile.cycles === EXACT_CYCLES &&
+		profile.reopenObservations >= EXACT_MIN_REOPENS &&
+		profile.tailTransactions >= EXACT_MIN_TAIL_TRANSACTIONS
+	);
+}
 
 // --- Strict CLI --------------------------------------------------------------
 
@@ -160,14 +218,18 @@ type CliOptions = {
 	output: string | null;
 	seedCount: number;
 	keepArtifacts: boolean;
+	profile: 'smoke' | 'pilot';
 };
 
 const USAGE = `scalar-facts-layout measurement pilot
 
 Usage: bun scripts/benchmarks/scalar-facts-layout/pilot.ts [options]
-  --output <path>   Write the JSON report to <path> (default: a temp file).
-  --seeds <n>       Number of fresh seeds, >= 4 (default: ${SMOKE.seedCount}).
-  --keep-artifacts  Keep the temporary database/manifest directory.
+  --profile smoke|pilot  smoke (default) runs the complete method at bounded scale
+                         and can never be method-validated; pilot ESTIMATES the
+                         exact-envelope disk/wall-time and refuses to run it here.
+  --output <path>        Write the JSON report to <path> (default: a temp file).
+  --seeds <n>            Number of fresh seeds, >= 4 (default: ${SMOKE.seedCount}).
+  --keep-artifacts       Keep the temporary database/manifest directory.
 `;
 
 class CliError extends Error {}
@@ -177,6 +239,7 @@ function parseCli(argv: readonly string[]): CliOptions {
 		output: null,
 		seedCount: SMOKE.seedCount,
 		keepArtifacts: false,
+		profile: 'smoke',
 	};
 	for (let i = 0; i < argv.length; i += 1) {
 		const arg = argv[i];
@@ -200,6 +263,15 @@ function parseCli(argv: readonly string[]): CliOptions {
 					throw new CliError('--seeds must be an integer >= 4');
 				}
 				options.seedCount = parsed;
+				i += 1;
+				break;
+			}
+			case '--profile': {
+				const value = argv[i + 1];
+				if (value !== 'smoke' && value !== 'pilot') {
+					throw new CliError('--profile must be smoke or pilot');
+				}
+				options.profile = value;
 				i += 1;
 				break;
 			}
@@ -265,13 +337,18 @@ function finalFacts(trace: Trace): Fact[] {
 function digestOf(...parts: (string | number)[]): string {
 	return new Sha256Stream().update(parts.join('|')).digestHex();
 }
-function idleBusy(ms: number): void {
-	// A deterministic fixed idle at a boundary. Recorded, never claimed to clear
-	// the OS cache or thermal history (spec).
+const BOUNDARY_IDLE_MS = 50; // fixed idle at pair/cycle boundaries
+
+/**
+ * A real fixed idle at a boundary: a non-spinning synchronous sleep that parks the
+ * thread instead of heating the CPU (unlike a busy loop). Returns the measured
+ * elapsed idle. The idle is recorded and never claimed to clear the OS cache or
+ * thermal history (spec).
+ */
+function fixedIdle(ms: number): number {
 	const start = performance.now();
-	let x = 0;
-	while (performance.now() - start < ms) x += 1;
-	if (x < 0) throw new Error('unreachable');
+	Bun.sleepSync(ms);
+	return performance.now() - start;
 }
 
 // --- Raw observation model ---------------------------------------------------
@@ -302,13 +379,22 @@ type TailObservation = {
 	metric: string;
 	candidate: string;
 	transactions: number;
+	/** Every raw per-transaction sample in milliseconds, retained (not only percentiles). */
+	samplesMs: number[];
 	p50Ms: number;
 	p95Ms: number;
 	p99Ms: number;
 	throughputPerSec: number;
 	resetVerified: boolean;
 	warmupTransactions: number;
-	checkpointBoundaries: number;
+	/**
+	 * A best-effort WAL-size delta count, retained only as a DIAGNOSTIC. It is NOT a
+	 * truthful autocheckpoint boundary signal: SQLite may reset and reuse the WAL
+	 * without shrinking the file, so this undercounts. `checkpointSignalTruthful`
+	 * is false, which fails the checkpoint-truthful gate rather than fabricate.
+	 */
+	walDeltaDiagnostic: number;
+	checkpointSignalTruthful: boolean;
 };
 type MacroObservation = {
 	owner: Owner;
@@ -325,8 +411,19 @@ type CellObservation = {
 	candidateTableBytes: number;
 	fileBytes: number;
 };
+type BoundaryObservation = {
+	owner: Owner;
+	metric: string;
+	kind: string; // 'pair' or 'cycle'
+	atOrdinal: number;
+	idleMs: number;
+	reopenMs: number;
+	reopenedCandidates: number;
+	reopenOk: boolean;
+};
 type SeedRawObservations = {
 	blocks: BlockObservation[];
+	boundaries: BoundaryObservation[];
 	reopens: ReopenObservation[];
 	tails: TailObservation[];
 	macros: MacroObservation[];
@@ -545,14 +642,30 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 				block.precedingBoundary === 'pair' ||
 				block.precedingBoundary === 'cycle'
 			) {
-				idleBusy(BOUNDARY_IDLE_MS);
-				for (const candidate of CANDIDATES) {
-					const entry = built.get(candidate.id)!;
-					entry.store.finalize();
-					entry.db.close();
-					const reopened = openExisting(entry.path, candidate);
-					built.set(candidate.id, { ...reopened, path: entry.path });
-				}
+				const idleMs = fixedIdle(BOUNDARY_IDLE_MS);
+				let reopenOk = true;
+				const reopenMs = timeMs(() => {
+					for (const candidate of CANDIDATES) {
+						const entry = built.get(candidate.id)!;
+						entry.store.finalize();
+						entry.db.close();
+						const reopened = openExisting(entry.path, candidate);
+						if (reopened.store.scanWitness().digestHex !== oracle.digestHex) {
+							reopenOk = false;
+						}
+						built.set(candidate.id, { ...reopened, path: entry.path });
+					}
+				});
+				raw.boundaries.push({
+					owner,
+					metric,
+					kind: block.precedingBoundary,
+					atOrdinal: block.ordinal,
+					idleMs,
+					reopenMs,
+					reopenedCandidates: CANDIDATES.length,
+					reopenOk,
+				});
 			}
 			const entry = built.get(block.candidate)!;
 			// Three immediate untimed warmup batches on the SAME metric path, disjoint
@@ -746,13 +859,18 @@ function runTail(
 		metric,
 		candidate: candidate.id,
 		transactions: profile.tailTransactions,
+		samplesMs: txnMs,
 		p50Ms: percentile(sorted, 0.5),
 		p95Ms: percentile(sorted, 0.95),
 		p99Ms: percentile(sorted, 0.99),
 		throughputPerSec: total > 0 ? (profile.tailTransactions / total) * 1000 : 0,
 		resetVerified,
 		warmupTransactions: 3,
-		checkpointBoundaries,
+		walDeltaDiagnostic: checkpointBoundaries,
+		// WAL shrink is not a truthful autocheckpoint boundary signal, and inserting
+		// a measurement checkpoint would perturb the production workload, so we do
+		// not claim a truthful boundary count. This fails the checkpoint-truthful gate.
+		checkpointSignalTruthful: false,
 	};
 }
 
@@ -843,6 +961,125 @@ type Headroom = {
 	reason: string;
 };
 
+/**
+ * A conservative wall-time model for one profile from the measured per-fact
+ * install time and the run's actual build/read/tail structure. Builds dominate at
+ * the exact envelope; reads are calibration-bounded, so they scale with block
+ * count, not corpus size.
+ */
+function estimateWallSeconds(
+	profile: Profile,
+	perFactInstallSeconds: number,
+): number {
+	const buildSeconds = perFactInstallSeconds * profile.facts;
+	const tailRuns =
+		OWNERS.reduce((n, o) => n + TAIL_METRICS[o].length, 0) * CANDIDATES.length;
+	// 8 retained + 8 macro builds, plus three full builds per tail run.
+	const buildsPerSeed = 16 + tailRuns * 3;
+	const readRuns = OWNERS.reduce((n, o) => n + READ_METRICS[o].length, 0);
+	const blocksPerRun = Math.min(MAX_READ_BLOCKS, profile.cycles * 16);
+	const readSecondsPerSeed =
+		readRuns * blocksPerRun * 4 * ((profile.minBlockMs * 1.5) / 1000);
+	const boundarySecondsPerSeed =
+		readRuns * profile.cycles * 2 * (BOUNDARY_IDLE_MS / 1000);
+	const tailTxnSecondsPerSeed = tailRuns * profile.tailTransactions * 0.0002;
+	const reopenSecondsPerSeed =
+		OWNERS.length * profile.reopenObservations * CANDIDATES.length * 0.002;
+	const perSeed =
+		buildsPerSeed * buildSeconds +
+		readSecondsPerSeed +
+		boundarySecondsPerSeed +
+		tailTxnSecondsPerSeed +
+		reopenSecondsPerSeed;
+	return Math.ceil(perSeed * profile.seedCount);
+}
+
+export type ExactEnvelopeEstimate = {
+	probeFacts: number;
+	exactFacts: number;
+	exactPresent: number;
+	perFactInstallSeconds: number;
+	perFactPageBytes: number;
+	exactPerDatabaseBytes: number;
+	totalDiskBytes: number;
+	wallSeconds: number;
+	wallCapSeconds: number;
+	withinWallCap: boolean;
+	availableBytes: number | null;
+	headroomOk: boolean;
+	feasible: boolean;
+	refusedToRun: boolean;
+	method: string;
+};
+
+/**
+ * Measure a bounded probe build and extrapolate linearly to the frozen exact
+ * envelope, producing a disk and wall-time estimate. This never runs the
+ * multi-hour exact envelope; it always refuses to run and reports whether the
+ * exact run would be feasible under the eight-hour cap and available headroom.
+ */
+function estimateExactEnvelope(dir: string): ExactEnvelopeEstimate {
+	const probeTrace = traceFor(SMOKE, 0);
+	const facts = finalFacts(probeTrace);
+	const path = join(dir, 'estimate-probe.sqlite');
+	let bytes = 0;
+	const ms = timeMs(() => {
+		const opened = buildOwnerDatabase(
+			path,
+			CANDIDATES[0] as Candidate,
+			'replica',
+			facts,
+			probeTrace,
+		);
+		bytes = (
+			opened.db
+				.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
+				.get() as { b: number }
+		).b;
+		opened.store.finalize();
+		opened.db.close();
+	});
+	removeDatabase(path);
+	const perFactInstallSeconds = ms / 1000 / Math.max(1, facts.length);
+	const perFactPageBytes = bytes / Math.max(1, facts.length);
+	const exact = exactPilotProfile();
+	// Per DB: live pages plus WAL and temp/copy allowance (approximated as three
+	// live-page copies), with the 25% margin.
+	const exactPerDatabaseBytes = Math.ceil(
+		perFactPageBytes * exact.facts * 3 * HEADROOM_MARGIN,
+	);
+	const totalDiskBytes = exactPerDatabaseBytes * 8;
+	const wallSeconds = estimateWallSeconds(exact, perFactInstallSeconds);
+	const withinWallCap = wallSeconds <= WALL_TIME_CAP_SECONDS;
+	let availableBytes: number | null = null;
+	try {
+		const fs = statfsSync(dir);
+		availableBytes = fs.bavail * fs.bsize;
+	} catch {
+		availableBytes = null;
+	}
+	const headroomOk =
+		availableBytes !== null && totalDiskBytes <= availableBytes;
+	return {
+		probeFacts: facts.length,
+		exactFacts: exact.facts,
+		exactPresent: exact.present,
+		perFactInstallSeconds,
+		perFactPageBytes,
+		exactPerDatabaseBytes,
+		totalDiskBytes,
+		wallSeconds,
+		wallCapSeconds: WALL_TIME_CAP_SECONDS,
+		withinWallCap,
+		availableBytes,
+		headroomOk,
+		feasible: withinWallCap && headroomOk,
+		refusedToRun: true,
+		method:
+			'bounded probe (one replica build at smoke scale) extrapolated linearly to 1,000,000 present addresses / 512 MiB; never executed here',
+	};
+}
+
 function headroomPreflight(
 	dir: string,
 	trace: Trace,
@@ -850,27 +1087,33 @@ function headroomPreflight(
 ): Headroom {
 	const facts = finalFacts(trace);
 	// Conservative per-database bound across all four candidates and both owner
-	// populations: measure each, take the maximum live-page + WAL footprint.
+	// populations: measure each, take the maximum live-page + WAL footprint, and the
+	// slowest per-fact install time for the wall-time model.
 	let livePageBytes = 0;
 	let walHeadroomBytes = 0;
+	let perFactInstallSeconds = 0;
 	for (const owner of OWNERS) {
 		for (const candidate of CANDIDATES) {
 			const path = join(dir, `headroom-${owner}-${candidate.id}.sqlite`);
-			const opened = buildOwnerDatabase(path, candidate, owner, facts, trace);
-			const pageBytes = (
-				opened.db
-					.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
-					.get() as {
-					b: number;
-				}
-			).b;
-			opened.db.exec('PRAGMA wal_checkpoint(PASSIVE)');
-			const wal = walBytes(path);
-			opened.store.finalize();
-			opened.db.close();
+			const buildMs = timeMs(() => {
+				const opened = buildOwnerDatabase(path, candidate, owner, facts, trace);
+				const pageBytes = (
+					opened.db
+						.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
+						.get() as { b: number }
+				).b;
+				opened.db.exec('PRAGMA wal_checkpoint(PASSIVE)');
+				const wal = walBytes(path);
+				opened.store.finalize();
+				opened.db.close();
+				livePageBytes = Math.max(livePageBytes, pageBytes);
+				walHeadroomBytes = Math.max(walHeadroomBytes, wal);
+			});
 			removeDatabase(path);
-			livePageBytes = Math.max(livePageBytes, pageBytes);
-			walHeadroomBytes = Math.max(walHeadroomBytes, wal);
+			perFactInstallSeconds = Math.max(
+				perFactInstallSeconds,
+				buildMs / 1000 / Math.max(1, facts.length),
+			);
 		}
 	}
 	// Bounded WAL plus a temp/copy allowance (one extra live-page copy for ANALYZE
@@ -888,8 +1131,12 @@ function headroomPreflight(
 	} catch {
 		availableBytes = null;
 	}
-	// A rough wall-time estimate scales the observed smoke duration by seed count.
-	const wallTimeEstimateSeconds = profile.seedCount * 60;
+	// Wall-time estimate derived from the MEASURED per-fact install time and the
+	// run's actual build/read/tail structure, not an invented constant.
+	const wallTimeEstimateSeconds = estimateWallSeconds(
+		profile,
+		perFactInstallSeconds,
+	);
 	if (availableBytes === null) {
 		return {
 			passed: false,
@@ -1051,11 +1298,47 @@ function main(): void {
 		process.exit(2);
 	}
 
-	const profile: Profile = { ...SMOKE, seedCount: options.seedCount };
 	const sourceVersion = resolveSourceVersion();
 	const dir = mkdtempSync(join(tmpdir(), 'scalar-pilot-'));
 	const manifestPath = join(dir, 'manifest.json');
 	const startedMs = performance.now();
+
+	// The exact-envelope pilot is never run in-process: it is estimated and refused.
+	if (options.profile === 'pilot') {
+		try {
+			const estimate = estimateExactEnvelope(dir);
+			const report = {
+				kind: 'exact-envelope-pilot-estimate',
+				refusedToRun: true,
+				reason: estimate.feasible
+					? 'exact-envelope pilot is estimated feasible but is not run here; launch is a separate, deliberate step'
+					: `exact-envelope pilot refused: ${estimate.withinWallCap ? '' : 'estimated wall time exceeds the 8h cap'}${!estimate.withinWallCap && !estimate.headroomOk ? '; ' : ''}${estimate.headroomOk ? '' : 'insufficient disk headroom'}`,
+				sourceVersion,
+				exactProfile: exactPilotProfile(),
+				estimate,
+			};
+			const serialized = `${JSON.stringify(report, null, 2)}\n`;
+			const outputPath = options.output ?? join(dir, 'estimate.json');
+			writeFileSync(outputPath, serialized);
+			process.stdout.write(
+				[
+					'scalar-facts-layout EXACT-ENVELOPE PILOT ESTIMATE (refused to run)',
+					`  exact: present=${estimate.exactPresent} facts=${estimate.exactFacts} proxy=${EXACT_PROXY_BYTES}B seeds=${EXACT_SEEDS} cycles=${EXACT_CYCLES}`,
+					`  measured perFactInstall=${(estimate.perFactInstallSeconds * 1e6).toFixed(2)}us perFactPage=${estimate.perFactPageBytes.toFixed(1)}B`,
+					`  estimated disk=${(estimate.totalDiskBytes / 1024 / 1024 / 1024).toFixed(2)}GiB (8 DBs) wall=${(estimate.wallSeconds / 3600).toFixed(2)}h (cap ${WALL_TIME_CAP_SECONDS / 3600}h)`,
+					`  feasible=${estimate.feasible} (withinWallCap=${estimate.withinWallCap} headroomOk=${estimate.headroomOk}) refusedToRun=true`,
+					`  report: ${outputPath}`,
+				].join('\n') + '\n',
+			);
+		} finally {
+			if (options.output !== null && !options.keepArtifacts) {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		}
+		return;
+	}
+
+	const profile: Profile = { ...SMOKE, seedCount: options.seedCount };
 
 	try {
 		const limits = pilotLimits();
@@ -1103,6 +1386,7 @@ function main(): void {
 			});
 			const raw: SeedRawObservations = {
 				blocks: [],
+				boundaries: [],
 				reopens: [],
 				tails: [],
 				macros: [],
@@ -1281,6 +1565,14 @@ function main(): void {
 		const rawObservationsRetained =
 			committed.length > 0 &&
 			committed.every((s) => (s.raw.cells as unknown[]).length > 0);
+		// The frozen exact-envelope gate: a bounded smoke can never pass it, so it can
+		// never be method-validated even when every other gate is green.
+		const exactEnvelopeConformant =
+			executed && oracleReproduced && isExactEnvelope(profile);
+		// The checkpoint-boundary signal is not truthful (WAL shrink under-counts and a
+		// measurement checkpoint would perturb the workload), so this gate fails.
+		const checkpointBoundariesTruthful =
+			allTails.length > 0 && allTails.every((t) => t.checkpointSignalTruthful);
 
 		const proofInputs: ProofGateInputs = {
 			oracleWitnessReproduced: oracleReproduced,
@@ -1296,14 +1588,23 @@ function main(): void {
 			headroomPreflightPassed: headroom.passed,
 			ownerWorkloadsExecuted,
 			rawObservationsRetained,
+			exactEnvelopeConformant,
+			checkpointBoundariesTruthful,
 		};
 		const method = validateMethod(proofInputs);
+		// Feasibility only, not selection: every contrast interval must be finite (the
+		// estimator produced a usable bound). No candidate classification is read here
+		// or emitted in the report.
 		const classifierResolved =
 			estimatorOk &&
 			[
 				...familyByOwner.replica.contrasts,
 				...familyByOwner.authority.contrasts,
-			].every((c) => c.classification !== 'inconclusive');
+			].every(
+				(c) =>
+					Number.isFinite(c.interval.lower) &&
+					Number.isFinite(c.interval.upper),
+			);
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: true,
 			method,
@@ -1328,11 +1629,31 @@ function main(): void {
 				allReopens,
 			),
 		};
+		// Non-selecting feasibility ONLY: owner-and-kind interval half-widths and the
+		// projected seed count to reach the target. No candidate identity, ranking, or
+		// pairwise classification is emitted (spec: the pilot reports only an evidence
+		// status). Per-candidate/per-metric diagnostics stay inside the raw arrays.
+		const feasibility = OWNERS.map((owner) => ({
+			owner,
+			ok: familyByOwner[owner].ok,
+			byKind: familyByOwner[owner].feasibility.map((f) => ({
+				kind: f.kind,
+				maxHalfWidth: f.maxHalfWidth,
+				targetHalfWidth: f.targetHalfWidth,
+				withinTarget: f.withinTarget,
+				projectedSeeds: f.projectedSeeds,
+			})),
+		}));
 		const report = {
-			kind: 'scalar-facts-layout-measurement-pilot',
+			kind: profile.exact
+				? 'scalar-facts-layout-measurement-pilot'
+				: 'scalar-facts-layout-complete-method-smoke',
 			classifierOnly: true,
 			isPilot: true,
 			methodValidated: method.methodValidated,
+			note: profile.exact
+				? 'exact-envelope pilot'
+				: 'complete-method smoke: exercises the method but can never be method-validated (exact-envelope gate fails)',
 			profile,
 			provenance,
 			manifestIdentity: manifest.identity,
@@ -1347,7 +1668,7 @@ function main(): void {
 			gates: method.gates,
 			method,
 			evidenceStatus: readiness,
-			familywise: familyByOwner,
+			feasibility,
 			completedSeedIds: committed.map((s) => s.seedId),
 			resumedSeedIds,
 			raw: committed.map((s) => ({ seedId: s.seedId, ...(s.raw as object) })),
@@ -1359,12 +1680,12 @@ function main(): void {
 
 		process.stdout.write(
 			[
-				`scalar-facts-layout measurement PILOT (${profile.name})`,
-				`  seeds=${profile.seedCount} candidates=${CANDIDATES.length} owners=${OWNERS.length}`,
+				`scalar-facts-layout ${profile.exact ? 'EXACT-ENVELOPE PILOT' : 'COMPLETE-METHOD SMOKE'} (${profile.name})`,
+				`  seeds=${profile.seedCount} candidates=${CANDIDATES.length} owners=${OWNERS.length} cycles=${profile.cycles} present~=${profile.present}`,
 				`  duration=${(durationMs / 1000).toFixed(1)}s  resumed=${resumedSeedIds.length}`,
-				`  raw: blocks=${allBlocks.length} reopens=${allReopens.length} tails=${allTails.length} macros=${allMacros.length} cells=${allCells.length}`,
-				`  headroom: ${headroom.passed} (perDB=${headroom.perDatabaseBytes}B, need=${headroom.requiredBytes}B)`,
-				`  method validated: ${method.methodValidated}`,
+				`  raw: blocks=${allBlocks.length} boundaries=${committed.flatMap((s) => s.raw.boundaries as unknown[]).length} reopens=${allReopens.length} tails=${allTails.length} macros=${allMacros.length} cells=${allCells.length}`,
+				`  headroom: ${headroom.passed} (perDB=${headroom.perDatabaseBytes}B, need=${headroom.requiredBytes}B, wallEst=${headroom.wallTimeEstimateSeconds ?? '?'}s)`,
+				`  method validated: ${method.methodValidated}${profile.exact ? '' : ' (UNREACHABLE for a smoke: exact-envelope gate fails)'}`,
 				`  failing gates: ${method.proofRefusals.map((r) => r.split(':')[0]).join(', ') || 'none'}`,
 				`  evidence status: ${readiness.status.toUpperCase()} (isPilot; not ADR-ready)`,
 				`  report: ${outputPath}`,

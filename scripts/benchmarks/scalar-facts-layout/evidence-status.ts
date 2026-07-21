@@ -59,6 +59,19 @@ export type ProofGateInputs = {
 	ownerWorkloadsExecuted: boolean;
 	/** Raw per-block, reopen, and checkpoint identities and observations were retained. */
 	rawObservationsRetained: boolean;
+	/**
+	 * The run's dimensions match the frozen exact-envelope pilot: exactly 1,000,000
+	 * final-present addresses, exactly 536,870,912 proxy bytes, four fresh seeds,
+	 * three complete Williams cycles, at least twenty reopens, and at least 400 tail
+	 * transactions. A bounded smoke fails this and can never be method-validated.
+	 */
+	exactEnvelopeConformant: boolean;
+	/**
+	 * The checkpoint-boundary observation is a truthful, non-perturbing signal
+	 * grounded in SQLite behavior. If no such signal is available the runner records
+	 * the limitation and fails this gate rather than fabricating boundaries.
+	 */
+	checkpointBoundariesTruthful: boolean;
 };
 
 export type MethodValidation = {
@@ -140,6 +153,18 @@ function gatesOf(inputs: ProofGateInputs): GateStatus[] {
 			passed: inputs.rawObservationsRetained,
 			detail:
 				'raw per-block, reopen, and checkpoint observations were retained',
+		},
+		{
+			name: 'exact-envelope',
+			passed: inputs.exactEnvelopeConformant,
+			detail:
+				'the run matches the frozen exact-envelope pilot (1,000,000 present addresses, 512 MiB proxy, four seeds, three cycles); a smoke can never pass this',
+		},
+		{
+			name: 'checkpoint-truthful',
+			passed: inputs.checkpointBoundariesTruthful,
+			detail:
+				'the checkpoint-boundary signal is truthful and non-perturbing, grounded in SQLite behavior',
 		},
 	];
 }

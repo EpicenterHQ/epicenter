@@ -71,6 +71,7 @@ export type ProvenanceConfig = {
  */
 export type SeedRaw = {
 	blocks: unknown[];
+	boundaries: unknown[];
 	reopens: unknown[];
 	tails: unknown[];
 	macros: unknown[];
@@ -206,8 +207,51 @@ function isValidSeedRecord(record: unknown): record is SeedRecord {
 	// Every raw observation array must be present, so a resumed seed carries the
 	// same derived-gate inputs a fresh run would; a missing or non-array field is a
 	// partial raw cell and is rejected.
-	for (const field of ['blocks', 'reopens', 'tails', 'macros', 'cells']) {
+	for (const field of [
+		'blocks',
+		'boundaries',
+		'reopens',
+		'tails',
+		'macros',
+		'cells',
+	]) {
 		if (!Array.isArray(raw[field])) return false;
+	}
+	// Every raw observation must be a finite-valued object (no NaN/Infinity leaking
+	// into estimators). This is a shallow structural gate; the runner owns the exact
+	// per-observation shape and count checks.
+	for (const field of [
+		'blocks',
+		'boundaries',
+		'reopens',
+		'tails',
+		'macros',
+		'cells',
+	]) {
+		for (const entry of raw[field] as unknown[]) {
+			if (!isFiniteValuedObject(entry)) return false;
+		}
+	}
+	return true;
+}
+
+/** Whether a value is an object whose every numeric field is finite (recursively). */
+function isFiniteValuedObject(value: unknown): boolean {
+	if (typeof value !== 'object' || value === null) return false;
+	const stack: unknown[] = [value];
+	while (stack.length > 0) {
+		const node = stack.pop();
+		if (typeof node === 'number') {
+			if (!Number.isFinite(node)) return false;
+			continue;
+		}
+		if (Array.isArray(node)) {
+			for (const item of node) stack.push(item);
+			continue;
+		}
+		if (typeof node === 'object' && node !== null) {
+			for (const v of Object.values(node)) stack.push(v);
+		}
 	}
 	return true;
 }
