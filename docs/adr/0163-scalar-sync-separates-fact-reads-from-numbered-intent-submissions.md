@@ -290,9 +290,15 @@ bounds must satisfy:
 
 ```txt
 maxSubmissionAddresses * maxEncodedFactBytes
++ maxSubmissionAddresses * worstCaseParkedEntryBytes
 + worstCaseResponseEnvelopeBytes
 <= maxSubmissionResponseBytes
 ```
+
+The parked term is additive, not an alternative to the fact term. Every
+touched address returns its current fact, and a row-present intent whose fold
+exceeds the fact ceiling also returns one bounded parked entry for that same
+address.
 
 The authority packs facts under byte and execution budgets. A private count
 guard may protect one implementation, but a small fixed fact count is not wire

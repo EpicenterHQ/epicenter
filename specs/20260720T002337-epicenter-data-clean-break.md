@@ -512,9 +512,13 @@ submission settlement is not paged, the final constants must satisfy:
 
 ```txt
 maxSubmissionAddresses * maxEncodedFactBytes
++ maxSubmissionAddresses * worstCaseParkedEntryBytes
 + worstCaseResponseEnvelopeBytes
 <= maxSubmissionResponseBytes
 ```
+
+The worst case includes both one current fact and one bounded parked entry for
+every touched address. Parking does not replace settlement facts.
 
 The current 64-fact page cap is transitional and must not become wire
 semantics. Browser, Bun, and Cloudflare scale tests choose the inclusive V1
