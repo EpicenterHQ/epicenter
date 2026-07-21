@@ -80,6 +80,10 @@ const RELEVANT_SOURCES = [
 	'scripts/benchmarks/scalar-facts-layout/provenance.ts',
 	'packages/data/src/protocol/v1/canonical.ts',
 	'packages/sqlite/src/bun.ts',
+	// The workspace manifest that owns the `"./bun": "./src/bun.ts"` export map: a
+	// dirty edit here can redirect which adapter runtime code loads, so it is part
+	// of the exact source identity.
+	'packages/sqlite/package.json',
 	'package.json',
 	'bun.lock',
 ];
@@ -185,14 +189,29 @@ function parseArgs(argv: string[]): Args {
 		iterations: 25,
 		runFullMatrix: false,
 	};
-	const integer = (raw: string, flag: string, min: number): number => {
-		const value = Number(raw);
-		if (!Number.isInteger(value) || value < min)
+	// A plain, safe, bounded decimal integer. Rejects exponent/decimal forms
+	// (`1e9`, `2.5`), MAX_SAFE_INTEGER+1 (unsafe, collapses to another double),
+	// negatives below `min`, and anything above `max`. No unsafe count or seed
+	// reaches the arithmetic below.
+	const integer = (
+		raw: string,
+		flag: string,
+		min: number,
+		max: number,
+	): number => {
+		if (!/^-?\d+$/.test(raw))
 			throw new Error(
-				`${flag} must be an integer >= ${min}, got ${JSON.stringify(raw)}`,
+				`${flag} must be a plain integer, got ${JSON.stringify(raw)}`,
+			);
+		const value = Number(raw);
+		if (!Number.isSafeInteger(value) || value < min || value > max)
+			throw new Error(
+				`${flag} must be a safe integer in [${min}, ${max}], got ${JSON.stringify(raw)}`,
 			);
 		return value;
 	};
+	const MAX_COUNT = 1_000_000;
+	const MAX_SEED = Number.MAX_SAFE_INTEGER;
 	for (let i = 0; i < argv.length; i += 1) {
 		const arg = argv[i] ?? '';
 		if (!KNOWN_FLAGS.has(arg)) throw new Error(`unknown argument: ${arg}`);
@@ -215,15 +234,30 @@ function parseArgs(argv: string[]): Args {
 				);
 			profile = p;
 		} else if (arg === '--seed')
-			args.seed = integer(next('--seed'), '--seed', 0);
+			args.seed = integer(next('--seed'), '--seed', 0, MAX_SEED);
 		else if (arg === '--repetitions')
-			repetitions = integer(next('--repetitions'), '--repetitions', 1);
+			repetitions = integer(
+				next('--repetitions'),
+				'--repetitions',
+				1,
+				MAX_COUNT,
+			);
 		else if (arg === '--namespaces')
-			args.namespaces = integer(next('--namespaces'), '--namespaces', 1);
+			args.namespaces = integer(
+				next('--namespaces'),
+				'--namespaces',
+				1,
+				MAX_COUNT,
+			);
 		else if (arg === '--tables')
-			args.tables = integer(next('--tables'), '--tables', 1);
+			args.tables = integer(next('--tables'), '--tables', 1, MAX_COUNT);
 		else if (arg === '--iterations')
-			args.iterations = integer(next('--iterations'), '--iterations', 1);
+			args.iterations = integer(
+				next('--iterations'),
+				'--iterations',
+				1,
+				MAX_COUNT,
+			);
 		else if (arg === '--run-full-matrix') args.runFullMatrix = true;
 		else if (arg === '--output') args.output = next('--output');
 	}

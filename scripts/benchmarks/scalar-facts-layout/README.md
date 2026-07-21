@@ -113,11 +113,15 @@ refusals (short row id, invalid row/value payload, absent-with-payload, invalid
 coordinate kind/namespace/local-key, zero/negative coordinate id, and an
 invalid-payload update). After each rejected attack it retains the exact observed
 after-attack witness (count/byte/SHA-256), the `PRAGMA integrity_check` string,
-AND the thrown error message with its refusal class, deriving stable/ok from those
-raw observations. A rejection that is NOT a genuine trigger `raise` or a
-constraint failure (class `other`, e.g. a SQL typo or missing-table masquerade)
-fails the attack, so a broken probe cannot pass as an invariant. The legal
-transitions it must still allow (row absent-then-higher-absent; value
+AND the structured thrown-error identity (message, SQLite `code`, `errno`, name).
+The refusal class is bound to that REAL identity, not to substrings: a genuine
+trigger refusal has `code = SQLITE_CONSTRAINT_TRIGGER` and an exact known RAISE
+message; any other `SQLITE_CONSTRAINT_*` code is a genuine constraint. A SQL typo,
+missing table, or syntax error (no constraint code, `errno` 1) is class `other`
+and fails the attack, so it cannot masquerade as an invariant even when its
+message contains `CHECK` or `UNIQUE`. The same genuine-refusal classification
+guards the shape proofs, and every proof database is closed in a finally. The
+legal transitions it must still allow (row absent-then-higher-absent; value
 absent-then-higher-present) are proven to succeed.
 
 The pragma matrix is self-verifying at the run level: the CLI reads back each
@@ -156,17 +160,29 @@ status:
 
 `classifyEvidence` does not trust the cell's summary booleans. It **recomputes**
 the plan proof from the raw structured per-branch `EXPLAIN QUERY PLAN` against the
-CANDIDATE's contract (`evaluatePlanProof(result.candidateId, plans)`): for each
-operation the candidate declares the expected branch count, the closed set of
-table tokens any SEARCH may reference, and the semantic predicate fragments each
-branch must cover. A fabricated plan referencing an unrelated table, dropping a
-required predicate, carrying an unknown non-structural detail row, using a full
-scan or temp b-tree, or supplying the wrong candidate's plan is rejected; an
-unknown candidate id fails closed. Index names are deliberately not bound (they
-are version-specific); the binding is table plus access kind plus predicate
-coverage. The classifier also checks the constraint proof's `ok` against its own
-failure list, requires the expected runtime/profile identity, and requires the
-outcome enum to be coherent with `correct`/`reason` and the recomputed proofs.
+CANDIDATE's contract (`evaluatePlanProof(result.candidateId, plans)`). The contract
+is per operation, not candidate-wide: each operation declares its branches; each
+branch declares the exact set of indexed accesses; and each access binds a
+SPECIFIC base table, a specific access kind (index range, primary key, covering
+index, integer primary key), and the predicate fragments that must appear ON THAT
+access's own EXPLAIN row. Accesses are matched to the branch's real SEARCH rows as
+a bijection, and branches are matched to the operation's branch specs as a
+bijection (order-independent), so a split feed must cover row_facts once and
+value_facts once, a duplicated branch fails, and a point/traverse bound to the
+wrong table fails. Structural rows (SCALAR SUBQUERY and friends) are allowed for
+planner shape but contribute ZERO predicate evidence, so a predicate smuggled into
+a structural row does not satisfy a missing predicate on an indexed SEARCH. The
+benchmark SQL uses no single-letter table aliases, so every EXPLAIN row names its
+real base table; index names are deliberately not bound (version-specific). An
+unrelated table, wrong access kind, missing/smuggled predicate, unknown detail,
+full scan, temp b-tree, wrong candidate, or unknown candidate id all fail closed.
+The classifier also checks the constraint proof's `ok` against its own failure
+list, requires the expected runtime/profile identity, requires the outcome enum to
+be coherent with `correct`/`reason` and the recomputed proofs, and validates the
+whole configuration up front (integer `requiredRepetitions >= 1`; nonempty
+duplicate-free owners/candidates drawn from the frozen sets; nonempty runtime and
+profile) and the exact storage shape (the seven required fields by name, no
+missing and no extra).
 
 It also binds every cell to the **declared per-repetition oracle**: for each
 repetition, the same seed (`hash32(baseSeed, rep)`) the cells measured against is
@@ -227,8 +243,10 @@ Latency (per profile):
 | ~1000-row traversal | <= 750ms | <= 300ms |
 | restart | <= 5s | <= 3s |
 
-Bun at 1M install is <= 5m and holds the same local-latency class as the
-conditional browser gates.
+The Bun 1M install gate is a provisional expectation (<= 5m, same local-latency
+class as the conditional browser gates), NOT a measured result: this branch runs
+only a gated exact-corpus precondition and has no correct-corpus full-install
+artifact, so nothing here retains that number.
 
 Storage: `steady <= 1.75*L + 128*C + 16MiB`; `peak <= steady + L + max(16MiB,
 L/8)`; freelist-to-page ratio `<= 10%`. These bound bytes on disk. The structural
@@ -307,9 +325,12 @@ SHA-256 source-manifest digest over those exact source contents, the list of fil
 covered, and a `sourceProvenanceAdmissible` flag that is true only with a known
 HEAD and a clean relevant tree. The scoped source set is the non-test benchmark
 modules, the V1 protocol file the trace/store import at runtime (`canonical.ts`),
-the SQLite adapter the runtime imports (`packages/sqlite/src/bun.ts`), and the
-dependency-identity files (`package.json`, `bun.lock`) so third-party (Noble,
-adapter) resolution is honest rather than assumed complete. A `null` HEAD or a
+the SQLite adapter the runtime imports (`packages/sqlite/src/bun.ts`) AND the
+workspace manifest that owns its `"./bun"` export map
+(`packages/sqlite/package.json`, so an export redirect cannot escape the list),
+and the dependency-identity files (`package.json`, `bun.lock`) so third-party
+(Noble, adapter) resolution is honest rather than assumed complete. A `null` HEAD
+or a
 dirty relevant tree is honest but not source-admissible; unrelated app dirt never
 poisons the scoped digest or the scoped dirty check, because both range over
 exactly the listed sources. The helpers are pure and unit-tested.

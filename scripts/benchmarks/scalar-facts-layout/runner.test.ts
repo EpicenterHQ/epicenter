@@ -129,3 +129,57 @@ test('cleanup failure does not override the first failure', async () => {
 	expect(cell.reason).toContain('reopen boom');
 	expect(cell.reason).not.toContain('cleanup boom');
 });
+
+test('point-read timing is singular: point queries grow linearly in N, not N^2', async () => {
+	// A counting runtime tallies point-read queries (SELECT present, payload,
+	// sequence ... WHERE ..., never an ORDER BY feed/scan). The acquisition phase
+	// (fixed corpus) is a constant C independent of iterations; the timing phase
+	// adds rowPointRead (N) + valuePointRead (N). So point queries = C + 2N + 1, and
+	// the DELTA between two iteration counts is exactly 2*(N2-N1) when timing is
+	// singular. Under the old N^2 loop the delta would be 2*(N2^2 - N1^2).
+	const isPointRead = (sql: string): boolean =>
+		sql.includes('present, payload, sequence') &&
+		sql.includes('WHERE') &&
+		!sql.includes('ORDER BY');
+	const runCounting = async (iterations: number): Promise<number> => {
+		let pointQueries = 0;
+		const rt: (statements: string[]) => BenchmarkRuntime = (statements) => {
+			const inner = makeInMemoryBunDb(statements);
+			const db: SqliteDatabase = {
+				run: (sql, params) => inner.run(sql, params),
+				all: (sql, params) => {
+					if (isPointRead(sql)) pointQueries += 1;
+					return inner.all(sql, params);
+				},
+				transaction: (fn) => inner.transaction(fn),
+			};
+			return {
+				db,
+				close() {},
+				reopen() {
+					return db;
+				},
+				checkpoint() {},
+				pageMetrics() {
+					return { allocatedPageBytes: 0, nonFreelistPageBytes: 0 };
+				},
+				cleanup() {
+					inner.close();
+				},
+			};
+		};
+		const cell = await runCandidate(candidate, {
+			...options(),
+			iterations,
+			openRuntime: rt,
+		});
+		expect(cell.correct).toBe(true);
+		expect((cell.metrics.rowPointRead ?? []).length).toBe(iterations);
+		return pointQueries;
+	};
+	const n1 = 6;
+	const n2 = 12;
+	const delta = (await runCounting(n2)) - (await runCounting(n1));
+	expect(delta).toBe(2 * (n2 - n1)); // linear: 12
+	expect(delta).not.toBe(2 * (n2 * n2 - n1 * n1)); // not quadratic: 216
+});

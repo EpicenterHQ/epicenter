@@ -196,7 +196,9 @@ BEGIN SELECT RAISE(ABORT, 'invalid coordinate shape'); END;`,
  * coordinate onto a referenced id/identity or orphan a fact by deleting the
  * coordinate it references. A new coordinate must be genuinely new: never an
  * existing id or identity, so INSERT OR REPLACE cannot delete-then-replace one.
- * `coordinate_id >= 1` keeps the surrogate key a positive integer.
+ * `coordinate_id` positivity is owned by the AFTER INSERT trigger below (which
+ * still fires under ignore_check_constraints), NOT by the `coordinate_id >= 1`
+ * CHECK, which is only defense-in-depth.
  */
 function coordinateDdlStatements(): string[] {
 	return [
@@ -516,9 +518,11 @@ function selectAll(
 	normalized: boolean,
 ): string {
 	if (normalized) {
-		const kindExpr = kind ? `'${kind}'` : 'c.kind';
-		const rowIdExpr = kind === 'value' ? "''" : 't.row_id';
-		return `SELECT ${kindExpr} AS kind, c.namespace AS namespace, c.local_key AS local_key, ${rowIdExpr} AS row_id, t.present AS present, t.payload AS payload, t.sequence AS sequence FROM ${table} t JOIN coordinates c ON c.coordinate_id = t.coordinate_id`;
+		// No single-letter aliases: EXPLAIN must expose the real base-table token so
+		// the plan proof binds each access to a specific table, not an ambiguous alias.
+		const kindExpr = kind ? `'${kind}'` : 'coordinates.kind';
+		const rowIdExpr = kind === 'value' ? "''" : `${table}.row_id`;
+		return `SELECT ${kindExpr} AS kind, coordinates.namespace AS namespace, coordinates.local_key AS local_key, ${rowIdExpr} AS row_id, ${table}.present AS present, ${table}.payload AS payload, ${table}.sequence AS sequence FROM ${table} JOIN coordinates ON coordinates.coordinate_id = ${table}.coordinate_id`;
 	}
 	const kindExpr = kind ? `'${kind}'` : 'kind';
 	const rowIdExpr = kind === 'value' ? "''" : 'row_id';
@@ -791,7 +795,7 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 	function traverseSql(): string {
 		if (normalized) {
 			const table = split ? 'row_facts' : 'facts';
-			return `SELECT 'row' AS kind, c.namespace AS namespace, c.local_key AS local_key, t.row_id AS row_id, t.present AS present, t.payload AS payload, t.sequence AS sequence FROM ${table} t JOIN coordinates c ON c.coordinate_id = t.coordinate_id WHERE c.kind = 'row' AND c.namespace = ? AND c.local_key = ? ORDER BY t.row_id`;
+			return `SELECT 'row' AS kind, coordinates.namespace AS namespace, coordinates.local_key AS local_key, ${table}.row_id AS row_id, ${table}.present AS present, ${table}.payload AS payload, ${table}.sequence AS sequence FROM ${table} JOIN coordinates ON coordinates.coordinate_id = ${table}.coordinate_id WHERE coordinates.kind = 'row' AND coordinates.namespace = ? AND coordinates.local_key = ? ORDER BY ${table}.row_id`;
 		}
 		if (split)
 			return `SELECT 'row' AS kind, namespace, local_key, row_id, present, payload, sequence FROM row_facts WHERE namespace = ? AND local_key = ? ORDER BY row_id`;
@@ -881,10 +885,30 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 // DDL-preserved invariant, not only through the Store reader.
 // ---------------------------------------------------------------------------
 
-export type MakeDb = (statements: string[]) => SqliteDatabase;
+/**
+ * A proof database handle the proof owns and must close. `close` is optional so a
+ * caller may still return a bare in-memory adapter, but the real factories attach
+ * it and every proof closes in a `finally`, so no handle leaks.
+ */
+export type ProofDb = SqliteDatabase & { close?: () => void };
+export type MakeDb = (statements: string[]) => ProofDb;
 
-function fresh(candidate: Candidate, makeDb: MakeDb): SqliteDatabase {
+function fresh(candidate: Candidate, makeDb: MakeDb): ProofDb {
 	return makeDb(ddlStatements(candidate));
+}
+
+/** Open a proof database, run `fn` with it, and always close it. */
+function withProofDb<T>(
+	candidate: Candidate,
+	makeDb: MakeDb,
+	fn: (db: ProofDb) => T,
+): T {
+	const db = fresh(candidate, makeDb);
+	try {
+		return fn(db);
+	} finally {
+		db.close?.();
+	}
 }
 
 const ROW: RowAddress = {
@@ -899,16 +923,7 @@ const VAL: ValueAddress = {
 	value: 'settingz',
 };
 
-function rejects(run: () => void): boolean {
-	try {
-		run();
-		return false;
-	} catch {
-		return true;
-	}
-}
-
-/** The exact RAISE(ABORT) messages our triggers use; an attack must hit one of these. */
+/** The exact RAISE(ABORT) messages our triggers use; a raise must match one exactly. */
 const KNOWN_RAISE_MESSAGES: readonly string[] = [
 	'coordinates are immutable once inserted',
 	'coordinates are never deleted',
@@ -921,23 +936,81 @@ const KNOWN_RAISE_MESSAGES: readonly string[] = [
 	'fact update must keep its address, raise its sequence, and never resurrect',
 	'facts are never deleted; reset the store instead',
 ];
-/** SQLite constraint-class error fragments (a genuine constraint refusal, not a typo). */
-const CONSTRAINT_FRAGMENTS: readonly string[] = [
-	'constraint failed',
-	'UNIQUE',
-	'PRIMARY KEY',
-	'CHECK',
-	'NOT NULL',
-];
 
-/** Classify a thrown error: a genuine trigger `raise` or `constraint` refusal, else `other`. */
+/** The structured identity of a thrown SQLite error, not just its lossy message. */
+export type ObservedError = {
+	message: string;
+	code: string | null;
+	errno: number | null;
+	name: string | null;
+};
+const NO_ERROR: ObservedError = {
+	message: '',
+	code: null,
+	errno: null,
+	name: null,
+};
+
+/** Extract the structured error identity (bun:sqlite exposes code/errno/name). */
+function toObservedError(error: unknown): ObservedError {
+	if (error && typeof error === 'object') {
+		const e = error as Record<string, unknown>;
+		return {
+			message: typeof e.message === 'string' ? e.message : String(error),
+			code: typeof e.code === 'string' ? e.code : null,
+			errno: typeof e.errno === 'number' ? e.errno : null,
+			name: typeof e.name === 'string' ? e.name : null,
+		};
+	}
+	return { ...NO_ERROR, message: String(error) };
+}
+
+/**
+ * Classify a thrown error by its ACTUAL SQLite identity, not substrings. A genuine
+ * trigger refusal has code `SQLITE_CONSTRAINT_TRIGGER` and an exact known RAISE
+ * message; any other `SQLITE_CONSTRAINT_*` code is a genuine constraint refusal.
+ * A SQL typo, missing table, or syntax error has no constraint code (bun reports
+ * `code` undefined, `errno` 1) and is classified `other`, so it cannot masquerade
+ * as an invariant refusal.
+ */
 export function refusalClass(
-	message: string,
+	error: ObservedError,
 ): 'raise' | 'constraint' | 'other' {
-	if (KNOWN_RAISE_MESSAGES.some((m) => message.includes(m))) return 'raise';
-	if (CONSTRAINT_FRAGMENTS.some((m) => message.includes(m)))
+	if (
+		error.code === 'SQLITE_CONSTRAINT_TRIGGER' &&
+		KNOWN_RAISE_MESSAGES.includes(error.message)
+	) {
+		return 'raise';
+	}
+	if (
+		typeof error.code === 'string' &&
+		error.code.startsWith('SQLITE_CONSTRAINT')
+	)
 		return 'constraint';
 	return 'other';
+}
+
+/** Run an op, returning whether it threw and (if so) the structured error identity. */
+function observeThrow(run: () => void): {
+	rejected: boolean;
+	error: ObservedError;
+} {
+	try {
+		run();
+		return { rejected: false, error: NO_ERROR };
+	} catch (error) {
+		return { rejected: true, error: toObservedError(error) };
+	}
+}
+
+/** True iff `run` threw a GENUINE refusal (trigger raise or a real constraint). */
+function refusesGenuinely(run: () => void): {
+	genuine: boolean;
+	error: ObservedError;
+} {
+	const observed = observeThrow(run);
+	const genuine = observed.rejected && refusalClass(observed.error) !== 'other';
+	return { genuine, error: observed.error };
 }
 
 /** A correctness-relevant pragma tuple, as requested and as observed in a record. */
@@ -986,22 +1059,6 @@ export function verifyPragmaCoverage(
 		if (!requestedSet.has(k) || n !== 1)
 			failures.push(`unexpected/duplicate pragma tuple [${k}] (x${n})`);
 	return failures;
-}
-
-/** Run an attack, capturing whether it threw and, if so, the exact error message. */
-function observeAttack(run: () => void): {
-	rejected: boolean;
-	message: string;
-} {
-	try {
-		run();
-		return { rejected: false, message: '' };
-	} catch (error) {
-		return {
-			rejected: true,
-			message: error instanceof Error ? error.message : String(error),
-		};
-	}
 }
 
 function coordIdFor(db: SqliteDatabase, address: Address): number {
@@ -1165,52 +1222,55 @@ function coordinateCount(db: SqliteDatabase): number {
 	);
 }
 
-/** Row/value/coordinate shape refusals that are not corruption-vector attacks. */
+/**
+ * Row/value/coordinate shape refusals that are not corruption-vector attacks.
+ * Every refusal must be a GENUINE SQLite refusal (a trigger raise or a real
+ * constraint), never a SQL-typo/missing-table masquerade, and every proof
+ * database is closed. The positive checks (value-null stored; a rejected install
+ * leaves no orphan coordinate) assert real behavior.
+ */
 export function shapeProofs(candidate: Candidate, makeDb: MakeDb): string[] {
 	const failures: string[] = [];
 	const check = (name: string, ok: boolean): void => {
 		if (!ok) failures.push(`${candidate.id}: ${name}`);
 	};
+	/** Assert `run` is refused by a genuine SQLite refusal, not a masquerade. */
+	const refuses = (name: string, run: () => void): void => {
+		const { genuine, error } = refusesGenuinely(run);
+		if (!genuine)
+			failures.push(
+				`${candidate.id}: ${name} not refused genuinely (code=${error.code}, msg=${error.message})`,
+			);
+	};
 
-	{
-		const db = fresh(candidate, makeDb);
+	withProofDb(candidate, makeDb, (db) => {
 		const store = createStore(db, candidate);
-		check(
-			'short row id rejected',
-			rejects(() =>
-				store.install({
-					address: { ...ROW, rowId: 'tooShort' },
-					sequence: 1,
-					presence: 'present',
-					fields: {},
-				}),
-			),
+		refuses('short row id', () =>
+			store.install({
+				address: { ...ROW, rowId: 'tooShort' },
+				sequence: 1,
+				presence: 'present',
+				fields: {},
+			}),
 		);
-	}
-	{
-		const db = fresh(candidate, makeDb);
-		check(
-			'raw non-object row payload rejected',
-			rejects(() => rawInsertFact(db, candidate, ROW, 1, '123', 1)),
+	});
+	withProofDb(candidate, makeDb, (db) => {
+		refuses('raw non-object row payload', () =>
+			rawInsertFact(db, candidate, ROW, 1, '123', 1),
 		);
-	}
-	{
-		const db = fresh(candidate, makeDb);
-		check(
-			'raw present row NULL payload rejected',
-			rejects(() => rawInsertFact(db, candidate, ROW, 1, null, 1)),
+	});
+	withProofDb(candidate, makeDb, (db) => {
+		refuses('raw present row NULL payload', () =>
+			rawInsertFact(db, candidate, ROW, 1, null, 1),
 		);
-	}
-	{
-		const db = fresh(candidate, makeDb);
-		check(
-			'raw present value NULL payload rejected',
-			rejects(() => rawInsertFact(db, candidate, VAL, 1, null, 1)),
+	});
+	withProofDb(candidate, makeDb, (db) => {
+		refuses('raw present value NULL payload', () =>
+			rawInsertFact(db, candidate, VAL, 1, null, 1),
 		);
-	}
-	{
+	});
+	withProofDb(candidate, makeDb, (db) => {
 		// A present value carrying JSON null is stored as the text 'null', not rejected.
-		const db = fresh(candidate, makeDb);
 		const store = createStore(db, candidate);
 		store.install({
 			address: VAL,
@@ -1225,41 +1285,34 @@ export function shapeProofs(candidate: Candidate, makeDb: MakeDb): string[] {
 				'content' in read &&
 				read.content === null,
 		);
-	}
+	});
 	if (candidate.coordinates === 'normalized') {
-		{
-			const db = fresh(candidate, makeDb);
+		withProofDb(candidate, makeDb, (db) => {
 			const cid = ensureCoordinateRaw(db, VAL);
 			const rowTable = candidate.relation === 'split' ? 'row_facts' : 'facts';
-			check(
-				'row table refuses a value coordinate',
-				rejects(() =>
-					db.run(
-						`INSERT INTO ${rowTable} (coordinate_id, row_id, present, payload, sequence) VALUES (?,?,?,?,?)`,
-						[cid, ROW.rowId, 1, '{}', 1],
-					),
+			refuses('row table refuses a value coordinate', () =>
+				db.run(
+					`INSERT INTO ${rowTable} (coordinate_id, row_id, present, payload, sequence) VALUES (?,?,?,?,?)`,
+					[cid, ROW.rowId, 1, '{}', 1],
 				),
 			);
-		}
+		});
 		if (candidate.relation === 'split') {
-			const db = fresh(candidate, makeDb);
-			const cid = ensureCoordinateRaw(db, ROW);
-			check(
-				'value table refuses a row coordinate',
-				rejects(() =>
+			withProofDb(candidate, makeDb, (db) => {
+				const cid = ensureCoordinateRaw(db, ROW);
+				refuses('value table refuses a row coordinate', () =>
 					db.run(
 						'INSERT INTO value_facts (coordinate_id, present, payload, sequence) VALUES (?,?,?,?)',
 						[cid, 1, '1', 1],
 					),
-				),
-			);
+				);
+			});
 		}
-		{
-			// Atomic install: a rejected fact leaves no orphan coordinate.
-			const db = fresh(candidate, makeDb);
+		withProofDb(candidate, makeDb, (db) => {
+			// Atomic install: a rejected fact is refused genuinely AND leaves no orphan.
 			const store = createStore(db, candidate);
 			const before = coordinateCount(db);
-			rejects(() =>
+			refuses('atomic install of a bad fact', () =>
 				store.install({
 					address: { ...ROW, rowId: 'bad' },
 					sequence: 1,
@@ -1271,7 +1324,7 @@ export function shapeProofs(candidate: Candidate, makeDb: MakeDb): string[] {
 				'rejected fact leaves no orphan coordinate',
 				coordinateCount(db) === before,
 			);
-		}
+		});
 	}
 	return failures;
 }
@@ -1305,10 +1358,11 @@ function integrityOf(db: SqliteDatabase): string {
 export type AttackResult = {
 	name: string;
 	rejected: boolean;
-	/** The exact thrown error message, and its refusal class. A masquerade (a SQL
-	 * typo or missing table) is class `other` and fails the attack, since it is not
-	 * a genuine invariant refusal. */
-	observedError: string;
+	/** The structured thrown error identity (message/code/errno/name) and its
+	 * refusal class. A masquerade (a SQL typo or missing table, `code` undefined) is
+	 * class `other` and fails the attack, since it is not a genuine invariant
+	 * refusal. */
+	observedError: ObservedError;
 	refusalClass: 'raise' | 'constraint' | 'other';
 	observedWitness: { count: number; bytes: number; digest: string };
 	observedIntegrity: string;
@@ -1359,287 +1413,293 @@ export function attackMatrixProof(
 	const failures: string[] = [];
 	const attacks: AttackResult[] = [];
 	const db = fresh(candidate, makeDb);
-	const pragmas = {
-		recursiveTriggers: pragmaOn(db, 'recursive_triggers'),
-		foreignKeys: pragmaOn(db, 'foreign_keys'),
-		ignoreCheckConstraints: pragmaOn(db, 'ignore_check_constraints'),
-	};
-	const store = createStore(db, candidate);
-	// Known state: row A tombstoned (present@1, absent@2), row B present@5, value
-	// V present@8. A, B, C share one (namespace, table); for normalized they share
-	// one row coordinate, so distinct-PK attacks need no new coordinate.
-	store.install({
-		address: ROW,
-		sequence: 1,
-		presence: 'present',
-		fields: { a: 1 },
-	});
-	store.install({ address: ROW, sequence: 2, presence: 'absent' });
-	store.install({
-		address: ROW_B,
-		sequence: 5,
-		presence: 'present',
-		fields: { b: 2 },
-	});
-	store.install({
-		address: VAL,
-		sequence: 8,
-		presence: 'present',
-		content: 'v',
-	});
-	if (candidate.coordinates === 'normalized')
-		ensureCoordinateRaw(db, VAL_UNREF); // an unreferenced coordinate for attack 11
-
-	const base = witnessOf(store);
-	const baselineIntegrity = integrityOf(db);
-	if (baselineIntegrity !== 'ok')
-		failures.push(`${candidate.id}: baseline integrity is not ok`);
-
-	const attack = (name: string, run: () => void): void => {
-		const observed = observeAttack(run);
-		const cls = observed.rejected ? refusalClass(observed.message) : 'other';
-		const observedWitness = witnessOf(store);
-		const observedIntegrity = integrityOf(db);
-		const witnessStable =
-			observedWitness.count === base.count &&
-			observedWitness.bytes === base.bytes &&
-			observedWitness.digest === base.digest;
-		const integrityOk = observedIntegrity === 'ok';
-		attacks.push({
-			name,
-			rejected: observed.rejected,
-			observedError: observed.message,
-			refusalClass: cls,
-			observedWitness,
-			observedIntegrity,
-			witnessStable,
-			integrityOk,
+	try {
+		const pragmas = {
+			recursiveTriggers: pragmaOn(db, 'recursive_triggers'),
+			foreignKeys: pragmaOn(db, 'foreign_keys'),
+			ignoreCheckConstraints: pragmaOn(db, 'ignore_check_constraints'),
+		};
+		const store = createStore(db, candidate);
+		// Known state: row A tombstoned (present@1, absent@2), row B present@5, value
+		// V present@8. A, B, C share one (namespace, table); for normalized they share
+		// one row coordinate, so distinct-PK attacks need no new coordinate.
+		store.install({
+			address: ROW,
+			sequence: 1,
+			presence: 'present',
+			fields: { a: 1 },
 		});
-		if (!observed.rejected)
-			failures.push(`${candidate.id}: attack "${name}" was NOT rejected`);
-		// A rejection must be a GENUINE trigger/constraint refusal, never a SQL typo
-		// or missing-table masquerade (which would be class `other`).
-		else if (cls === 'other')
-			failures.push(
-				`${candidate.id}: attack "${name}" rejected by a non-refusal error: ${observed.message}`,
-			);
-		if (!witnessStable)
-			failures.push(`${candidate.id}: attack "${name}" mutated the witness`);
-		if (!integrityOk)
-			failures.push(`${candidate.id}: attack "${name}" broke integrity`);
-	};
-
-	attack('INSERT OR REPLACE same tombstone PK', () =>
-		rawInsertFact(db, candidate, ROW, 1, '{}', 99, 'OR REPLACE'),
-	);
-	attack('INSERT OR REPLACE distinct PK using tombstone sequence', () =>
-		rawInsertFact(db, candidate, ROW_C, 1, '{}', 2, 'OR REPLACE'),
-	);
-	attack('INSERT OR REPLACE same live PK', () =>
-		rawInsertFact(db, candidate, ROW_B, 1, '{}', 99, 'OR REPLACE'),
-	);
-	attack('UPDATE OR REPLACE live address onto tombstone', () =>
-		rawMoveAddress(db, candidate, ROW_B, ROW, 99, 'OR REPLACE'),
-	);
-	attack('UPDATE OR REPLACE sequence onto tombstone sequence (lower)', () =>
-		rawUpdateSequence(db, candidate, ROW_B, 2, 'OR REPLACE'),
-	);
-	attack('UPDATE OR REPLACE sequence onto a taken sequence (higher)', () =>
-		rawUpdateSequence(db, candidate, ROW_B, 8, 'OR REPLACE'),
-	);
-	attack('UPSERT same identity', () => rawUpsert(db, candidate, ROW, 99));
-	attack('UPDATE OR IGNORE address conflict', () =>
-		rawMoveAddress(db, candidate, ROW_B, ROW, 99, 'OR IGNORE'),
-	);
-	attack('UPDATE OR IGNORE sequence conflict', () =>
-		rawUpdateSequence(db, candidate, ROW_B, 8, 'OR IGNORE'),
-	);
-	attack('direct DELETE one fact', () => {
-		const p = physOf(db, candidate, ROW_B);
-		db.run(`DELETE FROM ${p.table} WHERE ${whereByKey(p)}`, p.keyParams);
-	});
-	attack('direct DELETE all facts', () => {
-		const p = physOf(db, candidate, ROW_B);
-		db.run(`DELETE FROM ${p.table}`);
-	});
-	attack('raw row absent -> present', () =>
-		rawSetPresent(db, candidate, ROW, 99),
-	);
-	// Grammar refusals: these must hold even when checks are ignored (they run in
-	// the pragma matrix with ignore_check_constraints ON), so a trigger, not a
-	// CHECK, must reject each. Fresh addresses/sequences isolate the grammar cause.
-	attack('raw short row id', () =>
-		rawInsertFact(db, candidate, { ...ROW, rowId: 'short' }, 1, '{}', 50),
-	);
-	attack('raw scalar row payload', () =>
-		rawInsertFact(
-			db,
-			candidate,
-			{ ...ROW, rowId: '00000000000000000000000e' },
-			1,
-			'123',
-			51,
-		),
-	);
-	attack('raw present row null payload', () =>
-		rawInsertFact(
-			db,
-			candidate,
-			{ ...ROW, rowId: '00000000000000000000000f' },
-			1,
-			null,
-			52,
-		),
-	);
-	attack('raw absent fact carrying a payload', () =>
-		rawInsertFact(
-			db,
-			candidate,
-			{ ...ROW, rowId: '00000000000000000000000g' },
-			0,
-			'{}',
-			53,
-		),
-	);
-	attack('raw invalid value payload', () =>
-		rawInsertFact(
-			db,
-			candidate,
-			{ ...VAL, value: 'settingx' },
-			1,
-			'not json',
-			54,
-		),
-	);
-	attack('raw UPDATE to an invalid payload (checks ignored)', () => {
-		const p = physOf(db, candidate, ROW_B);
-		db.run(
-			`UPDATE ${p.table} SET payload = '123', sequence = 60 WHERE ${whereByKey(p)}`,
-			p.keyParams,
-		);
-	});
-	if (candidate.relation === 'split')
-		attack('split cross-table sequence insert', () =>
-			rawInsertFact(db, candidate, VAL_W, 1, '"x"', 5),
-		);
-	if (candidate.coordinates === 'normalized') {
-		const rowCoord = coordIdFor(db, ROW);
-		const unref = coordIdFor(db, VAL_UNREF);
-		attack('coordinate UPDATE', () =>
-			db.run('UPDATE coordinates SET namespace = ? WHERE coordinate_id = ?', [
-				'so.epicenter.ns99',
-				rowCoord,
-			]),
-		);
-		attack('coordinate DELETE', () =>
-			db.run('DELETE FROM coordinates WHERE coordinate_id = ?', [rowCoord]),
-		);
-		attack('coordinate INSERT OR REPLACE existing id', () =>
-			db.run(
-				'INSERT OR REPLACE INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (?, ?, ?, ?)',
-				[rowCoord, 'value', 'so.epicenter.ns88', 'settingq'],
-			),
-		);
-		attack('coordinate INSERT OR REPLACE existing identity', () =>
-			db.run(
-				'INSERT OR REPLACE INTO coordinates (kind, namespace, local_key) VALUES (?, ?, ?)',
-				['row', ROW.namespace, ROW.table],
-			),
-		);
-		attack('unreferenced coordinate UPDATE OR REPLACE onto referenced id', () =>
-			db.run(
-				'UPDATE OR REPLACE coordinates SET coordinate_id = ? WHERE coordinate_id = ?',
-				[rowCoord, unref],
-			),
-		);
-		attack(
-			'unreferenced coordinate UPDATE OR REPLACE onto referenced identity',
-			() =>
-				db.run(
-					'UPDATE OR REPLACE coordinates SET kind = ?, namespace = ?, local_key = ? WHERE coordinate_id = ?',
-					['row', ROW.namespace, ROW.table, unref],
-				),
-		);
-		attack('orphan fact insert (foreign_keys off)', () => {
-			db.run('PRAGMA foreign_keys = OFF');
-			const table = candidate.relation === 'split' ? 'row_facts' : 'facts';
-			db.run(
-				`INSERT INTO ${table} (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, 1, '{}', 77)`,
-				[999999, ROW.rowId],
-			);
+		store.install({ address: ROW, sequence: 2, presence: 'absent' });
+		store.install({
+			address: ROW_B,
+			sequence: 5,
+			presence: 'present',
+			fields: { b: 2 },
 		});
-		// Coordinate grammar refusals (must survive ignore_check_constraints).
-		attack('raw invalid coordinate kind', () =>
-			db.run(
-				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('bogus', 'so.epicenter.ns00', 'settingk')",
-			),
-		);
-		attack('raw empty coordinate namespace', () =>
-			db.run(
-				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', '', 'settingk')",
-			),
-		);
-		attack('raw empty coordinate local key', () =>
-			db.run(
-				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', 'so.epicenter.ns00', '')",
-			),
-		);
-		attack('raw negative coordinate id', () =>
-			db.run(
-				"INSERT INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (-7, 'value', 'so.epicenter.ns00', 'settingn')",
-			),
-		);
-		attack('raw zero coordinate id', () =>
-			db.run(
-				"INSERT INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (0, 'value', 'so.epicenter.ns00', 'settingo')",
-			),
-		);
-	}
-
-	// Legal transitions the invariants must still allow.
-	let legalTransitionsOk = true;
-	const legal = (name: string, ok: boolean): void => {
-		if (!ok) {
-			legalTransitionsOk = false;
-			failures.push(`${candidate.id}: legal transition "${name}" failed`);
-		}
-	};
-	legal(
-		'row absent -> absent (higher sequence)',
-		store.install({ address: ROW, sequence: 20, presence: 'absent' }) ===
-			'installed',
-	);
-	legal('row stays absent', store.get(ROW)?.presence === 'absent');
-	legal(
-		'value unset (absent)',
-		store.install({ address: VAL, sequence: 21, presence: 'absent' }) ===
-			'installed',
-	);
-	legal(
-		'value absent -> present (higher sequence)',
 		store.install({
 			address: VAL,
-			sequence: 22,
+			sequence: 8,
 			presence: 'present',
-			content: 'again',
-		}) === 'installed',
-	);
-	legal('value present again', store.get(VAL)?.presence === 'present');
+			content: 'v',
+		});
+		if (candidate.coordinates === 'normalized')
+			ensureCoordinateRaw(db, VAL_UNREF); // an unreferenced coordinate for attack 11
 
-	return {
-		candidateId: candidate.id,
-		pragmas,
-		baseline: {
-			count: base.count,
-			bytes: base.bytes,
-			digest: base.digest,
-			integrity: baselineIntegrity,
-		},
-		attacks,
-		legalTransitionsOk,
-		failures,
-		ok: failures.length === 0,
-	};
+		const base = witnessOf(store);
+		const baselineIntegrity = integrityOf(db);
+		if (baselineIntegrity !== 'ok')
+			failures.push(`${candidate.id}: baseline integrity is not ok`);
+
+		const attack = (name: string, run: () => void): void => {
+			const observed = observeThrow(run);
+			const cls = observed.rejected ? refusalClass(observed.error) : 'other';
+			const observedWitness = witnessOf(store);
+			const observedIntegrity = integrityOf(db);
+			const witnessStable =
+				observedWitness.count === base.count &&
+				observedWitness.bytes === base.bytes &&
+				observedWitness.digest === base.digest;
+			const integrityOk = observedIntegrity === 'ok';
+			attacks.push({
+				name,
+				rejected: observed.rejected,
+				observedError: observed.error,
+				refusalClass: cls,
+				observedWitness,
+				observedIntegrity,
+				witnessStable,
+				integrityOk,
+			});
+			if (!observed.rejected)
+				failures.push(`${candidate.id}: attack "${name}" was NOT rejected`);
+			// A rejection must be a GENUINE trigger/constraint refusal, never a SQL typo
+			// or missing-table masquerade (which would be class `other`).
+			else if (cls === 'other')
+				failures.push(
+					`${candidate.id}: attack "${name}" rejected by a non-refusal error (code=${observed.error.code}): ${observed.error.message}`,
+				);
+			if (!witnessStable)
+				failures.push(`${candidate.id}: attack "${name}" mutated the witness`);
+			if (!integrityOk)
+				failures.push(`${candidate.id}: attack "${name}" broke integrity`);
+		};
+
+		attack('INSERT OR REPLACE same tombstone PK', () =>
+			rawInsertFact(db, candidate, ROW, 1, '{}', 99, 'OR REPLACE'),
+		);
+		attack('INSERT OR REPLACE distinct PK using tombstone sequence', () =>
+			rawInsertFact(db, candidate, ROW_C, 1, '{}', 2, 'OR REPLACE'),
+		);
+		attack('INSERT OR REPLACE same live PK', () =>
+			rawInsertFact(db, candidate, ROW_B, 1, '{}', 99, 'OR REPLACE'),
+		);
+		attack('UPDATE OR REPLACE live address onto tombstone', () =>
+			rawMoveAddress(db, candidate, ROW_B, ROW, 99, 'OR REPLACE'),
+		);
+		attack('UPDATE OR REPLACE sequence onto tombstone sequence (lower)', () =>
+			rawUpdateSequence(db, candidate, ROW_B, 2, 'OR REPLACE'),
+		);
+		attack('UPDATE OR REPLACE sequence onto a taken sequence (higher)', () =>
+			rawUpdateSequence(db, candidate, ROW_B, 8, 'OR REPLACE'),
+		);
+		attack('UPSERT same identity', () => rawUpsert(db, candidate, ROW, 99));
+		attack('UPDATE OR IGNORE address conflict', () =>
+			rawMoveAddress(db, candidate, ROW_B, ROW, 99, 'OR IGNORE'),
+		);
+		attack('UPDATE OR IGNORE sequence conflict', () =>
+			rawUpdateSequence(db, candidate, ROW_B, 8, 'OR IGNORE'),
+		);
+		attack('direct DELETE one fact', () => {
+			const p = physOf(db, candidate, ROW_B);
+			db.run(`DELETE FROM ${p.table} WHERE ${whereByKey(p)}`, p.keyParams);
+		});
+		attack('direct DELETE all facts', () => {
+			const p = physOf(db, candidate, ROW_B);
+			db.run(`DELETE FROM ${p.table}`);
+		});
+		attack('raw row absent -> present', () =>
+			rawSetPresent(db, candidate, ROW, 99),
+		);
+		// Grammar refusals: these must hold even when checks are ignored (they run in
+		// the pragma matrix with ignore_check_constraints ON), so a trigger, not a
+		// CHECK, must reject each. Fresh addresses/sequences isolate the grammar cause.
+		attack('raw short row id', () =>
+			rawInsertFact(db, candidate, { ...ROW, rowId: 'short' }, 1, '{}', 50),
+		);
+		attack('raw scalar row payload', () =>
+			rawInsertFact(
+				db,
+				candidate,
+				{ ...ROW, rowId: '00000000000000000000000e' },
+				1,
+				'123',
+				51,
+			),
+		);
+		attack('raw present row null payload', () =>
+			rawInsertFact(
+				db,
+				candidate,
+				{ ...ROW, rowId: '00000000000000000000000f' },
+				1,
+				null,
+				52,
+			),
+		);
+		attack('raw absent fact carrying a payload', () =>
+			rawInsertFact(
+				db,
+				candidate,
+				{ ...ROW, rowId: '00000000000000000000000g' },
+				0,
+				'{}',
+				53,
+			),
+		);
+		attack('raw invalid value payload', () =>
+			rawInsertFact(
+				db,
+				candidate,
+				{ ...VAL, value: 'settingx' },
+				1,
+				'not json',
+				54,
+			),
+		);
+		attack('raw UPDATE to an invalid payload (checks ignored)', () => {
+			const p = physOf(db, candidate, ROW_B);
+			db.run(
+				`UPDATE ${p.table} SET payload = '123', sequence = 60 WHERE ${whereByKey(p)}`,
+				p.keyParams,
+			);
+		});
+		if (candidate.relation === 'split')
+			attack('split cross-table sequence insert', () =>
+				rawInsertFact(db, candidate, VAL_W, 1, '"x"', 5),
+			);
+		if (candidate.coordinates === 'normalized') {
+			const rowCoord = coordIdFor(db, ROW);
+			const unref = coordIdFor(db, VAL_UNREF);
+			attack('coordinate UPDATE', () =>
+				db.run('UPDATE coordinates SET namespace = ? WHERE coordinate_id = ?', [
+					'so.epicenter.ns99',
+					rowCoord,
+				]),
+			);
+			attack('coordinate DELETE', () =>
+				db.run('DELETE FROM coordinates WHERE coordinate_id = ?', [rowCoord]),
+			);
+			attack('coordinate INSERT OR REPLACE existing id', () =>
+				db.run(
+					'INSERT OR REPLACE INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (?, ?, ?, ?)',
+					[rowCoord, 'value', 'so.epicenter.ns88', 'settingq'],
+				),
+			);
+			attack('coordinate INSERT OR REPLACE existing identity', () =>
+				db.run(
+					'INSERT OR REPLACE INTO coordinates (kind, namespace, local_key) VALUES (?, ?, ?)',
+					['row', ROW.namespace, ROW.table],
+				),
+			);
+			attack(
+				'unreferenced coordinate UPDATE OR REPLACE onto referenced id',
+				() =>
+					db.run(
+						'UPDATE OR REPLACE coordinates SET coordinate_id = ? WHERE coordinate_id = ?',
+						[rowCoord, unref],
+					),
+			);
+			attack(
+				'unreferenced coordinate UPDATE OR REPLACE onto referenced identity',
+				() =>
+					db.run(
+						'UPDATE OR REPLACE coordinates SET kind = ?, namespace = ?, local_key = ? WHERE coordinate_id = ?',
+						['row', ROW.namespace, ROW.table, unref],
+					),
+			);
+			attack('orphan fact insert (foreign_keys off)', () => {
+				db.run('PRAGMA foreign_keys = OFF');
+				const table = candidate.relation === 'split' ? 'row_facts' : 'facts';
+				db.run(
+					`INSERT INTO ${table} (coordinate_id, row_id, present, payload, sequence) VALUES (?, ?, 1, '{}', 77)`,
+					[999999, ROW.rowId],
+				);
+			});
+			// Coordinate grammar refusals (must survive ignore_check_constraints).
+			attack('raw invalid coordinate kind', () =>
+				db.run(
+					"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('bogus', 'so.epicenter.ns00', 'settingk')",
+				),
+			);
+			attack('raw empty coordinate namespace', () =>
+				db.run(
+					"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', '', 'settingk')",
+				),
+			);
+			attack('raw empty coordinate local key', () =>
+				db.run(
+					"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', 'so.epicenter.ns00', '')",
+				),
+			);
+			attack('raw negative coordinate id', () =>
+				db.run(
+					"INSERT INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (-7, 'value', 'so.epicenter.ns00', 'settingn')",
+				),
+			);
+			attack('raw zero coordinate id', () =>
+				db.run(
+					"INSERT INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (0, 'value', 'so.epicenter.ns00', 'settingo')",
+				),
+			);
+		}
+
+		// Legal transitions the invariants must still allow.
+		let legalTransitionsOk = true;
+		const legal = (name: string, ok: boolean): void => {
+			if (!ok) {
+				legalTransitionsOk = false;
+				failures.push(`${candidate.id}: legal transition "${name}" failed`);
+			}
+		};
+		legal(
+			'row absent -> absent (higher sequence)',
+			store.install({ address: ROW, sequence: 20, presence: 'absent' }) ===
+				'installed',
+		);
+		legal('row stays absent', store.get(ROW)?.presence === 'absent');
+		legal(
+			'value unset (absent)',
+			store.install({ address: VAL, sequence: 21, presence: 'absent' }) ===
+				'installed',
+		);
+		legal(
+			'value absent -> present (higher sequence)',
+			store.install({
+				address: VAL,
+				sequence: 22,
+				presence: 'present',
+				content: 'again',
+			}) === 'installed',
+		);
+		legal('value present again', store.get(VAL)?.presence === 'present');
+
+		return {
+			candidateId: candidate.id,
+			pragmas,
+			baseline: {
+				count: base.count,
+				bytes: base.bytes,
+				digest: base.digest,
+				integrity: baselineIntegrity,
+			},
+			attacks,
+			legalTransitionsOk,
+			failures,
+			ok: failures.length === 0,
+		};
+	} finally {
+		db.close?.();
+	}
 }
 
 /** The attack matrix as a flat failure list, for the self-test. */
@@ -1656,98 +1716,99 @@ export function storeTransactionProofs(
 	makeDb: MakeDb,
 ): string[] {
 	const failures: string[] = [];
-	const db = fresh(candidate, makeDb);
-	const store = createStore(db, candidate);
-	const check = (name: string, ok: boolean): void => {
-		if (!ok) failures.push(`${candidate.id}: ${name}`);
-	};
+	return withProofDb(candidate, makeDb, (db) => {
+		const store = createStore(db, candidate);
+		const check = (name: string, ok: boolean): void => {
+			if (!ok) failures.push(`${candidate.id}: ${name}`);
+		};
 
-	check(
-		'initial install',
-		store.install({
-			address: ROW,
-			sequence: 5,
-			presence: 'present',
-			fields: { n: 1 },
-		}) === 'installed',
-	);
-	check(
-		'higher replaces',
-		store.install({
-			address: ROW,
-			sequence: 8,
-			presence: 'present',
-			fields: { n: 2 },
-		}) === 'installed',
-	);
-	check(
-		'stale ignored',
-		store.install({
-			address: ROW,
-			sequence: 5,
-			presence: 'present',
-			fields: { n: 1 },
-		}) === 'ignored',
-	);
-	check(
-		'equal identical is a no-op',
-		store.install({
-			address: ROW,
-			sequence: 8,
-			presence: 'present',
-			fields: { n: 2 },
-		}) === 'ignored',
-	);
-	check(
-		'equal different is corruption',
-		store.install({
-			address: ROW,
-			sequence: 8,
-			presence: 'present',
-			fields: { n: 999 },
-		}) === 'corruption',
-	);
-	const current = store.get(ROW);
-	check(
-		'current fact preserved after corruption refusal',
-		current?.presence === 'present' &&
-			'fields' in current &&
-			current.fields.n === 2,
-	);
+		check(
+			'initial install',
+			store.install({
+				address: ROW,
+				sequence: 5,
+				presence: 'present',
+				fields: { n: 1 },
+			}) === 'installed',
+		);
+		check(
+			'higher replaces',
+			store.install({
+				address: ROW,
+				sequence: 8,
+				presence: 'present',
+				fields: { n: 2 },
+			}) === 'installed',
+		);
+		check(
+			'stale ignored',
+			store.install({
+				address: ROW,
+				sequence: 5,
+				presence: 'present',
+				fields: { n: 1 },
+			}) === 'ignored',
+		);
+		check(
+			'equal identical is a no-op',
+			store.install({
+				address: ROW,
+				sequence: 8,
+				presence: 'present',
+				fields: { n: 2 },
+			}) === 'ignored',
+		);
+		check(
+			'equal different is corruption',
+			store.install({
+				address: ROW,
+				sequence: 8,
+				presence: 'present',
+				fields: { n: 999 },
+			}) === 'corruption',
+		);
+		const current = store.get(ROW);
+		check(
+			'current fact preserved after corruption refusal',
+			current?.presence === 'present' &&
+				'fields' in current &&
+				current.fields.n === 2,
+		);
 
-	check(
-		'tombstone installs',
-		store.install({ address: ROW, sequence: 9, presence: 'absent' }) ===
-			'installed',
-	);
-	check(
-		'store refuses row resurrection',
-		store.install({
-			address: ROW,
-			sequence: 10,
-			presence: 'present',
-			fields: { n: 3 },
-		}) === 'corruption',
-	);
-	check('row stays tombstoned', store.get(ROW)?.presence === 'absent');
+		check(
+			'tombstone installs',
+			store.install({ address: ROW, sequence: 9, presence: 'absent' }) ===
+				'installed',
+		);
+		check(
+			'store refuses row resurrection',
+			store.install({
+				address: ROW,
+				sequence: 10,
+				presence: 'present',
+				fields: { n: 3 },
+			}) === 'corruption',
+		);
+		check('row stays tombstoned', store.get(ROW)?.presence === 'absent');
 
-	// A value unset then resurrect is legal and must succeed.
-	check(
-		'value unset',
-		store.install({ address: VAL, sequence: 11, presence: 'absent' }) ===
-			'installed',
-	);
-	check(
-		'value resurrect',
-		store.install({
-			address: VAL,
-			sequence: 12,
-			presence: 'present',
-			content: 'again',
-		}) === 'installed',
-	);
+		// A value unset then resurrect is legal and must succeed.
+		check(
+			'value unset',
+			store.install({ address: VAL, sequence: 11, presence: 'absent' }) ===
+				'installed',
+		);
+		check(
+			'value resurrect',
+			store.install({
+				address: VAL,
+				sequence: 12,
+				presence: 'present',
+				content: 'again',
+			}) === 'installed',
+		);
 
-	return failures;
+		return failures;
+	});
 }
 
 /** One candidate's full DDL constraint proof: shape, attack matrix, and install. */

@@ -21,6 +21,7 @@
  * for a future harness that closes those gaps. The per-cell `outcome`
  * (passed|failed|unsupported|not-admitted) is distinct from this run-level status.
  */
+import { CANDIDATES } from './layouts.js';
 import { evaluatePlanProof } from './plan-proof.js';
 import type { Owner, RunResult } from './runner.js';
 
@@ -29,6 +30,10 @@ export type EvidenceStatus =
 	| 'incomplete'
 	| 'provisional'
 	| 'ready-for-ADR-review';
+
+/** This instrument freezes two owners and four candidates; config must draw from these. */
+const FROZEN_OWNERS: readonly string[] = ['replica', 'authority'];
+const FROZEN_CANDIDATES: readonly string[] = CANDIDATES.map((c) => c.id);
 
 /** Required timing metrics per owner; a globally missing one fails closed. */
 const REQUIRED_METRICS: Record<Owner, readonly string[]> = {
@@ -166,6 +171,57 @@ export function classifyEvidence(
 		reasons.push(message);
 		invalid = true;
 	};
+
+	// Fail closed on the CONFIGURATION itself, before classifying any cell. A
+	// degenerate config (0/negative/fractional reps, empty/duplicate/unknown
+	// owners or candidates, empty identity) must never yield a provisional 0/0 or
+	// a double-counted matrix.
+	if (
+		!Number.isSafeInteger(options.requiredRepetitions) ||
+		options.requiredRepetitions < 1
+	) {
+		fail(`requiredRepetitions must be an integer >= 1`);
+	}
+	if (options.expectedRuntime.length === 0) fail('empty expectedRuntime');
+	if (options.expectedProfile.length === 0) fail('empty expectedProfile');
+	const distinctNonEmpty = (
+		label: string,
+		values: readonly string[],
+		known: readonly string[],
+	): void => {
+		if (values.length === 0) fail(`empty expected ${label}`);
+		if (new Set(values).size !== values.length)
+			fail(`duplicate expected ${label}`);
+		for (const v of values)
+			if (!known.includes(v)) fail(`unknown expected ${label}: ${v}`);
+	};
+	distinctNonEmpty('owners', options.expectedOwners, FROZEN_OWNERS);
+	distinctNonEmpty(
+		'candidates',
+		options.expectedCandidateIds,
+		FROZEN_CANDIDATES,
+	);
+
+	// If the repetition count is not a usable positive safe integer, return invalid
+	// NOW: the matrix loops below iterate `requiredRepetitions`, so an unusable
+	// value must never reach them (a 2^53 count would loop forever).
+	if (
+		!Number.isSafeInteger(options.requiredRepetitions) ||
+		options.requiredRepetitions < 1
+	) {
+		return {
+			status: 'invalid',
+			qualifyingRuntime: false,
+			reasons,
+			expectedCells: 0,
+			passedCells: 0,
+			repetitions: 0,
+			requiredRepetitions: 0,
+			unsupportedWorkflows: [...UNSUPPORTED_WORKFLOWS],
+			unsupportedPlatforms: [...UNSUPPORTED_PLATFORMS],
+			cells: [],
+		};
+	}
 
 	// The declared oracles must be an EXACT closed set: exactly one per repetition
 	// 0..requiredReps-1, no extras, all fields finite non-negative integers,
@@ -312,12 +368,28 @@ export function classifyEvidence(
 			fail(`witness changed across reopen in ${key}`);
 		}
 
-		// Storage: every byte/count field a finite non-negative integer, with the
-		// physical relationships that must always hold and agreement with the witness.
+		// Storage: EXACTLY the required fields, each a finite non-negative integer,
+		// with the physical relationships that must always hold and agreement with
+		// the witness. Every field is checked by name (never merely iterated), so
+		// deleting a field is caught, and any extra field is rejected.
 		const s = result.storage;
-		for (const [field, value] of Object.entries(s)) {
-			if (!isFiniteNonNegInt(value))
-				fail(`non-finite storage ${field} in ${key}`);
+		const requiredStorageFields = [
+			'presentLogicalStateBytes',
+			'currentProtocolFactBytes',
+			'allocatedPageBytes',
+			'nonFreelistPageBytes',
+			'maxProtocolFactBytes',
+			'presentCount',
+			'currentCount',
+		] as const;
+		const storageKeys = Object.keys(s ?? {});
+		if (storageKeys.length !== requiredStorageFields.length)
+			fail(
+				`storage has ${storageKeys.length} fields, need exactly 7 in ${key}`,
+			);
+		for (const field of requiredStorageFields) {
+			if (!isFiniteNonNegInt(s?.[field]))
+				fail(`storage.${field} missing or non-finite in ${key}`);
 		}
 		if (s.nonFreelistPageBytes > s.allocatedPageBytes)
 			fail(`non-freelist exceeds allocated pages in ${key}`);

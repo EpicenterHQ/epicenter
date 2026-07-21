@@ -527,3 +527,97 @@ test('the classifier output never contains a candidate id as a decision', () => 
 	expect(keys).not.toContain('winner');
 	expect(keys).not.toContain('tie');
 });
+
+describe('classifier configuration itself fails closed', () => {
+	// A degenerate config must never yield provisional (0/0 or double-counted).
+	const withOpts = (over: Partial<typeof OPTIONS>) =>
+		classifyEvidence(fullMatrix(), { ...OPTIONS, ...over }).status;
+	test('requiredRepetitions 0 with empty results/oracles is not provisional', () => {
+		expect(
+			classifyEvidence([], {
+				...OPTIONS,
+				expectedRepetitionOracles: [],
+				requiredRepetitions: 0,
+			}).status,
+		).not.toBe('provisional');
+	});
+	test('negative repetitions', () => {
+		expect(withOpts({ requiredRepetitions: -1 })).toBe('invalid');
+	});
+	test('fractional repetitions', () => {
+		expect(withOpts({ requiredRepetitions: 2.5 })).toBe('invalid');
+	});
+	test('unsafe integer repetitions', () => {
+		expect(withOpts({ requiredRepetitions: 2 ** 53 })).toBe('invalid');
+	});
+	test('empty expected owners', () => {
+		expect(withOpts({ expectedOwners: [] })).toBe('invalid');
+	});
+	test('duplicate expected owners', () => {
+		expect(withOpts({ expectedOwners: ['replica', 'replica'] })).toBe(
+			'invalid',
+		);
+	});
+	test('unknown expected owner', () => {
+		expect(withOpts({ expectedOwners: ['replica', 'ghost'] as never })).toBe(
+			'invalid',
+		);
+	});
+	test('duplicate expected candidates no longer double-count to provisional', () => {
+		// The reproduced 4/4 double-count: two owner cells for one candidate with a
+		// duplicated candidate id in the config must fail closed, not pass.
+		const twoOwnerCells = fullMatrix().filter(
+			(r) => r.candidateId === 'unified-inline' && r.repetition === 0,
+		);
+		expect(
+			classifyEvidence(twoOwnerCells, {
+				...OPTIONS,
+				requiredRepetitions: 1,
+				expectedRepetitionOracles: [ORACLES[0] as RepetitionOracle],
+				expectedCandidateIds: ['unified-inline', 'unified-inline'],
+			}).status,
+		).toBe('invalid');
+	});
+	test('unknown expected candidate', () => {
+		expect(withOpts({ expectedCandidateIds: [...IDS, 'ghost'] })).toBe(
+			'invalid',
+		);
+	});
+	test('empty runtime or profile', () => {
+		expect(withOpts({ expectedRuntime: '' })).toBe('invalid');
+		expect(withOpts({ expectedProfile: '' })).toBe('invalid');
+	});
+	test('a real complete matrix with valid config stays provisional', () => {
+		expect(classifyEvidence(fullMatrix(), OPTIONS).status).toBe('provisional');
+	});
+});
+
+describe('storage shape is validated by explicit field, not iteration', () => {
+	for (const field of [
+		'allocatedPageBytes',
+		'nonFreelistPageBytes',
+		'maxProtocolFactBytes',
+	] as const) {
+		test(`deleting storage.${field} is invalid`, () => {
+			const results = fullMatrix();
+			delete (results[0] as RunResult).storage[field];
+			expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+		});
+	}
+	test('deleting several storage fields together is invalid', () => {
+		const results = fullMatrix();
+		const st = (results[0] as RunResult).storage as Record<string, number>;
+		delete st.allocatedPageBytes;
+		delete st.nonFreelistPageBytes;
+		delete st.maxProtocolFactBytes;
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('an extra storage field is invalid', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).storage = {
+			...(results[0] as RunResult).storage,
+			bogus: 1,
+		} as never;
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+});

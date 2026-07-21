@@ -83,12 +83,16 @@ export type TempDatabase = {
 	cleanup(): void;
 };
 
+/** A closeable proof database; the proof owns it and closes it in a finally. */
+export type ProofDb = SqliteDatabase & { close: () => void };
+
 /** A synchronous in-memory Bun database with the DDL applied; for constraint proofs. */
-export function makeInMemoryBunDb(statements: string[]): SqliteDatabase {
-	const db = createBunSqliteAdapter(new Database(':memory:'));
+export function makeInMemoryBunDb(statements: string[]): ProofDb {
+	const raw = new Database(':memory:');
+	const db = createBunSqliteAdapter(raw);
 	db.run('PRAGMA foreign_keys = ON');
 	for (const statement of statements) db.run(statement);
-	return db;
+	return Object.assign(db, { close: () => raw.close() });
 }
 
 /** An in-memory Bun database factory that pins the correctness-relevant pragmas. */
@@ -96,9 +100,10 @@ export function makeInMemoryBunDbWith(opts: {
 	recursiveTriggers: boolean;
 	foreignKeys: boolean;
 	ignoreCheckConstraints: boolean;
-}): (statements: string[]) => SqliteDatabase {
+}): (statements: string[]) => ProofDb {
 	return (statements) => {
-		const db = createBunSqliteAdapter(new Database(':memory:'));
+		const raw = new Database(':memory:');
+		const db = createBunSqliteAdapter(raw);
 		db.run(
 			`PRAGMA recursive_triggers = ${opts.recursiveTriggers ? 'ON' : 'OFF'}`,
 		);
@@ -107,7 +112,7 @@ export function makeInMemoryBunDbWith(opts: {
 			`PRAGMA ignore_check_constraints = ${opts.ignoreCheckConstraints ? 'ON' : 'OFF'}`,
 		);
 		for (const statement of statements) db.run(statement);
-		return db;
+		return Object.assign(db, { close: () => raw.close() });
 	};
 }
 

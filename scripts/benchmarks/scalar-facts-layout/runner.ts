@@ -145,12 +145,12 @@ const EMPTY_PLANS: QueryPlans = {
 	traverse: EMPTY_PLAN,
 };
 
-/** Time `run` `iterations` times, returning raw millisecond samples. */
-function timeRaw(iterations: number, run: () => void): number[] {
+/** Time `run` `iterations` times, passing the sample index, returning raw ms samples. */
+function timeRaw(iterations: number, run: (index: number) => void): number[] {
 	const samples: number[] = [];
 	for (let i = 0; i < iterations; i += 1) {
 		const start = performance.now();
-		run();
+		run(i);
 		samples.push(performance.now() - start);
 	}
 	return samples;
@@ -252,11 +252,16 @@ export async function runCandidate(
 		const values = trace.sampleValueAddresses(options.iterations);
 
 		if (options.owner === 'replica') {
-			metrics.rowPointRead = timeRaw(options.iterations, () => {
-				for (const a of rows) store.get(a);
+			// SINGULAR point latency: each raw sample times exactly ONE point read,
+			// cycling through distinct probe addresses. N samples => N point queries,
+			// never N^2. This matches the declared singular point gate.
+			metrics.rowPointRead = timeRaw(options.iterations, (i) => {
+				const a = rows[i % rows.length];
+				if (a) store.get(a);
 			});
-			metrics.valuePointRead = timeRaw(options.iterations, () => {
-				for (const a of values) store.get(a);
+			metrics.valuePointRead = timeRaw(options.iterations, (i) => {
+				const a = values[i % values.length];
+				if (a) store.get(a);
 			});
 			metrics.traverse = timeRaw(
 				Math.max(1, Math.floor(options.iterations / 8)),
@@ -276,8 +281,10 @@ export async function runCandidate(
 			metrics.feedResume = timeRaw(options.iterations, () => {
 				store.feedPage(mid, 256);
 			});
-			metrics.foldPointRead = timeRaw(options.iterations, () => {
-				for (const a of rows) store.get(a);
+			// SINGULAR fold point latency: one point read per raw sample, cycling.
+			metrics.foldPointRead = timeRaw(options.iterations, (i) => {
+				const a = rows[i % rows.length];
+				if (a) store.get(a);
 			});
 		}
 

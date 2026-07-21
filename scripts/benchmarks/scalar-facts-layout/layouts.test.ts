@@ -15,6 +15,7 @@ import {
 	createStore,
 	ddlStatements,
 	layoutsSelfTest,
+	type ObservedError,
 	type PragmaTuple,
 	refusalClass,
 	verifyPragmaCoverage,
@@ -62,22 +63,46 @@ test('every candidate passes its constraint and transaction proofs', () => {
 	expect(layoutsSelfTest(makeDb)).toEqual([]);
 });
 
-describe('refusalClass distinguishes genuine refusals from masquerades', () => {
-	test('a known RAISE message is a raise', () => {
-		expect(refusalClass('invalid grammar')).toBe('raise');
+describe('refusalClass binds to the real SQLite error identity, not substrings', () => {
+	const err = (
+		message: string,
+		code: string | null,
+		errno: number | null = null,
+	): ObservedError => ({ message, code, errno, name: 'SQLiteError' });
+	test('a trigger RAISE (constraint-trigger code + exact message) is a raise', () => {
 		expect(
-			refusalClass('fact insert must use a new address and a new sequence'),
+			refusalClass(err('invalid grammar', 'SQLITE_CONSTRAINT_TRIGGER')),
+		).toBe('raise');
+		expect(
+			refusalClass(
+				err(
+					'fact insert must use a new address and a new sequence',
+					'SQLITE_CONSTRAINT_TRIGGER',
+				),
+			),
 		).toBe('raise');
 	});
-	test('a constraint failure is a constraint', () => {
-		expect(refusalClass('UNIQUE constraint failed: facts.sequence')).toBe(
-			'constraint',
-		);
+	test('a trigger code with an UNKNOWN message is not a raise', () => {
+		expect(
+			refusalClass(err('totally made up', 'SQLITE_CONSTRAINT_TRIGGER')),
+		).not.toBe('raise');
 	});
-	test('a SQL typo / missing table is a masquerade (other)', () => {
-		expect(refusalClass('no such table: facts')).toBe('other');
-		expect(refusalClass('no such column: bogus')).toBe('other');
-		expect(refusalClass('near "FRUM": syntax error')).toBe('other');
+	test('a real constraint family (UNIQUE/CHECK/...) is a constraint', () => {
+		expect(
+			refusalClass(err('UNIQUE constraint failed', 'SQLITE_CONSTRAINT_UNIQUE')),
+		).toBe('constraint');
+		expect(
+			refusalClass(err('CHECK constraint failed', 'SQLITE_CONSTRAINT_CHECK')),
+		).toBe('constraint');
+	});
+	test('the exact reported masquerades are `other` (no constraint code)', () => {
+		// bun reports code=undefined, errno=1 for these; the message contains
+		// CHECK/UNIQUE substrings but the identity is not a constraint.
+		expect(refusalClass(err('near "CHECK": syntax error', null, 1))).toBe(
+			'other',
+		);
+		expect(refusalClass(err('no such table: UNIQUE', null, 1))).toBe('other');
+		expect(refusalClass(err('no such column: bogus', null, 1))).toBe('other');
 	});
 });
 
