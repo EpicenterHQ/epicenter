@@ -5,7 +5,7 @@ state tables of the local replica and the server authority store their structure
 coordinates and relation split, measured on Bun `bun:sqlite` at the conformance
 envelope.
 
-## Classifier-only policy (read first)
+## Evidence and decision separation (read first)
 
 Per ADR-0161 and `specs/20260720T002337-epicenter-data-clean-break.md` (424-444,
 555-562), **evidence never selects, ranks, recommends, applies a tie-break, or
@@ -42,31 +42,26 @@ workload). `--profile pilot` measures a bounded probe, extrapolates the disk and
 wall-time to the exact envelope, enforces the eight-hour cap and headroom, and
 refuses to run. The frozen pilot is not implemented to contract yet.
 
-The pilot reports only an evidence status plus non-selecting owner/kind
-feasibility; it emits no candidate ranking or pairwise classification.
+The pilot reports an evidence status plus identity-closed seed estimators. It
+does not import or execute the pairwise classifier, estimate a winner, or emit
+candidate ranking, contrast, or feasibility output. `statistics.ts` is a
+separate future final-evidence consumer, not part of the pilot execution path.
 
 **Open contract gaps (not done), tracked for the next passes:**
 
-- Exact closed per-observation-type raw validators and a profile-aware whole-seed
-  completeness validator (counts, enums, identities, unique keys); today's raw
-  gate is a shallow structural + finite-number scan.
-- Seed-level eight-database lifetime: all eight owner/candidate databases must be
-  built and retained through both owners' blocks/reopens/cells/tails and the
-  atomic raw seed commit, then deleted; the runner still builds and deletes per
-  owner.
-- Balanced complete-sequence calibration that iteratively measures actual
-  powers of two until every candidate truly reaches 20 ms, retaining every trial;
-  today's calibration is a one-shot warm/probe with a 1.5x projection.
-- Faithful owner operations: `orderedFreshFeed` must be a complete feed READ
-  after construction (not an install), `foldPointRead` must be an authority-fold
-  read, cleanup must delete only document-owning rows, and settlement must consume
-  real sealed V1 work and update retry/parked/settlement state.
+- Faithful owner operations: `foldPointRead` must be an authority-fold read,
+  cleanup must delete only document-owning rows, and settlement must consume real
+  sealed V1 work and update retry/parked/settlement state.
 - A truthful post-commit WAL-index checkpoint observation, or the pilot stays
   BLOCKED pending a native hook.
-- Seed-level owner+metric estimators (no pooling into one read median) and
-  removal of pairwise-contrast derivation from the pilot path.
-- Exact per-seed/cell gate counts (reopens per seed and cell; macros once;
-  scheduled block counts; three warmups each; every boundary; all eight cells).
+- Closed config/seed identities for every macro, tail, boundary, warmup batch,
+  and checkpoint event. Database builds, calibration trials, and phase-disjoint
+  calibration/warmup/timed probe plans are closed, and exact counts are derived,
+  but the remaining event identities are not yet all first-class raw fields.
+- An independent in-range oracle witness for the bounded traversal statement.
+  The retained trace-derived traversal pages and page digests prove the intended
+  phase identity and disjointness; the full scan proves candidate correctness,
+  but neither witnesses what that separate candidate-store SQL path returned.
 - A separately invocable, config-frozen, headroom/time-gated exact run distinct
   from `--estimate-only`, with the extrapolation validated at two bounded sizes.
 - Frozen final-run config emission with disjoint final seed ids, only from a
@@ -98,22 +93,39 @@ hashing, scheduling, statistics, and status are portable to browser runtimes.
   owner table, so no universal owner claim is admissible without these.
 - `schedule.ts`: the balanced Williams read schedule (three cycles, self-transition
   pairs, seed-rotated letter mapping, recorded idle+reopen boundaries) and the
-  power-of-two calibration sizing to reach a minimum timed-block duration.
-- `statistics.ts`: the declared estimator. Its input is structurally seed-level,
+  retained actual power-of-two calibration contract. Each operation-count round
+  is one exact sixteen-trial Williams design. The first all-clear round selects;
+  cap exhaustion retains a named `INCOMPLETE` artifact with no fallback count.
+- `estimators.ts`: reduces each owner, metric family, candidate, seed, and config
+  identity independently, and accepts persisted estimators only when they exactly
+  match a fresh reduction of retained raw observations.
+- `statistics.ts`: the future final-evidence classifier. Its input is structurally seed-level,
   so it cannot bootstrap below the whole seed. It runs a deterministic studentized
   paired bootstrap over whole seeds, builds 95% familywise simultaneous max-t
-  intervals, and classifies each contrast against fixed log-ratio margins.
+  intervals, and classifies each contrast against fixed log-ratio margins. The
+  pilot does not import or execute it.
 - `checkpoint.ts`: atomically persisted, schema-validated, cross-process
   per-seed checkpointing. Identity binds the exact source, whole config,
-  per-candidate DDL hashes, limits digest, runtime and SQLite versions, execution
-  settings, and workload and auxiliary digests; resume happens only at a committed
-  whole-seed boundary and fails closed on any mismatch, truncation, or partial seed.
+  per-seed trace inputs, per-candidate DDL hashes, limits digest, runtime and SQLite
+  versions, execution settings, and workload and auxiliary digests; resume happens
+  only at a committed whole-seed boundary and fails closed on any mismatch,
+  truncation, or partial seed.
+- `probe-plan.ts`: the layout-independent owner of deterministic probe sources.
+  It derives exact indexed ranges, 48 non-empty traversal pages, trace-derived
+  page digests, phase item digests, and final probe ids from frozen trace options.
+  The runner and checkpoint validation both consume these reconstructed plans.
+- `raw-schema.ts`: closed raw-observation shapes, exact gap-free temporal replay,
+  config/seed/owner/candidate-bound build identities, and content-addressed probe
+  plans compared field-for-field with the reconstructed deterministic owner.
+  Calibration, warmup, and timed traversal use distinct sequence-bounded pages;
+  the pilot does not claim candidate execution of those pages is independently
+  witnessed yet.
 - `layouts.ts`: the four SQLite candidate stores. Coordinates are an immutable
   append-only dictionary; normalized fact tables enforce coordinate kind and
   row_id shape; install is monotonic and tombstone-dominant; storage counts every
   candidate-owned btree including autoindexes. `layouts-invariants.test.ts` proves
   each with direct hostile SQL.
-- `evidence-status.ts`: the classifier-only method validation and four-state
+- `evidence-status.ts`: method validation and the four-state
   fail-closed evidence-readiness contract described above.
 
 ## Correctness vs consistency

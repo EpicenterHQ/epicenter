@@ -1,5 +1,5 @@
 /**
- * Classifier-only evidence status. These tests prove the policy: no recommendation
+ * Evidence status. These tests prove the policy: no recommendation
  * or tie-break exists, every proof gate is required for method validation, a pilot
  * is never ADR-ready, a `configured` flag alone never implies readiness (an empty
  * ceiling set is invalid), readiness demands observed within-ceiling per-cell SLO
@@ -24,7 +24,7 @@ const ALL_GATES_PASS: ProofGateInputs = {
 	oracleWitnessReproduced: true,
 	crossCandidateConsistent: true,
 	provenanceMatches: true,
-	estimatorOk: true,
+	estimatorsComplete: true,
 	balanced: true,
 	calibrationMet: true,
 	warmupsRun: true,
@@ -34,6 +34,7 @@ const ALL_GATES_PASS: ProofGateInputs = {
 	headroomPreflightPassed: true,
 	ownerWorkloadsExecuted: true,
 	rawObservationsRetained: true,
+	observationCountsExact: true,
 	exactEnvelopeConformant: true,
 	checkpointBoundariesTruthful: true,
 };
@@ -69,12 +70,11 @@ describe('the contract exposes no selection concept', () => {
 		const method = validateMethod(ALL_GATES_PASS);
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: true,
-			method,
+			execution: { status: 'COMPLETE', method },
 			sloPolicy: UNCONFIGURED_SLO_POLICY,
 			sloObservations: null,
 			expectedCells: [],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		const keys = [...Object.keys(method), ...Object.keys(readiness)];
 		for (const banned of [
@@ -137,12 +137,11 @@ describe('audit repro: configured-but-empty ceilings is invalid, not ready', () 
 	test('empty ceilings yields status invalid', () => {
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: { configured: true, ceilings: {} as never },
 			sloObservations: [],
 			expectedCells: [],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('invalid');
 	});
@@ -152,15 +151,31 @@ describe('a pilot is never ADR-ready', () => {
 	test('a pilot with every gate passing is at most provisional', () => {
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: true,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: UNCONFIGURED_SLO_POLICY,
 			sloObservations: null,
 			expectedCells: [],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('provisional');
 		expect(readiness.reasons.join(' ')).toContain('pilot');
+	});
+	test('calibration without selected operations is incomplete, not provisional', () => {
+		const readiness = evaluateEvidenceReadiness({
+			isPilot: true,
+			execution: {
+				status: 'INCOMPLETE',
+				reasons: [
+					'CALIBRATION_OPS_UNSELECTED: selectedOps is null for replica/confirmedTraversal',
+				],
+			},
+			sloPolicy: UNCONFIGURED_SLO_POLICY,
+			sloObservations: null,
+			expectedCells: [],
+			matrixComplete: false,
+		});
+		expect(readiness.status).toBe('incomplete');
+		expect(readiness.reasons.join(' ')).toContain('CALIBRATION_OPS_UNSELECTED');
 	});
 });
 
@@ -168,12 +183,11 @@ describe('fail-closed: a configured flag alone never implies readiness', () => {
 	test('valid ceilings but no observations is incomplete', () => {
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: CONFIGURED,
 			sloObservations: null,
 			expectedCells: [CELL],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('incomplete');
 	});
@@ -182,12 +196,11 @@ describe('fail-closed: a configured flag alone never implies readiness', () => {
 		const partial = observationsWithin(CELL).slice(1); // drop one required metric
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: CONFIGURED,
 			sloObservations: partial,
 			expectedCells: [CELL],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('incomplete');
 		expect(readiness.reasons.join(' ')).toContain('missing SLO observation');
@@ -199,12 +212,11 @@ describe('fail-closed: a configured flag alone never implies readiness', () => {
 		);
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: CONFIGURED,
 			sloObservations: breached,
 			expectedCells: [CELL],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('provisional');
 		expect(readiness.reasons.join(' ')).toContain('SLO breach');
@@ -213,12 +225,11 @@ describe('fail-closed: a configured flag alone never implies readiness', () => {
 	test('only a full within-ceiling observation set reaches ready-for-adr-review', () => {
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: CONFIGURED,
 			sloObservations: observationsWithin(CELL),
 			expectedCells: [CELL],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('ready-for-adr-review');
 		expect(readiness.reasons).toEqual([]);
@@ -229,24 +240,25 @@ describe('incompleteness and method gaps downgrade the state', () => {
 	test('an incomplete matrix is incomplete', () => {
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod(ALL_GATES_PASS),
+			execution: { status: 'COMPLETE', method: validateMethod(ALL_GATES_PASS) },
 			sloPolicy: CONFIGURED,
 			sloObservations: observationsWithin(CELL),
 			expectedCells: [CELL],
 			matrixComplete: false,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('incomplete');
 	});
 	test('a failed proof gate is provisional and lists the refusal', () => {
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: false,
-			method: validateMethod({ ...ALL_GATES_PASS, integrityOk: false }),
+			execution: {
+				status: 'COMPLETE',
+				method: validateMethod({ ...ALL_GATES_PASS, integrityOk: false }),
+			},
 			sloPolicy: CONFIGURED,
 			sloObservations: observationsWithin(CELL),
 			expectedCells: [CELL],
 			matrixComplete: true,
-			classifierResolved: true,
 		});
 		expect(readiness.status).toBe('provisional');
 		expect(readiness.reasons.join(' ')).toContain('integrity');

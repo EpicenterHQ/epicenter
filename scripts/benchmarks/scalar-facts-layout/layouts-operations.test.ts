@@ -36,6 +36,12 @@ function trace(): Trace {
 	});
 }
 
+function at<T>(values: readonly T[], index: number): T {
+	const value = values[index];
+	if (value === undefined) throw new Error(`missing fixture at index ${index}`);
+	return value;
+}
+
 function build(candidate: Candidate, t: Trace, owner: 'replica' | 'authority') {
 	const db = new Database(':memory:');
 	open.push(db);
@@ -57,7 +63,7 @@ describe('replica overlay read sees pending state', () => {
 			const t = trace();
 			const { store, aux } = build(candidate, t, 'replica');
 			// A pending intent's address must read back a pending overlay.
-			const pendingAddress = aux.pending.entries[0]!.address;
+			const pendingAddress = at(aux.pending.entries, 0).address;
 			expect(store.overlayRead(pendingAddress).pending).toBe(1);
 		});
 	}
@@ -71,7 +77,7 @@ describe('authority resume feed and settlement read', () => {
 			// Resume feed from sequence 0 returns up to the requested limit, in order.
 			expect(store.resumeFeed(0, 100)).toBe(100);
 			// The retry ledger the authority owns is readable per replica.
-			const replicaId = aux.retry.entries[0]!.replicaId;
+			const replicaId = at(aux.retry.entries, 0).replicaId;
 			const read = store.retrySettlementRead(replicaId);
 			expect(read.found).toBe(1);
 			expect(read.parked).toBeGreaterThanOrEqual(0);
@@ -82,9 +88,40 @@ describe('authority resume feed and settlement read', () => {
 describe('traverse matches the witness count', () => {
 	test('unified-inline traversal count equals the oracle current count', () => {
 		const t = trace();
-		const { store } = build(CANDIDATES[0]!, t, 'replica');
-		expect(store.traverse()).toBe(t.measure().currentCount);
+		const { store } = build(at(CANDIDATES, 0), t, 'replica');
+		expect(store.traverse(0, Number.MAX_SAFE_INTEGER)).toBe(
+			t.measure().currentCount,
+		);
 	});
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id} traverses only the declared sequence page`, () => {
+			const t = trace();
+			const { store } = build(candidate, t, 'replica');
+			const afterSequence = 500;
+			const throughSequence = 900;
+			const expected = Array.from({ length: t.options.facts }, (_, index) =>
+				t.finalFactAt(index),
+			).filter(
+				(fact) =>
+					fact.sequence > afterSequence && fact.sequence <= throughSequence,
+			).length;
+			expect(store.traverse(afterSequence, throughSequence)).toBe(expected);
+			const adjacent = Array.from({ length: t.options.facts }, (_, index) =>
+				t.finalFactAt(index),
+			).filter(
+				(fact) =>
+					fact.sequence > throughSequence &&
+					fact.sequence <= throughSequence + 1,
+			).length;
+			expect(store.traverse(throughSequence, throughSequence + 1)).toBe(
+				adjacent,
+			);
+			expect(() => store.traverse(-1, 10)).toThrow();
+			expect(() => store.traverse(1.5, 10)).toThrow();
+			expect(() => store.traverse(11, 10)).toThrow();
+			expect(() => store.traverse(10, 10)).toThrow();
+		});
+	}
 });
 
 describe('row tombstone plus document cleanup is one transaction', () => {
@@ -101,11 +138,12 @@ describe('row tombstone plus document cleanup is one transaction', () => {
 				)
 				.get() as { ns: string; tk: string; rid: string } | null;
 			expect(docRow).not.toBeNull();
+			if (docRow === null) throw new Error('document fixture missing');
 			const address = {
 				kind: 'row' as const,
-				namespace: docRow!.ns,
-				table: docRow!.tk,
-				rowId: docRow!.rid,
+				namespace: docRow.ns,
+				table: docRow.tk,
+				rowId: docRow.rid,
 			};
 			const maxSeq = (
 				db

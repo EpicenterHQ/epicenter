@@ -8,12 +8,20 @@
  */
 
 import {
+	buildProbePlan,
+	buildProbeSource,
+	PROBE_PHASES,
+	type ProbePhase,
+} from './probe-plan.js';
+import {
+	buildIdFor,
 	type CompletenessExpectations,
 	RAW_MACRO_METRIC,
 	RAW_READ_METRICS,
 	RAW_TAIL_METRICS,
 	type RawOwner,
 } from './raw-schema.js';
+import { buildCalibrationRound } from './schedule.js';
 
 export function buildCompleteRaw(
 	exp: CompletenessExpectations,
@@ -22,14 +30,20 @@ export function buildCompleteRaw(
 	const candidates = [...exp.candidates];
 	const candidateCount = candidates.length;
 	const buildId = (owner: string, candidate: string) =>
-		`s${exp.seedIndex}/${owner}/${candidate}`;
+		buildIdFor(exp.configIdentity, exp.seedId, owner, candidate);
+	const calibrationId = (owner: string, metric: string) =>
+		`${exp.configIdentity}/${exp.seedId}/${owner}/${metric}/calibration`;
 
+	const calibrations: unknown[] = [];
+	const probes: unknown[] = [];
 	const blocks: unknown[] = [];
 	const boundaries: unknown[] = [];
 	const reopens: unknown[] = [];
 	const tails: unknown[] = [];
 	const macros: unknown[] = [];
 	const cells: unknown[] = [];
+	let temporalOrdinal = 0;
+	const probeSource = buildProbeSource(exp.traceOptions);
 
 	for (const owner of owners) {
 		for (const candidate of candidates) {
@@ -37,8 +51,9 @@ export function buildCompleteRaw(
 				owner,
 				metric: RAW_MACRO_METRIC[owner],
 				candidate,
+				units: 1,
 				elapsedMs: 1,
-				throughputPerSec: 1,
+				throughputPerSec: 1000,
 			});
 			cells.push({
 				owner,
@@ -69,6 +84,51 @@ export function buildCompleteRaw(
 			}
 		}
 		for (const metric of RAW_READ_METRICS[owner]) {
+			const probePlans = {} as Record<
+				ProbePhase,
+				ReturnType<typeof buildProbePlan>['plan']
+			>;
+			for (const phase of PROBE_PHASES) {
+				const plan = buildProbePlan(probeSource, {
+					configIdentity: exp.configIdentity,
+					seedId: exp.seedId,
+					owner,
+					metric,
+					phase,
+				}).plan;
+				probePlans[phase] = plan;
+				probes.push(plan);
+			}
+			for (let roundIndex = 0; roundIndex < 2; roundIndex += 1) {
+				for (const slot of buildCalibrationRound(
+					exp.letterMapping as Record<'A' | 'B' | 'C' | 'D', string>,
+					roundIndex,
+				)) {
+					const candidate = slot.candidate;
+					calibrations.push({
+						configIdentity: exp.configIdentity,
+						seedId: exp.seedId,
+						owner,
+						metric,
+						candidate,
+						buildId: buildId(owner, candidate),
+						roundIndex: slot.roundIndex,
+						trialIndex: slot.trialIndex,
+						sequenceOrder: slot.sequenceOrder,
+						sequenceIndex: slot.sequenceIndex,
+						position: slot.position,
+						letter: slot.letter,
+						ops: 2 ** roundIndex,
+						elapsedMs: roundIndex === 0 ? 1 : exp.minBlockMs,
+						minBlockMs: exp.minBlockMs,
+						probeId: probePlans.calibration.probeId,
+						probeDigest: probePlans.calibration.itemsDigest,
+						calibrationId: calibrationId(owner, metric),
+						temporalOrdinal,
+					});
+					temporalOrdinal += 1;
+				}
+			}
 			for (const e of exp.schedule) {
 				const boundary = e.precedingBoundary;
 				blocks.push({
@@ -83,10 +143,17 @@ export function buildCompleteRaw(
 					sequenceLabel: e.sequence.join(''),
 					predecessor: e.predecessor,
 					boundary,
-					ops: 1024,
+					ops: 2,
+					calibrationId: calibrationId(owner, metric),
+					warmupProbeId: probePlans.warmup.probeId,
+					warmupProbeDigest: probePlans.warmup.itemsDigest,
+					timedProbeId: probePlans.timed.probeId,
+					timedProbeDigest: probePlans.timed.itemsDigest,
+					temporalOrdinal,
 					warmupMs: [1, 1, 1],
 					elapsedMs: 25,
 				});
+				temporalOrdinal += 1;
 				if (boundary === 'pair' || boundary === 'cycle') {
 					boundaries.push({
 						owner,
@@ -107,12 +174,12 @@ export function buildCompleteRaw(
 					owner,
 					metric,
 					candidate,
-					transactions: exp.minTailTransactions,
-					samplesMs: Array.from({ length: exp.minTailTransactions }, () => 0.1),
+					transactions: exp.tailTransactions,
+					samplesMs: Array.from({ length: exp.tailTransactions }, () => 0.1),
 					p50Ms: 0.1,
 					p95Ms: 0.1,
 					p99Ms: 0.1,
-					throughputPerSec: 1000,
+					throughputPerSec: 10_000,
 					resetVerified: true,
 					warmupTransactions: 3,
 					walDeltaDiagnostic: 0,
@@ -129,6 +196,8 @@ export function buildCompleteRaw(
 			liveAtCommit: owners.length * candidateCount,
 			retainedThroughCommit: true,
 		},
+		probes,
+		calibrations,
 		blocks,
 		boundaries,
 		reopens,

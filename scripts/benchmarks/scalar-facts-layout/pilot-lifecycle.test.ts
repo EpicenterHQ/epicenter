@@ -44,7 +44,7 @@ describe('eight-database retained lifetime', () => {
 		const facts = Array.from({ length: trace.options.facts }, (_, i) =>
 			trace.finalFactAt(i),
 		);
-		const set = buildRetainedSet(dir, 0, facts, trace);
+		const set = buildRetainedSet(dir, 0, 'test-config', 1000, facts, trace);
 		try {
 			expect(set.handles.size).toBe(8);
 			expect(set.peakLive).toBe(8);
@@ -72,7 +72,7 @@ describe('eight-database retained lifetime', () => {
 		const facts = Array.from({ length: trace.options.facts }, (_, i) =>
 			trace.finalFactAt(i),
 		);
-		const set = buildRetainedSet(dir, 1, facts, trace);
+		const set = buildRetainedSet(dir, 1, 'test-config', 1001, facts, trace);
 		const paths = [...set.handles.values()].map((h) => h.path);
 		expect(paths.length).toBe(8);
 		expect(paths.every((p) => existsSync(p))).toBe(true);

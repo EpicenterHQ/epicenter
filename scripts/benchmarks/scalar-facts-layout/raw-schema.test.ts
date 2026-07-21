@@ -7,13 +7,16 @@
 
 import { describe, expect, test } from 'bun:test';
 
+import { CANDIDATE_IDS } from './candidates.js';
+import { type ProbePlan, probeIdFor } from './probe-plan.js';
 import {
 	type CompletenessExpectations,
+	expectedObservationCounts,
 	isValidBlock,
+	isValidCalibration,
 	isValidCell,
 	isValidReopen,
 	isValidTail,
-	RAW_CANDIDATE_IDS,
 	validateSeedCompleteness,
 	validateSeedRawClosed,
 } from './raw-schema.js';
@@ -32,15 +35,28 @@ const CYCLES = 1;
 const MAX_READ_BLOCKS = 64;
 const SCHEDULE = buildSeedSchedule({
 	seedId: 1000,
-	candidates: [...RAW_CANDIDATE_IDS],
+	candidates: [...CANDIDATE_IDS],
 	cycles: CYCLES,
 	rotation: SEED_INDEX,
 });
 const EXP: CompletenessExpectations = {
 	owners: ['replica', 'authority'],
-	candidates: [...RAW_CANDIDATE_IDS],
+	candidates: [...CANDIDATE_IDS],
 	reopenObservations: 2,
-	minTailTransactions: 2,
+	tailTransactions: 2,
+	minBlockMs: 20,
+	maxBlockOps: 16,
+	seedId: 1000,
+	configIdentity: 'config-a',
+	traceOptions: {
+		facts: 240,
+		namespaceCount: 6,
+		tableCount: 20,
+		valueRatio: 0.08,
+		dataSeed: 1000,
+		targetLogicalStateBytes: 24_000,
+		maxEncodedFactBytes: 4096,
+	},
 	seedIndex: SEED_INDEX,
 	schedule: SCHEDULE.blocks.slice(0, Math.min(MAX_READ_BLOCKS, CYCLES * 16)),
 	letterMapping: SCHEDULE.letterMapping,
@@ -60,6 +76,12 @@ function validBlock() {
 		predecessor: null,
 		boundary: 'none',
 		ops: 1024,
+		calibrationId: 'config-a/1000/replica/confirmedPointRead/calibration',
+		warmupProbeId: 'config-a/1000/replica/confirmedPointRead/probe/warmup',
+		warmupProbeDigest: '2'.repeat(64),
+		timedProbeId: 'config-a/1000/replica/confirmedPointRead/probe/timed',
+		timedProbeDigest: '3'.repeat(64),
+		temporalOrdinal: 4,
 		warmupMs: [1, 1, 1],
 		elapsedMs: 25,
 	};
@@ -68,6 +90,29 @@ function validBlock() {
 describe('closed per-observation validators', () => {
 	test('a well-formed block/reopen/tail/cell validate', () => {
 		expect(isValidBlock(validBlock())).toBe(true);
+		expect(
+			isValidCalibration({
+				configIdentity: 'config-a',
+				seedId: 1000,
+				owner: 'replica',
+				metric: 'confirmedPointRead',
+				candidate: 'unified-inline',
+				buildId: 'config-a/1000/replica/unified-inline/build',
+				roundIndex: 0,
+				trialIndex: 0,
+				sequenceOrder: 0,
+				sequenceIndex: 0,
+				position: 0,
+				letter: 'A',
+				ops: 1,
+				elapsedMs: 1,
+				minBlockMs: 20,
+				probeId: 'config-a/1000/replica/confirmedPointRead/probe/calibration',
+				probeDigest: '1'.repeat(64),
+				calibrationId: 'config-a/1000/replica/confirmedPointRead/calibration',
+				temporalOrdinal: 0,
+			}),
+		).toBe(true);
 		expect(
 			isValidReopen({
 				owner: 'replica',
@@ -182,6 +227,122 @@ describe('profile-aware completeness', () => {
 		head(raw.tails).samplesMs = [0.1];
 		expect(validateSeedCompleteness(raw, EXP).complete).toBe(false);
 	});
+	test('an extra tail is rejected even when every required tail remains', () => {
+		const raw = buildCompleteRaw(EXP) as { tails: unknown[] };
+		raw.tails.push(structuredClone(raw.tails[0]));
+		expect(validateSeedCompleteness(raw, EXP).complete).toBe(false);
+	});
+	test('negative and fractional count identities are rejected by the closed shape', () => {
+		const negative = buildCompleteRaw(EXP) as {
+			tails: { transactions: number }[];
+		};
+		head(negative.tails).transactions = -2;
+		expect(validateSeedRawClosed(negative).valid).toBe(false);
+
+		const fractional = buildCompleteRaw(EXP) as {
+			reopens: { index: number }[];
+		};
+		head(fractional.reopens).index = 0.5;
+		expect(validateSeedRawClosed(fractional).valid).toBe(false);
+	});
+	test('negative physical measurements and storage values are rejected', () => {
+		const mutations: Array<(raw: ReturnType<typeof buildCompleteRaw>) => void> =
+			[
+				(raw) => {
+					head((raw as { blocks: { elapsedMs: number }[] }).blocks).elapsedMs =
+						-1;
+				},
+				(raw) => {
+					head(
+						(raw as { blocks: { warmupMs: number[] }[] }).blocks,
+					).warmupMs[0] = -1;
+				},
+				(raw) => {
+					head(
+						(raw as { calibrations: { elapsedMs: number }[] }).calibrations,
+					).elapsedMs = -1;
+				},
+				(raw) => {
+					head(
+						(raw as { boundaries: { idleMs: number }[] }).boundaries,
+					).idleMs = -1;
+				},
+				(raw) => {
+					head(
+						(raw as { boundaries: { reopenMs: number }[] }).boundaries,
+					).reopenMs = -1;
+				},
+				(raw) => {
+					head(
+						(raw as { reopens: { elapsedMs: number }[] }).reopens,
+					).elapsedMs = -1;
+				},
+				(raw) => {
+					head(
+						(raw as { tails: { samplesMs: number[] }[] }).tails,
+					).samplesMs[0] = -1;
+				},
+				(raw) => {
+					head(
+						(raw as { tails: { throughputPerSec: number }[] }).tails,
+					).throughputPerSec = -1;
+				},
+				(raw) => {
+					head((raw as { macros: { elapsedMs: number }[] }).macros).elapsedMs =
+						-1;
+				},
+				(raw) => {
+					head(
+						(raw as { cells: { candidateTableBytes: number }[] }).cells,
+					).candidateTableBytes = -1;
+				},
+				(raw) => {
+					head((raw as { cells: { fileBytes: number }[] }).cells).fileBytes =
+						-1;
+				},
+			];
+		for (const mutate of mutations) {
+			const raw = buildCompleteRaw(EXP);
+			mutate(raw);
+			expect(validateSeedRawClosed(raw).valid).toBe(false);
+		}
+	});
+
+	test('fractional identities and negative lifecycle counts are rejected', () => {
+		const mutations: Array<(raw: ReturnType<typeof buildCompleteRaw>) => void> =
+			[
+				(raw) => {
+					head((raw as { blocks: { cycle: number }[] }).blocks).cycle = 0.5;
+				},
+				(raw) => {
+					head((raw as { blocks: { ordinal: number }[] }).blocks).ordinal = 0.5;
+				},
+				(raw) => {
+					head((raw as { blocks: { position: number }[] }).blocks).position =
+						0.5;
+				},
+				(raw) => {
+					head(
+						(raw as { boundaries: { atOrdinal: number }[] }).boundaries,
+					).atOrdinal = 0.5;
+				},
+				(raw) => {
+					(
+						raw as { lifecycle: { peakRetained: number } }
+					).lifecycle.peakRetained = -1;
+				},
+				(raw) => {
+					(
+						raw as { lifecycle: { liveAtCommit: number } }
+					).lifecycle.liveAtCommit = -1;
+				},
+			];
+		for (const mutate of mutations) {
+			const raw = buildCompleteRaw(EXP);
+			mutate(raw);
+			expect(validateSeedRawClosed(raw).valid).toBe(false);
+		}
+	});
 	test('a missing owner metric is rejected', () => {
 		const raw = buildCompleteRaw(EXP) as { blocks: { metric: string }[] };
 		// Drop every confirmedPointRead block for the replica.
@@ -191,6 +352,31 @@ describe('profile-aware completeness', () => {
 		expect(
 			validateSeedCompleteness({ ...raw, blocks: filtered }, EXP).complete,
 		).toBe(false);
+	});
+	test('the frozen three-cycle owners derive exact per-seed counts', () => {
+		const schedule = buildSeedSchedule({
+			seedId: 1000,
+			candidates: [...CANDIDATE_IDS],
+			cycles: 3,
+			rotation: 0,
+		});
+		const counts = expectedObservationCounts({
+			...EXP,
+			reopenObservations: 20,
+			tailTransactions: 400,
+			schedule: schedule.blocks,
+		});
+		expect(counts).toEqual({
+			probes: 18,
+			blocks: 288,
+			boundaries: 30,
+			reopens: 160,
+			tails: 12,
+			macros: 8,
+			cells: 8,
+		});
+		expect(counts.blocks * 3).toBe(864);
+		expect(counts.tails * 400).toBe(4800);
 	});
 });
 
@@ -335,9 +521,216 @@ describe('hostile audit escapes are refused', () => {
 		const raw = complete() as Record<string, unknown>;
 		for (const key of ['blocks', 'cells', 'reopens'] as const) {
 			for (const rec of raw[key] as { buildId: string }[]) {
-				rec.buildId = rec.buildId.replace(/^s\d+\//, 's9/');
+				rec.buildId = rec.buildId.replace('/1000/', '/9999/');
 			}
 		}
+		expect(validateSeedCompleteness(raw, EXP).complete).toBe(false);
+	});
+
+	test('a forged calibration config identity or probe phase is rejected', () => {
+		const wrongConfig = complete() as {
+			calibrations: { calibrationId: string; probeId: string }[];
+		};
+		head(wrongConfig.calibrations).calibrationId =
+			'other/1000/replica/confirmedPointRead/calibration';
+		expect(validateSeedCompleteness(wrongConfig, EXP).complete).toBe(false);
+
+		const wrongProbe = complete() as {
+			blocks: { warmupProbeId: string }[];
+		};
+		head(wrongProbe.blocks).warmupProbeId =
+			'config-a/1000/replica/confirmedPointRead/probe/timed';
+		expect(validateSeedCompleteness(wrongProbe, EXP).complete).toBe(false);
+	});
+
+	test('calibration must finish before its timed blocks', () => {
+		const raw = complete() as {
+			calibrations: {
+				owner: string;
+				metric: string;
+				temporalOrdinal: number;
+			}[];
+			blocks: { owner: string; metric: string; temporalOrdinal: number }[];
+		};
+		const calibration = raw.calibrations.find(
+			(c) => c.owner === 'replica' && c.metric === 'confirmedPointRead',
+		);
+		const timed = raw.blocks.find(
+			(b) => b.owner === 'replica' && b.metric === 'confirmedPointRead',
+		);
+		expect(calibration).toBeDefined();
+		expect(timed).toBeDefined();
+		if (calibration && timed) {
+			const ordinal = calibration.temporalOrdinal;
+			calibration.temporalOrdinal = timed.temporalOrdinal;
+			timed.temporalOrdinal = ordinal;
+		}
+		expect(validateSeedCompleteness(raw, EXP).complete).toBe(false);
+	});
+
+	test('temporal ordinals are the exact gap-free replay order', () => {
+		const shifted = complete() as {
+			calibrations: { temporalOrdinal: number }[];
+			blocks: { temporalOrdinal: number }[];
+		};
+		for (const event of [...shifted.calibrations, ...shifted.blocks]) {
+			event.temporalOrdinal += 100;
+		}
+		expect(validateSeedCompleteness(shifted, EXP).complete).toBe(false);
+
+		const duplicate = complete() as { blocks: { temporalOrdinal: number }[] };
+		head(duplicate.blocks).temporalOrdinal += 1;
+		expect(validateSeedCompleteness(duplicate, EXP).complete).toBe(false);
+
+		const gap = complete() as { blocks: { temporalOrdinal: number }[] };
+		head(gap.blocks.slice(-1)).temporalOrdinal += 1;
+		expect(validateSeedCompleteness(gap, EXP).complete).toBe(false);
+
+		const reordered = complete() as { calibrations: unknown[] };
+		const first = reordered.calibrations[0];
+		const second = reordered.calibrations[1];
+		reordered.calibrations[0] = second;
+		reordered.calibrations[1] = first;
+		expect(validateSeedCompleteness(reordered, EXP).complete).toBe(false);
+	});
+
+	test('calibration binds direct config, seed, candidate, and retained build identity', () => {
+		for (const mutate of [
+			(calibration: Record<string, unknown>) => {
+				calibration.configIdentity = 'other';
+			},
+			(calibration: Record<string, unknown>) => {
+				calibration.seedId = 9999;
+			},
+			(calibration: Record<string, unknown>) => {
+				calibration.candidate = 'split-normalized';
+			},
+			(calibration: Record<string, unknown>) => {
+				calibration.buildId = 'transient/build';
+			},
+		]) {
+			const raw = complete() as { calibrations: Record<string, unknown>[] };
+			mutate(head(raw.calibrations));
+			expect(validateSeedCompleteness(raw, EXP).complete).toBe(false);
+		}
+	});
+
+	test('overlapping phase ranges and reused probe digests are rejected', () => {
+		const overlap = complete() as {
+			probes: {
+				owner: string;
+				metric: string;
+				phase: string;
+				rowOffset: number;
+				traversalStartSequence: number;
+			}[];
+		};
+		const warmup = overlap.probes.find(
+			(probe) =>
+				probe.owner === 'replica' &&
+				probe.metric === 'confirmedTraversal' &&
+				probe.phase === 'warmup',
+		);
+		expect(warmup).toBeDefined();
+		if (warmup) {
+			warmup.rowOffset = 0;
+			warmup.traversalStartSequence = 50;
+		}
+		expect(validateSeedCompleteness(overlap, EXP).complete).toBe(false);
+
+		const reused = complete() as { probes: ProbePlan[] };
+		const calibration = reused.probes.find(
+			(probe) =>
+				probe.owner === 'replica' &&
+				probe.metric === 'confirmedTraversal' &&
+				probe.phase === 'calibration',
+		);
+		const timed = reused.probes.find(
+			(probe) =>
+				probe.owner === 'replica' &&
+				probe.metric === 'confirmedTraversal' &&
+				probe.phase === 'timed',
+		);
+		expect(calibration).toBeDefined();
+		expect(timed).toBeDefined();
+		if (calibration && timed) timed.itemsDigest = calibration.itemsDigest;
+		expect(validateSeedCompleteness(reused, EXP).complete).toBe(false);
+	});
+
+	test('self-consistent rewrites cannot replace the deterministic expected probe plan', () => {
+		const forge = (mutate: (plan: ProbePlan) => void) => {
+			const raw = complete() as {
+				probes: ProbePlan[];
+				blocks: {
+					owner: string;
+					metric: string;
+					warmupProbeId: string;
+					warmupProbeDigest: string;
+				}[];
+			};
+			const plan = raw.probes.find(
+				(probe) =>
+					probe.owner === 'replica' &&
+					probe.metric === 'confirmedTraversal' &&
+					probe.phase === 'warmup',
+			);
+			expect(plan).toBeDefined();
+			if (plan === undefined) throw new Error('warmup probe fixture missing');
+			mutate(plan);
+			const { probeId: _priorProbeId, ...identity } = plan;
+			plan.probeId = probeIdFor(identity);
+			for (const block of raw.blocks) {
+				if (block.owner === plan.owner && block.metric === plan.metric) {
+					block.warmupProbeId = plan.probeId;
+					block.warmupProbeDigest = plan.itemsDigest;
+				}
+			}
+			return validateSeedCompleteness(raw, EXP);
+		};
+
+		expect(
+			forge((plan) => {
+				plan.itemsDigest = 'a'.repeat(64);
+				plan.traversalStartSequence += 1;
+				plan.traversalEndSequence -= 1;
+			}).complete,
+		).toBe(false);
+		expect(
+			forge((plan) => {
+				plan.sourceDigest = 'b'.repeat(64);
+			}).complete,
+		).toBe(false);
+		expect(
+			forge((plan) => {
+				head(plan.traversalPages).digest = 'c'.repeat(64);
+			}).complete,
+		).toBe(false);
+		expect(
+			forge((plan) => {
+				head(plan.traversalPages).afterSequence += 1;
+			}).complete,
+		).toBe(false);
+	});
+
+	test('a terminal calibration round below the floor cannot fall back to the cap', () => {
+		const raw = complete() as {
+			calibrations: {
+				owner: string;
+				metric: string;
+				roundIndex: number;
+				trialIndex: number;
+				elapsedMs: number;
+			}[];
+		};
+		const terminal = raw.calibrations.find(
+			(c) =>
+				c.owner === 'replica' &&
+				c.metric === 'confirmedPointRead' &&
+				c.roundIndex === 1 &&
+				c.trialIndex === 0,
+		);
+		expect(terminal).toBeDefined();
+		if (terminal) terminal.elapsedMs = EXP.minBlockMs - 0.01;
 		expect(validateSeedCompleteness(raw, EXP).complete).toBe(false);
 	});
 

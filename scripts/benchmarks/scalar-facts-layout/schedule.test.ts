@@ -9,9 +9,10 @@ import { describe, expect, test } from 'bun:test';
 
 import {
 	balanceDiagnostics,
+	buildCalibrationRound,
 	buildSeedSchedule,
+	evaluateCalibrationTrials,
 	type SeedSchedule,
-	smallestPowerOfTwoForMinDuration,
 	WILLIAMS_SEQUENCES,
 } from './schedule.js';
 
@@ -21,6 +22,18 @@ const CANDIDATES = [
 	'split-inline',
 	'split-normalized',
 ];
+const LETTER_MAPPING = {
+	A: CANDIDATES[0] as string,
+	B: CANDIDATES[1] as string,
+	C: CANDIDATES[2] as string,
+	D: CANDIDATES[3] as string,
+};
+
+function at<T>(values: readonly T[], index: number): T {
+	const value = values[index];
+	if (value === undefined) throw new Error(`expected value at index ${index}`);
+	return value;
+}
 
 function schedule(seedIndex: number, cycles = 3): SeedSchedule {
 	return buildSeedSchedule({
@@ -64,7 +77,7 @@ describe('self-transition pair junctions', () => {
 		const blocks = schedule(0).blocks;
 		let junctions = 0;
 		for (let i = 1; i < blocks.length; i += 1) {
-			const block = blocks[i]!;
+			const block = at(blocks, i);
 			if (
 				block.positionInSequence === 0 &&
 				block.candidate === block.predecessor
@@ -115,10 +128,10 @@ describe('across-seed balance', () => {
 
 	test('pair order alternates across seeds', () => {
 		// Even rotations lead with the (ABDC,CDBA) pair; odd rotations lead with (BCAD,DACB).
-		const even = schedule(0).blocks[0]!;
-		const odd = schedule(1).blocks[0]!;
-		expect(even.sequence).toEqual(WILLIAMS_SEQUENCES[0]!);
-		expect(odd.sequence).toEqual(WILLIAMS_SEQUENCES[1]!);
+		const even = at(schedule(0).blocks, 0);
+		const odd = at(schedule(1).blocks, 0);
+		expect(even.sequence).toEqual(at(WILLIAMS_SEQUENCES, 0));
+		expect(odd.sequence).toEqual(at(WILLIAMS_SEQUENCES, 1));
 	});
 });
 
@@ -127,8 +140,8 @@ describe('determinism', () => {
 		expect(schedule(2)).toEqual(schedule(2));
 	});
 	test('the letter mapping rotates with the seed', () => {
-		expect(schedule(0).letterMapping.A).toBe(CANDIDATES[0]!);
-		expect(schedule(1).letterMapping.A).toBe(CANDIDATES[1]!);
+		expect(schedule(0).letterMapping.A).toBe(at(CANDIDATES, 0));
+		expect(schedule(1).letterMapping.A).toBe(at(CANDIDATES, 1));
 	});
 });
 
@@ -145,20 +158,119 @@ describe('input guards', () => {
 	});
 });
 
-describe('calibration block sizing', () => {
-	test('picks the smallest power of two meeting the minimum duration for all candidates', () => {
-		// The FASTEST candidate governs: 0.1 ms/op needs >= 200 ops for 20 ms -> 256.
-		const perOp = [0.0001, 0.0002, 0.0003, 0.00025];
-		expect(smallestPowerOfTwoForMinDuration(perOp, 0.02, 1 << 20)).toBe(256);
+describe('actual calibration trials', () => {
+	function trials(elapsedByTrial: readonly (number | readonly number[])[]) {
+		return elapsedByTrial.flatMap((elapsed, roundIndex) =>
+			buildCalibrationRound(LETTER_MAPPING, roundIndex).map((slot) => ({
+				...slot,
+				ops: 2 ** roundIndex,
+				elapsedMs:
+					typeof elapsed === 'number' ? elapsed : at(elapsed, slot.trialIndex),
+			})),
+		);
+	}
+
+	test('selects the first power of two where all sixteen Williams trials reach the floor', () => {
+		const result = evaluateCalibrationTrials(
+			trials([5, 10, 20]),
+			LETTER_MAPPING,
+			20,
+			16,
+		);
+		expect(result).toEqual({
+			status: 'SELECTED',
+			selectedOps: 4,
+			terminalRoundIndex: 2,
+		});
+		const firstRound = trials([5]);
+		for (const candidate of CANDIDATES) {
+			for (let position = 0; position < 4; position += 1) {
+				expect(
+					firstRound.filter(
+						(trial) =>
+							trial.candidate === candidate && trial.position === position,
+					),
+				).toHaveLength(1);
+			}
+		}
 	});
-	test('refuses when the cap cannot reach the floor', () => {
-		const perOp = [1e-9, 1e-9, 1e-9, 1e-9];
-		// 20 ms needs 2e7 ops; cap of 1024 cannot reach it.
-		expect(smallestPowerOfTwoForMinDuration(perOp, 0.02, 1024)).toBeNull();
+
+	test('the seed letter mapping controls calibration candidate identity', () => {
+		const rotated = {
+			A: LETTER_MAPPING.B,
+			B: LETTER_MAPPING.C,
+			C: LETTER_MAPPING.D,
+			D: LETTER_MAPPING.A,
+		};
+		const slots = buildCalibrationRound(rotated, 0);
+		expect(slots.find((slot) => slot.letter === 'A')?.candidate).toBe(
+			rotated.A,
+		);
+		expect(new Set(slots.map((slot) => slot.trialIndex)).size).toBe(16);
 	});
-	test('a zero or negative per-op estimate refuses', () => {
+
+	test('cap exhaustion is incomplete with no selected operation count', () => {
+		const terminal = Array.from({ length: 16 }, () => 20);
+		terminal[7] = 19.9;
+		const result = evaluateCalibrationTrials(
+			trials([5, terminal]),
+			LETTER_MAPPING,
+			20,
+			2,
+		);
+		expect(result.status).toBe('INCOMPLETE');
+		expect(result.selectedOps).toBeNull();
 		expect(
-			smallestPowerOfTwoForMinDuration([0, 0.0001], 0.02, 1 << 20),
-		).toBeNull();
+			evaluateCalibrationTrials(trials([5, terminal]), LETTER_MAPPING, 20, 4)
+				.status,
+		).toBe('INVALID');
+	});
+
+	test('refuses forged candidate order and non-contiguous operation counts', () => {
+		const forgedOrder = trials([5, 20]);
+		forgedOrder[16] = {
+			...at(forgedOrder, 16),
+			candidate: at(CANDIDATES, 0),
+		};
+		expect(
+			evaluateCalibrationTrials(forgedOrder, LETTER_MAPPING, 20, 2).status,
+		).toBe('INVALID');
+
+		const forgedOps = trials([5, 20]);
+		forgedOps[16] = { ...at(forgedOps, 16), ops: 4 };
+		expect(
+			evaluateCalibrationTrials(forgedOps, LETTER_MAPPING, 20, 4).status,
+		).toBe('INVALID');
+	});
+
+	test('refuses retained trials after the first complete trial', () => {
+		const result = evaluateCalibrationTrials(
+			trials([20, 40]),
+			LETTER_MAPPING,
+			20,
+			2,
+		);
+		expect(result.status).toBe('INVALID');
+	});
+
+	test('missing, duplicate, or reordered Williams trials are invalid', () => {
+		const complete = trials([20]);
+		expect(
+			evaluateCalibrationTrials(complete.slice(1), LETTER_MAPPING, 20, 1)
+				.status,
+		).toBe('INVALID');
+		expect(
+			evaluateCalibrationTrials(
+				[...complete, at(complete, 0)],
+				LETTER_MAPPING,
+				20,
+				1,
+			).status,
+		).toBe('INVALID');
+		const reordered = [...complete];
+		[reordered[0], reordered[1]] = [at(reordered, 1), at(reordered, 0)];
+		expect(
+			evaluateCalibrationTrials(reordered, LETTER_MAPPING, 20, 1).status,
+		).toBe('INVALID');
 	});
 });

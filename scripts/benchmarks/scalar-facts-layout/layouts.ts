@@ -23,25 +23,12 @@ import type { Database, SQLQueryBindings } from 'bun:sqlite';
 import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
 import type { Intent } from '../../../packages/data/src/protocol/v1/intents.js';
 import type { AuxiliaryTraces, DocumentEntry } from './auxiliary-traces.js';
+import type { Candidate } from './candidates.js';
 import { Sha256Stream } from './portable-hash.js';
 import type { Address, Fact, RowAddress, ValueAddress } from './trace.js';
 import { canonicalFactRecord, utf8Len } from './trace.js';
 
-export type RelationLayout = 'unified' | 'split';
-export type CoordinateLayout = 'inline' | 'normalized';
-
-export type Candidate = {
-	id: string;
-	relation: RelationLayout;
-	coordinates: CoordinateLayout;
-};
-
-export const CANDIDATES: readonly Candidate[] = [
-	{ id: 'unified-inline', relation: 'unified', coordinates: 'inline' },
-	{ id: 'unified-normalized', relation: 'unified', coordinates: 'normalized' },
-	{ id: 'split-inline', relation: 'split', coordinates: 'inline' },
-	{ id: 'split-normalized', relation: 'split', coordinates: 'normalized' },
-];
+export { CANDIDATES, type Candidate } from './candidates.js';
 
 const SAFE_SEQUENCE_MAX = Number.MAX_SAFE_INTEGER;
 const PAGE_SIZE = 4096;
@@ -380,8 +367,8 @@ export type LayoutStore = {
 	scanWitness(): OracleWitness;
 	/** Read one current fact's presence and sequence, or null. */
 	pointRead(address: Address): { present: 0 | 1; sequence: number } | null;
-	/** Full ordered traversal of the current facts; returns the count read. */
-	traverse(): number;
+	/** Ordered traversal of one sequence-bounded page of current facts. */
+	traverse(afterSequence: number, throughSequence: number): number;
 	/** Read the confirmed fact plus any replica pending-intent overlay for an address. */
 	overlayRead(address: Address): { confirmed: 0 | 1; pending: 0 | 1 };
 	/** Authority resume feed: rows with sequence greater than a watermark, ordered. */
@@ -711,9 +698,24 @@ export function createLayoutStore(
 		pointRead(address) {
 			return pointStore.point(address);
 		},
-		traverse() {
+		traverse(afterSequence, throughSequence) {
+			if (
+				!Number.isSafeInteger(afterSequence) ||
+				afterSequence < 0 ||
+				!Number.isSafeInteger(throughSequence) ||
+				throughSequence <= afterSequence
+			) {
+				throw new Error(
+					'traversal range must be increasing nonnegative integers',
+				);
+			}
 			let count = 0;
-			for (const _fact of pointStore.scan()) count += 1;
+			for (const _fact of pointStore.scanRange(
+				afterSequence,
+				throughSequence,
+			)) {
+				count += 1;
+			}
 			return count;
 		},
 		overlayRead(address) {
@@ -933,6 +935,7 @@ function buildPointStatements(prepare: Prepare, candidate: Candidate) {
 	// Scan every current fact in ascending sequence, reconstructing the V1 Fact.
 	const scanSql = scanSqlFor(candidate);
 	const scanStmt = prepare(scanSql);
+	const scanRangeStmt = prepare(scanRangeSqlFor(candidate));
 	const pointSql = pointSqlFor(candidate);
 	const pointStmt = prepare(pointSql.sql);
 
@@ -984,6 +987,17 @@ function buildPointStatements(prepare: Prepare, candidate: Candidate) {
 				yield reconstruct(raw);
 			}
 		},
+		*scanRange(
+			afterSequence: number,
+			throughSequence: number,
+		): Generator<Fact> {
+			for (const raw of scanRangeStmt.all(
+				afterSequence,
+				throughSequence,
+			) as Array<Parameters<typeof reconstruct>[0]>) {
+				yield reconstruct(raw);
+			}
+		},
 		point(address: Address): { present: 0 | 1; sequence: number } | null {
 			const cols = addressColumns(address);
 			const found = pointSql.bind(pointStmt, cols) as {
@@ -1015,6 +1029,32 @@ function scanSqlFor(candidate: Candidate): string {
 			UNION ALL
 			SELECT c.kind AS kind, c.namespace AS namespace, c.local_key AS local_key, '' AS row_id, f.present AS present, f.payload AS payload, f.sequence AS sequence
 			FROM value_facts f JOIN coordinates c USING (coordinate_id)
+		) ORDER BY sequence`;
+}
+
+function scanRangeSqlFor(candidate: Candidate): string {
+	if (candidate.relation === 'unified') {
+		return candidate.coordinates === 'inline'
+			? 'SELECT kind, namespace, local_key, row_id, present, payload, sequence FROM facts WHERE sequence > ?1 AND sequence <= ?2 ORDER BY sequence'
+			: `SELECT c.kind AS kind, c.namespace AS namespace, c.local_key AS local_key, f.row_id AS row_id, f.present AS present, f.payload AS payload, f.sequence AS sequence
+				FROM facts f JOIN coordinates c USING (coordinate_id)
+				WHERE f.sequence > ?1 AND f.sequence <= ?2 ORDER BY f.sequence`;
+	}
+	if (candidate.coordinates === 'inline') {
+		return `SELECT * FROM (
+				SELECT 'row' AS kind, namespace, local_key, row_id, present, payload, sequence FROM row_facts WHERE sequence > ?1 AND sequence <= ?2
+				UNION ALL
+				SELECT 'value' AS kind, namespace, local_key, '' AS row_id, present, payload, sequence FROM value_facts WHERE sequence > ?1 AND sequence <= ?2
+			) ORDER BY sequence`;
+	}
+	return `SELECT * FROM (
+			SELECT c.kind AS kind, c.namespace AS namespace, c.local_key AS local_key, f.row_id AS row_id, f.present AS present, f.payload AS payload, f.sequence AS sequence
+			FROM row_facts f JOIN coordinates c USING (coordinate_id)
+			WHERE f.sequence > ?1 AND f.sequence <= ?2
+			UNION ALL
+			SELECT c.kind AS kind, c.namespace AS namespace, c.local_key AS local_key, '' AS row_id, f.present AS present, f.payload AS payload, f.sequence AS sequence
+			FROM value_facts f JOIN coordinates c USING (coordinate_id)
+			WHERE f.sequence > ?1 AND f.sequence <= ?2
 		) ORDER BY sequence`;
 }
 

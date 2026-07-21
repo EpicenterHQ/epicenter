@@ -222,27 +222,206 @@ export function balanceDiagnostics(
 	};
 }
 
-/**
- * The smallest power-of-two operation count for which every candidate's block is
- * projected to run at least `minSeconds`, capped at `maxCount`. Given each
- * candidate's measured seconds-per-operation from a calibration probe, this is
- * the pure sizing decision behind "choose the smallest power-of-two operation
- * count for which every candidate takes at least 20 ms, then freeze the common
- * count." Returns null when even `maxCount` cannot reach the floor for some
- * candidate, so the runner refuses instead of timing sub-threshold blocks.
- */
-export function smallestPowerOfTwoForMinDuration(
-	perOperationSeconds: readonly number[],
-	minSeconds: number,
-	maxCount: number,
-): number | null {
-	if (perOperationSeconds.length === 0) return null;
-	const slowestFloor = Math.max(...perOperationSeconds);
-	if (!Number.isFinite(slowestFloor) || slowestFloor <= 0) return null;
-	let count = 1;
-	while (count <= maxCount) {
-		if (perOperationSeconds.every((s) => s * count >= minSeconds)) return count;
-		count *= 2;
+export type CalibrationTrial = {
+	candidate: string;
+	roundIndex: number;
+	trialIndex: number;
+	sequenceOrder: number;
+	sequenceIndex: number;
+	position: number;
+	letter: Letter;
+	ops: number;
+	elapsedMs: number;
+};
+
+export type CalibrationDecision =
+	| { status: 'SELECTED'; selectedOps: number; terminalRoundIndex: number }
+	| {
+			status: 'INCOMPLETE';
+			selectedOps: null;
+			code: 'DURATION_FLOOR_NOT_REACHED';
+			reason: string;
+	  }
+	| {
+			status: 'INVALID';
+			selectedOps: null;
+			code: 'INVALID_CALIBRATION';
+			reason: string;
+	  };
+
+export const CALIBRATION_TRIALS_PER_ROUND =
+	WILLIAMS_SEQUENCES.length * LETTERS.length;
+
+export type CalibrationSlot = Omit<
+	CalibrationTrial,
+	'ops' | 'elapsedMs' | 'roundIndex'
+> & { roundIndex: number };
+
+/** The single owner of the exact sixteen-position Williams calibration round. */
+export function buildCalibrationRound(
+	letterMapping: Readonly<Record<Letter, string>>,
+	roundIndex: number,
+): CalibrationSlot[] {
+	if (!Number.isSafeInteger(roundIndex) || roundIndex < 0) {
+		throw new Error('calibration round index must be a nonnegative integer');
 	}
-	return null;
+	const candidates = LETTERS.map((letter) => letterMapping[letter]);
+	if (
+		candidates.some(
+			(candidate) => typeof candidate !== 'string' || candidate.length === 0,
+		) ||
+		new Set(candidates).size !== LETTERS.length
+	) {
+		throw new Error(
+			'calibration letter mapping must be a four-candidate bijection',
+		);
+	}
+	const slots: CalibrationSlot[] = [];
+	for (let sequenceOrder = 0; sequenceOrder < 4; sequenceOrder += 1) {
+		const sequenceIndex = (sequenceOrder + roundIndex) % 4;
+		const sequence = WILLIAMS_SEQUENCES[sequenceIndex] as readonly Letter[];
+		for (let position = 0; position < 4; position += 1) {
+			const letter = sequence[position] as Letter;
+			slots.push({
+				roundIndex,
+				trialIndex: sequenceOrder * 4 + position,
+				sequenceOrder,
+				sequenceIndex,
+				position,
+				letter,
+				candidate: letterMapping[letter],
+			});
+		}
+	}
+	return slots;
+}
+
+function invalidCalibration(reason: string): CalibrationDecision {
+	return {
+		status: 'INVALID',
+		selectedOps: null,
+		code: 'INVALID_CALIBRATION',
+		reason,
+	};
+}
+
+function incompleteCalibration(reason: string): CalibrationDecision {
+	return {
+		status: 'INCOMPLETE',
+		selectedOps: null,
+		code: 'DURATION_FLOOR_NOT_REACHED',
+		reason,
+	};
+}
+
+/**
+ * Validate retained ACTUAL calibration trials and freeze their common operation
+ * count. Every round must contain the exact sixteen-slot Williams design in its
+ * declared rotated order, operation counts must be the contiguous powers of two
+ * starting at one, and only the terminal round may meet the duration floor for
+ * all sixteen trials. This function never projects duration from
+ * seconds-per-operation.
+ */
+export function evaluateCalibrationTrials(
+	trials: readonly CalibrationTrial[],
+	letterMapping: Readonly<Record<Letter, string>>,
+	minBlockMs: number,
+	maxBlockOps: number,
+): CalibrationDecision {
+	const candidates = LETTERS.map((letter) => letterMapping[letter]);
+	if (candidates.length === 0) {
+		return invalidCalibration('calibration has no candidates');
+	}
+	if (
+		!Number.isFinite(minBlockMs) ||
+		minBlockMs <= 0 ||
+		!Number.isSafeInteger(maxBlockOps) ||
+		maxBlockOps < 1
+	) {
+		return invalidCalibration('calibration limits are invalid');
+	}
+	if (new Set(candidates).size !== candidates.length) {
+		return invalidCalibration('calibration candidates are not unique');
+	}
+	if (candidates.length !== LETTERS.length) {
+		return invalidCalibration(
+			'the Williams calibration requires exactly four candidates',
+		);
+	}
+	if (
+		trials.length === 0 ||
+		trials.length % CALIBRATION_TRIALS_PER_ROUND !== 0
+	) {
+		return invalidCalibration(
+			'calibration does not contain complete Williams rounds',
+		);
+	}
+
+	const roundCount = trials.length / CALIBRATION_TRIALS_PER_ROUND;
+	let terminalRoundIndex: number | null = null;
+	for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
+		const expectedOps = 2 ** roundIndex;
+		if (!Number.isSafeInteger(expectedOps) || expectedOps > maxBlockOps) {
+			return invalidCalibration('calibration exceeds the frozen operation cap');
+		}
+		const group = trials.slice(
+			roundIndex * CALIBRATION_TRIALS_PER_ROUND,
+			(roundIndex + 1) * CALIBRATION_TRIALS_PER_ROUND,
+		);
+		let expectedSlots: CalibrationSlot[];
+		try {
+			expectedSlots = buildCalibrationRound(letterMapping, roundIndex);
+		} catch (error) {
+			return invalidCalibration((error as Error).message);
+		}
+		for (const expected of expectedSlots) {
+			const observation = group[expected.trialIndex];
+			if (
+				observation === undefined ||
+				observation.roundIndex !== expected.roundIndex ||
+				observation.trialIndex !== expected.trialIndex ||
+				observation.sequenceOrder !== expected.sequenceOrder ||
+				observation.sequenceIndex !== expected.sequenceIndex ||
+				observation.position !== expected.position ||
+				observation.letter !== expected.letter ||
+				observation.candidate !== expected.candidate ||
+				observation.ops !== expectedOps ||
+				!Number.isFinite(observation.elapsedMs) ||
+				observation.elapsedMs < 0
+			) {
+				return invalidCalibration(
+					`calibration round ${roundIndex} does not match the frozen Williams design`,
+				);
+			}
+		}
+		const allMet = group.every(
+			(observation) => observation.elapsedMs >= minBlockMs,
+		);
+		if (allMet) {
+			terminalRoundIndex = roundIndex;
+			if (roundIndex !== roundCount - 1) {
+				return invalidCalibration(
+					'calibration retained trials after the first complete trial',
+				);
+			}
+		} else if (roundIndex === roundCount - 1) {
+			if (expectedOps * 2 <= maxBlockOps) {
+				return invalidCalibration(
+					'calibration stopped before exhausting the frozen operation cap',
+				);
+			}
+			return incompleteCalibration(
+				'calibration never measured every Williams trial at the duration floor',
+			);
+		}
+	}
+
+	if (terminalRoundIndex === null) {
+		return invalidCalibration('calibration has no complete terminal trial');
+	}
+	return {
+		status: 'SELECTED',
+		selectedOps: 2 ** terminalRoundIndex,
+		terminalRoundIndex,
+	};
 }

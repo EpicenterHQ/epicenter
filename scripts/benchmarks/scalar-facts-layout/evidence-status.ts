@@ -1,5 +1,5 @@
 /**
- * Classifier-only evidence status. Fail-closed by construction.
+ * Evidence status. Fail-closed by construction.
  *
  * Policy (ADR-0161; spec 424-444, 555-562): evidence never selects, ranks,
  * recommends, applies a tie-break, or returns a candidate id. There is no
@@ -39,8 +39,8 @@ export type ProofGateInputs = {
 	crossCandidateConsistent: boolean;
 	/** The run's source and config identity match the persisted checkpoint. */
 	provenanceMatches: boolean;
-	/** The declared seed-level familywise estimator produced no structural refusal. */
-	estimatorOk: boolean;
+	/** Every identity-closed seed estimator exactly matches retained raw observations. */
+	estimatorsComplete: boolean;
 	/** Read-metric position and carryover are balanced across the executed Williams design. */
 	balanced: boolean;
 	/** Every RECORDED timed block met the 20 ms floor at the frozen operation count. */
@@ -59,10 +59,12 @@ export type ProofGateInputs = {
 	ownerWorkloadsExecuted: boolean;
 	/** Raw per-block, reopen, and checkpoint identities and observations were retained. */
 	rawObservationsRetained: boolean;
+	/** Every raw array and nested warmup/tail count exactly matches frozen owners. */
+	observationCountsExact: boolean;
 	/**
 	 * The run's dimensions match the frozen exact-envelope pilot: exactly 1,000,000
 	 * final-present addresses, exactly 536,870,912 proxy bytes, four fresh seeds,
-	 * three complete Williams cycles, at least twenty reopens, and at least 400 tail
+	 * three complete Williams cycles, exactly twenty reopens, and exactly 400 tail
 	 * transactions. A bounded smoke fails this and can never be method-validated.
 	 */
 	exactEnvelopeConformant: boolean;
@@ -102,10 +104,10 @@ function gatesOf(inputs: ProofGateInputs): GateStatus[] {
 			detail: 'run source and config identity match the persisted checkpoint',
 		},
 		{
-			name: 'estimator',
-			passed: inputs.estimatorOk,
+			name: 'seed-estimators',
+			passed: inputs.estimatorsComplete,
 			detail:
-				'the seed-level familywise estimator produced no structural refusal',
+				'every identity-closed seed estimator exactly matches retained raw observations',
 		},
 		{
 			name: 'balance',
@@ -155,6 +157,12 @@ function gatesOf(inputs: ProofGateInputs): GateStatus[] {
 				'raw per-block, reopen, and checkpoint observations were retained',
 		},
 		{
+			name: 'exact-observation-counts',
+			passed: inputs.observationCountsExact,
+			detail:
+				'every raw array and nested warmup/tail count exactly matches the frozen config, trace, and schedule owners',
+		},
+		{
 			name: 'exact-envelope',
 			passed: inputs.exactEnvelopeConformant,
 			detail:
@@ -180,8 +188,8 @@ export function validateMethod(inputs: ProofGateInputs): MethodValidation {
 }
 
 /**
- * The closed set of absolute performance metrics an ADR-ready classifier must
- * bound. The numeric ceilings are unmade ADR/product choices; this module ships
+ * The closed set of absolute performance metrics ADR-ready evidence must bound.
+ * The numeric ceilings are unmade ADR/product choices; this module ships
  * no numbers and only validates a supplied policy's shape.
  */
 export const REQUIRED_SLO_METRICS = [
@@ -272,7 +280,9 @@ export type EvidenceReadiness = {
 export type EvidenceInputs = {
 	/** A pilot can never be ADR-ready, regardless of gates. */
 	isPilot: boolean;
-	method: MethodValidation;
+	execution:
+		| { status: 'COMPLETE'; method: MethodValidation }
+		| { status: 'INCOMPLETE'; reasons: readonly string[] };
 	sloPolicy: AbsoluteSloPolicy;
 	/** Observed per-cell SLO results; null when SLOs were not evaluated (e.g. a pilot). */
 	sloObservations: SloObservation[] | null;
@@ -280,8 +290,6 @@ export type EvidenceInputs = {
 	expectedCells: EvidenceCell[];
 	/** Whether every owner-by-candidate-by-seed cell is present. */
 	matrixComplete: boolean;
-	/** Whether the equivalence classifier resolved every contrast (none inconclusive). */
-	classifierResolved: boolean;
 };
 
 function cellKey(cell: EvidenceCell): string {
@@ -293,8 +301,8 @@ function cellKey(cell: EvidenceCell): string {
  * `provisional` over `ready-for-adr-review`. Readiness requires a valid
  * configured SLO policy, an observed within-ceiling measurement for every
  * required metric in every expected cell, a validated method, a complete matrix,
- * a resolved classifier, and a non-pilot run. Any gap downgrades the state and
- * records why.
+ * and a non-pilot run. Classification is a separate later consumer of valid
+ * evidence, not a responsibility or readiness dependency of this pilot.
  */
 export function evaluateEvidenceReadiness(
 	inputs: EvidenceInputs,
@@ -324,20 +332,16 @@ export function evaluateEvidenceReadiness(
 			'a measurement-method pilot validates the method only; it never produces ADR-ready evidence',
 		);
 	}
-	if (!inputs.method.methodValidated) {
-		provisionalReasons.push(...inputs.method.proofRefusals);
+	if (inputs.execution.status === 'INCOMPLETE') {
+		incompleteReasons.push(...inputs.execution.reasons);
+	} else if (!inputs.execution.method.methodValidated) {
+		provisionalReasons.push(...inputs.execution.method.proofRefusals);
 	}
 	if (!inputs.matrixComplete) {
 		incompleteReasons.push(
 			'the owner-by-candidate-by-seed matrix is incomplete',
 		);
 	}
-	if (!inputs.classifierResolved) {
-		incompleteReasons.push(
-			'the equivalence classifier left at least one contrast unresolved',
-		);
-	}
-
 	// SLO observation completeness and within-ceiling, only meaningful under a
 	// valid configured policy.
 	if (inputs.sloPolicy.configured && policy.valid) {

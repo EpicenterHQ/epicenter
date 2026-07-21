@@ -13,16 +13,21 @@ import { join } from 'node:path';
 
 import {
 	completenessExpectations,
+	computeProvenanceIdentity,
 	createManifest,
 	type ProvenanceConfig,
 	type SeedRecord,
 } from './checkpoint.js';
+import { buildSeedEstimators } from './estimators.js';
 import {
+	buildCalibrationIncompleteArtifact,
 	buildRetainedSet,
+	type CalibrationObservation,
 	cleanupRetainedSet,
 	commitSeedCheckpoint,
 } from './pilot.js';
 import { buildCompleteRaw } from './raw-schema.test-support.js';
+import { evaluateCalibrationTrials } from './schedule.js';
 import { makeTrace, type Trace } from './trace.js';
 
 const dirs: string[] = [];
@@ -64,37 +69,114 @@ const CONFIG: ProvenanceConfig = {
 	],
 	owners: ['replica', 'authority'],
 	seedIds: [1000],
+	traceOptions: [
+		{
+			facts: 240,
+			namespaceCount: 6,
+			tableCount: 20,
+			valueRatio: 0.08,
+			dataSeed: 1000,
+			targetLogicalStateBytes: 24_000,
+			maxEncodedFactBytes: 4096,
+		},
+	],
 	cycles: 1,
 	reopenObservations: 2,
 	tailTransactions: 2,
 	maxReadBlocks: 64,
 	minBlockMs: 20,
-	bootstrapDraws: 10,
-	bootstrapSeed: 1,
-	ddlHashes: {},
+	maxBlockOps: 1 << 20,
+	ddlHashes: {
+		'unified-inline': 'h1',
+		'unified-normalized': 'h2',
+		'split-inline': 'h3',
+		'split-normalized': 'h4',
+	},
 	limitsDigest: 'd',
 	runtime: { bun: 'x', sqlite: 'y' },
-	executionSettings: {},
+	executionSettings: {
+		journal_mode: 'WAL',
+		synchronous: 'NORMAL',
+		page_size: 4096,
+		foreign_keys: 'ON',
+		recursive_triggers: 'ON',
+		wal_autocheckpoint: 1000,
+	},
 	workloadDigest: 'w',
 	auxiliaryDigest: 'a',
 };
 
 function seedRecord(): SeedRecord {
+	const raw = buildCompleteRaw(
+		completenessExpectations(CONFIG, 0),
+	) as SeedRecord['raw'];
 	return {
 		seedId: 1000,
-		estimators: { 'replica/confirmedPointRead': 1 },
-		hashes: { trace: 't' },
-		raw: buildCompleteRaw(completenessExpectations(CONFIG, 0)),
-		seedGatesPassed: true,
-	} as unknown as SeedRecord;
+		estimators: buildSeedEstimators(
+			raw,
+			computeProvenanceIdentity(CONFIG),
+			1000,
+		),
+		hashes: { trace: 't', traceBound: '1', auxiliaryBound: '1' },
+		raw,
+	};
 }
 
 describe('durable-write-before-delete ordering', () => {
+	test('calibration cap exhaustion produces an auditable incomplete artifact', () => {
+		const provenance = { ...CONFIG, maxBlockOps: 2 };
+		const expectations = completenessExpectations(provenance, 0);
+		const raw = buildCompleteRaw(expectations) as SeedRecord['raw'];
+		const trials = structuredClone(raw.calibrations).filter(
+			(trial) =>
+				(trial as { owner: string }).owner === 'replica' &&
+				(trial as { metric: string }).metric === 'confirmedTraversal',
+		) as CalibrationObservation[];
+		const terminal = trials.find((trial) => trial.roundIndex === 1);
+		expect(terminal).toBeDefined();
+		if (terminal) terminal.elapsedMs = 19;
+		expect(
+			evaluateCalibrationTrials(
+				trials,
+				expectations.letterMapping as Record<'A' | 'B' | 'C' | 'D', string>,
+				20,
+				2,
+			).status,
+		).toBe('INCOMPLETE');
+		const artifact = buildCalibrationIncompleteArtifact({
+			provenance,
+			manifestIdentity: computeProvenanceIdentity(provenance),
+			refusal: {
+				status: 'INCOMPLETE',
+				reasonCode: 'CALIBRATION_OPS_UNSELECTED',
+				selectedOps: null,
+				reason: 'duration floor not reached at the operation cap',
+				seedId: 1000,
+				owner: 'replica',
+				metric: 'confirmedTraversal',
+				minBlockMs: 20,
+				maxBlockOps: provenance.maxBlockOps,
+				trials,
+			},
+			completedSeedIds: [],
+			resumedSeedIds: [],
+		});
+		expect(artifact.status).toBe('INCOMPLETE');
+		expect(artifact.selectedOps).toBeNull();
+		expect(artifact.reasonCode).toBe('CALIBRATION_OPS_UNSELECTED');
+		expect(artifact.method).toBeNull();
+		expect(artifact.evidenceStatus.status).toBe('incomplete');
+		expect(artifact.completedSeedIds).toEqual([]);
+		expect(JSON.stringify(artifact.trials)).toBe(JSON.stringify(trials));
+	});
+
 	test('a manifest-write failure leaves all eight databases retained', () => {
 		const dir = tempDir();
 		const retained = buildRetainedSet(
 			dir,
 			0,
+			computeProvenanceIdentity(CONFIG),
+			1000,
 			finalFacts(tinyTrace()),
 			tinyTrace(),
 		);
@@ -124,6 +206,8 @@ describe('durable-write-before-delete ordering', () => {
 		const retained = buildRetainedSet(
 			dir,
 			1,
+			computeProvenanceIdentity(CONFIG),
+			1000,
 			finalFacts(tinyTrace()),
 			tinyTrace(),
 		);
@@ -172,7 +256,16 @@ describe('partial construction rollback', () => {
 			return { finalize() {} } as never;
 		};
 		expect(() =>
-			buildRetainedSet(dir, 2, facts, trace, openOne, populateOne),
+			buildRetainedSet(
+				dir,
+				2,
+				computeProvenanceIdentity(CONFIG),
+				1000,
+				facts,
+				trace,
+				openOne,
+				populateOne,
+			),
 		).toThrow('populate failed');
 		// Four files were opened (three populated, the fourth registered then failed).
 		expect(opened.length).toBe(4);
@@ -213,7 +306,16 @@ describe('partial construction rollback', () => {
 		};
 		let caught: unknown;
 		try {
-			buildRetainedSet(dir, 3, facts, trace, openOne, populateOne);
+			buildRetainedSet(
+				dir,
+				3,
+				computeProvenanceIdentity(CONFIG),
+				1000,
+				facts,
+				trace,
+				openOne,
+				populateOne,
+			);
 		} catch (error) {
 			caught = error;
 		}

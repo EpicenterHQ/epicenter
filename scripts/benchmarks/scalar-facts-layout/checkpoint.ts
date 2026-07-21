@@ -21,13 +21,21 @@ import {
 	canonicalize,
 	utf8ByteLength,
 } from '../../../packages/data/src/protocol/v1/canonical.js';
+import { CANDIDATE_IDS } from './candidates.js';
+import {
+	type EstimatorRaw,
+	estimatorsMatchRaw,
+	type SeedEstimator,
+} from './estimators.js';
 import { Sha256Stream } from './portable-hash.js';
 import {
 	type CompletenessExpectations,
+	RAW_OWNERS,
 	validateSeedCompleteness,
 	validateSeedRawClosed,
 } from './raw-schema.js';
 import { buildSeedSchedule } from './schedule.js';
+import type { TraceOptions } from './trace.js';
 
 /**
  * Everything that must be identical for two runs to share a checkpoint. Any
@@ -36,6 +44,15 @@ import { buildSeedSchedule } from './schedule.js';
  * hashes, the validated limits, the runtime and SQLite versions, the execution
  * settings (pragmas), and the real workload and auxiliary digests.
  */
+export type ExecutionSettings = {
+	journal_mode: string;
+	synchronous: string;
+	page_size: number;
+	foreign_keys: string;
+	recursive_triggers: string;
+	wal_autocheckpoint: number;
+};
+
 export type ProvenanceConfig = {
 	/** The exact workload source version, e.g. the git commit; never a generic placeholder. */
 	sourceVersion: string;
@@ -49,6 +66,8 @@ export type ProvenanceConfig = {
 	owners: string[];
 	/** The seed ids that define the outer units, in order. */
 	seedIds: number[];
+	/** Exact deterministic trace inputs for each seed, in the same order. */
+	traceOptions: TraceOptions[];
 	/** Williams cycles per seed. */
 	cycles: number;
 	/** Reopen observations per seed and candidate. */
@@ -59,9 +78,8 @@ export type ProvenanceConfig = {
 	maxReadBlocks: number;
 	/** Minimum timed-block duration in milliseconds. */
 	minBlockMs: number;
-	/** Bootstrap draw count and seed. */
-	bootstrapDraws: number;
-	bootstrapSeed: number;
+	/** Maximum calibrated operations in one timed read block. */
+	maxBlockOps: number;
 	/** Per-candidate DDL hash: the exact physical schema behind each candidate. */
 	ddlHashes: Record<string, string>;
 	/** A canonical digest of the validated V1 limits. */
@@ -69,7 +87,7 @@ export type ProvenanceConfig = {
 	/** The runtime and SQLite versions the evidence was produced under. */
 	runtime: { bun: string; sqlite: string };
 	/** The execution settings (pragmas) that shape physical behavior. */
-	executionSettings: Record<string, string | number>;
+	executionSettings: ExecutionSettings;
 	/** A canonical digest of the trace options (workload identity). */
 	workloadDigest: string;
 	/** A canonical digest of the auxiliary-trace options and their bound hashes. */
@@ -81,26 +99,27 @@ export type ProvenanceConfig = {
  * cell arrays the pilot records. Persisting it means a resumed run's gates cover
  * committed AND fresh seeds identically to a clean run, not estimators alone.
  */
-export type SeedRaw = {
-	blocks: unknown[];
+export type SeedRaw = EstimatorRaw & {
+	letterMapping: Record<string, string>;
+	lifecycle: {
+		peakRetained: number;
+		liveAtCommit: number;
+		retainedThroughCommit: boolean;
+	};
+	probes: unknown[];
+	calibrations: unknown[];
 	boundaries: unknown[];
-	reopens: unknown[];
-	tails: unknown[];
-	macros: unknown[];
-	cells: unknown[];
 };
 
 /** One committed seed's evidence, the unit a resume may skip. */
 export type SeedRecord = {
 	seedId: number;
-	/** The seed-level estimators, keyed `owner/candidate/metric` -> scalar. */
-	estimators: Record<string, number>;
+	/** Identity-closed seed-level estimators, each recomputable from retained raw. */
+	estimators: SeedEstimator[];
 	/** Provenance hashes captured for this seed (trace, auxiliary, integrity). */
 	hashes: Record<string, string>;
 	/** The complete raw per-seed observations, persisted so resume covers this seed. */
 	raw: SeedRaw;
-	/** True when this seed cleared every per-seed proof gate. */
-	seedGatesPassed: boolean;
 };
 
 export type PilotManifest = {
@@ -110,6 +129,158 @@ export type PilotManifest = {
 	/** Committed whole-seed records, in commit order. */
 	completedSeeds: SeedRecord[];
 };
+
+const PROVENANCE_KEYS = [
+	'sourceVersion',
+	'profile',
+	'isPilot',
+	'candidates',
+	'owners',
+	'seedIds',
+	'traceOptions',
+	'cycles',
+	'reopenObservations',
+	'tailTransactions',
+	'maxReadBlocks',
+	'minBlockMs',
+	'maxBlockOps',
+	'ddlHashes',
+	'limitsDigest',
+	'runtime',
+	'executionSettings',
+	'workloadDigest',
+	'auxiliaryDigest',
+] as const;
+const EXECUTION_SETTING_KEYS = [
+	'journal_mode',
+	'synchronous',
+	'page_size',
+	'foreign_keys',
+	'recursive_triggers',
+	'wal_autocheckpoint',
+] as const;
+const TRACE_OPTION_KEYS = [
+	'facts',
+	'namespaceCount',
+	'tableCount',
+	'valueRatio',
+	'dataSeed',
+	'targetLogicalStateBytes',
+	'maxEncodedFactBytes',
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+	value: unknown,
+	expected: readonly string[],
+): value is Record<string, unknown> {
+	if (!isRecord(value)) return false;
+	const keys = Object.keys(value);
+	return (
+		keys.length === expected.length &&
+		expected.every((key) => Object.hasOwn(value, key))
+	);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === 'string' && value.length > 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+function exactArray(value: readonly string[], expected: readonly string[]) {
+	return (
+		value.length === expected.length &&
+		value.every((entry, index) => entry === expected[index])
+	);
+}
+
+function isValidExecutionSettings(value: unknown): value is ExecutionSettings {
+	if (!hasExactKeys(value, EXECUTION_SETTING_KEYS)) return false;
+	return (
+		isNonEmptyString(value.journal_mode) &&
+		isNonEmptyString(value.synchronous) &&
+		isPositiveInteger(value.page_size) &&
+		isNonEmptyString(value.foreign_keys) &&
+		isNonEmptyString(value.recursive_triggers) &&
+		isPositiveInteger(value.wal_autocheckpoint)
+	);
+}
+
+function isValidTraceOptions(value: unknown): value is TraceOptions {
+	if (!hasExactKeys(value, TRACE_OPTION_KEYS)) return false;
+	return (
+		isPositiveInteger(value.facts) &&
+		isPositiveInteger(value.namespaceCount) &&
+		isPositiveInteger(value.tableCount) &&
+		typeof value.valueRatio === 'number' &&
+		Number.isFinite(value.valueRatio) &&
+		value.valueRatio > 0 &&
+		value.valueRatio <= 1 &&
+		typeof value.dataSeed === 'number' &&
+		Number.isSafeInteger(value.dataSeed) &&
+		value.dataSeed >= 0 &&
+		isPositiveInteger(value.targetLogicalStateBytes) &&
+		isPositiveInteger(value.maxEncodedFactBytes)
+	);
+}
+
+function isValidProvenanceConfig(value: unknown): value is ProvenanceConfig {
+	if (!hasExactKeys(value, PROVENANCE_KEYS)) return false;
+	const ddlHashes = value.ddlHashes;
+	const seedIds = value.seedIds;
+	const traceOptions = value.traceOptions;
+	if (
+		!isNonEmptyString(value.sourceVersion) ||
+		!isNonEmptyString(value.profile) ||
+		typeof value.isPilot !== 'boolean' ||
+		!isStringArray(value.candidates) ||
+		!exactArray(value.candidates, CANDIDATE_IDS) ||
+		!isStringArray(value.owners) ||
+		!exactArray(value.owners, RAW_OWNERS) ||
+		!Array.isArray(seedIds) ||
+		seedIds.length === 0 ||
+		!seedIds.every((seedId) => Number.isSafeInteger(seedId) && seedId >= 0) ||
+		new Set(seedIds).size !== seedIds.length ||
+		!Array.isArray(traceOptions) ||
+		traceOptions.length !== seedIds.length ||
+		!traceOptions.every(
+			(options, index) =>
+				isValidTraceOptions(options) && options.dataSeed === seedIds[index],
+		) ||
+		!isPositiveInteger(value.cycles) ||
+		!isPositiveInteger(value.reopenObservations) ||
+		!isPositiveInteger(value.tailTransactions) ||
+		!isPositiveInteger(value.maxReadBlocks) ||
+		typeof value.minBlockMs !== 'number' ||
+		!Number.isFinite(value.minBlockMs) ||
+		value.minBlockMs <= 0 ||
+		!isPositiveInteger(value.maxBlockOps) ||
+		!hasExactKeys(value.runtime, ['bun', 'sqlite']) ||
+		!isNonEmptyString(value.runtime.bun) ||
+		!isNonEmptyString(value.runtime.sqlite) ||
+		!isValidExecutionSettings(value.executionSettings) ||
+		!isNonEmptyString(value.limitsDigest) ||
+		!isNonEmptyString(value.workloadDigest) ||
+		!isNonEmptyString(value.auxiliaryDigest) ||
+		!hasExactKeys(ddlHashes, value.candidates) ||
+		!value.candidates.every((candidate) =>
+			isNonEmptyString(ddlHashes[candidate]),
+		)
+	) {
+		return false;
+	}
+	return true;
+}
 
 /**
  * A stable identity hash over the source version and the entire configuration.
@@ -154,6 +325,17 @@ export function decideResume(
 		};
 	}
 	const completedSeedIds = existing.completedSeeds.map((seed) => seed.seedId);
+	if (
+		completedSeedIds.some(
+			(seedId, index) => seedId !== currentConfig.seedIds[index],
+		)
+	) {
+		return {
+			canResume: false,
+			reason:
+				'checkpoint seeds are not the unique committed prefix of the configured seed list',
+		};
+	}
 	const completed = new Set(completedSeedIds);
 	// A committed seed that is no longer in the configured seed list also signals a
 	// config drift the identity should have caught; guard it explicitly.
@@ -181,7 +363,7 @@ export function commitSeed(
 	record: SeedRecord,
 ): PilotManifest {
 	const seedLabel = String((record as { seedId?: unknown } | null)?.seedId);
-	if (!isValidSeedRecord(record)) {
+	if (!isValidSeedRecord(record, manifest.identity)) {
 		throw new Error(
 			`refusing to commit a malformed or partial seed record for seed ${seedLabel}; a resume point must be a complete whole seed`,
 		);
@@ -189,43 +371,58 @@ export function commitSeed(
 	if (manifest.completedSeeds.some((seed) => seed.seedId === record.seedId)) {
 		throw new Error(`seed ${record.seedId} is already committed`);
 	}
+	const seedIndex = manifest.config.seedIds.indexOf(record.seedId);
+	if (
+		seedIndex < 0 ||
+		seedIndex !== manifest.completedSeeds.length ||
+		!validateSeedCompleteness(
+			record.raw,
+			completenessExpectations(manifest.config, seedIndex),
+		).complete
+	) {
+		throw new Error(
+			`refusing to commit incomplete raw observations or an out-of-order seed ${seedLabel}`,
+		);
+	}
 	return {
 		...manifest,
 		completedSeeds: [...manifest.completedSeeds, record],
 	};
 }
 
-function isValidSeedRecord(record: unknown): record is SeedRecord {
+function isValidSeedRecord(
+	record: unknown,
+	configIdentity: string,
+): record is SeedRecord {
 	if (typeof record !== 'object' || record === null) return false;
 	const r = record as Record<string, unknown>;
+	if (!hasExactKeys(r, ['seedId', 'estimators', 'hashes', 'raw'])) return false;
 	if (!Number.isInteger(r.seedId)) return false;
-	if (typeof r.seedGatesPassed !== 'boolean') return false;
-	if (typeof r.estimators !== 'object' || r.estimators === null) return false;
-	const estimators = r.estimators as Record<string, unknown>;
-	const keys = Object.keys(estimators);
-	if (keys.length === 0) return false; // a partial block has no estimators
-	for (const key of keys) {
-		const value = estimators[key];
-		if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+	if (!hasExactKeys(r.hashes, ['trace', 'traceBound', 'auxiliaryBound'])) {
+		return false;
 	}
-	if (typeof r.hashes !== 'object' || r.hashes === null) return false;
 	const hashes = r.hashes as Record<string, unknown>;
-	if (Object.keys(hashes).length === 0) return false; // provenance is required
 	for (const key of Object.keys(hashes)) {
-		if (typeof hashes[key] !== 'string') return false;
+		if (!isNonEmptyString(hashes[key])) return false;
 	}
 	// Every observation is validated against its CLOSED shape (exact keys, enums,
 	// finite numbers, id shapes). Completeness (exact counts) is checked separately
 	// with profile-derived expectations.
-	return validateSeedRawClosed(r.raw).valid;
+	if (!validateSeedRawClosed(r.raw).valid) return false;
+	return estimatorsMatchRaw(
+		r.estimators,
+		r.raw as EstimatorRaw,
+		configIdentity,
+		r.seedId as number,
+	);
 }
 
 /**
  * Per-seed completeness expectations. The exact expected schedule is derived from
  * the single schedule owner (`buildSeedSchedule`) using this seed's index as the
  * rotation, and truncated to the read-block cap, so completeness compares block
- * identities against the real schedule rather than a reconstructed guess. The
- * seed index also fixes the `s<seedIndex>` build-id prefix.
+ * identities against the real schedule rather than a reconstructed guess. Build
+ * identity is derived separately from config identity, seed id, owner, and candidate.
  */
 export function completenessExpectations(
 	config: ProvenanceConfig,
@@ -234,6 +431,10 @@ export function completenessExpectations(
 	const seedId = config.seedIds[seedIndex];
 	if (seedId === undefined)
 		throw new Error(`seed index ${seedIndex} is out of range`);
+	const traceOptions = config.traceOptions[seedIndex];
+	if (traceOptions === undefined) {
+		throw new Error(`trace options for seed index ${seedIndex} are missing`);
+	}
 	const schedule = buildSeedSchedule({
 		seedId,
 		candidates: config.candidates,
@@ -245,7 +446,12 @@ export function completenessExpectations(
 		owners: config.owners,
 		candidates: config.candidates,
 		reopenObservations: config.reopenObservations,
-		minTailTransactions: config.tailTransactions,
+		tailTransactions: config.tailTransactions,
+		minBlockMs: config.minBlockMs,
+		maxBlockOps: config.maxBlockOps,
+		seedId,
+		configIdentity: computeProvenanceIdentity(config),
+		traceOptions,
 		seedIndex,
 		schedule: schedule.blocks.slice(0, perMetricTotal),
 		letterMapping: schedule.letterMapping,
@@ -286,14 +492,30 @@ export function parseManifest(serialized: string): PilotManifest | null {
 	}
 	if (typeof value !== 'object' || value === null) return null;
 	const record = value as Record<string, unknown>;
+	if (!hasExactKeys(record, ['identity', 'config', 'completedSeeds']))
+		return null;
 	if (typeof record.identity !== 'string') return null;
-	if (typeof record.config !== 'object' || record.config === null) return null;
+	if (!isValidProvenanceConfig(record.config)) return null;
 	if (!Array.isArray(record.completedSeeds)) return null;
-	if (!record.completedSeeds.every(isValidSeedRecord)) return null;
-	const config = record.config as ProvenanceConfig;
+	const config = record.config;
 	// The embedded identity must equal the identity recomputed from the config, so
 	// a hand-edited config cannot slip through under a stale identity.
 	if (computeProvenanceIdentity(config) !== record.identity) return null;
+	if (
+		!record.completedSeeds.every((seed) =>
+			isValidSeedRecord(seed, record.identity as string),
+		)
+	) {
+		return null;
+	}
+	const completedSeedIds = (record.completedSeeds as SeedRecord[]).map(
+		(seed) => seed.seedId,
+	);
+	if (
+		completedSeedIds.some((seedId, index) => seedId !== config.seedIds[index])
+	) {
+		return null;
+	}
 	// Every committed seed must belong to the config's seed list and be a COMPLETE
 	// seed against its OWN per-seed expectations (the schedule depends on the seed's
 	// index), so a resumed seed is structurally equivalent to a fresh one.

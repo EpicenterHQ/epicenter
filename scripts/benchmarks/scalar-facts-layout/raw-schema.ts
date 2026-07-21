@@ -14,17 +14,19 @@
  * permutation check is refused. It is pure: no SQLite, no wall clock.
  */
 
-import type { ScheduledBlock } from './schedule.js';
+import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
+import { CANDIDATE_IDS } from './candidates.js';
+import {
+	buildProbePlan,
+	buildProbeSource,
+	PROBE_PHASES,
+	type ProbePhase,
+} from './probe-plan.js';
+import { evaluateCalibrationTrials, type ScheduledBlock } from './schedule.js';
+import type { TraceOptions } from './trace.js';
 
 export const RAW_OWNERS = ['replica', 'authority'] as const;
 export type RawOwner = (typeof RAW_OWNERS)[number];
-
-export const RAW_CANDIDATE_IDS = [
-	'unified-inline',
-	'unified-normalized',
-	'split-inline',
-	'split-normalized',
-] as const;
 
 export const RAW_READ_METRICS: Record<RawOwner, readonly string[]> = {
 	replica: [
@@ -44,20 +46,34 @@ export const RAW_MACRO_METRIC: Record<RawOwner, string> = {
 };
 export const RAW_BOUNDARY_KINDS = ['pair', 'cycle'] as const;
 export const RAW_LETTERS = ['A', 'B', 'C', 'D'] as const;
+export function buildIdFor(
+	configIdentity: string,
+	seedId: number,
+	owner: string,
+	candidate: string,
+): string {
+	return `${configIdentity}/${seedId}/${owner}/${candidate}/build`;
+}
 
 type FieldCheck = (value: unknown) => boolean;
-const isFiniteNumber: FieldCheck = (v) =>
-	typeof v === 'number' && Number.isFinite(v);
+const isNonNegativeFiniteNumber: FieldCheck = (v) =>
+	typeof v === 'number' && Number.isFinite(v) && v >= 0;
+const isPositiveFiniteNumber: FieldCheck = (v) =>
+	typeof v === 'number' && Number.isFinite(v) && v > 0;
+const isNonNegativeInteger: FieldCheck = (v) =>
+	typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const isPositiveInteger: FieldCheck = (v) =>
+	typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 const isString: FieldCheck = (v) => typeof v === 'string';
 const isBoolean: FieldCheck = (v) => typeof v === 'boolean';
 const isStringOrNull: FieldCheck = (v) => v === null || typeof v === 'string';
-const isFiniteArray: FieldCheck = (v) =>
+const isNonNegativeFiniteArray: FieldCheck = (v) =>
 	Array.isArray(v) &&
-	v.every((x) => typeof x === 'number' && Number.isFinite(x));
-const isThreeFiniteTuple: FieldCheck = (v) =>
+	v.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0);
+const isThreeNonNegativeFiniteTuple: FieldCheck = (v) =>
 	Array.isArray(v) &&
 	v.length === 3 &&
-	v.every((x) => typeof x === 'number' && Number.isFinite(x));
+	v.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0);
 
 /** Validate a value is a plain object with EXACTLY the given keys, each matching. */
 function isClosed(value: unknown, spec: Record<string, FieldCheck>): boolean {
@@ -74,14 +90,23 @@ function isClosed(value: unknown, spec: Record<string, FieldCheck>): boolean {
 	return true;
 }
 
+function percentile(values: readonly number[], fraction: number): number {
+	const sorted = [...values].sort((a, b) => a - b);
+	const rank = Math.ceil(fraction * sorted.length);
+	return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))] as number;
+}
+
 const ownerCheck: FieldCheck = (v) =>
 	(RAW_OWNERS as readonly string[]).includes(v as string);
-const candidateCheck: FieldCheck = (v) =>
-	(RAW_CANDIDATE_IDS as readonly string[]).includes(v as string);
+const candidateCheck: FieldCheck = (v) => CANDIDATE_IDS.includes(v as string);
 const boundaryEnumCheck: FieldCheck = (v) =>
 	v === 'start' || v === 'none' || v === 'pair' || v === 'cycle';
 const letterCheck: FieldCheck = (v) =>
 	(RAW_LETTERS as readonly string[]).includes(v as string);
+const probePhaseCheck: FieldCheck = (v) =>
+	(PROBE_PHASES as readonly string[]).includes(v as string);
+const sha256Check: FieldCheck = (v) =>
+	typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
 
 export function isValidBlock(v: unknown): boolean {
 	return isClosed(v, {
@@ -89,16 +114,77 @@ export function isValidBlock(v: unknown): boolean {
 		metric: isString,
 		candidate: candidateCheck,
 		buildId: isString,
-		cycle: isFiniteNumber,
-		ordinal: isFiniteNumber,
-		position: isFiniteNumber,
+		cycle: isNonNegativeInteger,
+		ordinal: isNonNegativeInteger,
+		position: isNonNegativeInteger,
 		letter: letterCheck,
 		sequenceLabel: isString,
 		predecessor: isStringOrNull,
 		boundary: boundaryEnumCheck,
-		ops: isFiniteNumber,
-		warmupMs: isThreeFiniteTuple,
-		elapsedMs: isFiniteNumber,
+		ops: isPositiveInteger,
+		calibrationId: isString,
+		warmupProbeId: isString,
+		warmupProbeDigest: sha256Check,
+		timedProbeId: isString,
+		timedProbeDigest: sha256Check,
+		temporalOrdinal: isNonNegativeInteger,
+		warmupMs: isThreeNonNegativeFiniteTuple,
+		elapsedMs: isNonNegativeFiniteNumber,
+	});
+}
+export function isValidCalibration(v: unknown): boolean {
+	return isClosed(v, {
+		configIdentity: isString,
+		seedId: isNonNegativeInteger,
+		owner: ownerCheck,
+		metric: isString,
+		candidate: candidateCheck,
+		buildId: isString,
+		roundIndex: isNonNegativeInteger,
+		trialIndex: isNonNegativeInteger,
+		sequenceOrder: isNonNegativeInteger,
+		sequenceIndex: isNonNegativeInteger,
+		position: isNonNegativeInteger,
+		letter: letterCheck,
+		ops: isPositiveInteger,
+		elapsedMs: isNonNegativeFiniteNumber,
+		minBlockMs: isPositiveFiniteNumber,
+		probeId: isString,
+		probeDigest: sha256Check,
+		calibrationId: isString,
+		temporalOrdinal: isNonNegativeInteger,
+	});
+}
+export function isValidProbe(v: unknown): boolean {
+	return isClosed(v, {
+		configIdentity: isString,
+		seedId: isNonNegativeInteger,
+		owner: ownerCheck,
+		metric: isString,
+		phase: probePhaseCheck,
+		probeId: isString,
+		sourceDigest: sha256Check,
+		itemsDigest: sha256Check,
+		rowOffset: isNonNegativeInteger,
+		rowCount: isPositiveInteger,
+		watermarkOffset: isNonNegativeInteger,
+		watermarkCount: isPositiveInteger,
+		retryOffset: isNonNegativeInteger,
+		retryCount: isPositiveInteger,
+		traversalOffset: isNonNegativeInteger,
+		traversalCount: isPositiveInteger,
+		traversalStartSequence: isNonNegativeInteger,
+		traversalEndSequence: isPositiveInteger,
+		traversalPages: (pages) =>
+			Array.isArray(pages) &&
+			pages.every((page) =>
+				isClosed(page, {
+					pageIndex: isNonNegativeInteger,
+					afterSequence: isNonNegativeInteger,
+					throughSequence: isPositiveInteger,
+					digest: sha256Check,
+				}),
+			),
 	});
 }
 export function isValidBoundary(v: unknown): boolean {
@@ -107,10 +193,10 @@ export function isValidBoundary(v: unknown): boolean {
 		metric: isString,
 		kind: (x) =>
 			(RAW_BOUNDARY_KINDS as readonly string[]).includes(x as string),
-		atOrdinal: isFiniteNumber,
-		idleMs: isFiniteNumber,
-		reopenMs: isFiniteNumber,
-		reopenedCandidates: isFiniteNumber,
+		atOrdinal: isNonNegativeInteger,
+		idleMs: isNonNegativeFiniteNumber,
+		reopenMs: isNonNegativeFiniteNumber,
+		reopenedCandidates: isPositiveInteger,
 		reopenOk: isBoolean,
 	});
 }
@@ -119,9 +205,9 @@ export function isValidReopen(v: unknown): boolean {
 		owner: ownerCheck,
 		candidate: candidateCheck,
 		buildId: isString,
-		index: isFiniteNumber,
-		orderPosition: isFiniteNumber,
-		elapsedMs: isFiniteNumber,
+		index: isNonNegativeInteger,
+		orderPosition: isNonNegativeInteger,
+		elapsedMs: isNonNegativeFiniteNumber,
 		witnessDigest: isString,
 		witnessMatchesOracle: isBoolean,
 	});
@@ -131,15 +217,15 @@ export function isValidTail(v: unknown): boolean {
 		owner: ownerCheck,
 		metric: isString,
 		candidate: candidateCheck,
-		transactions: isFiniteNumber,
-		samplesMs: isFiniteArray,
-		p50Ms: isFiniteNumber,
-		p95Ms: isFiniteNumber,
-		p99Ms: isFiniteNumber,
-		throughputPerSec: isFiniteNumber,
+		transactions: isPositiveInteger,
+		samplesMs: isNonNegativeFiniteArray,
+		p50Ms: isNonNegativeFiniteNumber,
+		p95Ms: isNonNegativeFiniteNumber,
+		p99Ms: isNonNegativeFiniteNumber,
+		throughputPerSec: isNonNegativeFiniteNumber,
 		resetVerified: isBoolean,
-		warmupTransactions: isFiniteNumber,
-		walDeltaDiagnostic: isFiniteNumber,
+		warmupTransactions: isNonNegativeInteger,
+		walDeltaDiagnostic: isNonNegativeInteger,
 		checkpointSignalTruthful: isBoolean,
 	});
 }
@@ -148,8 +234,9 @@ export function isValidMacro(v: unknown): boolean {
 		owner: ownerCheck,
 		metric: isString,
 		candidate: candidateCheck,
-		elapsedMs: isFiniteNumber,
-		throughputPerSec: isFiniteNumber,
+		units: isPositiveInteger,
+		elapsedMs: isNonNegativeFiniteNumber,
+		throughputPerSec: isNonNegativeFiniteNumber,
 	});
 }
 export function isValidCell(v: unknown): boolean {
@@ -159,8 +246,8 @@ export function isValidCell(v: unknown): boolean {
 		buildId: isString,
 		oracleReproduced: isBoolean,
 		integrityOk: isBoolean,
-		candidateTableBytes: isFiniteNumber,
-		fileBytes: isFiniteNumber,
+		candidateTableBytes: isNonNegativeInteger,
+		fileBytes: isNonNegativeInteger,
 	});
 }
 
@@ -175,6 +262,8 @@ export function validateSeedRawClosed(raw: unknown): SeedRawValidation {
 	const expectedKeys = [
 		'letterMapping',
 		'lifecycle',
+		'probes',
+		'calibrations',
 		'blocks',
 		'boundaries',
 		'reopens',
@@ -191,8 +280,8 @@ export function validateSeedRawClosed(raw: unknown): SeedRawValidation {
 	}
 	if (
 		!isClosed(r.lifecycle, {
-			peakRetained: isFiniteNumber,
-			liveAtCommit: isFiniteNumber,
+			peakRetained: isNonNegativeInteger,
+			liveAtCommit: isNonNegativeInteger,
 			retainedThroughCommit: isBoolean,
 		})
 	) {
@@ -218,6 +307,8 @@ export function validateSeedRawClosed(raw: unknown): SeedRawValidation {
 		return { valid: false, reason: 'letterMapping has wrong or extra keys' };
 	}
 	const arrays: [string, FieldCheck][] = [
+		['probes', isValidProbe],
+		['calibrations', isValidCalibration],
 		['blocks', isValidBlock],
 		['boundaries', isValidBoundary],
 		['reopens', isValidReopen],
@@ -245,8 +336,13 @@ export type CompletenessExpectations = {
 	owners: readonly string[];
 	candidates: readonly string[];
 	reopenObservations: number;
-	minTailTransactions: number;
-	/** This seed's index in the config seed list, which fixes the build-id prefix. */
+	tailTransactions: number;
+	minBlockMs: number;
+	maxBlockOps: number;
+	seedId: number;
+	configIdentity: string;
+	traceOptions: TraceOptions;
+	/** This seed's index in the config seed list, which fixes its schedule rotation. */
 	seedIndex: number;
 	/**
 	 * The EXACT expected ordered schedule for this seed, derived from the single
@@ -259,6 +355,42 @@ export type CompletenessExpectations = {
 	letterMapping: Record<string, string>;
 };
 
+export type ExpectedObservationCounts = {
+	probes: number;
+	blocks: number;
+	boundaries: number;
+	reopens: number;
+	tails: number;
+	macros: number;
+	cells: number;
+};
+
+/** Exact non-calibration observation counts derived from the frozen owners. */
+export function expectedObservationCounts(
+	exp: CompletenessExpectations,
+): ExpectedObservationCounts {
+	let readGroups = 0;
+	let tailGroups = 0;
+	for (const owner of exp.owners) {
+		readGroups += RAW_READ_METRICS[owner as RawOwner]?.length ?? 0;
+		tailGroups += RAW_TAIL_METRICS[owner as RawOwner]?.length ?? 0;
+	}
+	const boundariesPerSchedule = exp.schedule.filter(
+		(block) =>
+			block.precedingBoundary === 'pair' || block.precedingBoundary === 'cycle',
+	).length;
+	const cells = exp.owners.length * exp.candidates.length;
+	return {
+		probes: readGroups * PROBE_PHASES.length,
+		blocks: readGroups * exp.schedule.length,
+		boundaries: readGroups * boundariesPerSchedule,
+		reopens: cells * exp.reopenObservations,
+		tails: tailGroups * exp.candidates.length,
+		macros: cells,
+		cells,
+	};
+}
+
 export type SeedCompleteness = { complete: boolean; reasons: string[] };
 
 /**
@@ -266,9 +398,9 @@ export type SeedCompleteness = { complete: boolean; reasons: string[] };
  * exact counts and unique identities (macros, cells, reopens, tails), every read
  * block is compared IN ORDER against the expected schedule derived from the single
  * schedule owner: ordinal, cycle, position, letter, mapped candidate, sequence
- * label, predecessor, and boundary marker must all match, and the build id must be
- * `s<seedIndex>/<owner>/<candidate>` (bound to seed as well as owner and
- * candidate). letterMapping must equal the owner's mapping; the balanced reopen
+ * label, predecessor, and boundary marker must all match, and the build id must
+ * equal the content-bound config/seed/owner/candidate identity. letterMapping
+ * must equal the owner's mapping; the balanced reopen
  * rotation must hold; and boundary records must correspond exactly to the blocks
  * marked pair/cycle. Malformed committed and resumed seeds are rejected identically.
  */
@@ -287,6 +419,53 @@ export function validateSeedCompleteness(
 			retainedThroughCommit: boolean;
 		};
 		letterMapping: Record<string, string>;
+		probes: {
+			configIdentity: string;
+			seedId: number;
+			owner: string;
+			metric: string;
+			phase: ProbePhase;
+			probeId: string;
+			sourceDigest: string;
+			itemsDigest: string;
+			rowOffset: number;
+			rowCount: number;
+			watermarkOffset: number;
+			watermarkCount: number;
+			retryOffset: number;
+			retryCount: number;
+			traversalOffset: number;
+			traversalCount: number;
+			traversalStartSequence: number;
+			traversalEndSequence: number;
+			traversalPages: {
+				pageIndex: number;
+				afterSequence: number;
+				throughSequence: number;
+				digest: string;
+			}[];
+		}[];
+		calibrations: {
+			configIdentity: string;
+			seedId: number;
+			owner: string;
+			metric: string;
+			candidate: string;
+			buildId: string;
+			roundIndex: number;
+			trialIndex: number;
+			sequenceOrder: number;
+			sequenceIndex: number;
+			position: number;
+			letter: 'A' | 'B' | 'C' | 'D';
+			ops: number;
+			elapsedMs: number;
+			minBlockMs: number;
+			probeId: string;
+			probeDigest: string;
+			calibrationId: string;
+			temporalOrdinal: number;
+		}[];
 		blocks: {
 			owner: string;
 			metric: string;
@@ -299,7 +478,15 @@ export function validateSeedCompleteness(
 			sequenceLabel: string;
 			predecessor: string | null;
 			boundary: string;
+			ops: number;
+			calibrationId: string;
+			warmupProbeId: string;
+			warmupProbeDigest: string;
+			timedProbeId: string;
+			timedProbeDigest: string;
+			temporalOrdinal: number;
 			warmupMs: number[];
+			elapsedMs: number;
 		}[];
 		boundaries: {
 			owner: string;
@@ -307,6 +494,7 @@ export function validateSeedCompleteness(
 			kind: string;
 			atOrdinal: number;
 			reopenedCandidates: number;
+			reopenOk: boolean;
 		}[];
 		reopens: {
 			owner: string;
@@ -314,14 +502,28 @@ export function validateSeedCompleteness(
 			buildId: string;
 			index: number;
 			orderPosition: number;
+			witnessMatchesOracle: boolean;
 		}[];
 		tails: {
 			owner: string;
 			metric: string;
 			candidate: string;
+			transactions: number;
 			samplesMs: number[];
+			p50Ms: number;
+			p95Ms: number;
+			p99Ms: number;
+			throughputPerSec: number;
+			warmupTransactions: number;
 		}[];
-		macros: { owner: string; metric: string; candidate: string }[];
+		macros: {
+			owner: string;
+			metric: string;
+			candidate: string;
+			units: number;
+			elapsedMs: number;
+			throughputPerSec: number;
+		}[];
 		cells: { owner: string; candidate: string; buildId: string }[];
 	};
 
@@ -329,6 +531,15 @@ export function validateSeedCompleteness(
 	const candidates = exp.candidates;
 	const candidateSet = new Set(candidates);
 	const cellCount = owners.length * candidates.length;
+	const expectedCounts = expectedObservationCounts(exp);
+	for (const [kind, expected] of Object.entries(expectedCounts)) {
+		const actual = r[kind as keyof typeof r];
+		if (!Array.isArray(actual) || actual.length !== expected) {
+			reasons.push(
+				`${kind} count ${Array.isArray(actual) ? actual.length : 'invalid'} != ${expected}`,
+			);
+		}
+	}
 
 	// Lifecycle: all eight databases retained, live, and still retained THROUGH the
 	// durable commit write (deletion happens strictly after, so the durable record
@@ -352,7 +563,66 @@ export function validateSeedCompleteness(
 	// Build identity is bound to seed, owner, AND candidate. A wrong-seed prefix or a
 	// swapped owner/candidate is rejected wherever the id appears.
 	const expectedBuildId = (owner: string, candidate: string) =>
-		`s${exp.seedIndex}/${owner}/${candidate}`;
+		buildIdFor(exp.configIdentity, exp.seedId, owner, candidate);
+	const expectedCalibrationId = (owner: string, metric: string) =>
+		`${exp.configIdentity}/${exp.seedId}/${owner}/${metric}/calibration`;
+
+	// Probe plans: raw never serves as its own oracle. Rebuild the deterministic
+	// layout-independent source from the frozen trace options, then compare every
+	// retained owner/metric/phase plan to that expected record field-for-field.
+	let probeSource: ReturnType<typeof buildProbeSource>;
+	try {
+		probeSource = buildProbeSource(exp.traceOptions);
+	} catch (error) {
+		return {
+			complete: false,
+			reasons: [`expected probe source invalid: ${(error as Error).message}`],
+		};
+	}
+	for (const probe of r.probes) {
+		const validMetric = (
+			RAW_READ_METRICS[probe.owner as RawOwner] as readonly string[] | undefined
+		)?.includes(probe.metric);
+		if (!validMetric) {
+			reasons.push(
+				`probe carries unexpected owner/metric ${probe.owner}/${probe.metric}`,
+			);
+		}
+		if (
+			probe.configIdentity !== exp.configIdentity ||
+			probe.seedId !== exp.seedId
+		) {
+			reasons.push(
+				`probe config/seed for ${probe.owner}/${probe.metric} changed`,
+			);
+		}
+	}
+	for (const owner of owners) {
+		for (const metric of RAW_READ_METRICS[owner as RawOwner]) {
+			for (const phase of PROBE_PHASES) {
+				const matches = r.probes.filter(
+					(probe) =>
+						probe.owner === owner &&
+						probe.metric === metric &&
+						probe.phase === phase,
+				);
+				if (matches.length !== 1) {
+					reasons.push(`probe plan ${owner}/${metric}/${phase} is not unique`);
+					continue;
+				}
+				const expected = buildProbePlan(probeSource, {
+					configIdentity: exp.configIdentity,
+					seedId: exp.seedId,
+					owner,
+					metric,
+					phase,
+				}).plan;
+				if (canonicalize(matches[0]) !== canonicalize(expected)) {
+					reasons.push(`probe plan ${owner}/${metric}/${phase} changed`);
+				}
+			}
+		}
+	}
 
 	// Macros: exactly one per owner+candidate, each with the owner's macro metric.
 	const macroKeys = r.macros.map((m) => `${m.owner}/${m.candidate}`);
@@ -364,6 +634,11 @@ export function validateSeedCompleteness(
 		if (!candidateSet.has(m.candidate)) reasons.push('macro unknown candidate');
 		if (m.metric !== RAW_MACRO_METRIC[m.owner as RawOwner])
 			reasons.push(`macro metric mismatch for ${m.owner}`);
+		const expectedThroughput =
+			m.elapsedMs > 0 ? (m.units / m.elapsedMs) * 1000 : 0;
+		if (Math.abs(m.throughputPerSec - expectedThroughput) > 1e-9) {
+			reasons.push(`macro throughput for ${m.owner}/${m.candidate} changed`);
+		}
 	}
 
 	// Cells: exactly one per owner+candidate, with the exact seed-bound build id.
@@ -375,6 +650,128 @@ export function validateSeedCompleteness(
 	for (const c of r.cells) {
 		if (c.buildId !== expectedBuildId(c.owner, c.candidate))
 			reasons.push(`cell buildId for ${c.owner}/${c.candidate} != expected`);
+	}
+
+	// Calibration: every owner+read-metric group owns one retained sequence of
+	// ACTUAL balanced candidate trials. The sequence starts at one operation,
+	// doubles contiguously, and stops at the first trial where all candidates meet
+	// the frozen duration floor. No seconds-per-operation projection is accepted.
+	const calibrationDecisions = new Map<
+		string,
+		{ selectedOps: number; calibrationId: string }
+	>();
+	for (const c of r.calibrations) {
+		const validMetric = (
+			RAW_READ_METRICS[c.owner as RawOwner] as readonly string[] | undefined
+		)?.includes(c.metric);
+		if (!validMetric) {
+			reasons.push(
+				`calibration carries unexpected owner/metric ${c.owner}/${c.metric}`,
+			);
+		}
+		if (c.minBlockMs !== exp.minBlockMs)
+			reasons.push(`calibration minBlockMs for ${c.owner}/${c.metric} changed`);
+		if (c.configIdentity !== exp.configIdentity || c.seedId !== exp.seedId) {
+			reasons.push(
+				`calibration config/seed for ${c.owner}/${c.metric} changed`,
+			);
+		}
+		if (c.buildId !== expectedBuildId(c.owner, c.candidate)) {
+			reasons.push(
+				`calibration buildId for ${c.owner}/${c.metric}/${c.candidate} changed`,
+			);
+		}
+		if (c.calibrationId !== expectedCalibrationId(c.owner, c.metric)) {
+			reasons.push(`calibration identity for ${c.owner}/${c.metric} changed`);
+		}
+		const plan = r.probes.find(
+			(probe) =>
+				probe.owner === c.owner &&
+				probe.metric === c.metric &&
+				probe.phase === 'calibration',
+		);
+		if (
+			plan === undefined ||
+			c.probeId !== plan.probeId ||
+			c.probeDigest !== plan.itemsDigest
+		) {
+			reasons.push(
+				`calibration probe digest for ${c.owner}/${c.metric} changed`,
+			);
+		}
+	}
+	for (const owner of owners) {
+		for (const metric of RAW_READ_METRICS[owner as RawOwner]) {
+			const group = r.calibrations.filter(
+				(c) => c.owner === owner && c.metric === metric,
+			);
+			const decision = evaluateCalibrationTrials(
+				group,
+				exp.letterMapping as Record<'A' | 'B' | 'C' | 'D', string>,
+				exp.minBlockMs,
+				exp.maxBlockOps,
+			);
+			if (decision.status !== 'SELECTED') {
+				reasons.push(
+					`calibration for ${owner}/${metric} incomplete: ${decision.reason}`,
+				);
+				continue;
+			}
+			calibrationDecisions.set(`${owner}/${metric}`, {
+				selectedOps: decision.selectedOps,
+				calibrationId: expectedCalibrationId(owner, metric),
+			});
+		}
+	}
+
+	// Temporal identity has one owner: owner order, then declared metric order,
+	// then that metric's complete calibration rounds followed by its exact timed
+	// schedule. The stored ordinals and both raw arrays must replay this order as
+	// the gap-free set 0..N-1. Shifts, gaps, duplicates, and rewrites all refuse.
+	let expectedTemporalOrdinal = 0;
+	let calibrationArrayIndex = 0;
+	let blockArrayIndex = 0;
+	for (const owner of owners) {
+		for (const metric of RAW_READ_METRICS[owner as RawOwner]) {
+			const calibrations = r.calibrations.filter(
+				(calibration) =>
+					calibration.owner === owner && calibration.metric === metric,
+			);
+			for (const calibration of calibrations) {
+				if (
+					r.calibrations[calibrationArrayIndex] !== calibration ||
+					calibration.temporalOrdinal !== expectedTemporalOrdinal
+				) {
+					reasons.push(
+						`calibration temporal order for ${owner}/${metric} changed`,
+					);
+				}
+				calibrationArrayIndex += 1;
+				expectedTemporalOrdinal += 1;
+			}
+			const blocks = r.blocks.filter(
+				(block) => block.owner === owner && block.metric === metric,
+			);
+			for (const [scheduleIndex, block] of blocks.entries()) {
+				if (
+					r.blocks[blockArrayIndex] !== block ||
+					block.ordinal !== exp.schedule[scheduleIndex]?.ordinal ||
+					block.temporalOrdinal !== expectedTemporalOrdinal
+				) {
+					reasons.push(`timed temporal order for ${owner}/${metric} changed`);
+				}
+				blockArrayIndex += 1;
+				expectedTemporalOrdinal += 1;
+			}
+		}
+	}
+	if (
+		calibrationArrayIndex !== r.calibrations.length ||
+		blockArrayIndex !== r.blocks.length
+	) {
+		reasons.push(
+			'temporal event arrays contain events outside the frozen order',
+		);
 	}
 
 	// Reopens: per owner+candidate the index set must be EXACTLY {0..N-1} (not merely
@@ -417,6 +814,8 @@ export function validateSeedCompleteness(
 			);
 		if (x.buildId !== expectedBuildId(x.owner, x.candidate))
 			reasons.push(`reopen buildId for ${x.owner}/${x.candidate} != expected`);
+		if (!x.witnessMatchesOracle)
+			reasons.push(`reopen witness for ${x.owner}/${x.candidate} changed`);
 	}
 
 	// No block may carry an owner or read metric outside the frozen expectation
@@ -429,6 +828,66 @@ export function validateSeedCompleteness(
 			reasons.push(
 				`block carries unexpected owner/metric ${b.owner}/${b.metric}`,
 			);
+		const calibration = calibrationDecisions.get(`${b.owner}/${b.metric}`);
+		if (
+			calibration === undefined ||
+			b.ops !== calibration.selectedOps ||
+			b.calibrationId !== calibration.calibrationId
+		) {
+			reasons.push(
+				`block ${b.owner}/${b.metric} is not bound to its complete calibration`,
+			);
+		}
+		if (new Set([b.warmupProbeId, b.timedProbeId]).size !== 2) {
+			reasons.push(
+				`block ${b.owner}/${b.metric} does not keep warmup and timed probes disjoint`,
+			);
+		}
+		const warmupPlan = r.probes.find(
+			(probe) =>
+				probe.owner === b.owner &&
+				probe.metric === b.metric &&
+				probe.phase === 'warmup',
+		);
+		const timedPlan = r.probes.find(
+			(probe) =>
+				probe.owner === b.owner &&
+				probe.metric === b.metric &&
+				probe.phase === 'timed',
+		);
+		if (
+			warmupPlan === undefined ||
+			timedPlan === undefined ||
+			b.warmupProbeId !== warmupPlan.probeId ||
+			b.timedProbeId !== timedPlan.probeId ||
+			b.warmupProbeDigest !== warmupPlan.itemsDigest ||
+			b.timedProbeDigest !== timedPlan.itemsDigest
+		) {
+			reasons.push(`block ${b.owner}/${b.metric} probe digest binding changed`);
+		}
+	}
+	for (const owner of owners) {
+		for (const metric of RAW_READ_METRICS[owner as RawOwner]) {
+			const calibrations = r.calibrations.filter(
+				(c) => c.owner === owner && c.metric === metric,
+			);
+			const blocks = r.blocks.filter(
+				(b) => b.owner === owner && b.metric === metric,
+			);
+			const lastCalibration = Math.max(
+				...calibrations.map((c) => c.temporalOrdinal),
+			);
+			const firstTimed = Math.min(...blocks.map((b) => b.temporalOrdinal));
+			if (
+				!Number.isFinite(lastCalibration) ||
+				!Number.isFinite(firstTimed) ||
+				lastCalibration >= firstTimed
+			) {
+				reasons.push(
+					`calibration for ${owner}/${metric} did not precede timing`,
+				);
+			}
+		}
 	}
 
 	// Blocks: for each owner+readMetric, exactly the expected count, and every block
@@ -505,6 +964,8 @@ export function validateSeedCompleteness(
 			reasons.push(
 				`boundary reopenedCandidates ${bd.reopenedCandidates} != ${candidates.length}`,
 			);
+		if (!bd.reopenOk)
+			reasons.push(`boundary reopen failed for ${bd.owner}/${bd.metric}`);
 	}
 	for (const owner of owners) {
 		for (const metric of RAW_READ_METRICS[owner as RawOwner]) {
@@ -532,7 +993,9 @@ export function validateSeedCompleteness(
 		}
 	}
 
-	// Tails: exactly one per owner+tailMetric+candidate, each with enough samples.
+	// Tails: exactly one per owner+tailMetric+candidate, with the exact frozen
+	// transaction and sample counts. Permissive minima would let a resumed seed
+	// silently change the estimator meaning.
 	for (const owner of owners) {
 		for (const metric of RAW_TAIL_METRICS[owner as RawOwner]) {
 			for (const candidate of candidates) {
@@ -548,10 +1011,37 @@ export function validateSeedCompleteness(
 					);
 					continue;
 				}
-				if ((matches[0]?.samplesMs.length ?? 0) < exp.minTailTransactions) {
+				const tail = matches[0];
+				if (
+					tail?.transactions !== exp.tailTransactions ||
+					tail.samplesMs.length !== exp.tailTransactions
+				) {
 					reasons.push(
-						`tail ${owner}/${metric}/${candidate} has < ${exp.minTailTransactions} samples`,
+						`tail ${owner}/${metric}/${candidate} does not have exactly ${exp.tailTransactions} transactions and samples`,
 					);
+				}
+				if (tail?.warmupTransactions !== 3) {
+					reasons.push(
+						`tail ${owner}/${metric}/${candidate} does not have exactly three warmups`,
+					);
+				}
+				if (tail !== undefined) {
+					const totalMs = tail.samplesMs.reduce(
+						(sum, sample) => sum + sample,
+						0,
+					);
+					const expectedThroughput =
+						totalMs > 0 ? (tail.samplesMs.length / totalMs) * 1000 : 0;
+					if (
+						tail.p50Ms !== percentile(tail.samplesMs, 0.5) ||
+						tail.p95Ms !== percentile(tail.samplesMs, 0.95) ||
+						tail.p99Ms !== percentile(tail.samplesMs, 0.99) ||
+						Math.abs(tail.throughputPerSec - expectedThroughput) > 1e-9
+					) {
+						reasons.push(
+							`tail summaries for ${owner}/${metric}/${candidate} do not match raw samples`,
+						);
+					}
 				}
 			}
 		}

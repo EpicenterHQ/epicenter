@@ -10,7 +10,8 @@
  * oracle, and mutating checkpoint tails (monotonic install, row-tombstone plus
  * document cleanup, authority submission settlement) each run after a true
  * byte-equivalent reset with three warmup transactions and a second restore
- * before timing at least 400 production-autocheckpoint transactions. Headroom is
+ * before timing the profile-declared production-autocheckpoint transactions.
+ * Headroom is
  * a conservative bound across all four candidates and both owner populations.
  * Every proof gate is DERIVED from retained observations, and the full raw
  * per-seed observations are persisted so a resumed run's gates cover committed
@@ -19,8 +20,9 @@
  * Method validation is not evidence readiness. This is a pilot: `isPilot` stays
  * true and evidence status stays provisional/incomplete because browser OPFS,
  * Cloudflare Durable Object, full-envelope final data, and a configured observed
- * SLO policy are all absent. Classifier-only (ADR-0161): nothing selects, ranks,
- * recommends, or returns a candidate id.
+ * SLO policy are all absent. The pilot does not import or execute the pairwise
+ * classifier, and nothing here selects, ranks, recommends, or returns a candidate
+ * id.
  */
 
 import { Database } from 'bun:sqlite';
@@ -28,6 +30,7 @@ import {
 	existsSync,
 	mkdtempSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	statfsSync,
 	statSync,
@@ -42,6 +45,7 @@ import {
 	DEFAULT_AUXILIARY_OPTIONS,
 	makeAuxiliaryTraces,
 } from './auxiliary-traces.js';
+import { CANDIDATE_IDS, CANDIDATES, type Candidate } from './candidates.js';
 import {
 	commitSeed,
 	completenessExpectations,
@@ -53,6 +57,7 @@ import {
 	persistManifest,
 	type SeedRecord,
 } from './checkpoint.js';
+import { buildSeedEstimators, estimatorsMatchRaw } from './estimators.js';
 import {
 	evaluateEvidenceReadiness,
 	type ProofGateInputs,
@@ -60,8 +65,6 @@ import {
 	validateMethod,
 } from './evidence-status.js';
 import {
-	CANDIDATES,
-	type Candidate,
 	configureNewDatabase,
 	configureReopenedDatabase,
 	createLayoutStore,
@@ -71,55 +74,34 @@ import {
 } from './layouts.js';
 import { Sha256Stream } from './portable-hash.js';
 import {
+	buildProbePlan,
+	buildProbeSource,
+	PROBE_PHASES,
+	type ProbePhase,
+	type ProbePlan,
+} from './probe-plan.js';
+import {
+	buildIdFor,
+	expectedObservationCounts,
+	RAW_MACRO_METRIC,
+	RAW_OWNERS,
+	RAW_READ_METRICS,
+	RAW_TAIL_METRICS,
 	validateSeedCompleteness,
 	validateSeedRawClosed,
 } from './raw-schema.js';
 import {
-	balanceDiagnostics,
+	buildCalibrationRound,
 	buildSeedSchedule,
+	evaluateCalibrationTrials,
 	type SeedSchedule,
-	smallestPowerOfTwoForMinDuration,
 } from './schedule.js';
-import { computeFamilywise, type SeedLevelMetric } from './statistics.js';
 import type { Address, Fact, RowAddress } from './trace.js';
 import { factsForPresentTarget, makeTrace, type Trace } from './trace.js';
 import { pilotLimits, verifyTraceV1Binding } from './v1-binding.js';
 
-type Owner = 'replica' | 'authority';
-const OWNERS: readonly Owner[] = ['replica', 'authority'];
-const CANDIDATE_IDS = CANDIDATES.map((c) => c.id);
-
-// --- Declared metrics --------------------------------------------------------
-
-/** Read metrics interleaved across candidates in the Williams design, per owner. */
-const READ_METRICS: Record<Owner, readonly string[]> = {
-	replica: [
-		'confirmedPointRead',
-		'confirmedTraversal',
-		'confirmedPendingOverlayRead',
-	],
-	authority: ['orderedResumeFeed', 'foldPointRead', 'exactRetrySettlementRead'],
-};
-/** Macro metrics measured once per outer unit and candidate on a fresh empty DB. */
-const MACRO_METRIC: Record<Owner, string> = {
-	replica: 'acquisitionInstall',
-	authority: 'orderedFreshFeed',
-};
-/** Mutating checkpoint-tail metrics, per owner. */
-const TAIL_METRICS: Record<Owner, readonly string[]> = {
-	replica: ['monotonicInstallTail', 'rowTombstoneDocumentCleanupTail'],
-	authority: ['submissionSettlementTail'],
-};
-/** Every declared metric per owner (reads + macro + tails + reopen). */
-function declaredMetrics(owner: Owner): string[] {
-	return [
-		MACRO_METRIC[owner],
-		...READ_METRICS[owner],
-		...TAIL_METRICS[owner],
-		'warmReopen',
-	];
-}
-
+type Owner = (typeof RAW_OWNERS)[number];
+const OWNERS = RAW_OWNERS;
 // --- Profiles ----------------------------------------------------------------
 
 const VALUE_RATIO = 0.08;
@@ -132,8 +114,8 @@ const EXACT_PRESENT_ADDRESSES = 1_000_000;
 const EXACT_PROXY_BYTES = 536_870_912; // 512 MiB
 const EXACT_CYCLES = 3;
 const EXACT_SEEDS = 4;
-const EXACT_MIN_REOPENS = 20;
-const EXACT_MIN_TAIL_TRANSACTIONS = 400;
+const EXACT_REOPENS = 20;
+const EXACT_TAIL_TRANSACTIONS = 400;
 const WALL_TIME_CAP_SECONDS = 8 * 60 * 60;
 
 type Profile = {
@@ -170,8 +152,8 @@ function exactPilotProfile(): Profile {
 		cycles: EXACT_CYCLES,
 		minBlockMs: 20,
 		maxBlockOps: 1 << 20,
-		reopenObservations: EXACT_MIN_REOPENS,
-		tailTransactions: EXACT_MIN_TAIL_TRANSACTIONS,
+		reopenObservations: EXACT_REOPENS,
+		tailTransactions: EXACT_TAIL_TRANSACTIONS,
 	};
 }
 
@@ -191,29 +173,30 @@ const SMOKE: Profile = {
 	cycles: EXACT_CYCLES,
 	minBlockMs: 20,
 	maxBlockOps: 1 << 20,
-	reopenObservations: EXACT_MIN_REOPENS,
-	tailTransactions: EXACT_MIN_TAIL_TRANSACTIONS,
+	reopenObservations: EXACT_REOPENS,
+	tailTransactions: EXACT_TAIL_TRANSACTIONS,
 };
 
 const NAMESPACE_COUNT = 12;
 const TABLE_COUNT = 200;
 const BASE_SEED = 1000;
-const BOOTSTRAP_DRAWS = 10_000;
-const BOOTSTRAP_SEED = 0x5ca1ab1e;
 const HEADROOM_MARGIN = 1.25;
-const MIN_TIMED_BLOCK_MS = 20;
 const MAX_READ_BLOCKS = 64; // spec cap per seed/candidate/owner/metric
 
 /** Whether a run's dimensions match the frozen exact-envelope pilot exactly. */
 function isExactEnvelope(profile: Profile): boolean {
+	const exact = exactPilotProfile();
 	return (
 		profile.exact &&
 		profile.present === EXACT_PRESENT_ADDRESSES &&
+		profile.facts === exact.facts &&
 		profile.targetLogicalStateBytes === EXACT_PROXY_BYTES &&
 		profile.seedCount === EXACT_SEEDS &&
 		profile.cycles === EXACT_CYCLES &&
-		profile.reopenObservations >= EXACT_MIN_REOPENS &&
-		profile.tailTransactions >= EXACT_MIN_TAIL_TRANSACTIONS
+		profile.minBlockMs === exact.minBlockMs &&
+		profile.maxBlockOps === exact.maxBlockOps &&
+		profile.reopenObservations === EXACT_REOPENS &&
+		profile.tailTransactions === EXACT_TAIL_TRANSACTIONS
 	);
 }
 
@@ -318,14 +301,6 @@ function timeMs(run: () => void): number {
 	return performance.now() - start;
 }
 
-function median(values: number[]): number {
-	if (values.length === 0) return Number.NaN;
-	const sorted = [...values].sort((a, b) => a - b);
-	const mid = Math.floor(sorted.length / 2);
-	return sorted.length % 2 === 0
-		? ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2
-		: (sorted[mid] as number);
-}
 function percentile(sortedAsc: number[], fraction: number): number {
 	if (sortedAsc.length === 0) return Number.NaN;
 	const rank = Math.ceil(fraction * sortedAsc.length);
@@ -373,9 +348,37 @@ type BlockObservation = {
 	predecessor: string | null;
 	boundary: string;
 	ops: number;
+	calibrationId: string;
+	warmupProbeId: string;
+	warmupProbeDigest: string;
+	timedProbeId: string;
+	timedProbeDigest: string;
+	temporalOrdinal: number;
 	warmupMs: [number, number, number];
 	elapsedMs: number;
 };
+export type CalibrationObservation = {
+	configIdentity: string;
+	seedId: number;
+	owner: Owner;
+	metric: string;
+	candidate: string;
+	buildId: string;
+	roundIndex: number;
+	trialIndex: number;
+	sequenceOrder: number;
+	sequenceIndex: number;
+	position: number;
+	letter: 'A' | 'B' | 'C' | 'D';
+	ops: number;
+	elapsedMs: number;
+	minBlockMs: number;
+	probeId: string;
+	probeDigest: string;
+	calibrationId: string;
+	temporalOrdinal: number;
+};
+type ProbeObservation = ProbePlan;
 type ReopenObservation = {
 	owner: Owner;
 	candidate: string;
@@ -413,6 +416,7 @@ type MacroObservation = {
 	owner: Owner;
 	metric: string;
 	candidate: string;
+	units: number;
 	elapsedMs: number;
 	throughputPerSec: number;
 };
@@ -452,6 +456,8 @@ type SeedRawObservations = {
 	/** The seed-specific Williams letter-to-candidate mapping (both owners share it). */
 	letterMapping: Record<string, string>;
 	lifecycle: SeedLifecycle;
+	probes: ProbeObservation[];
+	calibrations: CalibrationObservation[];
 	blocks: BlockObservation[];
 	boundaries: BoundaryObservation[];
 	reopens: ReopenObservation[];
@@ -588,6 +594,8 @@ export function retainedKey(owner: Owner, candidate: string): string {
 export function buildRetainedSet(
 	dir: string,
 	seedIndex: number,
+	configIdentity: string,
+	seedId: number,
 	facts: readonly Fact[],
 	trace: Trace,
 	openOne: (path: string) => { db: Database } = openOwnerFile,
@@ -608,7 +616,7 @@ export function buildRetainedSet(
 		for (const owner of OWNERS) {
 			for (const candidate of CANDIDATES) {
 				const path = join(dir, `s${seedIndex}-${owner}-${candidate.id}.sqlite`);
-				const buildId = `s${seedIndex}/${owner}/${candidate.id}`;
+				const buildId = buildIdFor(configIdentity, seedId, owner, candidate.id);
 				// Stage one: open the file and register the closeable handle FIRST.
 				const { db } = openOne(path);
 				const record: { db: Database; path: string; store?: LayoutStore } = {
@@ -735,6 +743,10 @@ type ReadContext = {
 	rows: readonly Address[];
 	replicaIds: readonly string[];
 	watermarks: readonly number[];
+	traversalPages: readonly {
+		afterSequence: number;
+		throughSequence: number;
+	}[];
 };
 
 /** One read operation for `ops` iterations over a store, distinct per metric. */
@@ -753,7 +765,12 @@ function readOp(
 				store.pointRead(ctx.rows[(offset + i) % n] as Address);
 			return;
 		case 'confirmedTraversal':
-			for (let i = 0; i < ops; i += 1) store.traverse();
+			for (let i = 0; i < ops; i += 1) {
+				const page =
+					ctx.traversalPages[(offset + i) % ctx.traversalPages.length];
+				if (page === undefined) throw new Error('traversal probe page missing');
+				store.traverse(page.afterSequence, page.throughSequence);
+			}
 			return;
 		case 'confirmedPendingOverlayRead':
 			for (let i = 0; i < ops; i += 1)
@@ -787,11 +804,40 @@ type SeedContext = {
 	seedIndex: number;
 	seedId: number;
 	schedule: SeedSchedule;
+	configIdentity: string;
 	raw: SeedRawObservations;
 };
 
-function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
-	const { dir, profile, trace, seedIndex, schedule, raw } = ctx;
+export type OwnerRunResult =
+	| { status: 'COMPLETE' }
+	| {
+			status: 'INCOMPLETE';
+			reasonCode: 'CALIBRATION_OPS_UNSELECTED';
+			selectedOps: null;
+			reason: string;
+			seedId: number;
+			owner: Owner;
+			metric: string;
+			minBlockMs: number;
+			maxBlockOps: number;
+			trials: CalibrationObservation[];
+	  };
+
+function runOwner(
+	ctx: SeedContext,
+	owner: Owner,
+	retained: RetainedSet,
+): OwnerRunResult {
+	const {
+		dir,
+		profile,
+		trace,
+		seedIndex,
+		seedId,
+		schedule,
+		configIdentity,
+		raw,
+	} = ctx;
 	const facts = finalFacts(trace);
 	const oracle = trace.measure();
 	const handleFor = (candidate: string): RetainedHandle => {
@@ -831,46 +877,124 @@ function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
 		}
 		raw.macros.push({
 			owner,
-			metric: MACRO_METRIC[owner],
+			metric: RAW_MACRO_METRIC[owner],
 			candidate: candidate.id,
+			units,
 			elapsedMs,
 			throughputPerSec: elapsedMs > 0 ? (units / elapsedMs) * 1000 : 0,
 		});
 	}
 
 	// Disjoint deterministic probe sets: calibration, warmup, and timed use
-	// non-overlapping address/watermark slices.
-	const rows = trace.sampleRowAddresses(3072);
-	const calibRows = rows.slice(0, 1024);
-	const warmupRows = rows.slice(1024, 2048);
-	const timedRows = rows.slice(2048, 3072);
-	const authorityAux = makeAuxiliaryTraces(trace, pilotLimits());
-	const replicaIds = authorityAux.retry.entries.map((r) => r.replicaId);
-	const maxSeqFor = (candidate: Candidate) =>
-		maxSequence(handleFor(candidate.id).db, candidate);
-	const watermarks = Array.from({ length: 256 }, (_, i) =>
-		Math.floor((maxSeqFor(CANDIDATES[0] as Candidate) * i) / 256),
-	);
-	const ctxCalib: ReadContext = { rows: calibRows, replicaIds, watermarks };
-	const ctxWarm: ReadContext = { rows: warmupRows, replicaIds, watermarks };
-	const ctxTimed: ReadContext = { rows: timedRows, replicaIds, watermarks };
+	// non-overlapping address, watermark, retry-id, and traversal-page ranges. The
+	// same layout-independent owner reconstructs these plans during checkpoint load.
+	const probeSource = buildProbeSource(trace.options);
+	for (const metric of RAW_READ_METRICS[owner]) {
+		const probes = Object.fromEntries(
+			PROBE_PHASES.map((phase) => {
+				const planned = buildProbePlan(probeSource, {
+					configIdentity,
+					seedId,
+					owner,
+					metric,
+					phase,
+				});
+				raw.probes.push(planned.plan);
+				return [phase, planned];
+			}),
+		) as Record<ProbePhase, ReturnType<typeof buildProbePlan>>;
 
-	for (const metric of READ_METRICS[owner]) {
-		// Balanced calibration pass on disjoint probes: warm the metric path, probe
-		// warm per-op seconds, target 1.5x the floor so a warm block stays over 20 ms.
-		const perOpSeconds = CANDIDATES.map((candidate) => {
-			const store = handleFor(candidate.id).store;
-			readOp(metric, store, ctxCalib, 2048, 0); // warm
-			const probe = 2048;
-			const ms = timeMs(() => readOp(metric, store, ctxCalib, probe, probe));
-			return ms / 1000 / probe;
-		});
-		const ops =
-			smallestPowerOfTwoForMinDuration(
-				perOpSeconds,
-				(profile.minBlockMs * 1.5) / 1000,
-				profile.maxBlockOps,
-			) ?? profile.maxBlockOps;
+		// Balanced ACTUAL calibration on the calibration-only probe partition. Each
+		// round executes all sixteen Williams trials, measures the next power of two,
+		// and is
+		// retained. There is no seconds-per-operation projection and no silent cap
+		// fallback: if the cap is reached before all sixteen trials measure at least
+		// the floor, this seed refuses before any timed block is recorded.
+		const calibrationId = `${configIdentity}/${seedId}/${owner}/${metric}/calibration`;
+		const calibration: CalibrationObservation[] = [];
+		let roundIndex = 0;
+		let ops = 1;
+		while (ops <= profile.maxBlockOps) {
+			const round: CalibrationObservation[] = [];
+			for (const slot of buildCalibrationRound(
+				schedule.letterMapping,
+				roundIndex,
+			)) {
+				const candidateId = slot.candidate;
+				const candidate = CANDIDATES.find((entry) => entry.id === candidateId);
+				if (candidate === undefined) {
+					throw new Error(`calibration candidate ${candidateId} missing`);
+				}
+				const elapsedMs = timeMs(() =>
+					readOp(
+						metric,
+						handleFor(candidate.id).store,
+						probes.calibration.items,
+						ops,
+						(roundIndex * 4 + slot.sequenceOrder) * ops,
+					),
+				);
+				const observation: CalibrationObservation = {
+					configIdentity,
+					seedId,
+					owner,
+					metric,
+					candidate: candidate.id,
+					buildId: handleFor(candidate.id).buildId,
+					roundIndex: slot.roundIndex,
+					trialIndex: slot.trialIndex,
+					sequenceOrder: slot.sequenceOrder,
+					sequenceIndex: slot.sequenceIndex,
+					position: slot.position,
+					letter: slot.letter,
+					ops,
+					elapsedMs,
+					minBlockMs: profile.minBlockMs,
+					probeId: probes.calibration.plan.probeId,
+					probeDigest: probes.calibration.plan.itemsDigest,
+					calibrationId,
+					temporalOrdinal: raw.calibrations.length + raw.blocks.length,
+				};
+				raw.calibrations.push(observation);
+				calibration.push(observation);
+				round.push(observation);
+			}
+			if (
+				round.every(
+					(observation) => observation.elapsedMs >= profile.minBlockMs,
+				)
+			) {
+				break;
+			}
+			roundIndex += 1;
+			ops *= 2;
+		}
+		const decision = evaluateCalibrationTrials(
+			calibration,
+			schedule.letterMapping,
+			profile.minBlockMs,
+			profile.maxBlockOps,
+		);
+		if (decision.status === 'INVALID') {
+			throw new Error(
+				`calibration invalid for ${owner}/${metric}: ${decision.reason}`,
+			);
+		}
+		if (decision.status === 'INCOMPLETE') {
+			return {
+				status: 'INCOMPLETE',
+				reasonCode: 'CALIBRATION_OPS_UNSELECTED',
+				selectedOps: null,
+				reason: decision.reason,
+				seedId,
+				owner,
+				metric,
+				minBlockMs: profile.minBlockMs,
+				maxBlockOps: profile.maxBlockOps,
+				trials: calibration,
+			};
+		}
+		ops = decision.selectedOps;
 
 		let blockCount = 0;
 		for (const block of schedule.blocks) {
@@ -908,11 +1032,11 @@ function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
 			const warmupMs: [number, number, number] = [0, 0, 0];
 			for (let w = 0; w < 3; w += 1) {
 				warmupMs[w] = timeMs(() =>
-					readOp(metric, entry.store, ctxWarm, ops, w * ops),
+					readOp(metric, entry.store, probes.warmup.items, ops, w * ops),
 				);
 			}
 			const elapsedMs = timeMs(() =>
-				readOp(metric, entry.store, ctxTimed, ops, 0),
+				readOp(metric, entry.store, probes.timed.items, ops, 0),
 			);
 			raw.blocks.push({
 				owner,
@@ -927,6 +1051,12 @@ function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
 				predecessor: block.predecessor,
 				boundary: block.precedingBoundary,
 				ops,
+				calibrationId,
+				warmupProbeId: probes.warmup.plan.probeId,
+				warmupProbeDigest: probes.warmup.plan.itemsDigest,
+				timedProbeId: probes.timed.plan.probeId,
+				timedProbeDigest: probes.timed.plan.itemsDigest,
+				temporalOrdinal: raw.calibrations.length + raw.blocks.length,
 				warmupMs,
 				elapsedMs,
 			});
@@ -983,7 +1113,7 @@ function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
 
 	// Mutating checkpoint tails with the full reset protocol. Tails build their own
 	// transient reset databases; the retained eight are untouched here.
-	for (const metric of TAIL_METRICS[owner]) {
+	for (const metric of RAW_TAIL_METRICS[owner]) {
 		for (const candidate of CANDIDATES) {
 			raw.tails.push(
 				runTail(
@@ -999,6 +1129,52 @@ function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
 			);
 		}
 	}
+	return { status: 'COMPLETE' };
+}
+
+export function buildCalibrationIncompleteArtifact(args: {
+	provenance: ProvenanceConfig;
+	manifestIdentity: string;
+	refusal: Extract<OwnerRunResult, { status: 'INCOMPLETE' }>;
+	completedSeedIds: number[];
+	resumedSeedIds: number[];
+}) {
+	const reason = `${args.refusal.reasonCode}: selectedOps is null for ${args.refusal.owner}/${args.refusal.metric}: ${args.refusal.reason}`;
+	return {
+		kind: 'scalar-facts-layout-calibration-refusal',
+		status: 'INCOMPLETE' as const,
+		refusedToContinue: true,
+		reasonCode: args.refusal.reasonCode,
+		selectedOps: null,
+		reason,
+		seedId: args.refusal.seedId,
+		owner: args.refusal.owner,
+		metric: args.refusal.metric,
+		minBlockMs: args.refusal.minBlockMs,
+		maxBlockOps: args.refusal.maxBlockOps,
+		trials: args.refusal.trials,
+		manifestIdentity: args.manifestIdentity,
+		completedSeedIds: args.completedSeedIds,
+		resumedSeedIds: args.resumedSeedIds,
+		provenance: args.provenance,
+		method: null,
+		evidenceStatus: evaluateEvidenceReadiness({
+			isPilot: true,
+			execution: { status: 'INCOMPLETE', reasons: [reason] },
+			sloPolicy: UNCONFIGURED_SLO_POLICY,
+			sloObservations: null,
+			expectedCells: [],
+			matrixComplete: false,
+		}),
+	};
+}
+
+function persistJsonAtomically(path: string, value: unknown): string {
+	const serialized = `${JSON.stringify(value, null, 2)}\n`;
+	const tempPath = `${path}.tmp`;
+	writeFileSync(tempPath, serialized);
+	renameSync(tempPath, path);
+	return new Sha256Stream().update(serialized).digestHex();
 }
 
 /** One mutating checkpoint tail with the full declared reset protocol. */
@@ -1203,10 +1379,11 @@ function estimateWallSeconds(
 ): number {
 	const buildSeconds = perFactInstallSeconds * profile.facts;
 	const tailRuns =
-		OWNERS.reduce((n, o) => n + TAIL_METRICS[o].length, 0) * CANDIDATES.length;
+		OWNERS.reduce((n, o) => n + RAW_TAIL_METRICS[o].length, 0) *
+		CANDIDATES.length;
 	// 8 retained + 8 macro builds, plus three full builds per tail run.
 	const buildsPerSeed = 16 + tailRuns * 3;
-	const readRuns = OWNERS.reduce((n, o) => n + READ_METRICS[o].length, 0);
+	const readRuns = OWNERS.reduce((n, o) => n + RAW_READ_METRICS[o].length, 0);
 	const blocksPerRun = Math.min(MAX_READ_BLOCKS, profile.cycles * 16);
 	const readSecondsPerSeed =
 		readRuns * blocksPerRun * 4 * ((profile.minBlockMs * 1.5) / 1000);
@@ -1420,13 +1597,15 @@ function buildProvenance(
 		candidates: CANDIDATE_IDS,
 		owners: [...OWNERS],
 		seedIds,
+		traceOptions: seedIds.map((_, seedIndex) =>
+			traceOptionsFor(profile, seedIndex),
+		),
 		cycles: profile.cycles,
 		reopenObservations: profile.reopenObservations,
 		tailTransactions: profile.tailTransactions,
 		maxReadBlocks: MAX_READ_BLOCKS,
 		minBlockMs: profile.minBlockMs,
-		bootstrapDraws: BOOTSTRAP_DRAWS,
-		bootstrapSeed: BOOTSTRAP_SEED,
+		maxBlockOps: profile.maxBlockOps,
 		ddlHashes,
 		limitsDigest: digestOf(
 			'limits',
@@ -1461,8 +1640,8 @@ function buildProvenance(
 	};
 }
 
-function traceFor(profile: Profile, seedIndex: number): Trace {
-	return makeTrace({
+function traceOptionsFor(profile: Profile, seedIndex: number) {
+	return {
 		facts: profile.facts,
 		namespaceCount: NAMESPACE_COUNT,
 		tableCount: TABLE_COUNT,
@@ -1470,79 +1649,22 @@ function traceFor(profile: Profile, seedIndex: number): Trace {
 		dataSeed: BASE_SEED + seedIndex,
 		targetLogicalStateBytes: profile.targetLogicalStateBytes,
 		maxEncodedFactBytes: profile.maxEncodedFactBytes,
-	});
+	};
+}
+
+function traceFor(profile: Profile, seedIndex: number): Trace {
+	return makeTrace(traceOptionsFor(profile, seedIndex));
+}
+
+function provenanceTraceAt(provenance: ProvenanceConfig, seedIndex: number) {
+	const options = provenance.traceOptions[seedIndex];
+	if (options === undefined) {
+		throw new Error(`trace options missing for seed index ${seedIndex}`);
+	}
+	return makeTrace(options);
 }
 
 // --- Gate derivation from retained raw observations --------------------------
-
-function familyFor(
-	owner: Owner,
-	seedIds: number[],
-	readByOwner: Record<Owner, number[][]>,
-	storageByOwner: Record<Owner, number[][]>,
-): ReturnType<typeof computeFamilywise> {
-	const metrics: SeedLevelMetric[] = [
-		{
-			key: `${owner}/readBlockMedianMs`,
-			kind: 'latency',
-			estimates: readByOwner[owner],
-		},
-		{
-			key: `${owner}/candidateTableBytes`,
-			kind: 'storage',
-			estimates: storageByOwner[owner],
-		},
-	];
-	return computeFamilywise({
-		candidates: CANDIDATE_IDS,
-		seedIds: seedIds.slice(0, readByOwner[owner].length),
-		metrics,
-		bootstrapDraws: BOOTSTRAP_DRAWS,
-		bootstrapSeed: BOOTSTRAP_SEED,
-	});
-}
-
-/** Every candidate shares one position profile within an owner+metric group. */
-function executedReadBalance(blocks: BlockObservation[]): boolean {
-	if (blocks.length === 0) return false;
-	const groups = new Map<string, Map<string, number[]>>();
-	for (const b of blocks) {
-		const key = `${b.owner}/${b.metric}`;
-		const byCandidate = groups.get(key) ?? new Map<string, number[]>();
-		const pos = byCandidate.get(b.candidate) ?? [0, 0, 0, 0];
-		pos[b.position] = (pos[b.position] ?? 0) + 1;
-		byCandidate.set(b.candidate, pos);
-		groups.set(key, byCandidate);
-	}
-	for (const byCandidate of groups.values()) {
-		const profiles = [...byCandidate.values()].map((p) => JSON.stringify(p));
-		if (new Set(profiles).size !== 1) return false;
-		if (byCandidate.size !== CANDIDATES.length) return false;
-	}
-	return true;
-}
-
-/**
- * Reduce a seed's raw observations to its seed-level estimators. NOTE (#6, open):
- * this still pools all read metrics into one `readBlockMedianMs` per cell; a later
- * wave must preserve owner+metric identity at the seed level.
- */
-function buildSeedEstimators(raw: SeedRawObservations): Record<string, number> {
-	const estimators: Record<string, number> = {};
-	for (const cell of raw.cells) {
-		const reads = raw.blocks.filter(
-			(b) => b.owner === cell.owner && b.candidate === cell.candidate,
-		);
-		estimators[`${cell.owner}/${cell.candidate}/readBlockMedianMs`] = median(
-			reads.map((b) => b.elapsedMs),
-		);
-		estimators[`${cell.owner}/${cell.candidate}/candidateTableBytes`] =
-			cell.candidateTableBytes;
-	}
-	// No silent fallback: an empty estimator set means the seed did not execute, and
-	// commitSeed rejects it (fail closed) rather than committing an empty seed.
-	return estimators;
-}
 
 function main(): void {
 	let options: CliOptions;
@@ -1557,6 +1679,7 @@ function main(): void {
 	const dir = mkdtempSync(join(tmpdir(), 'scalar-pilot-'));
 	const manifestPath = join(dir, 'manifest.json');
 	const startedMs = performance.now();
+	let preserveRunDirectory = false;
 
 	// The exact-envelope pilot is never run in-process: it is estimated and refused.
 	if (options.profile === 'pilot') {
@@ -1629,7 +1752,11 @@ function main(): void {
 			}
 		}
 
-		const headroom = headroomPreflight(dir, traceFor(profile, 0), profile);
+		const headroom = headroomPreflight(
+			dir,
+			provenanceTraceAt(provenance, 0),
+			profile,
+		);
 		// A failed headroom preflight aborts BEFORE any seed begins: no seed commits,
 		// so every committed seed is always a complete seed.
 		if (!headroom.passed) {
@@ -1651,7 +1778,7 @@ function main(): void {
 		for (let s = 0; s < profile.seedCount; s += 1) {
 			const seedId = seedIds[s] as number;
 			if (resumedSeedIds.includes(seedId)) continue;
-			const trace = traceFor(profile, s);
+			const trace = provenanceTraceAt(provenance, s);
 			const schedule = buildSeedSchedule({
 				seedId,
 				candidates: CANDIDATE_IDS,
@@ -1665,6 +1792,8 @@ function main(): void {
 					liveAtCommit: 0,
 					retainedThroughCommit: false,
 				},
+				probes: [],
+				calibrations: [],
 				blocks: [],
 				boundaries: [],
 				reopens: [],
@@ -1679,7 +1808,14 @@ function main(): void {
 			let retained: RetainedSet | null = null;
 			try {
 				const facts = finalFacts(trace);
-				retained = buildRetainedSet(dir, s, facts, trace);
+				retained = buildRetainedSet(
+					dir,
+					s,
+					manifest.identity,
+					seedId,
+					facts,
+					trace,
+				);
 				raw.lifecycle.peakRetained = retained.peakLive;
 				const ctx: SeedContext = {
 					dir,
@@ -1688,10 +1824,45 @@ function main(): void {
 					seedIndex: s,
 					seedId,
 					schedule,
+					configIdentity: manifest.identity,
 					raw,
 				};
-				for (const owner of OWNERS) runOwner(ctx, owner, retained);
+				let calibrationRefusal: Extract<
+					OwnerRunResult,
+					{ status: 'INCOMPLETE' }
+				> | null = null;
+				for (const owner of OWNERS) {
+					const result = runOwner(ctx, owner, retained);
+					if (result.status === 'INCOMPLETE') {
+						calibrationRefusal = result;
+						break;
+					}
+				}
+				if (calibrationRefusal !== null) {
+					const artifact = buildCalibrationIncompleteArtifact({
+						provenance,
+						manifestIdentity: manifest.identity,
+						refusal: calibrationRefusal,
+						completedSeedIds: manifest.completedSeeds.map(
+							(seed) => seed.seedId,
+						),
+						resumedSeedIds,
+					});
+					const outputPath =
+						options.output ?? join(dir, 'calibration-incomplete.json');
+					const reportHash = persistJsonAtomically(outputPath, artifact);
+					if (options.output === null) preserveRunDirectory = true;
+					process.stdout.write(
+						`calibration INCOMPLETE: ${artifact.reason}\n  report: ${outputPath}\n  report sha256: ${reportHash}\n`,
+					);
+					process.exitCode = 1;
+					return;
+				}
 				raw.lifecycle.liveAtCommit = retained.handles.size;
+				// The record is now prepared for a durable write while all eight handles
+				// remain live. If validation or persistence fails, no seed commits and the
+				// finally block removes the handles, so no manifest can retain this claim.
+				raw.lifecycle.retainedThroughCommit = true;
 
 				// Validate the raw against its closed schema AND profile-aware
 				// completeness BEFORE committing; an incomplete or malformed seed throws
@@ -1714,10 +1885,7 @@ function main(): void {
 				const auxiliaryBound = allAuxiliaryBound(
 					makeAuxiliaryTraces(trace, limits),
 				);
-				const estimators = buildSeedEstimators(raw);
-				// The eight databases are still whole at the durable write; deletion is
-				// strictly after it, so the record truthfully witnesses them retained.
-				raw.lifecycle.retainedThroughCommit = true;
+				const estimators = buildSeedEstimators(raw, manifest.identity, seedId);
 				const record = {
 					seedId,
 					estimators,
@@ -1727,9 +1895,6 @@ function main(): void {
 						auxiliaryBound: auxiliaryBound ? '1' : '0',
 					},
 					raw,
-					seedGatesPassed: raw.cells.every(
-						(c) => c.oracleReproduced && c.integrityOk,
-					),
 				} satisfies SeedRecord;
 				// Persist every durable manifest FIRST, then delete the retained set. A
 				// write failure leaves all eight databases retained and the seed
@@ -1755,6 +1920,12 @@ function main(): void {
 		// Derive everything from the committed manifest, so gates cover resumed AND
 		// fresh seeds identically.
 		const committed = manifest.completedSeeds;
+		const allProbes = committed.flatMap(
+			(s) => (s.raw.probes as ProbeObservation[]) ?? [],
+		);
+		const allCalibrations = committed.flatMap(
+			(s) => (s.raw.calibrations as CalibrationObservation[]) ?? [],
+		);
 		const allBlocks = committed.flatMap(
 			(s) => (s.raw.blocks as BlockObservation[]) ?? [],
 		);
@@ -1770,37 +1941,29 @@ function main(): void {
 		const allMacros = committed.flatMap(
 			(s) => (s.raw.macros as MacroObservation[]) ?? [],
 		);
+		const allBoundaries = committed.flatMap(
+			(s) => (s.raw.boundaries as BoundaryObservation[]) ?? [],
+		);
 
-		const readByOwner: Record<Owner, number[][]> = {
-			replica: [],
-			authority: [],
-		};
-		const storageByOwner: Record<Owner, number[][]> = {
-			replica: [],
-			authority: [],
-		};
-		for (const seed of committed) {
-			for (const owner of OWNERS) {
-				readByOwner[owner].push(
-					CANDIDATE_IDS.map(
-						(c) =>
-							seed.estimators[`${owner}/${c}/readBlockMedianMs`] ?? Number.NaN,
-					),
-				);
-				storageByOwner[owner].push(
-					CANDIDATE_IDS.map(
-						(c) =>
-							seed.estimators[`${owner}/${c}/candidateTableBytes`] ??
-							Number.NaN,
-					),
-				);
-			}
-		}
-		const familyByOwner = {
-			replica: familyFor('replica', seedIds, readByOwner, storageByOwner),
-			authority: familyFor('authority', seedIds, readByOwner, storageByOwner),
-		};
-		const estimatorOk = familyByOwner.replica.ok && familyByOwner.authority.ok;
+		const committedComplete =
+			committed.length === profile.seedCount &&
+			committed.every((seed, seedIndex) => {
+				if (seed.seedId !== seedIds[seedIndex]) return false;
+				return validateSeedCompleteness(
+					seed.raw,
+					completenessExpectations(provenance, seedIndex),
+				).complete;
+			});
+		const estimatorsComplete =
+			committedComplete &&
+			committed.every((seed) =>
+				estimatorsMatchRaw(
+					seed.estimators,
+					seed.raw,
+					manifest.identity,
+					seed.seedId,
+				),
+			);
 
 		// Gates derived from retained observation completeness and content.
 		const executed =
@@ -1809,72 +1972,83 @@ function main(): void {
 			executed && allCells.every((c) => c.oracleReproduced);
 		const integrityOk = executed && allCells.every((c) => c.integrityOk);
 		const calibrationMet =
-			executed && allBlocks.every((b) => b.elapsedMs >= MIN_TIMED_BLOCK_MS);
+			committedComplete &&
+			allCalibrations.length > 0 &&
+			allBlocks.every((b) => b.elapsedMs >= profile.minBlockMs);
 		const warmupsRun =
 			executed &&
 			allBlocks.every(
 				(b) => b.warmupMs.length === 3 && b.warmupMs.every((w) => w > 0),
 			);
-		const balanced =
-			executed &&
-			committed.every(
-				(s) =>
-					balanceDiagnostics(
-						[
-							buildSeedSchedule({
-								seedId: s.seedId,
-								candidates: CANDIDATE_IDS,
-								cycles: profile.cycles,
-								rotation: s.seedId - BASE_SEED,
-							}),
-						],
-						CANDIDATE_IDS,
-					).positionBalanced,
-			) &&
-			executedReadBalance(allBlocks) &&
-			allBlocks.some((b) => b.boundary === 'pair' || b.boundary === 'cycle');
+		// Whole-seed completeness compares every block against the single exact
+		// Williams schedule owner, including position, predecessor, and boundary.
+		const balanced = committedComplete;
 		const reopenPerCell = new Map<string, number>();
 		for (const r of allReopens) {
 			const key = `${r.owner}/${r.candidate}/reopen`;
 			reopenPerCell.set(key, (reopenPerCell.get(key) ?? 0) + 1);
 		}
 		const reopenSufficient =
-			executed &&
-			allReopens.length > 0 &&
+			committedComplete &&
+			allReopens.length ===
+				profile.seedCount *
+					OWNERS.length *
+					CANDIDATES.length *
+					profile.reopenObservations &&
 			allReopens.every((r) => r.witnessMatchesOracle) &&
 			[...reopenPerCell.values()].every(
-				(count) => count >= profile.reopenObservations * committed.length,
+				(count) => count === profile.reopenObservations * committed.length,
 			);
 		const resetProven =
+			committedComplete &&
 			allTails.length > 0 &&
 			allTails.every(
 				(t) =>
 					t.resetVerified &&
 					t.warmupTransactions === 3 &&
-					t.transactions >= 400,
+					t.transactions === profile.tailTransactions &&
+					t.samplesMs.length === profile.tailTransactions,
 			);
-		// Owner-workloads gate: every declared metric per owner appears in the
-		// retained observations for every committed seed.
-		const ownerWorkloadsExecuted =
-			executed &&
-			committed.every((s) => {
-				const raw = s.raw as unknown as SeedRawObservations;
-				const present = new Set<string>();
-				for (const m of raw.macros) present.add(`${m.owner}/${m.metric}`);
-				for (const b of raw.blocks) present.add(`${b.owner}/${b.metric}`);
-				for (const t of raw.tails) present.add(`${t.owner}/${t.metric}`);
-				if (raw.reopens.length > 0) {
-					for (const owner of OWNERS) present.add(`${owner}/warmReopen`);
-				}
-				return OWNERS.every((owner) =>
-					declaredMetrics(owner).every((metric) =>
-						present.has(`${owner}/${metric}`),
-					),
+		const ownerWorkloadsExecuted = committedComplete;
+		const rawObservationsRetained = committedComplete;
+		const expectedCounts = seedIds.reduce(
+			(total, _seedId, seedIndex) => {
+				const perSeed = expectedObservationCounts(
+					completenessExpectations(provenance, seedIndex),
 				);
-			});
-		const rawObservationsRetained =
-			committed.length > 0 &&
-			committed.every((s) => (s.raw.cells as unknown[]).length > 0);
+				for (const key of Object.keys(perSeed) as Array<keyof typeof perSeed>) {
+					total[key] += perSeed[key];
+				}
+				return total;
+			},
+			{
+				probes: 0,
+				blocks: 0,
+				boundaries: 0,
+				reopens: 0,
+				tails: 0,
+				macros: 0,
+				cells: 0,
+			},
+		);
+		const actualCounts = {
+			probes: allProbes.length,
+			blocks: allBlocks.length,
+			boundaries: allBoundaries.length,
+			reopens: allReopens.length,
+			tails: allTails.length,
+			macros: allMacros.length,
+			cells: allCells.length,
+		};
+		const observationCountsExact =
+			committedComplete &&
+			(Object.keys(expectedCounts) as Array<keyof typeof expectedCounts>).every(
+				(key) => actualCounts[key] === expectedCounts[key],
+			) &&
+			allBlocks.reduce((count, block) => count + block.warmupMs.length, 0) ===
+				expectedCounts.blocks * 3 &&
+			allTails.reduce((count, tail) => count + tail.samplesMs.length, 0) ===
+				expectedCounts.tails * profile.tailTransactions;
 		// The frozen exact-envelope gate: a bounded smoke can never pass it, so it can
 		// never be method-validated even when every other gate is green.
 		const exactEnvelopeConformant =
@@ -1888,7 +2062,7 @@ function main(): void {
 			oracleWitnessReproduced: oracleReproduced,
 			crossCandidateConsistent: oracleReproduced,
 			provenanceMatches: verifyProvenanceRoundTrip(manifestPath, provenance),
-			estimatorOk,
+			estimatorsComplete,
 			balanced,
 			calibrationMet,
 			warmupsRun,
@@ -1898,40 +2072,43 @@ function main(): void {
 			headroomPreflightPassed: headroom.passed,
 			ownerWorkloadsExecuted,
 			rawObservationsRetained,
+			observationCountsExact,
 			exactEnvelopeConformant,
 			checkpointBoundariesTruthful,
 		};
 		const method = validateMethod(proofInputs);
-		// Feasibility only, not selection: every contrast interval must be finite (the
-		// estimator produced a usable bound). No candidate classification is read here
-		// or emitted in the report.
-		const classifierResolved =
-			estimatorOk &&
-			[
-				...familyByOwner.replica.contrasts,
-				...familyByOwner.authority.contrasts,
-			].every(
-				(c) =>
-					Number.isFinite(c.interval.lower) &&
-					Number.isFinite(c.interval.upper),
-			);
 		const readiness = evaluateEvidenceReadiness({
 			isPilot: true,
-			method,
+			execution: { status: 'COMPLETE', method },
 			sloPolicy: UNCONFIGURED_SLO_POLICY,
 			sloObservations: null,
 			expectedCells: [],
 			matrixComplete: oracleReproduced,
-			classifierResolved,
 		});
 
 		const durationMs = performance.now() - startedMs;
 		const rawObservationCounts = {
+			probes: allProbes.length,
+			calibrations: allCalibrations.length,
 			blocks: allBlocks.length,
+			boundaries: allBoundaries.length,
 			reopens: allReopens.length,
 			tails: allTails.length,
+			tailSamples: allTails.reduce(
+				(count, tail) => count + tail.samplesMs.length,
+				0,
+			),
+			warmups: allBlocks.reduce(
+				(count, block) => count + block.warmupMs.length,
+				0,
+			),
 			macros: allMacros.length,
 			cells: allCells.length,
+			expected: {
+				...expectedCounts,
+				warmups: expectedCounts.blocks * 3,
+				tailSamples: expectedCounts.tails * profile.tailTransactions,
+			},
 			byOwnerMetric: countByOwnerMetric(
 				allBlocks,
 				allTails,
@@ -1939,26 +2116,11 @@ function main(): void {
 				allReopens,
 			),
 		};
-		// Non-selecting feasibility ONLY: owner-and-kind interval half-widths and the
-		// projected seed count to reach the target. No candidate identity, ranking, or
-		// pairwise classification is emitted (spec: the pilot reports only an evidence
-		// status). Per-candidate/per-metric diagnostics stay inside the raw arrays.
-		const feasibility = OWNERS.map((owner) => ({
-			owner,
-			ok: familyByOwner[owner].ok,
-			byKind: familyByOwner[owner].feasibility.map((f) => ({
-				kind: f.kind,
-				maxHalfWidth: f.maxHalfWidth,
-				targetHalfWidth: f.targetHalfWidth,
-				withinTarget: f.withinTarget,
-				projectedSeeds: f.projectedSeeds,
-			})),
-		}));
 		const report = {
 			kind: profile.exact
 				? 'scalar-facts-layout-measurement-pilot'
 				: 'scalar-facts-layout-complete-method-smoke',
-			classifierOnly: true,
+			instrumentRole: 'measurement-method-pilot',
 			isPilot: true,
 			methodValidated: method.methodValidated,
 			note: profile.exact
@@ -1978,7 +2140,6 @@ function main(): void {
 			gates: method.gates,
 			method,
 			evidenceStatus: readiness,
-			feasibility,
 			completedSeedIds: committed.map((s) => s.seedId),
 			resumedSeedIds,
 			raw: committed.map((s) => ({ seedId: s.seedId, ...(s.raw as object) })),
@@ -1993,7 +2154,7 @@ function main(): void {
 				`scalar-facts-layout ${profile.exact ? 'EXACT-ENVELOPE PILOT' : 'COMPLETE-METHOD SMOKE'} (${profile.name})`,
 				`  seeds=${profile.seedCount} candidates=${CANDIDATES.length} owners=${OWNERS.length} cycles=${profile.cycles} present~=${profile.present}`,
 				`  duration=${(durationMs / 1000).toFixed(1)}s  resumed=${resumedSeedIds.length}`,
-				`  raw: blocks=${allBlocks.length} boundaries=${committed.flatMap((s) => s.raw.boundaries as unknown[]).length} reopens=${allReopens.length} tails=${allTails.length} macros=${allMacros.length} cells=${allCells.length}`,
+				`  raw: probes=${allProbes.length} calibrations=${allCalibrations.length} blocks=${allBlocks.length} boundaries=${allBoundaries.length} reopens=${allReopens.length} tails=${allTails.length} tailSamples=${rawObservationCounts.tailSamples} macros=${allMacros.length} cells=${allCells.length}`,
 				`  headroom: ${headroom.passed} (perDB=${headroom.perDatabaseBytes}B, need=${headroom.requiredBytes}B, wallEst=${headroom.wallTimeEstimateSeconds ?? '?'}s)`,
 				`  method validated: ${method.methodValidated}${profile.exact ? '' : ' (UNREACHABLE for a smoke: exact-envelope gate fails)'}`,
 				`  failing gates: ${method.proofRefusals.map((r) => r.split(':')[0]).join(', ') || 'none'}`,
@@ -2005,7 +2166,9 @@ function main(): void {
 				.join(''),
 		);
 	} finally {
-		if (!options.keepArtifacts) rmSync(dir, { recursive: true, force: true });
+		if (!options.keepArtifacts && !preserveRunDirectory) {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	}
 }
 
