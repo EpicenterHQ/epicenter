@@ -807,9 +807,11 @@ Hardened across four fresh-context review passes:
   or extended arrays, symbol, accessor, and non-enumerable properties rejected),
   with Appendix B number coverage and round-trip proofs. Every complete protocol
   input passes a non-throwing, iterative canonical-JSON-tree gate (explicit stack
-  and active-path set, so tens of thousands of levels cannot overflow the stack;
-  cycles rejected, shared DAGs accepted) before schema and semantic admission, so
-  exotic outer shapes return a typed error instead of being silently dropped.
+  and one monotonic visited set, so tens of thousands of levels cannot overflow
+  the stack; cycles and shared references both rejected, because wire JSON is a
+  tree and the canonical encoder would expand a shared subtree exponentially)
+  before schema and semantic admission, so exotic outer shapes return a typed
+  error instead of being silently dropped.
   Every admission boundary additionally catches any residual reflection or
   `structuredClone` failure and returns a typed refusal, so a throwing Proxy, a
   transparent Proxy (which `structuredClone` cannot own), or any host exception
