@@ -60,6 +60,7 @@ function seedRecord(seedId: number): SeedRecord {
 		seedId,
 		estimators: { 'replica/unified-inline/confirmedPointRead': 1.23 },
 		hashes: { trace: 'abc' },
+		raw: { blocks: [], reopens: [], tails: [], macros: [], cells: [] },
 		seedGatesPassed: true,
 	};
 }
@@ -166,12 +167,30 @@ describe('atomic persistence and schema-validated cross-process resume', () => {
 					seedId: 1000,
 					estimators: {},
 					hashes: { t: 'x' },
+					raw: { blocks: [], reopens: [], tails: [], macros: [], cells: [] },
 					seedGatesPassed: true,
 				},
 			],
 		};
 		// Recompute identity so only the seed shape is wrong.
 		expect(parseManifest(JSON.stringify(bad))).toBeNull();
+	});
+
+	test('a manifest with a seed missing raw observations is refused', () => {
+		const manifest = createManifest(CONFIG);
+		const missingRaw = {
+			...manifest,
+			completedSeeds: [
+				{
+					seedId: 1000,
+					estimators: { m: 1 },
+					hashes: { t: 'x' },
+					raw: { blocks: [], reopens: [], cells: [] }, // missing tails and macros
+					seedGatesPassed: true,
+				},
+			],
+		};
+		expect(parseManifest(JSON.stringify(missingRaw))).toBeNull();
 	});
 
 	test('a committed seed outside the config seed list is refused', () => {

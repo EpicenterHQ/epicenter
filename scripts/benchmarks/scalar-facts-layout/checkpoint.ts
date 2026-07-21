@@ -64,13 +64,28 @@ export type ProvenanceConfig = {
 	auxiliaryDigest: string;
 };
 
-/** One committed seed's reduced evidence, the unit a resume may skip. */
+/**
+ * The full raw observation payload for one seed: the block, reopen, tail, and
+ * cell arrays the pilot records. Persisting it means a resumed run's gates cover
+ * committed AND fresh seeds identically to a clean run, not estimators alone.
+ */
+export type SeedRaw = {
+	blocks: unknown[];
+	reopens: unknown[];
+	tails: unknown[];
+	macros: unknown[];
+	cells: unknown[];
+};
+
+/** One committed seed's evidence, the unit a resume may skip. */
 export type SeedRecord = {
 	seedId: number;
 	/** The seed-level estimators, keyed `owner/candidate/metric` -> scalar. */
 	estimators: Record<string, number>;
 	/** Provenance hashes captured for this seed (trace, auxiliary, integrity). */
 	hashes: Record<string, string>;
+	/** The complete raw per-seed observations, persisted so resume covers this seed. */
+	raw: SeedRaw;
 	/** True when this seed cleared every per-seed proof gate. */
 	seedGatesPassed: boolean;
 };
@@ -185,6 +200,14 @@ function isValidSeedRecord(record: unknown): record is SeedRecord {
 	if (Object.keys(hashes).length === 0) return false; // provenance is required
 	for (const key of Object.keys(hashes)) {
 		if (typeof hashes[key] !== 'string') return false;
+	}
+	if (typeof r.raw !== 'object' || r.raw === null) return false;
+	const raw = r.raw as Record<string, unknown>;
+	// Every raw observation array must be present, so a resumed seed carries the
+	// same derived-gate inputs a fresh run would; a missing or non-array field is a
+	// partial raw cell and is rejected.
+	for (const field of ['blocks', 'reopens', 'tails', 'macros', 'cells']) {
+		if (!Array.isArray(raw[field])) return false;
 	}
 	return true;
 }
