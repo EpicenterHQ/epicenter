@@ -61,6 +61,9 @@ export type BrowserWorkerStore = {
 type Client = {
 	port: MessagePortLike;
 	documents: Map<number, WorkerDocument>;
+	syncTransportKey: number | undefined;
+	syncAttachmentOrder: number;
+	syncTransportAvailable: boolean;
 	transports: Map<
 		number,
 		{
@@ -72,7 +75,6 @@ type Client = {
 		number,
 		{
 			hasCredentials: boolean;
-			listeners: Set<() => void>;
 		}
 	>;
 };
@@ -99,15 +101,19 @@ type UntypedValueLens = {
 };
 
 const documentRpcOrigin = Object.freeze({ kind: 'browser-document-rpc' });
+const DEFAULT_EXCHANGE_TIMEOUT_MS = 30_000;
 
 export function createBrowserWorkerHost({
 	openStore = openBrowserWorkerStore,
 	hostId = crypto.randomUUID(),
+	exchangeTimeoutMs = DEFAULT_EXCHANGE_TIMEOUT_MS,
 }: {
 	openStore?: (options: { onStolen(): void }) => Promise<BrowserWorkerStore>;
 	hostId?: string;
+	exchangeTimeoutMs?: number;
 } = {}) {
 	const clients = new Set<Client>();
+	const syncCredentialListeners = new Set<() => void>();
 	let storePromise: Promise<BrowserWorkerStore> | undefined;
 	let stopReplicaSubscription: (() => void) | undefined;
 	let stopSyncStatusSubscription: (() => void) | undefined;
@@ -115,7 +121,59 @@ export function createBrowserWorkerHost({
 	let nextDocumentId = 0;
 	let nextTransportId = 0;
 	let nextInvalidationId = 0;
+	let nextSyncAttachmentOrder = 0;
 	let isStolen = false;
+
+	function syncClients(): Client[] {
+		return [...clients]
+			.filter(
+				(client) =>
+					client.syncTransportKey !== undefined &&
+					client.syncTransportAvailable,
+			)
+			.sort(
+				(left, right) => right.syncAttachmentOrder - left.syncAttachmentOrder,
+			);
+	}
+
+	function notifySyncCredentials(): void {
+		for (const listener of syncCredentialListeners) listener();
+	}
+
+	const syncCredentials = {
+		get(): string | undefined {
+			return syncClients().some((client) => {
+				const key = client.syncTransportKey;
+				return key !== undefined && client.credentials.get(key)?.hasCredentials;
+			})
+				? 'page-owned-credential'
+				: undefined;
+		},
+		subscribe(listener: () => void): () => void {
+			syncCredentialListeners.add(listener);
+			return () => syncCredentialListeners.delete(listener);
+		},
+	};
+
+	async function exchangeThroughLiveClient(
+		request: ExchangeRequest,
+	): Promise<ExchangeResponse> {
+		let lastFailure: unknown;
+		for (const client of syncClients()) {
+			const transportKey = client.syncTransportKey;
+			if (transportKey === undefined) continue;
+			if (!client.credentials.get(transportKey)?.hasCredentials) continue;
+			try {
+				return await exchange(client, transportKey, request);
+			} catch (cause) {
+				client.syncAttachmentOrder = 0;
+				lastFailure = cause;
+			}
+		}
+		throw new Error('No live browser sync transport completed the exchange', {
+			cause: lastFailure,
+		});
+	}
 
 	function openedStore(): Promise<BrowserWorkerStore> {
 		if (isStolen) throw storageMovedError();
@@ -228,6 +286,7 @@ export function createBrowserWorkerHost({
 		client.transports.clear();
 		client.credentials.clear();
 		clients.delete(client);
+		notifySyncCredentials();
 		if (clients.size === 0) await disposeStore();
 	}
 
@@ -299,34 +358,50 @@ export function createBrowserWorkerHost({
 			case 'document-close':
 				await closeDocument(client, operation.documentId);
 				return undefined;
-			case 'attach-sync':
+			case 'attach-sync': {
+				const previousTransportKey = client.syncTransportKey;
+				const previousAttachmentOrder = client.syncAttachmentOrder;
+				const previousTransportAvailable = client.syncTransportAvailable;
 				client.credentials.set(operation.transportKey, {
 					hasCredentials: operation.hasCredentials,
-					listeners: new Set(),
 				});
-				return store.epicenter.attachSync({
-					deploymentId: operation.deploymentId,
-					principalId: operation.principalId,
-					exchange: (request) =>
-						exchange(client, operation.transportKey, request),
-					credentials: {
-						get: () =>
-							client.credentials.get(operation.transportKey)?.hasCredentials
-								? 'page-owned-credential'
-								: undefined,
-						subscribe(listener) {
-							const credential = client.credentials.get(operation.transportKey);
-							if (credential === undefined) return () => undefined;
-							credential.listeners.add(listener);
-							return () => credential.listeners.delete(listener);
-						},
-					},
-				});
+				client.syncTransportKey = operation.transportKey;
+				client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
+				client.syncTransportAvailable = true;
+				const restorePreviousTransport = () => {
+					client.credentials.delete(operation.transportKey);
+					client.syncTransportKey = previousTransportKey;
+					client.syncAttachmentOrder = previousAttachmentOrder;
+					client.syncTransportAvailable = previousTransportAvailable;
+				};
+				let attached: Awaited<ReturnType<Epicenter['attachSync']>>;
+				try {
+					attached = await store.epicenter.attachSync({
+						deploymentId: operation.deploymentId,
+						principalId: operation.principalId,
+						exchange: exchangeThroughLiveClient,
+						credentials: syncCredentials,
+					});
+				} catch (cause) {
+					restorePreviousTransport();
+					throw cause;
+				}
+				if (attached.error !== null) {
+					restorePreviousTransport();
+				} else if (previousTransportKey !== undefined) {
+					client.credentials.delete(previousTransportKey);
+				}
+				return attached;
+			}
 			case 'sync-credentials': {
 				const credential = client.credentials.get(operation.transportKey);
 				if (credential === undefined) return undefined;
 				credential.hasCredentials = operation.hasCredentials;
-				for (const listener of credential.listeners) listener();
+				client.syncTransportAvailable = true;
+				if (operation.hasCredentials) {
+					client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
+				}
+				notifySyncCredentials();
 				return undefined;
 			}
 			default:
@@ -364,13 +439,34 @@ export function createBrowserWorkerHost({
 	): Promise<ExchangeResponse> {
 		const transportId = ++nextTransportId;
 		return new Promise<ExchangeResponse>((resolve, reject) => {
-			client.transports.set(transportId, { resolve, reject });
-			client.port.postMessage({
-				type: 'exchange-request',
-				transportId,
-				transportKey,
-				request,
+			const timeout = setTimeout(() => {
+				if (!client.transports.delete(transportId)) return;
+				client.syncTransportAvailable = false;
+				reject(new Error('Browser sync transport timed out'));
+			}, exchangeTimeoutMs);
+			client.transports.set(transportId, {
+				resolve(value) {
+					clearTimeout(timeout);
+					resolve(value as ExchangeResponse);
+				},
+				reject(cause) {
+					clearTimeout(timeout);
+					reject(cause);
+				},
 			});
+			try {
+				client.port.postMessage({
+					type: 'exchange-request',
+					transportId,
+					transportKey,
+					request,
+				});
+			} catch (cause) {
+				clearTimeout(timeout);
+				client.transports.delete(transportId);
+				client.syncTransportAvailable = false;
+				reject(cause);
+			}
 		});
 	}
 
@@ -379,7 +475,16 @@ export function createBrowserWorkerHost({
 		message: BrowserExchangeResult,
 	): void {
 		const pending = client.transports.get(message.transportId);
-		if (pending === undefined) return;
+		if (pending === undefined) {
+			if (
+				message.transportKey === client.syncTransportKey &&
+				!client.syncTransportAvailable
+			) {
+				client.syncTransportAvailable = true;
+				notifySyncCredentials();
+			}
+			return;
+		}
 		client.transports.delete(message.transportId);
 		if (message.type === 'exchange-result') pending.resolve(message.response);
 		else {
@@ -393,6 +498,9 @@ export function createBrowserWorkerHost({
 		const client: Client = {
 			port,
 			documents: new Map(),
+			syncTransportKey: undefined,
+			syncAttachmentOrder: 0,
+			syncTransportAvailable: false,
 			transports: new Map(),
 			credentials: new Map(),
 		};

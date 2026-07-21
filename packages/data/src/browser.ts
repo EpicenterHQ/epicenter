@@ -100,6 +100,7 @@ export async function openBrowserEpicenter({
 	const syncStatusListeners = new Set<(status: SyncStatus) => void>();
 	let syncStatus: SyncStatus = { state: 'local', lastError: undefined };
 	let stopCredentials: (() => void) | undefined;
+	let activeTransportKey: number | undefined;
 	let requestId = 0;
 	let transportKey = 0;
 	let isDisposed = false;
@@ -174,6 +175,7 @@ export async function openBrowserEpicenter({
 				port.postMessage({
 					type: 'exchange-result',
 					transportId: message.transportId,
+					transportKey: message.transportKey,
 					response,
 				});
 			}
@@ -182,6 +184,7 @@ export async function openBrowserEpicenter({
 				port.postMessage({
 					type: 'exchange-error',
 					transportId: message.transportId,
+					transportKey: message.transportKey,
 					name: cause instanceof Error ? cause.name : 'Error',
 					message: cause instanceof Error ? cause.message : String(cause),
 				});
@@ -503,8 +506,7 @@ export async function openBrowserEpicenter({
 		requireOpen();
 		const key = ++transportKey;
 		exchanges.set(key, session.exchange);
-		stopCredentials?.();
-		stopCredentials = session.credentials?.subscribe?.(() => {
+		const stopNextCredentials = session.credentials?.subscribe?.(() => {
 			void request<void>({
 				kind: 'sync-credentials',
 				transportKey: key,
@@ -523,10 +525,21 @@ export async function openBrowserEpicenter({
 					session.credentials === undefined ||
 					session.credentials.get() !== undefined,
 			});
-			if (result.error !== null) exchanges.delete(key);
+			if (result.error !== null) {
+				exchanges.delete(key);
+				stopNextCredentials?.();
+				return result;
+			}
+			stopCredentials?.();
+			if (activeTransportKey !== undefined) {
+				exchanges.delete(activeTransportKey);
+			}
+			activeTransportKey = key;
+			stopCredentials = stopNextCredentials;
 			return result;
 		} catch (cause) {
 			exchanges.delete(key);
+			stopNextCredentials?.();
 			throw cause;
 		}
 	}
@@ -552,6 +565,7 @@ export async function openBrowserEpicenter({
 		tableListeners.clear();
 		valueListeners.clear();
 		exchanges.clear();
+		activeTransportKey = undefined;
 		stopCredentials?.();
 		stopCredentials = undefined;
 		syncStatusListeners.clear();

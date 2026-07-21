@@ -30,6 +30,7 @@ import {
 } from './browser.js';
 import { createEpicenter } from './epicenter.js';
 import { defineTable, defineValue, optional } from './index.js';
+import type { ExchangeRequest, ExchangeResponse } from './protocol/index.js';
 import { openReplica } from './replica/index.js';
 
 type MessageListener = (event: { data: never }) => void;
@@ -175,12 +176,17 @@ const theme = defineValue({
 	value: field.string(),
 });
 
-async function setup() {
+async function setup({
+	exchangeTimeoutMs,
+}: {
+	exchangeTimeoutMs?: number;
+} = {}) {
 	const owner = createStoreOwner();
 	const broadcasts = new FakeBroadcastHub();
 	const host = createBrowserWorkerHost({
 		openStore: owner.openStore,
 		hostId: 'browser-test-host',
+		...(exchangeTimeoutMs === undefined ? {} : { exchangeTimeoutMs }),
 	});
 
 	async function openTab(): Promise<BrowserEpicenter> {
@@ -307,23 +313,145 @@ test('row documents persist incremental updates and revoke on row deletion', asy
 test('attachSync refuses a second principal through RPC', async () => {
 	const { openTab } = await setup();
 	await using epicenter = await openTab();
-	const exchange = async () => ({ through: 0, records: [], next: null });
+	let firstExchanges = 0;
+	let refusedExchanges = 0;
+	const credentials = createMutableCredentials();
 
 	expectOk(
 		await epicenter.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
-			exchange,
+			exchange(request) {
+				firstExchanges += 1;
+				return acknowledge(request);
+			},
+			credentials: credentials.provider,
 		}),
 	);
+	const firstBeforeRefusal = firstExchanges;
 	const refusal = expectErr(
 		await epicenter.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'bob',
-			exchange,
+			exchange(request) {
+				refusedExchanges += 1;
+				return acknowledge(request);
+			},
 		}),
 	);
 	expect(refusal.name).toBe('WrongAttachment');
+
+	await bindTestData(epicenter).tables.notes.create({
+		title: 'Still attached',
+	});
+	await waitFor(() => firstExchanges > firstBeforeRefusal);
+	expect(refusedExchanges).toBe(0);
+	credentials.setAvailable(false);
+	await waitFor(() => epicenter.syncStatus.state === 'authentication-required');
+});
+
+test('sync transport fails over when the last-attaching tab disconnects', async () => {
+	const { openTab } = await setup();
+	await using first = await openTab();
+	const second = await openTab();
+	let firstExchanges = 0;
+	let secondExchanges = 0;
+
+	expectOk(
+		await first.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				firstExchanges += 1;
+				return acknowledge(request);
+			},
+		}),
+	);
+	expectOk(
+		await second.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				secondExchanges += 1;
+				return acknowledge(request);
+			},
+		}),
+	);
+	const firstBeforeWrite = firstExchanges;
+	const secondBeforeDisconnect = secondExchanges;
+
+	await second[Symbol.asyncDispose]();
+	await bindTestData(first).tables.notes.create({ title: 'Fail over' });
+	await waitFor(() => firstExchanges > firstBeforeWrite);
+	expect(secondExchanges).toBe(secondBeforeDisconnect);
+});
+
+test('sync retries the exact request through another tab when the selected transport stalls', async () => {
+	const { openTab } = await setup({ exchangeTimeoutMs: 10 });
+	await using first = await openTab();
+	await using second = await openTab();
+	let firstRequest: ExchangeRequest | undefined;
+	let secondRequest: ExchangeRequest | undefined;
+	let secondStalls = false;
+	const credentials = createMutableCredentials();
+
+	expectOk(
+		await first.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				firstRequest = request;
+				return acknowledge(request);
+			},
+			credentials: credentials.provider,
+		}),
+	);
+	expectOk(
+		await second.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				secondRequest = request;
+				return secondStalls
+					? new Promise<ExchangeResponse>(() => undefined)
+					: acknowledge(request);
+			},
+		}),
+	);
+	firstRequest = undefined;
+	secondRequest = undefined;
+	secondStalls = true;
+
+	await bindTestData(first).tables.notes.create({ title: 'Retry exactly' });
+	await waitFor(() => firstRequest !== undefined);
+	expect(secondRequest).toEqual(firstRequest);
+
+	credentials.setAvailable(false);
+	await waitFor(() => first.syncStatus.state === 'authentication-required');
+});
+
+test('a late reply re-enables the current sole sync transport', async () => {
+	const { openTab } = await setup({ exchangeTimeoutMs: 10 });
+	await using epicenter = await openTab();
+	const requests: ExchangeRequest[] = [];
+
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			async exchange(request) {
+				requests.push(request);
+				if (requests.length === 2) await Bun.sleep(25);
+				return acknowledge(request);
+			},
+		}),
+	);
+
+	await bindTestData(epicenter).tables.notes.create({ title: 'Recover late' });
+	await waitFor(
+		() => requests.length >= 3 && epicenter.syncStatus.state === 'idle',
+	);
+	expect(requests[2]).toEqual(requests[1]);
 });
 
 test('disposing the last page releases ownership before a second open', async () => {
@@ -347,4 +475,41 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 			throw new Error('Timed out waiting for browser RPC');
 		await Bun.sleep(5);
 	}
+}
+
+function acknowledge(request: ExchangeRequest): ExchangeResponse {
+	return {
+		...(request.batch === undefined
+			? {}
+			: {
+					receipt: {
+						seq: request.batch.seq,
+						digest: request.batch.digest,
+						appliedThrough: request.after,
+					},
+				}),
+		through: request.after,
+		records: [],
+		next: null,
+	};
+}
+
+function createMutableCredentials() {
+	let available = true;
+	let listener: (() => void) | undefined;
+	return {
+		provider: {
+			get: () => (available ? 'credential' : undefined),
+			subscribe(next: () => void) {
+				listener = next;
+				return () => {
+					if (listener === next) listener = undefined;
+				};
+			},
+		},
+		setAvailable(next: boolean) {
+			available = next;
+			listener?.();
+		},
+	};
 }

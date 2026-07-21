@@ -84,11 +84,13 @@ export type BrowserExchangeResult =
 	| {
 			type: 'exchange-result';
 			transportId: number;
+			transportKey: number;
 			response: ExchangeResponse;
 	  }
 	| {
 			type: 'exchange-error';
 			transportId: number;
+			transportKey: number;
 			name: string;
 			message: string;
 	  };
