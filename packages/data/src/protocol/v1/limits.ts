@@ -7,8 +7,11 @@
  * product constant: every parser, byte measurement, and the authority reference
  * model take limits, and tests supply their own.
  *
- * But a raw limits object cannot be trusted. `validateLimits` is the single
- * mandatory gate: it proves the ceilings are safe non-negative integers and,
+ * But a raw limits object cannot be trusted, and it arrives as unknown input.
+ * `validateLimits` is total: a non-plain object, a missing or extra key, a
+ * non-number value, or even a throwing proxy returns a typed `Invalid` instead
+ * of throwing. It is also the single mandatory gate: it proves the ceilings are
+ * safe non-negative integers and,
  * crucially, that the response ceilings actually fit the worst case they must
  * carry. The response envelope is derived here arithmetically from fixed
  * canonical skeleton costs plus the byte ceilings, never trusted as a
@@ -21,8 +24,13 @@
  */
 import { Ok, type Result } from 'wellcrafted/result';
 
-import { canonicalize, deepFreeze, utf8ByteLength } from './canonical.js';
-import { ScalarProtocolError } from './errors.js';
+import {
+	canonicalize,
+	deepFreeze,
+	isPlainDataObject,
+	utf8ByteLength,
+} from './canonical.js';
+import { catchAsInvalid, ScalarProtocolError } from './errors.js';
 import type { JsonLimits } from './json.js';
 
 export type ScalarSyncLimits = JsonLimits & {
@@ -172,56 +180,102 @@ function isNonNegativeSafeInteger(value: number): boolean {
 	return Number.isSafeInteger(value) && value >= 0;
 }
 
+/** Keys whose ceiling has no meaningful zero and must be at least one. */
+const POSITIVE_LIMIT_KEYS = [
+	'jsonDepth',
+	'maxNamespaceBytes',
+	'maxTableKeyBytes',
+	'maxValueKeyBytes',
+	'maxLifetimeBytes',
+	'maxFieldKeyBytes',
+	'maxEncodedFactBytes',
+	'maxFactsResponseBytes',
+	'maxSubmissionBytes',
+	'maxSubmissionResponseBytes',
+	'maxSubmissionAddresses',
+] as const satisfies readonly (keyof ScalarSyncLimits)[];
+
+/** Keys whose zero is meaningful (an empty allowance). */
+const NON_NEGATIVE_LIMIT_KEYS = [
+	'propertiesPerObject',
+	'maxUnsetKeysPerIntent',
+] as const satisfies readonly (keyof ScalarSyncLimits)[];
+
+/** The exact set of limits keys. The two groups partition it with none spare. */
+const ALL_LIMIT_KEYS: readonly (keyof ScalarSyncLimits)[] = [
+	...POSITIVE_LIMIT_KEYS,
+	...NON_NEGATIVE_LIMIT_KEYS,
+];
+
 /**
- * Validate a raw limits object into opaque, sealed `ValidatedLimits`.
+ * Validate an untrusted limits object into opaque, sealed `ValidatedLimits`.
  *
- * Proves that every ceiling is a safe non-negative integer, that the fields
- * with no meaningful zero are at least one, that the facts response can hold one
- * maximum terminal fact, and that the submission response satisfies the
- * settlement inequality with maximum parked metadata. A derived minimum that
- * overflows the safe-integer range refuses (its capacity check fails against the
- * finite ceiling). Returns the same numbers as a detached, deep-frozen, branded
- * value.
+ * Total over unknown input: a non-plain object, a missing or extra key, a
+ * non-number value, or a throwing proxy returns a typed `Invalid` rather than
+ * throwing. On a well-shaped object it proves that every ceiling is a safe
+ * non-negative integer, that the fields with no meaningful zero are at least
+ * one, that the facts response can hold one maximum terminal fact, and that the
+ * submission response satisfies the settlement inequality with maximum parked
+ * metadata. A derived minimum that overflows the safe-integer range refuses (its
+ * capacity check fails against the finite ceiling). Returns a fresh, detached,
+ * deep-frozen, branded value built from the validated numbers, never the
+ * caller's object.
  */
 export function validateLimits(
-	raw: ScalarSyncLimits,
+	raw: unknown,
 ): Result<ValidatedLimits, ScalarProtocolError> {
-	const positive: Array<keyof ScalarSyncLimits> = [
-		'jsonDepth',
-		'maxNamespaceBytes',
-		'maxTableKeyBytes',
-		'maxValueKeyBytes',
-		'maxLifetimeBytes',
-		'maxFieldKeyBytes',
-		'maxEncodedFactBytes',
-		'maxFactsResponseBytes',
-		'maxSubmissionBytes',
-		'maxSubmissionResponseBytes',
-		'maxSubmissionAddresses',
-	];
-	const nonNegative: Array<keyof ScalarSyncLimits> = [
-		'propertiesPerObject',
-		'maxUnsetKeysPerIntent',
-	];
-	for (const key of positive) {
-		if (!isNonNegativeSafeInteger(raw[key]) || raw[key] < 1) {
-			return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
+	return catchAsInvalid('limits', () => {
+		// Exact shape over unknown input. `raw` must be a plain data object (no
+		// prototype tricks, symbol keys, or accessors) with exactly the limits
+		// keys. A throwing proxy trips a reflection trap in `isPlainDataObject` or
+		// `Object.keys` and is converted to a typed Invalid by `catchAsInvalid`, so
+		// nothing below ever sees hostile input.
+		if (typeof raw !== 'object' || raw === null || !isPlainDataObject(raw)) {
+			return ScalarProtocolError.Invalid({ boundary: 'limits' });
 		}
-	}
-	for (const key of nonNegative) {
-		if (!isNonNegativeSafeInteger(raw[key])) {
-			return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
+		const record = raw as Record<string, unknown>;
+		if (Object.keys(record).length !== ALL_LIMIT_KEYS.length) {
+			return ScalarProtocolError.Invalid({ boundary: 'limits' });
 		}
-	}
-	if (raw.maxFactsResponseBytes < minimumFactsResponseBytes(raw)) {
-		return ScalarProtocolError.Invalid({
-			boundary: 'limits.factsResponseCapacity',
-		});
-	}
-	if (raw.maxSubmissionResponseBytes < minimumSubmissionResponseBytes(raw)) {
-		return ScalarProtocolError.Invalid({
-			boundary: 'limits.submissionResponseCapacity',
-		});
-	}
-	return Ok(deepFreeze({ ...raw }) as ValidatedLimits);
+		// Read each expected key into a fresh, detached object; every value must be
+		// a number. Exactly N own keys plus every expected key present leaves no key
+		// missing or extra.
+		const clean = {} as Record<keyof ScalarSyncLimits, number>;
+		for (const key of ALL_LIMIT_KEYS) {
+			const value = record[key];
+			if (typeof value !== 'number') {
+				return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
+			}
+			clean[key] = value;
+		}
+		for (const key of POSITIVE_LIMIT_KEYS) {
+			if (!isNonNegativeSafeInteger(clean[key]) || clean[key] < 1) {
+				return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
+			}
+		}
+		for (const key of NON_NEGATIVE_LIMIT_KEYS) {
+			if (!isNonNegativeSafeInteger(clean[key])) {
+				return ScalarProtocolError.Invalid({ boundary: `limits.${key}` });
+			}
+		}
+		const candidate = clean as ScalarSyncLimits;
+		if (
+			candidate.maxFactsResponseBytes < minimumFactsResponseBytes(candidate)
+		) {
+			return ScalarProtocolError.Invalid({
+				boundary: 'limits.factsResponseCapacity',
+			});
+		}
+		if (
+			candidate.maxSubmissionResponseBytes <
+			minimumSubmissionResponseBytes(candidate)
+		) {
+			return ScalarProtocolError.Invalid({
+				boundary: 'limits.submissionResponseCapacity',
+			});
+		}
+		// Detached (a fresh object, never the caller's) and deep-frozen before
+		// branding, so no post-admission mutation can reach the validated limits.
+		return Ok(deepFreeze(clean) as ValidatedLimits);
+	});
 }
