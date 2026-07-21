@@ -62,10 +62,9 @@ adapter implementation details, not native-reader contracts.
   not return without a measured product need because it would reintroduce a
   durable scope axis.
 - Every attached adapter pays the storage and transfer cost of the whole
-  Epicenter. The implementation must prove this trade at a conformance envelope
-  of 1,000,000 live scalar addresses and 512 MiB of canonical encoded logical
-  state. This is a design and test envelope, not a hard product limit or a wire
-  constant.
+  Epicenter. The implementation must prove this trade at the aggregate scalar
+  conformance envelope below. The envelope is a design and test target, not a
+  hard product limit, a universal browser-storage guarantee, or a wire constant.
 - Refusing partial replication deletes query subscriptions, replication
   buckets, authorization-aware fanout, and per-replica scope state.
 - First sign-in can converge two independently edited histories. Globally unique
@@ -73,6 +72,124 @@ adapter implementation details, not native-reader contracts.
   still decide same-address edits, value writes, and Yjs documents.
 - Switching accounts is intentionally less convenient than maintaining a
   hidden multi-profile store. The refusal deletes the second ownership model.
+
+## Acceptance evidence
+
+Before this ADR becomes Accepted, maintained evidence must prove whole-replica
+scalar behavior across every supported owner and runtime pairing. Evidence may
+classify whether that proof is ready for ADR review, but it never chooses a
+physical layout. The layout remains an ADR decision.
+
+The normal scalar profile contains exactly 1,000,000 final-present scalar
+addresses whose encoded present scalar logical state totals exactly 536,870,912
+bytes under a named, versioned benchmark encoding. These are simultaneous
+aggregate properties of one corpus, approximately 536.9 bytes per final-present
+address on average. They do not permit 512 MiB per address, do not describe one
+million 512 KiB rows, and do not choose ADR-0163's independent maximum encoded
+fact size.
+
+Until ADR-0167's portable round-trip freezes the canonical logical encoding,
+evidence labels this quantity as a logical-state proxy and reports current
+protocol-fact bytes separately. Terminal row tombstones, reversible value
+absences, sequences, wire framing, SQLite pages, WAL bytes, documents, and raw
+blob bytes do not enter the 512 MiB numerator.
+
+The maintained profiles are:
+
+| Profile                    | Corpus                                      | Role                                                        |
+| -------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
+| PR smoke                   | 10,000 final-present addresses and 5 MiB     | Runs on every change and never qualifies a layout           |
+| Physical mobile floor      | 250,000 final-present addresses and 128 MiB  | Required on physical iOS Safari and Android Chrome          |
+| Conditional normal profile | 1,000,000 final-present addresses and 512 MiB | Required where measured storage availability admits it     |
+| Desktop stress             | 2,000,000 final-present addresses and 1 GiB  | Informational only                                          |
+| Private or incognito       | No capacity target                           | Negative persistence and refusal evidence only              |
+
+The conditional normal profile may report `not-admitted` when measured storage
+availability cannot cover the peak ceiling. That result proves honest refusal
+and recovery, not capacity. The physical mobile floor cannot use
+`not-admitted` as a passing capacity result.
+
+The required owner and runtime matrix is:
+
+| Owner               | Runtime evidence                                      |
+| ------------------- | ----------------------------------------------------- |
+| Local replica       | Bun with native SQLite                                |
+| Local replica       | Browser OPFS SQLite in current Chromium               |
+| Local replica       | Physical iOS Safari                                   |
+| Local replica       | Physical Android Chrome                               |
+| Principal authority | Bun with native SQLite for the self-hosted deployment |
+| Principal authority | Cloudflare Durable Object SQLite in workerd           |
+
+Playwright WebKit is useful conformance evidence, but it does not substitute
+for physical Safari qualification. Each applicable cell covers the owner's
+real workflow, not only confirmed-fact reads. Replica evidence includes
+acquisition, monotonic prefix installation, pending-intent overlays, point
+reads, complete traversal through private pages, tombstone-driven document
+cleanup, restart, and lifetime replacement. Authority evidence includes fresh
+and resumed fact feeds, submission settlement, exact retry, parked-result
+replay, fold reads, restart or hibernation, and lifetime refusal. Both owners
+prove stale, equal, and newer installation behavior; row-tombstone
+non-resurrection; indexed query plans; clean reopen; integrity; and the
+independent state witness.
+
+The evidence classifier returns only `invalid`, `incomplete`, `provisional`, or
+`ready-for-ADR-review`. It never returns a candidate ID, ranking, winner,
+tie-break, or recommendation. `ready-for-ADR-review` means that the required
+evidence is complete; it does not select the layout. Failed or duplicate cells,
+unknown matrix coordinates, empty or non-indexed required query plans,
+seed-discipline failures, missing raw metrics, or witness divergence make the
+evidence `invalid`. Missing expected cells make it `incomplete`.
+
+The initial absolute acceptance gates are provisional until maintained evidence
+either ratifies or revises them before this ADR becomes Accepted:
+
+| Operation                           | Physical mobile floor | Conditional normal profile              |
+| ----------------------------------- | --------------------- | --------------------------------------- |
+| Initial scalar installation         | at most 5 minutes     | browser 15 minutes; Bun 5 minutes       |
+| Clean open plus one point read       | at most 3 seconds     | at most 2 seconds                       |
+| Point read p95                      | at most 50 ms         | at most 25 ms                           |
+| Durable scalar write p95            | at most 250 ms        | at most 100 ms                          |
+| 512-fact prefix p95                 | at most 500 ms        | at most 250 ms                          |
+| Approximately 1,000-row traversal p95 | at most 750 ms      | at most 300 ms                          |
+| Restart recovery                    | at most 5 seconds     | at most 3 seconds                       |
+| Browser page-owner heartbeat        | at most 100 ms        | at most 100 ms                          |
+
+The 512-fact prefix is a private evidence workload, not a V1 response-count
+constant. The maximum-byte V1 response remains a separate admission and atomic
+installation proof under ADR-0163.
+
+Cloudflare authority evidence also retains invocation wall time, CPU time, SQL
+row counts, and platform-limit refusals. Public-network latency is not a SQLite
+layout metric.
+
+For the complete scalar store under the fixed scalar-only fixture, let `L` be
+present scalar logical-state bytes and `N` be final-present scalar addresses.
+The physical ceilings are:
+
+```txt
+steady allocated SQLite bytes
+  <= 1.75 * L + 128 * N + 16 MiB
+
+peak storage-root bytes
+  <= steady allocated SQLite bytes
+   + L
+   + max(16 MiB, L / 8)
+
+freelist_count / page_count <= 0.10
+```
+
+Peak storage-root bytes include the database, WAL, shared-memory, temporary
+SQLite files, and the OPFS root high-water mark. These scalar-only ceilings
+exclude row-document state and blob bytes, which keep their separate bounds and
+storage policies.
+
+Evidence that varies coordinate storage enumerates every address-bearing
+relation it covers. A benchmark limited to current confirmed facts may compare
+fact-table layouts, but it cannot decide whether coordinates are inline or
+normalized across pending intents, sealed submissions, parked diagnostics,
+document-liveness joins, or publication records. Schema-wide coordinate
+ownership remains unresolved until the candidate boundary includes every
+affected relation, workload, and constraint proof.
 
 ## Considered alternatives
 
