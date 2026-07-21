@@ -30,6 +30,7 @@ import {
 	deepFreeze,
 	isCanonicalJson,
 	isWellFormedString,
+	maxNodesForCanonicalBytes,
 	utf8ByteLength,
 } from './canonical.js';
 import { catchAsInvalid, ScalarProtocolError } from './errors.js';
@@ -118,7 +119,8 @@ export function parseFactsRequest(
 		// Total parsing: reject any non-canonical JSON tree (exotic outer shapes,
 		// cycles, proxies) before schema and semantic checks, and catch any residual
 		// reflection or structuredClone failure, so nothing throws downstream.
-		if (!isCanonicalJson(value) || !Value.Check(FactsRequestSchema, value)) {
+		// One object plus its maximum two leaf members.
+		if (!isCanonicalJson(value, 3) || !Value.Check(FactsRequestSchema, value)) {
 			return ScalarProtocolError.Invalid({ boundary: 'facts request' });
 		}
 		// A fresh replica may omit the lifetime only when starting from zero.
@@ -147,7 +149,13 @@ export function parseFactsResponse(
 	limits: ValidatedLimits,
 ): Result<FactsResponse, ScalarProtocolError> {
 	return catchAsInvalid('facts response', () => {
-		if (!isCanonicalJson(value) || !Value.Check(FactsResponseSchema, value)) {
+		if (
+			!isCanonicalJson(
+				value,
+				maxNodesForCanonicalBytes(limits.maxFactsResponseBytes),
+			) ||
+			!Value.Check(FactsResponseSchema, value)
+		) {
 			return ScalarProtocolError.Invalid({ boundary: 'facts response' });
 		}
 		if (!isBoundedLifetime(value.authorityLifetime, limits)) {
@@ -300,7 +308,10 @@ export function parseSubmissionRequest(
 ): Result<AdmittedSubmissionRequest, ScalarProtocolError> {
 	return catchAsInvalid('submission request', () => {
 		if (
-			!isCanonicalJson(value) ||
+			!isCanonicalJson(
+				value,
+				maxNodesForCanonicalBytes(limits.maxSubmissionBytes),
+			) ||
 			!Value.Check(SubmissionRequestSchema, value)
 		) {
 			return ScalarProtocolError.Invalid({ boundary: 'submission request' });
@@ -342,7 +353,10 @@ export function parseSubmissionResponse(
 ): Result<SubmissionResponse, ScalarProtocolError> {
 	return catchAsInvalid('submission response', () => {
 		if (
-			!isCanonicalJson(value) ||
+			!isCanonicalJson(
+				value,
+				maxNodesForCanonicalBytes(limits.maxSubmissionResponseBytes),
+			) ||
 			!Value.Check(SubmissionResponseSchema, value)
 		) {
 			return ScalarProtocolError.Invalid({ boundary: 'submission response' });

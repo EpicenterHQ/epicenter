@@ -121,12 +121,80 @@ function classifyLeaf(value: unknown): Leaf {
 	return 'container';
 }
 
-/** A single container's snapshotted child values, or null if the shape is not canonical. */
-function canonicalChildren(node: object): unknown[] | null {
+/**
+ * Snapshot one container's child values without invoking accessors or ordinary
+ * property gets. `maxChildren` is checked from the single own-key snapshot
+ * before any child descriptor is reflected, bounding both deep and wide
+ * generative Proxies.
+ */
+function canonicalChildren(
+	node: object,
+	maxChildren: number,
+): unknown[] | null {
 	if (Array.isArray(node)) {
-		return isDenseDataArray(node) ? node.slice() : null;
+		const keys = Reflect.ownKeys(node);
+		// Every real array owns its non-configurable `length`. Checking raw key
+		// count first refuses a wide Proxy before reading any child descriptor.
+		if (keys.length === 0 || keys.length - 1 > maxChildren) return null;
+		const lengthDescriptor = Object.getOwnPropertyDescriptor(node, 'length');
+		if (lengthDescriptor === undefined || !('value' in lengthDescriptor)) {
+			return null;
+		}
+		const length = lengthDescriptor.value;
+		if (
+			typeof length !== 'number' ||
+			!Number.isSafeInteger(length) ||
+			length < 0 ||
+			length > maxChildren ||
+			keys.length !== length + 1
+		) {
+			return null;
+		}
+		const children = new Array<unknown>(length);
+		let indexCount = 0;
+		for (const key of keys) {
+			if (key === 'length') continue;
+			if (typeof key !== 'string') return null;
+			const index = Number(key);
+			if (
+				!Number.isInteger(index) ||
+				index < 0 ||
+				index >= length ||
+				String(index) !== key
+			) {
+				return null;
+			}
+			const descriptor = Object.getOwnPropertyDescriptor(node, key);
+			if (
+				descriptor === undefined ||
+				!descriptor.enumerable ||
+				!('value' in descriptor)
+			) {
+				return null;
+			}
+			children[index] = descriptor.value;
+			indexCount += 1;
+		}
+		return indexCount === length ? children : null;
 	}
-	return isPlainDataObject(node) ? Object.values(node) : null;
+	const prototype = Object.getPrototypeOf(node);
+	if (prototype !== Object.prototype && prototype !== null) return null;
+	const keys = Reflect.ownKeys(node);
+	if (keys.length > maxChildren) return null;
+	const children: unknown[] = [];
+	for (const key of keys) {
+		if (typeof key !== 'string' || !isWellFormedString(key)) return null;
+		const descriptor = Object.getOwnPropertyDescriptor(node, key);
+		if (
+			descriptor === undefined ||
+			!descriptor.enumerable ||
+			!('value' in descriptor)
+		) {
+			return null;
+		}
+		children.push(descriptor.value);
+	}
+	return children;
 }
 
 /**
@@ -143,21 +211,31 @@ function canonicalChildren(node: object): unknown[] | null {
  * The traversal is iterative with an explicit stack and a single monotonic
  * visited set, so ordinary depth (tens of thousands of levels) cannot exhaust
  * the JS stack and a hostile graph refuses at its first re-encounter rather than
- * expanding. Any reflection or proxy-trap failure is caught and reported as
- * `false`; a throwing Proxy therefore rejects, and a transparent Proxy is left
- * for the caller's `structuredClone` to reject (it cannot own one).
+ * expanding. `maxNodes` bounds both a deep generative Proxy that returns a fresh
+ * child forever and a wide Proxy that exposes more children than the admitted
+ * byte ceiling can encode. Each container's keys are snapshotted once, then its
+ * child descriptors are read only when every child fits the remaining budget.
+ * Any reflection or proxy-trap failure is caught and reported as `false`; a
+ * throwing Proxy therefore rejects, and a transparent Proxy is left for the
+ * caller's `structuredClone` to reject (it cannot own one).
  *
  * Unlike `isJsonValue`, it applies no depth or property-count limit, so it can
  * gate a protocol envelope without imposing payload limits on the envelope
  * itself.
  */
-export function isCanonicalJson(value: unknown): boolean {
+export function isCanonicalJson(value: unknown, maxNodes: number): boolean {
 	try {
+		if (!Number.isSafeInteger(maxNodes) || maxNodes < 1) return false;
 		if (classifyLeaf(value) !== 'container') {
 			return classifyLeaf(value) === 'ok';
 		}
-		const rootChildren = canonicalChildren(value as object);
+		let visitedNodes = 1;
+		const rootChildren = canonicalChildren(
+			value as object,
+			maxNodes - visitedNodes,
+		);
 		if (rootChildren === null) return false;
+		visitedNodes += rootChildren.length;
 		// Every container in a tree is visited exactly once. A container reached a
 		// second time is either a cycle (still on the active path) or a shared
 		// reference (fully walked earlier); a single monotonic set refuses both, and
@@ -181,8 +259,9 @@ export function isCanonicalJson(value: unknown): boolean {
 			if (leaf === 'ok') continue;
 			const container = child as object;
 			if (seen.has(container)) return false; // cycle or shared reference
-			const children = canonicalChildren(container);
+			const children = canonicalChildren(container, maxNodes - visitedNodes);
 			if (children === null) return false;
+			visitedNodes += children.length;
 			seen.add(container);
 			stack.push({ children, index: 0 });
 		}
@@ -190,6 +269,16 @@ export function isCanonicalJson(value: unknown): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Maximum tree-node work for a value within a canonical byte ceiling. Every
+ * JSON node contributes at least one byte to its canonical encoding, so the
+ * byte ceiling itself is a conservative node/edge budget, not another protocol
+ * limit.
+ */
+export function maxNodesForCanonicalBytes(maxCanonicalBytes: number): number {
+	return maxCanonicalBytes;
 }
 
 /**

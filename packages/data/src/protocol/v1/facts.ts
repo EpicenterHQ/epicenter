@@ -23,7 +23,12 @@ import {
 	RowAddressSchema,
 	ValueAddressSchema,
 } from './addresses.js';
-import { canonicalize, isCanonicalJson, utf8ByteLength } from './canonical.js';
+import {
+	canonicalize,
+	isCanonicalJson,
+	maxNodesForCanonicalBytes,
+	utf8ByteLength,
+} from './canonical.js';
 import { catchAsInvalid, ScalarProtocolError } from './errors.js';
 import {
 	isAdmissibleFieldKey,
@@ -115,7 +120,10 @@ export function parseFact(
 	limits: ValidatedLimits,
 ): Result<Fact, ScalarProtocolError> {
 	return catchAsInvalid('fact', () =>
-		isCanonicalJson(value) &&
+		isCanonicalJson(
+			value,
+			maxNodesForCanonicalBytes(limits.maxEncodedFactBytes),
+		) &&
 		Value.Check(FactSchema, value) &&
 		isAdmissibleFact(value, limits)
 			? Ok(structuredClone(value))

@@ -17,7 +17,7 @@ import {
 	RowAddressSchema,
 	ValueAddressSchema,
 } from './addresses.js';
-import { isCanonicalJson } from './canonical.js';
+import { isCanonicalJson, maxNodesForCanonicalBytes } from './canonical.js';
 import { catchAsInvalid, ScalarProtocolError } from './errors.js';
 import { encodedFactBytes, type Fact } from './facts.js';
 import {
@@ -148,7 +148,17 @@ export function parseIntent(
 	limits: ValidatedLimits,
 ): Result<Intent, ScalarProtocolError> {
 	return catchAsInvalid('intent', () =>
-		isCanonicalJson(value) &&
+		isCanonicalJson(
+			value,
+			// A row-present intent adds the `unset` array and its bounded string
+			// children to the tree represented by its bounded optimistic fact.
+			Math.min(
+				Number.MAX_SAFE_INTEGER,
+				maxNodesForCanonicalBytes(limits.maxEncodedFactBytes) +
+					1 +
+					limits.maxUnsetKeysPerIntent,
+			),
+		) &&
 		Value.Check(IntentSchema, value) &&
 		isAdmissibleIntent(value, limits)
 			? Ok(structuredClone(value))

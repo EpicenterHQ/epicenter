@@ -106,17 +106,18 @@ describe('RFC 8785 canonical encoding', () => {
 		// Refusal is by object identity, not by value: two separate objects with
 		// equal content are a legitimate tree.
 		expect(canonicalize([{ a: 1 }, { a: 1 }])).toBe('[{"a":1},{"a":1}]');
-		expect(isCanonicalJson([{ a: 1 }, { a: 1 }])).toBe(true);
+		expect(isCanonicalJson([{ a: 1 }, { a: 1 }], 5)).toBe(true);
 	});
 
 	test('a deep shared graph refuses instead of expanding exponentially', () => {
 		// Each level reuses the level below twice. A tree encoder would emit 2^20
 		// leaves; refusing repeated identity makes both the structural gate and the
 		// encoder O(levels). `isCanonicalJson` must agree with `canonicalize`.
+		const levels = 20;
 		let node: Record<string, unknown> = { leaf: 0 };
-		for (let level = 0; level < 20; level += 1) node = { a: node, b: node };
+		for (let level = 0; level < levels; level += 1) node = { a: node, b: node };
 
-		expect(isCanonicalJson(node)).toBe(false);
+		expect(isCanonicalJson(node, levels * 2 + 2)).toBe(false);
 		expect(() => canonicalize(node)).toThrow('shared');
 	});
 });

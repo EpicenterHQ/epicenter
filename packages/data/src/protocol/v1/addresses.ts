@@ -115,7 +115,8 @@ export function parseAddress(
 	limits: ValidatedLimits,
 ): Result<Address, ScalarProtocolError> {
 	return catchAsInvalid('address', () =>
-		isCanonicalJson(value) &&
+		// One object plus the maximum four leaf coordinates of a row address.
+		isCanonicalJson(value, 5) &&
 		Value.Check(AddressSchema, value) &&
 		isAdmissibleAddress(value, limits)
 			? Ok(structuredClone(value))

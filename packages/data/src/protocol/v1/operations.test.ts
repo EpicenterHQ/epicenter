@@ -753,4 +753,63 @@ describe('total parsing under deep trees and proxies', () => {
 		);
 		expectErr(parseFactsRequest(throwing, LIMITS));
 	});
+
+	test('a generative Proxy is refused at the derived node budget', () => {
+		const maxSubmissionBytes = 20_000;
+		const limits = makeLimits({ maxSubmissionBytes });
+		let generatedChildren = 0;
+		const generative = (): object =>
+			new Proxy(
+				{},
+				{
+					getPrototypeOf: () => Object.prototype,
+					ownKeys: () => ['next'],
+					getOwnPropertyDescriptor: () => {
+						generatedChildren += 1;
+						return {
+							configurable: true,
+							enumerable: true,
+							value: generative(),
+							writable: true,
+						};
+					},
+				},
+			);
+
+		expectErr(parseSubmissionRequest(generative(), limits));
+		expect(generatedChildren).toBeGreaterThan(10_000);
+		expect(generatedChildren).toBeLessThanOrEqual(maxSubmissionBytes);
+	});
+
+	test('a wide Proxy is refused before any child descriptor or value read', () => {
+		const maxSubmissionBytes = 20_000;
+		const limits = makeLimits({ maxSubmissionBytes });
+		const keys = Array.from({ length: 50_000 }, (_, index) => `k${index}`);
+		let descriptorsRead = 0;
+		let valuesRead = 0;
+		const wide = new Proxy(
+			{},
+			{
+				getPrototypeOf: () => Object.prototype,
+				ownKeys: () => keys,
+				getOwnPropertyDescriptor: () => {
+					descriptorsRead += 1;
+					return {
+						configurable: true,
+						enumerable: true,
+						value: 0,
+						writable: true,
+					};
+				},
+				get: () => {
+					valuesRead += 1;
+					return 0;
+				},
+			},
+		);
+
+		expectErr(parseSubmissionRequest(wide, limits));
+		expect(descriptorsRead).toBe(0);
+		expect(valuesRead).toBe(0);
+	});
 });
