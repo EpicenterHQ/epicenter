@@ -306,6 +306,12 @@ semantics. The exact V1 constants must be chosen by the browser, Bun, and
 Cloudflare scale proof before this ADR becomes Accepted. They may widen in a
 later compatible protocol revision but cannot silently shrink.
 
+The maximum encoded fact size is a per-fact V1 admission bound. It is
+independent of ADR-0161's aggregate logical-state envelope and cannot be derived
+from average bytes per address. Scale evidence reports the largest emitted
+protocol fact and its conservative encoding bound separately from aggregate
+present logical-state bytes.
+
 ## Consequences
 
 - Reading current facts and adjudicating local intents have one owner and one
@@ -353,7 +359,11 @@ Before this ADR becomes Accepted, shared model and adapter tests must prove:
   sequence-ahead state is diagnosed as corruption; and
 - all admission and response bounds satisfy the byte inequality at their exact
   inclusive limits across browser, Bun, and Cloudflare adapters, using one RFC
-  8785 canonical semantic encoder.
+  8785 canonical semantic encoder. The applicable ADR-0161 owner and runtime
+  cells retain raw samples and reproduce the independent count, protocol-byte,
+  and ordered SHA-256 witness before and after reopen. A Bun-only
+  confirmed-facts read benchmark remains provisional even when its local matrix
+  is complete.
 
 ## Considered alternatives
 

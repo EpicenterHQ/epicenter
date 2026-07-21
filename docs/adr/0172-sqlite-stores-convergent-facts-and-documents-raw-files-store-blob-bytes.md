@@ -66,6 +66,27 @@ oracle while the row remains live.
 - Blob-file cleanup may lag the logical deletion transaction. That lag costs
   storage only and cannot restore a deleted row.
 
+## Acceptance evidence
+
+Every qualifying ADR-0161 SQLite owner and runtime cell:
+
+- matches the independent oracle's exact current-fact count, exact
+  current-protocol-fact byte count, and ordered SHA-256 witness;
+- closes and reopens the database, requires `PRAGMA integrity_check` to return
+  exactly `ok`, and reproduces the same witness after reopen;
+- proves indexed `SEARCH` plans for required point, feed, and traversal
+  operations, including cross-kind isolation, rather than accepting any
+  nonempty query plan;
+- proves that quota, I/O, crash, and transaction-boundary failures preserve the
+  previous complete committed witness and durable progress, never a partial
+  prefix; and
+- reports allocated pages, non-freelist pages, freelist ratio, WAL and temporary
+  bytes, and storage-root peak separately.
+
+ADR-0161's physical ceilings apply to its scalar-only fixture. They do not cap
+bounded Yjs chains or raw blob bytes, and this evidence does not choose a
+physical scalar layout.
+
 ## Considered alternatives
 
 - **Store documents as raw OPFS files.** Rejected because it requires custom

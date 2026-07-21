@@ -36,6 +36,26 @@ application, workspace, or database becomes the durable storage owner.
 - Multi-tab behavior needs adapter conformance tests for concurrent writes,
   crash recovery, lock release, and wake-up loss.
 
+## Acceptance evidence
+
+Browser qualification measures the SQLite database and complete OPFS
+storage-root high-water directly. `navigator.storage.estimate()` is contextual
+evidence only; it is neither an exact footprint measurement nor a capacity
+promise.
+
+The ADR-0161 physical mobile floor completes on a clean physical iOS Safari
+origin and a clean physical Android Chrome origin. The conditional normal
+profile runs only when measured storage availability covers its peak ceiling. A
+quota denial or `QuotaExceededError` is `not-admitted`, not a successful
+capacity result, and qualifies as an honest refusal only when the previously
+committed prefix, durable progress, integrity check, and exact witness survive
+restart unchanged. Private or incognito storage is a negative refusal cell,
+never a durable qualification environment.
+
+Browser tests also cover concurrent tabs, Worker termination, lock release,
+backgrounding, restart, and clean ownership handoff. Playwright WebKit does not
+replace physical Safari evidence.
+
 ## Considered alternatives
 
 - **One elected owner tab.** Rejected because suspension and crash handoff turn
