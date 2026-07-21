@@ -22,6 +22,12 @@ import {
 	utf8ByteLength,
 } from '../../../packages/data/src/protocol/v1/canonical.js';
 import { Sha256Stream } from './portable-hash.js';
+import {
+	type CompletenessExpectations,
+	validateSeedCompleteness,
+	validateSeedRawClosed,
+} from './raw-schema.js';
+import { buildSeedSchedule } from './schedule.js';
 
 /**
  * Everything that must be identical for two runs to share a checkpoint. Any
@@ -45,6 +51,12 @@ export type ProvenanceConfig = {
 	seedIds: number[];
 	/** Williams cycles per seed. */
 	cycles: number;
+	/** Reopen observations per seed and candidate. */
+	reopenObservations: number;
+	/** Minimum tail transactions per tail experiment. */
+	tailTransactions: number;
+	/** Maximum measured read blocks per seed/candidate/owner/metric. */
+	maxReadBlocks: number;
 	/** Minimum timed-block duration in milliseconds. */
 	minBlockMs: number;
 	/** Bootstrap draw count and seed. */
@@ -202,58 +214,42 @@ function isValidSeedRecord(record: unknown): record is SeedRecord {
 	for (const key of Object.keys(hashes)) {
 		if (typeof hashes[key] !== 'string') return false;
 	}
-	if (typeof r.raw !== 'object' || r.raw === null) return false;
-	const raw = r.raw as Record<string, unknown>;
-	// Every raw observation array must be present, so a resumed seed carries the
-	// same derived-gate inputs a fresh run would; a missing or non-array field is a
-	// partial raw cell and is rejected.
-	for (const field of [
-		'blocks',
-		'boundaries',
-		'reopens',
-		'tails',
-		'macros',
-		'cells',
-	]) {
-		if (!Array.isArray(raw[field])) return false;
-	}
-	// Every raw observation must be a finite-valued object (no NaN/Infinity leaking
-	// into estimators). This is a shallow structural gate; the runner owns the exact
-	// per-observation shape and count checks.
-	for (const field of [
-		'blocks',
-		'boundaries',
-		'reopens',
-		'tails',
-		'macros',
-		'cells',
-	]) {
-		for (const entry of raw[field] as unknown[]) {
-			if (!isFiniteValuedObject(entry)) return false;
-		}
-	}
-	return true;
+	// Every observation is validated against its CLOSED shape (exact keys, enums,
+	// finite numbers, id shapes). Completeness (exact counts) is checked separately
+	// with profile-derived expectations.
+	return validateSeedRawClosed(r.raw).valid;
 }
 
-/** Whether a value is an object whose every numeric field is finite (recursively). */
-function isFiniteValuedObject(value: unknown): boolean {
-	if (typeof value !== 'object' || value === null) return false;
-	const stack: unknown[] = [value];
-	while (stack.length > 0) {
-		const node = stack.pop();
-		if (typeof node === 'number') {
-			if (!Number.isFinite(node)) return false;
-			continue;
-		}
-		if (Array.isArray(node)) {
-			for (const item of node) stack.push(item);
-			continue;
-		}
-		if (typeof node === 'object' && node !== null) {
-			for (const v of Object.values(node)) stack.push(v);
-		}
-	}
-	return true;
+/**
+ * Per-seed completeness expectations. The exact expected schedule is derived from
+ * the single schedule owner (`buildSeedSchedule`) using this seed's index as the
+ * rotation, and truncated to the read-block cap, so completeness compares block
+ * identities against the real schedule rather than a reconstructed guess. The
+ * seed index also fixes the `s<seedIndex>` build-id prefix.
+ */
+export function completenessExpectations(
+	config: ProvenanceConfig,
+	seedIndex: number,
+): CompletenessExpectations {
+	const seedId = config.seedIds[seedIndex];
+	if (seedId === undefined)
+		throw new Error(`seed index ${seedIndex} is out of range`);
+	const schedule = buildSeedSchedule({
+		seedId,
+		candidates: config.candidates,
+		cycles: config.cycles,
+		rotation: seedIndex,
+	});
+	const perMetricTotal = Math.min(config.maxReadBlocks, config.cycles * 16);
+	return {
+		owners: config.owners,
+		candidates: config.candidates,
+		reopenObservations: config.reopenObservations,
+		minTailTransactions: config.tailTransactions,
+		seedIndex,
+		schedule: schedule.blocks.slice(0, perMetricTotal),
+		letterMapping: schedule.letterMapping,
+	};
 }
 
 /**
@@ -298,10 +294,14 @@ export function parseManifest(serialized: string): PilotManifest | null {
 	// The embedded identity must equal the identity recomputed from the config, so
 	// a hand-edited config cannot slip through under a stale identity.
 	if (computeProvenanceIdentity(config) !== record.identity) return null;
-	// Every committed seed must belong to the config's seed list.
-	const seedIds = new Set(config.seedIds);
+	// Every committed seed must belong to the config's seed list and be a COMPLETE
+	// seed against its OWN per-seed expectations (the schedule depends on the seed's
+	// index), so a resumed seed is structurally equivalent to a fresh one.
 	for (const seed of record.completedSeeds as SeedRecord[]) {
-		if (!seedIds.has(seed.seedId)) return null;
+		const seedIndex = config.seedIds.indexOf(seed.seedId);
+		if (seedIndex < 0) return null;
+		const expectations = completenessExpectations(config, seedIndex);
+		if (!validateSeedCompleteness(seed.raw, expectations).complete) return null;
 	}
 	return {
 		identity: record.identity,

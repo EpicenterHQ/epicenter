@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import {
 	commitSeed,
+	completenessExpectations,
 	computeProvenanceIdentity,
 	createManifest,
 	decideResume,
@@ -20,6 +21,7 @@ import {
 	type SeedRecord,
 	serializeManifest,
 } from './checkpoint.js';
+import { buildCompleteRaw } from './raw-schema.test-support.js';
 
 const CONFIG: ProvenanceConfig = {
 	sourceVersion: 'f50a9c7d8a',
@@ -33,7 +35,10 @@ const CONFIG: ProvenanceConfig = {
 	],
 	owners: ['replica', 'authority'],
 	seedIds: [1000, 1001, 1002, 1003],
-	cycles: 3,
+	cycles: 1,
+	reopenObservations: 2,
+	tailTransactions: 2,
+	maxReadBlocks: 64,
 	minBlockMs: 20,
 	bootstrapDraws: 10_000,
 	bootstrapSeed: 0x5ca1ab1e,
@@ -44,6 +49,9 @@ const CONFIG: ProvenanceConfig = {
 	workloadDigest: 'w-digest',
 	auxiliaryDigest: 'a-digest',
 };
+
+// Raw for seed index 0 (seedId 1000); hand-built manifests below all use seedId 1000.
+const COMPLETE_RAW = buildCompleteRaw(completenessExpectations(CONFIG, 0));
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -56,18 +64,16 @@ afterAll(() => {
 });
 
 function seedRecord(seedId: number): SeedRecord {
+	// Each seed's raw must match its OWN index (the schedule and build-id prefix
+	// depend on it), so a resumed multi-seed manifest validates.
+	const seedIndex = CONFIG.seedIds.indexOf(seedId);
 	return {
 		seedId,
 		estimators: { 'replica/unified-inline/confirmedPointRead': 1.23 },
 		hashes: { trace: 'abc' },
-		raw: {
-			blocks: [],
-			boundaries: [],
-			reopens: [],
-			tails: [],
-			macros: [],
-			cells: [],
-		},
+		raw: buildCompleteRaw(
+			completenessExpectations(CONFIG, seedIndex),
+		) as SeedRecord['raw'],
 		seedGatesPassed: true,
 	};
 }
@@ -174,23 +180,15 @@ describe('atomic persistence and schema-validated cross-process resume', () => {
 					seedId: 1000,
 					estimators: {},
 					hashes: { t: 'x' },
-					raw: {
-						blocks: [],
-						boundaries: [],
-						reopens: [],
-						tails: [],
-						macros: [],
-						cells: [],
-					},
+					raw: structuredClone(COMPLETE_RAW),
 					seedGatesPassed: true,
 				},
 			],
 		};
-		// Recompute identity so only the seed shape is wrong.
 		expect(parseManifest(JSON.stringify(bad))).toBeNull();
 	});
 
-	test('a manifest with a seed missing raw observations is refused', () => {
+	test('a manifest with a seed missing raw observation arrays is refused', () => {
 		const manifest = createManifest(CONFIG);
 		const missingRaw = {
 			...manifest,
@@ -199,7 +197,7 @@ describe('atomic persistence and schema-validated cross-process resume', () => {
 					seedId: 1000,
 					estimators: { m: 1 },
 					hashes: { t: 'x' },
-					raw: { blocks: [], reopens: [], cells: [] }, // missing tails and macros
+					raw: { blocks: [], reopens: [], cells: [] }, // missing keys
 					seedGatesPassed: true,
 				},
 			],
@@ -209,16 +207,38 @@ describe('atomic persistence and schema-validated cross-process resume', () => {
 
 	test('a raw observation with a non-finite numeric field is refused (corruption)', () => {
 		// JSON cannot hold Infinity, so inject a raw 1e999 literal that JSON.parse
-		// turns into Infinity, simulating a corrupted manifest on disk.
+		// turns into Infinity, corrupting one block's elapsedMs.
 		const serialized = serializeManifest(
 			commitSeed(createManifest(CONFIG), seedRecord(1000)),
 		);
-		const corrupt = serialized.replace(
-			'"blocks": []',
-			'"blocks": [{ "elapsedMs": 1e999 }]',
-		);
+		const corrupt = serialized.replace('"elapsedMs": 25', '"elapsedMs": 1e999');
 		expect(corrupt).not.toBe(serialized); // the replacement actually happened
 		expect(parseManifest(corrupt)).toBeNull();
+	});
+
+	test('a complete manifest with one reopen removed is refused (wrong count)', () => {
+		const manifest = commitSeed(createManifest(CONFIG), seedRecord(1000));
+		const parsed = JSON.parse(serializeManifest(manifest));
+		parsed.completedSeeds[0].raw.reopens.pop(); // now short one reopen
+		expect(parseManifest(JSON.stringify(parsed))).toBeNull();
+	});
+
+	test('a complete manifest with a wrong-enum owner is refused', () => {
+		const manifest = commitSeed(createManifest(CONFIG), seedRecord(1000));
+		const parsed = JSON.parse(serializeManifest(manifest));
+		parsed.completedSeeds[0].raw.cells[0].owner = 'bogus';
+		expect(parseManifest(JSON.stringify(parsed))).toBeNull();
+	});
+
+	test('a complete seed round-trips and resumes (structural equivalence)', () => {
+		let manifest = createManifest(CONFIG);
+		manifest = commitSeed(manifest, seedRecord(1000));
+		const reloaded = parseManifest(serializeManifest(manifest));
+		expect(reloaded).not.toBeNull();
+		// The reloaded raw is byte-identical to the committed raw.
+		expect(JSON.stringify(reloaded?.completedSeeds[0]?.raw)).toBe(
+			JSON.stringify(manifest.completedSeeds[0]?.raw),
+		);
 	});
 
 	test('a committed seed outside the config seed list is refused', () => {

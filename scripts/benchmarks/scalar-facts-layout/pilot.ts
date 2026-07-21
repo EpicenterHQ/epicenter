@@ -44,6 +44,7 @@ import {
 } from './auxiliary-traces.js';
 import {
 	commitSeed,
+	completenessExpectations,
 	createManifest,
 	decideResume,
 	type PilotManifest,
@@ -69,6 +70,10 @@ import {
 	type LayoutStore,
 } from './layouts.js';
 import { Sha256Stream } from './portable-hash.js';
+import {
+	validateSeedCompleteness,
+	validateSeedRawClosed,
+} from './raw-schema.js';
 import {
 	balanceDiagnostics,
 	buildSeedSchedule,
@@ -357,9 +362,14 @@ type BlockObservation = {
 	owner: Owner;
 	metric: string;
 	candidate: string;
+	/** The retained-database build identity this block ran against. */
+	buildId: string;
 	cycle: number;
 	ordinal: number;
 	position: number;
+	/** The Williams letter for this block and its full sequence label. */
+	letter: string;
+	sequenceLabel: string;
 	predecessor: string | null;
 	boundary: string;
 	ops: number;
@@ -369,7 +379,10 @@ type BlockObservation = {
 type ReopenObservation = {
 	owner: Owner;
 	candidate: string;
+	buildId: string;
 	index: number;
+	/** Position of this candidate within the balanced rotation for this observation. */
+	orderPosition: number;
 	elapsedMs: number;
 	witnessDigest: string;
 	witnessMatchesOracle: boolean;
@@ -406,6 +419,7 @@ type MacroObservation = {
 type CellObservation = {
 	owner: Owner;
 	candidate: string;
+	buildId: string;
 	oracleReproduced: boolean;
 	integrityOk: boolean;
 	candidateTableBytes: number;
@@ -421,7 +435,23 @@ type BoundaryObservation = {
 	reopenedCandidates: number;
 	reopenOk: boolean;
 };
+type SeedLifecycle = {
+	/** Peak number of retained databases live at once (must be eight). */
+	peakRetained: number;
+	/** Retained databases live at the moment the seed committed. */
+	liveAtCommit: number;
+	/**
+	 * True when all eight databases were still retained THROUGH the durable commit
+	 * write. Deletion happens strictly after that write, so the durable record
+	 * always witnesses them retained; a false value would mean a database was
+	 * dropped before the completed boundary was durable.
+	 */
+	retainedThroughCommit: boolean;
+};
 type SeedRawObservations = {
+	/** The seed-specific Williams letter-to-candidate mapping (both owners share it). */
+	letterMapping: Record<string, string>;
+	lifecycle: SeedLifecycle;
 	blocks: BlockObservation[];
 	boundaries: BoundaryObservation[];
 	reopens: ReopenObservation[];
@@ -477,7 +507,46 @@ function openExisting(
 	return { db, store: createLayoutStore(db, candidate) };
 }
 
-/** Build a fully populated candidate database for one owner. */
+/**
+ * Stage one of a two-stage build: open (create) the database FILE only. This is
+ * the cheap step that yields a closeable, deletable handle; the retained set
+ * registers it immediately, before any risky schema or population work, so a
+ * later failure still owns the file and connection.
+ */
+function openOwnerFile(path: string): { db: Database } {
+	removeDatabase(path);
+	return { db: new Database(path) };
+}
+
+/**
+ * Stage two of a two-stage build: the risky work (pragmas, schema, prepared
+ * statements, fact install, auxiliary population, checkpoint) against an
+ * already-open database. Any failure here rethrows to the caller, which owns the
+ * open connection and file and can close and delete them.
+ */
+function populateOwnerDatabase(
+	db: Database,
+	candidate: Candidate,
+	owner: Owner,
+	facts: readonly Fact[],
+	trace: Trace,
+): LayoutStore {
+	configureNewDatabase(db);
+	db.exec(ddlFor(candidate));
+	const store = createLayoutStore(db, candidate);
+	if (owner === 'authority') {
+		store.installFacts([...facts].sort((a, b) => a.sequence - b.sequence));
+	} else {
+		store.installFacts(facts);
+	}
+	const aux = makeAuxiliaryTraces(trace, pilotLimits());
+	if (owner === 'authority') store.populateAuthorityAuxiliary(aux);
+	else store.populateReplicaAuxiliary(aux);
+	db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+	return store;
+}
+
+/** Build a fully populated candidate database for one owner (open then populate). */
 function buildOwnerDatabase(
 	path: string,
 	candidate: Candidate,
@@ -485,19 +554,179 @@ function buildOwnerDatabase(
 	facts: readonly Fact[],
 	trace: Trace,
 ): { db: Database; store: LayoutStore } {
-	const opened = openFresh(path, candidate);
-	if (owner === 'authority') {
-		opened.store.installFacts(
-			[...facts].sort((a, b) => a.sequence - b.sequence),
-		);
-	} else {
-		opened.store.installFacts(facts);
+	const { db } = openOwnerFile(path);
+	const store = populateOwnerDatabase(db, candidate, owner, facts, trace);
+	return { db, store };
+}
+
+// --- Seed-level retained eight-database set (spec: retain all eight per seed) --
+
+export type RetainedHandle = {
+	owner: Owner;
+	candidate: string;
+	buildId: string;
+	db: Database;
+	store: LayoutStore;
+	path: string;
+};
+export type RetainedSet = {
+	handles: Map<string, RetainedHandle>;
+	/** The maximum number of retained databases live at once (must reach eight). */
+	peakLive: number;
+	cleanedUp: boolean;
+};
+export function retainedKey(owner: Owner, candidate: string): string {
+	return `${owner}/${candidate}`;
+}
+
+/**
+ * Build and retain ALL eight owner-by-candidate envelope databases for one seed.
+ * They stay live through both owners' blocks, reopens, cells, and tails and the
+ * atomic raw checkpoint commit; only `cleanupRetainedSet` deletes them, and only
+ * after a successful commit. Each handle carries a stable build id.
+ */
+export function buildRetainedSet(
+	dir: string,
+	seedIndex: number,
+	facts: readonly Fact[],
+	trace: Trace,
+	openOne: (path: string) => { db: Database } = openOwnerFile,
+	populateOne: (
+		db: Database,
+		candidate: Candidate,
+		owner: Owner,
+		facts: readonly Fact[],
+		trace: Trace,
+	) => LayoutStore = populateOwnerDatabase,
+): RetainedSet {
+	const handles = new Map<string, RetainedHandle>();
+	// Every database whose file has been OPENED is registered here immediately,
+	// before its risky populate stage. Rollback owns the in-progress handle too, so
+	// a populate failure never leaves the just-opened connection or file behind.
+	const registered: { db: Database; path: string; store?: LayoutStore }[] = [];
+	try {
+		for (const owner of OWNERS) {
+			for (const candidate of CANDIDATES) {
+				const path = join(dir, `s${seedIndex}-${owner}-${candidate.id}.sqlite`);
+				const buildId = `s${seedIndex}/${owner}/${candidate.id}`;
+				// Stage one: open the file and register the closeable handle FIRST.
+				const { db } = openOne(path);
+				const record: { db: Database; path: string; store?: LayoutStore } = {
+					db,
+					path,
+				};
+				registered.push(record);
+				// Stage two: the risky populate. A throw here still leaves `record`
+				// registered, so rollback closes and deletes it.
+				const store = populateOne(db, candidate, owner, facts, trace);
+				record.store = store;
+				handles.set(retainedKey(owner, candidate.id), {
+					owner,
+					candidate: candidate.id,
+					buildId,
+					db,
+					store,
+					path,
+				});
+			}
+		}
+	} catch (buildError) {
+		// Close and delete every registered handle (the in-progress one and every
+		// prior one). finalize, close, and file removal are attempted INDEPENDENTLY
+		// per record, so a throwing finalizer never skips the close or the removal.
+		// The original population error is preserved first in the aggregate.
+		const cleanupErrors: unknown[] = [];
+		for (const record of registered) {
+			try {
+				record.store?.finalize();
+			} catch (finalizeError) {
+				cleanupErrors.push(finalizeError);
+			}
+			try {
+				record.db.close();
+			} catch (closeError) {
+				cleanupErrors.push(closeError);
+			}
+			try {
+				removeDatabase(record.path);
+			} catch (removeError) {
+				cleanupErrors.push(removeError);
+			}
+		}
+		handles.clear();
+		if (cleanupErrors.length > 0) {
+			throw new AggregateError(
+				[buildError, ...cleanupErrors],
+				'buildRetainedSet failed and some opened retained databases could not be cleaned up',
+			);
+		}
+		throw buildError;
 	}
-	const aux = makeAuxiliaryTraces(trace, pilotLimits());
-	if (owner === 'authority') opened.store.populateAuthorityAuxiliary(aux);
-	else opened.store.populateReplicaAuxiliary(aux);
-	opened.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-	return opened;
+	return { handles, peakLive: handles.size, cleanedUp: false };
+}
+
+/** Finalize, close, and delete every retained database. Idempotent. */
+export function cleanupRetainedSet(set: RetainedSet): void {
+	for (const handle of set.handles.values()) {
+		try {
+			handle.store.finalize();
+			handle.db.close();
+		} catch {
+			// already closed
+		}
+		removeDatabase(handle.path);
+	}
+	set.handles.clear();
+	set.cleanedUp = true;
+}
+
+/**
+ * Durably commit one seed's checkpoint, THEN delete its retained databases. The
+ * retained set is deleted ONLY after every durable manifest write in `persist`
+ * has succeeded, so a write failure leaves all eight databases retained and the
+ * seed uncommitted (never deleted under a false completed boundary). `persist`
+ * must perform every durable write (the target manifest and any prior-generation
+ * mirror); if it throws, the retained set is untouched and the error propagates.
+ */
+export function commitSeedCheckpoint(args: {
+	manifest: PilotManifest;
+	record: SeedRecord;
+	retained: RetainedSet;
+	persist: (manifest: PilotManifest) => void;
+}): PilotManifest {
+	const next = commitSeed(args.manifest, args.record);
+	// Durable atomic write(s) first. Any failure here rethrows with the retained
+	// set still whole.
+	args.persist(next);
+	// Every durable write has succeeded: only now is deletion safe.
+	cleanupRetainedSet(args.retained);
+	return next;
+}
+
+/**
+ * Replace one retained handle in place with a freshly reopened connection to the
+ * same file, keeping the retained set at eight live databases. Used at boundaries
+ * and in the reopen series so a close/open never drops the retained count below
+ * its peak permanently.
+ */
+function reopenRetained(
+	set: RetainedSet,
+	owner: Owner,
+	candidate: Candidate,
+): RetainedHandle {
+	const key = retainedKey(owner, candidate.id);
+	const prior = set.handles.get(key);
+	if (prior === undefined) throw new Error(`retained handle missing: ${key}`);
+	prior.store.finalize();
+	prior.db.close();
+	const reopened = openExisting(prior.path, candidate);
+	const next: RetainedHandle = {
+		...prior,
+		db: reopened.db,
+		store: reopened.store,
+	};
+	set.handles.set(key, next);
+	return next;
 }
 
 // --- Read metric operations --------------------------------------------------
@@ -561,42 +790,52 @@ type SeedContext = {
 	raw: SeedRawObservations;
 };
 
-function runOwner(ctx: SeedContext, owner: Owner): void {
+function runOwner(ctx: SeedContext, owner: Owner, retained: RetainedSet): void {
 	const { dir, profile, trace, seedIndex, schedule, raw } = ctx;
 	const facts = finalFacts(trace);
 	const oracle = trace.measure();
-	const tag = (candidate: string, suffix = '') =>
-		join(dir, `s${seedIndex}-${owner}-${candidate}${suffix}.sqlite`);
+	const handleFor = (candidate: string): RetainedHandle => {
+		const handle = retained.handles.get(retainedKey(owner, candidate));
+		if (handle === undefined) {
+			throw new Error(`retained handle missing for ${owner}/${candidate}`);
+		}
+		return handle;
+	};
 
-	// Macro: acquisition/fresh-feed on a fresh empty database per candidate.
+	// Macro: acquisition (replica) is install on a fresh empty database; ordered
+	// fresh feed (authority) is a complete ordered READ of all current facts after
+	// construction, both measured once per outer unit and candidate.
 	for (const candidate of CANDIDATES) {
-		const opened = openFresh(tag(candidate.id, '-macro'), candidate);
-		const ordered =
-			owner === 'authority'
-				? [...facts].sort((a, b) => a.sequence - b.sequence)
-				: facts;
-		const elapsedMs = timeMs(() => opened.store.installFacts(ordered));
-		opened.store.finalize();
-		opened.db.close();
-		removeDatabase(tag(candidate.id, '-macro'));
+		let elapsedMs: number;
+		let units: number;
+		if (owner === 'replica') {
+			const macroPath = join(
+				dir,
+				`s${seedIndex}-replica-${candidate.id}-macro.sqlite`,
+			);
+			const opened = openFresh(macroPath, candidate);
+			elapsedMs = timeMs(() => opened.store.installFacts(facts));
+			units = facts.length;
+			opened.store.finalize();
+			opened.db.close();
+			removeDatabase(macroPath);
+		} else {
+			// A complete fresh feed reads every current fact in ascending sequence order
+			// from the already-constructed authority database.
+			const store = handleFor(candidate.id).store;
+			let fed = 0;
+			elapsedMs = timeMs(() => {
+				fed = store.resumeFeed(0, oracle.currentCount + 1);
+			});
+			units = fed;
+		}
 		raw.macros.push({
 			owner,
 			metric: MACRO_METRIC[owner],
 			candidate: candidate.id,
 			elapsedMs,
-			throughputPerSec: elapsedMs > 0 ? (ordered.length / elapsedMs) * 1000 : 0,
+			throughputPerSec: elapsedMs > 0 ? (units / elapsedMs) * 1000 : 0,
 		});
-	}
-
-	// Retained per-candidate databases for reads and reopen.
-	const built = new Map<
-		string,
-		{ db: Database; store: LayoutStore; path: string }
-	>();
-	for (const candidate of CANDIDATES) {
-		const path = tag(candidate.id);
-		const opened = buildOwnerDatabase(path, candidate, owner, facts, trace);
-		built.set(candidate.id, { ...opened, path });
 	}
 
 	// Disjoint deterministic probe sets: calibration, warmup, and timed use
@@ -605,10 +844,10 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 	const calibRows = rows.slice(0, 1024);
 	const warmupRows = rows.slice(1024, 2048);
 	const timedRows = rows.slice(2048, 3072);
-	const replicaAux = makeAuxiliaryTraces(trace, pilotLimits());
-	const replicaIds = replicaAux.retry.entries.map((r) => r.replicaId);
+	const authorityAux = makeAuxiliaryTraces(trace, pilotLimits());
+	const replicaIds = authorityAux.retry.entries.map((r) => r.replicaId);
 	const maxSeqFor = (candidate: Candidate) =>
-		maxSequence(built.get(candidate.id)!.db, candidate);
+		maxSequence(handleFor(candidate.id).db, candidate);
 	const watermarks = Array.from({ length: 256 }, (_, i) =>
 		Math.floor((maxSeqFor(CANDIDATES[0] as Candidate) * i) / 256),
 	);
@@ -620,7 +859,7 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 		// Balanced calibration pass on disjoint probes: warm the metric path, probe
 		// warm per-op seconds, target 1.5x the floor so a warm block stays over 20 ms.
 		const perOpSeconds = CANDIDATES.map((candidate) => {
-			const store = built.get(candidate.id)!.store;
+			const store = handleFor(candidate.id).store;
 			readOp(metric, store, ctxCalib, 2048, 0); // warm
 			const probe = 2048;
 			const ms = timeMs(() => readOp(metric, store, ctxCalib, probe, probe));
@@ -637,7 +876,7 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 		for (const block of schedule.blocks) {
 			if (blockCount >= MAX_READ_BLOCKS) break;
 			// At a pair/cycle boundary, perform a fixed idle plus a real connection
-			// close/reopen for every candidate, and record the reopen work.
+			// close/reopen for THIS owner's four retained databases, and record it.
 			if (
 				block.precedingBoundary === 'pair' ||
 				block.precedingBoundary === 'cycle'
@@ -646,14 +885,10 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 				let reopenOk = true;
 				const reopenMs = timeMs(() => {
 					for (const candidate of CANDIDATES) {
-						const entry = built.get(candidate.id)!;
-						entry.store.finalize();
-						entry.db.close();
-						const reopened = openExisting(entry.path, candidate);
-						if (reopened.store.scanWitness().digestHex !== oracle.digestHex) {
+						const next = reopenRetained(retained, owner, candidate);
+						if (next.store.scanWitness().digestHex !== oracle.digestHex) {
 							reopenOk = false;
 						}
-						built.set(candidate.id, { ...reopened, path: entry.path });
 					}
 				});
 				raw.boundaries.push({
@@ -667,7 +902,7 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 					reopenOk,
 				});
 			}
-			const entry = built.get(block.candidate)!;
+			const entry = handleFor(block.candidate);
 			// Three immediate untimed warmup batches on the SAME metric path, disjoint
 			// probes, right before the timed block.
 			const warmupMs: [number, number, number] = [0, 0, 0];
@@ -683,9 +918,12 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 				owner,
 				metric,
 				candidate: block.candidate,
+				buildId: entry.buildId,
 				cycle: block.cycle,
 				ordinal: block.ordinal,
 				position: block.positionInSequence,
+				letter: block.letter,
+				sequenceLabel: block.sequence.join(''),
 				predecessor: block.predecessor,
 				boundary: block.precedingBoundary,
 				ops,
@@ -704,32 +942,27 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 			const candidate = CANDIDATES[
 				(k + rotation) % CANDIDATES.length
 			] as Candidate;
-			const entry = built.get(candidate.id)!;
-			entry.store.finalize();
-			entry.db.close();
 			let witnessDigest = '';
 			const elapsedMs = timeMs(() => {
-				const reopened = openExisting(entry.path, candidate);
-				witnessDigest = reopened.store.scanWitness().digestHex;
-				reopened.store.finalize();
-				reopened.db.close();
+				const next = reopenRetained(retained, owner, candidate);
+				witnessDigest = next.store.scanWitness().digestHex;
 			});
 			raw.reopens.push({
 				owner,
 				candidate: candidate.id,
+				buildId: handleFor(candidate.id).buildId,
 				index: obs,
+				orderPosition: k,
 				elapsedMs,
 				witnessDigest,
 				witnessMatchesOracle: witnessDigest === oracle.digestHex,
 			});
-			const reopened = openExisting(entry.path, candidate);
-			built.set(candidate.id, { ...reopened, path: entry.path });
 		}
 	}
 
-	// Per-cell summaries from the retained databases.
+	// Per-cell summaries from the retained databases (not deleted here).
 	for (const candidate of CANDIDATES) {
-		const entry = built.get(candidate.id)!;
+		const entry = handleFor(candidate.id);
 		const witness = entry.store.scanWitness();
 		const check = entry.db.prepare('PRAGMA integrity_check').get() as {
 			integrity_check?: string;
@@ -737,6 +970,7 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 		raw.cells.push({
 			owner,
 			candidate: candidate.id,
+			buildId: entry.buildId,
 			oracleReproduced:
 				witness.count === oracle.currentCount &&
 				witness.bytes === oracle.currentProtocolFactBytes &&
@@ -746,13 +980,9 @@ function runOwner(ctx: SeedContext, owner: Owner): void {
 			fileBytes: fileBytesOf(entry.path),
 		});
 	}
-	for (const entry of built.values()) {
-		entry.store.finalize();
-		entry.db.close();
-		removeDatabase(entry.path);
-	}
 
-	// Mutating checkpoint tails with the full reset protocol.
+	// Mutating checkpoint tails with the full reset protocol. Tails build their own
+	// transient reset databases; the retained eight are untouched here.
 	for (const metric of TAIL_METRICS[owner]) {
 		for (const candidate of CANDIDATES) {
 			raw.tails.push(
@@ -1191,6 +1421,9 @@ function buildProvenance(
 		owners: [...OWNERS],
 		seedIds,
 		cycles: profile.cycles,
+		reopenObservations: profile.reopenObservations,
+		tailTransactions: profile.tailTransactions,
+		maxReadBlocks: MAX_READ_BLOCKS,
 		minBlockMs: profile.minBlockMs,
 		bootstrapDraws: BOOTSTRAP_DRAWS,
 		bootstrapSeed: BOOTSTRAP_SEED,
@@ -1289,6 +1522,28 @@ function executedReadBalance(blocks: BlockObservation[]): boolean {
 	return true;
 }
 
+/**
+ * Reduce a seed's raw observations to its seed-level estimators. NOTE (#6, open):
+ * this still pools all read metrics into one `readBlockMedianMs` per cell; a later
+ * wave must preserve owner+metric identity at the seed level.
+ */
+function buildSeedEstimators(raw: SeedRawObservations): Record<string, number> {
+	const estimators: Record<string, number> = {};
+	for (const cell of raw.cells) {
+		const reads = raw.blocks.filter(
+			(b) => b.owner === cell.owner && b.candidate === cell.candidate,
+		);
+		estimators[`${cell.owner}/${cell.candidate}/readBlockMedianMs`] = median(
+			reads.map((b) => b.elapsedMs),
+		);
+		estimators[`${cell.owner}/${cell.candidate}/candidateTableBytes`] =
+			cell.candidateTableBytes;
+	}
+	// No silent fallback: an empty estimator set means the seed did not execute, and
+	// commitSeed rejects it (fail closed) rather than committing an empty seed.
+	return estimators;
+}
+
 function main(): void {
 	let options: CliOptions;
 	try {
@@ -1328,7 +1583,9 @@ function main(): void {
 					`  estimated disk=${(estimate.totalDiskBytes / 1024 / 1024 / 1024).toFixed(2)}GiB (8 DBs) wall=${(estimate.wallSeconds / 3600).toFixed(2)}h (cap ${WALL_TIME_CAP_SECONDS / 3600}h)`,
 					`  feasible=${estimate.feasible} (withinWallCap=${estimate.withinWallCap} headroomOk=${estimate.headroomOk}) refusedToRun=true`,
 					`  report: ${outputPath}`,
-				].join('\n') + '\n',
+				]
+					.map((line) => `${line}\n`)
+					.join(''),
 			);
 		} finally {
 			if (options.output !== null && !options.keepArtifacts) {
@@ -1373,6 +1630,23 @@ function main(): void {
 		}
 
 		const headroom = headroomPreflight(dir, traceFor(profile, 0), profile);
+		// A failed headroom preflight aborts BEFORE any seed begins: no seed commits,
+		// so every committed seed is always a complete seed.
+		if (!headroom.passed) {
+			const outputPath = options.output ?? join(dir, 'report.json');
+			const refusal = {
+				kind: 'scalar-facts-layout-headroom-refusal',
+				refusedToRun: true,
+				reason: headroom.reason,
+				headroom,
+				provenance,
+			};
+			writeFileSync(outputPath, `${JSON.stringify(refusal, null, 2)}\n`);
+			process.stdout.write(
+				`headroom preflight FAILED: ${headroom.reason}; refused before seed 1\n`,
+			);
+			return;
+		}
 
 		for (let s = 0; s < profile.seedCount; s += 1) {
 			const seedId = seedIds[s] as number;
@@ -1385,6 +1659,12 @@ function main(): void {
 				rotation: s,
 			});
 			const raw: SeedRawObservations = {
+				letterMapping: schedule.letterMapping,
+				lifecycle: {
+					peakRetained: 0,
+					liveAtCommit: 0,
+					retainedThroughCommit: false,
+				},
 				blocks: [],
 				boundaries: [],
 				reopens: [],
@@ -1392,7 +1672,15 @@ function main(): void {
 				macros: [],
 				cells: [],
 			};
-			if (headroom.passed) {
+			// Build and retain all eight owner-by-candidate databases for this seed,
+			// run both owners against them, then commit, then delete them. The retained
+			// set is deleted ONLY after a successful commit; a refused or failed seed
+			// cleans up without committing partial data.
+			let retained: RetainedSet | null = null;
+			try {
+				const facts = finalFacts(trace);
+				retained = buildRetainedSet(dir, s, facts, trace);
+				raw.lifecycle.peakRetained = retained.peakLive;
 				const ctx: SeedContext = {
 					dir,
 					profile,
@@ -1402,44 +1690,66 @@ function main(): void {
 					schedule,
 					raw,
 				};
-				for (const owner of OWNERS) runOwner(ctx, owner);
-			}
+				for (const owner of OWNERS) runOwner(ctx, owner, retained);
+				raw.lifecycle.liveAtCommit = retained.handles.size;
 
-			const traceBound =
-				trace.calibration.traceAdmissible &&
-				verifyTraceV1Binding(trace, limits).bound;
-			const auxiliaryBound = allAuxiliaryBound(
-				makeAuxiliaryTraces(trace, limits),
-			);
-			const estimators: Record<string, number> = {};
-			for (const cell of raw.cells) {
-				const reads = raw.blocks.filter(
-					(b) => b.owner === cell.owner && b.candidate === cell.candidate,
+				// Validate the raw against its closed schema AND profile-aware
+				// completeness BEFORE committing; an incomplete or malformed seed throws
+				// and the finally block cleans up without committing partial data.
+				if (!validateSeedRawClosed(raw).valid) {
+					throw new Error(`seed ${seedId} raw failed closed validation`);
+				}
+				// Exact per-seed expectations: the schedule depends on this seed's index.
+				const expectations = completenessExpectations(provenance, s);
+				const completeness = validateSeedCompleteness(raw, expectations);
+				if (!completeness.complete) {
+					throw new Error(
+						`seed ${seedId} raw incomplete: ${completeness.reasons.slice(0, 3).join('; ')}`,
+					);
+				}
+
+				const traceBound =
+					trace.calibration.traceAdmissible &&
+					verifyTraceV1Binding(trace, limits).bound;
+				const auxiliaryBound = allAuxiliaryBound(
+					makeAuxiliaryTraces(trace, limits),
 				);
-				estimators[`${cell.owner}/${cell.candidate}/readBlockMedianMs`] =
-					median(reads.map((b) => b.elapsedMs));
-				estimators[`${cell.owner}/${cell.candidate}/candidateTableBytes`] =
-					cell.candidateTableBytes;
+				const estimators = buildSeedEstimators(raw);
+				// The eight databases are still whole at the durable write; deletion is
+				// strictly after it, so the record truthfully witnesses them retained.
+				raw.lifecycle.retainedThroughCommit = true;
+				const record = {
+					seedId,
+					estimators,
+					hashes: {
+						trace: trace.measure().digestHex,
+						traceBound: traceBound ? '1' : '0',
+						auxiliaryBound: auxiliaryBound ? '1' : '0',
+					},
+					raw,
+					seedGatesPassed: raw.cells.every(
+						(c) => c.oracleReproduced && c.integrityOk,
+					),
+				} satisfies SeedRecord;
+				// Persist every durable manifest FIRST, then delete the retained set. A
+				// write failure leaves all eight databases retained and the seed
+				// uncommitted (the finally block cleans them up on abort).
+				manifest = commitSeedCheckpoint({
+					manifest,
+					record,
+					retained,
+					persist: (m) => {
+						persistManifest(manifestPath, m);
+						if (priorManifestPath !== null)
+							persistManifest(priorManifestPath, m);
+					},
+				});
+			} finally {
+				// A refused or failed seed cleans up without having committed.
+				if (retained !== null && !retained.cleanedUp) {
+					cleanupRetainedSet(retained);
+				}
 			}
-			if (Object.keys(estimators).length === 0) {
-				estimators['no-op/headroom-refused'] = 1; // keep a whole-seed record even if refused
-			}
-			manifest = commitSeed(manifest, {
-				seedId,
-				estimators,
-				hashes: {
-					trace: trace.measure().digestHex,
-					traceBound: traceBound ? '1' : '0',
-					auxiliaryBound: auxiliaryBound ? '1' : '0',
-				},
-				raw,
-				seedGatesPassed: raw.cells.every(
-					(c) => c.oracleReproduced && c.integrityOk,
-				),
-			} satisfies SeedRecord);
-			persistManifest(manifestPath, manifest);
-			if (priorManifestPath !== null)
-				persistManifest(priorManifestPath, manifest);
 		}
 
 		// Derive everything from the committed manifest, so gates cover resumed AND
@@ -1690,7 +2000,9 @@ function main(): void {
 				`  evidence status: ${readiness.status.toUpperCase()} (isPilot; not ADR-ready)`,
 				`  report: ${outputPath}`,
 				`  report sha256: ${reportHash}`,
-			].join('\n') + '\n',
+			]
+				.map((line) => `${line}\n`)
+				.join(''),
 		);
 	} finally {
 		if (!options.keepArtifacts) rmSync(dir, { recursive: true, force: true });
@@ -1726,4 +2038,6 @@ function verifyProvenanceRoundTrip(
 	);
 }
 
-main();
+// Only run when invoked as the CLI entry point, so tests can import the retained
+// set and lifecycle helpers without executing a run.
+if (import.meta.main) main();
