@@ -115,3 +115,51 @@ describe('validation allocates nothing proportional to ceilings', () => {
 		expect(Number.isFinite(minimumSubmissionResponseBytes(raw()))).toBe(true);
 	});
 });
+
+describe('validateLimits is total over unknown input', () => {
+	test('non-object and exotic inputs refuse without throwing', () => {
+		// A throwing proxy trips a reflection trap inside admission; it must become a
+		// typed Invalid, never an escaping exception.
+		const throwingProxy = new Proxy(
+			{},
+			{
+				ownKeys() {
+					throw new Error('trap');
+				},
+			},
+		);
+		for (const value of [
+			null,
+			undefined,
+			42,
+			'limits',
+			true,
+			[BASE_LIMITS],
+			new Date(),
+			throwingProxy,
+		]) {
+			expect(() => validateLimits(value)).not.toThrow();
+			expectErr(validateLimits(value));
+		}
+	});
+
+	test('a missing key, an extra key, and a non-number value each refuse', () => {
+		const { maxNamespaceBytes: _dropped, ...missing } = BASE_LIMITS;
+		expectErr(validateLimits(missing));
+		expectErr(validateLimits({ ...BASE_LIMITS, extra: 1 }));
+		expectErr(validateLimits({ ...BASE_LIMITS, maxEncodedFactBytes: '4096' }));
+	});
+
+	test('the validated value is a fresh, detached, deep-frozen copy', () => {
+		const input = { ...BASE_LIMITS };
+		const validated = expectOk(validateLimits(input));
+		expect(Object.isFrozen(validated)).toBe(true);
+		// Detached: mutating the caller's object cannot reach the validated value.
+		input.maxEncodedFactBytes = 1;
+		expect(validated.maxEncodedFactBytes).toBe(BASE_LIMITS.maxEncodedFactBytes);
+		// Sealed: the validated value itself cannot be mutated.
+		expect(() => {
+			(validated as { maxEncodedFactBytes: number }).maxEncodedFactBytes = 1;
+		}).toThrow();
+	});
+});
