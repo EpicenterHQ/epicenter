@@ -2019,318 +2019,6 @@ function runOne(
 	}
 }
 
-const LATENCY_MATERIALITY = 0.1;
-const STORAGE_MATERIALITY = 0.05;
-const LATENCY_PAIRED_LOG_RATIO_SD_LIMIT = 0.1;
-const STORAGE_PAIRED_LOG_RATIO_SD_LIMIT = 0.05;
-
-function recommendations(results: RunResult[], options: Options) {
-	function candidateById(id: string): Candidate {
-		const found = CANDIDATES.find((candidate) => candidate.id === id);
-		if (found === undefined) throw new Error(`unknown candidate: ${id}`);
-		return found;
-	}
-	function cv(values: number[]): number {
-		if (values.length < 2) return 0;
-		const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-		if (mean === 0) return 0;
-		const variance =
-			values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
-			(values.length - 1);
-		return Math.sqrt(variance) / mean;
-	}
-	function sampleStandardDeviation(values: number[]): number {
-		if (values.length < 2) return 0;
-		const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-		const variance =
-			values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
-			(values.length - 1);
-		return Math.sqrt(variance);
-	}
-	const allExpectedCellsPass =
-		results.length === 2 * CANDIDATES.length * options.repetitions &&
-		(['replica', 'authority'] as const).every((owner) =>
-			CANDIDATES.every((candidate) =>
-				Array.from({ length: options.repetitions }, (_, repetition) =>
-					results.filter(
-						(result) =>
-							result.owner === owner &&
-							result.candidate.id === candidate.id &&
-							result.repetition === repetition,
-					),
-				).every((cell) => cell.length === 1 && cell[0]?.correct === true),
-			),
-		);
-	return (['replica', 'authority'] as const).map((owner) => {
-		const critical =
-			owner === 'replica'
-				? [...REPLICA_CRITICAL_METRICS]
-				: [...AUTHORITY_CRITICAL_METRICS];
-		const ownerResults = results.filter((result) => result.owner === owner);
-		const hasEveryCell =
-			allExpectedCellsPass &&
-			ownerResults.length === CANDIDATES.length * options.repetitions &&
-			CANDIDATES.every((candidate) =>
-				Array.from({ length: options.repetitions }, (_, repetition) =>
-					ownerResults.filter(
-						(result) =>
-							result.candidate.id === candidate.id &&
-							result.repetition === repetition,
-					),
-				).every(
-					(cell) =>
-						cell.length === 1 &&
-						cell[0]?.correct === true &&
-						critical.every((metric) => cell[0]?.metrics[metric] !== undefined),
-				),
-			);
-		// This harness exercises Bun's native SQLite only. A full run can support a
-		// native recommendation, but cannot freeze the browser or Cloudflare format.
-		const provisional = true;
-		const evidenceScope = 'bun-native-sqlite';
-		const requiresBrowserEvidence = owner === 'replica';
-		const requiresCloudflareEvidence = owner === 'authority';
-		if (!hasEveryCell) {
-			return {
-				owner,
-				provisional,
-				evidenceScope,
-				requiresBrowserEvidence,
-				requiresCloudflareEvidence,
-				recommendation: null,
-				reason:
-					'missing or failed owner×candidate×repetition cell anywhere in the matrix; partial evidence cannot recommend',
-				criticalMetrics: critical,
-				aggregates: [],
-			};
-		}
-		const effectiveMateriality = Object.fromEntries(
-			critical.map((metric) => [metric, LATENCY_MATERIALITY]),
-		) as Record<string, number>;
-		const effectiveStorageMateriality = STORAGE_MATERIALITY;
-		const aggregates = CANDIDATES.map((candidate) => {
-			const runs = ownerResults.filter(
-				(run) => run.candidate.id === candidate.id,
-			);
-			return {
-				id: candidate.id,
-				runs: runs.length,
-				critical: Object.fromEntries(
-					critical.map((metric) => {
-						const p95ByRepetition = runs.map(
-							(run) => run.metrics[metric]?.p95Ms ?? Number.POSITIVE_INFINITY,
-						);
-						return [
-							metric,
-							{
-								meanP95Ms:
-									p95ByRepetition.reduce((sum, value) => sum + value, 0) /
-									p95ByRepetition.length,
-								p95ByRepetition,
-								betweenRepetitionCv: cv(p95ByRepetition),
-								withinRepetitionCv: runs.map(
-									(run) => run.metrics[metric]?.coefficientOfVariation ?? 0,
-								),
-								repetitions: runs.map((run) => ({
-									repetition: run.repetition,
-									dataSeed: run.dataSeed,
-									p95Ms: run.metrics[metric]?.p95Ms ?? Number.POSITIVE_INFINITY,
-									coefficientOfVariation:
-										run.metrics[metric]?.coefficientOfVariation ?? 0,
-								})),
-							},
-						];
-					}),
-				) as Record<string, { meanP95Ms: number }>,
-				liveBytes: {
-					mean:
-						runs.reduce((sum, run) => sum + run.storage.liveBytes, 0) /
-						runs.length,
-					byRepetition: runs.map((run) => run.storage.liveBytes),
-					betweenRepetitionCv: cv(runs.map((run) => run.storage.liveBytes)),
-				},
-			};
-		});
-		function criticalValue(
-			aggregate: (typeof aggregates)[number],
-			metric: string,
-		): number {
-			const found = aggregate.critical[metric];
-			if (found === undefined)
-				throw new Error(`missing aggregate metric: ${metric}`);
-			return found.meanP95Ms;
-		}
-		function materiality(metric: string): number {
-			const found = effectiveMateriality[metric];
-			if (found === undefined)
-				throw new Error(`missing materiality: ${metric}`);
-			return found;
-		}
-		function resultFor(candidateId: string, repetition: number): RunResult {
-			const found = ownerResults.find(
-				(run) =>
-					run.candidate.id === candidateId && run.repetition === repetition,
-			);
-			if (found === undefined) {
-				throw new Error(
-					`missing ${owner}/${candidateId} repetition ${repetition}`,
-				);
-			}
-			return found;
-		}
-		const pairedStability = CANDIDATES.flatMap((left, leftIndex) =>
-			CANDIDATES.slice(leftIndex + 1).map((right) => ({
-				left: left.id,
-				right: right.id,
-				critical: Object.fromEntries(
-					critical.map((metric) => [
-						metric,
-						sampleStandardDeviation(
-							Array.from({ length: options.repetitions }, (_, repetition) => {
-								const leftValue = resultFor(left.id, repetition).metrics[metric]
-									?.p95Ms;
-								const rightValue = resultFor(right.id, repetition).metrics[
-									metric
-								]?.p95Ms;
-								if (leftValue === undefined || rightValue === undefined) {
-									throw new Error(`missing paired metric: ${metric}`);
-								}
-								return Math.log(leftValue / rightValue);
-							}),
-						),
-					]),
-				) as Record<string, number>,
-				liveBytesLogRatioSd: sampleStandardDeviation(
-					Array.from({ length: options.repetitions }, (_, repetition) => {
-						const leftBytes = resultFor(left.id, repetition).storage.liveBytes;
-						const rightBytes = resultFor(right.id, repetition).storage
-							.liveBytes;
-						return Math.log(leftBytes / rightBytes);
-					}),
-				),
-			})),
-		);
-		const unstableComparisons = pairedStability.filter(
-			(pair) =>
-				Object.values(pair.critical).some(
-					(logRatioSd) => logRatioSd > LATENCY_PAIRED_LOG_RATIO_SD_LIMIT,
-				) || pair.liveBytesLogRatioSd > STORAGE_PAIRED_LOG_RATIO_SD_LIMIT,
-		);
-		if (unstableComparisons.length > 0) {
-			return {
-				owner,
-				provisional,
-				evidenceScope,
-				requiresBrowserEvidence,
-				requiresCloudflareEvidence,
-				recommendation: null,
-				reason:
-					'paired candidate timing is not reproducible under the current estimator; refuse pending a predeclared measurement-method pilot',
-				criticalMetrics: critical,
-				effectiveMateriality,
-				effectiveStorageMateriality,
-				pairedStability,
-				unstableComparisons,
-				aggregates,
-			};
-		}
-		function noRegression(
-			left: (typeof aggregates)[number],
-			right: (typeof aggregates)[number],
-		) {
-			return (
-				critical.every(
-					(metric) =>
-						criticalValue(left, metric) <=
-						criticalValue(right, metric) * (1 + materiality(metric)),
-				) &&
-				left.liveBytes.mean <=
-					right.liveBytes.mean * (1 + effectiveStorageMateriality)
-			);
-		}
-		function materiallyBetter(
-			left: (typeof aggregates)[number],
-			right: (typeof aggregates)[number],
-		) {
-			return (
-				critical.some(
-					(metric) =>
-						criticalValue(left, metric) * (1 + materiality(metric)) <
-						criticalValue(right, metric),
-				) ||
-				left.liveBytes.mean * (1 + effectiveStorageMateriality) <
-					right.liveBytes.mean
-			);
-		}
-		const candidatePool = aggregates.filter(
-			(candidate) =>
-				!aggregates.some(
-					(other) =>
-						other.id !== candidate.id &&
-						noRegression(other, candidate) &&
-						materiallyBetter(other, candidate),
-				),
-		);
-		const allEquivalent = candidatePool.every((left) =>
-			candidatePool.every(
-				(right) => noRegression(left, right) && noRegression(right, left),
-			),
-		);
-		if (candidatePool.length > 1 && !allEquivalent) {
-			return {
-				owner,
-				provisional,
-				evidenceScope,
-				requiresBrowserEvidence,
-				requiresCloudflareEvidence,
-				recommendation: null,
-				reason:
-					'unresolved Pareto tradeoff across owner-critical metrics or live bytes',
-				unresolvedCandidates: candidatePool.map((candidate) => candidate.id),
-				criticalMetrics: critical,
-				effectiveMateriality,
-				effectiveStorageMateriality,
-				pairedStability,
-				aggregates,
-			};
-		}
-		candidatePool.sort((left, right) => {
-			const leftCandidate = candidateById(left.id);
-			const rightCandidate = candidateById(right.id);
-			// Predeclared spec tie-break: direct one-index global sequence uniqueness,
-			// fewer relations/indexes/feed branches, then fewer mixed-shape clauses.
-			if (leftCandidate.relation !== rightCandidate.relation) {
-				return leftCandidate.relation === 'unified' ? -1 : 1;
-			}
-			if (leftCandidate.coordinates !== rightCandidate.coordinates) {
-				return leftCandidate.coordinates === 'inline' ? -1 : 1;
-			}
-			return 0;
-		});
-		const recommendation = candidatePool[0];
-		if (recommendation === undefined) {
-			throw new Error(`no recommendation candidate remained for ${owner}`);
-		}
-		return {
-			owner,
-			provisional,
-			evidenceScope,
-			requiresBrowserEvidence,
-			requiresCloudflareEvidence,
-			recommendation: recommendation.id,
-			reason:
-				candidatePool.length > 1
-					? 'all owner-critical metrics and live bytes are materially equivalent; applied ADR tie-break order'
-					: 'sole non-dominated candidate with no material regression in any owner-critical metric',
-			criticalMetrics: critical,
-			effectiveMateriality,
-			effectiveStorageMateriality,
-			pairedStability,
-			aggregates,
-		};
-	});
-}
-
 function readEnvironment() {
 	const probeDirectory = mkdtempSync(join(tmpdir(), 'epicenter-sqlite-probe-'));
 	const path = join(probeDirectory, 'probe.sqlite');
@@ -2439,112 +2127,32 @@ function main(): void {
 			}
 		}
 	}
+	const expectedCells = 2 * CANDIDATES.length * options.repetitions;
+	const observedCellKeys = new Set(
+		results.map(
+			(result) => `${result.owner}/${result.candidate.id}/${result.repetition}`,
+		),
+	);
+	const matrixComplete =
+		results.length === expectedCells &&
+		observedCellKeys.size === expectedCells &&
+		results.every((result) => result.correct);
+	const evidenceStatus = {
+		status: 'incomplete' as const,
+		readyForAdrReview: false,
+		matrixComplete,
+		reasons: [
+			...(matrixComplete
+				? []
+				: [
+						'one or more owner, candidate, or repetition cells are missing or failed',
+					]),
+			'this legacy runner does not consume the exact modular trace or the predeclared measurement-method pilot',
+			'browser SQLite and OPFS qualification evidence is absent',
+			'Cloudflare Durable Object SQLite qualification evidence is absent',
+		],
+	};
 
-	const ownerRecommendations = recommendations(results, options).map(
-		(recommendation) => ({
-			...recommendation,
-			decisionEligible: false,
-			recommendation: null,
-			reason:
-				'the monolithic runner does not consume the exact modular trace or the predeclared measurement-method pilot; conformance and storage diagnostics only',
-		}),
-	);
-	const simulatedFailure = results.map((result, index) =>
-		index === 0 ? { ...result, correct: false } : result,
-	);
-	const recommendationFailureGateProof = recommendations(
-		simulatedFailure,
-		options,
-	).every((recommendation) => recommendation.recommendation === null);
-	const recommendationMissingCellGateProof = recommendations(
-		results.slice(1),
-		options,
-	).every((recommendation) => recommendation.recommendation === null);
-	const syntheticOptions = { ...options, repetitions: 2 };
-	const stableSyntheticResults = (['replica', 'authority'] as const).flatMap(
-		(owner) => {
-			const critical =
-				owner === 'replica'
-					? REPLICA_CRITICAL_METRICS
-					: AUTHORITY_CRITICAL_METRICS;
-			return CANDIDATES.flatMap((candidate) => {
-				const template = results.find(
-					(result) =>
-						result.owner === owner && result.candidate.id === candidate.id,
-				);
-				if (template === undefined) {
-					throw new Error(
-						`missing synthetic template: ${owner}/${candidate.id}`,
-					);
-				}
-				return [0, 1].map(
-					(repetition): RunResult => ({
-						...template,
-						repetition,
-						correct: true,
-						metrics: Object.fromEntries(
-							critical.map((metric) => [
-								metric,
-								{
-									rawMs: [100],
-									p50Ms: 100,
-									p95Ms: 100,
-									p99Ms: 100,
-									coefficientOfVariation: 0,
-								},
-							]),
-						),
-						storage: { ...template.storage, liveBytes: 1_000_000 },
-					}),
-				);
-			});
-		},
-	);
-	const stableSyntheticRecommendations = recommendations(
-		stableSyntheticResults,
-		syntheticOptions,
-	);
-	const perturbedSyntheticResults = stableSyntheticResults.map((result) => {
-		if (
-			result.owner !== 'replica' ||
-			result.candidate.id !== CANDIDATES[0]?.id ||
-			result.repetition !== 0
-		) {
-			return result;
-		}
-		const metric = REPLICA_CRITICAL_METRICS[0];
-		const samples = result.metrics[metric];
-		if (samples === undefined) throw new Error(`missing synthetic ${metric}`);
-		return {
-			...result,
-			metrics: {
-				...result.metrics,
-				[metric]: { ...samples, p95Ms: samples.p95Ms * 100 },
-			},
-		};
-	});
-	const unstableSyntheticRecommendation = recommendations(
-		perturbedSyntheticResults,
-		syntheticOptions,
-	).find((recommendation) => recommendation.owner === 'replica');
-	const recommendationInstabilityGateProof =
-		stableSyntheticRecommendations.every(
-			(recommendation) => recommendation.recommendation === 'unified-inline',
-		) &&
-		unstableSyntheticRecommendation?.recommendation === null &&
-		unstableSyntheticRecommendation.reason.startsWith(
-			'paired candidate timing is not reproducible',
-		) &&
-		'unstableComparisons' in unstableSyntheticRecommendation &&
-		Array.isArray(unstableSyntheticRecommendation.unstableComparisons) &&
-		unstableSyntheticRecommendation.unstableComparisons.length > 0;
-	if (
-		!recommendationFailureGateProof ||
-		!recommendationMissingCellGateProof ||
-		!recommendationInstabilityGateProof
-	) {
-		throw new Error('recommendation refusal gate self-proof failed');
-	}
 	const report = {
 		schemaVersion: 3,
 		benchmark: 'scalar-facts-physical-layout',
@@ -2569,21 +2177,10 @@ function main(): void {
 		},
 		methodology: {
 			ownersEvaluatedIndependently: true,
-			ownerCriticalMetrics: {
+			ownerMetricsRecorded: {
 				replica: REPLICA_CRITICAL_METRICS,
 				authority: AUTHORITY_CRITICAL_METRICS,
 			},
-			latencyMaterialityFraction: LATENCY_MATERIALITY,
-			storageMaterialityFraction: STORAGE_MATERIALITY,
-			latencyPairedLogRatioSdLimit: LATENCY_PAIRED_LOG_RATIO_SD_LIMIT,
-			storagePairedLogRatioSdLimit: STORAGE_PAIRED_LOG_RATIO_SD_LIMIT,
-			latencyVariancePolicy:
-				'materiality remains fixed; paired per-seed log-ratio standard deviation is an order-invariant refusal gate, and within-run CV is diagnostic only',
-			tieBreak: [
-				'direct SQLite enforcement of address and global-sequence uniqueness',
-				'fewer relations, indexes, and feed branches',
-				'fewer sentinel, nullable, and mixed-shape clauses',
-			],
 			splitSequenceProof:
 				'cross-table INSERT and UPDATE triggers reject collisions; the untimed proof inserts the same sequence into row_facts and value_facts and requires refusal',
 			streamingDataset: true,
@@ -2599,16 +2196,13 @@ function main(): void {
 				policy:
 					'production-style wal_autocheckpoint=1000 remains active during every timing; checkpoint(TRUNCATE) only separates declared phases; post-phase file sizes are bounded diagnostics, not cumulative write amplification',
 			},
-			recommendationFailureGateProof,
-			recommendationMissingCellGateProof,
-			recommendationInstabilityGateProof,
 			browserReplicaEvidence: {
 				attached: false,
 				required: true,
 				requiredDimensions: [
 					'browser SQLite and OPFS acquisition, install, reads, cleanup, and reopen',
 					'browser storage footprint at the million-address envelope',
-					'browser constraint and crash-recovery conformance for the selected layout',
+					'browser constraint and crash-recovery conformance for every candidate',
 				],
 			},
 			cloudflareAuthorityEvidence: {
@@ -2629,7 +2223,7 @@ function main(): void {
 			dataSeed: hash32(options.dataSeed, repetition),
 		})),
 		results,
-		recommendations: ownerRecommendations,
+		evidenceStatus,
 	};
 	const json = `${JSON.stringify(report, null, 2)}\n`;
 	if (options.output !== undefined) writeFileSync(options.output, json);

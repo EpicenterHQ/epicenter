@@ -1,19 +1,19 @@
 # scalar-facts-layout
 
-A decision instrument for one narrow question in Wave 2b: how should the
+A diagnostic instrument for one narrow question in Wave 2b: how might the
 **confirmed scalar-facts table(s)** of the local replica and the server
 authority store their structured coordinates and relation split, measured on
 Bun `bun:sqlite` at a provisional stress profile (a labeled logical-state proxy,
 never a frozen conformance run; see the qualification note below).
 
-It is a decision instrument, not a reusable benchmark framework, and not a
-layout freeze.
+It records conformance, storage, and workload observations. It never selects,
+ranks, recommends, or freezes a layout.
 
 Implementation status: only the exact analytical trace and its tests are
 modular today. The parent `scalar-facts-layout.ts` still owns the older corpus
-and runner, so it is hard-disabled from issuing a recommendation. It remains a
-conformance and storage diagnostic until the trace, owner-specific auxiliary
-states, layouts, runner, and decision procedure are connected behind one CLI.
+and runner. The parent remains a legacy conformance and storage diagnostic until
+the exact trace, owner-specific auxiliary states, layouts, and measurement
+method are connected behind one CLI.
 
 ## Scope (deliberately narrow)
 
@@ -54,14 +54,14 @@ address-bearing table, this instrument is the wrong shape and must be extended
 (candidates, workloads, and constraint proofs) across those tables before any
 freeze. That is an open ownership fork returned to Codex.
 
-## Provisional by construction
+## Incomplete by construction
 
 Bun can decide native schema and query-plan evidence but cannot qualify OPFS,
 storage quota, WebKit, worker locks, mobile memory, backgrounding, or Durable
 Object SQLite. Per ADR-0161 (65-68) and ADR-0163 (305-307), the exact V1
 constants and the physical layout must be chosen by the browser, Bun, and
-Cloudflare scale proof before ADR-0163 is Accepted. **Every recommendation this
-tool emits is provisional** and names the platform evidence it still requires.
+Cloudflare scale proof before ADR-0163 is Accepted. This tool therefore reports
+an overall `incomplete` evidence status and names the missing platform evidence.
 
 ### The 512 MiB / 1,000,000-live-address target is not a portability guarantee
 
@@ -69,7 +69,7 @@ No fixed 512 MiB portability guarantee is defensible. Treat it as a
 **conditional normal-profile qualification** where runtime quota admits, with
 peak headroom and quota-refusal atomic recovery measured. The tiers are:
 
-- PR smoke: 10k addresses / 5 MiB, every run.
+- Legacy smoke diagnostic: 5,000 current facts / 1 MiB payload.
 - physical mobile floor: 250k / 128 MiB (physical iOS Safari and Android).
 - conditional normal profile: 1,000,000 live addresses / 512 MiB where quota
   admits.
@@ -115,34 +115,13 @@ Physical amplification is reported against the logical-state denominator: steady
 protocol-overhead diagnostic. No ratio is printed unless both its numerator and
 denominator were measured.
 
-## No-winner policy
+## Evidence status only
 
-- The fixed independent SLO/materiality gates are **declared before any layout
-  run**, never chosen from the data afterward.
-- A **single repetition can never produce a winner**: one repetition cannot
-  establish stability, so it registers as inconclusive regardless of its numbers.
-- Every owner-critical metric is compared **independently**; no geomean or
-  latency-plus-storage sum can average away a material regression in one metric.
-- Materiality thresholds are **fixed, predeclared, and owner-metric-specific**.
-  They are never derived or widened from observed variance. Widening a band by
-  observed noise is backwards for a noninferiority test: a noisier metric would
-  let a *larger* real regression pass as equivalent, which is the opposite of
-  what safety requires.
-- Comparisons are **paired per seed**: two candidates are differenced on the same
-  trace, and the decision reasons about an interval on the mean paired
-  difference against the fixed threshold.
-- A metric is **inconclusive** when its paired-difference interval crosses a
-  materiality boundary, or when its variance is too high to place the difference
-  on one side of the threshold. Any inconclusive owner-critical metric returns
-  **no winner**; noise never resolves in favor of a winner.
-- A **real tradeoff** (more than one non-dominated candidate that are not all
-  materially equivalent) returns **no winner**.
-- A **missing or failed** owner x candidate x repetition cell returns **no
-  recommendation**: partial evidence cannot recommend, and failed repetitions
-  are never dropped.
-- The declared tie-break (unified before split, inline before normalized) is
-  applied **only** when the candidates are materially equivalent on every metric,
-  and the report states that it was a tie, not a measured win.
+The parent runner retains each owner, candidate, repetition, metric, and storage
+observation. It checks matrix completeness and correctness, then reports one
+overall evidence status. Missing cells and failed conformance remain visible.
+No materiality band, Pareto filter, candidate ordering, or fallback tie-break is
+part of this runner.
 
 ## Independent oracle
 
@@ -163,27 +142,24 @@ The lifecycles are real events, not counted assumptions: initially-absent values
 that later become present, value unset-then-present, and row tombstones. Row
 tombstone non-resurrection is proven in the **trace-oracle self-test** by an
 attempted higher-sequence present that the fold refuses, not by counting final
-tombstones. Each candidate **store** must additionally prove the same refusal
-(and the stale / equal-identical / equal-different install outcomes) against its
-own physical layout; that per-candidate proof is required, and is future work in
-`layouts.ts`, not yet landed. The observed namespace/table/value/lifecycle
-cardinalities are asserted and reported.
+tombstones. The legacy parent additionally exercises each confirmed-facts
+candidate's physical constraint refusals. Those proofs remain narrower than the
+schema-wide owner workload required by the measurement-method pilot. The
+observed namespace, table, value, and lifecycle cardinalities are asserted and
+reported.
 
 ## Determinism
 
 Seeded PRNG only; no wall-clock or `Math.random`. Namespace and table are chosen
 by two independently salted hashes (never one correlated modulo). Paired
 candidates within one repetition see exactly the same trace; each repetition
-draws an independent data seed. Full evidence requires at least five independent
-builds; short operations retain raw samples.
+draws an independent data seed. The legacy full diagnostic uses five builds, but
+it is not the four-seed measurement-method pilot. Short operations retain raw
+samples.
 
 ## Files
 
 - `scalar-facts-layout.ts` (legacy parent): CLI, profiles, argument parsing,
-  conformance/storage report, and an unconditional decision refusal until the
-  modular path replaces it.
+  conformance/storage report, and an overall incomplete evidence status.
 - `trace.ts`: deterministic corpus, aging events, and the independent oracle.
-- `layouts.ts`: the four DDL candidates, their stores, and negative constraint
-  proofs.
-- `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans.
-- `decision.ts`: completeness, per-metric materiality, and the no-winner policy.
+- `trace.test.ts`: analytical-oracle, portability, and exact-byte tests.
