@@ -422,8 +422,15 @@ coordinate layout
 ```
 
 Run all four combinations. Reject any candidate that fails the scan, install,
-reopen, integrity, or constraint proofs. Define material performance and
+reopen, integrity, or constraint proofs. Define fixed material performance and
 storage thresholds before running and retain the raw samples and query plans.
+Treat measurement instability as a reason to add repetitions or refuse a
+recommendation, never as permission to widen equivalence. A replica winner
+requires both native SQLite and browser SQLite/OPFS evidence. An authority
+winner requires both Bun SQLite and Cloudflare Durable Object SQLite evidence,
+including Cloudflare rows-read, rows-written, row-size, parameter, and CPU
+limits. A result from only one runtime is explicitly provisional and cannot
+freeze the owner's universal format.
 When candidates are materially equivalent, break the tie in this order:
 direct SQLite enforcement of address and global-sequence uniqueness, fewer
 relations, indexes, and feed branches, then fewer sentinel, nullable, and
@@ -849,7 +856,8 @@ biome lint/format are clean.
 - Benchmark all four combinations of relation layout (one checked facts table
   or separate row and value fact tables) and coordinate layout (inline or
   normalized) against both replica and authority workloads. Freeze one layout
-  per owner; choose the same layout only if evidence earns the shared shape.
+  per owner only after the required native/browser or Bun/Cloudflare evidence;
+  choose the same layout only if evidence earns the shared shape.
 - Replace flat scalar and document address columns together. The physical-format
   break carries structured identity through confirmed facts, pending intents,
   sealed submission state, parked diagnostics, and document liveness joins.

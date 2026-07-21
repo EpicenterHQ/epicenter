@@ -2021,6 +2021,8 @@ function runOne(
 
 const LATENCY_MATERIALITY = 0.1;
 const STORAGE_MATERIALITY = 0.05;
+const LATENCY_PAIRED_LOG_RATIO_SD_LIMIT = 0.1;
+const STORAGE_PAIRED_LOG_RATIO_SD_LIMIT = 0.05;
 
 function recommendations(results: RunResult[], options: Options) {
 	function candidateById(id: string): Candidate {
@@ -2036,6 +2038,14 @@ function recommendations(results: RunResult[], options: Options) {
 			values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
 			(values.length - 1);
 		return Math.sqrt(variance) / mean;
+	}
+	function sampleStandardDeviation(values: number[]): number {
+		if (values.length < 2) return 0;
+		const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+		const variance =
+			values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+			(values.length - 1);
+		return Math.sqrt(variance);
 	}
 	const allExpectedCellsPass =
 		results.length === 2 * CANDIDATES.length * options.repetitions &&
@@ -2074,12 +2084,18 @@ function recommendations(results: RunResult[], options: Options) {
 						critical.every((metric) => cell[0]?.metrics[metric] !== undefined),
 				),
 			);
-		const provisional = options.profile === 'smoke' || owner === 'authority';
+		// This harness exercises Bun's native SQLite only. A full run can support a
+		// native recommendation, but cannot freeze the browser or Cloudflare format.
+		const provisional = true;
+		const evidenceScope = 'bun-native-sqlite';
+		const requiresBrowserEvidence = owner === 'replica';
 		const requiresCloudflareEvidence = owner === 'authority';
 		if (!hasEveryCell) {
 			return {
 				owner,
 				provisional,
+				evidenceScope,
+				requiresBrowserEvidence,
 				requiresCloudflareEvidence,
 				recommendation: null,
 				reason:
@@ -2089,39 +2105,9 @@ function recommendations(results: RunResult[], options: Options) {
 			};
 		}
 		const effectiveMateriality = Object.fromEntries(
-			critical.map((metric) => [
-				metric,
-				Math.max(
-					LATENCY_MATERIALITY,
-					3 *
-						Math.max(
-							...CANDIDATES.map((candidate) =>
-								cv(
-									ownerResults
-										.filter((run) => run.candidate.id === candidate.id)
-										.map(
-											(run) =>
-												run.metrics[metric]?.p95Ms ?? Number.POSITIVE_INFINITY,
-										),
-								),
-							),
-						),
-				),
-			]),
+			critical.map((metric) => [metric, LATENCY_MATERIALITY]),
 		) as Record<string, number>;
-		const storageCv = Math.max(
-			...CANDIDATES.map((candidate) =>
-				cv(
-					ownerResults
-						.filter((run) => run.candidate.id === candidate.id)
-						.map((run) => run.storage.liveBytes),
-				),
-			),
-		);
-		const effectiveStorageMateriality = Math.max(
-			STORAGE_MATERIALITY,
-			3 * storageCv,
-		);
+		const effectiveStorageMateriality = STORAGE_MATERIALITY;
 		const aggregates = CANDIDATES.map((candidate) => {
 			const runs = ownerResults.filter(
 				(run) => run.candidate.id === candidate.id,
@@ -2180,6 +2166,74 @@ function recommendations(results: RunResult[], options: Options) {
 				throw new Error(`missing materiality: ${metric}`);
 			return found;
 		}
+		function resultFor(candidateId: string, repetition: number): RunResult {
+			const found = ownerResults.find(
+				(run) =>
+					run.candidate.id === candidateId && run.repetition === repetition,
+			);
+			if (found === undefined) {
+				throw new Error(
+					`missing ${owner}/${candidateId} repetition ${repetition}`,
+				);
+			}
+			return found;
+		}
+		const pairedStability = CANDIDATES.flatMap((left, leftIndex) =>
+			CANDIDATES.slice(leftIndex + 1).map((right) => ({
+				left: left.id,
+				right: right.id,
+				critical: Object.fromEntries(
+					critical.map((metric) => [
+						metric,
+						sampleStandardDeviation(
+							Array.from({ length: options.repetitions }, (_, repetition) => {
+								const leftValue = resultFor(left.id, repetition).metrics[metric]
+									?.p95Ms;
+								const rightValue = resultFor(right.id, repetition).metrics[
+									metric
+								]?.p95Ms;
+								if (leftValue === undefined || rightValue === undefined) {
+									throw new Error(`missing paired metric: ${metric}`);
+								}
+								return Math.log(leftValue / rightValue);
+							}),
+						),
+					]),
+				) as Record<string, number>,
+				liveBytesLogRatioSd: sampleStandardDeviation(
+					Array.from({ length: options.repetitions }, (_, repetition) => {
+						const leftBytes = resultFor(left.id, repetition).storage.liveBytes;
+						const rightBytes = resultFor(right.id, repetition).storage
+							.liveBytes;
+						return Math.log(leftBytes / rightBytes);
+					}),
+				),
+			})),
+		);
+		const unstableComparisons = pairedStability.filter(
+			(pair) =>
+				Object.values(pair.critical).some(
+					(logRatioSd) => logRatioSd > LATENCY_PAIRED_LOG_RATIO_SD_LIMIT,
+				) || pair.liveBytesLogRatioSd > STORAGE_PAIRED_LOG_RATIO_SD_LIMIT,
+		);
+		if (unstableComparisons.length > 0) {
+			return {
+				owner,
+				provisional,
+				evidenceScope,
+				requiresBrowserEvidence,
+				requiresCloudflareEvidence,
+				recommendation: null,
+				reason:
+					'paired candidate log-ratio dispersion exceeds the predeclared stability limit; add repetitions instead of widening equivalence',
+				criticalMetrics: critical,
+				effectiveMateriality,
+				effectiveStorageMateriality,
+				pairedStability,
+				unstableComparisons,
+				aggregates,
+			};
+		}
 		function noRegression(
 			left: (typeof aggregates)[number],
 			right: (typeof aggregates)[number],
@@ -2226,6 +2280,8 @@ function recommendations(results: RunResult[], options: Options) {
 			return {
 				owner,
 				provisional,
+				evidenceScope,
+				requiresBrowserEvidence,
 				requiresCloudflareEvidence,
 				recommendation: null,
 				reason:
@@ -2234,6 +2290,7 @@ function recommendations(results: RunResult[], options: Options) {
 				criticalMetrics: critical,
 				effectiveMateriality,
 				effectiveStorageMateriality,
+				pairedStability,
 				aggregates,
 			};
 		}
@@ -2257,6 +2314,8 @@ function recommendations(results: RunResult[], options: Options) {
 		return {
 			owner,
 			provisional,
+			evidenceScope,
+			requiresBrowserEvidence,
 			requiresCloudflareEvidence,
 			recommendation: recommendation.id,
 			reason:
@@ -2266,6 +2325,7 @@ function recommendations(results: RunResult[], options: Options) {
 			criticalMetrics: critical,
 			effectiveMateriality,
 			effectiveStorageMateriality,
+			pairedStability,
 			aggregates,
 		};
 	});
@@ -2392,11 +2452,93 @@ function main(): void {
 		results.slice(1),
 		options,
 	).every((recommendation) => recommendation.recommendation === null);
-	if (!recommendationFailureGateProof || !recommendationMissingCellGateProof) {
-		throw new Error('recommendation completeness gate self-proof failed');
+	const syntheticOptions = { ...options, repetitions: 2 };
+	const stableSyntheticResults = (['replica', 'authority'] as const).flatMap(
+		(owner) => {
+			const critical =
+				owner === 'replica'
+					? REPLICA_CRITICAL_METRICS
+					: AUTHORITY_CRITICAL_METRICS;
+			return CANDIDATES.flatMap((candidate) => {
+				const template = results.find(
+					(result) =>
+						result.owner === owner && result.candidate.id === candidate.id,
+				);
+				if (template === undefined) {
+					throw new Error(
+						`missing synthetic template: ${owner}/${candidate.id}`,
+					);
+				}
+				return [0, 1].map(
+					(repetition): RunResult => ({
+						...template,
+						repetition,
+						correct: true,
+						metrics: Object.fromEntries(
+							critical.map((metric) => [
+								metric,
+								{
+									rawMs: [100],
+									p50Ms: 100,
+									p95Ms: 100,
+									p99Ms: 100,
+									coefficientOfVariation: 0,
+								},
+							]),
+						),
+						storage: { ...template.storage, liveBytes: 1_000_000 },
+					}),
+				);
+			});
+		},
+	);
+	const stableSyntheticRecommendations = recommendations(
+		stableSyntheticResults,
+		syntheticOptions,
+	);
+	const perturbedSyntheticResults = stableSyntheticResults.map((result) => {
+		if (
+			result.owner !== 'replica' ||
+			result.candidate.id !== CANDIDATES[0]?.id ||
+			result.repetition !== 0
+		) {
+			return result;
+		}
+		const metric = REPLICA_CRITICAL_METRICS[0];
+		const samples = result.metrics[metric];
+		if (samples === undefined) throw new Error(`missing synthetic ${metric}`);
+		return {
+			...result,
+			metrics: {
+				...result.metrics,
+				[metric]: { ...samples, p95Ms: samples.p95Ms * 100 },
+			},
+		};
+	});
+	const unstableSyntheticRecommendation = recommendations(
+		perturbedSyntheticResults,
+		syntheticOptions,
+	).find((recommendation) => recommendation.owner === 'replica');
+	const recommendationInstabilityGateProof =
+		stableSyntheticRecommendations.every(
+			(recommendation) => recommendation.recommendation === 'unified-inline',
+		) &&
+		unstableSyntheticRecommendation?.recommendation === null &&
+		unstableSyntheticRecommendation.reason.startsWith(
+			'paired candidate log-ratio dispersion',
+		) &&
+		'unstableComparisons' in unstableSyntheticRecommendation &&
+		Array.isArray(unstableSyntheticRecommendation.unstableComparisons) &&
+		unstableSyntheticRecommendation.unstableComparisons.length > 0;
+	if (
+		!recommendationFailureGateProof ||
+		!recommendationMissingCellGateProof ||
+		!recommendationInstabilityGateProof
+	) {
+		throw new Error('recommendation refusal gate self-proof failed');
 	}
 	const report = {
-		schemaVersion: 2,
+		schemaVersion: 3,
 		benchmark: 'scalar-facts-physical-layout',
 		startedAt,
 		finishedAt: new Date().toISOString(),
@@ -2425,8 +2567,10 @@ function main(): void {
 			},
 			latencyMaterialityFraction: LATENCY_MATERIALITY,
 			storageMaterialityFraction: STORAGE_MATERIALITY,
+			latencyPairedLogRatioSdLimit: LATENCY_PAIRED_LOG_RATIO_SD_LIMIT,
+			storagePairedLogRatioSdLimit: STORAGE_PAIRED_LOG_RATIO_SD_LIMIT,
 			latencyVariancePolicy:
-				'effective thresholds use only per-candidate CV across paired-repetition p95 values; within-run CV is diagnostic only',
+				'materiality remains fixed; paired per-seed log-ratio standard deviation is an order-invariant refusal gate, and within-run CV is diagnostic only',
 			tieBreak: [
 				'direct SQLite enforcement of address and global-sequence uniqueness',
 				'fewer relations, indexes, and feed branches',
@@ -2449,6 +2593,16 @@ function main(): void {
 			},
 			recommendationFailureGateProof,
 			recommendationMissingCellGateProof,
+			recommendationInstabilityGateProof,
+			browserReplicaEvidence: {
+				attached: false,
+				required: true,
+				requiredDimensions: [
+					'browser SQLite and OPFS acquisition, install, reads, cleanup, and reopen',
+					'browser storage footprint at the million-address envelope',
+					'browser constraint and crash-recovery conformance for the selected layout',
+				],
+			},
 			cloudflareAuthorityEvidence: {
 				attached: false,
 				required: true,
