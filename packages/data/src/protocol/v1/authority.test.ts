@@ -41,7 +41,7 @@ import {
 	BASE_LIMITS,
 	makeAuthority,
 	makeLimits,
-} from './test-support.js';
+} from './kernel.test-support.js';
 
 const LIMITS = makeLimits();
 const LIFETIME = 'lifetime-one';

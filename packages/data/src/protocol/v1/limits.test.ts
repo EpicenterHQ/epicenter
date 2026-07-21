@@ -22,7 +22,7 @@ import {
 	type ScalarSyncLimits,
 	validateLimits,
 } from './index.js';
-import { BASE_LIMITS } from './test-support.js';
+import { BASE_LIMITS } from './kernel.test-support.js';
 
 const raw = (overrides: Partial<ScalarSyncLimits> = {}): ScalarSyncLimits => ({
 	...BASE_LIMITS,

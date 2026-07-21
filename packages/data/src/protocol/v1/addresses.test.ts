@@ -23,7 +23,7 @@ import {
 	type RowAddress,
 	type ValueAddress,
 } from './index.js';
-import { makeLimits } from './test-support.js';
+import { makeLimits } from './kernel.test-support.js';
 
 const LIMITS = makeLimits();
 
