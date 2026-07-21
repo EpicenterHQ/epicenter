@@ -390,7 +390,14 @@ export type Trace = {
 	options: TraceOptions;
 	calibration: Calibration;
 	finalFactAt(index: number): Fact;
+	/** The full authority event log: every install, in ascending sequence. */
 	events(): Generator<Fact>;
+	/**
+	 * The current (settled) facts only, in ascending sequence: what a replica
+	 * acquires from an already-folded authority. Reconstructs the same oracle
+	 * state as replaying `events()`, without the intermediate overwrites.
+	 */
+	finalFactsBySequence(): Generator<Fact>;
 	/** One streaming pass: correctness witness plus both byte measures. */
 	measure(): Measures;
 	observed(): ObservedCardinalities;
@@ -731,6 +738,7 @@ export function makeTrace(options: TraceOptions): Trace {
 		calibration,
 		finalFactAt,
 		events,
+		finalFactsBySequence,
 		measure,
 		observed,
 		sampleRowAddresses,
