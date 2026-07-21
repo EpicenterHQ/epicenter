@@ -402,7 +402,9 @@ function buildDatabase(
 		// The replica installs in address (index) order (acquisition/install).
 		store.installFacts(facts);
 	}
-	store.populateAuxiliary(makeAuxiliaryTraces(trace, pilotLimits()));
+	const aux = makeAuxiliaryTraces(trace, pilotLimits());
+	if (owner === 'authority') store.populateAuthorityAuxiliary(aux);
+	else store.populateReplicaAuxiliary(aux);
 	db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 	return { db, store, path };
 }

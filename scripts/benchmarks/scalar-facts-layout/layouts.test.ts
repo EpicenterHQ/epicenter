@@ -49,7 +49,9 @@ function buildStore(candidate: Candidate, t: Trace) {
 		t.finalFactAt(i),
 	);
 	store.installFacts(finals);
-	store.populateAuxiliary(makeAuxiliaryTraces(t, pilotLimits()));
+	const aux = makeAuxiliaryTraces(t, pilotLimits());
+	store.populateReplicaAuxiliary(aux);
+	store.populateAuthorityAuxiliary(aux);
 	return { db, store };
 }
 

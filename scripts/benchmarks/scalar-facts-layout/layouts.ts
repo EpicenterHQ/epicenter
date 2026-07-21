@@ -21,6 +21,7 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite';
 
 import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
+import type { Intent } from '../../../packages/data/src/protocol/v1/intents.js';
 import type { AuxiliaryTraces, DocumentEntry } from './auxiliary-traces.js';
 import { Sha256Stream } from './portable-hash.js';
 import type { Address, Fact, RowAddress, ValueAddress } from './trace.js';
@@ -279,6 +280,9 @@ function coordinateAndAuxiliaryDdl(candidate: Candidate): string {
 	const addrPk = normalized
 		? '(coordinate_id, row_id)'
 		: '(kind, namespace, local_key, row_id)';
+	const addrPkColumns = normalized
+		? 'coordinate_id, row_id'
+		: 'kind, namespace, local_key, row_id';
 	const docAddr = normalized
 		? 'coordinate_id INTEGER NOT NULL REFERENCES coordinates(coordinate_id), row_id TEXT NOT NULL'
 		: 'namespace TEXT NOT NULL, table_key TEXT NOT NULL, row_id TEXT NOT NULL';
@@ -306,10 +310,25 @@ function coordinateAndAuxiliaryDdl(candidate: Candidate): string {
 			tail BLOB NOT NULL,
 			PRIMARY KEY ${docPk}
 		) WITHOUT ROWID;
+		CREATE TABLE sealed_submissions (
+			${addr},
+			submission_number INTEGER NOT NULL,
+			present INTEGER NOT NULL CHECK (present IN (0, 1)),
+			payload TEXT,
+			PRIMARY KEY ${addrPk}
+		) WITHOUT ROWID;
 		CREATE TABLE retry_ledger (
 			replica_id TEXT NOT NULL PRIMARY KEY,
 			last_submission INTEGER NOT NULL,
 			request_hash TEXT NOT NULL
+		) WITHOUT ROWID;
+		CREATE TABLE retry_parked (
+			replica_id TEXT NOT NULL,
+			${addr},
+			code TEXT NOT NULL,
+			measured_bytes INTEGER NOT NULL,
+			limit_bytes INTEGER NOT NULL,
+			PRIMARY KEY (replica_id, ${addrPkColumns})
 		) WITHOUT ROWID;
 	`;
 }
@@ -353,11 +372,40 @@ export type OracleWitness = { count: number; bytes: number; digestHex: string };
 
 export type LayoutStore = {
 	installFacts(facts: Iterable<Fact>): void;
-	populateAuxiliary(aux: AuxiliaryTraces): void;
+	/** Populate the replica-owned auxiliary tables: pending, sealed, parked, documents. */
+	populateReplicaAuxiliary(aux: AuxiliaryTraces): void;
+	/** Populate the authority-owned auxiliary tables: retry ledger, retry parked, documents. */
+	populateAuthorityAuxiliary(aux: AuxiliaryTraces): void;
 	/** Reproduce the analytical oracle witness by scanning ORDER BY sequence. */
 	scanWitness(): OracleWitness;
 	/** Read one current fact's presence and sequence, or null. */
 	pointRead(address: Address): { present: 0 | 1; sequence: number } | null;
+	/** Full ordered traversal of the current facts; returns the count read. */
+	traverse(): number;
+	/** Read the confirmed fact plus any replica pending-intent overlay for an address. */
+	overlayRead(address: Address): { confirmed: 0 | 1; pending: 0 | 1 };
+	/** Authority resume feed: rows with sequence greater than a watermark, ordered. */
+	resumeFeed(afterSequence: number, limit: number): number;
+	/** Authority exact-retry settlement read: the replica's ledger and parked count. */
+	retrySettlementRead(replicaId: string): { found: 0 | 1; parked: number };
+	/** Monotonic install of one fact (higher sequence wins, tombstone-dominant). */
+	installMonotonic(fact: Fact): void;
+	/**
+	 * Row tombstone plus document cleanup in one transaction: install a terminal
+	 * absent row fact and remove that row's document bytes together.
+	 */
+	deleteRowWithDocument(address: RowAddress, sequence: number): void;
+	/**
+	 * Authority submission settlement: fold each intent into a confirmed fact at a
+	 * fresh monotonic sequence and record the replica retry ledger, in one
+	 * transaction. Returns the next free sequence.
+	 */
+	settleSubmission(
+		replicaId: string,
+		intents: readonly Fact[],
+		baseSequence: number,
+		requestHash: string,
+	): number;
 	/** Candidate-varying table bytes via dbstat (true candidate-table storage). */
 	candidateTableBytes(): number;
 	finalize(): void;
@@ -438,6 +486,53 @@ export function createLayoutStore(
 	const retryStmt = prepare(
 		'INSERT OR REPLACE INTO retry_ledger (replica_id, last_submission, request_hash) VALUES (?, ?, ?)',
 	);
+	const sealedStmt = normalized
+		? prepare(
+				'INSERT OR REPLACE INTO sealed_submissions (coordinate_id, row_id, submission_number, present, payload) VALUES (?, ?, ?, ?, ?)',
+			)
+		: prepare(
+				'INSERT OR REPLACE INTO sealed_submissions (kind, namespace, local_key, row_id, submission_number, present, payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
+			);
+	const retryParkedStmt = normalized
+		? prepare(
+				'INSERT OR REPLACE INTO retry_parked (replica_id, coordinate_id, row_id, code, measured_bytes, limit_bytes) VALUES (?, ?, ?, ?, ?, ?)',
+			)
+		: prepare(
+				'INSERT OR REPLACE INTO retry_parked (replica_id, kind, namespace, local_key, row_id, code, measured_bytes, limit_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+			);
+	const documentDeleteStmt = normalized
+		? prepare(
+				'DELETE FROM row_documents WHERE coordinate_id = ? AND row_id = ?',
+			)
+		: prepare(
+				'DELETE FROM row_documents WHERE namespace = ? AND table_key = ? AND row_id = ?',
+			);
+	const overlayPendingStmt = normalized
+		? prepare(
+				'SELECT present FROM pending_intents WHERE coordinate_id = ? AND row_id = ?',
+			)
+		: prepare(
+				'SELECT present FROM pending_intents WHERE kind = ? AND namespace = ? AND local_key = ? AND row_id = ?',
+			);
+	const resumeFeedStmt = ((): ReturnType<typeof prepare> => {
+		if (candidate.relation === 'unified') {
+			return prepare(
+				'SELECT sequence FROM facts WHERE sequence > ? ORDER BY sequence LIMIT ?',
+			);
+		}
+		return prepare(
+			`SELECT sequence FROM (
+				SELECT sequence FROM row_facts WHERE sequence > ?1
+				UNION ALL SELECT sequence FROM value_facts WHERE sequence > ?1
+			) ORDER BY sequence LIMIT ?2`,
+		);
+	})();
+	const retryLedgerReadStmt = prepare(
+		'SELECT last_submission FROM retry_ledger WHERE replica_id = ?',
+	);
+	const retryParkedCountStmt = prepare(
+		'SELECT COUNT(*) AS n FROM retry_parked WHERE replica_id = ?',
+	);
 
 	function insertPendingOrParked(
 		stmt: ReturnType<typeof prepare>,
@@ -476,6 +571,70 @@ export function createLayoutStore(
 		}
 	}
 
+	function intentColumns(intent: Intent): {
+		present: 0 | 1;
+		payload: string | null;
+	} {
+		if (intent.presence !== 'present') return { present: 0, payload: null };
+		return {
+			present: 1,
+			payload:
+				'set' in intent
+					? canonicalize(intent.set)
+					: canonicalize(intent.content),
+		};
+	}
+
+	function insertSealed(intent: Intent, submissionNumber: number): void {
+		const { present, payload } = intentColumns(intent);
+		insertPendingOrParked(sealedStmt, intent.address, [
+			submissionNumber,
+			present,
+			payload,
+		]);
+	}
+
+	function insertRetryParked(
+		replicaId: string,
+		address: Address,
+		code: string,
+		measured: number,
+		limit: number,
+	): void {
+		const cols = addressColumns(address);
+		const args: SQLQueryBindings[] = normalized
+			? [
+					replicaId,
+					coordinateId(cols.kind, cols.namespace, cols.localKey),
+					cols.rowId,
+					code,
+					measured,
+					limit,
+				]
+			: [
+					replicaId,
+					cols.kind,
+					cols.namespace,
+					cols.localKey,
+					cols.rowId,
+					code,
+					measured,
+					limit,
+				];
+		retryParkedStmt.run(...args);
+	}
+
+	function deleteDocument(address: RowAddress): void {
+		if (normalized) {
+			documentDeleteStmt.run(
+				coordinateId('row', address.namespace, address.table),
+				address.rowId,
+			);
+		} else {
+			documentDeleteStmt.run(address.namespace, address.table, address.rowId);
+		}
+	}
+
 	const pointStore = buildPointStatements(prepare, candidate);
 
 	return {
@@ -485,20 +644,21 @@ export function createLayoutStore(
 			});
 			run(facts);
 		},
-		populateAuxiliary(aux) {
+		populateReplicaAuxiliary(aux) {
+			// The replica owns pending intents, one sealed submission, parked overlay,
+			// and row documents.
 			const run = database.transaction(() => {
 				for (const intent of aux.pending.entries) {
-					const present = intent.presence === 'present' ? 1 : 0;
-					const payload =
-						intent.presence === 'present'
-							? 'set' in intent
-								? canonicalize(intent.set)
-								: canonicalize(intent.content)
-							: null;
+					const { present, payload } = intentColumns(intent);
 					insertPendingOrParked(pendingStmt, intent.address, [
 						present,
 						payload,
 					]);
+				}
+				for (const submission of aux.sealed.entries) {
+					for (const intent of submission.intents) {
+						insertSealed(intent, submission.submissionNumber);
+					}
 				}
 				for (const parked of aux.parked.entries) {
 					insertPendingOrParked(parkedStmt, parked.address, [
@@ -508,13 +668,30 @@ export function createLayoutStore(
 					]);
 				}
 				for (const doc of aux.document.entries) insertDocument(doc);
+			});
+			run();
+		},
+		populateAuthorityAuxiliary(aux) {
+			// The authority owns the per-replica retry ledger, its parked results, and
+			// row documents (the confirmed facts are the facts table itself).
+			const run = database.transaction(() => {
 				for (const retry of aux.retry.entries) {
 					retryStmt.run(
 						retry.replicaId,
 						retry.lastSubmissionNumber,
 						retry.requestHashHex,
 					);
+					for (const parked of retry.parked) {
+						insertRetryParked(
+							retry.replicaId,
+							parked.address,
+							parked.code,
+							parked.measuredBytes,
+							parked.limitBytes,
+						);
+					}
 				}
+				for (const doc of aux.document.entries) insertDocument(doc);
 			});
 			run();
 		},
@@ -533,6 +710,67 @@ export function createLayoutStore(
 		},
 		pointRead(address) {
 			return pointStore.point(address);
+		},
+		traverse() {
+			let count = 0;
+			for (const _fact of pointStore.scan()) count += 1;
+			return count;
+		},
+		overlayRead(address) {
+			const confirmed = pointStore.point(address);
+			const cols = addressColumns(address);
+			const pendingRow = (
+				normalized
+					? overlayPendingStmt.get(
+							coordinateId(cols.kind, cols.namespace, cols.localKey),
+							cols.rowId,
+						)
+					: overlayPendingStmt.get(
+							cols.kind,
+							cols.namespace,
+							cols.localKey,
+							cols.rowId,
+						)
+			) as { present: 0 | 1 } | null;
+			return {
+				confirmed: confirmed === null ? 0 : 1,
+				pending: pendingRow === null ? 0 : 1,
+			};
+		},
+		resumeFeed(afterSequence, limit) {
+			return (resumeFeedStmt.all(afterSequence, limit) as unknown[]).length;
+		},
+		retrySettlementRead(replicaId) {
+			const ledger = retryLedgerReadStmt.get(replicaId) as {
+				last_submission: number;
+			} | null;
+			const parked = (retryParkedCountStmt.get(replicaId) as { n: number }).n;
+			return { found: ledger === null ? 0 : 1, parked };
+		},
+		installMonotonic(fact) {
+			installFact(factToRow(fact));
+		},
+		deleteRowWithDocument(address, sequence) {
+			// One transaction: a terminal row tombstone plus its document bytes removal.
+			const run = database.transaction(() => {
+				installFact(factToRow({ address, sequence, presence: 'absent' }));
+				deleteDocument(address);
+			});
+			run();
+		},
+		settleSubmission(replicaId, intents, baseSequence, requestHash) {
+			// Fold each intent into a confirmed fact at a fresh monotonic sequence and
+			// record the replica retry ledger, in one transaction (authority settlement).
+			let sequence = baseSequence;
+			const run = database.transaction(() => {
+				for (const intent of intents) {
+					installFact(factToRow({ ...intent, sequence } as Fact));
+					sequence += 1;
+				}
+				retryStmt.run(replicaId, sequence - baseSequence, requestHash);
+			});
+			run();
+			return sequence;
 		},
 		candidateTableBytes() {
 			// Count every candidate-owned btree: the tables themselves AND all of
@@ -566,7 +804,9 @@ const CANDIDATE_TABLE_NAMES = [
 	'pending_intents',
 	'parked_work',
 	'row_documents',
+	'sealed_submissions',
 	'retry_ledger',
+	'retry_parked',
 ];
 
 // --- Statement builders ------------------------------------------------------
