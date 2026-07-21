@@ -38,19 +38,14 @@ application, workspace, or database becomes the durable storage owner.
 
 ## Acceptance evidence
 
-Browser qualification measures the SQLite database and complete OPFS
-storage-root high-water directly. `navigator.storage.estimate()` is contextual
-evidence only; it is neither an exact footprint measurement nor a capacity
-promise.
-
 The ADR-0161 physical mobile floor completes on a clean physical iOS Safari
 origin and a clean physical Android Chrome origin. The conditional normal
-profile runs only when measured storage availability covers its peak ceiling. A
-quota denial or `QuotaExceededError` is `not-admitted`, not a successful
-capacity result, and qualifies as an honest refusal only when the previously
-committed prefix, durable progress, integrity check, and exact witness survive
-restart unchanged. Private or incognito storage is a negative refusal cell,
-never a durable qualification environment.
+profile runs only where measured storage availability admits it. A quota denial
+does not prove capacity. It supplies honest refusal evidence only when the
+previously committed prefix and durable progress survive restart unchanged.
+Private or incognito storage is a negative refusal environment, never a durable
+qualification environment. The maintained benchmark contract owns exact
+footprint measurement and outcome classification.
 
 Browser tests also cover concurrent tabs, Worker termination, lock release,
 backgrounding, restart, and clean ownership handoff. Playwright WebKit does not

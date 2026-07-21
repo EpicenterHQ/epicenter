@@ -421,26 +421,30 @@ coordinate layout
     dictionary-encode repeated kind, namespace, and local-key prefixes
 ```
 
-Run all four combinations. Reject any candidate that fails the scan, install,
-reopen, integrity, or constraint proofs. Define fixed material performance and
-storage thresholds before running and retain the raw samples and query plans.
-Treat measurement instability as a reason to refuse and diagnose the estimator,
-never as permission to widen equivalence. More outer repetitions do not cure a
-biased or under-sampled within-run estimator, while genuinely independent outer
-units can reduce uncertainty after that estimator is sound. Change the
-estimator only for a source-grounded, predeclared defect, then run a fresh pilot
-before another decision run. A
-replica winner requires both native SQLite and browser SQLite/OPFS evidence. An
-authority winner requires both Bun SQLite and Cloudflare Durable Object SQLite
-evidence, including Cloudflare rows-read, rows-written, row-size, parameter,
-and CPU limits. A result from only one runtime is explicitly provisional and
-cannot freeze the owner's universal format.
-When candidates are materially equivalent, break the tie in this order:
-direct SQLite enforcement of address and global-sequence uniqueness, fewer
-relations, indexes, and feed branches, then fewer sentinel, nullable, and
-mixed-shape clauses. Freeze one winner per owner; replica and authority may
-choose different layouts. Do not retain losing layouts or add a compatibility
-reader. The authority transaction owns global sequence allocation under every
+Run all four combinations. A failed scan, install, reopen, integrity, witness,
+query-plan, or constraint proof invalidates the evidence cell. The maintained
+benchmark contract at `scripts/benchmarks/scalar-facts-layout/README.md` owns the
+versioned fixtures, measurement method, provisional performance and storage
+gates, and machine-readable evidence schema.
+
+One evidence cell is identified by owner, runtime, profile, candidate, and
+repetition. Its outcome is `passed`, `failed`, `unsupported`, or
+`not-admitted`; an expected cell with no retained artifact is missing.
+`not-admitted` is valid only for a conditional capacity profile after refusal
+and recovery proof; it never proves capacity and cannot satisfy the physical
+mobile floor. The overall classifier reports only `invalid`, `incomplete`,
+`provisional`, or `ready-for-ADR-review`. Per-cell outcomes are not classifier
+statuses.
+
+The classifier never returns a candidate ID, ranking, selection, tie-break, or
+recommendation. A Bun-only or confirmed-facts-only matrix remains provisional
+even when every local cell passes. Complete replica evidence requires native
+SQLite and browser SQLite/OPFS. Complete authority evidence requires Bun SQLite
+and Cloudflare Durable Object SQLite, including the platform measurements that
+each runtime exposes. When the evidence becomes ready for review, an ADR chooses
+one layout per owner. Replica and authority may choose different layouts. The
+implementation then deletes losing layouts instead of retaining compatibility
+readers. The authority transaction owns global sequence allocation under every
 layout.
 
 The 24-character lowercase row-ID grammar remains a permanent storage invariant;
@@ -451,14 +455,14 @@ through the typed fact shape rather than relying on physical coincidence.
 ### Local layout evidence checkpoint
 
 The 2026-07-21 Bun/native full run from source commit `670309550e` exercised all
-four layouts for both owners at
-one million facts and approximately 512 MiB of logical payload across five
-paired seeds. All 40 cells passed the constraint, scan, install, semantic-hash,
-integrity, reopen, and cleanup proofs. Normalized coordinates used about 631 MiB
-of live SQLite pages versus about 782 to 788 MiB for inline coordinates, with
-paired storage dispersion below 0.0005. This is stable evidence that normalized
-coordinates reduce storage by about 20% for this envelope. It does not select a
-relation layout or establish browser or Cloudflare costs.
+four layouts for both owners across five paired seeds. Its legacy fixture held
+one million current facts and approximately 512 MiB of payload; it did not use
+ADR-0161's exact final-present scalar-fields-and-values proxy. All 40 cells
+passed the constraint, scan, install, semantic-hash, integrity, reopen, and
+cleanup proofs. Normalized coordinates used about 631 MiB of live SQLite pages
+versus about 782 to 788 MiB for inline coordinates. This is provisional storage
+evidence for that fixture. It does not select a relation layout or establish
+browser or Cloudflare costs.
 
 The retained schema-v3 report records the exact command, configuration, fixture
 DDL hash, raw timing samples, query plans, and environment (Bun 1.3.1, SQLite
@@ -476,9 +480,9 @@ run therefore establishes that its latency estimator is inadequate, not that
 the physical layouts are stable or unstable. Do not combine those timings with
 a later run or use them to prune the four-layout matrix.
 
-Before another decision run, execute one measurement-method pilot. The pilot
-cannot issue a layout recommendation. Predeclare and enforce all of the
-following:
+Before another evidence run, execute one measurement-method pilot. The pilot
+can report only an evidence status and cannot select a layout. Predeclare and
+enforce all of the following:
 
 - Keep all four candidates and both owners. Use four fresh paired seeds as the
   independent outer units. For one seed at a time, construct and retain one
@@ -493,7 +497,7 @@ following:
   and hash separate owner-specific auxiliary traces for pending intents, sealed
   work, parked rows, row-document liveness, and authority retry state. The
   physical coordinate decision applies to every address-bearing owner table,
-  not only confirmed facts, so no universal owner recommendation is admissible
+  not only confirmed facts, so the evidence cannot become ready for ADR review
   while those auxiliary states are absent from the workload.
 - Measure acquisition once per outer unit and candidate on a fresh empty
   database as total elapsed time and throughput. Measure a complete fresh feed
@@ -548,37 +552,15 @@ following:
   feasible final sample size. Pilot calibration, warmup, and timed blocks are
   excluded from the independent final decision run.
 
-The final Bun/native run may make only a provisional owner recommendation. It
-uses at least eight fresh paired seeds. The fixed read-block count is a multiple
-of four from 32 through 64 per seed, candidate, owner, and metric. The pilot may
-raise the seed count, up to 32 seeds, until the estimated simultaneous
-half-width is at most `log(1.10) / 2` for latency and `log(1.05) / 2` for
-storage. A required count or wall-time above either cap refuses the decision as
-infeasible under this method.
-
-For each owner, the multiplicity family is every critical-metric and storage
-contrast across all six candidate pairs. Construct 95% familywise simultaneous
-max-t intervals from a deterministic 10,000-draw paired bootstrap over whole
-fresh seeds. First reduce each metric to one seed-level estimator: median read
-block time for a complete balanced Williams design; median balanced reopen
-series; total acquisition and fresh-feed throughput; transaction-tail summary
-for each mutating workload; and live storage bytes. Never resample an
-individual read block, reopen, or checkpoint-correlated transaction. Each
-studentized paired seed-level log contrast enters the common owner maximum
-statistic.
-
-Use log-ratio margins of `log(1.10)` for latency and `log(1.05)` for storage.
-For an interval `[L, U]` on `log(left / right)`, equivalence requires
-`[-margin, +margin]` to contain the entire interval. Reversing the comparison
-uses `[-U, -L]`. A direction is non-regressing only when its upper bound is
-within the positive margin; it is materially better only when its upper bound
-is below the negative margin. Any bound that prevents the candidate pool from
-being classified refuses the recommendation. Apply the existing architectural
-tie-break only when every surviving pair is simultaneously equivalent inside
-both margins.
-
-Browser SQLite/OPFS and Cloudflare Durable Object SQLite evidence remain
-mandatory before either universal owner format freezes.
+The final Bun/native run uses the seed and block counts frozen by the pilot. It
+retains every raw observation and reports owner-specific measurements without
+ranking candidates or converting pairwise contrasts into a selection. No
+confidence interval, materiality band, score, or fallback tie-break promotes or
+drops a candidate. Missing, unstable, or unsupported evidence remains visible
+in the overall status. Browser SQLite/OPFS and Cloudflare Durable Object SQLite
+evidence remain mandatory before the classifier can report
+`ready-for-ADR-review`. A later ADR reviews the complete evidence and chooses
+the owner formats.
 
 Each store's metadata is one explicit single-row table with named columns, not
 `PRAGMA user_version` (unsupported on Durable Object SQLite) and not key-value
@@ -822,8 +804,9 @@ open until their owning wave proves them:
 
 1. **Prove the portable substrate.** Specify and round-trip one complete logical
    artifact across scalar rows, values, compact documents, and authority-owned
-   blobs. Validate integrity and stream the 512 MiB conformance envelope without
-   exposing a live private SQLite schema.
+   blobs. Validate integrity and stream an artifact whose
+   scalar-fields-and-values benchmark proxy reaches 512 MiB without exposing a
+   live private SQLite schema.
 2. **Bind synchronization to one authority lifetime.** Introduce one opaque,
    equality-only lifetime identity and refuse every scalar, document, and blob
    operation from a superseded lifetime. Do not expose lifetime order or history
@@ -993,9 +976,10 @@ biome lint/format are clean.
 
 - Benchmark all four combinations of relation layout (one checked facts table
   or separate row and value fact tables) and coordinate layout (inline or
-  normalized) against both replica and authority workloads. Freeze one layout
-  per owner only after the required native/browser or Bun/Cloudflare evidence;
-  choose the same layout only if evidence earns the shared shape.
+  normalized) against both replica and authority workloads. The benchmark only
+  classifies evidence. After the required native/browser or Bun/Cloudflare
+  evidence is ready for review, an ADR chooses one layout per owner. It chooses
+  the same layout only if the evidence earns the shared shape.
 - Replace flat scalar and document address columns together. The physical-format
   break carries structured identity through confirmed facts, pending intents,
   sealed submission state, parked diagnostics, and document liveness joins.
@@ -1135,13 +1119,15 @@ Workspace remains on disk but unreachable.
   | Restore race           | Work commits before activation or receives lifetime mismatch; it never crosses lifetimes  |
   | Backup cut             | The nullable compact cell decodes to exactly the accepted authority document              |
 
-- Prove the whole-replica trade at 1,000,000 live scalar addresses and 512 MiB
-  of canonical encoded logical state. Measure authority scan, transfer,
-  browser and native installation, reopen, and peak memory. Inject crashes
-  between fact prefixes and prove `afterSequence` resumes without reinstalling
-  committed facts. Prove concurrent rewrites remain discoverable without a
-  frozen `through` ceiling. Treat this as a conformance envelope, not a hard
-  product limit or a protocol constant.
+- Prove representative present-state stress at 1,000,000 final-present scalar
+  addresses and 512 MiB of the versioned scalar-fields-and-values benchmark
+  proxy. Measure authority scan, transfer, browser and native installation,
+  reopen, and peak memory. Report current facts, terminal tombstones, pending
+  work, and protocol bytes separately; the proxy does not bound lifetime or
+  whole-replica growth. Inject crashes between fact prefixes and prove
+  `afterSequence` resumes without reinstalling committed facts. Prove concurrent
+  rewrites remain discoverable without a frozen `through` ceiling. Treat this as
+  representative evidence, not a hard product limit or a protocol constant.
 - Exercise sparse and dense zero-or-one blob fixtures inside that envelope.
   Prove same-digest retry, different-digest refusal, row-terminal cleanup,
   byte-complete Backup capture, crash recovery during pin/copy/verify/seal, and

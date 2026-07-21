@@ -359,11 +359,9 @@ Before this ADR becomes Accepted, shared model and adapter tests must prove:
   sequence-ahead state is diagnosed as corruption; and
 - all admission and response bounds satisfy the byte inequality at their exact
   inclusive limits across browser, Bun, and Cloudflare adapters, using one RFC
-  8785 canonical semantic encoder. The applicable ADR-0161 owner and runtime
-  cells retain raw samples and reproduce the independent count, protocol-byte,
-  and ordered SHA-256 witness before and after reopen. A Bun-only
-  confirmed-facts read benchmark remains provisional even when its local matrix
-  is complete.
+  8785 canonical semantic encoder. Scale evidence reports these per-fact and
+  response bounds separately from ADR-0161's representative aggregate proxy. A
+  confirmed-facts read benchmark alone cannot satisfy this protocol proof.
 
 ## Considered alternatives
 
