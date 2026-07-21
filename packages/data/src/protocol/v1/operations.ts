@@ -135,6 +135,13 @@ export function parseFactsRequest(
 	});
 }
 
+/**
+ * Generic structural admission for a facts response.
+ *
+ * This checks the response in isolation. Installing a returned page and
+ * advancing durable fact-feed progress needs request context, so that operation
+ * must use `admitFactsPage` with the sealed facts request.
+ */
 export function parseFactsResponse(
 	value: unknown,
 	limits: ValidatedLimits,
@@ -175,6 +182,55 @@ export function parseFactsResponse(
 			return ScalarProtocolError.Invalid({ boundary: 'facts response' });
 		}
 		return Ok(structuredClone(value));
+	});
+}
+
+/**
+ * Context-aware facts-page admission: validate a facts response against the
+ * exact sealed request that produced it.
+ *
+ * `durableFacts` is the replica's current persisted lifetime and
+ * `afterSequence`, read inside the transaction that would install this page.
+ * It must still exactly match the request, preventing delayed overlapping pages
+ * or a response from before a lifetime rebind from committing. A fresh request
+ * without a lifetime binds to the response lifetime. A bound request accepts
+ * only that lifetime. Every returned fact must be strictly newer than the
+ * requested exclusive cursor, so deriving the next cursor from the final fact
+ * (or retaining the requested cursor for an empty page) cannot move fact-feed
+ * progress backward.
+ */
+export function admitFactsPage(
+	value: unknown,
+	request: AdmittedFactsRequest,
+	durableFacts: FactsRequest,
+	limits: ValidatedLimits,
+): Result<FactsResponse, ScalarProtocolError> {
+	return catchAsInvalid('facts page', () => {
+		const { data: response, error } = parseFactsResponse(value, limits);
+		if (error !== null)
+			return ScalarProtocolError.Invalid({ boundary: 'facts page' });
+
+		if (
+			durableFacts.authorityLifetime !== request.authorityLifetime ||
+			durableFacts.afterSequence !== request.afterSequence
+		) {
+			return ScalarProtocolError.Invalid({
+				boundary: 'facts page stale request',
+			});
+		}
+
+		if (
+			request.authorityLifetime !== undefined &&
+			response.authorityLifetime !== request.authorityLifetime
+		) {
+			return ScalarProtocolError.Invalid({ boundary: 'facts page lifetime' });
+		}
+
+		if (response.facts.some((fact) => fact.sequence <= request.afterSequence)) {
+			return ScalarProtocolError.Invalid({ boundary: 'facts page sequence' });
+		}
+
+		return Ok(response);
 	});
 }
 

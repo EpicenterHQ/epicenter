@@ -10,6 +10,8 @@
  * - Facts request cross-field rule: lifetime required past sequence zero
  * - Facts response is strictly sequence-ordered, distinct-addressed, and never
  *   empty while claiming more
+ * - Facts-page admission binds response lifetime and sequence progress to the
+ *   sealed request
  * - A submission is non-empty, bounded, and carries at most one intent per
  *   distinct address
  * - Settlement admission requires one fact per intent in sealed order, globally
@@ -20,6 +22,7 @@ import { describe, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 import {
+	admitFactsPage,
 	admitSettlement,
 	type Fact,
 	type Intent,
@@ -169,6 +172,171 @@ describe('facts response', () => {
 					hasMore: false,
 				},
 				tight,
+			),
+		);
+	});
+});
+
+describe('context-aware facts-page admission', () => {
+	test('a fresh request binds to the response lifetime even for an empty page', () => {
+		const request = expectOk(parseFactsRequest({ afterSequence: 0 }, LIMITS));
+		const response = {
+			authorityLifetime: LIFETIME,
+			facts: [],
+			hasMore: false,
+		};
+		const admitted = expectOk(
+			admitFactsPage(response, request, request, LIMITS),
+		);
+		const nextAfterSequence =
+			admitted.facts.at(-1)?.sequence ?? request.afterSequence;
+
+		expect(admitted.authorityLifetime).toBe(LIFETIME);
+		expect(nextAfterSequence).toBe(0);
+	});
+
+	test('a bound request accepts only its authority lifetime, including at sequence zero', () => {
+		const request = expectOk(
+			parseFactsRequest(
+				{ authorityLifetime: LIFETIME, afterSequence: 0 },
+				LIMITS,
+			),
+		);
+		const response = {
+			authorityLifetime: LIFETIME,
+			facts: [valueFact(1, 'a')],
+			hasMore: false,
+		};
+
+		expectOk(admitFactsPage(response, request, request, LIMITS));
+		expectErr(
+			admitFactsPage(
+				{ ...response, authorityLifetime: 'another-lifetime' },
+				request,
+				request,
+				LIMITS,
+			),
+		);
+	});
+
+	test('every returned fact is strictly newer than the requested cursor', () => {
+		const request = expectOk(
+			parseFactsRequest(
+				{ authorityLifetime: LIFETIME, afterSequence: 5 },
+				LIMITS,
+			),
+		);
+		const response = {
+			authorityLifetime: LIFETIME,
+			facts: [valueFact(5, 'stale')],
+			hasMore: false,
+		};
+
+		expectErr(admitFactsPage(response, request, request, LIMITS));
+		expectOk(
+			admitFactsPage(
+				{ ...response, facts: [valueFact(6, 'newer')] },
+				request,
+				request,
+				LIMITS,
+			),
+		);
+	});
+
+	test('an empty terminal page preserves the requested cursor and still obeys lifetime binding', () => {
+		const request = expectOk(
+			parseFactsRequest(
+				{ authorityLifetime: LIFETIME, afterSequence: 5 },
+				LIMITS,
+			),
+		);
+		const response = {
+			authorityLifetime: LIFETIME,
+			facts: [],
+			hasMore: false,
+		};
+		const admitted = expectOk(
+			admitFactsPage(response, request, request, LIMITS),
+		);
+		const nextAfterSequence =
+			admitted.facts.at(-1)?.sequence ?? request.afterSequence;
+
+		expect(nextAfterSequence).toBe(5);
+		expectErr(
+			admitFactsPage(
+				{ ...response, authorityLifetime: 'another-lifetime' },
+				request,
+				request,
+				LIMITS,
+			),
+		);
+	});
+
+	test('a delayed overlapping page cannot regress an already advanced cursor', () => {
+		const request = expectOk(
+			parseFactsRequest(
+				{ authorityLifetime: LIFETIME, afterSequence: 5 },
+				LIMITS,
+			),
+		);
+		const laterPage = {
+			authorityLifetime: LIFETIME,
+			facts: [valueFact(10, 'later')],
+			hasMore: false,
+		};
+		const delayedEarlierPage = {
+			...laterPage,
+			facts: [valueFact(8, 'earlier')],
+		};
+
+		expectOk(admitFactsPage(laterPage, request, request, LIMITS));
+		expectErr(
+			admitFactsPage(
+				delayedEarlierPage,
+				request,
+				{ authorityLifetime: LIFETIME, afterSequence: 10 },
+				LIMITS,
+			),
+		);
+	});
+
+	test('a delayed page cannot commit after the durable replica rebinds', () => {
+		const request = expectOk(
+			parseFactsRequest(
+				{ authorityLifetime: 'old-lifetime', afterSequence: 5 },
+				LIMITS,
+			),
+		);
+		const response = {
+			authorityLifetime: 'old-lifetime',
+			facts: [valueFact(6, 'old')],
+			hasMore: false,
+		};
+
+		expectErr(
+			admitFactsPage(
+				response,
+				request,
+				{ authorityLifetime: 'new-lifetime', afterSequence: 0 },
+				LIMITS,
+			),
+		);
+	});
+
+	test('a delayed fresh page cannot overwrite a lifetime bound while it was in flight', () => {
+		const request = expectOk(parseFactsRequest({ afterSequence: 0 }, LIMITS));
+		const response = {
+			authorityLifetime: 'old-lifetime',
+			facts: [],
+			hasMore: false,
+		};
+
+		expectErr(
+			admitFactsPage(
+				response,
+				request,
+				{ authorityLifetime: 'new-lifetime', afterSequence: 0 },
+				LIMITS,
 			),
 		);
 	});

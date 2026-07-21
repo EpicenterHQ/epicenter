@@ -23,12 +23,12 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 
 import {
 	type AuthorityState,
+	admitFactsPage,
 	createAuthority,
 	encodedFactBytes,
 	type Fact,
 	type Intent,
 	minimumFactsResponseBytes,
-	parseFactsResponse,
 	type RowAddress,
 	readFacts,
 	type SubmissionRequest,
@@ -694,15 +694,14 @@ describe('authority lifetime admission', () => {
 		expectErr(createAuthority(`L${String.fromCharCode(0xd800)}`, LIMITS));
 	});
 
-	test('a created authority emits an admissible facts response', () => {
+	test('a created authority emits a request-compatible facts page', () => {
 		const state = advance(
 			makeAuthority(LIFETIME, LIMITS),
 			sub(1, [setValue('a', '1')]),
 		);
-		const response = expectOk(
-			readFacts(state, admitFacts({ afterSequence: 0 }, LIMITS), LIMITS),
-		);
-		expectOk(parseFactsResponse(response, LIMITS));
+		const request = admitFacts({ afterSequence: 0 }, LIMITS);
+		const response = expectOk(readFacts(state, request, LIMITS));
+		expectOk(admitFactsPage(response, request, request, LIMITS));
 	});
 
 	test('a maximally escaped lifetime still makes fact-feed progress at the minimum ceiling', () => {

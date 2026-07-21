@@ -83,6 +83,7 @@ export {
 export {
 	type AdmittedFactsRequest,
 	type AdmittedSubmissionRequest,
+	admitFactsPage,
 	admitSettlement,
 	type FactsRequest,
 	FactsRequestSchema,
