@@ -30,38 +30,52 @@ Two consequences are enforced mechanically here:
   ADR/product choices, so this code ships only the unconfigured SLO shape and
   invents no numeric ceilings; a pilot is always at most `provisional`.
 
-## Executable status: a method-validating pilot (not ADR-ready evidence)
+## Executable status: a BOUNDED SMOKE, not yet the frozen pilot
 
-`pilot.ts` executes the full declared bounded method, and every proof gate is
-DERIVED from retained observations, never hardcoded. Each owner runs its distinct
-declared metrics with real SQL:
+`pilot.ts` `--profile smoke` (default) exercises the method wiring at bounded
+scale but is **not** the frozen exact-envelope pilot and can **never** be
+method-validated: the `exact-envelope` gate (exactly 1,000,000 present addresses,
+512 MiB proxy, four seeds, three cycles) fails, and the `checkpoint-truthful`
+gate fails because there is no truthful non-perturbing autocheckpoint boundary
+signal yet (WAL shrink is not one; a measurement checkpoint would perturb the
+workload). `--profile pilot` measures a bounded probe, extrapolates the disk and
+wall-time to the exact envelope, enforces the eight-hour cap and headroom, and
+refuses to run. The frozen pilot is not implemented to contract yet.
 
-- replica: `acquisitionInstall` (macro), `confirmedPointRead`,
-  `confirmedTraversal`, `confirmedPendingOverlayRead` (reads),
-  `monotonicInstallTail`, `rowTombstoneDocumentCleanupTail` (tails), `warmReopen`;
-- authority: `orderedFreshFeed` (macro), `orderedResumeFeed`, `foldPointRead`,
-  `exactRetrySettlementRead` (reads), `submissionSettlementTail` (tail),
-  `warmReopen`.
+The pilot reports only an evidence status plus non-selecting owner/kind
+feasibility; it emits no candidate ranking or pairwise classification.
 
-Read metrics run the executed balanced Williams schedule with a real fixed idle
-plus connection close/reopen at pair and cycle boundaries, per-owner-and-metric
-calibration on disjoint probes, and three immediate untimed warmups before each
-timed block. Reopen runs balanced rotating candidate sequences and compares every
-retained witness to the oracle. Each mutating tail runs the full reset protocol
-(byte-equivalent prestate, `ANALYZE`, checkpoint/truncate, close/reopen, three
-warmup transactions, a second restore) before timing at least 400
-production-autocheckpoint transactions with recorded checkpoint boundaries.
-Headroom is a conservative bound across all four candidates and both owner
-populations (live-page, WAL, and temp-copy components, 25% margin), run before
-retaining databases and failing closed. The complete raw per-seed observations
-are persisted and schema-validated, so a resumed run's gates cover committed and
-fresh seeds identically.
+**Open contract gaps (not done), tracked for the next passes:**
 
-When every gate passes, `methodValidated` is true. **Method validation is not
-evidence readiness.** The run stays `isPilot: true` and its evidence status stays
-`provisional`/`incomplete` because browser OPFS, Cloudflare Durable Object,
-full-envelope final data, and a configured observed SLO policy are all absent. The
-pilot never selects, ranks, or recommends a candidate.
+- Exact closed per-observation-type raw validators and a profile-aware whole-seed
+  completeness validator (counts, enums, identities, unique keys); today's raw
+  gate is a shallow structural + finite-number scan.
+- Seed-level eight-database lifetime: all eight owner/candidate databases must be
+  built and retained through both owners' blocks/reopens/cells/tails and the
+  atomic raw seed commit, then deleted; the runner still builds and deletes per
+  owner.
+- Balanced complete-sequence calibration that iteratively measures actual
+  powers of two until every candidate truly reaches 20 ms, retaining every trial;
+  today's calibration is a one-shot warm/probe with a 1.5x projection.
+- Faithful owner operations: `orderedFreshFeed` must be a complete feed READ
+  after construction (not an install), `foldPointRead` must be an authority-fold
+  read, cleanup must delete only document-owning rows, and settlement must consume
+  real sealed V1 work and update retry/parked/settlement state.
+- A truthful post-commit WAL-index checkpoint observation, or the pilot stays
+  BLOCKED pending a native hook.
+- Seed-level owner+metric estimators (no pooling into one read median) and
+  removal of pairwise-contrast derivation from the pilot path.
+- Exact per-seed/cell gate counts (reopens per seed and cell; macros once;
+  scheduled block counts; three warmups each; every boundary; all eight cells).
+- A separately invocable, config-frozen, headroom/time-gated exact run distinct
+  from `--estimate-only`, with the extrapolation validated at two bounded sizes.
+- Frozen final-run config emission with disjoint final seed ids, only from a
+  valid pilot.
+
+**Method validation is not evidence readiness.** Even a valid pilot stays
+`isPilot: true` and provisional/incomplete because browser OPFS, Cloudflare
+Durable Object, full-envelope final data, and a configured observed SLO policy
+are all absent.
 
 ## Modular pilot architecture
 
