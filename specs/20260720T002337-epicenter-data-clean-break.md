@@ -17,7 +17,11 @@ durable namespaces in that shared data.
 - There is no legacy user data to preserve.
 - This is intentionally a breaking change.
 - Epicenter is a curated personal universe, not an ingestion lake or a
-  projection store, with an expected ceiling around one million rows.
+  projection store. Its representative normal stress target contains exactly
+  1,000,000 final-present scalar addresses whose versioned
+  scalar-fields-and-values benchmark proxy totals exactly 536,870,912 bytes
+  (512 MiB). This is not a hard product limit, a universal browser-storage
+  guarantee, or a wire constant.
   Ingested mirrors (mail, accounting, photos, tabs) and derived projections
   keep their own disposable app-local stores outside the synchronized plane;
   admission limits, bounded facts responses, and private runtime indexes are
@@ -436,6 +440,16 @@ mobile floor. The overall classifier reports only `invalid`, `incomplete`,
 `provisional`, or `ready-for-ADR-review`. Per-cell outcomes are not classifier
 statuses.
 
+| Overall status         | Fail-closed transition                                                                                                                                                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `invalid`              | A retained artifact fails schema, provenance, fixture, method, or identity validation; two artifacts claim one cell with conflicting content; any expected cell is `failed`; or `not-admitted` is used outside an eligible conditional profile or without refusal-and-recovery proof.                                         |
+| `incomplete`           | No invalid condition exists, but an expected cell is missing or a mandatory proof is `unsupported`.                                                                                                                                                                                       |
+| `provisional`          | The declared matrix is complete and valid, but it is a pre-pilot, pilot, Bun-only, confirmed-facts-only, or otherwise partial scope rather than the final mandatory owner, runtime, workload, and profile matrix.                                                                          |
+| `ready-for-ADR-review` | The pilot-frozen final method and complete mandatory matrix are present. Every mandatory cell passes, except that an eligible conditional browser normal-profile cell may be `not-admitted` after its refusal-and-recovery proof. Every physical mobile floor cell passes, and no required proof is missing or unsupported.         |
+
+The classifier applies those rows in order. An earlier row always wins, so a
+passing subset cannot hide invalid, missing, failed, or unsupported evidence.
+
 The classifier never returns a candidate ID, ranking, selection, tie-break, or
 recommendation. A Bun-only or confirmed-facts-only matrix remains provisional
 even when every local cell passes. Complete replica evidence requires native
@@ -446,6 +460,16 @@ one layout per owner. Replica and authority may choose different layouts. The
 implementation then deletes losing layouts instead of retaining compatibility
 readers. The authority transaction owns global sequence allocation under every
 layout.
+
+Browser evidence has two non-substitutable layers. Automated Chromium and
+Playwright WebKit are required pre-physical browser-engine evidence for the
+SQLite/OPFS workflow and its injected failures. They do not satisfy physical
+browser qualification, and Playwright WebKit does not impersonate Safari. A
+clean physical iOS Safari origin and a clean physical Android Chrome origin must
+each pass the 250,000-final-present-address, 128 MiB mobile floor. The
+1,000,000-address, 512 MiB normal profile runs on each browser where measured
+storage availability admits it; an eligible `not-admitted` result preserves the
+committed prefix and durable progress but proves no capacity.
 
 The 24-character lowercase row-ID grammar remains a permanent storage invariant;
 no private sentinel or nullable column escapes into protocol or public types.
