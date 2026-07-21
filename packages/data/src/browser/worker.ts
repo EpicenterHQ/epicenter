@@ -125,6 +125,27 @@ type UntypedValueLens = {
 const documentRpcOrigin = Object.freeze({ kind: 'browser-document-rpc' });
 const DEFAULT_EXCHANGE_TIMEOUT_MS = 30_000;
 
+export async function settleBrowserCleanup({
+	initialFailures = [],
+	stages,
+	message,
+}: {
+	initialFailures?: unknown[];
+	stages: (() => unknown | Promise<unknown>)[];
+	message: string;
+}): Promise<void> {
+	const failures = [...initialFailures];
+	for (const stage of stages) {
+		try {
+			await stage();
+		} catch (cause) {
+			failures.push(cause);
+		}
+	}
+	if (failures.length === 1) throw failures[0];
+	if (failures.length > 1) throw new AggregateError(failures, message);
+}
+
 export function createBrowserWorkerHost({
 	openStore = openBrowserWorkerStore,
 	hostId = crypto.randomUUID(),
@@ -1109,27 +1130,26 @@ async function openBrowserWorkerStore({
 			epicenter,
 			replica: opened.data,
 			async dispose() {
-				try {
-					await epicenter[Symbol.asyncDispose]();
-				} finally {
-					try {
-						openedPool.pauseVfs();
-					} finally {
-						await lease?.release();
-					}
-				}
+				await settleBrowserCleanup({
+					stages: [
+						() => epicenter[Symbol.asyncDispose](),
+						() => openedPool.pauseVfs(),
+						() => lease?.release(),
+					],
+					message: 'Browser store cleanup failed',
+				});
 			},
 		};
 	} catch (cause) {
-		try {
-			rawDatabase?.close();
-		} finally {
-			try {
-				pool?.pauseVfs();
-			} finally {
-				await lease?.release();
-			}
-		}
+		await settleBrowserCleanup({
+			initialFailures: [cause],
+			stages: [
+				() => rawDatabase?.close(),
+				() => pool?.pauseVfs(),
+				() => lease?.release(),
+			],
+			message: 'Browser store opening and cleanup failed',
+		});
 		throw cause;
 	}
 }
