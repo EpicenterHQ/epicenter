@@ -479,6 +479,10 @@ describe('context-aware settlement admission', () => {
 	const settled = expectOk(
 		submit(makeAuthority('lifetime-one', LIMITS), sealed, LIMITS),
 	).response;
+	const durableSettlement = {
+		authorityLifetime: sealed.authorityLifetime,
+		sealedSubmission: sealed,
+	};
 	// Deterministic settlement: exactly three facts, one per sealed intent.
 	const [f0, f1, f2] = settled.facts;
 	if (f0 === undefined || f1 === undefined || f2 === undefined) {
@@ -486,7 +490,42 @@ describe('context-aware settlement admission', () => {
 	}
 
 	test('admits a faithful settlement response', () => {
-		expect(expectOk(admitSettlement(settled, sealed, LIMITS))).toEqual(settled);
+		expect(
+			expectOk(admitSettlement(settled, sealed, durableSettlement, LIMITS)),
+		).toEqual(settled);
+	});
+
+	test('rejects a response after the durable lifetime or seal changes', () => {
+		expectErr(
+			admitSettlement(
+				settled,
+				sealed,
+				{ ...durableSettlement, authorityLifetime: 'lifetime-two' },
+				LIMITS,
+			),
+		);
+		expectErr(
+			admitSettlement(
+				settled,
+				sealed,
+				{ ...durableSettlement, sealedSubmission: undefined },
+				LIMITS,
+			),
+		);
+		expectErr(
+			admitSettlement(
+				settled,
+				sealed,
+				{
+					...durableSettlement,
+					sealedSubmission: {
+						...sealed,
+						submissionNumber: sealed.submissionNumber + 1,
+					},
+				},
+				LIMITS,
+			),
+		);
 	});
 
 	test('rejects a missing fact', () => {
@@ -494,6 +533,7 @@ describe('context-aware settlement admission', () => {
 			admitSettlement(
 				{ ...settled, facts: settled.facts.slice(1) },
 				sealed,
+				durableSettlement,
 				LIMITS,
 			),
 		);
@@ -501,19 +541,36 @@ describe('context-aware settlement admission', () => {
 
 	test('rejects a duplicate fact', () => {
 		expectErr(
-			admitSettlement({ ...settled, facts: [f0, f0, f2] }, sealed, LIMITS),
+			admitSettlement(
+				{ ...settled, facts: [f0, f0, f2] },
+				sealed,
+				durableSettlement,
+				LIMITS,
+			),
 		);
 	});
 
 	test('rejects reordered facts', () => {
 		expectErr(
-			admitSettlement({ ...settled, facts: [f1, f0, f2] }, sealed, LIMITS),
+			admitSettlement(
+				{ ...settled, facts: [f1, f0, f2] },
+				sealed,
+				durableSettlement,
+				LIMITS,
+			),
 		);
 	});
 
 	test('rejects an unrelated fact address', () => {
 		const swapped = [{ ...f0, address: rowAt(99) }, f1, f2];
-		expectErr(admitSettlement({ ...settled, facts: swapped }, sealed, LIMITS));
+		expectErr(
+			admitSettlement(
+				{ ...settled, facts: swapped },
+				sealed,
+				durableSettlement,
+				LIMITS,
+			),
+		);
 	});
 
 	test('rejects invalid parked measurement and a parked address not touched', () => {
@@ -531,6 +588,7 @@ describe('context-aware settlement admission', () => {
 					],
 				},
 				sealed,
+				durableSettlement,
 				LIMITS,
 			),
 		);
@@ -548,6 +606,7 @@ describe('context-aware settlement admission', () => {
 					],
 				},
 				sealed,
+				durableSettlement,
 				LIMITS,
 			),
 		);
@@ -582,6 +641,10 @@ describe('context-aware settlement admission', () => {
 					],
 				},
 				deleteSealed,
+				{
+					authorityLifetime: deleteSealed.authorityLifetime,
+					sealedSubmission: deleteSealed,
+				},
 				LIMITS,
 			),
 		);
