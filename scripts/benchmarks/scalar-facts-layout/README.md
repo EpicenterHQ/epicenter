@@ -30,24 +30,38 @@ Two consequences are enforced mechanically here:
   ADR/product choices, so this code ships only the unconfigured SLO shape and
   invents no numeric ceilings; a pilot is always at most `provisional`.
 
-## Executable status: a smoke, not a validated pilot
+## Executable status: a method-validating pilot (not ADR-ready evidence)
 
-`pilot.ts` is deliberately a **smoke**. Its gates are derived from recorded
-operations (calibration checks every recorded block against the 20 ms floor;
-each block records its own immediate warmup; the balanced Williams order is
-executed and its balance recomputed from the recorded blocks; reopen retains
-witnesses; a real 400-transaction mutating tail runs after a true byte-equivalent
-reset verified by pre-state witness equality; the headroom preflight runs before
-retaining databases and fails closed; the checkpoint is persisted atomically and
-resumed cross-process). Because the full declared owner workload matrix is not
-yet implemented, the `owner-workloads` gate fails by construction and
-`methodValidated` is **unreachable**: the executable never claims to be a
-validated pilot. Implemented owner metrics are a subset of the declared set
-(`acquisitionInstall`, `confirmedPointRead`, `monotonicInstallTail`,
-`warmReopen` for the replica; `orderedFreshFeed`, `foldPointRead`,
-`submissionSettlementTail`, `warmReopen` for the authority); overlay,
-resume-feed, exact-retry, tombstone-document-cleanup, and the remaining mutating
-tails are declared-but-pending and returned to Codex.
+`pilot.ts` executes the full declared bounded method, and every proof gate is
+DERIVED from retained observations, never hardcoded. Each owner runs its distinct
+declared metrics with real SQL:
+
+- replica: `acquisitionInstall` (macro), `confirmedPointRead`,
+  `confirmedTraversal`, `confirmedPendingOverlayRead` (reads),
+  `monotonicInstallTail`, `rowTombstoneDocumentCleanupTail` (tails), `warmReopen`;
+- authority: `orderedFreshFeed` (macro), `orderedResumeFeed`, `foldPointRead`,
+  `exactRetrySettlementRead` (reads), `submissionSettlementTail` (tail),
+  `warmReopen`.
+
+Read metrics run the executed balanced Williams schedule with a real fixed idle
+plus connection close/reopen at pair and cycle boundaries, per-owner-and-metric
+calibration on disjoint probes, and three immediate untimed warmups before each
+timed block. Reopen runs balanced rotating candidate sequences and compares every
+retained witness to the oracle. Each mutating tail runs the full reset protocol
+(byte-equivalent prestate, `ANALYZE`, checkpoint/truncate, close/reopen, three
+warmup transactions, a second restore) before timing at least 400
+production-autocheckpoint transactions with recorded checkpoint boundaries.
+Headroom is a conservative bound across all four candidates and both owner
+populations (live-page, WAL, and temp-copy components, 25% margin), run before
+retaining databases and failing closed. The complete raw per-seed observations
+are persisted and schema-validated, so a resumed run's gates cover committed and
+fresh seeds identically.
+
+When every gate passes, `methodValidated` is true. **Method validation is not
+evidence readiness.** The run stays `isPilot: true` and its evidence status stays
+`provisional`/`incomplete` because browser OPFS, Cloudflare Durable Object,
+full-envelope final data, and a configured observed SLO policy are all absent. The
+pilot never selects, ranks, or recommends a candidate.
 
 ## Modular pilot architecture
 
