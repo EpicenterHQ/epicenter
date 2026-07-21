@@ -112,9 +112,16 @@ export async function openBrowserEpicenter({
 	let transportKey = 0;
 	let disposalPromise: Promise<void> | undefined;
 	const disposalFailures: unknown[] = [];
+	let isPortClosed = false;
 	let isDisposing = false;
 	let isDisposed = false;
 	let workerFailure: Error | undefined;
+
+	function closePort(): void {
+		if (isPortClosed) return;
+		isPortClosed = true;
+		port.close?.();
+	}
 
 	function requireOpen(): void {
 		if (isDisposing || isDisposed)
@@ -167,7 +174,7 @@ export async function openBrowserEpicenter({
 		for (const request of [...pending.values()]) request.reject(cause);
 		for (const document of documents.values()) document.revoke(cause.message);
 		try {
-			port.close?.();
+			closePort();
 		} catch (cleanupCause) {
 			log.error(
 				new Error('Browser worker port cleanup failed', {
@@ -364,7 +371,13 @@ export async function openBrowserEpicenter({
 		};
 	}
 
-	await request<void>({ kind: 'open' });
+	try {
+		await request<void>({ kind: 'open' });
+	} catch (cause) {
+		disposalFailures.push(cause);
+		await dispose();
+		throw cause;
+	}
 
 	function bind<
 		const TTables extends TableDefinitions,
@@ -717,7 +730,7 @@ export async function openBrowserEpicenter({
 			failures.push(cause);
 		}
 		try {
-			port.close?.();
+			closePort();
 		} catch (cause) {
 			failures.push(cause);
 		}

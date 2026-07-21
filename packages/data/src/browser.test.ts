@@ -26,6 +26,7 @@ import {
 	type BrowserWorkerStore,
 	createBrowserWorkerHost,
 	type MessagePortLike,
+	settleBrowserCleanup,
 } from './browser/worker.js';
 import {
 	type BrowserEpicenter,
@@ -999,6 +1000,69 @@ test('explicit disconnect aborts a stalled store opening and bypasses its queue'
 	expect(hasResult(ports.workerMessages, 1)).toBe(false);
 });
 
+test('a failed initial open releases its client before a later owner disconnects', async () => {
+	const owner = createStoreOwner();
+	let attempts = 0;
+	const host = createBrowserWorkerHost({
+		openStore(options) {
+			attempts += 1;
+			if (attempts === 1) {
+				return Promise.reject(new Error('Injected initial open failure'));
+			}
+			return owner.openStore(options);
+		},
+	});
+	const firstPorts = createPortPair();
+	host.connect(firstPorts.worker);
+	let portClosures = 0;
+	let channelClosures = 0;
+
+	await expect(
+		openBrowserEpicenter({
+			createSharedWorker: () => ({
+				port: {
+					postMessage: (message) => firstPorts.page.postMessage(message),
+					addEventListener: (type, listener) =>
+						firstPorts.page.addEventListener(type, listener),
+					start: () => firstPorts.page.start?.(),
+					close() {
+						portClosures += 1;
+						firstPorts.page.close?.();
+					},
+				},
+			}),
+			createBroadcastChannel: () => ({
+				onmessage: null,
+				postMessage() {},
+				close() {
+					channelClosures += 1;
+				},
+			}),
+		}),
+	).rejects.toThrow('Injected initial open failure');
+	const disconnects = firstPorts.pageMessages.filter((message) => {
+		const request = message as Partial<BrowserRequest>;
+		return (
+			request.type === 'request' && request.operation?.kind === 'disconnect'
+		);
+	});
+	expect(disconnects).toHaveLength(1);
+	expect(portClosures).toBe(1);
+	expect(channelClosures).toBe(1);
+
+	const secondPorts = createPortPair();
+	host.connect(secondPorts.worker);
+	const second = await openBrowserEpicenter({
+		createSharedWorker: () => ({ port: secondPorts.page }),
+		createBroadcastChannel: () => undefined,
+	});
+	expect(owner.activeStores).toBe(1);
+
+	await second[Symbol.asyncDispose]();
+	expect(owner.activeStores).toBe(0);
+	expect(owner.disposeCount).toBe(1);
+});
+
 test('a store that resolves after disconnect is disposed without delaying it', async () => {
 	const owner = createStoreOwner();
 	const openingStarted = Promise.withResolvers<AbortSignal>();
@@ -1257,6 +1321,58 @@ test('explicit disposal returns a store cleanup failure after releasing ownershi
 	);
 	expect(owner.activeStores).toBe(0);
 	expect(owner.disposeCount).toBe(1);
+});
+
+test('browser cleanup preserves one failure and still runs later stages', async () => {
+	const failure = new Error('Injected cleanup failure');
+	const stages: string[] = [];
+
+	await expect(
+		settleBrowserCleanup({
+			stages: [
+				() => {
+					stages.push('first');
+					throw failure;
+				},
+				() => {
+					stages.push('second');
+				},
+			],
+			message: 'Unused aggregate message',
+		}),
+	).rejects.toBe(failure);
+	expect(stages).toEqual(['first', 'second']);
+});
+
+test('browser cleanup aggregates the primary and every cleanup failure', async () => {
+	const primary = new Error('Injected primary failure');
+	const closeFailure = new Error('Injected close failure');
+	const releaseFailure = new Error('Injected release failure');
+
+	const failure = await settleBrowserCleanup({
+		initialFailures: [primary],
+		stages: [
+			() => {
+				throw closeFailure;
+			},
+			() => undefined,
+			() => {
+				throw releaseFailure;
+			},
+		],
+		message: 'Browser cleanup evidence',
+	}).then(
+		() => undefined,
+		(cause: unknown) => cause,
+	);
+
+	expect(failure).toBeInstanceOf(AggregateError);
+	expect((failure as AggregateError).message).toBe('Browser cleanup evidence');
+	expect((failure as AggregateError).errors).toEqual([
+		primary,
+		closeFailure,
+		releaseFailure,
+	]);
 });
 
 test('unreachable terminal cleanup failures are logged after ownership release', async () => {
