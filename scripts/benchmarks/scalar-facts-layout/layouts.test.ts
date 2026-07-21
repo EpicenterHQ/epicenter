@@ -298,6 +298,38 @@ describe('install is one atomic read-compare-write transaction', () => {
 	}
 });
 
+describe('installPage is exactly one transaction with in-transaction progress', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: one transaction, no nesting, progress inside`, () => {
+			const inner = makeDb(ddlStatements(candidate));
+			const { db, log } = spyDb(inner);
+			const store = createStore(db, candidate);
+			const page = [1, 2, 3].map((n) => ({
+				address: {
+					kind: 'value' as const,
+					namespace: 'so.epicenter.ns00',
+					value: `setting${n}`,
+				},
+				sequence: n,
+				presence: 'present' as const,
+				content: n,
+			}));
+			const outcomes = store.installPage(page, () => log.push('progress@1'));
+			expect(outcomes).toEqual(['installed', 'installed', 'installed']);
+			// Exactly one transaction, and never a nested one.
+			expect(log.filter((l) => l === 'begin@1').length).toBe(1);
+			expect(log.filter((l) => l === 'end@1').length).toBe(1);
+			expect(log.some((l) => l === 'begin@2')).toBe(false);
+			// Progress is written inside the single transaction, before it ends.
+			const progress = log.indexOf('progress@1');
+			expect(progress).toBeGreaterThan(log.indexOf('begin@1'));
+			expect(progress).toBeLessThan(log.indexOf('end@1'));
+			// All three facts reconstruct.
+			expect([...store.scanBySequence()].length).toBe(3);
+		});
+	}
+});
+
 describe('scan crosses page boundaries (corpus > 4096)', () => {
 	const LARGE: TraceOptions = {
 		...BASE,

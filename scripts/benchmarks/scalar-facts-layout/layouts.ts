@@ -55,6 +55,12 @@ export type InstallOutcome = 'installed' | 'ignored' | 'corruption';
 export type PlanOp = 'feed' | 'rowPoint' | 'valuePoint' | 'traverse';
 
 export type Store = {
+	/**
+	 * Install a page of facts in exactly one transaction; optional durable
+	 * progress is written in that same transaction. The atomic batch seam.
+	 */
+	installPage(facts: Fact[], commitProgress?: () => void): InstallOutcome[];
+	/** One-fact page. */
 	install(fact: Fact): InstallOutcome;
 	get(address: Address): Fact | undefined;
 	traverse(namespace: string, table: string): Fact[];
@@ -590,34 +596,58 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 	}
 
 	/**
-	 * The whole state transition (read current, compare, write) is ONE transaction,
-	 * so no interleaved write can slip between the read and the write and be
-	 * overwritten by a stale-sequence install. The immediate write lock also rolls
-	 * back any coordinate a rejected normalized fact created.
+	 * The pure ADR-0163 monotonic transition (read current, compare, write) for one
+	 * fact. It opens NO transaction of its own, so it composes inside a page: the
+	 * caller owns the single transaction. Read-compare-write still happens under
+	 * that one transaction's write lock, so no interleaved write slips between the
+	 * read and the write, and a rejected normalized fact's coordinate rolls back
+	 * with the page.
 	 */
-	function install(fact: Fact): InstallOutcome {
-		return db.transaction((): InstallOutcome => {
-			const prior = selectRow(fact.address);
-			if (prior === undefined) {
-				writeFact(fact, 'insert');
-				return 'installed';
-			}
-			if (fact.sequence < prior.sequence) return 'ignored';
-			if (fact.sequence === prior.sequence) {
-				return identityOf(fact) === identityOf(rowToFact(prior))
-					? 'ignored'
-					: 'corruption';
-			}
-			if (
-				prior.kind === 'row' &&
-				prior.present === 0 &&
-				fact.presence === 'present'
-			) {
-				return 'corruption';
-			}
-			writeFact(fact, 'update');
+	function applyInstall(fact: Fact): InstallOutcome {
+		const prior = selectRow(fact.address);
+		if (prior === undefined) {
+			writeFact(fact, 'insert');
 			return 'installed';
+		}
+		if (fact.sequence < prior.sequence) return 'ignored';
+		if (fact.sequence === prior.sequence) {
+			return identityOf(fact) === identityOf(rowToFact(prior))
+				? 'ignored'
+				: 'corruption';
+		}
+		if (
+			prior.kind === 'row' &&
+			prior.present === 0 &&
+			fact.presence === 'present'
+		) {
+			return 'corruption';
+		}
+		writeFact(fact, 'update');
+		return 'installed';
+	}
+
+	/**
+	 * Install a page of facts in EXACTLY ONE transaction: every fact is applied
+	 * through the non-transaction-opening inner op, then optional durable progress
+	 * (an afterSequence watermark, a replica cursor) is written in that same
+	 * transaction, so the batch and its progress commit or roll back together. This
+	 * is the atomic seam a Worker/OPFS runtime needs; there is no nested-transaction
+	 * per fact. Returns the per-fact outcomes in order.
+	 */
+	function installPage(
+		facts: Fact[],
+		commitProgress?: () => void,
+	): InstallOutcome[] {
+		return db.transaction((): InstallOutcome[] => {
+			const outcomes = facts.map(applyInstall);
+			commitProgress?.();
+			return outcomes;
 		});
+	}
+
+	/** One-fact page: the whole transition is one transaction. */
+	function install(fact: Fact): InstallOutcome {
+		return installPage([fact])[0] as InstallOutcome;
 	}
 
 	const unifiedFeedSql = `${selectAll('facts', null, normalized)} WHERE sequence > ? ORDER BY sequence LIMIT ?`;
@@ -674,6 +704,7 @@ export function createStore(db: SqliteDatabase, candidate: Candidate): Store {
 	}
 
 	return {
+		installPage,
 		install,
 		get: (address) => {
 			const row = selectRow(address);
@@ -1031,20 +1062,57 @@ function integrityOf(db: SqliteDatabase): string {
 	);
 }
 
+/** One attack's structured result: it must be rejected with a stable witness and ok integrity. */
+export type AttackResult = {
+	name: string;
+	rejected: boolean;
+	witnessStable: boolean;
+	integrityOk: boolean;
+};
+
 /**
- * The corruption attack matrix. Every raw attack that bypasses the store must be
- * rejected AND leave the exact count/byte/SHA witness and `PRAGMA
- * integrity_check` unchanged, not merely throw. Run this across the pragma matrix
- * (recursive_triggers OFF/ON; normalized also foreign_keys OFF/ON): the `makeDb`
- * supplied by the caller sets those pragmas. The legal transitions at the end
- * (row absent then higher absent; value absent then higher present) must succeed.
+ * A named, retained proof record for one candidate under one pragma setting: the
+ * baseline witness and integrity, every attack's structured result, whether the
+ * legal transitions held, and the derived failures and pass flag. This is the
+ * typed evidence the artifact retains, so the recorded coverage is real, not a
+ * summary boolean asserted by fiat.
  */
-export function attackMatrixProofs(
+export type ConstraintProofRecord = {
+	candidateId: string;
+	pragmas: { recursiveTriggers: boolean; foreignKeys: boolean };
+	baseline: { count: number; bytes: number; digest: string; integrity: string };
+	attacks: AttackResult[];
+	legalTransitionsOk: boolean;
+	failures: string[];
+	ok: boolean;
+};
+
+function pragmaOn(db: SqliteDatabase, name: string): boolean {
+	return (
+		(db.all<Record<string, number>>(`PRAGMA ${name}`)[0]?.[name] ?? 0) === 1
+	);
+}
+
+/**
+ * The corruption attack matrix as a retained proof record. Every raw attack that
+ * bypasses the store must be rejected AND leave the exact count/byte/SHA witness
+ * and `PRAGMA integrity_check` unchanged, not merely throw. Run this across the
+ * pragma matrix (recursive_triggers OFF/ON; normalized also foreign_keys OFF/ON):
+ * the `makeDb` supplied by the caller sets those pragmas, which the record reads
+ * back. The legal transitions at the end (row absent then higher absent; value
+ * absent then higher present) must succeed.
+ */
+export function attackMatrixProof(
 	candidate: Candidate,
 	makeDb: MakeDb,
-): string[] {
+): ConstraintProofRecord {
 	const failures: string[] = [];
+	const attacks: AttackResult[] = [];
 	const db = fresh(candidate, makeDb);
+	const pragmas = {
+		recursiveTriggers: pragmaOn(db, 'recursive_triggers'),
+		foreignKeys: pragmaOn(db, 'foreign_keys'),
+	};
 	const store = createStore(db, candidate);
 	// Known state: row A tombstoned (present@1, absent@2), row B present@5, value
 	// V present@8. A, B, C share one (namespace, table); for normalized they share
@@ -1072,22 +1140,24 @@ export function attackMatrixProofs(
 		ensureCoordinateRaw(db, VAL_UNREF); // an unreferenced coordinate for attack 11
 
 	const base = witnessOf(store);
-	if (integrityOf(db) !== 'ok')
+	const baselineIntegrity = integrityOf(db);
+	if (baselineIntegrity !== 'ok')
 		failures.push(`${candidate.id}: baseline integrity is not ok`);
 
 	const attack = (name: string, run: () => void): void => {
-		if (!rejects(run)) {
-			failures.push(`${candidate.id}: attack "${name}" was NOT rejected`);
-			return;
-		}
+		const rejected = rejects(run);
 		const w = witnessOf(store);
-		if (
-			w.count !== base.count ||
-			w.bytes !== base.bytes ||
-			w.digest !== base.digest
-		)
+		const witnessStable =
+			w.count === base.count &&
+			w.bytes === base.bytes &&
+			w.digest === base.digest;
+		const integrityOk = integrityOf(db) === 'ok';
+		attacks.push({ name, rejected, witnessStable, integrityOk });
+		if (!rejected)
+			failures.push(`${candidate.id}: attack "${name}" was NOT rejected`);
+		if (!witnessStable)
 			failures.push(`${candidate.id}: attack "${name}" mutated the witness`);
-		if (integrityOf(db) !== 'ok')
+		if (!integrityOk)
 			failures.push(`${candidate.id}: attack "${name}" broke integrity`);
 	};
 
@@ -1180,9 +1250,12 @@ export function attackMatrixProofs(
 	}
 
 	// Legal transitions the invariants must still allow.
+	let legalTransitionsOk = true;
 	const legal = (name: string, ok: boolean): void => {
-		if (!ok)
+		if (!ok) {
+			legalTransitionsOk = false;
 			failures.push(`${candidate.id}: legal transition "${name}" failed`);
+		}
 	};
 	legal(
 		'row absent -> absent (higher sequence)',
@@ -1206,7 +1279,28 @@ export function attackMatrixProofs(
 	);
 	legal('value present again', store.get(VAL)?.presence === 'present');
 
-	return failures;
+	return {
+		candidateId: candidate.id,
+		pragmas,
+		baseline: {
+			count: base.count,
+			bytes: base.bytes,
+			digest: base.digest,
+			integrity: baselineIntegrity,
+		},
+		attacks,
+		legalTransitionsOk,
+		failures,
+		ok: failures.length === 0,
+	};
+}
+
+/** The attack matrix as a flat failure list, for the self-test. */
+export function attackMatrixProofs(
+	candidate: Candidate,
+	makeDb: MakeDb,
+): string[] {
+	return attackMatrixProof(candidate, makeDb).failures;
 }
 
 /** The monotonic install must exercise stale, equal-identical, equal-different, and resurrection. */
