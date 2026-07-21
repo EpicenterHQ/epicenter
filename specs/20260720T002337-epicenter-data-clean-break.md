@@ -3,7 +3,7 @@
 - **Status:** In Progress
 - **Date:** 2026-07-20
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-latest-scalar-state-synchronizes-through-one-epicenter-exchange.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), and [ADR-0173](../docs/adr/0173-finalized-row-owned-blobs-use-content-digests-as-identity.md)
+- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-latest-scalar-state-synchronizes-through-one-epicenter-exchange.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-finalized-row-owned-blobs-use-content-digests-as-identity.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), and [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)
 
 ## Product sentence
 
@@ -19,8 +19,9 @@ shared data.
   projection store, with an expected ceiling around one million rows.
   Ingested mirrors (mail, accounting, photos, tabs) and derived projections
   keep their own disposable app-local stores outside the synchronized plane;
-  admission limits, paging, and indexes are sized for curated personal scale,
-  never for bulk ingestion throughput.
+  admission limits, transport paging, and private runtime indexes are sized for
+  curated personal scale, never for bulk ingestion throughput. These are not
+  application table-query capabilities.
 - Every attached replica synchronizes the person's whole Epicenter.
 - One person has one logical Epicenter and one server authority.
 - Each adapter isolation boundary has one complete local replica.
@@ -227,17 +228,24 @@ or another collision-equivalent ID. Callers cannot supply `id` to `create`.
 Optional field `undefined` means remove the field and is lowered before JSON
 serialization. `null` remains an ordinary accepted value.
 
-Expose one complete classified traversal through two terminal shapes. `scan()`
-materializes `{ rows, nonconforming }`. `entries()` streams
-`Result<Row, NonconformingRowError>` values in stable row ID order. The runtime
-uses bounded internal pages, but callers neither construct nor donate cursors.
-Traversal observes continuing live state rather than a snapshot.
+Expose one complete classified traversal through two consumption forms.
+`entries()` streams `Result<Row, NonconformingRowError>` values in stable row ID
+order. `scan()` consumes that traversal to completion and groups it as
+`{ rows, nonconforming }`. The runtime uses bounded internal batches, but
+callers neither construct nor donate cursors. Traversal observes continuing
+live state rather than a snapshot.
 
 There is no public filter, arbitrary field order, limit, cursor, or page shape.
 Every current production read is exhaustive, and application-specific sorting
-and substring search stay client-side. A future Lens may declare pure JSON
-indexes and earn an index-scoped query surface, but this decision does not
-freeze that syntax or promise unindexed predicates.
+and substring search stay client-side. Lenses currently declare no indexes or
+query capabilities. A future index-backed read requires a separate decision
+that assigns semantic access-pattern declaration and disposable physical-index
+lifecycle to explicit owners before freezing any query syntax.
+
+`entries()` bounds repair traversal only. It supplies no snapshot, durable
+checkpoint, compare-and-set, revision check, or write precondition. Repair
+idempotency, observability, interruption, and concurrent-write policy remain
+application responsibilities.
 
 Tables and values expose committed-change observation: `subscribe` on a bound
 table receives the changed row IDs after a committed local write or an
@@ -837,9 +845,9 @@ weaken the ADR destination above:
    addresses or make a Lens authoritative.
 3. **Structured row references.** ADR-0169 fixes references as non-enforcing
    table interpretations and removes them from the destination field
-   vocabulary. Decide the exact pure JSON table metadata shape, typed query
-   ergonomics, and Matter replacement before deleting the current shared
-   `field.reference()` implementation.
+   vocabulary. Decide the exact pure JSON table metadata shape, typed
+   reference-navigation ergonomics, and Matter replacement before deleting the
+   current shared `field.reference()` implementation.
 4. **Realtime row-document topology.** Decide whether the live overlay uses
    one fixed-address WebSocket per open row, one multiplexed connection, or no
    dedicated overlay until a concrete collaborative surface ships. Preserve

@@ -1574,7 +1574,7 @@ Public table methods:
 - `set(row)`
 - `update(id, partial)`
 - `get(id)`
-- `scan()` (returns the four classified buckets)
+- `scan()` (returns the three classified buckets)
 - `findValid(predicate)`
 - `delete(id)`
 - `clear()`

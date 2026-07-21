@@ -20,7 +20,7 @@ const catalog = await listSkills(skills);
 
 ## Data model
 
-Skill and reference metadata are canonical JSON records interpreted by the
+Skill and reference metadata are canonical JSON rows interpreted by the
 release-local table lenses. The runtime allocates structural row ids. A
 SKILL.md `metadata.id` is stored separately as `sourceId`, so filesystem
 round-trips can match records without forging canonical identity.
@@ -38,9 +38,9 @@ await instructions.whenDurable();
 The runtime derives persistence and synchronization from the row address.
 Callers pass the structural row id they already own.
 
-Catalog reads return nonconforming rows explicitly; they never heal user data
-during reads. A developer repairs a row with the same typed `update` used for
-ordinary writes.
+Catalog reads return nonconforming diagnostics with the preserved canonical
+rows; they never heal user data during reads. A developer repairs a row with
+the same typed `update` used for ordinary writes.
 
 ## Filesystem portability
 

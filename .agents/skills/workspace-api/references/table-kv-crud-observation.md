@@ -64,7 +64,7 @@ newerWriter    // TableNewerWriterError[]   : a newer binary wrote them (update 
 `scan().rows` is the conforming payload almost every caller wants; the two
 issue buckets ride along so a caller can log, surface, or deliberately ignore
 them rather than hiding them by default. For "the first row matching p" without
-building all four buckets, use `findValid(p)` (it short-circuits). For an
+building all three buckets, use `findValid(p)` (it short-circuits). For an
 "N items" count, read `scan().rows.length`, not `storedCount()` (which counts
 the issue buckets too). There is no valid-only bulk read: that was the
 silent-drop footgun, and it is gone.

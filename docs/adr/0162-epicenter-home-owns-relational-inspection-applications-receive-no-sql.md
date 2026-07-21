@@ -46,8 +46,9 @@ query-rewriting scheme.
 
 ## Consequences
 
-- Typed application queries can use private SQLite indexes and SQL internally
-  without turning implementation schema into public API.
+- Typed application reads may use private SQL and the canonical address index
+  internally. Additional index-backed reads require the separately owned
+  decision described by ADR-0176.
 - Home can offer a table browser and SQL console without granting applications
   arbitrary SQL or stabilizing the private live schema.
 - Raw queries can always address honest namespace, table, value, and row

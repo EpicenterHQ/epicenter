@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-15
+- **Amended by:** [ADR-0175](0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md) (replaces `list()` with the complete `entries()` traversal and its `scan()` fold)
 - **Relates:** [ADR-0119](0119-complete-record-maps-sync-through-schema-blind-server-ordered-patches.md), [ADR-0124](0124-workspace-documents-are-top-level-parameterized-resources.md), [ADR-0129](0129-matter-and-workspace-share-fields-not-authority-policy.md)
 
 ## Context

@@ -175,9 +175,11 @@ shapes, see `docs/adr/`.
 - **Optional field unset**: patching an optional field with `undefined` removes
   that key. Canonical JSON never stores `undefined`; `null` remains an ordinary
   value when its field accepts null.
-- **Table list**: one bounded local typed application read with optional
-  equality filters, one ordering key, cursor, and limit. Applications receive
-  no SQL; Epicenter Home separately owns relational inspection.
+- **Table traversal**: one complete classified typed application read in stable
+  row ID order. `entries()` consumes it lazily through private runtime batches;
+  `scan()` consumes the same traversal to completion and groups conforming rows
+  from nonconforming diagnostics. Applications receive no public pages,
+  cursors, filters, ordering options, or SQL.
 - **Row document handle**: the revocable handle returned by a lazy row document
   open. It exposes application roots, local provider durability, and document
   connection status. Releasing the final handle may unload live Yjs state but

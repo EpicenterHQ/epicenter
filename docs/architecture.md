@@ -202,8 +202,9 @@ persisted-state reader, alias, migration path, dual wire, or fallback.
 
 Definitions are views over durable JSON. A release may add a required field,
 remove a field, or change validation. Rows that no longer conform remain
-preserved as invalid data. The runtime does not copy a database, execute an
-upcaster, add fallback keys, or reinterpret old writes.
+preserved as canonical data and surface as nonconforming for that release's
+Lens. The runtime does not copy a database, execute an upcaster, add fallback
+keys, or reinterpret old writes.
 
 When product semantics require conversion, the application owns a normal,
 explicit repair loop. It may recognize an old shape, compute the new value, and
@@ -215,7 +216,7 @@ protocol.
 durable JSON stays unchanged
         |
         +-- old release lens -> one interpretation
-        `-- new release lens -> valid rows plus explicit invalid rows
+        `-- new release lens -> typed rows plus nonconforming diagnostics
 ```
 
 ## The star owns availability, not application meaning

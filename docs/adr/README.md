@@ -16,6 +16,10 @@ accepted ADR, the ADR wins.
 - **Immutable once accepted.** Do not edit a decision out of an accepted ADR. To
   change direction, write a new ADR, set its `Supersedes` to the old one, and set
   the old one's `Superseded by` to the new one. The chain is the history.
+- **Amend without erasing.** When a later ADR changes only one bounded part of
+  an accepted decision, set `Amends` on the new ADR and `Amended by` on the old
+  one. State the withdrawn scope in both links. Use `Supersedes` when the old
+  decision should no longer govern at all.
 - **Concise and outcome-focused.** An ADR is not a spec. State the decision so a
   reader can act on it without reading the exploration. Link the spec for the
   deep evidence if it still exists; otherwise cite the git ref.
@@ -52,6 +56,8 @@ merged; only the pre-merge placeholder is negotiable.
 - **Date:** YYYY-MM-DD
 - **Supersedes:** [ADR-MMMM](MMMM-*.md) (or omit)
 - **Superseded by:** [ADR-PPPP](PPPP-*.md) (added only when this is retired)
+- **Amends:** [ADR-MMMM](MMMM-*.md) with the bounded change (or omit)
+- **Amended by:** [ADR-PPPP](PPPP-*.md) with the bounded change (or omit)
 
 ## Context
 
@@ -252,5 +258,6 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0173](0173-finalized-row-owned-blobs-use-content-digests-as-identity.md)                                                   | Finalized row-owned blobs use content digests as identity                                                                                                                      | Proposed                                                                                                                        |
 | [0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md)                         | Row documents project as nullable compact cells and persist as bounded live chains                                                                                            | Proposed                                                                                                                        |
 | [0175](0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md)                                        | Table traversal is complete and classified, with paging kept private                                                                                                          | Accepted                                                                                                                        |
+| [0176](0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)                                 | Lenses declare no query capabilities; indexed reads require separate owners                                                                                                   | Accepted                                                                                                                        |
 
 When you add an ADR, add its row here.

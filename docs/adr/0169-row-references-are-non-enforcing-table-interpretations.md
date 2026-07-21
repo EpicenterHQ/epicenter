@@ -47,7 +47,7 @@ boundary:
   enforcement.
 - Epicenter Home may provide navigation, local resolution status, SQL join
   assistance, and agent context over the currently visible Epicenter.
-- Typed application code may use branded IDs and direct table queries. This
+- Typed application code may use branded IDs and direct table point reads. This
   decision does not introduce an ORM traversal API or promise that a target
   Lens is statically available.
 
@@ -89,8 +89,8 @@ earns no compatibility reader after that clean break.
   Epicenter gains no new dependency on the legacy field kind.
 - The shared reference kind disappears when Matter moves to the table-level
   contract, not in a separate behavior-deleting change.
-- The eventual table metadata shape, typed query ergonomics, and Matter
-  namespace model remain open implementation and product decisions.
+- The eventual table metadata shape, typed reference-navigation ergonomics,
+  and Matter namespace model remain open implementation and product decisions.
 
 ## Considered alternatives
 

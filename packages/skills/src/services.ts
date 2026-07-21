@@ -12,13 +12,13 @@ export type ReferencesScan = {
 	nonconforming: NonconformingRowError[];
 };
 
-/** Read the complete conforming skill catalog and surface invalid rows. */
+/** Read the complete skill traversal and surface nonconforming rows. */
 export async function scanSkills(data: SkillsData): Promise<SkillsScan> {
 	const { rows: skills, nonconforming } = await data.tables.skills.scan();
 	return { skills, nonconforming };
 }
 
-/** Read the complete conforming reference catalog and surface invalid rows. */
+/** Read the complete reference traversal and surface nonconforming rows. */
 export async function scanReferences(
 	data: SkillsData,
 ): Promise<ReferencesScan> {
@@ -27,7 +27,7 @@ export async function scanReferences(
 	return { references, nonconforming };
 }
 
-/** List conforming catalog entries and surface every skipped canonical row. */
+/** Build the sorted catalog while preserving nonconforming diagnostics. */
 export async function listSkills(data: SkillsData) {
 	const { skills, nonconforming } = await scanSkills(data);
 	return {

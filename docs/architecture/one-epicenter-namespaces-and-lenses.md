@@ -159,9 +159,9 @@ Three presentation and composition choices remain deliberately unfrozen:
    collisions, quoting, and ephemeral lifetime work.
 2. Whether app-bundled Lenses live only with the active app catalog or whether
    standalone installed Lenses have a separate discovery folder and lifecycle.
-3. The exact pure JSON table metadata shape and typed query ergonomics for the
-   non-enforcing row references settled by ADR-0169. References are not field
-   kinds or integrity constraints.
+3. The exact pure JSON table metadata shape and typed reference-navigation
+   ergonomics for the non-enforcing row references settled by ADR-0169.
+   References are not field kinds or integrity constraints.
 
 The scalar transport also remains under adversarial review. Independent
 per-address convergence and whole-Epicenter scope are fixed; batches,
