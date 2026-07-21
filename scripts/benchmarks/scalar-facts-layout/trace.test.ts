@@ -7,7 +7,8 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { CryptoHasher } from 'bun';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
 import {
@@ -274,10 +275,12 @@ describe('digest framing uses UTF-8 byte length', () => {
 		};
 		const record = canonicalFactRecord(fact);
 		// A multibyte payload makes UTF-16 length differ from UTF-8 length.
-		expect(record.length).not.toBe(Buffer.byteLength(record, 'utf8'));
-		const hasher = new CryptoHasher('sha256');
-		hasher.update(`${Buffer.byteLength(record, 'utf8')}:${record}\n`);
-		expect(factSetDigest([fact]).digestHex).toBe(hasher.digest('hex'));
+		const encoder = new TextEncoder();
+		const recordBytes = encoder.encode(record).length;
+		expect(record.length).not.toBe(recordBytes);
+		const hasher = sha256.create();
+		hasher.update(encoder.encode(`${recordBytes}:${record}\n`));
+		expect(factSetDigest([fact]).digestHex).toBe(bytesToHex(hasher.digest()));
 	});
 });
 

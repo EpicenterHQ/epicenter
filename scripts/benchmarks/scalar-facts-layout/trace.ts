@@ -27,9 +27,16 @@
  * exact current-protocol-fact bytes, one ordered SHA-256 in ascending sequence)
  * over every current fact, never against a layout's own read path.
  */
-import { CryptoHasher } from 'bun';
 
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
+
+const textEncoder = new TextEncoder();
+
+export function utf8Len(text: string): number {
+	return textEncoder.encode(text).length;
+}
 
 export type JsonValue =
 	| string
@@ -137,10 +144,6 @@ export function hash32(seed: number, index: number): number {
 	h = Math.imul(h ^ (h >>> 15), 0x85eb_ca6b) >>> 0;
 	h = Math.imul(h ^ (h >>> 13), 0xc2b2_ae35) >>> 0;
 	return (h ^ (h >>> 16)) >>> 0;
-}
-
-export function utf8Len(text: string): number {
-	return Buffer.byteLength(text, 'utf8');
 }
 
 /** Count of j in [0, n) with j % m === r. */
@@ -610,7 +613,7 @@ export function makeTrace(options: TraceOptions): Trace {
 	}
 
 	function measure(): Measures {
-		const hasher = new CryptoHasher('sha256');
+		const hasher = sha256.create();
 		let currentCount = 0;
 		let currentProtocolFactBytes = 0;
 		let maxProtocolFactBytes = 0;
@@ -621,7 +624,7 @@ export function makeTrace(options: TraceOptions): Trace {
 			const record = canonicalFactRecord(fact);
 			const recordBytes = utf8Len(record);
 			// Length-prefixed by UTF-8 byte length so no two records concatenate.
-			hasher.update(`${recordBytes}:${record}\n`);
+			hasher.update(textEncoder.encode(`${recordBytes}:${record}\n`));
 			currentCount += 1;
 			currentProtocolFactBytes += recordBytes;
 			if (recordBytes > maxProtocolFactBytes)
@@ -637,7 +640,7 @@ export function makeTrace(options: TraceOptions): Trace {
 		}
 		return {
 			currentCount,
-			digestHex: hasher.digest('hex'),
+			digestHex: bytesToHex(hasher.digest()),
 			currentProtocolFactBytes,
 			maxProtocolFactBytes,
 			presentCount,
@@ -780,17 +783,17 @@ export function factSetDigest(facts: Iterable<Fact>): {
 	bytes: number;
 	digestHex: string;
 } {
-	const hasher = new CryptoHasher('sha256');
+	const hasher = sha256.create();
 	let count = 0;
 	let bytes = 0;
 	for (const fact of facts) {
 		const record = canonicalFactRecord(fact);
 		const recordBytes = utf8Len(record);
-		hasher.update(`${recordBytes}:${record}\n`);
+		hasher.update(textEncoder.encode(`${recordBytes}:${record}\n`));
 		count += 1;
 		bytes += recordBytes;
 	}
-	return { count, bytes, digestHex: hasher.digest('hex') };
+	return { count, bytes, digestHex: bytesToHex(hasher.digest()) };
 }
 
 function gcd(a: number, b: number): number {

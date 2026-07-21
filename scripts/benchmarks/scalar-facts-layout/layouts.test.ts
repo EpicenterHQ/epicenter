@@ -6,8 +6,15 @@
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
+import type { SqliteDatabase } from '@epicenter/sqlite';
+import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
-import { CANDIDATES, createStore, ddlFor, layoutsSelfTest } from './layouts.js';
+import {
+	CANDIDATES,
+	createStore,
+	ddlStatements,
+	layoutsSelfTest,
+} from './layouts.js';
 import { factSetDigest, makeTrace, type TraceOptions } from './trace.js';
 
 const BASE: TraceOptions = {
@@ -20,21 +27,26 @@ const BASE: TraceOptions = {
 	maxEncodedFactBytes: 8192,
 };
 
+function makeDb(statements: string[]): SqliteDatabase {
+	const db = createBunSqliteAdapter(new Database(':memory:'));
+	db.run('PRAGMA foreign_keys = ON');
+	for (const statement of statements) db.run(statement);
+	return db;
+}
+
 test('every candidate passes its constraint and transaction proofs', () => {
-	expect(layoutsSelfTest()).toEqual([]);
+	expect(layoutsSelfTest(makeDb)).toEqual([]);
 });
 
 describe('candidate reconstructs the exact oracle state', () => {
 	for (const candidate of CANDIDATES) {
 		test(candidate.id, () => {
 			const trace = makeTrace(BASE);
-			const db = new Database(':memory:');
-			db.exec('PRAGMA foreign_keys = ON;');
-			db.exec(ddlFor(candidate));
+			const db = makeDb(ddlStatements(candidate));
 			const store = createStore(db, candidate);
-			db.exec('BEGIN');
-			for (const fact of trace.events()) store.install(fact);
-			db.exec('COMMIT');
+			db.transaction(() => {
+				for (const fact of trace.events()) store.install(fact);
+			});
 
 			const expected = trace.measure();
 			const actual = factSetDigest(store.scanBySequence());
@@ -46,7 +58,6 @@ describe('candidate reconstructs the exact oracle state', () => {
 			const sample = trace.finalFactAt(BASE.namespaceCount + 1);
 			const read = store.get(sample.address);
 			expect(read).toEqual(sample);
-			db.close();
 		});
 	}
 });
@@ -54,9 +65,7 @@ describe('candidate reconstructs the exact oracle state', () => {
 describe('query plans', () => {
 	for (const candidate of CANDIDATES) {
 		test(`${candidate.id}: feed avoids a temp b-tree and value point plan exists`, () => {
-			const db = new Database(':memory:');
-			db.exec('PRAGMA foreign_keys = ON;');
-			db.exec(ddlFor(candidate));
+			const db = makeDb(ddlStatements(candidate));
 			const store = createStore(db, candidate);
 			const feed = store.queryPlan('feed').toUpperCase();
 			expect(feed).not.toContain('TEMP B-TREE');
@@ -64,7 +73,219 @@ describe('query plans', () => {
 			// The value point read must have its own plan, never be omitted.
 			expect(store.queryPlan('valuePoint').length).toBeGreaterThan(0);
 			expect(store.queryPlan('rowPoint').length).toBeGreaterThan(0);
-			db.close();
+			expect(store.queryPlan('traverse').length).toBeGreaterThan(0);
+			// Traverse uses an ordered index, no temp b-tree.
+			expect(store.queryPlan('traverse').toUpperCase()).not.toContain(
+				'TEMP B-TREE',
+			);
+		});
+	}
+});
+
+/** Build one candidate's store, fully aged, returning it with the trace. */
+function built(candidate: (typeof CANDIDATES)[number]) {
+	const trace = makeTrace(BASE);
+	const db = makeDb(ddlStatements(candidate));
+	const store = createStore(db, candidate);
+	db.transaction(() => {
+		for (const fact of trace.events()) store.install(fact);
+	});
+	return { trace, db, store };
+}
+
+describe('feed order and limit', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: pages are ascending, limited, and resume correctly`, () => {
+			const { store } = built(candidate);
+			const page = store.feedPage(0, 50);
+			expect(page.length).toBe(50);
+			for (let i = 1; i < page.length; i += 1) {
+				expect((page[i]?.sequence ?? 0) > (page[i - 1]?.sequence ?? 0)).toBe(
+					true,
+				);
+			}
+			// Resume after the page's last sequence yields strictly-later facts.
+			const after = page[page.length - 1]?.sequence ?? 0;
+			const next = store.feedPage(after, 50);
+			expect((next[0]?.sequence ?? 0) > after).toBe(true);
+			// The full feed equals the ordered scan.
+			const full = store.feedPage(0, 10_000_000).map((f) => f.sequence);
+			const scan = [...store.scanBySequence()].map((f) => f.sequence);
+			expect(full).toEqual(scan);
+		});
+	}
+});
+
+describe('traverse predicate and order (verified against raw SQL)', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: returns exactly the table's rows, ordered by row id`, () => {
+			const { trace, db, store } = built(candidate);
+			// Pick a (namespace, table) that actually has rows.
+			const sample = trace.sampleRowAddresses(1)[0];
+			if (sample?.kind !== 'row') throw new Error('no row sample');
+			const facts = store.traverse(sample.namespace, sample.table);
+			expect(facts.length).toBeGreaterThan(0);
+			for (const f of facts) {
+				expect(f.address.kind).toBe('row');
+				expect(f.address.namespace).toBe(sample.namespace);
+				if (f.address.kind === 'row')
+					expect(f.address.table).toBe(sample.table);
+			}
+			const rowIds = facts.map((f) =>
+				f.address.kind === 'row' ? f.address.rowId : '',
+			);
+			expect(rowIds).toEqual([...rowIds].sort());
+			// Cross-check the row-id set against a raw table scan.
+			const table = candidate.relation === 'split' ? 'row_facts' : 'facts';
+			const rawCount = db.all<{ n: number }>(
+				candidate.coordinates === 'normalized'
+					? `SELECT count(*) AS n FROM ${table} t JOIN coordinates c ON c.coordinate_id=t.coordinate_id WHERE c.kind='row' AND c.namespace=? AND c.local_key=?`
+					: candidate.relation === 'split'
+						? `SELECT count(*) AS n FROM row_facts WHERE namespace=? AND local_key=?`
+						: `SELECT count(*) AS n FROM facts WHERE kind='row' AND namespace=? AND local_key=?`,
+				[sample.namespace, sample.table],
+			)[0]?.n;
+			if (rawCount === undefined) throw new Error('raw count returned no row');
+			expect(facts.length).toBe(rawCount);
+		});
+	}
+});
+
+describe('point reads for both kinds', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: row and value point reads match the oracle; missing is undefined`, () => {
+			const { trace, store } = built(candidate);
+			// finalFactAt(index 0) is a value; a known row index is > valueCount.
+			const valueFact = trace.finalFactAt(0);
+			const rowFact = trace.finalFactAt(Math.floor(BASE.facts / 2));
+			expect(store.get(valueFact.address)).toEqual(valueFact);
+			expect(store.get(rowFact.address)).toEqual(rowFact);
+			const missing = store.get({
+				kind: 'row',
+				namespace: 'so.epicenter.absent',
+				table: 'collection9999',
+				rowId: 'zzzzzzzzzzzzzzzzzzzzzzzz',
+			});
+			expect(missing).toBeUndefined();
+		});
+	}
+});
+
+describe('point and traverse plans are indexed SEARCH, never a full SCAN', () => {
+	for (const candidate of CANDIDATES) {
+		test(candidate.id, () => {
+			const db = makeDb(ddlStatements(candidate));
+			const store = createStore(db, candidate);
+			for (const op of ['rowPoint', 'valuePoint', 'traverse'] as const) {
+				const plan = store.queryPlan(op).toUpperCase();
+				expect(plan).toContain('SEARCH'); // uses an index / primary key
+				expect(plan).not.toContain('SCAN'); // never a full-table scan
+			}
+			// Normalized reads must go through the coordinates index and the fact PK.
+			if (candidate.coordinates === 'normalized') {
+				expect(store.queryPlan('rowPoint').toUpperCase()).toContain(
+					'COORDINATES',
+				);
+			}
+		});
+	}
+});
+
+/** A spy that records call order and transaction depth over a real adapter. */
+function spyDb(inner: SqliteDatabase): { db: SqliteDatabase; log: string[] } {
+	const log: string[] = [];
+	let depth = 0;
+	const db: SqliteDatabase = {
+		run(sql, parameters) {
+			log.push(`run@${depth}`);
+			return inner.run(sql, parameters);
+		},
+		all(sql, parameters) {
+			log.push(`all@${depth}`);
+			return inner.all(sql, parameters);
+		},
+		transaction(fn) {
+			depth += 1;
+			log.push(`begin@${depth}`);
+			try {
+				return inner.transaction(fn);
+			} finally {
+				log.push(`end@${depth}`);
+				depth -= 1;
+			}
+		},
+	};
+	return { db, log };
+}
+
+describe('install is one atomic read-compare-write transaction', () => {
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: the select and the write happen inside one transaction`, () => {
+			const inner = makeDb(ddlStatements(candidate));
+			const { db, log } = spyDb(inner);
+			const store = createStore(db, candidate);
+			store.install({
+				address: {
+					kind: 'value',
+					namespace: 'so.epicenter.ns00',
+					value: 'settinga',
+				},
+				sequence: 5,
+				presence: 'present',
+				content: 1,
+			});
+			log.length = 0;
+			// A higher-sequence install reads then writes.
+			store.install({
+				address: {
+					kind: 'value',
+					namespace: 'so.epicenter.ns00',
+					value: 'settinga',
+				},
+				sequence: 9,
+				presence: 'present',
+				content: 2,
+			});
+			const begin = log.indexOf('begin@1');
+			const end = log.indexOf('end@1');
+			const select = log.indexOf('all@1');
+			const write = log.lastIndexOf('run@1');
+			expect(begin).toBeGreaterThanOrEqual(0);
+			// Read and write are both inside the single transaction, read before write.
+			expect(select).toBeGreaterThan(begin);
+			expect(write).toBeGreaterThan(select);
+			expect(write).toBeLessThan(end);
+		});
+	}
+});
+
+describe('scan crosses page boundaries (corpus > 4096)', () => {
+	const LARGE: TraceOptions = {
+		...BASE,
+		facts: 9000,
+		targetLogicalStateBytes: 9000 * 220,
+	};
+	for (const candidate of CANDIDATES) {
+		test(`${candidate.id}: paged scan and feed cover a multi-page corpus`, () => {
+			const trace = makeTrace(LARGE);
+			const db = makeDb(ddlStatements(candidate));
+			const store = createStore(db, candidate);
+			db.transaction(() => {
+				for (const fact of trace.events()) store.install(fact);
+			});
+			const expected = trace.measure();
+			expect(expected.currentCount).toBeGreaterThan(4096); // forces >1 page
+			// The paged scanBySequence reconstructs the exact oracle across pages.
+			const actual = factSetDigest(store.scanBySequence());
+			expect(actual.count).toBe(expected.currentCount);
+			expect(actual.digestHex).toBe(expected.digestHex);
+			// feedPage cursor advances across at least two 4096 pages.
+			const first = store.feedPage(0, 4096);
+			expect(first.length).toBe(4096);
+			const after = first[first.length - 1]?.sequence ?? 0;
+			const second = store.feedPage(after, 4096);
+			expect(second.length).toBeGreaterThan(0);
+			expect((second[0]?.sequence ?? 0) > after).toBe(true);
 		});
 	}
 });

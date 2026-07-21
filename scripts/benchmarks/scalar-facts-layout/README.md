@@ -100,43 +100,41 @@ both its numerator and denominator are measured:
    over **every** current fact, including terminal absences. Framing and
    absences push this above (1); the two are never assumed to order and both are
    reported.
-3. **steady physical DB footprint**: on-disk page bytes after checkpoint/settle.
-4. **peak filesystem footprint / WAL amplification**: the high-water disk use
-   during the bulk build.
+3. **allocated page bytes**: `page_count * page_size` after checkpoint/settle.
+4. **non-freelist page bytes**: `(page_count - freelist_count) * page_size`
+   after checkpoint/settle.
 
-Physical amplification is reported against the logical-state denominator: steady
-= (3) / (1) and peak = (4) / (1). The (2) / (1) ratio is reported as a separate
-protocol-overhead diagnostic. No ratio is printed unless both its numerator and
-denominator were measured.
+Physical amplification is reported against the logical-state denominator for
+both page measures. The (2) / (1) ratio is reported as a separate protocol-overhead
+diagnostic. No ratio is printed unless both its numerator and denominator were
+measured.
 
-## No-winner policy
+## Evidence status, never a winner
 
-- The fixed independent SLO/materiality gates are **declared before any layout
-  run**, never chosen from the data afterward.
-- A **single repetition can never produce a winner**: one repetition cannot
-  establish stability, so it registers as inconclusive regardless of its numbers.
-- Every owner-critical metric is compared **independently**; no geomean or
-  latency-plus-storage sum can average away a material regression in one metric.
-- Materiality thresholds are **fixed, predeclared, and owner-metric-specific**.
-  They are never derived or widened from observed variance. Widening a band by
-  observed noise is backwards for a noninferiority test: a noisier metric would
-  let a *larger* real regression pass as equivalent, which is the opposite of
-  what safety requires.
-- Comparisons are **paired per seed**: two candidates are differenced on the same
-  trace, and the decision reasons about an interval on the mean paired
-  difference against the fixed threshold.
-- A metric is **inconclusive** when its paired-difference interval crosses a
-  materiality boundary, or when its variance is too high to place the difference
-  on one side of the threshold. Any inconclusive owner-critical metric returns
-  **no winner**; noise never resolves in favor of a winner.
-- A **real tradeoff** (more than one non-dominated candidate that are not all
-  materially equivalent) returns **no winner**.
-- A **missing or failed** owner x candidate x repetition cell returns **no
-  recommendation**: partial evidence cannot recommend, and failed repetitions
-  are never dropped.
-- The declared tie-break (unified before split, inline before normalized) is
-  applied **only** when the candidates are materially equivalent on every metric,
-  and the report states that it was a tie, not a measured win.
+This benchmark records reproducible, correctness-first evidence so an ADR can
+choose the physical layout. It **never names, ranks, or tie-breaks a winner**,
+and never claims Bun-only evidence qualifies a layout. There is no automated
+statistical selector: the whole Pareto / materiality / tie-break machinery is
+deliberately absent. The ADR owns the choice.
+
+`classifyEvidence` returns one of four statuses and **never a candidate id**:
+
+- **invalid** (fail closed): any duplicate or failed cell, an empty query plan, a
+  seed that is inconsistent within a repetition or not distinct across
+  repetitions, or a globally required metric missing.
+- **incomplete**: the expected owner x candidate x repetition matrix (five
+  repetitions for full evidence) is not fully populated and correct.
+- **provisional**: the matrix is complete and correct, but unsupported real
+  workflows and qualifying runtimes remain, so evidence stops here.
+- **ready-for-ADR-review**: reserved for a future harness that closes those gaps.
+  This Bun instrument **can never emit it**.
+
+The report enumerates the unsupported real workflows it does not measure
+(authority submission settlement, exact-retry, parked-result handling; replica
+pending-intent overlay and tombstone-driven document cleanup) and the runtimes it
+cannot qualify (OPFS, quota, WebKit / mobile, worker locks, Durable Objects). Raw
+per-cell metrics and witnesses are kept and machine-readable; smoke is a fast
+illustrative run, non-qualifying by construction.
 
 ## Independent oracle
 
@@ -159,9 +157,9 @@ tombstone non-resurrection is proven in the **trace-oracle self-test** by an
 attempted higher-sequence present that the fold refuses, not by counting final
 tombstones. Each candidate **store** must additionally prove the same refusal
 (and the stale / equal-identical / equal-different install outcomes) against its
-own physical layout; that per-candidate proof is required, and is future work in
-`layouts.ts`, not yet landed. The observed namespace/table/value/lifecycle
-cardinalities are asserted and reported.
+own physical layout; `layouts.ts` enforces that proof for every candidate. The
+observed namespace/table/value/lifecycle cardinalities are asserted and
+reported.
 
 ## Determinism
 
@@ -178,4 +176,8 @@ builds; short operations retain raw samples.
 - `layouts.ts`: the four DDL candidates, their stores, and negative constraint
   proofs.
 - `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans.
-- `decision.ts`: completeness, per-metric materiality, and the no-winner policy.
+- `decision.ts`: the evidence-status classifier (invalid/incomplete/provisional;
+  never a winner). Neutral over `@epicenter/sqlite`.
+- `bun-runtime.ts`: Bun/node-only DB lifecycle (open/WAL/reopen), temp files, and
+  page metrics; wraps `bun:sqlite` with `createBunSqliteAdapter`.
+- `digest.ts`: removed; the ordered SHA-256 uses `@noble/hashes` incrementally.
