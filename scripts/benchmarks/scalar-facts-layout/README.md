@@ -1,13 +1,22 @@
 # scalar-facts-layout
 
-A decision instrument for one narrow question in Wave 2b: how should the
-**confirmed scalar-facts table(s)** of the local replica and the server
-authority store their structured coordinates and relation split, measured on
-Bun `bun:sqlite` at a provisional stress profile (a labeled logical-state proxy,
-never a frozen conformance run; see the qualification note below).
+**Pre-pilot confirmed-facts correctness/storage evidence** for one narrow Wave 2b
+question: how should the confirmed scalar-facts table(s) of the local replica and
+the server authority store their structured coordinates and relation split,
+measured on Bun `bun:sqlite` at a labeled stress proxy.
 
-It is a decision instrument, not a reusable benchmark framework, and not a
-layout freeze.
+It is a decision instrument, not a reusable benchmark framework, and not a layout
+freeze.
+
+## This is not admissible full evidence
+
+The spec's acceptance evidence requires exercising the real replica and authority
+workflows on their supported production runtimes. This instrument does neither:
+it drives only the actual confirmed-facts operations listed below, on Bun, which
+cannot qualify OPFS, quota, WebKit, mobile, worker locks, or Durable Object
+SQLite. Treat every result as **pre-pilot**: correctness and storage evidence
+that a real pilot and then a qualification run must supersede. It never names,
+ranks, or tie-breaks a layout; the ADR owns that choice.
 
 ## Scope (deliberately narrow)
 
@@ -19,175 +28,215 @@ across two axes:
 - coordinate layout: inline structured coordinates, or a normalized
   `coordinates` dictionary keyed by `(kind, namespace, local_key)`.
 
-It compares those four candidates against two owners with distinct workloads:
-the **replica** (monotonic install, point reads, traversal, overlay,
-tombstone-driven document cleanup) and the **authority** (ordered feed,
-submission settlement, exact-retry, fold reads).
+It exercises those four candidates under two owners, measuring **only the actual
+current-facts operations each performs**:
 
-### What this instrument does NOT decide
+- replica: monotonic install (acquiring settled current facts in sequence
+  order), row and value point reads, table traversal, ordered feed scan, and
+  close/reopen;
+- authority: full event-log replay install, ordered feed (fresh and resumed),
+  fold point reads, and close/reopen.
+
+### What this instrument does NOT measure or decide
+
+It does **not** measure the real workflows the spec ultimately requires:
+authority submission settlement, exact-retry, and parked-result handling; replica
+pending-intent overlay reads and tombstone-driven document cleanup. It reports
+those as unsupported rather than pretending to cover them.
 
 The spec's physical-format break carries structured identity through confirmed
 facts, pending intents, sealed submission state, parked diagnostics, and
-document-liveness joins (spec Wave 2b, lines 847-864). Whether the
-inline-vs-normalized coordinate *encoding* is a schema-wide choice binding every
-address-bearing table is **source-silent**, and the non-facts stores
-(sealed-submission ledger, document publication, blob publication, blob bytes,
-metadata) are not yet designed in detail.
-
-Therefore this instrument:
+document-liveness joins. Whether the inline-vs-normalized coordinate *encoding*
+is a schema-wide choice binding every address-bearing table is source-silent, and
+the non-facts stores are not yet designed in detail. Therefore this instrument:
 
 - measures **only** the confirmed-facts table layout;
 - scopes its storage metric to the **candidate-varying tables** (`facts`, plus
-  `coordinates` for the normalized candidates), so the normalized-vs-inline
-  delta is not diluted or biased by fixture tables hard-wired to one encoding;
+  `coordinates` for the normalized candidates), so the normalized-vs-inline delta
+  is not diluted by fixture tables hard-wired to one encoding;
 - **refuses to freeze** the schema-wide coordinate encoding or the layout of any
   non-facts store, and says so in its own report.
 
 If Wave 2b intends a single schema-wide coordinate representation across every
 address-bearing table, this instrument is the wrong shape and must be extended
-(candidates, workloads, and constraint proofs) across those tables before any
-freeze. That is an open ownership fork returned to Codex.
+before any freeze. That is an open ownership fork returned to Codex.
 
-## Provisional by construction
+## Correctness: uniform invariants proven under attack
 
-Bun can decide native schema and query-plan evidence but cannot qualify OPFS,
-storage quota, WebKit, worker locks, mobile memory, backgrounding, or Durable
-Object SQLite. Per ADR-0161 (65-68) and ADR-0163 (305-307), the exact V1
-constants and the physical layout must be chosen by the browser, Bun, and
-Cloudflare scale proof before ADR-0163 is Accepted. **Every recommendation this
-tool emits is provisional** and names the platform evidence it still requires.
+Every candidate keeps the same closed current-fact state under raw SQL, not just
+through its store, via three uniform per-table invariants enforced by BEFORE
+triggers (so `RAISE(ABORT)` defeats OR REPLACE / OR IGNORE / UPSERT regardless of
+`recursive_triggers`):
 
-### The 512 MiB / 1,000,000-live-address target is not a portability guarantee
+1. every fact INSERT is a genuinely new primary address and a new global
+   sequence (including the split cross-table sequence space);
+2. every fact UPDATE keeps its address, strictly raises its sequence, never
+   collides with another row's sequence, and never resurrects a row tombstone;
+3. every fact DELETE is refused; an owner reset drops and recreates the store.
 
-No fixed 512 MiB portability guarantee is defensible. Treat it as a
-**conditional normal-profile qualification** where runtime quota admits, with
-peak headroom and quota-refusal atomic recovery measured. The tiers are:
+Coordinates are write-once (unconditional no-update, no-delete, and no-replace
+insert), so `foreign_keys` OFF cannot orphan a fact and no conflict path can move
+a live coordinate onto a referenced id or identity.
 
-- PR smoke: 10k addresses / 5 MiB, every run.
-- physical mobile floor: 250k / 128 MiB (physical iOS Safari and Android).
-- conditional normal profile: 1,000,000 live addresses / 512 MiB where quota
-  admits.
-- informational desktop stress: 2M / 1 GiB.
-- private/incognito is a **negative** compatibility/refusal test (persistence
-  denied), never a durable qualification cell.
+An **attack matrix** (`attackMatrixProofs`) runs every reproduced corruption
+vector as raw SQL that bypasses the store, across all four candidates with
+`recursive_triggers` OFF and ON, and the normalized candidates additionally with
+`foreign_keys` OFF and ON: INSERT OR REPLACE onto a tombstone PK, a distinct PK
+reusing a tombstone sequence, or a live PK; UPDATE OR REPLACE moving a live row
+onto a tombstone address or sequence; UPSERT onto an existing identity; UPDATE OR
+IGNORE address/sequence conflicts; direct DELETE; row absent-then-present; split
+cross-table sequence collisions; and the coordinate replace/update/delete and
+orphan-insert attacks. After each rejected attack it asserts the exact
+count/byte/SHA-256 witness and `PRAGMA integrity_check` are unchanged, not merely
+that the statement threw. The legal transitions it must still allow (row
+absent-then-higher-absent; value absent-then-higher-present) are proven to
+succeed.
 
-### Why the 512 MiB *logical* target cannot be claimed here
+## Independent oracle and reopen witness
 
-ADR-0161 states the target as 1,000,000 live scalar addresses and 512 MiB of
-canonical encoded **logical state**. ADR-0167 defines logical state as present
-rows and values only, explicitly excluding authority sequences and terminal
-tombstones, but it leaves the exact canonical logical-state encoding an unfrozen
-implementation decision ("the exact container, seal, and physical filename
-encoding remain implementation decisions until a round-trip proof chooses
-them"). So this instrument **cannot claim the 512 MiB logical qualification**: it
-reports present-logical-state bytes under a clearly labeled proxy (canonical JSON
-of the ADR-0167 logical columns) as a stress target, and separately reports the
-current protocol-fact bytes. Do not miscite the ADR by calling total current
-facts the live-address count.
+Correctness never trusts a layout's own read path. The oracle is analytical and
+streaming: the final current fact at any address is a closed-form function of its
+index, and every emitted change gets a dense unique sequence, so at full scale it
+retains neither the payload corpus nor a per-fact map. Every candidate's
+post-aging state is checked against the oracle's three-part witness: exact
+current-fact count, exact current-protocol-fact bytes, and one ordered SHA-256
+over the current facts in ascending sequence. The same witness is recomputed after
+a close/reopen and required identical; a durable state that silently changed is a
+failed cell.
 
-## Measurement honesty (four distinct quantities)
+The corpus is also bound to the real private V1 kernel: a representative sample of
+generated facts is admitted through `parseFact`, and the trace's protocol-fact
+byte accounting is checked equal to the kernel's `encodedFactBytes`.
 
-The report never conflates these and prints an amplification ratio only when
-both its numerator and denominator are measured:
+## Per-cell outcome vs run-level status
 
-1. **present logical-state bytes** (the ADR-0167 proxy, the target quantity):
-   the sum of the exact canonical bytes of the logical content of every
-   final-**present** row and value, excluding sequences and terminal tombstones.
-   Row filler is calibrated so this hits the profile's byte target exactly, over
-   exactly the profile's live-address count, or the run is marked non-qualifying.
-2. **current protocol-fact bytes** (a storage/workload diagnostic): the sum of
-   the exact V1 fact record (structured address, `presence`, sequence, payload)
-   over **every** current fact, including terminal absences. Framing and
-   absences push this above (1); the two are never assumed to order and both are
-   reported.
-3. **allocated page bytes**: `page_count * page_size` after checkpoint/settle.
-4. **non-freelist page bytes**: `(page_count - freelist_count) * page_size`
-   after checkpoint/settle.
+Each cell carries a settled **outcome**, distinct from the run-level evidence
+status:
 
-Physical amplification is reported against the logical-state denominator for
-both page measures. The (2) / (1) ratio is reported as a separate protocol-overhead
-diagnostic. No ratio is printed unless both its numerator and denominator were
+- `passed`: reconstruction, durability, plan proof, and constraint proof all held;
+- `failed`: any of those failed (throw, reconstruction divergence, witness change
+  across reopen, non-ok integrity, cleanup failure, plan-semantics failure, or a
+  constraint-proof failure);
+- `unsupported` / `not-admitted`: reserved for a future harness (a runtime that
+  cannot run the cell, or a quota/precondition that refused admission). This Bun
+  instrument emits only `passed` / `failed`; it never fabricates the other two.
+
+`classifyEvidence` returns one run-level status and **never a candidate id**:
+
+- **invalid** (fail closed): any `failed` cell, a plan-semantics or constraint
+  proof failure, a malformed or changed witness, a non-ok integrity check, a
+  non-finite storage field, an empty/negative/non-finite timing sample, a
+  duplicate/unexpected/out-of-range cell, an inconsistent-or-non-distinct seed, or
+  a globally required metric missing.
+- **incomplete**: the expected owner x candidate x repetition matrix is not fully
+  populated and passing.
+- **provisional**: the matrix is complete and passing, but unsupported real
+  workflows and qualifying runtimes remain.
+- **ready-for-ADR-review**: reserved for a future harness. This Bun instrument
+  **can never emit it**.
+
+The report is `qualifyingRuntime: false`, an instrument-level fact independent of
+the status.
+
+## Provisional benchmark gates (not ADR or product promises)
+
+These thresholds are provisional gates the pilot and qualification runs evaluate;
+they are benchmark expectations, **not ADR decisions or product promises**, and a
+real run may disprove them. `L` is present-proxy bytes; `C` is current-fact count.
+
+Latency (per profile):
+
+| gate | physical mobile | conditional 1M browser |
+| --- | --- | --- |
+| install | <= 5m | <= 15m |
+| open + first point | <= 3s | <= 2s |
+| point read | p95 <= 50ms | <= 25ms |
+| write | <= 250ms | <= 100ms |
+| 512-fact private prefix | <= 500ms | <= 250ms |
+| ~1000-row traversal | <= 750ms | <= 300ms |
+| restart | <= 5s | <= 3s |
+
+Bun at 1M install is <= 5m and holds the same local-latency class as the
+conditional browser gates.
+
+Storage: `steady <= 1.75*L + 128*C + 16MiB`; `peak <= steady + L + max(16MiB,
+L/8)`; freelist-to-page ratio `<= 10%`. These bound bytes on disk. The structural
+requirement is that steady-state memory stays constant in the corpus size (paged
+scans, no whole-corpus buffering); it is described structurally, not as an
+invented portable RAM byte budget.
+
+## Measurement honesty (four distinct byte quantities)
+
+The report never conflates these and prints an amplification ratio only when both
+its numerator and denominator are measured:
+
+1. **present logical-state bytes** (the target quantity): the sum of the exact
+   canonical bytes of the logical content of every final-**present** row and
+   value, excluding sequences and terminal tombstones. This is a **labeled proxy**
+   for ADR-0161's final-present scalar-fields-and-values benchmark proxy (which at
+   1,000,000 final-present addresses totals exactly 536,870,912 bytes, about 536.9
+   bytes per address on average). It is **not** canonical encoded logical state,
+   is **not** 512 KiB per address, and is **not** a portability guarantee; the
+   canonical container encoding stays unfrozen. Row filler is calibrated so this
+   hits the profile's byte target exactly over exactly the profile's live-address
+   count, or the run is marked non-qualifying.
+2. **current protocol-fact bytes** (a storage/workload diagnostic): the exact V1
+   fact record over every current fact, including terminal absences.
+3. **allocated page bytes**: `page_count * page_size` after checkpoint.
+4. **non-freelist page bytes**: `(page_count - freelist_count) * page_size` after
+   checkpoint.
+
+Physical amplification is reported against the logical-state denominator for both
+page measures. No ratio is printed unless both its numerator and denominator were
 measured.
 
-## Evidence status, never a winner
+## Pilot before qualification
 
-This benchmark records reproducible, correctness-first evidence so an ADR can
-choose the physical layout. It **never names, ranks, or tie-breaks a winner**,
-and never claims Bun-only evidence qualifies a layout. There is no automated
-statistical selector: the whole Pareto / materiality / tie-break machinery is
-deliberately absent. The ADR owns the choice.
+The spec is internally inconsistent about seed counts (a four-outer-seed
+measurement pilot versus at least five maintained-evidence repetitions). The
+strict reading, adopted here, is: a **4-seed measurement pilot first**, then
+**at least five qualification repetitions** later, on supported runtimes. This
+Bun instrument is pre-pilot; its `full` profile requires at least five paired,
+distinct seeds (`max(5, requested)`) purely as an internal completeness bar, and
+never claims qualification.
 
-`classifyEvidence` returns one of four statuses and **never a candidate id**:
+## Runtime scope (page-addressable SQLite)
 
-- **invalid** (fail closed): any duplicate or failed cell, a cell for an
-  unexpected owner/candidate or an out-of-range repetition, an empty query plan,
-  a witness that changed across close/reopen, a failed `PRAGMA integrity_check`,
-  an empty or non-finite timing sample, a seed that is inconsistent within a
-  repetition or not distinct across repetitions, or a globally required metric
-  missing.
-- **incomplete**: the expected owner x candidate x repetition matrix (five
-  repetitions for full evidence) is not fully populated and correct.
-- **provisional**: the matrix is complete and correct, but unsupported real
-  workflows and qualifying runtimes remain, so evidence stops here.
-- **ready-for-ADR-review**: reserved for a future harness that closes those gaps.
-  This Bun instrument **can never emit it**.
+The runner is runtime-neutral over page-addressable file SQLite: it imports no
+`bun:sqlite` or `node:*` and receives its lifecycle through an injected
+async-capable factory, so a browser OPFS SQLite runtime reuses it unchanged.
+**Durable Object SQLite is explicitly out of scope**: its storage is not page and
+freelist addressable the same way, so it needs a separate runner with its own
+storage accounting. This harness never fabricates page metrics for it.
 
-The report enumerates the unsupported real workflows it does not measure
-(authority submission settlement, exact-retry, parked-result handling; replica
-pending-intent overlay and tombstone-driven document cleanup) and the runtimes it
-cannot qualify (OPFS, quota, WebKit / mobile, worker locks, Durable Objects). Raw
-per-cell metrics and witnesses are kept and machine-readable; smoke is a fast
-illustrative run, non-qualifying by construction.
+## Artifact
 
-## Independent oracle
-
-Correctness never trusts a layout's own read path. The oracle is **analytical
-and streaming**: the final current fact at any address is a closed-form function
-of its index (each event lands in a disjoint, strictly-increasing sequence band,
-and the highest band wins), and every emitted change gets a dense unique
-sequence, so at full scale it retains neither the payload corpus nor a per-fact
-map. Every candidate's post-aging state is checked against the oracle's
-**three-part witness**: exact current-fact count, exact current-protocol-fact
-bytes, and **one ordered SHA-256** over the current facts in ascending sequence
-(length-prefixed framing; a 32-bit hash would be too collision-prone for a
-million rows, and peer hashes alone are not trusted). A candidate reproduces all
-three by scanning `ORDER BY sequence`. A small map-backed fold survives only for
-the self-test.
-
-The lifecycles are real events, not counted assumptions: initially-absent values
-that later become present, value unset-then-present, and row tombstones. Row
-tombstone non-resurrection is proven in the **trace-oracle self-test** by an
-attempted higher-sequence present that the fold refuses, not by counting final
-tombstones. Each candidate **store** must additionally prove the same refusal
-(and the stale / equal-identical / equal-different install outcomes) against its
-own physical layout; `layouts.ts` enforces that proof for every candidate. The
-observed namespace/table/value/lifecycle cardinalities are asserted and
-reported.
+`--output <path>` writes one versioned JSON artifact (`artifactVersion` 2) with
+complete reproduction metadata: the runtime identity (Bun and SQLite versions, OS
+platform/release/arch, and pragmas), the parsed args, install batch, per-repetition
+candidate order, the command line, the source commit (honestly null when not
+provided via `SOURCE_COMMIT` / `GITHUB_SHA`), and a DDL/schema digest and version.
+It carries the full raw per-cell results (timing sample arrays, storage, plans,
+plan and constraint proofs, before/after witnesses, integrity, outcome) plus the
+classifier report. The classifier summarizes; the raw arrays are the evidence, and
+medians are never the artifact.
 
 ## Determinism
 
-Seeded PRNG only; no wall-clock or `Math.random`. Namespace and table are chosen
-by two independently salted hashes (never one correlated modulo). Paired
-candidates within one repetition see exactly the same trace; each repetition
-draws an independent data seed. Full evidence requires at least five independent
-builds; short operations retain raw samples.
+Seeded PRNG only; no wall clock or `Math.random`. Namespace and table are chosen
+by two independently salted hashes. Paired candidates within one repetition see
+exactly the same trace; each repetition draws an independent data seed.
 
 ## Files
 
-- `scalar-facts-layout.ts` (parent): CLI, profiles, argument parsing, report.
+- `scalar-facts-layout.ts` (parent): CLI, profiles, argument parsing, report,
+  artifact.
 - `trace.ts`: deterministic corpus, aging events, and the independent oracle.
-- `layouts.ts`: the four DDL candidates, their stores, and negative constraint
-  proofs.
-- `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans.
-  Runtime-neutral: it imports no `bun:sqlite` or `node:*` and receives its
-  database lifecycle through an injected async-capable `RuntimeFactory`, so a
-  future Worker/OPFS runtime reuses it unchanged. The authority replays the full
-  event log (`trace.events()`); the replica acquires only the settled current
-  facts in sequence order (`trace.finalFactsBySequence()`). After close/reopen it
-  recomputes the three-part witness and requires equality, keeping both witnesses
-  and `integrity_check` in the per-cell result.
-- `decision.ts`: the evidence-status classifier (invalid/incomplete/provisional;
-  never a winner). Neutral over `@epicenter/sqlite`.
-- `bun-runtime.ts`: Bun/node-only DB lifecycle (open/WAL/reopen), temp files, and
-  page metrics; wraps `bun:sqlite` with `createBunSqliteAdapter`.
-- `digest.ts`: removed; the ordered SHA-256 uses `@noble/hashes` incrementally.
+- `layouts.ts`: the four DDL candidates, their stores, the uniform invariant
+  triggers, and the shape and attack-matrix proofs.
+- `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans, the
+  per-cell outcome and plan proof. Runtime-neutral over page-addressable SQLite.
+- `decision.ts`: the fail-closed evidence-status classifier (invalid / incomplete
+  / provisional; never a winner).
+- `bun-runtime.ts`: Bun/node-only DB lifecycle, page metrics, in-memory proof DB,
+  and the runtime-identity descriptor.
