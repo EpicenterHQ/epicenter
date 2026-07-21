@@ -215,6 +215,14 @@ BEGIN SELECT RAISE(ABORT, 'coordinates are never deleted'); END;`,
 WHEN EXISTS (SELECT 1 FROM coordinates c WHERE c.coordinate_id = NEW.coordinate_id)
   OR EXISTS (SELECT 1 FROM coordinates c WHERE c.kind = NEW.kind AND c.namespace = NEW.namespace AND c.local_key = NEW.local_key)
 BEGIN SELECT RAISE(ABORT, 'coordinate identity is immutable'); END;`,
+		// coordinate_id is the INTEGER PRIMARY KEY (rowid alias): it is NULL in a
+		// BEFORE INSERT when auto-assigned, so its positivity cannot be checked
+		// there. This AFTER INSERT trigger runs once the rowid is allocated and sees
+		// the ACTUAL id, so it refuses zero/negative ids even with
+		// ignore_check_constraints ON. RAISE(ABORT) rolls the insert back.
+		`CREATE TRIGGER coordinates_id_positive AFTER INSERT ON coordinates
+WHEN NOT (typeof(NEW.coordinate_id) = 'integer' AND NEW.coordinate_id >= 1)
+BEGIN SELECT RAISE(ABORT, 'coordinate id must be a positive integer'); END;`,
 		...coordinateGrammarTriggers(),
 	];
 }
@@ -900,6 +908,102 @@ function rejects(run: () => void): boolean {
 	}
 }
 
+/** The exact RAISE(ABORT) messages our triggers use; an attack must hit one of these. */
+const KNOWN_RAISE_MESSAGES: readonly string[] = [
+	'coordinates are immutable once inserted',
+	'coordinates are never deleted',
+	'coordinate identity is immutable',
+	'coordinate id must be a positive integer',
+	'invalid coordinate shape',
+	'invalid normalized fact shape',
+	'invalid grammar',
+	'fact insert must use a new address and a new sequence',
+	'fact update must keep its address, raise its sequence, and never resurrect',
+	'facts are never deleted; reset the store instead',
+];
+/** SQLite constraint-class error fragments (a genuine constraint refusal, not a typo). */
+const CONSTRAINT_FRAGMENTS: readonly string[] = [
+	'constraint failed',
+	'UNIQUE',
+	'PRIMARY KEY',
+	'CHECK',
+	'NOT NULL',
+];
+
+/** Classify a thrown error: a genuine trigger `raise` or `constraint` refusal, else `other`. */
+export function refusalClass(
+	message: string,
+): 'raise' | 'constraint' | 'other' {
+	if (KNOWN_RAISE_MESSAGES.some((m) => message.includes(m))) return 'raise';
+	if (CONSTRAINT_FRAGMENTS.some((m) => message.includes(m)))
+		return 'constraint';
+	return 'other';
+}
+
+/** A correctness-relevant pragma tuple, as requested and as observed in a record. */
+export type PragmaTuple = {
+	recursiveTriggers: boolean;
+	foreignKeys: boolean;
+	ignoreCheckConstraints: boolean;
+};
+const pragmaTupleKey = (p: PragmaTuple): string =>
+	`rt=${p.recursiveTriggers ? 1 : 0} fk=${p.foreignKeys ? 1 : 0} icc=${p.ignoreCheckConstraints ? 1 : 0}`;
+
+/**
+ * Verify the OBSERVED pragma tuples (read back from each record's database) match
+ * the REQUESTED tuples exactly: same set, each occurring once, none ignored,
+ * missing, or duplicated. Returns the list of failures (empty means clean).
+ */
+export function verifyPragmaCoverage(
+	requested: PragmaTuple[],
+	observed: PragmaTuple[],
+): string[] {
+	const failures: string[] = [];
+	requested.forEach((combo, i) => {
+		const got = observed[i];
+		if (got && pragmaTupleKey(got) !== pragmaTupleKey(combo))
+			failures.push(
+				`observed pragmas [${pragmaTupleKey(got)}] != requested [${pragmaTupleKey(combo)}]`,
+			);
+	});
+	if (requested.length !== observed.length)
+		failures.push(
+			`observed ${observed.length} records for ${requested.length} requested combos`,
+		);
+	const requestedKeys = requested.map(pragmaTupleKey);
+	const requestedSet = new Set(requestedKeys);
+	if (requestedSet.size !== requestedKeys.length)
+		failures.push('requested pragma combos are not distinct');
+	const observedCount = new Map<string, number>();
+	for (const o of observed) {
+		const k = pragmaTupleKey(o);
+		observedCount.set(k, (observedCount.get(k) ?? 0) + 1);
+	}
+	for (const k of requestedSet)
+		if ((observedCount.get(k) ?? 0) !== 1)
+			failures.push(`pragma tuple [${k}] not present exactly once`);
+	for (const [k, n] of observedCount)
+		if (!requestedSet.has(k) || n !== 1)
+			failures.push(`unexpected/duplicate pragma tuple [${k}] (x${n})`);
+	return failures;
+}
+
+/** Run an attack, capturing whether it threw and, if so, the exact error message. */
+function observeAttack(run: () => void): {
+	rejected: boolean;
+	message: string;
+} {
+	try {
+		run();
+		return { rejected: false, message: '' };
+	} catch (error) {
+		return {
+			rejected: true,
+			message: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
 function coordIdFor(db: SqliteDatabase, address: Address): number {
 	const found = db.all<{ id: number }>(
 		'SELECT coordinate_id AS id FROM coordinates WHERE kind = ? AND namespace = ? AND local_key = ?',
@@ -1201,6 +1305,11 @@ function integrityOf(db: SqliteDatabase): string {
 export type AttackResult = {
 	name: string;
 	rejected: boolean;
+	/** The exact thrown error message, and its refusal class. A masquerade (a SQL
+	 * typo or missing table) is class `other` and fails the attack, since it is not
+	 * a genuine invariant refusal. */
+	observedError: string;
+	refusalClass: 'raise' | 'constraint' | 'other';
 	observedWitness: { count: number; bytes: number; digest: string };
 	observedIntegrity: string;
 	witnessStable: boolean;
@@ -1287,7 +1396,8 @@ export function attackMatrixProof(
 		failures.push(`${candidate.id}: baseline integrity is not ok`);
 
 	const attack = (name: string, run: () => void): void => {
-		const rejected = rejects(run);
+		const observed = observeAttack(run);
+		const cls = observed.rejected ? refusalClass(observed.message) : 'other';
 		const observedWitness = witnessOf(store);
 		const observedIntegrity = integrityOf(db);
 		const witnessStable =
@@ -1297,14 +1407,22 @@ export function attackMatrixProof(
 		const integrityOk = observedIntegrity === 'ok';
 		attacks.push({
 			name,
-			rejected,
+			rejected: observed.rejected,
+			observedError: observed.message,
+			refusalClass: cls,
 			observedWitness,
 			observedIntegrity,
 			witnessStable,
 			integrityOk,
 		});
-		if (!rejected)
+		if (!observed.rejected)
 			failures.push(`${candidate.id}: attack "${name}" was NOT rejected`);
+		// A rejection must be a GENUINE trigger/constraint refusal, never a SQL typo
+		// or missing-table masquerade (which would be class `other`).
+		else if (cls === 'other')
+			failures.push(
+				`${candidate.id}: attack "${name}" rejected by a non-refusal error: ${observed.message}`,
+			);
 		if (!witnessStable)
 			failures.push(`${candidate.id}: attack "${name}" mutated the witness`);
 		if (!integrityOk)
@@ -1464,6 +1582,16 @@ export function attackMatrixProof(
 		attack('raw empty coordinate local key', () =>
 			db.run(
 				"INSERT INTO coordinates (kind, namespace, local_key) VALUES ('value', 'so.epicenter.ns00', '')",
+			),
+		);
+		attack('raw negative coordinate id', () =>
+			db.run(
+				"INSERT INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (-7, 'value', 'so.epicenter.ns00', 'settingn')",
+			),
+		);
+		attack('raw zero coordinate id', () =>
+			db.run(
+				"INSERT INTO coordinates (coordinate_id, kind, namespace, local_key) VALUES (0, 'value', 'so.epicenter.ns00', 'settingo')",
 			),
 		);
 	}

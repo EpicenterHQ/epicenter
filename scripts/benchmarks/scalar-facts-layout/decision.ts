@@ -21,7 +21,8 @@
  * for a future harness that closes those gaps. The per-cell `outcome`
  * (passed|failed|unsupported|not-admitted) is distinct from this run-level status.
  */
-import { evaluatePlanProof, type Owner, type RunResult } from './runner.js';
+import { evaluatePlanProof } from './plan-proof.js';
+import type { Owner, RunResult } from './runner.js';
 
 export type EvidenceStatus =
 	| 'invalid'
@@ -96,6 +97,11 @@ export type EvidenceReport = {
  * the same independent trace the cells measured against. Every cell of that
  * repetition must match it exactly, which automatically binds paired cells to one
  * agreed current state (count, protocol bytes, digest) and one seed.
+ *
+ * Lifecycle cardinalities are deliberately NOT here: the classifier does not
+ * recompute them against a frozen trace, so it would be dishonest to claim it
+ * validates them exactly. They are retained only as descriptive trace metadata in
+ * the artifact, never bound by this classifier.
  */
 export type RepetitionOracle = {
 	repetition: number;
@@ -107,13 +113,6 @@ export type RepetitionOracle = {
 	presentLogicalStateBytes: number;
 	totalFacts: number;
 	finalAbsent: number;
-	lifecycle: {
-		rewrites: number;
-		rowTombstones: number;
-		valueUnsets: number;
-		valueResurrections: number;
-		initialAbsentThenPresent: number;
-	};
 };
 
 export type ClassifyOptions = {
@@ -168,13 +167,41 @@ export function classifyEvidence(
 		invalid = true;
 	};
 
-	// Index the declared per-repetition oracles and validate each is internally
-	// consistent (a wrong lifecycle/count declaration is itself invalid).
+	// The declared oracles must be an EXACT closed set: exactly one per repetition
+	// 0..requiredReps-1, no extras, all fields finite non-negative integers,
+	// internally consistent, with distinct seeds. Anything else fails closed.
+	const requiredRepsForOracles = options.requiredRepetitions;
 	const oracleByRep = new Map<number, RepetitionOracle>();
+	if (options.expectedRepetitionOracles.length !== requiredRepsForOracles)
+		fail(
+			`declared ${options.expectedRepetitionOracles.length} oracles, need exactly ${requiredRepsForOracles}`,
+		);
+	const oracleSeeds = new Set<number>();
 	for (const oracle of options.expectedRepetitionOracles) {
 		if (oracleByRep.has(oracle.repetition))
 			fail(`duplicate oracle for repetition ${oracle.repetition}`);
 		oracleByRep.set(oracle.repetition, oracle);
+		if (
+			!Number.isInteger(oracle.repetition) ||
+			oracle.repetition < 0 ||
+			oracle.repetition >= requiredRepsForOracles
+		) {
+			fail(`oracle repetition ${oracle.repetition} out of range`);
+		}
+		for (const [field, value] of [
+			['dataSeed', oracle.dataSeed],
+			['count', oracle.count],
+			['currentProtocolFactBytes', oracle.currentProtocolFactBytes],
+			['presentCount', oracle.presentCount],
+			['presentLogicalStateBytes', oracle.presentLogicalStateBytes],
+			['totalFacts', oracle.totalFacts],
+			['finalAbsent', oracle.finalAbsent],
+		] as const) {
+			if (!isFiniteNonNegInt(value))
+				fail(`oracle rep ${oracle.repetition}: ${field} not a finite integer`);
+		}
+		if (!isLowerHex64(oracle.digestHex))
+			fail(`oracle rep ${oracle.repetition}: malformed digest`);
 		if (oracle.count !== oracle.totalFacts)
 			fail(`oracle rep ${oracle.repetition}: count != totalFacts`);
 		if (oracle.presentCount + oracle.finalAbsent !== oracle.totalFacts)
@@ -183,10 +210,13 @@ export function classifyEvidence(
 			);
 		if (oracle.presentCount > oracle.count)
 			fail(`oracle rep ${oracle.repetition}: presentCount > count`);
-		for (const [name, n] of Object.entries(oracle.lifecycle)) {
-			if (!isFiniteNonNegInt(n) || n > oracle.totalFacts)
-				fail(`oracle rep ${oracle.repetition}: lifecycle ${name} out of range`);
-		}
+		if (oracleSeeds.has(oracle.dataSeed))
+			fail(`oracle seed ${oracle.dataSeed} is not distinct`);
+		oracleSeeds.add(oracle.dataSeed);
+	}
+	// Every required repetition must have exactly one oracle (no gaps).
+	for (let rep = 0; rep < requiredRepsForOracles; rep += 1) {
+		if (!oracleByRep.has(rep)) fail(`missing oracle for repetition ${rep}`);
 	}
 
 	// Index cells; fail closed on any duplicate, failed outcome, out-of-range or
@@ -236,9 +266,9 @@ export function classifyEvidence(
 		if (result.integrityCheck !== 'ok')
 			fail(`integrity_check ${result.integrityCheck} in ${key}`);
 
-		// Plan proof RECOMPUTED from the raw plans; never trust the retained boolean,
-		// and require the retained proof to match the recomputation.
-		const recomputedPlan = evaluatePlanProof(result.plans);
+		// Plan proof RECOMPUTED from the raw plans against the CANDIDATE's contract;
+		// never trust the retained boolean, and require it to match the recomputation.
+		const recomputedPlan = evaluatePlanProof(result.candidateId, result.plans);
 		if (!recomputedPlan.ok) fail(`query plan proof failed in ${key}`);
 		if (
 			recomputedPlan.ok !== result.planProof.ok ||

@@ -32,8 +32,10 @@ import {
 	type Candidate,
 	type ConstraintProofRecord,
 	ddlStatements,
+	type PragmaTuple,
 	shapeProofs,
 	storeTransactionProofs,
+	verifyPragmaCoverage,
 } from './scalar-facts-layout/layouts.js';
 import {
 	deriveProvenance,
@@ -54,26 +56,32 @@ import {
 } from './scalar-facts-layout/trace.js';
 
 /** The artifact schema and its version; bump when the artifact shape changes. */
-const ARTIFACT_VERSION = 2;
-const SCHEMA_VERSION = 2;
+const ARTIFACT_VERSION = 3;
+const SCHEMA_VERSION = 3;
 const INSTALL_BATCH = 1024;
 const INSTRUMENT_LABEL =
 	'pre-pilot confirmed-facts correctness/storage evidence';
 
 // The exact evidence-producing sources whose bytes the artifact digests and whose
-// dirtiness gates provenance: the non-test benchmark modules plus the ONE private
-// V1 protocol file the trace and store import at runtime (canonical.ts). Test
-// files and unrelated app code are deliberately excluded, so unrelated dirt never
-// poisons the scoped digest or the scoped dirty check.
+// dirtiness gates provenance: the non-test benchmark modules, the V1 protocol file
+// the trace and store import at runtime (canonical.ts), the SQLite adapter the
+// runtime imports (packages/sqlite/src/bun.ts), and the dependency-identity files
+// (package.json, bun.lock) so third-party (Noble, adapter) resolution is honest.
+// Test files and unrelated app code are excluded, so unrelated dirt never poisons
+// the scoped digest or the scoped dirty check.
 const RELEVANT_SOURCES = [
 	'scripts/benchmarks/scalar-facts-layout.ts',
 	'scripts/benchmarks/scalar-facts-layout/layouts.ts',
 	'scripts/benchmarks/scalar-facts-layout/trace.ts',
 	'scripts/benchmarks/scalar-facts-layout/runner.ts',
+	'scripts/benchmarks/scalar-facts-layout/plan-proof.ts',
 	'scripts/benchmarks/scalar-facts-layout/decision.ts',
 	'scripts/benchmarks/scalar-facts-layout/bun-runtime.ts',
 	'scripts/benchmarks/scalar-facts-layout/provenance.ts',
 	'packages/data/src/protocol/v1/canonical.ts',
+	'packages/sqlite/src/bun.ts',
+	'package.json',
+	'bun.lock',
 ];
 
 /** The repo root, two levels above this script (scripts/benchmarks/). */
@@ -305,10 +313,25 @@ async function main(): Promise<number> {
 	const { base, liveTarget, logicalTarget } = resolveTrace(args);
 
 	// The per-repetition oracle: for each rep, the SAME seed the measured cells use
-	// (hash32(seed, rep)), computed by the independent trace. These own every
-	// seed-dependent witness value (current count, protocol bytes, digest, and the
-	// observed lifecycle); the corpus shape below is seed-invariant.
+	// (hash32(seed, rep)), computed by the independent trace. These own the
+	// seed-dependent witness values (current count, protocol bytes, digest) the
+	// classifier binds cells to; the corpus shape below is seed-invariant. Lifecycle
+	// cardinalities are retained separately as descriptive metadata, NOT bound by
+	// the classifier (which does not recompute them against a frozen trace).
 	const repetitionOracles: RepetitionOracle[] = [];
+	const repetitionTraceMetadata: {
+		repetition: number;
+		dataSeed: number;
+		namespaces: number;
+		tables: number;
+		lifecycle: {
+			rewrites: number;
+			rowTombstones: number;
+			valueUnsets: number;
+			valueResurrections: number;
+			initialAbsentThenPresent: number;
+		};
+	}[] = [];
 	for (let rep = 0; rep < args.repetitions; rep += 1) {
 		const dataSeed = hash32(args.seed, rep);
 		const trace = makeTrace({ ...base, dataSeed });
@@ -330,6 +353,12 @@ async function main(): Promise<number> {
 			presentLogicalStateBytes: m.presentLogicalStateBytes,
 			totalFacts: o.facts,
 			finalAbsent: o.finalAbsent,
+		});
+		repetitionTraceMetadata.push({
+			repetition: rep,
+			dataSeed,
+			namespaces: o.namespaces,
+			tables: o.tables,
 			lifecycle: {
 				rewrites: o.rewrites,
 				rowTombstones: o.rowTombstones,
@@ -370,7 +399,7 @@ async function main(): Promise<number> {
 		`present logical-state proxy: ${fmtBytes(rep0.presentLogicalStateBytes)} (${rep0.presentLogicalStateBytes} bytes)`,
 	);
 	console.log(
-		`[repetition 0 sample] namespaces ${rep0Observed.namespaces}, tables ${rep0Observed.tables}, current facts ${rep0.count}, protocol bytes ${rep0.currentProtocolFactBytes}, lifecycle rewrites ${rep0.lifecycle.rewrites}, row tombstones ${rep0.lifecycle.rowTombstones}`,
+		`[repetition 0 sample] namespaces ${rep0Observed.namespaces}, tables ${rep0Observed.tables}, current facts ${rep0.count}, protocol bytes ${rep0.currentProtocolFactBytes}, lifecycle rewrites ${rep0Observed.rewrites}, row tombstones ${rep0Observed.rowTombstones}`,
 	);
 	console.log('');
 
@@ -427,17 +456,28 @@ async function main(): Promise<number> {
 		return combos;
 	};
 	const constraintEvidence = CANDIDATES.map((candidate) => {
-		const records: ConstraintProofRecord[] = pragmaCombos(candidate).map(
-			(combo) => attackMatrixProof(candidate, makeInMemoryBunDbWith(combo)),
+		const combos = pragmaCombos(candidate);
+		const records: ConstraintProofRecord[] = combos.map((combo) =>
+			attackMatrixProof(candidate, makeInMemoryBunDbWith(combo)),
+		);
+		// Verify the OBSERVED pragma tuple (read back from each record's db) equals
+		// the REQUESTED tuple, and that the exact requested set occurs once per
+		// candidate. A pragma that was ignored, missing, or duplicated fails closed.
+		const pragmaFailures = verifyPragmaCoverage(
+			combos,
+			records.map((r) => r.pragmas),
 		);
 		const otherFailures = [
 			...shapeProofs(candidate, makeInMemoryBunDb),
 			...storeTransactionProofs(candidate, makeInMemoryBunDb),
+			...pragmaFailures,
 		];
-		const label = (r: ConstraintProofRecord): string =>
-			`rt=${r.pragmas.recursiveTriggers ? 'on' : 'off'} fk=${r.pragmas.foreignKeys ? 'on' : 'off'} icc=${r.pragmas.ignoreCheckConstraints ? 'on' : 'off'}`;
+		const label = (p: PragmaTuple): string =>
+			`rt=${p.recursiveTriggers ? 'on' : 'off'} fk=${p.foreignKeys ? 'on' : 'off'} icc=${p.ignoreCheckConstraints ? 'on' : 'off'}`;
 		const failures = [
-			...records.flatMap((r) => r.failures.map((f) => `[${label(r)}] ${f}`)),
+			...records.flatMap((r) =>
+				r.failures.map((f) => `[${label(r.pragmas)}] ${f}`),
+			),
 			...otherFailures,
 		];
 		return {
@@ -598,6 +638,10 @@ async function main(): Promise<number> {
 				finalAbsent: rep0.finalAbsent,
 			},
 			repetitionOracles,
+			// Descriptive-only per-repetition trace metadata (lifecycle cardinalities,
+			// namespaces, tables). The classifier does NOT bind these; they are not
+			// recomputed against a frozen trace, so they are audit context only.
+			repetitionTraceMetadata,
 			// The full typed attack-matrix records across the pragma matrix, with
 			// each combo's baseline witness/integrity and every attack's result.
 			constraintEvidence,

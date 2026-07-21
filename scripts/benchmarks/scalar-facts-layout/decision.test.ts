@@ -7,26 +7,41 @@
  * or with a missing cell; and it is provisional (never ready-for-ADR-review) on a
  * complete passing matrix.
  */
+import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
+import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import { classifyEvidence, type RepetitionOracle } from './decision.js';
-import { CANDIDATES } from './layouts.js';
+import { CANDIDATES, createStore, ddlStatements } from './layouts.js';
+import type { QueryPlans } from './plan-proof.js';
 import type { Owner, RunResult } from './runner.js';
 
 const HEX64 = 'a'.repeat(64);
 
-// Structured plan builders. A good feed branch is an ordered sequence index; a
-// good point/traverse is a primary-key SEARCH.
 const onePlan = (detail: string) => ({ branches: [[detail]] });
-const GOOD_FEED = onePlan(
-	'SEARCH facts USING INDEX sqlite_autoindex_facts_1 (sequence>?)',
-);
-const GOOD_POINT = onePlan(
-	'SEARCH facts USING PRIMARY KEY (kind=? AND row_id=?)',
-);
 
 const OWNERS: Owner[] = ['replica', 'authority'];
 const IDS = CANDIDATES.map((c) => c.id);
+
+// The REAL structured plans per candidate, so the classifier's candidate-specific
+// recomputation agrees with the fixture (no drift, no hand-authored contract copy).
+function realPlans(candidateId: string): QueryPlans {
+	const candidate = CANDIDATES.find((c) => c.id === candidateId);
+	if (!candidate) throw new Error(`unknown candidate ${candidateId}`);
+	const db = createBunSqliteAdapter(new Database(':memory:'));
+	db.run('PRAGMA foreign_keys = ON');
+	for (const statement of ddlStatements(candidate)) db.run(statement);
+	const store = createStore(db, candidate);
+	return {
+		feed: store.queryPlan('feed'),
+		rowPoint: store.queryPlan('rowPoint'),
+		valuePoint: store.queryPlan('valuePoint'),
+		traverse: store.queryPlan('traverse'),
+	};
+}
+const PLANS_BY_CANDIDATE: Record<string, QueryPlans> = Object.fromEntries(
+	IDS.map((id) => [id, realPlans(id)]),
+);
 const METRICS_BY_OWNER: Record<Owner, string[]> = {
 	replica: [
 		'acquisition',
@@ -73,13 +88,8 @@ function cell(
 			presentCount: 100,
 			currentCount: 120,
 		},
-		// Realistic structured plans so the classifier's recomputation agrees.
-		plans: {
-			feed: GOOD_FEED,
-			rowPoint: GOOD_POINT,
-			valuePoint: GOOD_POINT,
-			traverse: GOOD_POINT,
-		},
+		// The candidate's REAL structured plans so recomputation agrees per-candidate.
+		plans: PLANS_BY_CANDIDATE[candidateId] as QueryPlans,
 		planProof: {
 			feedOrderedIndex: true,
 			pointIndexed: true,
@@ -113,7 +123,7 @@ function fullMatrix(): RunResult[] {
 // The declared per-repetition oracles, matching the fixture cell exactly:
 // dataSeed 100+rep, current 120/1200/HEX64, present 100/1000, totalFacts 120,
 // finalAbsent 20. Internally consistent (count == totalFacts; present+absent ==
-// totalFacts).
+// totalFacts). Lifecycle is no longer part of the classifier oracle.
 const ORACLES: RepetitionOracle[] = Array.from(
 	{ length: REQUIRED_REPS },
 	(_unused, rep) => ({
@@ -126,13 +136,6 @@ const ORACLES: RepetitionOracle[] = Array.from(
 		presentLogicalStateBytes: 1000,
 		totalFacts: 120,
 		finalAbsent: 20,
-		lifecycle: {
-			rewrites: 0,
-			rowTombstones: 0,
-			valueUnsets: 0,
-			valueResurrections: 0,
-			initialAbsentThenPresent: 0,
-		},
 	}),
 );
 
@@ -209,24 +212,49 @@ describe('fails closed to invalid', () => {
 	});
 	test('a split feed with one good branch and one broken branch', () => {
 		const results = fullMatrix();
-		const r = results[0] as RunResult;
-		// Row branch is a proper ordered sequence index; value branch is an
-		// unrelated primary-key SEARCH (not ordered by sequence). Every branch must
-		// be independently valid, so this is invalid even though one branch is good.
+		// Target a real split-inline cell: row branch is a proper ordered sequence
+		// index; value branch is an unrelated primary-key SEARCH (not ordered by
+		// sequence). Every branch must be independently valid per the contract.
+		const r = results.find(
+			(c) => c.candidateId === 'split-inline',
+		) as RunResult;
 		r.plans = {
 			...r.plans,
 			feed: {
 				branches: [
-					[
-						'SEARCH row_facts USING INDEX sqlite_autoindex_row_facts_1 (sequence>?)',
-					],
+					['SEARCH row_facts USING INDEX ai (sequence>?)'],
 					[
 						'SEARCH value_facts USING PRIMARY KEY (namespace=? AND local_key=?)',
 					],
 				],
 			},
 		};
-		// A forged proof claiming ok:true must not save it; recomputation rejects.
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a fabricated plan (unrelated table plus an unknown detail)', () => {
+		const results = fullMatrix();
+		const r = results[0] as RunResult; // unified-inline
+		r.plans = {
+			...r.plans,
+			feed: {
+				branches: [
+					[
+						'SEARCH facts USING INDEX arbitrary_idx (sequence>?)',
+						'TOTALLY UNKNOWN PLAN DETAIL',
+					],
+				],
+			},
+			rowPoint: onePlan('SEARCH unrelated USING INDEX arbitrary_idx'),
+		};
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a plan for the wrong candidate (unified plan on a split cell)', () => {
+		const results = fullMatrix();
+		const split = results.find(
+			(c) => c.candidateId === 'split-inline',
+		) as RunResult;
+		// A single-branch unified-style feed does not satisfy split-inline (2 branches).
+		split.plans = PLANS_BY_CANDIDATE['unified-inline'] as QueryPlans;
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 	test('a forged constraint proof (ok:true with nonempty failures)', () => {
@@ -340,7 +368,7 @@ describe('fails closed to invalid', () => {
 		(results[0] as RunResult).dataSeed = 999; // oracle rep 0 seed is 100
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
-	test('a wrong lifecycle declaration in the oracle (internally inconsistent)', () => {
+	test('an internally inconsistent oracle (present + absent != totalFacts)', () => {
 		const badOracles = ORACLES.map((o, i) =>
 			i === 0 ? { ...o, finalAbsent: 25 } : o,
 		); // present(100)+absent(25) != totalFacts(120)
@@ -348,6 +376,42 @@ describe('fails closed to invalid', () => {
 			classifyEvidence(fullMatrix(), {
 				...OPTIONS,
 				expectedRepetitionOracles: badOracles,
+			}).status,
+		).toBe('invalid');
+	});
+	test('an EXTRA oracle for an unused repetition (not an exact closed set)', () => {
+		const extra: RepetitionOracle = {
+			repetition: 999,
+			dataSeed: 777,
+			count: 120,
+			currentProtocolFactBytes: 1200,
+			digestHex: HEX64,
+			presentCount: 100,
+			presentLogicalStateBytes: 1000,
+			totalFacts: 120,
+			finalAbsent: 20,
+		};
+		expect(
+			classifyEvidence(fullMatrix(), {
+				...OPTIONS,
+				expectedRepetitionOracles: [...ORACLES, extra],
+			}).status,
+		).toBe('invalid');
+	});
+	test('too few oracles for the required repetitions', () => {
+		expect(
+			classifyEvidence(fullMatrix(), {
+				...OPTIONS,
+				expectedRepetitionOracles: ORACLES.slice(0, REQUIRED_REPS - 1),
+			}).status,
+		).toBe('invalid');
+	});
+	test('non-distinct oracle seeds', () => {
+		const dupSeed = ORACLES.map((o) => ({ ...o, dataSeed: 100 }));
+		expect(
+			classifyEvidence(fullMatrix(), {
+				...OPTIONS,
+				expectedRepetitionOracles: dupSeed,
 			}).status,
 		).toBe('invalid');
 	});

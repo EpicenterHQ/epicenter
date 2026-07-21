@@ -23,6 +23,7 @@ export type RuntimeDescription = {
 		pageSize: number;
 		recursiveTriggers: number;
 		foreignKeys: number;
+		ignoreCheckConstraints: number;
 	};
 };
 
@@ -57,6 +58,10 @@ export function describeBunRuntime(): RuntimeDescription {
 				foreignKeys:
 					db.all<{ foreign_keys: number }>('PRAGMA foreign_keys')[0]
 						?.foreign_keys ?? -1,
+				ignoreCheckConstraints:
+					db.all<{ ignore_check_constraints: number }>(
+						'PRAGMA ignore_check_constraints',
+					)[0]?.ignore_check_constraints ?? -1,
 			},
 		};
 	} finally {

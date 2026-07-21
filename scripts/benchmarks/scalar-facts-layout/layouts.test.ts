@@ -15,6 +15,9 @@ import {
 	createStore,
 	ddlStatements,
 	layoutsSelfTest,
+	type PragmaTuple,
+	refusalClass,
+	verifyPragmaCoverage,
 } from './layouts.js';
 import { factSetDigest, makeTrace, type TraceOptions } from './trace.js';
 
@@ -57,6 +60,50 @@ function makeDbWith(opts: {
 
 test('every candidate passes its constraint and transaction proofs', () => {
 	expect(layoutsSelfTest(makeDb)).toEqual([]);
+});
+
+describe('refusalClass distinguishes genuine refusals from masquerades', () => {
+	test('a known RAISE message is a raise', () => {
+		expect(refusalClass('invalid grammar')).toBe('raise');
+		expect(
+			refusalClass('fact insert must use a new address and a new sequence'),
+		).toBe('raise');
+	});
+	test('a constraint failure is a constraint', () => {
+		expect(refusalClass('UNIQUE constraint failed: facts.sequence')).toBe(
+			'constraint',
+		);
+	});
+	test('a SQL typo / missing table is a masquerade (other)', () => {
+		expect(refusalClass('no such table: facts')).toBe('other');
+		expect(refusalClass('no such column: bogus')).toBe('other');
+		expect(refusalClass('near "FRUM": syntax error')).toBe('other');
+	});
+});
+
+describe('verifyPragmaCoverage fails closed on mismatch/missing/duplicate', () => {
+	const combo = (rt: boolean, fk: boolean, icc: boolean): PragmaTuple => ({
+		recursiveTriggers: rt,
+		foreignKeys: fk,
+		ignoreCheckConstraints: icc,
+	});
+	const requested = [combo(false, true, false), combo(true, true, false)];
+	test('exact match is clean', () => {
+		expect(verifyPragmaCoverage(requested, [...requested])).toEqual([]);
+	});
+	test('an ignored pragma (observed != requested) fails', () => {
+		const observed = [combo(false, true, true), combo(true, true, false)]; // icc leaked on
+		expect(verifyPragmaCoverage(requested, observed).length).toBeGreaterThan(0);
+	});
+	test('a missing combo fails', () => {
+		expect(
+			verifyPragmaCoverage(requested, [requested[0] as PragmaTuple]).length,
+		).toBeGreaterThan(0);
+	});
+	test('a duplicate combo fails', () => {
+		const observed = [requested[0] as PragmaTuple, requested[0] as PragmaTuple];
+		expect(verifyPragmaCoverage(requested, observed).length).toBeGreaterThan(0);
+	});
 });
 
 // The corruption/grammar attack matrix must hold under recursive_triggers and
