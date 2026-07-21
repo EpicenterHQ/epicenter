@@ -163,7 +163,8 @@ Three presentation and composition choices remain deliberately unfrozen:
    ergonomics for the non-enforcing row references settled by ADR-0169.
    References are not field kinds or integrity constraints.
 
-The scalar transport also remains under adversarial review. Independent
-per-address convergence and whole-Epicenter scope are fixed; batches,
-checkpoints, receipts, cursors, and authority sequences must still earn their
-place as mechanisms.
+ADR-0163 proposes the scalar transport: ordered fact reads advance one durable
+`afterSequence`; numbered intent submissions settle against authority-assigned
+sequences, and exact retry uses one bounded per-replica ledger. Push, pull,
+acquisition, exchange, batch receipts, and checkpoints are not product or wire
+operations. The exact V1 byte bounds remain qualification work.
