@@ -776,6 +776,56 @@ Rollback point: docs and tests only.
   contract and the first standalone implementation commit, not a compatibility
   adapter over the old exchange.
 
+Done (2026-07-21). The kernel landed under `packages/data/src/protocol/v1/`
+behind a private barrel that the package `exports` map does not reference, so no
+production consumer imports it and the old combined-exchange protocol is
+untouched. It provides structured addresses, the four fact and four intent
+shapes, both operation schemas, the pure authority fold, and a pure
+storage-free reference authority.
+
+Hardened across four fresh-context review passes:
+
+- The canonical encoder implements RFC 8785 defensively (lone surrogates, sparse
+  or extended arrays, symbol, accessor, and non-enumerable properties rejected),
+  with Appendix B number coverage and round-trip proofs. Every complete protocol
+  input passes a non-throwing, iterative canonical-JSON-tree gate (explicit stack
+  and active-path set, so tens of thousands of levels cannot overflow the stack;
+  cycles rejected, shared DAGs accepted) before schema and semantic admission, so
+  exotic outer shapes return a typed error instead of being silently dropped.
+  Every admission boundary additionally catches any residual reflection or
+  `structuredClone` failure and returns a typed refusal, so a throwing Proxy, a
+  transparent Proxy (which `structuredClone` cannot own), or any host exception
+  becomes `Invalid` rather than escaping.
+- Every admitted request and every validated limits value is a detached,
+  deep-frozen sealed value, so a caller cannot mutate a parsed request (push an
+  intent, edit a nested payload) and then submit unadmitted input.
+- The authority takes only opaque admitted requests and validated limits, so an
+  in-process call cannot bypass admission; a duplicate-address submission or a
+  lifetime-less non-zero read is impossible to construct. Authority construction
+  admits its opaque lifetime and returns a Result, so it never emits a response
+  its own parser rejects.
+- The limits validator derives (never trusts) the response envelope purely
+  arithmetically from fixed canonical skeleton costs plus the byte ceilings, with
+  checked safe-integer math: it models the worst-case six-byte canonical
+  expansion of a control-character lifetime and the terminal `hasMore:false`
+  spelling, allocates nothing proportional to a ceiling (so a
+  `Number.MAX_SAFE_INTEGER` ceiling refuses instead of exhausting memory), and
+  reports a non-representable minimum as infinity so its capacity check fails.
+  A maximum-size terminal fact fits at the exact derived minimum, and readFacts
+  therefore never returns empty facts with hasMore true.
+- Settlement retirement uses context-aware admission (one fact per intent in
+  sealed order, globally distinct sequences, parked entries an ordered distinct
+  subset of touched *row-present* addresses with valid measurements).
+- The authority deep-detaches every retained input, every carried ledger, and
+  every response, so no response, ledger entry, or successor state aliases
+  another; and it refuses before assigning a sequence past the JSON-safe range.
+
+Admission is fully parameterized; no numeric V1 constant is frozen (those wait
+for Wave 2e). Only the 24-character lowercase row id is frozen; namespace,
+local-key, and replica-id grammars are labeled V1-local. All proofs pass
+runtime-free: `bun run --cwd packages/data test` (all green), `typecheck`, and
+biome lint/format are clean.
+
 #### Wave 2b: local replica format
 
 - Benchmark one checked facts table against separate row and value fact tables
