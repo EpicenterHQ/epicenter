@@ -3,7 +3,8 @@
 A decision instrument for one narrow question in Wave 2b: how should the
 **confirmed scalar-facts table(s)** of the local replica and the server
 authority store their structured coordinates and relation split, measured on
-Bun `bun:sqlite` at the conformance envelope.
+Bun `bun:sqlite` at a provisional stress profile (a labeled logical-state proxy,
+never a frozen conformance run; see the qualification note below).
 
 It is a decision instrument, not a reusable benchmark framework, and not a
 layout freeze.
@@ -154,9 +155,13 @@ the self-test.
 
 The lifecycles are real events, not counted assumptions: initially-absent values
 that later become present, value unset-then-present, and row tombstones. Row
-tombstone non-resurrection is proven by an **attempted** higher-sequence present
-that the fold refuses, not by counting final tombstones. The observed
-namespace/table/value/lifecycle cardinalities are asserted and reported.
+tombstone non-resurrection is proven in the **trace-oracle self-test** by an
+attempted higher-sequence present that the fold refuses, not by counting final
+tombstones. Each candidate **store** must additionally prove the same refusal
+(and the stale / equal-identical / equal-different install outcomes) against its
+own physical layout; that per-candidate proof is required, and is future work in
+`layouts.ts`, not yet landed. The observed namespace/table/value/lifecycle
+cardinalities are asserted and reported.
 
 ## Determinism
 

@@ -5,7 +5,9 @@
  * V1 canonical bytes, the ADR-0167 logical/protocol split, distinct samples, and
  * analytical-vs-fold agreement.
  */
+
 import { describe, expect, test } from 'bun:test';
+import { CryptoHasher } from 'bun';
 
 import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
 import {
@@ -16,6 +18,7 @@ import {
 	factsForPresentTarget,
 	logicalRecord,
 	makeTrace,
+	presentCountFor,
 	type TraceOptions,
 	traceSelfTest,
 } from './trace.js';
@@ -26,6 +29,7 @@ const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
 	tableCount: 1000,
 	valueRatio: 0.08,
 	dataSeed: 7,
+	maxEncodedFactBytes: 4096,
 };
 
 test('the fold and analytical self-tests pass', () => {
@@ -64,15 +68,39 @@ describe('exact live-address count for the full-profile shape', () => {
 	for (const presentTarget of [5000, 5321, 9999]) {
 		test(`factsForPresentTarget yields exactly ${presentTarget} present addresses`, () => {
 			const facts = factsForPresentTarget(presentTarget, BASE.valueRatio);
+			expect(facts).not.toBeNull();
 			const trace = makeTrace({
 				...BASE,
-				facts,
-				targetLogicalStateBytes: facts * 200,
+				facts: facts as number,
+				targetLogicalStateBytes: (facts as number) * 200,
 			});
 			expect(trace.observed().finalPresent).toBe(presentTarget);
 			expect(trace.measure().presentCount).toBe(presentTarget);
 		});
 	}
+
+	test('never returns a false exact count: it is exact or null', () => {
+		// The reviewer's counterexamples: whatever these ratios yield, the result is
+		// either an exact corpus or an explicit refusal, never a wrong count.
+		for (const [presentTarget, valueRatio] of [
+			[1_000_000, 0.0427],
+			[1_000_000, 0.1169],
+			[21, 0.911],
+			[1_000_000, 0.08],
+		] as const) {
+			const facts = factsForPresentTarget(presentTarget, valueRatio);
+			if (facts === null) continue; // refusal is honest
+			expect(presentCountFor(facts, valueRatio)).toBe(presentTarget);
+		}
+	});
+
+	test('the intended 0.08 full profile is exactly 1,000,000 live over 1,048,805 facts', () => {
+		// Analytical (no corpus build). The CLI/runner asserts this at runtime before
+		// candidates; the byte-exact 512 MiB check is a runtime assertion too.
+		const facts = factsForPresentTarget(1_000_000, 0.08);
+		expect(facts).toBe(1_048_805);
+		expect(presentCountFor(facts as number, 0.08)).toBe(1_000_000);
+	});
 });
 
 describe('two distinct byte measures (ADR-0167)', () => {
@@ -200,6 +228,82 @@ describe('actual V1 canonical bytes', () => {
 		});
 		expect(absent).toContain('"presence":"absent"');
 		expect(absent).not.toContain('fields');
+	});
+});
+
+describe('max fact-size ceiling gate (ADR-0163)', () => {
+	// Read the bound under a generous ceiling, then prove exact pass and refusal.
+	const bound = makeTrace({
+		...BASE,
+		targetLogicalStateBytes: BASE.facts * 300,
+		maxEncodedFactBytes: 1_000_000,
+	}).calibration.maxProtocolFactBytesBound;
+
+	test('a ceiling exactly at the bound qualifies', () => {
+		const trace = makeTrace({
+			...BASE,
+			targetLogicalStateBytes: BASE.facts * 300,
+			maxEncodedFactBytes: bound,
+		});
+		expect(trace.calibration.qualifying).toBe(true);
+		expect(trace.calibration.disqualifiedBy).toBe('none');
+	});
+
+	test('a ceiling one byte under the bound refuses', () => {
+		const trace = makeTrace({
+			...BASE,
+			targetLogicalStateBytes: BASE.facts * 300,
+			maxEncodedFactBytes: bound - 1,
+		});
+		expect(trace.calibration.qualifying).toBe(false);
+		expect(trace.calibration.disqualifiedBy).toBe('fact-ceiling');
+	});
+});
+
+describe('digest framing uses UTF-8 byte length', () => {
+	test('a multibyte record is framed by its UTF-8 length', () => {
+		const fact: Fact = {
+			address: {
+				kind: 'value',
+				namespace: 'so.epicenter.ns00',
+				value: 'settingu',
+			},
+			sequence: 1,
+			presence: 'present',
+			content: '€uro\u{1f600}',
+		};
+		const record = canonicalFactRecord(fact);
+		// A multibyte payload makes UTF-16 length differ from UTF-8 length.
+		expect(record.length).not.toBe(Buffer.byteLength(record, 'utf8'));
+		const hasher = new CryptoHasher('sha256');
+		hasher.update(`${Buffer.byteLength(record, 'utf8')}:${record}\n`);
+		expect(factSetDigest([fact]).digestHex).toBe(hasher.digest('hex'));
+	});
+});
+
+describe('terminal rows carry a representative initial payload', () => {
+	test('a later-tombstoned row still has a non-empty initial body', () => {
+		const trace = makeTrace({
+			...BASE,
+			targetLogicalStateBytes: BASE.facts * 300,
+		});
+		const quotient = trace.calibration.quotient;
+		expect(quotient).toBeGreaterThan(0);
+		// Index 480 (>= valueCount 480, and 480 % 20 == 0) is a tombstoned row.
+		const tombstonedAddress = addressKey(trace.finalFactAt(480).address);
+		expect(trace.finalFactAt(480).presence).toBe('absent');
+		let initialBodyLen = -1;
+		for (const fact of trace.events()) {
+			if (
+				addressKey(fact.address) === tombstonedAddress &&
+				fact.presence === 'present' &&
+				'fields' in fact
+			) {
+				initialBodyLen = String(fact.fields.body).length;
+				break;
+			}
+		}
+		expect(initialBodyLen).toBe(quotient);
 	});
 });
 

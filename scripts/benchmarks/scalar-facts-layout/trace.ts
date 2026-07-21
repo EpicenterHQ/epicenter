@@ -78,6 +78,8 @@ export type TraceOptions = {
 	dataSeed: number;
 	/** Exact present-logical-state byte target; row filler is calibrated to it. */
 	targetLogicalStateBytes: number;
+	/** Predeclared provisional per-fact ceiling (ADR-0163); qualification gates on it. */
+	maxEncodedFactBytes: number;
 };
 
 export type ObservedCardinalities = {
@@ -373,7 +375,12 @@ type Calibration = {
 	adjustableRows: number;
 	baseLogicalBytes: number;
 	achievedLogicalStateBytes: number;
+	/** Upper bound on any current protocol fact (build or final), for the ceiling gate. */
+	maxProtocolFactBytesBound: number;
+	/** True only if the logical target is hit AND no fact exceeds maxEncodedFactBytes. */
 	qualifying: boolean;
+	/** Why a run does not qualify, when it does not. */
+	disqualifiedBy: 'none' | 'logical-target' | 'fact-ceiling';
 };
 
 export type Trace = {
@@ -454,6 +461,33 @@ export function makeTrace(options: TraceOptions): Trace {
 		return factWith(index, band, phase, present, fillerLen);
 	}
 
+	const totalEvents = bandCounts(facts, valueCount).reduce((s, x) => s + x, 0);
+
+	/**
+	 * A safe upper bound on any current protocol fact, build or final: a present
+	 * row at the largest ordinal and sequence with the largest filler. Every real
+	 * row fact is no larger, and value facts are smaller, so a bound within the
+	 * ceiling proves every fact fits.
+	 */
+	function maxProtocolFactBound(maxBody: number): number {
+		const worst: Fact = {
+			address: {
+				kind: 'row',
+				namespace: namespaceLabel(Math.max(0, options.namespaceCount - 1)),
+				table: tableLabel(Math.max(0, options.tableCount - 1)),
+				rowId: rowIdOf(Math.max(0, facts - 1)),
+			},
+			sequence: Math.max(1, totalEvents),
+			presence: 'present',
+			fields: {
+				body: 'x'.repeat(maxBody),
+				ordinal: Math.max(0, facts - 1),
+				phase: 2,
+			},
+		};
+		return utf8Len(canonicalFactRecord(worst));
+	}
+
 	// Calibration pass: present logical bytes at zero row filler, then exact split.
 	function calibrate(): Calibration {
 		let baseLogicalBytes = 0;
@@ -463,27 +497,46 @@ export function makeTrace(options: TraceOptions): Trace {
 		}
 		const adjustableRows = adjustableRowsBelow(facts, valueCount);
 		const delta = options.targetLogicalStateBytes - baseLogicalBytes;
-		if (adjustableRows <= 0 || delta < 0) {
+		const gate = (
+			quotient: number,
+			remainder: number,
+			achieved: number,
+			logicalOk: boolean,
+		): Calibration => {
+			const maxBody = quotient + (remainder > 0 ? 1 : 0);
+			const bound = maxProtocolFactBound(maxBody);
+			const ceilingOk = bound <= options.maxEncodedFactBytes;
 			return {
-				quotient: 0,
-				remainder: 0,
+				quotient,
+				remainder,
 				adjustableRows,
 				baseLogicalBytes,
-				achievedLogicalStateBytes: baseLogicalBytes,
-				qualifying: options.targetLogicalStateBytes === baseLogicalBytes,
+				achievedLogicalStateBytes: achieved,
+				maxProtocolFactBytesBound: bound,
+				qualifying: logicalOk && ceilingOk,
+				disqualifiedBy: !logicalOk
+					? 'logical-target'
+					: ceilingOk
+						? 'none'
+						: 'fact-ceiling',
 			};
+		};
+		if (adjustableRows <= 0 || delta < 0) {
+			return gate(
+				0,
+				0,
+				baseLogicalBytes,
+				options.targetLogicalStateBytes === baseLogicalBytes,
+			);
 		}
 		const quotient = Math.floor(delta / adjustableRows);
 		const remainder = delta - quotient * adjustableRows;
-		return {
+		return gate(
 			quotient,
 			remainder,
-			adjustableRows,
-			baseLogicalBytes,
-			achievedLogicalStateBytes:
-				baseLogicalBytes + adjustableRows * quotient + remainder,
-			qualifying: true,
-		};
+			baseLogicalBytes + adjustableRows * quotient + remainder,
+			true,
+		);
 	}
 	const calibration = calibrate();
 
@@ -682,24 +735,38 @@ export function makeTrace(options: TraceOptions): Trace {
 	};
 }
 
+/** Final-present addresses when the corpus has `facts` total addresses. */
+export function presentCountFor(facts: number, valueRatio: number): number {
+	const valueCount = valueCountOf(facts, valueRatio);
+	return facts - finalAbsentCount(facts, valueCount);
+}
+
 /**
- * Choose `facts` so the corpus has exactly `presentTarget` final-present
- * addresses (the ADR-0161 live-address count), accounting for tombstones and
- * non-resurrected unsets. Converges in a few closed-form steps.
+ * Choose the smallest `facts` so the corpus has EXACTLY `presentTarget`
+ * final-present addresses (the ADR-0161 live-address count), or `null` when no
+ * integer corpus is exact.
+ *
+ * `presentCountFor` is non-decreasing in `facts`, but a `valueCount = ceil(facts
+ * * ratio)` jump reclassifies a boundary index (row to value), so the count can
+ * step by more than one and skip a target. A fixed-point iteration cannot see
+ * that and would return a false "exact" count; this binary-searches the smallest
+ * `facts` whose present count reaches the target, then verifies equality and
+ * refuses if the target was skipped.
  */
 export function factsForPresentTarget(
 	presentTarget: number,
 	valueRatio: number,
-): number {
-	let facts = presentTarget;
-	for (let iteration = 0; iteration < 8; iteration += 1) {
-		const valueCount = valueCountOf(facts, valueRatio);
-		const absent = finalAbsentCount(facts, valueCount);
-		const next = presentTarget + absent;
-		if (next === facts) break;
-		facts = next;
+): number | null {
+	if (presentTarget <= 0) return presentTarget === 0 ? 0 : null;
+	let lo = presentTarget;
+	let hi = presentTarget + 64;
+	while (presentCountFor(hi, valueRatio) < presentTarget) hi *= 2;
+	while (lo < hi) {
+		const mid = Math.floor((lo + hi) / 2);
+		if (presentCountFor(mid, valueRatio) >= presentTarget) hi = mid;
+		else lo = mid + 1;
 	}
-	return facts;
+	return presentCountFor(lo, valueRatio) === presentTarget ? lo : null;
 }
 
 /**
@@ -832,6 +899,7 @@ export function traceSelfTest(): string[] {
 		tableCount: 16,
 		valueRatio: 0.1,
 		dataSeed: 12345,
+		maxEncodedFactBytes: 4096,
 		targetLogicalStateBytes: 900 * 120 + 777,
 	});
 	const folded = new SmokeOracle();
