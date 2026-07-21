@@ -62,7 +62,6 @@ export type BrowserWorkerStore = {
 type Client = {
 	port: MessagePortLike;
 	documents: Map<number, WorkerDocument>;
-	detachedDocuments: WorkerDocument[];
 	disconnection: Promise<void> | undefined;
 	isDisconnected: boolean;
 	terminalCause: Error | undefined;
@@ -153,14 +152,14 @@ export function createBrowserWorkerHost({
 		clientLivenessIntervalMs > MAX_TIMER_DELAY_MS ||
 		!Number.isSafeInteger(clientLivenessTimeoutMs) ||
 		clientLivenessTimeoutMs < 1 ||
-		clientLivenessTimeoutMs > MAX_TIMER_DELAY_MS ||
-		!Number.isSafeInteger(clientLivenessIntervalMs + clientLivenessTimeoutMs)
+		clientLivenessTimeoutMs > MAX_TIMER_DELAY_MS
 	) {
 		throw new Error(
 			'Browser client liveness intervals must be positive supported timer values',
 		);
 	}
 	const clients = new Set<Client>();
+	const documentClosures = new Set<Promise<void>>();
 	const syncCredentialListeners = new Set<() => void>();
 	let storePromise: Promise<BrowserWorkerStore> | undefined;
 	let stopReplicaSubscription: (() => void) | undefined;
@@ -170,7 +169,6 @@ export function createBrowserWorkerHost({
 	let nextTransportId = 0;
 	let nextInvalidationId = 0;
 	let nextSyncAttachmentOrder = 0;
-	let pendingClientCleanups = 0;
 	let isStolen = false;
 
 	function clearClientLiveness(client: Client): void {
@@ -455,6 +453,7 @@ export function createBrowserWorkerHost({
 
 	async function revokeDocuments(key: string, rowId: string): Promise<void> {
 		const message = `Row document was revoked because '${key}.${rowId}' is no longer live`;
+		const closures: Promise<void>[] = [];
 		for (const client of clients) {
 			for (const [documentId, entry] of client.documents) {
 				if (entry.address.key !== key || entry.address.rowId !== rowId)
@@ -464,9 +463,10 @@ export function createBrowserWorkerHost({
 					documentId,
 					message,
 				});
-				await closeDocument(client, documentId);
+				closures.push(closeDocument(client, documentId));
 			}
 		}
+		await Promise.allSettled(closures);
 	}
 
 	function markStolen(): void {
@@ -483,15 +483,36 @@ export function createBrowserWorkerHost({
 		}
 	}
 
-	async function closeDocument(
-		client: Client,
-		documentId: number,
-	): Promise<void> {
+	function trackDocumentClosure(document: RowDocument): Promise<void> {
+		const closure = Promise.resolve().then(() =>
+			document[Symbol.asyncDispose](),
+		);
+		documentClosures.add(closure);
+		void closure.then(
+			() => documentClosures.delete(closure),
+			() => documentClosures.delete(closure),
+		);
+		return closure;
+	}
+
+	async function settleDocumentClosures(): Promise<unknown[]> {
+		const failures: unknown[] = [];
+		while (documentClosures.size > 0) {
+			const settled = await Promise.allSettled([...documentClosures]);
+			for (const result of settled) {
+				if (result.status === 'rejected') failures.push(result.reason);
+			}
+		}
+		return failures;
+	}
+
+	function closeDocument(client: Client, documentId: number): Promise<void> {
 		const entry = client.documents.get(documentId);
-		if (entry === undefined) return;
-		client.documents.delete(documentId);
+		if (entry === undefined) return Promise.resolve();
 		entry.stopUpdates();
-		await entry.document[Symbol.asyncDispose]();
+		const closure = trackDocumentClosure(entry.document);
+		client.documents.delete(documentId);
+		return closure;
 	}
 
 	function disconnect(
@@ -517,13 +538,10 @@ export function createBrowserWorkerHost({
 		client.syncTransportKey = undefined;
 		client.syncAttachmentOrder = 0;
 		client.syncTransportAvailable = false;
-		for (const document of client.documents.values()) {
-			document.stopUpdates();
-			client.detachedDocuments.push(document);
+		for (const documentId of [...client.documents.keys()]) {
+			void closeDocument(client, documentId);
 		}
-		client.documents.clear();
 		clients.delete(client);
-		pendingClientCleanups += 1;
 		notifySyncCredentials();
 	}
 
@@ -539,7 +557,7 @@ export function createBrowserWorkerHost({
 	}
 
 	function performDisconnect(client: Client): Promise<void> {
-		client.disconnection ??= finishDisconnect(client);
+		client.disconnection ??= finishDisconnect();
 		return client.disconnection;
 	}
 
@@ -550,25 +568,17 @@ export function createBrowserWorkerHost({
 		);
 	}
 
-	async function finishDisconnect(client: Client): Promise<void> {
-		const closedDocuments = await Promise.allSettled(
-			client.detachedDocuments.map((entry) =>
-				entry.document[Symbol.asyncDispose](),
-			),
-		);
-		client.detachedDocuments.length = 0;
-		pendingClientCleanups -= 1;
+	async function finishDisconnect(): Promise<void> {
+		const documentFailures = await settleDocumentClosures();
 		// An in-flight SQLite/openStore operation cannot be preempted safely. Store
 		// and lease disposal completes after that serialized operation settles; all
 		// page-visible capabilities and membership are already terminal above.
-		if (clients.size === 0 && pendingClientCleanups === 0) await disposeStore();
-		const failedDocument = closedDocuments.find(
-			(result) => result.status === 'rejected',
-		);
-		if (failedDocument?.status === 'rejected') throw failedDocument.reason;
+		if (clients.size === 0) await disposeStore();
+		if (documentFailures.length > 0) throw documentFailures[0];
 	}
 
 	async function disposeStore(): Promise<void> {
+		await settleDocumentClosures();
 		const opening = storePromise;
 		storePromise = undefined;
 		if (opening === undefined) return;
@@ -713,7 +723,7 @@ export function createBrowserWorkerHost({
 		const lens = tableLens(epicenter, operation.definition);
 		const document = await lens.openDocument(operation.rowId);
 		if (client.isDisconnected) {
-			await document[Symbol.asyncDispose]();
+			await trackDocumentClosure(document);
 			requireConnected(client);
 		}
 		const documentId = ++nextDocumentId;
@@ -735,7 +745,7 @@ export function createBrowserWorkerHost({
 			return { documentId, update };
 		} catch (cause) {
 			stopUpdates?.();
-			await document[Symbol.asyncDispose]();
+			await trackDocumentClosure(document);
 			throw cause;
 		}
 	}
@@ -817,7 +827,6 @@ export function createBrowserWorkerHost({
 		const client: Client = {
 			port,
 			documents: new Map(),
-			detachedDocuments: [],
 			disconnection: undefined,
 			isDisconnected: false,
 			terminalCause: undefined,

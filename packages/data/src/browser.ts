@@ -116,8 +116,7 @@ export async function openBrowserEpicenter({
 		workerHealthIntervalMs > MAX_TIMER_DELAY_MS ||
 		!Number.isSafeInteger(workerHealthTimeoutMs) ||
 		workerHealthTimeoutMs < 1 ||
-		workerHealthTimeoutMs > MAX_TIMER_DELAY_MS ||
-		!Number.isSafeInteger(workerHealthIntervalMs + workerHealthTimeoutMs)
+		workerHealthTimeoutMs > MAX_TIMER_DELAY_MS
 	) {
 		throw new Error(
 			'Browser worker health intervals must be positive supported timer values',
@@ -228,8 +227,7 @@ export async function openBrowserEpicenter({
 		for (const exchange of pendingExchanges.values())
 			exchange.isCanceled = true;
 		exchanges.clear();
-		for (const request of pending.values()) request.reject(cause);
-		pending.clear();
+		for (const request of [...pending.values()]) request.reject(cause);
 		for (const document of documents.values()) document.revoke(cause.message);
 		port.close?.();
 	}
@@ -360,13 +358,11 @@ export async function openBrowserEpicenter({
 			}
 			case 'result':
 				pending.get(message.id)?.resolve(message.value);
-				pending.delete(message.id);
 				return;
 			case 'error': {
 				const cause = new Error(message.message);
 				cause.name = message.name;
 				pending.get(message.id)?.reject(cause);
-				pending.delete(message.id);
 				return;
 			}
 			case 'invalidation': {
@@ -762,10 +758,9 @@ export async function openBrowserEpicenter({
 			disconnectFailure = cause;
 		}
 		isDisposed = true;
-		for (const request of pending.values()) {
+		for (const request of [...pending.values()]) {
 			request.reject(new Error('Browser Epicenter is disposed'));
 		}
-		pending.clear();
 		tableListeners.clear();
 		valueListeners.clear();
 		exchanges.clear();

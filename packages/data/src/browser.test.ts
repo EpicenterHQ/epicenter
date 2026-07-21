@@ -31,7 +31,11 @@ import {
 	openBrowserEpicenter,
 	type RuntimeBroadcastChannel,
 } from './browser.js';
-import type { RowDocument } from './documents.js';
+import {
+	type RowDocument,
+	registerRowDocumentConnectionTarget,
+	rowDocumentConnectionTarget,
+} from './documents.js';
 import { createEpicenter, type Epicenter } from './epicenter.js';
 import { defineTable, defineValue, optional } from './index.js';
 import type { ExchangeRequest, ExchangeResponse } from './protocol/index.js';
@@ -291,7 +295,16 @@ function interceptDocumentOpening(
 								const document = await Reflect.apply(openDocument, lens, [
 									rowId,
 								]);
-								return transformDocument(document as RowDocument);
+								const transformed = await transformDocument(
+									document as RowDocument,
+								);
+								if (transformed !== document) {
+									registerRowDocumentConnectionTarget(
+										transformed,
+										rowDocumentConnectionTarget(document as RowDocument),
+									);
+								}
+								return transformed;
 							},
 						}),
 					];
@@ -1204,6 +1217,148 @@ test('storage theft terminally revokes clients and disposes their store', async 
 	await tab.epicenter[Symbol.asyncDispose]();
 	await expect(openControlledTab()).rejects.toThrow('storage moved');
 	expect(owner.activeStores).toBe(0);
+});
+
+test('terminal reclamation waits for replica-driven document disposal', async () => {
+	let markDocumentDisposalStarted!: () => void;
+	const documentDisposalStarted = new Promise<void>((resolve) => {
+		markDocumentDisposalStarted = resolve;
+	});
+	let releaseDocumentDisposal!: () => void;
+	const documentDisposalGate = new Promise<void>((resolve) => {
+		releaseDocumentDisposal = resolve;
+	});
+	const owner = createStoreOwner({
+		async transformDocument(document) {
+			return Object.create(document, {
+				[Symbol.asyncDispose]: {
+					async value() {
+						markDocumentDisposalStarted();
+						await documentDisposalGate;
+						await document[Symbol.asyncDispose]();
+					},
+				},
+			}) as RowDocument;
+		},
+	});
+	const broadcasts = new FakeBroadcastHub();
+	const host = createBrowserWorkerHost({ openStore: owner.openStore });
+	const ports = createPortPair();
+	host.connect(ports.worker);
+	const epicenter = await settleWithin(
+		openBrowserEpicenter({
+			createSharedWorker: () => ({ port: ports.page }),
+			createBroadcastChannel: broadcasts.create,
+		}),
+		1_000,
+	);
+	const notes = bindTestData(epicenter).tables.notes;
+	const row = await settleWithin(
+		notes.create({ title: 'Revocation disposal race' }),
+		1_000,
+	);
+	const document = await settleWithin(notes.openDocument(row.id), 1_000);
+
+	const deletion = notes.delete(row.id);
+	await settleWithin(documentDisposalStarted, 1_000);
+	owner.steal();
+	await waitFor(
+		() => countMessages(ports.workerMessages, 'client-revoked') === 1,
+	);
+	await Bun.sleep(20);
+	expect(owner.activeStores).toBe(1);
+	expect(owner.disposeCount).toBe(0);
+
+	releaseDocumentDisposal();
+	await waitFor(() => owner.activeStores === 0);
+	expect(owner.disposeCount).toBe(1);
+	await settleWithin(Promise.allSettled([deletion]), 1_000);
+	await waitFor(() => {
+		try {
+			bindTestData(epicenter);
+			return false;
+		} catch {
+			return true;
+		}
+	});
+	await settleWithin(document[Symbol.asyncDispose](), 1_000);
+	await settleWithin(epicenter[Symbol.asyncDispose](), 1_000);
+});
+
+test('document revocation closes every client after one disposer rejects', async () => {
+	let openedDocuments = 0;
+	let markFirstDisposalStarted!: () => void;
+	const firstDisposalStarted = new Promise<void>((resolve) => {
+		markFirstDisposalStarted = resolve;
+	});
+	let markSecondDisposalCompleted!: () => void;
+	const secondDisposalCompleted = new Promise<void>((resolve) => {
+		markSecondDisposalCompleted = resolve;
+	});
+	const owner = createStoreOwner({
+		async transformDocument(document) {
+			openedDocuments += 1;
+			const opening = openedDocuments;
+			return Object.create(document, {
+				[Symbol.asyncDispose]: {
+					async value() {
+						if (opening === 1) {
+							markFirstDisposalStarted();
+							throw new Error('Injected first document disposal failure');
+						}
+						await document[Symbol.asyncDispose]();
+						markSecondDisposalCompleted();
+					},
+				},
+			}) as RowDocument;
+		},
+	});
+	const broadcasts = new FakeBroadcastHub();
+	const host = createBrowserWorkerHost({ openStore: owner.openStore });
+
+	async function openTab(): Promise<BrowserEpicenter> {
+		const ports = createPortPair();
+		host.connect(ports.worker);
+		return openBrowserEpicenter({
+			createSharedWorker: () => ({ port: ports.page }),
+			createBroadcastChannel: broadcasts.create,
+		});
+	}
+
+	const first = await openTab();
+	const second = await openTab();
+	const firstNotes = bindTestData(first).tables.notes;
+	const secondNotes = bindTestData(second).tables.notes;
+	const row = await firstNotes.create({ title: 'Revoke every client' });
+	const firstDocument = await firstNotes.openDocument(row.id);
+	const secondDocument = await secondNotes.openDocument(row.id);
+
+	await firstNotes.delete(row.id);
+	await settleWithin(firstDisposalStarted, 1_000);
+	await settleWithin(secondDisposalCompleted, 1_000);
+	await waitFor(() => {
+		try {
+			firstDocument.get('content');
+			return false;
+		} catch {
+			return true;
+		}
+	});
+	await waitFor(() => {
+		try {
+			secondDocument.get('content');
+			return false;
+		} catch {
+			return true;
+		}
+	});
+
+	await firstDocument[Symbol.asyncDispose]();
+	await secondDocument[Symbol.asyncDispose]();
+	await first[Symbol.asyncDispose]();
+	await second[Symbol.asyncDispose]();
+	await waitFor(() => owner.activeStores === 0);
+	expect(owner.disposeCount).toBe(1);
 });
 
 test('document-open cannot escape a concurrent terminal page failure', async () => {
