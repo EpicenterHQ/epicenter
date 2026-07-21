@@ -167,11 +167,65 @@ describe('familywise simultaneity', () => {
 });
 
 describe('structural refusals: no classification off a degenerate family', () => {
-	test('fewer than two seeds refuses', () => {
-		const result = computeFamilywise(baseInput(1, [latencyMetric('read', 1)]));
+	test('fewer than four seeds refuses (audit repro: two seeds gave criticalValue 0)', () => {
+		// The exact audit repro: four candidates, two seeds, integer estimates.
+		const result = computeFamilywise({
+			candidates: ['a', 'b', 'c', 'd'],
+			seedIds: [1, 2],
+			metrics: [
+				{
+					key: 'm',
+					kind: 'latency',
+					estimates: [
+						[1, 2, 3, 4],
+						[2, 1, 4, 3],
+					],
+				},
+			],
+			bootstrapDraws: 10_000,
+			bootstrapSeed: 1,
+		});
 		expect(result.ok).toBe(false);
 		expect(result.contrasts).toEqual([]);
-		expect(result.refusals.join(' ')).toContain('two whole seeds');
+		expect(result.criticalValue).not.toBe(0);
+		expect(result.refusals.join(' ')).toContain('4 whole seeds');
+	});
+
+	test('three seeds still refuse; four is the floor', () => {
+		expect(computeFamilywise(baseInput(3, [latencyMetric('read', 3)])).ok).toBe(
+			false,
+		);
+		expect(computeFamilywise(baseInput(4, [latencyMetric('read', 4)])).ok).toBe(
+			true,
+		);
+	});
+
+	test('duplicate seed ids refuse (outer units must be fresh and unique)', () => {
+		const input = baseInput(4, [latencyMetric('read', 4)]);
+		input.seedIds[1] = input.seedIds[0]!;
+		const result = computeFamilywise(input);
+		expect(result.ok).toBe(false);
+		expect(result.refusals.join(' ')).toContain('unique');
+	});
+
+	test('a zero-SE bootstrap resample never manufactures certainty', () => {
+		// Four seeds where two candidates are byte-identical across seeds, so their
+		// contrast has real spread but degenerate resamples exist. The conservative
+		// +infinity policy must keep the critical value away from a false 0.
+		const metric: SeedLevelMetric = {
+			key: 'read',
+			kind: 'latency',
+			estimates: [
+				[100, 100, 108, 112],
+				[101, 101, 109, 113],
+				[102, 102, 110, 114],
+				[103, 103, 111, 115],
+			],
+		};
+		const result = computeFamilywise(baseInput(4, [metric]));
+		// The A-vs-B contrast (identical columns) has zero observed spread, which is
+		// itself a structural refusal, so no material classification is emitted.
+		expect(result.ok).toBe(false);
 	});
 
 	test('a non-positive seed-level estimate refuses (log undefined)', () => {

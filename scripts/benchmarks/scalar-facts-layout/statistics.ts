@@ -48,10 +48,20 @@ export type SeedLevelMetric = {
 	estimates: number[][];
 };
 
+/**
+ * The minimum fresh, unique seeds a pilot may reduce. With four seeds an
+ * all-one-seed bootstrap resample (the only way every shared-pick member goes
+ * degenerate) is `(1/4)^3 ~= 1.6%` of draws, well under the 5% the 95th
+ * percentile excludes, so the conservative zero-SE policy below cannot collapse
+ * the critical value. Two seeds make half the resamples degenerate and produce a
+ * false `criticalValue = 0`; the spec's final run declares its own larger count.
+ */
+export const MIN_PILOT_SEEDS = 4;
+
 export type FamilyInput = {
 	/** Candidate ids, length C >= 2, indexing the inner estimate arrays. */
 	candidates: string[];
-	/** Outer-unit seed ids, length N; the only resampling unit. */
+	/** Outer-unit seed ids, length N; the only resampling unit. Must be unique. */
 	seedIds: number[];
 	/** Metrics, each `estimates` an N-by-C matrix aligned to seedIds/candidates. */
 	metrics: SeedLevelMetric[];
@@ -59,6 +69,8 @@ export type FamilyInput = {
 	bootstrapDraws: number;
 	/** Deterministic bootstrap PRNG seed. */
 	bootstrapSeed: number;
+	/** Declared minimum seed count; defaults to `MIN_PILOT_SEEDS`. */
+	minSeeds?: number;
 };
 
 export type Classification =
@@ -204,10 +216,16 @@ function structuralRefusals(input: FamilyInput): string[] {
 	const refusals: string[] = [];
 	const n = input.seedIds.length;
 	const c = input.candidates.length;
+	const minSeeds = input.minSeeds ?? MIN_PILOT_SEEDS;
 	if (c < 2) refusals.push('fewer than two candidates');
-	if (n < 2) {
+	if (n < minSeeds) {
 		refusals.push(
-			'fewer than two whole seeds; the paired bootstrap has no outer unit to resample',
+			`fewer than ${minSeeds} whole seeds; the paired bootstrap collapses to false certainty below the declared minimum`,
+		);
+	}
+	if (new Set(input.seedIds).size !== n) {
+		refusals.push(
+			'duplicate seed ids; the outer units must be fresh and unique',
 		);
 	}
 	if (input.bootstrapDraws < 1)
@@ -310,10 +328,17 @@ export function computeFamilywise(input: FamilyInput): FamilywiseResult {
 				ss += d * d;
 			}
 			const bSe = Math.sqrt(ss / (n - 1)) / Math.sqrt(n);
-			// se^b === 0 means the resample saw no spread; it evidences no deviation,
-			// so its studentized contribution is 0 rather than 0/0.
-			const t = bSe > 0 ? (bMean - member.point) / bSe : 0;
-			const absT = Math.abs(t);
+			// Predeclared conservative policy: a resample with zero standard error
+			// yields no usable studentized statistic, so it contributes +infinity to
+			// the max-|t| distribution rather than a false 0. A degenerate resample can
+			// therefore only WIDEN the interval (or, if such resamples exceed 5%, push
+			// the 95th-percentile critical value to infinity and refuse to classify),
+			// never manufacture certainty. With >= MIN_PILOT_SEEDS unique seeds these
+			// resamples stay a small tail the 95th percentile excludes.
+			const absT =
+				bSe > 0
+					? Math.abs((bMean - member.point) / bSe)
+					: Number.POSITIVE_INFINITY;
 			if (absT > maxAbsT) maxAbsT = absT;
 		}
 		maxStats[b] = maxAbsT;

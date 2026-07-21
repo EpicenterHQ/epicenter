@@ -2,23 +2,23 @@
  * Classifier-only evidence status. Fail-closed by construction.
  *
  * Policy (ADR-0161; spec 424-444, 555-562): evidence never selects, ranks,
- * recommends, applies a tie-break, or returns a candidate id. There is therefore
- * no recommendation, winner, or tie-break concept anywhere in this module. It
+ * recommends, applies a tie-break, or returns a candidate id. There is no
+ * recommendation, winner, or tie-break concept anywhere in this module. It
  * reports two independent things:
  *
- * 1. `validateMethod` gives a measurement-method pilot its only product: whether
- *    every proof gate passed, so the method is sound enough to justify a later
- *    final data-collection run. A pilot validates the METHOD; it is never
- *    decision-eligible and can never make evidence ADR-ready. There is no
- *    `decisionEligible` boolean here on purpose.
+ * 1. `validateMethod` gives a run its method-validation verdict: whether every
+ *    measurement-method proof gate, DERIVED FROM RECORDED OPERATIONS by the
+ *    runner, passed. A gate is never a hardcoded boolean; the runner must feed
+ *    evidence it actually executed and retained. A pilot validates the METHOD
+ *    only; it is never ADR-ready.
  *
- * 2. `evaluateEvidenceReadiness` reports whether any run's evidence is
- *    ADR-`ready` or `provisional`. It is fail-closed: while the absolute
- *    performance SLO policy is unconfigured, evidence is forced to `provisional`
- *    with a stated reason. The install, open, read, write, feed, traversal, and
- *    restart ceilings are unmade ADR/product choices; this module ships only the
- *    unconfigured shape and invents no numeric defaults, so no complete, correct,
- *    classified matrix can become `ready` until those choices exist.
+ * 2. `evaluateEvidenceReadiness` reports one of four states: `invalid`,
+ *    `incomplete`, `provisional`, or `ready-for-adr-review`. It is fail-closed on
+ *    the absolute performance SLO policy: readiness requires a configured policy
+ *    with a positive finite ceiling for EVERY required metric AND an observed
+ *    per-cell measurement within that ceiling for every cell and metric. A
+ *    `configured: true` flag alone never implies readiness (an empty or malformed
+ *    ceiling set is `invalid`), and a pilot is always at most `provisional`.
  *
  * Correctness note (spec/audit): a candidate reproducing the analytical, V1-bound
  * oracle witness is the INDEPENDENT correctness proof. Candidates agreeing with
@@ -37,24 +37,28 @@ export type ProofGateInputs = {
 	oracleWitnessReproduced: boolean;
 	/** CONSISTENCY, not correctness: candidates agree with each other where compared. */
 	crossCandidateConsistent: boolean;
-	/** The run's source and config identity match the checkpoint. */
+	/** The run's source and config identity match the persisted checkpoint. */
 	provenanceMatches: boolean;
 	/** The declared seed-level familywise estimator produced no structural refusal. */
 	estimatorOk: boolean;
-	/** Read-metric position and carryover are balanced across the Williams design. */
+	/** Read-metric position and carryover are balanced across the executed Williams design. */
 	balanced: boolean;
-	/** Every timed block met the 20 ms floor at the frozen operation count. */
+	/** Every RECORDED timed block met the 20 ms floor at the frozen operation count. */
 	calibrationMet: boolean;
-	/** The untimed warmup batches ran before each timed candidate block. */
+	/** Untimed warmup batches ran immediately before each recorded timed block. */
 	warmupsRun: boolean;
-	/** SQLite integrity_check passed and each candidate's reopened self-hash matched. */
+	/** SQLite integrity_check passed and each candidate's recorded reopened self-hash matched. */
 	integrityOk: boolean;
-	/** At least the required close/open reopen observations per seed and candidate. */
+	/** At least the required balanced close/open reopen observations were recorded per cell. */
 	reopenObservationsSufficient: boolean;
-	/** Deterministic byte-equivalent reset proved no candidate inherited another's state. */
+	/** A recorded byte-equivalent reset proved no candidate inherited another's state. */
 	deterministicResetProven: boolean;
-	/** The live-page plus WAL/temp headroom preflight passed with the 25% margin. */
+	/** The headroom preflight passed BEFORE retaining the envelope databases, with a 25% margin. */
 	headroomPreflightPassed: boolean;
+	/** Every declared owner-specific metric and mutating-tail experiment was executed and recorded. */
+	ownerWorkloadsExecuted: boolean;
+	/** Raw per-block, reopen, and checkpoint identities and observations were retained. */
+	rawObservationsRetained: boolean;
 };
 
 export type MethodValidation = {
@@ -82,7 +86,7 @@ function gatesOf(inputs: ProofGateInputs): GateStatus[] {
 		{
 			name: 'provenance',
 			passed: inputs.provenanceMatches,
-			detail: 'run source and config identity match the checkpoint',
+			detail: 'run source and config identity match the persisted checkpoint',
 		},
 		{
 			name: 'estimator',
@@ -93,35 +97,49 @@ function gatesOf(inputs: ProofGateInputs): GateStatus[] {
 		{
 			name: 'balance',
 			passed: inputs.balanced,
-			detail: 'read-metric position and carryover are balanced',
+			detail:
+				'read-metric position and carryover are balanced in the executed design',
 		},
 		{
 			name: 'calibration',
 			passed: inputs.calibrationMet && inputs.warmupsRun,
-			detail: 'every timed block met the 20 ms floor after untimed warmups',
+			detail:
+				'every recorded timed block met the 20 ms floor after an immediate untimed warmup',
 		},
 		{
 			name: 'integrity',
 			passed: inputs.integrityOk,
 			detail:
-				'SQLite integrity_check passed and each reopened self-hash matched',
+				'SQLite integrity_check passed and each recorded reopened self-hash matched',
 		},
 		{
 			name: 'reopen',
 			passed: inputs.reopenObservationsSufficient,
-			detail: 'the required balanced reopen observations were collected',
+			detail: 'the required balanced reopen observations were recorded',
 		},
 		{
 			name: 'cross-candidate-isolation',
 			passed: inputs.deterministicResetProven,
 			detail:
-				'deterministic reset proved no candidate inherited another cache or checkpoint state',
+				'a recorded deterministic reset proved no candidate inherited another cache or checkpoint state',
 		},
 		{
 			name: 'headroom',
 			passed: inputs.headroomPreflightPassed,
 			detail:
-				'the live-page plus WAL/temp headroom preflight passed with a 25% margin',
+				'the headroom preflight passed before retaining the envelope databases',
+		},
+		{
+			name: 'owner-workloads',
+			passed: inputs.ownerWorkloadsExecuted,
+			detail:
+				'every declared owner-specific metric and mutating-tail experiment was executed',
+		},
+		{
+			name: 'raw-observations',
+			passed: inputs.rawObservationsRetained,
+			detail:
+				'raw per-block, reopen, and checkpoint observations were retained',
 		},
 	];
 }
@@ -137,26 +155,92 @@ export function validateMethod(inputs: ProofGateInputs): MethodValidation {
 }
 
 /**
- * Absolute performance SLO policy for the future evidence classifier. The
- * numeric install/open/read/write/feed/traversal/restart ceilings are ADR/product
- * choices that are NOT YET MADE, so this pilot ships only the fail-closed
- * `configured: false` shape. A configured policy is modeled structurally, as a
- * map from metric key to ceiling, with NO numeric defaults chosen here; the owner
- * of that choice supplies the numbers.
+ * The closed set of absolute performance metrics an ADR-ready classifier must
+ * bound. The numeric ceilings are unmade ADR/product choices; this module ships
+ * no numbers and only validates a supplied policy's shape.
  */
+export const REQUIRED_SLO_METRICS = [
+	'install',
+	'open',
+	'read',
+	'write',
+	'feed',
+	'traversal',
+	'restart',
+] as const;
+export type SloMetric = (typeof REQUIRED_SLO_METRICS)[number];
+
 export type AbsoluteSloPolicy =
 	| { configured: false }
-	| { configured: true; ceilings: Readonly<Record<string, number>> };
+	| { configured: true; ceilings: Readonly<Record<SloMetric, number>> };
 
 /** The only SLO policy this pilot ships: none. Fail-closed. */
 export const UNCONFIGURED_SLO_POLICY: AbsoluteSloPolicy = { configured: false };
 
-export type EvidenceStatus = 'provisional' | 'ready';
+export type SloPolicyValidation =
+	| { valid: true }
+	| { valid: false; reasons: string[] };
+
+/**
+ * A configured policy is valid only when every required metric has a positive
+ * finite ceiling and no unknown metric appears. An empty or partial ceiling set
+ * is invalid, so `configured: true` never implies readiness by itself.
+ */
+export function validateSloPolicy(
+	policy: AbsoluteSloPolicy,
+): SloPolicyValidation {
+	if (!policy.configured) {
+		return {
+			valid: false,
+			reasons: [
+				'the absolute performance SLO policy is unconfigured: install, open, read, write, feed, traversal, and restart ceilings are unmade ADR/product choices',
+			],
+		};
+	}
+	const reasons: string[] = [];
+	for (const metric of REQUIRED_SLO_METRICS) {
+		const ceiling = policy.ceilings[metric];
+		if (
+			typeof ceiling !== 'number' ||
+			!Number.isFinite(ceiling) ||
+			ceiling <= 0
+		) {
+			reasons.push(
+				`SLO ceiling for '${metric}' is missing or not a positive finite number`,
+			);
+		}
+	}
+	for (const key of Object.keys(policy.ceilings)) {
+		if (!(REQUIRED_SLO_METRICS as readonly string[]).includes(key)) {
+			reasons.push(`unknown SLO metric '${key}'`);
+		}
+	}
+	return reasons.length === 0 ? { valid: true } : { valid: false, reasons };
+}
+
+/** One observed per-cell SLO comparison against a configured ceiling. */
+export type SloObservation = {
+	owner: string;
+	candidate: string;
+	seedId: number;
+	metric: SloMetric;
+	observedValue: number;
+	ceiling: number;
+	withinCeiling: boolean;
+};
+
+/** A cell that must carry an SLO observation for every required metric. */
+export type EvidenceCell = { owner: string; candidate: string; seedId: number };
+
+export type EvidenceStatus =
+	| 'invalid'
+	| 'incomplete'
+	| 'provisional'
+	| 'ready-for-adr-review';
 
 export type EvidenceReadiness = {
-	/** `ready` is unreachable while the SLO policy is unconfigured or the run is a pilot. */
 	status: EvidenceStatus;
-	/** Every reason the evidence is provisional; empty exactly when `ready`. */
+	/** Every reason for the state; empty exactly when `ready-for-adr-review`. */
 	reasons: string[];
 };
 
@@ -165,46 +249,112 @@ export type EvidenceInputs = {
 	isPilot: boolean;
 	method: MethodValidation;
 	sloPolicy: AbsoluteSloPolicy;
+	/** Observed per-cell SLO results; null when SLOs were not evaluated (e.g. a pilot). */
+	sloObservations: SloObservation[] | null;
+	/** Cells that must each carry an observation for every required metric. */
+	expectedCells: EvidenceCell[];
 	/** Whether every owner-by-candidate-by-seed cell is present. */
 	matrixComplete: boolean;
 	/** Whether the equivalence classifier resolved every contrast (none inconclusive). */
 	classifierResolved: boolean;
 };
 
+function cellKey(cell: EvidenceCell): string {
+	return `${cell.owner}/${cell.candidate}/${cell.seedId}`;
+}
+
 /**
- * Fail-closed evidence readiness. Evidence is `ready` only when it is not a pilot,
- * the absolute SLO policy is configured, the method validated, the matrix is
- * complete, and the classifier resolved every contrast. Any gap forces
- * `provisional` and records why, so an unconfigured SLO policy alone keeps even a
- * complete, correct, fully classified matrix out of ADR readiness.
+ * Fail-closed evidence status. Precedence: `invalid` over `incomplete` over
+ * `provisional` over `ready-for-adr-review`. Readiness requires a valid
+ * configured SLO policy, an observed within-ceiling measurement for every
+ * required metric in every expected cell, a validated method, a complete matrix,
+ * a resolved classifier, and a non-pilot run. Any gap downgrades the state and
+ * records why.
  */
 export function evaluateEvidenceReadiness(
 	inputs: EvidenceInputs,
 ): EvidenceReadiness {
-	const reasons: string[] = [];
+	const invalidReasons: string[] = [];
+	const incompleteReasons: string[] = [];
+	const provisionalReasons: string[] = [];
+
+	const policy = validateSloPolicy(inputs.sloPolicy);
+	if (inputs.sloPolicy.configured) {
+		// A configured-but-malformed policy is a structural error, not mere absence.
+		if (!policy.valid) invalidReasons.push(...policy.reasons);
+	} else {
+		// An unconfigured policy is not invalid; it just prevents ADR readiness.
+		provisionalReasons.push(
+			'the absolute performance SLO policy is unconfigured: install, open, read, write, feed, traversal, and restart ceilings are unmade ADR/product choices',
+		);
+	}
+	if (inputs.sloObservations !== null && !inputs.sloPolicy.configured) {
+		invalidReasons.push(
+			'SLO observations were supplied without a configured SLO policy',
+		);
+	}
+
 	if (inputs.isPilot) {
-		reasons.push(
+		provisionalReasons.push(
 			'a measurement-method pilot validates the method only; it never produces ADR-ready evidence',
 		);
 	}
-	if (!inputs.sloPolicy.configured) {
-		reasons.push(
-			'the absolute performance SLO policy is unconfigured: install, open, read, write, feed, traversal, and restart ceilings are unmade ADR/product choices, so evidence cannot be classified against absolute limits',
-		);
-	}
 	if (!inputs.method.methodValidated) {
-		reasons.push(...inputs.method.proofRefusals);
+		provisionalReasons.push(...inputs.method.proofRefusals);
 	}
 	if (!inputs.matrixComplete) {
-		reasons.push('the owner-by-candidate-by-seed matrix is incomplete');
+		incompleteReasons.push(
+			'the owner-by-candidate-by-seed matrix is incomplete',
+		);
 	}
 	if (!inputs.classifierResolved) {
-		reasons.push(
+		incompleteReasons.push(
 			'the equivalence classifier left at least one contrast unresolved',
 		);
 	}
-	return {
-		status: reasons.length === 0 ? 'ready' : 'provisional',
-		reasons,
-	};
+
+	// SLO observation completeness and within-ceiling, only meaningful under a
+	// valid configured policy.
+	if (inputs.sloPolicy.configured && policy.valid) {
+		if (inputs.sloObservations === null) {
+			incompleteReasons.push('no SLO observations were recorded');
+		} else {
+			const seen = new Set(
+				inputs.sloObservations.map(
+					(o) => `${o.owner}/${o.candidate}/${o.seedId}/${o.metric}`,
+				),
+			);
+			for (const cell of inputs.expectedCells) {
+				for (const metric of REQUIRED_SLO_METRICS) {
+					if (!seen.has(`${cellKey(cell)}/${metric}`)) {
+						incompleteReasons.push(
+							`missing SLO observation for ${cellKey(cell)} metric '${metric}'`,
+						);
+					}
+				}
+			}
+			for (const observation of inputs.sloObservations) {
+				if (!observation.withinCeiling) {
+					provisionalReasons.push(
+						`SLO breach at ${observation.owner}/${observation.candidate}/${observation.seedId} metric '${observation.metric}': ${observation.observedValue} exceeds ${observation.ceiling}`,
+					);
+				}
+			}
+		}
+	}
+
+	if (invalidReasons.length > 0) {
+		return { status: 'invalid', reasons: dedupe(invalidReasons) };
+	}
+	if (incompleteReasons.length > 0) {
+		return { status: 'incomplete', reasons: dedupe(incompleteReasons) };
+	}
+	if (provisionalReasons.length > 0) {
+		return { status: 'provisional', reasons: dedupe(provisionalReasons) };
+	}
+	return { status: 'ready-for-adr-review', reasons: [] };
+}
+
+function dedupe(values: string[]): string[] {
+	return [...new Set(values)];
 }
