@@ -32,6 +32,3 @@ if (
 ) {
 	startBrowserEpicenterWorker(possibleScope as SharedWorkerScope);
 }
-
-export type { BrowserWorkerStore, MessagePortLike } from './browser/worker.js';
-export { createBrowserWorkerHost } from './browser/worker.js';
