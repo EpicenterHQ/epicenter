@@ -126,13 +126,12 @@ export function createBrowserWorkerHost({
 
 	function syncClients(): Client[] {
 		return [...clients]
-			.filter(
-				(client) =>
-					client.syncTransportKey !== undefined &&
-					client.syncTransportAvailable,
-			)
+			.filter((client) => client.syncTransportKey !== undefined)
 			.sort(
-				(left, right) => right.syncAttachmentOrder - left.syncAttachmentOrder,
+				(left, right) =>
+					Number(right.syncTransportAvailable) -
+						Number(left.syncTransportAvailable) ||
+					right.syncAttachmentOrder - left.syncAttachmentOrder,
 			);
 	}
 
@@ -164,7 +163,12 @@ export function createBrowserWorkerHost({
 			if (transportKey === undefined) continue;
 			if (!client.credentials.get(transportKey)?.hasCredentials) continue;
 			try {
-				return await exchange(client, transportKey, request);
+				const response = await exchange(client, transportKey, request);
+				if (!client.syncTransportAvailable) {
+					client.syncTransportAvailable = true;
+					client.syncAttachmentOrder = ++nextSyncAttachmentOrder;
+				}
+				return response;
 			} catch (cause) {
 				client.syncAttachmentOrder = 0;
 				lastFailure = cause;

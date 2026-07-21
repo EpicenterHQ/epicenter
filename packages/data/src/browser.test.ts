@@ -392,14 +392,18 @@ test('sync retries the exact request through another tab when the selected trans
 	await using second = await openTab();
 	let firstRequest: ExchangeRequest | undefined;
 	let secondRequest: ExchangeRequest | undefined;
+	let firstExchanges = 0;
+	let secondExchanges = 0;
 	let secondStalls = false;
 	const credentials = createMutableCredentials();
+	const secondCredentials = createMutableCredentials();
 
 	expectOk(
 		await first.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
 			exchange(request) {
+				firstExchanges += 1;
 				firstRequest = request;
 				return acknowledge(request);
 			},
@@ -411,11 +415,13 @@ test('sync retries the exact request through another tab when the selected trans
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
 			exchange(request) {
+				secondExchanges += 1;
 				secondRequest = request;
 				return secondStalls
 					? new Promise<ExchangeResponse>(() => undefined)
 					: acknowledge(request);
 			},
+			credentials: secondCredentials.provider,
 		}),
 	);
 	firstRequest = undefined;
@@ -425,8 +431,14 @@ test('sync retries the exact request through another tab when the selected trans
 	await bindTestData(first).tables.notes.create({ title: 'Retry exactly' });
 	await waitFor(() => firstRequest !== undefined);
 	expect(secondRequest).toEqual(firstRequest);
+	const firstAfterFailover = firstExchanges;
+	const secondAfterFailover = secondExchanges;
+	await bindTestData(first).tables.notes.create({ title: 'Prefer healthy' });
+	await waitFor(() => firstExchanges > firstAfterFailover);
+	expect(secondExchanges).toBe(secondAfterFailover);
 
 	credentials.setAvailable(false);
+	secondCredentials.setAvailable(false);
 	await waitFor(() => first.syncStatus.state === 'authentication-required');
 });
 
@@ -452,6 +464,90 @@ test('a late reply re-enables the current sole sync transport', async () => {
 		() => requests.length >= 3 && epicenter.syncStatus.state === 'idle',
 	);
 	expect(requests[2]).toEqual(requests[1]);
+});
+
+test('a timed-out sole transport half-opens without losing credential state', async () => {
+	const { openTab } = await setup({ exchangeTimeoutMs: 10 });
+	await using epicenter = await openTab();
+	const states: string[] = [];
+	const requests: ExchangeRequest[] = [];
+	const unsubscribe = epicenter.subscribeSyncStatus(({ state }) => {
+		states.push(state);
+	});
+	let exchanges = 0;
+	let stallNext = false;
+
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				exchanges += 1;
+				requests.push(request);
+				if (stallNext) {
+					stallNext = false;
+					return new Promise<ExchangeResponse>(() => undefined);
+				}
+				return acknowledge(request);
+			},
+		}),
+	);
+	const beforeWrite = exchanges;
+	stallNext = true;
+
+	await bindTestData(epicenter).tables.notes.create({ title: 'Half open' });
+	await waitFor(
+		() => exchanges >= beforeWrite + 2 && epicenter.syncStatus.state === 'idle',
+	);
+	expect(requests.at(-1)).toEqual(requests.at(-2));
+	expect(states).not.toContain('authentication-required');
+	unsubscribe();
+});
+
+test('a quarantined transport recovers after its healthy peer disconnects', async () => {
+	const { openTab } = await setup({ exchangeTimeoutMs: 10 });
+	const second = await openTab();
+	await using first = await openTab();
+	let firstExchanges = 0;
+	let secondExchanges = 0;
+	let firstStalls = false;
+
+	expectOk(
+		await second.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				secondExchanges += 1;
+				return acknowledge(request);
+			},
+		}),
+	);
+	expectOk(
+		await first.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			exchange(request) {
+				firstExchanges += 1;
+				if (firstStalls) {
+					firstStalls = false;
+					return new Promise<ExchangeResponse>(() => undefined);
+				}
+				return acknowledge(request);
+			},
+		}),
+	);
+	firstStalls = true;
+	const secondBeforeFailover = secondExchanges;
+
+	await bindTestData(first).tables.notes.create({ title: 'Quarantine first' });
+	await waitFor(() => secondExchanges > secondBeforeFailover);
+	const firstBeforeDisconnect = firstExchanges;
+	await second[Symbol.asyncDispose]();
+	await waitFor(
+		() =>
+			firstExchanges > firstBeforeDisconnect &&
+			first.syncStatus.state === 'idle',
+	);
 });
 
 test('disposing the last page releases ownership before a second open', async () => {
