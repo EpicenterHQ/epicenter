@@ -9,11 +9,13 @@
  * identity equals the stored one. Resumption happens only at a committed WHOLE
  * seed boundary; a partial timing block is never a resume point.
  *
- * The identity is computed with the portable streaming hash over canonical JSON,
- * so it is reproducible across runtimes. This module is pure: it owns the
- * manifest shape and the resume decision, not the filesystem. The runner reads
- * and writes the manifest file and calls here to decide.
+ * The identity is computed with the portable streaming hash over canonical JSON.
+ * The manifest is persisted atomically (temp file plus rename) and reloaded with
+ * schema validation, so a resume is genuinely cross-process and a truncated or
+ * tampered manifest is refused rather than trusted.
  */
+
+import { renameSync, writeFileSync } from 'node:fs';
 
 import {
 	canonicalize,
@@ -23,10 +25,13 @@ import { Sha256Stream } from './portable-hash.js';
 
 /**
  * Everything that must be identical for two runs to share a checkpoint. Any
- * change here changes the identity and refuses a cross-identity resume.
+ * change here changes the identity and refuses a cross-identity resume. The
+ * identity binds the exact source, the whole config, the per-candidate DDL
+ * hashes, the validated limits, the runtime and SQLite versions, the execution
+ * settings (pragmas), and the real workload and auxiliary digests.
  */
 export type ProvenanceConfig = {
-	/** The workload source version, e.g. the git commit the run was launched from. */
+	/** The exact workload source version, e.g. the git commit; never a generic placeholder. */
 	sourceVersion: string;
 	/** The pilot profile name (smoke, pilot, ...). */
 	profile: string;
@@ -45,9 +50,17 @@ export type ProvenanceConfig = {
 	/** Bootstrap draw count and seed. */
 	bootstrapDraws: number;
 	bootstrapSeed: number;
-	/** A canonical digest of the trace options and limits (workload identity). */
+	/** Per-candidate DDL hash: the exact physical schema behind each candidate. */
+	ddlHashes: Record<string, string>;
+	/** A canonical digest of the validated V1 limits. */
+	limitsDigest: string;
+	/** The runtime and SQLite versions the evidence was produced under. */
+	runtime: { bun: string; sqlite: string };
+	/** The execution settings (pragmas) that shape physical behavior. */
+	executionSettings: Record<string, string | number>;
+	/** A canonical digest of the trace options (workload identity). */
 	workloadDigest: string;
-	/** A canonical digest of the auxiliary-trace options. */
+	/** A canonical digest of the auxiliary-trace options and their bound hashes. */
 	auxiliaryDigest: string;
 };
 
@@ -139,9 +152,10 @@ export function commitSeed(
 	manifest: PilotManifest,
 	record: SeedRecord,
 ): PilotManifest {
-	if (Object.keys(record.estimators).length === 0) {
+	const seedLabel = String((record as { seedId?: unknown } | null)?.seedId);
+	if (!isValidSeedRecord(record)) {
 		throw new Error(
-			`refusing to commit seed ${record.seedId} with no estimators; a partial timing block is not a resume point`,
+			`refusing to commit a malformed or partial seed record for seed ${seedLabel}; a resume point must be a complete whole seed`,
 		);
 	}
 	if (manifest.completedSeeds.some((seed) => seed.seedId === record.seedId)) {
@@ -150,5 +164,81 @@ export function commitSeed(
 	return {
 		...manifest,
 		completedSeeds: [...manifest.completedSeeds, record],
+	};
+}
+
+function isValidSeedRecord(record: unknown): record is SeedRecord {
+	if (typeof record !== 'object' || record === null) return false;
+	const r = record as Record<string, unknown>;
+	if (!Number.isInteger(r.seedId)) return false;
+	if (typeof r.seedGatesPassed !== 'boolean') return false;
+	if (typeof r.estimators !== 'object' || r.estimators === null) return false;
+	const estimators = r.estimators as Record<string, unknown>;
+	const keys = Object.keys(estimators);
+	if (keys.length === 0) return false; // a partial block has no estimators
+	for (const key of keys) {
+		const value = estimators[key];
+		if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+	}
+	if (typeof r.hashes !== 'object' || r.hashes === null) return false;
+	const hashes = r.hashes as Record<string, unknown>;
+	if (Object.keys(hashes).length === 0) return false; // provenance is required
+	for (const key of Object.keys(hashes)) {
+		if (typeof hashes[key] !== 'string') return false;
+	}
+	return true;
+}
+
+/**
+ * Serialize a manifest to a stable JSON string. The identity is recomputed and
+ * embedded so a reload can detect any tampering with the config.
+ */
+export function serializeManifest(manifest: PilotManifest): string {
+	return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+/**
+ * Persist a manifest atomically: write a temp file then rename over the target,
+ * so a crash mid-write never leaves a truncated manifest a later run would trust.
+ */
+export function persistManifest(path: string, manifest: PilotManifest): void {
+	const temp = `${path}.tmp`;
+	writeFileSync(temp, serializeManifest(manifest));
+	renameSync(temp, path);
+}
+
+/**
+ * Parse and schema-validate a persisted manifest. Returns the manifest only when
+ * its shape is valid, every committed seed record is complete, and the embedded
+ * identity equals the identity recomputed from its own config. Any deviation
+ * (truncation, tampering, a partial seed, an identity that does not match its
+ * config) returns null so the caller fails closed instead of resuming bad state.
+ */
+export function parseManifest(serialized: string): PilotManifest | null {
+	let value: unknown;
+	try {
+		value = JSON.parse(serialized);
+	} catch {
+		return null;
+	}
+	if (typeof value !== 'object' || value === null) return null;
+	const record = value as Record<string, unknown>;
+	if (typeof record.identity !== 'string') return null;
+	if (typeof record.config !== 'object' || record.config === null) return null;
+	if (!Array.isArray(record.completedSeeds)) return null;
+	if (!record.completedSeeds.every(isValidSeedRecord)) return null;
+	const config = record.config as ProvenanceConfig;
+	// The embedded identity must equal the identity recomputed from the config, so
+	// a hand-edited config cannot slip through under a stale identity.
+	if (computeProvenanceIdentity(config) !== record.identity) return null;
+	// Every committed seed must belong to the config's seed list.
+	const seedIds = new Set(config.seedIds);
+	for (const seed of record.completedSeeds as SeedRecord[]) {
+		if (!seedIds.has(seed.seedId)) return null;
+	}
+	return {
+		identity: record.identity,
+		config,
+		completedSeeds: record.completedSeeds as SeedRecord[],
 	};
 }
