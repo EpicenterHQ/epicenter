@@ -191,6 +191,11 @@ shapes, see `docs/adr/`.
 - **Document publication receipt**: post-commit authority proof for one exact
   frozen document update, bound to its authority lifetime, row address, protocol
   version, and payload digest. State vectors are transfer hints, never receipts.
+- **Proposed scalar V1 vocabulary**: the fact, intent, facts-feed, and numbered
+  submission terms below describe the destination selected by Proposed
+  ADR-0163. They are not the current production protocol. The transitional
+  runtime still uses the accepted ADR-0141 combined exchange, receipts,
+  checkpoints, and settlement watermarks until the V1 migration lands.
 - **Scalar fact**: the authority's current state at one structured row or value
   address. A fact carries one global authority sequence and explicit presence.
   Present rows carry fields, present values carry content, absent rows are
