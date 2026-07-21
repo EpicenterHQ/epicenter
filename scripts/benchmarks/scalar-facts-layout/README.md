@@ -78,7 +78,16 @@ Coordinates are write-once (unconditional no-update, no-delete, and no-replace
 insert), so `foreign_keys` OFF cannot orphan a fact and no conflict path can move
 a live coordinate onto a referenced id or identity.
 
-An **attack matrix** (`attackMatrixProofs`) runs every reproduced corruption
+The store installs through an atomic page seam: `installPage(facts,
+commitProgress?)` opens exactly one transaction, applies every fact through a
+non-transaction-opening inner op, then optionally writes durable progress (an
+`afterSequence` watermark) in that same transaction, so a batch and its progress
+commit or roll back together. `install(fact)` is a one-fact page. The runner
+drives the page seam and never wraps a transaction around calls that each open
+their own; this atomic batch-plus-progress seam is what a future OPFS runner
+needs.
+
+An **attack matrix** (`attackMatrixProof`) runs every reproduced corruption
 vector as raw SQL that bypasses the store, across all four candidates with
 `recursive_triggers` OFF and ON, and the normalized candidates additionally with
 `foreign_keys` OFF and ON: INSERT OR REPLACE onto a tombstone PK, a distinct PK
@@ -88,9 +97,9 @@ IGNORE address/sequence conflicts; direct DELETE; row absent-then-present; split
 cross-table sequence collisions; and the coordinate replace/update/delete and
 orphan-insert attacks. After each rejected attack it asserts the exact
 count/byte/SHA-256 witness and `PRAGMA integrity_check` are unchanged, not merely
-that the statement threw. The legal transitions it must still allow (row
-absent-then-higher-absent; value absent-then-higher-present) are proven to
-succeed.
+that the statement threw, and returns a typed record of every attack's result.
+The legal transitions it must still allow (row absent-then-higher-absent; value
+absent-then-higher-present) are proven to succeed.
 
 ## Independent oracle and reopen witness
 
@@ -121,12 +130,22 @@ status:
   cannot run the cell, or a quota/precondition that refused admission). This Bun
   instrument emits only `passed` / `failed`; it never fabricates the other two.
 
-`classifyEvidence` returns one run-level status and **never a candidate id**:
+`classifyEvidence` does not trust the cell's summary booleans. It **recomputes**
+the plan proof from the raw `EXPLAIN QUERY PLAN` text and requires it to match the
+retained proof, checks the constraint proof's `ok` against its own failure list,
+requires the expected runtime/profile identity, and requires the outcome enum to
+be coherent with `correct`/`reason` and the recomputed proofs. It returns one
+run-level status and **never a candidate id**:
 
-- **invalid** (fail closed): any `failed` cell, a plan-semantics or constraint
-  proof failure, a malformed or changed witness, a non-ok integrity check, a
-  non-finite storage field, an empty/negative/non-finite timing sample, a
-  duplicate/unexpected/out-of-range cell, an inconsistent-or-non-distinct seed, or
+- **invalid** (fail closed): any `failed` cell; an outcome that is unknown or
+  `unsupported`/`not-admitted`; a spoofed runtime/profile; an incoherent `passed`
+  cell; a plan proof that disagrees with the recomputation from the raw plans; a
+  constraint proof whose `ok` disagrees with its failures, or that failed; a
+  malformed or changed witness; a witness that disagrees with the storage
+  count/bytes; a storage relationship violation (non-freelist over allocated,
+  present over current, max fact over total); a non-ok integrity check; a
+  non-finite storage field; an empty/negative/non-finite timing sample; a
+  duplicate/unexpected/out-of-range cell; an inconsistent-or-non-distinct seed; or
   a globally required metric missing.
 - **incomplete**: the expected owner x candidate x repetition matrix is not fully
   populated and passing.
@@ -190,36 +209,56 @@ Physical amplification is reported against the logical-state denominator for bot
 page measures. No ratio is printed unless both its numerator and denominator were
 measured.
 
-## Pilot before qualification
+The `full` profile contract is exact: **1,000,000 final-present addresses**, a
+**512 MiB (536,870,912 byte)** aggregate present proxy, and **1,048,805 current
+facts** for the intended trace (present rows/values plus terminal tombstones and
+absences). This is an aggregate proxy over the corpus, never 512 KiB per row. The
+corpus precondition fails the run closed unless the live-address count and byte
+target are hit exactly.
 
-The spec is internally inconsistent about seed counts (a four-outer-seed
-measurement pilot versus at least five maintained-evidence repetitions). The
-strict reading, adopted here, is: a **4-seed measurement pilot first**, then
-**at least five qualification repetitions** later, on supported runtimes. This
-Bun instrument is pre-pilot; its `full` profile requires at least five paired,
-distinct seeds (`max(5, requested)`) purely as an internal completeness bar, and
-never claims qualification.
+## Seeds are a pilot decision, not settled here
 
-## Runtime scope (page-addressable SQLite)
+The active spec requires **four fresh paired outer seeds** for the future
+measurement-method pilot, which then freezes the real seed and block counts. The
+"five" that appears elsewhere is legacy checkpoint text, not qualification policy.
+This pre-pilot tool therefore picks an arbitrary LOCAL repetition default
+(`PREPILOT_DEFAULT_REPETITIONS`, currently 4) purely as an internal completeness
+bar; it never describes any count as qualification policy or as the spec's strict
+reading. The pilot owns that decision.
 
-The runner is runtime-neutral over page-addressable file SQLite: it imports no
-`bun:sqlite` or `node:*` and receives its lifecycle through an injected
-async-capable factory, so a browser OPFS SQLite runtime reuses it unchanged.
-**Durable Object SQLite is explicitly out of scope**: its storage is not page and
-freelist addressable the same way, so it needs a separate runner with its own
-storage accounting. This harness never fabricates page metrics for it.
+## Runtime scope (this is not a universal runner)
+
+The runner drives desktop file SQLite (Bun now). It imports no `bun:sqlite` or
+`node:*` and takes its lifecycle through an injected factory, but that factory
+abstracts the desktop file-SQLite lifecycle only. A browser Worker/OPFS harness
+and a Durable Object authority harness each need their **own** lifecycle runner:
+atomic page-plus-`afterSequence` progress, restart-prefix proof, crash and quota
+handling, and OPFS or DO storage measurements. What they reuse is only the
+portable vocabulary: the trace and byte oracle, the candidate DDL and store, the
+query-plan operations, and the proof vocabulary, plus the atomic `installPage`
+seam. **Durable Object SQLite is explicitly out of scope** for this runner: its
+storage is not page and freelist addressable the same way, and this harness never
+fabricates page metrics for it.
 
 ## Artifact
 
 `--output <path>` writes one versioned JSON artifact (`artifactVersion` 2) with
 complete reproduction metadata: the runtime identity (Bun and SQLite versions, OS
 platform/release/arch, and pragmas), the parsed args, install batch, per-repetition
-candidate order, the command line, the source commit (honestly null when not
-provided via `SOURCE_COMMIT` / `GITHUB_SHA`), and a DDL/schema digest and version.
-It carries the full raw per-cell results (timing sample arrays, storage, plans,
-plan and constraint proofs, before/after witnesses, integrity, outcome) plus the
-classifier report. The classifier summarizes; the raw arrays are the evidence, and
-medians are never the artifact.
+candidate order, the command line, the source commit, and a DDL/schema digest and
+version. The source commit is honestly `null` when not provided via
+`SOURCE_COMMIT` / `GITHUB_SHA`; a null commit is honest but **not admissible**, so
+an admissible run must supply it. It carries the full raw per-cell results (timing
+sample arrays, storage, plans, plan and constraint proofs, before/after witnesses,
+integrity, outcome) and the classifier report.
+
+It also retains the real **constraint evidence**: for every candidate, one typed
+proof record per pragma combination (recursive_triggers OFF/ON, and for the
+normalized candidates foreign_keys OFF/ON), each carrying that combo's baseline
+witness and integrity and every attack's structured result (rejected, witness
+stable, integrity ok). The retained coverage is the coverage the README claims;
+no proof coverage is asserted by a bare boolean. The classifier summarizes; the
+raw arrays are the evidence, and medians are never the artifact.
 
 ## Determinism
 
@@ -234,8 +273,9 @@ exactly the same trace; each repetition draws an independent data seed.
 - `trace.ts`: deterministic corpus, aging events, and the independent oracle.
 - `layouts.ts`: the four DDL candidates, their stores, the uniform invariant
   triggers, and the shape and attack-matrix proofs.
-- `runner.ts`: owner-specific workloads, timing, reopen, storage, query plans, the
-  per-cell outcome and plan proof. Runtime-neutral over page-addressable SQLite.
+- `runner.ts`: the desktop file-SQLite runner: owner-specific workloads, timing,
+  reopen, storage, query plans, the per-cell outcome and plan proof. Not a
+  universal runner; browser and DO harnesses are separate.
 - `decision.ts`: the fail-closed evidence-status classifier (invalid / incomplete
   / provisional; never a winner).
 - `bun-runtime.ts`: Bun/node-only DB lifecycle, page metrics, in-memory proof DB,
