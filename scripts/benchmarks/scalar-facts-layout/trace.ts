@@ -11,11 +11,21 @@
  * that final band, its dense sequence, and its calibrated payload size in O(1),
  * so the full-scale oracle never retains the payload corpus or a per-fact map.
  *
- * Canonical bytes are the ACTUAL V1 bytes: the kernel's RFC 8785 `canonicalize`
- * over the real Fact shape (structured address, `presence`, row `fields`, value
- * `content`). Correctness is checked against the oracle's three-part witness
- * (exact count, exact canonical bytes, and one ordered SHA-256 over facts in
- * ascending sequence), never against a layout's own read path.
+ * Two byte measures are kept distinct (ADR-0161, ADR-0167):
+ *
+ * - PRESENT LOGICAL STATE: the ADR-0167 logical content of present rows and
+ *   values only, excluding authority sequences and terminal tombstones. This is
+ *   the 1,000,000-live-address / 512 MiB target quantity. ADR-0167 leaves the
+ *   exact canonical logical-state encoding an unfrozen implementation decision,
+ *   so this is a DEFINED PROXY (canonical JSON of the logical columns), reported
+ *   as a stress target, never a frozen conformance qualification.
+ * - CURRENT PROTOCOL FACT bytes: the full V1 fact record (structured address,
+ *   `presence`, sequence, and payload) over every current fact including terminal
+ *   absences. A storage and workload diagnostic, not the logical-state target.
+ *
+ * Correctness is checked against the oracle's three-part witness (exact count,
+ * exact current-protocol-fact bytes, one ordered SHA-256 in ascending sequence)
+ * over every current fact, never against a layout's own read path.
  */
 import { CryptoHasher } from 'bun';
 
@@ -28,15 +38,37 @@ export type JsonValue =
 	| null
 	| JsonValue[]
 	| { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
 
-export type Address =
-	| { kind: 'row'; namespace: string; table: string; rowId: string }
-	| { kind: 'value'; namespace: string; value: string };
+export type RowAddress = {
+	kind: 'row';
+	namespace: string;
+	table: string;
+	rowId: string;
+};
+export type ValueAddress = { kind: 'value'; namespace: string; value: string };
+export type Address = RowAddress | ValueAddress;
 
-/** A current fact: present carries a payload, absent is a tombstone or unset. */
+/**
+ * A closed benchmark fact that cannot form an invalid V1 fact: a present row
+ * carries `fields`, a present value carries `content`, and an absent fact of
+ * either kind carries neither. Mirrors the private V1 Fact shape.
+ */
 export type Fact =
-	| { address: Address; sequence: number; present: true; payload: JsonValue }
-	| { address: Address; sequence: number; present: false };
+	| {
+			address: RowAddress;
+			sequence: number;
+			presence: 'present';
+			fields: JsonObject;
+	  }
+	| { address: RowAddress; sequence: number; presence: 'absent' }
+	| {
+			address: ValueAddress;
+			sequence: number;
+			presence: 'present';
+			content: JsonValue;
+	  }
+	| { address: ValueAddress; sequence: number; presence: 'absent' };
 
 export type TraceOptions = {
 	facts: number;
@@ -44,8 +76,8 @@ export type TraceOptions = {
 	tableCount: number;
 	valueRatio: number;
 	dataSeed: number;
-	/** Exact final canonical logical byte target; row filler is calibrated to it. */
-	targetFinalBytes: number;
+	/** Exact present-logical-state byte target; row filler is calibrated to it. */
+	targetLogicalStateBytes: number;
 };
 
 export type ObservedCardinalities = {
@@ -59,19 +91,31 @@ export type ObservedCardinalities = {
 	valueUnsets: number;
 	valueResurrections: number;
 	initialAbsentThenPresent: number;
+	finalPresent: number;
+	finalAbsent: number;
 };
 
-/** The three-part correctness witness of a whole fact set. */
-export type OracleWitness = {
-	count: number;
-	canonicalBytes: number;
+/** The full measurement of one final state: correctness witness plus both byte measures. */
+export type Measures = {
+	/** Count of every current fact, present or absent (correctness). */
+	currentCount: number;
+	/** Ordered SHA-256 over every current protocol fact (correctness). */
 	digestHex: string;
+	/** Current V1 protocol-fact bytes over every current fact (diagnostic). */
+	currentProtocolFactBytes: number;
+	/** Largest single current protocol fact, to catch a calibration outlier. */
+	maxProtocolFactBytes: number;
+	/** Count of final-present addresses (the ADR-0161 live-address count). */
+	presentCount: number;
+	/** Present logical-state bytes (ADR-0167 proxy; the 512 MiB target quantity). */
+	presentLogicalStateBytes: number;
+	/** Largest single present logical record. */
+	maxLogicalRecordBytes: number;
 };
 
 const SALT_NS = 0x4e53_5041;
 const SALT_TABLE = 0x5442_4c45;
 
-// Disjoint, ordered event bands; the final fact at an index is its highest band.
 const BAND_PHASE0 = 0;
 const BAND_REWRITE = 1;
 const BAND_TOMBSTONE = 2;
@@ -79,7 +123,6 @@ const BAND_UNSET = 3;
 const BAND_RESURRECT = 4;
 const BAND_ACTIVATE = 5;
 
-// Deterministic aging selectors (as closed-form congruences).
 const REWRITE_MOD = 10; // 10% rewrites
 const TOMBSTONE_MOD = 20; // 5% of rows
 const UNSET_MOD = 100; // 1% of values
@@ -116,29 +159,69 @@ export function addressKey(address: Address): string {
  * shape independently, so it is a true cross-check, not a shared helper.
  */
 export function canonicalFactRecord(fact: Fact): string {
-	const a = fact.address;
-	const address =
-		a.kind === 'row'
-			? { kind: 'row', namespace: a.namespace, rowId: a.rowId, table: a.table }
-			: { kind: 'value', namespace: a.namespace, value: a.value };
-	if (!fact.present)
+	if (fact.presence === 'absent') {
+		const address =
+			fact.address.kind === 'row'
+				? {
+						kind: 'row',
+						namespace: fact.address.namespace,
+						rowId: fact.address.rowId,
+						table: fact.address.table,
+					}
+				: {
+						kind: 'value',
+						namespace: fact.address.namespace,
+						value: fact.address.value,
+					};
 		return canonicalize({
 			address,
 			presence: 'absent',
 			sequence: fact.sequence,
 		});
-	if (a.kind === 'row')
+	}
+	if ('fields' in fact) {
 		return canonicalize({
-			address,
-			fields: fact.payload,
+			address: {
+				kind: 'row',
+				namespace: fact.address.namespace,
+				rowId: fact.address.rowId,
+				table: fact.address.table,
+			},
+			fields: fact.fields,
 			presence: 'present',
 			sequence: fact.sequence,
 		});
+	}
 	return canonicalize({
-		address,
-		content: fact.payload,
+		address: {
+			kind: 'value',
+			namespace: fact.address.namespace,
+			value: fact.address.value,
+		},
+		content: fact.content,
 		presence: 'present',
 		sequence: fact.sequence,
+	});
+}
+
+/**
+ * The ADR-0167 logical-state record of a PRESENT fact: logical columns only, no
+ * sequence and no presence, and never for an absent fact. A defined proxy for
+ * the unfrozen canonical logical-state encoding.
+ */
+export function logicalRecord(fact: Fact): string | null {
+	if (fact.presence !== 'present') return null; // tombstones are not logical state
+	if ('fields' in fact)
+		return canonicalize({
+			fields: fact.fields,
+			namespaceKey: fact.address.namespace,
+			rowId: fact.address.rowId,
+			tableKey: fact.address.table,
+		});
+	return canonicalize({
+		content: fact.content,
+		namespaceKey: fact.address.namespace,
+		valueKey: fact.address.value,
 	});
 }
 
@@ -155,8 +238,8 @@ function rowIdOf(index: number): string {
 	return index.toString(36).padStart(24, '0');
 }
 
-function valueCountOf(options: TraceOptions): number {
-	return Math.max(1, Math.ceil(options.facts * options.valueRatio));
+function valueCountOf(facts: number, valueRatio: number): number {
+	return Math.max(1, Math.ceil(facts * valueRatio));
 }
 
 function isValue(index: number, valueCount: number): boolean {
@@ -181,10 +264,11 @@ function isRewrite(index: number, valueCount: number): boolean {
 }
 
 export function addressAt(index: number, options: TraceOptions): Address {
+	const valueCount = valueCountOf(options.facts, options.valueRatio);
 	const namespace = namespaceLabel(
 		hash32(options.dataSeed ^ SALT_NS, index) % options.namespaceCount,
 	);
-	if (isValue(index, valueCountOf(options))) {
+	if (isValue(index, valueCount)) {
 		return { kind: 'value', namespace, value: valueLabel(index) };
 	}
 	const table = tableLabel(
@@ -221,7 +305,6 @@ function finalBand(
 	return { band: BAND_PHASE0, present: true, phase: 0 };
 }
 
-/** Events emitted in each band over [0, facts), for dense sequence math. */
 function bandCounts(facts: number, valueCount: number): number[] {
 	const e0 =
 		facts -
@@ -240,7 +323,6 @@ function bandCounts(facts: number, valueCount: number): number[] {
 	return [e0, e1, e2, e3, e4, e5];
 }
 
-/** Count of indices j < i that emit in `band`. */
 function bandRankBelow(i: number, band: number, valueCount: number): number {
 	const vHi = Math.min(i, valueCount);
 	switch (band) {
@@ -262,7 +344,6 @@ function bandRankBelow(i: number, band: number, valueCount: number): number {
 	}
 }
 
-/** Number of adjustable (present, non-tombstone) rows with index < i. */
 function adjustableRowsBelow(i: number, valueCount: number): number {
 	if (i <= valueCount) return 0;
 	const rows = i - valueCount;
@@ -276,13 +357,22 @@ function isAdjustableRow(index: number, valueCount: number): boolean {
 	return index >= valueCount && !isTombstone(index, valueCount);
 }
 
-/** Calibrated row-filler distribution: every adjustable row gets q, the first rem get q+1. */
+/** Final-absent count in [0, facts): row tombstones plus non-resurrected value unsets. */
+function finalAbsentCount(facts: number, valueCount: number): number {
+	const rowTombstones =
+		countCongruent(facts, TOMBSTONE_MOD, 0) -
+		countCongruent(valueCount, TOMBSTONE_MOD, 0);
+	const unsets = countCongruent(valueCount, UNSET_MOD, 0);
+	const resurrected = countCongruent(valueCount, RESURRECT_MOD, 0);
+	return rowTombstones + (unsets - resurrected);
+}
+
 type Calibration = {
 	quotient: number;
 	remainder: number;
 	adjustableRows: number;
-	baseBytes: number;
-	achievedFinalBytes: number;
+	baseLogicalBytes: number;
+	achievedLogicalStateBytes: number;
 	qualifying: boolean;
 };
 
@@ -291,8 +381,8 @@ export type Trace = {
 	calibration: Calibration;
 	finalFactAt(index: number): Fact;
 	events(): Generator<Fact>;
-	oracleWitness(): OracleWitness;
-	initialStateBytes(): number;
+	/** One streaming pass: correctness witness plus both byte measures. */
+	measure(): Measures;
 	observed(): ObservedCardinalities;
 	sampleRowAddresses(count: number): Address[];
 	sampleValueAddresses(count: number): Address[];
@@ -300,7 +390,7 @@ export type Trace = {
 
 export function makeTrace(options: TraceOptions): Trace {
 	const facts = options.facts;
-	const valueCount = valueCountOf(options);
+	const valueCount = valueCountOf(options.facts, options.valueRatio);
 	const [e0, e1, e2, e3, e4] = bandCounts(facts, valueCount) as [
 		number,
 		number,
@@ -322,41 +412,65 @@ export function makeTrace(options: TraceOptions): Trace {
 		return (cumBefore[band] ?? 0) + bandRankBelow(index, band, valueCount) + 1;
 	}
 
-	function rowFields(
+	function rowFieldsObject(
 		index: number,
 		phase: number,
 		fillerLen: number,
-	): JsonValue {
+	): JsonObject {
 		return { body: 'x'.repeat(fillerLen), ordinal: index, phase };
+	}
+
+	function factWith(
+		index: number,
+		band: number,
+		phase: number,
+		present: boolean,
+		fillerLen: number,
+	): Fact {
+		const address = addressAt(index, options);
+		const sequence = denseSequence(index, band);
+		if (address.kind === 'row') {
+			return present
+				? {
+						address,
+						sequence,
+						presence: 'present',
+						fields: rowFieldsObject(index, phase, fillerLen),
+					}
+				: { address, sequence, presence: 'absent' };
+		}
+		return present
+			? {
+					address,
+					sequence,
+					presence: 'present',
+					content: valueContent(index, phase),
+				}
+			: { address, sequence, presence: 'absent' };
 	}
 
 	function finalFactWith(index: number, fillerLen: number): Fact {
 		const { band, present, phase } = finalBand(index, valueCount);
-		const address = addressAt(index, options);
-		const sequence = denseSequence(index, band);
-		if (!present) return { address, sequence, present: false };
-		const payload =
-			address.kind === 'row'
-				? rowFields(index, phase, fillerLen)
-				: valueContent(index, phase);
-		return { address, sequence, present: true, payload };
+		return factWith(index, band, phase, present, fillerLen);
 	}
 
+	// Calibration pass: present logical bytes at zero row filler, then exact split.
 	function calibrate(): Calibration {
-		let baseBytes = 0;
+		let baseLogicalBytes = 0;
 		for (let index = 0; index < facts; index += 1) {
-			baseBytes += utf8Len(canonicalFactRecord(finalFactWith(index, 0)));
+			const record = logicalRecord(finalFactWith(index, 0));
+			if (record !== null) baseLogicalBytes += utf8Len(record);
 		}
 		const adjustableRows = adjustableRowsBelow(facts, valueCount);
-		const delta = options.targetFinalBytes - baseBytes;
+		const delta = options.targetLogicalStateBytes - baseLogicalBytes;
 		if (adjustableRows <= 0 || delta < 0) {
 			return {
 				quotient: 0,
 				remainder: 0,
 				adjustableRows,
-				baseBytes,
-				achievedFinalBytes: baseBytes,
-				qualifying: options.targetFinalBytes === baseBytes,
+				baseLogicalBytes,
+				achievedLogicalStateBytes: baseLogicalBytes,
+				qualifying: options.targetLogicalStateBytes === baseLogicalBytes,
 			};
 		}
 		const quotient = Math.floor(delta / adjustableRows);
@@ -365,21 +479,34 @@ export function makeTrace(options: TraceOptions): Trace {
 			quotient,
 			remainder,
 			adjustableRows,
-			baseBytes,
-			achievedFinalBytes: baseBytes + adjustableRows * quotient + remainder,
+			baseLogicalBytes,
+			achievedLogicalStateBytes:
+				baseLogicalBytes + adjustableRows * quotient + remainder,
 			qualifying: true,
 		};
 	}
 	const calibration = calibrate();
 
-	function fillerLenAt(index: number): number {
+	/** Final-state filler for an adjustable (surviving) row. */
+	function finalFillerLenAt(index: number): number {
 		if (!isAdjustableRow(index, valueCount)) return 0;
 		const rank = adjustableRowsBelow(index, valueCount);
 		return calibration.quotient + (rank < calibration.remainder ? 1 : 0);
 	}
 
+	/**
+	 * Build-time filler for a PRESENT row event. A surviving row uses its final
+	 * calibrated size; a terminal (later-tombstoned) row still gets a
+	 * representative present payload (the quotient) so the build and aging
+	 * workload is weighted realistically, without entering final calibration.
+	 */
+	function buildFillerLenAt(index: number): number {
+		if (isAdjustableRow(index, valueCount)) return finalFillerLenAt(index);
+		return calibration.quotient; // terminal row: representative initial payload
+	}
+
 	function finalFactAt(index: number): Fact {
-		return finalFactWith(index, fillerLenAt(index));
+		return finalFactWith(index, finalFillerLenAt(index));
 	}
 
 	function* events(): Generator<Fact> {
@@ -387,12 +514,24 @@ export function makeTrace(options: TraceOptions): Trace {
 		const emit = (index: number, phase: number, present: boolean): Fact => {
 			sequence += 1;
 			const address = addressAt(index, options);
-			if (!present) return { address, sequence, present: false };
-			const payload =
-				address.kind === 'row'
-					? rowFields(index, phase, fillerLenAt(index))
-					: valueContent(index, phase);
-			return { address, sequence, present: true, payload };
+			if (address.kind === 'row') {
+				return present
+					? {
+							address,
+							sequence,
+							presence: 'present',
+							fields: rowFieldsObject(index, phase, buildFillerLenAt(index)),
+						}
+					: { address, sequence, presence: 'absent' };
+			}
+			return present
+				? {
+						address,
+						sequence,
+						presence: 'present',
+						content: valueContent(index, phase),
+					}
+				: { address, sequence, presence: 'absent' };
 		};
 		for (let index = 0; index < facts; index += 1)
 			if (!isInitialAbsent(index, valueCount)) yield emit(index, 0, true);
@@ -408,7 +547,6 @@ export function makeTrace(options: TraceOptions): Trace {
 			if (isInitialAbsent(index, valueCount)) yield emit(index, 2, true);
 	}
 
-	/** Final facts in ascending final-sequence order (band-major over final band). */
 	function* finalFactsBySequence(): Generator<Fact> {
 		for (let band = 0; band <= BAND_ACTIVATE; band += 1) {
 			for (let index = 0; index < facts; index += 1) {
@@ -418,25 +556,41 @@ export function makeTrace(options: TraceOptions): Trace {
 		}
 	}
 
-	function oracleWitness(): OracleWitness {
-		return factSetDigest(finalFactsBySequence());
-	}
-
-	function initialStateBytes(): number {
-		let total = 0;
-		for (let index = 0; index < facts; index += 1) {
-			if (isInitialAbsent(index, valueCount)) continue;
-			const address = addressAt(index, options);
-			const payload =
-				address.kind === 'row'
-					? rowFields(index, 0, fillerLenAt(index))
-					: valueContent(index, 0);
-			const sequence = denseSequence(index, BAND_PHASE0);
-			total += utf8Len(
-				canonicalFactRecord({ address, sequence, present: true, payload }),
-			);
+	function measure(): Measures {
+		const hasher = new CryptoHasher('sha256');
+		let currentCount = 0;
+		let currentProtocolFactBytes = 0;
+		let maxProtocolFactBytes = 0;
+		let presentCount = 0;
+		let presentLogicalStateBytes = 0;
+		let maxLogicalRecordBytes = 0;
+		for (const fact of finalFactsBySequence()) {
+			const record = canonicalFactRecord(fact);
+			const recordBytes = utf8Len(record);
+			// Length-prefixed by UTF-8 byte length so no two records concatenate.
+			hasher.update(`${recordBytes}:${record}\n`);
+			currentCount += 1;
+			currentProtocolFactBytes += recordBytes;
+			if (recordBytes > maxProtocolFactBytes)
+				maxProtocolFactBytes = recordBytes;
+			const logical = logicalRecord(fact);
+			if (logical !== null) {
+				const logicalBytes = utf8Len(logical);
+				presentCount += 1;
+				presentLogicalStateBytes += logicalBytes;
+				if (logicalBytes > maxLogicalRecordBytes)
+					maxLogicalRecordBytes = logicalBytes;
+			}
 		}
-		return total;
+		return {
+			currentCount,
+			digestHex: hasher.digest('hex'),
+			currentProtocolFactBytes,
+			maxProtocolFactBytes,
+			presentCount,
+			presentLogicalStateBytes,
+			maxLogicalRecordBytes,
+		};
 	}
 
 	function observed(): ObservedCardinalities {
@@ -467,6 +621,7 @@ export function makeTrace(options: TraceOptions): Trace {
 			}
 			if (isRewrite(index, valueCount)) rewrites += 1;
 		}
+		const finalAbsent = finalAbsentCount(facts, valueCount);
 		return {
 			facts,
 			namespaces: namespaces.size,
@@ -478,6 +633,8 @@ export function makeTrace(options: TraceOptions): Trace {
 			valueUnsets,
 			valueResurrections,
 			initialAbsentThenPresent,
+			finalPresent: facts - finalAbsent,
+			finalAbsent,
 		};
 	}
 
@@ -518,8 +675,7 @@ export function makeTrace(options: TraceOptions): Trace {
 		calibration,
 		finalFactAt,
 		events,
-		oracleWitness,
-		initialStateBytes,
+		measure,
 		observed,
 		sampleRowAddresses,
 		sampleValueAddresses,
@@ -527,22 +683,47 @@ export function makeTrace(options: TraceOptions): Trace {
 }
 
 /**
- * One ordered SHA-256 over a fact sequence, with length-prefixed framing so no
- * two records can concatenate into a third. Count and exact canonical bytes
- * accompany the digest; a candidate scan feeds `ORDER BY sequence` records here
- * and must reproduce all three.
+ * Choose `facts` so the corpus has exactly `presentTarget` final-present
+ * addresses (the ADR-0161 live-address count), accounting for tombstones and
+ * non-resurrected unsets. Converges in a few closed-form steps.
  */
-export function factSetDigest(facts: Iterable<Fact>): OracleWitness {
+export function factsForPresentTarget(
+	presentTarget: number,
+	valueRatio: number,
+): number {
+	let facts = presentTarget;
+	for (let iteration = 0; iteration < 8; iteration += 1) {
+		const valueCount = valueCountOf(facts, valueRatio);
+		const absent = finalAbsentCount(facts, valueCount);
+		const next = presentTarget + absent;
+		if (next === facts) break;
+		facts = next;
+	}
+	return facts;
+}
+
+/**
+ * One ordered SHA-256 over a fact sequence, framed by UTF-8 byte length so no
+ * two records can concatenate into a third. Count and exact current-protocol
+ * bytes accompany the digest; a candidate scan feeds `ORDER BY sequence` records
+ * here and must reproduce all three.
+ */
+export function factSetDigest(facts: Iterable<Fact>): {
+	count: number;
+	bytes: number;
+	digestHex: string;
+} {
 	const hasher = new CryptoHasher('sha256');
 	let count = 0;
 	let bytes = 0;
 	for (const fact of facts) {
 		const record = canonicalFactRecord(fact);
-		hasher.update(`${record.length}:${record}\n`);
+		const recordBytes = utf8Len(record);
+		hasher.update(`${recordBytes}:${record}\n`);
 		count += 1;
-		bytes += utf8Len(record);
+		bytes += recordBytes;
 	}
-	return { count, canonicalBytes: bytes, digestHex: hasher.digest('hex') };
+	return { count, bytes, digestHex: hasher.digest('hex') };
 }
 
 function gcd(a: number, b: number): number {
@@ -575,7 +756,12 @@ class SmokeOracle {
 				throw new Error('equal sequence, different content');
 			return;
 		}
-		if (prior.address.kind === 'row' && !prior.present && fact.present) return;
+		if (
+			prior.address.kind === 'row' &&
+			prior.presence === 'absent' &&
+			fact.presence === 'present'
+		)
+			return;
 		this.current.set(key, fact);
 	}
 	get(address: Address): Fact | undefined {
@@ -586,54 +772,67 @@ class SmokeOracle {
 /** Independent self-tests of the fold law and analytical/streamed agreement. */
 export function traceSelfTest(): string[] {
 	const failures: string[] = [];
-	const rowA: Address = {
+	const rowA: RowAddress = {
 		kind: 'row',
 		namespace: 'so.epicenter.ns00',
 		table: 'collection0000',
 		rowId: rowIdOf(1),
 	};
-	const valA: Address = {
+	const valA: ValueAddress = {
 		kind: 'value',
 		namespace: 'so.epicenter.ns00',
 		value: 'settingx',
 	};
 
 	const o1 = new SmokeOracle();
-	o1.apply({ address: rowA, sequence: 1, present: true, payload: { a: 1 } });
-	o1.apply({ address: rowA, sequence: 2, present: false });
-	o1.apply({ address: rowA, sequence: 3, present: true, payload: { a: 2 } });
-	if (o1.get(rowA)?.present !== false)
+	o1.apply({
+		address: rowA,
+		sequence: 1,
+		presence: 'present',
+		fields: { a: 1 },
+	});
+	o1.apply({ address: rowA, sequence: 2, presence: 'absent' });
+	o1.apply({
+		address: rowA,
+		sequence: 3,
+		presence: 'present',
+		fields: { a: 2 },
+	});
+	if (o1.get(rowA)?.presence !== 'absent')
 		failures.push('row tombstone was resurrected by a later present');
 
 	const o2 = new SmokeOracle();
-	o2.apply({ address: valA, sequence: 1, present: true, payload: 'a' });
-	o2.apply({ address: valA, sequence: 2, present: false });
-	o2.apply({ address: valA, sequence: 3, present: true, payload: 'b' });
+	o2.apply({ address: valA, sequence: 1, presence: 'present', content: 'a' });
+	o2.apply({ address: valA, sequence: 2, presence: 'absent' });
+	o2.apply({ address: valA, sequence: 3, presence: 'present', content: 'b' });
 	const v = o2.get(valA);
-	if (!(v?.present === true && v.payload === 'b'))
+	if (!(v?.presence === 'present' && 'content' in v && v.content === 'b'))
 		failures.push('value unset did not resurrect on a later present');
 
 	const o3 = new SmokeOracle();
-	o3.apply({ address: valA, sequence: 5, present: true, payload: 'new' });
-	o3.apply({ address: valA, sequence: 3, present: true, payload: 'old' });
+	o3.apply({ address: valA, sequence: 5, presence: 'present', content: 'new' });
+	o3.apply({ address: valA, sequence: 3, presence: 'present', content: 'old' });
 	if (o3.get(valA)?.sequence !== 5) failures.push('applied a stale sequence');
 	let threw = false;
 	try {
-		o3.apply({ address: valA, sequence: 5, present: true, payload: 'other' });
+		o3.apply({
+			address: valA,
+			sequence: 5,
+			presence: 'present',
+			content: 'other',
+		});
 	} catch {
 		threw = true;
 	}
 	if (!threw) failures.push('accepted equal sequence with different content');
 
-	// The analytical oracle must equal the map-fold over the same event stream,
-	// including dense sequences and calibrated payloads.
 	const trace = makeTrace({
 		facts: 900,
 		namespaceCount: 5,
 		tableCount: 16,
 		valueRatio: 0.1,
 		dataSeed: 12345,
-		targetFinalBytes: 900 * 120 + 777,
+		targetLogicalStateBytes: 900 * 120 + 777,
 	});
 	const folded = new SmokeOracle();
 	let maxSeq = 0;

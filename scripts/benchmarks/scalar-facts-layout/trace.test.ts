@@ -1,8 +1,9 @@
 /**
  * Focused tests for the deterministic trace and its analytical oracle. These
- * gate the layout work: exact target bytes on uneven envelopes, dense unique
- * sequences, digest sensitivity, actual V1 canonical bytes, distinct samples,
- * and analytical-vs-fold agreement.
+ * gate the layout work: exact present-logical-state bytes on uneven envelopes,
+ * exact live-address counts, dense unique sequences, digest sensitivity, actual
+ * V1 canonical bytes, the ADR-0167 logical/protocol split, distinct samples, and
+ * analytical-vs-fold agreement.
  */
 import { describe, expect, test } from 'bun:test';
 
@@ -12,12 +13,14 @@ import {
 	canonicalFactRecord,
 	type Fact,
 	factSetDigest,
+	factsForPresentTarget,
+	logicalRecord,
 	makeTrace,
 	type TraceOptions,
 	traceSelfTest,
 } from './trace.js';
 
-const BASE: Omit<TraceOptions, 'targetFinalBytes'> = {
+const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
 	facts: 6000,
 	namespaceCount: 25,
 	tableCount: 1000,
@@ -29,37 +32,96 @@ test('the fold and analytical self-tests pass', () => {
 	expect(traceSelfTest()).toEqual([]);
 });
 
-describe('exact calibration to final canonical bytes', () => {
-	// Several deliberately uneven targets so the quotient/remainder split is
-	// exercised, not just clean multiples.
-	// Derive targets from the minimal frame so they are always feasible, with
-	// uneven deltas so the quotient/remainder split is exercised.
-	const baseBytes = makeTrace({ ...BASE, targetFinalBytes: 1 }).calibration
-		.baseBytes;
-	for (const targetFinalBytes of [
-		baseBytes + 1,
-		baseBytes + 4099,
-		baseBytes + (BASE.facts - 1),
-		baseBytes + BASE.facts * 300 + 4242,
+describe('exact calibration to present logical-state bytes', () => {
+	const baseLogicalBytes = makeTrace({ ...BASE, targetLogicalStateBytes: 1 })
+		.calibration.baseLogicalBytes;
+	for (const targetLogicalStateBytes of [
+		baseLogicalBytes + 1,
+		baseLogicalBytes + 4099,
+		baseLogicalBytes + (BASE.facts - 1),
+		baseLogicalBytes + BASE.facts * 300 + 4242,
 	]) {
-		test(`hits ${targetFinalBytes} bytes exactly`, () => {
-			const trace = makeTrace({ ...BASE, targetFinalBytes });
+		test(`hits ${targetLogicalStateBytes} present bytes exactly`, () => {
+			const trace = makeTrace({ ...BASE, targetLogicalStateBytes });
 			expect(trace.calibration.qualifying).toBe(true);
-			expect(trace.calibration.achievedFinalBytes).toBe(targetFinalBytes);
-			// And the streamed witness agrees to the byte.
-			expect(trace.oracleWitness().canonicalBytes).toBe(targetFinalBytes);
+			expect(trace.calibration.achievedLogicalStateBytes).toBe(
+				targetLogicalStateBytes,
+			);
+			expect(trace.measure().presentLogicalStateBytes).toBe(
+				targetLogicalStateBytes,
+			);
 		});
 	}
 
-	test('a target below the minimal frame is marked non-qualifying', () => {
-		const trace = makeTrace({ ...BASE, targetFinalBytes: 1 });
-		expect(trace.calibration.qualifying).toBe(false);
+	test('a target below the minimal present frame is non-qualifying', () => {
+		expect(
+			makeTrace({ ...BASE, targetLogicalStateBytes: 1 }).calibration.qualifying,
+		).toBe(false);
+	});
+});
+
+describe('exact live-address count for the full-profile shape', () => {
+	for (const presentTarget of [5000, 5321, 9999]) {
+		test(`factsForPresentTarget yields exactly ${presentTarget} present addresses`, () => {
+			const facts = factsForPresentTarget(presentTarget, BASE.valueRatio);
+			const trace = makeTrace({
+				...BASE,
+				facts,
+				targetLogicalStateBytes: facts * 200,
+			});
+			expect(trace.observed().finalPresent).toBe(presentTarget);
+			expect(trace.measure().presentCount).toBe(presentTarget);
+		});
+	}
+});
+
+describe('two distinct byte measures (ADR-0167)', () => {
+	test('present logical state and current protocol facts are separate quantities', () => {
+		const trace = makeTrace({
+			...BASE,
+			targetLogicalStateBytes: BASE.facts * 200,
+		});
+		const m = trace.measure();
+		// Current includes terminal absences; present excludes them.
+		expect(m.currentCount).toBeGreaterThan(m.presentCount);
+		// The protocol record carries address+presence+sequence framing the logical
+		// record omits, so per surviving fact it is larger; measures never coincide.
+		expect(m.currentProtocolFactBytes).not.toBe(m.presentLogicalStateBytes);
+		expect(m.maxProtocolFactBytes).toBeGreaterThan(0);
+		expect(m.maxLogicalRecordBytes).toBeGreaterThan(0);
+	});
+
+	test('logicalRecord omits sequence and presence and skips absent facts', () => {
+		const present: Fact = {
+			address: {
+				kind: 'value',
+				namespace: 'so.epicenter.ns00',
+				value: 'settingz',
+			},
+			sequence: 42,
+			presence: 'present',
+			content: 7,
+		};
+		const record = logicalRecord(present);
+		expect(record).not.toBeNull();
+		expect(record).not.toContain('sequence');
+		expect(record).not.toContain('presence');
+		expect(
+			logicalRecord({
+				address: present.address,
+				sequence: 43,
+				presence: 'absent',
+			}),
+		).toBeNull();
 	});
 });
 
 describe('dense unique sequences', () => {
 	test('every emitted event has a distinct sequence with no gaps', () => {
-		const trace = makeTrace({ ...BASE, targetFinalBytes: BASE.facts * 200 });
+		const trace = makeTrace({
+			...BASE,
+			targetLogicalStateBytes: BASE.facts * 200,
+		});
 		const seen = new Set<number>();
 		let max = 0;
 		let total = 0;
@@ -70,12 +132,15 @@ describe('dense unique sequences', () => {
 			total += 1;
 		}
 		expect(seen.size).toBe(total);
-		expect(max).toBe(total); // dense: sequences are exactly 1..total
+		expect(max).toBe(total);
 	});
 });
 
 describe('strong ordered digest', () => {
-	const trace = makeTrace({ ...BASE, targetFinalBytes: BASE.facts * 200 });
+	const trace = makeTrace({
+		...BASE,
+		targetLogicalStateBytes: BASE.facts * 200,
+	});
 	const facts: Fact[] = [];
 	for (let index = 0; index < 200; index += 1)
 		facts.push(trace.finalFactAt(index));
@@ -89,16 +154,14 @@ describe('strong ordered digest', () => {
 		expect(factSetDigest(changed).digestHex).not.toBe(base.digestHex);
 	});
 	test('a missing record changes count and digest', () => {
-		const missing = facts.slice(1);
-		const w = factSetDigest(missing);
+		const w = factSetDigest(facts.slice(1));
 		expect(w.count).toBe(base.count - 1);
 		expect(w.digestHex).not.toBe(base.digestHex);
 	});
 	test('a duplicated record changes count and digest', () => {
 		const first = facts[0];
 		if (first === undefined) throw new Error('missing sample');
-		const dup = [first, ...facts];
-		const w = factSetDigest(dup);
+		const w = factSetDigest([first, ...facts]);
 		expect(w.count).toBe(base.count + 1);
 		expect(w.digestHex).not.toBe(base.digestHex);
 	});
@@ -114,8 +177,8 @@ describe('actual V1 canonical bytes', () => {
 				rowId: '00000000000000000000000z',
 			},
 			sequence: 9,
-			present: true,
-			payload: { body: 'xx', ordinal: 5, phase: 1 },
+			presence: 'present',
+			fields: { body: 'xx', ordinal: 5, phase: 1 },
 		};
 		const expected = canonicalize({
 			address: {
@@ -129,12 +192,11 @@ describe('actual V1 canonical bytes', () => {
 			sequence: 9,
 		});
 		expect(canonicalFactRecord(fact)).toBe(expected);
-		// The presence axis and structured address must be in the bytes.
 		expect(canonicalFactRecord(fact)).toContain('"presence":"present"');
 		const absent = canonicalFactRecord({
 			address: fact.address,
 			sequence: 10,
-			present: false,
+			presence: 'absent',
 		});
 		expect(absent).toContain('"presence":"absent"');
 		expect(absent).not.toContain('fields');
@@ -145,21 +207,24 @@ describe('lifecycle coverage', () => {
 	test('the corpus exercises every aging lifecycle', () => {
 		const observed = makeTrace({
 			...BASE,
-			targetFinalBytes: BASE.facts * 200,
+			targetLogicalStateBytes: BASE.facts * 200,
 		}).observed();
 		expect(observed.rewrites).toBeGreaterThan(0);
 		expect(observed.rowTombstones).toBeGreaterThan(0);
 		expect(observed.valueUnsets).toBeGreaterThan(0);
 		expect(observed.valueResurrections).toBeGreaterThan(0);
 		expect(observed.initialAbsentThenPresent).toBeGreaterThan(0);
-		expect(observed.namespaces).toBeLessThanOrEqual(BASE.namespaceCount);
+		expect(observed.finalPresent + observed.finalAbsent).toBe(BASE.facts);
 		expect(observed.values + observed.rows).toBe(BASE.facts);
 	});
 });
 
 describe('guaranteed distinct samples', () => {
 	test('row and value samples return exactly the requested distinct count', () => {
-		const trace = makeTrace({ ...BASE, targetFinalBytes: BASE.facts * 200 });
+		const trace = makeTrace({
+			...BASE,
+			targetLogicalStateBytes: BASE.facts * 200,
+		});
 		const rows = trace.sampleRowAddresses(500).map(addressKey);
 		const values = trace.sampleValueAddresses(200).map(addressKey);
 		expect(rows.length).toBe(500);
@@ -170,20 +235,20 @@ describe('guaranteed distinct samples', () => {
 });
 
 describe('determinism', () => {
-	test('same seed reproduces the witness; different seed diverges', () => {
+	test('same seed reproduces the measure; different seed diverges', () => {
 		const a = makeTrace({
 			...BASE,
-			targetFinalBytes: BASE.facts * 200,
-		}).oracleWitness();
+			targetLogicalStateBytes: BASE.facts * 200,
+		}).measure();
 		const b = makeTrace({
 			...BASE,
-			targetFinalBytes: BASE.facts * 200,
-		}).oracleWitness();
+			targetLogicalStateBytes: BASE.facts * 200,
+		}).measure();
 		const c = makeTrace({
 			...BASE,
 			dataSeed: 8,
-			targetFinalBytes: BASE.facts * 200,
-		}).oracleWitness();
+			targetLogicalStateBytes: BASE.facts * 200,
+		}).measure();
 		expect(a).toEqual(b);
 		expect(c.digestHex).not.toBe(a.digestHex);
 	});
