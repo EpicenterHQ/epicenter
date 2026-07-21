@@ -15,6 +15,7 @@ import {
 	completenessExpectations,
 	computeProvenanceIdentity,
 	createManifest,
+	type PilotManifest,
 	type ProvenanceConfig,
 	type SeedRecord,
 } from './checkpoint.js';
@@ -24,7 +25,7 @@ import {
 	buildRetainedSet,
 	type CalibrationObservation,
 	cleanupRetainedSet,
-	commitSeedCheckpoint,
+	persistSeedCheckpoint,
 } from './pilot.js';
 import { buildCompleteRaw } from './raw-schema.test-support.js';
 import { evaluateCalibrationTrials } from './schedule.js';
@@ -122,7 +123,7 @@ function seedRecord(): SeedRecord {
 	};
 }
 
-describe('durable-write-before-delete ordering', () => {
+describe('durable persistence before cleanup', () => {
 	test('calibration cap exhaustion produces an auditable incomplete artifact', () => {
 		const provenance = { ...CONFIG, maxBlockOps: 2 };
 		const expectations = completenessExpectations(provenance, 0);
@@ -165,7 +166,7 @@ describe('durable-write-before-delete ordering', () => {
 		expect(artifact.selectedOps).toBeNull();
 		expect(artifact.reasonCode).toBe('CALIBRATION_OPS_UNSELECTED');
 		expect(artifact.method).toBeNull();
-		expect(artifact.evidenceStatus.status).toBe('incomplete');
+		expect(artifact).not.toHaveProperty('evidenceStatus');
 		expect(artifact.completedSeedIds).toEqual([]);
 		expect(JSON.stringify(artifact.trials)).toBe(JSON.stringify(trials));
 	});
@@ -183,10 +184,9 @@ describe('durable-write-before-delete ordering', () => {
 		const paths = [...retained.handles.values()].map((h) => h.path);
 		try {
 			expect(() =>
-				commitSeedCheckpoint({
+				persistSeedCheckpoint({
 					manifest: createManifest(CONFIG),
 					record: seedRecord(),
-					retained,
 					persist: () => {
 						throw new Error('disk full');
 					},
@@ -201,7 +201,7 @@ describe('durable-write-before-delete ordering', () => {
 		}
 	});
 
-	test('a successful durable write deletes the retained set afterward', () => {
+	test('a successful durable write returns the committed manifest before cleanup', () => {
 		const dir = tempDir();
 		const retained = buildRetainedSet(
 			dir,
@@ -213,20 +213,67 @@ describe('durable-write-before-delete ordering', () => {
 		);
 		const paths = [...retained.handles.values()].map((h) => h.path);
 		let persistedWhileRetained = false;
-		const next = commitSeedCheckpoint({
+		let persisted: PilotManifest | undefined;
+		const next = persistSeedCheckpoint({
 			manifest: createManifest(CONFIG),
 			record: seedRecord(),
-			retained,
-			persist: () => {
+			persist: (manifest) => {
+				persisted = manifest;
 				// The durable write must see the databases still whole.
 				persistedWhileRetained =
 					retained.cleanedUp === false && retained.handles.size === 8;
 			},
 		});
 		expect(persistedWhileRetained).toBe(true);
+		expect(persisted).toEqual(next);
 		expect(next.completedSeeds.length).toBe(1);
+		expect(retained.cleanedUp).toBe(false);
+		expect(retained.handles.size).toBe(8);
+		cleanupRetainedSet(retained);
 		expect(retained.cleanedUp).toBe(true);
 		expect(paths.every((p) => !existsSync(p))).toBe(true);
+	});
+
+	test('cleanup failure after persistence cannot hide or revert the committed manifest', () => {
+		const dir = tempDir();
+		const retained = buildRetainedSet(
+			dir,
+			2,
+			computeProvenanceIdentity(CONFIG),
+			1000,
+			finalFacts(tinyTrace()),
+			tinyTrace(),
+		);
+		const firstPath = retained.handles.values().next().value?.path;
+		if (firstPath === undefined)
+			throw new Error('expected a retained database');
+		let manifest = createManifest(CONFIG);
+		manifest = persistSeedCheckpoint({
+			manifest,
+			record: seedRecord(),
+			persist: () => undefined,
+		});
+		let failRemoval = true;
+		const removeOne = (path: string) => {
+			if (path === firstPath && failRemoval) {
+				failRemoval = false;
+				throw new Error('remove failed');
+			}
+			for (const suffix of ['', '-wal', '-shm']) {
+				rmSync(`${path}${suffix}`, { force: true });
+			}
+		};
+
+		expect(() => cleanupRetainedSet(retained, removeOne)).toThrow(
+			'could not be fully cleaned up',
+		);
+		expect(manifest.completedSeeds).toHaveLength(1);
+		expect(manifest.completedSeeds[0]?.seedId).toBe(1000);
+		expect(retained.cleanedUp).toBe(false);
+		expect(retained.handles.size).toBe(1);
+		cleanupRetainedSet(retained, removeOne);
+		expect(manifest.completedSeeds).toHaveLength(1);
+		expect(retained.cleanedUp).toBe(true);
 	});
 });
 
@@ -331,5 +378,75 @@ describe('partial construction rollback', () => {
 		expect(closeCount).toBe(4);
 		expect(opened.length).toBe(4);
 		expect(opened.every((r) => !existsSync(r.path))).toBe(true);
+	});
+
+	test('a close failure keeps that file while later rollback records still close and remove', () => {
+		const dir = tempDir();
+		const facts = finalFacts(tinyTrace());
+		const trace = tinyTrace();
+		const opened: Array<{
+			path: string;
+			closeForCleanup: () => void;
+		}> = [];
+		let closeCalls = 0;
+		const openOne = (path: string) => {
+			const db = new Database(path);
+			const realClose = db.close.bind(db);
+			const shouldFail = opened.length === 0;
+			let failed = false;
+			db.close = () => {
+				closeCalls += 1;
+				if (shouldFail && !failed) {
+					failed = true;
+					throw new Error('close boom');
+				}
+				return realClose();
+			};
+			opened.push({ path, closeForCleanup: realClose });
+			return { db };
+		};
+		let populateCalls = 0;
+		const populateOne = () => {
+			populateCalls += 1;
+			if (populateCalls === 4) throw new Error('populate failed');
+			return { finalize() {} } as never;
+		};
+
+		let caught: unknown;
+		try {
+			buildRetainedSet(
+				dir,
+				4,
+				computeProvenanceIdentity(CONFIG),
+				1000,
+				facts,
+				trace,
+				openOne,
+				populateOne,
+			);
+		} catch (error) {
+			caught = error;
+		}
+
+		expect(caught).toBeInstanceOf(AggregateError);
+		const first = opened[0];
+		if (first === undefined)
+			throw new Error('expected the failed-close record');
+		expect(
+			(caught as AggregateError).errors.some(
+				(error) =>
+					(error as Error).message.includes(first.path) &&
+					(error as Error).message.includes('file was retained'),
+			),
+		).toBe(true);
+		expect(closeCalls).toBe(4);
+		expect(opened).toHaveLength(4);
+		expect(existsSync(first.path)).toBe(true);
+		expect(opened.slice(1).every((record) => !existsSync(record.path))).toBe(
+			true,
+		);
+
+		first.closeForCleanup();
+		rmSync(first.path, { force: true });
 	});
 });

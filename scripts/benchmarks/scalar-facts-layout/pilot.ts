@@ -17,11 +17,10 @@
  * per-seed observations are persisted so a resumed run's gates cover committed
  * and fresh seeds identically.
  *
- * Method validation is not evidence readiness. This is a pilot: `isPilot` stays
- * true and evidence status stays provisional/incomplete because browser OPFS,
- * Cloudflare Durable Object, full-envelope final data, and a configured observed
- * SLO policy are all absent. The pilot does not import or execute the pairwise
- * classifier, and nothing here selects, ranks, recommends, or returns a candidate
+ * Method validation is not evidence readiness. This pilot emits no final-readiness
+ * or SLO verdict because those product policies have no owner yet. Browser OPFS,
+ * Cloudflare Durable Object, and full-envelope final data remain explicit external
+ * requirements. Nothing here selects, ranks, recommends, or returns a candidate
  * id.
  */
 
@@ -58,12 +57,7 @@ import {
 	type SeedRecord,
 } from './checkpoint.js';
 import { buildSeedEstimators, estimatorsMatchRaw } from './estimators.js';
-import {
-	evaluateEvidenceReadiness,
-	type ProofGateInputs,
-	UNCONFIGURED_SLO_POLICY,
-	validateMethod,
-} from './evidence-status.js';
+import { type ProofGateInputs, validateMethod } from './evidence-status.js';
 import {
 	configureNewDatabase,
 	configureReopenedDatabase,
@@ -486,6 +480,150 @@ function removeDatabase(path: string): void {
 	for (const suffix of ['', '-wal', '-shm'])
 		rmSync(`${path}${suffix}`, { force: true });
 }
+
+type OpenedDatabase = { db: Database; store: LayoutStore };
+
+function initializationFailure(
+	path: string,
+	db: Database,
+	originalError: unknown,
+	removeOnFailure: boolean,
+	removeOne: (path: string) => void,
+): never {
+	const cleanupErrors: unknown[] = [];
+	let closed = false;
+	try {
+		db.close();
+		closed = true;
+	} catch (cause) {
+		cleanupErrors.push(
+			new Error(
+				`Failed to close database '${path}' after initialization failed`,
+				{ cause },
+			),
+		);
+	}
+	if (closed && removeOnFailure) {
+		try {
+			removeOne(path);
+		} catch (cause) {
+			cleanupErrors.push(
+				new Error(
+					`Failed to remove database '${path}' after initialization failed`,
+					{ cause },
+				),
+			);
+		}
+	}
+	if (cleanupErrors.length > 0) {
+		throw new AggregateError(
+			[originalError, ...cleanupErrors],
+			`Database '${path}' could not be initialized or cleaned up`,
+		);
+	}
+	throw originalError;
+}
+
+function initializeAcquiredDatabase(
+	path: string,
+	db: Database,
+	initialize: (db: Database) => LayoutStore,
+	removeOnFailure: boolean,
+	removeOne: (path: string) => void = removeDatabase,
+): OpenedDatabase {
+	try {
+		return { db, store: initialize(db) };
+	} catch (error) {
+		return initializationFailure(path, db, error, removeOnFailure, removeOne);
+	}
+}
+
+function cleanupOpenedDatabase(args: {
+	opened: OpenedDatabase;
+	path: string;
+	remove: boolean;
+	removeOne: (path: string) => void;
+}): unknown[] {
+	const cleanupErrors: unknown[] = [];
+	try {
+		args.opened.store.finalize();
+	} catch (cause) {
+		cleanupErrors.push(
+			new Error(`Failed to finalize ephemeral database '${args.path}'`, {
+				cause,
+			}),
+		);
+	}
+	let closed = false;
+	try {
+		args.opened.db.close();
+		closed = true;
+	} catch (cause) {
+		cleanupErrors.push(
+			new Error(`Failed to close ephemeral database '${args.path}'`, { cause }),
+		);
+	}
+	if (closed && (args.remove || cleanupErrors.length > 0)) {
+		try {
+			args.removeOne(args.path);
+		} catch (cause) {
+			cleanupErrors.push(
+				new Error(`Failed to remove ephemeral database '${args.path}'`, {
+					cause,
+				}),
+			);
+		}
+	}
+	return cleanupErrors;
+}
+
+/**
+ * Run one operation against an owned ephemeral database, then finalize and close
+ * it. A file retained for a later successful stage is still removed if the
+ * operation or cleanup fails. Removal never precedes a successful close, and an
+ * operation error stays first when cleanup also fails.
+ */
+export function withEphemeralDatabase<T>(args: {
+	opened: OpenedDatabase;
+	path: string;
+	operation: (opened: OpenedDatabase) => T;
+	retainOnSuccess?: boolean;
+	removeOne?: (path: string) => void;
+}): T {
+	const removeOne = args.removeOne ?? removeDatabase;
+	let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+	try {
+		outcome = { ok: true, value: args.operation(args.opened) };
+	} catch (error) {
+		outcome = { ok: false, error };
+	}
+
+	const retain = args.retainOnSuccess === true && outcome.ok;
+	const cleanupErrors = cleanupOpenedDatabase({
+		opened: args.opened,
+		path: args.path,
+		remove: !retain,
+		removeOne,
+	});
+
+	if (!outcome.ok) {
+		if (cleanupErrors.length > 0) {
+			throw new AggregateError(
+				[outcome.error, ...cleanupErrors],
+				`Ephemeral database operation failed and cleanup was incomplete for '${args.path}'`,
+			);
+		}
+		throw outcome.error;
+	}
+	if (cleanupErrors.length > 0) {
+		throw new AggregateError(
+			cleanupErrors,
+			`Ephemeral database cleanup was incomplete for '${args.path}'`,
+		);
+	}
+	return outcome.value;
+}
+
 function maxSequence(db: Database, candidate: Candidate): number {
 	const sql =
 		candidate.relation === 'unified'
@@ -498,19 +636,52 @@ function openFresh(
 	path: string,
 	candidate: Candidate,
 ): { db: Database; store: LayoutStore } {
-	removeDatabase(path);
-	const db = new Database(path);
-	configureNewDatabase(db);
-	db.exec(ddlFor(candidate));
-	return { db, store: createLayoutStore(db, candidate) };
+	const { db } = openOwnerFile(path);
+	return initializeAcquiredDatabase(
+		path,
+		db,
+		(acquired) => {
+			configureNewDatabase(acquired);
+			acquired.exec(ddlFor(candidate));
+			return createLayoutStore(acquired, candidate);
+		},
+		true,
+	);
 }
-function openExisting(
+/**
+ * Acquire and initialize an existing database. Once acquisition succeeds, this
+ * function owns the connection until it returns it: any initialization failure
+ * closes the connection before rethrowing. Ephemeral callers may also request
+ * removal after close. If cleanup fails, the initialization error remains first
+ * in the aggregate.
+ */
+export function openExisting(
 	path: string,
 	candidate: Candidate,
+	options: {
+		acquire?: (path: string) => Database;
+		initialize?: (db: Database, candidate: Candidate) => LayoutStore;
+		removeOnFailure?: boolean;
+		removeOne?: (path: string) => void;
+	} = {},
 ): { db: Database; store: LayoutStore } {
-	const db = new Database(path);
-	configureReopenedDatabase(db);
-	return { db, store: createLayoutStore(db, candidate) };
+	const acquire =
+		options.acquire ?? ((databasePath: string) => new Database(databasePath));
+	// Acquisition failure establishes no ownership of an existing path. Propagate
+	// without removing a file that may still belong to another live connection.
+	const db = acquire(path);
+	return initializeAcquiredDatabase(
+		path,
+		db,
+		(acquired) => {
+			if (options.initialize !== undefined)
+				return options.initialize(acquired, candidate);
+			configureReopenedDatabase(acquired);
+			return createLayoutStore(acquired, candidate);
+		},
+		options.removeOnFailure === true,
+		options.removeOne,
+	);
 }
 
 /**
@@ -521,7 +692,25 @@ function openExisting(
  */
 function openOwnerFile(path: string): { db: Database } {
 	removeDatabase(path);
-	return { db: new Database(path) };
+	try {
+		return { db: new Database(path) };
+	} catch (error) {
+		try {
+			removeDatabase(path);
+		} catch (cause) {
+			throw new AggregateError(
+				[
+					error,
+					new Error(
+						`Failed to remove database '${path}' after acquisition failed`,
+						{ cause },
+					),
+				],
+				`Database '${path}' could not be acquired or cleaned up`,
+			);
+		}
+		throw error;
+	}
 }
 
 /**
@@ -530,16 +719,22 @@ function openOwnerFile(path: string): { db: Database } {
  * already-open database. Any failure here rethrows to the caller, which owns the
  * open connection and file and can close and delete them.
  */
-function populateOwnerDatabase(
+function initializeOwnerDatabase(
 	db: Database,
 	candidate: Candidate,
-	owner: Owner,
-	facts: readonly Fact[],
-	trace: Trace,
 ): LayoutStore {
 	configureNewDatabase(db);
 	db.exec(ddlFor(candidate));
-	const store = createLayoutStore(db, candidate);
+	return createLayoutStore(db, candidate);
+}
+
+function populateOwnerStore(
+	db: Database,
+	store: LayoutStore,
+	owner: Owner,
+	facts: readonly Fact[],
+	trace: Trace,
+): void {
 	if (owner === 'authority') {
 		store.installFacts([...facts].sort((a, b) => a.sequence - b.sequence));
 	} else {
@@ -549,6 +744,17 @@ function populateOwnerDatabase(
 	if (owner === 'authority') store.populateAuthorityAuxiliary(aux);
 	else store.populateReplicaAuxiliary(aux);
 	db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+}
+
+function populateOwnerDatabase(
+	db: Database,
+	candidate: Candidate,
+	owner: Owner,
+	facts: readonly Fact[],
+	trace: Trace,
+): LayoutStore {
+	const store = initializeOwnerDatabase(db, candidate);
+	populateOwnerStore(db, store, owner, facts, trace);
 	return store;
 }
 
@@ -561,8 +767,30 @@ function buildOwnerDatabase(
 	trace: Trace,
 ): { db: Database; store: LayoutStore } {
 	const { db } = openOwnerFile(path);
-	const store = populateOwnerDatabase(db, candidate, owner, facts, trace);
-	return { db, store };
+	const opened = initializeAcquiredDatabase(
+		path,
+		db,
+		(acquired) => initializeOwnerDatabase(acquired, candidate),
+		true,
+	);
+	try {
+		populateOwnerStore(opened.db, opened.store, owner, facts, trace);
+		return opened;
+	} catch (error) {
+		const cleanupErrors = cleanupOpenedDatabase({
+			opened,
+			path,
+			remove: true,
+			removeOne: removeDatabase,
+		});
+		if (cleanupErrors.length > 0) {
+			throw new AggregateError(
+				[error, ...cleanupErrors],
+				`Database '${path}' population failed and cleanup was incomplete`,
+			);
+		}
+		throw error;
+	}
 }
 
 // --- Seed-level retained eight-database set (spec: retain all eight per seed) --
@@ -574,6 +802,11 @@ export type RetainedHandle = {
 	db: Database;
 	store: LayoutStore;
 	path: string;
+	cleanup: {
+		finalized: boolean;
+		closed: boolean;
+		removed: boolean;
+	};
 };
 export type RetainedSet = {
 	handles: Map<string, RetainedHandle>;
@@ -588,8 +821,9 @@ export function retainedKey(owner: Owner, candidate: string): string {
 /**
  * Build and retain ALL eight owner-by-candidate envelope databases for one seed.
  * They stay live through both owners' blocks, reopens, cells, and tails and the
- * atomic raw checkpoint commit; only `cleanupRetainedSet` deletes them, and only
- * after a successful commit. Each handle carries a stable build id.
+ * atomic raw checkpoint commit. The success path deletes them only after that
+ * commit; an aborted seed deletes its uncommitted temporary set. Each handle
+ * carries a stable build id.
  */
 export function buildRetainedSet(
 	dir: string,
@@ -635,14 +869,15 @@ export function buildRetainedSet(
 					db,
 					store,
 					path,
+					cleanup: { finalized: false, closed: false, removed: false },
 				});
 			}
 		}
 	} catch (buildError) {
-		// Close and delete every registered handle (the in-progress one and every
-		// prior one). finalize, close, and file removal are attempted INDEPENDENTLY
-		// per record, so a throwing finalizer never skips the close or the removal.
-		// The original population error is preserved first in the aggregate.
+		// Clean every registered handle (the in-progress one and every prior one).
+		// Finalize and close are attempted independently. Removal requires a successful
+		// close, so rollback never unlinks a database that may still be live. The
+		// original population error is preserved first in the aggregate.
 		const cleanupErrors: unknown[] = [];
 		for (const record of registered) {
 			try {
@@ -650,15 +885,24 @@ export function buildRetainedSet(
 			} catch (finalizeError) {
 				cleanupErrors.push(finalizeError);
 			}
+			let closed = false;
 			try {
 				record.db.close();
-			} catch (closeError) {
-				cleanupErrors.push(closeError);
+				closed = true;
+			} catch (cause) {
+				cleanupErrors.push(
+					new Error(
+						`Failed to close rollback database '${record.path}'; the file was retained`,
+						{ cause },
+					),
+				);
 			}
-			try {
-				removeDatabase(record.path);
-			} catch (removeError) {
-				cleanupErrors.push(removeError);
+			if (closed) {
+				try {
+					removeDatabase(record.path);
+				} catch (removeError) {
+					cleanupErrors.push(removeError);
+				}
 			}
 		}
 		handles.clear();
@@ -673,41 +917,77 @@ export function buildRetainedSet(
 	return { handles, peakLive: handles.size, cleanedUp: false };
 }
 
-/** Finalize, close, and delete every retained database. Idempotent. */
-export function cleanupRetainedSet(set: RetainedSet): void {
-	for (const handle of set.handles.values()) {
-		try {
-			handle.store.finalize();
-			handle.db.close();
-		} catch {
-			// already closed
+/**
+ * Finalize, close, and delete every retained database. Finalization and close are
+ * attempted independently, but a file is never removed before its close succeeds.
+ * Close subsumes resource release when finalization reports an error. Handles with
+ * a failed close or removal stay owned by the set with exact retry progress.
+ */
+export function cleanupRetainedSet(
+	set: RetainedSet,
+	removeOne: (path: string) => void = removeDatabase,
+): void {
+	const cleanupErrors: unknown[] = [];
+	for (const [key, handle] of set.handles) {
+		if (!handle.cleanup.finalized && !handle.cleanup.closed) {
+			try {
+				handle.store.finalize();
+				handle.cleanup.finalized = true;
+			} catch (cause) {
+				cleanupErrors.push(
+					new Error(`Failed to finalize retained database '${key}'`, {
+						cause,
+					}),
+				);
+			}
 		}
-		removeDatabase(handle.path);
+		if (!handle.cleanup.closed) {
+			try {
+				handle.db.close();
+				handle.cleanup.closed = true;
+			} catch (cause) {
+				cleanupErrors.push(
+					new Error(`Failed to close retained database '${key}'`, { cause }),
+				);
+			}
+		}
+		if (handle.cleanup.closed && !handle.cleanup.removed) {
+			try {
+				removeOne(handle.path);
+				handle.cleanup.removed = true;
+			} catch (cause) {
+				cleanupErrors.push(
+					new Error(`Failed to remove retained database '${key}'`, { cause }),
+				);
+			}
+		}
+		if (handle.cleanup.closed && handle.cleanup.removed) {
+			set.handles.delete(key);
+		}
 	}
-	set.handles.clear();
-	set.cleanedUp = true;
+	set.cleanedUp = set.handles.size === 0;
+	if (cleanupErrors.length > 0) {
+		throw new AggregateError(
+			cleanupErrors,
+			'One or more retained databases could not be fully cleaned up',
+		);
+	}
 }
 
 /**
- * Durably commit one seed's checkpoint, THEN delete its retained databases. The
- * retained set is deleted ONLY after every durable manifest write in `persist`
- * has succeeded, so a write failure leaves all eight databases retained and the
- * seed uncommitted (never deleted under a false completed boundary). `persist`
- * must perform every durable write (the target manifest and any prior-generation
- * mirror); if it throws, the retained set is untouched and the error propagates.
+ * Build and durably persist the next whole-seed checkpoint. Cleanup is a separate
+ * caller-owned phase so the committed manifest becomes observable before cleanup
+ * begins and cannot be hidden by a later resource-release failure. `persist` must
+ * perform every durable write (the target manifest and any prior-generation
+ * mirror); if it throws, no committed manifest is returned.
  */
-export function commitSeedCheckpoint(args: {
+export function persistSeedCheckpoint(args: {
 	manifest: PilotManifest;
 	record: SeedRecord;
-	retained: RetainedSet;
 	persist: (manifest: PilotManifest) => void;
 }): PilotManifest {
 	const next = commitSeed(args.manifest, args.record);
-	// Durable atomic write(s) first. Any failure here rethrows with the retained
-	// set still whole.
 	args.persist(next);
-	// Every durable write has succeeded: only now is deletion safe.
-	cleanupRetainedSet(args.retained);
 	return next;
 }
 
@@ -717,21 +997,55 @@ export function commitSeedCheckpoint(args: {
  * and in the reopen series so a close/open never drops the retained count below
  * its peak permanently.
  */
-function reopenRetained(
+export function reopenRetained(
 	set: RetainedSet,
 	owner: Owner,
 	candidate: Candidate,
+	openOne: (
+		path: string,
+		candidate: Candidate,
+	) => { db: Database; store: LayoutStore } = openExisting,
 ): RetainedHandle {
 	const key = retainedKey(owner, candidate.id);
 	const prior = set.handles.get(key);
 	if (prior === undefined) throw new Error(`retained handle missing: ${key}`);
-	prior.store.finalize();
-	prior.db.close();
-	const reopened = openExisting(prior.path, candidate);
+	const cleanupErrors: unknown[] = [];
+	if (!prior.cleanup.finalized && !prior.cleanup.closed) {
+		try {
+			prior.store.finalize();
+			prior.cleanup.finalized = true;
+		} catch (cause) {
+			cleanupErrors.push(
+				new Error(`Failed to finalize retained database '${key}' for reopen`, {
+					cause,
+				}),
+			);
+		}
+	}
+	if (!prior.cleanup.closed) {
+		try {
+			prior.db.close();
+			prior.cleanup.closed = true;
+		} catch (cause) {
+			cleanupErrors.push(
+				new Error(`Failed to close retained database '${key}' for reopen`, {
+					cause,
+				}),
+			);
+		}
+	}
+	if (cleanupErrors.length > 0) {
+		throw new AggregateError(
+			cleanupErrors,
+			`Retained database '${key}' could not be safely reopened`,
+		);
+	}
+	const reopened = openOne(prior.path, candidate);
 	const next: RetainedHandle = {
 		...prior,
 		db: reopened.db,
 		store: reopened.store,
+		cleanup: { finalized: false, closed: false, removed: false },
 	};
 	set.handles.set(key, next);
 	return next;
@@ -850,7 +1164,9 @@ function runOwner(
 
 	// Macro: acquisition (replica) is install on a fresh empty database; ordered
 	// fresh feed (authority) is a complete ordered READ of all current facts after
-	// construction, both measured once per outer unit and candidate.
+	// construction, both measured once per outer unit and candidate. A candidate
+	// failure cleans its ephemeral path and aborts the owner run; later candidates
+	// are not recorded into a partial macro series.
 	for (const candidate of CANDIDATES) {
 		let elapsedMs: number;
 		let units: number;
@@ -860,11 +1176,12 @@ function runOwner(
 				`s${seedIndex}-replica-${candidate.id}-macro.sqlite`,
 			);
 			const opened = openFresh(macroPath, candidate);
-			elapsedMs = timeMs(() => opened.store.installFacts(facts));
+			elapsedMs = withEphemeralDatabase({
+				opened,
+				path: macroPath,
+				operation: ({ store }) => timeMs(() => store.installFacts(facts)),
+			});
 			units = facts.length;
-			opened.store.finalize();
-			opened.db.close();
-			removeDatabase(macroPath);
 		} else {
 			// A complete fresh feed reads every current fact in ascending sequence order
 			// from the already-constructed authority database.
@@ -1158,14 +1475,6 @@ export function buildCalibrationIncompleteArtifact(args: {
 		resumedSeedIds: args.resumedSeedIds,
 		provenance: args.provenance,
 		method: null,
-		evidenceStatus: evaluateEvidenceReadiness({
-			isPilot: true,
-			execution: { status: 'INCOMPLETE', reasons: [reason] },
-			sloPolicy: UNCONFIGURED_SLO_POLICY,
-			sloObservations: null,
-			expectedCells: [],
-			matrixComplete: false,
-		}),
 	};
 }
 
@@ -1194,70 +1503,85 @@ function runTail(
 	);
 	// Prestate witness from a first byte-equivalent build (outside timing).
 	const first = buildOwnerDatabase(path, candidate, owner, facts, trace);
-	const preWitness = first.store.scanWitness().digestHex;
-	first.store.finalize();
-	first.db.close();
-	removeDatabase(path);
+	const preWitness = withEphemeralDatabase({
+		opened: first,
+		path,
+		operation: ({ store }) => store.scanWitness().digestHex,
+	});
 	// Reconstruct the byte-equivalent prestate, ANALYZE, checkpoint/truncate,
 	// close and reopen.
 	const reset = buildOwnerDatabase(path, candidate, owner, facts, trace);
-	reset.db.exec('ANALYZE');
-	reset.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-	const resetVerified = reset.store.scanWitness().digestHex === preWitness;
-	reset.store.finalize();
-	reset.db.close();
-	const reopened = openExisting(path, candidate);
-	// Three untimed warmup transactions.
-	let warmupSeq = maxSequence(reopened.db, candidate) + 1;
-	for (let w = 0; w < 3; w += 1) {
-		applyTailTransaction(
-			reopened.store,
-			metric,
-			owner,
-			warmupSeq,
-			seedIndex,
-			-1 - w,
-			trace,
-		);
-		warmupSeq += tailSequenceStride(metric);
-	}
-	reopened.store.finalize();
-	reopened.db.close();
-	// Restore the byte-equivalent prestate AGAIN before timing.
-	removeDatabase(path);
-	const timedBuild = buildOwnerDatabase(path, candidate, owner, facts, trace);
-	timedBuild.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-	timedBuild.store.finalize();
-	timedBuild.db.close();
-	const timed = openExisting(path, candidate);
-	timed.db.exec('PRAGMA wal_autocheckpoint=1000'); // production autocheckpoint
-	let sequence = maxSequence(timed.db, candidate) + 1;
-	const txnMs: number[] = [];
-	let checkpointBoundaries = 0;
-	const walBefore = () => walBytes(path);
-	let priorWal = walBefore();
-	for (let t = 0; t < profile.tailTransactions; t += 1) {
-		txnMs.push(
-			timeMs(() =>
+	const resetVerified = withEphemeralDatabase({
+		opened: reset,
+		path,
+		retainOnSuccess: true,
+		operation: ({ db, store }) => {
+			db.exec('ANALYZE');
+			db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+			return store.scanWitness().digestHex === preWitness;
+		},
+	});
+	const reopened = openExisting(path, candidate, { removeOnFailure: true });
+	withEphemeralDatabase({
+		opened: reopened,
+		path,
+		operation: ({ db, store }) => {
+			// Three untimed warmup transactions.
+			let warmupSeq = maxSequence(db, candidate) + 1;
+			for (let w = 0; w < 3; w += 1) {
 				applyTailTransaction(
-					timed.store,
+					store,
 					metric,
 					owner,
-					sequence,
+					warmupSeq,
 					seedIndex,
-					t,
+					-1 - w,
 					trace,
-				),
-			),
-		);
-		sequence += tailSequenceStride(metric);
-		const nowWal = walBefore();
-		if (nowWal < priorWal) checkpointBoundaries += 1; // autocheckpoint truncated the WAL
-		priorWal = nowWal;
-	}
-	timed.store.finalize();
-	timed.db.close();
-	removeDatabase(path);
+				);
+				warmupSeq += tailSequenceStride(metric);
+			}
+		},
+	});
+	// Restore the byte-equivalent prestate AGAIN before timing.
+	const timedBuild = buildOwnerDatabase(path, candidate, owner, facts, trace);
+	withEphemeralDatabase({
+		opened: timedBuild,
+		path,
+		retainOnSuccess: true,
+		operation: ({ db }) => db.exec('PRAGMA wal_checkpoint(TRUNCATE)'),
+	});
+	const timed = openExisting(path, candidate, { removeOnFailure: true });
+	const txnMs: number[] = [];
+	let checkpointBoundaries = 0;
+	withEphemeralDatabase({
+		opened: timed,
+		path,
+		operation: ({ db, store }) => {
+			db.exec('PRAGMA wal_autocheckpoint=1000'); // production autocheckpoint
+			let sequence = maxSequence(db, candidate) + 1;
+			const walBefore = () => walBytes(path);
+			let priorWal = walBefore();
+			for (let t = 0; t < profile.tailTransactions; t += 1) {
+				txnMs.push(
+					timeMs(() =>
+						applyTailTransaction(
+							store,
+							metric,
+							owner,
+							sequence,
+							seedIndex,
+							t,
+							trace,
+						),
+					),
+				);
+				sequence += tailSequenceStride(metric);
+				const nowWal = walBefore();
+				if (nowWal < priorWal) checkpointBoundaries += 1;
+				priorWal = nowWal;
+			}
+		},
+	});
 	const sorted = [...txnMs].sort((a, b) => a - b);
 	const total = txnMs.reduce((s, x) => s + x, 0);
 	return {
@@ -1438,13 +1762,17 @@ function estimateExactEnvelope(dir: string): ExactEnvelopeEstimate {
 			facts,
 			probeTrace,
 		);
-		bytes = (
-			opened.db
-				.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
-				.get() as { b: number }
-		).b;
-		opened.store.finalize();
-		opened.db.close();
+		bytes = withEphemeralDatabase({
+			opened,
+			path,
+			retainOnSuccess: true,
+			operation: ({ db }) =>
+				(
+					db
+						.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
+						.get() as { b: number }
+				).b,
+		});
 	});
 	removeDatabase(path);
 	const perFactInstallSeconds = ms / 1000 / Math.max(1, facts.length);
@@ -1499,20 +1827,27 @@ function headroomPreflight(
 	let livePageBytes = 0;
 	let walHeadroomBytes = 0;
 	let perFactInstallSeconds = 0;
+	// A failed candidate is cleaned before its error escapes. Abort the preflight
+	// rather than continuing with an incomplete maximum across candidates.
 	for (const owner of OWNERS) {
 		for (const candidate of CANDIDATES) {
 			const path = join(dir, `headroom-${owner}-${candidate.id}.sqlite`);
 			const buildMs = timeMs(() => {
 				const opened = buildOwnerDatabase(path, candidate, owner, facts, trace);
-				const pageBytes = (
-					opened.db
-						.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
-						.get() as { b: number }
-				).b;
-				opened.db.exec('PRAGMA wal_checkpoint(PASSIVE)');
-				const wal = walBytes(path);
-				opened.store.finalize();
-				opened.db.close();
+				const { pageBytes, wal } = withEphemeralDatabase({
+					opened,
+					path,
+					retainOnSuccess: true,
+					operation: ({ db }) => {
+						const pageBytes = (
+							db
+								.prepare('SELECT COALESCE(SUM(pgsize),0) AS b FROM dbstat')
+								.get() as { b: number }
+						).b;
+						db.exec('PRAGMA wal_checkpoint(PASSIVE)');
+						return { pageBytes, wal: walBytes(path) };
+					},
+				});
 				livePageBytes = Math.max(livePageBytes, pageBytes);
 				walHeadroomBytes = Math.max(walHeadroomBytes, wal);
 			});
@@ -1578,9 +1913,32 @@ function headroomPreflight(
 
 function sqliteVersion(): string {
 	const db = new Database(':memory:');
-	const row = db.prepare('SELECT sqlite_version() AS v').get() as { v: string };
-	db.close();
-	return row.v;
+	let outcome: { ok: true; value: string } | { ok: false; error: unknown };
+	try {
+		outcome = {
+			ok: true,
+			value: (db.prepare('SELECT sqlite_version() AS v').get() as { v: string })
+				.v,
+		};
+	} catch (error) {
+		outcome = { ok: false, error };
+	}
+	try {
+		db.close();
+	} catch (cause) {
+		const closeError = new Error('Failed to close SQLite version database', {
+			cause,
+		});
+		if (!outcome.ok) {
+			throw new AggregateError(
+				[outcome.error, closeError],
+				'SQLite version lookup failed and cleanup was incomplete',
+			);
+		}
+		throw closeError;
+	}
+	if (!outcome.ok) throw outcome.error;
+	return outcome.value;
 }
 
 function buildProvenance(
@@ -1802,9 +2160,9 @@ function main(): void {
 				cells: [],
 			};
 			// Build and retain all eight owner-by-candidate databases for this seed,
-			// run both owners against them, then commit, then delete them. The retained
-			// set is deleted ONLY after a successful commit; a refused or failed seed
-			// cleans up without committing partial data.
+			// run both owners against them, then commit, then delete them. The success
+			// path never deletes before commit; a refused or failed seed deletes its
+			// uncommitted temporary set without committing partial data.
 			let retained: RetainedSet | null = null;
 			try {
 				const facts = finalFacts(trace);
@@ -1899,18 +2257,19 @@ function main(): void {
 				// Persist every durable manifest FIRST, then delete the retained set. A
 				// write failure leaves all eight databases retained and the seed
 				// uncommitted (the finally block cleans them up on abort).
-				manifest = commitSeedCheckpoint({
+				manifest = persistSeedCheckpoint({
 					manifest,
 					record,
-					retained,
 					persist: (m) => {
 						persistManifest(manifestPath, m);
 						if (priorManifestPath !== null)
 							persistManifest(priorManifestPath, m);
 					},
 				});
+				cleanupRetainedSet(retained);
 			} finally {
-				// A refused or failed seed cleans up without having committed.
+				// Retry any unfinished cleanup. A successful persist already updated
+				// `manifest`, so a cleanup failure cannot hide or revert that commit.
 				if (retained !== null && !retained.cleanedUp) {
 					cleanupRetainedSet(retained);
 				}
@@ -2077,14 +2436,6 @@ function main(): void {
 			checkpointBoundariesTruthful,
 		};
 		const method = validateMethod(proofInputs);
-		const readiness = evaluateEvidenceReadiness({
-			isPilot: true,
-			execution: { status: 'COMPLETE', method },
-			sloPolicy: UNCONFIGURED_SLO_POLICY,
-			sloObservations: null,
-			expectedCells: [],
-			matrixComplete: oracleReproduced,
-		});
 
 		const durationMs = performance.now() - startedMs;
 		const rawObservationCounts = {
@@ -2139,7 +2490,6 @@ function main(): void {
 			rawObservationCounts,
 			gates: method.gates,
 			method,
-			evidenceStatus: readiness,
 			completedSeedIds: committed.map((s) => s.seedId),
 			resumedSeedIds,
 			raw: committed.map((s) => ({ seedId: s.seedId, ...(s.raw as object) })),
@@ -2158,7 +2508,6 @@ function main(): void {
 				`  headroom: ${headroom.passed} (perDB=${headroom.perDatabaseBytes}B, need=${headroom.requiredBytes}B, wallEst=${headroom.wallTimeEstimateSeconds ?? '?'}s)`,
 				`  method validated: ${method.methodValidated}${profile.exact ? '' : ' (UNREACHABLE for a smoke: exact-envelope gate fails)'}`,
 				`  failing gates: ${method.proofRefusals.map((r) => r.split(':')[0]).join(', ') || 'none'}`,
-				`  evidence status: ${readiness.status.toUpperCase()} (isPilot; not ADR-ready)`,
 				`  report: ${outputPath}`,
 				`  report sha256: ${reportHash}`,
 			]

@@ -11,11 +11,7 @@ import {
 	utf8ByteLength as kernelUtf8ByteLength,
 	sha256Hex,
 } from '../../../packages/data/src/protocol/v1/canonical.js';
-import {
-	Sha256Stream,
-	sha256HexStreaming,
-	utf8ByteLength,
-} from './portable-hash.js';
+import { Sha256Stream, utf8ByteLength } from './portable-hash.js';
 
 const CASES = [
 	'',
@@ -39,14 +35,16 @@ describe('byte-identical to the kernel sha256Hex', () => {
 				? `${input.slice(0, 24)}... (${input.length})`
 				: JSON.stringify(input);
 		test(`matches for ${label}`, () => {
-			expect(sha256HexStreaming(input)).toBe(sha256Hex(input));
+			expect(new Sha256Stream().update(input).digestHex()).toBe(
+				sha256Hex(input),
+			);
 		});
 	}
 });
 
 describe('chunk-boundary independence', () => {
 	test('the digest depends only on concatenated bytes, not chunk splits', () => {
-		const whole = 'y'.repeat(200) + '€' + 'z'.repeat(133);
+		const whole = `${'y'.repeat(200)}€${'z'.repeat(133)}`;
 		const reference = sha256Hex(whole);
 		// Split at every boundary from 0..length, including inside the multibyte glyph.
 		for (let cut = 0; cut <= whole.length; cut += 7) {
@@ -61,7 +59,7 @@ describe('chunk-boundary independence', () => {
 		const whole = 'framed-record|'.repeat(500);
 		const chunked = new Sha256Stream();
 		for (const ch of whole) chunked.update(ch);
-		expect(chunked.digestHex()).toBe(sha256HexStreaming(whole));
+		expect(chunked.digestHex()).toBe(sha256Hex(whole));
 	});
 });
 

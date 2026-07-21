@@ -1,9 +1,9 @@
 /**
  * Each SQLite candidate store must reproduce the analytical V1-bound oracle
  * witness exactly (independent correctness), agree with the other candidates
- * (cross-candidate consistency), survive a reopen, populate the coordinate-aware
- * auxiliary tables, and report candidate-table-only storage. A tampered install
- * must break the witness so the proof is not vacuous.
+ * (cross-candidate consistency), reproduce a scan through a fresh store wrapper,
+ * populate coordinate-aware auxiliary tables, and report candidate-table-only
+ * storage. A tampered install must break the witness so the proof is not vacuous.
  */
 
 import { Database } from 'bun:sqlite';
@@ -18,7 +18,12 @@ import {
 	ddlFor,
 	ddlHash,
 } from './layouts.js';
-import { makeTrace, type Trace, type TraceOptions } from './trace.js';
+import {
+	addressKey,
+	makeTrace,
+	type Trace,
+	type TraceOptions,
+} from './trace.js';
 import { pilotLimits } from './v1-binding.js';
 
 const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
@@ -30,12 +35,30 @@ const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
 	maxEncodedFactBytes: 4096,
 };
 
+const EXPECTED_DDL_HASHES: Readonly<Record<string, string>> = {
+	'unified-inline':
+		'4ee46a69403c6ed7cf0cfd767370708ccf3a05753db3255e89a88b2de8f3dd8c',
+	'unified-normalized':
+		'92fb00af3b6deae10fca1df676b4f96037b4165c7b09c0385e8a61fcfbd3dfbc',
+	'split-inline':
+		'5ebceb75a3edf16043f3890cd42e6318e8aeeece6dc4d86f8b84deecb8e61859',
+	'split-normalized':
+		'701a374bd3c07f2cb1b494e0049a94c5606e24dc0e34fda2c0cc136b0c267722',
+};
+
 function trace(seed = 3): Trace {
 	return makeTrace({
 		...BASE,
 		dataSeed: seed,
 		targetLogicalStateBytes: BASE.facts * 160,
 	});
+}
+
+function requiredCandidate(id: string): Candidate {
+	const candidate = CANDIDATES.find((value) => value.id === id);
+	if (candidate === undefined)
+		throw new Error(`missing candidate fixture '${id}'`);
+	return candidate;
 }
 
 const openDatabases: Database[] = [];
@@ -83,14 +106,12 @@ describe('cross-candidate consistency', () => {
 	});
 });
 
-describe('reopen consistency', () => {
-	test('a reopened database reproduces the same witness', () => {
-		const candidate = CANDIDATES[1]!; // unified-normalized
+describe('same-handle rescan consistency', () => {
+	test('a fresh store wrapper over the same open database reproduces the witness', () => {
+		const candidate = requiredCandidate('unified-normalized');
 		const t = trace();
 		const { db, store } = buildStore(candidate, t);
 		const before = store.scanWitness();
-		// Reopen the same in-memory connection is not meaningful; instead re-scan on a
-		// fresh store over the same db handle, which reuses persisted pages.
 		const store2 = createLayoutStore(db, candidate);
 		expect(store2.scanWitness().digestHex).toBe(before.digestHex);
 		store2.finalize();
@@ -99,7 +120,7 @@ describe('reopen consistency', () => {
 
 describe('the witness is not vacuous', () => {
 	test('a tampered fact breaks the witness', () => {
-		const candidate = CANDIDATES[0]!;
+		const candidate = requiredCandidate('unified-inline');
 		const t = trace();
 		const { db, store } = buildStore(candidate, t);
 		const good = store.scanWitness();
@@ -113,14 +134,28 @@ describe('the witness is not vacuous', () => {
 });
 
 describe('point reads', () => {
-	test('a present address reads present; the oracle agrees', () => {
-		const candidate = CANDIDATES[2]!; // split-inline
+	test('sampled row reads reproduce the analytical presence and sequence', () => {
+		const candidate = requiredCandidate('split-inline');
 		const t = trace();
 		const { store } = buildStore(candidate, t);
+		const analytical = new Map(
+			Array.from({ length: t.options.facts }, (_, index) => {
+				const fact = t.finalFactAt(index);
+				return [
+					addressKey(fact.address),
+					{
+						present: fact.presence === 'present' ? 1 : 0,
+						sequence: fact.sequence,
+					},
+				] as const;
+			}),
+		);
 		const addresses = t.sampleRowAddresses(50);
 		for (const address of addresses) {
-			const read = store.pointRead(address);
-			expect(read).not.toBeNull();
+			const expected = analytical.get(addressKey(address));
+			if (expected === undefined)
+				throw new Error('sampled address missing from analytical trace');
+			expect(store.pointRead(address)).toEqual(expected);
 		}
 	});
 });
@@ -150,9 +185,15 @@ describe('coordinate-aware auxiliary tables and storage', () => {
 });
 
 describe('ddl provenance', () => {
-	test('each candidate has a distinct, stable DDL hash', () => {
-		const hashes = CANDIDATES.map((c) => ddlHash(c));
-		expect(new Set(hashes).size).toBe(CANDIDATES.length);
-		expect(ddlHash(CANDIDATES[0]!)).toBe(ddlHash(CANDIDATES[0]!));
+	test('each candidate matches its frozen DDL compatibility digest', () => {
+		for (const candidate of CANDIDATES) {
+			const expected = EXPECTED_DDL_HASHES[candidate.id];
+			if (expected === undefined)
+				throw new Error(`missing frozen DDL digest for '${candidate.id}'`);
+			expect(ddlHash(candidate)).toBe(expected);
+		}
+		expect(new Set(Object.values(EXPECTED_DDL_HASHES)).size).toBe(
+			CANDIDATES.length,
+		);
 	});
 });

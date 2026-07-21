@@ -20,8 +20,8 @@
  *
  * Everything here is a pure function of the seed and the candidate list: no wall
  * clock, no SQLite, no timing. The runner consumes the schedule to order its
- * timed blocks; the statistics module never sees this structure because it
- * receives one already-reduced seed-level estimator per candidate.
+ * timed blocks, then persists already-reduced seed-level estimators for later
+ * human review or a separately decided evidence consumer.
  */
 
 export type Letter = 'A' | 'B' | 'C' | 'D';
@@ -155,70 +155,6 @@ export function buildSeedSchedule(options: ScheduleOptions): SeedSchedule {
 		cycles: options.cycles,
 		letterMapping,
 		blocks,
-	};
-}
-
-export type BalanceDiagnostics = {
-	/** `positionCounts[candidate][position]` over all supplied seed schedules. */
-	positionCounts: Record<string, number[]>;
-	/** `carryover[predecessor][candidate]` over adjacent blocks (boundaries included). */
-	carryover: Record<string, Record<string, number>>;
-	/** Total timed blocks per candidate. */
-	totalPerCandidate: Record<string, number>;
-	/** True when every candidate has the same total and an identical position profile. */
-	positionBalanced: boolean;
-};
-
-/**
- * Aggregate position and carryover balance across seed schedules. Kept as a
- * diagnostic, never an automatic refusal statistic (spec 530-536): the runner
- * reports these so a reviewer can see the design was balanced, not so the pilot
- * silently drops evidence.
- */
-export function balanceDiagnostics(
-	schedules: readonly SeedSchedule[],
-	candidates: readonly string[],
-): BalanceDiagnostics {
-	const positionCounts: Record<string, number[]> = {};
-	const carryover: Record<string, Record<string, number>> = {};
-	const totalPerCandidate: Record<string, number> = {};
-	for (const candidate of candidates) {
-		positionCounts[candidate] = [0, 0, 0, 0];
-		totalPerCandidate[candidate] = 0;
-		carryover[candidate] = {};
-		for (const other of candidates) {
-			(carryover[candidate] as Record<string, number>)[other] = 0;
-		}
-	}
-	for (const schedule of schedules) {
-		for (const block of schedule.blocks) {
-			const counts = positionCounts[block.candidate];
-			if (counts !== undefined) {
-				counts[block.positionInSequence] =
-					(counts[block.positionInSequence] ?? 0) + 1;
-			}
-			totalPerCandidate[block.candidate] =
-				(totalPerCandidate[block.candidate] ?? 0) + 1;
-			if (block.predecessor !== null) {
-				const row = carryover[block.predecessor];
-				if (row !== undefined && block.candidate in row) {
-					row[block.candidate] = (row[block.candidate] ?? 0) + 1;
-				}
-			}
-		}
-	}
-	const totals = candidates.map((c) => totalPerCandidate[c] ?? 0);
-	const firstTotal = totals[0] ?? 0;
-	const equalTotals = totals.every((t) => t === firstTotal);
-	const firstProfile = JSON.stringify(positionCounts[candidates[0] as string]);
-	const equalProfiles = candidates.every(
-		(c) => JSON.stringify(positionCounts[c]) === firstProfile,
-	);
-	return {
-		positionCounts,
-		carryover,
-		totalPerCandidate,
-		positionBalanced: equalTotals && equalProfiles,
 	};
 }
 

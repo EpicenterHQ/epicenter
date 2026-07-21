@@ -70,11 +70,10 @@ describe('the trace is bound to the V1 kernel', () => {
 			valueRatio: 0.1,
 			targetLogicalStateBytes: 20 * 80,
 		});
+		expect(tiny.observed().finalAbsent).toBe(0);
 		const report = verifyTraceV1Binding(tiny, pilotLimits());
-		if (tiny.observed().finalAbsent === 0) {
-			expect(report.bound).toBe(false);
-			expect(report.failures.join(' ')).toContain('never exercised');
-		}
+		expect(report.bound).toBe(false);
+		expect(report.failures.join(' ')).toContain('never exercised');
 	});
 
 	test('the byte oracle equals encodedFactBytes fact-by-fact', () => {

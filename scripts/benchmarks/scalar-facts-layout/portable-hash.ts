@@ -173,11 +173,6 @@ export class Sha256Stream {
 	}
 }
 
-/** One-shot SHA-256 over one UTF-8 string, as lowercase hex. */
-export function sha256HexStreaming(input: string): string {
-	return new Sha256Stream().update(input).digestHex();
-}
-
 /** Portable UTF-8 byte length, matching the kernel's `utf8ByteLength`. */
 export function utf8ByteLength(value: string): number {
 	return textEncoder.encode(value).byteLength;

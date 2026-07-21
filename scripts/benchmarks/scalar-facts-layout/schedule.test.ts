@@ -8,7 +8,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-	balanceDiagnostics,
 	buildCalibrationRound,
 	buildSeedSchedule,
 	evaluateCalibrationTrials,
@@ -42,6 +41,22 @@ function schedule(seedIndex: number, cycles = 3): SeedSchedule {
 		cycles,
 		rotation: seedIndex,
 	});
+}
+
+function positionCounts(schedules: readonly SeedSchedule[]) {
+	const counts = Object.fromEntries(
+		CANDIDATES.map((candidate) => [candidate, [0, 0, 0, 0]]),
+	);
+	for (const seedSchedule of schedules) {
+		for (const block of seedSchedule.blocks) {
+			const positions = counts[block.candidate];
+			if (positions === undefined)
+				throw new Error(`unexpected candidate '${block.candidate}'`);
+			positions[block.positionInSequence] =
+				(positions[block.positionInSequence] ?? 0) + 1;
+		}
+	}
+	return counts;
 }
 
 describe('Williams design shape', () => {
@@ -107,23 +122,21 @@ describe('self-transition pair junctions', () => {
 
 describe('within-seed position balance', () => {
 	test('each candidate appears in each position 3 times over three cycles', () => {
-		const diag = balanceDiagnostics([schedule(0)], CANDIDATES);
+		const counts = positionCounts([schedule(0)]);
 		for (const candidate of CANDIDATES) {
-			expect(diag.positionCounts[candidate]).toEqual([3, 3, 3, 3]);
+			expect(counts[candidate]).toEqual([3, 3, 3, 3]);
 		}
-		expect(diag.positionBalanced).toBe(true);
 	});
 });
 
 describe('across-seed balance', () => {
 	test('four seeds give every candidate an identical position profile', () => {
 		const schedules = [0, 1, 2, 3].map((k) => schedule(k));
-		const diag = balanceDiagnostics(schedules, CANDIDATES);
+		const counts = positionCounts(schedules);
 		// 4 seeds * 3 cycles = 12 appearances per position per candidate.
 		for (const candidate of CANDIDATES) {
-			expect(diag.positionCounts[candidate]).toEqual([12, 12, 12, 12]);
+			expect(counts[candidate]).toEqual([12, 12, 12, 12]);
 		}
-		expect(diag.positionBalanced).toBe(true);
 	});
 
 	test('pair order alternates across seeds', () => {

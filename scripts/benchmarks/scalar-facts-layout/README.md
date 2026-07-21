@@ -10,9 +10,9 @@ envelope.
 Per ADR-0161 and `specs/20260720T002337-epicenter-data-clean-break.md` (424-444,
 555-562), **evidence never selects, ranks, recommends, applies a tie-break, or
 returns a candidate id.** Nothing in this directory produces a winner. The
-future evidence classifier only classifies each candidate-pair contrast against
-fixed equivalence margins and against absolute performance SLOs; a human ADR
-process, not this code, decides.
+human ADR process, not this code, decides. Any future classifier, absolute SLO
+policy, or final-evidence readiness contract needs its own product decision and
+owner; none is predicted here.
 
 Two consequences are enforced mechanically here:
 
@@ -21,14 +21,9 @@ Two consequences are enforced mechanically here:
   `methodValidated` plus explicit proof refusals (`evidence-status.ts`), and
   `methodValidated` is derived from RECORDED operations, never a hardcoded
   boolean.
-- Evidence readiness is **fail-closed** with four states: `invalid`,
-  `incomplete`, `provisional`, `ready-for-adr-review`. Readiness requires a
-  configured SLO policy with a positive finite ceiling for every required metric
-  AND an observed within-ceiling per-cell measurement for every metric; a
-  configured flag with an empty or partial ceiling set is `invalid`. The absolute
-  install, open, read, write, feed, traversal, and restart ceilings are unmade
-  ADR/product choices, so this code ships only the unconfigured SLO shape and
-  invents no numeric ceilings; a pilot is always at most `provisional`.
+- Final-evidence readiness and absolute performance SLO policy are absent. Their
+  thresholds and state model are unmade ADR/product choices, so this pilot emits
+  no guessed readiness status or placeholder policy.
 
 ## Executable status: a BOUNDED SMOKE, not yet the frozen pilot
 
@@ -42,10 +37,9 @@ workload). `--profile pilot` measures a bounded probe, extrapolates the disk and
 wall-time to the exact envelope, enforces the eight-hour cap and headroom, and
 refuses to run. The frozen pilot is not implemented to contract yet.
 
-The pilot reports an evidence status plus identity-closed seed estimators. It
-does not import or execute the pairwise classifier, estimate a winner, or emit
-candidate ranking, contrast, or feasibility output. `statistics.ts` is a
-separate future final-evidence consumer, not part of the pilot execution path.
+The pilot reports method validation, named proof refusals, and identity-closed
+seed estimators. It does not estimate a winner or emit candidate ranking,
+contrast, feasibility, SLO, or final-readiness output.
 
 **Open contract gaps (not done), tracked for the next passes:**
 
@@ -67,16 +61,16 @@ separate future final-evidence consumer, not part of the pilot execution path.
 - Frozen final-run config emission with disjoint final seed ids, only from a
   valid pilot.
 
-**Method validation is not evidence readiness.** Even a valid pilot stays
-`isPilot: true` and provisional/incomplete because browser OPFS, Cloudflare
-Durable Object, full-envelope final data, and a configured observed SLO policy
-are all absent.
+**Method validation is not evidence readiness.** The pilot deliberately emits no
+readiness status. Browser OPFS, Cloudflare Durable Object, full-envelope final
+data, and selected absolute performance policy remain external requirements for
+any later ADR-ready evidence contract.
 
 ## Modular pilot architecture
 
 The modular exact-trace pilot is a set of cohesive, independently tested modules.
 Bun owns only the local runner and SQLite lifecycle; trace generation, framing,
-hashing, scheduling, statistics, and status are portable to browser runtimes.
+hashing, scheduling, and method validation are portable to browser runtimes.
 
 - `portable-hash.ts`: a streaming SHA-256, byte-identical to the V1 kernel's
   `sha256Hex`, plus `utf8ByteLength`. Removes the Bun `CryptoHasher`/`Buffer`
@@ -99,11 +93,6 @@ hashing, scheduling, statistics, and status are portable to browser runtimes.
 - `estimators.ts`: reduces each owner, metric family, candidate, seed, and config
   identity independently, and accepts persisted estimators only when they exactly
   match a fresh reduction of retained raw observations.
-- `statistics.ts`: the future final-evidence classifier. Its input is structurally seed-level,
-  so it cannot bootstrap below the whole seed. It runs a deterministic studentized
-  paired bootstrap over whole seeds, builds 95% familywise simultaneous max-t
-  intervals, and classifies each contrast against fixed log-ratio margins. The
-  pilot does not import or execute it.
 - `checkpoint.ts`: atomically persisted, schema-validated, cross-process
   per-seed checkpointing. Identity binds the exact source, whole config,
   per-seed trace inputs, per-candidate DDL hashes, limits digest, runtime and SQLite
@@ -125,8 +114,7 @@ hashing, scheduling, statistics, and status are portable to browser runtimes.
   row_id shape; install is monotonic and tombstone-dominant; storage counts every
   candidate-owned btree including autoindexes. `layouts-invariants.test.ts` proves
   each with direct hostile SQL.
-- `evidence-status.ts`: method validation and the four-state
-  fail-closed evidence-readiness contract described above.
+- `evidence-status.ts`: method validation and named proof refusals only.
 
 ## Correctness vs consistency
 
@@ -149,10 +137,10 @@ an ADR/evidence-cell qualification and never implies a cell is decision-eligible
 
 ## Determinism
 
-Seeded PRNG only; no wall clock or `Math.random` in the workload or statistics.
+Seeded PRNG only; no wall clock or `Math.random` in the workload.
 Paired candidates within one seed see exactly the same trace; each seed is an
 independent outer unit. Same seed and config reproduce byte-identical trace
-identity, schedule, estimator inputs, bootstrap draws, and status.
+identity, schedule, estimator inputs, and method gates.
 
 ## Historical monolith (`scalar-facts-layout.ts`): decision-disabled
 

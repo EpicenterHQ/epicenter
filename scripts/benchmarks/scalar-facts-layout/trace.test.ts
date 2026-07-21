@@ -14,6 +14,7 @@ import {
 	utf8ByteLength,
 } from '../../../packages/data/src/protocol/v1/canonical.js';
 import {
+	type Address,
 	addressKey,
 	canonicalFactRecord,
 	type Fact,
@@ -23,7 +24,6 @@ import {
 	makeTrace,
 	presentCountFor,
 	type TraceOptions,
-	traceSelfTest,
 } from './trace.js';
 
 const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
@@ -35,8 +35,156 @@ const BASE: Omit<TraceOptions, 'targetLogicalStateBytes'> = {
 	maxEncodedFactBytes: 4096,
 };
 
-test('the fold and analytical self-tests pass', () => {
-	expect(traceSelfTest()).toEqual([]);
+class SmokeOracle {
+	private readonly current = new Map<string, Fact>();
+
+	apply(fact: Fact): void {
+		const key = addressKey(fact.address);
+		const prior = this.current.get(key);
+		if (prior === undefined) {
+			this.current.set(key, fact);
+			return;
+		}
+		if (fact.sequence < prior.sequence) return;
+		if (fact.sequence === prior.sequence) {
+			if (canonicalFactRecord(fact) !== canonicalFactRecord(prior))
+				throw new Error('equal sequence, different content');
+			return;
+		}
+		if (
+			prior.address.kind === 'row' &&
+			prior.presence === 'absent' &&
+			fact.presence === 'present'
+		)
+			return;
+		this.current.set(key, fact);
+	}
+
+	get(address: Address): Fact | undefined {
+		return this.current.get(addressKey(address));
+	}
+}
+
+const ROW_ADDRESS: Address = {
+	kind: 'row',
+	namespace: 'so.epicenter.ns00',
+	table: 'collection0000',
+	rowId: 'a'.repeat(24),
+};
+const VALUE_ADDRESS: Address = {
+	kind: 'value',
+	namespace: 'so.epicenter.ns00',
+	value: 'settingx',
+};
+
+describe('independent fold laws', () => {
+	test('a row tombstone cannot be resurrected', () => {
+		const oracle = new SmokeOracle();
+		oracle.apply({
+			address: ROW_ADDRESS,
+			sequence: 1,
+			presence: 'present',
+			fields: { a: 1 },
+		});
+		oracle.apply({ address: ROW_ADDRESS, sequence: 2, presence: 'absent' });
+		oracle.apply({
+			address: ROW_ADDRESS,
+			sequence: 3,
+			presence: 'present',
+			fields: { a: 2 },
+		});
+		expect(oracle.get(ROW_ADDRESS)?.presence).toBe('absent');
+	});
+
+	test('a value unset can be resurrected by a later value', () => {
+		const oracle = new SmokeOracle();
+		oracle.apply({
+			address: VALUE_ADDRESS,
+			sequence: 1,
+			presence: 'present',
+			content: 'a',
+		});
+		oracle.apply({ address: VALUE_ADDRESS, sequence: 2, presence: 'absent' });
+		oracle.apply({
+			address: VALUE_ADDRESS,
+			sequence: 3,
+			presence: 'present',
+			content: 'b',
+		});
+		expect(oracle.get(VALUE_ADDRESS)).toEqual({
+			address: VALUE_ADDRESS,
+			sequence: 3,
+			presence: 'present',
+			content: 'b',
+		});
+	});
+
+	test('a stale sequence cannot replace the current value', () => {
+		const oracle = new SmokeOracle();
+		oracle.apply({
+			address: VALUE_ADDRESS,
+			sequence: 5,
+			presence: 'present',
+			content: 'new',
+		});
+		oracle.apply({
+			address: VALUE_ADDRESS,
+			sequence: 3,
+			presence: 'present',
+			content: 'old',
+		});
+		expect(oracle.get(VALUE_ADDRESS)?.sequence).toBe(5);
+	});
+
+	test('equal sequences with different content are rejected', () => {
+		const oracle = new SmokeOracle();
+		oracle.apply({
+			address: VALUE_ADDRESS,
+			sequence: 5,
+			presence: 'present',
+			content: 'first',
+		});
+		expect(() =>
+			oracle.apply({
+				address: VALUE_ADDRESS,
+				sequence: 5,
+				presence: 'present',
+				content: 'other',
+			}),
+		).toThrow('equal sequence, different content');
+	});
+});
+
+test('the analytical oracle agrees with an independent event fold', () => {
+	const trace = makeTrace({
+		facts: 900,
+		namespaceCount: 5,
+		tableCount: 16,
+		valueRatio: 0.1,
+		dataSeed: 12345,
+		maxEncodedFactBytes: 4096,
+		targetLogicalStateBytes: 900 * 120 + 777,
+	});
+	const folded = new SmokeOracle();
+	const sequences = new Set<number>();
+	let maxSequence = 0;
+	for (const fact of trace.events()) {
+		folded.apply(fact);
+		sequences.add(fact.sequence);
+		maxSequence = Math.max(maxSequence, fact.sequence);
+	}
+
+	expect(sequences.size).toBe(maxSequence);
+	for (let index = 0; index < trace.options.facts; index += 1) {
+		const analytical = trace.finalFactAt(index);
+		const viaFold = folded.get(analytical.address);
+		expect(viaFold).toBeDefined();
+		if (viaFold !== undefined) {
+			expect(canonicalFactRecord(viaFold)).toBe(
+				canonicalFactRecord(analytical),
+			);
+		}
+	}
 });
 
 describe('exact calibration to present logical-state bytes', () => {
