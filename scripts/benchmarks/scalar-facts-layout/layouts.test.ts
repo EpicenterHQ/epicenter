@@ -10,6 +10,7 @@ import type { SqliteDatabase } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import {
+	attackMatrixProofs,
 	CANDIDATES,
 	createStore,
 	ddlStatements,
@@ -34,8 +35,46 @@ function makeDb(statements: string[]): SqliteDatabase {
 	return db;
 }
 
+/** A makeDb that pins recursive_triggers and foreign_keys, for the attack matrix. */
+function makeDbWith(opts: {
+	recursiveTriggers: boolean;
+	foreignKeys: boolean;
+}): (statements: string[]) => SqliteDatabase {
+	return (statements) => {
+		const db = createBunSqliteAdapter(new Database(':memory:'));
+		db.run(
+			`PRAGMA recursive_triggers = ${opts.recursiveTriggers ? 'ON' : 'OFF'}`,
+		);
+		db.run(`PRAGMA foreign_keys = ${opts.foreignKeys ? 'ON' : 'OFF'}`);
+		for (const statement of statements) db.run(statement);
+		return db;
+	};
+}
+
 test('every candidate passes its constraint and transaction proofs', () => {
 	expect(layoutsSelfTest(makeDb)).toEqual([]);
+});
+
+// The corruption attack matrix must hold under recursive_triggers OFF and ON for
+// every candidate, and additionally under foreign_keys OFF and ON for the
+// normalized candidates (whose orphan-refusal must not depend on FK enforcement).
+describe('attack matrix holds across the pragma matrix', () => {
+	for (const candidate of CANDIDATES) {
+		const foreignKeyModes =
+			candidate.coordinates === 'normalized' ? [false, true] : [true];
+		for (const recursiveTriggers of [false, true]) {
+			for (const foreignKeys of foreignKeyModes) {
+				test(`${candidate.id} recursive_triggers=${recursiveTriggers ? 'on' : 'off'} foreign_keys=${foreignKeys ? 'on' : 'off'}`, () => {
+					expect(
+						attackMatrixProofs(
+							candidate,
+							makeDbWith({ recursiveTriggers, foreignKeys }),
+						),
+					).toEqual([]);
+				});
+			}
+		}
+	}
 });
 
 describe('candidate reconstructs the exact oracle state', () => {
