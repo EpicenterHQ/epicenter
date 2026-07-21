@@ -32,7 +32,11 @@ import {
 	submit,
 	type ValueAddress,
 } from './index.js';
-import { admitSubmission, makeAuthority, makeLimits } from './kernel.test-support.js';
+import {
+	admitSubmission,
+	makeAuthority,
+	makeLimits,
+} from './kernel.test-support.js';
 
 const LIMITS = makeLimits();
 const LIFETIME = '01hzzzzzzzzzzzzzzzzzzzzzzz';
