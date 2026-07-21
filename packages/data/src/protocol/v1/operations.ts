@@ -380,6 +380,12 @@ export function parseSubmissionResponse(
  * Context-aware settlement admission: validate a submission response against the
  * exact sealed submission it settles.
  *
+ * `durableSettlement` is the replica's current persisted authority lifetime and
+ * sealed submission, read inside the transaction that would install the
+ * response. Both must still match the request. This prevents a delayed response
+ * from a superseded lifetime, or for work that is no longer sealed, from
+ * mutating a rebound replica.
+ *
  * A response that retires durable work must return exactly one current fact per
  * intent, in sealed order, with globally distinct sequences; its parked entries
  * must be an ordered, distinct subset of the touched row addresses, each with a
@@ -389,6 +395,10 @@ export function parseSubmissionResponse(
 export function admitSettlement(
 	value: unknown,
 	request: AdmittedSubmissionRequest,
+	durableSettlement: {
+		authorityLifetime: string;
+		sealedSubmission: SubmissionRequest | undefined;
+	},
 	limits: ValidatedLimits,
 ): Result<SubmissionResponse, ScalarProtocolError> {
 	return catchAsInvalid('settlement', () => {
@@ -396,8 +406,19 @@ export function admitSettlement(
 		if (error !== null)
 			return ScalarProtocolError.Invalid({ boundary: 'settlement' });
 
-		if (response.authorityLifetime !== request.authorityLifetime) {
+		if (
+			durableSettlement.authorityLifetime !== request.authorityLifetime ||
+			response.authorityLifetime !== request.authorityLifetime
+		) {
 			return ScalarProtocolError.Invalid({ boundary: 'settlement lifetime' });
+		}
+		if (
+			durableSettlement.sealedSubmission === undefined ||
+			canonicalize(durableSettlement.sealedSubmission) !== canonicalize(request)
+		) {
+			return ScalarProtocolError.Invalid({
+				boundary: 'settlement stale request',
+			});
 		}
 
 		const sealed = request.intents;
