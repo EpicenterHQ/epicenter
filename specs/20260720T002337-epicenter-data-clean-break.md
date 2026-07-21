@@ -401,22 +401,37 @@ principal attachment. It is not an application-facing catalog and does not
 make the store portable SQL.
 
 The logical facts feed does not freeze one physical state relation. Before the
-replica and authority format break, benchmark two honest candidates at the
-million-address envelope:
+replica and authority format break, benchmark two independent physical-layout
+axes for each owner at the million-address envelope:
 
 ```txt
-one checked facts table
-  one sequence index and direct global uniqueness
-  address-kind checks and a private missing-row representation
+relation layout
+  one checked facts table
+    one sequence index and direct global uniqueness
+    address-kind checks and a private missing-row representation
 
-separate row_facts and value_facts tables
-  no mixed status, payload, or row-ID sentinels
-  ordered UNION over two sequence indexes
+  separate row_facts and value_facts tables
+    no mixed status, payload, or row-ID sentinels
+    ordered UNION over two sequence indexes
+
+coordinate layout
+  inline structured address coordinates
+
+  normalized coordinates
+    dictionary-encode repeated kind, namespace, and local-key prefixes
 ```
 
-Choose the smaller schema that satisfies the measured scan, install, reopen,
-and constraint proofs. Do not retain both layouts or add a compatibility reader.
-The authority transaction owns global sequence allocation under either layout.
+Run all four combinations. Reject any candidate that fails the scan, install,
+reopen, integrity, or constraint proofs. Define material performance and
+storage thresholds before running and retain the raw samples and query plans.
+When candidates are materially equivalent, break the tie in this order:
+direct SQLite enforcement of address and global-sequence uniqueness, fewer
+relations, indexes, and feed branches, then fewer sentinel, nullable, and
+mixed-shape clauses. Freeze one winner per owner; replica and authority may
+choose different layouts. Do not retain losing layouts or add a compatibility
+reader. The authority transaction owns global sequence allocation under every
+layout.
+
 The 24-character lowercase row-ID grammar remains a permanent storage invariant;
 no private sentinel or nullable column escapes into protocol or public types.
 The fold distinguishes terminal row deletion from nonterminal value unset
@@ -426,8 +441,7 @@ Each store's metadata is one explicit single-row table with named columns, not
 `PRAGMA user_version` (unsupported on Durable Object SQLite) and not key-value
 rows. The structured representation must be measured at the one-million-address
 conformance envelope. Do not carry forward the earlier byte estimate for a flat
-qualified key. The proof must include both namespace repetition and any compact
-dictionary encoding chosen by a private live store.
+qualified key or treat dictionary encoding as an unmeasured afterthought.
 
 Row deletion changes the latest state to a terminal tombstone and removes the
 payload and row-document bytes. Later row-present intents for that address
@@ -832,9 +846,10 @@ biome lint/format are clean.
 
 #### Wave 2b: local replica format
 
-- Benchmark one checked facts table against separate row and value fact tables
-  against both replica and authority workloads. Freeze one layout per owner;
-  choose the same layout only if evidence earns the shared shape.
+- Benchmark all four combinations of relation layout (one checked facts table
+  or separate row and value fact tables) and coordinate layout (inline or
+  normalized) against both replica and authority workloads. Freeze one layout
+  per owner; choose the same layout only if evidence earns the shared shape.
 - Replace flat scalar and document address columns together. The physical-format
   break carries structured identity through confirmed facts, pending intents,
   sealed submission state, parked diagnostics, and document liveness joins.
