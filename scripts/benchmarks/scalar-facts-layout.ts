@@ -18,13 +18,18 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import {
 	describeBunRuntime,
 	makeInMemoryBunDb,
+	makeInMemoryBunDbWith,
 	openTempDatabase,
 } from './scalar-facts-layout/bun-runtime.js';
 import { classifyEvidence } from './scalar-facts-layout/decision.js';
 import {
+	attackMatrixProof,
 	CANDIDATES,
-	candidateConstraintFailures,
+	type Candidate,
+	type ConstraintProofRecord,
 	ddlStatements,
+	shapeProofs,
+	storeTransactionProofs,
 } from './scalar-facts-layout/layouts.js';
 import {
 	type Owner,
@@ -50,7 +55,10 @@ const FULL_LIVE_ADDRESSES = 1_000_000;
 const SMOKE_LOGICAL_TARGET = 5 * 1024 * 1024; // 5 MiB, exact
 const SMOKE_LIVE_ADDRESSES = 10_000;
 const FULL_VALUE_RATIO = 0.08;
-const REQUIRED_REPETITIONS = 5; // the declared evidence policy: at least five seeds
+// A LOCAL pre-pilot default only. The future measurement pilot freezes the real
+// seed/block counts (the spec names four fresh paired outer seeds); this is not a
+// qualification policy and five is never claimed as one.
+const PREPILOT_DEFAULT_REPETITIONS = 4;
 
 const KNOWN_FLAGS = new Set([
 	'--profile',
@@ -170,7 +178,8 @@ function parseArgs(argv: string[]): Args {
 	return {
 		...args,
 		profile,
-		repetitions: repetitions ?? (profile === 'full' ? REQUIRED_REPETITIONS : 1),
+		repetitions:
+			repetitions ?? (profile === 'full' ? PREPILOT_DEFAULT_REPETITIONS : 1),
 	};
 }
 
@@ -317,12 +326,51 @@ async function main(): Promise<number> {
 		return 0;
 	}
 
-	// One DDL constraint proof per candidate (raw-attack refusals), computed once
-	// on a synchronous in-memory Bun database and retained on every cell.
+	// One DDL constraint proof per candidate: the full attack matrix across the
+	// pragma matrix (recursive_triggers OFF/ON; normalized also foreign_keys
+	// OFF/ON), plus the shape and install proofs. The typed per-pragma records
+	// (baseline witness, integrity, and each attack's rejection/witness/integrity)
+	// are retained in the artifact; each cell carries the derived {ok, failures}.
+	const pragmaCombos = (
+		candidate: Candidate,
+	): { recursiveTriggers: boolean; foreignKeys: boolean }[] => {
+		const foreignKeyModes =
+			candidate.coordinates === 'normalized' ? [false, true] : [true];
+		const combos: { recursiveTriggers: boolean; foreignKeys: boolean }[] = [];
+		for (const recursiveTriggers of [false, true])
+			for (const foreignKeys of foreignKeyModes)
+				combos.push({ recursiveTriggers, foreignKeys });
+		return combos;
+	};
+	const constraintEvidence = CANDIDATES.map((candidate) => {
+		const records: ConstraintProofRecord[] = pragmaCombos(candidate).map(
+			(combo) => attackMatrixProof(candidate, makeInMemoryBunDbWith(combo)),
+		);
+		const otherFailures = [
+			...shapeProofs(candidate, makeInMemoryBunDb),
+			...storeTransactionProofs(candidate, makeInMemoryBunDb),
+		];
+		const failures = [
+			...records.flatMap((r) =>
+				r.failures.map(
+					(f) =>
+						`[rt=${r.pragmas.recursiveTriggers ? 'on' : 'off'} fk=${r.pragmas.foreignKeys ? 'on' : 'off'}] ${f}`,
+				),
+			),
+			...otherFailures,
+		];
+		return {
+			candidateId: candidate.id,
+			records,
+			otherFailures,
+			ok: failures.length === 0,
+			failures,
+		};
+	});
 	const constraintByCandidate = new Map(
-		CANDIDATES.map((candidate) => [
-			candidate.id,
-			candidateConstraintFailures(candidate, makeInMemoryBunDb),
+		constraintEvidence.map((e) => [
+			e.candidateId,
+			{ ok: e.ok, failures: e.failures },
 		]),
 	);
 
@@ -349,7 +397,10 @@ async function main(): Promise<number> {
 						openRuntime: openTempDatabase,
 						runtimeName: 'bun',
 						profile: args.profile,
-						constraintFailures: constraintByCandidate.get(candidate.id) ?? [],
+						constraintProof: constraintByCandidate.get(candidate.id) ?? {
+							ok: false,
+							failures: ['constraint proof missing for candidate'],
+						},
 					}),
 				);
 			}
@@ -389,18 +440,16 @@ async function main(): Promise<number> {
 	console.log('');
 
 	// Evidence status: this instrument records evidence; it NEVER names, ranks, or
-	// ties a winner. The ADR owns the layout choice. Full evidence needs at least
-	// REQUIRED_REPETITIONS seeds (max(5, requested)); smoke is a fast illustrative
-	// run held only to its own repetitions and is never more than provisional.
-	const requiredRepetitions =
-		args.profile === 'full'
-			? Math.max(REQUIRED_REPETITIONS, args.repetitions)
-			: args.repetitions;
+	// ties a winner. The ADR owns the layout choice. The required repetition count
+	// is this run's own pre-pilot default (or an explicit override); it is a local
+	// completeness bar, never a qualification policy.
 	const report = classifyEvidence(results, {
 		profile: args.profile,
+		expectedRuntime: 'bun',
+		expectedProfile: args.profile,
 		expectedOwners: owners,
 		expectedCandidateIds: CANDIDATES.map((c) => c.id),
-		requiredRepetitions,
+		requiredRepetitions: args.repetitions,
 	});
 	console.log('## evidence status (no winner is ever named; the ADR chooses)');
 	if (args.profile === 'smoke')
@@ -463,6 +512,9 @@ async function main(): Promise<number> {
 				observed,
 				measured,
 			},
+			// The full typed attack-matrix records across the pragma matrix, with
+			// each combo's baseline witness/integrity and every attack's result.
+			constraintEvidence,
 			results,
 			report,
 		};

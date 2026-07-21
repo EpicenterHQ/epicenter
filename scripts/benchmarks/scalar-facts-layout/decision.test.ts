@@ -49,7 +49,7 @@ function cell(
 		repetition,
 		dataSeed,
 		runtime: 'bun',
-		profile: 'smoke',
+		profile: 'full',
 		outcome: 'passed',
 		correct: true,
 		reason: 'ok',
@@ -63,9 +63,15 @@ function cell(
 			presentCount: 100,
 			currentCount: 120,
 		},
-		plans: { feed: 'p', rowPoint: 'p', valuePoint: 'p', traverse: 'p' },
+		// Realistic plans so the classifier's recomputation agrees with the proof.
+		plans: {
+			feed: 'SEARCH facts USING INDEX sqlite_autoindex_facts_1 (sequence>?)',
+			rowPoint: 'SEARCH facts USING PRIMARY KEY (kind=? AND namespace=?)',
+			valuePoint: 'SEARCH facts USING PRIMARY KEY (kind=? AND namespace=?)',
+			traverse: 'SEARCH facts USING PRIMARY KEY (kind=? AND namespace=?)',
+		},
 		planProof: {
-			feedNoTempBtree: true,
+			feedOrderedIndex: true,
 			pointIndexed: true,
 			traverseIndexed: true,
 			ok: true,
@@ -92,6 +98,8 @@ function fullMatrix(): RunResult[] {
 
 const OPTIONS = {
 	profile: 'full' as const,
+	expectedRuntime: 'bun',
+	expectedProfile: 'full',
 	expectedOwners: OWNERS,
 	expectedCandidateIds: IDS,
 	requiredRepetitions: 5,
@@ -136,13 +144,34 @@ describe('fails closed to invalid', () => {
 		results.push(cell('replica', IDS[0] as string, 0, 100));
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
-	test('a failed query-plan proof', () => {
+	test('a failed query-plan proof (raw plan and proof both bad)', () => {
 		const results = fullMatrix();
-		(results[0] as RunResult).planProof = {
-			feedNoTempBtree: false,
+		const r = results[0] as RunResult;
+		r.plans = { ...r.plans, feed: 'SCAN facts' };
+		r.planProof = {
+			feedOrderedIndex: false,
 			pointIndexed: true,
 			traverseIndexed: true,
 			ok: false,
+		};
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a forged plan proof (raw SCAN plan but planProof.ok true)', () => {
+		const results = fullMatrix();
+		const r = results[0] as RunResult;
+		// Raw feed is a full SCAN with a temp b-tree, but the retained proof lies.
+		r.plans = {
+			...r.plans,
+			feed: 'SCAN facts | USE TEMP B-TREE FOR ORDER BY',
+		};
+		// planProof still claims ok:true; the classifier recomputes and rejects.
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a forged constraint proof (ok:true with nonempty failures)', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).constraintProof = {
+			failures: ['some attack was not rejected'],
+			ok: true,
 		};
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
@@ -162,6 +191,76 @@ describe('fails closed to invalid', () => {
 	test('a malformed witness digest', () => {
 		const results = fullMatrix();
 		(results[0] as RunResult).witness.before.digestHex = 'not-hex';
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a spoofed runtime', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).runtime = 'not-bun';
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a spoofed profile', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).profile = 'smoke';
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('an incoherent passed cell (outcome passed but correct false)', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).correct = false;
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('an unknown outcome', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).outcome = 'weird' as never;
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('an unsupported outcome is rejected, not silently incomplete', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).outcome = 'unsupported';
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('non-freelist pages exceed allocated pages', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).storage.nonFreelistPageBytes = 999_999;
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('witness count disagrees with storage current count', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).storage.currentCount = 121; // witness says 120
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('the full forged counterexample cell', () => {
+		// Every spoof at once must still classify invalid, never provisional.
+		const results = fullMatrix();
+		results[0] = {
+			...(results[0] as RunResult),
+			runtime: 'ghost',
+			profile: 'ghost',
+			outcome: 'passed',
+			correct: false,
+			reason: 'ok',
+			plans: {
+				feed: 'SCAN facts',
+				rowPoint: 'SCAN facts',
+				valuePoint: 'SCAN facts',
+				traverse: 'SCAN facts',
+			},
+			planProof: {
+				feedOrderedIndex: true,
+				pointIndexed: true,
+				traverseIndexed: true,
+				ok: true,
+			},
+			constraintProof: { failures: ['unrejected attack'], ok: true },
+			storage: {
+				presentLogicalStateBytes: 1000,
+				currentProtocolFactBytes: 1200,
+				allocatedPageBytes: 2000,
+				nonFreelistPageBytes: 9000,
+				maxProtocolFactBytes: 100,
+				presentCount: 100,
+				currentCount: 999,
+			},
+		};
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 	test('an inconsistent seed within a repetition', () => {

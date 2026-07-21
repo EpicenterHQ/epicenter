@@ -86,6 +86,22 @@ export function makeInMemoryBunDb(statements: string[]): SqliteDatabase {
 	return db;
 }
 
+/** An in-memory Bun database factory that pins recursive_triggers and foreign_keys. */
+export function makeInMemoryBunDbWith(opts: {
+	recursiveTriggers: boolean;
+	foreignKeys: boolean;
+}): (statements: string[]) => SqliteDatabase {
+	return (statements) => {
+		const db = createBunSqliteAdapter(new Database(':memory:'));
+		db.run(
+			`PRAGMA recursive_triggers = ${opts.recursiveTriggers ? 'ON' : 'OFF'}`,
+		);
+		db.run(`PRAGMA foreign_keys = ${opts.foreignKeys ? 'ON' : 'OFF'}`);
+		for (const statement of statements) db.run(statement);
+		return db;
+	};
+}
+
 export function openTempDatabase(statements: string[]): TempDatabase {
 	const directory = mkdtempSync(join(tmpdir(), 'scalar-facts-layout-'));
 	const path = join(directory, 'benchmark.db');

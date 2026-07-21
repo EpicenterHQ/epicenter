@@ -21,7 +21,7 @@
  * for a future harness that closes those gaps. The per-cell `outcome`
  * (passed|failed|unsupported|not-admitted) is distinct from this run-level status.
  */
-import type { Owner, RunResult } from './runner.js';
+import { evaluatePlanProof, type Owner, type RunResult } from './runner.js';
 
 export type EvidenceStatus =
 	| 'invalid'
@@ -93,11 +93,17 @@ export type EvidenceReport = {
 
 export type ClassifyOptions = {
 	profile: 'smoke' | 'full';
+	/** The only runtime/profile identity this run may carry; any other cell is invalid. */
+	expectedRuntime: string;
+	expectedProfile: string;
 	expectedOwners: readonly Owner[];
 	expectedCandidateIds: readonly string[];
-	/** Five for full evidence. */
+	/** The pre-pilot repetition count this run declares (local, not qualification). */
 	requiredRepetitions: number;
 };
+
+/** The outcomes this Bun classifier accepts; unsupported/not-admitted are rejected here. */
+const ACCEPTED_OUTCOMES = new Set(['passed', 'failed']);
 
 function median(values: number[]): number {
 	if (values.length === 0) return Number.NaN;
@@ -161,11 +167,47 @@ export function classifyEvidence(
 			fail(`repetition out of range in ${key}`);
 		}
 
+		// Runtime/profile identity: this run admits exactly one.
+		if (result.runtime !== options.expectedRuntime)
+			fail(`unexpected runtime ${result.runtime} in ${key}`);
+		if (result.profile !== options.expectedProfile)
+			fail(`unexpected profile ${result.profile} in ${key}`);
+
+		// Outcome must be an accepted enum value and coherent with the cell. A forged
+		// `passed` cell is caught here: it must be correct, reason ok, and every proof
+		// recomputed-true below. Unknown/unsupported/not-admitted are invalid.
+		if (!ACCEPTED_OUTCOMES.has(result.outcome))
+			fail(`unaccepted outcome ${result.outcome} in ${key}`);
 		if (result.outcome === 'failed')
 			fail(`failed cell ${key}: ${result.reason}`);
+		if (
+			result.outcome === 'passed' &&
+			(!result.correct || result.reason !== 'ok')
+		)
+			fail(`incoherent passed cell ${key} (correct=${result.correct})`);
+
 		if (result.integrityCheck !== 'ok')
 			fail(`integrity_check ${result.integrityCheck} in ${key}`);
-		if (!result.planProof.ok) fail(`query plan proof failed in ${key}`);
+
+		// Plan proof RECOMPUTED from the raw plans; never trust the retained boolean,
+		// and require the retained proof to match the recomputation.
+		const recomputedPlan = evaluatePlanProof(result.plans);
+		if (!recomputedPlan.ok) fail(`query plan proof failed in ${key}`);
+		if (
+			recomputedPlan.ok !== result.planProof.ok ||
+			recomputedPlan.feedOrderedIndex !== result.planProof.feedOrderedIndex ||
+			recomputedPlan.pointIndexed !== result.planProof.pointIndexed ||
+			recomputedPlan.traverseIndexed !== result.planProof.traverseIndexed
+		) {
+			fail(`plan proof inconsistent with raw plans in ${key}`);
+		}
+
+		// Constraint proof: internally consistent (ok iff no failures) and passing.
+		if (
+			result.constraintProof.ok !==
+			(result.constraintProof.failures.length === 0)
+		)
+			fail(`constraint proof ok/failures mismatch in ${key}`);
 		if (!result.constraintProof.ok)
 			fail(
 				`constraint proof failed in ${key}: ${result.constraintProof.failures[0] ?? ''}`,
@@ -193,11 +235,23 @@ export function classifyEvidence(
 			fail(`witness changed across reopen in ${key}`);
 		}
 
-		// Storage: every byte/count field a finite non-negative integer.
-		for (const [field, value] of Object.entries(result.storage)) {
+		// Storage: every byte/count field a finite non-negative integer, with the
+		// physical relationships that must always hold and agreement with the witness.
+		const s = result.storage;
+		for (const [field, value] of Object.entries(s)) {
 			if (!isFiniteNonNegInt(value))
 				fail(`non-finite storage ${field} in ${key}`);
 		}
+		if (s.nonFreelistPageBytes > s.allocatedPageBytes)
+			fail(`non-freelist exceeds allocated pages in ${key}`);
+		if (s.presentCount > s.currentCount)
+			fail(`present exceeds current count in ${key}`);
+		if (s.maxProtocolFactBytes > s.currentProtocolFactBytes)
+			fail(`max fact exceeds total protocol bytes in ${key}`);
+		if (result.witness.before.count !== s.currentCount)
+			fail(`witness count disagrees with storage currentCount in ${key}`);
+		if (result.witness.before.bytes !== s.currentProtocolFactBytes)
+			fail(`witness bytes disagree with storage protocol bytes in ${key}`);
 
 		// Every timing metric array (not merely the required ones) must be nonempty
 		// with finite non-negative samples.
