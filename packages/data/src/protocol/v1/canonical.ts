@@ -21,10 +21,10 @@
  *
  * Epicenter only ever canonicalizes finite, well-formed JSON values. The
  * encoder is defensive: a non-finite number, a lone UTF-16 surrogate, a sparse
- * or extended array, a symbol/accessor/non-enumerable property, or a non-plain
- * object is a caller bug, so it throws rather than inventing a representation
- * the scheme does not define or silently losing data (a lone surrogate would
- * become U+FFFD under UTF-8 encoding).
+ * or extended array, a symbol/accessor/non-enumerable property, a cyclic or
+ * shared reference, or a non-plain object is a caller bug, so it throws rather
+ * than inventing a representation the scheme does not define or silently losing
+ * data (a lone surrogate would become U+FFFD under UTF-8 encoding).
  */
 
 const textEncoder = new TextEncoder();
@@ -131,13 +131,19 @@ function canonicalChildren(node: object): unknown[] | null {
 
 /**
  * Non-throwing structural check that a whole value is a canonical JSON data
- * tree: finite numbers, well-formed strings, dense data arrays, and plain
- * enumerable string-keyed data objects, with no cycles.
+ * *tree*: finite numbers, well-formed strings, dense data arrays, and plain
+ * enumerable string-keyed data objects, with no cycles and no shared references.
  *
- * The traversal is iterative with an explicit stack and an active-path set, so
- * ordinary depth (tens of thousands of levels) cannot exhaust the JS stack. A
- * memo of proven-canonical nodes keeps a shared DAG subtree linear while still
- * accepting it. Any reflection or proxy-trap failure is caught and reported as
+ * Wire JSON is a tree. A shared subtree (the same object reached by two paths)
+ * is refused for the same reason a cycle is: the canonical encoder emits every
+ * occurrence, so a small graph of N shared levels would canonicalize to 2^N
+ * bytes. Refusing repeated object identity here closes that expansion at
+ * admission instead of teaching the encoder a byte budget.
+ *
+ * The traversal is iterative with an explicit stack and a single monotonic
+ * visited set, so ordinary depth (tens of thousands of levels) cannot exhaust
+ * the JS stack and a hostile graph refuses at its first re-encounter rather than
+ * expanding. Any reflection or proxy-trap failure is caught and reported as
  * `false`; a throwing Proxy therefore rejects, and a transparent Proxy is left
  * for the caller's `structuredClone` to reject (it cannot own one).
  *
@@ -152,17 +158,19 @@ export function isCanonicalJson(value: unknown): boolean {
 		}
 		const rootChildren = canonicalChildren(value as object);
 		if (rootChildren === null) return false;
-		const onPath = new Set<object>([value as object]);
-		const done = new Set<object>();
-		const stack: Array<{ node: object; children: unknown[]; index: number }> = [
-			{ node: value as object, children: rootChildren, index: 0 },
+		// Every container in a tree is visited exactly once. A container reached a
+		// second time is either a cycle (still on the active path) or a shared
+		// reference (fully walked earlier); a single monotonic set refuses both, and
+		// never deleting also bounds work so a hostile graph refuses at its first
+		// re-encounter.
+		const seen = new Set<object>([value as object]);
+		const stack: Array<{ children: unknown[]; index: number }> = [
+			{ children: rootChildren, index: 0 },
 		];
 		while (stack.length > 0) {
 			const frame = stack[stack.length - 1];
 			if (frame === undefined) break;
 			if (frame.index >= frame.children.length) {
-				onPath.delete(frame.node);
-				done.add(frame.node);
 				stack.pop();
 				continue;
 			}
@@ -172,12 +180,11 @@ export function isCanonicalJson(value: unknown): boolean {
 			if (leaf === 'bad') return false;
 			if (leaf === 'ok') continue;
 			const container = child as object;
-			if (done.has(container)) continue; // shared DAG subtree, already proven
-			if (onPath.has(container)) return false; // cycle
+			if (seen.has(container)) return false; // cycle or shared reference
 			const children = canonicalChildren(container);
 			if (children === null) return false;
-			onPath.add(container);
-			stack.push({ node: container, children, index: 0 });
+			seen.add(container);
+			stack.push({ children, index: 0 });
 		}
 		return true;
 	} catch {
@@ -216,21 +223,16 @@ export function deepFreeze<T>(value: T): T {
 export function canonicalize(value: unknown): string {
 	type Task =
 		| { kind: 'value'; value: unknown }
-		| { kind: 'text'; text: string }
-		| { kind: 'leave'; node: object };
+		| { kind: 'text'; text: string };
 
 	const parts: string[] = [];
-	const ancestors = new Set<object>();
+	const visited = new Set<object>();
 	const stack: Task[] = [{ kind: 'value', value }];
 	while (stack.length > 0) {
 		const task = stack.pop();
 		if (task === undefined) break;
 		if (task.kind === 'text') {
 			parts.push(task.text);
-			continue;
-		}
-		if (task.kind === 'leave') {
-			ancestors.delete(task.node);
 			continue;
 		}
 
@@ -257,18 +259,21 @@ export function canonicalize(value: unknown): string {
 		if (typeof current !== 'object') {
 			throw new TypeError('Canonical JSON accepts only finite JSON values');
 		}
-		if (ancestors.has(current)) {
-			throw new TypeError('Canonical JSON rejects cyclic values');
+		// Wire JSON is a tree. A container reached twice is a cycle or a shared
+		// reference; either would emit the subtree more than once (a graph of N
+		// shared levels expands to 2^N bytes), so refuse repeated object identity
+		// rather than expand it. The set is monotonic, matching `isCanonicalJson`.
+		if (visited.has(current)) {
+			throw new TypeError('Canonical JSON rejects cyclic or shared references');
 		}
+		visited.add(current);
 
 		if (Array.isArray(current)) {
 			if (!isDenseDataArray(current)) {
 				throw new TypeError('Canonical JSON accepts only dense data arrays');
 			}
 			const children = current.slice();
-			ancestors.add(current);
 			parts.push('[');
-			stack.push({ kind: 'leave', node: current });
 			stack.push({ kind: 'text', text: ']' });
 			for (let index = children.length - 1; index >= 0; index -= 1) {
 				stack.push({ kind: 'value', value: children[index] });
@@ -285,9 +290,7 @@ export function canonicalize(value: unknown): string {
 			left < right ? -1 : left > right ? 1 : 0,
 		);
 		const entries = keys.map((key) => [key, record[key]] as const);
-		ancestors.add(current);
 		parts.push('{');
-		stack.push({ kind: 'leave', node: current });
 		stack.push({ kind: 'text', text: '}' });
 		for (let index = entries.length - 1; index >= 0; index -= 1) {
 			const entry = entries[index];
