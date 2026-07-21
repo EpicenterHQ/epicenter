@@ -7,9 +7,12 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { CryptoHasher } from 'bun';
 
-import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
+import {
+	canonicalize,
+	sha256Hex,
+	utf8ByteLength,
+} from '../../../packages/data/src/protocol/v1/canonical.js';
 import {
 	addressKey,
 	canonicalFactRecord,
@@ -47,7 +50,7 @@ describe('exact calibration to present logical-state bytes', () => {
 	]) {
 		test(`hits ${targetLogicalStateBytes} present bytes exactly`, () => {
 			const trace = makeTrace({ ...BASE, targetLogicalStateBytes });
-			expect(trace.calibration.qualifying).toBe(true);
+			expect(trace.calibration.traceAdmissible).toBe(true);
 			expect(trace.calibration.achievedLogicalStateBytes).toBe(
 				targetLogicalStateBytes,
 			);
@@ -57,9 +60,10 @@ describe('exact calibration to present logical-state bytes', () => {
 		});
 	}
 
-	test('a target below the minimal present frame is non-qualifying', () => {
+	test('a target below the minimal present frame is not trace-admissible', () => {
 		expect(
-			makeTrace({ ...BASE, targetLogicalStateBytes: 1 }).calibration.qualifying,
+			makeTrace({ ...BASE, targetLogicalStateBytes: 1 }).calibration
+				.traceAdmissible,
 		).toBe(false);
 	});
 });
@@ -239,14 +243,14 @@ describe('max fact-size ceiling gate (ADR-0163)', () => {
 		maxEncodedFactBytes: 1_000_000,
 	}).calibration.maxProtocolFactBytesBound;
 
-	test('a ceiling exactly at the bound qualifies', () => {
+	test('a ceiling exactly at the bound is trace-admissible', () => {
 		const trace = makeTrace({
 			...BASE,
 			targetLogicalStateBytes: BASE.facts * 300,
 			maxEncodedFactBytes: bound,
 		});
-		expect(trace.calibration.qualifying).toBe(true);
-		expect(trace.calibration.disqualifiedBy).toBe('none');
+		expect(trace.calibration.traceAdmissible).toBe(true);
+		expect(trace.calibration.inadmissibleBecause).toBe('none');
 	});
 
 	test('a ceiling one byte under the bound refuses', () => {
@@ -255,8 +259,8 @@ describe('max fact-size ceiling gate (ADR-0163)', () => {
 			targetLogicalStateBytes: BASE.facts * 300,
 			maxEncodedFactBytes: bound - 1,
 		});
-		expect(trace.calibration.qualifying).toBe(false);
-		expect(trace.calibration.disqualifiedBy).toBe('fact-ceiling');
+		expect(trace.calibration.traceAdmissible).toBe(false);
+		expect(trace.calibration.inadmissibleBecause).toBe('fact-ceiling');
 	});
 });
 
@@ -274,10 +278,11 @@ describe('digest framing uses UTF-8 byte length', () => {
 		};
 		const record = canonicalFactRecord(fact);
 		// A multibyte payload makes UTF-16 length differ from UTF-8 length.
-		expect(record.length).not.toBe(Buffer.byteLength(record, 'utf8'));
-		const hasher = new CryptoHasher('sha256');
-		hasher.update(`${Buffer.byteLength(record, 'utf8')}:${record}\n`);
-		expect(factSetDigest([fact]).digestHex).toBe(hasher.digest('hex'));
+		expect(record.length).not.toBe(utf8ByteLength(record));
+		// Independent oracle: the kernel's one-shot sha256Hex over the same framed
+		// string must equal the trace's streaming digest.
+		const framed = `${utf8ByteLength(record)}:${record}\n`;
+		expect(factSetDigest([fact]).digestHex).toBe(sha256Hex(framed));
 	});
 });
 

@@ -27,48 +27,36 @@
  * exact current-protocol-fact bytes, one ordered SHA-256 in ascending sequence)
  * over every current fact, never against a layout's own read path.
  */
-import { CryptoHasher } from 'bun';
-
-import { canonicalize } from '../../../packages/data/src/protocol/v1/canonical.js';
-
-export type JsonValue =
-	| string
-	| number
-	| boolean
-	| null
-	| JsonValue[]
-	| { [key: string]: JsonValue };
-export type JsonObject = { [key: string]: JsonValue };
-
-export type RowAddress = {
-	kind: 'row';
-	namespace: string;
-	table: string;
-	rowId: string;
-};
-export type ValueAddress = { kind: 'value'; namespace: string; value: string };
-export type Address = RowAddress | ValueAddress;
+import {
+	canonicalize,
+	utf8ByteLength,
+} from '../../../packages/data/src/protocol/v1/canonical.js';
+import { Sha256Stream } from './portable-hash.js';
 
 /**
- * A closed benchmark fact that cannot form an invalid V1 fact: a present row
- * carries `fields`, a present value carries `content`, and an absent fact of
- * either kind carries neither. Mirrors the private V1 Fact shape.
+ * The trace's fact and address shapes ARE the private V1 kernel shapes, imported
+ * rather than mirrored. Every generated fact is therefore a `Fact` the V1 parser
+ * would accept, and `v1-binding.ts` proves that at runtime against `parseFact`
+ * and `encodedFactBytes`. Re-exported so downstream benchmark modules and tests
+ * share one fact vocabulary with the protocol they measure.
  */
-export type Fact =
-	| {
-			address: RowAddress;
-			sequence: number;
-			presence: 'present';
-			fields: JsonObject;
-	  }
-	| { address: RowAddress; sequence: number; presence: 'absent' }
-	| {
-			address: ValueAddress;
-			sequence: number;
-			presence: 'present';
-			content: JsonValue;
-	  }
-	| { address: ValueAddress; sequence: number; presence: 'absent' };
+export type {
+	Address,
+	Fact,
+	JsonObject,
+	JsonValue,
+	RowAddress,
+	ValueAddress,
+} from '../../../packages/data/src/protocol/v1/index.js';
+
+import type {
+	Address,
+	Fact,
+	JsonObject,
+	JsonValue,
+	RowAddress,
+	ValueAddress,
+} from '../../../packages/data/src/protocol/v1/index.js';
 
 export type TraceOptions = {
 	facts: number;
@@ -139,8 +127,10 @@ export function hash32(seed: number, index: number): number {
 	return (h ^ (h >>> 16)) >>> 0;
 }
 
+/** UTF-8 byte length via the kernel's exact encoder, so trace byte measures and
+ * the V1 encoded-byte oracle come from one function. */
 export function utf8Len(text: string): number {
-	return Buffer.byteLength(text, 'utf8');
+	return utf8ByteLength(text);
 }
 
 /** Count of j in [0, n) with j % m === r. */
@@ -157,53 +147,14 @@ export function addressKey(address: Address): string {
 
 /**
  * The exact V1 canonical bytes of a fact: the kernel's RFC 8785 encoder over the
- * real Fact shape. Both the oracle and every candidate scan build this same
- * shape independently, so it is a true cross-check, not a shared helper.
+ * real Fact shape. Because the trace `Fact` IS the kernel `Fact` and `canonicalize`
+ * sorts object keys, this is exactly the string the kernel's `encodedFactBytes`
+ * hashes, so `utf8Len(canonicalFactRecord(fact)) === encodedFactBytes(fact)`.
+ * `v1-binding.ts` proves that identity, making this a true oracle cross-check and
+ * not merely a private re-encoding.
  */
 export function canonicalFactRecord(fact: Fact): string {
-	if (fact.presence === 'absent') {
-		const address =
-			fact.address.kind === 'row'
-				? {
-						kind: 'row',
-						namespace: fact.address.namespace,
-						rowId: fact.address.rowId,
-						table: fact.address.table,
-					}
-				: {
-						kind: 'value',
-						namespace: fact.address.namespace,
-						value: fact.address.value,
-					};
-		return canonicalize({
-			address,
-			presence: 'absent',
-			sequence: fact.sequence,
-		});
-	}
-	if ('fields' in fact) {
-		return canonicalize({
-			address: {
-				kind: 'row',
-				namespace: fact.address.namespace,
-				rowId: fact.address.rowId,
-				table: fact.address.table,
-			},
-			fields: fact.fields,
-			presence: 'present',
-			sequence: fact.sequence,
-		});
-	}
-	return canonicalize({
-		address: {
-			kind: 'value',
-			namespace: fact.address.namespace,
-			value: fact.address.value,
-		},
-		content: fact.content,
-		presence: 'present',
-		sequence: fact.sequence,
-	});
+	return canonicalize(fact);
 }
 
 /**
@@ -377,10 +328,15 @@ type Calibration = {
 	achievedLogicalStateBytes: number;
 	/** Upper bound on any current protocol fact (build or final), for the ceiling gate. */
 	maxProtocolFactBytesBound: number;
-	/** True only if the logical target is hit AND no fact exceeds maxEncodedFactBytes. */
-	qualifying: boolean;
-	/** Why a run does not qualify, when it does not. */
-	disqualifiedBy: 'none' | 'logical-target' | 'fact-ceiling';
+	/**
+	 * True only if the logical byte target is hit AND no fact exceeds
+	 * maxEncodedFactBytes. This is a NARROW trace-construction flag: the corpus is
+	 * admissible as a workload source. It is not an ADR/evidence-cell
+	 * qualification and never implies a layout, cell, or run is decision-eligible.
+	 */
+	traceAdmissible: boolean;
+	/** Why the trace is not admissible, when it is not. */
+	inadmissibleBecause: 'none' | 'logical-target' | 'fact-ceiling';
 };
 
 export type Trace = {
@@ -513,8 +469,8 @@ export function makeTrace(options: TraceOptions): Trace {
 				baseLogicalBytes,
 				achievedLogicalStateBytes: achieved,
 				maxProtocolFactBytesBound: bound,
-				qualifying: logicalOk && ceilingOk,
-				disqualifiedBy: !logicalOk
+				traceAdmissible: logicalOk && ceilingOk,
+				inadmissibleBecause: !logicalOk
 					? 'logical-target'
 					: ceilingOk
 						? 'none'
@@ -610,7 +566,7 @@ export function makeTrace(options: TraceOptions): Trace {
 	}
 
 	function measure(): Measures {
-		const hasher = new CryptoHasher('sha256');
+		const hasher = new Sha256Stream();
 		let currentCount = 0;
 		let currentProtocolFactBytes = 0;
 		let maxProtocolFactBytes = 0;
@@ -637,7 +593,7 @@ export function makeTrace(options: TraceOptions): Trace {
 		}
 		return {
 			currentCount,
-			digestHex: hasher.digest('hex'),
+			digestHex: hasher.digestHex(),
 			currentProtocolFactBytes,
 			maxProtocolFactBytes,
 			presentCount,
@@ -780,7 +736,7 @@ export function factSetDigest(facts: Iterable<Fact>): {
 	bytes: number;
 	digestHex: string;
 } {
-	const hasher = new CryptoHasher('sha256');
+	const hasher = new Sha256Stream();
 	let count = 0;
 	let bytes = 0;
 	for (const fact of facts) {
@@ -790,7 +746,7 @@ export function factSetDigest(facts: Iterable<Fact>): {
 		count += 1;
 		bytes += recordBytes;
 	}
-	return { count, bytes, digestHex: hasher.digest('hex') };
+	return { count, bytes, digestHex: hasher.digestHex() };
 }
 
 function gcd(a: number, b: number): number {
