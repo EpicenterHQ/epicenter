@@ -245,7 +245,7 @@ test('a committed write invalidates subscribers in a second tab', async () => {
 	unsubscribe();
 });
 
-test('two tabs serialize writes and stream across internal RPC pages', async () => {
+test('two tabs serialize writes and stream across internal RPC batches', async () => {
 	const { openTab } = await setup();
 	await using first = await openTab();
 	await using second = await openTab();

@@ -22,7 +22,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 
 import { openBunEpicenter } from './bun.js';
 import { defineTable, defineValue, optional } from './definitions.js';
-import { createEpicenter } from './epicenter.js';
+import { createEpicenter, createTableReadMethods } from './epicenter.js';
 import { openReplica } from './replica/index.js';
 
 const NOTES_KEY = 'so.epicenter.tests.notes';
@@ -153,7 +153,7 @@ test('table CRUD lowers undefined and scan returns stable row-ID order', async (
 	rawDatabase.close();
 });
 
-test('stored schema-invalid rows and values are reported without repair', async () => {
+test('stored nonconforming rows and values are reported without repair', async () => {
 	const { rawDatabase, replica, epicenter } = setup();
 	expectOk(
 		replica.write({
@@ -197,7 +197,7 @@ test('stored schema-invalid rows and values are reported without repair', async 
 	rawDatabase.close();
 });
 
-test('entries streams every classified row across internal pages', async () => {
+test('entries streams every classified row across internal batches', async () => {
 	const { rawDatabase, replica, epicenter } = setup();
 	const notes = epicenter.bind({
 		tables: { notes: notesDefinition },
@@ -220,6 +220,95 @@ test('entries streams every classified row across internal pages', async () => {
 	const streamed = [];
 	for await (const entry of notes.entries()) streamed.push(expectOk(entry));
 	expect(streamed.map(({ id }) => id)).toEqual(ids);
+
+	await epicenter[Symbol.asyncDispose]();
+	rawDatabase.close();
+});
+
+test('stopping entries early does not request another internal batch', async () => {
+	let batchReads = 0;
+	const methods = createTableReadMethods<typeof notesDefinition>(
+		async (after) => {
+			batchReads += 1;
+			if (after !== undefined) throw new Error('Unexpected second batch');
+			return {
+				entries: [
+					{
+						data: { id: REMOTE_ROW_A, title: 'first', rank: 1 },
+						error: null,
+					},
+				],
+				nextAfter: REMOTE_ROW_A,
+			};
+		},
+	);
+
+	const iterator = methods.entries()[Symbol.asyncIterator]();
+	expect((await iterator.next()).done).toBe(false);
+	await iterator.return?.();
+	expect(batchReads).toBe(1);
+});
+
+test('the current keyset batcher observes inserts ahead of its row-ID boundary, not behind it', async () => {
+	// Adapter-mechanism coverage only: neither the batch size nor concurrent
+	// insertion visibility is part of the public traversal contract.
+	const { rawDatabase, replica, epicenter } = setup();
+	const notes = epicenter.bind({
+		tables: { notes: notesDefinition },
+		values: {},
+	}).tables.notes;
+	const initialIds = Array.from({ length: 101 }, (_, index) =>
+		String(index + 100).padStart(24, '0'),
+	);
+	for (const [rank, id] of initialIds.entries()) {
+		expectOk(
+			replica.write({
+				kind: 'create',
+				key: NOTES_KEY,
+				rowId: id,
+				fields: { title: `Initial ${rank}`, rank },
+			}),
+		);
+	}
+
+	const iterator = notes.entries()[Symbol.asyncIterator]();
+	const firstBatch = [];
+	for (let index = 0; index < 100; index += 1) {
+		const next = await iterator.next();
+		if (next.done) throw new Error('Traversal ended before the batch boundary');
+		firstBatch.push(expectOk(next.value));
+	}
+
+	const behindBoundary = '000000000000000000000050';
+	const aheadOfBoundary = '000000000000000000000300';
+	for (const [rowId, title] of [
+		[behindBoundary, 'Behind'],
+		[aheadOfBoundary, 'Ahead'],
+	] as const) {
+		expectOk(
+			replica.write({
+				kind: 'create',
+				key: NOTES_KEY,
+				rowId,
+				fields: { title, rank: 300 },
+			}),
+		);
+	}
+
+	const remainder = [];
+	while (true) {
+		const next = await iterator.next();
+		if (next.done) break;
+		remainder.push(expectOk(next.value));
+	}
+	const lastInitialId = initialIds.at(-1);
+	if (lastInitialId === undefined) throw new Error('Expected initial rows');
+
+	expect(firstBatch.map(({ id }) => id)).toEqual(initialIds.slice(0, 100));
+	expect(remainder.map(({ id }) => id)).toEqual([
+		lastInitialId,
+		aheadOfBoundary,
+	]);
 
 	await epicenter[Symbol.asyncDispose]();
 	rawDatabase.close();

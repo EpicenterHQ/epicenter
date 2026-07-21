@@ -101,7 +101,7 @@ async function setup({
 	};
 }
 
-test('CRUD stays live and list ordering is newest first', async () => {
+test('CRUD stays live and recording order is newest first', async () => {
 	const context = await setup();
 	try {
 		const older = await context.recordings.create({
@@ -131,7 +131,7 @@ test('CRUD stays live and list ordering is newest first', async () => {
 	}
 });
 
-test('refresh follows every cursor until all recordings are loaded', async () => {
+test('refresh loads and sorts every recording', async () => {
 	const seed = Array.from({ length: 101 }, (_, index) =>
 		recording({
 			title: String(index),

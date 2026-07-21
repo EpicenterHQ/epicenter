@@ -24,10 +24,10 @@ mock.module('$app/state', () => ({
 
 const { openHoneycrispApplication } = await import('./application.js');
 
-function createRuntime(listFolders: () => Promise<never>) {
+function createRuntime(scanFolders: () => Promise<never>) {
 	let releases = 0;
 	const table = {
-		list: listFolders,
+		scan: scanFolders,
 		subscribe: () => () => {},
 	};
 	return {

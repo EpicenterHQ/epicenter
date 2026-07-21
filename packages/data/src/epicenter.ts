@@ -52,11 +52,14 @@ export type TableLens<TDefinition extends TableDefinition> = {
 	): Promise<Result<RowFor<TDefinition> | undefined, ReadError>>;
 	delete(id: string): Promise<boolean>;
 	/**
-	 * Materialize the complete classified table in stable row-ID order.
+	 * Consume the classified traversal to completion and group its results.
 	 *
-	 * Use this when the caller needs the whole table in memory, such as a local
-	 * UI cache. Use {@link entries} for repair, export, or another workflow that
-	 * should keep memory bounded while it visits every stored entry.
+	 * Use this when the traversal belongs in memory, such as a local UI cache.
+	 * Use {@link entries} for repair, export, or another workflow that should
+	 * keep memory bounded while it visits every live row. Like `entries()`, this
+	 * observes live state rather than a point-in-time snapshot.
+	 * Storage or transport failure rejects the returned Promise; only row Lens
+	 * projection failures are grouped under `nonconforming`.
 	 *
 	 * @example
 	 * ```ts
@@ -66,12 +69,14 @@ export type TableLens<TDefinition extends TableDefinition> = {
 	scan(): Promise<TableScan<TDefinition>>;
 	/**
 	 * Stream every live row in stable row-ID order without materializing the
-	 * table. The runtime fetches bounded internal pages and keeps continuation
+	 * table. The runtime fetches bounded internal batches and keeps continuation
 	 * state private; callers may stop iteration early.
 	 *
 	 * Entries are ordinary Results: conforming rows are `Ok`, while rows that the
 	 * current Lens cannot interpret are `Err(NonconformingRow)` with raw JSON.
 	 * The traversal observes live state rather than a database snapshot.
+	 * Storage or transport failure throws from iteration instead of becoming an
+	 * `Err` entry.
 	 *
 	 * @example
 	 * ```ts
@@ -123,7 +128,7 @@ const DataRuntimeError = defineErrors({
 	}),
 });
 
-type ListedStateRow = SqliteRow & {
+type StoredStateRow = SqliteRow & {
 	row_id: string;
 	json_payload: string;
 };
@@ -268,7 +273,7 @@ export function createEpicenter({
 		const compiled = compileTableDefinition(definition);
 		const readEntriesPage = async (after?: string) => {
 			requireOpen();
-			return listEntriesPage(definition, compiled, after);
+			return readEntriesPageFromDatabase(definition, compiled, after);
 		};
 
 		const lens = {
@@ -429,7 +434,7 @@ export function createEpicenter({
 		},
 	});
 
-	function listEntriesPage<TDefinition extends TableDefinition>(
+	function readEntriesPageFromDatabase<TDefinition extends TableDefinition>(
 		definition: TDefinition,
 		compiled: ReturnType<typeof compileTableDefinition>,
 		after?: string,
@@ -445,7 +450,7 @@ export function createEpicenter({
 			parameters.push(after);
 		}
 		parameters.push(ENTRIES_PAGE_SIZE + 1);
-		const stored = database.all<ListedStateRow>(
+		const stored = database.all<StoredStateRow>(
 			`SELECT row_id, json_payload
 			 FROM state
 			 WHERE ${where.join(' AND ')}

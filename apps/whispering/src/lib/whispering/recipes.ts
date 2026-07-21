@@ -37,13 +37,13 @@ export function createWhisperingRecipes({
 		while (!isDisposed) {
 			const generation = refreshGeneration;
 			try {
-				const { rows: listedRows, nonconforming: listedNonconforming } =
+				const { rows: scannedRows, nonconforming: scannedNonconforming } =
 					await table.scan();
 				if (isDisposed) return;
 				if (generation !== refreshGeneration) continue;
 				const nextRows: Recipe[] = [];
 				const nextCanonicalIds = new Map<string, string>();
-				for (const { id: canonicalId, sourceId, ...recipe } of listedRows) {
+				for (const { id: canonicalId, sourceId, ...recipe } of scannedRows) {
 					if (nextCanonicalIds.has(sourceId)) {
 						throw new Error(`Duplicate recipe source id '${sourceId}'`);
 					}
@@ -57,7 +57,7 @@ export function createWhisperingRecipes({
 						left.name.localeCompare(right.name),
 					),
 				];
-				nonconforming = listedNonconforming;
+				nonconforming = scannedNonconforming;
 				canonicalIdBySourceId = nextCanonicalIds;
 				loadError = null;
 				notify();

@@ -192,7 +192,7 @@ export function createWhisperingRecordings({
 		);
 	}
 
-	/** Reflect one committed write in the cache before the re-list lands. */
+	/** Reflect one committed write in the cache before the refresh lands. */
 	function applyRowToCache(row: Recording) {
 		rows = rows.some((existing) => existing.id === row.id)
 			? rows.map((existing) => (existing.id === row.id ? row : existing))
@@ -201,7 +201,7 @@ export function createWhisperingRecordings({
 		notify();
 	}
 
-	/** Reflect one committed deletion in the cache before the re-list lands. */
+	/** Reflect one committed deletion in the cache before the refresh lands. */
 	function removeRowFromCache(id: Recording['id']) {
 		rows = rows.filter((row) => row.id !== id);
 		sorted = sortRows(rows);
@@ -336,7 +336,7 @@ export function createWhisperingRecordings({
 				throw cause;
 			}
 			// Insert optimistically so follow-up workflows (auto-upload, delete)
-			// resolve the new row before the background re-list lands.
+			// resolve the new row before the background refresh lands.
 			applyRowToCache(created);
 			void refresh();
 			return created;

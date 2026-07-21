@@ -14,7 +14,7 @@ import { fromTable } from './from-table.svelte.js';
  *
  * Key behaviors:
  * - Initial refresh classifies conforming and nonconforming rows
- * - Explicit refresh updates list and point-read surfaces
+ * - Explicit refresh updates classified and point-read surfaces
  */
 
 (globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -85,7 +85,7 @@ test('initial refresh classifies conforming and nonconforming rows', async () =>
 	expect(entries.nonconforming.map((e) => e.id)).toEqual(['bad']);
 });
 
-test('explicit refresh updates list and point-read surfaces', async () => {
+test('explicit refresh updates classified and point-read surfaces', async () => {
 	const { table, store } = createMockTable();
 	const entries = fromTable(table);
 	await entries.whenReady;
