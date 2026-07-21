@@ -330,9 +330,16 @@ function wordAt(words: Uint32Array, index: number): number {
 /**
  * SHA-256 over the UTF-8 bytes of `input`, returned as lowercase hex.
  *
- * A synchronous pure implementation keeps the authority reference model
- * runtime-free and free of a `crypto` global, so the fold and fork-detection
- * stay one deterministic transition.
+ * This is a reference-oracle mechanic, not a wire or public hash. ADR-0163
+ * makes the request hash server-private fork-detection state: it is "not a
+ * public wire field, digest identity, or application concept." The reference
+ * authority keeps a synchronous pure implementation so `submit` stays one
+ * deterministic `(state, request, limits)` transition with no `crypto` global.
+ * The real server authority (Wave 2c) owns its own platform hashing (for
+ * example Web Crypto) and is free to differ, because the hash never crosses a
+ * boundary; the RFC 8785 canonicalization it hashes is the only shared law. The
+ * v1 barrel is absent from the package `exports` map, so no consumer can freeze
+ * this primitive as a contract.
  */
 export function sha256Hex(input: string): string {
 	const message = textEncoder.encode(input);
