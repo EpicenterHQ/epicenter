@@ -83,7 +83,10 @@ per-kind present/absent payload, `present in {0,1}`, sequence range, coordinate
 kind and non-empty namespace/local-key) is enforced by BEFORE INSERT/UPDATE
 triggers, not only by CHECK. So with `PRAGMA ignore_check_constraints` ON, a raw
 short row id, scalar/absent-shaped payload, or invalid coordinate is still
-refused. The CHECKs remain as defense-in-depth; the triggers own closure.
+refused. The `coordinate_id` positivity is enforced by an AFTER INSERT trigger
+(the rowid alias is NULL in a BEFORE INSERT until auto-allocated), so a raw
+negative or zero id is refused even with checks ignored. The CHECKs remain as
+defense-in-depth; the triggers own closure.
 
 The store installs through an atomic page seam: `installPage(facts,
 commitProgress?)` opens exactly one transaction and applies every fact through a
@@ -107,12 +110,20 @@ UPSERT onto an existing identity; UPDATE OR IGNORE address/sequence conflicts;
 direct DELETE; row absent-then-present; split cross-table sequence collisions; the
 coordinate replace/update/delete and orphan-insert attacks; and the grammar
 refusals (short row id, invalid row/value payload, absent-with-payload, invalid
-coordinate kind/namespace/local-key, and an invalid-payload update). After each
-rejected attack it retains the exact observed after-attack witness
-(count/byte/SHA-256) and `PRAGMA integrity_check` string, deriving stable/ok from
-those raw observations rather than asserting a bare boolean. The legal transitions
-it must still allow (row absent-then-higher-absent; value absent-then-higher-
-present) are proven to succeed.
+coordinate kind/namespace/local-key, zero/negative coordinate id, and an
+invalid-payload update). After each rejected attack it retains the exact observed
+after-attack witness (count/byte/SHA-256), the `PRAGMA integrity_check` string,
+AND the thrown error message with its refusal class, deriving stable/ok from those
+raw observations. A rejection that is NOT a genuine trigger `raise` or a
+constraint failure (class `other`, e.g. a SQL typo or missing-table masquerade)
+fails the attack, so a broken probe cannot pass as an invariant. The legal
+transitions it must still allow (row absent-then-higher-absent; value
+absent-then-higher-present) are proven to succeed.
+
+The pragma matrix is self-verifying at the run level: the CLI reads back each
+record's observed pragma tuple, requires it to equal the requested tuple, and
+requires the exact requested set to occur once per candidate, so an ignored,
+missing, or duplicated setting fails closed (`verifyPragmaCoverage`).
 
 ## Independent oracle and reopen witness
 
@@ -144,24 +155,34 @@ status:
   instrument emits only `passed` / `failed`; it never fabricates the other two.
 
 `classifyEvidence` does not trust the cell's summary booleans. It **recomputes**
-the plan proof from the raw structured per-branch `EXPLAIN QUERY PLAN` (every feed
-branch must independently be an ordered sequence-index range with no scan or temp
-b-tree; every point/traverse branch detail must be an indexed SEARCH) and requires
-it to match the retained proof; checks the constraint proof's `ok` against its own
-failure list; requires the expected runtime/profile identity; and requires the
+the plan proof from the raw structured per-branch `EXPLAIN QUERY PLAN` against the
+CANDIDATE's contract (`evaluatePlanProof(result.candidateId, plans)`): for each
+operation the candidate declares the expected branch count, the closed set of
+table tokens any SEARCH may reference, and the semantic predicate fragments each
+branch must cover. A fabricated plan referencing an unrelated table, dropping a
+required predicate, carrying an unknown non-structural detail row, using a full
+scan or temp b-tree, or supplying the wrong candidate's plan is rejected; an
+unknown candidate id fails closed. Index names are deliberately not bound (they
+are version-specific); the binding is table plus access kind plus predicate
+coverage. The classifier also checks the constraint proof's `ok` against its own
+failure list, requires the expected runtime/profile identity, and requires the
 outcome enum to be coherent with `correct`/`reason` and the recomputed proofs.
 
 It also binds every cell to the **declared per-repetition oracle**: for each
 repetition, the same seed (`hash32(baseSeed, rep)`) the cells measured against is
 replayed by the independent trace into an exact
 `{count, currentProtocolFactBytes, digestHex, presentCount,
-presentLogicalStateBytes, totalFacts, finalAbsent, lifecycle}`. Every cell's
-`dataSeed`, both witnesses, and the four storage quantities must equal its
-repetition's oracle exactly. This binds paired cells to one agreed current state
-and catches a forged count, a wrong digest, wrong bytes, mixed digests within one
-repetition, and a wrong seed, none of which self-equality alone would catch. Each
-declared oracle is itself validated for internal consistency (`count ==
-totalFacts`; `presentCount + finalAbsent == totalFacts`). The oracles are retained
+presentLogicalStateBytes, totalFacts, finalAbsent}`. Every cell's `dataSeed`, both
+witnesses, and the four storage quantities must equal its repetition's oracle
+exactly. This binds paired cells to one agreed current state and catches a forged
+count, a wrong digest, wrong bytes, mixed digests within one repetition, and a
+wrong seed. The declared oracles must be an EXACT closed set: exactly one per
+repetition `0..requiredReps-1`, no extras, all fields finite non-negative
+integers, internally consistent (`count == totalFacts`; `presentCount +
+finalAbsent == totalFacts`), with distinct seeds. Lifecycle cardinalities are NOT
+part of the classifier oracle (the classifier does not recompute them against a
+frozen trace, so it would be dishonest to claim it validates them); they are
+retained only as descriptive `repetitionTraceMetadata`. The oracles are retained
 in the artifact; the corpus shape reported at the top level is seed-invariant and
 carries no seed-dependent witness. It returns one run-level status and **never a
 candidate id**:
@@ -273,20 +294,24 @@ fabricates page metrics for it.
 
 ## Artifact
 
-`--output <path>` writes one versioned JSON artifact (`artifactVersion` 2) with
-reproduction metadata: the runtime identity (Bun and SQLite versions, OS
-platform/release/arch, and pragmas), the parsed args, install batch, per-repetition
-candidate order, the command line, and a DDL/schema digest and version.
+`--output <path>` writes one versioned JSON artifact (`artifactVersion` 3,
+`schema.version` 3) with reproduction metadata: the runtime identity (Bun and
+SQLite versions, OS platform/release/arch, and pragmas including
+`ignoreCheckConstraints`), the parsed args, install batch, per-repetition candidate
+order, the command line, and a DDL/schema digest and version.
 
 Provenance is **observed, not trusted from an environment string**. The artifact
 records a validated 40-hex git `HEAD` (or `null` when git is unavailable), a
 scoped dirty flag over exactly the evidence-producing sources, a deterministic
-SHA-256 source-manifest digest over those exact source contents (the non-test
-benchmark modules plus the one V1 protocol file the trace/store import,
-`canonical.ts`), the list of files covered, and a `sourceProvenanceAdmissible`
-flag that is true only with a known HEAD and a clean relevant tree. A `null` HEAD
-or a dirty relevant tree is honest but not source-admissible; unrelated app dirt
-never poisons the scoped digest or the scoped dirty check, because both range over
+SHA-256 source-manifest digest over those exact source contents, the list of files
+covered, and a `sourceProvenanceAdmissible` flag that is true only with a known
+HEAD and a clean relevant tree. The scoped source set is the non-test benchmark
+modules, the V1 protocol file the trace/store import at runtime (`canonical.ts`),
+the SQLite adapter the runtime imports (`packages/sqlite/src/bun.ts`), and the
+dependency-identity files (`package.json`, `bun.lock`) so third-party (Noble,
+adapter) resolution is honest rather than assumed complete. A `null` HEAD or a
+dirty relevant tree is honest but not source-admissible; unrelated app dirt never
+poisons the scoped digest or the scoped dirty check, because both range over
 exactly the listed sources. The helpers are pure and unit-tested.
 
 It carries the full raw per-cell results (timing sample arrays, storage,
@@ -297,11 +322,11 @@ It also retains the real **constraint evidence**: for every candidate, one typed
 proof record per pragma combination (recursive_triggers and
 ignore_check_constraints OFF/ON, and for the normalized candidates foreign_keys
 OFF/ON), each carrying that combo's pragmas, baseline witness and integrity, and
-every attack's structured result (rejected, plus the exact observed after-attack
-witness and integrity string, with stable/ok derived from them). The retained
-coverage is the coverage the README claims; no proof coverage is asserted by a
-bare boolean. The classifier summarizes; the raw arrays are the evidence, and
-medians are never the artifact.
+every attack's structured result (rejected, the exact observed after-attack
+witness, integrity string, and thrown-error message with its refusal class, with
+stable/ok derived from them). The retained coverage is the coverage the README
+claims; no proof coverage is asserted by a bare boolean. The classifier
+summarizes; the raw arrays are the evidence, and medians are never the artifact.
 
 ## Determinism
 
@@ -315,13 +340,17 @@ exactly the same trace; each repetition draws an independent data seed.
   artifact.
 - `trace.ts`: deterministic corpus, aging events, and the independent oracle.
 - `layouts.ts`: the four DDL candidates, their stores (atomic `installPage`
-  seam, structured query plans), the uniform invariant and grammar triggers, and
-  the shape and attack-matrix proofs.
+  seam, structured query plans), the uniform invariant and grammar triggers, the
+  shape and attack-matrix proofs with per-attack refusal-class verification, and
+  the pragma-coverage verifier.
+- `plan-proof.ts`: the candidate- and operation-specific, fail-closed query-plan
+  contract and its per-branch recomputation.
 - `runner.ts`: the desktop file-SQLite runner: owner-specific workloads, timing,
   reopen, storage, structured query plans, the per-cell outcome and per-branch
   plan proof. Not a universal runner; browser and DO harnesses are separate.
 - `decision.ts`: the fail-closed evidence-status classifier (invalid / incomplete
-  / provisional; never a winner), including the per-repetition oracle binding.
+  / provisional; never a winner), including the exact-set per-repetition oracle
+  binding and the candidate-specific plan recomputation.
 - `bun-runtime.ts`: Bun/node-only DB lifecycle, page metrics, in-memory proof DB,
   and the runtime-identity descriptor.
 - `provenance.ts`: pure, unit-tested provenance helpers (git HEAD, scoped dirty
