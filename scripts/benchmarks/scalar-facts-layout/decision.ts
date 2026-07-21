@@ -8,14 +8,18 @@
  * `ready-for-ADR-review`; there is no automated selector here by design (the
  * asymmetric win: the whole Pareto/materiality/tie-break machinery is deleted).
  *
- * The classifier fails closed. It returns `invalid` on any duplicate or failed
- * cell, an empty query plan, a seed that is inconsistent within a repetition or
- * not distinct across repetitions, or a globally required metric missing;
- * `incomplete` when the expected owner x candidate x repetition matrix (five
- * repetitions) is not fully populated and correct; and `provisional` when it is,
+ * The classifier fails closed. It returns `invalid` on any duplicate cell, a
+ * `failed` outcome, a plan-semantics or constraint proof failure, a malformed or
+ * changed witness, a non-ok integrity check, a non-finite storage field, an
+ * empty/negative/non-finite timing sample, an unexpected or out-of-range cell, a
+ * seed that is inconsistent within a repetition or not distinct across
+ * repetitions, or a globally required metric missing; `incomplete` when the
+ * expected owner x candidate x repetition matrix (at least the required
+ * repetitions) is not fully populated and passing; and `provisional` when it is,
  * because unsupported real workflows and qualifying runtimes still remain. This
  * Bun instrument can never emit `ready-for-ADR-review`: that status is reserved
- * for a future harness that closes those gaps.
+ * for a future harness that closes those gaps. The per-cell `outcome`
+ * (passed|failed|unsupported|not-admitted) is distinct from this run-level status.
  */
 import type { Owner, RunResult } from './runner.js';
 
@@ -66,6 +70,7 @@ export type CellEvidence = {
 	candidateId: string;
 	repetition: number;
 	dataSeed: number;
+	outcome: string;
 	correct: boolean;
 	/** Median of raw samples per timing metric, plus the two page measures. Unranked. */
 	metrics: Record<string, number>;
@@ -73,10 +78,11 @@ export type CellEvidence = {
 
 export type EvidenceReport = {
 	status: EvidenceStatus;
-	provisional: true;
+	/** Instrument-level fact: this Bun harness never produces a qualifying run. */
+	qualifyingRuntime: false;
 	reasons: string[];
 	expectedCells: number;
-	presentCorrectCells: number;
+	passedCells: number;
 	repetitions: number;
 	requiredRepetitions: number;
 	unsupportedWorkflows: string[];
@@ -102,6 +108,14 @@ function median(values: number[]): number {
 		: (sorted[mid] ?? 0);
 }
 
+const isFiniteNonNegInt = (n: unknown): boolean =>
+	typeof n === 'number' && Number.isInteger(n) && n >= 0;
+const isLowerHex64 = (s: unknown): boolean =>
+	typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
+/** A timing sample array must be nonempty and every sample finite and non-negative. */
+const validSamples = (samples: number[]): boolean =>
+	samples.length > 0 && samples.every((s) => Number.isFinite(s) && s >= 0);
+
 function cellMetrics(result: RunResult): Record<string, number> {
 	const out: Record<string, number> = {};
 	for (const [key, samples] of Object.entries(result.metrics))
@@ -122,8 +136,10 @@ export function classifyEvidence(
 		invalid = true;
 	};
 
-	// Index cells; reject duplicates, failed cells, empty plans, missing required
-	// metrics, and every unexpected/out-of-range/degenerate cell. Fail closed.
+	// Index cells; fail closed on any duplicate, failed outcome, out-of-range or
+	// unexpected cell, degenerate timing/storage/witness field, plan-semantics
+	// failure, or constraint-proof failure. A retained cell that fails any proof
+	// invalidates the run.
 	const requiredReps = options.requiredRepetitions;
 	const byKey = new Map<string, RunResult>();
 	for (const result of results) {
@@ -145,9 +161,30 @@ export function classifyEvidence(
 			fail(`repetition out of range in ${key}`);
 		}
 
-		if (!result.correct) fail(`failed cell ${key}: ${result.reason}`);
+		if (result.outcome === 'failed')
+			fail(`failed cell ${key}: ${result.reason}`);
 		if (result.integrityCheck !== 'ok')
 			fail(`integrity_check ${result.integrityCheck} in ${key}`);
+		if (!result.planProof.ok) fail(`query plan proof failed in ${key}`);
+		if (!result.constraintProof.ok)
+			fail(
+				`constraint proof failed in ${key}: ${result.constraintProof.failures[0] ?? ''}`,
+			);
+
+		// Witness: before == after, and both are finite non-negative integers with a
+		// well-formed lowercase 64-hex digest.
+		for (const [label, w] of [
+			['before', result.witness.before],
+			['after', result.witness.after],
+		] as const) {
+			if (
+				!isFiniteNonNegInt(w.count) ||
+				!isFiniteNonNegInt(w.bytes) ||
+				!isLowerHex64(w.digestHex)
+			) {
+				fail(`malformed witness (${label}) in ${key}`);
+			}
+		}
 		if (
 			result.witness.before.digestHex !== result.witness.after.digestHex ||
 			result.witness.before.count !== result.witness.after.count ||
@@ -155,23 +192,23 @@ export function classifyEvidence(
 		) {
 			fail(`witness changed across reopen in ${key}`);
 		}
-		if (
-			!result.plans.feed ||
-			!result.plans.rowPoint ||
-			!result.plans.valuePoint ||
-			!result.plans.traverse
-		) {
-			fail(`empty query plan in ${key}`);
+
+		// Storage: every byte/count field a finite non-negative integer.
+		for (const [field, value] of Object.entries(result.storage)) {
+			if (!isFiniteNonNegInt(value))
+				fail(`non-finite storage ${field} in ${key}`);
+		}
+
+		// Every timing metric array (not merely the required ones) must be nonempty
+		// with finite non-negative samples.
+		for (const [metric, samples] of Object.entries(result.metrics)) {
+			if (!validSamples(samples))
+				fail(`empty, negative, or non-finite samples for ${metric} in ${key}`);
 		}
 		if (!ownerKnown) continue;
 		for (const metric of REQUIRED_METRICS[result.owner]) {
-			const samples = result.metrics[metric];
-			if (!samples) {
+			if (!(metric in result.metrics))
 				fail(`missing required metric ${metric} in ${key}`);
-				continue;
-			}
-			if (samples.length === 0 || samples.some((s) => !Number.isFinite(s)))
-				fail(`empty or non-finite samples for ${metric} in ${key}`);
 		}
 	}
 
@@ -193,14 +230,14 @@ export function classifyEvidence(
 		options.expectedOwners.length *
 		options.expectedCandidateIds.length *
 		requiredReps;
-	let presentCorrect = 0;
+	let passed = 0;
 	const missing: string[] = [];
 	for (const owner of options.expectedOwners) {
 		for (const candidateId of options.expectedCandidateIds) {
 			for (let rep = 0; rep < requiredReps; rep += 1) {
 				const result = byKey.get(`${owner}|${candidateId}|${rep}`);
-				if (result?.correct) presentCorrect += 1;
-				else if (!result) missing.push(`${owner}|${candidateId}|${rep}`);
+				if (!result) missing.push(`${owner}|${candidateId}|${rep}`);
+				else if (result.outcome === 'passed') passed += 1;
 			}
 		}
 	}
@@ -211,6 +248,7 @@ export function classifyEvidence(
 		candidateId: result.candidateId,
 		repetition: result.repetition,
 		dataSeed: result.dataSeed,
+		outcome: result.outcome,
 		correct: result.correct,
 		metrics: cellMetrics(result),
 	}));
@@ -221,28 +259,28 @@ export function classifyEvidence(
 	} else if (
 		repetitions < requiredReps ||
 		missing.length > 0 ||
-		presentCorrect < expectedCells
+		passed < expectedCells
 	) {
 		status = 'incomplete';
 		if (repetitions < requiredReps)
 			reasons.push(`fewer than ${requiredReps} repetitions (${repetitions})`);
 		if (missing.length > 0) reasons.push(`${missing.length} missing cell(s)`);
 	} else {
-		// Complete, correct, five reps, paired-and-distinct seeds. Unsupported real
-		// workflows and qualifying runtimes remain, so it stops at provisional. This
-		// instrument never emits ready-for-ADR-review by design.
+		// Complete, all cells passed, at least the required repetitions, paired and
+		// distinct seeds. Unsupported real workflows and qualifying runtimes remain,
+		// so it stops at provisional; this instrument never emits ready-for-ADR-review.
 		status = 'provisional';
 		reasons.push(
-			'complete correct matrix; unsupported real workflows and qualifying runtimes remain, so evidence stops at provisional (the ADR owns the layout choice)',
+			'complete passing matrix; unsupported real workflows and qualifying runtimes remain, so evidence stops at provisional (the ADR owns the layout choice)',
 		);
 	}
 
 	return {
 		status,
-		provisional: true,
+		qualifyingRuntime: false,
 		reasons,
 		expectedCells,
-		presentCorrectCells: presentCorrect,
+		passedCells: passed,
 		repetitions,
 		requiredRepetitions: requiredReps,
 		unsupportedWorkflows: [...UNSUPPORTED_WORKFLOWS],

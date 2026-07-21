@@ -1,20 +1,31 @@
 #!/usr/bin/env bun
 /**
- * scalar-facts-layout: a decision instrument for the Wave 2b confirmed-facts
- * layout question. See scripts/benchmarks/scalar-facts-layout/README.md for the
- * scope, the ADR-0167 logical/protocol byte split, the four measured storage
- * quantities, and the no-winner policy.
+ * scalar-facts-layout: pre-pilot confirmed-facts correctness/storage evidence for
+ * the Wave 2b layout question. See scripts/benchmarks/scalar-facts-layout/README.md
+ * for the scope, the four measured storage quantities, the per-cell outcome vs
+ * run-level status, the provisional gates, and the no-winner policy.
  *
- * This is a provisional Bun-only stress profile, never a frozen conformance run:
- * ADR-0167 leaves the canonical logical-state container unfrozen, so the present
- * logical-state figure is a labeled proxy, and Bun cannot qualify OPFS, quota,
- * WebKit, mobile, or Durable Object SQLite.
+ * This is a pre-pilot Bun-only stress profile, never admissible full evidence and
+ * never a frozen conformance run: it exercises no real replica/authority workflow,
+ * the present logical-state figure is a labeled proxy for ADR-0161's final-present
+ * scalar-fields-and-values proxy, and Bun cannot qualify OPFS, quota, WebKit,
+ * mobile, or Durable Object SQLite.
  */
 import { writeFileSync } from 'node:fs';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
-import { openTempDatabase } from './scalar-facts-layout/bun-runtime.js';
+import {
+	describeBunRuntime,
+	makeInMemoryBunDb,
+	openTempDatabase,
+} from './scalar-facts-layout/bun-runtime.js';
 import { classifyEvidence } from './scalar-facts-layout/decision.js';
-import { CANDIDATES } from './scalar-facts-layout/layouts.js';
+import {
+	CANDIDATES,
+	candidateConstraintFailures,
+	ddlStatements,
+} from './scalar-facts-layout/layouts.js';
 import {
 	type Owner,
 	type RunResult,
@@ -26,6 +37,13 @@ import {
 	makeTrace,
 	type TraceOptions,
 } from './scalar-facts-layout/trace.js';
+
+/** The artifact schema and its version; bump when the artifact shape changes. */
+const ARTIFACT_VERSION = 2;
+const SCHEMA_VERSION = 2;
+const INSTALL_BATCH = 1024;
+const INSTRUMENT_LABEL =
+	'pre-pilot confirmed-facts correctness/storage evidence';
 
 const FULL_LOGICAL_TARGET = 536_870_912; // 512 MiB, exact
 const FULL_LIVE_ADDRESSES = 1_000_000;
@@ -47,17 +65,19 @@ const KNOWN_FLAGS = new Set([
 	'-h',
 ]);
 
-const HELP = `scalar-facts-layout: confirmed-facts layout decision instrument (Wave 2b)
+const HELP = `scalar-facts-layout: pre-pilot confirmed-facts correctness/storage evidence (Wave 2b)
 
   bun scripts/benchmarks/scalar-facts-layout.ts [--profile smoke|full] [options]
 
 Scope: compares four confirmed-facts layouts (unified/split relation x
 inline/normalized coordinate) for the replica and authority owners. It measures
 ONLY the confirmed-facts table and refuses to freeze the schema-wide coordinate
-encoding or any non-facts store. Every result is provisional (Bun cannot qualify
-OPFS, quota, WebKit, mobile, or Durable Object SQLite) and the present
-logical-state bytes are a labeled ADR-0167 proxy, not a frozen conformance
-figure.
+encoding or any non-facts store. This is a pre-pilot instrument: NOT admissible
+full evidence (it exercises no real replica/authority workflow and no qualifying
+runtime). Every result is provisional (Bun cannot qualify OPFS, quota, WebKit,
+mobile, or Durable Object SQLite) and the present logical-state bytes are a
+labeled proxy for the ADR-0161 final-present scalar-fields-and-values proxy, not
+a frozen conformance figure.
 
 The corpus shape (live-address count, byte target, value ratio) is fixed per
 profile and cannot be overridden, so the exact 10k/5 MiB and 1M/512 MiB shapes
@@ -115,31 +135,34 @@ function parseArgs(argv: string[]): Args {
 		if (!KNOWN_FLAGS.has(arg)) throw new Error(`unknown argument: ${arg}`);
 		if (arg === '--help' || arg === '-h')
 			throw new Error(`${arg} cannot be combined with other arguments`);
-		const next = (): string => {
+		// A value-taking flag must be followed by a real value, never end-of-args
+		// or another flag (so `--output --help` is an error, not a filename).
+		const next = (flag: string): string => {
 			i += 1;
-			return argv[i] ?? '';
+			const value = argv[i];
+			if (value === undefined || KNOWN_FLAGS.has(value))
+				throw new Error(`${flag} requires a value`);
+			return value;
 		};
 		if (arg === '--profile') {
-			const p = next();
+			const p = next('--profile');
 			if (p !== 'smoke' && p !== 'full')
 				throw new Error(
 					`--profile must be smoke or full, got ${JSON.stringify(p)}`,
 				);
 			profile = p;
-		} else if (arg === '--seed') args.seed = integer(next(), '--seed', 0);
+		} else if (arg === '--seed')
+			args.seed = integer(next('--seed'), '--seed', 0);
 		else if (arg === '--repetitions')
-			repetitions = integer(next(), '--repetitions', 1);
+			repetitions = integer(next('--repetitions'), '--repetitions', 1);
 		else if (arg === '--namespaces')
-			args.namespaces = integer(next(), '--namespaces', 1);
-		else if (arg === '--tables') args.tables = integer(next(), '--tables', 1);
+			args.namespaces = integer(next('--namespaces'), '--namespaces', 1);
+		else if (arg === '--tables')
+			args.tables = integer(next('--tables'), '--tables', 1);
 		else if (arg === '--iterations')
-			args.iterations = integer(next(), '--iterations', 1);
+			args.iterations = integer(next('--iterations'), '--iterations', 1);
 		else if (arg === '--run-full-matrix') args.runFullMatrix = true;
-		else if (arg === '--output') {
-			const path = next();
-			if (path.length === 0) throw new Error('--output requires a path');
-			args.output = path;
-		}
+		else if (arg === '--output') args.output = next('--output');
 	}
 	if (args.runFullMatrix && profile === 'smoke')
 		throw new Error('--run-full-matrix is only valid with --profile full');
@@ -231,11 +254,18 @@ async function main(): Promise<number> {
 	const measured = reference.measure();
 
 	console.log('# scalar-facts-layout');
+	console.log(`(${INSTRUMENT_LABEL})`);
 	console.log(
-		`profile: ${args.profile}   provisional: true (Bun cannot qualify OPFS/quota/WebKit/mobile/DO)`,
+		`profile: ${args.profile}   qualifyingRuntime: false (Bun cannot qualify OPFS/quota/WebKit/mobile/DO)`,
 	);
 	console.log(
-		`present logical-state bytes are a LABELED ADR-0167 PROXY; the canonical container is unfrozen.`,
+		'This is NOT admissible full evidence: it exercises no real replica/authority',
+	);
+	console.log(
+		'workflow and no qualifying runtime. Present logical-state bytes are a LABELED',
+	);
+	console.log(
+		'proxy for the ADR-0161 final-present scalar-fields-and-values benchmark proxy.',
 	);
 	console.log('');
 	console.log('## corpus');
@@ -287,21 +317,39 @@ async function main(): Promise<number> {
 		return 0;
 	}
 
+	// One DDL constraint proof per candidate (raw-attack refusals), computed once
+	// on a synchronous in-memory Bun database and retained on every cell.
+	const constraintByCandidate = new Map(
+		CANDIDATES.map((candidate) => [
+			candidate.id,
+			candidateConstraintFailures(candidate, makeInMemoryBunDb),
+		]),
+	);
+
 	// Run the matrix: paired per seed (all candidates share a repetition's seed).
 	const owners: Owner[] = ['replica', 'authority'];
 	const results: RunResult[] = [];
+	const candidateOrderByRep: { repetition: number; order: string[] }[] = [];
 	for (let rep = 0; rep < args.repetitions; rep += 1) {
 		const dataSeed = hash32(args.seed, rep);
+		const order = shuffledCandidates(dataSeed);
+		candidateOrderByRep.push({
+			repetition: rep,
+			order: order.map((c) => c.id),
+		});
 		for (const owner of owners) {
-			for (const candidate of shuffledCandidates(dataSeed)) {
+			for (const candidate of order) {
 				results.push(
 					await runCandidate(candidate, {
 						trace: { ...base, dataSeed },
 						owner,
 						repetition: rep,
 						iterations: args.iterations,
-						installBatch: 1024,
+						installBatch: INSTALL_BATCH,
 						openRuntime: openTempDatabase,
+						runtimeName: 'bun',
+						profile: args.profile,
+						constraintFailures: constraintByCandidate.get(candidate.id) ?? [],
 					}),
 				);
 			}
@@ -324,8 +372,8 @@ async function main(): Promise<number> {
 	);
 	console.log('');
 
-	// Correctness and feed-plan summary.
-	const failed = results.filter((r) => !r.correct);
+	// Correctness, plan, and constraint-proof summary.
+	const failed = results.filter((r) => r.outcome === 'failed');
 	console.log('## correctness');
 	console.log(`cells: ${results.length}   failed: ${failed.length}`);
 	for (const r of failed.slice(0, 8))
@@ -334,33 +382,36 @@ async function main(): Promise<number> {
 		);
 	for (const candidate of CANDIDATES) {
 		const sample = results.find((r) => r.candidateId === candidate.id);
-		const feed = (sample?.plans.feed ?? '').toUpperCase();
-		const merges = !feed.includes('TEMP B-TREE');
 		console.log(
-			`  ${candidate.id.padEnd(20)} feed avoids temp b-tree: ${merges}   value point plan: ${(sample?.plans.valuePoint ?? '').length > 0}`,
+			`  ${candidate.id.padEnd(20)} plan proof: ${sample?.planProof.ok ?? false}   constraint proof: ${sample?.constraintProof.ok ?? false}`,
 		);
 	}
 	console.log('');
 
 	// Evidence status: this instrument records evidence; it NEVER names, ranks, or
-	// ties a winner. The ADR owns the layout choice.
-	// Full evidence requires five repetitions; smoke is a fast illustrative run
-	// held only to its own repetitions and is never more than provisional.
+	// ties a winner. The ADR owns the layout choice. Full evidence needs at least
+	// REQUIRED_REPETITIONS seeds (max(5, requested)); smoke is a fast illustrative
+	// run held only to its own repetitions and is never more than provisional.
+	const requiredRepetitions =
+		args.profile === 'full'
+			? Math.max(REQUIRED_REPETITIONS, args.repetitions)
+			: args.repetitions;
 	const report = classifyEvidence(results, {
 		profile: args.profile,
 		expectedOwners: owners,
 		expectedCandidateIds: CANDIDATES.map((c) => c.id),
-		requiredRepetitions:
-			args.profile === 'full' ? REQUIRED_REPETITIONS : args.repetitions,
+		requiredRepetitions,
 	});
 	console.log('## evidence status (no winner is ever named; the ADR chooses)');
 	if (args.profile === 'smoke')
 		console.log(
 			'[SMOKE: fast illustrative run; non-qualifying by construction.]',
 		);
-	console.log(`status: ${report.status}   provisional: ${report.provisional}`);
 	console.log(
-		`matrix: ${report.presentCorrectCells}/${report.expectedCells} correct cells; ${report.repetitions} repetitions (need ${report.requiredRepetitions})`,
+		`status: ${report.status}   qualifyingRuntime: ${report.qualifyingRuntime}`,
+	);
+	console.log(
+		`matrix: ${report.passedCells}/${report.expectedCells} passing cells; ${report.repetitions} repetitions (need ${report.requiredRepetitions})`,
 	);
 	for (const reason of report.reasons) console.log(`  - ${reason}`);
 	console.log(
@@ -371,18 +422,39 @@ async function main(): Promise<number> {
 	);
 	console.log('');
 	console.log(
-		`evidence status: ${report.status} (this Bun instrument never reaches ready-for-ADR-review; the ADR owns the choice)`,
+		`evidence status: ${report.status} (${INSTRUMENT_LABEL}; never reaches ready-for-ADR-review; the ADR owns the choice)`,
 	);
 
-	// One versioned JSON artifact: full raw results (timing arrays, storage,
-	// plans, before/after witnesses, integrity) plus the classifier report. The
-	// classifier summarizes; the raw arrays are the evidence.
+	// One versioned JSON artifact: complete reproduction metadata (runtime
+	// identity, pragmas, parsed args, install batch, candidate order, command,
+	// source commit, DDL/schema digest) plus full raw results (timing arrays,
+	// storage, plans, plan/constraint proofs, before/after witnesses, integrity)
+	// and the classifier report. The classifier summarizes; the raw arrays are the
+	// evidence, and medians are never the artifact.
 	if (args.output !== undefined) {
+		const ddlDigest = bytesToHex(
+			sha256(
+				new TextEncoder().encode(
+					JSON.stringify(CANDIDATES.map((c) => ddlStatements(c))),
+				),
+			),
+		);
+		const sourceCommit =
+			process.env.SOURCE_COMMIT ?? process.env.GITHUB_SHA ?? null;
 		const artifact = {
-			artifactVersion: 1,
-			runtime: 'bun',
+			artifactVersion: ARTIFACT_VERSION,
+			label: INSTRUMENT_LABEL,
+			admissibleFullEvidence: false,
+			runtime: describeBunRuntime(),
 			profile: args.profile,
-			seed: args.seed,
+			schema: { version: SCHEMA_VERSION, ddlDigest },
+			repro: {
+				command: process.argv,
+				args,
+				installBatch: INSTALL_BATCH,
+				sourceCommit,
+				candidateOrderByRep,
+			},
 			corpus: {
 				liveTarget,
 				logicalTarget,

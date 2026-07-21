@@ -1,16 +1,19 @@
 /**
  * Fast tests of the evidence-status classifier with synthetic results (no
  * SQLite). It NEVER names a candidate: it returns only invalid | incomplete |
- * provisional. It fails closed on failed/duplicate cells, empty plans, seed
- * discipline violations, and missing required metrics; it is incomplete below
- * five repetitions or with a missing cell; and it is provisional (never
- * ready-for-ADR-review) on a complete correct matrix.
+ * provisional. It fails closed on failed/duplicate cells, plan/constraint proof
+ * failures, malformed witnesses, degenerate samples, seed discipline violations,
+ * and missing required metrics; it is incomplete below the required repetitions
+ * or with a missing cell; and it is provisional (never ready-for-ADR-review) on a
+ * complete passing matrix.
  */
 import { describe, expect, test } from 'bun:test';
 
 import { classifyEvidence } from './decision.js';
 import { CANDIDATES } from './layouts.js';
 import type { Owner, RunResult } from './runner.js';
+
+const HEX64 = 'a'.repeat(64);
 
 const OWNERS: Owner[] = ['replica', 'authority'];
 const IDS = CANDIDATES.map((c) => c.id);
@@ -45,6 +48,9 @@ function cell(
 		owner,
 		repetition,
 		dataSeed,
+		runtime: 'bun',
+		profile: 'smoke',
+		outcome: 'passed',
 		correct: true,
 		reason: 'ok',
 		metrics,
@@ -58,9 +64,16 @@ function cell(
 			currentCount: 120,
 		},
 		plans: { feed: 'p', rowPoint: 'p', valuePoint: 'p', traverse: 'p' },
+		planProof: {
+			feedNoTempBtree: true,
+			pointIndexed: true,
+			traverseIndexed: true,
+			ok: true,
+		},
+		constraintProof: { failures: [], ok: true },
 		witness: {
-			before: { count: 120, bytes: 1200, digestHex: 'abc' },
-			after: { count: 120, bytes: 1200, digestHex: 'abc' },
+			before: { count: 120, bytes: 1200, digestHex: HEX64 },
+			after: { count: 120, bytes: 1200, digestHex: HEX64 },
 		},
 		integrityCheck: 'ok',
 		authorityWriteModeled: false,
@@ -84,15 +97,15 @@ const OPTIONS = {
 	requiredRepetitions: 5,
 };
 
-test('a complete correct matrix is provisional, never a candidate, never ready', () => {
+test('a complete passing matrix is provisional, never a candidate, never ready', () => {
 	const report = classifyEvidence(fullMatrix(), OPTIONS);
 	expect(report.status).toBe('provisional');
-	expect(report.provisional).toBe(true);
+	expect(report.qualifyingRuntime).toBe(false);
 	// The report shape carries no recommendation/candidate field at all.
 	expect('recommendation' in report).toBe(false);
 	expect(report.status).not.toBe('ready-for-ADR-review');
 	expect(report.unsupportedWorkflows.length).toBeGreaterThan(0);
-	expect(report.presentCorrectCells).toBe(report.expectedCells);
+	expect(report.passedCells).toBe(report.expectedCells);
 });
 
 test('fewer than five repetitions is incomplete', () => {
@@ -113,9 +126,9 @@ test('a missing cell is incomplete', () => {
 });
 
 describe('fails closed to invalid', () => {
-	test('a failed cell', () => {
+	test('a failed cell outcome', () => {
 		const results = fullMatrix();
-		(results[0] as RunResult).correct = false;
+		(results[0] as RunResult).outcome = 'failed';
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 	test('a duplicate cell', () => {
@@ -123,14 +136,32 @@ describe('fails closed to invalid', () => {
 		results.push(cell('replica', IDS[0] as string, 0, 100));
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
-	test('an empty query plan', () => {
+	test('a failed query-plan proof', () => {
 		const results = fullMatrix();
-		(results[0] as RunResult).plans = {
-			feed: '',
-			rowPoint: 'p',
-			valuePoint: 'p',
-			traverse: 'p',
+		(results[0] as RunResult).planProof = {
+			feedNoTempBtree: false,
+			pointIndexed: true,
+			traverseIndexed: true,
+			ok: false,
 		};
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a failed constraint proof', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).constraintProof = {
+			failures: ['some attack was not rejected'],
+			ok: false,
+		};
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a non-finite storage field', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).storage.allocatedPageBytes = Number.NaN;
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+	test('a malformed witness digest', () => {
+		const results = fullMatrix();
+		(results[0] as RunResult).witness.before.digestHex = 'not-hex';
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 	test('an inconsistent seed within a repetition', () => {
@@ -186,7 +217,7 @@ describe('fails closed to invalid', () => {
 						...r,
 						witness: {
 							before: r.witness.before,
-							after: { ...r.witness.after, digestHex: 'different' },
+							after: { ...r.witness.after, digestHex: 'b'.repeat(64) },
 						},
 					}
 				: r,
