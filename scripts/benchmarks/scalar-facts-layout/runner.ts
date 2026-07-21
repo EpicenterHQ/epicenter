@@ -11,7 +11,8 @@
  * reconstruction diverges is a failed cell, never silently dropped.
  */
 
-import { openTempDatabase } from './bun-runtime.js';
+import type { SqliteDatabase } from '@epicenter/sqlite';
+
 import { type Candidate, createStore, ddlStatements } from './layouts.js';
 import {
 	type Fact,
@@ -21,6 +22,30 @@ import {
 } from './trace.js';
 
 export type Owner = 'replica' | 'authority';
+
+export type PageMetrics = {
+	allocatedPageBytes: number;
+	nonFreelistPageBytes: number;
+};
+
+/**
+ * The database lifecycle the runner depends on, runtime-neutral and async-ready.
+ * Bun supplies a synchronous implementation; a future Worker/OPFS runtime can
+ * return promises. The runner itself imports no `bun:sqlite` or `node:*`.
+ */
+export type BenchmarkRuntime = {
+	db: SqliteDatabase;
+	close(): void | Promise<void>;
+	reopen(): SqliteDatabase | Promise<SqliteDatabase>;
+	checkpoint(): void | Promise<void>;
+	pageMetrics(tables: string[]): PageMetrics | Promise<PageMetrics>;
+	cleanup(): void | Promise<void>;
+};
+
+/** Opens a fresh runtime with the candidate DDL already applied. */
+export type RuntimeFactory = (
+	statements: string[],
+) => BenchmarkRuntime | Promise<BenchmarkRuntime>;
 
 export type StorageMeasure = {
 	presentLogicalStateBytes: number;
@@ -48,9 +73,18 @@ export type RunResult = {
 		valuePoint: string;
 		traverse: string;
 	};
+	/** The three-part witness before and after the close/reopen; they must match. */
+	witness: {
+		before: { count: number; bytes: number; digestHex: string };
+		after: { count: number; bytes: number; digestHex: string };
+	};
+	/** `PRAGMA integrity_check` of the reopened database. */
+	integrityCheck: string;
 	/** Authority runs measure only the read-side feed; the write path is unmodeled. */
 	authorityWriteModeled: boolean;
 };
+
+const EMPTY_WITNESS = { count: 0, bytes: 0, digestHex: '' };
 
 /** Time `run` `iterations` times, returning raw millisecond samples. */
 function timeRaw(iterations: number, run: () => void): number[] {
@@ -70,22 +104,32 @@ export type RunnerOptions = {
 	/** Timed-operation iteration count; small for smoke, larger for full. */
 	iterations: number;
 	installBatch: number;
+	/** Injected lifecycle: keeps this module free of any runtime-specific import. */
+	openRuntime: RuntimeFactory;
 };
 
-export function runCandidate(
+export async function runCandidate(
 	candidate: Candidate,
 	options: RunnerOptions,
-): RunResult {
+): Promise<RunResult> {
 	const trace = makeTrace(options.trace);
 	const metrics: Record<string, number[]> = {};
 	let correct = false;
 	let reason = 'ok';
-	const runtime = openTempDatabase(ddlStatements(candidate));
+	const runtime = await options.openRuntime(ddlStatements(candidate));
 	try {
 		const db = runtime.db;
 		const store = createStore(db, candidate);
 
 		// Build: install the corpus in bounded, nested-contract transactions.
+		// The authority replays its full event log (every install, with
+		// intermediate overwrites and tombstones); the replica acquires only the
+		// settled current facts in sequence order from an already-folded authority.
+		// Both reconstruct the same oracle state, monotonic install guaranteeing it.
+		const source =
+			options.owner === 'authority'
+				? trace.events()
+				: trace.finalFactsBySequence();
 		const acquisition = timeRaw(1, () => {
 			const batch: Fact[] = [];
 			const installBatch = (): void => {
@@ -94,7 +138,7 @@ export function runCandidate(
 				});
 				batch.length = 0;
 			};
-			for (const fact of trace.events()) {
+			for (const fact of source) {
 				batch.push(fact);
 				if (batch.length >= options.installBatch) installBatch();
 			}
@@ -112,8 +156,8 @@ export function runCandidate(
 		if (!correct) reason = 'reconstruction diverged from the oracle';
 
 		// Physical page measures after a full checkpoint.
-		runtime.checkpoint();
-		const pageMetrics = runtime.pageMetrics(store.storageTables());
+		await runtime.checkpoint();
+		const pageMetrics = await runtime.pageMetrics(store.storageTables());
 
 		const rows = trace.sampleRowAddresses(options.iterations);
 		const values = trace.sampleValueAddresses(options.iterations);
@@ -156,17 +200,30 @@ export function runCandidate(
 		};
 
 		// Warm reopen: time close + open + schema statement rebuild + probe.
-		let reopenedDb = db;
-		metrics.warmReopen = timeRaw(1, () => {
-			runtime.close();
-			reopenedDb = runtime.reopen();
-			const reopenedStore = createStore(reopenedDb, candidate);
-			const probe = rows[0];
-			if (probe) reopenedStore.get(probe);
-		});
-		const integrity = reopenedDb.all<{ integrity_check: string }>(
-			'PRAGMA integrity_check',
-		)[0]?.integrity_check;
+		// Async-capable, so the close/reopen is bracketed explicitly rather than
+		// wrapped in the synchronous `timeRaw`.
+		const reopenStart = performance.now();
+		await runtime.close();
+		const reopenedDb = await runtime.reopen();
+		const reopenedProbe = createStore(reopenedDb, candidate);
+		const firstRow = rows[0];
+		if (firstRow) reopenedProbe.get(firstRow);
+		metrics.warmReopen = [performance.now() - reopenStart];
+		// The witness (count, bytes, ordered digest) must be identical after the
+		// close/reopen; durability that silently changed state is a failure.
+		const reopenedStore = createStore(reopenedDb, candidate);
+		const witnessAfter = factSetDigest(reopenedStore.scanBySequence());
+		if (
+			witnessAfter.count !== actual.count ||
+			witnessAfter.bytes !== actual.bytes ||
+			witnessAfter.digestHex !== actual.digestHex
+		) {
+			correct = false;
+			reason = 'witness changed across close/reopen';
+		}
+		const integrity =
+			reopenedDb.all<{ integrity_check: string }>('PRAGMA integrity_check')[0]
+				?.integrity_check ?? 'unknown';
 		if (integrity !== 'ok') {
 			correct = false;
 			reason = `integrity_check: ${integrity}`;
@@ -188,6 +245,8 @@ export function runCandidate(
 				currentCount: expected.currentCount,
 			},
 			plans,
+			witness: { before: actual, after: witnessAfter },
+			integrityCheck: integrity,
 			authorityWriteModeled: false,
 		};
 	} catch (error) {
@@ -209,9 +268,11 @@ export function runCandidate(
 				currentCount: 0,
 			},
 			plans: { feed: '', rowPoint: '', valuePoint: '', traverse: '' },
+			witness: { before: EMPTY_WITNESS, after: EMPTY_WITNESS },
+			integrityCheck: 'unrun',
 			authorityWriteModeled: false,
 		};
 	} finally {
-		runtime.cleanup();
+		await runtime.cleanup();
 	}
 }

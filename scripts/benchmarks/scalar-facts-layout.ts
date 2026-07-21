@@ -10,6 +10,9 @@
  * logical-state figure is a labeled proxy, and Bun cannot qualify OPFS, quota,
  * WebKit, mobile, or Durable Object SQLite.
  */
+import { writeFileSync } from 'node:fs';
+
+import { openTempDatabase } from './scalar-facts-layout/bun-runtime.js';
 import { classifyEvidence } from './scalar-facts-layout/decision.js';
 import { CANDIDATES } from './scalar-facts-layout/layouts.js';
 import {
@@ -35,12 +38,11 @@ const KNOWN_FLAGS = new Set([
 	'--profile',
 	'--seed',
 	'--repetitions',
-	'--facts',
 	'--namespaces',
 	'--tables',
-	'--value-ratio',
 	'--iterations',
 	'--run-full-matrix',
+	'--output',
 	'--help',
 	'-h',
 ]);
@@ -57,44 +59,46 @@ OPFS, quota, WebKit, mobile, or Durable Object SQLite) and the present
 logical-state bytes are a labeled ADR-0167 proxy, not a frozen conformance
 figure.
 
+The corpus shape (live-address count, byte target, value ratio) is fixed per
+profile and cannot be overridden, so the exact 10k/5 MiB and 1M/512 MiB shapes
+never drift.
+
 Profiles:
-  smoke   tiny; exercises every path; the default; explicitly non-qualifying.
-  full    1,000,000 live addresses / 512 MiB present logical state (exact); the
-          1M candidate matrix is GATED and requires --run-full-matrix.
+  smoke   10,000 live addresses / 5 MiB; the default; 1 repetition; illustrative.
+  full    1,000,000 live addresses / 512 MiB (exact); 5 repetitions; the 1M
+          candidate matrix is GATED and requires --run-full-matrix.
 
 Options:
   --profile <smoke|full>   default: smoke
   --seed <int>             base data seed (default 1)
-  --repetitions <int>      independent builds; <5 cannot qualify (default 3)
-  --facts <int>            override total addresses (smoke)
+  --repetitions <int>      override the profile default (smoke 1, full 5)
   --namespaces <int>       namespace cardinality (default 25)
   --tables <int>           table cardinality (default 1000)
-  --value-ratio <float>    fraction of addresses that are values (default 0.08)
   --iterations <int>       timed-op iteration count (default 25)
-  --run-full-matrix        actually run the gated 1M full matrix
+  --run-full-matrix        run the gated 1M full matrix (full only)
+  --output <path>          write one JSON evidence artifact (raw results + report)
   --help                   this help
 `;
 
 type Args = {
 	profile: 'smoke' | 'full';
 	seed: number;
+	/** The effective repetition count (profile default unless overridden). */
 	repetitions: number;
-	facts?: number;
 	namespaces: number;
 	tables: number;
-	valueRatio: number;
 	iterations: number;
 	runFullMatrix: boolean;
+	output?: string;
 };
 
 function parseArgs(argv: string[]): Args {
-	const args: Args = {
-		profile: 'smoke',
+	let profile: 'smoke' | 'full' = 'smoke';
+	let repetitions: number | undefined;
+	const args: Omit<Args, 'profile' | 'repetitions'> = {
 		seed: 1,
-		repetitions: 3,
 		namespaces: 25,
 		tables: 1000,
-		valueRatio: FULL_VALUE_RATIO,
 		iterations: 25,
 		runFullMatrix: false,
 	};
@@ -103,14 +107,6 @@ function parseArgs(argv: string[]): Args {
 		if (!Number.isInteger(value) || value < min)
 			throw new Error(
 				`${flag} must be an integer >= ${min}, got ${JSON.stringify(raw)}`,
-			);
-		return value;
-	};
-	const ratioArg = (raw: string, flag: string): number => {
-		const value = Number(raw);
-		if (!Number.isFinite(value) || value <= 0 || value >= 1)
-			throw new Error(
-				`${flag} must be a number in (0, 1), got ${JSON.stringify(raw)}`,
 			);
 		return value;
 	};
@@ -129,21 +125,30 @@ function parseArgs(argv: string[]): Args {
 				throw new Error(
 					`--profile must be smoke or full, got ${JSON.stringify(p)}`,
 				);
-			args.profile = p;
+			profile = p;
 		} else if (arg === '--seed') args.seed = integer(next(), '--seed', 0);
 		else if (arg === '--repetitions')
-			args.repetitions = integer(next(), '--repetitions', 1);
-		else if (arg === '--facts') args.facts = integer(next(), '--facts', 1);
+			repetitions = integer(next(), '--repetitions', 1);
 		else if (arg === '--namespaces')
 			args.namespaces = integer(next(), '--namespaces', 1);
 		else if (arg === '--tables') args.tables = integer(next(), '--tables', 1);
-		else if (arg === '--value-ratio')
-			args.valueRatio = ratioArg(next(), '--value-ratio');
 		else if (arg === '--iterations')
 			args.iterations = integer(next(), '--iterations', 1);
 		else if (arg === '--run-full-matrix') args.runFullMatrix = true;
+		else if (arg === '--output') {
+			const path = next();
+			if (path.length === 0) throw new Error('--output requires a path');
+			args.output = path;
+		}
 	}
-	return args;
+	if (args.runFullMatrix && profile === 'smoke')
+		throw new Error('--run-full-matrix is only valid with --profile full');
+	// Profile-default repetitions: smoke 1 (illustrative), full 5.
+	return {
+		...args,
+		profile,
+		repetitions: repetitions ?? (profile === 'full' ? REQUIRED_REPETITIONS : 1),
+	};
 }
 
 /** Deterministic per-repetition candidate order, to avoid fixed-order bias. */
@@ -202,7 +207,7 @@ function resolveTrace(args: Args): {
 	};
 }
 
-function main(): number {
+async function main(): Promise<number> {
 	const argv = process.argv.slice(2);
 	if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) {
 		process.stdout.write(HELP);
@@ -290,12 +295,13 @@ function main(): number {
 		for (const owner of owners) {
 			for (const candidate of shuffledCandidates(dataSeed)) {
 				results.push(
-					runCandidate(candidate, {
+					await runCandidate(candidate, {
 						trace: { ...base, dataSeed },
 						owner,
 						repetition: rep,
 						iterations: args.iterations,
 						installBatch: 1024,
+						openRuntime: openTempDatabase,
 					}),
 				);
 			}
@@ -367,7 +373,33 @@ function main(): number {
 	console.log(
 		`evidence status: ${report.status} (this Bun instrument never reaches ready-for-ADR-review; the ADR owns the choice)`,
 	);
-	return 0;
+
+	// One versioned JSON artifact: full raw results (timing arrays, storage,
+	// plans, before/after witnesses, integrity) plus the classifier report. The
+	// classifier summarizes; the raw arrays are the evidence.
+	if (args.output !== undefined) {
+		const artifact = {
+			artifactVersion: 1,
+			runtime: 'bun',
+			profile: args.profile,
+			seed: args.seed,
+			corpus: {
+				liveTarget,
+				logicalTarget,
+				facts: base.facts,
+				valueRatio: base.valueRatio,
+				observed,
+				measured,
+			},
+			results,
+			report,
+		};
+		writeFileSync(args.output, `${JSON.stringify(artifact, null, 2)}\n`);
+		console.log(`wrote evidence artifact: ${args.output}`);
+	}
+
+	// Nonzero exit on invalid evidence; provisional/incomplete are honest states.
+	return report.status === 'invalid' ? 1 : 0;
 }
 
-process.exit(main());
+process.exit(await main());

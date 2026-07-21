@@ -58,6 +58,11 @@ function cell(
 			currentCount: 120,
 		},
 		plans: { feed: 'p', rowPoint: 'p', valuePoint: 'p', traverse: 'p' },
+		witness: {
+			before: { count: 120, bytes: 1200, digestHex: 'abc' },
+			after: { count: 120, bytes: 1200, digestHex: 'abc' },
+		},
+		integrityCheck: 'ok',
 		authorityWriteModeled: false,
 		...over,
 	};
@@ -143,6 +148,56 @@ describe('fails closed to invalid', () => {
 			const { traverse: _dropped, ...rest } = r.metrics;
 			return { ...r, metrics: rest };
 		});
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+
+	test('an unexpected candidate id', () => {
+		const results = fullMatrix();
+		results.push(cell('replica', 'ghost-candidate', 0, 100));
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+
+	test('a repetition outside the declared range', () => {
+		const results = fullMatrix();
+		results.push(cell('replica', IDS[0] ?? '', 9, 109));
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+
+	test('an empty timing sample array', () => {
+		const results = fullMatrix().map((r, i) =>
+			i === 0 ? { ...r, metrics: { ...r.metrics, acquisition: [] } } : r,
+		);
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+
+	test('a non-finite timing sample', () => {
+		const results = fullMatrix().map((r, i) =>
+			i === 0
+				? { ...r, metrics: { ...r.metrics, acquisition: [1, Number.NaN] } }
+				: r,
+		);
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+
+	test('a witness that changed across reopen', () => {
+		const results = fullMatrix().map((r, i) =>
+			i === 0
+				? {
+						...r,
+						witness: {
+							before: r.witness.before,
+							after: { ...r.witness.after, digestHex: 'different' },
+						},
+					}
+				: r,
+		);
+		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
+	});
+
+	test('a failed integrity check', () => {
+		const results = fullMatrix().map((r, i) =>
+			i === 0 ? { ...r, integrityCheck: 'malformed' } : r,
+		);
 		expect(classifyEvidence(results, OPTIONS).status).toBe('invalid');
 	});
 });

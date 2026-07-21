@@ -122,13 +122,39 @@ export function classifyEvidence(
 		invalid = true;
 	};
 
-	// Index cells; reject duplicates, failed cells, empty plans, missing required metrics.
+	// Index cells; reject duplicates, failed cells, empty plans, missing required
+	// metrics, and every unexpected/out-of-range/degenerate cell. Fail closed.
+	const requiredReps = options.requiredRepetitions;
 	const byKey = new Map<string, RunResult>();
 	for (const result of results) {
 		const key = `${result.owner}|${result.candidateId}|${result.repetition}`;
 		if (byKey.has(key)) fail(`duplicate cell ${key}`);
 		byKey.set(key, result);
+
+		// Fail closed on any cell outside the declared matrix. Guards the
+		// REQUIRED_METRICS[owner] lookup below from an unknown owner.
+		const ownerKnown = options.expectedOwners.includes(result.owner);
+		if (!ownerKnown) fail(`unexpected owner in ${key}`);
+		if (!options.expectedCandidateIds.includes(result.candidateId))
+			fail(`unexpected candidate in ${key}`);
+		if (
+			!Number.isInteger(result.repetition) ||
+			result.repetition < 0 ||
+			result.repetition >= requiredReps
+		) {
+			fail(`repetition out of range in ${key}`);
+		}
+
 		if (!result.correct) fail(`failed cell ${key}: ${result.reason}`);
+		if (result.integrityCheck !== 'ok')
+			fail(`integrity_check ${result.integrityCheck} in ${key}`);
+		if (
+			result.witness.before.digestHex !== result.witness.after.digestHex ||
+			result.witness.before.count !== result.witness.after.count ||
+			result.witness.before.bytes !== result.witness.after.bytes
+		) {
+			fail(`witness changed across reopen in ${key}`);
+		}
 		if (
 			!result.plans.feed ||
 			!result.plans.rowPoint ||
@@ -137,9 +163,15 @@ export function classifyEvidence(
 		) {
 			fail(`empty query plan in ${key}`);
 		}
+		if (!ownerKnown) continue;
 		for (const metric of REQUIRED_METRICS[result.owner]) {
-			if (!(metric in result.metrics))
+			const samples = result.metrics[metric];
+			if (!samples) {
 				fail(`missing required metric ${metric} in ${key}`);
+				continue;
+			}
+			if (samples.length === 0 || samples.some((s) => !Number.isFinite(s)))
+				fail(`empty or non-finite samples for ${metric} in ${key}`);
 		}
 	}
 
@@ -157,7 +189,6 @@ export function classifyEvidence(
 		fail('repetitions do not use distinct seeds');
 
 	// Expected matrix over the explicit owners/candidates/repetitions.
-	const requiredReps = options.requiredRepetitions;
 	const expectedCells =
 		options.expectedOwners.length *
 		options.expectedCandidateIds.length *
