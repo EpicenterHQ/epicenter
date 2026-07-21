@@ -9,7 +9,7 @@
  * - A 20,000-container payload is admitted when the depth limit includes it
  * - The same payload is rejected when it exceeds the depth limit
  * - Cycles, object fan-out, and hostile proxies reject without throwing
- * - Shared DAG subtrees remain valid JSON data
+ * - Shared references reject (wire JSON is a tree); distinct-but-equal siblings pass
  */
 import { expect, test } from 'bun:test';
 
@@ -32,20 +32,29 @@ test('a 20,000-container payload is admitted within the depth limit', () => {
 	);
 });
 
-test('cycles reject while a shared DAG subtree remains valid', () => {
+test('cycles and shared references both reject; distinct-but-equal siblings pass', () => {
 	const shared = { value: 1 };
 	const cycle: unknown[] = [];
 	cycle.push(cycle);
 
+	// The same object reached by two paths is not a tree; refuse it so the
+	// canonical encoder is never handed a value it would expand.
 	expect(
 		isJsonValue([shared, shared], {
 			jsonDepth: 2,
 			propertiesPerObject: 1,
 		}),
-	).toBe(true);
+	).toBe(false);
 	expect(isJsonValue(cycle, { jsonDepth: 2, propertiesPerObject: 1 })).toBe(
 		false,
 	);
+	// Refusal is by identity, not value: two separate equal objects are a tree.
+	expect(
+		isJsonValue([{ value: 1 }, { value: 1 }], {
+			jsonDepth: 2,
+			propertiesPerObject: 1,
+		}),
+	).toBe(true);
 });
 
 test('object fan-out and hostile proxies reject without throwing', () => {

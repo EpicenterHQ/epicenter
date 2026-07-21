@@ -12,7 +12,7 @@
  * - Numbers use the ECMAScript Number-to-String form RFC 8785 adopts
  * - Only C0 control characters are escaped; U+0080 and above stay raw
  * - Insertion order does not change the canonical bytes or the request hash
- * - Cycles reject while repeated references to a shared JSON subtree encode
+ * - Cycles and shared references both reject; distinct-but-equal siblings encode
  * - SHA-256 matches NIST vectors
  *
  * Source stays ASCII-only: non-ASCII test vectors are built with
@@ -20,7 +20,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 
-import { canonicalize, sha256Hex, utf8ByteLength } from './index.js';
+import {
+	canonicalize,
+	isCanonicalJson,
+	sha256Hex,
+	utf8ByteLength,
+} from './index.js';
 
 const cp = (codePoint: number): string => String.fromCodePoint(codePoint);
 
@@ -85,15 +90,34 @@ describe('RFC 8785 canonical encoding', () => {
 		expect(() => canonicalize(new Date(0))).toThrow();
 	});
 
-	test('cycles reject while a shared DAG subtree encodes at each position', () => {
+	test('cycles and shared references both reject; wire JSON is a tree', () => {
 		const shared = { b: 1, a: 2 };
 		const cycle: unknown[] = [];
 		cycle.push(cycle);
 
-		expect(canonicalize([shared, shared])).toBe(
-			'[{"a":2,"b":1},{"a":2,"b":1}]',
-		);
+		// The same object reached by two paths is not a tree. Refuse it rather than
+		// emit it twice; the encoder has no byte budget and a graph of shared levels
+		// would expand exponentially.
+		expect(() => canonicalize([shared, shared])).toThrow('shared');
 		expect(() => canonicalize(cycle)).toThrow('cyclic');
+	});
+
+	test('distinct-but-equal siblings are a tree and still encode', () => {
+		// Refusal is by object identity, not by value: two separate objects with
+		// equal content are a legitimate tree.
+		expect(canonicalize([{ a: 1 }, { a: 1 }])).toBe('[{"a":1},{"a":1}]');
+		expect(isCanonicalJson([{ a: 1 }, { a: 1 }])).toBe(true);
+	});
+
+	test('a deep shared graph refuses instead of expanding exponentially', () => {
+		// Each level reuses the level below twice. A tree encoder would emit 2^20
+		// leaves; refusing repeated identity makes both the structural gate and the
+		// encoder O(levels). `isCanonicalJson` must agree with `canonicalize`.
+		let node: Record<string, unknown> = { leaf: 0 };
+		for (let level = 0; level < 20; level += 1) node = { a: node, b: node };
+
+		expect(isCanonicalJson(node)).toBe(false);
+		expect(() => canonicalize(node)).toThrow('shared');
 	});
 });
 

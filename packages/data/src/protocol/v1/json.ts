@@ -70,10 +70,11 @@ function jsonChildren(node: object, limits: JsonLimits): unknown[] | null {
  * Structural JSON check with bounded depth and object fan-out.
  *
  * Accepts only finite numbers, well-formed strings (no lone surrogates), dense
- * data arrays, and plain enumerable string-keyed data objects. Rejects sparse
- * arrays, array-attached or symbol properties, accessors, non-enumerable
- * properties, non-plain objects, cyclic references, and payloads over the
- * supplied depth or property-count limits.
+ * data arrays, and plain enumerable string-keyed data objects forming a tree.
+ * Rejects sparse arrays, array-attached or symbol properties, accessors,
+ * non-enumerable properties, non-plain objects, cyclic or shared references
+ * (wire JSON is a tree, and a shared subtree expands under canonical encoding),
+ * and payloads over the supplied depth or property-count limits.
  */
 export function isJsonValue(
 	value: unknown,
@@ -87,19 +88,20 @@ export function isJsonValue(
 		const root = value as object;
 		const rootChildren = jsonChildren(root, limits);
 		if (rootChildren === null) return false;
-		const ancestors = new Set<object>([root]);
+		// A tree visits every container once; a container reached twice is a cycle
+		// or a shared reference, both refused by one monotonic set (see
+		// `isCanonicalJson`).
+		const seen = new Set<object>([root]);
 		const stack: Array<{
-			node: object;
 			children: unknown[];
 			index: number;
 			depth: number;
-		}> = [{ node: root, children: rootChildren, index: 0, depth: 0 }];
+		}> = [{ children: rootChildren, index: 0, depth: 0 }];
 
 		while (stack.length > 0) {
 			const frame = stack[stack.length - 1];
 			if (frame === undefined) break;
 			if (frame.index >= frame.children.length) {
-				ancestors.delete(frame.node);
 				stack.pop();
 				continue;
 			}
@@ -112,14 +114,13 @@ export function isJsonValue(
 
 			const childDepth = frame.depth + 1;
 			const childNode = child as object;
-			if (childDepth >= limits.jsonDepth || ancestors.has(childNode)) {
+			if (childDepth >= limits.jsonDepth || seen.has(childNode)) {
 				return false;
 			}
 			const children = jsonChildren(childNode, limits);
 			if (children === null) return false;
-			ancestors.add(childNode);
+			seen.add(childNode);
 			stack.push({
-				node: childNode,
 				children,
 				index: 0,
 				depth: childDepth,
