@@ -212,6 +212,39 @@ function createOwnerOperations(
 				});
 				return { kind: 'create-record', recordKey };
 			}
+			case 'create-record-with-blob': {
+				let recordKey = mintRecordKey();
+				for (
+					let attempts = 0;
+					opened.replica.record({
+						namespace: operation.namespace,
+						collection: operation.collection,
+						recordKey,
+					}) !== null;
+					attempts += 1
+				) {
+					if (attempts === 9)
+						throw new Error('Could not mint a fresh record ID');
+					recordKey = mintRecordKey();
+				}
+				const address = {
+					namespace: operation.namespace,
+					collection: operation.collection,
+					recordKey,
+				};
+				await opened.blobs.captureNewRecord(
+					address,
+					operation.bytes,
+					(digest) => {
+						opened.replica.admitLocalRecordWithBlob({
+							address,
+							payload: operation.payload,
+							digest,
+						});
+					},
+				);
+				return { kind: 'create-record-with-blob', recordKey };
+			}
 			case 'patch-live': {
 				const before = opened.replica.visible(operation.address);
 				if (before?.state !== 'live') {

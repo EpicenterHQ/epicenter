@@ -65,6 +65,10 @@ export type RecordTableLens<
 	TRead,
 > = {
 	create(fields: CreateInputFor<TDefinition>): Promise<RowFor<TDefinition>>;
+	createWithBlob(
+		fields: CreateInputFor<TDefinition>,
+		source: TSource,
+	): Promise<RowFor<TDefinition>>;
 	get(
 		id: string,
 	): Promise<Result<RowFor<TDefinition> | undefined, NonconformingRowError>>;
@@ -131,6 +135,12 @@ export type RecordLensAccess<TSource, TRead> = {
 		namespace: string,
 		collection: string,
 		payload: Record<string, JsonValue>,
+	): Promise<string>;
+	createRecordWithBlob(
+		namespace: string,
+		collection: string,
+		payload: Record<string, JsonValue>,
+		source: TSource,
 	): Promise<string>;
 	patchLive(
 		address: RecordAddress,
@@ -335,6 +345,19 @@ export function createRecordLensRuntime<TSource, TRead>(
 				if (projected.error !== null) throw projected.error;
 				return projected.data as RowFor<TDefinition>;
 			},
+			async createWithBlob(input: Record<string, unknown>, source: TSource) {
+				requireOpen();
+				const payload = compiled.validateCreate(input);
+				const id = await access.createRecordWithBlob(
+					namespace,
+					collection,
+					payload,
+					source,
+				);
+				const projected = compiled.project(id, payload);
+				if (projected.error !== null) throw projected.error;
+				return projected.data as RowFor<TDefinition>;
+			},
 			async get(id: string) {
 				requireOpen();
 				return read(id);
@@ -511,6 +534,25 @@ export function createRecordOwner<TSource, TRead>({
 				op: 'patch',
 				set: payload,
 				unset: [],
+			});
+			return recordKey;
+		},
+		async createRecordWithBlob(namespace, collection, payload, source) {
+			requireOpen();
+			let recordKey = mintRecordKey();
+			for (
+				let attempts = 0;
+				replica.record({ namespace, collection, recordKey }) !== null;
+				attempts += 1
+			) {
+				if (attempts === 9) {
+					throw new Error('Could not mint a fresh record ID');
+				}
+				recordKey = mintRecordKey();
+			}
+			const address = { namespace, collection, recordKey };
+			await blobs.captureNewRecord(address, source, (digest) => {
+				replica.admitLocalRecordWithBlob({ address, payload, digest });
 			});
 			return recordKey;
 		},

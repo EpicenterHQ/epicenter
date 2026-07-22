@@ -34,9 +34,12 @@ test('Bun record opener owns one durable SQLite replica and blob root', async ()
 	const directory = await mkdtemp(join(tmpdir(), 'epicenter-record-'));
 	try {
 		const first = await openBunRecordEpicenter({ directory });
-		const row = await first.bind({ notes: lens }).notes.notes.create({
-			title: 'Persisted',
-		});
+		const row = await first
+			.bind({ notes: lens })
+			.notes.notes.createWithBlob(
+				{ title: 'Persisted' },
+				new Blob(['persisted bytes']).stream(),
+			);
 		await first[Symbol.asyncDispose]();
 
 		const reopened = await openBunRecordEpicenter({ directory });
@@ -46,6 +49,12 @@ test('Bun record opener owns one durable SQLite replica and blob root', async ()
 			).toMatchObject({
 				data: { id: row.id, title: 'Persisted' },
 			});
+			const bytes = await reopened
+				.bind({ notes: lens })
+				.notes.notes.blob.get(row.id);
+			expect(bytes === null ? null : await new Response(bytes).text()).toBe(
+				'persisted bytes',
+			);
 		} finally {
 			await reopened[Symbol.asyncDispose]();
 		}

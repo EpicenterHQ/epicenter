@@ -45,6 +45,13 @@ export type BrowserRecordOperation =
 			payload: Record<string, JsonValue>;
 	  }
 	| {
+			kind: 'create-record-with-blob';
+			namespace: string;
+			collection: string;
+			payload: Record<string, JsonValue>;
+			bytes: Blob;
+	  }
+	| {
 			kind: 'patch-live';
 			address: RecordAddress;
 			patch: { set: Record<string, JsonValue>; unset: string[] };
@@ -90,6 +97,7 @@ export type BrowserRecordResult =
 	| { kind: 'read'; record: ReplicaVisibleRecord | null }
 	| { kind: 'read-page'; page: ReplicaVisibleRecordPage }
 	| { kind: 'create-record'; recordKey: string }
+	| { kind: 'create-record-with-blob'; recordKey: string }
 	| { kind: 'patch-live'; record: ReplicaVisibleRecord | null }
 	| { kind: 'tombstone-live'; deleted: boolean }
 	| { kind: 'replace' }

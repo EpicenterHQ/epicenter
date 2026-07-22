@@ -102,11 +102,13 @@ function setup() {
 			authorityLifetime: 'lifetime-one',
 		},
 	});
-	const blobs = createReplicaBlobStore(adapter, new MemoryBlobFiles());
+	const files = new MemoryBlobFiles();
+	const blobs = createReplicaBlobStore(adapter, files);
 	const epicenter = createRecordEpicenter({ replica, blobs });
 	return {
 		database,
 		replica,
+		files,
 		epicenter,
 		data: epicenter.bind({ notes: notesLens }),
 	};
@@ -243,6 +245,42 @@ describe('record Epicenter Lens runtime', () => {
 			await context.data.notes.notes.delete(row.id);
 			expect(() => reopened.get('content')).toThrow('no longer live');
 			await reopened[Symbol.asyncDispose]();
+		} finally {
+			await context.epicenter[Symbol.asyncDispose]();
+			context.database.close();
+		}
+	});
+
+	test('creates a live row and its blob as one Lens operation', async () => {
+		const context = setup();
+		try {
+			const changed: string[][] = [];
+			context.data.notes.notes.subscribe((ids) => changed.push(ids));
+			await expect(
+				context.data.notes.notes.createWithBlob(
+					{ title: 42 } as never,
+					new TextEncoder().encode('must not be staged'),
+				),
+			).rejects.toThrow();
+			expect(context.files.staging.size).toBe(0);
+			expect(context.files.content.size).toBe(0);
+			const bytes = new TextEncoder().encode('atomic audio');
+			const row = await context.data.notes.notes.createWithBlob(
+				{ title: 'Atomic media' },
+				bytes,
+			);
+
+			expect(await context.data.notes.notes.get(row.id)).toMatchObject({
+				data: { id: row.id, title: 'Atomic media' },
+				error: null,
+			});
+			expect(await context.data.notes.notes.blob.get(row.id)).toEqual(bytes);
+			expect(await context.data.notes.notes.blob.inspect(row.id)).toMatchObject(
+				{
+					kind: 'pending',
+				},
+			);
+			expect(changed).toEqual([[row.id]]);
 		} finally {
 			await context.epicenter[Symbol.asyncDispose]();
 			context.database.close();

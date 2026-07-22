@@ -690,6 +690,13 @@ test('all record browser protocol variants survive structured clone', () => {
 			payload: { title: 'clone' },
 		},
 		{
+			kind: 'create-record-with-blob',
+			namespace: ADDRESS.namespace,
+			collection: ADDRESS.collection,
+			payload: { title: 'clone with blob' },
+			bytes: new Blob(['atomic blob']),
+		},
+		{
 			kind: 'patch-live',
 			address: ADDRESS,
 			patch: { set: { title: 'patched' }, unset: ['old'] },
@@ -738,6 +745,7 @@ test('all record browser protocol variants survive structured clone', () => {
 		{ kind: 'read', record: null },
 		{ kind: 'read-page', page: { entries: [], nextAfter: 'next' } },
 		{ kind: 'create-record', recordKey: ADDRESS.recordKey },
+		{ kind: 'create-record-with-blob', recordKey: ADDRESS.recordKey },
 		{ kind: 'patch-live', record: null },
 		{ kind: 'tombstone-live', deleted: true },
 		{ kind: 'replace' },
@@ -1059,6 +1067,44 @@ test('two tabs share one elected owner and receive record and blob invalidations
 	} finally {
 		await second[Symbol.asyncDispose]();
 		await first[Symbol.asyncDispose]();
+		await context.dispose();
+	}
+});
+
+test('browser Lens creates a row and blob through one owner request', async () => {
+	const context = setup();
+	const tab = await context.openTab();
+	const follower = await context.openTab();
+	try {
+		const worker = context.workers[0];
+		if (worker === undefined) throw new Error('candidate worker is missing');
+		const changed: string[][] = [];
+		bindNotes(follower).notes.subscribe((ids) => changed.push(ids));
+		const row = await bindNotes(tab).notes.createWithBlob(
+			{ title: 'one request' },
+			new Blob(['atomic browser bytes']),
+		);
+		await waitFor(() => changed.length > 0);
+		expect(changed).toEqual([[row.id]]);
+		const admissionOperations = worker.inbound.flatMap((message) => {
+			if (message.type !== 'request') return [];
+			return ['create-record', 'create-record-with-blob', 'put-blob'].includes(
+				message.operation.kind,
+			)
+				? [message.operation.kind]
+				: [];
+		});
+		expect(admissionOperations).toEqual(['create-record-with-blob']);
+		expect(await bindNotes(tab).notes.get(row.id)).toMatchObject({
+			data: { id: row.id, title: 'one request' },
+			error: null,
+		});
+		expect(await (await bindNotes(tab).notes.blob.get(row.id))?.text()).toBe(
+			'atomic browser bytes',
+		);
+	} finally {
+		await follower[Symbol.asyncDispose]();
+		await tab[Symbol.asyncDispose]();
 		await context.dispose();
 	}
 });

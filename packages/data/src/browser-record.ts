@@ -681,6 +681,17 @@ export async function openBrowserRecordEpicenterForTest({
 				await request({ kind: 'create-record', namespace, collection, payload })
 			).recordKey;
 		},
+		async createRecordWithBlob(namespace, collection, payload, source) {
+			return (
+				await request({
+					kind: 'create-record-with-blob',
+					namespace,
+					collection,
+					payload,
+					bytes: source,
+				})
+			).recordKey;
+		},
 		async patchLive(address, patch) {
 			return (await request({ kind: 'patch-live', address, patch })).record;
 		},
