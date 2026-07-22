@@ -88,7 +88,7 @@ try {
 	if (!raced) throw new Error('snapshot consistency race did not execute');
 	if (
 		metadata.recordCount !== RECORD_COUNT ||
-		metadata.captureWatermark !== RECORD_COUNT ||
+		metadata.sourceAuthorityAfterSequence !== RECORD_COUNT ||
 		captured?.count !== RECORD_COUNT ||
 		captured.generation_sum !== 0
 	) {

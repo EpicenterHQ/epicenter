@@ -54,7 +54,7 @@ querying surface holds only bytes it owns.
 
 Every inspection snapshot self-identifies. Its `_epicenter_artifact` metadata
 row (ADR-0167) declares `kind = 'snapshot'`, the format version, the source
-authority lifetime, and the capture watermark. A snapshot has no apply meaning
+authority lifetime, and the source authority's captured `after_sequence`. A snapshot has no apply meaning
 and no Restore meaning, structurally and permanently: it is never accepted as
 a portable Backup, a Proposal, or any other input.
 
@@ -99,8 +99,8 @@ case-insensitive identifier comparison. Snapshot metadata records which Lens,
 if any, generated the views.
 
 A snapshot is stale the moment it is captured; refresh is recapture. That is
-the honest consistency story: one owner read transaction, one stated
-watermark, rather than a live session in which several statements observe
+the honest consistency story: one owner read transaction, one stated authority
+feed position, rather than a live session in which several statements observe
 intervening writes. Because the artifact is inert bytes, there is no session
 lifecycle, no one-session exclusivity, no busy refusal, and no
 never-while-stepping discipline; concurrent captures and concurrent queries
@@ -130,8 +130,8 @@ show live; it removes only ad hoc SQL from the live connection.
 - Raw queries always address honest namespace, collection, and record key
   coordinates, including unknown and nonconforming data, with no Lens
   installed.
-- Freshness is explicit: results are as of the capture watermark, and refresh
-  is recapture. A future live inspection mode would be a separately earned
+- Freshness is explicit: results are a stale point-in-time cut, with the source
+  authority feed position recorded as provenance, and refresh is recapture. A future live inspection mode would be a separately earned
   capability and must never imply snapshot repeatability.
 - Browser Home never opens a second OPFS connection; capture reuses the one
   owner and transfers bytes.

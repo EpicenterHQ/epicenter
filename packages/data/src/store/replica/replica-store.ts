@@ -1362,7 +1362,7 @@ export function openReplicaStore({
 			return writeSnapshotArtifact({
 				database: target,
 				sourceAuthorityLifetime: meta.authority_lifetime,
-				captureWatermark: meta.after_sequence,
+				sourceAuthorityAfterSequence: meta.after_sequence,
 				records: records(),
 				...(lens === undefined ? {} : { lens }),
 			});

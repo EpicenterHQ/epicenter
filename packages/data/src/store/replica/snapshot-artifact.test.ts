@@ -85,7 +85,7 @@ describe('inspection snapshot artifacts', () => {
 				kind: 'snapshot',
 				formatVersion: 1,
 				sourceAuthorityLifetime: 'lifetime-one',
-				captureWatermark: 0,
+				sourceAuthorityAfterSequence: 0,
 				lens: null,
 				recordCount: 1,
 			});
@@ -110,14 +110,14 @@ describe('inspection snapshot artifacts', () => {
 			expect(
 				target
 					.query(
-						'SELECT kind, format_version, source_authority_lifetime, capture_watermark, lens_json FROM _epicenter_artifact',
+						'SELECT kind, format_version, source_authority_lifetime, source_authority_after_sequence, lens_json FROM _epicenter_artifact',
 					)
 					.get(),
 			).toEqual({
 				kind: 'snapshot',
 				format_version: 1,
 				source_authority_lifetime: 'lifetime-one',
-				capture_watermark: 0,
+				source_authority_after_sequence: 0,
 				lens_json: null,
 			});
 		} finally {

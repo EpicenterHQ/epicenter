@@ -22,7 +22,7 @@ export type SnapshotArtifactMetadata = {
 	kind: 'snapshot';
 	formatVersion: typeof SNAPSHOT_ARTIFACT_FORMAT_VERSION;
 	sourceAuthorityLifetime: string | null;
-	captureWatermark: number;
+	sourceAuthorityAfterSequence: number;
 	lens: LensDefinition | null;
 	recordCount: number;
 };
@@ -30,7 +30,7 @@ export type SnapshotArtifactMetadata = {
 type WriteSnapshotArtifactOptions = {
 	database: SqliteDatabase;
 	sourceAuthorityLifetime: string | null;
-	captureWatermark: number;
+	sourceAuthorityAfterSequence: number;
 	records: Iterable<SnapshotArtifactRecord>;
 	lens?: LensDefinition;
 };
@@ -41,8 +41,8 @@ const SNAPSHOT_SCHEMA = [
 		kind TEXT NOT NULL CHECK (kind = 'snapshot'),
 		format_version INTEGER NOT NULL CHECK (format_version = 1),
 		source_authority_lifetime TEXT,
-		capture_watermark INTEGER NOT NULL
-			CHECK (capture_watermark BETWEEN 0 AND 9007199254740991),
+		source_authority_after_sequence INTEGER NOT NULL
+			CHECK (source_authority_after_sequence BETWEEN 0 AND 9007199254740991),
 		lens_json TEXT CHECK (lens_json IS NULL OR json_valid(lens_json))
 	) STRICT`,
 	`CREATE TABLE _epicenter_records (
@@ -227,7 +227,7 @@ function assertEmpty(database: SqliteDatabase): void {
 export function writeSnapshotArtifact({
 	database,
 	sourceAuthorityLifetime,
-	captureWatermark,
+	sourceAuthorityAfterSequence,
 	records,
 	lens,
 }: WriteSnapshotArtifactOptions): SnapshotArtifactMetadata {
@@ -244,12 +244,12 @@ export function writeSnapshotArtifact({
 		database.run(
 			`INSERT INTO _epicenter_artifact (
 				singleton, kind, format_version, source_authority_lifetime,
-				capture_watermark, lens_json
+				source_authority_after_sequence, lens_json
 			) VALUES (1, 'snapshot', ?, ?, ?, ?)`,
 			[
 				SNAPSHOT_ARTIFACT_FORMAT_VERSION,
 				sourceAuthorityLifetime,
-				captureWatermark,
+				sourceAuthorityAfterSequence,
 				selectedLens === undefined
 					? null
 					: canonicalize(selectedLens as unknown as JsonValue),
@@ -289,7 +289,7 @@ export function writeSnapshotArtifact({
 		kind: 'snapshot',
 		formatVersion: SNAPSHOT_ARTIFACT_FORMAT_VERSION,
 		sourceAuthorityLifetime,
-		captureWatermark,
+		sourceAuthorityAfterSequence,
 		lens: selectedLens ?? null,
 		recordCount,
 	};
