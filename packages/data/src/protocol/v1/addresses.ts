@@ -50,6 +50,26 @@ const recordKeySchema = Type.String({
 	pattern: RECORD_KEY_PATTERN,
 });
 
+export function isNamespaceKey(
+	value: unknown,
+	limits: ValidatedLimits,
+): value is string {
+	return (
+		Value.Check(namespaceSchema, value) &&
+		utf8ByteLength(value) <= limits.maxNamespaceBytes
+	);
+}
+
+export function isLocalKey(
+	value: unknown,
+	limits: ValidatedLimits,
+): value is string {
+	return (
+		Value.Check(collectionSchema, value) &&
+		utf8ByteLength(value) <= limits.maxCollectionKeyBytes
+	);
+}
+
 export const RecordAddressSchema = Type.Object(
 	{
 		namespace: namespaceSchema,
@@ -88,8 +108,8 @@ export function isAdmissibleAddress(
 	limits: ValidatedLimits,
 ): boolean {
 	return (
-		utf8ByteLength(address.namespace) <= limits.maxNamespaceBytes &&
-		utf8ByteLength(address.collection) <= limits.maxCollectionKeyBytes &&
+		isNamespaceKey(address.namespace, limits) &&
+		isLocalKey(address.collection, limits) &&
 		utf8ByteLength(address.recordKey) <= limits.maxRecordKeyBytes
 	);
 }

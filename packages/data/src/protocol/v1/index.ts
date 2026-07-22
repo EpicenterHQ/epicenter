@@ -22,6 +22,8 @@ export {
 	addressesEqual,
 	addressKey,
 	isAdmissibleAddress,
+	isLocalKey,
+	isNamespaceKey,
 	parseAddress,
 	type RecordAddress,
 	RecordAddressSchema,
