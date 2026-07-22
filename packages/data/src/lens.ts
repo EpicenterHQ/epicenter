@@ -103,7 +103,7 @@ export const LensReadError = defineErrors({
 		namespace: string;
 		collection: string;
 		id: string;
-		raw: JsonObject;
+		raw: JsonValue;
 		issues: readonly ConformanceIssue[];
 	}) => ({
 		message: `Stored record '${namespace}/${collection}/${id}' does not satisfy the current Lens`,
@@ -154,7 +154,7 @@ export type NormalizedUpdate = { set: JsonObject; unset: string[] };
 export type CompiledTableDefinition = {
 	project(
 		id: string,
-		payload: JsonObject,
+		payload: JsonValue,
 	): Result<Record<string, unknown>, NonconformingRowError>;
 	validateCreate(input: Record<string, unknown>): JsonObject;
 	normalizeUpdate(input: Record<string, unknown>): NormalizedUpdate;
@@ -285,6 +285,25 @@ export function compileTableDefinition(
 	const optional = new Set(definition.optional);
 	return {
 		project(id, payload) {
+			if (
+				typeof payload !== 'object' ||
+				payload === null ||
+				Array.isArray(payload)
+			) {
+				return LensReadError.NonconformingRow({
+					namespace: address.namespace,
+					collection: address.collection,
+					id,
+					raw: structuredClone(payload),
+					issues: [
+						{
+							field: '*',
+							kind: 'invalid',
+							message: 'Expected an object record payload',
+						},
+					],
+				});
+			}
 			const projected: Record<string, unknown> = { id };
 			const issues: ConformanceIssue[] = [];
 			for (const [name, check] of fields) {

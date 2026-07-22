@@ -98,5 +98,12 @@ describe('Lens definitions', () => {
 			title: 'Hello',
 		});
 		expect(raw).toEqual({ title: 'Hello', unknown: true });
+		expect(
+			compiled.project('bbbbbbbbbbbbbbbbbbbbbbbb', 'not-an-object').error,
+		).toMatchObject({
+			name: 'NonconformingRow',
+			raw: 'not-an-object',
+			issues: [{ field: '*', kind: 'invalid' }],
+		});
 	});
 });
