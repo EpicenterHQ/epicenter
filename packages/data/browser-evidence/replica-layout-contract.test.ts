@@ -2,11 +2,17 @@
  * Guards the retained browser replica-layout artifact against incomplete or
  * overstated measurement matrices.
  */
+
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 
 import {
 	assertReplicaLayoutEvidence,
+	deriveReplicaLayoutInterpretation,
+	REPLICA_LAYOUT_CLEAN_SCOPE,
 	REPLICA_LAYOUT_PROFILES,
+	REPLICA_LAYOUT_PROVENANCE_LIMITATION,
 	type ReplicaLayoutCandidateRun,
 	type ReplicaLayoutEvidenceReport,
 } from './replica-layout-contract.js';
@@ -56,7 +62,7 @@ function report(): ReplicaLayoutEvidenceReport {
 		differencePercent: 0,
 		faster: 'wide' as const,
 	};
-	return {
+	const value: ReplicaLayoutEvidenceReport = {
 		schemaVersion: 'epicenter-browser-replica-layout-evidence/v1',
 		kind: 'epicenter-browser-replica-layout-evidence',
 		scope: 'pre-physical-browser-engine',
@@ -69,7 +75,7 @@ function report(): ReplicaLayoutEvidenceReport {
 		source: {
 			commit: 'abc',
 			clean: true,
-			cleanScope: 'fingerprinted harness, package manifest, and lockfile',
+			cleanScope: REPLICA_LAYOUT_CLEAN_SCOPE,
 			dirtyPaths: [],
 			lockfileSha256: 'lock',
 			harnessSha256: 'harness',
@@ -127,12 +133,66 @@ function report(): ReplicaLayoutEvidenceReport {
 						stopRule: 'all-hot-metrics-equivalent',
 					},
 				},
-				interpretation: ['test'],
+				interpretation: [],
 			},
 		],
-		limitations: ['test'],
+		limitations: [REPLICA_LAYOUT_PROVENANCE_LIMITATION, 'test'],
 		overall: 'provisional',
 	};
+	const engine = value.engines[0];
+	if (engine === undefined) throw new Error('Fixture engine is missing');
+	engine.interpretation = deriveReplicaLayoutInterpretation(
+		value.profile,
+		engine.result,
+	);
+	return value;
+}
+
+function refreshInterpretation(value: ReplicaLayoutEvidenceReport): void {
+	const engine = value.engines[0];
+	if (engine === undefined) throw new Error('Fixture engine is missing');
+	engine.interpretation = deriveReplicaLayoutInterpretation(
+		value.profile,
+		engine.result,
+	);
+}
+
+const repoRoot = resolve(import.meta.dirname, '../../..');
+const retainedArtifacts = [
+	'docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-smoke.json',
+	'docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-chromium.json',
+	'docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-webkit.json',
+] as const;
+
+function sha256(bytes: Uint8Array): string {
+	return createHash('sha256').update(bytes).digest('hex');
+}
+
+function committedBytes(commit: string, path: string): Uint8Array {
+	const result = Bun.spawnSync(['git', 'show', `${commit}:${path}`], {
+		cwd: repoRoot,
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	if (!result.success) {
+		throw new Error(
+			`Cannot read retained source ${commit}:${path}: ${result.stderr.toString()}`,
+		);
+	}
+	return new Uint8Array(result.stdout);
+}
+
+function recomputeHarnessSha256(
+	files: ReplicaLayoutEvidenceReport['source']['files'],
+): string {
+	const hash = createHash('sha256');
+	for (const file of files) {
+		hash.update(file.path);
+		hash.update('\0');
+		hash.update(file.sha256);
+		hash.update('\0');
+	}
+	return hash.digest('hex');
 }
 
 describe('browser replica layout evidence contract', () => {
@@ -158,6 +218,7 @@ describe('browser replica layout evidence contract', () => {
 		result.schemas = undefined;
 		result.aggregate = undefined;
 		value.overall = 'incomplete';
+		refreshInterpretation(value);
 		expect(() => assertReplicaLayoutEvidence(value)).not.toThrow();
 	});
 
@@ -172,6 +233,42 @@ describe('browser replica layout evidence contract', () => {
 		result.aggregate = undefined;
 		result.proxy = undefined;
 		value.overall = 'incomplete';
+		refreshInterpretation(value);
 		expect(() => assertReplicaLayoutEvidence(value)).not.toThrow();
+	});
+
+	test('rejects aggregate findings that do not follow from raw samples', () => {
+		const value = report();
+		const aggregate = value.engines[0]?.result.aggregate;
+		if (aggregate === undefined)
+			throw new Error('Fixture aggregate is missing');
+		aggregate.stopRule = 'material-direction-found';
+		expect(() => assertReplicaLayoutEvidence(value)).toThrow(
+			'invalid aggregate',
+		);
+	});
+
+	test('retained reports reproduce findings and historical source hashes', async () => {
+		for (const artifactPath of retainedArtifacts) {
+			const artifact: unknown = await Bun.file(
+				resolve(repoRoot, artifactPath),
+			).json();
+			expect(() => assertReplicaLayoutEvidence(artifact)).not.toThrow();
+			if (typeof artifact !== 'object' || artifact === null) {
+				throw new Error(`${artifactPath} is not an evidence report`);
+			}
+			const report = artifact as ReplicaLayoutEvidenceReport;
+			expect(report.source.harnessSha256).toBe(
+				recomputeHarnessSha256(report.source.files),
+			);
+			expect(report.source.lockfileSha256).toBe(
+				sha256(committedBytes(report.source.commit, 'bun.lock')),
+			);
+			for (const file of report.source.files) {
+				expect(file.sha256, `${artifactPath}: ${file.path}`).toBe(
+					sha256(committedBytes(report.source.commit, file.path)),
+				);
+			}
+		}
 	});
 });

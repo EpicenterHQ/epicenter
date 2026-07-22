@@ -11,7 +11,7 @@
   "source": {
     "commit": "cc5963637c1ad57a1ddcf759f104ef42a16803ff",
     "clean": true,
-    "cleanScope": "fingerprinted harness, package manifest, and lockfile",
+    "cleanScope": "listed harness files, package manifest, and lockfile; bundled transitive modules excluded",
     "dirtyPaths": [],
     "lockfileSha256": "59c943a425d100da48577147bb2e8ad388c81820c286bd260deb91731b8cf165",
     "harnessSha256": "fce979d6e651f1f83bd42010f78d659cde98c6a95caffb361803bed29b2868ff",
@@ -704,6 +704,7 @@
     }
   ],
   "limitations": [
+    "The source fingerprint covers only source.files plus bun.lock. It does not cover bundled transitive modules such as the production schema, canonical encoder, SQLite adapter, or installed dependency bytes.",
     "Headless Playwright Chromium and WebKit are desktop browser-engine evidence, not physical iOS Safari or Android Chrome evidence.",
     "Playwright WebKit is not a substitute for Safari on iOS hardware.",
     "Browser capacity and close/reopen timing vary with device storage, operating system, and browser quota policy.",

@@ -22,11 +22,13 @@ import {
 
 import {
 	assertReplicaLayoutEvidence,
+	deriveReplicaLayoutInterpretation,
+	REPLICA_LAYOUT_CLEAN_SCOPE,
 	REPLICA_LAYOUT_PROFILES,
+	REPLICA_LAYOUT_PROVENANCE_LIMITATION,
 	type ReplicaLayoutEngine,
 	type ReplicaLayoutEngineResult,
 	type ReplicaLayoutEvidenceReport,
-	type ReplicaLayoutMetric,
 	type ReplicaLayoutProfile,
 } from './replica-layout-contract.js';
 
@@ -156,7 +158,7 @@ function sourceProvenance(): ReplicaLayoutEvidenceReport['source'] {
 	return {
 		commit: git(['rev-parse', 'HEAD']),
 		clean: dirtyPaths.length === 0,
-		cleanScope: 'fingerprinted harness, package manifest, and lockfile',
+		cleanScope: REPLICA_LAYOUT_CLEAN_SCOPE,
 		dirtyPaths,
 		lockfileSha256: sha256File(resolve(repoRoot, 'bun.lock')),
 		harnessSha256: harnessHash.digest('hex'),
@@ -196,41 +198,6 @@ function startFixtureServer(): ReturnType<typeof Bun.serve> {
 			return new Response(file);
 		},
 	});
-}
-
-function interpretation(
-	profile: ReplicaLayoutProfile,
-	result: Awaited<ReturnType<Window['browserReplicaLayoutEvidence']['run']>>,
-): string[] {
-	if (result.outcome !== 'passed') {
-		return [
-			`The ${profile} charter ${result.outcome}: ${result.reason ?? 'unknown reason'}.`,
-		];
-	}
-	const statements = [
-		profile === 'smoke'
-			? 'Smoke validates the measurement method only; it is not decision eligible.'
-			: 'The full charter measures 1,000,000 records and 536,870,912 canonical proxy bytes, but remains pre-physical browser-engine evidence.',
-		`ADR-0177 stop rule: ${result.aggregate?.stopRule ?? 'missing'}.`,
-	];
-	for (const metric of [
-		'pointRead',
-		'traversal',
-		'laneWrite',
-		'feedInstall',
-		'reopen',
-	] as const satisfies readonly ReplicaLayoutMetric[]) {
-		const aggregate = result.aggregate?.metrics[metric];
-		if (aggregate === undefined) continue;
-		const difference = (value: number | null): string =>
-			value === null
-				? 'not quantifiable at timer resolution'
-				: `${value.toFixed(2)}%`;
-		statements.push(
-			`${metric}: ${aggregate.p50.faster} p50 difference is ${difference(aggregate.p50.differencePercent)}; ${aggregate.p95.faster} p95 difference is ${difference(aggregate.p95.differencePercent)}.`,
-		);
-	}
-	return statements;
 }
 
 async function runEngine({
@@ -331,7 +298,7 @@ async function runEngine({
 			persistentProfile: true,
 			origin,
 			result,
-			interpretation: interpretation(profile, result),
+			interpretation: deriveReplicaLayoutInterpretation(profile, result),
 		};
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : String(cause);
@@ -411,6 +378,7 @@ async function main(): Promise<void> {
 			playwrightVersion,
 			engines,
 			limitations: [
+				REPLICA_LAYOUT_PROVENANCE_LIMITATION,
 				'Headless Playwright Chromium and WebKit are desktop browser-engine evidence, not physical iOS Safari or Android Chrome evidence.',
 				'Playwright WebKit is not a substitute for Safari on iOS hardware.',
 				'Browser capacity and close/reopen timing vary with device storage, operating system, and browser quota policy.',
