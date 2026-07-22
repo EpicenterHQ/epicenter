@@ -10,7 +10,13 @@ export default defineConfig({
 		outDir: 'dist',
 		emptyOutDir: true,
 		rollupOptions: {
-			input: resolve(import.meta.dirname, 'index.html'),
+			input: {
+				index: resolve(import.meta.dirname, 'index.html'),
+				splitReplicaConformanceWorker: resolve(
+					import.meta.dirname,
+					'split-replica-conformance-worker.ts',
+				),
+			},
 		},
 	},
 });
