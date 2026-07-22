@@ -8,7 +8,7 @@ export type BrowserSqliteDatabase = {
 		resultRows?: unknown[];
 	}): unknown;
 	transaction<TResult>(
-		beginQualifier: 'IMMEDIATE',
+		beginQualifier: 'DEFERRED' | 'IMMEDIATE',
 		run: () => TResult,
 	): TResult;
 };
@@ -29,6 +29,27 @@ export function createBrowserSqliteAdapter(
 		}
 	}
 
+	function transaction<TResult>(
+		qualifier: 'DEFERRED' | 'IMMEDIATE',
+		run: () => TResult,
+	): TResult {
+		if (transactionDepth === 0) {
+			return database.transaction(qualifier, () => invoke(run));
+		}
+
+		const savepoint = `epicenter_nested_${savepointSequence++}`;
+		database.exec({ sql: `SAVEPOINT ${savepoint}` });
+		try {
+			const result = invoke(run);
+			database.exec({ sql: `RELEASE ${savepoint}` });
+			return result;
+		} catch (cause) {
+			database.exec({ sql: `ROLLBACK TO ${savepoint}` });
+			database.exec({ sql: `RELEASE ${savepoint}` });
+			throw cause;
+		}
+	}
+
 	return {
 		run(sql, parameters = []): void {
 			database.exec({ sql, bind: parameters });
@@ -43,22 +64,11 @@ export function createBrowserSqliteAdapter(
 			});
 			return resultRows as TRow[];
 		},
+		readTransaction<TResult>(run: () => TResult): TResult {
+			return transaction('DEFERRED', run);
+		},
 		transaction<TResult>(run: () => TResult): TResult {
-			if (transactionDepth === 0) {
-				return database.transaction('IMMEDIATE', () => invoke(run));
-			}
-
-			const savepoint = `epicenter_nested_${savepointSequence++}`;
-			database.exec({ sql: `SAVEPOINT ${savepoint}` });
-			try {
-				const result = invoke(run);
-				database.exec({ sql: `RELEASE ${savepoint}` });
-				return result;
-			} catch (cause) {
-				database.exec({ sql: `ROLLBACK TO ${savepoint}` });
-				database.exec({ sql: `RELEASE ${savepoint}` });
-				throw cause;
-			}
+			return transaction('IMMEDIATE', run);
 		},
 	};
 }

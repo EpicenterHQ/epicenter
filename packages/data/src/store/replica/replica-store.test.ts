@@ -298,6 +298,9 @@ describe('production replica store format', () => {
 				all<TRow extends SqliteRow>(sql: string, parameters = []): TRow[] {
 					return inner.all<TRow>(sql, parameters);
 				},
+				readTransaction<TResult>(run: () => TResult): TResult {
+					return inner.readTransaction(run);
+				},
 				transaction<TResult>(run: () => TResult): TResult {
 					return inner.transaction(run);
 				},

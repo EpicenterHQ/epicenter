@@ -67,8 +67,11 @@ const adapters: [name: string, open: OpenDatabase][] = [
 					}
 					execute(sqlite, options.sql, options.bind ?? []);
 				},
-				transaction(_qualifier, run) {
-					return sqlite.transaction(run).immediate();
+				transaction(qualifier, run) {
+					const transaction = sqlite.transaction(run);
+					return qualifier === 'DEFERRED'
+						? transaction.deferred()
+						: transaction.immediate();
 				},
 			} satisfies BrowserSqliteDatabase;
 			return {
@@ -104,6 +107,20 @@ const adapters: [name: string, open: OpenDatabase][] = [
 		},
 	],
 ];
+
+test('browser SQLite uses deferred reads and immediate writes', () => {
+	const qualifiers: string[] = [];
+	const database = createBrowserSqliteAdapter({
+		exec() {},
+		transaction(qualifier, run) {
+			qualifiers.push(qualifier);
+			return run();
+		},
+	});
+	database.readTransaction(() => undefined);
+	database.transaction(() => undefined);
+	expect(qualifiers).toEqual(['DEFERRED', 'IMMEDIATE']);
+});
 
 for (const [name, open] of adapters) {
 	test(`${name}: writes, reads, and rollback share one contract`, () => {

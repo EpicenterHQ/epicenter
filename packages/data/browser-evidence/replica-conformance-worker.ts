@@ -147,6 +147,7 @@ function analyze(action: BrowserReplicaAction) {
 			base.run(sql, parameters);
 		},
 		all: base.all,
+		readTransaction: base.readTransaction,
 		transaction<TResult>(work: () => TResult): TResult {
 			base.run('BEGIN IMMEDIATE');
 			try {
@@ -188,6 +189,7 @@ function crash(
 			throw new Error('unreachable crash fence resumed');
 		},
 		all: base.all,
+		readTransaction: base.readTransaction,
 		transaction<TResult>(work: () => TResult): TResult {
 			base.run('BEGIN IMMEDIATE');
 			insideTransaction = true;

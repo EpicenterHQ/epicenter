@@ -21,6 +21,9 @@ export function createDurableObjectSqliteAdapter(
 		all<TRow extends SqliteRow>(sql: string, parameters = []): TRow[] {
 			return storage.sql.exec<TRow>(sql, ...parameters).toArray();
 		},
+		readTransaction<TResult>(run: () => TResult): TResult {
+			return storage.transactionSync(run);
+		},
 		transaction<TResult>(run: () => TResult): TResult {
 			return storage.transactionSync(run);
 		},

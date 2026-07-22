@@ -51,5 +51,7 @@ export type SqliteDatabase = {
 		sql: string,
 		parameters?: readonly SqliteValue[],
 	): TRow[];
+	/** Hold one coherent read cut without reserving the database for writes. */
+	readTransaction<TResult>(run: () => TResult): TResult;
 	transaction<TResult>(run: () => TResult): TResult;
 };

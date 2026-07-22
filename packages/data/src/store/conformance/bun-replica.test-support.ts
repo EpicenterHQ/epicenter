@@ -60,6 +60,9 @@ function countingAdapter(database: Database) {
 		) {
 			return all<TRow>(database, sql, parameters);
 		},
+		readTransaction<TResult>(work: () => TResult): TResult {
+			return database.transaction(work).deferred();
+		},
 		transaction<TResult>(work: () => TResult): TResult {
 			return database.transaction(work).immediate();
 		},
@@ -93,6 +96,9 @@ function crashAdapter(
 			parameters?: readonly SqliteValue[],
 		) {
 			return all<TRow>(database, sql, parameters);
+		},
+		readTransaction<TResult>(work: () => TResult): TResult {
+			return database.transaction(work).deferred();
 		},
 		transaction<TResult>(work: () => TResult): TResult {
 			run(database, 'BEGIN IMMEDIATE');

@@ -12,6 +12,9 @@ export function createBunSqliteAdapter(database: Database): SqliteDatabase {
 				.query<TRow, SQLQueryBindings[]>(sql)
 				.all(...(parameters as SQLQueryBindings[]));
 		},
+		readTransaction<TResult>(run: () => TResult): TResult {
+			return database.transaction(run).deferred();
+		},
 		transaction<TResult>(run: () => TResult): TResult {
 			return database.transaction(run).immediate();
 		},
