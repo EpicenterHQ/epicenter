@@ -49,7 +49,7 @@ Grouped by package, each with a one-line reason:
 ```
 packages/auth
   - <finding>: requires <product input | external CLI/SDK callers | invariant decision>
-packages/workspace
+packages/data
   - <finding>: requires <...>
 ```
 
@@ -77,7 +77,7 @@ Per package, the final pass/fail counts:
 
 ```
 packages/auth:       NN pass, 0 fail
-packages/workspace:  NN pass, 0 fail
+packages/data:       NN pass, 0 fail
 ...
 ```
 

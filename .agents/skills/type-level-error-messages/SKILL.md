@@ -184,5 +184,4 @@ The error message is also rendered in CI logs. Keep it ASCII so the message read
 ## Reference
 
 - arktype's `ErrorMessage` definition: `node_modules/@ark/util/out/errors.d.ts:25`.
-- Our example use: `packages/workspace/src/shared/actions.ts` (`defineActions`, `IsSnakeCaseKey`, `InvalidActionKey`).
 - Background article: `docs/articles/<date>-type-level-error-messages.md`.

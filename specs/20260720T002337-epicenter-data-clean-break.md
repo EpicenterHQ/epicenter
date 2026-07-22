@@ -417,6 +417,16 @@ verification, and deletion into one commit.
   path, then sweep stale exports, tests, examples, docs, and manifest
   dependencies.
 
+Implementation checkpoint (2026-07-22): the retained Epicenter, Honeycrisp,
+and Whispering composition roots now use only record Lenses and the Data-owned
+scalar, document, blob, attachment, status, and disposal surfaces. The API
+package stopped declaring the old dependency before deletion. The repository
+then deleted `packages/workspace`, its lockfile and patch residue, obsolete
+current guides and examples, and the Workspace-specific agent skills. Package
+tests pass against the replacement; the sole full-suite failure is the
+compiled-host smoke fixture's fixed port being occupied by an installed
+Epicenter process, not a data-path failure. No compatibility barrel remains.
+
 ### W5: snapshot capture and the Home query artifact
 
 - Ship snapshot capture in the first Home release. The release includes

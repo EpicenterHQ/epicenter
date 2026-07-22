@@ -51,13 +51,13 @@ per pass.
 ### Broader Boundary Pass
 
 ```txt
-/goal Run a greenfield clean-break pass on the workspace runtime storage boundary.
+/goal Run a greenfield clean-break pass on the record replica storage boundary.
 
   Load skill: greenfield-clean-breaks.
-  Target: packages/workspace storage and persistence modules
+  Target: packages/data replica, document, and blob storage modules
   Compatibility stance: ask before public API, sync wire format, or persisted data shape changes.
   Stop condition: three consecutive inspected files produce no actionable findings.
-  Starting target: packages/workspace
+  Starting target: packages/data/src/store/replica
 
   Begin.
 ```

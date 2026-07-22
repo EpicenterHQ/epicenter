@@ -1,5 +1,9 @@
 # You Keep Yjs for the Callback, Not the Conflict
 
+> Historical article. It predates universal records, record Lenses, and the
+> deletion of Markdown materializers from the live data path. Yjs now owns
+> bounded record documents; scalar synchronization uses the record protocol.
+
 I almost kept Yjs for the wrong reason. The pitch for CRDTs is always conflict resolution: two devices edit the same field offline, both edits survive, the merge is automatic. But Epicenter is a tool I mostly use alone across my own machines, and two of them almost never write the same row at the same second. If merge were the only reason, I'd be paying for insurance I rarely claim.
 
 The real reason is quieter. Yjs is an in-memory observable document. A write fires a callback, and the callback materializes a markdown file to disk. SQLite has no native way to call you back.

@@ -1,6 +1,6 @@
 ---
 name: logging
-description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for attach primitives, background errors, durable host logs, or replacing console.* in library code.'
+description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for data/runtime factories, background errors, durable host logs, or replacing console.* in library code.'
 metadata:
   author: epicenter
   version: '2.2'

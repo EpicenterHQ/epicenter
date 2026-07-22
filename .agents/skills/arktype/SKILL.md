@@ -354,7 +354,5 @@ commandBase.merge({ 'windowId?': 'string' });
 
 ## References
 
-- `apps/tab-manager/src/lib/workspace.ts`: Commands table using `commandBase.merge(type.or(...))`
 - `.agents/skills/typescript/SKILL.md`: Arktype optional properties section
-- `.agents/skills/workspace-api/SKILL.md`: `defineTable()` accepts union types
 - [arktype source: merge distributes](https://github.com/arktypeio/arktype/blob/6d0639bf/ark/schema/roots/root.ts#L290-L302): `rNode.distribute()` in merge implementation

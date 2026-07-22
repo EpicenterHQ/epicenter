@@ -1,5 +1,9 @@
 # Your Data Is Probably a Table, Not a File
 
+> Historical article. It describes the deleted `@epicenter/workspace` and
+> filesystem architecture. The current record and Lens model lives in
+> [`@epicenter/data`](../../packages/data/README.md).
+
 Epicenter has two packages for storing application data: `@epicenter/workspace` (typed tables, KV, documents) and `@epicenter/filesystem` (POSIX-style virtual files and folders). The workspace is the default. Most apps should use it directly and never touch the filesystem package.
 
 The interesting part is that the filesystem isn't a separate storage system. It's built on top of workspace tables. The specialized API composes on the general-purpose one, not beside it.

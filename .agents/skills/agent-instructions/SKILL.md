@@ -22,7 +22,7 @@ Read [references/composition-audit.md](references/composition-audit.md) when str
 Use other skills for their owned domains:
 
 - `writing-voice`: user-facing prose, UI text, errors, docs, and tone.
-- Domain skills such as `workspace-api`, `svelte`, or `auth`: package conventions the new skill must encode.
+- Domain skills such as `data-lens`, `svelte`, or `auth`: package conventions the new skill must encode.
 - `git`: staging, commits, branch work, and commit messages.
 - `plugin-creator`: Codex plugins, not agent skills.
 - `skill-installer`: installing third-party skills.
@@ -129,7 +129,7 @@ Use `Use when...` phrasing. Describe user intent, not implementation mechanics. 
 Good:
 
 ```yaml
-description: Workspace API patterns for defineTable, defineKv, migrations, observation, and attach primitives. Use when defining schemas, reading or writing table data, observing changes, writing migrations, or composing workspace attachments.
+description: Data Lens patterns for defineLens, defineTable, defineValues, typed binding, documents, and blobs. Use when defining app record schemas, reading or writing Lens data, handling nonconforming records, or choosing a record lane.
 ```
 
 Weak:
@@ -161,7 +161,7 @@ references/   scoped detail after SKILL.md chose the reference
 
 Avoid opening `SKILL.md` or references with self-routing boilerplate such as
 "Use this skill..." or "Use this reference...". Prefer ownership language in
-`SKILL.md` ("Workspace API owns...") and scope language in references ("This
+`SKILL.md` ("Data Lens owns...") and scope language in references ("This
 reference covers...").
 
 Every reference link needs a concrete load condition in `SKILL.md`, for example:

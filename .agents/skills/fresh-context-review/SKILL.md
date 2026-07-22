@@ -45,7 +45,7 @@ Load only the relevant local skills before reviewing:
   `defineErrors` shapes are involved
 - `collapse-pass` when the user asks to shrink indirection or delete state
 - the domain skill for the package being reviewed, such as `auth`,
-  `workspace-api`, `svelte`, or `tauri`
+  `data-lens`, `svelte`, or `tauri`
 
 Read [references/type-lifecycle-review.md](references/type-lifecycle-review.md)
 when the review centers on type protocols, state machines, lifecycle

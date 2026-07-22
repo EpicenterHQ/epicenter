@@ -20,7 +20,7 @@ Epicenter targets `@y/y` 14 only. Do not add `yjs` 13, `y-indexeddb`, a compatib
 
 Skip DeepWiki for stable basics and repo-local patterns already documented below.
 
-> **Related Skills**: See `workspace-api` for the workspace abstraction built on Yjs.
+> **Related Skills**: See `data-lens` for record-owned document boundaries.
 
 ## Transactions, Origins, And Undo
 
@@ -298,11 +298,10 @@ handle.append(text);
 ```
 
 ```typescript
-// BAD: consumer constructs Y.Maps to call an internal CSV helper
-import { parseSheetFromCsv } from '@epicenter/workspace';
+// BAD: consumer constructs Y.Maps to call an internal parser
 const columns = new Y.Map<Y.Map<string>>();
 const rows = new Y.Map<Y.Map<string>>();
-parseSheetFromCsv(csv, columns, rows);
+parseSheet(csv, columns, rows);
 
 // GOOD: use the handle's write method, which encapsulates CSV parsing
 handle.write(csv);  // mode-aware, handles sheet internally
@@ -378,8 +377,8 @@ If documents grow unexpectedly, check for:
 - [GitHub issue #520](https://github.com/yjs/yjs/issues/520) - Conflict resolution discussion with dmonad
 - [fractional-indexing](https://github.com/rocicorp/fractional-indexing) - Production library
 - [YATA paper](https://www.researchgate.net/publication/310212186_Near_Real-Time_Peer-to-Peer_Shared_Editing_on_Extensible_Data_Types) - Academic foundation
-- `packages/workspace/src/document-provider/sqlite-document-log.ts`: the owner-side Yjs 14 SQLite update log (schema, append, compaction, capture, deletion)
-- `packages/workspace/src/document-provider/persistence.ts`: the shared `createDocumentStore` load/append seam between live documents and the owner log
+- `packages/data/src/record-documents.ts`: live record-document handles, hydration, persistence, revocation, and reference counting
+- `packages/data/src/store/replica/document-store.ts`: owner-side Yjs 14 SQLite update chains, compaction, capture, and retry evidence
 - `packages/sync/src/document-v3/`: the Yjs 14 row-document wire
 - [ADR-0145](../../../docs/adr/0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md): workspace authority and document connection ownership
 - [ADR-0146](../../../docs/adr/0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md): Yjs 14-only persistence decision

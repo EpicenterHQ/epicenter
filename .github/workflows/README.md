@@ -49,23 +49,29 @@ We use [changesets](https://github.com/changesets/changesets) to version and pub
 
 ### Public and private packages
 
-| Package | npm name | Published |
+| Package | npm name | Release target |
 |---|---|---|
-| `packages/workspace` | `@epicenter/workspace` | yes |
-| `packages/cli` | `@epicenter/cli` | yes |
-| `packages/sync` | `@epicenter/sync` | yes |
-| `packages/skills` | `@epicenter/skills` | yes |
-| `packages/ui` | `@epicenter/ui` | yes |
-| `packages/field` | `@epicenter/field` | yes |
-| `packages/identity` | `@epicenter/identity` | yes |
-| `packages/svelte-utils` | `@epicenter/svelte` | yes (see note) |
-| `packages/constants` | `@epicenter/constants` | no (private) |
+| `packages/data` | `@epicenter/data` | public |
+| `packages/document-sync` | `@epicenter/document-sync` | public |
+| `packages/agent` | `@epicenter/agent` | public |
+| `packages/cli` | `@epicenter/cli` | public |
+| `packages/sync` | `@epicenter/sync` | public |
+| `packages/skills` | `@epicenter/skills` | public |
+| `packages/ui` | `@epicenter/ui` | public |
+| `packages/field` | `@epicenter/field` | public |
+| `packages/identity` | `@epicenter/identity` | public |
+| `packages/svelte-utils` | `@epicenter/svelte` | public (see note) |
+| `packages/constants` | `@epicenter/constants` | private |
+
+`public` describes the manifest and intended registry target. It does not claim
+that the package's current version has already been uploaded. The dry-run gate
+must pass before any release.
 
 ### Fixed version group
 
 The framework closure shares one version number, configured via the `fixed` array in `.changeset/config.json`: `cli`, `sync`, `skills`, `field`, and `identity`. When any one of them changes, all of them bump together.
 
-`@epicenter/workspace`, `@epicenter/ui`, and the private `@epicenter/svelte` package are not part of that fixed group.
+`@epicenter/data`, `@epicenter/document-sync`, `@epicenter/agent`, `@epicenter/ui`, and the private `@epicenter/svelte` package are not part of that fixed group.
 
 ### Day-to-day: adding a changeset
 

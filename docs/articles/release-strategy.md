@@ -1,5 +1,9 @@
 # How We Version and Release Epicenter Packages
 
+> Historical article. Package membership and release mechanics have changed.
+> Follow [the workflow README](../../.github/workflows/README.md#package-releases-npm)
+> for the current release path.
+
 Seven npm packages, ten apps, three deployment targets. The question isn't whether you need a release strategy. It's which one you can actually live with.
 
 ## The problem with a monorepo at this scale

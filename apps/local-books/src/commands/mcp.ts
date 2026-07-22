@@ -8,7 +8,7 @@
  * (ADR-0004, ADR-0073). MCP is the only vocabulary a foreign host speaks, and a
  * subprocess reading the local SQLite directly is the only exposure that keeps
  * the data on the machine. So "let Claude Code use Local Books" reduces to
- * exactly this file: it adds no mesh, no relay, no `@epicenter/workspace`.
+ * exactly this file: it adds no mesh, no relay, no `@epicenter/data`.
  *
  * The shape: each tool is one entry in `TOOLS` whose `input` is a TypeBox
  * schema. TypeBox IS JSON Schema at runtime, so the same object is the MCP

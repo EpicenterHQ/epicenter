@@ -78,7 +78,7 @@ non-owners already delegate. A delegating repeat is resolved, not a smell.
 # broken reference links: match real markdown links ](...) only, keep the
 # ../skill/ prefix, and resolve relative to the linking file's dir. Matching the
 # bare `references/x.md` tail (and dropping the prefix) gives false DEAD hits for
-# valid cross-skill links like ](../workspace-api/references/x.md) and for
+# valid cross-skill links like ](../data-lens/references/x.md) and for
 # backtick-wrapped prose like `references/api-errors.md`.
 grep -rnoE '\]\((\.\./[a-z0-9-]+/)*references/[a-z0-9-]+\.md\)' */SKILL.md | while IFS=: read -r f n match; do
   link="${match#']('}"; link="${link%')'}"

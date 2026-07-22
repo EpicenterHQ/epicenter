@@ -59,10 +59,10 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 
 ### Tier 1: MIT
 
-**Applies to:** the embeddable toolkit libraries: `packages/workspace`, `packages/ui`, `packages/sync`, `packages/sqlite`, `packages/row-sync`, `packages/data`, and `packages/document-sync`, plus the toolkit-internal packages they carry: `packages/identity`, `packages/agent-protocol`, `packages/encryption`, `packages/field`, `packages/chat`, and `packages/agent`.
+**Applies to:** the embeddable toolkit libraries: `packages/data`, `packages/document-sync`, `packages/agent`, `packages/ui`, `packages/sync`, `packages/sqlite`, and `packages/row-sync`, plus the toolkit-internal packages they carry: `packages/identity`, `packages/agent-protocol`, `packages/encryption`, `packages/field`, and `packages/chat`.
 
 **Rationale:**
-- Libraries: we want developers to embed `@epicenter/workspace` in their own projects with zero friction. AGPL would forbid that for closed-source consumers, killing adoption. The library is not what we sell.
+- Libraries: we want developers to embed `@epicenter/data` and the rest of the toolkit in their own projects with zero friction. AGPL would forbid that for closed-source consumers, killing adoption. The libraries are not what we sell.
 - Toolkit-internal packages (`identity`, `agent-protocol`, `encryption`, `field`, `chat`): these are dependencies bundled into the MIT toolkit libraries, so they must be MIT-compatible for the toolkit to stay distributable as MIT. `@epicenter/identity` owns the capability and identity vocabulary shared by the MIT toolkit and the AGPL auth layer; `@epicenter/agent-protocol` is the agent wire contract shared the same way. They are not separately marketed.
 - MIT-clean closure: the toolkit no longer depends on any AGPL package. `PrincipalId` and `AuthState` live in `@epicenter/identity`; the room route and bearer subprotocol moved to the now-MIT `@epicenter/sync`; the agent wire contract is the now-MIT `@epicenter/agent-protocol`; and the daemon takes its API base URL as config instead of importing the hosted constant. `bun run check:licenses` enforces this. `cli` stays AGPL primarily because it is a shipped CLI app (decision-procedure rule 2, not a toolkit root); it also directly imports AGPL `auth` for machine-auth login, and reaches AGPL `constants` only transitively, through `auth` and `client`.
 
@@ -119,7 +119,7 @@ The boundary currently errs toward AGPL: some toolkit-shaped code is AGPL only b
 
 | Candidate | Today | Would become | Trigger to execute |
 |---|---|---|---|
-| `@epicenter/svelte` main barrel (`fromTable`, `fromKv`, `fromDisposableCache`, `createPersistedState`, `createPersistedMap`, `bindAgentConversation`) | AGPL | MIT; the auth wrapper (the `./auth` subpath) relocates to an AGPL `@epicenter/auth/svelte` | A third party embeds the MIT `@epicenter/workspace` in a Svelte app, or we publish the toolkit for external use. Strongest candidate: the barrel already imports only MIT `@epicenter/workspace`, so the split is nearly free. |
+| `@epicenter/svelte` main barrel (`fromTable`, `fromKv`, `fromDisposableCache`, `createPersistedState`, `createPersistedMap`, `bindAgentConversation`) | AGPL | MIT; the auth wrapper (the `./auth` subpath) relocates to an AGPL `@epicenter/auth/svelte` | A third party embeds the MIT `@epicenter/data` in a Svelte app, or we publish the toolkit for external use. The data bindings already depend on the MIT toolkit; the auth wrapper is the remaining AGPL boundary. |
 | `@epicenter/client` | AGPL | MIT | We decide to offer a public client SDK. Requires closure surgery first: `AuthFetch` moves to `@epicenter/identity` and `API_ROUTES` to an MIT constants surface. |
 | `packages/matter-core` | AGPL | MIT | We offer Matter's markdown-to-SQLite engine for third-party embedding as a standalone library. |
 | `is-websocket-upgrade` (in `packages/server`) | AGPL (by location only) | MIT, no surgery needed | Its only import is Hono's `Context` type; nothing in its own closure is AGPL. It sits inside AGPL `packages/server` only because nothing ships it standalone yet, not because it needs surgery. Move the file out whenever a consumer wants it alone. |
@@ -143,7 +143,6 @@ All apps are AGPL-3.0. MIT is reserved for the embeddable toolkit libraries.
 | `apps/matter` | AGPL-3.0 | Typed grid for user-owned Markdown folders |
 | `apps/local-books` | AGPL-3.0 | QuickBooks mirror |
 | `apps/local-mail` | AGPL-3.0 | Local email client |
-| `packages/workspace` | MIT | Core CRDT library (toolkit) |
 | `packages/ui` | MIT | shadcn-svelte components (toolkit) |
 | `packages/identity` | MIT | Capability and identity vocabulary shared by the MIT toolkit and AGPL auth layer (toolkit-internal) |
 | `packages/sync` | MIT | Yjs sync protocol primitives: wire format, room route, auth subprotocol (toolkit) |
@@ -167,7 +166,7 @@ All apps are AGPL-3.0. MIT is reserved for the embeddable toolkit libraries.
 | `packages/matter-core` | AGPL-3.0 | Markdown-to-SQLite projection engine |
 | `packages/vite-config` | AGPL-3.0 | Shared Vite config |
 
-> **MIT-clean closure:** the MIT toolkit's entire dependency closure is MIT. `@epicenter/workspace` no longer imports from any AGPL package: shared capability state lives in `@epicenter/identity`, the room route plus bearer subprotocol moved to the now-MIT `@epicenter/sync`, and the agent wire contract is the now-MIT `@epicenter/agent-protocol`. `cli` stays AGPL because it is a shipped CLI app (decision-procedure rule 2); it also directly imports AGPL `auth`, and reaches AGPL `constants` only transitively, through `auth` and `client`. `bun run check:licenses` walks every package's dependency closure and fails if an MIT package can reach an AGPL one.
+> **MIT-clean closure:** the MIT toolkit's entire dependency closure is MIT. Shared capability state lives in `@epicenter/identity`, document wire vocabulary lives in the MIT `@epicenter/sync`, and the agent wire contract lives in the MIT `@epicenter/agent-protocol`. `cli` stays AGPL because it is a shipped CLI app (decision-procedure rule 2); it also directly imports AGPL `auth`, and reaches AGPL `constants` only transitively, through `auth` and `client`. `bun run check:licenses` walks every package's dependency closure and fails if an MIT package can reach an AGPL one.
 
 ## Decision procedure for new packages
 

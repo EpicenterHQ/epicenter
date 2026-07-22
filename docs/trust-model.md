@@ -1,90 +1,109 @@
 # Trust model
 
-Epicenter does not encrypt workspace data before syncing it. The relay runs Yjs and reads plaintext: document structure, entry keys, and values. That one decision is the trust model, and everything below is a consequence of it.
+Epicenter does not encrypt application data from the authority that
+synchronizes it. Hosted Epicenter is trusted infrastructure: it can read
+scalar record facts, Yjs document updates, immutable blob bytes, and the
+metadata around those transfers. Self-hosting moves that authority onto
+infrastructure you operate.
 
-This page describes what the code does today. The files that carry it:
+This is a topology decision, not an encryption setting.
 
-- `packages/server/src/room/core.ts`: the relay's `Room.sync()`
-- `packages/server/src/room/backends/cloudflare/durable-object.ts`: the hosted backend
-- `packages/workspace/src/document/workspace.ts` and `attach-local-storage.ts`: local persistence
-- `packages/server/src/routes/session.ts`: `/api/session`
+## What stays local
 
-## We used to encrypt at rest. We stopped.
+Every runtime keeps a complete local replica. Local writes become durable and
+remain usable offline before synchronization. Browser replicas live behind one
+elected OPFS SQLite owner. Epicenter desktop owns one Bun SQLite replica and
+raw blob directory; trusted WebViews reach it through a narrow record protocol.
 
-For a long time Epicenter encrypted every CRDT value before it entered the synced Yjs doc. The key came from a server-held root (`ENCRYPTION_SECRETS` to an owner key to a workspace key) and shipped to the client through `/api/session`. The philosophy was "if you want full encryption, become the server."
+Local ownership does not imply that synchronized bytes are opaque to the
+server. Once a device publishes them, the authority can read them.
 
-It worked, and the tell is that it still trusted the server. The root key lived on Epicenter's infrastructure, so server code could read your data, a bug could log it, an operator could inspect it. You were never server-blind; you were trusting the application. Once you grant that, the per-owner workspace key buys nothing but a key-recovery tax and a class of "unreadable cell" failures. So we deleted it: the `@epicenter/encryption` package, the keyring, the key derivation, and the `ENCRYPTION_SECRETS` root.
+## What the authority sees
 
-The full argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-dont-hold-it.md`. The design that drove the removal is `specs/20260615T120000-trusted-relay-and-collaborative-fields.md`.
+The authority sees:
 
-## What the relay sees
+- record addresses, scalar states, JSON payloads, sequence numbers, and
+  submission timing;
+- bounded Yjs document baselines and updates;
+- immutable blob bytes and their digests;
+- the authenticated principal, device or replica identifiers needed by the
+  protocol, request sizes, timing, and network metadata.
 
-Everything. `Room.sync()` calls `Y.applyUpdateV2(doc, update, 'http')` and returns diffs with `Y.encodeStateAsUpdateV2`; the WebSocket path broadcasts raw Yjs protocol messages to peers. Because nothing is encrypted before it enters the doc, the synced values are plaintext application JSON. The relay reads structure, keys, and values alike.
+This visibility lets the authority order facts, reject invalid submissions,
+serve sleeping-device catch-up, enforce row and document lifecycles, and
+produce complete portable Backups. It is app-blind in the sense that Lenses
+remain application-owned, not content-blind.
 
-This is deliberate. A trusted relay that can read the doc is what makes server-side search, AI as a Yjs peer, and offline garbage collection possible. A blind relay can do none of those, and the upcoming collaborative child-docs lean on it too: a blind relay cannot follow a stored child id, so a trusted one is what unlocks nested child documents and the offline mark-and-sweep that reclaims orphans.
+## Hosted and self-hosted deployments
 
-Content is only half of what a relay learns. Sealed frames would still leave the routing in the clear, so the relay sees the metadata around the bytes: the authenticated principal id, the connecting node id, which devices share a room (the presence frames), the names of dispatched actions, and the timing, size, and client IP of every message. That envelope outlives any future blind relay, which stops reading the values but still forwards them; sealing a frame hides what is inside it, not the fact that your phone and laptop touched this room at this minute. Run the relay yourself and the metadata is yours. Use Epicenter's and it is a who-talks-to-whom graph Epicenter can read.
+Epicenter Cloud resolves many authenticated accounts to principal partitions.
+OAuth, billing, and hosted provider credentials live only there. Because
+Epicenter operates that deployment, hosted data is inside Epicenter's trust
+boundary.
 
-## The live attach relay follows the same trust model
+A self-hosted instance has one partition behind an operator-supplied bearer.
+It composes no hosted billing or multi-tenant OAuth. The operator controls the
+server, storage, secrets, logs, and backups. Epicenter cannot read a deployment
+it never operates.
 
-Super Chat remote attach adds a second, live channel beside CRDT sync, but not a second privacy promise (ADR-0115).
+The honest claims are:
 
-- **The sync anchor holds plaintext.** It decrypts nothing because nothing is encrypted, and it reads document structure, keys, and values, because serving a sleeping device's catch-up, compaction, and search needs the data (ADR-0004). The anchor is app-blind, not content-blind.
-- **The live attach relay forwards plaintext live frames.** It carries a Super Chat session (prompts, tool results, approvals) between two of your own signed-in devices, addressed by `principalId`, `hostId`, `deviceId`, and `attachId`. It stores no frames and exposes no route/capability/tool surface, but hosted Epicenter may observe the live payloads while forwarding them. It is endpoint-addressed, not route-addressed, so it is not a resurrection of the deleted relay floor (ADR-0086, ADR-0115).
+```text
+hosted       Epicenter can read synchronized data
+self-hosted  the instance operator can read synchronized data
+local-only   no authority receives the data
+```
 
-Confidentiality follows topology. On Cloud, the operator can read live attach frames just as it can read synced workspace data. On self-host the operator is you. The private answer is to run the deployment yourself.
+There is no product switch that turns the hosted service into a zero-knowledge
+authority.
 
-## Big files (audio, images) follow the same rule
+## Documents and blobs follow the same rule
 
-Workspace data rides the row/document planes, but large binaries cannot, so
-audio and images go to a separate immutable blob store: an S3-compatible bucket
-reached through `packages/server/src/s3-blob-store.ts`. Those bytes are **not
-encrypted** either. Each object has a random opaque `BlobId`; SigV4 signs the
-short-lived upload or read capability, and `If-None-Match: *` prevents an
-existing ID from being overwritten. Reads are gated by auth plus a principal
-key prefix (`principals/<principalId>/blobs/<blobId>`), not by concealing the
-bytes. A blob's confidentiality therefore equals a document's: whoever operates
-the bucket can read it. Hosted, that operator is Epicenter (R2); self-hosted, it
-is your own bucket (Garage, S3). R2 and S3 encryption at rest does not change
-who can read through the operator's credentials.
+A record may own one bounded Yjs document and one immutable blob. These are
+separate physical planes because their storage and transfer needs differ, but
+they do not receive different confidentiality promises.
 
-One configuration is easy to get wrong here. The blob store is a service the star calls, not a part of the sync topology, so the bytes follow the store's endpoint, not the doc's home. A blob's upload URL is minted by whichever star is running, and the bytes land in that star's bucket. Self-host the docs but point blobs at Epicenter's blob service, and your media lands in Epicenter's R2, readable by Epicenter, the same trust as hosted docs, even though the doc itself never left your box. To keep media private on self-host, point the store at your own S3 (`BLOBS_S3_ENDPOINT`). A service only ever sees what you hand it; for the blob service, what you hand it is the bytes.
+Document updates are plaintext to the document authority. Blob bytes are raw
+immutable content stored by the configured authority backend. SHA-256 proves
+identity and idempotency; it does not conceal content. Hosted storage operators
+can read hosted bytes. Self-hosted operators can read self-hosted bytes.
 
-## The AI gateways see the prompt and the audio
+The portable Backup design captures a complete authority cut, including
+composed documents and every owned blob byte. Until that implementation wave
+lands, it is a custody contract rather than a shipped surface. Backup
+encryption, if introduced, is an artifact-custody concern and does not change
+the live authority's trust model.
 
-The same "a service sees only what you hand it" rule governs inference. Epicenter's hosted gateways are two OpenAI-compatible routes on the cloud worker: `/v1/chat/completions` for chat (`packages/server/src/routes/inference.ts`) and `/v1/audio/transcriptions` for speech-to-text (`packages/server/src/routes/transcription.ts`). Both are pure passthrough proxies. The gateway holds the house key, attaches it, forwards your request to the upstream provider (OpenAI or Gemini for chat, OpenAI `whisper-1` for transcription), and streams the reply back. It is house-key-only by construction: it never reads a provider key from your request, so it cannot receive yours (ADR-0054).
+## Remote attach is a live trusted channel
 
-What that means for your bytes: when you transcribe through the hosted gateway, your audio leaves your device, reaches Epicenter's worker in memory for the duration of the one request, and is forwarded to the upstream STT provider under Epicenter's key. The worker writes nothing to the blob store, keeps no transcript, and retains nothing past the response; the only durable record is a metered usage event (audio seconds, model, provider) so the call can be billed. The audio is never used for training, by us or, per their API terms, by the upstream provider. The same holds for a chat prompt: it transits the worker to the provider and back, unstored. This is convenience, not privacy: the request is inside Epicenter's trust boundary and the upstream provider's for the moment it is in flight, exactly the trust you already accept for hosted chat.
+Remote attach forwards Home session frames between a user's devices. The relay
+stores no session history and grants no application route, but an operator may
+observe prompts, tool results, approvals, identifiers, sizes, and timing while
+the frames transit. Hosted attach trusts Epicenter; self-hosted attach trusts
+the instance operator.
 
-The private path is the same shape as everywhere else: point the connection somewhere you operate. An inference connection is just `{ baseUrl, apiKey? }` (ADR-0060), so a desktop or extension surface can target a local server, your own Ollama for chat or a local Speaches box for transcription, and the bytes never leave your machine (see the [self-hosted transcription recipe](guides/self-hosted-transcription-speaches.md)). A deployed web page cannot reach `localhost`, so on the web the honest options are the hosted gateway (convenient, in our trust boundary) or your own key against your own URL. Desktop is private by default; web is convenient by default, private by choice.
+## AI and transcription services
 
-## Two deployments, decided by who holds the data
+A service sees what the application sends to it.
 
-Epicenter Cloud, the default, is operated by Epicenter, so hosted data sits inside our trust boundary. It is the same promise as before, without the key-derivation machinery around it. `BETTER_AUTH_SECRET` signs auth cookies, tokens, and OAuth state in `packages/server/src/auth/create-auth.ts`; it is not a workspace encryption root, and it is Cloud-only. Better Auth is a Cloud-only layer (ADR-0076), so a self-hosted instance composes no Better Auth and has no `BETTER_AUTH_SECRET` at all.
+- Local GGUF transcription keeps audio on the desktop.
+- A configured cloud transcription provider receives the audio.
+- A configured language-model provider receives the prompt or transcript text
+  used for that request.
+- Epicenter's hosted gateways see requests in transit and forward them under
+  hosted credentials. They are convenience boundaries, not privacy boundaries.
 
-Self-hosting is functionally zero-knowledge against Epicenter, because Epicenter never holds or sees the data: you operate the deployment. The strength comes from topology, not from a held secret. So the marketing has to stay honest about which deployment it describes. "We cannot read your data" is true when you self-host, not on the default.
+Pointing a desktop surface at a local or self-operated provider keeps that
+request within the infrastructure you control. A browser may be unable to
+reach a local service because of browser networking constraints; the UI must
+state the actual destination rather than imply locality.
 
-## Logging in: Google for hosted, one bearer for an instance
+## Authentication is not content encryption
 
-The hosted star signs in with Google OAuth: `packages/server/src/auth/base-config.ts` disables email/password on purpose, because better-auth 1.5.6 has no local-email-verification gate and no mail sender is wired up, so a local account would open an account-takeover path. OAuth is the hosted star's only (ADR-0071).
+Hosted OAuth sessions and self-hosted instance bearers decide who may address
+an authority. TLS protects bytes in transit. Storage-provider encryption may
+protect media at rest from stolen disks. None of these prevents the running
+authority or its operator from reading authorized content.
 
-A self-hosted instance does not use OAuth at all, so there is no Google app to register for your own box. It authenticates with one operator-supplied static bearer (`INSTANCE_TOKEN`): you generate it once (`bun run gen-token`), supply it through the environment, and paste it into the client; every request is constant-time compared against it and resolves the one `principals/instance` partition. No sign-in flow, no first-boot minting, no mode to pick. That is `docs/adr/0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md`, amended by ADR-0092, which supersedes ADR-0070 and an earlier first-boot-minting direction that never became a published ADR. The cost, named honestly: removing one person from a multi-person instance means rotating the token and redistributing it, because per-person revocation is a deliberately unbuilt seam rather than a shipped feature.
-
-Because the instance has no OAuth and no sessions, it composes no Better Auth and no Postgres at all (ADR-0076): the bearer is constant-time compared in-process, rooms are `bun:sqlite` files on local disk, and there is nothing for the operator to provision but the token. That is what lets the same instance run as a single Bun binary or a Cloudflare Worker with no database behind either.
-
-## Where this is heading: the anchor
-
-Privacy stops being an encryption layer and becomes a topology choice. The direction, validated in a throwaway local spike but not product code yet, is Iroh: every device gets a public-key identity and opens a direct, end-to-end-encrypted QUIC connection addressed by that key. When two devices cannot connect directly, a relay forwards the sealed frames it cannot decode.
-
-The one place a server still has to be an endpoint is when your phone edits and your laptop is asleep: something always-on has to hold that update until the laptop wakes. That something is the anchor, and the anchor decrypts and stores. So "do we encrypt the data" becomes "who runs the anchor":
-
-- Bring your own anchor, and nobody else ever holds your data. This is the privacy choice, stronger than the encrypted key-value ever was, with zero encryption code.
-- Trust Epicenter's anchor, the default, and we hold your data, the same promise as today.
-
-"Become the server" shrinks to "become the anchor": one always-on node instead of a whole auth-and-sync stack. The browser stays a relay-bound leaf (WASM, no UDP hole-punching), and the relay still cannot read the frames. Client-encrypted backup snapshots are the one place a sealed blob still earns its keep, and that primitive returns, minimal, when backup is built.
-
-The local spike proved the shape worth keeping: a Mac Studio home anchor persisted a CRDT doc reached from a MacBook on phone hotspot; a JS/Yjs runtime then used a Rust/Iroh sidecar to stream live updates into that anchor and hydrate them back. That does not solve pairing, auth, packaging, browser access, or room multiplexing. It does prove the important boundary: TypeScript can keep owning Yjs/app semantics while Rust only owns native reachability.
-
-## Migration
-
-There is no deployed encrypted data to protect, so the migration is a one-off manual step: clear local devices and admin-wipe the Durable Object rooms once. No client IndexedDB name bump or in-script corruption guard is needed.
+That is the complete trust model: choose who operates the authority, and treat
+that operator as trusted with synchronized data.

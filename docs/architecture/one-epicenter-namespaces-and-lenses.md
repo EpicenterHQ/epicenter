@@ -1,8 +1,10 @@
 # One Epicenter, namespaces, and Lenses
 
 This is the explanatory map for the greenfield One-Epicenter destination. The
-durable decisions live in ADR-0160 through ADR-0177 and remain Proposed until
-their implementation lands. The active replacement plan lives in
+record path is implemented through the W4 caller cutover and deletion; snapshot
+capture, portable Backup and Restore, and Proposal remain active waves. Durable
+decisions live in ADR-0160 through ADR-0177, each with its own current status.
+The active replacement plan lives in
 [`specs/20260720T002337-epicenter-data-clean-break.md`](../../specs/20260720T002337-epicenter-data-clean-break.md).
 
 The whole system in one sentence:

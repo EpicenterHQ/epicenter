@@ -6,13 +6,12 @@ Codebase-specific facts that the collapse pass must respect. These strings, shap
 
 These appear in on-disk paths, sync wire format, or schemas other apps validate against. They are part of the durable vocabulary of Epicenter.
 
-### IndexedDB and BroadcastChannel key
+### Universal record addresses
 
-```
-"epicenter/{server}/principals/{principalId}/{ydocGuid}"
-```
-
-Used by the browser-side workspace runtime (`packages/workspace/src/document/local-yjs-key.ts`). Forward slashes, includes the API origin host as `{server}` so two deployments on the same browser profile don't collide, and partition segment is `principals/{principalId}/` to match the server's URL and R2 shape. Changing the format detaches every existing IndexedDB store from its consumer.
+The tuple `{ namespace, collection, recordKey }` is durable protocol identity.
+Lens namespaces and collection keys persist beyond one release, and record keys
+are runtime-minted structural identity. Do not rename or reinterpret any member
+without an explicit data migration and protocol decision.
 
 ### Durable Object name format and URL shape
 
@@ -42,16 +41,15 @@ the wire as config.
 
 ### Identity strings inside documents
 
-- Y.Doc guid values (workspace identity for sync and persistence)
-- Sync room names
-- Child document GUIDs (deterministic per row, used by materializers and editors)
+- Universal record addresses that own each document
+- Authority lifetime identifiers and document publication digests
 
 ## Pause and ask before
 
 The collapse pass should stop and surface to the user (not silently proceed) when about to:
 
 - Change any string from the list above
-- Delete a public exported name that has zero in-repo callers but plausible external CLI or SDK consumers (the `@epicenter/cli` binary and the `@epicenter/workspace` published API are the load-bearing examples)
+- Delete a public exported name that has zero in-repo callers but plausible external CLI or SDK consumers (the `@epicenter/cli` binary and the `@epicenter/data` published API are the load-bearing examples)
 - Collapse two files where one's JSDoc documents a non-obvious invariant (the JSDoc is the documentation of a contract; losing it loses the contract)
 - Merge packages or move exports across package boundaries
 - Change a function signature that crosses a published package boundary
@@ -62,7 +60,7 @@ The collapse pass should stop and surface to the user (not silently proceed) whe
 Default collapse-pass targets, narrowest to widest:
 
 1. `packages/auth`
-2. `packages/workspace`
+2. `packages/data`
 3. `packages/svelte-utils`
 4. `packages/cli`
 5. `apps/api`

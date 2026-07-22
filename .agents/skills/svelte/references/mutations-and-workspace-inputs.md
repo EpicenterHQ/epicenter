@@ -225,7 +225,7 @@ Do not hand-roll the two listeners per app: `visibilitychange` is a document eve
 
 ## The default for new apps
 
-An app ships `<FlushEditsOnHide />` in `+layout.svelte` as soon as it has its first commit-on-blur durable field; an app with none (Todos today) skips it. Once installed it is free, like `<Toaster />` or `<ModeWatcher />`: a layout-level concern with nothing to configure. See `workspace-app-composition` for where this fits in the `+layout.svelte` checklist.
+An app ships `<FlushEditsOnHide />` in `+layout.svelte` as soon as it has its first commit-on-blur durable field; an app with none skips it. Once installed it is free, like `<Toaster />` or `<ModeWatcher />`: a layout-level concern with nothing to configure. See `lens-app-composition` for where this fits in the mounted app root.
 
 ## When NOT to use commit-on-blur
 

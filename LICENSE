@@ -12,13 +12,11 @@ and FINANCIAL_SUSTAINABILITY.md.
 ================================================================================
 
 The following libraries are licensed under the MIT License. The full text
-is in licenses/LICENSE-MIT. These are the local-first-on-Yjs developer
+is in licenses/LICENSE-MIT. These are the local-first developer
 toolkit: an external developer can `npm install` any of them and embed
 them in a closed-source product. The toolkit's dependency closure is
 entirely MIT; the boundary is enforced by 'bun run check:licenses'.
 
-    - packages/workspace        (@epicenter/workspace)   typed schemas,
-                                                         CRDT tables, sync
     - packages/ui               (@epicenter/ui)          shadcn-svelte
                                                          component library
     - packages/sync             (@epicenter/sync)        Yjs sync protocol

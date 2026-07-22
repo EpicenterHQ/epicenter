@@ -47,7 +47,7 @@ apps/honeycrisp
 apps/whispering
 apps/tab-manager
 apps/api
-packages/workspace
+packages/data
 packages/cli
 shared TypeScript utilities
 ```

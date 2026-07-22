@@ -1,189 +1,176 @@
 # Positioning
 
-Canonical positioning for Epicenter. This doc owns the public claims and the rules for deriving copy from them. Finished copy belongs to the surface that ships it: README, landing page, GitHub About, package metadata, or launch plan.
+This document owns Epicenter's public claims and the rules for deriving copy
+from them. Finished copy belongs to the surface that ships it: the README,
+landing page, package metadata, or a launch plan.
 
-## The Destination
+## The destination
 
-The product picture all messaging derives from. This section describes the end state, not public copy. Public copy quotes the Spine. The Destination is the compass, never quoted directly.
+One person has one Epicenter: one local-first body of records replicated in
+full across their browser, desktop, and trusted server boundaries. Purpose-built
+applications contribute Lenses that interpret durable namespaces as typed
+tables and values. A Lens does not create another database, synchronization
+scope, identity, or lifecycle.
 
-One folder on your disk is one app. Drop an `epicenter.config.ts` into a folder
-and that folder becomes an Epicenter app; its name is your choice. The config
-default-exports one app, and that app's read-only Markdown projection, its
-machine state, and its sync all run from that one folder. A workspace is the
-folder where you keep those app folders side by side with the folders you own:
+Every record has bounded scalar JSON and may own one collaborative document
+and one immutable blob. Ordinary typed writes are the only application path to
+live data. Epicenter Home owns inspection, status, parked work, Backup, Restore,
+and reviewed agent changes. SQL runs only against inert point-in-time artifacts,
+never against the live store.
 
-```txt
-~/workspace/
-|-- apps/
-|   |-- whispering/
-|   |   |-- epicenter.config.ts   default-exports the whispering app
-|   |   |-- recordings/           read-only Markdown projection of live app state
-|   |   `-- .epicenter/           machine state; ignore it
-|   `-- tabs/
-|       |-- epicenter.config.ts   default-exports the tabs app
-|       |-- saved/                read-only Markdown projection of live app state
-|       `-- .epicenter/           machine state; ignore it
-|-- journal/                      yours forever
-|-- ideas/                        yours forever
-`-- publish/                      yours forever
-```
+The product is personal infrastructure, not a general multi-tenant database.
+Complete replicas, record-independent convergence, permanent tombstones within
+one authority lifetime, and an app-blind trusted authority pay for a small and
+explainable system.
 
-Each app is its own folder, so each runs its own daemon and is its own sync
-peer; nothing multiplexes. Group the app folders however you like: the `apps/`
-container is convention, not a rule, and nothing reserves the name. Your own
-folders (`journal/`, `ideas/`, `publish/`) sit beside them as plain files you
-keep forever.
+## The spine
 
-You speak a thought into Whispering and it lands in your Whispering app folder as Markdown. You save tabs, draft entries, capture whatever, each through a purpose-built app, and every capture becomes a file you can grep. An agent reads the same files, queries the SQLite mirrors with plain SQL, and when it needs to change app state it goes through the same gate you do: a workspace action, validated against the app's schema and exposed to the agent as a tool. Nothing mutates by editing generated files; the projection is one-way on purpose.
+One line, for link cards and short descriptions:
 
-The loop is capture, curate, keep. App output is a disposable inbox, regenerable from the CRDT at any time. What matters graduates into folders you own: ordinary Markdown, tracked in git, still yours after every app in this repo is gone.
+> Local-first apps over one body of data you control.
 
-The quiet bet: the properties that make a workspace durable for you are the same ones that make it legible to agents. Plain files are the context window. SQLite is the query surface. The action registry is the tool list. Epicenter is the workspace where you and your agents are co-writers under one set of rules.
+The hero cut:
 
-What we refuse to build is the strategy. No partial sync: a workspace is one full local replica, which is what lets Yjs carry it instead of a private protocol. No row-level permissions: the app corpus is the unit of sharing; the folder is a local projection and runtime site for that corpus. No editing generated projections back into apps: one validated write path, for humans and agents alike. Each refusal pays for the simplicity of everything else.
+> **One local-first Epicenter for every app you trust.** Your apps share a
+> complete record replica on your devices. Lenses give each app typed tables,
+> values, documents, and blobs without creating another data silo.
 
-## The Spine
+The thirty-second cut:
 
-One message, cut to length and audience. Longer cuts add detail. No cut contradicts a shorter one, and every claim from a shorter cut survives in the longer cuts.
+> Most apps create another private database. Epicenter keeps one complete
+> local record universe and lets purpose-built apps interpret it through typed
+> Lenses. Writes work offline, synchronization catches up automatically, and
+> inspection happens through inert SQLite snapshots rather than a second live
+> data path. Start with Whispering in the browser or inside the Epicenter
+> desktop host.
 
-One line, for one-line surfaces (GitHub About, social preview, link cards):
+The developer cut:
 
-> Local-first apps that write to files you own.
+> A local-first record engine for TypeScript apps: pure JSON Lenses over
+> complete replicas, bounded Yjs documents, and immutable blobs.
 
-The hero cut, for the root README hero:
+The public cut:
 
-> **Local-first apps that write to files you own.** Your data lives on your machine as plain Markdown and SQLite: grep it, version it, open it in Obsidian. When an app stops mattering, your files don't.
+> Your apps should work together without pooling their data in somebody else's
+> cloud. Epicenter keeps a complete local copy on your devices and gives every
+> app one typed path into the same personal data.
 
-One paragraph, for anyone giving us thirty seconds (website about page, CONTRIBUTING, talk bios):
+No shorter cut may promise something a longer cut withdraws. If a new surface
+needs a claim the spine does not support, fix the spine first.
 
-> Most apps trap your data in their database. Epicenter apps keep live state in CRDTs and project everything to ordinary files on your machine: Markdown you can read and edit, SQLite you can query. When an app stops mattering, your files don't. Start with Whispering, our desktop speech-to-text app; the shared workspace behind it is being built in the open in the same repo.
+## The hook
 
-The developer cut, for `@epicenter/workspace` and other toolkit surfaces (npm, package READMEs, technical talks):
+Whispering can capture a transcript, Honeycrisp can turn it into a note, and
+Home can inspect both without either app owning the other's database. Their
+Lenses name different namespaces inside the same Epicenter. Records synchronize
+as one complete personal replica; documents and blobs follow the lifecycle of
+the record that owns them.
 
-> A local-first workspace engine for TypeScript apps: Yjs as the source of truth, Markdown and SQLite as the outputs.
+Home is the custody and inspection surface. It browses live data through typed
+operations, captures a point-in-time SQLite artifact for ad hoc queries, and
+creates a portable Backup for Restore. A snapshot is deliberately stale and
+never applyable. A Backup is complete and may replace the live authority only
+through Restore. A reviewed Proposal, if its prototype earns the product, ends
+after compiling to ordinary typed writes.
 
-The public cut, for epicenter.so and other general-audience surfaces:
+Trust follows topology. Hosted Epicenter can read synchronized records,
+documents, and blobs. Self-hosting moves the authority onto infrastructure you
+operate. Local-only use sends no data to an authority. This is a direct trust
+choice, not client-side encryption disguised as one.
 
-> Apps come and go. Your files shouldn't. Epicenter apps save everything you make as ordinary files in a folder on your computer, so what matters to you outlives every app that made it.
+## Proof line
 
-The developer and public cuts are the only cuts with their own framing. The developer cut exists because npm readers evaluate an API, not a product. The public cut exists because epicenter.so readers are not evaluating an architecture: it restates the one-line cut with the vocabulary translated. Markdown, SQLite, local-first, CRDT, and Yjs stay out of public heroes; on a public surface the mechanism appears below the fold, after the benefit it guarantees, never as the headline. Everything else derives from the user-facing cuts above.
+Every shipped public surface longer than one line names Whispering and shows
+how to run it: as a browser speech-to-text app or as a native surface inside
+Epicenter. Platform claims must match the release artifacts that exist at the
+time the copy ships.
 
-Headlines, tweets, launch posts, and package copy derive from these cuts but live in the surface that publishes them. If a derived surface needs a claim the spine does not make, fix the spine first.
+Roadmap language stays out of the hero. A surface may describe unfinished Home
+or Backup work in a status section, but it must not imply that a planned
+capability is already available.
 
-## The Hook
+## Earned vocabulary
 
-The long-form narrative, for surfaces with room to breathe (landing page body, launch posts, talks). It extends the spine with the claims the short cuts cannot carry: multiple apps share one workspace, and good captures graduate.
-
-Most tools store your data in their own silo. Epicenter gives purpose-built apps a shared local-first workspace: app data can be browsed as Markdown, queried through SQLite, and curated into folders you control. Your folders are ordinary Markdown: grep them, open them in Obsidian, version them with Git, publish them with whatever static site stack you like. Your transcripts can inform your notes. Your saved tabs can become drafts. Good captures graduate into your long-term workspace instead of staying trapped in the app that caught them.
-
-Under the hood, app-owned state lives in Yjs, materializes to SQLite for fast queries, and materializes to Markdown for human-readable projections. Sync happens over the Yjs protocol when you turn it on, through a relay that reads your data in plaintext: hosted Epicenter holds it, and self-hosting puts it on infrastructure you control. Privacy is a topology choice, not an encryption layer.
-
-## The Proof Line
-
-Every shipped surface longer than one line carries exactly one proof line, stated without caveats. The proof line is a claim, not finished copy: each surface writes its own sentence, in keeping with the rule that finished copy belongs to the surface that ships it. The sentence must carry:
-
-- Whispering, by name
-- desktop speech-to-text
-- you can install it today
-- macOS, Windows, and Linux, somewhere on the surface (platform badges or adjacent copy count)
-
-Roadmap language stays out of heroes. "A refresh built on the workspace is in progress" and "being built in public" are Status-section sentences; in a hero they hedge the only shipped product and tell a first-time reader to wait.
-
-## Earned Vocabulary
-
-Some words are internal until the surface earns them. Do not use a term before the reader has seen the thing it names.
+Use internal nouns only after the reader has seen the thing they name.
 
 | Term | Earned by |
-|---|---|
-| workspace (the folder) | showing the directory tree first |
-| materializer | one defining clause at first use: "materializers, the writers that project state to disk" |
-| projection | showing a generated file next to the state it came from |
-| validated action | naming the validator: the app's schema |
-| workspace-native | never on public surfaces; say "built on the workspace" |
+| --- | --- |
+| Epicenter | explaining the one complete personal record universe |
+| Lens | showing an app's pure namespace and collection definition |
+| record | showing `{ namespace, collection, recordKey }` |
+| authority | explaining the trusted owner that orders synchronized facts |
+| snapshot | showing a captured, inert SQLite query artifact |
+| Backup | distinguishing the complete portable artifact from a snapshot |
+| Proposal | showing reviewed changes that compile to ordinary typed writes |
 
-"PKM substrate" is accurate but niche. Use it in technical talks and blog posts, never in a hero or README.
+Do not use `workspace` as the data-platform noun. It may still mean an ordinary
+development folder or user-facing layout where that local meaning is explicit.
+Do not revive `database`, `mount`, `daemon`, or `materializer` as synonyms for
+the Epicenter record path.
 
-Do not use hype words: `AI-native`, `agentic`, `next-gen`, `revolutionary`, `redefine`, `game changer`, `Web3`, `metaverse`. Do not stack buzzwords. "CRDT-powered AI-first encrypted next-gen offline-first workspace" is a sign to say less and prove more.
+Avoid hype words such as `AI-native`, `agentic`, `next-gen`, `revolutionary`,
+or `game changer`. State the capability and the refusal that makes it credible.
 
-## What Epicenter Is
+## What Epicenter is
 
-- An **open-source, local-first workspace**: purpose-built apps plus Markdown folders you own
-- A **TypeScript library** (`@epicenter/workspace`) for building CRDT-backed apps with typed schemas, materializers, and actions
-- A **CLI** (`epicenter`) for running a headless watcher that syncs and materializes one workspace root
-- A **sync server** (AGPL, self-hostable) that relays CRDT updates between your devices
+- An open-source local-first personal data platform.
+- A desktop host and Home surface for trusted application capabilities.
+- A TypeScript toolkit, led by `@epicenter/data`, for typed Lenses over records,
+  documents, and blobs.
+- One shared server library with hosted and self-hosted deployment seams.
 
-## What Epicenter Is Not
+## What Epicenter is not
 
-- Not a single app (many purpose-built apps share one workspace)
-- Not cloud-first (local-first by default, sync is optional)
-- Not a Notion or Obsidian clone (it is the workspace layer beneath capture, curation, and publishing tools)
+- Not a per-app database catalog: applications share one complete replica.
+- Not a general collaborative database: there is no partial replication,
+  record-level permission system, or cross-record transaction.
+- Not a live SQL server: Home queries inert capture artifacts only.
+- Not zero-knowledge hosting: the authority operator can read synchronized
+  content.
+- Not a compatibility shell for the deleted Workspace API.
 
-## Core Claims (Verifiable)
+## Core claims
 
-Every claim we make publicly should be provable by inspecting the repo:
+Every public claim must be provable from the repository.
 
 | Claim | Proof |
-|---|---|
-| "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Readable Markdown and queryable SQLite" | Markdown materializers write `.md` files with YAML frontmatter. SQLite materializers keep rebuildable query mirrors. |
-| "A workspace you own" | The local project layout separates user-owned folders from generated app projections and hidden machine state. |
-| "CRDT-powered sync" | App-owned live state uses Yjs documents; sync uses the Yjs protocol over WebSocket. |
-| "Trusted relay, not an encryption layer" | The relay runs Yjs and reads plaintext. Privacy comes from who holds the data, not from a key we ship. See `docs/trust-model.md`. |
-| "Self-hostable" | Sync server is open source under AGPL. Run it on your infrastructure, so Epicenter never holds your data. |
-| "Bring your own model" | AI features use user-provided API keys. No middleman, no proxy required. |
+| --- | --- |
+| Local-first writes | Replica stores durably admit writes before remote settlement and retain exact retry obligations. |
+| One complete replica | Namespaces are interpretation boundaries, never synchronization or physical storage scopes. |
+| Typed applications | `defineLens`, `defineTable`, and `defineValues` bind release-local schemas to durable record addresses. |
+| Collaborative content | A record may own one bounded Yjs document with durable publication state. |
+| Immutable media | A record may own one write-once blob whose bytes are stored and published separately from scalar JSON. |
+| Trusted sync | Hosted and self-hosted authorities share record semantics and differ in principal resolution and operator. |
+| Inert inspection | Home capture creates a self-identifying SQLite artifact and receives no live SQL handle. |
+| Portable custody | Backup captures one complete authority cut and Restore creates a fresh lifetime. |
 
-## Competitor Positioning
+If a proof has not landed, copy must describe it as direction rather than
+shipped behavior.
 
-### vs Obsidian
-> Obsidian is a markdown editor with sync. Epicenter is the local-first workspace where purpose-built apps produce readable projections and curated Markdown stays yours.
+## Competitive frame
 
-- **Win**: App output can become durable workspace material without living in per-plugin storage. CRDT sync instead of file-level conflict resolution.
-- **Lose**: Obsidian's plugin ecosystem and years of UX polish. We're earlier.
+Against cloud-first suites, Epicenter wins on complete local ownership and an
+open implementation; it loses on mature collaboration and distribution.
 
-### vs Anytype
-> Anytype is a purpose-built encrypted space ecosystem. Epicenter is the Yjs-backed workspace where apps project readable files and curated Markdown stays yours.
+Against file-first tools such as Obsidian or Logseq, Epicenter provides typed
+records, automatic synchronization obligations, documents, and blobs; it loses
+the radical simplicity and ecosystem of plain files.
 
-- **Win**: Standard CRDT stack (Yjs, widely adopted and battle-tested) vs custom protocol. Developer-facing API with typed schemas, not just an end-user app.
-- **Lose**: Anytype's product is more complete today. Their P2P sync story is more mature.
+Against local-first databases such as Jazz, Epicenter chooses a much narrower
+personal scope: one complete replica, no row permissions, and no partial sync.
+Jazz is the better fit for a large multi-user application database. Epicenter
+is the fit when several trusted personal apps should share one coherent local
+universe.
 
-### vs Logseq
-> Logseq is an outliner-first app. Epicenter is the structured local-first storage engine that can power outline UIs without trapping data in a single app.
+Against encrypted note products, Epicenter offers a broader app platform but a
+more explicit trust cost. Hosted authorities are trusted with content;
+self-hosting is the privacy topology.
 
-- **Win**: SQL plus structured schemas. Purpose-built capture tools can project into a workspace you control. Self-hostable CRDT sync.
-- **Lose**: Logseq's block/journal UX is more native. Larger community.
+## Package copy
 
-### vs Standard Notes
-> Standard Notes encrypts your notes. Epicenter is a whole local-first workspace that multiple apps share, with CRDTs, schemas, and materialized exports.
+Each package's `package.json` owns its npm description and keywords. Public
+packages derive from the relevant user cut; `@epicenter/data` derives from the
+developer cut. Descriptions lead with what the package does, not its category.
 
-- **Win**: Platform, not just "notes." Structured data with schemas. Materialized to files you can inspect.
-- **Lose**: Standard Notes' encryption UX is simpler to communicate. They've earned trust over years.
-
-### vs Notion
-> Notion is where your knowledge lives. Epicenter is where your knowledge stays.
-
-- **Win**: Offline-first, local-first, open source, no cloud lock-in.
-- **Lose**: Notion's UX, templates, collaboration, and distribution are years ahead.
-
-### vs Karpathy's "Second Brain" System
-> Karpathy showed the folder. Epicenter is the local-first app layer around it.
-
-Karpathy's "second brain" post is the strongest entry point: three folders of Markdown, a schema file, and AI organizing everything. Epicenter keeps that philosophy and adds sync, schemas, and CLI actions.
-
-- **Win**: CRDT sync across devices, typed schemas, CLI automation: everything raw folders can't do.
-- **Lose**: Karpathy's system wins on simplicity. A folder of markdown files needs zero infrastructure.
-
-### vs Jazz
-> Jazz syncs slices of a shared database to everyone. Epicenter materializes one whole workspace into a folder that belongs to you.
-
-The two stacks converged from opposite premises: typed tables, query subscriptions, local-first writes, collaborative text. The difference is scope. Jazz is a multi-user relational database with partial replication and row-level permissions. Epicenter is hyper-focused on personal apps, so a workspace is a full local replica, the unit of sharing is the folder, and we refuse partial sync, row permissions, and snapshotting on purpose. That refusal is what lets us build on Yjs and open standards instead of a custom sync engine. See [the long form](articles/20260531T160000-i-kept-reinventing-jazz-the-win-is-what-we-refuse.md).
-
-- **Win**: One folder you own, plain text and SQLite you can grep without the app, built on standard Yjs rather than a private protocol. Less to learn because the scope is smaller.
-- **Lose**: Jazz scales to large shared datasets and multi-user row-level access that Epicenter deliberately won't. For a synced multi-user app database, Jazz is the better tool and further along.
-
-Trigger to split: if Competitor Positioning stops deriving from the spine or grows beyond quick battlecards, move it into its own competitor file.
-
-## Package Copy
-
-Each package's npm description and keywords live in its `package.json`; that file is the owner and this doc does not duplicate it. The rule when writing one: user-facing packages derive from the user cuts of the spine, `@epicenter/workspace` derives from the developer cut, and every description leads with what the package does, not what category it is in.
-
-Trigger to revisit: if package descriptions drift off-spine again, add a check script.
+Revisit this document when a shipped surface needs a claim not represented by
+the spine, or when package descriptions drift away from it.

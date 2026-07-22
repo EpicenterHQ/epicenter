@@ -343,9 +343,10 @@ export type Field = { [K in Kind]: FieldOf<K> }[Kind];
  * indexing the marker by hand. The `kind === 'reference'` guard narrows `schema` to the
  * reference meta, whose `[REFERENCE_KEYWORD]` is a required string, so no cast is needed.
  *
- * This reads a field AFTER recognition. The schema-level floor in `@epicenter/workspace`
- * reads the marker off a raw `TSchema` BEFORE recognition (and sees through `nullable`),
- * a genuinely different input, so the two readers stay separate.
+ * This reads a field AFTER recognition. The Lens schema boundary in
+ * `@epicenter/data` reads the marker off a raw `TSchema` BEFORE recognition
+ * (and sees through `nullable`), a genuinely different input, so the two
+ * readers stay separate.
  */
 export function referenceTargetOf(field: Field): string | null {
 	return field.kind === 'reference' ? field.schema[REFERENCE_KEYWORD] : null;

@@ -212,8 +212,8 @@ Deleted:
 - "returns the mocked user" (MOCK ECHO)
 
 Remaining coverage:
-- packages/workspace/src/workspace.integration.test.ts covers
-  workspace creation through the public factory.
+- packages/data/src/lens.test.ts covers
+  Lens definition validation through the public record API.
 ```
 
 ## Final Report

@@ -16,18 +16,23 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1392 specs ever** (550 still in tree, 842 removed).
+**1396 specs ever** (527 still in tree, 869 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-07-20 | epicenter-data-clean-break.handoff | in tree | specs/20260720T002337-epicenter-data-clean-break.handoff.md |
+| 2026-07-20 | epicenter-data-clean-break | in tree | specs/20260720T002337-epicenter-data-clean-break.md |
+| 2026-07-19 | one-epicenter-clean-break | removed | specs/20260719T222716-one-epicenter-clean-break.md |
+| 2026-07-19 | app-owned-workspace-lenses-clean-break | in tree | specs/20260719T180000-app-owned-workspace-lenses-clean-break.md |
 | 2026-07-19 | owner-scoped-workspace-stores | removed | specs/20260719T003311-owner-scoped-workspace-stores.md |
+| 2026-07-17 | two-plane-row-document-runtime | in tree | specs/20260717T212450-two-plane-row-document-runtime.md |
 | 2026-07-17 | workspace-root-cleanup | in tree | specs/20260717T120000-workspace-root-cleanup.md |
 | 2026-07-17 | hosted-storage-policy | removed | specs/20260717T004239-hosted-storage-policy.md |
 | 2026-07-16 | portable-workspace-tree-greenfield-dialectic | removed | specs/20260716T112345-portable-workspace-tree-greenfield-dialectic.md |
-| 2026-07-16 | workspace-tables-kv-row-documents | in tree | specs/20260716T161934-workspace-tables-kv-row-documents.md |
+| 2026-07-16 | workspace-tables-kv-row-documents | removed | specs/20260716T161934-workspace-tables-kv-row-documents.md |
 | 2026-07-16 | confirmed-state-compacted-row-intents | removed | specs/20260716T204040-confirmed-state-compacted-row-intents.md |
 | 2026-07-16 | workspace-tables-kv-row-bodies | removed | specs/20260716T161934-workspace-tables-kv-row-bodies.md |
 | 2026-07-16 | fold-never-refuse-sync-architecture | removed | specs/20260716T173049-fold-never-refuse-sync-architecture.md |
@@ -36,7 +41,6 @@
 | 2026-07-14 | workspace-contract-clean-break | removed | specs/20260714T110841-workspace-contract-clean-break.md |
 | 2026-07-13 | immutable-application-data-generations | removed | specs/20260713T211805-immutable-application-data-generations.md |
 | 2026-07-13 | agent-skill-surface-consolidation | removed | specs/20260713T195355-agent-skill-surface-consolidation.md |
-| 2026-07-13 | desktop-auth-authority | removed | specs/20260713T115019-desktop-auth-authority.md |
 | 2026-07-11 | server-authoritative-sqlite-sync.handoff | removed | specs/20260711T103822-server-authoritative-sqlite-sync.handoff.md |
 | 2026-07-11 | server-authoritative-sqlite-sync | removed | specs/20260711T103822-server-authoritative-sqlite-sync.md |
 | 2026-07-10 | whispering-epicenter-capability-collapse | removed | specs/20260710T230000-whispering-epicenter-capability-collapse.md |
@@ -67,7 +71,7 @@
 | 2026-07-01 | progressive-sign-in-collapse.prompt | removed | specs/20260701T151347-progressive-sign-in-collapse.prompt.md |
 | 2026-07-01 | honeycrisp-desktop-notes | in tree | specs/20260701T141841-honeycrisp-desktop-notes.md |
 | 2026-07-01 | blobs-are-a-url-machine | removed | specs/20260701T150659-blobs-are-a-url-machine.md |
-| 2026-07-01 | whispering-cloud-sync-remainder | in tree | apps/whispering/specs/20260701T120000-whispering-cloud-sync-remainder.md |
+| 2026-07-01 | whispering-cloud-sync-remainder | removed | apps/whispering/specs/20260701T120000-whispering-cloud-sync-remainder.md |
 | 2026-06-30 | cross-device-topology-seam-2-the-rule | in tree | specs/20260630T173000-cross-device-topology-seam-2-the-rule.md |
 | 2026-06-30 | super-app-desktop-host-build-plan | removed | specs/20260630T190000-super-app-desktop-host-build-plan.md |
 | 2026-06-30 | local-mail-tauri-cdc-mirror.handoff | removed | specs/20260630T150000-local-mail-tauri-cdc-mirror.handoff.md |
@@ -203,7 +207,7 @@
 | 2026-05-30 | body-docs-clean-break | removed | specs/20260530T220000-body-docs-clean-break.md |
 | 2026-05-30 | bodies-as-generic-doc-opener | removed | specs/20260530T230000-bodies-as-generic-doc-opener.md |
 | 2026-05-30 | sound-cue-customization | removed | apps/whispering/specs/20260530T150000-sound-cue-customization.md |
-| 2026-05-29 | recording-input-paths-clean-break | in tree | apps/whispering/specs/20260529T000000-recording-input-paths-clean-break.md |
+| 2026-05-29 | recording-input-paths-clean-break | removed | apps/whispering/specs/20260529T000000-recording-input-paths-clean-break.md |
 | 2026-05-29 | ai-workflows-bounded-programs | removed | specs/20260529T120000-ai-workflows-bounded-programs.md |
 | 2026-05-29 | ai-workflows-ux-grill-and-clean-break | in tree | specs/20260529T163000-ai-workflows-ux-grill-and-clean-break.md |
 | 2026-05-29 | ai-workflows-triggers-portability-durable-execution | in tree | specs/20260529T190000-ai-workflows-triggers-portability-durable-execution.md |
@@ -237,13 +241,13 @@
 | 2026-05-26 | REPORT | in tree | apps/whispering/specs/2026-05-26-recorder-shape-investigation/REPORT.md |
 | 2026-05-26 | replace-ffmpeg-with-symphonia-libopus | in tree | apps/whispering/specs/20260526T000000-replace-ffmpeg-with-symphonia-libopus.md |
 | 2026-05-26 | feature-folder-reorganization | in tree | apps/whispering/specs/20260526T005233-feature-folder-reorganization.md |
-| 2026-05-26 | canonical-recorder | in tree | apps/whispering/specs/20260526T150401-canonical-recorder.md |
+| 2026-05-26 | canonical-recorder | removed | apps/whispering/specs/20260526T150401-canonical-recorder.md |
 | 2026-05-26 | tauri-specta-on-artifact-id-base | in tree | specs/20260526T220000-tauri-specta-on-artifact-id-base.md |
 | 2026-05-26 | build-time-platform-di | removed | apps/whispering/specs/20260526T010258-build-time-platform-di.md |
 | 2026-05-26 | collapse-tauri-only-services-into-namespace | removed | specs/20260526T000140-collapse-tauri-only-services-into-namespace.md |
 | 2026-05-26 | rust-transcription-service-boundary | removed | specs/20260526T034000-rust-transcription-service-boundary.md |
 | 2026-05-25 | manual-recorder-state-refactor | in tree | docs/specs/20260525T220000-manual-recorder-state-refactor.md |
-| 2026-05-25 | library-managed-row-version | in tree | packages/workspace/specs/20260525T061910-library-managed-row-version.md |
+| 2026-05-25 | library-managed-row-version | removed | packages/workspace/specs/20260525T061910-library-managed-row-version.md |
 | 2026-05-25 | creative-os-composition-map | in tree | specs/20260525T130000-creative-os-composition-map.md |
 | 2026-05-25 | materializer-tables-as-record | in tree | specs/20260525T134351-materializer-tables-as-record.md |
 | 2026-05-25 | zoned-natural-language-date-input | in tree | specs/20260525T194400-zoned-natural-language-date-input.md |
@@ -434,7 +438,7 @@
 | 2026-05-01 | daemon-route-map-config | removed | specs/20260501T160000-daemon-route-map-config.md |
 | 2026-05-01 | auth-workspace-scope-clean-break | removed | specs/20260501T160436-auth-workspace-scope-clean-break.md |
 | 2026-05-01 | awareness-source-of-truth | removed | specs/20260501T180000-awareness-source-of-truth.md |
-| 2026-04-30 | attach-sync-supervisor-evolution | in tree | packages/workspace/specs/20260430T104326-attach-sync-supervisor-evolution.md |
+| 2026-04-30 | attach-sync-supervisor-evolution | removed | packages/workspace/specs/20260430T104326-attach-sync-supervisor-evolution.md |
 | 2026-04-30 | split-attach-sync-into-transport-presence-rpc | in tree | specs/20260430T103959-split-attach-sync-into-transport-presence-rpc.md |
 | 2026-04-30 | peer-presence-rename-and-sync-split | in tree | specs/20260430T114949-peer-presence-rename-and-sync-split.md |
 | 2026-04-30 | whole-workspace-action-discovery | removed | specs/20260430-whole-workspace-action-discovery.md |
@@ -443,7 +447,7 @@
 | 2026-04-30 | explicit-daemon-host-config | removed | specs/20260430T150000-explicit-daemon-host-config.md |
 | 2026-04-30 | readonly-table-primitives-and-script-surfaces | removed | specs/20260430T170000-readonly-table-primitives-and-script-surfaces.md |
 | 2026-04-30 | daemon-host-definitions | removed | specs/20260430T190000-daemon-host-definitions.md |
-| 2026-04-29 | column-dsl-and-define-table | in tree | packages/workspace/specs/20260429T000000-column-dsl-and-define-table.md |
+| 2026-04-29 | column-dsl-and-define-table | removed | packages/workspace/specs/20260429T000000-column-dsl-and-define-table.md |
 | 2026-04-29 | workspace-as-daemon-transport | removed | specs/20260429T004302-workspace-as-daemon-transport.md |
 | 2026-04-29 | remote-workspace-is-the-action-tree | removed | specs/20260429T120000-remote-workspace-is-the-action-tree.md |
 | 2026-04-29 | sync-as-peer-transport | removed | specs/20260429T230000-sync-as-peer-transport.md |
@@ -787,7 +791,7 @@
 | 2026-02-25 | apple-notes-workspace | removed | specs/20260225T102116-apple-notes-workspace.md |
 | 2026-02-25 | server-package-structure | removed | specs/20260225T130000-server-package-structure.md |
 | 2026-02-25 | typebox-action-simplifications | removed | specs/20260225T180000-typebox-action-simplifications.md |
-| 2026-02-24 | ai-chat-controls-redesign | in tree | apps/tab-manager/specs/20260224T141300 ai-chat-controls-redesign.md |
+| 2026-02-24 | ai-chat-controls-redesign | removed | apps/tab-manager/specs/20260224T141300 ai-chat-controls-redesign.md |
 | 2026-02-24 | simplify-tab-manager-settings | in tree | specs/20260224T112600 simplify-tab-manager-settings.md |
 | 2026-02-24 | conversation-handle-refactor | in tree | specs/20260224T141400-conversation-handle-refactor.md |
 | 2026-02-24 | local-server-plugin-architecture | in tree | specs/20260224T141400-local-server-plugin-architecture.md |
@@ -814,7 +818,7 @@
 | 2026-02-21 | documents-top-level-namespace | removed | specs/20260221T204200-documents-top-level-namespace.md |
 | 2026-02-21 | rename-doc-binding-types | removed | specs/20260221T204200-rename-doc-binding-types.md |
 | 2026-02-21 | remove-document-binding-dead-code | removed | specs/20260221T204300-remove-document-binding-dead-code.md |
-| 2026-02-20 | unify-extension-lifecycle | in tree | packages/workspace/specs/20260220T195900-unify-extension-lifecycle.md |
+| 2026-02-20 | unify-extension-lifecycle | removed | packages/workspace/specs/20260220T195900-unify-extension-lifecycle.md |
 | 2026-02-20 | plugin-first-server-architecture | in tree | specs/20260220T080000-plugin-first-server-architecture.md |
 | 2026-02-20 | clean-markdown-yaml-frontmatter-export | in tree | specs/20260220T195900-clean-markdown-yaml-frontmatter-export.md |
 | 2026-02-20 | sync-plugin-rest-endpoints | in tree | specs/20260220T195900-sync-plugin-rest-endpoints.md |
@@ -984,7 +988,7 @@
 | 2026-01-23 | single-workspace-architecture | in tree | specs/20260123T102500-single-workspace-architecture.md |
 | 2026-01-23 | rename-fieldschema-to-field | removed | specs/20260123T103903-rename-fieldschema-to-field.md |
 | 2026-01-23 | single-workspace-architecture | removed | docs/specs/20260123T102500-single-workspace-architecture.md |
-| 2026-01-22 | namespaced-helper-api | in tree | packages/workspace/specs/20260122T103629-namespaced-helper-api.md |
+| 2026-01-22 | namespaced-helper-api | removed | packages/workspace/specs/20260122T103629-namespaced-helper-api.md |
 | 2026-01-22 | extension-context-redesign | in tree | specs/20260122T094109-extension-context-redesign.md |
 | 2026-01-22 | unified-observation-patterns | in tree | specs/20260122T105410-unified-observation-patterns.md |
 | 2026-01-22 | subdoc-architecture | in tree | specs/20260122T225052-subdoc-architecture.md |
@@ -992,7 +996,7 @@
 | 2026-01-22 | subdoc-architecture | removed | docs/specs/20260122T225052-subdoc-architecture.md |
 | 2026-01-22 | namespaced-helper-api | removed | packages/epicenter/specs/20260122T103629-namespaced-helper-api.md |
 | 2026-01-22 | callable-helper-api-execution | removed | packages/epicenter/specs/20260122T105300-callable-helper-api-execution.md |
-| 2026-01-21 | createclient-builder-api | in tree | packages/workspace/specs/20260121T112000-createclient-builder-api.md |
+| 2026-01-21 | createclient-builder-api | removed | packages/workspace/specs/20260121T112000-createclient-builder-api.md |
 | 2026-01-21 | workspace-doc-consolidation | in tree | specs/20260121T224728-workspace-doc-consolidation.md |
 | 2026-01-21 | doc-architecture-v2 | in tree | specs/20260121T231500-doc-architecture-v2.md |
 | 2026-01-21 | sync-architecture | removed | specs/20260121T170000-sync-architecture.md |
@@ -1075,13 +1079,13 @@
 | 2025-12-10 | unified-providers-migration | removed | specs/20251210T120000-unified-providers-migration.md |
 | 2025-12-09 | typescript-fix-handoff | removed | docs/specs/20251209T080000-typescript-fix-handoff.md |
 | 2025-12-07 | wellcrafted-error-migration | in tree | specs/20251207T120000-wellcrafted-error-migration.md |
-| 2025-12-06 | remove-elysia-mcp | in tree | packages/workspace/specs/20251206T010000-remove-elysia-mcp.md |
+| 2025-12-06 | remove-elysia-mcp | removed | packages/workspace/specs/20251206T010000-remove-elysia-mcp.md |
 | 2025-12-06 | wxt-browser-extension | in tree | specs/20251206T120000-wxt-browser-extension.md |
 | 2025-12-06 | button-link-tooltip-integration | in tree | specs/20251206T120603-button-link-tooltip-integration.md |
 | 2025-12-06 | table-helper-status-api | in tree | specs/20251206T201800-table-helper-status-api.md |
 | 2025-12-06 | button-link-tooltip-integration | removed | docs/specs/20251206T120603-button-link-tooltip-integration.md |
 | 2025-12-06 | remove-elysia-mcp | removed | packages/epicenter/specs/20251206T010000-remove-elysia-mcp.md |
-| 2025-12-05 | migrate-hono-to-elysia | in tree | packages/workspace/specs/20251205T175550-migrate-hono-to-elysia.md |
+| 2025-12-05 | migrate-hono-to-elysia | removed | packages/workspace/specs/20251205T175550-migrate-hono-to-elysia.md |
 | 2025-12-05 | yjs-stress-test | in tree | specs/20251205T162000-yjs-stress-test.md |
 | 2025-12-05 | sqlite-index-batching | in tree | specs/20251205T164620-sqlite-index-batching.md |
 | 2025-12-05 | migrate-hono-to-elysia | removed | packages/epicenter/specs/20251205T175550-migrate-hono-to-elysia.md |
@@ -1208,24 +1212,24 @@
 | 2025-10-27 | fix-appDataDir-redundancy | removed | docs/specs/20251027T000000 fix-appDataDir-redundancy.md |
 | 2025-10-27 | db-phase-2-file-system | removed | docs/specs/20251027T140000 db-phase-2-file-system.md |
 | 2025-10-27 | db-service-platform-split | removed | docs/specs/20251027T120000 db-service-platform-split.md |
-| 2025-10-24 | parser-validation-refactor | in tree | packages/workspace/specs/20251024T000000-parser-validation-refactor.md |
-| 2025-10-24 | workspace-persistence-array | in tree | packages/workspace/specs/20251024T120000-workspace-persistence-array.md |
+| 2025-10-24 | parser-validation-refactor | removed | packages/workspace/specs/20251024T000000-parser-validation-refactor.md |
+| 2025-10-24 | workspace-persistence-array | removed | packages/workspace/specs/20251024T120000-workspace-persistence-array.md |
 | 2025-10-24 | parser-validation-refactor | removed | packages/epicenter/specs/20251024T000000-parser-validation-refactor.md |
 | 2025-10-24 | workspace-persistence-array | removed | packages/epicenter/specs/20251024T120000-workspace-persistence-array.md |
 | 2025-10-24 | parser-validation-refactor | removed | packages/epicenter/docs/specs/20251024T000000-parser-validation-refactor.md |
 | 2025-10-24 | workspace-persistence-array | removed | packages/epicenter/docs/specs/20251024T120000-workspace-persistence-array.md |
-| 2025-10-22 | consolidate-cli-package | in tree | packages/workspace/specs/20251022T174038-consolidate-cli-package.md |
-| 2025-10-22 | markdown-index-serialization-refactor | in tree | packages/workspace/specs/20251022T180000-markdown-index-serialization-refactor.md |
-| 2025-10-22 | improve-actions-introspection | in tree | packages/workspace/specs/20251022T220000-improve-actions-introspection.md |
+| 2025-10-22 | consolidate-cli-package | removed | packages/workspace/specs/20251022T174038-consolidate-cli-package.md |
+| 2025-10-22 | markdown-index-serialization-refactor | removed | packages/workspace/specs/20251022T180000-markdown-index-serialization-refactor.md |
+| 2025-10-22 | improve-actions-introspection | removed | packages/workspace/specs/20251022T220000-improve-actions-introspection.md |
 | 2025-10-22 | consolidate-cli-package | removed | packages/epicenter/specs/20251022T174038-consolidate-cli-package.md |
 | 2025-10-22 | markdown-index-serialization-refactor | removed | packages/epicenter/specs/20251022T180000-markdown-index-serialization-refactor.md |
 | 2025-10-22 | improve-actions-introspection | removed | packages/epicenter/specs/20251022T220000-improve-actions-introspection.md |
 | 2025-10-22 | improve-actions-introspection | removed | packages/epicenter/docs/specs/20251022T220000-improve-actions-introspection.md |
 | 2025-10-22 | markdown-index-serialization-refactor | removed | packages/epicenter/docs/specs/20251022T180000-markdown-index-serialization-refactor.md |
 | 2025-10-22 | consolidate-cli-package | removed | packages/epicenter/docs/specs/20251022T174038-consolidate-cli-package.md |
-| 2025-10-21 | standardize-storage-locations | in tree | packages/workspace/specs/20251021T000003-standardize-storage-locations.md |
-| 2025-10-21 | extract-storage-dir-constant | in tree | packages/workspace/specs/20251021T000004-extract-storage-dir-constant.md |
-| 2025-10-21 | refactor-cli-tests | in tree | packages/workspace/specs/20251021T233339-refactor-cli-tests.md |
+| 2025-10-21 | standardize-storage-locations | removed | packages/workspace/specs/20251021T000003-standardize-storage-locations.md |
+| 2025-10-21 | extract-storage-dir-constant | removed | packages/workspace/specs/20251021T000004-extract-storage-dir-constant.md |
+| 2025-10-21 | refactor-cli-tests | removed | packages/workspace/specs/20251021T233339-refactor-cli-tests.md |
 | 2025-10-21 | split-epicenter | in tree | specs/20251021T000001-split-epicenter.md |
 | 2025-10-21 | workspace-client-relationship-docs | in tree | specs/20251021T235000-workspace-client-relationship-docs.md |
 | 2025-10-21 | standardize-storage-locations | removed | packages/epicenter/specs/20251021T000003-standardize-storage-locations.md |
@@ -1241,10 +1245,10 @@
 | 2025-10-20 | vulkan-compat | removed | docs/specs/20251020T043952 vulkan-compat.md |
 | 2025-10-20 | fix-intellisense-core-types | removed | docs/specs/20251020T042301 fix-intellisense-core-types.md |
 | 2025-10-20 | fix-type-intellisense | removed | docs/specs/20251020T042152 fix-type-intellisense.md |
-| 2025-10-19 | replace-symbol-dispose-with-destroy | in tree | packages/workspace/specs/20251019T000000-replace-symbol-dispose-with-destroy.md |
-| 2025-10-19 | type-safety-improvements-client | in tree | packages/workspace/specs/20251019T000001-type-safety-improvements-client.md |
-| 2025-10-19 | dependency-testing-examples | in tree | packages/workspace/specs/20251019T130000-dependency-testing-examples.md |
-| 2025-10-19 | simplify-mcp-with-typebox | in tree | packages/workspace/specs/20251019T140000-simplify-mcp-with-typebox.md |
+| 2025-10-19 | replace-symbol-dispose-with-destroy | removed | packages/workspace/specs/20251019T000000-replace-symbol-dispose-with-destroy.md |
+| 2025-10-19 | type-safety-improvements-client | removed | packages/workspace/specs/20251019T000001-type-safety-improvements-client.md |
+| 2025-10-19 | dependency-testing-examples | removed | packages/workspace/specs/20251019T130000-dependency-testing-examples.md |
+| 2025-10-19 | simplify-mcp-with-typebox | removed | packages/workspace/specs/20251019T140000-simplify-mcp-with-typebox.md |
 | 2025-10-19 | replace-symbol-dispose-with-destroy | removed | packages/epicenter/specs/20251019T000000-replace-symbol-dispose-with-destroy.md |
 | 2025-10-19 | type-safety-improvements-client | removed | packages/epicenter/specs/20251019T000001-type-safety-improvements-client.md |
 | 2025-10-19 | dependency-testing-examples | removed | packages/epicenter/specs/20251019T130000-dependency-testing-examples.md |
@@ -1262,8 +1266,8 @@
 | 2025-10-17 | simplify-workspace-index-map-generics | removed | docs/specs/20251017T000000-simplify-workspace-index-map-generics.md |
 | 2025-10-17 | remove-runtime-config | removed | docs/specs/20251017T120007-remove-runtime-config.md |
 | 2025-10-17 | disable-yxmlfragment | removed | packages/epicenter/docs/specs/20251017T113727-disable-yxmlfragment.md |
-| 2025-10-14 | unify-workspace-initialization | in tree | packages/workspace/specs/20251014T105747 unify-workspace-initialization.md |
-| 2025-10-14 | bidirectional-markdown-sync | in tree | packages/workspace/specs/20251014T105903 bidirectional-markdown-sync.md |
+| 2025-10-14 | unify-workspace-initialization | removed | packages/workspace/specs/20251014T105747 unify-workspace-initialization.md |
+| 2025-10-14 | bidirectional-markdown-sync | removed | packages/workspace/specs/20251014T105903 bidirectional-markdown-sync.md |
 | 2025-10-14 | epicenter-server | in tree | specs/20251014T101252 epicenter-server.md |
 | 2025-10-14 | unify-workspace-initialization | removed | packages/epicenter/specs/20251014T105747 unify-workspace-initialization.md |
 | 2025-10-14 | bidirectional-markdown-sync | removed | packages/epicenter/specs/20251014T105903 bidirectional-markdown-sync.md |

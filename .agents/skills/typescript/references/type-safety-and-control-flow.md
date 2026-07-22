@@ -35,7 +35,11 @@ function isWorkspaceHandle(value: unknown): value is WorkspaceHandle {
 
 ### Cross-package brands: `Symbol.for`, never `Symbol`
 
-Any brand that has to be recognized across a module boundary: CLI-walks-user-bundles, server-adapter-walks-workspace, AI-tool-bridge-walks-actions: must use the global symbol registry. Plain `Symbol('name')` creates a fresh reference per module evaluation; a monorepo that ends up with two instances of `@epicenter/workspace` (pnpm hoisting, dual CJS/ESM publish, bundler dedup miss, test vs. app resolution) gives each instance its own brand reference. `defineX` from copy A stamps symbol-A; `isX` from copy B checks for symbol-B; the identity check silently fails.
+Any brand that has to be recognized across a module boundary, such as a CLI
+walking user bundles or a server adapter recognizing a library handle, must use
+the global symbol registry. Plain `Symbol('name')` creates a fresh reference per
+module evaluation; duplicate package instances then stamp and check different
+symbols, so the identity test silently fails.
 
 `Symbol.for('epicenter.action')` talks to a process-global registry keyed by the string. Every call anywhere returns the same reference. The brand survives duplication.
 

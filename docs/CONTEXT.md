@@ -256,19 +256,6 @@ shapes, see `docs/adr/`.
   passes.
 - **Data runtime**: one Epicenter replica composes typed table/value lenses and
   lazy Yjs 14 row documents over one private store.
-- **Transitional root-Yjs workspace**: the still-active `@epicenter/workspace`
-  lane used by apps not yet migrated. Its `defineKv`, definition-owned
-  `create/connect/mount`, `.docs`, and `_v` behavior remain compatibility
-  surfaces for those apps, not the canonical SQLite design.
-- **Transitional `satisfiesWorkspace`**: the root-Yjs bundle-conformance helper
-  (renamed from the older `defineWorkspaceBundle`).
-- **Transitional actions and collaboration**: actions remain part of the
-  root-Yjs workspace bundle; collaboration is sync and presence only.
-- **Transitional root-Yjs child document**: a separate, lazy Y.Doc owned by one
-  row and reached through `ws.tables.X.docs.name.open(rowId)`. The workspace
-  derives its address from the workspace, table, a collision-resistant digest
-  of the full row ID, document name, and document format hash; the format
-  capability attaches the typed content handle after the runtime opens the doc.
 - **Worker**: running behavior that observes workspace state and writes results
   back. Workers may be local (every node runs them) or agent-bound (one
   configured agent answers). A conversation is answered by the client agent loop

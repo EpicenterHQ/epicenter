@@ -7,6 +7,7 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line (historical source deleted by ADR-0166) -->
 The monorepo runs two agent chat loops, and a new chat surface has to pick one. The workspace loop (`createConversation`, `packages/workspace/src/agent/loop.ts`) runs the multi-step loop in the client, persists each finished message into a synced Yjs child doc keyed by id, and reaches tools by dispatching actions to peers (ADR-0047), so the loop never runs on a server. tab-manager runs a separate loop on TanStack's `createChat` over device-local IndexedDB, for plain-text streaming. Without a stated rule the split looks accidental, and the next surface either rebuilds one loop on the other's substrate or forks a third. The two are not redundant: they differ on whether the transcript is shared across a person's devices and whether tools must be orchestrated client-side against a blind cloud.
 
 ## Decision

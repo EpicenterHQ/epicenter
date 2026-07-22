@@ -19,7 +19,6 @@ Read the scoped references only when needed:
 - Read [references/wrapping-boundaries.md](references/wrapping-boundaries.md) when deciding how much work one `trySync` or `tryAsync` should cover, especially around cleanup.
 - Read [references/toast-on-error.md](references/toast-on-error.md) when presenting tagged failures in UI code.
 - Read [references/http-boundaries.md](references/http-boundaries.md) when mapping failures into Hono responses or deciding which exceptions must keep propagating.
-- Read [workspace action return shapes](../workspace-api/references/action-return-shapes.md) for `defineQuery` and `defineMutation` throw-versus-`Err` semantics.
 
 ## Choose The Contract First
 

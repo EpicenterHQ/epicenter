@@ -19,7 +19,7 @@ The categories below were validated against the actual codebase by repeated agen
 **Pattern**: `(x as { foo?: unknown }).foo` or `as Record<string, unknown>` accesses where the shape isn't statically known.
 
 ```bash
-grep -rn "as\s*{" packages/cli packages/workspace --include="*.ts" -B2 -A2
+grep -rn "as\s*{" packages/cli packages/data --include="*.ts" -B2 -A2
 ```
 
 **Why it matters**: Each duck-type is a contract gap. The receiver doesn't know what it's getting; the producer doesn't know what's expected. Often justified at literal system boundaries (e.g., parsing user-provided configs, reading from third-party APIs), but unjustified inside the framework's own code.
@@ -65,7 +65,7 @@ grep -rn "\.then\s*\(\s*(\(\)|=> \{\}|=> undefined)" packages --include="*.ts"
 **Pattern**: `console.log` / `console.error` / `console.warn` outside of CLIs, tests, and benchmarks.
 
 ```bash
-grep -rn "console\.(log|error|warn)" packages/workspace packages/sync --include="*.ts" | grep -v test
+grep -rn "console\.(log|error|warn)" packages/data packages/sync --include="*.ts" | grep -v test
 ```
 
 **Why it matters**: library code that calls `console` directly can't be redirected, silenced, or piped to a custom sink (in-memory test introspection, telemetry shipping). Every `console.log` is a hardcoded output decision the consumer can't override.
@@ -114,8 +114,6 @@ rg "Pick<[^>]+,\s*['\"][^'\"|]+['\"]\s*>" packages apps
 ```
 
 **Why it matters**: a single-method pick can keep an old object boundary alive after the caller only needs one operation. The type looks narrow, but the object name still tells readers to think about the whole capability family.
-
-**Example fix**: `packages/workspace/src/daemon/unix-socket.ts` used `Pick<Hono, 'fetch'>` for the socket binder. The binder's job is "bind one request handler to a unix socket and harden the socket file", so the dependency became a `UnixSocketRequestHandler` function instead of a Hono-shaped object.
 
 **Triage**: write the one-sentence job of the caller and mentally inline the picked method. Keep the object only when that sentence names the object or the caller coordinates the object's life cycle. If the sentence only names one verb, accept a named capability function in the caller's language and update tests to fake that function. Do not replace `Pick<Thing, 'method'>` with `Thing['method']` unless `Thing` is still the caller's real concept.
 
@@ -180,7 +178,6 @@ grep -rn "\.error\.name === '" packages apps --include="*.ts" | grep -v test
 Tested and rejected as not-actually-smells in this codebase:
 
 - **Dead `kind:` branches**: exhaustiveness via `never` enforces this aggressively. No dead branches survive.
-- **Dead exported types**: many exports across `packages/workspace`; spot-checks always hit consumers. Would need deeper dependency analysis to find real dead ones.
 - **Stale file names** (`*-manager.ts`, `*-handler.ts`): none found. Naming matches responsibility.
 - **Async wrappers doing no work**: Yjs is sync-friendly; the codebase doesn't fake async.
 - **Casual `@ts-expect-error` / `@ts-ignore`**: ~234 of them, but all justified (test doubles, duck-typing at system boundaries with comments).

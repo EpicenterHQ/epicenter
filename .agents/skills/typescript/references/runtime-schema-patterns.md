@@ -44,47 +44,17 @@ Both behave similarly in TypeScript, but only the `?` syntax converts correctly 
 
 # Branded Types Pattern
 
-Two shapes coexist in the codebase, picked by what owns the brand at runtime:
+Two shapes coexist in the codebase, picked by what owns identity at runtime:
 
-- **Workspace table IDs**: pure type alias + `generate*` factory. The brand lives only in the type system; `field.string<Id>()` carries it through the TypeBox schema. No runtime validator object.
-- **Arktype-validated IDs** (auth user IDs, persisted-state schemas, HTTP route inputs): validator-first + `as*` helper. The arktype `Type` and the inferred type share one PascalCase name.
+- **Record table IDs** are structural strings minted by the record runtime.
+  Never declare `id` in Lens fields or generate a replacement at the app layer.
+  A product facade may brand the returned id when the distinction prevents a
+  real mix-up, but the physical record key remains runtime-owned.
+- **Arktype-validated IDs** (auth user IDs, persisted-state schemas, HTTP route
+  inputs) use a validator-first shape plus an `as*` helper. The arktype `Type`
+  and inferred type share one PascalCase name.
 
-## Workspace Table IDs: Pure Type Alias + Generator
-
-For any ID that lives in a `defineTable` schema, declare the brand as a **type alias** and pair it with a `generate*` factory that wraps `generateId<T>()`. The brand is never a runtime value; `field.string<T>()` propagates it through the TypeBox schema.
-
-```typescript
-import type { Brand } from 'wellcrafted/brand';
-import { field } from '@epicenter/field';
-import { defineTable, generateId, nullable } from '@epicenter/workspace';
-
-// 1. Type alias: brand-only, no runtime symbol
-export type SavedTabId = string & Brand<'SavedTabId'>;
-
-// 2. Generator: wraps generateId<T>() so the cast lives in one place
-export const generateSavedTabId = (): SavedTabId => generateId<SavedTabId>();
-
-// 3. Use in defineTable via field.string<>()
-const savedTabsTable = defineTable({
-	id: field.string<SavedTabId>(),
-	url: field.string(),
-	parentId: nullable(field.string<SavedTabId>()),
-});
-```
-
-At call sites, mint with the generator; never scatter raw casts:
-
-```typescript
-// Good
-const id = generateSavedTabId();
-
-// Bad: scattered double-cast
-const id = generateId() as string as SavedTabId;
-```
-
-The `generate*` prefix means "new ID from scratch." The `create*` prefix means "assemble from inputs" (e.g., `createTabCompositeId(deviceId, tabId)`).
-
-See the `workspace-api` skill for the full schema/migration rules.
+See the `data-lens` skill for record schema and structural identity rules.
 
 ## Arktype-Validated IDs: Validator First, Type Inferred, Optional `as*` Helper
 
@@ -175,4 +145,4 @@ This is rejected in favor of the validator-first pattern because:
 
 The validator-first + `as*` helper pattern keeps the arktype schema name unified and pushes brand-casting into a clearly named function.
 
-See the `workspace-api` skill for the full workspace file structure and rules.
+See the `data-lens` skill for the current record schema structure and rules.

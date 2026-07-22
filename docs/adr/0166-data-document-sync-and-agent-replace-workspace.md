@@ -1,7 +1,7 @@
 # 0166. Data, document sync, and agent replace Workspace
 
-- **Status:** Proposed
-- **Date:** 2026-07-20 (revised 2026-07-21: record vocabulary)
+- **Status:** Accepted
+- **Date:** 2026-07-20 (accepted 2026-07-22 after caller migration and deletion)
 
 ## Context
 
@@ -58,6 +58,16 @@ stated zero-legacy-data premise.
 - Server and clients share protocol definitions, not client runtime ownership.
 - The cut may break unmaintained applications. It does not ship a compatibility
   package to keep them compiling.
+
+## Implementation
+
+The retained Epicenter, Honeycrisp, and Whispering callers now bind record
+Lenses through `@epicenter/data/record`. The replacement owns scalar records,
+record documents, blobs, attachment, status, and disposal. After the retained
+applications and package graph verified without the old import, the repository
+deleted `packages/workspace`, its orphaned dependencies, obsolete examples,
+and its agent skills. Git preserves the removed implementation; no compatibility
+package or migration bridge remains.
 
 ## Considered alternatives
 

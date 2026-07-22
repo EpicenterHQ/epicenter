@@ -81,7 +81,6 @@
 			"yjs": "^13.6.31",
 			"lib0": "^0.2.117",
 			"y-protocols": "^1.0.7",
-			"y-indexeddb": "^9.0.12",
 			"typebox": "^1.0.0",
 			"better-auth": "^1.6.23",
 			"@better-auth/oauth-provider": "^1.6.23",
@@ -176,14 +175,12 @@
 		"cf:apply:remote": "bun run --cwd ops cf:apply:remote",
 		"cli": "bun packages/cli/src/bin.ts",
 		"cli:local": "EPICENTER_API_URL=http://localhost:8787 bun packages/cli/src/bin.ts",
-		"epicenter:local": "EPICENTER_API_URL=http://localhost:8787 bun run --bun epicenter",
-		"jsrepo:build": "jsrepo build"
+		"epicenter:local": "EPICENTER_API_URL=http://localhost:8787 bun run --bun epicenter"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
 		"@changesets/cli": "^2.31.0",
 		"@types/bun": "catalog:",
-		"jsrepo": "^3.6.2",
 		"miniflare": "catalog:",
 		"wrangler": "catalog:"
 	},
@@ -192,7 +189,6 @@
 		"tinyexec": "^1.0.4"
 	},
 	"patchedDependencies": {
-		"y-indexeddb@9.0.12": "patches/y-indexeddb@9.0.12.patch",
 		"@y/prosemirror@2.0.0-6": "patches/@y%2Fprosemirror@2.0.0-6.patch",
 		"@y/y@14.0.0-rc.24": "patches/@y%2Fy@14.0.0-rc.24.patch"
 	}

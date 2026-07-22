@@ -61,7 +61,7 @@ a generated config.
 The two canonical library shapes in full:
 
 ```jsonc
-// bun library: packages/workspace, filesystem, util, sync, cli, ...
+// bun library: packages/data, filesystem, util, sync, cli, ...
 {
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {

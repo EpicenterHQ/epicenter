@@ -8,7 +8,7 @@ This directory contains knowledge articles, guides, and reference materials for 
 - [Context](CONTEXT.md): shared vocabulary for the platform's concepts.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
 - [Architecture](architecture.md): the repo's main server, app, package, and deployment boundaries.
-- [Trust model](trust-model.md): what the trusted relay reads, the two deployments, and where the anchor is heading.
+- [Trust model](trust-model.md): what a trusted authority reads and how hosted, self-hosted, and local-only topology differ.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).
 
 ## Directory Structure

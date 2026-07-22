@@ -151,9 +151,11 @@ The package exports pure functions. Feed them bytes and docs; they give you byte
 `@epicenter/sync` sits below the rest of the sync stack.
 
 ```text
-workspace authority     liveness, snapshots, logs, WebSocket lifecycle
+record authority        liveness, snapshots, logs, WebSocket lifecycle
         │
-@epicenter/workspace    restricted lazy RowDocument API and runtime persistence
+@epicenter/data         record-addressed document API and runtime persistence
+        │
+@epicenter/document-sync publication and realtime coordination
         │
 @epicenter/sync         single-document wire and provider behavior
         │
@@ -162,9 +164,10 @@ workspace authority     liveness, snapshots, logs, WebSocket lifecycle
 
 In practice:
 
-- The workspace authority uses it to serve each open row document through its
-  own connection while retaining one durable workspace owner.
-- `@epicenter/workspace` uses it behind the restricted `RowDocument` handle.
+- The record authority uses it to serve each open row document through its own
+  connection while retaining one durable Epicenter owner.
+- `@epicenter/data` and `@epicenter/document-sync` use it behind the
+  record-addressed document boundary.
 - `@epicenter/row-sync` never imports it; scalar convergence is a separate
   protocol plane.
 - Other packages need the wire format only when implementing a document

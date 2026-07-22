@@ -1,5 +1,9 @@
 # Tauri's Webview Doesn't Care What Serves It
 
+> Historical article. Epicenter still uses a Tauri and Bun host seam, but the
+> local Workspace CRUD, filesystem, and relay architecture described below was
+> replaced by the desktop record owner and typed host protocol.
+
 Tauri's `invoke()` IPC and a Bun HTTP server can run side by side from the same frontend. The webview loads from Bun, fetches data from Bun, and calls native Rust commands through `invoke()`: all on the same page, no hacks required. This is how Epicenter gets native OS APIs (audio, shortcuts, tray) from Rust while keeping all business logic in TypeScript.
 
 ## The Architecture

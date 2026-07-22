@@ -1,6 +1,6 @@
 ---
 name: auth
-description: 'Epicenter auth packages: `@epicenter/auth` and the Svelte wrapper at `@epicenter/svelte/auth`, OAuth sessions, identity state, auth-owned fetch/WebSocket, and workspace boot selection. Use when editing Epicenter auth clients, session state, hosted sign-in, or auth/workspace integration.'
+description: 'Epicenter auth packages: `@epicenter/auth` and the Svelte wrapper at `@epicenter/svelte/auth`, OAuth sessions, identity state, auth-owned fetch/WebSocket, and record-replica attachment. Use when editing Epicenter auth clients, session state, hosted sign-in, or auth/data integration.'
 metadata:
   author: epicenter
   version: '7.0'
@@ -462,44 +462,21 @@ stateless JWT access token  ->  cannot revoke before exp
    Never flatten a JWKS-fetch failure into a 401, or a transient server fault
    makes clients discard and refresh a good token and pause network auth.
 
-## Workspace Boot Selection
+## Record Attachment
 
-Workspace apps read identity once at boot with one call.
-`toConnection(auth, nodeId)` projects the auth snapshot: signed out returns
-`null` (bare local IndexedDB storage), signed in returns the principal's
-`ConnectionConfig` (principal-scoped storage plus relay sync).
-`reloadOnPrincipalChange(auth)` reloads the page when the principal changes, so
-the next boot re-projects. `AccountPopover` is the account surface; do not gate
-the app shell on sign-in.
+Lens-backed apps open their local record Epicenter whether signed in or out.
+Sign-in may attach the whole replica to a deployment and principal; it never
+creates an app-specific storage scope or gates local first paint.
 
-Use it in the browser opener:
+The browser runtime reads `auth.state` when an attachment or authenticated
+operation begins, then generation-fences the work to that principal. Abort or
+refuse the result if identity changes before completion. If an existing replica
+is attached to another deployment or principal, surface a blocking mismatch
+instead of silently moving data.
 
-```ts
-import type { SyncAuthClient } from '@epicenter/auth';
-import { toConnection } from '@epicenter/svelte/auth';
-import type { NodeId } from '@epicenter/workspace';
-
-export function openMyAppBrowser({
-	auth,
-	nodeId,
-}: {
-	auth: SyncAuthClient;
-	nodeId: NodeId;
-}) {
-	return myAppWorkspace.connect(toConnection(auth, nodeId));
-}
-```
-
-Inside the connection, `server` is the API host alone (local-storage
-partition names); `baseURL` is the full origin (`roomWsUrl` wants the scheme
-for the `wss://` upgrade).
-
-`createSession` no longer owns workspace lifecycle in workspace apps. It
-survives only for auxiliary signed-in-only resources whose whole existence is
-tied to identity.
-
-Local workspace data must not be wiped just because network auth failed. Wiping
-Yjs or local storage is a separate destructive user action.
+Local records must not be wiped because network auth failed. Keep/discard on
+first attachment is a separate explicit destructive choice. See
+`lens-app-composition` for the Honeycrisp and Whispering runtime shape.
 
 ## Server Routes and Deployment Seam
 

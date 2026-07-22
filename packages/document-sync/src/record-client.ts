@@ -4,7 +4,7 @@ import {
 	recordDocumentConnectionTarget,
 	type SyncCredentialProvider,
 } from '@epicenter/data/record';
-import { BEARER_SUBPROTOCOL_PREFIX } from '@epicenter/sync';
+import { BEARER_SUBPROTOCOL_PREFIX } from '@epicenter/sync/auth-subprotocol';
 import {
 	DOCUMENT_BACKSTOP_CLOSE_CODE,
 	DOCUMENT_SUBPROTOCOL,
