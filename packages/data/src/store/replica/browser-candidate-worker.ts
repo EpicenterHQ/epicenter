@@ -31,19 +31,6 @@ function serializeError(cause: unknown): { name: string; message: string } {
 	return { name: 'Error', message: String(cause) };
 }
 
-function isMutation(operation: BrowserReplicaStoreOperation): boolean {
-	return (
-		operation.kind === 'local-write' ||
-		operation.kind === 'seal' ||
-		operation.kind === 'settle' ||
-		operation.kind === 'install-facts' ||
-		operation.kind === 'capture-blob' ||
-		operation.kind === 'settle-blob-publication' ||
-		operation.kind === 'sweep-blob-debris' ||
-		operation.kind === 'erase'
-	);
-}
-
 function ownerLostMessage(id: number): BrowserReplicaOwnerMessage {
 	return {
 		type: 'error',
@@ -68,6 +55,7 @@ export function startBrowserReplicaCandidateWorker(
 		| undefined;
 	let ownerSession: string | undefined;
 	let ownerReplacesSession: string | undefined;
+	let stopOwnerInvalidations: (() => void) | undefined;
 	let currentSession: string | undefined;
 	let ownerTail = Promise.resolve();
 	let isStarted = false;
@@ -125,7 +113,6 @@ export function startBrowserReplicaCandidateWorker(
 			try {
 				const value = await ownerOperations?.execute(operation);
 				respond(candidate, { type: 'result', id, value }, session);
-				if (isMutation(operation)) emitInvalidation(session);
 			} catch (cause) {
 				const error = serializeError(cause);
 				respond(candidate, { type: 'error', id, ...error }, session);
@@ -243,6 +230,9 @@ export function startBrowserReplicaCandidateWorker(
 			ownerOperations = createBrowserReplicaOwnerOperations(opened);
 			ownerReplacesSession = currentSession;
 			ownerSession = crypto.randomUUID();
+			stopOwnerInvalidations = opened.subscribeInvalidation(() => {
+				if (ownerSession !== undefined) emitInvalidation(ownerSession);
+			});
 			acceptOwner(ownerSession, ownerReplacesSession ?? null, true);
 			channel?.postMessage({
 				version: 1,
@@ -266,6 +256,8 @@ export function startBrowserReplicaCandidateWorker(
 		queued.clear();
 		forwarded.clear();
 		await ownerTail.catch(() => undefined);
+		stopOwnerInvalidations?.();
+		stopOwnerInvalidations = undefined;
 		await owner?.dispose();
 		owner = undefined;
 		ownerOperations = undefined;

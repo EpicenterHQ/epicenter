@@ -2,6 +2,7 @@ import { rmSync, statSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
+import * as Y from '@y/y';
 import {
 	type BrowserContext,
 	type BrowserType,
@@ -96,6 +97,22 @@ async function request(page: Page, operation: BrowserReplicaStoreOperation) {
 				JSON.parse(operationJson) as BrowserReplicaStoreOperation,
 			),
 		JSON.stringify(operation),
+	);
+}
+
+async function appendDocument(
+	page: Page,
+	address: RecordAddress,
+	update: Uint8Array,
+): Promise<void> {
+	await page.evaluate(
+		({ address, bytes }) =>
+			window.browserReplicaCandidateEvidence.request({
+				kind: 'append-local-document',
+				address,
+				update: new Uint8Array(bytes),
+			}),
+		{ address, bytes: [...update] },
 	);
 }
 
@@ -200,6 +217,32 @@ async function runEngine(
 				followerInvalidations.includes(token),
 			),
 		`${engineName} did not deliver each committed invalidation exactly once`,
+	);
+	const document = new Y.Doc();
+	try {
+		(
+			document.get('content', 'text') as unknown as {
+				insert(index: number, text: string): void;
+			}
+		).insert(0, 'document invalidation');
+		await appendDocument(
+			ownerPage,
+			addressA,
+			new Uint8Array(Y.encodeStateAsUpdateV2(document)),
+		);
+	} finally {
+		document.destroy();
+	}
+	const [ownerDocumentInvalidation, followerDocumentInvalidation] =
+		await Promise.all([
+			waitForInvalidations(ownerPage, 1),
+			waitForInvalidations(followerPage, 1),
+		]);
+	assert(
+		ownerDocumentInvalidation.length === 1 &&
+			followerDocumentInvalidation.length === 1 &&
+			ownerDocumentInvalidation[0] === followerDocumentInvalidation[0],
+		`${engineName} did not broadcast the document commit invalidation`,
 	);
 	const ownerSession = firstStatus.ownerSession;
 	await ownerPage.close();

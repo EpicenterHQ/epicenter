@@ -111,6 +111,25 @@ export async function openBrowserReplicaOwner({
 		configureDatabase(database);
 		const files = await createBrowserOpfsBlobFileStore();
 		let openedStores = createStores(database, limits, files, initialize);
+		const invalidationListeners = new Set<() => void>();
+		let stopRecords: (() => void) | undefined;
+		let stopBlobs: (() => void) | undefined;
+		function notifyInvalidation(): void {
+			for (const listener of invalidationListeners) {
+				try {
+					listener();
+				} catch {
+					// An observer cannot interrupt the storage owner.
+				}
+			}
+		}
+		function bindInvalidationSources(): void {
+			stopRecords?.();
+			stopBlobs?.();
+			stopRecords = openedStores.store.subscribe(notifyInvalidation);
+			stopBlobs = openedStores.blobs.subscribe(notifyInvalidation);
+		}
+		bindInvalidationSources();
 		await openedStores.blobs.reopenSweep();
 
 		return {
@@ -121,6 +140,11 @@ export async function openBrowserReplicaOwner({
 			get blobs() {
 				if (isDisposed) throw new Error('browser replica owner is disposed');
 				return openedStores.blobs;
+			},
+			subscribeInvalidation(listener: () => void): () => void {
+				if (isDisposed) throw new Error('browser replica owner is disposed');
+				invalidationListeners.add(listener);
+				return () => invalidationListeners.delete(listener);
 			},
 			integrityCheck(): void {
 				if (isDisposed) throw new Error('browser replica owner is disposed');
@@ -138,11 +162,17 @@ export async function openBrowserReplicaOwner({
 				database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 				configureDatabase(database);
 				openedStores = createStores(database, limits, files);
+				bindInvalidationSources();
 				await openedStores.blobs.reopenSweep();
 			},
 			async dispose(): Promise<void> {
 				if (isDisposed) return;
 				isDisposed = true;
+				stopRecords?.();
+				stopRecords = undefined;
+				stopBlobs?.();
+				stopBlobs = undefined;
+				invalidationListeners.clear();
 				await settleCleanup(
 					[
 						() => database?.close(),
