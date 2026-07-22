@@ -437,6 +437,12 @@ export function openReplicaStore({
 			if (meta.sealed_submission !== null) {
 				throw new Error('one submission is already sealed');
 			}
+			// MAX_SAFE_INTEGER + 1 is the one internal exhaustion sentinel. It can
+			// be reached only by settling the final wire-valid submission number and
+			// must never be admitted into another request.
+			if (!Number.isSafeInteger(meta.next_submission)) {
+				throw new Error('replica submission number space is exhausted');
+			}
 			const pending = database.all<
 				RecordRow & {
 					namespace: string;

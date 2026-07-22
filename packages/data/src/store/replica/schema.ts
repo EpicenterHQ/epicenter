@@ -32,7 +32,7 @@ const SCHEMA = [
 		sealed_request         TEXT,
 		sealed_request_hash    TEXT,
 		next_submission        INTEGER NOT NULL DEFAULT 1
-			CHECK (next_submission >= 1),
+			CHECK (next_submission BETWEEN 1 AND 9007199254740992),
 		CHECK ((attached_deployment IS NULL) = (attached_principal IS NULL)),
 		CHECK ((sealed_submission IS NULL) = (sealed_request IS NULL)),
 		CHECK ((sealed_submission IS NULL) = (sealed_request_hash IS NULL)),

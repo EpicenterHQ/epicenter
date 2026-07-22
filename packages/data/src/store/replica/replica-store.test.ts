@@ -115,4 +115,38 @@ describe('production replica store format', () => {
 			database.close();
 		}
 	});
+
+	test('retains one internal exhaustion sentinel but never seals it onto the wire', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			database.exec(
+				'UPDATE meta SET next_submission = 9007199254740992 WHERE singleton = 1',
+			);
+			store.localWrite({
+				address: {
+					namespace: 'so.epicenter.notes',
+					collection: 'recordings',
+					recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+				},
+				op: 'replace',
+				value: 'pending',
+			});
+			expect(() => store.seal()).toThrow(/number space is exhausted/);
+			expect(() =>
+				database.exec(
+					'UPDATE meta SET next_submission = 9007199254740993 WHERE singleton = 1',
+				),
+			).toThrow(/constraint failed/);
+		} finally {
+			database.close();
+		}
+	});
 });
