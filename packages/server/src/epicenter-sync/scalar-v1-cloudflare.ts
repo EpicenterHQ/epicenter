@@ -1115,6 +1115,7 @@ export function mountCloudflareScalarV1App<E extends Env = Env>(
 	});
 	mountBackupV1App(app, {
 		auth,
+		portable: true,
 		locateRegistry: (principalId, env) =>
 			locateDataBackupRegistryV1(resolveBackupRegistry(env), principalId),
 		restoreBackup: (principalId, backupId, restoreRequestId, env) =>

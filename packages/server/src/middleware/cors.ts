@@ -9,7 +9,10 @@
 
 import { cors } from 'hono/cors';
 import { createMiddleware } from 'hono/factory';
-import { BACKUP_V1_RESTORE_REQUEST_HEADER } from '../epicenter-sync/backup-v1-route.js';
+import {
+	BACKUP_V1_RESTORE_REQUEST_HEADER,
+	BACKUP_V1_UPLOAD_PART_SHA256_HEADER,
+} from '../epicenter-sync/backup-v1-route.js';
 import { isWebSocketUpgrade } from '../is-websocket-upgrade.js';
 import type { Env } from '../types.js';
 
@@ -25,6 +28,7 @@ export const corsMiddleware = createMiddleware<Env>(async (c, next) => {
 			'Authorization',
 			'Upgrade',
 			BACKUP_V1_RESTORE_REQUEST_HEADER,
+			BACKUP_V1_UPLOAD_PART_SHA256_HEADER,
 		],
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 	})(c, next);

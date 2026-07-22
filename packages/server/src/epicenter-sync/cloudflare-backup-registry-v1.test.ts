@@ -104,8 +104,13 @@ function setupState({
 	},
 	currentAuthorityLifetime = async () => 'outgoing-lifetime',
 	destroy,
+	downloadBackup = async (input: {
+		ownerStorageKey: string;
+		backupId: string;
+	}) => new Response(`${input.ownerStorageKey}:${input.backupId}`),
 	materialize,
 	raw = new Database(':memory:', { strict: true }),
+	r2PutFailure,
 	restoreBackup = async (_backupId: string, successorLifetime: string) => ({
 		authorityLifetime: successorLifetime,
 		recordCount: 0,
@@ -115,12 +120,17 @@ function setupState({
 	capture?: (backupId: string) => Promise<{ recordCount: number }>;
 	currentAuthorityLifetime?: () => Promise<string>;
 	destroy?: (backupId: string) => Promise<void>;
+	downloadBackup?: (input: {
+		ownerStorageKey: string;
+		backupId: string;
+	}) => Promise<Response>;
 	materialize?: (input: {
 		ownerStorageKey: string;
 		backupId: string;
 		bytes: ReadableStream<Uint8Array>;
-	}) => Promise<{ recordCount: number }>;
+	}) => Promise<{ recordCount: number } | { invalidPortableBackup: true }>;
 	raw?: Database;
+	r2PutFailure?: Error;
 	restoreBackup?: (
 		backupId: string,
 		successorLifetime: string,
@@ -221,6 +231,7 @@ function setupState({
 				body: ReadableStream<Uint8Array>,
 				options?: { sha256?: string },
 			) {
+				if (r2PutFailure !== undefined) throw r2PutFailure;
 				const bytes = await streamBytes(body);
 				const digest = bytesToHex(sha256(bytes));
 				if (options?.sha256 !== undefined && options.sha256 !== digest) {
@@ -263,6 +274,7 @@ function setupState({
 		PORTABLE_MATERIALIZER: {
 			getByName() {
 				return {
+					downloadBackup,
 					async materializeUpload(input: {
 						ownerStorageKey: string;
 						backupId: string;
@@ -365,6 +377,86 @@ test('deleting one sealed Backup leaves its sibling published', async () => {
 		expect(await registry.delete(first.backupId)).toBe(false);
 		expect(await registry.list()).toEqual([second]);
 		expect(owned.destroyed).toEqual([first.backupId]);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('download materializes only a published sealed Backup', async () => {
+	const owned = setupState();
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		const downloaded = await registry.download(backup.backupId);
+		expect(downloaded).toBeDefined();
+		expect(await downloaded?.text()).toBe(
+			`authority-storage-key:${backup.backupId}`,
+		);
+		expect(await registry.download('m'.repeat(24))).toBeUndefined();
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('deletion cancels an admitted portable download before erasing its Backup', async () => {
+	const admitted = deferred<void>();
+	const release = deferred<void>();
+	const owned = setupState({
+		async downloadBackup() {
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					start() {
+						admitted.resolve();
+					},
+					async pull(controller) {
+						await release.promise;
+						controller.enqueue(new TextEncoder().encode('complete'));
+						controller.close();
+					},
+				}),
+			);
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		const response = await registry.download(backup.backupId);
+		const downloaded = response?.text();
+		await admitted.promise;
+		expect(await registry.delete(backup.backupId)).toBe(true);
+		expect(await downloaded).not.toBe('complete');
+		expect(owned.destroyed).toEqual([backup.backupId]);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('account deletion cancels every admitted portable download', async () => {
+	const admitted = deferred<void>();
+	const owned = setupState({
+		async downloadBackup() {
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					start() {
+						admitted.resolve();
+					},
+					pull() {
+						return new Promise(() => undefined);
+					},
+				}),
+			);
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		const response = await registry.download(backup.backupId);
+		const downloaded = response?.text();
+		await admitted.promise;
+
+		await registry.deleteAccount();
+		expect(await downloaded).not.toBe('complete');
+		expect(owned.destroyed).toContain(backup.backupId);
 	} finally {
 		owned.raw.close();
 	}
@@ -587,24 +679,24 @@ test('portable upload parts are immutable and verify R2 size and checksum', asyn
 			digestOf('first'),
 			byteStream('unused retry'),
 		);
-		await expect(
-			registry.putUploadPart(
+		expect(
+			await registry.putUploadPart(
 				UPLOAD_REQUEST_ID,
 				1,
 				6,
 				digestOf('second'),
 				byteStream('second'),
 			),
-		).rejects.toThrow('conflicts with its first write');
-		await expect(
-			registry.putUploadPart(
+		).toEqual({ kind: 'upload-conflict' });
+		expect(
+			await registry.putUploadPart(
 				UPLOAD_REQUEST_ID,
 				2,
 				4,
 				digestOf('wrong'),
 				byteStream('bytes'),
 			),
-		).rejects.toThrow('do not match their metadata');
+		).toEqual({ kind: 'invalid-upload-part' });
 		expect(
 			owned.raw
 				.query('SELECT part_number FROM backup_registry_upload_parts')
@@ -619,6 +711,52 @@ test('portable upload parts are immutable and verify R2 size and checksum', asyn
 				byteStream('x'),
 			),
 		).toThrow('between 1 and 512');
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('portable upload classifies only R2 BadDigest as invalid client bytes', async () => {
+	for (const [message, expected] of [
+		[
+			'put: Provided checksum does not match the uploaded content. (10037)',
+			'invalid',
+		],
+		['put: Service is temporarily unavailable. (10043)', 'throw'],
+	] as const) {
+		const owned = setupState({ r2PutFailure: new Error(message) });
+		try {
+			const registry = new DataBackupRegistry(owned.state, owned.env);
+			await registry.createUpload(UPLOAD_REQUEST_ID);
+			const stored = registry.putUploadPart(
+				UPLOAD_REQUEST_ID,
+				1,
+				5,
+				digestOf('first'),
+				byteStream('first'),
+			);
+			if (expected === 'invalid') {
+				expect(await stored).toEqual({ kind: 'invalid-upload-part' });
+			} else {
+				await expect(stored).rejects.toThrow('(10043)');
+			}
+		} finally {
+			owned.raw.close();
+		}
+	}
+});
+
+test('portable upload cleanup sweeps a part written before its SQL ledger row', async () => {
+	const owned = setupState();
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		await registry.createUpload(UPLOAD_REQUEST_ID);
+		const orphan = `data-authorities/${OWNER_STORAGE_KEY}/portable-uploads/${UPLOAD_REQUEST_ID}/parts/001`;
+		owned.r2Keys.add(orphan);
+
+		expect(await registry.deleteUpload(UPLOAD_REQUEST_ID)).toBe(true);
+		expect(owned.r2Keys.has(orphan)).toBe(false);
+		expect(owned.deletedR2Keys).toContain(orphan);
 	} finally {
 		owned.raw.close();
 	}
@@ -643,16 +781,21 @@ test('portable upload concatenates contiguous parts and publishes once', async (
 			digestOf('two'),
 			byteStream('two'),
 		);
-		await expect(
-			registry.completeUpload(UPLOAD_REQUEST_ID, [1, 3]),
-		).rejects.toThrow('contiguous sequence');
+		expect(await registry.completeUpload(UPLOAD_REQUEST_ID, [1, 3])).toEqual({
+			kind: 'invalid-upload-completion',
+		});
 
 		const completed = await registry.completeUpload(UPLOAD_REQUEST_ID, [1, 2]);
-		expect(completed).toEqual({ backupId: upload.backupId, recordCount: 0 });
+		expect(completed).toEqual({
+			kind: 'completed',
+			backup: { backupId: upload.backupId, recordCount: 0 },
+		});
 		expect(new TextDecoder().decode(owned.materializations[0]?.bytes)).toBe(
 			'onetwo',
 		);
-		expect(await registry.list()).toEqual([completed]);
+		expect(await registry.list()).toEqual([
+			{ backupId: upload.backupId, recordCount: 0 },
+		]);
 		expect(
 			owned.raw.query('SELECT * FROM backup_registry_upload_parts').all(),
 		).toEqual([]);
@@ -702,21 +845,52 @@ test('partial portable materialization resets to uploaded and retries without re
 			state: 'uploaded',
 		});
 		expect(owned.destroyed).toEqual([upload.backupId]);
-		await expect(
-			registry.putUploadPart(
+		expect(
+			await registry.putUploadPart(
 				UPLOAD_REQUEST_ID,
 				2,
 				1,
 				digestOf('x'),
 				byteStream('x'),
 			),
-		).rejects.toThrow('membership is already frozen');
+		).toEqual({ kind: 'upload-conflict' });
 
 		expect(await registry.completeUpload(UPLOAD_REQUEST_ID, [1])).toEqual({
-			backupId: upload.backupId,
-			recordCount: 2,
+			kind: 'completed',
+			backup: { backupId: upload.backupId, recordCount: 2 },
 		});
 		expect(attempts).toBe(2);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('invalid portable bytes return a stable result and remain resettable', async () => {
+	const owned = setupState({
+		async materialize(input) {
+			await streamBytes(input.bytes);
+			return { invalidPortableBackup: true };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const upload = await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			7,
+			digestOf('invalid'),
+			byteStream('invalid'),
+		);
+
+		expect(await registry.completeUpload(UPLOAD_REQUEST_ID, [1])).toEqual({
+			kind: 'invalid-portable-backup',
+		});
+		expect(await registry.createUpload(UPLOAD_REQUEST_ID)).toEqual({
+			...upload,
+			state: 'uploaded',
+		});
+		expect(await registry.deleteUpload(UPLOAD_REQUEST_ID)).toBe(true);
 	} finally {
 		owned.raw.close();
 	}
@@ -745,7 +919,10 @@ test('sealed portable materialization publishes after a lost response and restar
 			byteStream('data'),
 		);
 		const completed = await registry.completeUpload(UPLOAD_REQUEST_ID, [1]);
-		expect(completed).toEqual({ backupId: upload.backupId, recordCount: 4 });
+		expect(completed).toEqual({
+			kind: 'completed',
+			backup: { backupId: upload.backupId, recordCount: 4 },
+		});
 		expect(calls).toBe(1);
 
 		owned.raw
@@ -755,7 +932,9 @@ test('sealed portable materialization publishes after a lost response and restar
 			)
 			.run(UPLOAD_REQUEST_ID);
 		const reopened = new DataBackupRegistry(owned.state, owned.env);
-		expect(await reopened.list()).toEqual([completed]);
+		expect(await reopened.list()).toEqual([
+			{ backupId: upload.backupId, recordCount: 4 },
+		]);
 		expect(await reopened.completeUpload(UPLOAD_REQUEST_ID, [1])).toEqual(
 			completed,
 		);
@@ -1041,6 +1220,7 @@ test('registry lookup keeps percent-sensitive principal names distinct', () => {
 			return {
 				create: async () => ({ backupId: 'a'.repeat(24), recordCount: 0 }),
 				list: async () => [],
+				download: async () => undefined,
 				delete: async () => false,
 				restore: async () => ({ kind: 'backup-not-found' as const }),
 				createUpload: async () => ({
@@ -1048,10 +1228,10 @@ test('registry lookup keeps percent-sensitive principal names distinct', () => {
 					backupId: 'a'.repeat(24),
 					state: 'uploading' as const,
 				}),
-				putUploadPart: async () => undefined,
+				putUploadPart: async () => ({ kind: 'stored' as const }),
 				completeUpload: async () => ({
-					backupId: 'a'.repeat(24),
-					recordCount: 0,
+					kind: 'completed' as const,
+					backup: { backupId: 'a'.repeat(24), recordCount: 0 },
 				}),
 				deleteUpload: async () => false,
 			};

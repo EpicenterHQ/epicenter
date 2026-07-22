@@ -13,6 +13,7 @@ import {
 	type DataBackup,
 	dataBackupV1Name,
 } from './cloudflare-backup-v1.js';
+import { portableMaterializerJobName } from './portable-materializer-contract-v1.js';
 
 const FORMAT_VERSION = 3;
 const BACKUP_ID_CHARACTERS = /^[a-z0-9]+$/u;
@@ -91,7 +92,11 @@ type PortableMaterializerStub = {
 		ownerStorageKey: string;
 		backupId: string;
 		bytes: ReadableStream<Uint8Array>;
-	}): Promise<{ recordCount: number }>;
+	}): Promise<{ recordCount: number } | { invalidPortableBackup: true }>;
+	downloadBackup(input: {
+		ownerStorageKey: string;
+		backupId: string;
+	}): Promise<Response>;
 };
 
 type PortableMaterializerNamespace = {
@@ -128,6 +133,19 @@ export type CloudflarePortableUploadV1 = {
 	state: 'uploading' | 'uploaded' | 'materializing' | 'sealed';
 };
 
+export type CloudflarePortableUploadPartV1Result =
+	| { kind: 'stored' }
+	| { kind: 'upload-not-found' }
+	| { kind: 'upload-conflict' }
+	| { kind: 'invalid-upload-part' };
+
+export type CloudflarePortableUploadCompletionV1Result =
+	| { kind: 'completed'; backup: CloudflareBackupRegistryV1Entry }
+	| { kind: 'upload-not-found' }
+	| { kind: 'upload-conflict' }
+	| { kind: 'invalid-upload-completion' }
+	| { kind: 'invalid-portable-backup' };
+
 export type CloudflareRestoreBackupV1Result =
 	| {
 			kind: 'restored';
@@ -146,6 +164,7 @@ export type DataBackupRegistryNamespace = {
 		| 'create'
 		| 'list'
 		| 'delete'
+		| 'download'
 		| 'restore'
 		| 'createUpload'
 		| 'putUploadPart'
@@ -245,6 +264,10 @@ function checksumHex(object: R2Object): string | undefined {
 		: bytesToHex(new Uint8Array(checksum));
 }
 
+function isR2BadDigest(cause: unknown): boolean {
+	return cause instanceof Error && /\(10037\)$/u.test(cause.message);
+}
+
 function validateRecordCount(value: unknown): number {
 	if (!Number.isSafeInteger(value) || (value as number) < 0) {
 		throw new TypeError('Backup record count must be a non-negative integer');
@@ -282,6 +305,10 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 	private readonly ownerStorageKey: string;
 	private readonly authority: DataAuthorityStub;
 	private readonly ready: Promise<void>;
+	private readonly activeDownloads = new Map<
+		string,
+		Set<(reason: unknown) => Promise<void>>
+	>();
 	private operationTail = Promise.resolve();
 	private deletionRequested = false;
 	private restoreRequested = false;
@@ -378,7 +405,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 		byteLength: number,
 		sha256: string,
 		bytes: ReadableStream<Uint8Array>,
-	): Promise<void> {
+	): Promise<CloudflarePortableUploadPartV1Result> {
 		this.refuseDeleting();
 		validateUploadRequestId(rawRequestId);
 		validateUploadPartNumber(partNumber);
@@ -388,20 +415,20 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			this.refuseDeleting();
 			const upload = this.readUpload(rawRequestId);
 			if (upload === undefined) {
-				throw new Error('portable upload request was not created');
+				return { kind: 'upload-not-found' };
 			}
 			if (upload.state === 'materializing' || upload.state === 'sealed') {
-				throw new Error('portable upload is no longer accepting parts');
+				return { kind: 'upload-conflict' };
 			}
 			const prior = this.readUploadPart(rawRequestId, partNumber);
 			if (
 				prior !== undefined &&
 				(prior.byte_length !== byteLength || prior.sha256 !== sha256)
 			) {
-				throw new Error('portable upload part conflicts with its first write');
+				return { kind: 'upload-conflict' };
 			}
 			if (prior === undefined && upload.state !== 'uploading') {
-				throw new Error('portable upload part membership is already frozen');
+				return { kind: 'upload-conflict' };
 			}
 			const key = this.uploadPartKey(rawRequestId, partNumber);
 			if (prior !== undefined) {
@@ -411,19 +438,24 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 					stored.size === byteLength &&
 					checksumHex(stored) === sha256
 				) {
-					return;
+					return { kind: 'stored' };
 				}
 			}
-			const stored = await this.env.DATA_BLOBS.put(key, bytes, { sha256 });
+			let stored: R2Object | null;
+			try {
+				stored = await this.env.DATA_BLOBS.put(key, bytes, { sha256 });
+			} catch (cause) {
+				if (!isR2BadDigest(cause)) throw cause;
+				await this.env.DATA_BLOBS.delete(key);
+				return { kind: 'invalid-upload-part' };
+			}
 			if (
 				stored === null ||
 				stored.size !== byteLength ||
 				checksumHex(stored) !== sha256
 			) {
 				await this.env.DATA_BLOBS.delete(key);
-				throw new Error(
-					'portable upload part bytes do not match their metadata',
-				);
+				return { kind: 'invalid-upload-part' };
 			}
 			if (prior === undefined) {
 				this.database.run(
@@ -433,6 +465,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 					[rawRequestId, partNumber, byteLength, sha256],
 				);
 			}
+			return { kind: 'stored' };
 		});
 	}
 
@@ -440,7 +473,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 	completeUpload(
 		rawRequestId: string,
 		rawOrderedParts: unknown,
-	): Promise<CloudflareBackupRegistryV1Entry> {
+	): Promise<CloudflarePortableUploadCompletionV1Result> {
 		this.refuseDeleting();
 		validateUploadRequestId(rawRequestId);
 		return this.exclusive(async () => {
@@ -448,25 +481,33 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			this.refuseDeleting();
 			let upload = this.readUpload(rawRequestId);
 			if (upload === undefined) {
-				throw new Error('portable upload request was not created');
+				return { kind: 'upload-not-found' };
 			}
 			if (upload.state === 'sealed') {
 				await this.deleteUploadParts(upload.request_id);
 				return {
-					backupId: upload.backup_id,
-					recordCount: validateRecordCount(upload.record_count),
+					kind: 'completed',
+					backup: {
+						backupId: upload.backup_id,
+						recordCount: validateRecordCount(upload.record_count),
+					},
 				};
 			}
 			if (upload.state === 'materializing') {
 				const reconciled = await this.recoverMaterializingUpload(upload);
-				if (reconciled !== undefined) return reconciled;
+				if (reconciled !== undefined) {
+					return { kind: 'completed', backup: reconciled };
+				}
 				upload = { ...upload, state: 'uploaded' };
 			}
 			const parts = this.validateOrderedUploadParts(
 				upload.request_id,
 				rawOrderedParts,
 			);
-			await this.validateStoredUploadParts(parts);
+			if (!Array.isArray(parts)) return parts;
+			if (!(await this.validateStoredUploadParts(parts))) {
+				return { kind: 'upload-conflict' };
+			}
 			if (upload.state === 'uploading') {
 				this.database.run(
 					`UPDATE backup_registry_uploads
@@ -475,9 +516,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 					[parts.length, upload.request_id],
 				);
 			} else if (upload.part_count !== parts.length) {
-				throw new Error(
-					'portable upload part membership conflicts with completion',
-				);
+				return { kind: 'upload-conflict' };
 			}
 			this.database.run(
 				`UPDATE backup_registry_uploads SET state = 'materializing'
@@ -534,6 +573,24 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 		});
 	}
 
+	/** Materialize one published Backup as a streamed portable TAR. */
+	download(rawBackupId: string): Promise<Response | undefined> {
+		this.refuseDeleting();
+		validateBackupId(rawBackupId);
+		return this.exclusive(async () => {
+			await this.recoverAvailability();
+			this.refuseDeleting();
+			if (this.readEntry(rawBackupId)?.state !== 'sealed') return undefined;
+			const response = await this.env.PORTABLE_MATERIALIZER.getByName(
+				portableMaterializerJobName(this.ownerStorageKey, crypto.randomUUID()),
+			).downloadBackup({
+				ownerStorageKey: this.ownerStorageKey,
+				backupId: rawBackupId,
+			});
+			return this.leaseDownload(rawBackupId, response);
+		});
+	}
+
 	/** Delete one selected published Backup without affecting its siblings. */
 	delete(rawBackupId: string): Promise<boolean> {
 		this.refuseDeleting();
@@ -551,6 +608,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 				WHERE backup_id = ? AND state = 'sealed'`,
 				[rawBackupId],
 			);
+			await this.cancelDownloads(rawBackupId);
 			await this.backup(rawBackupId).destroy();
 			this.database.run(
 				'DELETE FROM backup_registry_entries WHERE backup_id = ?',
@@ -621,6 +679,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			this.database.run(
 				'UPDATE backup_registry_control SET deleting = 1 WHERE singleton = 1',
 			);
+			await this.cancelAllDownloads();
 			await this.finishAccountDeletion();
 			this.initializationError = undefined;
 		});
@@ -741,27 +800,30 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 	}
 
 	private uploadPartKey(requestId: string, partNumber: number): string {
-		return `data-authorities/${this.ownerStorageKey}/portable-uploads/${requestId}/parts/${partNumber.toString().padStart(3, '0')}`;
+		return `${this.uploadPrefix(requestId)}${partNumber.toString().padStart(3, '0')}`;
+	}
+
+	private uploadPrefix(requestId: string): string {
+		return `data-authorities/${this.ownerStorageKey}/portable-uploads/${requestId}/parts/`;
 	}
 
 	private validateOrderedUploadParts(
 		requestId: string,
 		rawOrderedParts: unknown,
-	): UploadPartRow[] {
+	):
+		| UploadPartRow[]
+		| { kind: 'invalid-upload-completion' }
+		| { kind: 'upload-conflict' } {
 		if (
 			!Array.isArray(rawOrderedParts) ||
 			rawOrderedParts.length === 0 ||
 			rawOrderedParts.length > MAX_UPLOAD_PARTS
 		) {
-			throw new TypeError(
-				`portable upload must name 1..${MAX_UPLOAD_PARTS} ordered parts`,
-			);
+			return { kind: 'invalid-upload-completion' };
 		}
 		for (const [index, partNumber] of rawOrderedParts.entries()) {
 			if (partNumber !== index + 1) {
-				throw new TypeError(
-					'portable upload parts must be the contiguous sequence beginning at 1',
-				);
+				return { kind: 'invalid-upload-completion' };
 			}
 		}
 		const stored = this.database.all<UploadPartRow>(
@@ -774,14 +836,14 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			stored.length !== rawOrderedParts.length ||
 			stored.some((part, index) => part.part_number !== rawOrderedParts[index])
 		) {
-			throw new Error('portable upload part membership is incomplete');
+			return { kind: 'upload-conflict' };
 		}
 		return stored;
 	}
 
 	private async validateStoredUploadParts(
 		parts: readonly UploadPartRow[],
-	): Promise<void> {
+	): Promise<boolean> {
 		for (const part of parts) {
 			const object = await this.env.DATA_BLOBS.head(
 				this.uploadPartKey(part.request_id, part.part_number),
@@ -791,9 +853,10 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 				object.size !== part.byte_length ||
 				checksumHex(object) !== part.sha256
 			) {
-				throw new Error('portable upload part membership is incomplete');
+				return false;
 			}
 		}
+		return true;
 	}
 
 	private uploadBytes(
@@ -844,26 +907,35 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 	private async executeUploadMaterialization(
 		upload: UploadRow,
 		parts: readonly UploadPartRow[],
-	): Promise<CloudflareBackupRegistryV1Entry> {
+	): Promise<CloudflarePortableUploadCompletionV1Result> {
 		try {
 			const result = await this.env.PORTABLE_MATERIALIZER.getByName(
-				upload.request_id,
+				portableMaterializerJobName(this.ownerStorageKey, upload.request_id),
 			).materializeUpload({
 				ownerStorageKey: this.ownerStorageKey,
 				backupId: upload.backup_id,
 				bytes: this.uploadBytes(parts),
 			});
+			if ('invalidPortableBackup' in result) {
+				await this.backup(upload.backup_id).destroy();
+				this.resetUploadToUploaded(upload.request_id);
+				return { kind: 'invalid-portable-backup' };
+			}
 			const published = await this.recoverMaterializingUpload(
 				upload,
 				validateRecordCount(result.recordCount),
 			);
-			if (published !== undefined) return published;
+			if (published !== undefined) {
+				return { kind: 'completed', backup: published };
+			}
 			throw new Error('portable materializer did not seal its DataBackup');
 		} catch (cause) {
 			if (this.deletionRequested) throw cause;
 			try {
 				const published = await this.recoverMaterializingUpload(upload);
-				if (published !== undefined) return published;
+				if (published !== undefined) {
+					return { kind: 'completed', backup: published };
+				}
 			} catch (reconciliationCause) {
 				throw new AggregateError(
 					[cause, reconciliationCause],
@@ -938,23 +1010,19 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 	}
 
 	private async deleteUploadParts(requestId: string): Promise<void> {
-		const parts = this.database.all<UploadPartRow>(
-			`SELECT request_id, part_number, byte_length, sha256
-			FROM backup_registry_upload_parts WHERE request_id = ?
-			ORDER BY part_number`,
-			[requestId],
-		);
-		if (parts.length > 0) {
+		for (;;) {
+			const page = await this.env.DATA_BLOBS.list({
+				prefix: this.uploadPrefix(requestId),
+			});
+			if (page.objects.length === 0) break;
 			await this.env.DATA_BLOBS.delete(
-				parts.map((part) =>
-					this.uploadPartKey(part.request_id, part.part_number),
-				),
-			);
-			this.database.run(
-				'DELETE FROM backup_registry_upload_parts WHERE request_id = ?',
-				[requestId],
+				page.objects.map((object) => object.key),
 			);
 		}
+		this.database.run(
+			'DELETE FROM backup_registry_upload_parts WHERE request_id = ?',
+			[requestId],
+		);
 	}
 
 	private restoredResult(row: RestoreRow): CloudflareRestoreBackupV1Result {
@@ -1029,6 +1097,75 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 	private backup(backupId: string): DataBackupStub {
 		return this.env.DATA_BACKUP.getByName(
 			dataBackupV1Name(this.ownerStorageKey, backupId),
+		);
+	}
+
+	private leaseDownload(backupId: string, response: Response): Response {
+		if (response.body === null) return response;
+		const active =
+			this.activeDownloads.get(backupId) ??
+			new Set<(reason: unknown) => Promise<void>>();
+		this.activeDownloads.set(backupId, active);
+		const reader = response.body.getReader();
+		let released = false;
+		let cancel!: (reason: unknown) => Promise<void>;
+		const release = () => {
+			if (released) return;
+			released = true;
+			reader.releaseLock();
+			active.delete(cancel);
+			if (active.size === 0) this.activeDownloads.delete(backupId);
+		};
+		cancel = async (reason) => {
+			if (released) return;
+			try {
+				await reader.cancel(reason);
+			} finally {
+				release();
+			}
+		};
+		active.add(cancel);
+		const body = new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				try {
+					const chunk = await reader.read();
+					if (chunk.done) {
+						controller.close();
+						release();
+						return;
+					}
+					controller.enqueue(chunk.value);
+				} catch (cause) {
+					release();
+					controller.error(cause);
+				}
+			},
+			cancel(reason) {
+				return cancel(reason);
+			},
+		});
+		return new Response(body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: response.headers,
+		});
+	}
+
+	private async cancelDownloads(backupId: string): Promise<void> {
+		const active = this.activeDownloads.get(backupId);
+		if (active === undefined) return;
+		await Promise.all(
+			[...active].map((cancel) =>
+				cancel(new Error('Backup download was cancelled by deletion')),
+			),
+		);
+	}
+
+	private async cancelAllDownloads(): Promise<void> {
+		await Promise.all(
+			[...this.activeDownloads.keys()].map((backupId) =>
+				this.cancelDownloads(backupId),
+			),
 		);
 	}
 
