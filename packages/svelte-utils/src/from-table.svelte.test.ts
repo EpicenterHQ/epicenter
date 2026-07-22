@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 import {
-	DataReadError,
 	defineTable,
+	LensReadError,
 	type NonconformingRowError,
+	type RecordTableLens,
 	type RowFor,
-	type TableLens,
-} from '@epicenter/data';
+} from '@epicenter/data/record';
 import { field } from '@epicenter/field';
 import { fromTable } from './from-table.svelte.js';
 
@@ -23,8 +23,9 @@ import { fromTable } from './from-table.svelte.js';
 );
 
 const definition = defineTable({
-	key: 'so.epicenter.test.svelte.rows',
+	title: 'Rows',
 	fields: { name: field.string() },
+	optional: [],
 });
 type Row = RowFor<typeof definition>;
 
@@ -39,8 +40,9 @@ const row = (id: string, name = id): StoredEntry => ({
 
 const nonconforming = (id: string): StoredEntry => ({
 	kind: 'error',
-	error: DataReadError.NonconformingRow({
-		key: definition.key,
+	error: LensReadError.NonconformingRow({
+		namespace: 'so.epicenter.test.svelte',
+		collection: 'rows',
 		id,
 		raw: {},
 		issues: [{ field: 'name', kind: 'missing', message: 'required' }],
@@ -68,7 +70,10 @@ function createMockTable() {
 		subscribe() {
 			return () => {};
 		},
-	} as unknown as TableLens<typeof definition>;
+	} satisfies Pick<
+		RecordTableLens<typeof definition, never, never>,
+		'scan' | 'subscribe'
+	>;
 
 	return { table, store };
 }

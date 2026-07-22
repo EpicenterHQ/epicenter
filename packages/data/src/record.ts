@@ -11,7 +11,7 @@ export {
 	type FieldsFor,
 	type LensDefinition,
 	LensParseError,
-	type LensReadError,
+	LensReadError,
 	type NonconformingRowError,
 	type NonconformingValueError,
 	parseLens,

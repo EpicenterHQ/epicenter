@@ -1,16 +1,21 @@
-import type { ValueDefinition, ValueFor, ValueLens } from '@epicenter/data';
 import { createSubscriber } from 'svelte/reactivity';
+import type { Result } from 'wellcrafted/result';
+
+type ValueLens<TValue> = {
+	get(): Promise<Result<TValue | undefined, Error>>;
+	set(value: TValue): Promise<void>;
+	unset(): Promise<void>;
+	subscribe(listener: () => void): () => void;
+};
 
 /** Create a reactive value box over one bound Data value lens. */
-export function fromKv<TDefinition extends ValueDefinition>(
-	value: ValueLens<TDefinition>,
-): {
-	current: ValueFor<TDefinition> | undefined;
+export function fromKv<TValue>(value: ValueLens<TValue>): {
+	current: TValue | undefined;
 	readonly loadError: unknown;
 	readonly whenReady: Promise<void>;
 	refresh(): Promise<void>;
 } {
-	let current = $state.raw<ValueFor<TDefinition> | undefined>(undefined);
+	let current = $state.raw<TValue | undefined>(undefined);
 	let loadError = $state.raw<unknown>(null);
 	let refreshGeneration = 0;
 
@@ -38,7 +43,7 @@ export function fromKv<TDefinition extends ValueDefinition>(
 			subscribe();
 			return current;
 		},
-		set current(newValue: ValueFor<TDefinition> | undefined) {
+		set current(newValue: TValue | undefined) {
 			current = newValue;
 			const write =
 				newValue === undefined ? value.unset() : value.set(newValue);

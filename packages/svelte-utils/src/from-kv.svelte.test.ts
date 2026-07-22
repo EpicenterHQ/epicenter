@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from 'bun:test';
-import { defineValue, type ValueLens } from '@epicenter/data';
+import type { RecordValueLens } from '@epicenter/data/record';
 import { field } from '@epicenter/field';
 import { Ok } from 'wellcrafted/result';
 import { fromKv } from './from-kv.svelte.js';
@@ -17,10 +17,7 @@ import { fromKv } from './from-kv.svelte.js';
 	{ raw: <TValue>(value: TValue) => value },
 );
 
-const themeDefinition = defineValue({
-	key: 'so.epicenter.test.svelte.theme',
-	value: field.select(['light', 'dark']),
-});
+const themeSchema = field.select(['light', 'dark']);
 
 test('value binding loads and writes through the lens', async () => {
 	let value: 'light' | 'dark' | undefined = 'light';
@@ -33,7 +30,7 @@ test('value binding loads and writes through the lens', async () => {
 			value = undefined;
 		},
 		subscribe: () => () => {},
-	} satisfies ValueLens<typeof themeDefinition>;
+	} satisfies RecordValueLens<typeof themeSchema>;
 
 	const theme = fromKv(lens);
 	await theme.whenReady;

@@ -1,9 +1,9 @@
 import type {
 	NonconformingRowError,
+	RecordTableLens,
 	RowFor,
 	TableDefinition,
-	TableLens,
-} from '@epicenter/data';
+} from '@epicenter/data/record';
 import { createSubscriber } from 'svelte/reactivity';
 
 export type ReadonlyTableView<TDefinition extends TableDefinition> = {
@@ -17,7 +17,7 @@ export type ReadonlyTableView<TDefinition extends TableDefinition> = {
 
 /** Create a reactive classified view over one bound Data table lens. */
 export function fromTable<TDefinition extends TableDefinition>(
-	table: TableLens<TDefinition>,
+	table: Pick<RecordTableLens<TDefinition, never, never>, 'scan' | 'subscribe'>,
 ): ReadonlyTableView<TDefinition> {
 	let rows = $state.raw<RowFor<TDefinition>[]>([]);
 	let nonconforming = $state.raw<NonconformingRowError[]>([]);
