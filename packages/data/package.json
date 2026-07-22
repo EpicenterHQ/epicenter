@@ -30,6 +30,8 @@
 	"license": "MIT",
 	"scripts": {
 		"evidence:browser": "bun browser-evidence/run.ts --profile smoke",
+		"evidence:browser-replica-layout": "bun browser-evidence/replica-layout-run.ts --profile smoke",
+		"evidence:browser-replica-layout:full": "bun browser-evidence/replica-layout-run.ts --profile full",
 		"evidence:browser-replica": "bun browser-evidence/replica-owner-run.ts",
 		"evidence:browser-owner-topology": "bun browser-evidence/replica-candidate-run.ts",
 		"test:browser-replica": "bun test browser-evidence/replica-conformance.test.ts",
