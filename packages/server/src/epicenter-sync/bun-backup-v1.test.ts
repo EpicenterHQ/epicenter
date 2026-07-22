@@ -171,6 +171,7 @@ test('Bun Backup publishes and validates one identity-free complete directory', 
 		).toMatchObject({ kind: 'accepted' });
 
 		const backup = await context.backups.create();
+		expect(await context.backups.get(backup.backupId)).toEqual(backup);
 		expect(backup.recordCount).toBe(2);
 		expect(await validateBunPortableDirectory(backup.directory)).toEqual({
 			recordCount: 2,
@@ -288,7 +289,12 @@ test('Bun Backup publishes and validates one identity-free complete directory', 
 			force: true,
 		});
 
-		await context.backups.delete(backup.backupId);
+		await expect(
+			context.backups.delete(`${backup.backupId}\n`),
+		).rejects.toThrow('24 lowercase alphanumeric characters');
+		expect(await context.backups.delete(backup.backupId)).toBe(true);
+		expect(await context.backups.delete(backup.backupId)).toBe(false);
+		expect(await context.backups.get(backup.backupId)).toBeUndefined();
 		expect(await context.backups.list()).toEqual([]);
 		await context.backups.close();
 		await expect(context.backups.create()).rejects.toThrow(

@@ -20,6 +20,7 @@ import { createLogger } from 'wellcrafted/logger';
 
 import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
+import { mountBackupV1App } from './backup-v1-route.js';
 import {
 	type AuthorityBlobV1,
 	createAuthorityBlobV1,
@@ -82,7 +83,8 @@ type PrincipalState = {
 	operations: Set<Promise<unknown>>;
 	resourceCancels: Set<() => Promise<void>>;
 	retired: Set<Promise<void>>;
-	restoring: Promise<BunRestoreResult> | undefined;
+	backupRegistryTail: Promise<void>;
+	restoring: Promise<unknown> | undefined;
 	failure: unknown | undefined;
 	dataEndpoint: BunDataEndpoint;
 	blobEndpoint: BlobAuthorityV1Endpoint;
@@ -93,6 +95,11 @@ export type BunRestoreResult = {
 	authorityLifetime: string;
 	recordCount: number;
 };
+
+export type BunRestoreBackupResult =
+	| ({ kind: 'restored' } & BunRestoreResult)
+	| { kind: 'backup-not-found' }
+	| { kind: 'restore-in-progress' };
 
 function encodePathComponent(value: string): string {
 	return encodeURIComponent(value).replaceAll('.', '%2E');
@@ -259,6 +266,24 @@ export function createBunScalarV1Runtime({
 		return result;
 	}
 
+	async function runBackupRegistryOperation<TResult>(
+		state: PrincipalState,
+		operation: () => Promise<TResult>,
+	): Promise<TResult> {
+		const preceding = state.backupRegistryTail;
+		let release!: () => void;
+		const turn = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		state.backupRegistryTail = preceding.then(() => turn);
+		await preceding;
+		try {
+			return await operation();
+		} finally {
+			release();
+		}
+	}
+
 	function leasedBlobRead(
 		state: PrincipalState,
 		address: Parameters<BlobAuthorityV1Endpoint['read']>[0],
@@ -342,10 +367,18 @@ export function createBunScalarV1Runtime({
 			read: (address) => leasedBlobRead(state, address),
 		};
 		state.backupEndpoint = {
-			create: () => runLease(state, (entry) => entry.backups.create()),
-			list: () => runLease(state, (entry) => entry.backups.list()),
+			create: () =>
+				runBackupRegistryOperation(state, () =>
+					runLease(state, (entry) => entry.backups.create()),
+				),
+			list: () =>
+				runBackupRegistryOperation(state, () =>
+					runLease(state, (entry) => entry.backups.list()),
+				),
 			delete: (backupId) =>
-				runLease(state, (entry) => entry.backups.delete(backupId)),
+				runBackupRegistryOperation(state, () =>
+					runLease(state, (entry) => entry.backups.delete(backupId)),
+				),
 		};
 	}
 
@@ -447,6 +480,7 @@ export function createBunScalarV1Runtime({
 					operations: new Set(),
 					resourceCancels: new Set(),
 					retired: new Set(),
+					backupRegistryTail: Promise.resolve(),
 					restoring: undefined,
 					failure: undefined,
 					dataEndpoint: undefined as unknown as BunDataEndpoint,
@@ -635,7 +669,9 @@ export function createBunScalarV1Runtime({
 			if (state.restoring !== undefined) {
 				throw new Error('Bun authority Restore is already active');
 			}
-			const restoring = performRestore(state, portableDirectory);
+			const restoring = runBackupRegistryOperation(state, () =>
+				performRestore(state, portableDirectory),
+			);
 			state.restoring = restoring;
 			try {
 				return await restoring;
@@ -646,20 +682,25 @@ export function createBunScalarV1Runtime({
 		async restoreBackup(
 			principalId: PrincipalId,
 			backupId: string,
-		): Promise<BunRestoreResult> {
+		): Promise<BunRestoreBackupResult> {
 			const state = await loadPrincipal(principalId);
-			const backups = await runLease(state, (entry) => entry.backups.list());
-			const backup = backups.find(
-				(candidate) => candidate.backupId === backupId,
-			);
-			if (backup === undefined) throw new Error('Bun Backup does not exist');
 			if (state.restoring !== undefined) {
-				throw new Error('Bun authority Restore is already active');
+				return { kind: 'restore-in-progress' };
 			}
-			const restoring = performRestore(state, backup.directory);
+			const restoring = runBackupRegistryOperation(state, async () => {
+				const backup = await runLease(state, (entry) =>
+					entry.backups.get(backupId),
+				);
+				return backup === undefined
+					? undefined
+					: performRestore(state, backup.directory);
+			});
 			state.restoring = restoring;
 			try {
-				return await restoring;
+				const result = await restoring;
+				return result === undefined
+					? { kind: 'backup-not-found' }
+					: { kind: 'restored', ...result };
 			} finally {
 				state.restoring = undefined;
 			}
@@ -773,6 +814,11 @@ export function mountBunScalarV1App<E extends Env = Env>(
 		auth,
 		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: runtime.locateBlobAuthority,
+	});
+	mountBackupV1App(app, {
+		auth,
+		locateRegistry: runtime.locateBackupOwner,
+		restoreBackup: runtime.restoreBackup,
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(

@@ -26,7 +26,10 @@ import type { ServerWebSocket } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
 import { bunPortableBlobPath } from './bun-backup-v1.js';
 import type { BunDataDocumentV1SocketData } from './document-realtime-v1-bun.js';
-import { createBunScalarV1Runtime } from './scalar-v1-bun.js';
+import {
+	type BunRestoreBackupResult,
+	createBunScalarV1Runtime,
+} from './scalar-v1-bun.js';
 
 const REPLICA = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const LIVE = {
@@ -47,6 +50,14 @@ function documentUpdate(value: string): Uint8Array {
 
 async function textOf(source: ReadableStream<Uint8Array>): Promise<string> {
 	return new Response(source).text();
+}
+
+function requireRestored(
+	result: BunRestoreBackupResult,
+): Extract<BunRestoreBackupResult, { kind: 'restored' }> {
+	expect(result.kind).toBe('restored');
+	if (result.kind !== 'restored') throw new Error('Restore did not complete');
+	return result;
 }
 
 test('Bun scalar V1 runtime reopens one durable authority per principal', async () => {
@@ -290,7 +301,9 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 		const interruptedRead = await blobs.read(LIVE);
 		if (interruptedRead === undefined) throw new Error('live blob is missing');
 		const interruptedReader = interruptedRead.getReader();
-		const restored = await runtime.restoreBackup(principal, backup.backupId);
+		const restored = requireRestored(
+			await runtime.restoreBackup(principal, backup.backupId),
+		);
 		expect(restored.recordCount).toBe(2);
 		expect(restored.authorityLifetime).not.toBe(oldLifetime);
 		const newLifetime = restored.authorityLifetime;
@@ -505,6 +518,13 @@ test('Bun Restore drains a rejected blob publication before activation', async (
 			.finally(() => {
 				restoreSettled = true;
 			});
+		expect(await runtime.restoreBackup(principal, backup.backupId)).toEqual({
+			kind: 'restore-in-progress',
+		});
+		let deleteSettled = false;
+		const deletion = backups.delete(backup.backupId).finally(() => {
+			deleteSettled = true;
+		});
 		const authoritiesRoot = join(
 			dir,
 			'principals',
@@ -517,11 +537,13 @@ test('Bun Restore drains a rejected blob publication before activation', async (
 		}
 		expect((await readdir(authoritiesRoot)).length).toBe(2);
 		expect(restoreSettled).toBe(false);
+		expect(deleteSettled).toBe(false);
 		releaseUpload();
 		await expect(acceptance).rejects.toThrow(
 			'blob publication bytes do not match their digest',
 		);
-		const restored = await restore;
+		const restored = requireRestored(await restore);
+		expect(await deletion).toBe(true);
 		expect(restored.authorityLifetime).not.toBe(lifetime);
 		expect(await blobs.read(LIVE)).toBeUndefined();
 	} finally {
@@ -608,7 +630,9 @@ test('Bun Restore replaces only the selected principal document sockets', async 
 		expect(socketB.sent.length).toBeGreaterThan(0);
 		const sentBeforeRestore = socketB.sent.length;
 
-		const restored = await runtime.restoreBackup(principalA, backup.backupId);
+		const restored = requireRestored(
+			await runtime.restoreBackup(principalA, backup.backupId),
+		);
 		expect(socketA.closed).toEqual([
 			{ code: 1012, reason: 'authority-replaced' },
 		]);

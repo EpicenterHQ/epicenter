@@ -23,7 +23,7 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { AuthorityBlobV1 } from './blob-authority-v1.js';
 import type { createAuthorityCaptureManifestV1 } from './capture-manifest-v1.js';
 
-const BACKUP_ID = /^[a-z0-9]{24}$/;
+const BACKUP_ID_CHARACTERS = /^[a-z0-9]+$/u;
 const INDEX_FILE = 'epicenter.sqlite';
 const BLOBS_DIRECTORY = 'blobs';
 const MAX_CAPTURE_MILLISECONDS = 30 * 60 * 1_000;
@@ -40,8 +40,12 @@ export type BunBackup = {
 	recordCount: number;
 };
 
+function isBackupId(backupId: string): boolean {
+	return backupId.length === 24 && BACKUP_ID_CHARACTERS.test(backupId);
+}
+
 function validateBackupId(backupId: string): void {
-	if (!BACKUP_ID.test(backupId)) {
+	if (!isBackupId(backupId)) {
 		throw new TypeError(
 			'backup ID must be 24 lowercase alphanumeric characters',
 		);
@@ -394,7 +398,7 @@ export function createBunBackupV1Owner({
 		await ready;
 		const backups: BunBackup[] = [];
 		for (const entry of await readdir(backupsRoot, { withFileTypes: true })) {
-			if (!entry.isDirectory() || !BACKUP_ID.test(entry.name)) continue;
+			if (!entry.isDirectory() || !isBackupId(entry.name)) continue;
 			const directory = join(backupsRoot, entry.name);
 			const validation = await validateBunPortableDirectory(directory);
 			backups.push({
@@ -408,19 +412,40 @@ export function createBunBackupV1Owner({
 		);
 	}
 
-	async function deleteBackup(backupId: string): Promise<void> {
+	async function getBackup(backupId: string): Promise<BunBackup | undefined> {
 		await ready;
 		validateBackupId(backupId);
-		await rm(join(backupsRoot, basename(backupId)), {
-			recursive: true,
-			force: true,
+		const directory = join(backupsRoot, basename(backupId));
+		const entry = await lstat(directory).catch((cause) => {
+			if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+			throw cause;
 		});
+		if (entry === undefined) return undefined;
+		if (!entry.isDirectory() || entry.isSymbolicLink()) return undefined;
+		const validation = await validateBunPortableDirectory(directory);
+		return { backupId, directory, recordCount: validation.recordCount };
+	}
+
+	async function deleteBackup(backupId: string): Promise<boolean> {
+		await ready;
+		validateBackupId(backupId);
+		try {
+			await rm(join(backupsRoot, basename(backupId)), {
+				recursive: true,
+				force: false,
+			});
+		} catch (cause) {
+			if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false;
+			throw cause;
+		}
 		await syncDirectory(backupsRoot);
+		return true;
 	}
 
 	return Object.freeze({
 		create: () => track(createBackup),
 		list: () => track(listBackups),
+		get: (backupId: string) => track(() => getBackup(backupId)),
 		delete: (backupId: string) => track(() => deleteBackup(backupId)),
 		async close(): Promise<void> {
 			closed = true;
