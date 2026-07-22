@@ -37,7 +37,6 @@
 		"@epicenter/identity": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@epicenter/sync": "workspace:*",
-		"@epicenter/workspace": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"arktype": "catalog:",
 		"autumn-js": "^1.2.34",
