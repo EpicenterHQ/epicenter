@@ -99,7 +99,7 @@ async function textOf(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 test('R2 blob files stream, verify, reopen, and sweep without skipping pages', async () => {
 	const { bucket, objects } = setupBucket();
-	const store = createR2BlobFileStore(bucket, 'authority-one');
+	const store = createR2BlobFileStore(bucket, 'owner-one');
 	const digest = sha256Hex('kept');
 	const owner = blobFileOwner(ADDRESS, digest);
 	const staged = await store.stage(source('kept'));
@@ -120,6 +120,6 @@ test('R2 blob files stream, verify, reopen, and sweep without skipping pages', a
 	await store.sweepStaging();
 	await store.sweepContent([owner]);
 	expect([...objects.keys()]).toEqual([
-		`data-authorities/authority-one/blobs/content/${owner.ownerKey}/${owner.digest}`,
+		`data-authorities/owner-one/blobs/content/${owner.ownerKey}/${owner.digest}`,
 	]);
 });

@@ -106,7 +106,7 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	private blobAuthority:
 		| AuthorityBlobV1<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>>
 		| undefined;
-	private blobFiles: ReturnType<typeof createR2BlobFileStore> | undefined;
+	private readonly blobFiles: ReturnType<typeof createR2BlobFileStore>;
 	private realtime: DocumentRealtimeV1Server | undefined;
 	private readonly sockets = new WeakMap<WebSocket, DocumentRealtimeV1Socket>();
 	private initializationError: unknown;
@@ -117,13 +117,10 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		this.database = createDurableObjectSqliteAdapter(
 			ctx.storage as unknown as DurableObjectSqliteStorage,
 		);
+		this.blobFiles = createR2BlobFileStore(env.DATA_BLOBS, ctx.id.toString());
 		this.ready = ctx.blockConcurrencyWhile(async () => {
 			try {
 				this.authority = this.openFreshOwner();
-				this.blobFiles = createR2BlobFileStore(
-					env.DATA_BLOBS,
-					this.authority.authorityLifetime(),
-				);
 				this.blobAuthority = createAuthorityBlobV1(
 					this.database,
 					this.blobFiles,
@@ -299,7 +296,12 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		await this.ready;
 		await this.ctx.blockConcurrencyWhile(async () => {
 			this.realtime?.closeAll();
-			await this.blobAuthority?.deleteAll();
+			if (this.blobAuthority === undefined) {
+				await this.blobFiles.sweepStaging();
+				await this.blobFiles.sweepContent([]);
+			} else {
+				await this.blobAuthority.deleteAll();
+			}
 			this.realtime = undefined;
 			this.authority = undefined;
 			this.blobAuthority = undefined;
@@ -308,10 +310,6 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			// step. Reopen an empty successor lifetime so a partial downstream
 			// failure does not strand this actor in an unusable in-memory state.
 			this.authority = this.openFreshOwner();
-			this.blobFiles = createR2BlobFileStore(
-				this.env.DATA_BLOBS,
-				this.authority.authorityLifetime(),
-			);
 			this.blobAuthority = createAuthorityBlobV1(this.database, this.blobFiles);
 			this.realtime = createDocumentRealtimeV1Server({
 				authority: this.authority,

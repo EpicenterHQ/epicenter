@@ -85,8 +85,20 @@ export function createAuthorityBlobV1<TSource, TRead>(
 			) {
 				throw new TypeError('invalid blob publication request');
 			}
+			const meta = one<SqliteRow & { authority_lifetime: string }>(
+				database,
+				'SELECT authority_lifetime FROM meta WHERE singleton = 1',
+			);
+			if (meta === null) throw new Error('authority metadata is missing');
+			if (request.authorityLifetime !== meta.authority_lifetime) {
+				return {
+					kind: 'lifetime-mismatch',
+					activeAuthorityLifetime: meta.authority_lifetime,
+				};
+			}
 			const staged = await files.stage(source);
 			if (staged.digest !== request.digest) {
+				await files.sweepStaging();
 				throw new Error('blob publication bytes do not match their digest');
 			}
 			await files.promote(
@@ -95,15 +107,17 @@ export function createAuthorityBlobV1<TSource, TRead>(
 			);
 
 			const result = database.transaction((): BlobAcceptance => {
-				const meta = one<SqliteRow & { authority_lifetime: string }>(
+				const currentMeta = one<SqliteRow & { authority_lifetime: string }>(
 					database,
 					'SELECT authority_lifetime FROM meta WHERE singleton = 1',
 				);
-				if (meta === null) throw new Error('authority metadata is missing');
-				if (request.authorityLifetime !== meta.authority_lifetime) {
+				if (currentMeta === null) {
+					throw new Error('authority metadata is missing');
+				}
+				if (request.authorityLifetime !== currentMeta.authority_lifetime) {
 					return {
 						kind: 'lifetime-mismatch',
-						activeAuthorityLifetime: meta.authority_lifetime,
+						activeAuthorityLifetime: currentMeta.authority_lifetime,
 					};
 				}
 				const row = one<RecordRow>(
@@ -115,7 +129,7 @@ export function createAuthorityBlobV1<TSource, TRead>(
 				if (row === null) {
 					return {
 						kind: 'record-not-live',
-						activeAuthorityLifetime: meta.authority_lifetime,
+						activeAuthorityLifetime: currentMeta.authority_lifetime,
 						address: structuredClone(request.address),
 						state: 'absent',
 					};
@@ -123,7 +137,7 @@ export function createAuthorityBlobV1<TSource, TRead>(
 				if (row.state !== 'live') {
 					return {
 						kind: 'record-not-live',
-						activeAuthorityLifetime: meta.authority_lifetime,
+						activeAuthorityLifetime: currentMeta.authority_lifetime,
 						address: structuredClone(request.address),
 						state: row.state,
 					};

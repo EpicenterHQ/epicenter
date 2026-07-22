@@ -145,9 +145,15 @@ export function createReplicaBlobStore<TSource, TRead>(
 		return exclusive(async () => {
 			const staged = await files.stage(source);
 			if (!isBlobDigest(staged.digest)) {
+				await files.sweepStaging();
 				throw new Error('blob file store returned an invalid digest');
 			}
 			hooks.afterStage?.();
+			const before = requireLiveRecord(database, address);
+			if (before.blob_sha256 !== null && before.blob_sha256 !== staged.digest) {
+				await files.sweepStaging();
+				throw new Error('blob slot already owns different bytes');
+			}
 			const owner = blobFileOwner(address, staged.digest);
 			await files.promote(staged, owner);
 			hooks.afterPromote?.();

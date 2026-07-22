@@ -58,7 +58,7 @@ type OpenedAuthority = {
 	raw: Database;
 	authority: DataAuthorityV1;
 	blobs: BunAuthorityBlobs;
-	ensureBlobsReady(): Promise<void>;
+	waitForBlobs(): Promise<void>;
 };
 
 /** Open a principal-partitioned Bun owner for one Data V1 authority file. */
@@ -68,6 +68,7 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 	let documentBinding: BunDocumentRealtimeV1Binding | undefined;
 	let server: Server<BunDataDocumentV1SocketData> | undefined;
 	let closed = false;
+	let closing: Promise<void> | undefined;
 
 	function loadEntry(principalId: PrincipalId): OpenedAuthority {
 		if (closed) throw new Error('Bun scalar V1 runtime is closed');
@@ -86,6 +87,19 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 				limits: SCALAR_SYNC_V1_LIMITS,
 				initialize: { authorityLifetime: crypto.randomUUID() },
 			});
+			const blobs = createAuthorityBlobV1(
+				database,
+				createBunBlobFileStore(authorityDirectory(dir, principalId)),
+			);
+			let blobMaintenance = blobs.reopenSweep();
+			void blobMaintenance.catch(() => undefined);
+			function scheduleBlobSweep(): void {
+				blobMaintenance = blobMaintenance.then(
+					() => blobs.sweepDebris(),
+					() => blobs.sweepDebris(),
+				);
+				void blobMaintenance.catch(() => undefined);
+			}
 			const authority: DataAuthorityV1 = {
 				...stored,
 				submit(request) {
@@ -94,24 +108,18 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 						for (const fact of result.data.facts) {
 							if (fact.state === 'tombstone') {
 								documentBinding?.closeAddress(principalId, fact.address);
+								scheduleBlobSweep();
 							}
 						}
 					}
 					return result;
 				},
 			};
-			const blobs = createAuthorityBlobV1(
-				database,
-				createBunBlobFileStore(authorityDirectory(dir, principalId)),
-			);
 			const opened = {
 				raw,
 				authority,
 				blobs,
-				ensureBlobsReady: (() => {
-					let ready: Promise<void> | undefined;
-					return () => (ready ??= blobs.reopenSweep());
-				})(),
+				waitForBlobs: () => blobMaintenance,
 			};
 			authorities.set(principalId, opened);
 			return opened;
@@ -134,7 +142,7 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 		locateAuthority: load,
 		async locateBlobAuthority(principalId: PrincipalId) {
 			const opened = loadEntry(principalId);
-			await opened.ensureBlobsReady();
+			await opened.waitForBlobs();
 			return opened.blobs;
 		},
 		websocket: documents.websocket,
@@ -155,19 +163,35 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 			}
 			return documents.handleAuthorizedUpgrade(request, server, verified);
 		},
-		close(): void {
-			if (closed) return;
+		close(): Promise<void> {
+			if (closing !== undefined) return closing;
 			closed = true;
 			documents.closeAll();
-			for (const opened of authorities.values()) opened.raw.close();
-			authorities.clear();
+			closing = (async () => {
+				const openedAuthorities = [...authorities.values()];
+				const settled = await Promise.allSettled(
+					openedAuthorities.map((opened) => opened.waitForBlobs()),
+				);
+				for (const opened of openedAuthorities) opened.raw.close();
+				authorities.clear();
+				const failures = settled
+					.filter(
+						(result): result is PromiseRejectedResult =>
+							result.status === 'rejected',
+					)
+					.map((result) => result.reason);
+				if (failures.length > 0) {
+					throw new AggregateError(failures, 'Bun blob maintenance failed');
+				}
+			})();
+			return closing;
 		},
 	};
 }
 
 export type BunScalarV1Runtime = ReturnType<typeof createBunScalarV1Runtime>;
 
-/** Mount the two authenticated scalar V1 routes on a Bun deployment. */
+/** Mount the authenticated Data V1 surfaces on a Bun deployment. */
 export function mountBunScalarV1App<E extends Env = Env>(
 	app: Hono<E>,
 	{

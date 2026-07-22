@@ -16,9 +16,9 @@ function checksumHex(object: R2Object): string | undefined {
 /** R2 implementation used by one principal DataAuthority Durable Object. */
 export function createR2BlobFileStore(
 	bucket: R2Bucket,
-	authorityLifetime: string,
+	ownerStorageKey: string,
 ): BlobFileStore<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>> {
-	const root = `data-authorities/${encodeURIComponent(authorityLifetime)}/blobs`;
+	const root = `data-authorities/${encodeURIComponent(ownerStorageKey)}/blobs`;
 	const stagingPrefix = `${root}/staging/`;
 	const contentPrefix = `${root}/content/`;
 

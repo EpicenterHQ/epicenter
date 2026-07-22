@@ -41,6 +41,28 @@ function setupEnv(): ConstructorParameters<typeof DataAuthority>[1] {
 	} as unknown as ConstructorParameters<typeof DataAuthority>[1];
 }
 
+function setupTrackedEnv(initialKeys: readonly string[]) {
+	const keys = new Set(initialKeys);
+	const env = {
+		DATA_BLOBS: {
+			async list({ prefix }: R2ListOptions = {}) {
+				return {
+					objects: [...keys]
+						.filter((key) => key.startsWith(prefix ?? ''))
+						.map((key) => ({ key })),
+					truncated: false,
+				};
+			},
+			async delete(targets: string | string[]) {
+				for (const key of Array.isArray(targets) ? targets : [targets]) {
+					keys.delete(key);
+				}
+			},
+		},
+	} as unknown as ConstructorParameters<typeof DataAuthority>[1];
+	return { env, keys };
+}
+
 function setupState() {
 	const database = new Database(':memory:', { strict: true });
 	let ready = Promise.resolve();
@@ -80,6 +102,7 @@ function setupState() {
 		},
 	};
 	const state = {
+		id: { toString: () => 'data-authority-test' },
 		storage,
 		getWebSockets: () => sockets,
 		acceptWebSocket(socket: WebSocket) {
@@ -292,8 +315,12 @@ test('account deletion reopens an empty successor lifetime', async () => {
 test('account deletion recovers an authority whose stored schema is malformed', async () => {
 	const owned = setupState();
 	try {
+		const blobs = setupTrackedEnv([
+			'data-authorities/data-authority-test/blobs/staging/orphan',
+			'data-authorities/data-authority-test/blobs/content/owner/digest',
+		]);
 		owned.database.exec('CREATE TABLE records (wrong TEXT) STRICT');
-		const authority = new DataAuthority(owned.state, setupEnv());
+		const authority = new DataAuthority(owned.state, blobs.env);
 		await owned.ready();
 		await expect(
 			authority.readFacts(
@@ -304,6 +331,7 @@ test('account deletion recovers an authority whose stored schema is malformed', 
 		).rejects.toThrow('schema does not match');
 
 		await authority.deleteAccount();
+		expect(blobs.keys.size).toBe(0);
 		expect(
 			expectOk(
 				await authority.readFacts(
