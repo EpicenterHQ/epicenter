@@ -133,6 +133,45 @@ try {
 					documentBefore.revision === 1,
 				`${engineName} document append was not visible`,
 			);
+			const blobBefore = await page.evaluate(
+				async ({ address, engineName }) => {
+					const evidence = window.browserReplicaOwnerEvidence;
+					await evidence.request({
+						kind: 'capture-blob',
+						address,
+						bytes: new Blob([`blob-${engineName}`]),
+					});
+					const inspection = await evidence.request({
+						kind: 'inspect-blob',
+						address,
+					});
+					const publication = await evidence.request({
+						kind: 'blob-publication',
+						address,
+					});
+					if (
+						publication === null ||
+						typeof publication !== 'object' ||
+						!('bytes' in publication) ||
+						!(publication.bytes instanceof Blob)
+					) {
+						throw new Error('browser blob publication is missing bytes');
+					}
+					return {
+						inspection,
+						text: await publication.bytes.text(),
+					};
+				},
+				{ address, engineName },
+			);
+			assert(
+				blobBefore.text === `blob-${engineName}` &&
+					blobBefore.inspection !== null &&
+					typeof blobBefore.inspection === 'object' &&
+					'kind' in blobBefore.inspection &&
+					blobBefore.inspection.kind === 'pending',
+				`${engineName} OPFS blob capture was not publishable`,
+			);
 			await page.evaluate(() =>
 				window.browserReplicaOwnerEvidence.request({ kind: 'reopen' }),
 			);
@@ -162,6 +201,49 @@ try {
 			assert(
 				JSON.stringify(documentAfter) === JSON.stringify(documentBefore),
 				`${engineName} browser document changed after reopen`,
+			);
+			const blobAfter = await page.evaluate(
+				async ({ address }) => {
+					const bytes = await window.browserReplicaOwnerEvidence.request({
+						kind: 'read-blob',
+						address,
+					});
+					if (!(bytes instanceof Blob)) {
+						throw new Error('browser blob read did not return a Blob');
+					}
+					return bytes.text();
+				},
+				{ address },
+			);
+			assert(
+				blobAfter === `blob-${engineName}`,
+				`${engineName} OPFS blob changed after reopen`,
+			);
+			await page.evaluate(
+				({ address }) =>
+					window.browserReplicaOwnerEvidence.request({
+						kind: 'local-write',
+						intent: { address, op: 'tombstone' },
+					}),
+				{ address },
+			);
+			await page.evaluate(() =>
+				window.browserReplicaOwnerEvidence.request({
+					kind: 'sweep-blob-debris',
+				}),
+			);
+			const blobAfterTombstone = await page.evaluate(
+				({ address }) =>
+					window.browserReplicaOwnerEvidence.request({
+						kind: 'inspect-blob',
+						address,
+					}),
+				{ address },
+			);
+			assert(
+				JSON.stringify(blobAfterTombstone) ===
+					JSON.stringify({ kind: 'absent' }),
+				`${engineName} tombstone retained blob membership`,
 			);
 			await page.evaluate(() => window.browserReplicaOwnerEvidence.dispose());
 			console.log(`${engineName}: dedicated OPFS replica owner passed`);

@@ -12,6 +12,8 @@ import {
 	type BrowserStorageLease,
 } from '../../browser/storage-lease.js';
 import type { ValidatedLimits } from '../../protocol/v1/index.js';
+import { createReplicaBlobStore } from './blob-store.js';
+import { createBrowserOpfsBlobFileStore } from './browser-opfs-blob-files.js';
 import { openReplicaStore } from './replica-store.js';
 
 const DEFAULT_DATABASE_FILENAME = '/epicenter-data-v1.sqlite3';
@@ -42,18 +44,23 @@ function configureDatabase(database: Database): void {
 	`);
 }
 
-function createStore(
+function createStores(
 	database: Database,
 	limits: ValidatedLimits,
+	files: Awaited<ReturnType<typeof createBrowserOpfsBlobFileStore>>,
 	initialize?: ReplicaInitialization,
 ) {
-	return openReplicaStore({
-		database: createBrowserSqliteAdapter(
-			database as unknown as BrowserSqliteDatabase,
-		),
-		limits,
-		...(initialize === undefined ? {} : { initialize }),
-	});
+	const adapter = createBrowserSqliteAdapter(
+		database as unknown as BrowserSqliteDatabase,
+	);
+	return {
+		store: openReplicaStore({
+			database: adapter,
+			limits,
+			...(initialize === undefined ? {} : { initialize }),
+		}),
+		blobs: createReplicaBlobStore(adapter, files),
+	};
 }
 
 async function settleCleanup(
@@ -102,12 +109,18 @@ export async function openBrowserReplicaOwner({
 		const openedPool = pool;
 		database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 		configureDatabase(database);
-		let store = createStore(database, limits, initialize);
+		const files = await createBrowserOpfsBlobFileStore();
+		let openedStores = createStores(database, limits, files, initialize);
+		await openedStores.blobs.reopenSweep();
 
 		return {
 			get store() {
 				if (isDisposed) throw new Error('browser replica owner is disposed');
-				return store;
+				return openedStores.store;
+			},
+			get blobs() {
+				if (isDisposed) throw new Error('browser replica owner is disposed');
+				return openedStores.blobs;
 			},
 			integrityCheck(): void {
 				if (isDisposed) throw new Error('browser replica owner is disposed');
@@ -119,12 +132,13 @@ export async function openBrowserReplicaOwner({
 					throw new Error('browser replica SQLite integrity check failed');
 				}
 			},
-			reopen(): void {
+			async reopen(): Promise<void> {
 				if (isDisposed) throw new Error('browser replica owner is disposed');
 				database?.close();
 				database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 				configureDatabase(database);
-				store = createStore(database, limits);
+				openedStores = createStores(database, limits, files);
+				await openedStores.blobs.reopenSweep();
 			},
 			async dispose(): Promise<void> {
 				if (isDisposed) return;

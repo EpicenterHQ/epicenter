@@ -26,7 +26,9 @@ export type BrowserReplicaCandidateWorkerScope = {
 };
 
 type BrowserReplicaCandidateOwner = {
-	execute(operation: BrowserReplicaStoreOperation): BrowserReplicaOwnerResult;
+	execute(
+		operation: BrowserReplicaStoreOperation,
+	): Promise<BrowserReplicaOwnerResult>;
 	dispose(): Promise<void>;
 };
 
@@ -95,6 +97,12 @@ function isMutation(operation: BrowserReplicaStoreOperation): boolean {
 		operation.kind === 'seal' ||
 		operation.kind === 'settle' ||
 		operation.kind === 'install-facts' ||
+		operation.kind === 'append-local-document' ||
+		operation.kind === 'install-accepted-document' ||
+		operation.kind === 'settle-document-publication' ||
+		operation.kind === 'capture-blob' ||
+		operation.kind === 'settle-blob-publication' ||
+		operation.kind === 'sweep-blob-debris' ||
 		operation.kind === 'erase'
 	);
 }
@@ -218,7 +226,7 @@ export function startBrowserReplicaCandidateWorker(
 		const executingOwner = owner;
 		ownerTail = ownerTail.then(async () => {
 			try {
-				const value = executingOwner.execute(operation);
+				const value = await executingOwner.execute(operation);
 				respond(candidate, { type: 'result', id, value }, session);
 				if (isMutation(operation)) emitInvalidation(session);
 			} catch (cause) {
