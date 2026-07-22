@@ -9,7 +9,9 @@
  * `ReplicaTransition` values, so they never see a database handle, SQL text,
  * or a physical column. W1A binds the unexported SQLite reference driver;
  * W1B and W1C bind their production replica adapters to the same cases
- * without copying them.
+ * without copying them. Every binding capability accepts an immediate value
+ * or a promise so an in-process store and an RPC-backed browser worker run
+ * this exact case source.
  *
  * Settlement responses are adjudicated by the pure protocol authority
  * (`protocol/v1/authority.ts`), driven over the replica's canonical request
@@ -81,6 +83,9 @@ export type ReplicaSync = {
 /** The persisted first-seal retry witness: exact canonical bytes and hash. */
 export type SealWitness = { bytes: string; hash: string };
 
+/** A capability result that may cross an asynchronous adapter or RPC boundary. */
+export type MaybePromise<TValue> = TValue | Promise<TValue>;
+
 /** One facts-feed page to install as a single transaction. */
 export type FactsPage = {
 	request: FactsRequest;
@@ -91,9 +96,9 @@ export type FactsPage = {
  * Read-only observations every replica view answers, live or crash-recovered.
  */
 export type ReplicaObservations = {
-	record(address: RecordAddress): RecordLanes | null;
-	sync(): ReplicaSync;
-	sealedRequest(): SealWitness | null;
+	record(address: RecordAddress): MaybePromise<RecordLanes | null>;
+	sync(): MaybePromise<ReplicaSync>;
+	sealedRequest(): MaybePromise<SealWitness | null>;
 	/**
 	 * An opaque canonical serialization of the complete logical state. Two
 	 * states are equivalent exactly when their snapshots are equal strings;
@@ -101,11 +106,13 @@ export type ReplicaObservations = {
 	 * every durable field the binding persists must be included, or omitted
 	 * state escapes crash verification.
 	 */
-	snapshot(): string;
+	snapshot(): MaybePromise<string>;
 };
 
 /** A crash-recovered copy; the caller closes it after inspecting. */
-export type CrashedReplica = ReplicaObservations & { close(): void };
+export type CrashedReplica = ReplicaObservations & {
+	close(): MaybePromise<void>;
+};
 
 /**
  * One prepared atomic transition. `boundaries` counts the injectable fault
@@ -115,9 +122,9 @@ export type CrashedReplica = ReplicaObservations & { close(): void };
  * transition as one transaction.
  */
 export type ReplicaTransition = {
-	readonly boundaries: number;
-	crash(boundary: number): CrashedReplica;
-	commit(): void;
+	readonly boundaries: MaybePromise<number>;
+	crash(boundary: number): MaybePromise<CrashedReplica>;
+	commit(): MaybePromise<void>;
 };
 
 /**
@@ -125,21 +132,21 @@ export type ReplicaTransition = {
  * commit (the cases wrap both); a refusal must leave the store unchanged.
  */
 export type ConformanceReplica = ReplicaObservations & {
-	localWrite(intent: Intent): ReplicaTransition;
-	seal(): {
+	localWrite(intent: Intent): MaybePromise<ReplicaTransition>;
+	seal(): MaybePromise<{
 		transition: ReplicaTransition;
 		requestBytes: string;
 		requestHash: string;
-	};
-	settle(response: SubmissionResponse): ReplicaTransition;
-	installFacts(page: FactsPage): ReplicaTransition;
-	erase(): ReplicaTransition;
+	}>;
+	settle(response: SubmissionResponse): MaybePromise<ReplicaTransition>;
+	installFacts(page: FactsPage): MaybePromise<ReplicaTransition>;
+	erase(): MaybePromise<ReplicaTransition>;
 	/** Reconstruct the sealed request from the sealed lanes (ADR-0163 debug assertion). */
-	reconstructSealedRequest(): string;
+	reconstructSealedRequest(): MaybePromise<string>;
 	/** Close and reopen the same persisted state, as a clean process restart. */
-	reopen(): ConformanceReplica;
+	reopen(): MaybePromise<ConformanceReplica>;
 	/** Owning disposal of the replica and everything it persisted. */
-	dispose(): void;
+	dispose(): MaybePromise<void>;
 };
 
 /** What an adapter supplies to run the replica conformance cases. */
@@ -149,7 +156,7 @@ export type ReplicaConformanceBinding = {
 	create(fixture: {
 		replicaId: string;
 		authorityLifetime?: string;
-	}): ConformanceReplica;
+	}): MaybePromise<ConformanceReplica>;
 };
 
 const LIMITS: ValidatedLimits = makeLimits();
@@ -219,117 +226,140 @@ export function runReplicaConformanceCases(
 	 * assertion, such as first-seal byte stability). Then commit the full
 	 * transition on the live store.
 	 */
-	const applyWithCrashes = (
+	const applyWithCrashes = async (
 		replica: ConformanceReplica,
 		transition: ReplicaTransition,
-		assertAfterCrash?: (crashed: ReplicaObservations) => void,
-	): void => {
+		assertAfterCrash?: (crashed: ReplicaObservations) => MaybePromise<void>,
+	): Promise<void> => {
 		// A transition reporting zero fault boundaries would make the crash
 		// matrix silently vacuous; every conformance transition has at least one.
-		expect(transition.boundaries).toBeGreaterThanOrEqual(1);
-		const before = replica.snapshot();
-		for (let boundary = 1; boundary <= transition.boundaries; boundary += 1) {
-			const crashed = transition.crash(boundary);
-			expect(crashed.snapshot()).toBe(before);
-			assertAfterCrash?.(crashed);
-			crashed.close();
+		const boundaries = await transition.boundaries;
+		expect(boundaries).toBeGreaterThanOrEqual(1);
+		const before = await replica.snapshot();
+		for (let boundary = 1; boundary <= boundaries; boundary += 1) {
+			const crashed = await transition.crash(boundary);
+			expect(await crashed.snapshot()).toBe(before);
+			await assertAfterCrash?.(crashed);
+			await crashed.close();
 		}
-		transition.commit();
+		await transition.commit();
 	};
 
 	/** A bound replica with one sealed two-address submission. */
-	const sealedFixture = () => {
-		const replica = binding.create({
+	const sealedFixture = async () => {
+		const replica = await binding.create({
 			replicaId: REPLICA_ID,
 			authorityLifetime: LIFETIME,
 		});
-		replica
-			.localWrite({ address: recordB, op: 'replace', value: { z: 1 } })
-			.commit();
-		replica.localWrite({ address: recordA, op: 'replace', value: 1 }).commit();
-		const seal = replica.seal();
-		seal.transition.commit();
+		await (
+			await replica.localWrite({
+				address: recordB,
+				op: 'replace',
+				value: { z: 1 },
+			})
+		).commit();
+		await (
+			await replica.localWrite({
+				address: recordA,
+				op: 'replace',
+				value: 1,
+			})
+		).commit();
+		const seal = await replica.seal();
+		await seal.transition.commit();
 		return { replica, seal };
 	};
 
 	describe(`replica subset: ${binding.name}`, () => {
-		test('1: a local write folds into the pending lane and survives reopen', () => {
-			const replica = binding.create({
+		test('1: a local write folds into the pending lane and survives reopen', async () => {
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
-			applyWithCrashes(
+			await applyWithCrashes(
 				replica,
-				replica.localWrite({
+				await replica.localWrite({
 					address: recordB,
 					op: 'replace',
 					value: { z: 1 },
 				}),
 			);
-			const reopened = replica.reopen();
-			const lanes = reopened.record(recordB);
+			const reopened = await replica.reopen();
+			const lanes = await reopened.record(recordB);
 			expect(lanes?.pending).toEqual({ op: 'replace', value: { z: 1 } });
 			expect(lanes?.confirmed).toBeNull();
-			reopened.dispose();
+			await reopened.dispose();
 		});
 
-		test('2: pending compaction happens inside the write transaction under the one law', () => {
-			const replica = binding.create({
+		test('2: pending compaction happens inside the write transaction under the one law', async () => {
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
-			replica
-				.localWrite({ address: recordB, op: 'replace', value: { z: 1 } })
-				.commit();
+			await (
+				await replica.localWrite({
+					address: recordB,
+					op: 'replace',
+					value: { z: 1 },
+				})
+			).commit();
 			// A second write composes: replace {z:1} then patch {y:2} compacts to one
 			// replace carrying both fields, never two queued operations.
-			applyWithCrashes(
+			await applyWithCrashes(
 				replica,
-				replica.localWrite({
+				await replica.localWrite({
 					address: recordB,
 					op: 'patch',
 					set: { y: 2 },
 					unset: [],
 				}),
 			);
-			expect(replica.record(recordB)?.pending).toEqual({
+			expect((await replica.record(recordB))?.pending).toEqual({
 				op: 'replace',
 				value: { y: 2, z: 1 },
 			});
-			replica.dispose();
+			await replica.dispose();
 		});
 
-		test('3: sealing moves pending to sealed and persists the first-seal canonical bytes and hash', () => {
-			const replica = binding.create({
+		test('3: sealing moves pending to sealed and persists the first-seal canonical bytes and hash', async () => {
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
-			replica
-				.localWrite({ address: recordB, op: 'replace', value: { z: 2 } })
-				.commit();
-			replica
-				.localWrite({ address: recordA, op: 'replace', value: 1 })
-				.commit();
-			const seal = replica.seal();
-			applyWithCrashes(replica, seal.transition, (crashed) => {
+			await (
+				await replica.localWrite({
+					address: recordB,
+					op: 'replace',
+					value: { z: 2 },
+				})
+			).commit();
+			await (
+				await replica.localWrite({
+					address: recordA,
+					op: 'replace',
+					value: 1,
+				})
+			).commit();
+			const seal = await replica.seal();
+			await applyWithCrashes(replica, seal.transition, async (crashed) => {
 				// A crashed seal leaves no half-sealed state: no marker, no bytes.
-				expect(crashed.sealedRequest()).toBeNull();
+				expect(await crashed.sealedRequest()).toBeNull();
 			});
 
 			// Sealed lanes hold the operations; pending lanes are empty.
-			expect(replica.record(recordA)?.sealed).toEqual({
+			expect((await replica.record(recordA))?.sealed).toEqual({
 				op: 'replace',
 				value: 1,
 			});
-			expect(replica.record(recordB)?.sealed).toEqual({
+			expect((await replica.record(recordB))?.sealed).toEqual({
 				op: 'replace',
 				value: { z: 2 },
 			});
-			expect(replica.record(recordA)?.pending).toBeNull();
+			expect((await replica.record(recordA))?.pending).toBeNull();
 
 			// The persisted bytes are the admitted request's canonical encoding, in
 			// canonical address order, and the hash is their SHA-256.
-			const witness = replica.sealedRequest();
+			const witness = await replica.sealedRequest();
 			if (witness === null) throw new Error('seal persisted nothing');
 			expect(witness.bytes).toBe(seal.requestBytes);
 			expect(witness.hash).toBe(seal.requestHash);
@@ -342,12 +372,12 @@ export function runReplicaConformanceCases(
 
 			// Debug assertion retained by ADR-0163: reconstruction from the sealed
 			// lanes reproduces the persisted bytes under the same encoder.
-			expect(replica.reconstructSealedRequest()).toBe(witness.bytes);
-			replica.dispose();
+			expect(await replica.reconstructSealedRequest()).toBe(witness.bytes);
+			await replica.dispose();
 		});
 
-		test('3b: sealing takes the largest admissible address prefix and leaves the remainder pending', () => {
-			const replica = binding.create({
+		test('3b: sealing takes the largest admissible address prefix and leaves the remainder pending', async () => {
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
@@ -360,7 +390,9 @@ export function runReplicaConformanceCases(
 				}),
 			);
 			for (const [index, address] of addresses.entries()) {
-				replica.localWrite({ address, op: 'replace', value: index }).commit();
+				await (
+					await replica.localWrite({ address, op: 'replace', value: index })
+				).commit();
 			}
 			const prefixFinalAddress = addresses[LIMITS.maxSubmissionAddresses - 1];
 			const remainingAddress = addresses[LIMITS.maxSubmissionAddresses];
@@ -368,118 +400,124 @@ export function runReplicaConformanceCases(
 				throw new Error('bounded sealing fixture is incomplete');
 			}
 
-			const first = replica.seal();
+			const first = await replica.seal();
 			const firstRequest = JSON.parse(first.requestBytes) as SubmissionRequest;
 			expect(firstRequest.intents).toHaveLength(LIMITS.maxSubmissionAddresses);
 			expect(firstRequest.intents.at(-1)?.address).toEqual(prefixFinalAddress);
-			applyWithCrashes(replica, first.transition);
-			expect(replica.record(remainingAddress)?.pending).toEqual({
+			await applyWithCrashes(replica, first.transition);
+			expect((await replica.record(remainingAddress))?.pending).toEqual({
 				op: 'replace',
 				value: LIMITS.maxSubmissionAddresses,
 			});
-			expect(replica.record(prefixFinalAddress)?.sealed).toEqual({
+			expect((await replica.record(prefixFinalAddress))?.sealed).toEqual({
 				op: 'replace',
 				value: LIMITS.maxSubmissionAddresses - 1,
 			});
 
 			const authority = createKernelAuthority(LIFETIME);
-			replica.settle(authority.submitBytes(first.requestBytes)).commit();
-			const second = replica.seal();
-			second.transition.commit();
+			await (
+				await replica.settle(authority.submitBytes(first.requestBytes))
+			).commit();
+			const second = await replica.seal();
+			await second.transition.commit();
 			const secondRequest = JSON.parse(
 				second.requestBytes,
 			) as SubmissionRequest;
 			expect(secondRequest.intents.map((intent) => intent.address)).toEqual([
 				remainingAddress,
 			]);
-			replica.dispose();
+			await replica.dispose();
 		});
 
-		test('4: a new write while sealed cannot change the first-seal retry bytes', () => {
-			const { replica, seal } = sealedFixture();
-			const firstSeal = replica.sealedRequest();
+		test('4: a new write while sealed cannot change the first-seal retry bytes', async () => {
+			const { replica, seal } = await sealedFixture();
+			const firstSeal = await replica.sealedRequest();
 			if (firstSeal === null) throw new Error('seal persisted nothing');
 
-			applyWithCrashes(
+			await applyWithCrashes(
 				replica,
-				replica.localWrite({
+				await replica.localWrite({
 					address: recordB,
 					op: 'replace',
 					value: { z: 3 },
 				}),
-				(crashed) => {
-					expect(crashed.sealedRequest()).toEqual(firstSeal);
+				async (crashed) => {
+					expect(await crashed.sealedRequest()).toEqual(firstSeal);
 				},
 			);
 
 			// The sealed lane and the persisted first-seal bytes are byte-identical
 			// even though newer pending work now exists at the same address.
-			expect(replica.record(recordB)?.sealed).toEqual({
+			expect((await replica.record(recordB))?.sealed).toEqual({
 				op: 'replace',
 				value: { z: 1 },
 			});
-			expect(replica.record(recordB)?.pending).toEqual({
+			expect((await replica.record(recordB))?.pending).toEqual({
 				op: 'replace',
 				value: { z: 3 },
 			});
-			expect(replica.sealedRequest()).toEqual(firstSeal);
-			expect(replica.sealedRequest()?.bytes).toBe(seal.requestBytes);
-			expect(replica.reconstructSealedRequest()).toBe(firstSeal.bytes);
+			expect(await replica.sealedRequest()).toEqual(firstSeal);
+			expect((await replica.sealedRequest())?.bytes).toBe(seal.requestBytes);
+			expect(await replica.reconstructSealedRequest()).toBe(firstSeal.bytes);
 
 			// A clean process restart also preserves them exactly.
-			const reopened = replica.reopen();
-			expect(reopened.sealedRequest()).toEqual(firstSeal);
-			reopened.dispose();
+			const reopened = await replica.reopen();
+			expect(await reopened.sealedRequest()).toEqual(firstSeal);
+			await reopened.dispose();
 		});
 
-		test('7: settlement installs facts, retires the seal, clears the bytes, and keeps newer pending', () => {
-			const { replica } = sealedFixture();
-			const witness = replica.sealedRequest();
+		test('7: settlement installs facts, retires the seal, clears the bytes, and keeps newer pending', async () => {
+			const { replica } = await sealedFixture();
+			const witness = await replica.sealedRequest();
 			if (witness === null) throw new Error('seal persisted nothing');
 			// Newer pending desire arrives while the submission is in flight.
-			replica
-				.localWrite({
+			await (
+				await replica.localWrite({
 					address: recordB,
 					op: 'patch',
 					set: { newer: true },
 					unset: [],
 				})
-				.commit();
+			).commit();
 
 			const authority = createKernelAuthority(LIFETIME);
 			const response = authority.submitBytes(witness.bytes);
 
-			applyWithCrashes(replica, replica.settle(response), (crashed) => {
-				// Before the settlement commits, the retry bytes must survive a crash.
-				expect(crashed.sealedRequest()).toEqual(witness);
-			});
+			await applyWithCrashes(
+				replica,
+				await replica.settle(response),
+				async (crashed) => {
+					// Before the settlement commits, the retry bytes must survive a crash.
+					expect(await crashed.sealedRequest()).toEqual(witness);
+				},
+			);
 
-			expect(replica.record(recordA)?.confirmed).toEqual({
+			expect((await replica.record(recordA))?.confirmed).toEqual({
 				state: 'live',
 				payload: 1,
 				sequence: 1,
 			});
-			expect(replica.record(recordB)?.confirmed).toEqual({
+			expect((await replica.record(recordB))?.confirmed).toEqual({
 				state: 'live',
 				payload: { z: 1 },
 				sequence: 2,
 			});
-			expect(replica.record(recordA)?.sealed).toBeNull();
-			expect(replica.record(recordB)?.sealed).toBeNull();
+			expect((await replica.record(recordA))?.sealed).toBeNull();
+			expect((await replica.record(recordB))?.sealed).toBeNull();
 			// The newer pending desire survives settlement untouched.
-			expect(replica.record(recordB)?.pending).toEqual({
+			expect((await replica.record(recordB))?.pending).toEqual({
 				op: 'patch',
 				set: { newer: true },
 				unset: [],
 			});
-			const sync = replica.sync();
+			const sync = await replica.sync();
 			expect(sync.sealedSubmission).toBeNull();
-			expect(replica.sealedRequest()).toBeNull();
+			expect(await replica.sealedRequest()).toBeNull();
 			expect(sync.nextSubmission).toBe(2);
-			replica.dispose();
+			await replica.dispose();
 		});
 
-		test('7p: a parked refusal is stored whole and consumed by the next local write', () => {
+		test('7p: a parked refusal is stored whole and consumed by the next local write', async () => {
 			// Replica B establishes a live scalar; replica A patches it, which the
 			// authority refuses as patch-base-not-object.
 			const authority = createKernelAuthority(LIFETIME);
@@ -492,22 +530,27 @@ export function runReplicaConformanceCases(
 				}),
 			);
 
-			const replica = binding.create({
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
-			replica
-				.localWrite({ address: theme, op: 'patch', set: { a: 1 }, unset: [] })
-				.commit();
-			const seal = replica.seal();
-			seal.transition.commit();
+			await (
+				await replica.localWrite({
+					address: theme,
+					op: 'patch',
+					set: { a: 1 },
+					unset: [],
+				})
+			).commit();
+			const seal = await replica.seal();
+			await seal.transition.commit();
 			const response = authority.submitBytes(seal.requestBytes);
 			expect(response.parked).toEqual([
 				{ address: theme, code: 'patch-base-not-object' },
 			]);
 
-			applyWithCrashes(replica, replica.settle(response));
-			const lanes = replica.record(theme);
+			await applyWithCrashes(replica, await replica.settle(response));
+			const lanes = await replica.record(theme);
 			// The refused operation is retained whole as a visible non-retrying
 			// overlay with its refusal code; the confirmed lane keeps the live value.
 			expect(lanes?.parked).toEqual({
@@ -523,17 +566,21 @@ export function runReplicaConformanceCases(
 
 			// A later local write composes with the parked operation under the one
 			// law, clears the diagnostic, and creates newly pending work.
-			applyWithCrashes(
+			await applyWithCrashes(
 				replica,
-				replica.localWrite({ address: theme, op: 'replace', value: 'light' }),
+				await replica.localWrite({
+					address: theme,
+					op: 'replace',
+					value: 'light',
+				}),
 			);
-			const consumed = replica.record(theme);
+			const consumed = await replica.record(theme);
 			expect(consumed?.parked).toBeNull();
 			expect(consumed?.pending).toEqual({ op: 'replace', value: 'light' });
-			replica.dispose();
+			await replica.dispose();
 		});
 
-		test('7q: a parked refusal compacts beneath newer pending desire instead of overlaying', () => {
+		test('7q: a parked refusal compacts beneath newer pending desire instead of overlaying', async () => {
 			const authority = createKernelAuthority(LIFETIME);
 			authority.submitBytes(
 				requestBytes({
@@ -543,23 +590,33 @@ export function runReplicaConformanceCases(
 					intents: [{ address: theme, op: 'replace', value: 'dark' }],
 				}),
 			);
-			const replica = binding.create({
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
-			replica
-				.localWrite({ address: theme, op: 'patch', set: { a: 1 }, unset: [] })
-				.commit();
-			const seal = replica.seal();
-			seal.transition.commit();
+			await (
+				await replica.localWrite({
+					address: theme,
+					op: 'patch',
+					set: { a: 1 },
+					unset: [],
+				})
+			).commit();
+			const seal = await replica.seal();
+			await seal.transition.commit();
 			// Newer pending desire arrives before settlement.
-			replica
-				.localWrite({ address: theme, op: 'patch', set: { b: 2 }, unset: [] })
-				.commit();
+			await (
+				await replica.localWrite({
+					address: theme,
+					op: 'patch',
+					set: { b: 2 },
+					unset: [],
+				})
+			).commit();
 			const response = authority.submitBytes(seal.requestBytes);
-			applyWithCrashes(replica, replica.settle(response));
+			await applyWithCrashes(replica, await replica.settle(response));
 
-			const lanes = replica.record(theme);
+			const lanes = await replica.record(theme);
 			// No overlay is stored: pending = pending-composed-beneath-parked, one
 			// operation per address, under the same composition law.
 			expect(lanes?.parked).toBeNull();
@@ -568,10 +625,10 @@ export function runReplicaConformanceCases(
 				set: { a: 1, b: 2 },
 				unset: [],
 			});
-			replica.dispose();
+			await replica.dispose();
 		});
 
-		test('7t: a remembered parked result cannot overlay a newer tombstone at retry settlement', () => {
+		test('7t: a remembered parked result cannot overlay a newer tombstone at retry settlement', async () => {
 			const authority = createKernelAuthority(LIFETIME);
 			authority.submitBytes(
 				requestBytes({
@@ -581,15 +638,20 @@ export function runReplicaConformanceCases(
 					intents: [{ address: theme, op: 'replace', value: 'dark' }],
 				}),
 			);
-			const replica = binding.create({
+			const replica = await binding.create({
 				replicaId: REPLICA_ID,
 				authorityLifetime: LIFETIME,
 			});
-			replica
-				.localWrite({ address: theme, op: 'patch', set: { a: 1 }, unset: [] })
-				.commit();
-			const seal = replica.seal();
-			seal.transition.commit();
+			await (
+				await replica.localWrite({
+					address: theme,
+					op: 'patch',
+					set: { a: 1 },
+					unset: [],
+				})
+			).commit();
+			const seal = await replica.seal();
+			await seal.transition.commit();
 			// First adjudication parks; its response is lost.
 			authority.submitBytes(seal.requestBytes);
 			// Another replica terminally deletes the record before the retry.
@@ -603,7 +665,7 @@ export function runReplicaConformanceCases(
 			);
 			// Exact retry with the persisted bytes returns the remembered parked
 			// result plus the newer tombstone fact.
-			const witness = replica.sealedRequest();
+			const witness = await replica.sealedRequest();
 			if (witness === null) throw new Error('seal persisted nothing');
 			const retry = authority.submitBytes(witness.bytes);
 			expect(retry.parked).toEqual([
@@ -611,31 +673,35 @@ export function runReplicaConformanceCases(
 			]);
 			expect(retry.facts[0]?.state).toBe('tombstone');
 
-			applyWithCrashes(replica, replica.settle(retry));
-			const lanes = replica.record(theme);
+			await applyWithCrashes(replica, await replica.settle(retry));
+			const lanes = await replica.record(theme);
 			// The stored tombstone supersedes the parked overlay and its diagnostic.
 			expect(lanes?.confirmed?.state).toBe('tombstone');
 			expect(lanes?.parked).toBeNull();
 			expect(lanes?.pending).toBeNull();
-			replica.dispose();
+			await replica.dispose();
 		});
 
-		test('8: a feed-ahead tombstone dominates unsealed work while the sealed retry image survives', () => {
-			const { replica } = sealedFixture();
-			const firstSeal = replica.sealedRequest();
+		test('8: a feed-ahead tombstone dominates unsealed work while the sealed retry image survives', async () => {
+			const { replica } = await sealedFixture();
+			const firstSeal = await replica.sealedRequest();
 			if (firstSeal === null) throw new Error('seal persisted nothing');
 			const authority = createKernelAuthority(LIFETIME);
 			const delayedSettlement = authority.submitBytes(firstSeal.bytes);
 			// Newer pending desire exists beside the sealed lane.
-			replica
-				.localWrite({ address: recordB, op: 'replace', value: { z: 9 } })
-				.commit();
+			await (
+				await replica.localWrite({
+					address: recordB,
+					op: 'replace',
+					value: { z: 9 },
+				})
+			).commit();
 
 			// The facts feed learns a tombstone at the sealed address plus an
 			// unrelated live fact, and advances the cursor, in one transaction.
-			applyWithCrashes(
+			await applyWithCrashes(
 				replica,
-				replica.installFacts({
+				await replica.installFacts({
 					request: { authorityLifetime: LIFETIME, afterSequence: 0 },
 					response: {
 						authorityLifetime: LIFETIME,
@@ -651,62 +717,67 @@ export function runReplicaConformanceCases(
 						hasMore: false,
 					},
 				}),
-				(crashed) => {
-					expect(crashed.sealedRequest()).toEqual(firstSeal);
+				async (crashed) => {
+					expect(await crashed.sealedRequest()).toEqual(firstSeal);
 				},
 			);
 
-			const lanes = replica.record(recordB);
+			const lanes = await replica.record(recordB);
 			expect(lanes?.confirmed).toEqual({ state: 'tombstone', sequence: 8 });
 			expect(lanes?.pending).toBeNull(); // dominated as superseded
 			expect(lanes?.sealed).toEqual({ op: 'replace', value: { z: 1 } }); // retry image untouched
-			expect(replica.sealedRequest()).toEqual(firstSeal);
-			expect(replica.sync().afterSequence).toBe(10);
-			expect(replica.record(theme)?.confirmed).toEqual({
+			expect(await replica.sealedRequest()).toEqual(firstSeal);
+			expect((await replica.sync()).afterSequence).toBe(10);
+			expect((await replica.record(theme))?.confirmed).toEqual({
 				state: 'live',
 				payload: 'dark',
 				sequence: 10,
 			});
-			expect(() =>
-				replica
-					.installFacts({
+			await expect(
+				(async () => {
+					const transition = await replica.installFacts({
 						request: { authorityLifetime: LIFETIME, afterSequence: 0 },
 						response: {
 							authorityLifetime: LIFETIME,
 							facts: [],
 							hasMore: false,
 						},
-					})
-					.commit(),
-			).toThrow(/facts page stale request/);
-			expect(replica.sync().afterSequence).toBe(10);
+					});
+					await transition.commit();
+				})(),
+			).rejects.toThrow(/facts page stale request/);
+			expect((await replica.sync()).afterSequence).toBe(10);
 
 			// Submission facts do not advance the feed cursor. A delayed settlement
 			// therefore installs record A, ignores record B's older sequence, and
 			// retires the exact sealed image without weakening the tombstone.
-			applyWithCrashes(replica, replica.settle(delayedSettlement));
-			expect(replica.record(recordA)?.confirmed).toEqual({
+			await applyWithCrashes(replica, await replica.settle(delayedSettlement));
+			expect((await replica.record(recordA))?.confirmed).toEqual({
 				state: 'live',
 				payload: 1,
 				sequence: 1,
 			});
-			expect(replica.record(recordB)?.confirmed).toEqual({
+			expect((await replica.record(recordB))?.confirmed).toEqual({
 				state: 'tombstone',
 				sequence: 8,
 			});
-			expect(replica.sync().afterSequence).toBe(10);
-			expect(replica.sealedRequest()).toBeNull();
+			expect((await replica.sync()).afterSequence).toBe(10);
+			expect(await replica.sealedRequest()).toBeNull();
 
 			// An equal sequence with different content is corruption, even through
 			// an otherwise context-valid settlement response.
-			replica
-				.localWrite({ address: recordA, op: 'replace', value: 'newer' })
-				.commit();
-			const secondSeal = replica.seal();
-			secondSeal.transition.commit();
-			expect(() =>
-				replica
-					.settle({
+			await (
+				await replica.localWrite({
+					address: recordA,
+					op: 'replace',
+					value: 'newer',
+				})
+			).commit();
+			const secondSeal = await replica.seal();
+			await secondSeal.transition.commit();
+			await expect(
+				(async () => {
+					const transition = await replica.settle({
 						authorityLifetime: LIFETIME,
 						facts: [
 							{
@@ -717,22 +788,23 @@ export function runReplicaConformanceCases(
 							},
 						],
 						parked: [],
-					})
-					.commit(),
-			).toThrow(/corruption/);
-			replica.dispose();
+					});
+					await transition.commit();
+				})(),
+			).rejects.toThrow(/corruption/);
+			await replica.dispose();
 		});
 
-		test('11: a superseded replica erases and reacquires from zero under the successor lifetime', () => {
-			const { replica } = sealedFixture();
+		test('11: a superseded replica erases and reacquires from zero under the successor lifetime', async () => {
+			const { replica } = await sealedFixture();
 			// A response carrying a different lifetime is a terminal mismatch on
 			// every installation path (ADR-0163): the store refuses a mismatched
 			// facts page and a mismatched settlement response alike, forcing
 			// erase-and-reacquire, and the refusal leaves the sealed retry
 			// witness untouched.
-			expect(() =>
-				replica
-					.installFacts({
+			await expect(
+				(async () => {
+					const transition = await replica.installFacts({
 						request: {
 							authorityLifetime: LIFETIME,
 							afterSequence: 0,
@@ -742,34 +814,41 @@ export function runReplicaConformanceCases(
 							facts: [],
 							hasMore: false,
 						},
-					})
-					.commit(),
-			).toThrow(/facts page lifetime/);
-			expect(() =>
-				replica
-					.settle({ authorityLifetime: 'lifetime-two', facts: [], parked: [] })
-					.commit(),
-			).toThrow(/lifetime mismatch/);
-			expect(replica.sealedRequest()).not.toBeNull();
+					});
+					await transition.commit();
+				})(),
+			).rejects.toThrow(/facts page lifetime/);
+			await expect(
+				(async () => {
+					const transition = await replica.settle({
+						authorityLifetime: 'lifetime-two',
+						facts: [],
+						parked: [],
+					});
+					await transition.commit();
+				})(),
+			).rejects.toThrow(/lifetime mismatch/);
+			expect(await replica.sealedRequest()).not.toBeNull();
 
-			replica.erase().commit();
-			expect(() =>
-				replica
-					.installFacts({
+			await (await replica.erase()).commit();
+			await expect(
+				(async () => {
+					const transition = await replica.installFacts({
 						request: { afterSequence: 0 },
 						response: {
 							authorityLifetime: LIFETIME,
 							facts: [],
 							hasMore: false,
 						},
-					})
-					.commit(),
-			).toThrow(/erased authority lifetime/);
-			expect(replica.sync().authorityLifetime).toBeNull();
+					});
+					await transition.commit();
+				})(),
+			).rejects.toThrow(/erased authority lifetime/);
+			expect((await replica.sync()).authorityLifetime).toBeNull();
 			// Reacquisition binds the successor lifetime and installs from zero.
-			applyWithCrashes(
+			await applyWithCrashes(
 				replica,
-				replica.installFacts({
+				await replica.installFacts({
 					request: { afterSequence: 0 },
 					response: {
 						authorityLifetime: 'lifetime-two',
@@ -785,16 +864,16 @@ export function runReplicaConformanceCases(
 					},
 				}),
 			);
-			const sync = replica.sync();
+			const sync = await replica.sync();
 			expect(sync.authorityLifetime).toBe('lifetime-two');
 			expect(sync.afterSequence).toBe(1);
 			expect(sync.nextSubmission).toBe(1);
-			expect(replica.record(theme)?.confirmed).toEqual({
+			expect((await replica.record(theme))?.confirmed).toEqual({
 				state: 'live',
 				payload: 'dark',
 				sequence: 1,
 			});
-			replica.dispose();
+			await replica.dispose();
 		});
 	});
 }
