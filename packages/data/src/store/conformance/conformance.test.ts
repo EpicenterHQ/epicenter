@@ -694,22 +694,29 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		)?.n,
 	});
 
-	test('a terminal tombstone explicitly deletes the document chain and blob evidence, with no cascade', () => {
+	test('a terminal tombstone installs, clears blob evidence, and deletes child rows in one transaction', () => {
 		const replica = documentFixture();
+		expect(childCounts(replica)).toEqual({ documents: 1, inflight: 1 });
 
-		// No cascade exists: installing the tombstone fact alone leaves both
-		// sibling rows in place.
-		replica.store.applyTransaction(
+		// One crash-injected transaction installs the tombstone, clears the blob
+		// evidence, and explicitly deletes the document chain and in-flight image
+		// (no cascade exists to do any of it implicitly). A crash at any
+		// statement boundary restores the fully live record with both children,
+		// so no observable state ever holds a committed tombstone beside a
+		// half-done cleanup.
+		applyWithCrashes(
+			replica.store,
 			replica.installFactsStatements({
 				authorityLifetime: LIFETIME,
 				facts: [{ address: rowA, sequence: 2, state: 'tombstone' }],
 				afterSequence: 2,
 			}),
+			(crashed) => {
+				const recovered = new ReplicaRef(crashed);
+				expect(recovered.record(rowA)?.confirmed_state).toBe('live');
+				expect(childCounts(recovered)).toEqual({ documents: 1, inflight: 1 });
+			},
 		);
-		expect(childCounts(replica)).toEqual({ documents: 1, inflight: 1 });
-
-		// The tombstone transaction owns the cleanup visibly and atomically.
-		applyWithCrashes(replica.store, replica.tombstoneCleanupStatements(rowA));
 		expect(childCounts(replica)).toEqual({ documents: 0, inflight: 0 });
 		const row = replica.record(rowA);
 		expect(row?.blob_sha256).toBeNull();

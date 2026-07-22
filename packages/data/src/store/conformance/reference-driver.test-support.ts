@@ -326,16 +326,31 @@ export class ReplicaRef {
 		if (fact.state === 'tombstone') {
 			// A learned tombstone immediately removes every unsealed operation at
 			// the address as superseded. The sealed lane stays immutable for exact
-			// retry; it stops overlaying and retires at settlement.
+			// retry; it stops overlaying and retires at settlement. The same
+			// transaction owns the record's terminal cleanup (ADR-0173, ADR-0174,
+			// ADR-0177): it clears the blob evidence and explicitly deletes the
+			// document chain and in-flight image, because no cascade exists and a
+			// committed tombstone must never leave child rows alive.
 			return [
 				{
 					sql: `UPDATE records SET confirmed_state = 'tombstone',
 					        confirmed_payload = NULL, confirmed_sequence = ?,
 					        pending_op = NULL, pending_args = NULL,
 					        parked_op = NULL, parked_args = NULL, parked_code = NULL,
-					        parked_measured = NULL, parked_limit = NULL
+					        parked_measured = NULL, parked_limit = NULL,
+					        blob_sha256 = NULL, blob_pending = 0, doc_dirty = 0
 					      WHERE ${TRIPLE_WHERE}`,
 					params: [fact.sequence, ...tripleParams(fact.address)],
+				},
+				{
+					sql: `DELETE FROM record_documents WHERE record_id =
+					        (SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+					params: tripleParams(fact.address),
+				},
+				{
+					sql: `DELETE FROM document_inflight WHERE record_id =
+					        (SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+					params: tripleParams(fact.address),
 				},
 			];
 		}
@@ -467,33 +482,6 @@ export class ReplicaRef {
 			      WHERE singleton = 1`,
 		});
 		return statements;
-	}
-
-	/**
-	 * The document/blob half of a terminal tombstone (ADR-0173, ADR-0174):
-	 * clear the record's blob evidence and explicitly delete its document
-	 * chain and in-flight image. No cascade exists; this transaction owns the
-	 * cleanup visibly.
-	 */
-	tombstoneCleanupStatements(address: RecordAddress): Statement[] {
-		return [
-			{
-				sql: `UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
-				        doc_dirty = 0
-				      WHERE ${TRIPLE_WHERE}`,
-				params: tripleParams(address),
-			},
-			{
-				sql: `DELETE FROM record_documents WHERE record_id =
-				        (SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-				params: tripleParams(address),
-			},
-			{
-				sql: `DELETE FROM document_inflight WHERE record_id =
-				        (SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-				params: tripleParams(address),
-			},
-		];
 	}
 
 	/**
