@@ -53,11 +53,13 @@ import {
 	type CloudEnv,
 	createBunEpicenterSyncRuntime,
 	createBunRooms,
+	createBunScalarV1Runtime,
 	createDb,
 	createServerApp,
 	mergeBunWebSocketHandlers,
 	mountBlobsApp,
 	mountBunEpicenterSyncApp,
+	mountBunScalarV1App,
 	mountCloudAuth,
 	mountCloudDb,
 	mountInferenceApp,
@@ -145,6 +147,9 @@ export function startBunApiServer(
 	const epicenterSync = createBunEpicenterSyncRuntime({
 		dir: join(dataDir, 'records'),
 	});
+	const scalarV1 = createBunScalarV1Runtime({
+		dir: join(dataDir, 'records'),
+	});
 
 	// One pool for the process; drizzle checks a client out per query and returns
 	// it, so the `mountCloudDb` connect leg below hands back the shared handle with
@@ -209,6 +214,7 @@ export function startBunApiServer(
 		resolveDocumentPrincipal,
 		runtime: epicenterSync,
 	});
+	mountBunScalarV1App(app, { auth: bearer, runtime: scalarV1 });
 	mountInferenceApp(app, { auth: bearer });
 	mountBlobsApp(app, { auth: cookieOrBearer });
 
@@ -232,6 +238,7 @@ export function startBunApiServer(
 	// Close authority databases and their sockets before the process dies so WAL
 	// checkpoints land and clients see a clean 1001 instead of a dropped TCP.
 	const shutdown = () => {
+		scalarV1.close();
 		epicenterSync.close();
 		void server.stop(true);
 		process.exit(0);

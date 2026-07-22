@@ -34,12 +34,19 @@ function principalName(principalId: PrincipalId): string {
 /** One principal-owned scalar V1 authority on Durable Object SQLite. */
 export class DataAuthority extends DurableObject<Cloudflare.Env> {
 	private authority: ScalarAuthorityV1 | undefined;
+	private initializationError: unknown;
 	private readonly ready: Promise<void>;
 
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
 		this.ready = ctx.blockConcurrencyWhile(async () => {
-			this.authority = this.openFreshOwner();
+			try {
+				this.authority = this.openFreshOwner();
+			} catch (cause) {
+				// Keep the actor reachable for account deletion. A rejected constructor
+				// block prevents later RPC events from reaching deleteAccount at all.
+				this.initializationError = cause;
+			}
 		});
 	}
 
@@ -67,16 +74,21 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 	async deleteAccount(): Promise<void> {
 		await this.ready;
 		await this.ctx.blockConcurrencyWhile(async () => {
+			this.authority = undefined;
 			await this.ctx.storage.deleteAll();
 			// Authentication survives until the hosted deletion coordinator's last
 			// step. Reopen an empty successor lifetime so a partial downstream
 			// failure does not strand this actor in an unusable in-memory state.
 			this.authority = this.openFreshOwner();
+			this.initializationError = undefined;
 		});
 	}
 
 	private async owner(): Promise<ScalarAuthorityV1> {
 		await this.ready;
+		if (this.initializationError !== undefined) {
+			throw this.initializationError;
+		}
 		if (this.authority === undefined) {
 			throw new Error('scalar V1 authority is unavailable');
 		}
