@@ -57,6 +57,12 @@ export type BrowserRecordWorkerOwner = {
 	blobs: ReplicaBlobStore<Blob, Blob>;
 	ownerGeneration: number;
 	integrityCheck(): void | Promise<void>;
+	captureSnapshot(options?: {
+		lens?: import('../lens.js').LensDefinition;
+	}): Promise<{
+		artifact: Blob;
+		metadata: import('../store/replica/index.js').SnapshotArtifactMetadata;
+	}>;
 };
 
 export type BrowserRecordCoordinationChannel = {
@@ -322,6 +328,12 @@ function createOwnerOperations(
 					kind: 'inspect-record',
 					inspection: await opened.owner.inspectRecord(operation.address),
 				};
+			case 'capture-snapshot': {
+				const captured = await opened.captureSnapshot({
+					...(operation.lens === undefined ? {} : { lens: operation.lens }),
+				});
+				return { kind: 'capture-snapshot', ...captured };
+			}
 			case 'attach-sync':
 				return attachSync(candidateId, operation);
 			default:
@@ -1460,5 +1472,6 @@ async function openBrowserRecordWorkerOwner({
 		blobs: storageOwner.blobs,
 		ownerGeneration: storageOwner.ownerGeneration,
 		integrityCheck: () => storageOwner.integrityCheck(),
+		captureSnapshot: (options) => storageOwner.captureSnapshot(options),
 	};
 }

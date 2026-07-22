@@ -3,6 +3,7 @@ import type {
 	DocumentBoundRefusal,
 	DocumentPublicationReceipt,
 } from '../../document-v1/index.js';
+import type { LensDefinition } from '../../lens.js';
 import type {
 	FactsRequest,
 	FactsResponse,
@@ -21,6 +22,7 @@ import type {
 	ReplicaStoreSync,
 	SealedRequest,
 } from './replica-store.js';
+import type { SnapshotArtifactMetadata } from './snapshot-artifact.js';
 
 export type BrowserReplicaOwnerOperation =
 	| {
@@ -74,6 +76,7 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'sweep-blob-debris' }
 	| { kind: 'erase' }
 	| { kind: 'integrity-check' }
+	| { kind: 'capture-snapshot'; lens?: LensDefinition }
 	| { kind: 'reopen' }
 	| { kind: 'dispose' };
 
@@ -92,6 +95,7 @@ export type BrowserReplicaOwnerResult =
 	| BlobInspection
 	| BlobPublication<Blob>
 	| Blob
+	| { artifact: Blob; metadata: SnapshotArtifactMetadata }
 	| Uint8Array
 	| string
 	| null;

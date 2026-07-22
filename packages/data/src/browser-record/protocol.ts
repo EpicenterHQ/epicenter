@@ -6,6 +6,7 @@ import type {
 	DocumentAcceptance,
 	DocumentPublicationRequest,
 } from '../document-v1/index.js';
+import type { LensDefinition } from '../lens.js';
 import type {
 	FactsRequest,
 	FactsResponse,
@@ -75,6 +76,7 @@ export type BrowserRecordOperation =
 	| { kind: 'inspect-blob'; address: RecordAddress }
 	| { kind: 'parked-work'; after?: RecordAddress }
 	| { kind: 'inspect-record'; address: RecordAddress }
+	| { kind: 'capture-snapshot'; lens?: LensDefinition }
 	| {
 			kind: 'attach-sync';
 			transportKey: number;
@@ -114,6 +116,11 @@ export type BrowserRecordResult =
 	| { kind: 'inspect-blob'; inspection: BlobInspection }
 	| { kind: 'parked-work'; page: ReplicaParkedWorkPage }
 	| { kind: 'inspect-record'; inspection: RecordInspection }
+	| {
+			kind: 'capture-snapshot';
+			artifact: Blob;
+			metadata: import('../store/replica/index.js').SnapshotArtifactMetadata;
+	  }
 	| {
 			kind: 'attach-sync';
 			attachment: ReplicaAttachmentState;

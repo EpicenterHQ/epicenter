@@ -106,6 +106,7 @@ function isRetryable(operation: BrowserReplicaStoreOperation): boolean {
 		case 'blob-publication':
 		case 'read-blob':
 		case 'integrity-check':
+		case 'capture-snapshot':
 			return true;
 		case 'local-write':
 		case 'seal':

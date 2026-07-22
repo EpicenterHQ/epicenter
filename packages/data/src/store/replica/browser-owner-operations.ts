@@ -77,6 +77,10 @@ export function createBrowserReplicaOwnerOperations(
 				case 'integrity-check':
 					owner.integrityCheck();
 					return undefined;
+				case 'capture-snapshot':
+					return owner.captureSnapshot({
+						...(operation.lens === undefined ? {} : { lens: operation.lens }),
+					});
 				case 'reopen':
 					await owner.reopen();
 					return undefined;

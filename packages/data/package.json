@@ -6,6 +6,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
+		"./browser-home": "./src/browser-home.ts",
 		"./browser-record": "./src/browser-record-public.ts",
 		"./browser-replica-candidate-worker": "./src/browser-replica-candidate-worker.ts",
 		"./browser-replica-worker": "./src/browser-replica-worker.ts",

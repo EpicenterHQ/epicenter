@@ -75,6 +75,7 @@ export function startBrowserReplicaOwnerWorker(
 			case 'sweep-blob-debris':
 			case 'erase':
 			case 'integrity-check':
+			case 'capture-snapshot':
 			case 'reopen':
 				if (operations === undefined)
 					throw new Error('browser replica owner is not open');

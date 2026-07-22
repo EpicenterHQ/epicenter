@@ -68,6 +68,12 @@ type OpenBrowserRecordEpicenterTestOptions = {
 };
 
 const remoteDocumentOrigin = Symbol('browser-record-document-remote');
+const snapshotCaptures = new WeakMap<
+	object,
+	(
+		lens?: LensDefinition,
+	) => Promise<Extract<BrowserRecordResult, { kind: 'capture-snapshot' }>>
+>();
 
 function addressKey(address: RecordAddress): string {
 	return JSON.stringify([
@@ -871,7 +877,7 @@ export async function openBrowserRecordEpicenterForTest({
 		}
 	}
 
-	return Object.freeze({
+	const epicenter = Object.freeze({
 		bind,
 		attachSync,
 		get attachment(): ReplicaAttachmentState {
@@ -927,11 +933,33 @@ export async function openBrowserRecordEpicenterForTest({
 		},
 		[Symbol.asyncDispose]: dispose,
 	}) satisfies RecordEpicenter<Blob, Blob>;
+	snapshotCaptures.set(epicenter, (lens) =>
+		request({
+			kind: 'capture-snapshot',
+			...(lens === undefined ? {} : { lens }),
+		}),
+	);
+	return epicenter;
 }
 
 export type BrowserRecordEpicenter = Awaited<
 	ReturnType<typeof openBrowserRecordEpicenter>
 >;
+
+/** Internal capability used only by the browser Home snapshot surface. */
+export async function captureBrowserRecordSnapshot(
+	epicenter: BrowserRecordEpicenter,
+	{ lens }: { lens?: LensDefinition } = {},
+) {
+	const capture = snapshotCaptures.get(epicenter);
+	if (capture === undefined) {
+		throw new Error(
+			'Browser record Epicenter does not own snapshot capability',
+		);
+	}
+	const { kind: _, ...captured } = await capture(lens);
+	return captured;
+}
 
 function defaultWorker(): BrowserRecordClientWorker {
 	const WorkerConstructor = (

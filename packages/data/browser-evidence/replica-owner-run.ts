@@ -172,6 +172,30 @@ try {
 					blobBefore.inspection.kind === 'pending',
 				`${engineName} OPFS blob capture was not publishable`,
 			);
+			const snapshot = await page.evaluate(async () => {
+				const result = await window.browserReplicaOwnerEvidence.request({
+					kind: 'capture-snapshot',
+				});
+				if (
+					result === null ||
+					typeof result !== 'object' ||
+					!('artifact' in result) ||
+					!(result.artifact instanceof Blob) ||
+					!('metadata' in result)
+				) {
+					throw new Error('browser snapshot artifact is missing');
+				}
+				const header = new TextDecoder().decode(
+					(await result.artifact.arrayBuffer()).slice(0, 16),
+				);
+				return { header, metadata: result.metadata };
+			});
+			assert(
+				snapshot.header === 'SQLite format 3\0' &&
+					snapshot.metadata.kind === 'snapshot' &&
+					snapshot.metadata.recordCount === 1,
+				`${engineName} browser snapshot was not a complete SQLite artifact`,
+			);
 			await page.evaluate(() =>
 				window.browserReplicaOwnerEvidence.request({ kind: 'reopen' }),
 			);

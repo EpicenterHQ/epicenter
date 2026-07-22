@@ -11,6 +11,7 @@ import {
 	acquireBrowserStorageLease,
 	type BrowserStorageLease,
 } from '../../browser/storage-lease.js';
+import type { LensDefinition } from '../../lens.js';
 import type { ValidatedLimits } from '../../protocol/v1/index.js';
 import { createReplicaBlobStore } from './blob-store.js';
 import { createBrowserOpfsBlobFileStore } from './browser-opfs-blob-files.js';
@@ -20,6 +21,8 @@ const DEFAULT_DATABASE_FILENAME = '/epicenter-data-v1.sqlite3';
 const DEFAULT_POOL_DIRECTORY = '.epicenter-data-v1-sahpool';
 const DEFAULT_POOL_NAME = 'epicenter-data-v1';
 const OWNER_GENERATION_FILENAME = '.epicenter-data-owner-generation';
+const SNAPSHOT_FILENAME_PATTERN =
+	/^\/epicenter-snapshot-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.sqlite3$/u;
 
 type ReplicaInitialization = {
 	replicaId: string;
@@ -88,6 +91,12 @@ function configureDatabase(database: Database): void {
 		PRAGMA synchronous = EXTRA;
 		PRAGMA temp_store = MEMORY;
 	`);
+}
+
+function sweepSnapshotDebris(pool: SAHPoolUtil): void {
+	for (const filename of pool.getFileNames()) {
+		if (SNAPSHOT_FILENAME_PATTERN.test(filename)) pool.unlink(filename);
+	}
 }
 
 function createStores(
@@ -161,6 +170,7 @@ export async function openBrowserReplicaOwner({
 			directory: poolDirectory,
 		});
 		const openedPool = pool;
+		sweepSnapshotDebris(openedPool);
 		database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 		configureDatabase(database);
 		const files = await createBrowserOpfsBlobFileStore();
@@ -215,6 +225,48 @@ export async function openBrowserReplicaOwner({
 				if (rows.length !== 1 || rows[0]?.integrity_check !== 'ok') {
 					throw new Error('browser replica SQLite integrity check failed');
 				}
+			},
+			async captureSnapshot({ lens }: { lens?: LensDefinition } = {}) {
+				if (isDisposed) throw new Error('browser replica owner is disposed');
+				const filename = `/epicenter-snapshot-${crypto.randomUUID()}.sqlite3`;
+				let artifactDatabase: Database | undefined;
+				const cleanup = (initialFailure?: unknown) =>
+					settleCleanup(
+						[
+							() => artifactDatabase?.close(),
+							() => {
+								openedPool.unlink(filename);
+							},
+						],
+						'Browser snapshot cleanup failed',
+						initialFailure,
+					);
+				let metadata: ReturnType<typeof openedStores.store.captureSnapshot>;
+				let bytes: Uint8Array;
+				try {
+					await openedPool.reserveMinimumCapacity(
+						Number(openedPool.getFileCount()) + 3,
+					);
+					artifactDatabase = new openedPool.OpfsSAHPoolDb(filename);
+					configureDatabase(artifactDatabase);
+					metadata = openedStores.store.captureSnapshot({
+						database: createBrowserSqliteAdapter(
+							artifactDatabase as unknown as BrowserSqliteDatabase,
+						),
+						...(lens === undefined ? {} : { lens }),
+					});
+					artifactDatabase.close();
+					artifactDatabase = undefined;
+					bytes = await openedPool.exportFile(filename);
+				} catch (cause) {
+					await cleanup(cause);
+					throw cause;
+				}
+				await cleanup();
+				return {
+					artifact: new Blob([bytes], { type: 'application/vnd.sqlite3' }),
+					metadata,
+				};
 			},
 			async reopen(): Promise<void> {
 				if (isDisposed) throw new Error('browser replica owner is disposed');

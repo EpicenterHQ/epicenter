@@ -41,6 +41,7 @@ import {
 } from './browser-record/worker.js';
 import {
 	type BrowserRecordClientWorker,
+	captureBrowserRecordSnapshot,
 	openBrowserRecordEpicenterForTest,
 } from './browser-record.js';
 import { DOCUMENT_PUBLICATION_VERSION } from './document-v1/index.js';
@@ -465,6 +466,19 @@ function setup({
 			blobs,
 			ownerGeneration,
 			integrityCheck: () => integrityCheck?.(openCount),
+			async captureSnapshot({ lens } = {}) {
+				return {
+					artifact: new Blob(['snapshot']),
+					metadata: {
+						kind: 'snapshot' as const,
+						formatVersion: 1 as const,
+						sourceAuthorityLifetime: null,
+						sourceAuthorityAfterSequence: 0,
+						lens: lens ?? null,
+						recordCount: 0,
+					},
+				};
+			},
 		};
 	}
 
@@ -720,6 +734,7 @@ test('all record browser protocol variants survive structured clone', () => {
 		{ kind: 'inspect-blob', address: ADDRESS },
 		{ kind: 'parked-work', after: ADDRESS },
 		{ kind: 'inspect-record', address: ADDRESS },
+		{ kind: 'capture-snapshot', lens: notesLens },
 		{
 			kind: 'attach-sync',
 			transportKey: 1,
@@ -767,6 +782,18 @@ test('all record browser protocol variants survive structured clone', () => {
 				lanes: null,
 				document: null,
 				blob: { kind: 'absent' },
+			},
+		},
+		{
+			kind: 'capture-snapshot',
+			artifact: new Blob(['snapshot']),
+			metadata: {
+				kind: 'snapshot',
+				formatVersion: 1,
+				sourceAuthorityLifetime: null,
+				sourceAuthorityAfterSequence: 0,
+				lens: notesLens,
+				recordCount: 0,
 			},
 		},
 		{
@@ -1024,6 +1051,22 @@ test('all record browser protocol variants survive structured clone', () => {
 		...authorityResults,
 	]) {
 		expect(() => structuredClone(value)).not.toThrow();
+	}
+});
+
+test('snapshot capture stays behind the browser Home capability', async () => {
+	const context = setup();
+	const epicenter = await context.openTab();
+	try {
+		expect('captureSnapshot' in epicenter).toBe(false);
+		const captured = await captureBrowserRecordSnapshot(epicenter, {
+			lens: notesLens,
+		});
+		expect(await captured.artifact.text()).toBe('snapshot');
+		expect(captured.metadata.lens).toEqual(notesLens);
+	} finally {
+		await epicenter[Symbol.asyncDispose]();
+		await context.dispose();
 	}
 });
 
