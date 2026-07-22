@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-22: dedicated-worker ownership)
+- **Amends:** [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) by replacing its single browser-surface displacement rule with several page clients behind one elected SQLite owner
 - **Relates:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md) (browser snapshot capture transfers inert bytes; no second OPFS connection)
 
 ## Context

@@ -305,6 +305,27 @@ Object slices before ADR-0177's Proposed selection can be accepted or reversed.
   Safari and Android Chrome. Keep honest quota refusal outside the semantic
   store API.
 
+Implementation checkpoint (2026-07-22, partial): W1C starts from the verified
+W1B base `888eb23efb6efab298c6a1972c3dc8e89cc81e88`. The production browser
+owner runs the ADR-0177 `openReplicaStore` behind sqlite-wasm's OPFS SAH-pool
+VFS in one dedicated Worker holding the exclusive origin Web Lock. Waiting
+page candidates open no database. Chromium 149.0.7827.55 and Playwright WebKit
+26.5, both headless on arm64 macOS through Playwright 1.61.1, passed the shared
+replica conformance cases, dedicated-owner reopen and integrity checks, elected
+single-owner topology, page-close takeover, forced-worker takeover, explicit
+pending-mutation refusal on owner loss, and persistent-profile relaunch. The
+package suite reported 413 passing tests and no failures. These are simulated
+engine results, not physical Safari or Chrome evidence.
+
+W1C remains incomplete. No browser wide-versus-split result or capacity result
+has landed yet. Physical iOS Safari and Android Chrome still owe the 250,000
+address and 128 MiB floor, conditional full-envelope run, quota-refusal prefix
+and progress proof, and hidden-owner suspension and eviction qualification.
+The older SharedWorker smoke harness is not W1C evidence: Chromium refuses its
+SAH-pool execution context, and its WebKit worker-termination cell failed in
+this run. W1 is therefore not complete, and no physical result is inferred from
+Playwright.
+
 W1 does not migrate retained callers or delete Workspace. W4 owns the point at
 which every replacement capability exists, callers stop importing the old
 path, verification passes, and `packages/workspace` can be deleted.

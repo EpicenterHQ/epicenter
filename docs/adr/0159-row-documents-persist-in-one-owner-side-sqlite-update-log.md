@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-19
-- **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (the private update log is a bounded baseline-plus-tail representation of one logical row document cell on every live owner)
+- **Amended by:** [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md) (the replacement browser owner permits several page clients behind one elected SQLite owner), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (the private update log is a bounded baseline-plus-tail representation of one logical row document cell on every live owner)
 - **Amends:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md) (the browser document owner is no longer IndexedDB), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (the per-runtime store contract collapses to one shared implementation over one seam)
 - **Relates:** [ADR-0110](0110-edit-write-timing-follows-the-value-owner-there-is-no-debounce-tier.md), [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md), [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md), [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md)
 
@@ -55,13 +55,16 @@ workspace deletion. Compaction replays a fixed covered prefix through a fresh
 capture is one owner command taken after the renderer's durability barrier;
 there is no page-side capture overlay.
 
-This decision originally made exactly one live local surface own a workspace,
-with the newest surface displacing the previous one. ADR-0165 replaces that
-browser rule for the universal Epicenter: multiple pages may remain clients of
-one origin replica while an exclusive Web Lock elects one dedicated-worker
-SQLite owner. ADR-0174 replaces the unbounded document log below that owner.
-The pre-clean-break desktop surface rule remains history rather than a contract
-for the replacement Data runtime.
+Exactly one live local surface owns a workspace at a time, on both browser
+and desktop, and the newest surface wins. The browser already enforced this
+through the storage lease; co-locating documents in the Worker extends the
+same displacement to document work. The desktop records route now carries a
+per-runtime surface id: an `open` from a newer surface claims the workspace
+and the displaced surface's operations fail with the shared
+`WorkspaceStorageMovedError` name, so one guard and one blocking moved screen
+serve both carriers. The desktop cross-window document and records relay is
+deleted rather than preserved; in-process host consumers of owner-opened
+handles (Home's conversation store) are not surfaces and are unaffected.
 
 This is a greenfield cut with no migration: the IndexedDB row-document store,
 the single-BLOB `documents` table, the desktop temp-open document bridge, and
