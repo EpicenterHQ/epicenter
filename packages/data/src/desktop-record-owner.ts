@@ -1,9 +1,12 @@
 import { customAlphabet } from 'nanoid';
+import { createLogger, type Logger } from 'wellcrafted/logger';
 
 import { openBunRecordOwner } from './bun-record-owner.js';
 import type {
+	DesktopRecordBlobOperationSource,
 	DesktopRecordError,
 	DesktopRecordEvent,
+	DesktopRecordNativeCapture,
 	DesktopRecordOperation,
 	DesktopRecordRequest,
 	DesktopRecordResponse,
@@ -15,6 +18,7 @@ import {
 	EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME,
 	EPICENTER_DESKTOP_RECORD_REQUEST_ERROR_NAME,
 	isDesktopRecordMutation,
+	MAX_RECORD_BLOB_BYTES,
 } from './desktop-record/protocol.js';
 import {
 	isJsonObject,
@@ -40,6 +44,9 @@ const mintRecordKey = customAlphabet(
 const MAX_SURFACE_EVENTS = 2_048;
 const DEFAULT_SURFACE_LEASE_MS = 60_000;
 const DEFAULT_MAX_SURFACES = 32;
+const NATIVE_CAPTURE_ID = /^capture_[a-f0-9]{32}$/u;
+const CANONICAL_BASE64 =
+	/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 
 type MutationOutcome =
 	| { result: DesktopRecordResult; error: null }
@@ -69,25 +76,60 @@ type DesktopRecordOwnedState<TSource, TRead> = {
 	blobs: ReplicaBlobStore<TSource, TRead>;
 	decodeBlob(value: string): TSource;
 	encodeBlob(value: TRead): Promise<string>;
+	resolveNativeCapture?: DesktopRecordNativeCaptureResolverFor<TSource>;
 };
 
 type DesktopRecordOwnerRuntimeOptions = {
 	now?: () => number;
 	surfaceLeaseMs?: number;
 	maxSurfaces?: number;
+	log?: Logger;
+};
+
+type DesktopRecordNativeCaptureResolutionFor<TSource> = {
+	source: TSource;
+	/** Permanently remove the capture after its record and blob are admitted. */
+	consume(): void | Promise<void>;
+};
+
+type DesktopRecordNativeCaptureResolverFor<TSource> = (
+	capture: DesktopRecordNativeCapture,
+) => Promise<DesktopRecordNativeCaptureResolutionFor<TSource>>;
+
+type ResolvedDesktopRecordBlobSource<TSource> = {
+	source: TSource;
+	consume?: () => void | Promise<void>;
+};
+
+export type DesktopRecordNativeCaptureResolution =
+	DesktopRecordNativeCaptureResolutionFor<BlobByteSource>;
+
+/**
+ * Resolve one app-owned capture without exposing its path to the WebView.
+ * The resolver must verify that the opened bytes still have the coordinate's
+ * declared byte length. `consume` removes that exact capture; Data invokes it
+ * only after blob storage and scalar record admission both succeed.
+ */
+export type DesktopRecordNativeCaptureResolver = (
+	capture: DesktopRecordNativeCapture,
+) => Promise<DesktopRecordNativeCaptureResolution>;
+
+export type CreateDesktopRecordEpicenterOwnerOptions = {
+	directory: string;
+	resolveNativeCapture?: DesktopRecordNativeCaptureResolver;
 };
 
 /** Open the one Bun-owned desktop universal-record Epicenter. */
 export async function createDesktopRecordEpicenterOwner({
 	directory,
-}: {
-	directory: string;
-}) {
+	resolveNativeCapture,
+}: CreateDesktopRecordEpicenterOwnerOptions) {
 	const opened = await openBunRecordOwner({ directory });
 	return createDesktopRecordEpicenterOwnerForTest({
 		...opened,
 		decodeBlob: decodeBunBlob,
 		encodeBlob: encodeBunBlob,
+		resolveNativeCapture,
 	});
 }
 
@@ -99,11 +141,13 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 		blobs,
 		decodeBlob,
 		encodeBlob,
+		resolveNativeCapture,
 	}: DesktopRecordOwnedState<TSource, TRead>,
 	{
 		now = Date.now,
 		surfaceLeaseMs = DEFAULT_SURFACE_LEASE_MS,
 		maxSurfaces = DEFAULT_MAX_SURFACES,
+		log = createLogger('data/desktop-record-owner'),
 	}: DesktopRecordOwnerRuntimeOptions = {},
 ) {
 	if (!Number.isSafeInteger(surfaceLeaseMs) || surfaceLeaseMs < 1) {
@@ -120,6 +164,33 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 
 	function requireOpen(): void {
 		if (isDisposed) throw new Error('Desktop record owner is disposed');
+	}
+
+	async function resolveBlobSource(
+		input: DesktopRecordBlobOperationSource,
+	): Promise<ResolvedDesktopRecordBlobSource<TSource>> {
+		if (input.kind === 'bytes') {
+			return { source: decodeBlob(input.bytesBase64) };
+		}
+		if (resolveNativeCapture === undefined) {
+			throw new Error('Desktop record owner cannot resolve native captures');
+		}
+		return resolveNativeCapture(structuredClone(input));
+	}
+
+	async function consumeResolvedBlobSource(
+		resolved: ResolvedDesktopRecordBlobSource<TSource>,
+	): Promise<void> {
+		if (resolved.consume === undefined) return;
+		try {
+			await resolved.consume();
+		} catch (cause) {
+			log.error(
+				new Error('Desktop native capture cleanup failed after admission', {
+					cause,
+				}),
+			);
+		}
 	}
 
 	function sweepExpiredSurfaces(at: number): void {
@@ -317,16 +388,15 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 					collection: operation.collection,
 					recordKey,
 				};
-				await blobs.captureNewRecord(
-					address,
-					decodeBlob(operation.bytesBase64),
-					(digest) =>
-						replica.admitLocalRecordWithBlob({
-							address,
-							payload: operation.payload,
-							digest,
-						}),
+				const resolved = await resolveBlobSource(operation.source);
+				await blobs.captureNewRecord(address, resolved.source, (digest) =>
+					replica.admitLocalRecordWithBlob({
+						address,
+						payload: operation.payload,
+						digest,
+					}),
 				);
+				await consumeResolvedBlobSource(resolved);
 				return { kind: 'create-record-with-blob', recordKey };
 			}
 			case 'patch-live': {
@@ -688,14 +758,14 @@ function parseDesktopRecordOperation(input: unknown): DesktopRecordOperation {
 			requireExactKeys(
 				input,
 				['kind', 'namespace', 'collection', 'payload'],
-				input.kind === 'create-record-with-blob' ? ['bytesBase64'] : [],
+				input.kind === 'create-record-with-blob' ? ['source'] : [],
 			);
 			requireCollection(input.namespace, input.collection);
 			if (!isJsonObject(input.payload, SCALAR_SYNC_V1_LIMITS)) {
 				throw new TypeError('Invalid desktop record payload');
 			}
 			if (input.kind === 'create-record-with-blob') {
-				requireBase64(input.bytesBase64);
+				requireBlobInput(input.source);
 			}
 			return input as DesktopRecordOperation;
 		case 'patch-live':
@@ -789,12 +859,54 @@ function requireCollection(namespace: unknown, collection: unknown): void {
 	}
 }
 
-function requireBase64(value: unknown): void {
+function requireBase64(value: unknown): asserts value is string {
 	if (
 		typeof value !== 'string' ||
-		Buffer.from(value, 'base64').toString('base64') !== value
+		!CANONICAL_BASE64.test(value) ||
+		(value.endsWith('==') && !/[AQgw]==$/u.test(value)) ||
+		(!value.endsWith('==') &&
+			value.endsWith('=') &&
+			!/[AEIMQUYcgkosw048]=$/u.test(value))
 	) {
 		throw new TypeError('Invalid base64 bytes');
+	}
+}
+
+function requireBlobInput(
+	value: unknown,
+): asserts value is DesktopRecordBlobOperationSource {
+	if (!isPlainRecord(value) || typeof value.kind !== 'string') {
+		throw new TypeError('Invalid desktop record blob source');
+	}
+	switch (value.kind) {
+		case 'bytes': {
+			requireExactKeys(value, ['kind', 'bytesBase64']);
+			requireBase64(value.bytesBase64);
+			const padding = value.bytesBase64.endsWith('==')
+				? 2
+				: value.bytesBase64.endsWith('=')
+					? 1
+					: 0;
+			const byteLength = (value.bytesBase64.length / 4) * 3 - padding;
+			if (byteLength > MAX_RECORD_BLOB_BYTES) {
+				throw new TypeError('Desktop record blob exceeds the size limit');
+			}
+			return;
+		}
+		case 'native-capture':
+			requireExactKeys(value, ['kind', 'captureId', 'byteLength']);
+			if (
+				typeof value.captureId !== 'string' ||
+				!NATIVE_CAPTURE_ID.test(value.captureId) ||
+				!Number.isSafeInteger(value.byteLength) ||
+				(value.byteLength as number) < 1 ||
+				(value.byteLength as number) > MAX_RECORD_BLOB_BYTES
+			) {
+				throw new TypeError('Invalid desktop native capture');
+			}
+			return;
+		default:
+			throw new TypeError('Unknown desktop record blob source');
 	}
 }
 
@@ -803,7 +915,13 @@ function addressLabel(address: RecordAddress): string {
 }
 
 function decodeBunBlob(value: string): BlobByteSource {
-	return new Blob([base64ToBytes(value)]).stream();
+	const bytes = base64ToBytes(value);
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(bytes);
+			controller.close();
+		},
+	});
 }
 
 async function encodeBunBlob(value: BunBlobRead): Promise<string> {

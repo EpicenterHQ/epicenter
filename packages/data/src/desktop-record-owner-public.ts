@@ -7,6 +7,9 @@ export {
 	EPICENTER_DESKTOP_RECORD_REQUEST_ERROR_NAME,
 } from './desktop-record/protocol.js';
 export {
+	type CreateDesktopRecordEpicenterOwnerOptions,
 	createDesktopRecordEpicenterOwner,
 	type DesktopRecordEpicenterOwner,
+	type DesktopRecordNativeCaptureResolution,
+	type DesktopRecordNativeCaptureResolver,
 } from './desktop-record-owner.js';

@@ -7,6 +7,7 @@
  * Key behaviors:
  * - protocol requests, results, and events are JSON-native and cloneable
  * - create-with-blob admits one complete record without a compensating delete
+ * - native capture tokens resolve only in the host and consume after admission
  * - page-local documents persist and revoke through the host owner
  * - attachment and sanitized sync state cross the observable event boundary
  * - stale surface generations cannot mutate the current owner
@@ -15,6 +16,7 @@ import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { createLogger, memorySink } from 'wellcrafted/logger';
 
 import type {
 	BlobFileStore,
@@ -22,10 +24,14 @@ import type {
 	StagedBlob,
 } from './blob-v1/index.js';
 import type {
+	DesktopRecordNativeCapture,
 	DesktopRecordRequest,
 	DesktopRecordResponse,
 } from './desktop-record/protocol.js';
-import { EPICENTER_DESKTOP_RECORD_MOVED_ERROR_NAME } from './desktop-record/protocol.js';
+import {
+	EPICENTER_DESKTOP_RECORD_MOVED_ERROR_NAME,
+	MAX_RECORD_BLOB_BYTES,
+} from './desktop-record/protocol.js';
 import { openDesktopRecordEpicenterForTest } from './desktop-record.js';
 import { createDesktopRecordEpicenterOwnerForTest } from './desktop-record-owner.js';
 import { defineLens, defineTable, defineValues } from './lens.js';
@@ -97,6 +103,9 @@ const notesLens = defineLens({
 });
 
 type Setup = ReturnType<typeof setup>;
+type TestNativeCaptureResolver = (
+	capture: DesktopRecordNativeCapture,
+) => Promise<{ source: Blob; consume(): void | Promise<void> }>;
 type TextRoot = {
 	insert(index: number, value: string): void;
 	toString(): string;
@@ -106,6 +115,15 @@ function setup(
 	ownerOptions: Parameters<
 		typeof createDesktopRecordEpicenterOwnerForTest
 	>[1] = {},
+	{
+		resolveNativeCapture,
+		failAdmission = false,
+		onAdmission,
+	}: {
+		resolveNativeCapture?: TestNativeCaptureResolver;
+		failAdmission?: boolean;
+		onAdmission?: () => void;
+	} = {},
 ) {
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
@@ -117,15 +135,29 @@ function setup(
 	const files = new MemoryBlobFiles();
 	const blobs = createReplicaBlobStore(adapter, files);
 	const recordOwner = createRecordOwner({ replica, blobs });
+	const ownerReplica =
+		failAdmission || onAdmission !== undefined
+			? {
+					...replica,
+					admitLocalRecordWithBlob(
+						input: Parameters<typeof replica.admitLocalRecordWithBlob>[0],
+					) {
+						onAdmission?.();
+						if (failAdmission) throw new Error('injected admission failure');
+						return replica.admitLocalRecordWithBlob(input);
+					},
+				}
+			: replica;
 	const owner = createDesktopRecordEpicenterOwnerForTest(
 		{
 			owner: recordOwner,
-			replica,
+			replica: ownerReplica,
 			blobs,
 			decodeBlob: (value) =>
 				new Blob([new Uint8Array(Buffer.from(value, 'base64'))]),
 			encodeBlob: async (value) =>
 				Buffer.from(await value.arrayBuffer()).toString('base64'),
+			resolveNativeCapture,
 		},
 		ownerOptions,
 	);
@@ -210,7 +242,7 @@ test('page Lens CRUD and create-with-blob cross one JSON-native owner protocol',
 		notes.notes.subscribe((ids) => invalidated.push(ids));
 		const row = await notes.notes.createWithBlob(
 			{ title: 'Atomic' },
-			new Blob(['record bytes']),
+			{ kind: 'bytes', bytes: new Blob(['record bytes']) },
 		);
 		expect(await notes.notes.get(row.id)).toMatchObject({
 			data: { id: row.id, title: 'Atomic' },
@@ -234,6 +266,272 @@ test('page Lens CRUD and create-with-blob cross one JSON-native owner protocol',
 	}
 });
 
+test('native create request stays JSON-native and removes capture after admission', async () => {
+	const order: string[] = [];
+	const bytes = new Blob(['native recording']);
+	const capture = {
+		kind: 'native-capture' as const,
+		captureId: 'capture_0123456789abcdef0123456789abcdef',
+		byteLength: bytes.size,
+	};
+	const context = setup(
+		{},
+		{
+			onAdmission: () => order.push('admit'),
+			async resolveNativeCapture(received) {
+				order.push('resolve');
+				expect(received).toEqual(capture);
+				return {
+					source: bytes,
+					consume() {
+						order.push('consume');
+					},
+				};
+			},
+		},
+	);
+	const page = await openPage(context);
+	try {
+		const notes = page.bind({ notes: notesLens }).notes.notes;
+		const row = await notes.createWithBlob({ title: 'Native' }, capture);
+		expect(order).toEqual(['resolve', 'admit', 'consume']);
+		expect(await (await notes.blob.get(row.id))?.text()).toBe(
+			'native recording',
+		);
+		const request = context.exchanges.find(
+			(exchange): exchange is DesktopRecordRequest =>
+				typeof exchange === 'object' &&
+				exchange !== null &&
+				'operation' in exchange &&
+				(exchange as DesktopRecordRequest).operation.kind ===
+					'create-record-with-blob',
+		);
+		expect(request?.operation).toMatchObject({ source: capture });
+		expect(JSON.stringify(request)).not.toContain('native recording');
+		expect(JSON.stringify(request)).not.toContain('bytesBase64');
+	} finally {
+		await dispose(context, page);
+	}
+});
+
+test('native capture remains available when record admission fails', async () => {
+	let removals = 0;
+	const bytes = new Blob(['retain me']);
+	const context = setup(
+		{},
+		{
+			failAdmission: true,
+			async resolveNativeCapture() {
+				return {
+					source: bytes,
+					consume() {
+						removals += 1;
+					},
+				};
+			},
+		},
+	);
+	const page = await openPage(context);
+	try {
+		const notes = page.bind({ notes: notesLens }).notes.notes;
+		await expect(
+			notes.createWithBlob(
+				{ title: 'Not admitted' },
+				{
+					kind: 'native-capture',
+					captureId: 'capture_1123456789abcdef0123456789abcdef',
+					byteLength: bytes.size,
+				},
+			),
+		).rejects.toThrow('Desktop record operation failed');
+		expect(removals).toBe(0);
+		expect((await notes.scan()).rows).toEqual([]);
+	} finally {
+		await dispose(context, page);
+	}
+});
+
+test('invalid native capture IDs and lengths are refused before resolution', async () => {
+	const invalidCaptures: DesktopRecordNativeCapture[] = [
+		{
+			kind: 'native-capture',
+			captureId: '../../recording.wav',
+			byteLength: 12,
+		},
+		{
+			kind: 'native-capture',
+			captureId: 'capture_0123456789abcdef0123456789abcdeF',
+			byteLength: 12,
+		},
+		{
+			kind: 'native-capture',
+			captureId: 'capture_0123456789abcdef0123456789abcdef',
+			byteLength: 0,
+		},
+		{
+			kind: 'native-capture',
+			captureId: 'capture_0123456789abcdef0123456789abcdef',
+			byteLength: 1.5,
+		},
+		{
+			kind: 'native-capture',
+			captureId: 'capture_0123456789abcdef0123456789abcdef',
+			byteLength: MAX_RECORD_BLOB_BYTES + 1,
+		},
+	];
+	for (const capture of invalidCaptures) {
+		let resolutions = 0;
+		const context = setup(
+			{},
+			{
+				async resolveNativeCapture() {
+					resolutions += 1;
+					return { source: new Blob(), consume() {} };
+				},
+			},
+		);
+		const page = await openPage(context);
+		try {
+			const notes = page.bind({ notes: notesLens }).notes.notes;
+			await expect(
+				notes.createWithBlob({ title: 'Invalid capture' }, capture),
+			).rejects.toThrow('Desktop record request is invalid');
+			expect(resolutions).toBe(0);
+		} finally {
+			await dispose(context, page);
+		}
+	}
+});
+
+test('native resolver stat refusal retains the capture and admits no row', async () => {
+	let resolutions = 0;
+	const bytes = new Blob(['stat mismatch']);
+	const capture = {
+		kind: 'native-capture' as const,
+		captureId: 'capture_3123456789abcdef0123456789abcdef',
+		byteLength: bytes.size + 1,
+	};
+	const context = setup(
+		{},
+		{
+			async resolveNativeCapture(received) {
+				resolutions += 1;
+				if (received.byteLength !== bytes.size) {
+					throw new Error('native capture stat changed');
+				}
+				return { source: bytes, consume() {} };
+			},
+		},
+	);
+	const page = await openPage(context);
+	try {
+		const notes = page.bind({ notes: notesLens }).notes.notes;
+		await expect(
+			notes.createWithBlob({ title: 'Stat refused' }, capture),
+		).rejects.toThrow('Desktop record operation failed');
+		expect(resolutions).toBe(1);
+		expect((await notes.scan()).rows).toEqual([]);
+	} finally {
+		await dispose(context, page);
+	}
+});
+
+test('oversized inline Blob is refused before materialization or transport', async () => {
+	const context = setup();
+	const page = await openPage(context);
+	let materialized = false;
+	const oversized = new Blob();
+	Object.defineProperties(oversized, {
+		size: { value: MAX_RECORD_BLOB_BYTES + 1 },
+		arrayBuffer: {
+			value: () => {
+				materialized = true;
+				return Promise.resolve(new ArrayBuffer(0));
+			},
+		},
+	});
+	try {
+		const notes = page.bind({ notes: notesLens }).notes.notes;
+		await expect(
+			notes.createWithBlob(
+				{ title: 'Too large' },
+				{ kind: 'bytes', bytes: oversized },
+			),
+		).rejects.toThrow('exceeds');
+		expect(materialized).toBe(false);
+		expect(
+			context.exchanges.some(
+				(exchange) =>
+					typeof exchange === 'object' &&
+					exchange !== null &&
+					'operation' in exchange &&
+					(exchange as DesktopRecordRequest).operation.kind ===
+						'create-record-with-blob',
+			),
+		).toBe(false);
+	} finally {
+		await dispose(context, page);
+	}
+});
+
+test('native cleanup failure preserves successful mutation replay', async () => {
+	const { sink, events } = memorySink();
+	const log = createLogger('desktop-native-test', sink);
+	let opens = 0;
+	let removals = 0;
+	const bytes = new Blob(['durable native bytes']);
+	const context = setup(
+		{ log },
+		{
+			async resolveNativeCapture() {
+				opens += 1;
+				return {
+					source: bytes,
+					consume() {
+						removals += 1;
+						throw new Error('capture is temporarily locked');
+					},
+				};
+			},
+		},
+	);
+	let dropped = false;
+	const flakyFetch: Setup['fetch'] = async (input, init) => {
+		const request = JSON.parse(String(init?.body)) as DesktopRecordRequest;
+		const response = await context.fetch(input, init);
+		if (!dropped && request.operation.kind === 'create-record-with-blob') {
+			dropped = true;
+			throw new Error('response lost after commit');
+		}
+		return response;
+	};
+	const page = await openPage(context, { fetch: flakyFetch });
+	try {
+		const notes = page.bind({ notes: notesLens }).notes.notes;
+		const row = await notes.createWithBlob(
+			{ title: 'Cleanup replay' },
+			{
+				kind: 'native-capture',
+				captureId: 'capture_2123456789abcdef0123456789abcdef',
+				byteLength: bytes.size,
+			},
+		);
+		expect((await notes.scan()).rows).toEqual([
+			{ id: row.id, title: 'Cleanup replay' },
+		]);
+		expect(opens).toBe(1);
+		expect(removals).toBe(1);
+		expect(events).toHaveLength(1);
+		expect(events[0]).toMatchObject({
+			level: 'error',
+			source: 'desktop-native-test',
+			message: 'Desktop native capture cleanup failed after admission',
+		});
+	} finally {
+		await dispose(context, page);
+	}
+});
+
 test('a lost create-with-blob response replays one admitted row and its original key', async () => {
 	const context = setup();
 	let dropped = false;
@@ -251,7 +549,7 @@ test('a lost create-with-blob response replays one admitted row and its original
 		const notes = page.bind({ notes: notesLens }).notes.notes;
 		const row = await notes.createWithBlob(
 			{ title: 'One row' },
-			new Blob(['one blob']),
+			{ kind: 'bytes', bytes: new Blob(['one blob']) },
 		);
 		expect(dropped).toBe(true);
 		expect((await notes.scan()).rows).toEqual([

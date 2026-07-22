@@ -18,6 +18,19 @@ export const EPICENTER_DESKTOP_RECORD_REQUEST_ERROR_NAME =
 export const EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME =
 	'EpicenterDesktopRecordOperationError';
 
+/** Inclusive ceiling shared by inline and host-owned record blob sources. */
+export const MAX_RECORD_BLOB_BYTES = 5 * 1024 * 1024 * 1024;
+
+export type DesktopRecordNativeCapture = {
+	kind: 'native-capture';
+	captureId: string;
+	byteLength: number;
+};
+
+export type DesktopRecordBlobOperationSource =
+	| { kind: 'bytes'; bytesBase64: string }
+	| DesktopRecordNativeCapture;
+
 export type DesktopRecordOperation =
 	| { kind: 'open' }
 	| { kind: 'read'; address: RecordAddress }
@@ -39,7 +52,7 @@ export type DesktopRecordOperation =
 			namespace: string;
 			collection: string;
 			payload: Record<string, JsonValue>;
-			bytesBase64: string;
+			source: DesktopRecordBlobOperationSource;
 	  }
 	| {
 			kind: 'patch-live';

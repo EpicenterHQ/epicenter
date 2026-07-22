@@ -63,11 +63,12 @@ export type RecordTableLens<
 	TDefinition extends TableDefinition,
 	TSource,
 	TRead,
+	TCreateSource = TSource,
 > = {
 	create(fields: CreateInputFor<TDefinition>): Promise<RowFor<TDefinition>>;
 	createWithBlob(
 		fields: CreateInputFor<TDefinition>,
-		source: TSource,
+		source: TCreateSource,
 	): Promise<RowFor<TDefinition>>;
 	get(
 		id: string,
@@ -93,18 +94,24 @@ export type RecordValueLens<TSchemaValue extends TSchema> = {
 	subscribe(listener: () => void): () => void;
 };
 
-type BoundCollection<TDefinition, TSource, TRead> =
+type BoundCollection<TDefinition, TSource, TRead, TCreateSource> =
 	TDefinition extends TableDefinition
-		? RecordTableLens<TDefinition, TSource, TRead>
+		? RecordTableLens<TDefinition, TSource, TRead, TCreateSource>
 		: TDefinition extends ValuesDefinition<infer TValues>
 			? { [K in keyof TValues]: RecordValueLens<TValues[K]> }
 			: never;
 
-export type BoundLens<TLens extends LensDefinition, TSource, TRead> = {
+export type BoundLens<
+	TLens extends LensDefinition,
+	TSource,
+	TRead,
+	TCreateSource = TSource,
+> = {
 	[K in keyof TLens['collections']]: BoundCollection<
 		TLens['collections'][K],
 		TSource,
-		TRead
+		TRead,
+		TCreateSource
 	>;
 };
 
@@ -112,8 +119,9 @@ export type BoundLenses<
 	TLenses extends Record<string, LensDefinition>,
 	TSource,
 	TRead,
+	TCreateSource = TSource,
 > = {
-	[K in keyof TLenses]: BoundLens<TLenses[K], TSource, TRead>;
+	[K in keyof TLenses]: BoundLens<TLenses[K], TSource, TRead, TCreateSource>;
 };
 
 /**
@@ -123,7 +131,7 @@ export type BoundLenses<
  * desktop adapters must define separate cloneable operation protocols. A
  * local adapter may return a page-local RowDocument from openDocument.
  */
-export type RecordLensAccess<TSource, TRead> = {
+export type RecordLensAccess<TSource, TRead, TCreateSource = TSource> = {
 	read(address: RecordAddress): Promise<ReplicaVisibleRecord | null>;
 	readPage(
 		namespace: string,
@@ -140,7 +148,7 @@ export type RecordLensAccess<TSource, TRead> = {
 		namespace: string,
 		collection: string,
 		payload: Record<string, JsonValue>,
-		source: TSource,
+		source: TCreateSource,
 	): Promise<string>;
 	patchLive(
 		address: RecordAddress,
@@ -205,8 +213,12 @@ function attachmentsEqual(
 }
 
 /** Create one owner's local Lens binder and subscription projection. */
-export function createRecordLensRuntime<TSource, TRead>(
-	access: RecordLensAccess<TSource, TRead>,
+export function createRecordLensRuntime<
+	TSource,
+	TRead,
+	TCreateSource = TSource,
+>(
+	access: RecordLensAccess<TSource, TRead, TCreateSource>,
 	{ log = createLogger('data') }: CreateRecordLensRuntimeOptions = {},
 ) {
 	const tableListeners = new Map<string, Set<(ids: string[]) => void>>();
@@ -268,7 +280,7 @@ export function createRecordLensRuntime<TSource, TRead>(
 
 	function bind<const TLenses extends Record<string, LensDefinition>>(
 		lenses: TLenses,
-	): BoundLenses<TLenses, TSource, TRead> {
+	): BoundLenses<TLenses, TSource, TRead, TCreateSource> {
 		requireOpen();
 		const bound = Object.fromEntries(
 			Object.entries(lenses).map(([property, authoredLens]) => {
@@ -277,7 +289,12 @@ export function createRecordLensRuntime<TSource, TRead>(
 				return [property, bindLens(parsed.data)];
 			}),
 		);
-		return Object.freeze(bound) as BoundLenses<TLenses, TSource, TRead>;
+		return Object.freeze(bound) as BoundLenses<
+			TLenses,
+			TSource,
+			TRead,
+			TCreateSource
+		>;
 	}
 
 	function bindLens(lens: LensDefinition): Record<string, unknown> {
@@ -297,7 +314,7 @@ export function createRecordLensRuntime<TSource, TRead>(
 		namespace: string,
 		collection: string,
 		definition: TDefinition,
-	): RecordTableLens<TDefinition, TSource, TRead> {
+	): RecordTableLens<TDefinition, TSource, TRead, TCreateSource> {
 		const compiled = compileTableDefinition(definition, {
 			namespace,
 			collection,
@@ -361,7 +378,10 @@ export function createRecordLensRuntime<TSource, TRead>(
 				if (projected.error !== null) throw projected.error;
 				return projected.data as RowFor<TDefinition>;
 			},
-			async createWithBlob(input: Record<string, unknown>, source: TSource) {
+			async createWithBlob(
+				input: Record<string, unknown>,
+				source: TCreateSource,
+			) {
 				requireOpen();
 				const payload = compiled.validateCreate(input);
 				const id = await access.createRecordWithBlob(
@@ -423,7 +443,7 @@ export function createRecordLensRuntime<TSource, TRead>(
 				return access.openDocument(address(recordId));
 			},
 			blob,
-		}) as RecordTableLens<TDefinition, TSource, TRead>;
+		}) as RecordTableLens<TDefinition, TSource, TRead, TCreateSource>;
 	}
 
 	function createValuesLens(

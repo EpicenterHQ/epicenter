@@ -2,7 +2,9 @@ import * as Y from '@y/y';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 
 import type {
+	DesktopRecordBlobOperationSource,
 	DesktopRecordEvent,
+	DesktopRecordNativeCapture,
 	DesktopRecordOperation,
 	DesktopRecordRequest,
 	DesktopRecordResponse,
@@ -14,6 +16,7 @@ import {
 	EPICENTER_DESKTOP_RECORD_MOVED_ERROR_NAME,
 	EPICENTER_DESKTOP_RECORD_REQUEST_ERROR_NAME,
 	isDesktopRecordMutation,
+	MAX_RECORD_BLOB_BYTES,
 } from './desktop-record/protocol.js';
 import type { RowDocument } from './documents.js';
 import type { LensDefinition } from './lens.js';
@@ -29,6 +32,11 @@ import type {
 	ReplicaAttachmentState,
 	ReplicaParkedWorkPage,
 } from './store/replica/index.js';
+
+/** Bytes or one host-owned capture accepted by atomic record creation. */
+export type DesktopRecordBlobSource =
+	| { kind: 'bytes'; bytes: Blob }
+	| DesktopRecordNativeCapture;
 
 export type OpenDesktopRecordEpicenterOptions = {
 	baseUrl?: string;
@@ -521,7 +529,7 @@ export async function openDesktopRecordEpicenterForTest({
 		return handle;
 	}
 
-	const lenses = createRecordLensRuntime<Blob, Blob>({
+	const lenses = createRecordLensRuntime<Blob, Blob, DesktopRecordBlobSource>({
 		async read(address) {
 			return (await request({ kind: 'read', address })).record;
 		},
@@ -548,7 +556,7 @@ export async function openDesktopRecordEpicenterForTest({
 					namespace,
 					collection,
 					payload,
-					bytesBase64: await blobToBase64(source),
+					source: await serializeBlobSource(source),
 				})
 			).recordKey;
 		},
@@ -595,7 +603,7 @@ export async function openDesktopRecordEpicenterForTest({
 
 	function bind<const TLenses extends Record<string, LensDefinition>>(
 		definitions: TLenses,
-	): BoundLenses<TLenses, Blob, Blob> {
+	): BoundLenses<TLenses, Blob, Blob, DesktopRecordBlobSource> {
 		return lenses.bind(definitions);
 	}
 
@@ -740,7 +748,28 @@ function defaultOrigin(): string {
 	return location.origin;
 }
 
+async function serializeBlobSource(
+	source: DesktopRecordBlobSource,
+): Promise<DesktopRecordBlobOperationSource> {
+	switch (source.kind) {
+		case 'bytes':
+			return {
+				kind: 'bytes',
+				bytesBase64: await blobToBase64(source.bytes),
+			};
+		case 'native-capture':
+			return structuredClone(source);
+		default:
+			return source satisfies never;
+	}
+}
+
 async function blobToBase64(blob: Blob): Promise<string> {
+	if (blob.size > MAX_RECORD_BLOB_BYTES) {
+		throw new RangeError(
+			`Desktop record blob exceeds the ${MAX_RECORD_BLOB_BYTES}-byte limit`,
+		);
+	}
 	return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
 }
 

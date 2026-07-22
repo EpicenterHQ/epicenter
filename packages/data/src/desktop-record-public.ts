@@ -1,4 +1,9 @@
 export {
+	type DesktopRecordNativeCapture,
+	MAX_RECORD_BLOB_BYTES,
+} from './desktop-record/protocol.js';
+export {
+	type DesktopRecordBlobSource,
 	type DesktopRecordEpicenter,
 	type OpenDesktopRecordEpicenterOptions,
 	openDesktopRecordEpicenter,
