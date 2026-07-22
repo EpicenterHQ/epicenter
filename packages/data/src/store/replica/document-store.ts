@@ -121,12 +121,6 @@ function requireDocumentOwner(
 	) {
 		throw new Error('document record is tombstoned');
 	}
-	const newestOperation = row.pending_op ?? row.sealed_op;
-	const isVisibleLive =
-		newestOperation === 'patch' ||
-		newestOperation === 'replace' ||
-		(newestOperation === null && row.confirmed_state === 'live');
-	if (!isVisibleLive) throw new Error('document record is not live');
 	return row;
 }
 

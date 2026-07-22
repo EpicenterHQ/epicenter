@@ -337,16 +337,20 @@ describe('record document store', () => {
 	test('unset preserves the chain while local tombstone reaps it atomically', () => {
 		const context = setup();
 		try {
-			const [update] = sourceUpdates('a');
-			if (update === undefined) throw new Error('missing source update');
+			const [update, updateWhileUnset] = sourceUpdates('a', 'b');
+			if (update === undefined || updateWhileUnset === undefined) {
+				throw new Error('missing source update');
+			}
 			context.store.appendLocalDocumentUpdate(ADDRESS, update);
 			context.store.documentPublication(ADDRESS);
 
 			context.store.localWrite({ address: ADDRESS, op: 'unset' });
 			expect(context.store.exportDocument(ADDRESS)).toBeDefined();
-			expect(() =>
-				context.store.appendLocalDocumentUpdate(ADDRESS, update),
-			).toThrow(/not live/);
+			context.store.appendLocalDocumentUpdate(ADDRESS, updateWhileUnset);
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 2,
+				dirty: true,
+			});
 
 			context.store.localWrite({ address: ADDRESS, op: 'replace', value: {} });
 			context.store.localWrite({ address: ADDRESS, op: 'tombstone' });
