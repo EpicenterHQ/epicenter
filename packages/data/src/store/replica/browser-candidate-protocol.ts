@@ -39,16 +39,23 @@ export type BrowserReplicaCandidateOutbound =
 	| { type: 'fatal'; name: string; message: string };
 
 export type BrowserReplicaCoordinationMessage =
-	| { version: 1; type: 'discover'; candidateId: string }
 	| {
-			version: 1;
-			type: 'owner';
+			version: 2;
+			type: 'discover';
 			candidateId: string;
-			ownerSession: string;
-			replacesOwnerSession: string | null;
+			knownOwnerSession: string | null;
 	  }
 	| {
-			version: 1;
+			version: 2;
+			type: 'owner';
+			candidateId: string;
+			recipientCandidateId: string | null;
+			ownerSession: string;
+			replacesOwnerSession: string | null;
+			invalidationToken: string | null;
+	  }
+	| {
+			version: 2;
 			type: 'request';
 			candidateId: string;
 			ownerSession: string;
@@ -56,14 +63,14 @@ export type BrowserReplicaCoordinationMessage =
 			operation: BrowserReplicaStoreOperation;
 	  }
 	| {
-			version: 1;
+			version: 2;
 			type: 'response';
 			candidateId: string;
 			ownerSession: string;
 			message: BrowserReplicaOwnerMessage;
 	  }
 	| {
-			version: 1;
+			version: 2;
 			type: 'invalidation';
 			ownerSession: string;
 			token: string;

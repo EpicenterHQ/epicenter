@@ -20,6 +20,11 @@ type PendingRequest = {
 	reject(cause: unknown): void;
 };
 
+type ReadinessWaiter = {
+	resolve(): void;
+	reject(cause: unknown): void;
+};
+
 let worker: Worker | undefined;
 let nextRequestId = 0;
 let currentStatus: BrowserReplicaCandidateStatus = {
@@ -29,11 +34,21 @@ let currentStatus: BrowserReplicaCandidateStatus = {
 };
 let invalidations: string[] = [];
 const pending = new Map<number, PendingRequest>();
-const statusWaiters = new Set<() => void>();
+const readinessWaiters = new Set<ReadinessWaiter>();
+let readinessFailure: Error | undefined;
 let closeResolver: (() => void) | undefined;
 
 function notifyStatus(): void {
-	for (const waiter of statusWaiters) waiter();
+	if (currentStatus.role === 'waiting' || currentStatus.ownerSession === null)
+		return;
+	for (const waiter of readinessWaiters) waiter.resolve();
+	readinessWaiters.clear();
+}
+
+function rejectReadiness(cause: Error): void {
+	readinessFailure = cause;
+	for (const waiter of readinessWaiters) waiter.reject(cause);
+	readinessWaiters.clear();
 }
 
 function rejectPending(cause: Error): void {
@@ -42,20 +57,12 @@ function rejectPending(cause: Error): void {
 }
 
 function waitUntilReady(): Promise<void> {
+	if (readinessFailure !== undefined) return Promise.reject(readinessFailure);
 	if (currentStatus.role !== 'waiting' && currentStatus.ownerSession !== null) {
 		return Promise.resolve();
 	}
-	return new Promise((resolve) => {
-		function check(): void {
-			if (
-				currentStatus.role === 'waiting' ||
-				currentStatus.ownerSession === null
-			)
-				return;
-			statusWaiters.delete(check);
-			resolve();
-		}
-		statusWaiters.add(check);
+	return new Promise((resolve, reject) => {
+		readinessWaiters.add({ resolve, reject });
 	});
 }
 
@@ -64,6 +71,7 @@ async function open(
 ): Promise<void> {
 	if (worker !== undefined) await close();
 	currentStatus = { type: 'status', role: 'waiting', ownerSession: null };
+	readinessFailure = undefined;
 	invalidations = [];
 	worker = new Worker(
 		new URL('../src/browser-replica-candidate-worker.ts', import.meta.url),
@@ -94,12 +102,18 @@ async function open(
 					return;
 				}
 				case 'closed':
+					rejectReadiness(
+						new Error('browser replica candidate closed before it was ready'),
+					);
+					worker?.terminate();
+					worker = undefined;
 					closeResolver?.();
 					closeResolver = undefined;
 					return;
 				case 'fatal': {
 					const error = new Error(message.message);
 					error.name = message.name;
+					rejectReadiness(error);
 					rejectPending(error);
 					return;
 				}
@@ -107,7 +121,9 @@ async function open(
 		},
 	);
 	worker.addEventListener('error', ({ message }) => {
-		rejectPending(new Error(message || 'browser replica candidate failed'));
+		const error = new Error(message || 'browser replica candidate failed');
+		rejectReadiness(error);
+		rejectPending(error);
 	});
 	worker.postMessage({
 		type: 'start',
@@ -142,7 +158,9 @@ function terminate(): void {
 	const opened = worker;
 	worker = undefined;
 	opened?.terminate();
-	rejectPending(new Error('browser replica candidate terminated'));
+	const error = new Error('browser replica candidate terminated');
+	rejectReadiness(error);
+	rejectPending(error);
 }
 
 async function close(): Promise<void> {
@@ -156,7 +174,9 @@ async function close(): Promise<void> {
 		});
 	} finally {
 		opened.terminate();
-		rejectPending(new Error('browser replica candidate closed'));
+		const error = new Error('browser replica candidate closed');
+		rejectReadiness(error);
+		rejectPending(error);
 	}
 }
 
