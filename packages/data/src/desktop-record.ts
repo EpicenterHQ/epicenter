@@ -758,7 +758,11 @@ async function serializeBlobSource(
 				bytesBase64: await blobToBase64(source.bytes),
 			};
 		case 'native-capture':
-			return structuredClone(source);
+			return {
+				kind: 'native-capture',
+				captureId: source.captureId,
+				byteLength: source.byteLength,
+			};
 		default:
 			return source satisfies never;
 	}

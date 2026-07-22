@@ -273,6 +273,12 @@ test('native create request stays JSON-native and removes capture after admissio
 		kind: 'native-capture' as const,
 		captureId: 'capture_0123456789abcdef0123456789abcdef',
 		byteLength: bytes.size,
+		acknowledgeAdmission() {},
+	};
+	const coordinate = {
+		kind: capture.kind,
+		captureId: capture.captureId,
+		byteLength: capture.byteLength,
 	};
 	const context = setup(
 		{},
@@ -280,7 +286,7 @@ test('native create request stays JSON-native and removes capture after admissio
 			onAdmission: () => order.push('admit'),
 			async resolveNativeCapture(received) {
 				order.push('resolve');
-				expect(received).toEqual(capture);
+				expect(received).toEqual(coordinate);
 				return {
 					source: bytes,
 					consume() {
@@ -306,7 +312,7 @@ test('native create request stays JSON-native and removes capture after admissio
 				(exchange as DesktopRecordRequest).operation.kind ===
 					'create-record-with-blob',
 		);
-		expect(request?.operation).toMatchObject({ source: capture });
+		expect(request?.operation).toMatchObject({ source: coordinate });
 		expect(JSON.stringify(request)).not.toContain('native recording');
 		expect(JSON.stringify(request)).not.toContain('bytesBase64');
 	} finally {
