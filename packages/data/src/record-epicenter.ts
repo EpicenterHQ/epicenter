@@ -20,6 +20,11 @@ import {
 } from './lens.js';
 import type { JsonValue, RecordAddress } from './protocol/v1/index.js';
 import { createRecordDocumentRuntime } from './record-documents.js';
+import {
+	createRecordSyncSupervisor,
+	type RecordSyncSession,
+	type RecordSyncStatus,
+} from './record-sync-supervisor.js';
 import type { ReplicaBlobStore, ReplicaStore } from './store/replica/index.js';
 
 const mintRecordKey = customAlphabet(
@@ -126,6 +131,7 @@ export function createRecordEpicenter<TSource, TRead>({
 	log = createLogger('data'),
 }: CreateRecordEpicenterOptions<TSource, TRead>) {
 	const documents = createRecordDocumentRuntime(replica);
+	const sync = createRecordSyncSupervisor({ replica, blobs });
 	const tableListeners = new Map<string, Set<(ids: string[]) => void>>();
 	const valueListeners = new Map<string, Set<() => void>>();
 	let isDisposed = false;
@@ -397,8 +403,23 @@ export function createRecordEpicenter<TSource, TRead>({
 
 	return Object.freeze({
 		bind,
+		attachSync(session: RecordSyncSession<TRead>): Promise<void> {
+			requireOpen();
+			return sync.attach(session);
+		},
 		get attachment() {
 			return replica.attachment();
+		},
+		get syncStatus(): RecordSyncStatus {
+			return sync.status;
+		},
+		subscribeSyncStatus(listener: (status: RecordSyncStatus) => void) {
+			requireOpen();
+			return sync.subscribe(listener);
+		},
+		parkedWork(after?: RecordAddress) {
+			requireOpen();
+			return sync.parked(after);
 		},
 		inspectRecord(address: RecordAddress) {
 			requireOpen();
@@ -411,6 +432,7 @@ export function createRecordEpicenter<TSource, TRead>({
 		async [Symbol.asyncDispose](): Promise<void> {
 			if (isDisposed) return;
 			isDisposed = true;
+			sync.dispose();
 			stopReplicaSubscription();
 			stopBlobSubscription();
 			tableListeners.clear();
