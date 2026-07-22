@@ -279,7 +279,8 @@ rebound behind a reset submission number. The full
 Bun charter slice then exercised exactly 1,000,000 final-present records at the
 536,870,912-byte V1 proxy. Its stop rule fired with mixed material directions:
 wide won point-read and median feed-install work, while split won traversal,
-lane-write, reopen, and feed-install tail latency. The report lives under
+lane-write, and feed-install tail latency; reopen was equivalent under the
+stop rule. The report lives under
 `docs/benchmarks/replica-layout/`; W1C and W2 still own the browser and Durable
 Object slices before ADR-0177's Proposed selection can be accepted or reversed.
 
