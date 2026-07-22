@@ -2,35 +2,20 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the
- * shared `@epicenter/server` library: it names Epicenter's own app origins and
- * browser extension, which only the hosted deployment should trust. A
+ * shared `@epicenter/server` library: it names Epicenter's own app origins,
+ * which only the hosted deployment should trust. A
  * self-host (`apps/self-host`) supplies its own origins instead, so it never
  * inherits trust in epicenter.so domains it has no relationship with.
  */
 
 /**
- * Pinned Chrome extension origin for the tab-manager.
- *
- * Stable across all installs because `apps/tab-manager/wxt.config.ts`
- * pins the manifest `key`. Allowlisting this exact origin replaces an
- * earlier `chrome-extension://*` wildcard that defeated CSRF protection.
- */
-const TAB_MANAGER_CHROME_EXTENSION_ORIGIN =
-	'chrome-extension://mkbnicfhpacdofmoocppnjjmdfmkkgda';
-
-/**
  * Production origins trusted on every Epicenter cloud deployment: each app's
- * canonical origin (and aliases), the pinned browser extension, and the Tauri
- * webview origin.
+ * canonical origin (and aliases) and the Tauri webview origin.
  *
- * Adding an app to `APPS` auto-extends this. Browser extensions are added
- * explicitly with their pinned origin: Chrome via the WXT `key`, Firefox via
- * `browser_specific_settings.gecko.id` plus AMO signing (required, no
- * exceptions; self-distributed XPIs get a random per-install UUID).
+ * Adding an app to `APPS` auto-extends this.
  */
 const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = [
 	'tauri://localhost',
-	TAB_MANAGER_CHROME_EXTENSION_ORIGIN,
 	...Object.values(APPS).flatMap(prodOrigins),
 ];
 

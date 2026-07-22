@@ -47,7 +47,7 @@ Press record, speak, optionally transform the transcript, and copy or deliver th
 
 ## Build With The Toolkit
 
-The developer toolkit is MIT: build anything on it, including closed-source and commercial products, and you own what you build, with no obligation back to Epicenter. These are the packages meant to leave this repo: [`@epicenter/workspace`](packages/workspace), [`@epicenter/ui`](packages/ui), [`@epicenter/filesystem`](packages/filesystem), and [`@epicenter/sync`](packages/sync). They are pre-1.0 and tuned for our own apps, so treat them as fork-and-own rather than a stability-guaranteed SDK for now.
+The developer toolkit is MIT: build anything on it, including closed-source and commercial products, and you own what you build, with no obligation back to Epicenter. Its embeddable roots are [`@epicenter/workspace`](packages/workspace), [`@epicenter/ui`](packages/ui), [`@epicenter/sync`](packages/sync), [`@epicenter/sqlite`](packages/sqlite), [`@epicenter/row-sync`](packages/row-sync), [`@epicenter/data`](packages/data), [`@epicenter/document-sync`](packages/document-sync), and [`@epicenter/agent`](packages/agent). They are pre-1.0 and tuned for our own apps, so treat them as fork-and-own rather than a stability-guaranteed SDK for now.
 
 The hard problem with local-first apps is synchronization. If each device has
 its own SQLite file or Markdown folder, how do you keep them in sync?
@@ -180,7 +180,6 @@ These packages carry the main architecture.
 | [`@epicenter/sqlite`](packages/sqlite) | Neutral embedded-SQLite driver and Browser, Bun, and Durable Object adapters. It owns no product schema. | MIT |
 | [`@epicenter/sync`](packages/sync) | Yjs document protocol encoding and provider behavior, separate from scalar row synchronization. | MIT |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple app surfaces. | MIT |
-| [`@epicenter/filesystem`](packages/filesystem) | POSIX-style virtual filesystem helpers over workspace data. | MIT |
 | [`@epicenter/server`](packages/server) | Shared Hono server library composed by the hosted API and self-host reference deployable. | AGPL-3.0-or-later |
 | [`@epicenter/cli`](packages/cli) | The `epicenter` command and local or hosted API workflows. | AGPL-3.0-or-later |
 
@@ -217,24 +216,19 @@ cd epicenter
 bun install
 ```
 
-Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is the current default workflow (API and Tab Manager), and `bun run` with no arguments lists every target.
+Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is the current default workflow (API and Whispering), and `bun run` with no arguments lists every target.
 
 | Command | Starts | App port |
 | --- | --- | --- |
 | `bun dev:api` | Hosted API worker alone | 8787 |
 | `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:honeycrisp` | API + Honeycrisp desktop | 5175 |
-| `bun dev:opensidian` | API + Opensidian | 5176 |
-| `bun dev:tab-manager` | API + Tab Manager extension | extension build |
-| `bun dev:vocab` | API + Vocab | 8888 |
 | `bun dev:whispering` | API + hosted Whispering browser app | 1420 |
 | `bun dev:epicenter` | Epicenter desktop host, including Whispering | Tauri window |
 | `bun dev:landing` | Landing site, standalone | 4321 |
 | `bun dev:matter` | Matter desktop, standalone | 5180 |
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 | `bun dev:self-host` | Self-host server (needs `INSTANCE_TOKEN`) | 8787 |
-| `bun dev:skills` | Skills editor, standalone | vite default |
-| `bun dev:todos` | Todos, standalone | 5177 |
 
 The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter, Matter, and Honeycrisp. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
 
@@ -262,7 +256,7 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 
 Epicenter uses a two-tier split by how you use the code:
 
-- [MIT](licenses/LICENSE-MIT) for code you build with: the toolkit roots (`@epicenter/workspace`, `@epicenter/ui`, `@epicenter/filesystem`, `@epicenter/sync`) and the toolkit-internal contracts they carry (`@epicenter/identity`, `@epicenter/agent-protocol`, `@epicenter/encryption`, `@epicenter/field`, `@epicenter/chat`). Nine packages today.
+- [MIT](licenses/LICENSE-MIT) for code you build with: the toolkit roots (`@epicenter/workspace`, `@epicenter/ui`, `@epicenter/sync`, `@epicenter/sqlite`, `@epicenter/row-sync`, `@epicenter/data`, `@epicenter/document-sync`, `@epicenter/agent`) and the toolkit-internal contracts they carry (`@epicenter/identity`, `@epicenter/agent-protocol`, `@epicenter/encryption`, `@epicenter/field`, `@epicenter/chat`). Thirteen packages today.
 - [AGPL-3.0](licenses/LICENSE-AGPL-3.0) or later for code we ship or run: every app, the shared server library, the CLI, and the rest of the internal packages.
 - There is no proprietary tier today. Revenue is intended to come from hosting and services, not from selling closed licenses.
 

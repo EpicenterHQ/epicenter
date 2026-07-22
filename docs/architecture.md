@@ -24,16 +24,16 @@ policy stays in the app that can name it.
 +----------------------------------------------------------------------------+
 | APPS                                                                       |
 |                                                                            |
-| whispering   honeycrisp   epicenter   tab-manager   api   self-host        |
-| landing      local-books  local-mail  opensidian    todos                  |
+| whispering   honeycrisp   epicenter   api          self-host               |
+| landing      local-books  local-mail  matter       reddit                  |
 +----------------------------------------------------------------------------+
                                       |
                                       v
 +----------------------------------------------------------------------------+
 | MIDDLEWARE                                                                 |
 |                                                                            |
-| @epicenter/svelte      @epicenter/filesystem                               |
-| @epicenter/skills      app-owned runtime composition per environment       |
+| @epicenter/svelte      @epicenter/skills                                   |
+| app-owned runtime composition per environment                              |
 +----------------------------------------------------------------------------+
                                       |
                                       v

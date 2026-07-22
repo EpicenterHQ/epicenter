@@ -15,7 +15,7 @@
  *     is not cosmetic. Case-insensitive filesystems (default macOS, Windows)
  *     fold `Foo` and `foo` to the same file, so allowing uppercase would let
  *     two distinct guids collide on disk.
- *   - `-` joins words inside a segment (`tab-manager`). Safe in URLs and
+ *   - `-` joins words inside a segment (`local-books`). Safe in URLs and
  *     filenames; never percent-encoded.
  *   - `.` is RESERVED as the segment separator and therefore forbidden inside
  *     a segment. Reserving it to one job is what makes composed guids

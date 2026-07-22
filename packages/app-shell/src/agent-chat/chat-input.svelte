@@ -26,7 +26,7 @@
 		onStop: () => void;
 		placeholder?: string;
 		/** Optional control rendered at the left of the input row, before the
-		 * textarea (Vocab's dictation mic). Omit it and the row is text plus send. */
+		 * textarea. Omit it and the row is text plus send. */
 		accessory?: Snippet;
 	} = $props();
 

@@ -1,7 +1,7 @@
 /**
- * Reactive AI chat state shared by every chat app (opensidian, tab-manager,
- * vocab): the conversation registry plus one client agent loop (ADR-0047) per
- * conversation, with each app's differences injected rather than forked.
+ * Reactive AI chat state: the conversation registry plus one client agent loop
+ * (ADR-0047) per conversation, with each app's differences injected rather
+ * than forked.
  *
  * The conversation list is the synced `conversations` table (@epicenter/chat);
  * each row's turns live in its `messages` child doc. A handle registry mirrors
@@ -61,8 +61,8 @@ import type { InferenceConnections } from '../inference-picker/connections.svelt
 
 /**
  * Where the selected conversation lives, and how to change it. Injected so an
- * app can keep the active id in the URL (opensidian's `?chat=`) instead of in
- * module state; omit it and the registry owns an internal `$state`. The `current`
+ * app can keep the active id in the URL instead of in module state; omit it and
+ * the registry owns an internal `$state`. The `current`
  * getter must read a reactive source so the active handle recomputes on change.
  */
 export type ActiveConversation = {
@@ -87,7 +87,7 @@ export type ConversationHandle = NonNullable<AgentChatState['active']>;
 export type AgentKit = {
 	/** The layered system prompts an answer is generated under, read per turn. */
 	buildSystemPrompts: () => string[];
-	/** The live tool surface; omit for a capability-free app (Vocab). */
+	/** The live tool surface; omit for a capability-free app. */
 	toolCatalog?: ToolCatalog;
 	/** The model a brand new conversation starts on when none is carried forward. */
 	defaultModel: string;
@@ -262,7 +262,7 @@ export function createAgentChatState({
 			},
 
 			/** A picker preview built from the last turn. Reads the open `messages`
-			 * doc, so any picker that shows this (tab-manager) requires every handle's
+			 * doc, so any picker that shows this requires every handle's
 			 * loop to be live; that coupling is why the registry opens loops eagerly.
 			 * Denormalizing this onto the conversation row would let the loop open
 			 * lazily (active + in-flight only) without losing the preview. */

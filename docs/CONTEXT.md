@@ -280,7 +280,7 @@ shapes, see `docs/adr/`.
 - **Trust location**: where an agent's data and tools live, and therefore where
   its side effects run (ADR-0030, ADR-0047). The reasoning loop always runs in
   the client, which drives an inference server (ADR-0049); what varies is the
-  agent's capability. A **capability-free** agent (Vocab) has no tools. A
+  agent's capability. A **capability-free** agent has no tools. A
   **local-data** agent (Local Books) keeps its data and action handlers on the
   user's own always-on daemon, which the client loop reaches by dispatching
   actions; data leaves the daemon only as a tool result. The relay is
@@ -290,10 +290,8 @@ shapes, see `docs/adr/`.
   streams the live turn into a snapshot the UI renders, and persists finished
   messages as records (ADR-0047). It replaces the older doc-observing _answerer_
   (a daemon that wrote the reply into the doc), which ADR-0047 removed. Two
-  implementations exist, chosen by transcript reach (ADR-0048): a transcript that
-  syncs across a person's peers uses the workspace loop (`createConversation`,
-  finished messages in a Yjs child doc); a deliberately device-local transcript
-  uses TanStack `createChat` (tab-manager, IndexedDB).
+  The shared implementation syncs a transcript across a person's peers through
+  the workspace loop (`createConversation`, finished messages in a Yjs child doc).
 - **Materializer**: a local, addressless worker that projects workspace data into
   another store (markdown, sqlite).
 - **`attach*` vs `create*`**: `attach*` are side-effectful primitives that register

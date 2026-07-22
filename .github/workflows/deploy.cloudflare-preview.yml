@@ -6,9 +6,7 @@ on:
     paths:
       - 'apps/whispering/**'
       - 'apps/landing/**'
-      - 'apps/opensidian/**'
       - 'apps/honeycrisp/**'
-      - 'apps/vocab/**'
       - 'packages/**'
       - '.github/workflows/deploy.cloudflare-preview.yml'
 
@@ -80,7 +78,7 @@ jobs:
           # abort the loop on the first app that fails to build or upload.
           set -uo pipefail
 
-          apps=(whispering landing opensidian honeycrisp vocab)
+          apps=(whispering landing honeycrisp)
           preview_alias="pr-${PR_NUMBER}"
           rows=""
           for app in "${apps[@]}"; do

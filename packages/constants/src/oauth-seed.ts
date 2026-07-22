@@ -7,9 +7,6 @@ import {
 	EPICENTER_HONEYCRISP_OAUTH_CLIENT_ID,
 	EPICENTER_HONEYCRISP_TAURI_OAUTH_REDIRECT_URI,
 	EPICENTER_OAUTH_SCOPES,
-	EPICENTER_OPENSIDIAN_OAUTH_CLIENT_ID,
-	EPICENTER_TAB_MANAGER_OAUTH_CLIENT_ID,
-	EPICENTER_VOCAB_OAUTH_CLIENT_ID,
 	EPICENTER_WHISPERING_OAUTH_CLIENT_ID,
 } from './oauth-clients.js';
 import { OAUTH_ROUTES } from './oauth-routes.js';
@@ -52,7 +49,7 @@ const AUTH_CALLBACK_PATH = '/auth/callback';
 /**
  * Every redirect URI for an app that owns its origin: each origin the app
  * answers on ({@link appOrigins}, i.e. dev plus prod) joined to
- * {@link AUTH_CALLBACK_PATH}. Used by Honeycrisp, Opensidian, and Vocab.
+ * {@link AUTH_CALLBACK_PATH}. Used by Honeycrisp and Whispering.
  */
 function appCallbacks(app: {
 	port: number;
@@ -65,7 +62,7 @@ function appCallbacks(app: {
 /**
  * Build the checked-in trusted public OAuth clients for a specific
  * deployment. Each client's `redirectUris` resolve against either the app's
- * own origins (Honeycrisp, Opensidian, etc.) or the deployment's API base URL
+ * own origins (Honeycrisp and Whispering) or the deployment's API base URL
  * (the CLI, which lives on the API origin). A self-host at
  * `https://api.acme.com` and `wrangler dev` on a custom port each register
  * their own callbacks without anyone editing this file.
@@ -98,24 +95,6 @@ export function buildTrustedOAuthClients(apiBaseURL: string) {
 				...appCallbacks(APPS.HONEYCRISP),
 				EPICENTER_HONEYCRISP_TAURI_OAUTH_REDIRECT_URI,
 			],
-		},
-		{
-			clientId: EPICENTER_OPENSIDIAN_OAUTH_CLIENT_ID,
-			name: 'Opensidian',
-			type: 'user-agent-based',
-			redirectUris: appCallbacks(APPS.OPENSIDIAN),
-		},
-		{
-			clientId: EPICENTER_TAB_MANAGER_OAUTH_CLIENT_ID,
-			name: 'Tab Manager extension',
-			type: 'user-agent-based',
-			redirectUris: ['chrome-extension://mkbnicfhpacdofmoocppnjjmdfmkkgda/'],
-		},
-		{
-			clientId: EPICENTER_VOCAB_OAUTH_CLIENT_ID,
-			name: 'Vocab',
-			type: 'user-agent-based',
-			redirectUris: appCallbacks(APPS.VOCAB),
 		},
 		{
 			clientId: EPICENTER_CLI_OAUTH_CLIENT_ID,

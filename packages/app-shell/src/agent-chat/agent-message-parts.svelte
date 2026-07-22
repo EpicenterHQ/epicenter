@@ -27,7 +27,7 @@
 		 * rather than being re-plumbed through the caller. */
 		conversation: ConversationHandle;
 		/** Map a tool name to a human title, or undefined to fall back to title-case.
-		 * Injected by an app that names its tools (tab-manager's action titles). */
+		 * Injected by an app that names its tools. */
 		resolveToolTitle?: (toolName: string) => string | undefined;
 		/** Trust this tool from now on, then approve. Renders an "Always Allow"
 		 * button only when provided; the trust set stays in the app. */

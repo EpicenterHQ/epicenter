@@ -72,7 +72,7 @@ Currently, **Whispering** (`apps/whispering`) is the most mature application and
 
 ### Working without Infisical access
 
-Most of the repo does not need Infisical. Whispering, the Tab Manager extension, the CLI, and every shared package (`@epicenter/workspace`, `@epicenter/ui`, and the rest) build and run from a fresh clone with nothing more than `bun install`.
+Most of the repo does not need Infisical. Whispering, the CLI, and every shared package (`@epicenter/workspace`, `@epicenter/ui`, and the rest) build and run from a fresh clone with nothing more than `bun install`.
 
 The only app that requires Infisical is `apps/api` (the hosted hub). Running it (`bun run dev:api` from the repo root, or `bun run dev` from `apps/api/`) needs real API keys and the auth secret, so the dev script refuses to start without an `infisical login`.
 
@@ -216,7 +216,7 @@ This section is for maintainers with npm publish access to the `@epicenter` scop
 
 ### How versioning works
 
-All seven public packages (`@epicenter/workspace`, `@epicenter/cli`, `@epicenter/sync`, `@epicenter/filesystem`, `@epicenter/skills`, `@epicenter/ui`, `@epicenter/svelte`) share a single version number. They move together.
+The five packages in the Changesets fixed group (`@epicenter/cli`, `@epicenter/sync`, `@epicenter/skills`, `@epicenter/field`, and `@epicenter/identity`) share a single version number. They move together.
 
 **Apps are completely separate from changesets.** Changesets only touches packages that are (a) not marked `"private": true` and (b) listed under `packages/`. Every app in `apps/` is `"private": true` and has its own deploy mechanism. Changesets will never version or publish them. Web apps deploy on push to `main`; native packaging belongs to each Tauri host. See [App deployments](#app-deployments) below.
 
@@ -316,7 +316,7 @@ curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.19"
 
 ## Licensing
 
-Epicenter uses split licensing by how you use the code. Code you build with (the toolkit: `@epicenter/workspace`, `@epicenter/ui`, `@epicenter/filesystem`, `@epicenter/sync`, and the contracts they carry) is MIT: contribute freely, no strings attached. Code we ship or run (all apps, the shared `@epicenter/server` library, the CLI, and internal glue) is AGPL-3.0. Contributions to either layer are welcome under the license of the file you are editing (inbound = outbound).
+Epicenter uses split licensing by how you use the code. Code you build with (the toolkit: `@epicenter/workspace`, `@epicenter/ui`, `@epicenter/sync`, `@epicenter/sqlite`, `@epicenter/row-sync`, `@epicenter/data`, `@epicenter/document-sync`, `@epicenter/agent`, and the contracts they carry) is MIT: contribute freely, no strings attached. Code we ship or run (all apps, the shared `@epicenter/server` library, the CLI, and internal glue) is AGPL-3.0. Contributions to either layer are welcome under the license of the file you are editing (inbound = outbound).
 
 See [FINANCIAL_SUSTAINABILITY.md](FINANCIAL_SUSTAINABILITY.md) for the full reasoning behind the split.
 

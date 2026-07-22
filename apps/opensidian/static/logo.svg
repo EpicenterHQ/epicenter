@@ -1,9 +1,0 @@
-<svg width="7680" height="7680" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
-  <!-- No background rect - this makes it transparent -->
-  
-  <!-- Top-left circle (gray) - drawn first so it appears behind -->
-  <circle cx="170" cy="170" r="100" fill="#cccccc" opacity="1"/>
-  
-  <!-- Bottom-right circle (pure white) - drawn second so it appears in front -->
-  <circle cx="230" cy="230" r="100" fill="#ffffff" opacity="1"/>
-</svg>

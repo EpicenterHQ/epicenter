@@ -22,8 +22,6 @@ import { defineConfig, js, repository } from 'jsrepo';
 
 const BLOCKS = {
 	honeycrisp: ['workspace', 'daemon-route'],
-	opensidian: ['workspace', 'daemon-route'],
-	vocab: ['workspace', 'daemon-route'],
 } as const;
 
 export default defineConfig({

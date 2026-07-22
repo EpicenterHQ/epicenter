@@ -1,9 +1,0 @@
-/* Import shared UI styles (theme variables, base styles) */
-@import "@epicenter/ui/app.css";
-
-/* Scan local source files for Tailwind classes */
-@source "./entrypoints/**/*.{svelte,ts}";
-@source "./lib/**/*.{svelte,ts}";
-
-/* Full-height chain: html, body, #app use class="h-full" in index.html */
-/* Tailwind preflight already resets margin/padding on all elements */

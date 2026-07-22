@@ -34,7 +34,7 @@
 		/** Open the app's upgrade/billing flow (the turn failed with HTTP 402). Omit
 		 * to hide the Upgrade button in the error banner. */
 		onUpgrade?: () => void;
-		/** Override how one message's content renders (vocab's pinyin pass). Omit to
+		/** Override how one message's content renders. Omit to
 		 * use the built-in renderer (text + tool calls), wired to this conversation's
 		 * approval state and the `resolveToolTitle` / `onAlwaysAllow` seams below. The
 		 * second argument is true for the in-flight message. */
@@ -49,7 +49,7 @@
 		emptyState?: Snippet;
 		/** Optional input placeholder. */
 		placeholder?: string;
-		/** Optional control rendered in the input row (Vocab's dictation mic). */
+		/** Optional control rendered in the input row. */
 		inputAccessory?: Snippet;
 	} = $props();
 </script>

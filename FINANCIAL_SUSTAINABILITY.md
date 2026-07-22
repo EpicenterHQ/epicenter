@@ -16,8 +16,8 @@ We have other options if that doesn't work, of course. We could pursue a traditi
 
 ## The split
 
-MIT: `packages/workspace`, `packages/ui`, `packages/filesystem`, `packages/sync`, and the toolkit-internal contracts they carry (`packages/identity`, `packages/agent-protocol`, `packages/encryption`, `packages/field`, `packages/chat`). The embeddable developer toolkit.
+MIT: `packages/workspace`, `packages/ui`, `packages/sync`, `packages/sqlite`, `packages/row-sync`, `packages/data`, `packages/document-sync`, `packages/agent`, and the toolkit-internal contracts they carry (`packages/identity`, `packages/agent-protocol`, `packages/encryption`, `packages/field`, `packages/chat`). The embeddable developer toolkit.
 
-AGPL-3.0-or-later: every app (`apps/api`, `apps/self-host`, `apps/whispering`, `apps/honeycrisp`, `apps/opensidian`, `apps/vocab`, `apps/tab-manager`, `apps/skills`, `apps/reddit`, `apps/landing`, `apps/posthog-reverse-proxy`, `apps/matter`, `apps/wiki`, `apps/local-books`, `apps/todos`), the shared server library (`packages/server`), the CLI (`packages/cli`, which depends on AGPL internals), and our internal packages (`packages/auth`, `packages/svelte-utils`, `packages/app-shell`, `packages/skills`, `packages/constants`, `packages/client`, `packages/matter-core`, `packages/vite-config`).
+AGPL-3.0-or-later: every app (`apps/api`, `apps/self-host`, `apps/whispering`, `apps/honeycrisp`, `apps/reddit`, `apps/landing`, `apps/posthog-reverse-proxy`, `apps/matter`, `apps/local-books`, `apps/local-mail`), the shared server library (`packages/server`), the CLI (`packages/cli`, which depends on AGPL internals), and our internal packages (`packages/auth`, `packages/svelte-utils`, `packages/app-shell`, `packages/skills`, `packages/constants`, `packages/client`, `packages/matter-core`, `packages/vite-config`).
 
 Each package under packages/ and apps/ has its own LICENSE file. See the root [LICENSE](LICENSE) for the full breakdown.

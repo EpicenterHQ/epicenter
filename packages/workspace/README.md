@@ -456,7 +456,7 @@ Yjs supports multiple providers simultaneously. A phone can connect to desktop, 
    For one-shot Node operations: derive the same child-doc guid and read the room directly.
 4. Await the right readiness signal before reading persisted state. The rule is scoped by what kind of bundle you are building:
    - **Opener and runtime bundles expose subsystem readiness.** Expose the subsystem (`storage`, `persistence`, ...) on the bundle root and let consumers reach through: `await bundle.storage.whenLoaded`. Inside this layer, do not alias `whenLoaded`/`whenReady` flat at the bundle root just to save `.storage`.
-   - **Two or more subsystems to compose into one barrier.** Then `whenReady` earns its place: `whenReady: Promise.all([persistence.whenLoaded, unlock.whenChecked, sync.whenConnected])`. Because the field is typed `Promise<unknown>`, `Promise.all([...])` is assignable directly. Consumers `await bundle.whenReady`. Migrations, `@epicenter/filesystem` ops, the sqlite-index materializer, and `{#await}` gates in editors all consume this aggregate.
+   - **Two or more subsystems to compose into one barrier.** Then `whenReady` earns its place: `whenReady: Promise.all([persistence.whenLoaded, unlock.whenChecked, sync.whenConnected])`. Because the field is typed `Promise<unknown>`, `Promise.all([...])` is assignable directly. Consumers `await bundle.whenReady`. Migrations, the sqlite-index materializer, and `{#await}` gates in editors all consume this aggregate.
    - **App singletons may expose an app-level `whenReady`.** When one promise is the product-level readiness contract (the load gate, the sign-in migration), an app singleton aliasing `whenReady: storage.whenLoaded` is legitimate: the app owns that contract and its consumers should not care which subsystem backs it.
 
 5. Read and write through `bundle.tables`, `bundle.kv`, and `bundle.collaboration.peers`, and (for per-row content docs) whatever you exposed in the returned bundle.
@@ -569,8 +569,7 @@ Each `.open(rowId)` returns a disposable handle. Multiple consumers can open the
 same row and share one underlying Y.Doc safely; the workspace-owned cache handles
 construction, refcounting, and `gcTime`-delayed teardown.
 
-Reference implementations: `apps/opensidian/opensidian.browser.ts` and
-`apps/honeycrisp/src/lib/workspace/browser.ts`.
+Reference implementation: `apps/honeycrisp/src/lib/workspace/browser.ts`.
 
 ## Schema definition
 
@@ -753,8 +752,8 @@ async function documentExample(connection: ConnectionConfig) {
 void documentExample;
 ```
 
-Opens are refcounted: multiple browser callers (editor, filesystem actions,
-previews) can `.open(fileId)` concurrently and share one Y.Doc. The workspace
+Opens are refcounted: multiple browser callers (editor and previews) can
+`.open(fileId)` concurrently and share one Y.Doc. The workspace
 cache tears the child doc down `gcTime` after the last handle disposes. The
 default is `5_000` ms.
 
@@ -1524,7 +1523,7 @@ Everything below is a *convention*: the builder is free to expose more or less. 
 Per-row content is just another `attach*` call inside a child document builder.
 Pick the attachment that matches the content shape:
 
-- `attachPlainText(ydoc, name)`: binds a `Y.Text` at `getText(name)`. Returns `{ binding, read, write, appendText }`: feed `binding` to a CodeMirror/Monaco Yjs extension, `read()`/`write()`/`appendText()` for programmatic access. This is the file-body layout (opensidian's Markdown source lives here; ADR-0107).
+- `attachPlainText(ydoc, name)`: binds a `Y.Text` at `getText(name)`. Returns `{ binding, read, write, appendText }`: feed `binding` to a CodeMirror/Monaco Yjs extension, and use `read()`/`write()`/`appendText()` for programmatic access.
 - `attachRecords(ydoc, name)`: binds a keyed last-write-wins store of whole JSON records, one per id (the shape an agent transcript uses). Bundle field is a `RecordsHandle<T>` with `get / set / delete / entries / observe`.
 - `attachRichText(ydoc, name)`: binds a `Y.XmlFragment` for prosemirror / tiptap / yrs-xml editors.
 
@@ -1718,11 +1717,9 @@ From the repo root:
 bun test packages/workspace
 ```
 
-## Related Packages
+## Related Guidance
 
-If your app's data model is inherently files and folders: a code editor, a note vault with nested directories, anything where users expect `mkdir` and path resolution: [`@epicenter/filesystem`](../filesystem) builds that abstraction on top of this package. It imports `defineTable` to create a `filesTable`, wraps workspace tables and documents into POSIX-style operations (`writeFile`, `mv`, `rm`, `stat`), and plugs into the same extension system.
-
-Most apps won't need it. If you know the shape of every record upfront, workspace tables are the right default. See [Your Data Is Probably a Table, Not a File](../../docs/articles/your-data-is-probably-a-table-not-a-file.md) for the full decision matrix.
+If you know the shape of every record upfront, workspace tables are the right default. See [Your Data Is Probably a Table, Not a File](../../docs/articles/your-data-is-probably-a-table-not-a-file.md) for the full decision matrix.
 
 ## License
 

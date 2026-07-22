@@ -7,8 +7,10 @@
  * `cachedTrustedClients` config Set only governs consent-skip and CRUD
  * immutability, not metadata, so every deployment has to seed these rows. They
  * are a projection of code (`buildTrustedOAuthClients`, the single source of
- * truth), so this runs at deploy time, never in the request path. The upsert
- * makes re-running idempotent: each run re-asserts the rows against `baseURL`.
+ * truth), so this runs at deploy time, never in the request path. One
+ * transaction deletes the explicitly retired first-party rows and upserts the
+ * retained rows, making each run an idempotent reconciliation against
+ * `baseURL`.
  *
  *   bun run oauth:seed:local     seed the local dev database
  *   bun run oauth:seed:remote    seed production (wrapped with Infisical)
@@ -42,6 +44,21 @@ const baseURL =
 	process.env.SEED_TARGET === 'prod' ? APPS.API.url : localUrl(APPS.API);
 const connectionString = process.env.DATABASE_URL ?? LOCAL_DATABASE_URL;
 
+type SeedDatabase = {
+	query(sql: string, values?: unknown[]): Promise<unknown>;
+};
+
+const RETIRED_FIRST_PARTY_OAUTH_CLIENT_IDS = [
+	'epicenter-opensidian',
+	'epicenter-tab-manager',
+	'epicenter-vocab',
+] as const;
+
+const DELETE_RETIRED = `
+	DELETE FROM oauth_client
+	WHERE client_id = ANY($1::text[])
+`;
+
 const UPSERT = `
 	INSERT INTO oauth_client (
 		id, client_id, disabled, skip_consent, scopes, created_at, updated_at,
@@ -64,33 +81,53 @@ const UPSERT = `
 		require_pkce = EXCLUDED.require_pkce
 `;
 
-const client = new pg.Client({ connectionString });
-await client.connect();
-try {
+export async function reconcileTrustedOAuthClients(
+	database: SeedDatabase,
+	baseURL: string,
+) {
 	const clients = buildTrustedOAuthClients(baseURL);
-	for (const trustedClient of clients) {
-		const row = projectTrustedOAuthClientToRow(trustedClient);
-		await client.query(UPSERT, [
-			row.id,
-			row.clientId,
-			row.disabled,
-			row.skipConsent,
-			row.scopes,
-			row.createdAt,
-			row.updatedAt,
-			row.name,
-			row.redirectUris,
-			row.tokenEndpointAuthMethod,
-			row.grantTypes,
-			row.responseTypes,
-			row.public,
-			row.type,
-			row.requirePKCE,
+	await database.query('BEGIN');
+	try {
+		await database.query(DELETE_RETIRED, [
+			[...RETIRED_FIRST_PARTY_OAUTH_CLIENT_IDS],
 		]);
+		for (const trustedClient of clients) {
+			const row = projectTrustedOAuthClientToRow(trustedClient);
+			await database.query(UPSERT, [
+				row.id,
+				row.clientId,
+				row.disabled,
+				row.skipConsent,
+				row.scopes,
+				row.createdAt,
+				row.updatedAt,
+				row.name,
+				row.redirectUris,
+				row.tokenEndpointAuthMethod,
+				row.grantTypes,
+				row.responseTypes,
+				row.public,
+				row.type,
+				row.requirePKCE,
+			]);
+		}
+		await database.query('COMMIT');
+	} catch (error) {
+		await database.query('ROLLBACK');
+		throw error;
 	}
-	console.log(
-		`Seeded ${clients.length} first-party OAuth client(s) for ${baseURL}`,
-	);
-} finally {
-	await client.end();
+	return clients.length;
+}
+
+if (import.meta.main) {
+	const client = new pg.Client({ connectionString });
+	await client.connect();
+	try {
+		const clientCount = await reconcileTrustedOAuthClients(client, baseURL);
+		console.log(
+			`Reconciled ${clientCount} first-party OAuth client(s) for ${baseURL}`,
+		);
+	} finally {
+		await client.end();
+	}
 }

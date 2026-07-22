@@ -4,10 +4,8 @@
 	"commit": false,
 	"fixed": [
 		[
-			"@epicenter/workspace",
 			"@epicenter/cli",
 			"@epicenter/sync",
-			"@epicenter/filesystem",
 			"@epicenter/skills",
 			"@epicenter/field",
 			"@epicenter/identity"

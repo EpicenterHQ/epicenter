@@ -29,13 +29,6 @@ export const APPS = {
 	SH: { port: 5173, url: 'https://epicenter.sh' },
 	WHISPERING: { port: 1420, url: 'https://whispering.epicenter.so' },
 	HONEYCRISP: { port: 5175, url: 'https://honeycrisp.epicenter.so' },
-	OPENSIDIAN: {
-		port: 5176,
-		url: 'https://opensidian.com',
-		aliases: ['https://opensidian.epicenter.so'],
-	},
-	TODOS: { port: 5177, url: 'https://todos.epicenter.so' },
-	VOCAB: { port: 8888, url: 'https://vocab.epicenter.so' },
 } as const;
 
 export type AppId = keyof typeof APPS;
@@ -68,9 +61,9 @@ export const localUrl = <Port extends number>(app: { port: Port }) =>
 /**
  * Every origin an app answers on: its dev origin ({@link localUrl}) plus the
  * canonical `url` and any `aliases`. Single owner for the every-origin list
- * both CORS trusted origins and OAuth redirect URIs want. Only apps reachable
- * at more than one domain (e.g. Opensidian) declare `aliases`; for everyone
- * else this is the dev origin plus the one canonical url.
+ * both CORS trusted origins and OAuth redirect URIs want. Apps reachable at
+ * more than one domain declare `aliases`; for everyone else this is the dev
+ * origin plus the one canonical url.
  */
 export const appOrigins = (app: {
 	port: number;
@@ -82,8 +75,7 @@ export const appOrigins = (app: {
  * An app's production origins: its canonical `url` plus any `aliases`, without
  * the localhost dev origin. The typed parameter (with optional `aliases`) is
  * what lets `trusted-origins.ts` read `aliases` off `Object.values(APPS)`
- * without an `as` cast: the union members carry it as `readonly string[] |
- * undefined` here.
+ * without an `as` cast when aliases are present.
  */
 export const prodOrigins = (app: {
 	url: string;

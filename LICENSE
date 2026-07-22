@@ -21,8 +21,6 @@ entirely MIT; the boundary is enforced by 'bun run check:licenses'.
                                                          CRDT tables, sync
     - packages/ui               (@epicenter/ui)          shadcn-svelte
                                                          component library
-    - packages/filesystem       (@epicenter/filesystem)  POSIX layer over
-                                                         workspace tables
     - packages/sync             (@epicenter/sync)        Yjs sync protocol
     - packages/identity         (@epicenter/identity)    capability + identity
                                                          vocabulary
@@ -68,17 +66,12 @@ who forks and distributes a modified binary shares the changes back.
                                                          reference Worker
     - apps/whispering            (@epicenter/whispering) desktop transcription
     - apps/honeycrisp            (@epicenter/honeycrisp) notes app
-    - apps/opensidian            (opensidian)            notes + terminal
-    - apps/vocab                 (@epicenter/vocab)      mandarin chat
-    - apps/tab-manager           (@epicenter/tab-manager) browser extension
-    - apps/skills                (skills)                agent skill editor
     - apps/reddit                (@epicenter/reddit)     reddit importer
     - apps/landing               (@epicenter/landing)    public site
     - apps/posthog-reverse-proxy (@epicenter/posthog-reverse-proxy) analytics
     - apps/matter                (@epicenter/matter)     markdown grid
-    - apps/wiki                  (@epicenter/wiki)       wiki app
     - apps/local-books           (@epicenter/local-books) quickbooks mirror
-    - apps/todos                 (@epicenter/todos)      todos app
+    - apps/local-mail            (@epicenter/local-mail) local email client
 
   Packages:
     - packages/auth              (@epicenter/auth)       auth core (private)

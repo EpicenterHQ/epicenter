@@ -36,7 +36,6 @@
 		"@epicenter/server": "workspace:*",
 		"@epicenter/skills": "workspace:*",
 		"@epicenter/sync": "workspace:*",
-		"@epicenter/todos": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/whispering": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",

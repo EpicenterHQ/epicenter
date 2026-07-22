@@ -10,7 +10,7 @@
 
 The whole model in one line: **run our apps freely (AGPL-3.0, which only blocks taking our work, closing it, and reselling it), build on our toolkit freely (MIT, build and own anything).**
 
-Epicenter uses two active license tiers, split by how you use the code rather than by package type: code you *run* (all apps, the shared `server` library, the CLI) is AGPL-3.0, and code you *build with* (the embeddable toolkit: `workspace`, `ui`, `filesystem`, `sync`, and their internal utilities) is MIT to maximize developer adoption. A third proprietary tier is documented as an escape hatch but deferred indefinitely; revenue comes from hosting, not licensing. There is no Contributor License Agreement; we do not dual-license.
+Epicenter uses two active license tiers, split by how you use the code rather than by package type: code you *run* (all apps, the shared `server` library, the CLI) is AGPL-3.0, and code you *build with* (the embeddable toolkit: `workspace`, `ui`, `sync`, and their internal utilities) is MIT to maximize developer adoption. A third proprietary tier is documented as an escape hatch but deferred indefinitely; revenue comes from hosting, not licensing. There is no Contributor License Agreement; we do not dual-license.
 
 This document is the canonical reference. The companion document [FINANCIAL_SUSTAINABILITY.md](../FINANCIAL_SUSTAINABILITY.md) is the public-facing narrative for why we made these choices. The root [LICENSE](../LICENSE) is the legal dispatch. This spec is the technical reasoning, threat model, and decision procedure for new packages.
 
@@ -26,7 +26,7 @@ A package that is neither a chosen root nor inside a root's closure is something
 To the two audiences it reads as two promises:
 
 - **Run our apps freely** (all apps, plus the code we run them on: the shared `server` library and the CLI). These are AGPL-3.0. Running is not distribution, so for someone running the apps locally AGPL never triggers; they can run, read, and modify their own copy with no obligation. What AGPL blocks is taking our work, closing it, and shipping it to others: a closed-source rebrand (blocked by GPL conveyance copyleft) or a network-served modified fork that hides its source (blocked by AGPL §13). This costs an honest user nothing.
-- **Build on our toolkit freely** (`workspace`, `ui`, `filesystem`, `sync`, and the MIT-clean contracts they carry). These are MIT. For a library, "use" means shipping it inside your own software, which is the whole point; AGPL would force every app built on the toolkit to also be AGPL, blocking the primary use and killing adoption. So: build anything on the toolkit, including closed-source and commercial products, and own what you build.
+- **Build on our toolkit freely** (`workspace`, `ui`, `sync`, and the MIT-clean contracts they carry). These are MIT. For a library, "use" means shipping it inside your own software, which is the whole point; AGPL would force every app built on the toolkit to also be AGPL, blocking the primary use and killing adoption. So: build anything on the toolkit, including closed-source and commercial products, and own what you build.
 
 Note that "does it run" is not the discriminator, because all code runs; "is it offered for you to embed" is. `packages/server` is a library our two deployables build with, yet it is AGPL, because it is our sync/auth/hosting engine, not a toolkit we offer third parties. That is the case the embed test sorts correctly and a naive "library means permissive" rule would get wrong.
 
@@ -59,7 +59,7 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 
 ### Tier 1: MIT
 
-**Applies to:** the embeddable toolkit libraries: `packages/workspace`, `packages/ui`, `packages/filesystem`, `packages/sync`, `packages/sqlite`, `packages/row-sync`, `packages/data`, and `packages/document-sync`, plus the toolkit-internal packages they carry: `packages/identity`, `packages/agent-protocol`, `packages/encryption`, `packages/field`, `packages/chat`, and `packages/agent`.
+**Applies to:** the embeddable toolkit libraries: `packages/workspace`, `packages/ui`, `packages/sync`, `packages/sqlite`, `packages/row-sync`, `packages/data`, and `packages/document-sync`, plus the toolkit-internal packages they carry: `packages/identity`, `packages/agent-protocol`, `packages/encryption`, `packages/field`, `packages/chat`, and `packages/agent`.
 
 **Rationale:**
 - Libraries: we want developers to embed `@epicenter/workspace` in their own projects with zero friction. AGPL would forbid that for closed-source consumers, killing adoption. The library is not what we sell.
@@ -68,7 +68,7 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 
 ### Tier 2: AGPL-3.0
 
-**Applies to:** all apps (`apps/api`, `apps/self-host`, `apps/whispering`, `apps/honeycrisp`, `apps/opensidian`, `apps/vocab`, `apps/tab-manager`, `apps/skills`, `apps/reddit`, `apps/landing`, `apps/posthog-reverse-proxy`, `apps/matter`, `apps/wiki`, `apps/local-books`, `apps/todos`), `packages/cli`, and the internal packages `packages/auth`, `packages/svelte-utils`, `packages/app-shell`, `packages/skills`, `packages/constants`, `packages/server`, `packages/client`, `packages/matter-core`, `packages/vite-config`.
+**Applies to:** all apps (`apps/api`, `apps/self-host`, `apps/whispering`, `apps/honeycrisp`, `apps/reddit`, `apps/landing`, `apps/posthog-reverse-proxy`, `apps/matter`, `apps/local-books`, `apps/local-mail`), `packages/cli`, and the internal packages `packages/auth`, `packages/svelte-utils`, `packages/app-shell`, `packages/skills`, `packages/constants`, `packages/server`, `packages/client`, `packages/matter-core`, `packages/vite-config`.
 
 **Rationale:**
 - `apps/api` (hosted cloud: sync server, auth, AI inference; serves the same-origin dashboard SPA from its `ui/`): the infrastructure a competitor would need to clone Epicenter Cloud. AGPL §13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. `apps/self-host` is the self-hosted single-partition instance reference deployment.
@@ -137,20 +137,14 @@ All apps are AGPL-3.0. MIT is reserved for the embeddable toolkit libraries.
 | `apps/self-host` | AGPL-3.0 | Self-hosted single-partition instance reference deployment |
 | `apps/whispering` | AGPL-3.0 | Desktop transcription |
 | `apps/honeycrisp` | AGPL-3.0 | Notes app |
-| `apps/opensidian` | AGPL-3.0 | Note-taking with terminal |
-| `apps/vocab` | AGPL-3.0 | Vocabulary chat app |
-| `apps/tab-manager` | AGPL-3.0 | Browser extension |
-| `apps/skills` | AGPL-3.0 | Agent skill editor |
 | `apps/reddit` | AGPL-3.0 | Reddit data importer |
 | `apps/landing` | AGPL-3.0 | Public site |
 | `apps/posthog-reverse-proxy` | AGPL-3.0 | Analytics proxy |
 | `apps/matter` | AGPL-3.0 | Typed grid for user-owned Markdown folders |
-| `apps/wiki` | AGPL-3.0 | Wiki app |
 | `apps/local-books` | AGPL-3.0 | QuickBooks mirror |
-| `apps/todos` | AGPL-3.0 | Todos app |
+| `apps/local-mail` | AGPL-3.0 | Local email client |
 | `packages/workspace` | MIT | Core CRDT library (toolkit) |
 | `packages/ui` | MIT | shadcn-svelte components (toolkit) |
-| `packages/filesystem` | MIT | POSIX layer over Yjs (toolkit) |
 | `packages/identity` | MIT | Capability and identity vocabulary shared by the MIT toolkit and AGPL auth layer (toolkit-internal) |
 | `packages/sync` | MIT | Yjs sync protocol primitives: wire format, room route, auth subprotocol (toolkit) |
 | `packages/agent-protocol` | MIT | Agent wire contract: prompt messages, streamed chunks, engine shape (toolkit-internal) |

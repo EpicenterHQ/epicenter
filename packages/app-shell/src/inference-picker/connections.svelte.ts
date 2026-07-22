@@ -53,8 +53,8 @@ export type PersistFactory = <S extends StandardSchemaV1>(
 
 /**
  * One hosted catalog entry the app sells. Injected, not imported: the hosted
- * catalog is app-specific (Vocab offers a model the others do not), so the shared
- * registry never reaches into `@epicenter/constants`.
+ * catalog is app-specific, so the shared registry never reaches into
+ * `@epicenter/constants`.
  */
 export type HostedModel = { id: string; label: string; credits: number };
 

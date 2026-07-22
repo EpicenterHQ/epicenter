@@ -17,9 +17,11 @@
 import { expect, test } from 'bun:test';
 import {
 	EPICENTER_CLI_OAUTH_CLIENT_ID,
+	EPICENTER_DESKTOP_OAUTH_CLIENT_ID,
 	EPICENTER_HONEYCRISP_OAUTH_CLIENT_ID,
 	EPICENTER_HONEYCRISP_TAURI_OAUTH_REDIRECT_URI,
 	EPICENTER_OAUTH_SCOPES,
+	EPICENTER_WHISPERING_OAUTH_CLIENT_ID,
 } from '@epicenter/constants/oauth-clients';
 import {
 	buildTrustedOAuthClients,
@@ -200,6 +202,19 @@ test('buildTrustedOAuthClients gives Honeycrisp its Tauri deep-link callback', (
 	expect(honeycrispClient.redirectUris).toContain(
 		EPICENTER_HONEYCRISP_TAURI_OAUTH_REDIRECT_URI,
 	);
+});
+
+test('trusted OAuth registry contains only retained clients', () => {
+	expect(
+		buildTrustedOAuthClients('http://localhost:47878').map(
+			(client) => client.clientId,
+		),
+	).toEqual([
+		EPICENTER_DESKTOP_OAUTH_CLIENT_ID,
+		EPICENTER_WHISPERING_OAUTH_CLIENT_ID,
+		EPICENTER_HONEYCRISP_OAUTH_CLIENT_ID,
+		EPICENTER_CLI_OAUTH_CLIENT_ID,
+	]);
 });
 
 // The hosted SPA (apps/api/ui) drives the passkey plugin through the Better

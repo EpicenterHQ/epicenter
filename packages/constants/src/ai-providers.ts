@@ -67,8 +67,7 @@ export function providerLabel(id: string): string {
 /**
  * The catalog, in display order. One credit = $0.01 at Pro overage
  * ($1 / 100 credits); prices hold margin against provider list prices for an
- * average chat call of 750 input and 1500 output tokens. `gemini-3.5-flash`
- * is the Chinese-tuned default for Vocab and is not offered elsewhere.
+ * average chat call of 750 input and 1500 output tokens.
  */
 export const AI_MODELS = [
 	{ id: 'gpt-5.4-mini', provider: 'openai', label: 'Fast', credits: 2 },
