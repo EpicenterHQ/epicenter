@@ -1,11 +1,10 @@
 /**
  * Scalar Sync V1 protocol kernel (ADR-0160, ADR-0163, ADR-0164).
  *
- * This is a deliberately private barrel. It is NOT listed in the package
- * `exports` map, so no production consumer can import it: the kernel stands
- * beside the current combined-exchange protocol without replacing or composing
- * with it. Tests import from here; the replica store (W1B) and the server
- * authority (W2) will consume the kernel once those waves land.
+ * This versioned barrel is the narrow shared boundary between Data's replica
+ * stores and Server's authority stores. It stands beside the retained combined
+ * exchange protocol until the W4 caller cutover; the two protocols never
+ * translate into or compose with each other.
  *
  * The kernel is a complete executable contract:
  * - the kindless record address `(namespace, collection, recordKey)`;
