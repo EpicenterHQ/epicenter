@@ -97,7 +97,9 @@ export type ReplicaObservations = {
 	/**
 	 * An opaque canonical serialization of the complete logical state. Two
 	 * states are equivalent exactly when their snapshots are equal strings;
-	 * physical identities (rowids, file layout) must not leak into it.
+	 * physical identities (rowids, file layout) must not leak into it, and
+	 * every durable field the binding persists must be included, or omitted
+	 * state escapes crash verification.
 	 */
 	snapshot(): string;
 };
@@ -222,6 +224,9 @@ export function runReplicaConformanceCases(
 		transition: ReplicaTransition,
 		assertAfterCrash?: (crashed: ReplicaObservations) => void,
 	): void => {
+		// A transition reporting zero fault boundaries would make the crash
+		// matrix silently vacuous; every conformance transition has at least one.
+		expect(transition.boundaries).toBeGreaterThanOrEqual(1);
 		const before = replica.snapshot();
 		for (let boundary = 1; boundary <= transition.boundaries; boundary += 1) {
 			const crashed = transition.crash(boundary);
