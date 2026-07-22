@@ -294,6 +294,27 @@ function createSchema(database: Database, candidate: Candidate): void {
 	database.exec(SPLIT_DDL);
 }
 
+function installedSchemaSha256(candidate: Candidate): string {
+	const database = new Database(':memory:', { strict: true });
+	try {
+		createSchema(database, candidate);
+		const objects = database
+			.query<
+				{ name: string; sql: string | null; tableName: string; type: string },
+				[]
+			>(
+				`SELECT type, name, tbl_name AS tableName, sql
+				FROM sqlite_schema
+				WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'
+				ORDER BY type, name`,
+			)
+			.all();
+		return sha256(JSON.stringify(objects));
+	} finally {
+		database.close();
+	}
+}
+
 function seed(
 	database: Database,
 	candidate: Candidate,
@@ -772,6 +793,10 @@ function main(): void {
 		options: reportOptions,
 		sourceSha256: sha256(source),
 		wideDdlOwner: 'packages/data/src/store/replica/schema.ts',
+		installedSchemaEncoding:
+			'JSON array of non-internal sqlite_schema tables and indexes ordered by type and name',
+		wideSchemaSha256: installedSchemaSha256('wide'),
+		splitSchemaSha256: installedSchemaSha256('split'),
 		splitDdlSha256: sha256(SPLIT_DDL),
 		runs,
 		aggregate: aggregate(runs),

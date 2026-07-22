@@ -46,14 +46,15 @@ Aggregate median-of-repetition timings:
 
 | Hot metric | Wide p50 | Split p50 | Wide p95 | Split p95 | Read |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Point read, ms per address | 0.0094 | 0.0107 | 0.0100 | 0.0124 | Wide faster; p95 difference is material |
-| Collection traversal, ms | 1.4992 | 0.4578 | 1.6509 | 0.5448 | Split materially faster |
-| Lane write, ms per address | 0.0128 | 0.0057 | 0.2580 | 0.0176 | Split materially faster |
-| Feed install, ms per fact | 0.0103 | 0.0148 | 0.3936 | 0.1148 | Wide wins the median; split wins the tail |
-| Reopen plus one point read, ms | 0.1364 | 0.1098 | 0.3646 | 0.2987 | Split materially faster |
+| Point read, ms per address | 0.0097 | 0.0107 | 0.0102 | 0.0114 | Wide faster; neither difference is material |
+| Collection traversal, ms | 1.4913 | 0.4483 | 1.6352 | 0.5000 | Split materially faster |
+| Lane write, ms per address | 0.0128 | 0.0057 | 0.2556 | 0.0174 | Split materially faster |
+| Feed install, ms per fact | 0.0111 | 0.0148 | 0.3654 | 0.1101 | Wide wins the median; split wins the tail |
+| Reopen plus one point read, ms | 0.1290 | 0.1043 | 0.3902 | 0.3305 | Split wins; only the median difference is material |
 
-Every run contained 1,000,000 records, passed `PRAGMA integrity_check`, used
-indexed query plans, and reopened successfully. The wide database occupied
+Every run contained 1,000,000 records, passed `PRAGMA integrity_check`, and
+reopened successfully. Every reported read and update plan used the expected
+index; SQLite emitted no plan rows for the split UPSERT. The wide database occupied
 588,574,720 live bytes; split occupied 568,897,536. Wide was 3.46% larger.
 
 The ADR-0177 stop rule fired because several hot metrics differed by more than
@@ -67,7 +68,13 @@ ADR-0177 nor silently reverses the selected wide candidate. Browser OPFS and
 Durable Object evidence remain owned by W1C and W2, after which the mixed Bun
 result must be reconciled explicitly before ADR-0177 can become Accepted.
 
-The report embeds the maintained source SHA-256
-`f2259b959b0c0b9db8849c5697c9d5b111aa4495f9ec290fc3ef046863829b15`.
+The report embeds SHA-256 fingerprints for the maintained benchmark source and
+both installed SQLite schemas, so a later production-schema change cannot be
+mistaken for the DDL measured here. The maintained source fingerprint is
+`4716be7302e3627459a2db82531fff101696260abd8423229f844dab56ef5ac7`,
+the installed wide-schema fingerprint is
+`776d0e2ad27b757bbf32d394da941175c5fb5c7902ba91833bdaa093e57a6e35`, and
+the installed split-schema fingerprint is
+`9f3bd1eb8da64c6c533ec416da1e9264be3245de787507f8f8dbd6bba387c8f4`.
 The older four-layout report under `docs/benchmarks/scalar-facts-layout/` is
 historical evidence for a retired matrix and is not combined with this run.
