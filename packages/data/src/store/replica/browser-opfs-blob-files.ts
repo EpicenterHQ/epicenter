@@ -1,7 +1,11 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 
-import type { BlobFileStore, OwnedBlobFile, StagedBlob } from './blob-store.js';
+import type {
+	BlobFileStore,
+	OwnedBlobFile,
+	StagedBlob,
+} from '../../blob-v1/index.js';
 
 const SAFE_COMPONENT = /^[a-f0-9]{64}$/u;
 

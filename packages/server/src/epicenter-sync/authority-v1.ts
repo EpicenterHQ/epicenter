@@ -64,6 +64,7 @@ export type ScalarAuthorityV1 = {
 };
 
 export type DataAuthorityV1 = ScalarAuthorityV1 & {
+	authorityLifetime(): string;
 	acceptDocument(request: DocumentPublicationRequest): DocumentAcceptance;
 	exportDocument(address: RecordAddress): Uint8Array | undefined;
 	readDocument(address: RecordAddress): AuthorityDocumentRead;
@@ -279,6 +280,7 @@ export function openScalarAuthorityV1({
 	const documents = createAuthorityDocumentV1(database);
 
 	return {
+		authorityLifetime: () => readMeta(database).authority_lifetime,
 		acceptDocument: documents.accept,
 		exportDocument: documents.exportDocument,
 		readDocument: documents.readDocument,

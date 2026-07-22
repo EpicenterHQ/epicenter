@@ -5,16 +5,14 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import {
 	BLOB_PUBLICATION_VERSION,
 	type BlobAcceptance,
+	type BlobFileStore,
+	type OwnedBlobFile,
+	type StagedBlob,
 } from '../../blob-v1/index.js';
 import { sha256HexBytes } from '../../protocol/v1/canonical.js';
 import type { RecordAddress } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
-import {
-	type BlobFileStore,
-	createReplicaBlobStore,
-	type OwnedBlobFile,
-	type StagedBlob,
-} from './blob-store.js';
+import { createReplicaBlobStore } from './blob-store.js';
 import { openReplicaStore } from './replica-store.js';
 
 const ADDRESS: RecordAddress = {
@@ -101,10 +99,12 @@ function setup(
 function accepted(address: RecordAddress, digest: string): BlobAcceptance {
 	return {
 		kind: 'accepted',
-		authorityLifetime: 'lifetime-one',
-		address,
-		protocolVersion: BLOB_PUBLICATION_VERSION,
-		digest,
+		receipt: {
+			authorityLifetime: 'lifetime-one',
+			address,
+			protocolVersion: BLOB_PUBLICATION_VERSION,
+			digest,
+		},
 	};
 }
 
@@ -177,10 +177,12 @@ describe('record blob store', () => {
 			);
 			await context.blobs.settle(ADDRESS, {
 				kind: 'blob-conflict',
-				authorityLifetime: 'lifetime-one',
-				address: ADDRESS,
-				protocolVersion: BLOB_PUBLICATION_VERSION,
-				digest,
+				receipt: {
+					authorityLifetime: 'lifetime-one',
+					address: ADDRESS,
+					protocolVersion: BLOB_PUBLICATION_VERSION,
+					digest,
+				},
 				acceptedDigest: 'f'.repeat(64),
 			});
 			expect(context.blobs.inspect(ADDRESS)).toEqual({

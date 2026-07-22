@@ -1,23 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import {
-	mkdir,
-	open,
-	readdir,
-	rename,
-	rmdir,
-	stat,
-	unlink,
-} from 'node:fs/promises';
+import { createReadStream, mkdirSync } from 'node:fs';
+import { open, readdir, rename, rmdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
-import type { BlobFileStore, OwnedBlobFile, StagedBlob } from './blob-store.js';
+import type {
+	BlobFileStore,
+	OwnedBlobFile,
+	StagedBlob,
+} from '../../blob-v1/index.js';
 
 export type BlobByteSource =
 	| AsyncIterable<Uint8Array>
 	| ReadableStream<Uint8Array>;
 
-export type BunBlobRead = AsyncIterable<Uint8Array>;
+export type BunBlobRead = ReadableStream<Uint8Array>;
 
 const SAFE_COMPONENT = /^[a-f0-9]{64}$/u;
 
@@ -28,7 +25,22 @@ function requireComponent(value: string, label: string): void {
 }
 
 async function* chunks(source: BlobByteSource): AsyncIterable<Uint8Array> {
-	for await (const chunk of source) {
+	if ('getReader' in source) {
+		const reader = source.getReader();
+		try {
+			while (true) {
+				const result = await reader.read();
+				if (result.done) return;
+				if (!(result.value instanceof Uint8Array)) {
+					throw new TypeError('blob source yielded a non-byte chunk');
+				}
+				yield result.value;
+			}
+		} finally {
+			reader.releaseLock();
+		}
+	}
+	for await (const chunk of source as AsyncIterable<Uint8Array>) {
 		if (!(chunk instanceof Uint8Array)) {
 			throw new TypeError('blob source yielded a non-byte chunk');
 		}
@@ -64,14 +76,14 @@ async function verify(path: string, digest: string): Promise<void> {
 }
 
 /** Native raw-file implementation of the replica blob staging law. */
-export async function createBunBlobFileStore(
+export function createBunBlobFileStore(
 	storageRoot: string,
-): Promise<BlobFileStore<BlobByteSource, BunBlobRead>> {
+): BlobFileStore<BlobByteSource, BunBlobRead> {
 	const blobRoot = join(storageRoot, 'blobs');
 	const stagingRoot = join(blobRoot, 'staging');
 	const contentRoot = join(blobRoot, 'content');
-	await mkdir(stagingRoot, { recursive: true });
-	await mkdir(contentRoot, { recursive: true });
+	mkdirSync(stagingRoot, { recursive: true });
+	mkdirSync(contentRoot, { recursive: true });
 
 	function stagingPath(staged: StagedBlob): string {
 		requireComponent(staged.digest, 'staged blob digest');
@@ -138,7 +150,7 @@ export async function createBunBlobFileStore(
 		const source = stagingPath(staged);
 		const ownerRoot = join(contentRoot, owner.ownerKey);
 		const destination = contentPath(owner);
-		await mkdir(ownerRoot, { recursive: true });
+		mkdirSync(ownerRoot, { recursive: true });
 		if (await exists(destination)) {
 			await verify(destination, owner.digest);
 			await unlink(source);
@@ -152,7 +164,9 @@ export async function createBunBlobFileStore(
 	async function openOwned(owner: OwnedBlobFile): Promise<BunBlobRead> {
 		const path = contentPath(owner);
 		await verify(path, owner.digest);
-		return createReadStream(path);
+		return Readable.toWeb(
+			createReadStream(path),
+		) as unknown as ReadableStream<Uint8Array>;
 	}
 
 	async function sweepStaging(): Promise<void> {
