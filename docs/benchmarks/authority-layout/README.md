@@ -109,24 +109,26 @@ bundle SHA-256 `ff56966351f208fc1313a841ce8c667df6f33b689a301346203fc3c9590f2e22
 and authority-schema SHA-256
 `2640122f84b8a7061808ddcfc876d699a8d27b77de44ed91ea72e7d50e127f8d`.
 
-## Two-megabyte row-ceiling proof
+## Two-megabyte authority-row check
 
-The V1 semantic limits keep every wide row below Durable Object SQLite's
-2,000,000-byte string, BLOB, and row ceiling without relying on the benchmark
-fixture:
+The provisional V1 profile keeps the authority rows exercised here below
+Durable Object SQLite's 2,000,000-byte string, BLOB, and row ceiling without
+relying on the benchmark fixture:
 
 - An authority record contains one fact capped at 4,096 canonical bytes, plus
   its integer key and an optional 64-byte digest.
-- An authority retry witness stores a parked array bounded by the 1,048,576-byte
-  submission response, plus a 24-byte replica ID, a 64-byte hash, and integers.
+- An authority retry witness stores at most 64 parked entries. Under the
+  provisional coordinate ceilings, their canonical array is at most 25,793
+  bytes, plus a 24-byte replica ID, a 64-byte hash, and integers.
 - A replica metadata row stores one sealed request capped at 262,144 bytes.
-- A replica record can hold a 4,096-byte confirmed fact and one sealed plus one
-  pending operation. Each operation comes from a request capped at 262,144
-  bytes. The parked shape is mutually exclusive with sealed and pending. Even
-  the deliberately loose sum remains below 530,000 bytes before small SQLite
-  framing overhead.
+- A replica record can hold one confirmed fact and one sealed plus one pending
+  operation. The current maximum patch shape puts that row near 111 KB before
+  small SQLite framing overhead, not the earlier loose 530 KB estimate.
 
 Document-chain bytes, frozen document publication images, and raw blob bytes
 do not share these rows. W3 owns their separate bounded relations and raw-file
-rules. This proof closes W2's scalar-row ceiling; it does not pre-approve W3's
-document bounds.
+rules. This check does not close W2's complete replica-row proof:
+`attached_deployment` and `attached_principal` remain unbounded until the W4
+attachment contract supplies and enforces their limits. Nor does layout
+feasibility derive the provisional 4 KiB fact, 256 KiB request, 256 KiB facts
+response, 1 MiB settlement response, or 64-address ceilings.

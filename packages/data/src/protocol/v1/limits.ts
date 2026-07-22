@@ -1,10 +1,12 @@
 /**
  * Parameterized V1 admission limits and their mandatory validator.
  *
- * ADR-0163 fixes the shape of the scalar protocol, and W2 freezes the inclusive
- * V1 product ceilings at the bottom of this module. Operations still take a
- * validated limits value explicitly so focused tests and evidence runs can use
- * tighter ceilings without adding hidden global state.
+ * ADR-0163 fixes the shape of the scalar protocol. The inclusive profile at
+ * the bottom of this module is the validated W2 interoperability candidate;
+ * its exact product ceilings remain provisional until the cross-runtime
+ * boundary charter records their evidence. Operations still take a validated
+ * limits value explicitly so focused tests and evidence runs can use tighter
+ * ceilings without adding hidden global state.
  *
  * But a raw limits object cannot be trusted, and it arrives as unknown input.
  * `validateLimits` is total: a non-plain object, a missing or extra key, a
@@ -328,7 +330,7 @@ if (scalarSyncV1Limits.error !== null) {
 	);
 }
 
-/** Frozen inclusive semantic ceilings shared by every scalar V1 peer. */
+/** Validated provisional ceilings shared by every scalar V1 peer. */
 export const SCALAR_SYNC_V1_LIMITS = scalarSyncV1Limits.data;
 
 /**
