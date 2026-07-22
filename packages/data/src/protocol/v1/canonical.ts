@@ -433,7 +433,11 @@ function wordAt(words: Uint32Array, index: number): number {
  * primitive as a public contract.
  */
 export function sha256Hex(input: string): string {
-	const message = textEncoder.encode(input);
+	return sha256HexBytes(textEncoder.encode(input));
+}
+
+/** SHA-256 over exact bytes, returned as lowercase hex. */
+export function sha256HexBytes(message: Uint8Array): string {
 	const bitLength = message.length * 8;
 	const paddedLength = (((message.length + 8) >> 6) + 1) << 6;
 	const padded = new Uint8Array(paddedLength);
