@@ -9,6 +9,7 @@ import {
 	minimumFactsResponseBytes,
 	parseFactsRequest,
 	parseSubmissionRequest,
+	SCALAR_SYNC_V1_LIMITS,
 	type ScalarSyncLimits,
 	type SubmissionRequest,
 	type SubmissionResponse,
@@ -35,21 +36,7 @@ const ADDRESS_B = {
 	recordKey: 'bbbbbbbbbbbbbbbbbbbbbbbb',
 } as const;
 
-const BASE_LIMITS: ScalarSyncLimits = {
-	jsonDepth: 16,
-	propertiesPerObject: 1024,
-	maxNamespaceBytes: 128,
-	maxCollectionKeyBytes: 64,
-	maxRecordKeyBytes: 64,
-	maxLifetimeBytes: 64,
-	maxFieldKeyBytes: 128,
-	maxUnsetKeysPerIntent: 64,
-	maxEncodedFactBytes: 4096,
-	maxFactsResponseBytes: 262144,
-	maxSubmissionBytes: 262144,
-	maxSubmissionResponseBytes: 1048576,
-	maxSubmissionAddresses: 64,
-};
+const BASE_LIMITS: ScalarSyncLimits = { ...SCALAR_SYNC_V1_LIMITS };
 
 export function authorityV1TestLimits(
 	overrides: Partial<ScalarSyncLimits> = {},
