@@ -23,6 +23,7 @@ import {
 	type FactsRequest,
 	parseFactsRequest,
 	parseSubmissionRequest,
+	SCALAR_SYNC_V1_LIMITS,
 	type ScalarSyncLimits,
 	type SubmissionRequest,
 	type ValidatedLimits,
@@ -38,21 +39,7 @@ function unwrap<T>(result: Result<T, { message: string }>): T {
 	return result.data;
 }
 
-export const BASE_LIMITS: ScalarSyncLimits = {
-	jsonDepth: 16,
-	propertiesPerObject: 1024,
-	maxNamespaceBytes: 128,
-	maxCollectionKeyBytes: 64,
-	maxRecordKeyBytes: 64,
-	maxLifetimeBytes: 64,
-	maxFieldKeyBytes: 128,
-	maxUnsetKeysPerIntent: 64,
-	maxEncodedFactBytes: 4096,
-	maxFactsResponseBytes: 262144,
-	maxSubmissionBytes: 262144,
-	maxSubmissionResponseBytes: 1048576,
-	maxSubmissionAddresses: 64,
-};
+export const BASE_LIMITS: ScalarSyncLimits = { ...SCALAR_SYNC_V1_LIMITS };
 
 /** Build validated limits from the base set plus overrides. Throws if invalid. */
 export function makeLimits(

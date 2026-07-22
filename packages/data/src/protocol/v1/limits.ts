@@ -1,11 +1,10 @@
 /**
  * Parameterized V1 admission limits and their mandatory validator.
  *
- * ADR-0163 fixes the shape of the scalar protocol but deliberately leaves the
- * exact byte and count ceilings open until the Wave 2e browser, Bun, and
- * Cloudflare scale proof measures them. So the kernel never freezes a numeric
- * product constant: every parser, byte measurement, and the authority reference
- * model take limits, and tests supply their own.
+ * ADR-0163 fixes the shape of the scalar protocol, and W2 freezes the inclusive
+ * V1 product ceilings at the bottom of this module. Operations still take a
+ * validated limits value explicitly so focused tests and evidence runs can use
+ * tighter ceilings without adding hidden global state.
  *
  * But a raw limits object cannot be trusted, and it arrives as unknown input.
  * `validateLimits` is total: a non-plain object, a missing or extra key, a
@@ -305,3 +304,36 @@ export function validateLimits(
 		return Ok(deepFreeze(clean) as ValidatedLimits);
 	});
 }
+
+const SCALAR_SYNC_V1_RAW_LIMITS = {
+	jsonDepth: 16,
+	propertiesPerObject: 1024,
+	maxNamespaceBytes: 128,
+	maxCollectionKeyBytes: 64,
+	maxRecordKeyBytes: 64,
+	maxLifetimeBytes: 64,
+	maxFieldKeyBytes: 128,
+	maxUnsetKeysPerIntent: 64,
+	maxEncodedFactBytes: 4096,
+	maxFactsResponseBytes: 256 * 1024,
+	maxSubmissionBytes: 256 * 1024,
+	maxSubmissionResponseBytes: 1024 * 1024,
+	maxSubmissionAddresses: 64,
+} as const satisfies ScalarSyncLimits;
+
+const scalarSyncV1Limits = validateLimits(SCALAR_SYNC_V1_RAW_LIMITS);
+if (scalarSyncV1Limits.error !== null) {
+	throw new Error(
+		`invalid scalar V1 product limits: ${scalarSyncV1Limits.error.message}`,
+	);
+}
+
+/** Frozen inclusive semantic ceilings shared by every scalar V1 peer. */
+export const SCALAR_SYNC_V1_LIMITS = scalarSyncV1Limits.data;
+
+/**
+ * Transport cap applied before JSON parsing. Shipping replicas send persisted
+ * canonical request bytes, so every semantically maximal request fits exactly.
+ */
+export const SCALAR_SYNC_V1_RAW_SUBMISSION_BYTES =
+	SCALAR_SYNC_V1_LIMITS.maxSubmissionBytes;

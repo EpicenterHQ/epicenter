@@ -71,6 +71,8 @@ export {
 export {
 	minimumFactsResponseBytes,
 	minimumSubmissionResponseBytes,
+	SCALAR_SYNC_V1_LIMITS,
+	SCALAR_SYNC_V1_RAW_SUBMISSION_BYTES,
 	type ScalarSyncLimits,
 	type ValidatedLimits,
 	validateLimits,
