@@ -42,16 +42,14 @@
  */
 
 import {
+	checkPresencePublishFrame,
 	encodeSyncStep1,
 	encodeSyncUpdate,
 	handleSyncPayload,
+	type PresencePeer as Peer,
+	type PresenceFrame,
 	type SyncMessageType,
 } from '@epicenter/sync';
-import {
-	checkPresencePublishFrame,
-	type Peer,
-	type PresenceFrame,
-} from '@epicenter/workspace/document/presence';
 import * as decoding from 'lib0/decoding';
 import { createLogger } from 'wellcrafted/logger';
 import { trySync } from 'wellcrafted/result';

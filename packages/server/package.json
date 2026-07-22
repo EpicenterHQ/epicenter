@@ -25,7 +25,6 @@
 		"@epicenter/identity": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",
-		"@epicenter/workspace": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"@noble/hashes": "catalog:",
 		"@y/y": "14.0.0-rc.24",

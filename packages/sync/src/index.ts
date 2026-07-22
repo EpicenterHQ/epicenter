@@ -22,6 +22,13 @@ export {
 	isTransportOrigin,
 	SYNC_ORIGIN,
 } from './origins';
+export {
+	checkPresenceFrame,
+	checkPresencePublishFrame,
+	type PresenceFrame,
+	type PresencePeer,
+	type PresencePublishFrame,
+} from './presence';
 // Protocol (encode/decode for WS sync messages)
 export {
 	encodeSyncStep1,
