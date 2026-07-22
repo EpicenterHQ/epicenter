@@ -634,8 +634,11 @@ export function runReplicaConformanceCases(
 
 		test('11: a superseded replica erases and reacquires from zero under the successor lifetime', () => {
 			const { replica } = sealedFixture();
-			// A response carrying a different lifetime is a terminal mismatch: the
-			// store refuses to install it, forcing erase-and-reacquire.
+			// A response carrying a different lifetime is a terminal mismatch on
+			// every installation path (ADR-0163): the store refuses a mismatched
+			// facts page and a mismatched settlement response alike, forcing
+			// erase-and-reacquire, and the refusal leaves the sealed retry
+			// witness untouched.
 			expect(() =>
 				replica
 					.installFacts({
@@ -645,6 +648,12 @@ export function runReplicaConformanceCases(
 					})
 					.commit(),
 			).toThrow(/lifetime mismatch/);
+			expect(() =>
+				replica
+					.settle({ authorityLifetime: 'lifetime-two', facts: [], parked: [] })
+					.commit(),
+			).toThrow(/lifetime mismatch/);
+			expect(replica.sealedRequest()).not.toBeNull();
 
 			replica.erase().commit();
 			// Reacquisition binds the successor lifetime and installs from zero.

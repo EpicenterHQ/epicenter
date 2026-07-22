@@ -415,6 +415,12 @@ export class ReplicaRef {
 	settleStatements(response: SubmissionResponse): Statement[] {
 		const meta = this.meta();
 		if (meta.sealed_submission === null) throw new Error('nothing sealed');
+		// ADR-0163: the replica verifies the response lifetime still equals its
+		// attached lifetime inside the settlement transaction, so a delayed
+		// response from a superseded lifetime can never contaminate a replica.
+		if (response.authorityLifetime !== meta.authority_lifetime) {
+			throw new Error('lifetime mismatch: erase and reacquire instead');
+		}
 		const statements: Statement[] = [];
 		// Remember each parked address's refused sealed operation and whether
 		// newer pending desire exists, before any lane mutation.
