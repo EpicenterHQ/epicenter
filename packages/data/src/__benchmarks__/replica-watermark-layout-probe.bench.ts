@@ -10,7 +10,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { arch, platform, release, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 const RECORDS = 1_000_000;
@@ -44,6 +44,21 @@ function address(index: number): [string, string, string] {
 
 function digest(index: number): string {
 	return index.toString(16).padStart(64, '0');
+}
+
+function sha256(value: string): string {
+	const hasher = new Bun.CryptoHasher('sha256');
+	hasher.update(value);
+	return hasher.digest('hex');
+}
+
+function gitOutput(...args: string[]): string {
+	const result = Bun.spawnSync(['git', ...args], {
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+	return result.stdout.toString().trim();
 }
 
 function open(candidate: Candidate): { database: Database; path: string } {
@@ -237,6 +252,16 @@ function measure(candidate: Candidate) {
 
 	const result = {
 		fileBytes: statSync(path).size,
+		schemaSha256: sha256(
+			database
+				.query<{ sql: string }, []>(
+					`SELECT sql FROM sqlite_schema
+					WHERE sql IS NOT NULL ORDER BY type, name`,
+				)
+				.all()
+				.map((row) => row.sql)
+				.join('\n'),
+		),
 		documentDrain: timeRows(
 			database,
 			`SELECT namespace, collection, record_key FROM ${recordTable}
@@ -271,12 +296,21 @@ function measure(candidate: Candidate) {
 
 const report = {
 	probe: 'replica-watermark-layout-fairness',
+	source: {
+		commit: gitOutput('rev-parse', 'HEAD'),
+		clean: gitOutput('status', '--porcelain').length === 0,
+	},
 	records: RECORDS,
 	documentEvery: DOC_EVERY,
 	documentOwedEvery: DOC_OWED_EVERY,
 	blobEvery: BLOB_EVERY,
 	blobOwedEvery: BLOB_OWED_EVERY,
-	runtime: { bun: Bun.version },
+	runtime: {
+		bun: Bun.version,
+		platform: platform(),
+		release: release(),
+		arch: arch(),
+	},
 	wide: measure('wide'),
 	split: measure('split'),
 };
