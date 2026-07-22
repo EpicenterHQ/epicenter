@@ -386,6 +386,7 @@ export function runAuthorityV1ConformanceCases(
 					afterSequence: last.sequence,
 				});
 				expect(second.facts[0]?.sequence).toBe(last.sequence + 1);
+				expect(second.hasMore ? second.facts.length : 1).toBeGreaterThan(0);
 			} finally {
 				opened.close();
 			}

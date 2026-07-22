@@ -79,15 +79,24 @@ function factsRequestFromUrl(
 async function readBoundedBody(
 	request: Request,
 	maximumBytes: number,
-): Promise<Uint8Array | undefined> {
+): Promise<
+	| { ok: true; bytes: Uint8Array }
+	| { ok: false; reason: 'invalid-length' | 'too-large' }
+> {
 	const declared = request.headers.get('content-length');
 	if (declared !== null) {
+		if (!/^(0|[1-9][0-9]*)$/.test(declared)) {
+			return { ok: false, reason: 'invalid-length' };
+		}
 		const parsed = Number(declared);
-		if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximumBytes) {
-			return undefined;
+		if (!Number.isSafeInteger(parsed)) {
+			return { ok: false, reason: 'invalid-length' };
+		}
+		if (parsed > maximumBytes) {
+			return { ok: false, reason: 'too-large' };
 		}
 	}
-	if (request.body === null) return new Uint8Array();
+	if (request.body === null) return { ok: true, bytes: new Uint8Array() };
 
 	const reader = request.body.getReader();
 	const chunks: Uint8Array[] = [];
@@ -98,7 +107,7 @@ async function readBoundedBody(
 		bytes += part.value.byteLength;
 		if (bytes > maximumBytes) {
 			await reader.cancel();
-			return undefined;
+			return { ok: false, reason: 'too-large' };
 		}
 		chunks.push(part.value);
 	}
@@ -108,7 +117,7 @@ async function readBoundedBody(
 		body.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	return body;
+	return { ok: true, bytes: body };
 }
 
 function authorityErrorResponse(error: AuthorityError): Response {
@@ -171,14 +180,17 @@ export function createScalarV1App<E extends Env = Env>({
 	});
 
 	app.post(SCALAR_V1_SUBMISSIONS_PATH, async (c) => {
-		const bytes = await readBoundedBody(c.req.raw, rawSubmissionBytes);
-		if (bytes === undefined) {
+		const body = await readBoundedBody(c.req.raw, rawSubmissionBytes);
+		if (!body.ok) {
+			if (body.reason === 'invalid-length') {
+				return c.json({ error: 'invalid-request' } as const, 400);
+			}
 			return c.json({ error: 'request-too-large' } as const, 413);
 		}
 		let value: unknown;
 		try {
 			value = JSON.parse(
-				new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+				new TextDecoder('utf-8', { fatal: true }).decode(body.bytes),
 			);
 		} catch {
 			return c.json({ error: 'invalid-request' } as const, 400);

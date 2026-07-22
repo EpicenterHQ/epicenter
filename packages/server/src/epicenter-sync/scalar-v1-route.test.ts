@@ -150,6 +150,32 @@ describe('scalar V1 HTTP routes', () => {
 		}
 	});
 
+	test('distinguishes malformed content lengths from oversized bodies', async () => {
+		const context = setup(64);
+		try {
+			for (const contentLength of [
+				'',
+				'01',
+				'-1',
+				'1.5',
+				'NaN',
+				'9007199254740992',
+			]) {
+				const response = await context.app.request(
+					new Request(`http://localhost${SCALAR_V1_SUBMISSIONS_PATH}`, {
+						method: 'POST',
+						headers: { 'content-length': contentLength },
+						body: '{}',
+					}),
+				);
+				expect(response.status).toBe(400);
+			}
+			expect(context.principals).toEqual([]);
+		} finally {
+			context.close();
+		}
+	});
+
 	test('maps semantic authority refusals to stable conflict responses', async () => {
 		const context = setup();
 		try {

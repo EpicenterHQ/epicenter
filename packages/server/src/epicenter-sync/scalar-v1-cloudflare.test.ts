@@ -155,3 +155,32 @@ test('account deletion reopens an empty successor lifetime', async () => {
 		owned.database.close();
 	}
 });
+
+test('account deletion recovers an authority whose stored schema is malformed', async () => {
+	const owned = setupState();
+	try {
+		owned.database.exec('CREATE TABLE records (wrong TEXT) STRICT');
+		const authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		await owned.ready();
+		await expect(
+			authority.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+				),
+			),
+		).rejects.toThrow('schema does not match');
+
+		await authority.deleteAccount();
+		expect(
+			expectOk(
+				await authority.readFacts(
+					expectOk(
+						parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+					),
+				),
+			).facts,
+		).toEqual([]);
+	} finally {
+		owned.database.close();
+	}
+});
