@@ -36,6 +36,7 @@
 			"examples/*"
 		],
 		"catalog": {
+			"@cloudflare/containers": "^0.3.7",
 			"@noble/hashes": "^2.0.1",
 			"@sqlite.org/sqlite-wasm": "^3.53.0-build1",
 			"@types/node": "^24.0.0",

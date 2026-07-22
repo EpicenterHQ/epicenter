@@ -74,6 +74,11 @@ export {
 } from './epicenter-sync/cloudflare-backup-registry-v1.js';
 export { DataBackup } from './epicenter-sync/cloudflare-backup-v1.js';
 export {
+	ContainerProxy,
+	PortableMaterializer,
+	type PortableMaterializerEnv,
+} from './epicenter-sync/portable-materializer-container.js';
+export {
 	createDataAuthorityAccountAuthorities,
 	DataAuthority,
 	type DataAuthorityNamespace,

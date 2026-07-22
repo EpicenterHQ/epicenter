@@ -17,6 +17,7 @@
 		"@better-auth/drizzle-adapter": "catalog:",
 		"@better-auth/oauth-provider": "catalog:",
 		"@better-auth/passkey": "catalog:",
+		"@cloudflare/containers": "catalog:",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",
