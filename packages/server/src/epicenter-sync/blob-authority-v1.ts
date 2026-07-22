@@ -206,6 +206,29 @@ export function createAuthorityBlobV1<TSource, TRead>(
 		});
 	}
 
+	async function readCapture(
+		captureId: string,
+		address: RecordAddress,
+		digest: string,
+	): Promise<TRead | undefined> {
+		return exclusive(async () => {
+			const pinned = one<SqliteRow & { present: number }>(
+				database,
+				`SELECT 1 AS present
+				FROM capture_manifest_records AS pinned
+				JOIN capture_manifests AS manifest
+					ON manifest.capture_id = pinned.capture_id
+				WHERE pinned.capture_id = ?
+					AND pinned.namespace = ? AND pinned.collection = ?
+					AND pinned.record_key = ? AND pinned.blob_sha256 = ?
+					AND manifest.state = 'sealed'`,
+				[captureId, ...tripleParams(address), digest],
+			);
+			if (pinned === null) return undefined;
+			return files.open(blobFileOwner(address, digest));
+		});
+	}
+
 	async function sweepDebris(): Promise<void> {
 		return exclusive(() => files.sweepContent(ownedFiles()));
 	}
@@ -224,7 +247,7 @@ export function createAuthorityBlobV1<TSource, TRead>(
 		});
 	}
 
-	return { accept, read, sweepDebris, reopenSweep, deleteAll };
+	return { accept, read, readCapture, sweepDebris, reopenSweep, deleteAll };
 }
 
 export type AuthorityBlobV1<TSource, TRead> = ReturnType<

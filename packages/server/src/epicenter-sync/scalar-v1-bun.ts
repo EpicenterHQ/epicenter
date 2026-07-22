@@ -20,6 +20,8 @@ import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
 import { createAuthorityBlobV1 } from './blob-authority-v1.js';
 import { mountBlobV1App } from './blob-v1-route.js';
+import { createBunBackupV1Owner } from './bun-backup-v1.js';
+import { createAuthorityCaptureManifestV1 } from './capture-manifest-v1.js';
 import {
 	type BunDataDocumentV1SocketData,
 	type BunDocumentRealtimeV1Binding,
@@ -58,6 +60,7 @@ type OpenedAuthority = {
 	raw: Database;
 	authority: DataAuthorityV1;
 	blobs: BunAuthorityBlobs;
+	backups: ReturnType<typeof createBunBackupV1Owner>;
 	waitForBlobs(): Promise<void>;
 };
 
@@ -87,10 +90,16 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 				limits: SCALAR_SYNC_V1_LIMITS,
 				initialize: { authorityLifetime: crypto.randomUUID() },
 			});
+			const captures = createAuthorityCaptureManifestV1(database);
 			const blobs = createAuthorityBlobV1(
 				database,
 				createBunBlobFileStore(authorityDirectory(dir, principalId)),
 			);
+			const backups = createBunBackupV1Owner({
+				backupsRoot: join(authorityDirectory(dir, principalId), 'backups'),
+				captures,
+				blobs,
+			});
 			let blobMaintenance = blobs.reopenSweep();
 			void blobMaintenance.catch(() => undefined);
 			function scheduleBlobSweep(): void {
@@ -119,6 +128,7 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 				raw,
 				authority,
 				blobs,
+				backups,
 				waitForBlobs: () => blobMaintenance,
 			};
 			authorities.set(principalId, opened);
@@ -145,6 +155,11 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 			await opened.waitForBlobs();
 			return opened.blobs;
 		},
+		async locateBackupOwner(principalId: PrincipalId) {
+			const opened = loadEntry(principalId);
+			await opened.waitForBlobs();
+			return opened.backups;
+		},
 		websocket: documents.websocket,
 		bindServer(bound: Server<BunDataDocumentV1SocketData>): void {
 			server = bound;
@@ -170,7 +185,10 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 			closing = (async () => {
 				const openedAuthorities = [...authorities.values()];
 				const settled = await Promise.allSettled(
-					openedAuthorities.map((opened) => opened.waitForBlobs()),
+					openedAuthorities.flatMap((opened) => [
+						opened.backups.close(),
+						opened.waitForBlobs(),
+					]),
 				);
 				for (const opened of openedAuthorities) opened.raw.close();
 				authorities.clear();
