@@ -21,12 +21,15 @@ import {
 	createDurableObjectAttachRelay,
 	createDurableObjectRooms,
 	createServerApp,
+	DataAuthority,
+	type DataAuthorityNamespace,
 	EpicenterAuthority,
 	mountAttachRelayApp,
 	mountBlobsApp,
 	mountCloudAuth,
 	mountCloudDb,
 	mountCloudflareEpicenterSyncApp,
+	mountCloudflareScalarV1App,
 	mountInferenceApp,
 	mountRoomsApp,
 	mountSessionApp,
@@ -148,6 +151,15 @@ mountCloudflareEpicenterSyncApp(app, {
 			}
 		).EPICENTER_SYNC,
 });
+mountCloudflareScalarV1App(app, {
+	auth: bearer,
+	// Cloudflare's generated RPC stub recursively maps the protocol's JSON union
+	// deeply enough to exceed TypeScript's instantiation limit. The deployment
+	// still proves the concrete class through its generated binding; narrow it to
+	// the two RPC methods the shared mount consumes.
+	resolveNamespace: (env) =>
+		(env as Cloudflare.Env).DATA_AUTHORITY as unknown as DataAuthorityNamespace,
+});
 // Rooms resolves the bearer itself (WS-aware), so it takes the raw resolver, not
 // a prebuilt wrapper.
 mountRoomsApp(app, { resolveBearerPrincipal: resolveRequestOAuthPrincipal });
@@ -216,4 +228,4 @@ app.get('/billing', (c) => c.redirect('/dashboard'));
 export default {
 	fetch: app.fetch,
 };
-export { AttachRelay, EpicenterAuthority, Room };
+export { AttachRelay, DataAuthority, EpicenterAuthority, Room };

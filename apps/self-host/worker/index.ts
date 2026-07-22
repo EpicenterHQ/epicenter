@@ -25,9 +25,12 @@ import {
 	createDurableObjectRooms,
 	createEnvTokenResolver,
 	createServerApp,
+	DataAuthority,
+	type DataAuthorityNamespace,
 	EpicenterAuthority,
 	mountBlobsApp,
 	mountCloudflareEpicenterSyncApp,
+	mountCloudflareScalarV1App,
 	mountInferenceApp,
 	mountRoomsApp,
 	mountSessionApp,
@@ -95,6 +98,11 @@ mountCloudflareEpicenterSyncApp(app, {
 			}
 		).EPICENTER_SYNC,
 });
+mountCloudflareScalarV1App(app, {
+	auth,
+	resolveNamespace: (env) =>
+		(env as Cloudflare.Env).DATA_AUTHORITY as unknown as DataAuthorityNamespace,
+});
 // Cap the inference burn rate so a leaked or overused bearer cannot run the
 // operator's house key up unbounded. Per-isolate on Cloudflare (approximate);
 // the real ceiling is the hard spend limit on the provider key itself (README).
@@ -116,4 +124,4 @@ mountTranscriptionApp(app, {
 mountBlobsApp(app, { auth });
 
 export default app;
-export { EpicenterAuthority, Room };
+export { DataAuthority, EpicenterAuthority, Room };
