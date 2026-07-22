@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { AuthClient, InstanceSetting } from '@epicenter/auth';
-	import type { Epicenter, SyncStatus } from '@epicenter/data';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Popover from '@epicenter/ui/popover';
@@ -28,6 +27,15 @@
 		},
 	});
 
+	type DataSyncStatus = {
+		state:
+			| 'local'
+			| 'syncing'
+			| 'idle'
+			| 'offline'
+			| 'authentication-required';
+	};
+
 	/**
 	 * Shared account popover.
 	 *
@@ -48,7 +56,10 @@
 		/**
 		 * Scalar Data sync surface. Omit it when the app has no replicated data.
 		 */
-		dataSync?: Pick<Epicenter, 'syncStatus' | 'subscribeSyncStatus'>;
+		dataSync?: {
+			readonly syncStatus: DataSyncStatus;
+			subscribeSyncStatus(listener: (status: DataSyncStatus) => void): () => void;
+		};
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**
@@ -95,7 +106,7 @@
 		instanceConnect,
 	}: AccountPopoverProps = $props();
 
-	let syncStatus = $state<SyncStatus>();
+	let syncStatus = $state<DataSyncStatus>();
 	let popoverOpen = $state(false);
 	let instanceModalOpen = $state(false);
 	// Set for one close only, when the "configure instance" link hands off to the

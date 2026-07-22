@@ -53,7 +53,7 @@ import {
 	createAgentMessageDocumentStore,
 } from '@epicenter/chat';
 import { createOpenAiAgentEngine } from '@epicenter/client';
-import type { RowDocument } from '@epicenter/data';
+import type { RowDocument } from '@epicenter/data/record';
 import { InstantString } from '@epicenter/field';
 import { bindAgentConversation, fromTable } from '@epicenter/svelte';
 import { SvelteMap } from 'svelte/reactivity';
