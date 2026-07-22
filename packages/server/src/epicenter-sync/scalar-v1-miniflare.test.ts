@@ -101,6 +101,8 @@ async function setup(object: string) {
 				DATA_AUTHORITY: { className: 'DataAuthority', useSQLite: true },
 			},
 			durableObjectsPersist: persistence,
+			r2Buckets: ['DATA_BLOBS'],
+			r2Persist: join(persistence, 'r2'),
 			modules: true,
 			modulesRoot: buildDirectory,
 			scriptPath,

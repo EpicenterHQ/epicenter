@@ -28,7 +28,7 @@ export type BrowserReplicaCandidateWorkerScope = {
 type BrowserReplicaCandidateOwner = {
 	execute(
 		operation: BrowserReplicaStoreOperation,
-	): Promise<BrowserReplicaOwnerResult>;
+	): BrowserReplicaOwnerResult | Promise<BrowserReplicaOwnerResult>;
 	dispose(): Promise<void>;
 };
 

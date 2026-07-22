@@ -17,6 +17,7 @@ import { expect, test } from 'bun:test';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { openScalarAuthorityV1 } from './authority-v1.js';
 import { authorityV1TestLimits } from './authority-v1-cases.test-support.js';
+import { AUTHORITY_V1_FORMAT_VERSION } from './authority-v1-schema.js';
 
 function setup(platformTable: string) {
 	const raw = new Database(':memory:', { strict: true });
@@ -55,7 +56,7 @@ test('a similarly prefixed application table is still a foreign schema', () => {
 					limits: authorityV1TestLimits(),
 					initialize: { authorityLifetime: 'lifetime-one' },
 				}),
-			).toThrow('schema does not match format 1');
+			).toThrow(`schema does not match format ${AUTHORITY_V1_FORMAT_VERSION}`);
 		} finally {
 			raw.close();
 		}
@@ -76,7 +77,7 @@ test('an unrelated table beside an initialized authority remains foreign', () =>
 				database,
 				limits: authorityV1TestLimits(),
 			}),
-		).toThrow('schema does not match format 1');
+		).toThrow(`schema does not match format ${AUTHORITY_V1_FORMAT_VERSION}`);
 	} finally {
 		raw.close();
 	}

@@ -78,7 +78,13 @@ function openHttpAuthority(dir: string) {
 		c.set('principal', { id: PRINCIPAL_ID });
 		await next();
 	};
-	mountBunScalarV1App(app, { auth, runtime });
+	mountBunScalarV1App(app, {
+		auth,
+		resolveDocumentPrincipal: async () => {
+			throw new Error('document upgrade is outside the scalar HTTP proof');
+		},
+		runtime,
+	});
 	return { app, runtime };
 }
 
@@ -171,7 +177,7 @@ test('two replicas converge through HTTP and retain tombstone dominance after re
 
 		first.raw.close();
 		second.raw.close();
-		authority.runtime.close();
+		await authority.runtime.close();
 		first = openReplica(firstPath);
 		second = openReplica(secondPath);
 		authority = openHttpAuthority(authorityDir);
@@ -191,12 +197,12 @@ test('two replicas converge through HTTP and retain tombstone dominance after re
 					op: 'replace',
 					value: { title: 'Cannot resurrect' },
 				}),
-			).toThrow('local write over a confirmed tombstone');
+			).toThrow('local write over a tombstone');
 		}
 	} finally {
 		first.raw.close();
 		second.raw.close();
-		authority.runtime.close();
+		await authority.runtime.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });
