@@ -14,6 +14,7 @@ import type {
 	DownloadProgress,
 	IpcRecorderError,
 	ModelInfo,
+	StagedRecordingCapture,
 	TranscriptionError,
 	TranscriptionSpec,
 } from './commands';
@@ -59,13 +60,13 @@ type _SharedContracts = Expect<
 	>
 >;
 
-// stop_recording: fallible, returns the finalized blob id. The error is the
-// structured `RecorderError` IPC enum, not a bare string: this assertion is the
-// contract proof that the recorder boundary stays typed.
+// stop_recording: fallible, returns only the opaque staged-capture coordinate
+// and its byte length. No filesystem path or PCM crosses IPC. The error is the
+// structured `RecorderError` IPC enum, not a bare string.
 type _StopRecording = Expect<
 	Equal<
 		ReturnType<typeof commands.stopRecording>,
-		Promise<Result<string, IpcRecorderError>>
+		Promise<Result<StagedRecordingCapture, IpcRecorderError>>
 	>
 >;
 

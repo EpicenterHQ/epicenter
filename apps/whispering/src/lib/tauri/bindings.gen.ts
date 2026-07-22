@@ -47,20 +47,23 @@ export const commands = {
 	startRecording: () =>
 		typedError<null, RecorderError>(__TAURI_INVOKE('start_recording')),
 	/**
-	 *  Stop the recorder, atomically finalize the canonical WAV blob under
-	 *  `<appDataDir>/blobs/{id}`, and return only its id.
+	 *  Stop the recorder and durably stage a WAV for record-owner admission.
 	 *
-	 *  JS never sees raw PCM samples on the wire: later operations look the
-	 *  blob up by id (`transcribe_recording` and `encode_recording_for_upload`).
+	 *  JS receives only an opaque capture id and byte length, never raw PCM or a
+	 *  filesystem path. The staged artifact remains until the Bun owner admits it.
 	 */
 	stopRecording: () =>
-		typedError<string, RecorderError>(__TAURI_INVOKE('stop_recording')),
+		typedError<StagedRecordingCapture, RecorderError>(
+			__TAURI_INVOKE('stop_recording'),
+		),
+	/**  Cancel the active recording without creating a staged capture. */
 	cancelRecording: () =>
 		typedError<null, RecorderError>(__TAURI_INVOKE('cancel_recording')),
 	/**
-	 *  Canonical transcribe-by-id path. Resolves the canonical local blob,
-	 *  decodes it, then runs inference using
-	 *  the per-call transcription spec supplied by the frontend.
+	 *  Temporary legacy transcribe-by-id path.
+	 *
+	 *  This still resolves the retired local blob layout until the record owner
+	 *  supplies the private launch-token audio route in the next checkpoint.
 	 */
 	transcribeRecording: (audioBlobId: string, spec: TranscriptionSpec) =>
 		typedError<string, TranscriptionError>(
@@ -366,6 +369,12 @@ export type RecorderError =
 	 *  session lifecycle, internal). The frontend does not branch on these.
 	 */
 	| { name: 'Failed'; message: string };
+
+/**  Opaque coordinate for a durable WAV awaiting record-owner admission. */
+export type StagedRecordingCapture = {
+	captureId: string;
+	byteLength: number;
+};
 
 export type TranscriptionError =
 	| { name: 'AudioReadError'; message: string }

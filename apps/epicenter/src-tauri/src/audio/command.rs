@@ -1,7 +1,7 @@
 //! Tauri command surface for the audio module. One endpoint:
-//! `encode_recording_for_upload(audio_blob_id)` resolves the durable local
-//! blob by id, decodes it to mono 16 kHz PCM, and re-encodes
-//! to OGG/Opus for cloud upload.
+//! `encode_recording_for_upload(audio_blob_id)` temporarily resolves the retired
+//! local blob layout, decodes it to mono 16 kHz PCM, and re-encodes to OGG/Opus
+//! for cloud upload. The record-addressed host read replaces this next.
 
 use log::warn;
 use tauri::ipc::Response;
@@ -10,7 +10,7 @@ use tauri::AppHandle;
 use super::encode::encode_pcm_to_opus_ogg;
 use crate::recorder::read_blob_samples;
 
-/// Compress a saved audio blob into OGG/Opus for cloud upload.
+/// Compress a legacy saved audio blob into OGG/Opus for cloud upload.
 ///
 /// Returns a raw IPC byte body via `tauri::ipc::Response`. tauri-specta
 /// cannot generate either bindings or a runtime handler for this shape

@@ -1,4 +1,4 @@
-use crate::recorder::blob::write_blob;
+use crate::recorder::capture::{stage_capture, StagedRecordingCapture};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{Recorder, Result};
 use log::{debug, info, warn};
@@ -85,42 +85,44 @@ pub async fn start_recording(
     Ok(())
 }
 
-/// Stop the recorder, atomically finalize the canonical WAV blob under
-/// `<appDataDir>/blobs/{id}`, and return only its id.
+/// Stop the recorder and durably stage a WAV for record-owner admission.
 ///
-/// JS never sees raw PCM samples on the wire: later operations look the
-/// blob up by id (`transcribe_recording` and `encode_recording_for_upload`).
+/// JS receives only an opaque capture id and byte length, never raw PCM or a
+/// filesystem path. The staged artifact remains until the Bun owner admits it.
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_recording(
     recorder: State<'_, Mutex<Recorder>>,
     app_handle: AppHandle,
-) -> Result<String> {
+) -> Result<StagedRecordingCapture> {
     info!("Stopping recording");
-    let (recording_id, samples) = {
+    let samples = {
         let mut recorder = recorder
             .lock()
             .map_err(|e| RecorderError::failed(format!("Failed to lock recorder: {e}")))?;
-        let id = recorder
+        recorder
             .session_id()
             .ok_or_else(|| RecorderError::failed("no active recording session at stop"))?;
-        let samples = recorder.stop_recording()?;
-        (id, samples)
+        recorder.stop_recording()?
     };
 
-    // Measured on the critical path on purpose: this synchronous write + fsync
-    // is exactly the cost the parked handoff + async-persist optimization would
-    // remove. The numbers here decide whether that optimization is worth it.
-    let blob_id = crate::timing::measure("stop.wav_write+fsync", || {
-        write_blob(&app_handle, &recording_id, &samples)
-    })?;
+    let capture_result = crate::timing::measure("stop.wav_stage+fsync", || {
+        stage_capture(&app_handle, &samples)
+    });
+    // The recorder has already consumed the worker's samples and transitioned
+    // out of recording. Publish that state even when durable staging fails.
     emit_recording_state(&app_handle, RecordingState::Idle);
-    info!("Recording stopped: blob_id={}", blob_id,);
-    Ok(blob_id)
+    let capture = capture_result?;
+    info!(
+        "Recording stopped: capture_id={}, byte_length={}",
+        capture.capture_id, capture.byte_length
+    );
+    Ok(capture)
 }
 
 #[tauri::command]
 #[specta::specta]
+/// Cancel the active recording without creating a staged capture.
 pub async fn cancel_recording(
     recorder: State<'_, Mutex<Recorder>>,
     app_handle: AppHandle,

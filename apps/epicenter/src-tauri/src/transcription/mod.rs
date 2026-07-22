@@ -21,9 +21,10 @@ pub fn set_unload_policy(policy: UnloadPolicy, model_cache: State<'_, ModelCache
     model_cache.set_unload_policy(policy);
 }
 
-/// Canonical transcribe-by-id path. Resolves the canonical local blob,
-/// decodes it, then runs inference using
-/// the per-call transcription spec supplied by the frontend.
+/// Temporary legacy transcribe-by-id path.
+///
+/// This still resolves the retired local blob layout until the record owner
+/// supplies the private launch-token audio route in the next checkpoint.
 #[tauri::command]
 #[specta::specta]
 pub async fn transcribe_recording(
