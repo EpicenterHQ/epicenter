@@ -6,6 +6,7 @@ import {
 	DOCUMENT_PUBLICATION_VERSION,
 	documentPayloadDigest,
 } from '@epicenter/data/document-v1';
+import type { PortableArtifactRecord } from '@epicenter/data/portable';
 import {
 	parseFactsRequest,
 	parseSubmissionRequest,
@@ -14,6 +15,8 @@ import {
 } from '@epicenter/data/protocol/v1';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { encodeDocumentFrame } from '@epicenter/sync/document-v3';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import * as Y from '@y/y';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -137,6 +140,177 @@ function setupDeferredPutEnv() {
 	} as unknown as ConstructorParameters<typeof DataAuthority>[1];
 
 	return { env, objects, putStarted, releasePut };
+}
+
+function setupBackupEnv({
+	deferAppend = false,
+	loseSealResponse = false,
+}: {
+	deferAppend?: boolean;
+	loseSealResponse?: boolean;
+} = {}) {
+	const objects = new Map<string, Uint8Array>();
+	const records: PortableArtifactRecord[] = [];
+	const backupNames: string[] = [];
+	let expectedRecordCount: number | undefined;
+	let backupState: 'empty' | 'building' | 'sealed' = 'empty';
+	let destroyed = false;
+	let releaseAppend = () => {};
+	const appendRelease = new Promise<void>((resolve) => {
+		releaseAppend = resolve;
+	});
+	let announceAppend = () => {};
+	const appendStarted = new Promise<void>((resolve) => {
+		announceAppend = resolve;
+	});
+	let appendDeferred = deferAppend;
+	let currentBackupPrefix: string | undefined;
+
+	async function metadata(key: string): Promise<R2Object | null> {
+		const bytes = objects.get(key);
+		if (bytes === undefined) return null;
+		return {
+			key,
+			checksums: {
+				sha256: await crypto.subtle.digest(
+					'SHA-256',
+					Uint8Array.from(bytes).buffer,
+				),
+			},
+		} as unknown as R2Object;
+	}
+
+	const bucket = {
+		async put(key: string, value: unknown, options?: R2PutOptions) {
+			const bytes = new Uint8Array(
+				await new Response(value as BodyInit).arrayBuffer(),
+			);
+			if (typeof options?.sha256 === 'string') {
+				const actual = bytesToHex(sha256(bytes));
+				if (actual !== options.sha256) return null;
+			}
+			objects.set(key, bytes);
+			return metadata(key);
+		},
+		head: metadata,
+		async get(key: string) {
+			const object = await metadata(key);
+			const bytes = objects.get(key);
+			if (object === null || bytes === undefined) return null;
+			return {
+				...object,
+				body: new Blob([Uint8Array.from(bytes).buffer]).stream(),
+			} as R2ObjectBody;
+		},
+		async delete(targets: string | string[]) {
+			for (const key of Array.isArray(targets) ? targets : [targets]) {
+				objects.delete(key);
+			}
+		},
+		async list({ prefix, cursor }: R2ListOptions = {}) {
+			const keys = [...objects.keys()]
+				.filter((key) => key.startsWith(prefix ?? ''))
+				.sort();
+			const start = cursor === undefined ? 0 : Number(cursor);
+			const page = keys.slice(start, start + 2);
+			return {
+				objects: await Promise.all(
+					page.map(async (key) => {
+						const object = await metadata(key);
+						if (object === null) throw new Error('R2 object disappeared');
+						return object;
+					}),
+				),
+				truncated: start + page.length < keys.length,
+				cursor: String(start + page.length),
+			};
+		},
+	};
+
+	const backup = {
+		async initialize(expected: number) {
+			expectedRecordCount = expected;
+			backupState = 'building';
+			if (currentBackupPrefix === undefined) {
+				throw new Error('Backup stub identity is missing');
+			}
+			objects.set(
+				`${currentBackupPrefix}control/state-v1.json`,
+				new TextEncoder().encode('building'),
+			);
+		},
+		async append(rawRecords: unknown) {
+			if (appendDeferred) {
+				appendDeferred = false;
+				announceAppend();
+				await appendRelease;
+			}
+			const page = structuredClone(rawRecords) as PortableArtifactRecord[];
+			records.push(...page);
+			return page.length;
+		},
+		async seal() {
+			if (records.length !== expectedRecordCount) {
+				throw new Error('Backup record membership is incomplete');
+			}
+			backupState = 'sealed';
+			if (currentBackupPrefix !== undefined) {
+				objects.set(
+					`${currentBackupPrefix}control/state-v1.json`,
+					new TextEncoder().encode('sealed'),
+				);
+			}
+			if (loseSealResponse) throw new Error('lost sealed RPC response');
+			return {
+				version: 1 as const,
+				state: 'sealed' as const,
+				recordCount: records.length,
+			};
+		},
+		async status() {
+			if (backupState === 'empty') return { state: 'empty' as const };
+			if (backupState === 'building') {
+				return {
+					state: 'building' as const,
+					expectedRecordCount: expectedRecordCount ?? 0,
+				};
+			}
+			return { state: 'sealed' as const, recordCount: records.length };
+		},
+		async destroy() {
+			destroyed = true;
+			backupState = 'empty';
+			records.length = 0;
+			if (currentBackupPrefix !== undefined) {
+				for (const key of [...objects.keys()]) {
+					if (key.startsWith(currentBackupPrefix)) objects.delete(key);
+				}
+			}
+		},
+	};
+
+	const env = {
+		DATA_BLOBS: bucket,
+		DATA_BACKUP: {
+			getByName(name: string) {
+				backupNames.push(name);
+				const backupId = name.slice(name.lastIndexOf(':') + 1);
+				currentBackupPrefix = `data-authorities/data-authority-test/backups/${backupId}/`;
+				return backup;
+			},
+		},
+	} as unknown as ConstructorParameters<typeof DataAuthority>[1];
+
+	return {
+		env,
+		objects,
+		records,
+		backupNames,
+		appendStarted,
+		releaseAppend,
+		backupState: () => backupState,
+		destroyed: () => destroyed,
+	};
 }
 
 function setupState() {
@@ -494,6 +668,285 @@ test('account deletion recovers an authority whose stored schema is malformed', 
 				),
 			).facts,
 		).toEqual([]);
+	} finally {
+		owned.database.close();
+	}
+});
+
+// ============================================================================
+// Cloudflare Backup capture
+// ============================================================================
+
+test('Backup capture copies the complete logical record and pinned blob cut', async () => {
+	const owned = setupState();
+	try {
+		const backups = setupBackupEnv();
+		const authority = new DataAuthority(owned.state, backups.env);
+		await owned.ready();
+		const lifetime = expectOk(
+			await authority.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+				),
+			),
+		).authorityLifetime;
+		const documented = {
+			namespace: 'so.epicenter.notes',
+			collection: 'records',
+			recordKey: 'a'.repeat(24),
+		};
+		const blobbed = { ...documented, recordKey: 'b'.repeat(24) };
+		expectOk(
+			await authority.submit(
+				expectOk(
+					parseSubmissionRequest(
+						{
+							authorityLifetime: lifetime,
+							replicaId: 'r'.repeat(24),
+							submissionNumber: 1,
+							intents: [
+								{ address: documented, op: 'replace', value: { title: 'one' } },
+								{ address: blobbed, op: 'replace', value: { title: 'two' } },
+							],
+						},
+						SCALAR_SYNC_V1_LIMITS,
+					),
+				),
+			),
+		);
+		const document = new Y.Doc({ gc: true });
+		document.get('content').insert(0, 'captured document');
+		const update = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+		document.destroy();
+		expect(
+			(
+				await authority.acceptDocument({
+					authorityLifetime: lifetime,
+					address: documented,
+					protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+					payload: update,
+					digest: documentPayloadDigest(update),
+				})
+			).kind,
+		).toBe('accepted');
+		const blob = 'captured blob bytes';
+		const blobDigest = sha256Hex(blob);
+		expect(
+			(
+				await authority.acceptBlob(
+					{
+						authorityLifetime: lifetime,
+						address: blobbed,
+						protocolVersion: BLOB_PUBLICATION_VERSION,
+						digest: blobDigest,
+					},
+					new Blob([blob]).stream(),
+				)
+			).kind,
+		).toBe('accepted');
+
+		const backupId = 'c'.repeat(24);
+		expect(await authority.captureBackup(backupId)).toEqual({ recordCount: 2 });
+		expect(backups.backupState()).toBe('sealed');
+		expect(backups.records).toHaveLength(2);
+		expect(backups.records[0]).toMatchObject({
+			address: documented,
+			scalar: { state: 'live', payload: { title: 'one' } },
+			blobSha256: null,
+		});
+		expect(backups.records[0]?.documentUpdateV2).toEqual(update);
+		expect(backups.records[1]).toMatchObject({
+			address: blobbed,
+			scalar: { state: 'live', payload: { title: 'two' } },
+			documentUpdateV2: null,
+			blobSha256: blobDigest,
+		});
+		const backupBlobKey = [...backups.objects.keys()].find((key) =>
+			key.includes(`/backups/${backupId}/blobs/content/`),
+		);
+		expect(backupBlobKey).toBeDefined();
+		expect(
+			new TextDecoder().decode(backups.objects.get(backupBlobKey ?? '')),
+		).toBe(blob);
+		expect(
+			owned.database
+				.query(`SELECT state FROM capture_manifests WHERE capture_id = ?`)
+				.get(backupId),
+		).toEqual({ state: 'succeeded' });
+	} finally {
+		owned.database.close();
+	}
+});
+
+test('Backup capture refuses corrupt pinned blob bytes and publishes nothing', async () => {
+	const owned = setupState();
+	try {
+		const backups = setupBackupEnv();
+		const authority = new DataAuthority(owned.state, backups.env);
+		await owned.ready();
+		const lifetime = expectOk(
+			await authority.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+				),
+			),
+		).authorityLifetime;
+		const address = {
+			namespace: 'so.epicenter.notes',
+			collection: 'records',
+			recordKey: 'a'.repeat(24),
+		};
+		expectOk(
+			await authority.submit(
+				expectOk(
+					parseSubmissionRequest(
+						{
+							authorityLifetime: lifetime,
+							replicaId: 'r'.repeat(24),
+							submissionNumber: 1,
+							intents: [{ address, op: 'replace', value: {} }],
+						},
+						SCALAR_SYNC_V1_LIMITS,
+					),
+				),
+			),
+		);
+		const digest = sha256Hex('original');
+		expect(
+			(
+				await authority.acceptBlob(
+					{
+						authorityLifetime: lifetime,
+						address,
+						protocolVersion: BLOB_PUBLICATION_VERSION,
+						digest,
+					},
+					new Blob(['original']).stream(),
+				)
+			).kind,
+		).toBe('accepted');
+		const liveBlobKey = [...backups.objects.keys()].find(
+			(key) => key.includes('/authorities/') && key.includes('/blobs/content/'),
+		);
+		if (liveBlobKey === undefined) throw new Error('live blob was not stored');
+		backups.objects.set(liveBlobKey, new TextEncoder().encode('corrupt'));
+
+		const backupId = 'd'.repeat(24);
+		await expect(authority.captureBackup(backupId)).rejects.toThrow(
+			'failed digest verification',
+		);
+		expect(backups.backupState()).toBe('empty');
+		expect(backups.destroyed()).toBe(true);
+		expect(
+			[...backups.objects.keys()].some((key) =>
+				key.includes(`/backups/${backupId}/`),
+			),
+		).toBe(false);
+		expect(
+			owned.database
+				.query(`SELECT state FROM capture_manifests WHERE capture_id = ?`)
+				.get(backupId),
+		).toEqual({ state: 'cancelled' });
+	} finally {
+		owned.database.close();
+	}
+});
+
+test('account deletion fences new Backups and drains an admitted capture', async () => {
+	const owned = setupState();
+	try {
+		const backups = setupBackupEnv({ deferAppend: true });
+		const authority = new DataAuthority(owned.state, backups.env);
+		await owned.ready();
+		const lifetime = expectOk(
+			await authority.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+				),
+			),
+		).authorityLifetime;
+		const address = {
+			namespace: 'so.epicenter.notes',
+			collection: 'records',
+			recordKey: 'a'.repeat(24),
+		};
+		expectOk(
+			await authority.submit(
+				expectOk(
+					parseSubmissionRequest(
+						{
+							authorityLifetime: lifetime,
+							replicaId: 'r'.repeat(24),
+							submissionNumber: 1,
+							intents: [{ address, op: 'replace', value: 'captured' }],
+						},
+						SCALAR_SYNC_V1_LIMITS,
+					),
+				),
+			),
+		);
+
+		const firstBackupId = 'e'.repeat(24);
+		const capture = authority.captureBackup(firstBackupId);
+		await backups.appendStarted;
+		let deleted = false;
+		const deletion = authority.deleteAccount().then(() => {
+			deleted = true;
+		});
+		await expect(authority.captureBackup('f'.repeat(24))).rejects.toThrow(
+			'Backups are being deleted',
+		);
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		expect(deleted).toBe(false);
+		expect(owned.storageDeleted()).toBe(false);
+		expect(backups.backupNames).toHaveLength(1);
+
+		backups.releaseAppend();
+		expect(await capture).toEqual({ recordCount: 1 });
+		await deletion;
+		expect(owned.storageDeleted()).toBe(true);
+		expect([...backups.objects.keys()]).toEqual([]);
+	} finally {
+		owned.database.close();
+	}
+});
+
+test('Backup capture reconciles a sealed result whose RPC response was lost', async () => {
+	const owned = setupState();
+	try {
+		const backups = setupBackupEnv({ loseSealResponse: true });
+		const authority = new DataAuthority(owned.state, backups.env);
+		await owned.ready();
+		const backupId = 'g'.repeat(24);
+		expect(await authority.captureBackup(backupId)).toEqual({ recordCount: 0 });
+		expect(backups.backupState()).toBe('sealed');
+		expect(backups.destroyed()).toBe(false);
+		expect(
+			owned.database
+				.query(`SELECT state FROM capture_manifests WHERE capture_id = ?`)
+				.get(backupId),
+		).toEqual({ state: 'succeeded' });
+	} finally {
+		owned.database.close();
+	}
+});
+
+test('Backup capture refuses every non-canonical Backup ID before allocating storage', async () => {
+	const owned = setupState();
+	try {
+		const backups = setupBackupEnv();
+		const authority = new DataAuthority(owned.state, backups.env);
+		await owned.ready();
+		await expect(authority.captureBackup('short')).rejects.toThrow(
+			'24 lowercase alphanumeric characters',
+		);
+		await expect(authority.captureBackup('A'.repeat(24))).rejects.toThrow(
+			'24 lowercase alphanumeric characters',
+		);
+		await expect(authority.captureBackup(7)).rejects.toThrow(
+			'backup ID must be a string',
+		);
+		expect(backups.backupNames).toEqual([]);
 	} finally {
 		owned.database.close();
 	}

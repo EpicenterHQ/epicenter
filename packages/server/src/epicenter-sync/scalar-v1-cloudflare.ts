@@ -29,6 +29,7 @@ import type { Result } from 'wellcrafted/result';
 
 import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
+import { createR2BackupBlobStore } from './backup-files-r2.js';
 import {
 	type AuthorityBlobV1,
 	createAuthorityBlobV1,
@@ -38,6 +39,12 @@ import {
 	type BlobAuthorityV1Endpoint,
 	mountBlobV1App,
 } from './blob-v1-route.js';
+import { createAuthorityCaptureManifestV1 } from './capture-manifest-v1.js';
+import {
+	type CloudflareBackupV1Status,
+	type DataBackup,
+	dataBackupV1Name,
+} from './cloudflare-backup-v1.js';
 import {
 	createDocumentRealtimeV1Server,
 	type DocumentRealtimeV1Server,
@@ -62,6 +69,7 @@ const ADDRESS_COLLECTION_HEADER = 'x-epicenter-document-collection';
 const ADDRESS_RECORD_HEADER = 'x-epicenter-document-record';
 const AUTHORITY_LIFETIME_HEADER = 'x-epicenter-authority-lifetime';
 const AUTHORIZATION_EXPIRES_HEADER = 'x-epicenter-authorization-expires-at';
+const MAX_CAPTURE_MILLISECONDS = 30 * 60 * 1_000;
 
 type DataDocumentAttachment = {
 	version: 1;
@@ -95,7 +103,15 @@ function principalName(principalId: PrincipalId): string {
 	return encodeURIComponent(principalId).replaceAll('.', '%2E');
 }
 
-export type DataAuthorityEnv = Cloudflare.Env & { DATA_BLOBS: R2Bucket };
+type DataBackupStub = Pick<
+	DataBackup,
+	'append' | 'destroy' | 'initialize' | 'seal' | 'status'
+>;
+
+export type DataAuthorityEnv = Cloudflare.Env & {
+	DATA_BACKUP: { getByName(name: string): DataBackupStub };
+	DATA_BLOBS: R2Bucket;
+};
 
 /** One principal-owned scalar V1 authority on Durable Object SQLite. */
 export class DataAuthority extends DurableObject<DataAuthorityEnv> {
@@ -111,6 +127,10 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	private readonly sockets = new WeakMap<WebSocket, DocumentRealtimeV1Socket>();
 	private initializationError: unknown;
 	private readonly ready: Promise<void>;
+	private readonly operations = new Set<Promise<unknown>>();
+	private operationBarrier: Promise<void> | undefined;
+	private accountDeletion: Promise<void> | undefined;
+	private backupCaptureFenced = false;
 
 	constructor(ctx: DurableObjectState, env: DataAuthorityEnv) {
 		super(ctx, env);
@@ -153,7 +173,9 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		if (parsed.error !== null) {
 			throw new TypeError('invalid scalar V1 facts RPC request');
 		}
-		return (await this.owner()).readFacts(parsed.data);
+		return this.runOperation(async () =>
+			(await this.owner()).readFacts(parsed.data),
+		);
 	}
 
 	async submit(
@@ -163,20 +185,22 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		if (parsed.error !== null) {
 			throw new TypeError('invalid scalar V1 submission RPC request');
 		}
-		const result = (await this.owner()).submit(parsed.data);
-		if (result.error === null) {
-			let reapedBlob = false;
-			for (const fact of result.data.facts) {
-				if (fact.state === 'tombstone') {
-					this.realtime?.closeAddress(fact.address);
-					reapedBlob = true;
+		return this.runOperation(async () => {
+			const result = (await this.owner()).submit(parsed.data);
+			if (result.error === null) {
+				let reapedBlob = false;
+				for (const fact of result.data.facts) {
+					if (fact.state === 'tombstone') {
+						this.realtime?.closeAddress(fact.address);
+						reapedBlob = true;
+					}
+				}
+				if (reapedBlob && this.blobAuthority !== undefined) {
+					this.ctx.waitUntil(this.blobAuthority.sweepDebris());
 				}
 			}
-			if (reapedBlob && this.blobAuthority !== undefined) {
-				this.ctx.waitUntil(this.blobAuthority.sweepDebris());
-			}
-		}
-		return result;
+			return result;
+		});
 	}
 
 	async acceptDocument(rawRequest: unknown): Promise<DocumentAcceptance> {
@@ -187,7 +211,9 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		if (parsed === undefined) {
 			throw new TypeError('invalid document V1 publication RPC request');
 		}
-		return (await this.owner()).acceptDocument(parsed);
+		return this.runOperation(async () =>
+			(await this.owner()).acceptDocument(parsed),
+		);
 	}
 
 	async acceptBlob(
@@ -206,7 +232,9 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		) {
 			throw new TypeError('invalid blob V1 publication RPC request');
 		}
-		return (await this.blobs()).accept(parsed, bytes);
+		return this.runOperation(async () =>
+			(await this.blobs()).accept(parsed, bytes),
+		);
 	}
 
 	async readBlob(
@@ -216,46 +244,74 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		if (parsed.error !== null) {
 			throw new TypeError('invalid blob V1 read RPC request');
 		}
-		return (await this.blobs()).read(parsed.data);
+		return this.runOperation(async () =>
+			(await this.blobs()).read(parsed.data),
+		);
+	}
+
+	/** Capture one immutable logical Backup under the supplied registry identity. */
+	captureBackup(rawBackupId: unknown): Promise<{ recordCount: number }> {
+		if (typeof rawBackupId !== 'string') {
+			return Promise.reject(new TypeError('backup ID must be a string'));
+		}
+		let backupName: string;
+		try {
+			backupName = dataBackupV1Name(this.blobOwnerStorageKey, rawBackupId);
+		} catch (cause) {
+			return Promise.reject(cause);
+		}
+		if (this.backupCaptureFenced) {
+			return Promise.reject(
+				new Error('Data authority Backups are being deleted'),
+			);
+		}
+		return this.runOperation(async () => {
+			if (this.backupCaptureFenced) {
+				throw new Error('Data authority Backups are being deleted');
+			}
+			return this.captureBackupOperation(rawBackupId, backupName);
+		});
 	}
 
 	override async fetch(request: Request): Promise<Response> {
-		await this.ready;
-		const url = new URL(request.url);
-		if (
-			request.method === 'GET' &&
-			url.pathname === INTERNAL_DOCUMENT_REALTIME_PATH
-		) {
-			return this.acceptDocumentUpgrade(request);
-		}
-		return new Response(null, { status: 404 });
+		return this.runOperation(async () => {
+			const url = new URL(request.url);
+			if (
+				request.method === 'GET' &&
+				url.pathname === INTERNAL_DOCUMENT_REALTIME_PATH
+			) {
+				return this.acceptDocumentUpgrade(request);
+			}
+			return new Response(null, { status: 404 });
+		});
 	}
 
 	override async webSocketMessage(
 		socket: WebSocket,
 		message: ArrayBuffer | string,
 	): Promise<void> {
-		await this.ready;
-		const attachment = socket.deserializeAttachment();
-		if (!isDataDocumentAttachment(attachment)) {
-			socket.close(1011, 'invalid-document-attachment');
-			return;
-		}
-		if (Date.now() >= attachment.authorizationExpiresAt) {
-			this.realtime?.disconnect(this.socket(socket));
-			socket.close(1000, 'credential-expired');
-			return;
-		}
-		if (typeof message === 'string') {
-			socket.close(1002, 'invalid-document-frame');
-			return;
-		}
-		this.realtime?.receive(
-			this.socket(socket),
-			attachment.address,
-			attachment.authorityLifetime,
-			new Uint8Array(message),
-		);
+		await this.runOperation(() => {
+			const attachment = socket.deserializeAttachment();
+			if (!isDataDocumentAttachment(attachment)) {
+				socket.close(1011, 'invalid-document-attachment');
+				return;
+			}
+			if (Date.now() >= attachment.authorizationExpiresAt) {
+				this.realtime?.disconnect(this.socket(socket));
+				socket.close(1000, 'credential-expired');
+				return;
+			}
+			if (typeof message === 'string') {
+				socket.close(1002, 'invalid-document-frame');
+				return;
+			}
+			this.realtime?.receive(
+				this.socket(socket),
+				attachment.address,
+				attachment.authorityLifetime,
+				new Uint8Array(message),
+			);
+		});
 	}
 
 	override webSocketClose(socket: WebSocket): void {
@@ -267,30 +323,49 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	}
 
 	override async alarm(): Promise<void> {
-		await this.ready;
-		const now = Date.now();
-		let nextExpiry: number | undefined;
-		for (const socket of this.ctx.getWebSockets()) {
-			if (socket.readyState !== WebSocket.OPEN) continue;
-			const attachment = socket.deserializeAttachment();
-			if (!isDataDocumentAttachment(attachment)) continue;
-			if (attachment.authorizationExpiresAt <= now) {
-				this.realtime?.disconnect(this.socket(socket));
-				socket.close(1000, 'credential-expired');
-			} else {
-				nextExpiry = Math.min(
-					nextExpiry ?? attachment.authorizationExpiresAt,
-					attachment.authorizationExpiresAt,
-				);
+		await this.runOperation(async () => {
+			const now = Date.now();
+			let nextExpiry: number | undefined;
+			for (const socket of this.ctx.getWebSockets()) {
+				if (socket.readyState !== WebSocket.OPEN) continue;
+				const attachment = socket.deserializeAttachment();
+				if (!isDataDocumentAttachment(attachment)) continue;
+				if (attachment.authorizationExpiresAt <= now) {
+					this.realtime?.disconnect(this.socket(socket));
+					socket.close(1000, 'credential-expired');
+				} else {
+					nextExpiry = Math.min(
+						nextExpiry ?? attachment.authorizationExpiresAt,
+						attachment.authorizationExpiresAt,
+					);
+				}
 			}
-		}
-		if (nextExpiry === undefined) await this.ctx.storage.deleteAlarm();
-		else await this.ctx.storage.setAlarm(nextExpiry);
+			if (nextExpiry === undefined) await this.ctx.storage.deleteAlarm();
+			else await this.ctx.storage.setAlarm(nextExpiry);
+		});
 	}
 
 	/** Delete every scalar V1 byte owned by this principal. */
-	async deleteAccount(): Promise<void> {
+	deleteAccount(): Promise<void> {
+		this.backupCaptureFenced = true;
+		if (this.accountDeletion !== undefined) return this.accountDeletion;
+		let releaseBarrier!: () => void;
+		const barrier = new Promise<void>((resolve) => {
+			releaseBarrier = resolve;
+		});
+		this.operationBarrier = barrier;
+		const deletion = this.deleteAccountOperation().finally(() => {
+			this.accountDeletion = undefined;
+			this.operationBarrier = undefined;
+			releaseBarrier();
+		});
+		this.accountDeletion = deletion;
+		return deletion;
+	}
+
+	private async deleteAccountOperation(): Promise<void> {
 		await this.ready;
+		await Promise.allSettled([...this.operations]);
 		await this.ctx.blockConcurrencyWhile(async () => {
 			this.realtime?.closeAll();
 			await this.blobAuthority?.deleteAll();
@@ -310,6 +385,130 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			});
 			this.initializationError = undefined;
 		});
+	}
+
+	private async captureBackupOperation(
+		backupId: string,
+		backupName: string,
+	): Promise<{ recordCount: number }> {
+		const captures = createAuthorityCaptureManifestV1(this.database);
+		const backup = this.env.DATA_BACKUP.getByName(backupName);
+		const backupBlobs = createR2BackupBlobStore(
+			this.env.DATA_BLOBS,
+			this.blobOwnerStorageKey,
+			backupId,
+		);
+		let started = false;
+		let sealedRecordCount: number | undefined;
+		try {
+			captures.start(backupId);
+			started = true;
+			const captureDeadline = Date.now() + MAX_CAPTURE_MILLISECONDS;
+			while (Date.now() < captureDeadline) {
+				const progress = captures.advance(backupId);
+				if (progress.kind === 'document-not-settled') {
+					throw new Error('portable capture document is not settled');
+				}
+				if (progress.caughtUp) {
+					const outcome = captures.seal(backupId);
+					if (outcome.kind === 'document-not-settled') {
+						throw new Error('portable capture document is not settled');
+					}
+					if (outcome.kind === 'sealed') {
+						sealedRecordCount = outcome.recordCount;
+						break;
+					}
+				}
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			if (sealedRecordCount === undefined) {
+				throw new Error('portable capture could not reach a bounded final cut');
+			}
+
+			await backup.initialize(sealedRecordCount);
+			let afterRecordId = 0;
+			for (;;) {
+				const page = captures.readPage(backupId, afterRecordId);
+				if (page.entries.length > 0) await backup.append(page.entries);
+				for (const record of page.entries) {
+					if (record.blobSha256 === null) continue;
+					const read = await (await this.blobs()).readCapture(
+						backupId,
+						record.address,
+						record.blobSha256,
+					);
+					if (read === undefined) {
+						throw new Error('portable capture blob pin is missing');
+					}
+					await backupBlobs.copy(record.address, record.blobSha256, read);
+				}
+				if (page.nextAfterRecordId === undefined) break;
+				afterRecordId = page.nextAfterRecordId;
+			}
+			const expectedBlobs = function* () {
+				let after = 0;
+				for (;;) {
+					const page = captures.readPage(backupId, after);
+					for (const record of page.entries) {
+						if (record.blobSha256 === null) continue;
+						yield { address: record.address, digest: record.blobSha256 };
+					}
+					if (page.nextAfterRecordId === undefined) return;
+					after = page.nextAfterRecordId;
+				}
+			};
+			await backupBlobs.seal(expectedBlobs());
+			const sealed = await backup.seal();
+			if (sealed.recordCount !== sealedRecordCount) {
+				throw new Error('Backup sealed with an unexpected record count');
+			}
+			captures.finish(backupId, 'succeeded');
+			return { recordCount: sealed.recordCount };
+		} catch (cause) {
+			let status: CloudflareBackupV1Status | undefined;
+			try {
+				status = await backup.status();
+			} catch {
+				// Destructive cleanup below owns unrecognized partial state.
+			}
+			if (
+				status?.state === 'sealed' &&
+				status.recordCount === sealedRecordCount
+			) {
+				captures.finish(backupId, 'succeeded');
+				return { recordCount: status.recordCount };
+			}
+			if (started) {
+				try {
+					captures.finish(backupId, 'cancelled');
+				} catch {
+					// Reopen recovery marks an interrupted manifest crashed.
+				}
+			}
+			try {
+				await backup.destroy();
+			} catch {
+				// The registry retries destruction before publishing or deleting.
+			}
+			throw cause;
+		}
+	}
+
+	private async runOperation<TResult>(
+		operation: () => TResult | Promise<TResult>,
+	): Promise<TResult> {
+		await this.ready;
+		const barrier = this.operationBarrier;
+		if (barrier !== undefined) {
+			await barrier;
+			return this.runOperation(operation);
+		}
+		const result = Promise.resolve().then(operation);
+		this.operations.add(result);
+		void result
+			.finally(() => this.operations.delete(result))
+			.catch(() => undefined);
+		return result;
 	}
 
 	private async owner(): Promise<DataAuthorityV1> {
