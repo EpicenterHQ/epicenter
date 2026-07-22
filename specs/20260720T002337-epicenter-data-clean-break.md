@@ -187,9 +187,17 @@ authority-fold architecture carried over unchanged. W1A also landed the
 maintained lane-machine conformance suite under
 `packages/data/src/store/conformance/`: the probe's reference transitions as
 owner-partitioned cases over ADR-0177-shaped fixtures, with file-backed
-statement-boundary crash injection and the persisted first-seal
-request-bytes-and-hash assertions. No production consumer imports the kernel;
-W1B binds the replica case subset to the production store.
+statement-boundary crash injection, owning fixture disposal, and the
+persisted first-seal request-bytes-and-hash assertions. The replica subset is
+stated once, adapter-agnostically, in a parameterized case runner behind a
+small binding contract (semantic lane observations plus prepared crash-probed
+transitions), with the pure protocol authority as its settlement oracle; the
+unexported SQLite reference driver binds to it now, and W1B/W1C bind
+production replica adapters to the same cases without copying them. The
+authority and document/blob subsets stay reference-bound until W2 and W3 bind
+their production owners; the terminal-tombstone case proves installation,
+blob-evidence clearing, and child-row deletion as one crash-injected
+transaction. No production consumer imports the kernel.
 
 ## Execution waves
 
