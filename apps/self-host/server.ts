@@ -192,7 +192,13 @@ export function startSelfHostServer(): void {
 		),
 		runtime: epicenterSync,
 	});
-	mountBunScalarV1App(app, { auth, runtime: scalarV1 });
+	mountBunScalarV1App(app, {
+		auth,
+		resolveDocumentPrincipal: withDocumentAuthorizationDeadline(
+			resolveBearerPrincipal,
+		),
+		runtime: scalarV1,
+	});
 	// The AttachRelay upgrade (`/attach`), WS-aware and gated by a per-device grant
 	// (ADR-0115), not the operator token: a connect resolves against the
 	// device-grant store, and the instance principal is stamped server-side so a
@@ -257,6 +263,7 @@ export function startSelfHostServer(): void {
 		websocket: mergeBunWebSocketHandlers({
 			rooms: bunRooms.websocket,
 			documents: epicenterSync.websocket,
+			dataDocuments: scalarV1.websocket,
 			attach: attachRelay.websocket,
 		}),
 	});
@@ -264,6 +271,7 @@ export function startSelfHostServer(): void {
 	// each `handleUpgrade` can call `server.upgrade` on the shared server.
 	bunRooms.bindServer(server);
 	epicenterSync.bindServer(server);
+	scalarV1.bindServer(server);
 	attachRelay.bindServer(server);
 
 	// Close authority databases and their sockets before the process dies so WAL

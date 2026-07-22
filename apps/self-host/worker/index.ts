@@ -100,6 +100,9 @@ mountCloudflareEpicenterSyncApp(app, {
 });
 mountCloudflareScalarV1App(app, {
 	auth,
+	resolveDocumentPrincipal: withDocumentAuthorizationDeadline(
+		resolveBearerPrincipal,
+	),
 	resolveNamespace: (env) =>
 		(env as Cloudflare.Env).DATA_AUTHORITY as unknown as DataAuthorityNamespace,
 });
