@@ -14,6 +14,7 @@ import {
 	type DurableObjectSqliteStorage,
 } from '@epicenter/sqlite/durable-object';
 
+import { createR2BackupBlobStore } from './backup-files-r2.js';
 import { parseDataBackupName, r2DataBackupPrefix } from './backup-r2-paths.js';
 
 export {
@@ -77,6 +78,7 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 	private readonly database: ReturnType<
 		typeof createDurableObjectSqliteAdapter
 	>;
+	private readonly blobs: ReturnType<typeof createR2BackupBlobStore>;
 	private readonly backupPrefix: string;
 	private readonly stateKey: string;
 	private operationTail = Promise.resolve();
@@ -87,6 +89,11 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 			ctx.storage as unknown as DurableObjectSqliteStorage,
 		);
 		const identity = parseDataBackupName(ctx.id.name);
+		this.blobs = createR2BackupBlobStore(
+			env.DATA_BLOBS,
+			identity.ownerStorageKey,
+			identity.backupId,
+		);
 		this.backupPrefix = r2DataBackupPrefix(
 			identity.ownerStorageKey,
 			identity.backupId,
@@ -137,6 +144,18 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 		});
 	}
 
+	/** Copy one referenced blob into this unpublished Backup. */
+	putBlob(
+		address: RecordAddress,
+		digest: string,
+		bytes: ReadableStream<Uint8Array>,
+	): Promise<void> {
+		return this.exclusive(async () => {
+			await this.buildingState();
+			await this.blobs.copy(address, digest, bytes);
+		});
+	}
+
 	/** Validate the complete index and make this Backup immutable. */
 	seal(): Promise<SealedState> {
 		return this.exclusive(async () => {
@@ -148,6 +167,23 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 			if (metadata.recordCount !== building.expectedRecordCount) {
 				throw new Error('Backup record membership is incomplete');
 			}
+			const database = this.database;
+			const records = async function* () {
+				let after: RecordAddress | undefined;
+				for (;;) {
+					const page = readPortableArtifactIndexPage({ database, after });
+					for (const record of page.records) {
+						if (record.blobSha256 === null) continue;
+						yield { address: record.address, digest: record.blobSha256 };
+					}
+					if (page.nextAfter === undefined) return;
+					if (page.records.length === 0) {
+						throw new Error('Backup record page did not advance');
+					}
+					after = page.nextAfter;
+				}
+			};
+			await this.blobs.seal(records());
 			const sealed = {
 				version: 1,
 				state: 'sealed',
@@ -179,6 +215,17 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 				database: this.database,
 				after: rawAfter as RecordAddress | undefined,
 			});
+		});
+	}
+
+	/** Open one verified blob from this sealed Backup. */
+	openBlob(
+		address: RecordAddress,
+		digest: string,
+	): Promise<ReadableStream<Uint8Array>> {
+		return this.exclusive(async () => {
+			await this.sealedState();
+			return this.blobs.open(address, digest);
 		});
 	}
 

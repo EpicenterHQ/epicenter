@@ -2,7 +2,9 @@ import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { beforeAll, expect, mock, test } from 'bun:test';
 
 import type { PortableArtifactRecord } from '@epicenter/data/portable';
+import { sha256Hex } from '@epicenter/data/protocol/v1';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 mock.module('cloudflare:workers', () => ({
 	DurableObject: class<Env> {
@@ -47,12 +49,18 @@ const SECOND: PortableArtifactRecord = {
 	},
 	scalar: { state: 'unset' },
 	documentUpdateV2: null,
-	blobSha256: 'b'.repeat(64),
+	blobSha256: null,
 };
 
 function setupState() {
 	const raw = new Database(':memory:', { strict: true });
-	const objects = new Map<string, string>();
+	const objects = new Map<string, string | Uint8Array>();
+	function r2Object(key: string, bytes: Uint8Array): R2Object {
+		return {
+			key,
+			checksums: { sha256: Uint8Array.from(sha256(bytes)).buffer },
+		} as R2Object;
+	}
 	const storage = {
 		sql: {
 			exec<TRow extends SqliteRow>(query: string, ...bindings: SqliteValue[]) {
@@ -104,21 +112,40 @@ function setupState() {
 	} as unknown as DurableObjectState;
 	const env = {
 		DATA_BLOBS: {
+			async head(key: string) {
+				const value = objects.get(key);
+				return value instanceof Uint8Array ? r2Object(key, value) : null;
+			},
 			async get(key: string) {
 				const value = objects.get(key);
 				return value === undefined
 					? null
-					: ({ json: async () => JSON.parse(value) } as R2ObjectBody);
+					: typeof value === 'string'
+						? ({ json: async () => JSON.parse(value) } as R2ObjectBody)
+						: ({
+								...r2Object(key, value),
+								body: new Blob([Uint8Array.from(value).buffer]).stream(),
+							} as R2ObjectBody);
 			},
-			async put(key: string, value: string) {
-				objects.set(key, value);
-				return {} as R2Object;
+			async put(key: string, value: string | ReadableStream<Uint8Array>) {
+				if (typeof value === 'string') {
+					objects.set(key, value);
+					return {} as R2Object;
+				}
+				const bytes = new Uint8Array(await new Response(value).arrayBuffer());
+				objects.set(key, bytes);
+				return r2Object(key, bytes);
 			},
 			async list({ prefix }: R2ListOptions = {}) {
 				return {
 					objects: [...objects.keys()]
 						.filter((key) => key.startsWith(prefix ?? ''))
-						.map((key) => ({ key })),
+						.map((key) => {
+							const value = objects.get(key);
+							return value instanceof Uint8Array
+								? r2Object(key, value)
+								: ({ key } as R2Object);
+						}),
 					truncated: false,
 				};
 			},
@@ -177,6 +204,47 @@ test('Cloudflare Backup never exposes an incomplete build', async () => {
 			state: 'building',
 			expectedRecordCount: 2,
 		});
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Cloudflare Backup seal proves referenced blob completeness', async () => {
+	const owned = setupState();
+	try {
+		const backup = new DataBackup(owned.state, owned.env);
+		await backup.initialize(1);
+		await backup.append([{ ...SECOND, blobSha256: 'b'.repeat(64) }]);
+		await expect(backup.seal()).rejects.toThrow(
+			'blob membership is incomplete',
+		);
+		expect(await backup.status()).toEqual({
+			state: 'building',
+			expectedRecordCount: 1,
+		});
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Cloudflare Backup owns verified blob writes and reads', async () => {
+	const owned = setupState();
+	try {
+		const backup = new DataBackup(owned.state, owned.env);
+		const bytes = 'byte-complete';
+		const digest = sha256Hex(bytes);
+		const record = { ...SECOND, blobSha256: digest };
+		await backup.initialize(1);
+		await backup.append([record]);
+		await backup.putBlob(record.address, digest, new Blob([bytes]).stream());
+		expect(await backup.seal()).toEqual({
+			version: 1,
+			state: 'sealed',
+			recordCount: 1,
+		});
+		expect(
+			await new Response(await backup.openBlob(record.address, digest)).text(),
+		).toBe(bytes);
 	} finally {
 		owned.raw.close();
 	}

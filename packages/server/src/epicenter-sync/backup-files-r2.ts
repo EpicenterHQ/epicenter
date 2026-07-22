@@ -59,10 +59,12 @@ export function createR2BackupBlobStore(
 	}
 
 	async function seal(
-		expected: Iterable<R2BackupBlobReference>,
+		expected:
+			| Iterable<R2BackupBlobReference>
+			| AsyncIterable<R2BackupBlobReference>,
 	): Promise<void> {
 		let expectedBlobCount = 0;
-		for (const reference of expected) {
+		for await (const reference of expected) {
 			const object = await bucket.head(
 				contentKey(reference.address, reference.digest),
 			);

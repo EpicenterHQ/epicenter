@@ -1,7 +1,10 @@
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { beforeAll, expect, mock, test } from 'bun:test';
 
-import { BLOB_PUBLICATION_VERSION } from '@epicenter/data/blob-v1';
+import {
+	BLOB_PUBLICATION_VERSION,
+	blobFileOwner,
+} from '@epicenter/data/blob-v1';
 import {
 	DOCUMENT_PUBLICATION_VERSION,
 	documentPayloadDigest,
@@ -263,6 +266,22 @@ function setupBackupEnv({
 			records.push(...page);
 			return page.length;
 		},
+		async putBlob(
+			address: PortableArtifactRecord['address'],
+			digest: string,
+			bytes: ReadableStream<Uint8Array>,
+		) {
+			if (currentBackupPrefix === undefined) {
+				throw new Error('Backup stub identity is missing');
+			}
+			const owner = blobFileOwner(address, digest);
+			const stored = await bucket.put(
+				`${currentBackupPrefix}blobs/content/${owner.ownerKey}/${owner.digest}`,
+				bytes,
+				{ sha256: digest },
+			);
+			if (stored === null) throw new Error('Backup blob copy failed');
+		},
 		async seal() {
 			if (records.length !== expectedRecordCount) {
 				throw new Error('Backup record membership is incomplete');
@@ -321,6 +340,17 @@ function setupBackupEnv({
 					? { nextAfter: structuredClone(last.address) }
 					: {}),
 			};
+		},
+		async openBlob(address: PortableArtifactRecord['address'], digest: string) {
+			if (currentBackupPrefix === undefined) {
+				throw new Error('Backup stub identity is missing');
+			}
+			const owner = blobFileOwner(address, digest);
+			const object = await bucket.get(
+				`${currentBackupPrefix}blobs/content/${owner.ownerKey}/${owner.digest}`,
+			);
+			if (object === null) throw new Error('Backup blob bytes are missing');
+			return object.body;
 		},
 		async destroy() {
 			destroyed = true;

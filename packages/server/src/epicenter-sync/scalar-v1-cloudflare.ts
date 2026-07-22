@@ -31,7 +31,6 @@ import type { Result } from 'wellcrafted/result';
 
 import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
-import { createR2BackupBlobStore } from './backup-files-r2.js';
 import { mountBackupV1App } from './backup-v1-route.js';
 import {
 	type AuthorityBlobV1,
@@ -127,9 +126,18 @@ function principalName(principalId: PrincipalId): string {
 type DataBackupStub = {
 	initialize(expectedRecordCount: number): Promise<void>;
 	append(rawRecords: unknown): Promise<number>;
+	putBlob(
+		address: Parameters<typeof blobFileOwner>[0],
+		digest: string,
+		bytes: ReadableStream<Uint8Array>,
+	): Promise<void>;
 	seal(): Promise<{ version: 1; state: 'sealed'; recordCount: number }>;
 	status(): Promise<CloudflareBackupV1Status>;
 	readPage(rawAfter?: unknown): Promise<PortableArtifactIndexPage>;
+	openBlob(
+		address: Parameters<typeof blobFileOwner>[0],
+		digest: string,
+	): Promise<ReadableStream<Uint8Array>>;
 	destroy(): Promise<void>;
 };
 
@@ -376,7 +384,6 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		}>;
 		restoring = this.runOperation((currentOperation) =>
 			this.restoreBackupOperation({
-				backupId: rawBackupId,
 				backupName,
 				successorAuthorityLifetime: rawSuccessorLifetime,
 				currentOperation,
@@ -535,12 +542,10 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	}
 
 	private async restoreBackupOperation({
-		backupId,
 		backupName,
 		successorAuthorityLifetime,
 		currentOperation,
 	}: {
-		backupId: string;
 		backupName: string;
 		successorAuthorityLifetime: string;
 		currentOperation: Promise<unknown>;
@@ -566,11 +571,6 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			throw new Error('Data authority Restore Backup is not sealed');
 		}
 		const expectedRecordCount = status.recordCount;
-		const backupBlobs = createR2BackupBlobStore(
-			this.env.DATA_BLOBS,
-			this.blobOwnerStorageKey,
-			backupId,
-		);
 		let initialized = false;
 		let activated = false;
 		let restoreBarrier = false;
@@ -599,7 +599,7 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 				}
 				for (const record of page.records) {
 					if (record.blobSha256 === null) continue;
-					const source = await backupBlobs.open(
+					const source = await backup.openBlob(
 						record.address,
 						record.blobSha256,
 					);
@@ -807,11 +807,6 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	): Promise<{ recordCount: number }> {
 		const captures = createAuthorityCaptureManifestV1(this.database);
 		const backup = this.env.DATA_BACKUP.getByName(backupName);
-		const backupBlobs = createR2BackupBlobStore(
-			this.env.DATA_BLOBS,
-			this.blobOwnerStorageKey,
-			backupId,
-		);
 		let started = false;
 		let sealedRecordCount: number | undefined;
 		try {
@@ -854,24 +849,11 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 					if (read === undefined) {
 						throw new Error('portable capture blob pin is missing');
 					}
-					await backupBlobs.copy(record.address, record.blobSha256, read);
+					await backup.putBlob(record.address, record.blobSha256, read);
 				}
 				if (page.nextAfterRecordId === undefined) break;
 				afterRecordId = page.nextAfterRecordId;
 			}
-			const expectedBlobs = function* () {
-				let after = 0;
-				for (;;) {
-					const page = captures.readPage(backupId, after);
-					for (const record of page.entries) {
-						if (record.blobSha256 === null) continue;
-						yield { address: record.address, digest: record.blobSha256 };
-					}
-					if (page.nextAfterRecordId === undefined) return;
-					after = page.nextAfterRecordId;
-				}
-			};
-			await backupBlobs.seal(expectedBlobs());
 			const sealed = await backup.seal();
 			if (sealed.recordCount !== sealedRecordCount) {
 				throw new Error('Backup sealed with an unexpected record count');
