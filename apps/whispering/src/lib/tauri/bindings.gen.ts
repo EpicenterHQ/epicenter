@@ -56,15 +56,19 @@ export const commands = {
 		typedError<StagedRecordingCapture, RecorderError>(
 			__TAURI_INVOKE('stop_recording'),
 		),
+	/**
+	 *  Clear the stopped-pending lifecycle only after Bun has atomically admitted
+	 *  the capture into its record blob slot. The exact same acknowledgement may be
+	 *  repeated when its first IPC response was lost.
+	 */
+	acknowledgeRecordingCapture: (sessionId: string, captureId: string) =>
+		typedError<null, RecorderError>(
+			__TAURI_INVOKE('acknowledge_recording_capture', { sessionId, captureId }),
+		),
 	/**  Cancel the active recording without creating a staged capture. */
 	cancelRecording: () =>
 		typedError<null, RecorderError>(__TAURI_INVOKE('cancel_recording')),
-	/**
-	 *  Temporary legacy transcribe-by-id path.
-	 *
-	 *  This still resolves the retired local blob layout until the record owner
-	 *  supplies the private launch-token audio route in the next checkpoint.
-	 */
+	/**  Temporary legacy transcribe-by-id path. */
 	transcribeRecording: (audioBlobId: string, spec: TranscriptionSpec) =>
 		typedError<string, TranscriptionError>(
 			__TAURI_INVOKE('transcribe_recording', { audioBlobId, spec }),

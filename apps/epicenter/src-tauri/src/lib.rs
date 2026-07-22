@@ -27,8 +27,9 @@ use audio::encode_recording_for_upload;
 
 pub mod recorder;
 use recorder::commands::{
-    cancel_recording, close_recording_session, enumerate_recording_devices,
-    get_current_recording_id, init_recording_session, start_recording, stop_recording,
+    acknowledge_recording_capture, cancel_recording, close_recording_session,
+    enumerate_recording_devices, get_current_recording_id, init_recording_session, start_recording,
+    stop_recording,
 };
 use recorder::recorder::Recorder;
 
@@ -316,6 +317,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             close_recording_session,
             start_recording,
             stop_recording,
+            acknowledge_recording_capture,
             cancel_recording,
             transcribe_recording,
             prewarm_model,

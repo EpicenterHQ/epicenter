@@ -21,6 +21,7 @@ const COMMANDS: &[&str] = &[
     "close_recording_session",
     "start_recording",
     "stop_recording",
+    "acknowledge_recording_capture",
     "cancel_recording",
     "encode_recording_for_upload",
     "transcribe_recording",

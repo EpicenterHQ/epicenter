@@ -8,6 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use log::error;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
@@ -33,20 +34,16 @@ pub fn stage_capture(
     app: &AppHandle,
     samples: &[f32],
 ) -> Result<StagedRecordingCapture, RecorderError> {
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| RecorderError::failed(format!("resolve app data dir: {error}")))?;
+    let app_data = app.path().app_data_dir().map_err(|error| {
+        error!("Resolve recording app data directory failed: {error}");
+        RecorderError::failed("could not resolve recording storage")
+    })?;
     stage_capture_in(&app_data.join(CAPTURE_DIRECTORY), samples)
 }
 
 fn stage_capture_in(root: &Path, samples: &[f32]) -> Result<StagedRecordingCapture, RecorderError> {
-    std::fs::create_dir_all(root).map_err(|error| {
-        RecorderError::failed(format!(
-            "create recording capture directory {}: {error}",
-            root.display()
-        ))
-    })?;
+    std::fs::create_dir_all(root)
+        .map_err(|error| filesystem_error("create recording capture directory", root, error))?;
     let parent = root.parent().ok_or_else(|| {
         RecorderError::failed("recording capture directory must have an app-owned parent")
     })?;
@@ -77,12 +74,8 @@ fn stage_capture_at(
 
     let result = (|| {
         let byte_length = write_pcm_as_wav(&temporary_path, samples)?;
-        std::fs::rename(&temporary_path, &final_path).map_err(|error| {
-            RecorderError::failed(format!(
-                "finalize recording capture {}: {error}",
-                final_path.display()
-            ))
-        })?;
+        std::fs::rename(&temporary_path, &final_path)
+            .map_err(|error| filesystem_error("finalize recording capture", &final_path, error))?;
         sync_directory(root)?;
         Ok(StagedRecordingCapture {
             capture_id,
@@ -151,12 +144,7 @@ fn write_pcm_as_wav(path: &Path, samples: &[f32]) -> Result<u32, RecorderError> 
         .create_new(true)
         .write(true)
         .open(path)
-        .map_err(|error| {
-            RecorderError::failed(format!(
-                "open recording capture {}: {error}",
-                path.display()
-            ))
-        })?;
+        .map_err(|error| filesystem_error("open recording capture", path, error))?;
     let mut writer = BufWriter::new(file);
     writer.write_all(b"RIFF").map_err(io_error(path))?;
     writer
@@ -197,26 +185,30 @@ fn write_pcm_as_wav(path: &Path, samples: &[f32]) -> Result<u32, RecorderError> 
     }
     let file = writer
         .into_inner()
-        .map_err(|error| RecorderError::failed(format!("flush wav {}: {error}", path.display())))?;
+        .map_err(|error| filesystem_error("flush recording capture", path, error))?;
     file.sync_all()
-        .map_err(|error| RecorderError::failed(format!("sync wav {}: {error}", path.display())))?;
+        .map_err(|error| filesystem_error("sync recording capture", path, error))?;
     Ok(byte_length)
 }
 
 fn io_error(path: &Path) -> impl Fn(std::io::Error) -> RecorderError + '_ {
-    move |error| RecorderError::failed(format!("write wav {}: {error}", path.display()))
+    move |error| filesystem_error("write recording capture", path, error)
+}
+
+fn filesystem_error(
+    action: &'static str,
+    path: &Path,
+    error_value: impl std::fmt::Display,
+) -> RecorderError {
+    error!("{action} {} failed: {error_value}", path.display());
+    RecorderError::failed(format!("{action} failed"))
 }
 
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<(), RecorderError> {
     File::open(path)
         .and_then(|directory| directory.sync_all())
-        .map_err(|error| {
-            RecorderError::failed(format!(
-                "sync recording capture directory {}: {error}",
-                path.display()
-            ))
-        })
+        .map_err(|error| filesystem_error("sync recording capture directory", path, error))
 }
 
 #[cfg(not(unix))]
@@ -267,5 +259,18 @@ mod tests {
 
         assert_eq!(path.parent(), Some(root.as_path()));
         assert!(path.is_file());
+    }
+
+    #[test]
+    fn filesystem_errors_do_not_expose_native_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join(CAPTURE_DIRECTORY);
+        std::fs::create_dir(&root).unwrap();
+        let temporary_path = root.join(format!(".{VALID_CAPTURE_ID}.tmp"));
+        std::fs::create_dir(&temporary_path).unwrap();
+
+        let error = stage_capture_at(&root, VALID_CAPTURE_ID.to_string(), &[0.0]).unwrap_err();
+        assert!(!error.to_string().contains(&root.display().to_string()));
+        assert_eq!(error.to_string(), "open recording capture failed");
     }
 }

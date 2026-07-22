@@ -70,6 +70,22 @@ type _StopRecording = Expect<
 	>
 >;
 
+// Admission acknowledgement is exact and idempotent at the native boundary.
+// It runs only after the Bun owner has committed the record and blob together.
+type _AcknowledgeRecordingCapture = Expect<
+	Equal<
+		ReturnType<typeof commands.acknowledgeRecordingCapture>,
+		Promise<Result<null, IpcRecorderError>>
+	>
+>;
+
+type _AcknowledgeRecordingCaptureArgs = Expect<
+	Equal<
+		Parameters<typeof commands.acknowledgeRecordingCapture>,
+		[string, string]
+	>
+>;
+
 // pause_playback / resume_playback: infallible across IPC. A platform failure
 // is logged in Rust and never surfaces as an error the frontend must handle, so
 // these stay plain Promises with no Result wrap.

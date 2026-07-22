@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::resample_mono;
+use crate::recorder::capture::StagedRecordingCapture;
 use crate::recorder::error::RecorderError;
 
 /// Recorder result type. Errors cross the IPC boundary as the internally
@@ -72,9 +73,26 @@ pub struct Recorder {
     cmd_tx: Option<mpsc::Sender<RecorderCmd>>,
     worker_handle: Option<JoinHandle<()>>,
     is_recording: Arc<AtomicBool>,
-    /// Id passed in at `init_session`. Surfaced by `get_current_recording_id`
-    /// so a reloaded webview can reattach to the still-live Rust session.
-    current_recording_id: Option<String>,
+    lifecycle: RecordingLifecycle,
+}
+
+#[derive(Debug, Default)]
+enum RecordingLifecycle {
+    #[default]
+    Idle,
+    Live {
+        session_id: String,
+    },
+    StoppedPending {
+        session_id: String,
+        capture: StagedRecordingCapture,
+    },
+    /// Retain the last exact acknowledgement until the next session starts so
+    /// an IPC retry after a lost acknowledgement response remains idempotent.
+    Acknowledged {
+        session_id: String,
+        capture_id: String,
+    },
 }
 
 impl Recorder {
@@ -83,7 +101,7 @@ impl Recorder {
             cmd_tx: None,
             worker_handle: None,
             is_recording: Arc::new(AtomicBool::new(false)),
-            current_recording_id: None,
+            lifecycle: RecordingLifecycle::Idle,
         }
     }
 
@@ -169,7 +187,9 @@ impl Recorder {
 
         self.cmd_tx = Some(cmd_tx);
         self.worker_handle = Some(worker_handle);
-        self.current_recording_id = Some(recording_id);
+        self.lifecycle = RecordingLifecycle::Live {
+            session_id: recording_id,
+        };
 
         info!(
             "Recording session initialized: {} Hz, {} channels",
@@ -210,6 +230,11 @@ impl Recorder {
 
     /// Cancel the active recording, discarding any in-flight samples.
     pub fn cancel_recording(&mut self) -> Result<()> {
+        if matches!(self.lifecycle, RecordingLifecycle::StoppedPending { .. }) {
+            return Err(RecorderError::failed(
+                "the stopped recording must be admitted before it can be discarded",
+            ));
+        }
         if let Some(tx) = &self.cmd_tx {
             let (reply_tx, reply_rx) = mpsc::channel();
             let _ = tx.send(RecorderCmd::Cancel(reply_tx));
@@ -219,27 +244,95 @@ impl Recorder {
         Ok(())
     }
 
-    /// Tear down the session: shut down the worker, join the thread.
-    pub fn close_session(&mut self) -> Result<()> {
+    fn close_worker(&mut self) {
         if let Some(tx) = self.cmd_tx.take() {
             let _ = tx.send(RecorderCmd::Shutdown);
         }
         if let Some(handle) = self.worker_handle.take() {
             let _ = handle.join();
         }
-        self.current_recording_id = None;
+    }
+
+    /// Tear down a live or failed session. A stopped-pending capture is a
+    /// durable user result and cannot be erased by a generic close request.
+    pub fn close_session(&mut self) -> Result<()> {
+        if matches!(self.lifecycle, RecordingLifecycle::StoppedPending { .. }) {
+            return Err(RecorderError::failed(
+                "the stopped recording is awaiting record admission",
+            ));
+        }
+        self.close_worker();
+        if !matches!(self.lifecycle, RecordingLifecycle::Acknowledged { .. }) {
+            self.lifecycle = RecordingLifecycle::Idle;
+        }
         debug!("Recording session closed");
         Ok(())
     }
 
-    /// Recording id of the active session, if any. Surfaced for the JS
-    /// reload-reattach path: only returns while the recorder is actively
-    /// capturing, so a stopped-but-not-closed session does not look live.
+    /// Recording id of the recoverable session, if any. A staged capture keeps
+    /// the session discoverable until JS admits it and closes the session.
     pub fn get_current_recording_id(&self) -> Option<String> {
-        if self.is_recording.load(Ordering::Acquire) {
-            self.current_recording_id.clone()
-        } else {
-            None
+        match &self.lifecycle {
+            RecordingLifecycle::Live { session_id }
+                if self.is_recording.load(Ordering::Acquire) =>
+            {
+                Some(session_id.clone())
+            }
+            RecordingLifecycle::StoppedPending { session_id, .. } => Some(session_id.clone()),
+            RecordingLifecycle::Idle
+            | RecordingLifecycle::Live { .. }
+            | RecordingLifecycle::Acknowledged { .. } => None,
+        }
+    }
+
+    /// Previously staged result for an idempotent repeated stop.
+    pub fn completed_capture(&self) -> Option<StagedRecordingCapture> {
+        match &self.lifecycle {
+            RecordingLifecycle::StoppedPending { capture, .. } => Some(capture.clone()),
+            _ => None,
+        }
+    }
+
+    /// Retain the durable result until the record owner admits it.
+    pub fn remember_completed_capture(&mut self, capture: StagedRecordingCapture) -> Result<()> {
+        let RecordingLifecycle::Live { session_id } = &self.lifecycle else {
+            return Err(RecorderError::failed(
+                "recording lifecycle changed before capture staging completed",
+            ));
+        };
+        self.lifecycle = RecordingLifecycle::StoppedPending {
+            session_id: session_id.clone(),
+            capture,
+        };
+        // Stop makes the worker exit. Join it now without clearing the durable
+        // pending coordinate that a WebView reload may still need.
+        self.close_worker();
+        Ok(())
+    }
+
+    /// Clear a pending coordinate only after exact record admission. Repeating
+    /// the same acknowledgement is safe when its first IPC response was lost.
+    pub fn acknowledge_capture(&mut self, session_id: &str, capture_id: &str) -> Result<()> {
+        match &self.lifecycle {
+            RecordingLifecycle::StoppedPending {
+                session_id: pending_session_id,
+                capture,
+            } if pending_session_id == session_id && capture.capture_id == capture_id => {
+                self.lifecycle = RecordingLifecycle::Acknowledged {
+                    session_id: session_id.to_string(),
+                    capture_id: capture_id.to_string(),
+                };
+                Ok(())
+            }
+            RecordingLifecycle::Acknowledged {
+                session_id: acknowledged_session_id,
+                capture_id: acknowledged_capture_id,
+            } if acknowledged_session_id == session_id && acknowledged_capture_id == capture_id => {
+                Ok(())
+            }
+            _ => Err(RecorderError::failed(
+                "recording capture acknowledgement did not match the pending capture",
+            )),
         }
     }
 
@@ -247,13 +340,84 @@ impl Recorder {
     /// to address the blob write after the worker has already flipped
     /// the recording flag down.
     pub fn session_id(&self) -> Option<String> {
-        self.current_recording_id.clone()
+        match &self.lifecycle {
+            RecordingLifecycle::Live { session_id }
+            | RecordingLifecycle::StoppedPending { session_id, .. } => Some(session_id.clone()),
+            RecordingLifecycle::Idle | RecordingLifecycle::Acknowledged { .. } => None,
+        }
     }
 }
 
 impl Drop for Recorder {
     fn drop(&mut self) {
-        let _ = self.close_session();
+        self.close_worker();
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn staged_capture_keeps_session_recoverable_until_close() {
+        let mut recorder = Recorder::new();
+        recorder.lifecycle = RecordingLifecycle::Live {
+            session_id: "session-1".to_string(),
+        };
+        assert_eq!(recorder.get_current_recording_id(), None);
+
+        let capture = StagedRecordingCapture {
+            capture_id: "capture_0123456789abcdef0123456789abcdef".to_string(),
+            byte_length: 48,
+        };
+        recorder
+            .remember_completed_capture(capture.clone())
+            .unwrap();
+
+        assert_eq!(
+            recorder.get_current_recording_id().as_deref(),
+            Some("session-1")
+        );
+        assert_eq!(recorder.completed_capture(), Some(capture.clone()));
+        // The command's repeated-stop fast path reads this exact coordinate.
+        assert_eq!(recorder.completed_capture(), Some(capture.clone()));
+
+        assert!(recorder.close_session().is_err());
+        assert_eq!(recorder.completed_capture(), Some(capture.clone()));
+
+        recorder
+            .acknowledge_capture("session-1", &capture.capture_id)
+            .unwrap();
+        recorder
+            .acknowledge_capture("session-1", &capture.capture_id)
+            .unwrap();
+        assert_eq!(recorder.get_current_recording_id(), None);
+        assert_eq!(recorder.completed_capture(), None);
+    }
+
+    #[test]
+    fn wrong_acknowledgement_cancel_and_close_cannot_discard_pending_capture() {
+        let mut recorder = Recorder::new();
+        recorder.lifecycle = RecordingLifecycle::Live {
+            session_id: "session-1".to_string(),
+        };
+        let capture = StagedRecordingCapture {
+            capture_id: "capture_0123456789abcdef0123456789abcdef".to_string(),
+            byte_length: 48,
+        };
+        recorder
+            .remember_completed_capture(capture.clone())
+            .unwrap();
+
+        assert!(recorder
+            .acknowledge_capture("session-2", &capture.capture_id)
+            .is_err());
+        assert!(recorder
+            .acknowledge_capture("session-1", "capture_ffffffffffffffffffffffffffffffff")
+            .is_err());
+        assert!(recorder.cancel_recording().is_err());
+        assert!(recorder.close_session().is_err());
+        assert_eq!(recorder.completed_capture(), Some(capture));
     }
 }
 

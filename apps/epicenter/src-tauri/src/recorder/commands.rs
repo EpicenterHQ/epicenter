@@ -1,10 +1,10 @@
 use crate::recorder::capture::{stage_capture, StagedRecordingCapture};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{Recorder, Result};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const RECORDER_STATE_CHANGED: &str = "recorder:state-changed";
 
@@ -91,26 +91,41 @@ pub async fn start_recording(
 /// filesystem path. The staged artifact remains until the Bun owner admits it.
 #[tauri::command]
 #[specta::specta]
-pub async fn stop_recording(
-    recorder: State<'_, Mutex<Recorder>>,
-    app_handle: AppHandle,
-) -> Result<StagedRecordingCapture> {
+pub async fn stop_recording(app_handle: AppHandle) -> Result<StagedRecordingCapture> {
     info!("Stopping recording");
-    let samples = {
-        let mut recorder = recorder
-            .lock()
-            .map_err(|e| RecorderError::failed(format!("Failed to lock recorder: {e}")))?;
+    let operation_app = app_handle.clone();
+    let capture_result = tauri::async_runtime::spawn_blocking(move || {
+        // Hold the one recorder-operation lock across stop, staging, and cache
+        // publication. A concurrent/repeated stop either performs the whole
+        // transition or observes the exact completed coordinate.
+        let recorder_state = operation_app.state::<Mutex<Recorder>>();
+        let mut recorder = recorder_state.lock().map_err(|lock_error| {
+            error!("Failed to lock recorder during stop: {lock_error}");
+            RecorderError::failed("could not access the native recorder")
+        })?;
+        if let Some(capture) = recorder.completed_capture() {
+            return Ok(capture);
+        }
+
         recorder
             .session_id()
             .ok_or_else(|| RecorderError::failed("no active recording session at stop"))?;
-        recorder.stop_recording()?
-    };
-
-    let capture_result = crate::timing::measure("stop.wav_stage+fsync", || {
-        stage_capture(&app_handle, &samples)
-    });
+        let samples = recorder.stop_recording()?;
+        let capture = crate::timing::measure("stop.wav_stage+fsync", || {
+            stage_capture(&operation_app, &samples)
+        })?;
+        recorder.remember_completed_capture(capture.clone())?;
+        Ok(capture)
+    })
+    .await
+    .map_err(|join_error| {
+        error!("Native recording stop task failed: {join_error}");
+        RecorderError::failed("native recording finalization failed")
+    })?;
     // The recorder has already consumed the worker's samples and transitioned
     // out of recording. Publish that state even when durable staging fails.
+    // A repeated stop returns the retained coordinate and repeats only this
+    // harmless state notification.
     emit_recording_state(&app_handle, RecordingState::Idle);
     let capture = capture_result?;
     info!(
@@ -118,6 +133,23 @@ pub async fn stop_recording(
         capture.capture_id, capture.byte_length
     );
     Ok(capture)
+}
+
+/// Clear the stopped-pending lifecycle only after Bun has atomically admitted
+/// the capture into its record blob slot. The exact same acknowledgement may be
+/// repeated when its first IPC response was lost.
+#[tauri::command]
+#[specta::specta]
+pub async fn acknowledge_recording_capture(
+    session_id: String,
+    capture_id: String,
+    recorder: State<'_, Mutex<Recorder>>,
+) -> Result<()> {
+    let mut recorder = recorder.lock().map_err(|lock_error| {
+        error!("Failed to lock recorder during capture acknowledgement: {lock_error}");
+        RecorderError::failed("could not access the native recorder")
+    })?;
+    recorder.acknowledge_capture(&session_id, &capture_id)
 }
 
 #[tauri::command]
