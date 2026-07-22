@@ -6,6 +6,11 @@ import { sha256Hex } from '@epicenter/data/protocol/v1';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { sha256 } from '@noble/hashes/sha2.js';
 
+import {
+	decodePortableMaterializerRecordStream,
+	encodePortableMaterializerRecordFrame,
+} from './portable-record-stream-v1.js';
+
 mock.module('cloudflare:workers', () => ({
 	DurableObject: class<Env> {
 		protected ctx: DurableObjectState;
@@ -245,6 +250,37 @@ test('Cloudflare Backup owns verified blob writes and reads', async () => {
 		expect(
 			await new Response(await backup.openBlob(record.address, digest)).text(),
 		).toBe(bytes);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Cloudflare Backup imports and exports one backpressured record stream', async () => {
+	const owned = setupState();
+	try {
+		let backup = new DataBackup(owned.state, owned.env);
+		await backup.initialize(2);
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(encodePortableMaterializerRecordFrame([FIRST]));
+				controller.enqueue(encodePortableMaterializerRecordFrame([SECOND]));
+				controller.close();
+			},
+		});
+		expect(await backup.importRecords(source)).toBe(2);
+		expect(await backup.seal()).toMatchObject({
+			state: 'sealed',
+			recordCount: 2,
+		});
+
+		backup = new DataBackup(owned.state, owned.env);
+		const records: PortableArtifactRecord[] = [];
+		for await (const page of decodePortableMaterializerRecordStream(
+			await backup.openRecordStream(),
+		)) {
+			records.push(...page);
+		}
+		expect(records).toEqual([FIRST, SECOND]);
 	} finally {
 		owned.raw.close();
 	}

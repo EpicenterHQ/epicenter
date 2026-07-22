@@ -16,6 +16,10 @@ import {
 
 import { createR2BackupBlobStore } from './backup-files-r2.js';
 import { parseDataBackupName, r2DataBackupPrefix } from './backup-r2-paths.js';
+import {
+	decodePortableMaterializerRecordStream,
+	encodePortableMaterializerRecordFrame,
+} from './portable-record-stream-v1.js';
 
 export {
 	dataBackupV1Name,
@@ -144,6 +148,23 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 		});
 	}
 
+	/** Import one backpressured sequence of bounded record pages. */
+	importRecords(bytes: ReadableStream<Uint8Array>): Promise<number> {
+		return this.exclusive(async () => {
+			await this.buildingState();
+			let imported = 0;
+			for await (const records of decodePortableMaterializerRecordStream(
+				bytes,
+			)) {
+				imported += appendPortableArtifactScratchRecords({
+					database: this.database,
+					records,
+				});
+			}
+			return imported;
+		});
+	}
+
 	/** Copy one referenced blob into this unpublished Backup. */
 	putBlob(
 		address: RecordAddress,
@@ -214,6 +235,41 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 			return readPortableArtifactIndexPage({
 				database: this.database,
 				after: rawAfter as RecordAddress | undefined,
+			});
+		});
+	}
+
+	/** Stream this sealed Backup's records without one RPC per private page. */
+	openRecordStream(): Promise<ReadableStream<Uint8Array>> {
+		return this.exclusive(async () => {
+			await this.sealedState();
+			const database = this.database;
+			let after: RecordAddress | undefined;
+			let done = false;
+			return new ReadableStream<Uint8Array>({
+				pull(controller) {
+					if (done) return;
+					try {
+						const page = readPortableArtifactIndexPage({ database, after });
+						if (page.records.length === 0) {
+							done = true;
+							controller.close();
+							return;
+						}
+						controller.enqueue(
+							encodePortableMaterializerRecordFrame(page.records),
+						);
+						if (page.nextAfter === undefined) {
+							done = true;
+							controller.close();
+						} else {
+							after = page.nextAfter;
+						}
+					} catch (cause) {
+						done = true;
+						controller.error(cause);
+					}
+				},
 			});
 		});
 	}
