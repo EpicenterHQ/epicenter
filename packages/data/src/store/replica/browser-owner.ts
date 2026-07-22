@@ -15,6 +15,7 @@ import type { LensDefinition } from '../../lens.js';
 import type { ValidatedLimits } from '../../protocol/v1/index.js';
 import { createReplicaBlobStore } from './blob-store.js';
 import { createBrowserOpfsBlobFileStore } from './browser-opfs-blob-files.js';
+import { createBrowserReplicaOwnerLifetime } from './browser-owner-lifetime.js';
 import { openReplicaStore } from './replica-store.js';
 
 const DEFAULT_DATABASE_FILENAME = '/epicenter-data-v1.sqlite3';
@@ -156,24 +157,48 @@ export async function openBrowserReplicaOwner({
 	let pool: SAHPoolUtil | undefined;
 	let database: Database | undefined;
 	let ownerGeneration: number | undefined;
-	let isDisposed = false;
+	const lifetime = createBrowserReplicaOwnerLifetime({
+		closeDatabase() {
+			const opened = database;
+			database = undefined;
+			opened?.close();
+		},
+		pauseVfs() {
+			const opened = pool;
+			pool = undefined;
+			opened?.pauseVfs();
+		},
+		async releaseLease() {
+			const held = lease;
+			lease = undefined;
+			await held?.release();
+		},
+	});
 	try {
 		lease = await acquireBrowserStorageLease(navigator.locks, {
-			...(onStolen === undefined ? {} : { onStolen }),
+			onStolen() {
+				lifetime.ownerLost();
+				onStolen?.();
+			},
 			...(signal === undefined ? {} : { signal }),
 		});
+		lifetime.requireOpening();
 		ownerGeneration = await incrementOwnerGeneration();
+		lifetime.requireOpening();
 		signal?.throwIfAborted();
 		const sqlite = await sqlite3InitModule();
+		lifetime.requireOpening();
 		pool = await sqlite.installOpfsSAHPoolVfs({
 			name: poolName,
 			directory: poolDirectory,
 		});
+		lifetime.requireOpening();
 		const openedPool = pool;
 		sweepSnapshotDebris(openedPool);
 		database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 		configureDatabase(database);
 		const files = await createBrowserOpfsBlobFileStore();
+		lifetime.requireOpening();
 		let openedStores = createStores(database, limits, files, initialize);
 		const invalidationListeners = new Set<() => void>();
 		let stopRecords: (() => void) | undefined;
@@ -195,29 +220,30 @@ export async function openBrowserReplicaOwner({
 		}
 		bindInvalidationSources();
 		await openedStores.blobs.reopenSweep();
+		lifetime.activate();
 
 		return {
 			get ownerGeneration() {
-				if (isDisposed || ownerGeneration === undefined) {
-					throw new Error('browser replica owner is disposed');
-				}
+				lifetime.requireActive();
+				if (ownerGeneration === undefined)
+					throw new Error('browser replica owner generation is unavailable');
 				return ownerGeneration;
 			},
 			get store() {
-				if (isDisposed) throw new Error('browser replica owner is disposed');
+				lifetime.requireActive();
 				return openedStores.store;
 			},
 			get blobs() {
-				if (isDisposed) throw new Error('browser replica owner is disposed');
+				lifetime.requireActive();
 				return openedStores.blobs;
 			},
 			subscribeInvalidation(listener: () => void): () => void {
-				if (isDisposed) throw new Error('browser replica owner is disposed');
+				lifetime.requireActive();
 				invalidationListeners.add(listener);
 				return () => invalidationListeners.delete(listener);
 			},
 			integrityCheck(): void {
-				if (isDisposed) throw new Error('browser replica owner is disposed');
+				lifetime.requireActive();
 				const adapter = createBrowserSqliteAdapter(
 					database as unknown as BrowserSqliteDatabase,
 				);
@@ -227,7 +253,7 @@ export async function openBrowserReplicaOwner({
 				}
 			},
 			async captureSnapshot({ lens }: { lens?: LensDefinition } = {}) {
-				if (isDisposed) throw new Error('browser replica owner is disposed');
+				lifetime.requireActive();
 				const filename = `/epicenter-snapshot-${crypto.randomUUID()}.sqlite3`;
 				let artifactDatabase: Database | undefined;
 				const cleanup = (initialFailure?: unknown) =>
@@ -269,35 +295,27 @@ export async function openBrowserReplicaOwner({
 				};
 			},
 			async reopen(): Promise<void> {
-				if (isDisposed) throw new Error('browser replica owner is disposed');
+				lifetime.requireActive();
 				database?.close();
 				database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 				configureDatabase(database);
 				openedStores = createStores(database, limits, files);
 				bindInvalidationSources();
 				await openedStores.blobs.reopenSweep();
+				lifetime.requireActive();
 			},
 			async dispose(): Promise<void> {
-				if (isDisposed) return;
-				isDisposed = true;
 				stopRecords?.();
 				stopRecords = undefined;
 				stopBlobs?.();
 				stopBlobs = undefined;
 				invalidationListeners.clear();
-				await settleCleanup(
-					[
-						() => database?.close(),
-						() => pool?.pauseVfs(),
-						() => lease?.release(),
-					],
-					'Browser replica owner cleanup failed',
-				);
+				await lifetime.dispose();
 			},
 		};
 	} catch (cause) {
 		await settleCleanup(
-			[() => database?.close(), () => pool?.pauseVfs(), () => lease?.release()],
+			[lifetime.dispose],
 			'Browser replica owner opening and cleanup failed',
 			cause,
 		);
