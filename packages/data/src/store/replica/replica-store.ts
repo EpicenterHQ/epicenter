@@ -250,6 +250,7 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 				parked_limit = NULL,
 				blob_sha256 = NULL,
 				blob_pending = 0,
+				blob_parked_code = NULL,
 				doc_revision = 0,
 				doc_dirty = 0
 			WHERE ${TRIPLE_WHERE}`,
@@ -449,6 +450,7 @@ export function openReplicaStore({
 			if (outcome.operation.op === 'tombstone') {
 				database.run(
 					`UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
+						blob_parked_code = NULL,
 						doc_revision = 0, doc_dirty = 0
 					WHERE ${TRIPLE_WHERE}`,
 					tripleParams(intent.address),

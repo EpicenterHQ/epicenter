@@ -71,6 +71,7 @@ const SCHEMA = [
 		doc_dirty           INTEGER NOT NULL DEFAULT 0 CHECK (doc_dirty IN (0, 1)),
 		blob_sha256         TEXT,
 		blob_pending        INTEGER NOT NULL DEFAULT 0 CHECK (blob_pending IN (0, 1)),
+		blob_parked_code    TEXT,
 
 		CHECK ((confirmed_state IS NULL AND confirmed_payload IS NULL
 				AND confirmed_sequence IS NULL)
@@ -101,6 +102,8 @@ const SCHEMA = [
 		CHECK (blob_sha256 IS NULL OR
 			(length(blob_sha256) = 64 AND blob_sha256 NOT GLOB '*[^a-f0-9]*')),
 		CHECK (blob_pending = 0 OR blob_sha256 IS NOT NULL),
+		CHECK (blob_parked_code IS NULL OR
+			(blob_pending = 1 AND blob_parked_code IN ('blob-conflict', 'record-not-live'))),
 		CHECK (confirmed_state IS NOT NULL OR pending_op IS NOT NULL
 			OR sealed_op IS NOT NULL OR parked_op IS NOT NULL)
 	) STRICT`,
