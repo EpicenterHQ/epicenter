@@ -1,6 +1,7 @@
 import * as Y from '@y/y';
 import type { RowDocument } from './documents.js';
 import type { RecordAddress } from './protocol/v1/index.js';
+import { registerRecordDocumentConnectionTarget } from './record-document-connection.js';
 import type { ReplicaStore } from './store/replica/index.js';
 
 const hydrationOrigin = Symbol('epicenter-record-document-hydration');
@@ -17,7 +18,9 @@ type DocumentEntry = {
 	address: RecordAddress;
 	document: LiveDocument;
 	references: number;
+	acceptedUpdateDepth: number;
 	revoked?: Error;
+	revocationListeners: Set<(error: Error) => void>;
 	stopPersistence(): void;
 };
 
@@ -52,11 +55,26 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 		entry.document.destroy();
 	}
 
+	function notifyRevocation(entry: DocumentEntry): void {
+		if (entry.revoked === undefined) return;
+		for (const listener of entry.revocationListeners) {
+			try {
+				listener(entry.revoked);
+			} catch {
+				// A subscriber cannot interrupt terminal document cleanup.
+			}
+		}
+		entry.revocationListeners.clear();
+	}
+
 	function createEntry(address: RecordAddress): DocumentEntry {
 		requireLive(address);
 		const document = new Y.Doc({ gc: true }) as LiveDocument;
+		let entry: DocumentEntry | undefined;
 		const persist = (update: Uint8Array, origin: unknown) => {
-			if (origin === hydrationOrigin) return;
+			if (origin === hydrationOrigin || (entry?.acceptedUpdateDepth ?? 0) > 0) {
+				return;
+			}
 			replica.appendLocalDocumentUpdate(address, new Uint8Array(update));
 		};
 		document.on('updateV2', persist);
@@ -66,10 +84,12 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 				Y.applyUpdateV2(document, stored, hydrationOrigin);
 			}
 			requireLive(address);
-			const entry: DocumentEntry = {
+			entry = {
 				address: structuredClone(address),
 				document,
 				references: 0,
+				acceptedUpdateDepth: 0,
+				revocationListeners: new Set(),
 				stopPersistence() {
 					document.off('updateV2', persist);
 				},
@@ -88,6 +108,22 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 		return entries.get(addressKey(address)) ?? createEntry(address);
 	}
 
+	function installAccepted(
+		address: RecordAddress,
+		update: Uint8Array,
+		origin: unknown,
+	): void {
+		replica.installAcceptedDocumentUpdate(address, update);
+		const entry = entries.get(addressKey(address));
+		if (entry === undefined) return;
+		entry.acceptedUpdateDepth += 1;
+		try {
+			Y.applyUpdateV2(entry.document, new Uint8Array(update), origin);
+		} finally {
+			entry.acceptedUpdateDepth -= 1;
+		}
+	}
+
 	function createHandle(entry: DocumentEntry): RowDocument {
 		let isHandleDisposed = false;
 		entry.references += 1;
@@ -97,7 +133,7 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 			if (entry.revoked !== undefined) throw entry.revoked;
 		}
 
-		return {
+		const handle: RowDocument = {
 			get: ((...args: Parameters<Y.Doc['get']>) => {
 				requireUsable();
 				return entry.document.get(...args);
@@ -121,6 +157,34 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 				}
 			},
 		};
+		registerRecordDocumentConnectionTarget(handle, {
+			address: structuredClone(entry.address),
+			applyUpdate(update, origin) {
+				requireUsable();
+				installAccepted(entry.address, update, origin);
+			},
+			encodeStateVector() {
+				requireUsable();
+				return new Uint8Array(Y.encodeStateVector(entry.document));
+			},
+			encodeStateAsUpdate(stateVector) {
+				requireUsable();
+				return new Uint8Array(
+					Y.encodeStateAsUpdateV2(entry.document, stateVector),
+				);
+			},
+			observe(listener) {
+				requireUsable();
+				entry.document.on('updateV2', listener);
+				return () => entry.document.off('updateV2', listener);
+			},
+			subscribeRevocation(listener) {
+				requireUsable();
+				entry.revocationListeners.add(listener);
+				return () => entry.revocationListeners.delete(listener);
+			},
+		});
+		return handle;
 	}
 
 	function revoke(address: RecordAddress): void {
@@ -129,6 +193,7 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 		entry.revoked = new Error(
 			`Row document was revoked because '${address.namespace}/${address.collection}/${address.recordKey}' is no longer live`,
 		);
+		notifyRevocation(entry);
 		destroyEntry(entry);
 	}
 
@@ -137,15 +202,7 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 			return createHandle(entryFor(structuredClone(address)));
 		},
 		installAccepted(address: RecordAddress, update: Uint8Array): void {
-			replica.installAcceptedDocumentUpdate(address, update);
-			const entry = entries.get(addressKey(address));
-			if (entry !== undefined) {
-				Y.applyUpdateV2(
-					entry.document,
-					new Uint8Array(update),
-					hydrationOrigin,
-				);
-			}
+			installAccepted(address, update, hydrationOrigin);
 		},
 		revoke,
 		async [Symbol.asyncDispose](): Promise<void> {
@@ -153,6 +210,7 @@ export function createRecordDocumentRuntime(replica: ReplicaStore) {
 			isDisposed = true;
 			for (const entry of [...entries.values()]) {
 				entry.revoked = new Error('Epicenter document runtime is disposed');
+				notifyRevocation(entry);
 				destroyEntry(entry);
 			}
 		},

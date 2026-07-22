@@ -26,6 +26,10 @@ export type {
 	RecordAddress,
 } from './protocol/v1/index.js';
 export {
+	type RecordDocumentConnectionTarget,
+	recordDocumentConnectionTarget,
+} from './record-document-connection.js';
+export {
 	type BoundLens,
 	type BoundLenses,
 	type CreateRecordEpicenterOptions,
@@ -55,3 +59,4 @@ export type {
 	ReplicaParkedWorkPage,
 	ReplicaWorkSummary,
 } from './store/replica/index.js';
+export type { SyncCredentialProvider } from './sync-supervisor.js';

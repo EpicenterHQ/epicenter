@@ -17,9 +17,11 @@
 	},
 	"dependencies": {
 		"@epicenter/data": "workspace:*",
+		"@epicenter/sync": "workspace:*",
 		"@y/y": "14.0.0-rc.24"
 	},
 	"devDependencies": {
+		"@epicenter/field": "workspace:*",
 		"@types/bun": "catalog:",
 		"typescript": "catalog:"
 	}

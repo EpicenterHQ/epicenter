@@ -19,3 +19,9 @@ export {
 	measureDocumentState,
 	parseDocumentRoute,
 } from './protocol.js';
+export {
+	connectRecordDocument,
+	type RecordDocumentClientSocket,
+	type RecordDocumentConnectionStatus,
+	recordDocumentWebSocketUrl,
+} from './record-client.js';
