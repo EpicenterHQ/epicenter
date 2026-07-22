@@ -151,15 +151,16 @@
 			"localConnectionString": "postgres://postgres:postgres@localhost:5432/epicenter"
 		}
 	],
-	// --- R2: NO bindings ---
-	// This Worker names no `r2_buckets` binding. The opaque-id blob store
-	// (large media: video archive, files routinely >100 MB, sometimes multi-GB)
-	// talks plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
-	// same code runs on this Worker against R2 and in a self-hosted Node binary
-	// against Garage/S3 with no Workers-only R2 binding. Create its bucket
-	// with: bunx wrangler r2 bucket create epicenter-blobs
-	// See packages/server/src/s3-blob-store.ts. (The legacy asset route and its
-	// `epicenter-assets` bucket binding were retired into this store.)
+	// --- R2 ---
+	// DATA_BLOBS stores record-owned blobs for the DataAuthority. The existing
+	// opaque-id blob store still uses the portable S3 API and its BLOBS_S3_*
+	// secrets. Both can share this bucket because their key spaces are disjoint.
+	"r2_buckets": [
+		{
+			"binding": "DATA_BLOBS",
+			"bucket_name": "epicenter-blobs"
+		}
+	],
 	//
 	// Smart Placement: Run your Worker close to your database for lower latency
 	"placement": {

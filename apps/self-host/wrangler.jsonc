@@ -71,11 +71,20 @@
 			"new_sqlite_classes": ["DataAuthority"],
 			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
 		}
+	],
+
+	// Record-owned blobs live beside the principal DataAuthority. This binding
+	// is only for the Cloudflare deployment; the Bun deployment uses native files.
+	"r2_buckets": [
+		{
+			"binding": "DATA_BLOBS",
+			"bucket_name": "epicenter-blobs"
+		}
 	]
 
 	// No Hyperdrive binding: the instance composes no Postgres (no Better Auth or
 	// telemetry). ROOM, EPICENTER_SYNC (legacy caller path until W4B), and
-	// DATA_AUTHORITY are its complete durable substrate
+	// DATA_AUTHORITY and DATA_BLOBS are its complete durable substrate
 	// (ADR-0075). No workspace catalog exists: the authority derives from the
 	// principal alone (ADR-0092, ADR-0145).
 }
