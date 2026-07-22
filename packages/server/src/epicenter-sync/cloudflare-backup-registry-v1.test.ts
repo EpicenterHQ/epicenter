@@ -15,6 +15,8 @@ import { beforeAll, expect, mock, test } from 'bun:test';
 
 import { asPrincipalId } from '@epicenter/identity';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 mock.module('cloudflare:workers', () => ({
 	DurableObject: class<Env> {
@@ -43,6 +45,36 @@ beforeAll(async () => {
 const PRINCIPAL_NAME = 'principal%40example.com';
 const OWNER_STORAGE_KEY = 'authority-storage-key';
 const RESTORE_REQUEST_ID = 'r'.repeat(24);
+const UPLOAD_REQUEST_ID = 'u'.repeat(24);
+
+async function streamBytes(
+	stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
+	const chunks: Uint8Array[] = [];
+	let byteLength = 0;
+	const reader = stream.getReader();
+	for (;;) {
+		const chunk = await reader.read();
+		if (chunk.done) break;
+		chunks.push(chunk.value);
+		byteLength += chunk.value.byteLength;
+	}
+	const bytes = new Uint8Array(byteLength);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
+}
+
+function byteStream(value: string): ReadableStream<Uint8Array> {
+	return new Blob([value]).stream();
+}
+
+function digestOf(value: string): string {
+	return bytesToHex(sha256(new TextEncoder().encode(value)));
+}
 
 type BackupStatus =
 	| { state: 'empty' }
@@ -72,6 +104,7 @@ function setupState({
 	},
 	currentAuthorityLifetime = async () => 'outgoing-lifetime',
 	destroy,
+	materialize,
 	raw = new Database(':memory:', { strict: true }),
 	restoreBackup = async (_backupId: string, successorLifetime: string) => ({
 		authorityLifetime: successorLifetime,
@@ -82,6 +115,11 @@ function setupState({
 	capture?: (backupId: string) => Promise<{ recordCount: number }>;
 	currentAuthorityLifetime?: () => Promise<string>;
 	destroy?: (backupId: string) => Promise<void>;
+	materialize?: (input: {
+		ownerStorageKey: string;
+		backupId: string;
+		bytes: ReadableStream<Uint8Array>;
+	}) => Promise<{ recordCount: number }>;
 	raw?: Database;
 	restoreBackup?: (
 		backupId: string,
@@ -92,7 +130,9 @@ function setupState({
 	const destroyed: string[] = [];
 	const backupNames: string[] = [];
 	const r2Keys = new Set<string>();
+	const r2Objects = new Map<string, { bytes: Uint8Array; sha256: string }>();
 	const deletedR2Keys: string[] = [];
+	const materializations: Array<{ backupId: string; bytes: Uint8Array }> = [];
 	let insideConcurrencyBlock = false;
 	const storage = {
 		sql: {
@@ -172,8 +212,72 @@ function setupState({
 			async delete(keys: string | string[]) {
 				for (const key of typeof keys === 'string' ? [keys] : keys) {
 					r2Keys.delete(key);
+					r2Objects.delete(key);
 					deletedR2Keys.push(key);
 				}
+			},
+			async put(
+				key: string,
+				body: ReadableStream<Uint8Array>,
+				options?: { sha256?: string },
+			) {
+				const bytes = await streamBytes(body);
+				const digest = bytesToHex(sha256(bytes));
+				if (options?.sha256 !== undefined && options.sha256 !== digest) {
+					return null;
+				}
+				r2Keys.add(key);
+				r2Objects.set(key, { bytes, sha256: digest });
+				return {
+					key,
+					size: bytes.byteLength,
+					checksums: { sha256: Uint8Array.from(sha256(bytes)).buffer },
+				} as R2Object;
+			},
+			async head(key: string) {
+				const object = r2Objects.get(key);
+				return object === undefined
+					? null
+					: ({
+							key,
+							size: object.bytes.byteLength,
+							checksums: {
+								sha256: Uint8Array.from(sha256(object.bytes)).buffer,
+							},
+						} as R2Object);
+			},
+			async get(key: string) {
+				const object = r2Objects.get(key);
+				return object === undefined
+					? null
+					: ({
+							key,
+							size: object.bytes.byteLength,
+							checksums: {
+								sha256: Uint8Array.from(sha256(object.bytes)).buffer,
+							},
+							body: new Blob([new Uint8Array(object.bytes)]).stream(),
+						} as R2ObjectBody);
+			},
+		},
+		PORTABLE_MATERIALIZER: {
+			getByName() {
+				return {
+					async materializeUpload(input: {
+						ownerStorageKey: string;
+						backupId: string;
+						bytes: ReadableStream<Uint8Array>;
+					}) {
+						if (materialize !== undefined) return materialize(input);
+						const bytes = await streamBytes(input.bytes);
+						materializations.push({ backupId: input.backupId, bytes });
+						statuses.set(input.backupId, {
+							state: 'sealed',
+							recordCount: 0,
+						});
+						return { recordCount: 0 };
+					},
+				};
 			},
 		},
 	} as unknown as ConstructorParameters<typeof DataBackupRegistry>[1];
@@ -185,7 +289,9 @@ function setupState({
 		destroyed,
 		backupNames,
 		r2Keys,
+		r2Objects,
 		deletedR2Keys,
+		materializations,
 		get insideConcurrencyBlock() {
 			return insideConcurrencyBlock;
 		},
@@ -443,6 +549,305 @@ test('definitive Restore failure releases the durable active slot', async () => 
 	}
 });
 
+test('portable upload creation is durable and validates its request ID', async () => {
+	const owned = setupState();
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const first = await registry.createUpload(UPLOAD_REQUEST_ID);
+		expect(first).toMatchObject({
+			requestId: UPLOAD_REQUEST_ID,
+			state: 'uploading',
+		});
+		expect(first.backupId).toHaveLength(24);
+		expect(await registry.createUpload(UPLOAD_REQUEST_ID)).toEqual(first);
+		expect(() => registry.createUpload('short')).toThrow(
+			'24 lowercase alphanumeric',
+		);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('portable upload parts are immutable and verify R2 size and checksum', async () => {
+	const owned = setupState();
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			5,
+			digestOf('first'),
+			byteStream('first'),
+		);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			5,
+			digestOf('first'),
+			byteStream('unused retry'),
+		);
+		await expect(
+			registry.putUploadPart(
+				UPLOAD_REQUEST_ID,
+				1,
+				6,
+				digestOf('second'),
+				byteStream('second'),
+			),
+		).rejects.toThrow('conflicts with its first write');
+		await expect(
+			registry.putUploadPart(
+				UPLOAD_REQUEST_ID,
+				2,
+				4,
+				digestOf('wrong'),
+				byteStream('bytes'),
+			),
+		).rejects.toThrow('do not match their metadata');
+		expect(
+			owned.raw
+				.query('SELECT part_number FROM backup_registry_upload_parts')
+				.all(),
+		).toEqual([{ part_number: 1 }]);
+		expect(() =>
+			registry.putUploadPart(
+				UPLOAD_REQUEST_ID,
+				513,
+				1,
+				digestOf('x'),
+				byteStream('x'),
+			),
+		).toThrow('between 1 and 512');
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('portable upload concatenates contiguous parts and publishes once', async () => {
+	const owned = setupState();
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const upload = await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			3,
+			digestOf('one'),
+			byteStream('one'),
+		);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			2,
+			3,
+			digestOf('two'),
+			byteStream('two'),
+		);
+		await expect(
+			registry.completeUpload(UPLOAD_REQUEST_ID, [1, 3]),
+		).rejects.toThrow('contiguous sequence');
+
+		const completed = await registry.completeUpload(UPLOAD_REQUEST_ID, [1, 2]);
+		expect(completed).toEqual({ backupId: upload.backupId, recordCount: 0 });
+		expect(new TextDecoder().decode(owned.materializations[0]?.bytes)).toBe(
+			'onetwo',
+		);
+		expect(await registry.list()).toEqual([completed]);
+		expect(
+			owned.raw.query('SELECT * FROM backup_registry_upload_parts').all(),
+		).toEqual([]);
+		expect(await registry.completeUpload(UPLOAD_REQUEST_ID, [1, 2])).toEqual(
+			completed,
+		);
+		expect(owned.materializations).toHaveLength(1);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('partial portable materialization resets to uploaded and retries without re-upload', async () => {
+	const statuses = new Map<string, BackupStatus>();
+	let attempts = 0;
+	const owned = setupState({
+		statuses,
+		async materialize(input) {
+			await streamBytes(input.bytes);
+			attempts += 1;
+			if (attempts === 1) {
+				statuses.set(input.backupId, {
+					state: 'building',
+					expectedRecordCount: 2,
+				});
+				throw new Error('materializer crashed');
+			}
+			statuses.set(input.backupId, { state: 'sealed', recordCount: 2 });
+			return { recordCount: 2 };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const upload = await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			5,
+			digestOf('bytes'),
+			byteStream('bytes'),
+		);
+		await expect(
+			registry.completeUpload(UPLOAD_REQUEST_ID, [1]),
+		).rejects.toThrow('materializer crashed');
+		expect(await registry.createUpload(UPLOAD_REQUEST_ID)).toEqual({
+			...upload,
+			state: 'uploaded',
+		});
+		expect(owned.destroyed).toEqual([upload.backupId]);
+		await expect(
+			registry.putUploadPart(
+				UPLOAD_REQUEST_ID,
+				2,
+				1,
+				digestOf('x'),
+				byteStream('x'),
+			),
+		).rejects.toThrow('membership is already frozen');
+
+		expect(await registry.completeUpload(UPLOAD_REQUEST_ID, [1])).toEqual({
+			backupId: upload.backupId,
+			recordCount: 2,
+		});
+		expect(attempts).toBe(2);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('sealed portable materialization publishes after a lost response and restart', async () => {
+	const statuses = new Map<string, BackupStatus>();
+	let calls = 0;
+	const owned = setupState({
+		statuses,
+		async materialize(input) {
+			await streamBytes(input.bytes);
+			calls += 1;
+			statuses.set(input.backupId, { state: 'sealed', recordCount: 4 });
+			throw new Error('materializer response was lost');
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const upload = await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			4,
+			digestOf('data'),
+			byteStream('data'),
+		);
+		const completed = await registry.completeUpload(UPLOAD_REQUEST_ID, [1]);
+		expect(completed).toEqual({ backupId: upload.backupId, recordCount: 4 });
+		expect(calls).toBe(1);
+
+		owned.raw
+			.query(
+				`UPDATE backup_registry_uploads
+				SET state = 'materializing', record_count = NULL WHERE request_id = ?`,
+			)
+			.run(UPLOAD_REQUEST_ID);
+		const reopened = new DataBackupRegistry(owned.state, owned.env);
+		expect(await reopened.list()).toEqual([completed]);
+		expect(await reopened.completeUpload(UPLOAD_REQUEST_ID, [1])).toEqual(
+			completed,
+		);
+		expect(calls).toBe(1);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('startup destroys a partial portable materialization but keeps its upload parts', async () => {
+	const statuses = new Map<string, BackupStatus>();
+	const owned = setupState({ statuses });
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const upload = await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			5,
+			digestOf('bytes'),
+			byteStream('bytes'),
+		);
+		owned.raw
+			.query(
+				`UPDATE backup_registry_uploads
+				SET state = 'materializing', part_count = 1
+				WHERE request_id = ?`,
+			)
+			.run(UPLOAD_REQUEST_ID);
+		statuses.set(upload.backupId, {
+			state: 'building',
+			expectedRecordCount: 1,
+		});
+
+		const reopened = new DataBackupRegistry(owned.state, owned.env);
+		expect(await reopened.createUpload(UPLOAD_REQUEST_ID)).toEqual({
+			...upload,
+			state: 'uploaded',
+		});
+		expect(owned.destroyed).toEqual([upload.backupId]);
+		expect(
+			owned.raw
+				.query('SELECT part_number FROM backup_registry_upload_parts')
+				.all(),
+		).toEqual([{ part_number: 1 }]);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('account deletion fences portable upload publication and erases staged owners', async () => {
+	const started = deferred<{ backupId: string }>();
+	const release = deferred<void>();
+	const statuses = new Map<string, BackupStatus>();
+	const owned = setupState({
+		statuses,
+		async materialize(input) {
+			await streamBytes(input.bytes);
+			started.resolve({ backupId: input.backupId });
+			await release.promise;
+			statuses.set(input.backupId, { state: 'sealed', recordCount: 1 });
+			return { recordCount: 1 };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		await registry.createUpload(UPLOAD_REQUEST_ID);
+		await registry.putUploadPart(
+			UPLOAD_REQUEST_ID,
+			1,
+			1,
+			digestOf('x'),
+			byteStream('x'),
+		);
+		const completion = registry.completeUpload(UPLOAD_REQUEST_ID, [1]);
+		const active = await started.promise;
+		const deletion = registry.deleteAccount();
+		release.resolve();
+		await expect(completion).rejects.toThrow('being deleted');
+		await deletion;
+		expect(owned.destroyed).toContain(active.backupId);
+		expect(
+			owned.raw.query('SELECT * FROM backup_registry_uploads').all(),
+		).toEqual([]);
+		expect(
+			[...owned.r2Keys].filter((key) => key.includes(UPLOAD_REQUEST_ID)),
+		).toEqual([]);
+	} finally {
+		owned.raw.close();
+	}
+});
+
 test('account deletion destroys all SQL owners then sweeps the exact R2 owner', async () => {
 	const owned = setupState();
 	try {
@@ -638,6 +1043,17 @@ test('registry lookup keeps percent-sensitive principal names distinct', () => {
 				list: async () => [],
 				delete: async () => false,
 				restore: async () => ({ kind: 'backup-not-found' as const }),
+				createUpload: async () => ({
+					requestId: UPLOAD_REQUEST_ID,
+					backupId: 'a'.repeat(24),
+					state: 'uploading' as const,
+				}),
+				putUploadPart: async () => undefined,
+				completeUpload: async () => ({
+					backupId: 'a'.repeat(24),
+					recordCount: 0,
+				}),
+				deleteUpload: async () => false,
 			};
 		},
 	};
