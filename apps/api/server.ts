@@ -214,7 +214,11 @@ export function startBunApiServer(
 		resolveDocumentPrincipal,
 		runtime: epicenterSync,
 	});
-	mountBunScalarV1App(app, { auth: bearer, runtime: scalarV1 });
+	mountBunScalarV1App(app, {
+		auth: bearer,
+		resolveDocumentPrincipal,
+		runtime: scalarV1,
+	});
 	mountInferenceApp(app, { auth: bearer });
 	mountBlobsApp(app, { auth: cookieOrBearer });
 
@@ -228,12 +232,14 @@ export function startBunApiServer(
 		websocket: mergeBunWebSocketHandlers({
 			rooms: bunRooms.websocket,
 			documents: epicenterSync.websocket,
+			dataDocuments: scalarV1.websocket,
 		}),
 	});
 	// `server` only exists once `Bun.serve` returns; hand it to the room registry
 	// so `handleUpgrade` can call `server.upgrade`.
 	bunRooms.bindServer(server);
 	epicenterSync.bindServer(server);
+	scalarV1.bindServer(server);
 
 	// Close authority databases and their sockets before the process dies so WAL
 	// checkpoints land and clients see a clean 1001 instead of a dropped TCP.

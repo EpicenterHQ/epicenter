@@ -11,6 +11,7 @@ import {
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
+import { encodeDocumentFrame } from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -35,6 +36,8 @@ beforeAll(async () => {
 function setupState() {
 	const database = new Database(':memory:', { strict: true });
 	let ready = Promise.resolve();
+	let alarm: number | null = null;
+	const sockets: WebSocket[] = [];
 	const storage = {
 		sql: {
 			exec<TRow extends SqliteRow>(query: string, ...bindings: SqliteValue[]) {
@@ -60,15 +63,43 @@ function setupState() {
 				DROP TABLE IF EXISTS meta;
 			`);
 		},
+		getAlarm: async () => alarm,
+		setAlarm: async (value: number) => {
+			alarm = value;
+		},
+		deleteAlarm: async () => {
+			alarm = null;
+		},
 	};
 	const state = {
 		storage,
+		getWebSockets: () => sockets,
+		acceptWebSocket(socket: WebSocket) {
+			sockets.push(socket);
+		},
 		blockConcurrencyWhile(run: () => Promise<void>) {
 			ready = run();
 			return ready;
 		},
 	} as unknown as DurableObjectState;
-	return { database, state, ready: () => ready };
+	return { database, state, sockets, ready: () => ready };
+}
+
+function fakeSocket(attachment: unknown) {
+	const sent: Uint8Array[] = [];
+	const closes: { code?: number; reason?: string }[] = [];
+	const socket = {
+		readyState: WebSocket.OPEN,
+		deserializeAttachment: () => attachment,
+		serializeAttachment() {},
+		send(data: ArrayBuffer | Uint8Array) {
+			sent.push(new Uint8Array(data));
+		},
+		close(code?: number, reason?: string) {
+			closes.push({ code, reason });
+		},
+	} as unknown as WebSocket;
+	return { socket, sent, closes };
 }
 
 test('Durable Object authority persists acceptance and retry state across restart', async () => {
@@ -131,6 +162,71 @@ test('Durable Object authority persists acceptance and retry state across restar
 		await owned.ready();
 		expect(expectOk(await authority.submit(request))).toEqual(accepted);
 		expect((await authority.acceptDocument(publication)).kind).toBe('accepted');
+	} finally {
+		owned.database.close();
+	}
+});
+
+test('Durable Object hibernation restores document sessions from attachments', async () => {
+	const owned = setupState();
+	try {
+		let authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		await owned.ready();
+		const lifetime = expectOk(
+			await authority.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+				),
+			),
+		).authorityLifetime;
+		const address = {
+			namespace: 'so.epicenter.notes',
+			collection: 'records',
+			recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+		};
+		expectOk(
+			await authority.submit(
+				expectOk(
+					parseSubmissionRequest(
+						{
+							authorityLifetime: lifetime,
+							replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+							submissionNumber: 1,
+							intents: [{ address, op: 'replace', value: {} }],
+						},
+						SCALAR_SYNC_V1_LIMITS,
+					),
+				),
+			),
+		);
+		const attachment = {
+			version: 1,
+			protocol: DOCUMENT_PUBLICATION_VERSION,
+			address,
+			authorityLifetime: lifetime,
+			authorizationExpiresAt: Date.now() + 60_000,
+		};
+		const first = fakeSocket(attachment);
+		const second = fakeSocket(attachment);
+		owned.sockets.push(first.socket, second.socket);
+
+		authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		await owned.ready();
+		const document = new Y.Doc({ gc: true });
+		document.get('content').insert(0, 'after wake');
+		const update = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+		document.destroy();
+		const frame = encodeDocumentFrame({ kind: 'update', update });
+		await authority.webSocketMessage(
+			first.socket,
+			frame.buffer.slice(
+				frame.byteOffset,
+				frame.byteOffset + frame.byteLength,
+			) as ArrayBuffer,
+		);
+		expect(second.sent).toHaveLength(1);
+		expect(first.sent).toHaveLength(0);
+		expect(first.closes).toEqual([]);
 	} finally {
 		owned.database.close();
 	}

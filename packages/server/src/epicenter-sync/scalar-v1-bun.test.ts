@@ -13,9 +13,11 @@ import {
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
 import { asPrincipalId } from '@epicenter/identity';
+import { encodeDocumentFrame } from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
+import type { ServerWebSocket } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
-
+import type { BunDataDocumentV1SocketData } from './document-realtime-v1-bun.js';
 import { createBunScalarV1Runtime } from './scalar-v1-bun.js';
 
 test('Bun scalar V1 runtime reopens one durable authority per principal', () => {
@@ -81,6 +83,49 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', () => 
 			payload: 'persisted',
 		});
 		expect(authority.acceptDocument(publication).kind).toBe('accepted');
+
+		const sent: Uint8Array[] = [];
+		const closed: { code?: number; reason?: string }[] = [];
+		const socket = {
+			data: {
+				surface: 'epicenter-data-document',
+				principalId: principal,
+				address: publication.address,
+				authorityLifetime: lifetime,
+				authorizationExpiresAt: Date.now() + 60_000,
+			},
+			send(data: Uint8Array) {
+				sent.push(new Uint8Array(data));
+			},
+			close(code?: number, reason?: string) {
+				closed.push({ code, reason });
+			},
+		} as unknown as ServerWebSocket<BunDataDocumentV1SocketData>;
+		runtime.websocket.open?.(socket);
+		const empty = new Y.Doc({ gc: true });
+		const stateVector = Y.encodeStateVector(empty);
+		empty.destroy();
+		runtime.websocket.message?.(
+			socket,
+			Buffer.from(encodeDocumentFrame({ kind: 'sync-request', stateVector })),
+		);
+		expect(sent).toHaveLength(2);
+		expectOk(
+			authority.submit(
+				expectOk(
+					parseSubmissionRequest(
+						{
+							authorityLifetime: lifetime,
+							replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+							submissionNumber: 2,
+							intents: [{ address: publication.address, op: 'tombstone' }],
+						},
+						SCALAR_SYNC_V1_LIMITS,
+					),
+				),
+			),
+		);
+		expect(closed).toEqual([{ code: 1000, reason: 'record-not-live' }]);
 	} finally {
 		runtime.close();
 		rmSync(dir, { recursive: true, force: true });

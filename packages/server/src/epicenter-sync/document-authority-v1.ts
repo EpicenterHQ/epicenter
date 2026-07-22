@@ -33,6 +33,13 @@ type ChainRow = SqliteRow & {
 	bytes: Uint8Array | ArrayBuffer;
 };
 
+export type AuthorityDocumentRead =
+	| { state: 'absent' }
+	| {
+			state: 'live' | 'tombstone' | 'unset';
+			update: Uint8Array | undefined;
+	  };
+
 function one<TRow extends SqliteRow>(
 	database: SqliteDatabase,
 	sql: string,
@@ -201,7 +208,29 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 		});
 	}
 
-	return { accept, exportDocument };
+	function readDocument(address: RecordAddress): AuthorityDocumentRead {
+		return database.transaction(() => {
+			const row = one<RecordRow>(
+				database,
+				`SELECT record_id, state FROM records WHERE ${TRIPLE_WHERE}`,
+				tripleParams(address),
+			);
+			if (row === null) return { state: 'absent' };
+			const chain = chainFor(database, row.record_id);
+			if (chain.length === 0) return { state: row.state, update: undefined };
+			const document = hydrate(chain);
+			try {
+				return {
+					state: row.state,
+					update: new Uint8Array(Y.encodeStateAsUpdateV2(document)),
+				};
+			} finally {
+				document.destroy();
+			}
+		});
+	}
+
+	return { accept, exportDocument, readDocument };
 }
 
 export type AuthorityDocumentV1 = ReturnType<typeof createAuthorityDocumentV1>;

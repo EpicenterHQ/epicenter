@@ -23,7 +23,10 @@ import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
 
 import { openAuthorityV1Schema } from './authority-v1-schema.js';
-import { createAuthorityDocumentV1 } from './document-authority-v1.js';
+import {
+	type AuthorityDocumentRead,
+	createAuthorityDocumentV1,
+} from './document-authority-v1.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
 const FACTS_READ_CHUNK = 128;
@@ -63,6 +66,7 @@ export type ScalarAuthorityV1 = {
 export type DataAuthorityV1 = ScalarAuthorityV1 & {
 	acceptDocument(request: DocumentPublicationRequest): DocumentAcceptance;
 	exportDocument(address: RecordAddress): Uint8Array | undefined;
+	readDocument(address: RecordAddress): AuthorityDocumentRead;
 };
 
 export type OpenScalarAuthorityV1Options = {
@@ -277,6 +281,7 @@ export function openScalarAuthorityV1({
 	return {
 		acceptDocument: documents.accept,
 		exportDocument: documents.exportDocument,
+		readDocument: documents.readDocument,
 		readFacts(request) {
 			return database.transaction(() =>
 				readFactsPage(database, request, limits),
