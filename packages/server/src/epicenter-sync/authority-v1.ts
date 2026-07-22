@@ -1,3 +1,7 @@
+import type {
+	DocumentAcceptance,
+	DocumentPublicationRequest,
+} from '@epicenter/data/document-v1';
 import {
 	type AdmittedFactsRequest,
 	type AdmittedSubmissionRequest,
@@ -19,6 +23,7 @@ import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
 
 import { openAuthorityV1Schema } from './authority-v1-schema.js';
+import { createAuthorityDocumentV1 } from './document-authority-v1.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
 const FACTS_READ_CHUNK = 128;
@@ -53,6 +58,11 @@ export type ScalarAuthorityV1 = {
 	submit(
 		request: AdmittedSubmissionRequest,
 	): Result<SubmissionResponse, AuthorityError>;
+};
+
+export type DataAuthorityV1 = ScalarAuthorityV1 & {
+	acceptDocument(request: DocumentPublicationRequest): DocumentAcceptance;
+	exportDocument(address: RecordAddress): Uint8Array | undefined;
 };
 
 export type OpenScalarAuthorityV1Options = {
@@ -149,6 +159,13 @@ function storeFact(database: SqliteDatabase, fact: Fact): void {
 			END`,
 		[...tripleParams(fact.address), fact.state, payload, fact.sequence],
 	);
+	if (fact.state === 'tombstone') {
+		database.run(
+			`DELETE FROM record_documents WHERE record_id =
+				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+			tripleParams(fact.address),
+		);
+	}
 }
 
 function readFactsPage(
@@ -234,7 +251,7 @@ export function openScalarAuthorityV1({
 	database,
 	limits,
 	initialize,
-}: OpenScalarAuthorityV1Options): ScalarAuthorityV1 {
+}: OpenScalarAuthorityV1Options): DataAuthorityV1 {
 	if (initialize !== undefined) {
 		const admitted = parseFactsRequest(
 			{ authorityLifetime: initialize.authorityLifetime, afterSequence: 0 },
@@ -255,8 +272,11 @@ export function openScalarAuthorityV1({
 	if (admittedMeta.error !== null) {
 		throw new Error('scalar V1 authority lifetime metadata is invalid');
 	}
+	const documents = createAuthorityDocumentV1(database);
 
 	return {
+		acceptDocument: documents.accept,
+		exportDocument: documents.exportDocument,
 		readFacts(request) {
 			return database.transaction(() =>
 				readFactsPage(database, request, limits),

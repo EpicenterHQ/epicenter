@@ -3,11 +3,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	DOCUMENT_PUBLICATION_VERSION,
+	type DocumentPublicationRequest,
+	documentPayloadDigest,
+} from '@epicenter/data/document-v1';
+import {
 	parseFactsRequest,
 	parseSubmissionRequest,
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
 import { asPrincipalId } from '@epicenter/identity';
+import * as Y from '@y/y';
 import { expectOk } from 'wellcrafted/testing';
 
 import { createBunScalarV1Runtime } from './scalar-v1-bun.js';
@@ -50,6 +56,22 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', () => 
 			sequence: 1,
 			payload: 'persisted',
 		});
+		const document = new Y.Doc({ gc: true });
+		document.get('content').insert(0, 'durable document');
+		const payload = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+		document.destroy();
+		const publication: DocumentPublicationRequest = {
+			authorityLifetime: lifetime,
+			address:
+				request.intents[0]?.address ??
+				(() => {
+					throw new Error('missing intent');
+				})(),
+			protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+			payload,
+			digest: documentPayloadDigest(payload),
+		};
+		expect(authority.acceptDocument(publication).kind).toBe('accepted');
 
 		runtime.close();
 		runtime = createBunScalarV1Runtime({ dir });
@@ -58,6 +80,7 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', () => 
 			sequence: 1,
 			payload: 'persisted',
 		});
+		expect(authority.acceptDocument(publication).kind).toBe('accepted');
 	} finally {
 		runtime.close();
 		rmSync(dir, { recursive: true, force: true });

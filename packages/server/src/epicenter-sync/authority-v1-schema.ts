@@ -4,10 +4,11 @@ import {
 	StorageUpgradeRequiredError,
 } from '@epicenter/sqlite';
 
-export const AUTHORITY_V1_FORMAT_VERSION = 1;
+export const AUTHORITY_V1_FORMAT_VERSION = 2;
 
 export const AUTHORITY_V1_TABLES = [
 	'meta',
+	'record_documents',
 	'records',
 	'replica_witness',
 ] as const;
@@ -44,6 +45,15 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 	`CREATE UNIQUE INDEX records_address
 		ON records(namespace, collection, record_key)`,
 	`CREATE UNIQUE INDEX records_sequence ON records(sequence)`,
+	`CREATE TABLE record_documents (
+		chain_id   INTEGER PRIMARY KEY,
+		record_id  INTEGER NOT NULL,
+		seq        INTEGER NOT NULL CHECK (seq >= 1),
+		kind       TEXT NOT NULL CHECK (kind IN ('baseline', 'update')),
+		bytes      BLOB NOT NULL CHECK (length(bytes) > 0),
+		CHECK (kind = 'update' OR seq = 1),
+		UNIQUE (record_id, seq)
+	) STRICT`,
 	`CREATE TABLE replica_witness (
 		replica_id        TEXT PRIMARY KEY
 			CHECK (length(replica_id) = 24 AND replica_id NOT GLOB '*[^a-z0-9]*'),

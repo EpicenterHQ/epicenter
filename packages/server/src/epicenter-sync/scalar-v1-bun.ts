@@ -11,10 +11,7 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Hono, MiddlewareHandler } from 'hono';
 
 import type { Env } from '../types.js';
-import {
-	openScalarAuthorityV1,
-	type ScalarAuthorityV1,
-} from './authority-v1.js';
+import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
 import { mountScalarV1App } from './scalar-v1-route.js';
 
 function encodePathComponent(value: string): string {
@@ -28,19 +25,19 @@ function authorityPath(dir: string, principalId: PrincipalId): string {
 		encodePathComponent(principalId),
 	);
 	mkdirSync(principalDir, { recursive: true });
-	return join(principalDir, 'scalar-v1.sqlite');
+	return join(principalDir, 'data-v1.sqlite');
 }
 
-/** Open a principal-partitioned Bun owner for scalar V1 authority files. */
+/** Open a principal-partitioned Bun owner for one Data V1 authority file. */
 export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 	mkdirSync(dir, { recursive: true });
 	const authorities = new Map<
 		PrincipalId,
-		{ raw: Database; authority: ScalarAuthorityV1 }
+		{ raw: Database; authority: DataAuthorityV1 }
 	>();
 	let closed = false;
 
-	function load(principalId: PrincipalId): ScalarAuthorityV1 {
+	function load(principalId: PrincipalId): DataAuthorityV1 {
 		if (closed) throw new Error('Bun scalar V1 runtime is closed');
 		const existing = authorities.get(principalId);
 		if (existing !== undefined) return existing.authority;

@@ -113,8 +113,9 @@ describe('scalar V1 authority storage failures', () => {
 				CREATE TABLE records (record_id INTEGER PRIMARY KEY);
 				CREATE UNIQUE INDEX records_address ON records(record_id);
 				CREATE UNIQUE INDEX records_sequence ON records(record_id);
+				CREATE TABLE record_documents (chain_id INTEGER PRIMARY KEY);
 				CREATE TABLE replica_witness (replica_id TEXT PRIMARY KEY);
-				INSERT INTO meta VALUES (1, 1);
+				INSERT INTO meta VALUES (1, 2);
 			`);
 			expect(() =>
 				openScalarAuthorityV1({

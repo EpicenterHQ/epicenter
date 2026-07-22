@@ -2,11 +2,16 @@ import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { beforeAll, expect, mock, test } from 'bun:test';
 
 import {
+	DOCUMENT_PUBLICATION_VERSION,
+	documentPayloadDigest,
+} from '@epicenter/data/document-v1';
+import {
 	parseFactsRequest,
 	parseSubmissionRequest,
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
+import * as Y from '@y/y';
 import { expectOk } from 'wellcrafted/testing';
 
 mock.module('cloudflare:workers', () => ({
@@ -50,6 +55,7 @@ function setupState() {
 		async deleteAll() {
 			database.exec(`
 				DROP TABLE IF EXISTS replica_witness;
+				DROP TABLE IF EXISTS record_documents;
 				DROP TABLE IF EXISTS records;
 				DROP TABLE IF EXISTS meta;
 			`);
@@ -104,10 +110,27 @@ test('Durable Object authority persists acceptance and retry state across restar
 			state: 'live',
 			payload: 'persisted',
 		});
+		const document = new Y.Doc({ gc: true });
+		document.get('content').insert(0, 'durable document');
+		const payload = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+		document.destroy();
+		const publication = {
+			authorityLifetime: lifetime,
+			address:
+				request.intents[0]?.address ??
+				(() => {
+					throw new Error('missing intent');
+				})(),
+			protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+			payload,
+			digest: documentPayloadDigest(payload),
+		};
+		expect((await authority.acceptDocument(publication)).kind).toBe('accepted');
 
 		authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
 		await owned.ready();
 		expect(expectOk(await authority.submit(request))).toEqual(accepted);
+		expect((await authority.acceptDocument(publication)).kind).toBe('accepted');
 	} finally {
 		owned.database.close();
 	}
@@ -123,6 +146,9 @@ test('Durable Object RPC boundary revalidates structured input', async () => {
 		);
 		await expect(authority.submit({})).rejects.toThrow(
 			'invalid scalar V1 submission RPC request',
+		);
+		await expect(authority.acceptDocument({})).rejects.toThrow(
+			'invalid document V1 publication RPC request',
 		);
 	} finally {
 		owned.database.close();
