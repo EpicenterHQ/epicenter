@@ -164,8 +164,10 @@ async function analyze(
 	})) as BrowserReplicaAnalysis;
 }
 
-async function commit(action: BrowserReplicaAction): Promise<void> {
-	await requireMain().request({ kind: 'commit', action });
+async function commit(
+	action: BrowserReplicaAction,
+): Promise<BrowserReplicaTestResult> {
+	return requireMain().request({ kind: 'commit', action });
 }
 
 async function exportDatabase(): Promise<number[]> {

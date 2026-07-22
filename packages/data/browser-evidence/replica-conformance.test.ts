@@ -1,3 +1,17 @@
+/**
+ * Production Browser Replica Conformance Tests
+ *
+ * Binds the maintained replica transition cases to the browser candidate's
+ * real ownership, session, RPC, reopen, and cleanup path in Chromium and
+ * WebKit. A synchronized direct-store shadow is retained only for test-side
+ * statement-boundary analysis and crash injection, which are deliberately
+ * absent from the production protocol.
+ *
+ * Key behaviors:
+ * - Ordinary semantic reads and commits cross the production candidate RPC
+ * - The production owner and test-only crash shadow remain semantically equal
+ * - Every shared crash boundary recovers the pre-transition logical state
+ */
 import { afterAll, beforeAll, setDefaultTimeout } from 'bun:test';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +25,7 @@ import {
 } from 'playwright';
 
 import type { RecordAddress } from '../src/protocol/v1/index.js';
+import { makeLimits } from '../src/protocol/v1/kernel.test-support.js';
 import {
 	type ConformanceReplica,
 	type CrashedReplica,
@@ -23,6 +38,14 @@ import {
 	runReplicaConformanceCases,
 	type SealWitness,
 } from '../src/store/conformance/replica-cases.test-support.js';
+import type {
+	BrowserReplicaCandidateStart,
+	BrowserReplicaCandidateStatus,
+} from '../src/store/replica/browser-candidate-protocol.js';
+import type {
+	BrowserReplicaOwnerResult,
+	BrowserReplicaStoreOperation,
+} from '../src/store/replica/browser-owner-protocol.js';
 import type {
 	BrowserReplicaAction,
 	BrowserReplicaAnalysis,
@@ -118,6 +141,110 @@ function createDriver(readPage: () => Page | undefined) {
 	let nextCrashedId = 0;
 	const crashedPages = new Map<number, Page>();
 
+	async function openProduction(
+		page: Page,
+		fixture: { replicaId: string; authorityLifetime?: string },
+	): Promise<void> {
+		const storageId = crypto.randomUUID();
+		const options = {
+			limits: makeLimits(),
+			initialize: fixture,
+			coordinationId: `epicenter-replica-conformance-${storageId}`,
+			storage: {
+				databaseFilename: '/replica.sqlite3',
+				poolDirectory: `.epicenter-replica-conformance-production-${storageId}`,
+				poolName: `epicenter-replica-conformance-production-${storageId}`,
+			},
+		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>;
+		const status = await page.evaluate(
+			(optionsJson) =>
+				window.browserReplicaCandidateEvidence
+					.open(
+						JSON.parse(optionsJson) as Omit<
+							BrowserReplicaCandidateStart,
+							'type'
+						>,
+					)
+					.then(() => window.browserReplicaCandidateEvidence.status()),
+			JSON.stringify(options),
+		);
+		if (status.role !== 'owner' || status.ownerSession === null) {
+			throw new Error(
+				'browser conformance candidate did not own a live session',
+			);
+		}
+	}
+
+	async function productionRequest(
+		page: Page,
+		operation: BrowserReplicaStoreOperation,
+	): Promise<BrowserReplicaOwnerResult> {
+		return page.evaluate(
+			(operationJson) =>
+				window.browserReplicaCandidateEvidence.request(
+					JSON.parse(operationJson) as BrowserReplicaStoreOperation,
+				),
+			JSON.stringify(operation),
+		);
+	}
+
+	async function productionStatus(
+		page: Page,
+	): Promise<BrowserReplicaCandidateStatus> {
+		return page.evaluate(() => window.browserReplicaCandidateEvidence.status());
+	}
+
+	async function productionObservation(
+		page: Page,
+		observation: Exclude<BrowserReplicaObservation, { kind: 'snapshot' }>,
+	): Promise<BrowserReplicaOwnerResult> {
+		switch (observation.kind) {
+			case 'record':
+				return productionRequest(page, observation);
+			case 'sync':
+			case 'sealed-request':
+			case 'reconstruct-sealed-request':
+				return productionRequest(page, observation);
+		}
+	}
+
+	async function assertShadowMatchesProduction(
+		page: Page,
+		action: BrowserReplicaAction,
+	): Promise<void> {
+		const observations: Exclude<
+			BrowserReplicaObservation,
+			{ kind: 'snapshot' }
+		>[] = [{ kind: 'sync' }, { kind: 'sealed-request' }];
+		switch (action.kind) {
+			case 'local-write':
+				observations.push({ kind: 'record', address: action.intent.address });
+				break;
+			case 'install-facts':
+			case 'settle':
+				for (const fact of action.kind === 'install-facts'
+					? action.page.response.facts
+					: action.response.facts) {
+					observations.push({ kind: 'record', address: fact.address });
+				}
+				break;
+			case 'seal':
+			case 'erase':
+				break;
+		}
+		for (const observation of observations) {
+			const [production, shadow] = await Promise.all([
+				productionObservation(page, observation),
+				observeOn(page, observation),
+			]);
+			if (JSON.stringify(production) !== JSON.stringify(shadow)) {
+				throw new Error(
+					`production browser owner and crash shadow diverged after ${action.kind}`,
+				);
+			}
+		}
+	}
+
 	async function openStorage(
 		page: Page,
 		storage: BrowserReplicaStorageIdentity,
@@ -145,14 +272,26 @@ function createDriver(readPage: () => Page | undefined) {
 	}
 
 	return {
-		open(fixture: { replicaId: string; authorityLifetime?: string }) {
-			return requirePage(readPage).evaluate(
-				(fixture) => window.browserReplicaConformanceEvidence.open(fixture),
-				fixture,
-			);
+		async open(fixture: { replicaId: string; authorityLifetime?: string }) {
+			const page = requirePage(readPage);
+			await openProduction(page, fixture);
+			try {
+				await page.evaluate(
+					(fixture) => window.browserReplicaConformanceEvidence.open(fixture),
+					fixture,
+				);
+			} catch (cause) {
+				await page.evaluate(() =>
+					window.browserReplicaCandidateEvidence.close(),
+				);
+				throw cause;
+			}
 		},
 		observe(observation: BrowserReplicaObservation) {
-			return observeOn(requirePage(readPage), observation);
+			if (observation.kind === 'snapshot') {
+				return observeOn(requirePage(readPage), observation);
+			}
+			return productionObservation(requirePage(readPage), observation);
 		},
 		analyze(action: BrowserReplicaAction) {
 			return requirePage(readPage).evaluate(
@@ -163,14 +302,49 @@ function createDriver(readPage: () => Page | undefined) {
 				JSON.stringify(action),
 			);
 		},
-		commit(action: BrowserReplicaAction) {
-			return requirePage(readPage).evaluate(
+		async commit(action: BrowserReplicaAction) {
+			const page = requirePage(readPage);
+			let productionResult: BrowserReplicaOwnerResult;
+			try {
+				productionResult = await productionRequest(page, action);
+			} catch (productionCause) {
+				let didShadowRefuse = false;
+				try {
+					await page.evaluate(
+						(actionJson) =>
+							window.browserReplicaConformanceEvidence.commit(
+								JSON.parse(actionJson) as BrowserReplicaAction,
+							),
+						JSON.stringify(action),
+					);
+				} catch {
+					didShadowRefuse = true;
+				}
+				if (didShadowRefuse) {
+					await assertShadowMatchesProduction(page, action);
+					throw productionCause;
+				}
+				throw new Error(
+					'production browser owner refused a transition accepted by the crash shadow',
+					{ cause: productionCause },
+				);
+			}
+			const shadowResult = await page.evaluate(
 				(actionJson) =>
 					window.browserReplicaConformanceEvidence.commit(
 						JSON.parse(actionJson) as BrowserReplicaAction,
 					),
 				JSON.stringify(action),
 			);
+			if (action.kind === 'seal') {
+				if (JSON.stringify(productionResult) !== JSON.stringify(shadowResult)) {
+					throw new Error(
+						'production browser owner and crash shadow produced different seal witnesses',
+					);
+				}
+			}
+			await assertShadowMatchesProduction(page, action);
+			return productionResult;
 		},
 		async crash(action: BrowserReplicaAction, boundary: number) {
 			const mainPage = requirePage(readPage);
@@ -218,18 +392,26 @@ function createDriver(readPage: () => Page | undefined) {
 				await page.close();
 			}
 		},
-		reopen() {
-			return requirePage(readPage).evaluate(() =>
+		async reopen() {
+			const page = requirePage(readPage);
+			await productionRequest(page, { kind: 'reopen' });
+			await page.evaluate(() =>
 				window.browserReplicaConformanceEvidence.reopen(),
 			);
+			const status = await productionStatus(page);
+			if (status.role !== 'owner' || status.ownerSession === null) {
+				throw new Error('browser conformance candidate lost its owner session');
+			}
 		},
 		async dispose() {
 			for (const crashedId of [...crashedPages.keys()]) {
 				await this.closeCrashed(crashedId);
 			}
-			return requirePage(readPage).evaluate(() =>
-				window.browserReplicaConformanceEvidence.dispose(),
-			);
+			const page = requirePage(readPage);
+			await Promise.all([
+				page.evaluate(() => window.browserReplicaCandidateEvidence.close()),
+				page.evaluate(() => window.browserReplicaConformanceEvidence.dispose()),
+			]);
 		},
 	};
 }
@@ -266,7 +448,17 @@ function transition(
 				close: () => driver.closeCrashed(crashedId),
 			};
 		},
-		commit: () => driver.commit(action),
+		async commit() {
+			const result = await driver.commit(action);
+			if (
+				action.kind === 'seal' &&
+				JSON.stringify(result) !== JSON.stringify(analysis.result)
+			) {
+				throw new Error(
+					'production browser owner did not commit the analyzed seal witness',
+				);
+			}
+		},
 	};
 }
 
@@ -282,6 +474,11 @@ function conformanceReplica(driver: Driver): ConformanceReplica {
 			const action = { kind: 'seal' } as const;
 			const analysis = await driver.analyze(action);
 			const witness = analysis.result;
+			if (analysis.error !== undefined) {
+				const error = new Error(analysis.error.message);
+				error.name = analysis.error.name;
+				throw error;
+			}
 			if (witness === undefined)
 				throw new Error('browser seal analysis returned no witness');
 			return {
