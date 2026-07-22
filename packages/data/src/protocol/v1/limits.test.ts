@@ -92,7 +92,8 @@ describe('validation allocates nothing proportional to ceilings', () => {
 	for (const key of [
 		'maxLifetimeBytes',
 		'maxNamespaceBytes',
-		'maxTableKeyBytes',
+		'maxCollectionKeyBytes',
+		'maxRecordKeyBytes',
 		'maxEncodedFactBytes',
 		'maxSubmissionAddresses',
 	] as const) {

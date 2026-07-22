@@ -175,15 +175,21 @@ canonical ordering are enforced at every admission boundary (ADR-0163).
 
 ## Protocol kernel status
 
-The Wave-2a executable protocol kernel landed 2026-07-21 under
-`packages/data/src/protocol/v1/` behind a private barrel, with defensive RFC
-8785 canonical encoding, deep-frozen admitted requests, a pure storage-free
-reference authority, and runtime-free proofs. It predates the record collapse:
-it still speaks kinded row/value addresses and eight kinded shapes. W1 rewrites
-its address and shape layer to the kindless record triple and four operations
-while keeping its canonicalization, admission hardening, and authority-fold
-architecture, which the collapse does not invalidate. No production consumer
-imports it, so the rewrite is free of compatibility pressure.
+The executable protocol kernel lives under `packages/data/src/protocol/v1/`
+behind a private barrel, with defensive RFC 8785 canonical encoding,
+deep-frozen admitted requests, a pure storage-free reference authority, and
+runtime-free proofs. W1A (2026-07-21) rewrote its address and shape layer to
+the kindless record triple, one fact shape, and the four operations with the
+absorption-first algebra (`foldIntent` plus `composeOperations`), deleting the
+kinded row/value addresses and their eight shapes without aliases or a
+compatibility decoder; the canonicalization, admission hardening, and
+authority-fold architecture carried over unchanged. W1A also landed the
+maintained lane-machine conformance suite under
+`packages/data/src/store/conformance/`: the probe's reference transitions as
+owner-partitioned cases over ADR-0177-shaped fixtures, with file-backed
+statement-boundary crash injection and the persisted first-seal
+request-bytes-and-hash assertions. No production consumer imports the kernel;
+W1B binds the replica case subset to the production store.
 
 ## Execution waves
 

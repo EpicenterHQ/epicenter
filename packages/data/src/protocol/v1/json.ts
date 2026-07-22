@@ -1,15 +1,15 @@
 /**
  * JSON value vocabulary for scalar sync payloads.
  *
- * Fact and intent payloads are arbitrary JSON: a present value fact carries any
- * JSON value, and a present row fact carries a JSON object of top-level fields.
- * `null` and the empty object `{}` are ordinary present data, never a signal for
- * absence; absence is carried by the fact/intent presence axis instead.
+ * Record payloads are arbitrary JSON: a live fact carries any JSON value, and
+ * a patch folds a JSON object of top-level fields. `null` and the empty object
+ * `{}` are ordinary live payloads, never a signal for absence; absence is a
+ * stored fact state (`tombstone` or `unset`) instead.
  *
  * The structural TypeBox schemas below accept any JSON-shaped value so the
- * discriminated fact/intent schemas stay closed on their own keys. Depth,
- * fan-out, and finiteness are semantic concerns enforced by `isJsonValue` with
- * caller-supplied limits, never frozen into the schema.
+ * discriminated fact and operation schemas stay closed on their own keys.
+ * Depth, fan-out, and finiteness are semantic concerns enforced by
+ * `isJsonValue` with caller-supplied limits, never frozen into the schema.
  */
 import { Type } from 'typebox';
 
