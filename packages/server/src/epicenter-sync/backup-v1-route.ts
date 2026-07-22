@@ -6,6 +6,7 @@ import type { Env } from '../types.js';
 export const BACKUP_V1_REGISTRY_PATH = '/api/sync/v1/backups';
 export const BACKUP_V1_ENTRY_PATH = '/api/sync/v1/backups/:backupId';
 export const BACKUP_V1_RESTORE_PATH = '/api/sync/v1/backups/:backupId/restore';
+export const BACKUP_V1_RESTORE_REQUEST_HEADER = 'idempotency-key';
 
 const BACKUP_ID_CHARACTERS = /^[a-z0-9]+$/u;
 
@@ -28,11 +29,13 @@ export type BackupV1RegistryLocator<E extends Env = Env> = (
 export type BackupV1Restore<E extends Env = Env> = (
 	principalId: PrincipalId,
 	backupId: string,
+	restoreRequestId: string,
 	env: E['Bindings'],
 ) => Promise<
 	| { kind: 'restored'; authorityLifetime: string; recordCount: number }
 	| { kind: 'backup-not-found' }
 	| { kind: 'restore-in-progress' }
+	| { kind: 'idempotency-conflict' }
 >;
 
 function metadataOf(backup: BackupV1Metadata): BackupV1Metadata {
@@ -76,12 +79,26 @@ export function createBackupV1App<E extends Env = Env>({
 			if (backupId === undefined) {
 				return c.json({ error: 'invalid-backup-id' } as const, 400);
 			}
-			const restored = await restoreBackup(c.var.principal.id, backupId, c.env);
+			const restoreRequestId = backupIdFrom(
+				c.req.header(BACKUP_V1_RESTORE_REQUEST_HEADER) ?? '',
+			);
+			if (restoreRequestId === undefined) {
+				return c.json({ error: 'invalid-restore-request-id' } as const, 400);
+			}
+			const restored = await restoreBackup(
+				c.var.principal.id,
+				backupId,
+				restoreRequestId,
+				c.env,
+			);
 			if (restored.kind === 'backup-not-found') {
 				return c.json({ error: 'backup-not-found' } as const, 404);
 			}
 			if (restored.kind === 'restore-in-progress') {
 				return c.json({ error: 'restore-in-progress' } as const, 409);
+			}
+			if (restored.kind === 'idempotency-conflict') {
+				return c.json({ error: 'idempotency-conflict' } as const, 409);
 			}
 			return c.json({
 				restored: {

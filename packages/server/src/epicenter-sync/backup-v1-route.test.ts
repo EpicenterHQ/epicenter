@@ -18,6 +18,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types.js';
 import {
 	BACKUP_V1_REGISTRY_PATH,
+	BACKUP_V1_RESTORE_REQUEST_HEADER,
 	createBackupV1App,
 	mountBackupV1App,
 } from './backup-v1-route.js';
@@ -25,20 +26,27 @@ import {
 const PRINCIPAL = asPrincipalId('alice');
 const BACKUP_ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const OTHER_BACKUP_ID = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+const RESTORE_REQUEST_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const ENTRY_PATH = `${BACKUP_V1_REGISTRY_PATH}/${BACKUP_ID}`;
 const RESTORE_PATH = `${ENTRY_PATH}/restore`;
 
 function setup({
 	mounted = false,
 	restoreInProgress = false,
+	idempotencyConflict = false,
 	crudOnly = false,
 }: {
 	mounted?: boolean;
 	restoreInProgress?: boolean;
+	idempotencyConflict?: boolean;
 	crudOnly?: boolean;
 } = {}) {
 	const principals: PrincipalId[] = [];
-	const restored: Array<{ principalId: PrincipalId; backupId: string }> = [];
+	const restored: Array<{
+		principalId: PrincipalId;
+		backupId: string;
+		restoreRequestId: string;
+	}> = [];
 	const deleted: string[] = [];
 	const backups = [
 		{
@@ -75,12 +83,19 @@ function setup({
 				},
 			};
 		},
-		async restoreBackup(principalId: PrincipalId, backupId: string) {
+		async restoreBackup(
+			principalId: PrincipalId,
+			backupId: string,
+			restoreRequestId: string,
+		) {
 			if (restoreInProgress) return { kind: 'restore-in-progress' as const };
+			if (idempotencyConflict) {
+				return { kind: 'idempotency-conflict' as const };
+			}
 			if (!backups.some((backup) => backup.backupId === backupId)) {
 				return { kind: 'backup-not-found' as const };
 			}
-			restored.push({ principalId, backupId });
+			restored.push({ principalId, backupId, restoreRequestId });
 			return {
 				kind: 'restored' as const,
 				authorityLifetime: '12345678-1234-4123-8123-123456789abc',
@@ -190,6 +205,7 @@ describe('Backup V1 routes', () => {
 		const context = setup();
 		const response = await context.app.request(RESTORE_PATH, {
 			method: 'POST',
+			headers: { [BACKUP_V1_RESTORE_REQUEST_HEADER]: RESTORE_REQUEST_ID },
 		});
 		expect(response.status).toBe(200);
 		expect((await response.json()) as unknown).toEqual({
@@ -200,7 +216,11 @@ describe('Backup V1 routes', () => {
 			},
 		});
 		expect(context.restored).toEqual([
-			{ principalId: PRINCIPAL, backupId: BACKUP_ID },
+			{
+				principalId: PRINCIPAL,
+				backupId: BACKUP_ID,
+				restoreRequestId: RESTORE_REQUEST_ID,
+			},
 		]);
 	});
 
@@ -220,10 +240,23 @@ describe('Backup V1 routes', () => {
 		const context = setup({ restoreInProgress: true });
 		const response = await context.app.request(RESTORE_PATH, {
 			method: 'POST',
+			headers: { [BACKUP_V1_RESTORE_REQUEST_HEADER]: RESTORE_REQUEST_ID },
 		});
 		expect(response.status).toBe(409);
 		expect((await response.json()) as unknown).toEqual({
 			error: 'restore-in-progress',
+		});
+	});
+
+	test('reused Restore request ID reports a stable conflict', async () => {
+		const context = setup({ idempotencyConflict: true });
+		const response = await context.app.request(RESTORE_PATH, {
+			method: 'POST',
+			headers: { [BACKUP_V1_RESTORE_REQUEST_HEADER]: RESTORE_REQUEST_ID },
+		});
+		expect(response.status).toBe(409);
+		expect((await response.json()) as unknown).toEqual({
+			error: 'idempotency-conflict',
 		});
 	});
 
@@ -253,6 +286,15 @@ describe('Backup V1 routes', () => {
 				method: 'POST',
 				status: 404,
 				error: 'backup-not-found',
+				headers: {
+					[BACKUP_V1_RESTORE_REQUEST_HEADER]: RESTORE_REQUEST_ID,
+				},
+			},
+			{
+				path: RESTORE_PATH,
+				method: 'POST',
+				status: 400,
+				error: 'invalid-restore-request-id',
 			},
 			{
 				path: `${BACKUP_V1_REGISTRY_PATH}/cccccccccccccccccccccccc`,
@@ -263,6 +305,7 @@ describe('Backup V1 routes', () => {
 		]) {
 			const response = await context.app.request(request.path, {
 				method: request.method,
+				...('headers' in request ? { headers: request.headers } : {}),
 			});
 			expect(response.status).toBe(request.status);
 			expect((await response.json()) as unknown).toEqual({

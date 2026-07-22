@@ -32,6 +32,7 @@ import {
 } from './scalar-v1-bun.js';
 
 const REPLICA = 'rrrrrrrrrrrrrrrrrrrrrrrr';
+const RESTORE_REQUEST_ID = 'ssssssssssssssssssssssss';
 const LIVE = {
 	namespace: 'so.epicenter.notes',
 	collection: 'recordings',
@@ -302,7 +303,11 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 		if (interruptedRead === undefined) throw new Error('live blob is missing');
 		const interruptedReader = interruptedRead.getReader();
 		const restored = requireRestored(
-			await runtime.restoreBackup(principal, backup.backupId),
+			await runtime.restoreBackup(
+				principal,
+				backup.backupId,
+				RESTORE_REQUEST_ID,
+			),
 		);
 		expect(restored.recordCount).toBe(2);
 		expect(restored.authorityLifetime).not.toBe(oldLifetime);
@@ -438,19 +443,70 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 			control.query('SELECT authority_lifetime FROM active_authority').get(),
 		).toEqual({ authority_lifetime: newLifetime });
 		control.close();
+		expectOk(
+			await authority.submit(
+				expectOk(
+					parseSubmissionRequest(
+						{
+							authorityLifetime: newLifetime,
+							replicaId: REPLICA,
+							submissionNumber: 1,
+							intents: [
+								{ address: LIVE, op: 'replace', value: 'after-restore' },
+							],
+						},
+						SCALAR_SYNC_V1_LIMITS,
+					),
+				),
+			),
+		);
+		expect(
+			await runtime.restoreBackup(
+				principal,
+				backup.backupId,
+				RESTORE_REQUEST_ID,
+			),
+		).toEqual(restored);
+		expect(
+			expectOk(
+				await authority.readFacts(
+					expectOk(
+						parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+					),
+				),
+			).facts.at(-1),
+		).toMatchObject({ payload: 'after-restore' });
+		const interruptedControl = new Database(
+			join(dir, 'principals', 'principal-one', 'control-v1.sqlite'),
+			{ strict: true },
+		);
+		interruptedControl.run(
+			`UPDATE restore_requests SET state = 'building' WHERE request_id = ?`,
+			[RESTORE_REQUEST_ID],
+		);
+		interruptedControl.close();
 
 		await runtime.close();
 		runtime = createBunScalarV1Runtime({ dir });
 		const reopened = await runtime.locateAuthority(principal);
 		expect(
-			expectOk(
-				await reopened.readFacts(
-					expectOk(
-						parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
-					),
+			await runtime.restoreBackup(
+				principal,
+				backup.backupId,
+				RESTORE_REQUEST_ID,
+			),
+		).toEqual(restored);
+		const reopenedFacts = expectOk(
+			await reopened.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
 				),
-			).authorityLifetime,
-		).toBe(newLifetime);
+			),
+		);
+		expect(reopenedFacts.authorityLifetime).toBe(newLifetime);
+		expect(reopenedFacts.facts.at(-1)).toMatchObject({
+			payload: 'after-restore',
+		});
 		expect(
 			await readdir(join(dir, 'principals', 'principal-one', 'authorities')),
 		).toEqual([newLifetime]);
@@ -514,11 +570,17 @@ test('Bun Restore drains a rejected blob publication before activation', async (
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		let restoreSettled = false;
 		const restore = runtime
-			.restoreBackup(principal, backup.backupId)
+			.restoreBackup(principal, backup.backupId, RESTORE_REQUEST_ID)
 			.finally(() => {
 				restoreSettled = true;
 			});
-		expect(await runtime.restoreBackup(principal, backup.backupId)).toEqual({
+		expect(
+			await runtime.restoreBackup(
+				principal,
+				backup.backupId,
+				RESTORE_REQUEST_ID,
+			),
+		).toEqual({
 			kind: 'restore-in-progress',
 		});
 		let deleteSettled = false;
@@ -631,7 +693,11 @@ test('Bun Restore replaces only the selected principal document sockets', async 
 		const sentBeforeRestore = socketB.sent.length;
 
 		const restored = requireRestored(
-			await runtime.restoreBackup(principalA, backup.backupId),
+			await runtime.restoreBackup(
+				principalA,
+				backup.backupId,
+				RESTORE_REQUEST_ID,
+			),
 		);
 		expect(socketA.closed).toEqual([
 			{ code: 1012, reason: 'authority-replaced' },

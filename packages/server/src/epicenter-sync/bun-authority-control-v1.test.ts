@@ -13,6 +13,8 @@ import {
 const FIRST = '11111111-1111-4111-8111-111111111111';
 const SECOND = '22222222-2222-4222-8222-222222222222';
 const OTHER = '33333333-3333-4333-8333-333333333333';
+const REQUEST_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
+const BACKUP_ID = 'bbbbbbbbbbbbbbbbbbbbbbbb';
 
 test('Bun authority control activates with a durable compare-and-swap', () => {
 	const dir = mkdtempSync(join(tmpdir(), 'epicenter-authority-control-'));
@@ -45,6 +47,37 @@ test('Bun authority owner excludes a second live process owner', () => {
 		reopened.close();
 	} finally {
 		owner.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('Bun authority control durably records one active Restore request', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'epicenter-authority-control-'));
+	let control = openBunAuthorityControlV1(dir);
+	try {
+		control.initialize(FIRST);
+		const building = control.beginRestore(REQUEST_ID, BACKUP_ID, SECOND, 7);
+		expect(building).toEqual({
+			requestId: REQUEST_ID,
+			backupId: BACKUP_ID,
+			successorLifetime: SECOND,
+			recordCount: 7,
+			state: 'building',
+		});
+		expect(control.activeRestoreRequest()).toEqual(building);
+		expect(() =>
+			control.beginRestore('s'.repeat(24), BACKUP_ID, OTHER, 7),
+		).toThrow('already active');
+		control.close();
+		control = openBunAuthorityControlV1(dir);
+		expect(control.restoreRequest(REQUEST_ID)).toEqual(building);
+		expect(control.completeRestore(REQUEST_ID)).toEqual({
+			...building,
+			state: 'succeeded',
+		});
+		expect(control.activeRestoreRequest()).toBeUndefined();
+	} finally {
+		control.close();
 		rmSync(dir, { recursive: true, force: true });
 	}
 });

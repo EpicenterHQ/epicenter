@@ -99,7 +99,8 @@ export type BunRestoreResult = {
 export type BunRestoreBackupResult =
 	| ({ kind: 'restored' } & BunRestoreResult)
 	| { kind: 'backup-not-found' }
-	| { kind: 'restore-in-progress' };
+	| { kind: 'restore-in-progress' }
+	| { kind: 'idempotency-conflict' };
 
 function encodePathComponent(value: string): string {
 	return encodeURIComponent(value).replaceAll('.', '%2E');
@@ -376,9 +377,12 @@ export function createBunScalarV1Runtime({
 					runLease(state, (entry) => entry.backups.list()),
 				),
 			delete: (backupId) =>
-				runBackupRegistryOperation(state, () =>
-					runLease(state, (entry) => entry.backups.delete(backupId)),
-				),
+				runBackupRegistryOperation(state, () => {
+					if (state.control.activeRestoreRequest()?.backupId === backupId) {
+						throw new Error('Bun Backup Restore is incomplete');
+					}
+					return runLease(state, (entry) => entry.backups.delete(backupId));
+				}),
 		};
 	}
 
@@ -454,6 +458,13 @@ export function createBunScalarV1Runtime({
 						active,
 						false,
 					);
+				}
+				const interruptedRestore = control.activeRestoreRequest();
+				if (
+					interruptedRestore !== undefined &&
+					interruptedRestore.successorLifetime === active
+				) {
+					control.completeRestore(interruptedRestore.requestId);
 				}
 				for (const entry of await readdir(authoritiesRoot, {
 					withFileTypes: true,
@@ -544,10 +555,10 @@ export function createBunScalarV1Runtime({
 	async function performRestore(
 		state: PrincipalState,
 		portableDirectory: string,
+		successorLifetime: string = crypto.randomUUID(),
 	): Promise<BunRestoreResult> {
 		if (state.failure !== undefined) throw state.failure;
 		const outgoing = state.current;
-		const successorLifetime = crypto.randomUUID();
 		const successorDirectory = join(state.authoritiesRoot, successorLifetime);
 		const construction = await constructBunAuthorityFromPortable(
 			{
@@ -669,6 +680,9 @@ export function createBunScalarV1Runtime({
 			if (state.restoring !== undefined) {
 				throw new Error('Bun authority Restore is already active');
 			}
+			if (state.control.activeRestoreRequest() !== undefined) {
+				throw new Error('Bun Backup Restore is incomplete');
+			}
 			const restoring = runBackupRegistryOperation(state, () =>
 				performRestore(state, portableDirectory),
 			);
@@ -682,25 +696,92 @@ export function createBunScalarV1Runtime({
 		async restoreBackup(
 			principalId: PrincipalId,
 			backupId: string,
+			restoreRequestId: string,
 		): Promise<BunRestoreBackupResult> {
 			const state = await loadPrincipal(principalId);
 			if (state.restoring !== undefined) {
 				return { kind: 'restore-in-progress' };
 			}
 			const restoring = runBackupRegistryOperation(state, async () => {
+				let request = state.control.restoreRequest(restoreRequestId);
+				if (request !== undefined) {
+					if (request.backupId !== backupId) {
+						return { kind: 'idempotency-conflict' as const };
+					}
+					if (request.state === 'succeeded') {
+						return {
+							kind: 'restored' as const,
+							authorityLifetime: request.successorLifetime,
+							recordCount: request.recordCount,
+						};
+					}
+					if (state.control.active() === request.successorLifetime) {
+						request = state.control.completeRestore(request.requestId);
+						return {
+							kind: 'restored' as const,
+							authorityLifetime: request.successorLifetime,
+							recordCount: request.recordCount,
+						};
+					}
+				} else if (state.control.activeRestoreRequest() !== undefined) {
+					return { kind: 'restore-in-progress' as const };
+				}
+
 				const backup = await runLease(state, (entry) =>
 					entry.backups.get(backupId),
 				);
-				return backup === undefined
-					? undefined
-					: performRestore(state, backup.directory);
+				if (backup === undefined) {
+					if (request !== undefined) {
+						state.control.abandonRestore(request.requestId);
+					}
+					return { kind: 'backup-not-found' as const };
+				}
+				request ??= state.control.beginRestore(
+					restoreRequestId,
+					backupId,
+					crypto.randomUUID(),
+					backup.recordCount,
+				);
+				try {
+					const restored = await performRestore(
+						state,
+						backup.directory,
+						request.successorLifetime,
+					);
+					if (restored.recordCount !== request.recordCount) {
+						throw new Error(
+							'Bun Restore record count changed during construction',
+						);
+					}
+					request = state.control.completeRestore(request.requestId);
+					return {
+						kind: 'restored' as const,
+						authorityLifetime: request.successorLifetime,
+						recordCount: request.recordCount,
+					};
+				} catch (cause) {
+					try {
+						if (state.control.active() === request.successorLifetime) {
+							request = state.control.completeRestore(request.requestId);
+							return {
+								kind: 'restored' as const,
+								authorityLifetime: request.successorLifetime,
+								recordCount: request.recordCount,
+							};
+						}
+						state.control.abandonRestore(request.requestId);
+					} catch (reconciliationCause) {
+						throw new AggregateError(
+							[cause, reconciliationCause],
+							'Bun Restore outcome is indeterminate',
+						);
+					}
+					throw cause;
+				}
 			});
 			state.restoring = restoring;
 			try {
-				const result = await restoring;
-				return result === undefined
-					? { kind: 'backup-not-found' }
-					: { kind: 'restored', ...result };
+				return await restoring;
 			} finally {
 				state.restoring = undefined;
 			}
@@ -818,7 +899,8 @@ export function mountBunScalarV1App<E extends Env = Env>(
 	mountBackupV1App(app, {
 		auth,
 		locateRegistry: runtime.locateBackupOwner,
-		restoreBackup: runtime.restoreBackup,
+		restoreBackup: (principalId, backupId, restoreRequestId) =>
+			runtime.restoreBackup(principalId, backupId, restoreRequestId),
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(

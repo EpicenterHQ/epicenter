@@ -2,18 +2,49 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 const LIFETIME =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const CONTROL_SCHEMA = `CREATE TABLE active_authority (
+const ACTIVE_AUTHORITY_SCHEMA = `CREATE TABLE active_authority (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-	format_version INTEGER NOT NULL CHECK (format_version = 1),
+	format_version INTEGER NOT NULL CHECK (format_version = 2),
 	authority_lifetime TEXT NOT NULL UNIQUE
 ) STRICT`;
+const RESTORE_REQUESTS_SCHEMA = `CREATE TABLE restore_requests (
+	request_id TEXT PRIMARY KEY
+		CHECK (length(request_id) = 24 AND request_id NOT GLOB '*[^a-z0-9]*'),
+	backup_id TEXT NOT NULL
+		CHECK (length(backup_id) = 24 AND backup_id NOT GLOB '*[^a-z0-9]*'),
+	successor_lifetime TEXT NOT NULL UNIQUE,
+	record_count INTEGER NOT NULL
+		CHECK (record_count BETWEEN 0 AND 9007199254740991),
+	state TEXT NOT NULL CHECK (state IN ('building', 'succeeded'))
+) STRICT`;
+const CONTROL_SCHEMAS = [
+	ACTIVE_AUTHORITY_SCHEMA,
+	RESTORE_REQUESTS_SCHEMA,
+] as const;
+const REQUEST_ID = /^[a-z0-9]{24}$/u;
 
 type ActiveRow = {
 	format_version: number;
 	authority_lifetime: string;
+};
+
+export type BunRestoreRequestV1 = {
+	requestId: string;
+	backupId: string;
+	successorLifetime: string;
+	recordCount: number;
+	state: 'building' | 'succeeded';
+};
+
+type RestoreRequestRow = {
+	request_id: string;
+	backup_id: string;
+	successor_lifetime: string;
+	record_count: number;
+	state: 'building' | 'succeeded';
 };
 
 type TableColumn = {
@@ -27,6 +58,18 @@ type TableColumn = {
 function requireLifetime(value: string): void {
 	if (!LIFETIME.test(value)) {
 		throw new Error('Bun authority lifetime must be a lowercase UUID');
+	}
+}
+
+function requireRequestId(value: string, label: string): void {
+	if (!REQUEST_ID.test(value)) {
+		throw new Error(`${label} must be 24 lowercase alphanumeric characters`);
+	}
+}
+
+function requireRecordCount(value: number): void {
+	if (!Number.isSafeInteger(value) || value < 0) {
+		throw new Error('Bun Restore record count must be a non-negative integer');
 	}
 }
 
@@ -95,13 +138,14 @@ export function openBunAuthorityControlV1(directory: string) {
 		.all();
 	if (objects.length === 0) {
 		raw.transaction(() => {
-			raw.run(CONTROL_SCHEMA);
+			for (const schema of CONTROL_SCHEMAS) raw.run(schema);
 		})();
 	} else if (
-		objects.length !== 1 ||
-		objects[0]?.type !== 'table' ||
-		objects[0].name !== 'active_authority' ||
-		objects[0].sql !== CONTROL_SCHEMA
+		objects.length !== CONTROL_SCHEMAS.length ||
+		objects.some(
+			(object, index) =>
+				object.type !== 'table' || object.sql !== CONTROL_SCHEMAS[index],
+		)
 	) {
 		raw.close();
 		throw new Error('Bun authority control schema is not recognized');
@@ -161,8 +205,52 @@ export function openBunAuthorityControlV1(directory: string) {
 		return row.authority_lifetime;
 	}
 
+	function restoreRequest(requestId: string): BunRestoreRequestV1 | undefined {
+		requireRequestId(requestId, 'Bun Restore request ID');
+		const rows = raw
+			.query<RestoreRequestRow, [string]>(
+				`SELECT request_id, backup_id, successor_lifetime, record_count, state
+				FROM restore_requests WHERE request_id = ?`,
+			)
+			.all(requestId);
+		if (rows.length === 0) return undefined;
+		const row = rows[0];
+		if (rows.length !== 1 || row === undefined) {
+			throw new Error('Bun Restore request is not recognized');
+		}
+		requireRequestId(row.request_id, 'Bun Restore request ID');
+		requireRequestId(row.backup_id, 'Bun Backup ID');
+		requireLifetime(row.successor_lifetime);
+		requireRecordCount(row.record_count);
+		if (row.state !== 'building' && row.state !== 'succeeded') {
+			throw new Error('Bun Restore request is not recognized');
+		}
+		return {
+			requestId: row.request_id,
+			backupId: row.backup_id,
+			successorLifetime: row.successor_lifetime,
+			recordCount: row.record_count,
+			state: row.state,
+		};
+	}
+
+	function activeRestoreRequest(): BunRestoreRequestV1 | undefined {
+		const rows = raw
+			.query<{ request_id: string }, []>(
+				`SELECT request_id FROM restore_requests WHERE state = 'building'`,
+			)
+			.all();
+		if (rows.length === 0) return undefined;
+		if (rows.length !== 1 || rows[0] === undefined) {
+			throw new Error('Bun Restore active request is not recognized');
+		}
+		return restoreRequest(rows[0].request_id);
+	}
+
 	return Object.freeze({
 		active,
+		restoreRequest,
+		activeRestoreRequest,
 		initialize(authorityLifetime: string): void {
 			requireLifetime(authorityLifetime);
 			raw.transaction(() => {
@@ -206,6 +294,57 @@ export function openBunAuthorityControlV1(directory: string) {
 					readActive: active,
 				});
 			}
+		},
+		beginRestore(
+			requestId: string,
+			backupId: string,
+			successorLifetime: string,
+			recordCount: number,
+		): BunRestoreRequestV1 {
+			requireRequestId(requestId, 'Bun Restore request ID');
+			requireRequestId(backupId, 'Bun Backup ID');
+			requireLifetime(successorLifetime);
+			requireRecordCount(recordCount);
+			return raw.transaction(() => {
+				if (restoreRequest(requestId) !== undefined) {
+					throw new Error('Bun Restore request already exists');
+				}
+				if (activeRestoreRequest() !== undefined) {
+					throw new Error('Bun Restore is already active');
+				}
+				raw.run(
+					`INSERT INTO restore_requests
+					(request_id, backup_id, successor_lifetime, record_count, state)
+					VALUES (?, ?, ?, ?, 'building')`,
+					[requestId, backupId, successorLifetime, recordCount],
+				);
+				const created = restoreRequest(requestId);
+				if (created === undefined) {
+					throw new Error('Bun Restore request was not persisted');
+				}
+				return created;
+			})();
+		},
+		completeRestore(requestId: string): BunRestoreRequestV1 {
+			requireRequestId(requestId, 'Bun Restore request ID');
+			raw.run(
+				`UPDATE restore_requests SET state = 'succeeded'
+				WHERE request_id = ? AND state = 'building'`,
+				[requestId],
+			);
+			const completed = restoreRequest(requestId);
+			if (completed?.state !== 'succeeded') {
+				throw new Error('Bun Restore request did not complete');
+			}
+			return completed;
+		},
+		abandonRestore(requestId: string): void {
+			requireRequestId(requestId, 'Bun Restore request ID');
+			raw.run(
+				`DELETE FROM restore_requests
+				WHERE request_id = ? AND state = 'building'`,
+				[requestId],
+			);
 		},
 		close(): void {
 			raw.close();
