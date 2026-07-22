@@ -12,7 +12,8 @@
  * remedy the dashboard already handles, and the cache bypass means this route
  * always observes the live session row.
  *
- * After the gated steps succeed, the authority and blob sweeps run once more:
+ * After the gated steps succeed, the Backup registry, authority, and blob
+ * sweeps run once more:
  * while the auth user still existed, a signed-in device could re-register
  * workspace state or land a blob, so one post-fence pass sweeps that window.
  * Sweep failures are logged, not surfaced: the auth user is gone, no retry
@@ -36,8 +37,10 @@ import {
 	blobPrincipalPrefix,
 	type CloudEnv,
 	createDataAuthorityAccountAuthorities,
+	createDataBackupRegistryAccountAuthorities,
 	createDurableObjectAccountAuthorities,
 	type DeletableDataAuthorityNamespace,
+	type DeletableDataBackupRegistryNamespace,
 	deleteStorageObservations,
 	resolveDeploymentBlobStore,
 } from '@epicenter/server';
@@ -113,14 +116,22 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 		'/api/account',
 		describeRoute({
 			description:
-				'Delete the authenticated account everywhere: authority storage, blobs, billing customer, storage observations, and the auth user. Requires a fresh session cookie. Retry until 204.',
+				'Delete the authenticated account everywhere: Backups, authority storage, blobs, billing customer, storage observations, and the auth user. Requires a fresh session cookie. Retry until 204.',
 			tags: ['account'],
 		}),
 		requireFreshCookieSession,
 		async (c) => {
 			const principalId = c.var.principal.id;
-			const sweepAuthorities = () =>
-				Promise.all([
+			const sweepAuthorities = async () => {
+				// Fence Backup publication first and drain every admitted capture before
+				// deleting either live authority owner.
+				await createDataBackupRegistryAccountAuthorities(
+					(c.env as Cloudflare.Env)
+						.DATA_BACKUP_REGISTRY as unknown as DeletableDataBackupRegistryNamespace,
+				)
+					.authority(principalId)
+					.deleteAccount();
+				await Promise.all([
 					createDurableObjectAccountAuthorities(
 						(c.env as Cloudflare.Env).EPICENTER_SYNC,
 					)
@@ -133,6 +144,7 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 						.authority(principalId)
 						.deleteAccount(),
 				]);
+			};
 			const sweepBlobs = async () => {
 				const store = resolveDeploymentBlobStore(c.env);
 				if (!store) {
