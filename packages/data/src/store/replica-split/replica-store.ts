@@ -543,17 +543,20 @@ export function openSplitReplicaStore({
 			}
 			const bytes = canonicalize(admitted);
 			const hash = sha256Hex(bytes);
-			for (const row of pending) {
-				database.run(
-					`UPDATE local_intents SET
-						sealed_op = pending_op,
-						sealed_args = pending_args,
-						pending_op = NULL,
-						pending_args = NULL
-					WHERE ${TRIPLE_WHERE}`,
-					[row.namespace, row.collection, row.record_key],
-				);
-			}
+			const placeholders = pending.map(() => '(?, ?, ?)').join(', ');
+			database.run(
+				`UPDATE local_intents SET
+					sealed_op = pending_op,
+					sealed_args = pending_args,
+					pending_op = NULL,
+					pending_args = NULL
+				WHERE (namespace, collection, record_key) IN (VALUES ${placeholders})`,
+				pending.flatMap((row) => [
+					row.namespace,
+					row.collection,
+					row.record_key,
+				]),
+			);
 			database.run(
 				`UPDATE meta SET
 					sealed_submission = next_submission,
