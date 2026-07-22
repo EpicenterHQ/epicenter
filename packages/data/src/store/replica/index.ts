@@ -1,4 +1,10 @@
 export {
+	DOCUMENT_CHAIN_LIMITS,
+	type DocumentInspection,
+	type DocumentPublicationState,
+	type FrozenDocumentPublication,
+} from './document-store.js';
+export {
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
 	type ReplicaFactsPage,

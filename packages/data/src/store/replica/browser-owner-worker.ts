@@ -61,6 +61,12 @@ export function startBrowserReplicaOwnerWorker(
 			case 'reconstruct-sealed-request':
 			case 'install-facts':
 			case 'settle':
+			case 'append-local-document':
+			case 'install-accepted-document':
+			case 'inspect-document':
+			case 'export-document':
+			case 'document-publication':
+			case 'settle-document-publication':
 			case 'erase':
 			case 'integrity-check':
 			case 'reopen':

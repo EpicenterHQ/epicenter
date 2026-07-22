@@ -10,6 +10,12 @@ import { canonicalize } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import { openReplicaStore, type ReplicaStore } from '../replica/index.js';
 import type {
+	DocumentAction,
+	DocumentActionResult,
+	DocumentConformanceBinding,
+	DocumentConformanceReplica,
+} from './document-cases.test-support.js';
+import type {
 	ConformanceReplica,
 	CrashedReplica,
 	ReplicaConformanceBinding,
@@ -125,7 +131,9 @@ function logicalState(database: Database): string {
 	const inflight = all<Record<string, string | number | null>>(
 		database,
 		`SELECT r.namespace, r.collection, r.record_key,
-			hex(i.payload) AS payload, i.digest, i.captured_revision
+			hex(i.payload) AS payload, i.digest, i.captured_revision,
+			i.parked_code, i.measured_bytes, i.measured_structs,
+			i.limit_bytes, i.limit_structs
 		FROM document_inflight i
 		JOIN records r ON r.record_id = i.record_id
 		ORDER BY r.namespace, r.collection, r.record_key`,
@@ -296,4 +304,78 @@ function conformanceReplica(fixture: BunReplicaFixture): ConformanceReplica {
 export const bunReplicaBinding: ReplicaConformanceBinding = {
 	name: 'production Bun replica store',
 	create: (fixture) => conformanceReplica(BunReplicaFixture.create(fixture)),
+};
+
+const DOCUMENT_ADDRESS = {
+	namespace: 'so.epicenter.notes',
+	collection: 'records',
+	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+} as const;
+
+function documentAction(
+	store: ReplicaStore,
+	action: DocumentAction,
+): DocumentActionResult {
+	switch (action.kind) {
+		case 'append-local':
+			store.appendLocalDocumentUpdate(action.address, action.update);
+			return undefined;
+		case 'install-accepted':
+			store.installAcceptedDocumentUpdate(action.address, action.update);
+			return undefined;
+		case 'publication':
+			return store.documentPublication(action.address);
+		case 'settle-publication':
+			store.settleDocumentPublication(action.address, action.proof);
+			return undefined;
+		case 'local-write':
+			store.localWrite(action.intent);
+			return undefined;
+	}
+}
+
+function documentConformanceReplica(
+	fixture: BunReplicaFixture,
+): DocumentConformanceReplica {
+	return {
+		inspectDocument: (address) => fixture.store.inspectDocument(address),
+		exportDocument: (address) => fixture.store.exportDocument(address),
+		snapshot: () => fixture.snapshot(),
+		prepare(action) {
+			const execute = (store: ReplicaStore) => documentAction(store, action);
+			const analyzed = fixture.analyze(execute);
+			return {
+				boundaries: analyzed.boundaries,
+				crash(boundary) {
+					const crashed = fixture.crash(execute, boundary);
+					return {
+						inspectDocument: (address) =>
+							crashed.store.inspectDocument(address),
+						exportDocument: (address) => crashed.store.exportDocument(address),
+						snapshot: () => crashed.snapshot(),
+						close: () => crashed.close(),
+					};
+				},
+				commit: () => execute(fixture.store),
+			};
+		},
+		reopen: () => documentConformanceReplica(fixture.reopen()),
+		dispose: () => fixture.dispose(),
+	};
+}
+
+export const bunDocumentBinding: DocumentConformanceBinding = {
+	name: 'production Bun replica store',
+	create() {
+		const fixture = BunReplicaFixture.create({
+			replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+			authorityLifetime: 'lifetime-one',
+		});
+		fixture.store.localWrite({
+			address: DOCUMENT_ADDRESS,
+			op: 'replace',
+			value: {},
+		});
+		return documentConformanceReplica(fixture);
+	},
 };

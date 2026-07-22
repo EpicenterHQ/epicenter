@@ -21,6 +21,7 @@ import {
 	sha256Hex,
 	type ValidatedLimits,
 } from '../../protocol/v1/index.js';
+import { createReplicaDocumentStore } from './document-store.js';
 import {
 	createReplicaStoreSchema,
 	REPLICA_STORE_FORMAT_VERSION,
@@ -249,6 +250,7 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 				parked_limit = NULL,
 				blob_sha256 = NULL,
 				blob_pending = 0,
+				doc_revision = 0,
 				doc_dirty = 0
 			WHERE ${TRIPLE_WHERE}`,
 			[fact.sequence, ...tripleParams(fact.address)],
@@ -365,6 +367,7 @@ export function openReplicaStore({
 	initialize,
 }: OpenReplicaStoreOptions) {
 	openSchema(database, limits, initialize);
+	const documents = createReplicaDocumentStore(database);
 
 	function record(address: RecordAddress): ReplicaRecordLanes | null {
 		return lanesOf(readRecord(database, address));
@@ -408,8 +411,12 @@ export function openReplicaStore({
 				);
 				return;
 			}
-			if (row.confirmed_state === 'tombstone') {
-				throw new Error('local write over a confirmed tombstone');
+			if (
+				row.confirmed_state === 'tombstone' ||
+				row.sealed_op === 'tombstone' ||
+				row.pending_op === 'tombstone'
+			) {
+				throw new Error('local write over a tombstone');
 			}
 
 			const older =
@@ -439,6 +446,24 @@ export function openReplicaStore({
 					...tripleParams(intent.address),
 				],
 			);
+			if (outcome.operation.op === 'tombstone') {
+				database.run(
+					`UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
+						doc_revision = 0, doc_dirty = 0
+					WHERE ${TRIPLE_WHERE}`,
+					tripleParams(intent.address),
+				);
+				database.run(
+					`DELETE FROM record_documents WHERE record_id =
+						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+					tripleParams(intent.address),
+				);
+				database.run(
+					`DELETE FROM document_inflight WHERE record_id =
+						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+					tripleParams(intent.address),
+				);
+			}
 		});
 	}
 
@@ -744,6 +769,13 @@ export function openReplicaStore({
 		installFacts,
 		settle,
 		erase,
+		appendLocalDocumentUpdate: documents.appendLocal,
+		installAcceptedDocumentUpdate: documents.installAccepted,
+		inspectDocument: documents.inspect,
+		exportDocument: documents.exportDocument,
+		documentPublication: documents.publication,
+		settleDocumentPublication: documents.settle,
+		measureDocument: documents.measure,
 	};
 }
 
