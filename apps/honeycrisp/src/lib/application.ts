@@ -1,14 +1,31 @@
-import type { Epicenter, RowDocument, SyncStatus } from '@epicenter/data';
-import type { connectRowDocument } from '@epicenter/document-sync';
-import {
-	type HoneycrispData,
-	honeycrispDefinitions,
-} from '@epicenter/honeycrisp';
+import type {
+	FirstAttachmentChoice,
+	RecordEpicenter,
+	RecordSyncStatus,
+	RowDocument,
+} from '@epicenter/data/record';
+import type { connectRecordDocument } from '@epicenter/document-sync';
+import { type HoneycrispData, honeycrispLens } from '@epicenter/honeycrisp';
 import { createHoneycrispState } from '../routes/state/index.js';
+import type { HoneycrispReplicaIdentityState } from './workspace/browser.js';
 
 type ApplicationRuntime = {
-	epicenter: Epicenter;
-	connectDocument(document: RowDocument): ReturnType<typeof connectRowDocument>;
+	epicenter: Pick<
+		RecordEpicenter<Blob, Blob>,
+		| 'bind'
+		| 'attachment'
+		| 'syncStatus'
+		| 'subscribeAttachment'
+		| 'subscribeSyncStatus'
+	>;
+	readonly identity: HoneycrispReplicaIdentityState;
+	subscribeIdentity(
+		listener: (state: HoneycrispReplicaIdentityState) => void,
+	): () => void;
+	chooseFirstAttachment(choice: FirstAttachmentChoice): Promise<void>;
+	connectDocument(
+		document: RowDocument,
+	): ReturnType<typeof connectRecordDocument>;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
@@ -19,14 +36,23 @@ export type HoneycrispDependencies = {
 
 export type HoneycrispNoteDocument = {
 	document: RowDocument;
-	connection: ReturnType<typeof connectRowDocument>;
+	connection: ReturnType<typeof connectRecordDocument>;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
 export type HoneycrispApplication = HoneycrispData & {
 	state: ReturnType<typeof createHoneycrispState>;
-	readonly syncStatus: SyncStatus;
-	subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void;
+	readonly identity: HoneycrispReplicaIdentityState;
+	readonly attachment: RecordEpicenter<Blob, Blob>['attachment'];
+	readonly syncStatus: RecordSyncStatus;
+	subscribeAttachment(
+		listener: (attachment: RecordEpicenter<Blob, Blob>['attachment']) => void,
+	): () => void;
+	subscribeSyncStatus(listener: (status: RecordSyncStatus) => void): () => void;
+	subscribeIdentity(
+		listener: (state: HoneycrispReplicaIdentityState) => void,
+	): () => void;
+	chooseFirstAttachment(choice: FirstAttachmentChoice): Promise<void>;
 	openNoteDocument(noteId: string): Promise<HoneycrispNoteDocument>;
 	[Symbol.asyncDispose](): Promise<void>;
 };
@@ -85,7 +111,14 @@ export async function openHoneycrispApplication(
 		runtime = await untilAbort(openEpicenter());
 		signal?.throwIfAborted();
 		const activeRuntime = runtime;
-		const data = activeRuntime.epicenter.bind(honeycrispDefinitions);
+		if (activeRuntime.identity.kind === 'principal-mismatch') {
+			throw new Error(
+				`These local notes belong to principal '${activeRuntime.identity.attachedPrincipalId}', not the signed-in principal '${activeRuntime.identity.signedInPrincipalId}'. Sign back into the original account or reset this site's local data.`,
+			);
+		}
+		const data = activeRuntime.epicenter.bind({
+			honeycrisp: honeycrispLens,
+		}).honeycrisp;
 		state = createHoneycrispState({
 			honeycrisp: data,
 			reportBackgroundError,
@@ -95,15 +128,36 @@ export async function openHoneycrispApplication(
 		return Object.freeze({
 			...data,
 			state,
+			get identity() {
+				return activeRuntime.identity;
+			},
+			get attachment() {
+				return activeRuntime.epicenter.attachment;
+			},
 			get syncStatus() {
 				return activeRuntime.epicenter.syncStatus;
 			},
-			subscribeSyncStatus(listener: (status: SyncStatus) => void) {
+			subscribeAttachment(
+				listener: (
+					attachment: RecordEpicenter<Blob, Blob>['attachment'],
+				) => void,
+			) {
+				return activeRuntime.epicenter.subscribeAttachment(listener);
+			},
+			subscribeSyncStatus(listener: (status: RecordSyncStatus) => void) {
 				return activeRuntime.epicenter.subscribeSyncStatus(listener);
 			},
+			subscribeIdentity(
+				listener: (state: HoneycrispReplicaIdentityState) => void,
+			) {
+				return activeRuntime.subscribeIdentity(listener);
+			},
+			chooseFirstAttachment(choice: FirstAttachmentChoice) {
+				return activeRuntime.chooseFirstAttachment(choice);
+			},
 			async openNoteDocument(noteId: string) {
-				const document = await data.tables.notes.openDocument(noteId);
-				let connection: ReturnType<typeof connectRowDocument>;
+				const document = await data.notes.openDocument(noteId);
+				let connection: ReturnType<typeof connectRecordDocument>;
 				try {
 					connection = activeRuntime.connectDocument(document);
 				} catch (cause) {

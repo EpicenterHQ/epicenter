@@ -24,7 +24,16 @@ mock.module('$app/state', () => ({
 
 const { openHoneycrispApplication } = await import('./application.js');
 
-function createRuntime(scanFolders: () => Promise<never>) {
+function createRuntime(
+	scanFolders: () => Promise<never>,
+	identity:
+		| { kind: 'ready' }
+		| {
+				kind: 'principal-mismatch';
+				attachedPrincipalId: string;
+				signedInPrincipalId: string;
+		  } = { kind: 'ready' },
+) {
 	let releases = 0;
 	const table = {
 		scan: scanFolders,
@@ -35,11 +44,23 @@ function createRuntime(scanFolders: () => Promise<never>) {
 			return releases;
 		},
 		value: {
+			identity,
+			subscribeIdentity: () => () => {},
 			epicenter: {
-				bind: () => ({ tables: { folders: table, notes: table }, values: {} }),
-				syncStatus: { state: 'local', lastError: undefined },
+				bind: () => ({ honeycrisp: { folders: table, notes: table } }),
+				attachment: { kind: 'unattached', requiresChoice: false },
+				syncStatus: {
+					state: 'local',
+					work: {
+						scalar: { pending: 0, sealed: 0, parked: 0 },
+						document: { pending: 0, parked: 0 },
+						blob: { pending: 0, parked: 0 },
+					},
+				},
 				subscribeSyncStatus: () => () => {},
+				subscribeAttachment: () => () => {},
 			},
+			chooseFirstAttachment: async () => undefined,
 			connectDocument: () => {
 				throw new Error('unreachable');
 			},
@@ -79,5 +100,21 @@ test('aborting pending hydration rejects and releases its runtime', async () => 
 	abort.abort();
 	await expect(opening).rejects.toHaveProperty('name', 'AbortError');
 	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(runtime.releases).toBe(1);
+});
+
+test('a principal mismatch refuses hydration and releases local data', async () => {
+	const runtime = createRuntime(() => new Promise<never>(() => {}), {
+		kind: 'principal-mismatch',
+		attachedPrincipalId: 'principal-one',
+		signedInPrincipalId: 'principal-two',
+	});
+
+	await expect(
+		openHoneycrispApplication({
+			openEpicenter: async () => runtime.value,
+			reportBackgroundError() {},
+		}),
+	).rejects.toThrow(/belong to principal 'principal-one'/);
 	expect(runtime.releases).toBe(1);
 });

@@ -1,16 +1,16 @@
 <script lang="ts">
 	import type {
-		connectRowDocument,
-		DocumentConnectionStatus,
+		connectRecordDocument,
+		RecordDocumentConnectionStatus,
 	} from '@epicenter/document-sync';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 
 	let {
 		connection,
-	}: { connection: ReturnType<typeof connectRowDocument> } = $props();
+	}: { connection: ReturnType<typeof connectRecordDocument> } = $props();
 
 	const source = $derived(connection);
-	let status = $state<DocumentConnectionStatus>('connecting');
+	let status = $state<RecordDocumentConnectionStatus>('connecting');
 	$effect(() => {
 		status = source.status;
 		return source.subscribeStatus((next) => (status = next));
@@ -22,6 +22,8 @@
 				return 'Offline; edits are saved on this device and will sync when reconnected.';
 			case 'revoked':
 				return 'This note was deleted and can no longer sync.';
+			case 'refused':
+				return 'This note cannot sync because its document was refused.';
 			case 'connecting':
 			case 'connected':
 			case 'authentication-required':

@@ -10,6 +10,7 @@
 	import { instanceSetting } from '$lib/instance';
 	import { runHoneycrispMutation } from '$lib/mutation.js';
 	import FolderMenuItem from '../components/FolderMenuItem.svelte';
+	import ReplicaAttachmentChoice from './ReplicaAttachmentChoice.svelte';
 
 	const honeycrisp = getHoneycrispApp();
 </script>
@@ -36,6 +37,7 @@
 			/>
 		</div>
 	</Sidebar.Header>
+	<ReplicaAttachmentChoice />
 
 	<Sidebar.Content>
 		<Sidebar.Group>

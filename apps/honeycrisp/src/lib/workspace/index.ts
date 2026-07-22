@@ -1,17 +1,17 @@
 /**
- * Honeycrisp's inert Data definitions.
+ * Honeycrisp's inert Lens definition.
  *
  * Runtimes own storage, synchronization, and document lifecycles. This module
- * owns only qualified keys, release-local row lenses, and the one
+ * owns only its durable namespace, release-local collections, and the one
  * multi-row folder deletion operation shared by the UI and desktop host.
  */
 
 import {
-	type BoundData,
+	type BoundLens,
+	defineLens,
 	defineTable,
-	optional,
 	type RowFor,
-} from '@epicenter/data';
+} from '@epicenter/data/record';
 import { field } from '@epicenter/field';
 
 /** Runtime-minted structural note row id. */
@@ -21,40 +21,41 @@ export type NoteId = string;
 export type FolderId = string;
 
 export const foldersTable = defineTable({
-	key: 'so.epicenter.honeycrisp.folders',
+	title: 'Folders',
 	fields: {
 		name: field.string(),
-		icon: optional(field.string()),
+		icon: field.string(),
 		sortOrder: field.number(),
 	},
+	optional: ['icon'],
 });
 export type Folder = RowFor<typeof foldersTable>;
 
 export const notesTable = defineTable({
-	key: 'so.epicenter.honeycrisp.notes',
+	title: 'Notes',
 	fields: {
-		folderId: optional(field.string()),
+		folderId: field.string(),
 		title: field.string(),
 		preview: field.string(),
 		pinned: field.boolean(),
 		createdAt: field.instant(),
 		updatedAt: field.instant(),
-		deletedAt: optional(field.instant()),
-		wordCount: optional(field.number()),
+		deletedAt: field.instant(),
+		wordCount: field.number(),
 	},
+	optional: ['folderId', 'deletedAt', 'wordCount'],
 });
 export type Note = RowFor<typeof notesTable>;
 
-/** Honeycrisp's inert definitions for this release. */
-export const honeycrispDefinitions = {
-	tables: { folders: foldersTable, notes: notesTable },
-	values: {},
-} as const;
+/** Honeycrisp's complete pure-JSON interpretation for this release. */
+export const honeycrispLens = defineLens({
+	namespace: 'so.epicenter.honeycrisp',
+	title: 'Honeycrisp',
+	description: 'Folders, notes, and their collaborative bodies.',
+	collections: { folders: foldersTable, notes: notesTable },
+});
 
-export type HoneycrispData = BoundData<
-	typeof honeycrispDefinitions.tables,
-	typeof honeycrispDefinitions.values
->;
+export type HoneycrispData = BoundLens<typeof honeycrispLens, never, unknown>;
 
 /**
  * Delete a folder after best-effort re-parenting of its current notes.
@@ -67,14 +68,14 @@ export async function deleteHoneycrispFolder(
 	data: HoneycrispData,
 	folderId: FolderId,
 ): Promise<void> {
-	for await (const entry of data.tables.notes.entries()) {
+	for await (const entry of data.notes.entries()) {
 		if (entry.error !== null) continue;
 		const note = entry.data;
 		if (note.folderId !== folderId) continue;
-		const result = await data.tables.notes.update(note.id, {
+		const result = await data.notes.update(note.id, {
 			folderId: undefined,
 		});
 		if (result.error !== null) throw result.error;
 	}
-	await data.tables.folders.delete(folderId);
+	await data.folders.delete(folderId);
 }

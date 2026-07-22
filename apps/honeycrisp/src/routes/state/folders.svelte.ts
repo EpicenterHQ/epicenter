@@ -1,4 +1,4 @@
-import type { NonconformingRowError } from '@epicenter/data';
+import type { NonconformingRowError } from '@epicenter/data/record';
 import {
 	deleteHoneycrispFolder,
 	type Folder,
@@ -23,7 +23,7 @@ export function createFolders({
 		const generation = ++refreshGeneration;
 		try {
 			const { rows: nextRows, nonconforming: nextNonconforming } =
-				await honeycrisp.tables.folders.scan();
+				await honeycrisp.folders.scan();
 			if (generation !== refreshGeneration) return;
 			rows = nextRows;
 			nonconforming = nextNonconforming;
@@ -50,7 +50,7 @@ export function createFolders({
 		},
 
 		async create(): Promise<{ id: FolderId }> {
-			const folder = await honeycrisp.tables.folders.create({
+			const folder = await honeycrisp.folders.create({
 				name: 'New Folder',
 				sortOrder: rows.length,
 			});
@@ -59,7 +59,7 @@ export function createFolders({
 		},
 
 		async rename(folderId: FolderId, name: string): Promise<void> {
-			const result = await honeycrisp.tables.folders.update(folderId, { name });
+			const result = await honeycrisp.folders.update(folderId, { name });
 			if (result.error !== null) throw result.error;
 			await refresh();
 		},

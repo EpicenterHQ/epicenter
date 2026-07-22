@@ -15,7 +15,7 @@
 -->
 <script lang="ts">
 	import type { Note } from '@epicenter/honeycrisp';
-	import type { DocumentConnectionStatus } from '@epicenter/document-sync';
+	import type { RecordDocumentConnectionStatus } from '@epicenter/document-sync';
 	import { Button } from '@epicenter/ui/button';
 	import { InstantString } from '@epicenter/field';
 	import { onDestroy } from 'svelte';
@@ -36,7 +36,7 @@
 		rowId: string;
 		title: string;
 		opened: HoneycrispNoteDocument | undefined;
-		status: DocumentConnectionStatus | undefined;
+		status: RecordDocumentConnectionStatus | undefined;
 		/** Times the connection re-entered `connected` (reconnect counter). */
 		connectedCount: number;
 		text: string;
@@ -66,7 +66,7 @@
 	}
 
 	async function listAllNotes(): Promise<Note[]> {
-		return (await honeycrisp.tables.notes.scan()).rows;
+		return (await honeycrisp.notes.scan()).rows;
 	}
 
 	async function ensureRows(count: number): Promise<Note[]> {
@@ -75,7 +75,7 @@
 			.sort((a, b) => a.title.localeCompare(b.title));
 		for (let index = mine.length; index < count; index += 1) {
 			const now = InstantString.now();
-			const note = await honeycrisp.tables.notes.create({
+			const note = await honeycrisp.notes.create({
 				title: `${TITLE_PREFIX} ${String(index + 1).padStart(2, '0')}`,
 				preview: 'Topology gate row',
 				pinned: false,
@@ -186,7 +186,7 @@
 
 	async function deleteRow(panel: Panel): Promise<void> {
 		try {
-			await honeycrisp.tables.notes.delete(panel.rowId);
+			await honeycrisp.notes.delete(panel.rowId);
 		} catch (cause) {
 			panel.openError = cause instanceof Error ? cause.message : String(cause);
 			panels = [...panels];
@@ -203,7 +203,7 @@
 		panels = [];
 		for (const note of await listAllNotes()) {
 			if (!note.title.startsWith(TITLE_PREFIX)) continue;
-			await honeycrisp.tables.notes.delete(note.id);
+			await honeycrisp.notes.delete(note.id);
 		}
 	}
 
@@ -215,17 +215,10 @@
 		void openPanels(count);
 	}
 
-	// Revocation and status drift are also caught by a slow poll so the page
-	// stays honest even when no observer event fires.
-	const pollTimer = setInterval(() => {
-		for (const panel of panels) refreshPanel(panel);
-	}, 1000);
-
 	void openPanels(initialCount);
 
 	onDestroy(() => {
 		openGeneration += 1;
-		clearInterval(pollTimer);
 		if (pulseTimer) clearInterval(pulseTimer);
 		for (const panel of panels) {
 			panel.unsubscribe?.();
@@ -233,7 +226,9 @@
 		}
 	});
 
-	function phaseLabel(status: DocumentConnectionStatus | undefined): string {
+	function phaseLabel(
+		status: RecordDocumentConnectionStatus | undefined,
+	): string {
 		if (!status) return 'not opened';
 		switch (status) {
 			case 'connecting':
@@ -244,6 +239,8 @@
 				return 'offline';
 			case 'authentication-required':
 				return 'authentication required';
+			case 'refused':
+				return 'refused';
 			case 'revoked':
 				return 'revoked';
 			case 'disposed':

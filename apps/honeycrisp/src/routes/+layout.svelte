@@ -6,6 +6,7 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
 	import HoneycrispAppProvider from '$lib/HoneycrispAppProvider.svelte';
+	import HoneycrispIdentityGate from '$lib/HoneycrispIdentityGate.svelte';
 	import { openHoneycrispApplication } from '$lib/application.js';
 	import { honeycrispPlatform } from '$lib/application-platform.js';
 	import '@epicenter/ui/app.css';
@@ -25,7 +26,9 @@
 	<Loading class="h-dvh" />
 {:then application}
 	<HoneycrispAppProvider {application}>
-		<Tooltip.Provider>{@render children?.()}</Tooltip.Provider>
+		<HoneycrispIdentityGate>
+			<Tooltip.Provider>{@render children?.()}</Tooltip.Provider>
+		</HoneycrispIdentityGate>
 	</HoneycrispAppProvider>
 {:catch error}
 	<div class="flex h-dvh items-center justify-center p-6 text-center">
