@@ -34,6 +34,9 @@ declare namespace Cloudflare {
 		DATA_BACKUP_REGISTRY: DurableObjectNamespace<
 			import('@epicenter/server').DataBackupRegistry
 		>;
+		PORTABLE_MATERIALIZER: DurableObjectNamespace<
+			import('@epicenter/server').PortableMaterializer
+		>;
 		DATA_BLOBS: R2Bucket;
 		// Deployment-owned config the library never reads by name; this
 		// deployment reads them in its own resolvers (ADR-0066). `API_PUBLIC_ORIGIN`

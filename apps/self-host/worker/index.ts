@@ -22,6 +22,7 @@
 
 import { assertStrongToken } from '@epicenter/auth';
 import {
+	ContainerProxy,
 	createDurableObjectRooms,
 	createEnvTokenResolver,
 	createServerApp,
@@ -38,6 +39,7 @@ import {
 	mountRoomsApp,
 	mountSessionApp,
 	mountTranscriptionApp,
+	PortableMaterializer,
 	type ResolveBearerPrincipal,
 	Room,
 	rateLimit,
@@ -134,9 +136,11 @@ mountBlobsApp(app, { auth });
 
 export default app;
 export {
+	ContainerProxy,
 	DataAuthority,
 	DataBackup,
 	DataBackupRegistry,
 	EpicenterAuthority,
+	PortableMaterializer,
 	Room,
 };

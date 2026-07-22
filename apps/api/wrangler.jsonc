@@ -72,6 +72,10 @@
 			{
 				"name": "DATA_BACKUP_REGISTRY",
 				"class_name": "DataBackupRegistry"
+			},
+			{
+				"name": "PORTABLE_MATERIALIZER",
+				"class_name": "PortableMaterializer"
 			}
 		]
 	},
@@ -115,6 +119,23 @@
 		{
 			"tag": "v8",
 			"new_sqlite_classes": ["DataBackup", "DataBackupRegistry"]
+		},
+		{
+			"tag": "v9",
+			"new_sqlite_classes": ["PortableMaterializer"]
+		}
+	],
+	// Portable Backup transport is the one Cloudflare path that needs ordinary
+	// SQLite file bytes. The Container is ephemeral and internet-disabled: Durable
+	// Objects and R2 remain the only durable owners. A basic instance has 4 GiB of
+	// disk for the explicit 1 GiB index ceiling plus its scratch manifest.
+	"containers": [
+		{
+			"class_name": "PortableMaterializer",
+			"image": "../../packages/server/containers/portable-materializer/Dockerfile",
+			"image_build_context": "../..",
+			"instance_type": "basic",
+			"max_instances": 10
 		}
 	],
 	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---

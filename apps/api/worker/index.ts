@@ -17,6 +17,7 @@ import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
 import {
 	AttachRelay,
 	type CloudEnv,
+	ContainerProxy,
 	connectHyperdriveDb,
 	createDurableObjectAttachRelay,
 	createDurableObjectRooms,
@@ -37,6 +38,7 @@ import {
 	mountRoomsApp,
 	mountSessionApp,
 	mountTranscriptionApp,
+	PortableMaterializer,
 	Room,
 	requireBearerPrincipal,
 	requireCookieOrBearerPrincipal,
@@ -237,9 +239,11 @@ export default {
 };
 export {
 	AttachRelay,
+	ContainerProxy,
 	DataAuthority,
 	DataBackup,
 	DataBackupRegistry,
 	EpicenterAuthority,
+	PortableMaterializer,
 	Room,
 };
