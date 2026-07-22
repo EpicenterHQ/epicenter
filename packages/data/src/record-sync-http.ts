@@ -168,6 +168,7 @@ export function createHttpRecordSyncTransport<
 			);
 		},
 		async publishDocument(request): Promise<DocumentAcceptance> {
+			const body = new Uint8Array(request.payload);
 			const response = await runFetch(
 				new Request(
 					endpoint(
@@ -182,7 +183,7 @@ export function createHttpRecordSyncTransport<
 							'x-epicenter-document-protocol': request.protocolVersion,
 							'x-epicenter-document-digest': request.digest,
 						}),
-						body: request.payload,
+						body,
 					},
 				),
 			);
