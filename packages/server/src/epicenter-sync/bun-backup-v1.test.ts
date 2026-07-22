@@ -94,9 +94,8 @@ async function setup() {
 	);
 	const backups = createBunBackupV1Owner({
 		backupsRoot: join(storageRoot, 'backups'),
-		captures,
-		blobs,
 	});
+	const captureSource = { captures, blobs };
 	let submissionNumber = 1;
 	function submit(
 		address: RecordAddress,
@@ -130,8 +129,10 @@ async function setup() {
 		captures,
 		blobs,
 		backups,
+		captureSource,
 		submit,
 		async close() {
+			await backups.close();
 			raw.close();
 			await rm(storageRoot, { recursive: true, force: true });
 		},
@@ -170,7 +171,7 @@ test('Bun Backup publishes and validates one identity-free complete directory', 
 			),
 		).toMatchObject({ kind: 'accepted' });
 
-		const backup = await context.backups.create();
+		const backup = await context.backups.create(context.captureSource);
 		expect(await context.backups.get(backup.backupId)).toEqual(backup);
 		expect(backup.recordCount).toBe(2);
 		expect(await validateBunPortableDirectory(backup.directory)).toEqual({
@@ -297,7 +298,7 @@ test('Bun Backup publishes and validates one identity-free complete directory', 
 		expect(await context.backups.get(backup.backupId)).toBeUndefined();
 		expect(await context.backups.list()).toEqual([]);
 		await context.backups.close();
-		await expect(context.backups.create()).rejects.toThrow(
+		await expect(context.backups.create(context.captureSource)).rejects.toThrow(
 			'Bun Backup owner is closed',
 		);
 	} finally {
@@ -321,7 +322,7 @@ test('Bun Restore refuses corrupt input without publishing a target', async () =
 				bytes('portable blob'),
 			),
 		).toMatchObject({ kind: 'accepted' });
-		const backup = await context.backups.create();
+		const backup = await context.backups.create(context.captureSource);
 		const claimedTarget = join(context.storageRoot, 'claimed-successor');
 		const claimedRestore = constructBunAuthorityFromPortable({
 			portableDirectory: backup.directory,
@@ -460,7 +461,7 @@ test('Bun Backup refuses corrupt pinned bytes and publishes no partial directory
 			join(context.storageRoot, 'blobs', 'content', owner.ownerKey, digest),
 			'corrupt',
 		);
-		await expect(context.backups.create()).rejects.toThrow(
+		await expect(context.backups.create(context.captureSource)).rejects.toThrow(
 			/digest verification/,
 		);
 		expect(await context.backups.list()).toEqual([]);
@@ -478,11 +479,11 @@ test('Bun Backup refuses corrupt pinned bytes and publishes no partial directory
 		).toBe(true);
 
 		await mkdir(join(context.storageRoot, 'backups', '.crash-debris'));
-		await createBunBackupV1Owner({
+		const reopened = createBunBackupV1Owner({
 			backupsRoot: join(context.storageRoot, 'backups'),
-			captures: context.captures,
-			blobs: context.blobs,
-		}).list();
+		});
+		await reopened.list();
+		await reopened.close();
 		expect(await readdir(join(context.storageRoot, 'backups'))).not.toContain(
 			'.crash-debris',
 		);
@@ -508,10 +509,8 @@ test('Bun Backup reconciles a transient manifest failure after publication', asy
 		};
 		const backups = createBunBackupV1Owner({
 			backupsRoot: join(context.storageRoot, 'reconciled-backups'),
-			captures,
-			blobs: context.blobs,
 		});
-		const backup = await backups.create();
+		const backup = await backups.create({ captures, blobs: context.blobs });
 		expect(refused).toBe(true);
 		expect(await backups.list()).toEqual([backup]);
 		expect(
@@ -521,6 +520,7 @@ test('Bun Backup reconciles a transient manifest failure after publication', asy
 				)
 				.get(backup.backupId)?.state,
 		).toBe('succeeded');
+		await backups.close();
 	} finally {
 		await context.close();
 	}

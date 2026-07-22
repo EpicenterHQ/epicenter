@@ -58,7 +58,9 @@ const AUTHORITY_LIFETIME =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 type BunAuthorityBlobs = AuthorityBlobV1<BlobByteSource, BunBlobRead>;
-type BunBackupEndpoint = Pick<BunBackupV1Owner, 'create' | 'list' | 'delete'>;
+type BunBackupEndpoint = Pick<BunBackupV1Owner, 'list' | 'delete'> & {
+	create(): ReturnType<BunBackupV1Owner['create']>;
+};
 type BunDataEndpoint = ScalarAuthorityV1Endpoint & DocumentAuthorityV1Endpoint;
 
 type OpenedAuthority = {
@@ -66,17 +68,17 @@ type OpenedAuthority = {
 	directory: string;
 	raw: Database;
 	authority: DataAuthorityV1;
+	captures: ReturnType<typeof createAuthorityCaptureManifestV1>;
 	blobs: BunAuthorityBlobs;
-	backups: BunBackupV1Owner;
 	waitForBlobs(): Promise<void>;
 };
 
 type PrincipalState = {
 	principalId: PrincipalId;
-	root: string;
 	authoritiesRoot: string;
 	control: ReturnType<typeof openBunAuthorityControlV1>;
 	owner: ReturnType<typeof acquireBunAuthorityOwnerV1>;
+	backups: BunBackupV1Owner;
 	current: OpenedAuthority;
 	barrier: Promise<void> | undefined;
 	unblock: (() => void) | undefined;
@@ -151,7 +153,6 @@ export function createBunScalarV1Runtime({
 		entry: OpenedAuthority,
 	): void {
 		const cleanup = (async () => {
-			await entry.backups.close();
 			await entry.waitForBlobs();
 			entry.raw.close();
 			await rm(entry.directory, { recursive: true, force: true });
@@ -167,7 +168,6 @@ export function createBunScalarV1Runtime({
 
 	async function openAuthority(
 		principalId: PrincipalId,
-		stateRoot: string,
 		authoritiesRoot: string,
 		authorityLifetime: string,
 		initialize: boolean,
@@ -204,11 +204,6 @@ export function createBunScalarV1Runtime({
 				database,
 				createBunBlobFileStore(directory),
 			);
-			const backups = createBunBackupV1Owner({
-				backupsRoot: join(stateRoot, 'backups'),
-				captures,
-				blobs,
-			});
 			let blobMaintenance = blobs.reopenSweep();
 			await blobMaintenance;
 			function scheduleBlobSweep(): void {
@@ -238,8 +233,8 @@ export function createBunScalarV1Runtime({
 				directory,
 				raw,
 				authority,
+				captures,
 				blobs,
-				backups,
 				waitForBlobs: () => blobMaintenance,
 			};
 		} catch (cause) {
@@ -370,18 +365,20 @@ export function createBunScalarV1Runtime({
 		state.backupEndpoint = {
 			create: () =>
 				runBackupRegistryOperation(state, () =>
-					runLease(state, (entry) => entry.backups.create()),
+					runLease(state, (entry) =>
+						state.backups.create({
+							captures: entry.captures,
+							blobs: entry.blobs,
+						}),
+					),
 				),
-			list: () =>
-				runBackupRegistryOperation(state, () =>
-					runLease(state, (entry) => entry.backups.list()),
-				),
+			list: () => runBackupRegistryOperation(state, () => state.backups.list()),
 			delete: (backupId) =>
 				runBackupRegistryOperation(state, () => {
 					if (state.control.activeRestoreRequest()?.backupId === backupId) {
 						throw new Error('Bun Backup Restore is incomplete');
 					}
-					return runLease(state, (entry) => entry.backups.delete(backupId));
+					return state.backups.delete(backupId);
 				}),
 		};
 	}
@@ -406,6 +403,7 @@ export function createBunScalarV1Runtime({
 				throw cause;
 			}
 			let current: OpenedAuthority | undefined;
+			let backups: BunBackupV1Owner | undefined;
 			try {
 				await recoverBunRestoreConstructionParent(authoritiesRoot);
 				let active = control.active();
@@ -423,7 +421,6 @@ export function createBunScalarV1Runtime({
 						active = crypto.randomUUID();
 						current = await openAuthority(
 							principalId,
-							root,
 							authoritiesRoot,
 							active,
 							true,
@@ -440,7 +437,6 @@ export function createBunScalarV1Runtime({
 						active = recovered.name;
 						current = await openAuthority(
 							principalId,
-							root,
 							authoritiesRoot,
 							active,
 							false,
@@ -453,7 +449,6 @@ export function createBunScalarV1Runtime({
 				} else {
 					current = await openAuthority(
 						principalId,
-						root,
 						authoritiesRoot,
 						active,
 						false,
@@ -479,12 +474,15 @@ export function createBunScalarV1Runtime({
 					});
 				}
 				await syncDirectory(authoritiesRoot);
+				backups = createBunBackupV1Owner({
+					backupsRoot: join(root, 'backups'),
+				});
 				const state = {
 					principalId,
-					root,
 					authoritiesRoot,
 					control,
 					owner,
+					backups,
 					current,
 					barrier: undefined,
 					unblock: undefined,
@@ -502,8 +500,8 @@ export function createBunScalarV1Runtime({
 				opened.set(principalId, state);
 				return state;
 			} catch (cause) {
+				await backups?.close().catch(() => undefined);
 				if (current !== undefined) {
-					await current.backups.close().catch(() => undefined);
 					await current.waitForBlobs().catch(() => undefined);
 					current.raw.close();
 				}
@@ -582,7 +580,6 @@ export function createBunScalarV1Runtime({
 			}
 			successor = await openAuthority(
 				state.principalId,
-				state.root,
 				state.authoritiesRoot,
 				successorLifetime,
 				false,
@@ -594,9 +591,6 @@ export function createBunScalarV1Runtime({
 			if (activation.kind === 'unchanged') throw activation.cause;
 			if (activation.kind === 'indeterminate') {
 				const preservationFailures: unknown[] = [];
-				await successor.backups
-					.close()
-					.catch((failure) => preservationFailures.push(failure));
 				try {
 					successor.raw.close();
 				} catch (failure) {
@@ -624,9 +618,6 @@ export function createBunScalarV1Runtime({
 				const cleanupFailures: unknown[] = [];
 				try {
 					if (successor !== undefined) {
-						await successor.backups
-							.close()
-							.catch((failure) => cleanupFailures.push(failure));
 						try {
 							successor.raw.close();
 						} catch (failure) {
@@ -727,9 +718,7 @@ export function createBunScalarV1Runtime({
 					return { kind: 'restore-in-progress' as const };
 				}
 
-				const backup = await runLease(state, (entry) =>
-					entry.backups.get(backupId),
-				);
+				const backup = await state.backups.get(backupId);
 				if (backup === undefined) {
 					if (request !== undefined) {
 						state.control.abandonRestore(request.requestId);
@@ -842,7 +831,7 @@ export function createBunScalarV1Runtime({
 						if (result.status === 'rejected') failures.push(result.reason);
 					}
 					const owner = await Promise.allSettled([
-						state.current.backups.close(),
+						state.backups.close(),
 						state.current.waitForBlobs(),
 					]);
 					for (const result of owner) {

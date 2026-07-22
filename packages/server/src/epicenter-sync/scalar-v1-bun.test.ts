@@ -281,6 +281,14 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 
 		const backup = await backups.create();
 		expect(backup.recordCount).toBe(2);
+		const backupOwnerOpenProbe = join(
+			dir,
+			'principals',
+			'principal-one',
+			'backups',
+			'.owner-open-probe',
+		);
+		await mkdir(backupOwnerOpenProbe);
 		expectOk(
 			await authority.submit(
 				expectOk(
@@ -311,6 +319,9 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 		);
 		expect(restored.recordCount).toBe(2);
 		expect(restored.authorityLifetime).not.toBe(oldLifetime);
+		expect(await runtime.locateBackupOwner(principal)).toBe(backups);
+		expect(await backups.list()).toEqual([backup]);
+		expect(existsSync(backupOwnerOpenProbe)).toBe(true);
 		const newLifetime = restored.authorityLifetime;
 		await expect(interruptedReader.read()).rejects.toThrow(
 			'interrupted by authority replacement',
@@ -384,6 +395,9 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 		restoredRaw.close();
 
 		const recaptured = await backups.create();
+		expect(
+			(await backups.list()).map((entry) => entry.backupId).sort(),
+		).toEqual([backup.backupId, recaptured.backupId].sort());
 		const artifact = new Database(
 			join(recaptured.directory, 'epicenter.sqlite'),
 			{
@@ -489,6 +503,11 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 		await runtime.close();
 		runtime = createBunScalarV1Runtime({ dir });
 		const reopened = await runtime.locateAuthority(principal);
+		const reopenedBackups = await runtime.locateBackupOwner(principal);
+		expect(
+			(await reopenedBackups.list()).map((entry) => entry.backupId).sort(),
+		).toEqual([backup.backupId, recaptured.backupId].sort());
+		expect(existsSync(backupOwnerOpenProbe)).toBe(false);
 		expect(
 			await runtime.restoreBackup(
 				principal,

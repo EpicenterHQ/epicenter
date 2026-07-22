@@ -34,6 +34,11 @@ type BunAuthorityBlobs = AuthorityBlobV1<
 	BunBlobRead
 >;
 
+export type BunBackupV1CaptureSource = {
+	captures: CaptureManifests;
+	blobs: BunAuthorityBlobs;
+};
+
 export type BunBackup = {
 	backupId: string;
 	directory: string;
@@ -252,12 +257,8 @@ async function sweepDebris(backupsRoot: string): Promise<void> {
 /** Host-owned Bun Backup registry over immutable portable directories. */
 export function createBunBackupV1Owner({
 	backupsRoot,
-	captures,
-	blobs,
 }: {
 	backupsRoot: string;
-	captures: CaptureManifests;
-	blobs: BunAuthorityBlobs;
 }) {
 	const ready = sweepDebris(backupsRoot);
 	const operations = new Set<Promise<unknown>>();
@@ -271,7 +272,10 @@ export function createBunBackupV1Owner({
 		return result;
 	}
 
-	async function createBackup(): Promise<BunBackup> {
+	async function createBackup({
+		captures,
+		blobs,
+	}: BunBackupV1CaptureSource): Promise<BunBackup> {
 		await ready;
 		const backupId = mintBackupId();
 		const temporary = join(
@@ -443,13 +447,14 @@ export function createBunBackupV1Owner({
 	}
 
 	return Object.freeze({
-		create: () => track(createBackup),
+		create: (source: BunBackupV1CaptureSource) =>
+			track(() => createBackup(source)),
 		list: () => track(listBackups),
 		get: (backupId: string) => track(() => getBackup(backupId)),
 		delete: (backupId: string) => track(() => deleteBackup(backupId)),
 		async close(): Promise<void> {
 			closed = true;
-			const results = await Promise.allSettled([...operations]);
+			const results = await Promise.allSettled([ready, ...operations]);
 			const failures = results
 				.filter(
 					(result): result is PromiseRejectedResult =>
