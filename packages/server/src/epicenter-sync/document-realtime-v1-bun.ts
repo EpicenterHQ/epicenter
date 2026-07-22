@@ -40,6 +40,28 @@ export function createBunDocumentRealtimeV1Binding({
 		ServerWebSocket<BunDataDocumentV1SocketData>,
 		ReturnType<typeof setTimeout>
 	>();
+	const pausedPrincipals = new Set<PrincipalId>();
+
+	function closeSocket(
+		socket: ServerWebSocket<BunDataDocumentV1SocketData>,
+		code?: number,
+		reason?: string,
+	): void {
+		try {
+			socket.close(code, reason);
+		} catch {
+			// Transport failure cannot retain authority-owned lifecycle state.
+		}
+	}
+
+	function hasCurrentLifetime(
+		principalId: PrincipalId,
+		authorityLifetime: string,
+	): boolean {
+		return (
+			locateAuthority(principalId).authorityLifetime() === authorityLifetime
+		);
+	}
 
 	function documentServer(principalId: PrincipalId): DocumentRealtimeV1Server {
 		let server = servers.get(principalId);
@@ -59,7 +81,7 @@ export function createBunDocumentRealtimeV1Binding({
 		if (adapter === undefined) {
 			adapter = {
 				send: (data) => socket.send(data),
-				close: (code, reason) => socket.close(code, reason),
+				close: (code, reason) => closeSocket(socket, code, reason),
 			};
 			adapters.set(socket, adapter);
 		}
@@ -68,22 +90,42 @@ export function createBunDocumentRealtimeV1Binding({
 
 	const websocket: WebSocketHandler<BunDataDocumentV1SocketData> = {
 		open(socket) {
+			if (
+				pausedPrincipals.has(socket.data.principalId) ||
+				!hasCurrentLifetime(
+					socket.data.principalId,
+					socket.data.authorityLifetime,
+				)
+			) {
+				closeSocket(socket, 1012, 'authority-replaced');
+				return;
+			}
 			activeSockets.add(socket);
 			expiryTimers.set(
 				socket,
 				setTimeout(
-					() => socket.close(1000, 'credential-expired'),
+					() => closeSocket(socket, 1000, 'credential-expired'),
 					Math.max(0, socket.data.authorizationExpiresAt - Date.now()),
 				),
 			);
 		},
 		message(socket, message) {
+			if (
+				pausedPrincipals.has(socket.data.principalId) ||
+				!hasCurrentLifetime(
+					socket.data.principalId,
+					socket.data.authorityLifetime,
+				)
+			) {
+				closeSocket(socket, 1012, 'authority-replaced');
+				return;
+			}
 			if (Date.now() >= socket.data.authorizationExpiresAt) {
-				socket.close(1000, 'credential-expired');
+				closeSocket(socket, 1000, 'credential-expired');
 				return;
 			}
 			if (typeof message === 'string') {
-				socket.close(1002, 'invalid-document-frame');
+				closeSocket(socket, 1002, 'invalid-document-frame');
 				return;
 			}
 			documentServer(socket.data.principalId).receive(
@@ -97,7 +139,7 @@ export function createBunDocumentRealtimeV1Binding({
 			activeSockets.delete(socket);
 			clearTimeout(expiryTimers.get(socket));
 			expiryTimers.delete(socket);
-			documentServer(socket.data.principalId).disconnect(socketAdapter(socket));
+			servers.get(socket.data.principalId)?.disconnect(socketAdapter(socket));
 		},
 	};
 
@@ -113,6 +155,11 @@ export function createBunDocumentRealtimeV1Binding({
 				authorizationExpiresAt: number;
 			},
 		): Response {
+			if (pausedPrincipals.has(verified.principalId)) {
+				return new Response('Authority replacement in progress', {
+					status: 503,
+				});
+			}
 			const lifetime = parseFactsRequest(
 				{
 					authorityLifetime: verified.authorityLifetime,
@@ -124,6 +171,7 @@ export function createBunDocumentRealtimeV1Binding({
 			if (
 				lifetime.error !== null ||
 				address.error !== null ||
+				!hasCurrentLifetime(verified.principalId, verified.authorityLifetime) ||
 				!documentServer(verified.principalId).admit(address.data)
 			) {
 				return new Response('WebSocket upgrade refused', { status: 404 });
@@ -143,14 +191,31 @@ export function createBunDocumentRealtimeV1Binding({
 		closeAddress(principalId: PrincipalId, address: RecordAddress): void {
 			servers.get(principalId)?.closeAddress(address);
 		},
+		pausePrincipal(principalId: PrincipalId): void {
+			pausedPrincipals.add(principalId);
+			const documentServer = servers.get(principalId);
+			for (const socket of [...activeSockets]) {
+				if (socket.data.principalId !== principalId) continue;
+				documentServer?.disconnect(socketAdapter(socket));
+				activeSockets.delete(socket);
+				clearTimeout(expiryTimers.get(socket));
+				expiryTimers.delete(socket);
+				closeSocket(socket, 1012, 'authority-replaced');
+			}
+			servers.delete(principalId);
+		},
+		resumePrincipal(principalId: PrincipalId): void {
+			pausedPrincipals.delete(principalId);
+		},
 		closeAll(): void {
 			for (const server of servers.values()) server.closeAll();
 			for (const socket of activeSockets) {
-				socket.close(1001, 'server-shutdown');
+				closeSocket(socket, 1001, 'server-shutdown');
 			}
 			activeSockets.clear();
 			for (const timer of expiryTimers.values()) clearTimeout(timer);
 			expiryTimers.clear();
+			pausedPrincipals.clear();
 		},
 	};
 }
