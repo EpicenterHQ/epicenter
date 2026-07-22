@@ -35,8 +35,8 @@ export function output(value: unknown, { format }: FormatOptions = {}): void {
  * prefix, the target stream, and the exit code are decided in one place. New
  * commands stay consistent by calling this instead of open-coding console.error.
  *
- * `details` are extra stderr lines printed verbatim under the prefixed line:
- * suggestion lists, a peer-miss reason, a follow-up hint.
+ * `details` are extra stderr lines printed verbatim under the prefixed line,
+ * such as suggestion lists or a follow-up hint.
  */
 export function fail(
 	message: string,
