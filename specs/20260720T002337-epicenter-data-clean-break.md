@@ -324,6 +324,29 @@ path, verification passes, and `packages/workspace` can be deleted.
 - Complete the Durable Object slices of ADR-0177's wide-versus-split hot-path
   and billing/write-amplification charters.
 
+Implementation checkpoint (2026-07-22): the production scalar V1 authority
+now owns the wide relation, monotonic sequence allocator, per-replica retry
+witness, atomic submission fold, and same-snapshot facts paging. Bun SQLite and
+Durable Object adapters run the same maintained authority cases. Strict bounded
+HTTP routes are mounted beside the legacy caller path in the hosted,
+self-hosted Cloudflare, and self-hosted Bun deployments. That path remains live
+until W4B migrates its callers and unmounts it; no caller uses both. V1 limits are frozen
+from the settlement-response inequality and keep authority, witness, replica,
+and sealed-request rows below Durable Object SQLite's 2 MB row ceiling.
+
+The full Durable Object charter used two opposite candidate orders, each with
+1,000,000 records at the exact 536,870,912-byte proxy and 128 measured
+64-address batches. Wide used 6.52% less storage, kept write amplification
+identical, and materially won the authority feed, fact write, and settlement
+paths; split won only the isolated accepted-blob write. Wide paid
+one extra low-priced row read per touched address for its secondary address
+index. Current Cloudflare allowances and rates make shared row writes the
+governing billing term, so that read delta does not reverse the selection.
+Both layouts reopened with complete row counts. The raw reports, pricing
+calculation, and limitations live under `docs/benchmarks/authority-layout/`.
+ADR-0177 remains Proposed because the mixed Bun replica evidence and unfinished
+browser OPFS charters still own the cross-owner decision.
+
 W2 may begin after W1A passes independent review while W1B and W1C continue
 against the frozen shared kernel and conformance contracts.
 

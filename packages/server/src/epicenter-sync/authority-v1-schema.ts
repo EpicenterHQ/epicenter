@@ -17,7 +17,7 @@ export const AUTHORITY_V1_INDEXES = [
 	'records_sequence',
 ] as const;
 
-const SCHEMA = [
+export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 	`CREATE TABLE meta (
 		singleton          INTEGER PRIMARY KEY CHECK (singleton = 1),
 		format_version     INTEGER NOT NULL,
@@ -59,7 +59,9 @@ export function createAuthorityV1Schema(
 	database: SqliteDatabase,
 	authorityLifetime: string,
 ): void {
-	for (const statement of SCHEMA) database.run(statement);
+	for (const statement of AUTHORITY_V1_SCHEMA_STATEMENTS) {
+		database.run(statement);
+	}
 	database.run(
 		`INSERT INTO meta (
 			singleton, format_version, authority_lifetime, next_sequence

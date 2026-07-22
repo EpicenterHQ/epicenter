@@ -71,6 +71,7 @@
 			"@ricky0123/vad-web": "^0.0.30",
 			"date-fns": "^4.1.0",
 			"@biomejs/biome": "^2.4.10",
+			"miniflare": "4.20260401.0",
 			"wrangler": "^4.71.0",
 			"yargs": "^18.0.0",
 			"@standard-schema/spec": "^1.1.0",
@@ -190,6 +191,7 @@
 		"@changesets/cli": "^2.31.0",
 		"@types/bun": "catalog:",
 		"jsrepo": "^3.6.2",
+		"miniflare": "catalog:",
 		"wrangler": "catalog:"
 	},
 	"dependencies": {
