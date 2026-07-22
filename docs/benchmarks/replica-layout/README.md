@@ -46,16 +46,17 @@ Aggregate median-of-repetition timings:
 
 | Hot metric | Wide p50 | Split p50 | Wide p95 | Split p95 | Read |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Point read, ms per address | 0.0108 | 0.0119 | 0.0121 | 0.0139 | Wide faster; neither difference is material |
-| Collection traversal, ms | 1.7632 | 0.4947 | 1.8893 | 0.5190 | Split materially faster |
-| Lane write, ms per address | 0.0135 | 0.0058 | 0.2323 | 0.0172 | Split materially faster |
-| Feed install, ms per fact | 0.0124 | 0.0157 | 0.4034 | 0.0988 | Wide wins the median; split wins the tail |
-| Reopen plus one point read, ms | 0.1397 | 0.1292 | 0.3526 | 0.3625 | Equivalent under the stop rule |
+| Point read, ms per address | 0.0093 | 0.0107 | 0.0099 | 0.0117 | Wide faster; neither difference is material |
+| Collection traversal, ms | 1.5492 | 0.4721 | 1.6011 | 0.5400 | Split materially faster |
+| Lane write, ms per address | 0.0127 | 0.0063 | 0.2426 | 0.0250 | Split materially faster |
+| Feed install, ms per fact | 0.0103 | 0.0166 | 0.3519 | 0.1148 | Wide wins the median; split wins the tail |
+| Reopen plus one point read, ms | 0.1284 | 0.1242 | 0.3732 | 0.3436 | Equivalent under the stop rule |
 
 Every run contained 1,000,000 records, passed `PRAGMA integrity_check`, and
 reopened successfully. Every reported read and update plan used the expected
-index; SQLite emitted no plan rows for the split UPSERT. The wide database occupied
-588,574,720 live bytes; split occupied 568,897,536. Wide was 3.46% larger.
+index; SQLite emitted no plan rows for the split UPSERT. The wide database
+occupied 588,574,720 live bytes; split occupied 568,897,536. Wide was 3.46%
+larger.
 
 The ADR-0177 stop rule fired because several hot metrics differed by more than
 20%. The direction is mixed rather than a uniform winner. In particular, feed
@@ -73,7 +74,7 @@ both installed SQLite schemas, so a later production-schema change cannot be
 mistaken for the DDL measured here. The maintained source fingerprint is
 `4716be7302e3627459a2db82531fff101696260abd8423229f844dab56ef5ac7`,
 the installed wide-schema fingerprint is
-`9b7521d1aef9a63515262ba73cef361844ad6d3c0f5548edd07811beb7716a5b`, and
+`76e86c4c7c4dcc8f2a90aceae2c5a0ea296894ccaa35ba0dbf11dfd7bf965473`, and
 the installed split-schema fingerprint is
 `9f3bd1eb8da64c6c533ec416da1e9264be3245de787507f8f8dbd6bba387c8f4`.
 The older four-layout report under `docs/benchmarks/scalar-facts-layout/` is
