@@ -20,17 +20,17 @@ shapes, see `docs/adr/`.
 - **Account**: one resolved principal inside one deployment. Credentials may
   rotate, but deployment identity plus `principalId` is the stable identity of
   the person's synchronized Epicenter.
-- **Epicenter**: one person's logical body of rows and values. Every row owns
-  scalar fields, zero or one persisted Yjs document, and zero or one immutable
-  blob. Applications bind typed Lenses to it; no workspace or database
-  lifecycle exists beneath it.
+- **Epicenter**: one person's logical body of records. Every record owns scalar
+  state, zero or one persisted Yjs document, and zero or one immutable blob.
+  Applications bind typed Lenses that present records as rows and values; no
+  workspace or database lifecycle exists beneath it.
 - **Replica**: one complete local or server copy of an Epicenter. A native
   installation, browser origin, OS profile, or server actor may impose its own
   physical replica, but that adapter boundary is not a product data owner.
 - **Epicenter store**: one runtime-private storage family backing a replica. Its
   physical relations and format version are implementation details, not an
-  application SQL contract. Home may expose the stable logical inspection model
-  through the store owner.
+  application SQL contract. Home reaches it only through typed owner commands,
+  including point-in-time snapshot capture (ADR-0162).
 - **Sync attachment**: the permanent binding from a local replica to one
   principal. First sign-in adds synchronization to the existing replica;
   signing out pauses it, and another principal requires a fresh replica or
@@ -39,10 +39,10 @@ shapes, see `docs/adr/`.
   navigation, assistant sessions, commands, approvals, and human and agent
   relational inspection; durable data such as conversations lives in ordinary
   tables and values.
-- **Home inspection session**: the store-owner-mediated read-only SQL capability
-  supported only by Epicenter Home. One store owner exposes at most one active
-  friendly Lens interpretation; ordinary application Lens binding creates no
-  SQL state.
+- **Inspection snapshot**: the inert point-in-time SQLite artifact a store owner
+  captures for Epicenter Home. Home queries it in its own context; it has no
+  apply or Restore meaning. There is no live SQL session; ordinary application
+  Lens binding creates no SQL state.
 - **Trusted app catalog**: the validated static SPAs Epicenter serves from one
   origin and grants one fixed app-window authority. Bundled output supplies the
   default catalog; user-built output may replace a member by app ID.
@@ -54,13 +54,14 @@ shapes, see `docs/adr/`.
   whole-Epicenter scalar synchronization and hosts separate lazy row-document
   connections.
 - **Row-document connection**: one authenticated Yjs 14 WebSocket for one
-  currently open `(namespace key, table key, row ID)`. Its structured route address
-  is lifecycle identity, not a secret; it is separate from the whole-Epicenter
-  scalar facts and submissions protocol.
-- **Row liveness**: the owner-local fact that a row address is currently
-  live. Deletion replaces scalar state with a permanent compact tombstone and
-  removes document and blob state, so an offline replica cannot recreate that
-  lifetime. Liveness is a lifecycle invariant, not a per-row ACL.
+  currently open record address `(namespace, collection, record key)`. Its
+  structured route address is lifecycle identity, not a secret; it is separate
+  from the whole-Epicenter scalar facts and submissions protocol.
+- **Record liveness**: the owner-local fact that a record address is currently
+  live. Terminal deletion replaces scalar state with a permanent compact
+  tombstone and removes document and blob state, so an offline replica cannot
+  recreate that lifetime. Liveness is a lifecycle invariant, not a per-record
+  ACL.
 - **Star**: the one runnable program that holds your data, composing anchor,
   store, sync, and identity/auth into a deployment (ADR-0069). The star is the
   unit of self-host and the entire privacy question: Epicenter runs it (hosted)
@@ -133,42 +134,54 @@ shapes, see `docs/adr/`.
 ## Data API
 
 - **Namespace key**: the durable reverse-domain coordinate at the front of a
-  row or value address, such as `so.epicenter.whispering`. It structures
-  addresses only and never creates a lifecycle, ownership, or sync scope.
-- **Local data key**: the exact property name under a Lens's `tables` or
-  `values`, such as `recordings` or `language`. Renaming it addresses different
-  data; it is not an ergonomic alias.
-- **Row address**: `(namespace key, table key, row ID)`, distinguished from a
-  value address by its address kind. A row-owned document reuses this address.
-- **Value address**: `(namespace key, value key)`, distinguished from a row
-  address by its address kind.
+  record address, such as `so.epicenter.whispering`. It structures addresses
+  only and never creates a lifecycle, ownership, or sync scope.
+- **Local data key**: the exact property name under a Lens's `collections` map
+  (and, inside a values collection, under its `values`), such as `recordings`
+  or `theme`. Renaming it addresses different data; it is not an ergonomic
+  alias.
+- **Record**: the durable platform noun. Epicenter's independently convergent
+  unit: one durable address with scalar state that latently owns zero or one
+  document and zero or one blob slot. Lenses present records as rows or values.
+- **Record address**: `(namespace, collection, record key)`. There is no
+  durable or wire address kind; a record's document and blob reuse this
+  address.
+- **Collection**: the middle address coordinate. A Lens interprets a collection
+  as a table (runtime-minted record keys, records as rows) or as values
+  (declared record keys, records as named values); storage and the wire never
+  know which.
 - **Lens**: a pure JSON, partial, release-local interpretation of exactly one
   namespace. Lenses may overlap and are never authoritative schemas, owners, or
   lifecycle boundaries.
-- **Table definition**: the pure JSON value under one Lens table property. It
-  validates schema-opaque row fields but does not create storage, migrate, heal,
-  rewrite, or grant access.
-- **Value definition**: the pure JSON value under one Lens value property for
-  one typed singleton with `get`, `set`, and `unset`.
+- **Table definition**: the pure JSON `defineTable` value under one Lens
+  collection property. It validates schema-opaque row fields but does not
+  create storage, migrate, heal, rewrite, or grant access.
+- **Values definition**: the pure JSON `defineValues` value under one Lens
+  collection property, declaring typed named values with `get`, `set`,
+  `unset`, and `subscribe`.
 - **Bound lens**: the synchronous borrowed typed view returned when a Lens binds
   to an open Epicenter. It creates no storage and owns no disposal.
-- **Raw inspection relations**: the reserved lossless `_epicenter_rows` and
-  `_epicenter_values` SQL relations exposed only inside a Home inspection
-  session. They preserve unknown and nonconforming data without freezing the
-  private SQLite layout.
-- **Friendly Lens views**: the explicit-column read-only TEMP views created for
-  the one Lens selected by an active Home inspection session. They are
-  connection-local interpretations, not application APIs, stored rows, indexes,
-  or namespace lifecycle.
-- **Row**: one identified application value in a table. It is the public
-  lifecycle aggregate over scalar fields, zero or one persisted Yjs document,
-  and zero or one immutable blob. Its globally unique runtime-minted ID is never
-  reused. Deletion installs a compact tombstone and removes document and blob
-  state.
-- **Row tombstone**: terminal scalar state proving that a structured row address
-  was deleted. It carries no application payload and remains so an indefinitely
-  offline or restored replica cannot recreate that row lifetime. Value unset is
-  nonterminal latest state and may be replaced by a later set.
+- **`_epicenter_records`**: the reserved lossless raw relation inside every
+  inert Epicenter artifact. One kindless relation, because durable storage
+  carries no collection kind. It preserves unknown and nonconforming data
+  without freezing the private live SQLite layout.
+- **`_epicenter_artifact`**: the metadata row every inert artifact carries,
+  declaring its kind (`snapshot`, `proposal`, or `portable`), format version,
+  source authority lifetime, and capture watermark. No artifact is ever
+  accepted as another kind.
+- **Snapshot Lens views**: the explicit-column SQL views written into an
+  inspection snapshot at capture for one selected Lens, projecting from
+  `_epicenter_records`. They live inside the inert artifact, never on the live
+  connection.
+- **Row**: a table collection's presentation of one record. Application
+  vocabulary, not an address species: the record's globally unique
+  runtime-minted key is never reused, and deleting the row tombstones the
+  record.
+- **Tombstone**: terminal stored absence of a record within one authority
+  lifetime. It carries no application payload, absorbs every later operation,
+  and remains so an indefinitely offline or restored replica cannot recreate
+  that record lifetime. **Unset** is reversible stored absence and may be
+  replaced by a later write.
 - **Field key**: the exact permanent member name under a table definition's
   `fields` object. The Lens supplies it even when an optional row has no value
   for that key. A field schema has no separate `id` or `key`; there is no
@@ -177,14 +190,12 @@ shapes, see `docs/adr/`.
 - **Field**: one `field.*` schema for a present JSON value. Table fields are
   required by default; a table's `optional` key array names fields that may be
   absent. Missing and `null` remain distinct.
-- **Row-owned document**: the zero-or-one persisted collaborative Yjs state
-  owned by a row. It has no public id, authority, or lifecycle independent from
-  the row. Live stores use private bounded baseline-plus-tail chains; logical
-  artifacts expose one nullable compact update on the row.
-- **Record**: not a platform lifecycle noun in the canonical data model.
-  Use row for the durable application aggregate, fields for JSON values, and
-  document for the row-owned CRDT state. Historical docs and transitional code
-  may still use record while they migrate.
+- **Record document**: the zero-or-one persisted collaborative Yjs state every
+  record latently owns. It has no public id, authority, or lifecycle
+  independent from the record; only tombstone reaps it. Live stores use
+  private bounded baseline-plus-tail chains; a portable Backup exposes one
+  nullable compact V2 update per record, and an inspection snapshot exposes
+  metadata only.
 - **Conforming row**: a canonical row that satisfies the opened release's table
   definition. Reads return typed rows while reporting nonconforming stored data
   without hiding or silently repairing canonical state.
@@ -201,35 +212,48 @@ shapes, see `docs/adr/`.
   connection status. Releasing the final handle may unload live Yjs state but
   never deletes persisted or synchronized content.
 - **Document publication receipt**: post-commit authority proof for one exact
-  frozen document update, bound to its authority lifetime, row address, protocol
-  version, and payload digest. State vectors are transfer hints, never receipts.
-- **Proposed scalar V1 vocabulary**: the fact, intent, facts-feed, and numbered
-  submission terms below describe the destination selected by Proposed
+  frozen document update, bound to its authority lifetime, record address,
+  protocol version, and payload digest. State vectors are transfer hints, never
+  receipts.
+- **Proposed scalar V1 vocabulary**: the fact, operation, lane, facts-feed, and
+  numbered submission terms below describe the destination selected by Proposed
   ADR-0163. They are not the current production protocol. The transitional
   runtime still uses the accepted ADR-0141 combined exchange, receipts,
   checkpoints, and settlement watermarks until the V1 migration lands.
-- **Scalar fact**: the authority's current state at one structured row or value
-  address. A fact carries one global authority sequence and explicit presence.
-  Present rows carry fields, present values carry content, absent rows are
-  terminal tombstones for the authority lifetime, and absent values are
-  reversible unsets.
-- **Scalar intent**: one compacted desired transition at a structured address.
-  Typed row create and update both lower to row-present field patches; row
-  delete lowers to row-absent. Value set and unset lower to value-present and
-  value-absent.
+- **Scalar fact**: the authority's current state at one record address, in one
+  shape: `{ address, sequence, state, payload? }`. `live` carries a payload;
+  `tombstone` is terminal absence; `unset` is reversible absence. The stored
+  state, not a caller species, carries terminality.
+- **Operation**: one of four discriminated desired transitions at a record
+  address: `patch` (fold set/unset fields), `replace` (whole value),
+  `tombstone`, `unset`. Typed create/update/delete/set/unset lower to these;
+  tombstone absorption is evaluated first.
+- **Replica lanes**: the per-record crash state: `confirmed` (latest authority
+  truth), `sealed` (immutable in-flight desire), `pending` (mutable compacted
+  desire), plus the `parked` overlay retaining a refused operation as a
+  visible, non-retrying overlay.
 - **Facts feed**: the whole-Epicenter HTTP read of current authority facts after
   one `afterSequence`. Each installed bounded prefix advances that one durable
   watermark. `hasMore` only reports whether the same read snapshot contained
   another qualifying fact.
 - **Scalar submission**: one replica's numbered, bounded, exactly retryable set
-  of intents. The current authority fact for every touched address is its
-  settlement proof. There is no public request digest, receipt, global
-  settlement watermark, or transaction meaning.
-- **Row blob**: the zero-or-one write-once immutable byte stream owned by one
-  live row. The row address is its sole identity; SHA-256 proves the accepted
-  bytes and makes publication idempotent. Application fields or documents give
-  the bytes meaning. Large media remains a separate transfer plane from scalar
-  state and the row's bounded interactive CRDT document.
+  of operations. Sealing persists the exact canonical request bytes; the
+  current authority fact for every touched address is its settlement proof.
+  There is no public request digest, receipt, global settlement watermark, or
+  transaction meaning.
+- **Record blob**: the zero-or-one write-once immutable byte stream every live
+  record latently owns. The record address is its sole identity; SHA-256 proves
+  the accepted bytes and makes publication idempotent. Only tombstone reaps the
+  slot. Application fields or documents give the bytes meaning; large media
+  remains a separate transfer plane.
+- **Portable Backup**: the complete custody artifact (`kind='portable'`): one
+  authority cut of records, self-contained composed V2 document cells, and
+  every owned blob byte. Restore validates only this kind and creates a fresh
+  authority lifetime.
+- **Proposal**: a prototype-gated product candidate: a source-bound editable
+  artifact that compiles reviewed semantic changes into ordinary local typed
+  writes and is consumed at local admission. No ADR exists until its prototype
+  passes.
 - **Data runtime**: one Epicenter replica composes typed table/value lenses and
   lazy Yjs 14 row documents over one private store.
 - **Transitional root-Yjs workspace**: the still-active `@epicenter/workspace`
