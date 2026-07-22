@@ -13,10 +13,16 @@ test('Bun owner publishes only complete read-only snapshot artifacts', async () 
 	const snapshotDirectory = join(directory, 'snapshots');
 	await mkdir(snapshotDirectory);
 	const debris = join(snapshotDirectory, '.snapshot-crashed.pending');
+	const publishedDebris = join(
+		snapshotDirectory,
+		'snapshot-aaaaaaaaaaaaaaaaaaaaaaaa.sqlite3',
+	);
 	await writeFile(debris, 'incomplete');
+	await writeFile(publishedDebris, 'orphaned');
 	const opened = await openBunRecordOwner({ directory });
 	try {
 		expect(await Bun.file(debris).exists()).toBe(false);
+		expect(await Bun.file(publishedDebris).exists()).toBe(false);
 		opened.replica.localWrite({
 			address: {
 				namespace: 'so.epicenter.notes',

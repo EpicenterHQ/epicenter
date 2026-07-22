@@ -25,14 +25,16 @@ const mintSnapshotId = customAlphabet(
 
 const SNAPSHOT_PENDING_PREFIX = '.snapshot-';
 const SNAPSHOT_PENDING_SUFFIX = '.pending';
+const SNAPSHOT_ARTIFACT_PATTERN = /^snapshot-[a-z0-9]{24}\.sqlite3$/u;
 
 async function sweepSnapshotDebris(directory: string): Promise<void> {
 	await mkdir(directory, { recursive: true });
 	for (const entry of await readdir(directory, { withFileTypes: true })) {
 		if (
 			entry.isFile() &&
-			entry.name.startsWith(SNAPSHOT_PENDING_PREFIX) &&
-			entry.name.endsWith(SNAPSHOT_PENDING_SUFFIX)
+			((entry.name.startsWith(SNAPSHOT_PENDING_PREFIX) &&
+				entry.name.endsWith(SNAPSHOT_PENDING_SUFFIX)) ||
+				SNAPSHOT_ARTIFACT_PATTERN.test(entry.name))
 		) {
 			await rm(join(directory, entry.name), { force: true });
 		}
