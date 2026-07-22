@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+	BLOB_PUBLICATION_VERSION,
+	blobFileOwner,
+} from '@epicenter/data/blob-v1';
 import {
 	DOCUMENT_PUBLICATION_VERSION,
 	type DocumentPublicationRequest,
@@ -11,6 +15,7 @@ import {
 	parseFactsRequest,
 	parseSubmissionRequest,
 	SCALAR_SYNC_V1_LIMITS,
+	sha256Hex,
 } from '@epicenter/data/protocol/v1';
 import { asPrincipalId } from '@epicenter/identity';
 import { encodeDocumentFrame } from '@epicenter/sync/document-v3';
@@ -20,7 +25,7 @@ import { expectOk } from 'wellcrafted/testing';
 import type { BunDataDocumentV1SocketData } from './document-realtime-v1-bun.js';
 import { createBunScalarV1Runtime } from './scalar-v1-bun.js';
 
-test('Bun scalar V1 runtime reopens one durable authority per principal', () => {
+test('Bun scalar V1 runtime reopens one durable authority per principal', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'epicenter-scalar-v1-bun-'));
 	const principal = asPrincipalId('principal-one');
 	let runtime = createBunScalarV1Runtime({ dir });
@@ -75,7 +80,7 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', () => 
 		};
 		expect(authority.acceptDocument(publication).kind).toBe('accepted');
 
-		runtime.close();
+		await runtime.close();
 		runtime = createBunScalarV1Runtime({ dir });
 		authority = runtime.locateAuthority(principal);
 		expect(expectOk(authority.submit(request)).facts[0]).toMatchObject({
@@ -110,6 +115,30 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', () => 
 			Buffer.from(encodeDocumentFrame({ kind: 'sync-request', stateVector })),
 		);
 		expect(sent).toHaveLength(2);
+		const blobDigest = sha256Hex('recorded audio');
+		const blobs = await runtime.locateBlobAuthority(principal);
+		expect(
+			await blobs.accept(
+				{
+					authorityLifetime: lifetime,
+					address: publication.address,
+					protocolVersion: BLOB_PUBLICATION_VERSION,
+					digest: blobDigest,
+				},
+				new Blob(['recorded audio']).stream(),
+			),
+		).toMatchObject({ kind: 'accepted' });
+		const owner = blobFileOwner(publication.address, blobDigest);
+		const blobPath = join(
+			dir,
+			'principals',
+			'principal-one',
+			'blobs',
+			'content',
+			owner.ownerKey,
+			owner.digest,
+		);
+		expect(existsSync(blobPath)).toBe(true);
 		expectOk(
 			authority.submit(
 				expectOk(
@@ -126,8 +155,10 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', () => 
 			),
 		);
 		expect(closed).toEqual([{ code: 1000, reason: 'record-not-live' }]);
+		await runtime.locateBlobAuthority(principal);
+		expect(existsSync(blobPath)).toBe(false);
 	} finally {
-		runtime.close();
+		await runtime.close();
 		rmSync(dir, { recursive: true, force: true });
 	}
 });

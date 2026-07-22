@@ -46,7 +46,7 @@ describe('Bun blob owner crash conformance', () => {
 					},
 				});
 				replica.localWrite({ address: ADDRESS, op: 'replace', value: {} });
-				const files = await createBunBlobFileStore(root);
+				const files = createBunBlobFileStore(root);
 				const blobs = createReplicaBlobStore(adapter, files, {
 					[boundary]: () => {
 						throw new Error(`crash ${boundary}`);
@@ -64,7 +64,7 @@ describe('Bun blob owner crash conformance', () => {
 						database: reopenedAdapter,
 						limits: makeLimits(),
 					});
-					const reopenedFiles = await createBunBlobFileStore(root);
+					const reopenedFiles = createBunBlobFileStore(root);
 					const reopenedBlobs = createReplicaBlobStore(
 						reopenedAdapter,
 						reopenedFiles,

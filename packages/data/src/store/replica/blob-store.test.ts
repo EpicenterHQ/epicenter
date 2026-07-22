@@ -131,7 +131,8 @@ describe('record blob store', () => {
 				new TextEncoder().encode('same bytes'),
 			);
 			expect(second).toBe(first);
-			expect(context.files.content.size).toBe(3);
+			expect(context.files.staging.size).toBe(0);
+			expect(context.files.content.size).toBe(2);
 			await context.blobs.sweepDebris();
 			expect(context.files.content.size).toBe(2);
 		} finally {

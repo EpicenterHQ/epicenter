@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -106,10 +106,7 @@ async function setup() {
 		submissionNumber += 1;
 	}
 	submit('replace');
-	const blobs = createAuthorityBlobV1(
-		database,
-		await createBunBlobFileStore(root),
-	);
+	const blobs = createAuthorityBlobV1(database, createBunBlobFileStore(root));
 	return {
 		root,
 		raw,
@@ -174,9 +171,26 @@ describe('record blob authority', () => {
 	test('mismatched bytes and non-live records never gain membership', async () => {
 		const context = await setup();
 		try {
+			let consumed = false;
+			async function* staleSource() {
+				consumed = true;
+				yield new TextEncoder().encode('stale');
+			}
+			expect(
+				await context.blobs.accept(
+					{ ...request('stale'), authorityLifetime: 'stale-lifetime' },
+					staleSource(),
+				),
+			).toEqual({
+				kind: 'lifetime-mismatch',
+				activeAuthorityLifetime: LIFETIME,
+			});
+			expect(consumed).toBe(false);
+
 			await expect(
 				context.blobs.accept(request('claimed'), source('different')),
 			).rejects.toThrow(/do not match/);
+			expect(await readdir(join(context.root, 'blobs', 'staging'))).toEqual([]);
 			await context.blobs.reopenSweep();
 			expect(await context.blobs.read(ADDRESS)).toBeUndefined();
 

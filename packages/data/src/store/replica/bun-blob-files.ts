@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { createReadStream, mkdirSync } from 'node:fs';
+import {
+	closeSync,
+	createReadStream,
+	fsyncSync,
+	mkdirSync,
+	openSync,
+} from 'node:fs';
 import { open, readdir, rename, rmdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -67,6 +73,15 @@ async function syncDirectory(path: string): Promise<void> {
 	}
 }
 
+function syncDirectoryNow(path: string): void {
+	const descriptor = openSync(path, 'r');
+	try {
+		fsyncSync(descriptor);
+	} finally {
+		closeSync(descriptor);
+	}
+}
+
 async function verify(path: string, digest: string): Promise<void> {
 	const hasher = new Bun.CryptoHasher('sha256');
 	for await (const chunk of createReadStream(path)) hasher.update(chunk);
@@ -84,6 +99,9 @@ export function createBunBlobFileStore(
 	const contentRoot = join(blobRoot, 'content');
 	mkdirSync(stagingRoot, { recursive: true });
 	mkdirSync(contentRoot, { recursive: true });
+	for (const path of [stagingRoot, contentRoot, blobRoot, storageRoot]) {
+		syncDirectoryNow(path);
+	}
 
 	function stagingPath(staged: StagedBlob): string {
 		requireComponent(staged.digest, 'staged blob digest');
@@ -151,6 +169,7 @@ export function createBunBlobFileStore(
 		const ownerRoot = join(contentRoot, owner.ownerKey);
 		const destination = contentPath(owner);
 		mkdirSync(ownerRoot, { recursive: true });
+		await syncDirectory(contentRoot);
 		if (await exists(destination)) {
 			await verify(destination, owner.digest);
 			await unlink(source);

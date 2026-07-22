@@ -243,10 +243,10 @@ export function startBunApiServer(
 
 	// Close authority databases and their sockets before the process dies so WAL
 	// checkpoints land and clients see a clean 1001 instead of a dropped TCP.
-	const shutdown = () => {
-		scalarV1.close();
+	const shutdown = async () => {
+		await scalarV1.close();
 		epicenterSync.close();
-		void server.stop(true);
+		await server.stop(true);
 		process.exit(0);
 	};
 	process.once('SIGINT', shutdown);

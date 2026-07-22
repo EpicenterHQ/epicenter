@@ -30,7 +30,7 @@ describe('Bun blob files', () => {
 	test('streams, hashes, syncs, promotes, verifies, and reads bytes', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
 		try {
-			const files = await createBunBlobFileStore(root);
+			const files = createBunBlobFileStore(root);
 			const staged = await files.stage(source('streamed ', 'bytes'));
 			expect(staged).toEqual({
 				id: `${staged.digest}.tmp`,
@@ -59,7 +59,7 @@ describe('Bun blob files', () => {
 	test('keeps equal bytes physically independent by record owner', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
 		try {
-			const files = await createBunBlobFileStore(root);
+			const files = createBunBlobFileStore(root);
 			const first = await files.stage(source('same'));
 			const firstOwner = { ownerKey: 'a'.repeat(64), digest: first.digest };
 			await files.promote(first, firstOwner);
@@ -80,7 +80,7 @@ describe('Bun blob files', () => {
 	test('reopen staging cleanup is idempotent and reads reject corrupt bytes', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
 		try {
-			const files = await createBunBlobFileStore(root);
+			const files = createBunBlobFileStore(root);
 			await files.stage(source('abandoned'));
 			await files.sweepStaging();
 			await files.sweepStaging();
