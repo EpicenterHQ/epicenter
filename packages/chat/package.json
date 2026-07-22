@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/chat",
-	"description": "Canonical chat-conversation storage: the conversations table, its messages child doc, and the ConversationId/MessageId vocabulary every chat surface shares.",
+	"description": "Canonical Chat record Lens, row documents, and conversation vocabulary.",
 	"version": "0.1.0",
 	"type": "module",
 	"exports": {

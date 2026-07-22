@@ -1,11 +1,10 @@
 {
 	"name": "@epicenter/skills",
 	"version": "0.3.0",
-	"description": "Agent skill definitions and services for Epicenter workspaces.",
+	"description": "Agent skill record Lens and services for Epicenter.",
 	"keywords": [
 		"local-first",
 		"skills",
-		"workspace",
 		"AI"
 	],
 	"repository": {

@@ -1,18 +1,19 @@
 /**
- * Canonical conversation domain and Data definition.
+ * Canonical conversation domain and record Lens.
  *
- * Each product binds this definition through its Data runtime.
+ * Each product binds this Lens through its environment-owned record runtime.
  * Finished messages live in the row-owned Yjs 14 document under one `messages`
  * map; live turns remain client state.
  */
 
 import type { AgentMessage, AgentMessageStore } from '@epicenter/agent';
 import {
+	defineLens,
 	defineTable,
+	type RecordTableLens,
 	type RowDocument,
 	type RowFor,
-	type TableLens,
-} from '@epicenter/data';
+} from '@epicenter/data/record';
 import { field } from '@epicenter/field';
 import type { Brand } from 'wellcrafted/brand';
 
@@ -22,18 +23,31 @@ export const asConversationId = (value: string): ConversationId =>
 	value as ConversationId;
 
 export const conversationsTable = defineTable({
-	key: 'so.epicenter.chat.conversations',
+	title: 'Conversations',
 	fields: {
 		title: field.string(),
 		model: field.string(),
 		createdAt: field.instant(),
 		updatedAt: field.instant(),
 	},
+	optional: [],
+});
+
+/** Pure JSON interpretation of the canonical Chat namespace. */
+export const chatLens = defineLens({
+	namespace: 'so.epicenter.chat',
+	title: 'Chat',
+	description: 'Conversations and their finished messages.',
+	collections: { conversations: conversationsTable },
 });
 
 export type Conversation = RowFor<typeof conversationsTable>;
 
-export type ConversationsTable = TableLens<typeof conversationsTable>;
+export type ConversationsTable = RecordTableLens<
+	typeof conversationsTable,
+	never,
+	unknown
+>;
 
 export type AgentMessageDocumentStore = AgentMessageStore & {
 	/** Wait for every message write issued before this call to reach local storage. */

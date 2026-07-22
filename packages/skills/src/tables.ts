@@ -6,31 +6,33 @@
  * used to match later imports without becoming canonical record identity.
  */
 
-import { defineTable, optional, type RowFor } from '@epicenter/data';
+import { defineTable, type RowFor } from '@epicenter/data/record';
 import { field, jsonValue } from '@epicenter/field';
 import { Type } from 'typebox';
 
 export const skillsTable = defineTable({
-	key: 'so.epicenter.skills.skills',
+	title: 'Skills',
 	fields: {
 		sourceId: field.string(),
 		name: field.string(),
 		description: field.string(),
-		license: optional(field.string()),
-		compatibility: optional(field.string()),
-		metadata: optional(field.json(Type.Record(Type.String(), jsonValue))),
-		allowedTools: optional(field.string()),
+		license: field.string(),
+		compatibility: field.string(),
+		metadata: field.json(Type.Record(Type.String(), jsonValue)),
+		allowedTools: field.string(),
 		updatedAt: field.instant(),
 	},
+	optional: ['license', 'compatibility', 'metadata', 'allowedTools'],
 });
 
 export const referencesTable = defineTable({
-	key: 'so.epicenter.skills.references',
+	title: 'References',
 	fields: {
 		skillId: field.string(),
 		path: field.string(),
 		updatedAt: field.instant(),
 	},
+	optional: [],
 });
 
 export type Skill = RowFor<typeof skillsTable>;

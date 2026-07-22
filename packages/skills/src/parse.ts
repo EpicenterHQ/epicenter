@@ -1,6 +1,6 @@
 /** Pure parsing for the agentskills.io SKILL.md representation. */
 
-import type { JsonValue } from '@epicenter/data/protocol';
+import type { JsonValue } from '@epicenter/data/record';
 import { InstantString } from '@epicenter/field';
 import { parse as parseYaml } from 'yaml';
 

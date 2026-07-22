@@ -5,17 +5,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage } from '@epicenter/agent';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunRecordEpicenter } from '@epicenter/data/bun';
 import { InstantString } from '@epicenter/field';
-import {
-	conversationsTable,
-	createAgentMessageDocumentStore,
-} from './index.js';
-
-const definitions = {
-	tables: { conversations: conversationsTable },
-	values: {},
-} as const;
+import { chatLens, createAgentMessageDocumentStore } from './index.js';
 
 const message: AgentMessage = {
 	id: 'message-1',
@@ -29,12 +21,13 @@ test('the agent store observes writes and survives a runtime restart', async () 
 	let rowId: string;
 	try {
 		{
-			await using epicenter = await openBunEpicenter({
-				path: join(workspacesRoot, 'epicenter.sqlite3'),
+			await using epicenter = await openBunRecordEpicenter({
+				directory: workspacesRoot,
 			});
-			const handle = epicenter.bind(definitions);
+			const conversations = epicenter.bind({ chat: chatLens }).chat
+				.conversations;
 			const now = InstantString.fromDate(new Date('2026-07-19T00:00:00.000Z'));
-			const row = await handle.tables.conversations.create({
+			const row = await conversations.create({
 				title: 'New Chat',
 				model: 'test',
 				createdAt: now,
@@ -42,7 +35,7 @@ test('the agent store observes writes and survives a runtime restart', async () 
 			});
 			rowId = row.id;
 			await using store = createAgentMessageDocumentStore(
-				await handle.tables.conversations.openDocument(row.id),
+				await conversations.openDocument(row.id),
 			);
 			let observations = 0;
 			const unobserve = store.observe(() => observations++);
@@ -52,12 +45,12 @@ test('the agent store observes writes and survives a runtime restart', async () 
 			expect(observations).toBe(1);
 		}
 
-		await using reopened = await openBunEpicenter({
-			path: join(workspacesRoot, 'epicenter.sqlite3'),
+		await using reopened = await openBunRecordEpicenter({
+			directory: workspacesRoot,
 		});
-		const handle = reopened.bind(definitions);
+		const conversations = reopened.bind({ chat: chatLens }).chat.conversations;
 		await using store = createAgentMessageDocumentStore(
-			await handle.tables.conversations.openDocument(rowId),
+			await conversations.openDocument(rowId),
 		);
 		expect([...store.entries()]).toEqual([{ key: message.id, val: message }]);
 	} finally {
