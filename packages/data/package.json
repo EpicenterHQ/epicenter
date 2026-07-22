@@ -18,6 +18,7 @@
 		"./desktop-record": "./src/desktop-record-public.ts",
 		"./desktop-record-owner": "./src/desktop-record-owner-public.ts",
 		"./document-v1": "./src/document-v1/index.ts",
+		"./portable": "./src/portable-artifact.ts",
 		"./protocol": "./src/protocol/index.ts",
 		"./protocol/v1": "./src/protocol/v1/index.ts",
 		"./record": "./src/record.ts"
