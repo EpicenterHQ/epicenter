@@ -5,7 +5,7 @@
   `collections` map, and the record as the durable platform noun)
 - **Supersedes:** [ADR-0156](0156-applications-bring-workspace-lenses-runtimes-own-workspaces-by-id.md), [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), and [ADR-0158](0158-installed-apps-declare-workspace-ids-but-run-no-bun-modules.md)
 - **Amended by:** [ADR-0168](0168-lenses-are-complete-pure-json-interpretations.md) (the pure JSON Lens grammar)
-- **Relates:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0177](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
+- **Relates:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0177](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
 
 ## Context
 

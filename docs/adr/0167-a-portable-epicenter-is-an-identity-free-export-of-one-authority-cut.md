@@ -6,7 +6,7 @@
   carries)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
 - **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup lifecycle and the capture pin manifest)
-- **Relates:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0177](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
+- **Relates:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0177](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
 
 ## Context
 

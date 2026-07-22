@@ -55,9 +55,9 @@ Wave 0 decisions from the transcript.
    canonical retry bytes, and admission grammar.
 5. `docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md`
    for per-record convergence.
-6. `docs/adr/0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md`
-   for the lane machine and the role of the maintained harness. W1A freezes
-   semantics and tests; it does not commit production code to the wide layout.
+6. `docs/adr/0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md`
+   for the lane machine, maintained evidence, and selected role-specific wide
+   layouts. W1A freezes semantics and tests independently of physical DDL.
 7. The complete private kernel under `packages/data/src/protocol/v1/`.
 8. `/Users/braden/Code/epicenter/tmp/eval-20260721-lane-probe/probe.ts` and
    `/Users/braden/Code/epicenter/tmp/eval-20260721-lane-probe/report.md` as
