@@ -440,7 +440,7 @@ describe('production replica store format', () => {
 		}
 	});
 
-	test('enforces the bounded document-chain and retry-image row shapes', () => {
+	test('enforces the bounded document-chain and watermark row shapes', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const store = openReplicaStore({
@@ -466,12 +466,21 @@ describe('production replica store format', () => {
 					[recordId],
 				),
 			).toThrow(/constraint failed/);
+			// The accepted watermark can never run ahead of the local revision.
 			expect(() =>
 				database.run(
-					`INSERT INTO document_inflight (
-						record_id, payload, digest, captured_revision
-					) VALUES (?, NULL, ?, 0)`,
-					[recordId, 'a'.repeat(64)],
+					`UPDATE records SET document_accepted_revision = 1
+					WHERE record_id = ?`,
+					[recordId],
+				),
+			).toThrow(/constraint failed/);
+			// Refusal evidence binds the current revision with full measurements.
+			expect(() =>
+				database.run(
+					`UPDATE records SET document_refused_revision = 0,
+						document_refused_bytes = NULL, document_refused_structs = NULL
+					WHERE record_id = ?`,
+					[recordId],
 				),
 			).toThrow(/constraint failed/);
 		} finally {

@@ -1,6 +1,7 @@
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import {
 	DOCUMENT_BOUND,
+	type DocumentMeasure,
 	exceedsDocumentBound,
 	measureDocumentState,
 } from '@epicenter/sync/document-v3';
@@ -8,7 +9,6 @@ import * as Y from '@y/y';
 
 import {
 	DOCUMENT_PUBLICATION_VERSION,
-	type DocumentAcceptance,
 	type DocumentBoundRefusal,
 	type DocumentPublicationReceipt,
 	type DocumentPublicationRequest,
@@ -29,8 +29,11 @@ type RecordRow = SqliteRow & {
 	confirmed_state: 'live' | 'tombstone' | 'unset' | null;
 	sealed_op: 'patch' | 'replace' | 'tombstone' | 'unset' | null;
 	pending_op: 'patch' | 'replace' | 'tombstone' | 'unset' | null;
-	doc_revision: number;
-	doc_dirty: number;
+	document_revision: number;
+	document_accepted_revision: number;
+	document_refused_revision: number | null;
+	document_refused_bytes: number | null;
+	document_refused_structs: number | null;
 };
 
 type ChainRow = SqliteRow & {
@@ -39,38 +42,34 @@ type ChainRow = SqliteRow & {
 	bytes: Uint8Array | ArrayBuffer;
 };
 
-type InflightRow = SqliteRow & {
-	payload: Uint8Array | ArrayBuffer | null;
-	digest: string;
-	captured_revision: number;
-	parked_code: 'document-bound' | 'record-not-live' | null;
-	parked_state: 'absent' | 'tombstone' | 'unset' | null;
-	measured_bytes: number | null;
-	measured_structs: number | null;
-	limit_bytes: number | null;
-	limit_structs: number | null;
-};
-
 export type DocumentInspection = {
 	revision: number;
+	acceptedRevision: number;
+	owed: boolean;
 	chainBytes: number;
-	dirty: boolean;
-	inflight: 'none' | 'active' | 'parked';
+	refused: boolean;
 };
 
-export type FrozenDocumentPublication = DocumentPublicationRequest & {
+/**
+ * One encoded publication attempt. The captured revision and payload digest
+ * exist only in memory: process loss regenerates the attempt from the durable
+ * chain instead of restoring exact in-flight bytes.
+ */
+export type CapturedDocumentPublication = DocumentPublicationRequest & {
 	capturedRevision: number;
 };
 
+/** Durable diagnostic for a revision the authority (or local measurement) refused. */
+export type DocumentRefusalEvidence = {
+	revision: number;
+	measured: DocumentMeasure;
+	limit: DocumentMeasure;
+};
+
 export type DocumentPublicationState =
-	| { kind: 'clean' }
-	| { kind: 'ready'; publication: FrozenDocumentPublication }
-	| {
-			kind: 'parked';
-			refusal:
-				| DocumentBoundRefusal
-				| Extract<DocumentAcceptance, { kind: 'record-not-live' }>;
-	  };
+	| { kind: 'settled' }
+	| { kind: 'ready'; publication: CapturedDocumentPublication }
+	| { kind: 'refused'; refusal: DocumentRefusalEvidence };
 
 type DocumentChainOptions = {
 	tailEntries?: number;
@@ -102,7 +101,9 @@ function rowFor(
 	return one<RecordRow>(
 		database,
 		`SELECT record_id, confirmed_state, sealed_op, pending_op,
-			doc_revision, doc_dirty
+			document_revision, document_accepted_revision,
+			document_refused_revision, document_refused_bytes,
+			document_refused_structs
 		FROM records WHERE ${TRIPLE_WHERE}`,
 		tripleParams(address),
 	);
@@ -121,6 +122,12 @@ function requireDocumentOwner(
 	) {
 		throw new Error('document record is tombstoned');
 	}
+	const newestOperation = row.pending_op ?? row.sealed_op;
+	const isVisibleLive =
+		newestOperation === 'patch' ||
+		newestOperation === 'replace' ||
+		(newestOperation === null && row.confirmed_state === 'live');
+	if (!isVisibleLive) throw new Error('document record is not live');
 	return row;
 }
 
@@ -145,49 +152,44 @@ function hydrate(chain: readonly ChainRow[]): Y.Doc {
 	}
 }
 
-function inflightFor(
-	database: SqliteDatabase,
-	recordId: number,
-): InflightRow | null {
-	return one<InflightRow>(
+function authorityLifetimeOf(database: SqliteDatabase): string {
+	const meta = one<SqliteRow & { authority_lifetime: string | null }>(
 		database,
-		'SELECT * FROM document_inflight WHERE record_id = ?',
-		[recordId],
+		'SELECT authority_lifetime FROM meta WHERE singleton = 1',
 	);
+	if (meta?.authority_lifetime === null || meta === null) {
+		throw new Error('cannot publish a document before lifetime binding');
+	}
+	return meta.authority_lifetime;
 }
 
-function publicationFrom(
-	address: RecordAddress,
-	authorityLifetime: string,
-	inflight: InflightRow,
-): FrozenDocumentPublication {
-	if (inflight.payload === null) {
-		throw new Error('active document publication has no payload');
+function refusalOf(row: RecordRow): DocumentRefusalEvidence {
+	if (
+		row.document_refused_revision === null ||
+		row.document_refused_bytes === null ||
+		row.document_refused_structs === null
+	) {
+		throw new Error('document refusal evidence is corrupt');
 	}
 	return {
-		authorityLifetime,
-		address: structuredClone(address),
-		protocolVersion: DOCUMENT_PUBLICATION_VERSION,
-		payload: copyBytes(inflight.payload),
-		digest: inflight.digest,
-		capturedRevision: inflight.captured_revision,
+		revision: row.document_refused_revision,
+		measured: {
+			stateBytes: row.document_refused_bytes,
+			stateStructs: row.document_refused_structs,
+		},
+		limit: DOCUMENT_BOUND,
 	};
 }
 
-function receiptFrom(
-	address: RecordAddress,
-	authorityLifetime: string,
-	digest: string,
-): DocumentPublicationReceipt {
-	return {
-		authorityLifetime,
-		address: structuredClone(address),
-		protocolVersion: DOCUMENT_PUBLICATION_VERSION,
-		digest,
-	};
-}
-
-/** Record-owned bounded document chains and exact publication retry evidence. */
+/**
+ * Record-owned bounded document chains and publication watermarks.
+ *
+ * The durable obligation is derived, never stored: a document is owed exactly
+ * while `document_revision > document_accepted_revision`. Publication encodes
+ * a fresh attempt from the chain on every call; the accepted watermark
+ * advances only on a matching post-commit proof, and only to the revision
+ * whose bytes were captured.
+ */
 export function createReplicaDocumentStore(
 	database: SqliteDatabase,
 	options: DocumentChainOptions = {},
@@ -250,30 +252,31 @@ export function createReplicaDocumentStore(
 						[row.record_id, nextSequence + 1, ownedUpdate],
 					);
 				}
-				if (kind === 'local') {
-					if (row.doc_revision === Number.MAX_SAFE_INTEGER) {
-						throw new Error('document revision space is exhausted');
-					}
-					database.run(
-						`UPDATE records SET doc_revision = doc_revision + 1, doc_dirty = 1
-						WHERE record_id = ?`,
-						[row.record_id],
-					);
-					// A new revision supersedes a parked retry image. An active image
-					// remains immutable until its exact receipt arrives.
-					database.run(
-						`DELETE FROM document_inflight
-						WHERE record_id = ? AND parked_code IS NOT NULL`,
-						[row.record_id],
-					);
-				} else {
-					// Accepted downstream state can make a formerly full join admissible.
-					database.run(
-						`DELETE FROM document_inflight
-						WHERE record_id = ? AND parked_code IS NOT NULL`,
-						[row.record_id],
-					);
+				if (
+					kind === 'local' &&
+					row.document_revision === Number.MAX_SAFE_INTEGER
+				) {
+					throw new Error('document revision space is exhausted');
 				}
+				// Either append changes the merged state, so any recorded refusal
+				// describes a superseded state and is cleared. Only a local edit
+				// creates a new obligation: a remote accepted install never
+				// increments the locally authored revision.
+				database.run(
+					kind === 'local'
+						? `UPDATE records SET
+								document_revision = document_revision + 1,
+								document_refused_revision = NULL,
+								document_refused_bytes = NULL,
+								document_refused_structs = NULL
+							WHERE record_id = ?`
+						: `UPDATE records SET
+								document_refused_revision = NULL,
+								document_refused_bytes = NULL,
+								document_refused_structs = NULL
+							WHERE record_id = ?`,
+					[row.record_id],
+				);
 			} finally {
 				document.destroy();
 			}
@@ -290,17 +293,12 @@ export function createReplicaDocumentStore(
 			[row.record_id],
 		);
 		if ((aggregate?.entries ?? 0) === 0) return null;
-		const inflight = inflightFor(database, row.record_id);
 		return {
-			revision: row.doc_revision,
+			revision: row.document_revision,
+			acceptedRevision: row.document_accepted_revision,
+			owed: row.document_revision > row.document_accepted_revision,
 			chainBytes: aggregate?.bytes ?? 0,
-			dirty: row.doc_dirty === 1,
-			inflight:
-				inflight === null
-					? 'none'
-					: inflight.parked_code === null
-						? 'active'
-						: 'parked',
+			refused: row.document_refused_revision !== null,
 		};
 	}
 
@@ -323,118 +321,54 @@ export function createReplicaDocumentStore(
 	): DocumentPublicationState {
 		return database.transaction(() => {
 			const row = requireDocumentOwner(database, address);
-			if (row.doc_dirty === 0) return { kind: 'clean' };
-			const meta = one<SqliteRow & { authority_lifetime: string | null }>(
-				database,
-				'SELECT authority_lifetime FROM meta WHERE singleton = 1',
-			);
-			if (meta?.authority_lifetime === null || meta === null) {
-				throw new Error('cannot freeze a document before lifetime binding');
+			if (row.document_revision <= row.document_accepted_revision) {
+				return { kind: 'settled' };
 			}
-			const existing = inflightFor(database, row.record_id);
-			if (existing !== null) {
-				if (existing.parked_code === 'document-bound') {
-					if (
-						existing.measured_bytes === null ||
-						existing.measured_structs === null ||
-						existing.limit_bytes === null ||
-						existing.limit_structs === null
-					) {
-						throw new Error('parked document publication is corrupt');
-					}
-					return {
-						kind: 'parked',
-						refusal: {
-							...receiptFrom(address, meta.authority_lifetime, existing.digest),
-							kind: 'document-bound',
-							measured: {
-								stateBytes: existing.measured_bytes,
-								stateStructs: existing.measured_structs,
-							},
-							limit: {
-								stateBytes: existing.limit_bytes,
-								stateStructs: existing.limit_structs,
-							},
-						},
-					};
-				}
-				if (existing.parked_code === 'record-not-live') {
-					if (existing.parked_state === null) {
-						throw new Error('parked document record state is corrupt');
-					}
-					return {
-						kind: 'parked',
-						refusal: {
-							kind: 'record-not-live',
-							activeAuthorityLifetime: meta.authority_lifetime,
-							address: structuredClone(address),
-							state: existing.parked_state,
-						},
-					};
-				}
-				return {
-					kind: 'ready',
-					publication: publicationFrom(
-						address,
-						meta.authority_lifetime,
-						existing,
-					),
-				};
+			if (row.document_refused_revision !== null) {
+				return { kind: 'refused', refusal: refusalOf(row) };
 			}
+			const authorityLifetime = authorityLifetimeOf(database);
 			const chain = chainFor(database, row.record_id);
 			if (chain.length === 0) {
-				throw new Error('dirty document has no persisted chain');
+				throw new Error('owed document has no persisted chain');
 			}
 			const document = hydrate(chain);
 			try {
 				const encodedState = new Uint8Array(Y.encodeStateAsUpdateV2(document));
 				const measured = measureDocumentState(encodedState);
 				if (exceedsDocumentBound(measured)) {
-					const digest = documentPayloadDigest(encodedState);
 					database.run(
-						`INSERT INTO document_inflight (
-							record_id, payload, digest, captured_revision, parked_code,
-							measured_bytes, measured_structs, limit_bytes, limit_structs
-						) VALUES (?, NULL, ?, ?, 'document-bound', ?, ?, ?, ?)`,
-						[
-							row.record_id,
-							digest,
-							row.doc_revision,
-							measured.stateBytes,
-							measured.stateStructs,
-							DOCUMENT_BOUND.stateBytes,
-							DOCUMENT_BOUND.stateStructs,
-						],
+						`UPDATE records SET
+							document_refused_revision = document_revision,
+							document_refused_bytes = ?,
+							document_refused_structs = ?
+						WHERE record_id = ?`,
+						[measured.stateBytes, measured.stateStructs, row.record_id],
 					);
 					return {
-						kind: 'parked',
+						kind: 'refused',
 						refusal: {
-							...receiptFrom(address, meta.authority_lifetime, digest),
-							kind: 'document-bound',
+							revision: row.document_revision,
 							measured,
 							limit: DOCUMENT_BOUND,
 						},
 					};
 				}
+				// The authority state vector is a transfer hint only: it shrinks the
+				// payload but never clears the obligation, so a delete-only update
+				// still publishes when state vectors match.
 				const payload = new Uint8Array(
 					Y.encodeStateAsUpdateV2(document, authorityStateVector),
-				);
-				const digest = documentPayloadDigest(payload);
-				database.run(
-					`INSERT INTO document_inflight (
-						record_id, payload, digest, captured_revision
-					) VALUES (?, ?, ?, ?)`,
-					[row.record_id, payload, digest, row.doc_revision],
 				);
 				return {
 					kind: 'ready',
 					publication: {
-						authorityLifetime: meta.authority_lifetime,
+						authorityLifetime,
 						address: structuredClone(address),
 						protocolVersion: DOCUMENT_PUBLICATION_VERSION,
 						payload,
-						digest,
-						capturedRevision: row.doc_revision,
+						digest: documentPayloadDigest(payload),
+						capturedRevision: row.document_revision,
 					},
 				};
 			} finally {
@@ -445,36 +379,10 @@ export function createReplicaDocumentStore(
 
 	function settle(
 		address: RecordAddress,
-		proof:
-			| DocumentPublicationReceipt
-			| DocumentBoundRefusal
-			| Extract<DocumentAcceptance, { kind: 'record-not-live' }>,
+		proof: DocumentPublicationReceipt | DocumentBoundRefusal,
+		captured: { revision: number; digest: string },
 	): void {
 		database.transaction(() => {
-			if ('kind' in proof && proof.kind === 'record-not-live') {
-				const meta = one<SqliteRow & { authority_lifetime: string | null }>(
-					database,
-					'SELECT authority_lifetime FROM meta WHERE singleton = 1',
-				);
-				if (
-					meta?.authority_lifetime !== proof.activeAuthorityLifetime ||
-					!addressesEqual(address, proof.address)
-				) {
-					throw new Error('document refusal does not match its publication');
-				}
-				const row = requireDocumentOwner(database, address);
-				const inflight = inflightFor(database, row.record_id);
-				if (inflight === null || inflight.parked_code !== null) {
-					throw new Error('document refusal has no active publication');
-				}
-				database.run(
-					`UPDATE document_inflight SET payload = NULL,
-						parked_code = 'record-not-live', parked_state = ?
-					WHERE record_id = ?`,
-					[proof.state, row.record_id],
-				);
-				return;
-			}
 			if (
 				!addressesEqual(address, proof.address) ||
 				proof.protocolVersion !== DOCUMENT_PUBLICATION_VERSION
@@ -482,6 +390,17 @@ export function createReplicaDocumentStore(
 				throw new Error(
 					'document publication proof does not match its address',
 				);
+			}
+			if (proof.digest !== captured.digest) {
+				throw new Error(
+					'document publication proof does not match the captured attempt',
+				);
+			}
+			if (
+				!Number.isSafeInteger(captured.revision) ||
+				captured.revision < 1
+			) {
+				throw new Error('captured document revision is invalid');
 			}
 			const meta = one<SqliteRow & { authority_lifetime: string | null }>(
 				database,
@@ -491,42 +410,46 @@ export function createReplicaDocumentStore(
 				throw new Error('document publication proof lifetime mismatch');
 			}
 			const row = requireDocumentOwner(database, address);
-			const inflight = inflightFor(database, row.record_id);
-			if (inflight === null || inflight.digest !== proof.digest) {
-				throw new Error('document publication proof does not match inflight');
+			if (captured.revision > row.document_revision) {
+				throw new Error('captured revision is beyond the local revision');
 			}
 			if ('kind' in proof) {
-				if (row.doc_revision !== inflight.captured_revision) {
-					database.run('DELETE FROM document_inflight WHERE record_id = ?', [
-						row.record_id,
-					]);
-					return;
-				}
+				// A refusal binds the captured revision. A racing local edit already
+				// superseded it, so obsolete refusals are dropped, not recorded.
+				if (row.document_revision !== captured.revision) return;
 				database.run(
-					`UPDATE document_inflight SET
-						payload = NULL,
-						parked_code = 'document-bound',
-						measured_bytes = ?, measured_structs = ?,
-						limit_bytes = ?, limit_structs = ?
+					`UPDATE records SET
+						document_refused_revision = ?,
+						document_refused_bytes = ?,
+						document_refused_structs = ?
 					WHERE record_id = ?`,
 					[
+						captured.revision,
 						proof.measured.stateBytes,
 						proof.measured.stateStructs,
-						proof.limit.stateBytes,
-						proof.limit.stateStructs,
 						row.record_id,
 					],
 				);
 				return;
 			}
-			database.run('DELETE FROM document_inflight WHERE record_id = ?', [
-				row.record_id,
-			]);
-			if (row.doc_revision === inflight.captured_revision) {
-				database.run('UPDATE records SET doc_dirty = 0 WHERE record_id = ?', [
-					row.record_id,
-				]);
-			}
+			// Advance monotonically, and only to the revision whose bytes were
+			// captured: a delayed receipt can never settle newer racing work.
+			if (captured.revision <= row.document_accepted_revision) return;
+			const clearsRefusal =
+				row.document_refused_revision !== null &&
+				row.document_refused_revision <= captured.revision;
+			database.run(
+				clearsRefusal
+					? `UPDATE records SET
+							document_accepted_revision = ?,
+							document_refused_revision = NULL,
+							document_refused_bytes = NULL,
+							document_refused_structs = NULL
+						WHERE record_id = ?`
+					: `UPDATE records SET document_accepted_revision = ?
+						WHERE record_id = ?`,
+				[captured.revision, row.record_id],
+			);
 		});
 	}
 
