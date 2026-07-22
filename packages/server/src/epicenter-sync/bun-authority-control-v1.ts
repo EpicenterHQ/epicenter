@@ -30,6 +30,47 @@ function requireLifetime(value: string): void {
 	}
 }
 
+export type BunAuthorityActivation =
+	| { kind: 'activated' }
+	| { kind: 'unchanged'; cause: unknown }
+	| {
+			kind: 'indeterminate';
+			cause: unknown;
+			selected: string | undefined;
+	  };
+
+/** Classify a failed activation by rereading its durable postcondition. */
+export function reconcileBunAuthorityActivationFailure({
+	casMiss,
+	cause,
+	expectedLifetime,
+	successorLifetime,
+	readActive,
+}: {
+	casMiss: boolean;
+	cause: unknown;
+	expectedLifetime: string;
+	successorLifetime: string;
+	readActive(): string | undefined;
+}): BunAuthorityActivation {
+	if (casMiss) return { kind: 'unchanged', cause };
+	try {
+		const selected = readActive();
+		if (selected === successorLifetime) return { kind: 'activated' };
+		if (selected === expectedLifetime) return { kind: 'unchanged', cause };
+		return { kind: 'indeterminate', cause, selected };
+	} catch (proofCause) {
+		return {
+			kind: 'indeterminate',
+			cause: new AggregateError(
+				[cause, proofCause],
+				'Bun authority activation and reconciliation failed',
+			),
+			selected: undefined,
+		};
+	}
+}
+
 /** Durable host pointer whose transaction commit is Bun Restore activation. */
 export function openBunAuthorityControlV1(directory: string) {
 	mkdirSync(directory, { recursive: true });
@@ -157,26 +198,13 @@ export function openBunAuthorityControlV1(directory: string) {
 				})();
 				return { kind: 'activated' } as const;
 			} catch (cause) {
-				if (casMiss) return { kind: 'unchanged', cause } as const;
-				try {
-					const selected = active();
-					if (selected === successorLifetime) {
-						return { kind: 'activated' } as const;
-					}
-					if (selected === expectedLifetime) {
-						return { kind: 'unchanged', cause } as const;
-					}
-					return { kind: 'indeterminate', cause, selected } as const;
-				} catch (proofCause) {
-					return {
-						kind: 'indeterminate',
-						cause: new AggregateError(
-							[cause, proofCause],
-							'Bun authority activation and reconciliation failed',
-						),
-						selected: undefined,
-					} as const;
-				}
+				return reconcileBunAuthorityActivationFailure({
+					casMiss,
+					cause,
+					expectedLifetime,
+					successorLifetime,
+					readActive: active,
+				});
 			}
 		},
 		close(): void {

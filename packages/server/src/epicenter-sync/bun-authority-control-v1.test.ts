@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
 	acquireBunAuthorityOwnerV1,
 	openBunAuthorityControlV1,
+	reconcileBunAuthorityActivationFailure,
 } from './bun-authority-control-v1.js';
 
 const FIRST = '11111111-1111-4111-8111-111111111111';
@@ -46,6 +47,38 @@ test('Bun authority owner excludes a second live process owner', () => {
 		owner.close();
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test('Bun authority activation reconciles every thrown commit outcome', () => {
+	const cause = new Error('injected activation failure');
+	function reconcile(readActive: () => string | undefined, casMiss = false) {
+		return reconcileBunAuthorityActivationFailure({
+			casMiss,
+			cause,
+			expectedLifetime: FIRST,
+			successorLifetime: SECOND,
+			readActive,
+		});
+	}
+	expect(reconcile(() => SECOND)).toEqual({ kind: 'activated' });
+	expect(reconcile(() => FIRST)).toEqual({ kind: 'unchanged', cause });
+	expect(reconcile(() => OTHER)).toEqual({
+		kind: 'indeterminate',
+		cause,
+		selected: OTHER,
+	});
+	expect(reconcile(() => OTHER, true)).toEqual({ kind: 'unchanged', cause });
+	const unreadable = reconcile(() => {
+		throw new Error('injected proof failure');
+	});
+	expect(unreadable).toMatchObject({
+		kind: 'indeterminate',
+		selected: undefined,
+	});
+	if (unreadable.kind !== 'indeterminate') {
+		throw new Error('unreadable activation was not indeterminate');
+	}
+	expect(unreadable.cause).toBeInstanceOf(AggregateError);
 });
 
 test('Bun authority control rejects a lookalike schema', () => {
