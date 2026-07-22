@@ -188,6 +188,22 @@ function addressKey(address: RecordAddress): string {
 	]);
 }
 
+function attachmentsEqual(
+	left: ReplicaAttachmentState,
+	right: ReplicaAttachmentState,
+): boolean {
+	if (left.kind !== right.kind) return false;
+	if (left.kind === 'unattached' && right.kind === 'unattached') {
+		return left.requiresChoice === right.requiresChoice;
+	}
+	return (
+		left.kind === 'attached' &&
+		right.kind === 'attached' &&
+		left.attachment.deploymentId === right.attachment.deploymentId &&
+		left.attachment.principalId === right.attachment.principalId
+	);
+}
+
 /** Create one owner's local Lens binder and subscription projection. */
 export function createRecordLensRuntime<TSource, TRead>(
 	access: RecordLensAccess<TSource, TRead>,
@@ -493,10 +509,27 @@ export function createRecordOwner<TSource, TRead>({
 }: CreateRecordEpicenterOptions<TSource, TRead>) {
 	const documents = createRecordDocumentRuntime(replica);
 	const sync = createRecordSyncSupervisor({ replica, blobs, log });
+	const attachmentListeners = new Set<
+		(attachment: ReplicaAttachmentState) => void
+	>();
+	let lastAttachment = replica.attachment();
 	let isDisposed = false;
 
 	function requireOpen(): void {
 		if (isDisposed) throw new Error('Epicenter owner is disposed');
+	}
+
+	function publishAttachmentIfChanged(): void {
+		const attachment = replica.attachment();
+		if (attachmentsEqual(lastAttachment, attachment)) return;
+		lastAttachment = attachment;
+		for (const listener of attachmentListeners) {
+			try {
+				listener(attachment);
+			} catch (cause) {
+				log.error(new Error('Attachment subscriber threw', { cause }));
+			}
+		}
 	}
 
 	const stopDocumentRevocation = replica.subscribe((addresses) => {
@@ -505,6 +538,7 @@ export function createRecordOwner<TSource, TRead>({
 				documents.revoke(address);
 			}
 		}
+		publishAttachmentIfChanged();
 	});
 
 	const access: RecordLensAccess<TSource, TRead> = {
@@ -608,7 +642,9 @@ export function createRecordOwner<TSource, TRead>({
 		bind: lenses.bind,
 		attachSync(session: RecordSyncSession<TRead>): Promise<void> {
 			requireOpen();
-			return sync.attach(session);
+			const attaching = sync.attach(session);
+			publishAttachmentIfChanged();
+			return attaching;
 		},
 		get attachment(): ReplicaAttachmentState {
 			requireOpen();
@@ -617,6 +653,13 @@ export function createRecordOwner<TSource, TRead>({
 		get syncStatus(): RecordSyncStatus {
 			requireOpen();
 			return sync.status;
+		},
+		subscribeAttachment(
+			listener: (attachment: ReplicaAttachmentState) => void,
+		) {
+			requireOpen();
+			attachmentListeners.add(listener);
+			return () => attachmentListeners.delete(listener);
 		},
 		subscribeSyncStatus(listener: (status: RecordSyncStatus) => void) {
 			requireOpen();
@@ -637,6 +680,7 @@ export function createRecordOwner<TSource, TRead>({
 		async [Symbol.asyncDispose](): Promise<void> {
 			if (isDisposed) return;
 			isDisposed = true;
+			attachmentListeners.clear();
 			const failures: unknown[] = [];
 			for (const release of [
 				() => sync.dispose(),

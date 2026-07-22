@@ -224,6 +224,7 @@ describe('record sync supervisor', () => {
 				parked: 0,
 			});
 			expect(context.supervisor.status.state).toBe('idle');
+			expect(context.supervisor.status.authorityLifetime).toBe('lifetime-one');
 			expect(context.replica.attachment()).toMatchObject({
 				kind: 'attached',
 				attachment: ATTACHMENT,

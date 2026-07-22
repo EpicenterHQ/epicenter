@@ -91,6 +91,11 @@ const notesLens = defineLens({
 	},
 });
 
+const ATTACHMENT = {
+	deploymentId: 'https://api.example.com/',
+	principalId: 'principal-one',
+} as const;
+
 function setup() {
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
@@ -281,6 +286,46 @@ describe('record Epicenter Lens runtime', () => {
 				},
 			);
 			expect(changed).toEqual([[row.id]]);
+		} finally {
+			await context.epicenter[Symbol.asyncDispose]();
+			context.database.close();
+		}
+	});
+
+	test('publishes the committed first attachment', async () => {
+		const context = setup();
+		try {
+			const attachments: unknown[] = [];
+			context.epicenter.subscribeAttachment((attachment) =>
+				attachments.push(attachment),
+			);
+			await context.epicenter.attachSync({
+				attachment: ATTACHMENT,
+				transport: {
+					async readFacts() {
+						return {
+							authorityLifetime: 'lifetime-one',
+							facts: [],
+							hasMore: false,
+						};
+					},
+					async submit() {
+						throw new Error('unexpected scalar submission');
+					},
+					async publishDocument() {
+						throw new Error('unexpected document publication');
+					},
+					async publishBlob() {
+						throw new Error('unexpected blob publication');
+					},
+				},
+			});
+			expect(attachments).toEqual([
+				{ kind: 'attached', attachment: ATTACHMENT },
+			]);
+			expect(context.epicenter.syncStatus.authorityLifetime).toBe(
+				'lifetime-one',
+			);
 		} finally {
 			await context.epicenter[Symbol.asyncDispose]();
 			context.database.close();

@@ -95,6 +95,9 @@ export async function openBrowserRecordEpicenterForTest({
 		(addresses: readonly RecordAddress[]) => void
 	>();
 	const blobListeners = new Set<(address: RecordAddress) => void>();
+	const attachmentListeners = new Set<
+		(attachment: ReplicaAttachmentState) => void
+	>();
 	const syncStatusListeners = new Set<(status: RecordSyncStatus) => void>();
 	const documents = new Map<string, Set<PageDocument>>();
 	const revokedAddresses = new Set<string>();
@@ -269,6 +272,9 @@ export async function openBrowserRecordEpicenterForTest({
 		return {
 			state: status.state,
 			work: structuredClone(status.work),
+			...(status.authorityLifetime === undefined
+				? {}
+				: { authorityLifetime: status.authorityLifetime }),
 			...(lastError === undefined ? {} : { lastError }),
 		};
 	}
@@ -429,6 +435,13 @@ export async function openBrowserRecordEpicenterForTest({
 			case 'attachment':
 				if (!rememberToken(message.token)) return;
 				attachmentCache = structuredClone(message.attachment);
+				for (const listener of attachmentListeners) {
+					try {
+						listener(structuredClone(message.attachment));
+					} catch (cause) {
+						log.error(new Error('Attachment subscriber threw', { cause }));
+					}
+				}
 				return;
 			case 'authority-request':
 				runAuthorityRequest(message);
@@ -490,6 +503,7 @@ export async function openBrowserRecordEpicenterForTest({
 		for (const unresolved of [...pending.values()]) unresolved.reject(cause);
 		recordListeners.clear();
 		blobListeners.clear();
+		attachmentListeners.clear();
 		syncStatusListeners.clear();
 		try {
 			worker.terminate();
@@ -875,6 +889,9 @@ export async function openBrowserRecordEpicenterForTest({
 			return {
 				state: syncStatusCache.state,
 				work: structuredClone(syncStatusCache.work),
+				...(syncStatusCache.authorityLifetime === undefined
+					? {}
+					: { authorityLifetime: syncStatusCache.authorityLifetime }),
 				...(syncStatusCache.lastError === undefined
 					? {}
 					: {
@@ -884,6 +901,13 @@ export async function openBrowserRecordEpicenterForTest({
 							),
 						}),
 			};
+		},
+		subscribeAttachment(
+			listener: (attachment: ReplicaAttachmentState) => void,
+		) {
+			requireOpen();
+			attachmentListeners.add(listener);
+			return () => attachmentListeners.delete(listener);
 		},
 		subscribeSyncStatus(listener: (status: RecordSyncStatus) => void) {
 			requireOpen();

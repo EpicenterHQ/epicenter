@@ -1867,6 +1867,8 @@ test('canonical attachSync enforces and reflects the first attachment choice', a
 	const context = setup();
 	const tab = await context.openTab();
 	try {
+		const attachments: unknown[] = [];
+		tab.subscribeAttachment((attachment) => attachments.push(attachment));
 		const notes = bindNotes(tab).notes;
 		const row = await notes.create({ title: 'discard me' });
 		const calls: string[] = [];
@@ -1886,6 +1888,11 @@ test('canonical attachSync enforces and reflects the first attachment choice', a
 			kind: 'attached',
 			attachment: SYNC_ATTACHMENT,
 		});
+		expect(attachments).toEqual([
+			{ kind: 'unattached', requiresChoice: true },
+			{ kind: 'attached', attachment: SYNC_ATTACHMENT },
+		]);
+		expect(tab.syncStatus.authorityLifetime).toBe('authority-one');
 		expect(await notes.get(row.id)).toEqual({ data: undefined, error: null });
 	} finally {
 		await tab[Symbol.asyncDispose]();

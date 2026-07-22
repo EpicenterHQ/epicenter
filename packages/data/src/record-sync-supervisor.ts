@@ -40,6 +40,7 @@ export type RecordSyncState =
 export type RecordSyncStatus = {
 	state: RecordSyncState;
 	work: ReplicaWorkSummary;
+	authorityLifetime?: string;
 	lastError?: Error;
 };
 
@@ -92,9 +93,11 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 	log?: Logger;
 }) {
 	const listeners = new Set<(status: RecordSyncStatus) => void>();
+	const initialLifetime = replica.sync().authorityLifetime;
 	let status: RecordSyncStatus = {
 		state: 'local',
 		work: replica.workSummary(),
+		...(initialLifetime === null ? {} : { authorityLifetime: initialLifetime }),
 	};
 	let session: RecordSyncSession<TBlobRead> | undefined;
 	let stopCredentials: (() => void) | undefined;
@@ -124,14 +127,21 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 
 	function setStatus(state: RecordSyncState, lastError?: Error): void {
 		const work = replica.workSummary();
+		const authorityLifetime = replica.sync().authorityLifetime ?? undefined;
 		if (
 			status.state === state &&
+			status.authorityLifetime === authorityLifetime &&
 			status.lastError?.message === lastError?.message &&
 			equalWork(status.work, work)
 		) {
 			return;
 		}
-		status = { state, work, ...(lastError === undefined ? {} : { lastError }) };
+		status = {
+			state,
+			work,
+			...(authorityLifetime === undefined ? {} : { authorityLifetime }),
+			...(lastError === undefined ? {} : { lastError }),
+		};
 		for (const listener of listeners) {
 			try {
 				listener(status);

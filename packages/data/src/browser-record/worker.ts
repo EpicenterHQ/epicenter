@@ -13,7 +13,6 @@ import {
 } from '../store/replica/browser-owner.js';
 import type {
 	ReplicaAttachment,
-	ReplicaAttachmentState,
 	ReplicaBlobStore,
 	ReplicaStore,
 } from '../store/replica/index.js';
@@ -111,6 +110,9 @@ function serializeSyncStatus(
 	return {
 		state: status.state,
 		work: structuredClone(status.work),
+		...(status.authorityLifetime === undefined
+			? {}
+			: { authorityLifetime: status.authorityLifetime }),
 		...(status.lastError === undefined
 			? {}
 			: {
@@ -134,22 +136,6 @@ function ownerLostMessage(id: number): ResponseMessage {
 
 function addressLabel(address: RecordAddress): string {
 	return `${address.namespace}/${address.collection}/${address.recordKey}`;
-}
-
-function attachmentsEqual(
-	left: ReplicaAttachmentState,
-	right: ReplicaAttachmentState,
-): boolean {
-	if (left.kind !== right.kind) return false;
-	if (left.kind === 'unattached' && right.kind === 'unattached') {
-		return left.requiresChoice === right.requiresChoice;
-	}
-	return (
-		left.kind === 'attached' &&
-		right.kind === 'attached' &&
-		left.attachment.deploymentId === right.attachment.deploymentId &&
-		left.attachment.principalId === right.attachment.principalId
-	);
 }
 
 function createOwnerOperations(
@@ -624,19 +610,6 @@ export function startBrowserRecordCandidateWorker(
 		isOwnerSyncAttached = true;
 		const attachment = opened.owner.attachment;
 		const syncStatus = serializeSyncStatus(opened.owner.syncStatus);
-		const session = ownerSession;
-		const generation = ownerGeneration;
-		if (session !== undefined && generation !== undefined) {
-			emit(
-				{
-					type: 'attachment',
-					token: `${generation}:${session}:attachment`,
-					attachment,
-				},
-				session,
-				generation,
-			);
-		}
 		return { kind: 'attach-sync', attachment, syncStatus };
 	}
 
@@ -649,7 +622,6 @@ export function startBrowserRecordCandidateWorker(
 			nextEventId += 1;
 			return `${generation}:${session}:${nextEventId}`;
 		}
-		let lastAttachment = opened.owner.attachment;
 		const stops: (() => void)[] = [];
 		try {
 			stops.push(
@@ -674,19 +646,19 @@ export function startBrowserRecordCandidateWorker(
 							generation,
 						);
 					}
-					const attachment = opened.owner.attachment;
-					if (!attachmentsEqual(attachment, lastAttachment)) {
-						lastAttachment = attachment;
-						emit(
-							{
-								type: 'attachment',
-								token: token(),
-								attachment,
-							},
-							session,
-							generation,
-						);
-					}
+				}),
+			);
+			stops.push(
+				opened.owner.subscribeAttachment((attachment) => {
+					emit(
+						{
+							type: 'attachment',
+							token: token(),
+							attachment,
+						},
+						session,
+						generation,
+					);
 				}),
 			);
 			stops.push(
