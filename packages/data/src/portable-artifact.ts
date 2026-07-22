@@ -35,6 +35,11 @@ export type PortableArtifactIndexMetadata = {
 
 export type PortableArtifactRecordPage = readonly PortableArtifactRecord[];
 
+export type PortableArtifactIndexPage = {
+	records: PortableArtifactRecordPage;
+	nextAfter?: RecordAddress;
+};
+
 type PortableRow = SqliteRow & {
 	namespace: string;
 	collection: string;
@@ -377,6 +382,48 @@ function portableArtifactMetadata(
 	};
 }
 
+function validatePageLimit(limit: number): void {
+	if (
+		!Number.isSafeInteger(limit) ||
+		limit < 1 ||
+		limit > PORTABLE_PAGE_LIMIT
+	) {
+		throw new RangeError(
+			`Portable artifact page limit must be 1..${PORTABLE_PAGE_LIMIT}`,
+		);
+	}
+}
+
+function readPortableArtifactPage(
+	database: SqliteDatabase,
+	after: RecordAddress | undefined,
+	limit: number,
+): PortableArtifactIndexPage {
+	const where =
+		after === undefined
+			? ''
+			: 'WHERE (namespace, collection, record_key) > (?, ?, ?)';
+	const parameters =
+		after === undefined
+			? [limit]
+			: [after.namespace, after.collection, after.recordKey, limit];
+	const rows = database.all<PortableRow>(
+		`SELECT namespace, collection, record_key, payload_json,
+			document_update_v2, blob_sha256
+		FROM _epicenter_records ${where}
+		ORDER BY namespace, collection, record_key LIMIT ?`,
+		parameters,
+	);
+	const records = rows.map(recordFromRow);
+	const last = records.at(-1);
+	return {
+		records,
+		...(rows.length === limit && last !== undefined
+			? { nextAfter: structuredClone(last.address) }
+			: {}),
+	};
+}
+
 /**
  * Initialize disposable scratch storage for bounded portable-index writes.
  *
@@ -401,6 +448,24 @@ export function appendPortableArtifactScratchRecords({
 	return database.transaction(() => {
 		assertPortableSchema(database);
 		return insertPortableArtifactRecords(database, records);
+	});
+}
+
+/** Read and validate one bounded page from a structurally portable index. */
+export function readPortableArtifactIndexPage({
+	database,
+	after,
+	limit = PORTABLE_PAGE_LIMIT,
+}: {
+	database: SqliteDatabase;
+	after?: RecordAddress;
+	limit?: number;
+}): PortableArtifactIndexPage {
+	validatePageLimit(limit);
+	const cursor = after === undefined ? undefined : validateAddress(after);
+	return database.readTransaction(() => {
+		assertPortableSchema(database);
+		return readPortableArtifactPage(database, cursor, limit);
 	});
 }
 
@@ -440,36 +505,16 @@ export function scanPortableArtifactIndex({
 		let cursor: RecordAddress | undefined;
 		let seen = 0;
 		for (;;) {
-			const where =
-				cursor === undefined
-					? ''
-					: 'WHERE (namespace, collection, record_key) > (?, ?, ?)';
-			const parameters =
-				cursor === undefined
-					? [PORTABLE_PAGE_LIMIT]
-					: [
-							cursor.namespace,
-							cursor.collection,
-							cursor.recordKey,
-							PORTABLE_PAGE_LIMIT,
-						];
-			const rows = database.all<PortableRow>(
-				`SELECT namespace, collection, record_key, payload_json,
-					document_update_v2, blob_sha256
-				FROM _epicenter_records ${where}
-				ORDER BY namespace, collection, record_key LIMIT ?`,
-				parameters,
+			const page = readPortableArtifactPage(
+				database,
+				cursor,
+				PORTABLE_PAGE_LIMIT,
 			);
-			if (rows.length === 0) break;
-			const page = rows.map(recordFromRow);
-			const last = page.at(-1);
-			if (last === undefined)
-				throw new Error('Portable artifact page is empty');
-			const nextCursor = structuredClone(last.address);
-			seen += page.length;
-			cursor = nextCursor;
-			onPage(page);
-			if (rows.length < PORTABLE_PAGE_LIMIT) break;
+			if (page.records.length === 0) break;
+			seen += page.records.length;
+			onPage(page.records);
+			if (page.nextAfter === undefined) break;
+			cursor = page.nextAfter;
 		}
 		if (seen !== recordCount) {
 			throw new Error('Portable artifact record scan is incomplete');

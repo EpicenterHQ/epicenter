@@ -6,6 +6,7 @@ import * as Y from '@y/y';
 import {
 	appendPortableArtifactScratchRecords,
 	initializePortableArtifactScratchIndex,
+	readPortableArtifactIndexPage,
 	scanPortableArtifactIndex,
 	writePortableArtifactIndex,
 } from './portable-artifact.js';
@@ -175,6 +176,46 @@ test('a rejected portable page leaves no partial records', () => {
 			scanPortableArtifactIndex({ database, onPage: () => undefined })
 				.recordCount,
 		).toBe(0);
+	} finally {
+		raw.close();
+	}
+});
+
+test('portable index reads page without materializing the full artifact', () => {
+	const raw = new Database(':memory:', { strict: true });
+	const database = createBunSqliteAdapter(raw);
+	try {
+		writePortableArtifactIndex({
+			database,
+			records: ['a', 'b', 'c'].map((suffix) => ({
+				address: {
+					namespace: 'so.epicenter.notes',
+					collection: 'notes',
+					recordKey: suffix.repeat(24),
+				},
+				scalar: { state: 'live' as const, payload: suffix },
+				documentUpdateV2: null,
+				blobSha256: null,
+			})),
+		});
+		const first = readPortableArtifactIndexPage({ database, limit: 2 });
+		expect(first.records.map((record) => record.scalar)).toEqual([
+			{ state: 'live', payload: 'a' },
+			{ state: 'live', payload: 'b' },
+		]);
+		expect(first.nextAfter?.recordKey).toBe('b'.repeat(24));
+		expect(
+			readPortableArtifactIndexPage({
+				database,
+				after: first.nextAfter,
+				limit: 2,
+			}),
+		).toMatchObject({
+			records: [{ scalar: { state: 'live', payload: 'c' } }],
+		});
+		expect(() =>
+			readPortableArtifactIndexPage({ database, limit: 17 }),
+		).toThrow('page limit must be 1..16');
 	} finally {
 		raw.close();
 	}
