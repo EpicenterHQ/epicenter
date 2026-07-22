@@ -14,6 +14,7 @@
  * to production adapters.
  */
 import {
+	type AdmittedSubmissionRequest,
 	admitFactsPage,
 	canonicalize,
 	composeOperations,
@@ -214,38 +215,62 @@ export class ReplicaRef {
 		if (meta.sealed_submission !== null) {
 			throw new Error('one submission is already sealed');
 		}
-		const pendingRows = this.store.all<
-			LaneRow & { namespace: string; collection: string; record_key: string }
+		let pendingRows = this.store.all<
+			LaneRow & {
+				record_id: number;
+				namespace: string;
+				collection: string;
+				record_key: string;
+			}
 		>(
 			`SELECT * FROM records WHERE pending_op IS NOT NULL
-			 ORDER BY namespace, collection, record_key`,
+			 ORDER BY namespace, collection, record_key LIMIT ?`,
+			[LIMITS.maxSubmissionAddresses],
 		);
 		if (pendingRows.length === 0) throw new Error('nothing to seal');
-		const intents: Intent[] = pendingRows.map((row) => ({
-			address: {
-				namespace: row.namespace,
-				collection: row.collection,
-				recordKey: row.record_key,
-			},
-			...laneOperation(row.pending_op as string, row.pending_args),
-		}));
-		const request: SubmissionRequest = {
-			authorityLifetime: meta.authority_lifetime,
-			replicaId: meta.replica_id,
-			submissionNumber: meta.next_submission,
-			intents,
-		};
-		const { data: admitted, error } = parseSubmissionRequest(request, LIMITS);
-		if (error !== null)
-			throw new Error(`seal admission failed: ${error.message}`);
+		let request: SubmissionRequest | undefined;
+		let admitted: AdmittedSubmissionRequest | undefined;
+		let admissionError: Error | undefined;
+		while (pendingRows.length > 0) {
+			const candidate: SubmissionRequest = {
+				authorityLifetime: meta.authority_lifetime,
+				replicaId: meta.replica_id,
+				submissionNumber: meta.next_submission,
+				intents: pendingRows.map((row) => ({
+					address: {
+						namespace: row.namespace,
+						collection: row.collection,
+						recordKey: row.record_key,
+					},
+					...laneOperation(row.pending_op as string, row.pending_args),
+				})),
+			};
+			const parsed = parseSubmissionRequest(candidate, LIMITS);
+			if (parsed.error === null) {
+				request = candidate;
+				admitted = parsed.data;
+				break;
+			}
+			admissionError = new Error(
+				`seal admission failed: ${parsed.error.message}`,
+			);
+			pendingRows = pendingRows.slice(0, -1);
+		}
+		if (request === undefined || admitted === undefined) {
+			throw (
+				admissionError ?? new Error('no pending operation fits a submission')
+			);
+		}
 		const requestBytes = canonicalize(admitted);
 		const requestHash = sha256Hex(requestBytes);
+		const placeholders = pendingRows.map(() => '?').join(', ');
 		return {
 			statements: [
 				{
 					sql: `UPDATE records SET sealed_op = pending_op, sealed_args = pending_args,
 					        pending_op = NULL, pending_args = NULL
-					      WHERE pending_op IS NOT NULL`,
+					      WHERE record_id IN (${placeholders})`,
+					params: pendingRows.map((row) => row.record_id),
 				},
 				{
 					sql: `UPDATE meta SET sealed_submission = next_submission,

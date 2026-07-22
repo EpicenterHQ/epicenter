@@ -149,4 +149,45 @@ describe('production replica store format', () => {
 			database.close();
 		}
 	});
+
+	test('shrinks the sealed prefix until its canonical request fits the byte ceiling', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: makeLimits({ maxSubmissionBytes: 700 }),
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			const firstAddress = {
+				namespace: 'so.epicenter.notes',
+				collection: 'recordings',
+				recordKey: 'a'.repeat(24),
+			};
+			const secondAddress = {
+				...firstAddress,
+				recordKey: 'b'.repeat(24),
+			};
+			const addresses = [firstAddress, secondAddress] as const;
+			for (const address of addresses) {
+				store.localWrite({
+					address,
+					op: 'replace',
+					value: 'x'.repeat(300),
+				});
+			}
+			const sealed = JSON.parse(store.seal().bytes) as {
+				intents: { address: (typeof addresses)[number] }[];
+			};
+			expect(sealed.intents.map((intent) => intent.address)).toEqual([
+				firstAddress,
+			]);
+			expect(store.record(firstAddress)?.sealed).not.toBeNull();
+			expect(store.record(secondAddress)?.pending).not.toBeNull();
+		} finally {
+			database.close();
+		}
+	});
 });

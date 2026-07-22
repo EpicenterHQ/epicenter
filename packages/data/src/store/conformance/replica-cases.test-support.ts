@@ -346,6 +346,55 @@ export function runReplicaConformanceCases(
 			replica.dispose();
 		});
 
+		test('3b: sealing takes the largest admissible address prefix and leaves the remainder pending', () => {
+			const replica = binding.create({
+				replicaId: REPLICA_ID,
+				authorityLifetime: LIFETIME,
+			});
+			const addresses = Array.from(
+				{ length: LIMITS.maxSubmissionAddresses + 1 },
+				(_, index): RecordAddress => ({
+					namespace: 'so.epicenter.bulk',
+					collection: 'records',
+					recordKey: index.toString(36).padStart(24, '0'),
+				}),
+			);
+			for (const [index, address] of addresses.entries()) {
+				replica.localWrite({ address, op: 'replace', value: index }).commit();
+			}
+			const prefixFinalAddress = addresses[LIMITS.maxSubmissionAddresses - 1];
+			const remainingAddress = addresses[LIMITS.maxSubmissionAddresses];
+			if (prefixFinalAddress === undefined || remainingAddress === undefined) {
+				throw new Error('bounded sealing fixture is incomplete');
+			}
+
+			const first = replica.seal();
+			const firstRequest = JSON.parse(first.requestBytes) as SubmissionRequest;
+			expect(firstRequest.intents).toHaveLength(LIMITS.maxSubmissionAddresses);
+			expect(firstRequest.intents.at(-1)?.address).toEqual(prefixFinalAddress);
+			applyWithCrashes(replica, first.transition);
+			expect(replica.record(remainingAddress)?.pending).toEqual({
+				op: 'replace',
+				value: LIMITS.maxSubmissionAddresses,
+			});
+			expect(replica.record(prefixFinalAddress)?.sealed).toEqual({
+				op: 'replace',
+				value: LIMITS.maxSubmissionAddresses - 1,
+			});
+
+			const authority = createKernelAuthority(LIFETIME);
+			replica.settle(authority.submitBytes(first.requestBytes)).commit();
+			const second = replica.seal();
+			second.transition.commit();
+			const secondRequest = JSON.parse(
+				second.requestBytes,
+			) as SubmissionRequest;
+			expect(secondRequest.intents.map((intent) => intent.address)).toEqual([
+				remainingAddress,
+			]);
+			replica.dispose();
+		});
+
 		test('4: a new write while sealed cannot change the first-seal retry bytes', () => {
 			const { replica, seal } = sealedFixture();
 			const firstSeal = replica.sealedRequest();

@@ -1,6 +1,7 @@
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 
 import {
+	type AdmittedSubmissionRequest,
 	admitFactsPage,
 	admitSettlement,
 	canonicalize,
@@ -443,45 +444,64 @@ export function openReplicaStore({
 			if (!Number.isSafeInteger(meta.next_submission)) {
 				throw new Error('replica submission number space is exhausted');
 			}
-			const pending = database.all<
+			let pending = database.all<
 				RecordRow & {
+					record_id: number;
 					namespace: string;
 					collection: string;
 					record_key: string;
 				}
 			>(
 				`SELECT * FROM records WHERE pending_op IS NOT NULL
-				ORDER BY namespace, collection, record_key`,
+				ORDER BY namespace, collection, record_key LIMIT ?`,
+				[limits.maxSubmissionAddresses],
 			);
 			if (pending.length === 0) throw new Error('nothing to seal');
-			const request: SubmissionRequest = {
-				authorityLifetime: meta.authority_lifetime,
-				replicaId: meta.replica_id,
-				submissionNumber: meta.next_submission,
-				intents: pending.map((row) => ({
-					address: {
-						namespace: row.namespace,
-						collection: row.collection,
-						recordKey: row.record_key,
-					},
-					...decodeOperation(
-						row.pending_op as Operation['op'],
-						row.pending_args,
-					),
-				})),
-			};
-			const { data: admitted, error } = parseSubmissionRequest(request, limits);
-			if (error !== null)
-				throw new Error(`seal admission failed: ${error.message}`);
+			let admitted: AdmittedSubmissionRequest | undefined;
+			let admissionError: Error | undefined;
+			while (pending.length > 0) {
+				const request: SubmissionRequest = {
+					authorityLifetime: meta.authority_lifetime,
+					replicaId: meta.replica_id,
+					submissionNumber: meta.next_submission,
+					intents: pending.map((row) => ({
+						address: {
+							namespace: row.namespace,
+							collection: row.collection,
+							recordKey: row.record_key,
+						},
+						...decodeOperation(
+							row.pending_op as Operation['op'],
+							row.pending_args,
+						),
+					})),
+				};
+				const parsed = parseSubmissionRequest(request, limits);
+				if (parsed.error === null) {
+					admitted = parsed.data;
+					break;
+				}
+				admissionError = new Error(
+					`seal admission failed: ${parsed.error.message}`,
+				);
+				pending = pending.slice(0, -1);
+			}
+			if (admitted === undefined) {
+				throw (
+					admissionError ?? new Error('no pending operation fits a submission')
+				);
+			}
 			const bytes = canonicalize(admitted);
 			const hash = sha256Hex(bytes);
+			const placeholders = pending.map(() => '?').join(', ');
 			database.run(
 				`UPDATE records SET
 					sealed_op = pending_op,
 					sealed_args = pending_args,
 					pending_op = NULL,
 					pending_args = NULL
-				WHERE pending_op IS NOT NULL`,
+				WHERE record_id IN (${placeholders})`,
+				pending.map((row) => row.record_id),
 			);
 			database.run(
 				`UPDATE meta SET
