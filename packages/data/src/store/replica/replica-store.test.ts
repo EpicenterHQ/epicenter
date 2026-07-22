@@ -20,6 +20,15 @@ import {
 
 const LIMITS = makeLimits();
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
+const ADDRESS = {
+	namespace: 'so.epicenter.notes',
+	collection: 'recordings',
+	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+} as const;
+const ATTACHMENT = {
+	deploymentId: 'https://api.example.com/',
+	principalId: 'principal-one',
+} as const;
 
 function userSchemaObjects(database: Database): string[] {
 	return database
@@ -33,6 +42,141 @@ function userSchemaObjects(database: Database): string[] {
 }
 
 describe('production replica store format', () => {
+	test('projects visible state through sealed and pending lanes', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			store.localWrite({
+				address: ADDRESS,
+				op: 'replace',
+				value: { first: 1 },
+			});
+			store.seal();
+			store.localWrite({
+				address: ADDRESS,
+				op: 'patch',
+				set: { second: 2 },
+				unset: [],
+			});
+			expect(store.visible(ADDRESS)).toEqual({
+				state: 'live',
+				payload: { first: 1, second: 2 },
+			});
+			expect(
+				store.visibleRecords(ADDRESS.namespace, ADDRESS.collection),
+			).toEqual({
+				entries: [
+					{
+						address: ADDRESS,
+						record: {
+							state: 'live',
+							payload: { first: 1, second: 2 },
+						},
+					},
+				],
+			});
+		} finally {
+			database.close();
+		}
+	});
+
+	test('keeps an unprojectable parked desire observable without hiding accepted state', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: { replicaId: REPLICA_ID },
+			});
+			store.localWrite({ address: ADDRESS, op: 'replace', value: 'dark' });
+			database.run(
+				`UPDATE records SET
+					confirmed_state = 'live', confirmed_payload = '"dark"',
+					confirmed_sequence = 1, pending_op = NULL, pending_args = NULL,
+					parked_op = 'patch', parked_args = '{"set":{"a":1},"unset":[]}',
+					parked_code = 'patch-base-not-object'`,
+			);
+			expect(store.visible(ADDRESS)).toEqual({
+				state: 'live',
+				payload: 'dark',
+			});
+			expect(store.record(ADDRESS)?.parked?.code).toBe('patch-base-not-object');
+		} finally {
+			database.close();
+		}
+	});
+
+	test('gates first attachment and preserves a permanent owner', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: { replicaId: REPLICA_ID },
+			});
+			expect(store.attachment()).toEqual({
+				kind: 'unattached',
+				requiresChoice: false,
+			});
+			expect(store.attach(ATTACHMENT)).toEqual({
+				attached: true,
+				discarded: false,
+			});
+			expect(store.attach(ATTACHMENT)).toEqual({
+				attached: false,
+				discarded: false,
+			});
+			expect(store.attachment()).toEqual({
+				kind: 'attached',
+				attachment: ATTACHMENT,
+			});
+			expect(() =>
+				store.attach({ ...ATTACHMENT, principalId: 'principal-two' }),
+			).toThrow(/permanently attached/);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('requires a whole-replica choice and commits discard with attachment', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: { replicaId: REPLICA_ID },
+			});
+			const changes: unknown[] = [];
+			store.subscribe((addresses) => changes.push(addresses));
+			store.localWrite({ address: ADDRESS, op: 'replace', value: {} });
+			expect(store.attachment()).toEqual({
+				kind: 'unattached',
+				requiresChoice: true,
+			});
+			expect(() => store.attach(ATTACHMENT)).toThrow(/bring or discard/);
+			expect(store.visible(ADDRESS)).not.toBeNull();
+			expect(store.attach(ATTACHMENT, 'discard')).toEqual({
+				attached: true,
+				discarded: true,
+			});
+			expect(store.visible(ADDRESS)).toBeNull();
+			expect(store.attachment()).toEqual({
+				kind: 'attached',
+				attachment: ATTACHMENT,
+			});
+			expect(changes).toEqual([[ADDRESS], [ADDRESS]]);
+		} finally {
+			database.close();
+		}
+	});
+
 	test('initializes an empty database and reopens only the exact owned schema', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {

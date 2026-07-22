@@ -11,12 +11,18 @@ export {
 	type FrozenDocumentPublication,
 } from './document-store.js';
 export {
+	type FirstAttachmentChoice,
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
+	type ReplicaAttachment,
+	type ReplicaAttachmentState,
 	type ReplicaFactsPage,
 	type ReplicaRecordLanes,
 	type ReplicaStore,
 	type ReplicaStoreSync,
+	type ReplicaVisibleRecord,
+	type ReplicaVisibleRecordEntry,
+	type ReplicaVisibleRecordPage,
 	type SealedRequest,
 } from './replica-store.js';
 export {

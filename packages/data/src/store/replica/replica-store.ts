@@ -9,10 +9,12 @@ import {
 	type Fact,
 	type FactsRequest,
 	type FactsResponse,
+	foldIntent,
 	type Intent,
 	type JsonValue,
 	type Operation,
 	type ParkedIntent,
+	parseAddress,
 	parseFactsRequest,
 	parseIntent,
 	parseSubmissionRequest,
@@ -51,6 +53,8 @@ type RecordRow = SqliteRow & {
 type MetaRow = SqliteRow & {
 	format_version: number;
 	replica_id: string;
+	attached_deployment: string | null;
+	attached_principal: string | null;
 	authority_lifetime: string | null;
 	erased_authority_lifetime: string | null;
 	after_sequence: number;
@@ -84,6 +88,31 @@ export type ReplicaStoreSync = {
 	nextSubmission: number;
 };
 
+export type ReplicaAttachment = {
+	deploymentId: string;
+	principalId: string;
+};
+
+export type FirstAttachmentChoice = 'bring' | 'discard';
+
+export type ReplicaAttachmentState =
+	| { kind: 'unattached'; requiresChoice: boolean }
+	| { kind: 'attached'; attachment: ReplicaAttachment };
+
+export type ReplicaVisibleRecord =
+	| { state: 'live'; payload: JsonValue }
+	| { state: 'tombstone' | 'unset' };
+
+export type ReplicaVisibleRecordEntry = {
+	address: RecordAddress;
+	record: ReplicaVisibleRecord;
+};
+
+export type ReplicaVisibleRecordPage = {
+	entries: ReplicaVisibleRecordEntry[];
+	nextAfter?: string;
+};
+
 export type SealedRequest = { bytes: string; hash: string };
 
 export type ReplicaFactsPage = {
@@ -99,6 +128,23 @@ export type OpenReplicaStoreOptions = {
 
 function tripleParams(address: RecordAddress): [string, string, string] {
 	return [address.namespace, address.collection, address.recordKey];
+}
+
+function addressIdentity(address: RecordAddress): string {
+	return canonicalize(address);
+}
+
+function assertAttachment(attachment: ReplicaAttachment): void {
+	if (attachment.principalId.length === 0) {
+		throw new Error('attachment principal ID must not be empty');
+	}
+	try {
+		if (new URL(attachment.deploymentId).href !== attachment.deploymentId) {
+			throw new Error('not canonical');
+		}
+	} catch {
+		throw new Error('attachment deployment ID must be a canonical URL');
+	}
 }
 
 function operationArgs(operation: Operation): string | null {
@@ -179,6 +225,52 @@ function lanesOf(row: RecordRow | null): ReplicaRecordLanes | null {
 							: { limitBytes: row.parked_limit }),
 					},
 	};
+}
+
+function operationIntent(address: RecordAddress, operation: Operation): Intent {
+	return { address, ...operation };
+}
+
+function visibleOf(
+	address: RecordAddress,
+	lanes: ReplicaRecordLanes | null,
+): ReplicaVisibleRecord | null {
+	if (lanes === null) return null;
+	let current: Fact | undefined =
+		lanes.confirmed === null
+			? undefined
+			: lanes.confirmed.state === 'live'
+				? {
+						address,
+						sequence: lanes.confirmed.sequence,
+						state: 'live',
+						payload: lanes.confirmed.payload as JsonValue,
+					}
+				: {
+						address,
+						sequence: lanes.confirmed.sequence,
+						state: lanes.confirmed.state,
+					};
+	const operations =
+		lanes.parked === null
+			? [lanes.sealed, lanes.pending]
+			: [lanes.parked.operation];
+	for (const operation of operations) {
+		if (operation === null) continue;
+		const outcome = foldIntent(
+			current,
+			operationIntent(address, operation),
+			(current?.sequence ?? 0) + 1,
+		);
+		if (outcome.kind === 'changed') current = outcome.fact;
+		// A locally visible parked patch can be impossible to project over the
+		// accepted scalar base. Keep the accepted value visible while `record()`
+		// exposes the complete refused desire and diagnostic.
+	}
+	if (current === undefined) return null;
+	return current.state === 'live'
+		? { state: 'live', payload: structuredClone(current.payload) }
+		: { state: current.state };
 }
 
 function one<TRow extends SqliteRow>(
@@ -369,9 +461,160 @@ export function openReplicaStore({
 }: OpenReplicaStoreOptions) {
 	openSchema(database, limits, initialize);
 	const documents = createReplicaDocumentStore(database);
+	const listeners = new Set<(addresses: readonly RecordAddress[]) => void>();
+
+	function notify(addresses: readonly RecordAddress[]): void {
+		if (addresses.length === 0) return;
+		const unique = new Map<string, RecordAddress>();
+		for (const address of addresses) {
+			unique.set(addressIdentity(address), structuredClone(address));
+		}
+		const changes = [...unique.values()];
+		for (const listener of listeners) listener(changes);
+	}
 
 	function record(address: RecordAddress): ReplicaRecordLanes | null {
 		return lanesOf(readRecord(database, address));
+	}
+
+	function visible(address: RecordAddress): ReplicaVisibleRecord | null {
+		return visibleOf(address, record(address));
+	}
+
+	function visibleRecords(
+		namespace: string,
+		collection: string,
+		after?: string,
+		limit = 100,
+	): ReplicaVisibleRecordPage {
+		const boundary = parseAddress(
+			{ namespace, collection, recordKey: after ?? 'cursor' },
+			limits,
+		);
+		if (boundary.error !== null) {
+			throw new Error('visible record traversal address is invalid');
+		}
+		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+			throw new Error('visible record traversal limit must be 1 through 1000');
+		}
+		const parameters: (string | number)[] = [namespace, collection];
+		const cursor = after === undefined ? '' : ' AND record_key > ?';
+		if (after !== undefined) parameters.push(after);
+		parameters.push(limit + 1);
+		const rows = database.all<
+			RecordRow & { namespace: string; collection: string; record_key: string }
+		>(
+			`SELECT * FROM records
+			WHERE namespace = ? AND collection = ?${cursor}
+			ORDER BY record_key LIMIT ?`,
+			parameters,
+		);
+		const hasNext = rows.length > limit;
+		const pageRows = hasNext ? rows.slice(0, limit) : rows;
+		const entries: ReplicaVisibleRecordEntry[] = [];
+		for (const row of pageRows) {
+			const address = {
+				namespace: row.namespace,
+				collection: row.collection,
+				recordKey: row.record_key,
+			};
+			const projected = visibleOf(address, lanesOf(row));
+			if (projected !== null) entries.push({ address, record: projected });
+		}
+		const last = pageRows.at(-1);
+		return {
+			entries,
+			...(hasNext && last !== undefined ? { nextAfter: last.record_key } : {}),
+		};
+	}
+
+	function attachment(): ReplicaAttachmentState {
+		const meta = readMeta(database);
+		if (meta.attached_deployment !== null && meta.attached_principal !== null) {
+			return {
+				kind: 'attached',
+				attachment: {
+					deploymentId: meta.attached_deployment,
+					principalId: meta.attached_principal,
+				},
+			};
+		}
+		const count = one<SqliteRow & { count: number }>(
+			database,
+			'SELECT count(*) AS count FROM records',
+		)?.count;
+		return { kind: 'unattached', requiresChoice: (count ?? 0) > 0 };
+	}
+
+	function attach(
+		next: ReplicaAttachment,
+		choice?: FirstAttachmentChoice,
+	): { attached: boolean; discarded: boolean } {
+		assertAttachment(next);
+		if (choice !== undefined && choice !== 'bring' && choice !== 'discard') {
+			throw new Error('first attachment choice must be bring or discard');
+		}
+		const changed: RecordAddress[] = [];
+		const result = database.transaction(() => {
+			const meta = readMeta(database);
+			if (
+				meta.attached_deployment !== null &&
+				meta.attached_principal !== null
+			) {
+				if (
+					meta.attached_deployment === next.deploymentId &&
+					meta.attached_principal === next.principalId
+				) {
+					return { attached: false, discarded: false };
+				}
+				throw new Error('replica is permanently attached to another principal');
+			}
+			const rows = database.all<
+				SqliteRow & {
+					namespace: string;
+					collection: string;
+					record_key: string;
+				}
+			>('SELECT namespace, collection, record_key FROM records');
+			const nonempty = rows.length > 0;
+			if (nonempty && choice === undefined) {
+				throw new Error('nonempty replica requires bring or discard');
+			}
+			if (nonempty && choice === 'discard') {
+				for (const row of rows) {
+					changed.push({
+						namespace: row.namespace,
+						collection: row.collection,
+						recordKey: row.record_key,
+					});
+				}
+				database.run('DELETE FROM record_documents');
+				database.run('DELETE FROM document_inflight');
+				database.run('DELETE FROM records');
+				database.run(
+					`UPDATE meta SET
+						attached_deployment = ?, attached_principal = ?,
+						authority_lifetime = NULL,
+						erased_authority_lifetime = NULL,
+						after_sequence = 0,
+						sealed_submission = NULL,
+						sealed_request = NULL,
+						sealed_request_hash = NULL,
+						next_submission = 1
+					WHERE singleton = 1`,
+					[next.deploymentId, next.principalId],
+				);
+				return { attached: true, discarded: true };
+			}
+			database.run(
+				`UPDATE meta SET attached_deployment = ?, attached_principal = ?
+				WHERE singleton = 1`,
+				[next.deploymentId, next.principalId],
+			);
+			return { attached: true, discarded: false };
+		});
+		notify(changed);
+		return result;
 	}
 
 	function sync(): ReplicaStoreSync {
@@ -467,6 +710,7 @@ export function openReplicaStore({
 				);
 			}
 		});
+		notify([intent.address]);
 	}
 
 	function seal(): SealedRequest {
@@ -620,9 +864,11 @@ export function openReplicaStore({
 				[response.authorityLifetime, afterSequence],
 			);
 		});
+		notify(page.response.facts.map((fact) => fact.address));
 	}
 
 	function settle(rawResponse: SubmissionResponse): void {
+		const changed: RecordAddress[] = [];
 		database.transaction(() => {
 			const meta = readMeta(database);
 			if (
@@ -644,6 +890,7 @@ export function openReplicaStore({
 				throw new Error('persisted sealed request is invalid');
 			}
 			const request = parsedRequest.data;
+			changed.push(...request.intents.map((intent) => intent.address));
 			if (
 				canonicalize(request) !== meta.sealed_request ||
 				sha256Hex(meta.sealed_request) !== meta.sealed_request_hash
@@ -738,9 +985,13 @@ export function openReplicaStore({
 				WHERE singleton = 1`,
 			);
 		});
+		notify(changed);
 	}
 
 	function erase(): void {
+		const changed = database.all<
+			SqliteRow & { namespace: string; collection: string; record_key: string }
+		>('SELECT namespace, collection, record_key FROM records');
 		database.transaction(() => {
 			database.run('DELETE FROM record_documents');
 			database.run('DELETE FROM document_inflight');
@@ -759,10 +1010,25 @@ export function openReplicaStore({
 				WHERE singleton = 1`,
 			);
 		});
+		notify(
+			changed.map((row) => ({
+				namespace: row.namespace,
+				collection: row.collection,
+				recordKey: row.record_key,
+			})),
+		);
 	}
 
 	return {
 		record,
+		visible,
+		visibleRecords,
+		attachment,
+		attach,
+		subscribe(listener: (addresses: readonly RecordAddress[]) => void) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
 		sync,
 		sealedRequest,
 		localWrite,
@@ -771,12 +1037,31 @@ export function openReplicaStore({
 		installFacts,
 		settle,
 		erase,
-		appendLocalDocumentUpdate: documents.appendLocal,
-		installAcceptedDocumentUpdate: documents.installAccepted,
+		appendLocalDocumentUpdate(address: RecordAddress, update: Uint8Array) {
+			documents.appendLocal(address, update);
+			notify([address]);
+		},
+		installAcceptedDocumentUpdate(address: RecordAddress, update: Uint8Array) {
+			documents.installAccepted(address, update);
+			notify([address]);
+		},
 		inspectDocument: documents.inspect,
 		exportDocument: documents.exportDocument,
-		documentPublication: documents.publication,
-		settleDocumentPublication: documents.settle,
+		documentPublication(
+			address: RecordAddress,
+			authorityStateVector?: Uint8Array,
+		) {
+			const state = documents.publication(address, authorityStateVector);
+			notify([address]);
+			return state;
+		},
+		settleDocumentPublication(
+			address: RecordAddress,
+			proof: Parameters<typeof documents.settle>[1],
+		) {
+			documents.settle(address, proof);
+			notify([address]);
+		},
 		measureDocument: documents.measure,
 	};
 }
