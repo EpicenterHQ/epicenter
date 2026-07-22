@@ -1,9 +1,9 @@
 # 0172. SQLite stores convergent facts and documents; raw files store blob bytes
 
 - **Status:** Proposed
-- **Date:** 2026-07-20 (revised 2026-07-21: the blob staging write-order law
-  and its two idempotent sweeps)
-- **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication stores exact retry evidence rather than authority vectors)
+- **Date:** 2026-07-20 (revised 2026-07-22: publication obligations derive
+  from local truth versus authority-accepted watermarks)
+- **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication uses revision watermarks rather than frozen retry images)
 - **Amends:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md)
 - **Relates:** [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 
@@ -23,9 +23,9 @@ Epicenter storage root
 ├── epicenter.sqlite3
 │   ├── per-record scalar lane state and obligations
 │   ├── bounded Yjs document baseline-plus-tail chains
-│   ├── exact document publication retry evidence
-│   ├── accepted nullable blob digests
-│   └── pending blob publication evidence
+│   ├── locally authored and authority-accepted document revisions
+│   ├── local nullable blob digests
+│   └── authority-accepted blob digests
 └── blobs/
     ├── staging/   in-flight capture bytes with no permanent identity
     └── at most one immutable content-addressed byte file per live record
@@ -43,9 +43,9 @@ log. Epicenter does not invent raw per-document files, custom byte framing,
 truncation recovery, compaction swaps, or cross-medium record-liveness checks.
 
 Raw files own blob bytes because blobs are immutable, potentially large, and
-streamed. SQLite records the accepted nullable SHA-256 for each record's
-universal zero-or-one blob slot and the small obligation needed to publish
-newly accepted bytes. Filename, media type, application meaning, and other
+streamed. SQLite records the local nullable SHA-256 and authority-accepted
+SHA-256 for each record's universal zero-or-one blob slot. Their inequality
+derives the publication obligation. Filename, media type, application meaning, and other
 interpretation belong to application citations, not sidecar metadata in the
 blob store.
 
@@ -55,7 +55,7 @@ Blob publication follows one named write order:
 stream bytes to blobs/staging/<digest>.tmp and fsync
   -> rename to the content-addressed blobs/<digest> (idempotent)
   -> one SQLite transaction records ownership evidence
-     (accepted digest plus the pending publication obligation)
+     (local digest; the accepted digest remains behind until its receipt)
 ```
 
 Because the SQLite commit is ordered strictly after the rename,

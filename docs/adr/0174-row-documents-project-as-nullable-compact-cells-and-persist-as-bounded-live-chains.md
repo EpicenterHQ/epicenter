@@ -1,11 +1,12 @@
 # 0174. Row documents project as nullable compact cells and persist as bounded live chains
 
 - **Status:** Proposed
-- **Date:** 2026-07-20 (revised 2026-07-21: documents are record-wide, the
+- **Date:** 2026-07-20 (revised 2026-07-22: publication uses local and
+  authority-accepted revision watermarks; documents remain record-wide, the
   composed cell projects only into portable artifacts, snapshots carry
   metadata, and a typed export operation serves single-document jobs)
 - **Supersedes:** the document-plane persistence, exact-byte retention, no-cache, and presence mechanics of [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md), plus [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md)'s statement that remote authority mechanics remain unchanged. ADR-0161 already removes the workspace ownership axis; the principal authority and fixed-address-socket proposals remain independent.
-- **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) (the authority is the trusted document joiner and compactor), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (every live owner uses the same bounded baseline-plus-tail law), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the update log is a private physical representation of one logical row cell), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md) (document publication stores exact retry evidence rather than authority vectors)
+- **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) (the authority is the trusted document joiner and compactor), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (every live owner uses the same bounded baseline-plus-tail law), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the update log is a private physical representation of one logical row cell), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md) (document publication derives obligations from revision watermarks)
 - **Relates:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 
 ## Context
@@ -34,7 +35,7 @@ one logical record
         |
         +--> live private form:    compact baseline + bounded update tail
         +--> portable Backup form: one self-contained compact V2 update
-        `--> snapshot form:        metadata only (revision, bytes, dirty)
+        `--> snapshot form:        metadata only (revision, bytes, status)
 ```
 
 The portable Backup projects the document directly on the record: the
@@ -45,8 +46,9 @@ Visually empty application content may still encode causal deletion state or
 unresolved dependencies and therefore need a non-null cell.
 
 An inspection snapshot (ADR-0162) never carries a composed cell. It exposes
-document metadata only: the record's revision, encoded chain size, and dirty
-state. The rare "give me this one document now" job is served by an explicit
+document metadata only: the record's local and authority-accepted revisions,
+encoded chain size, and derived status. The rare "give me this one document
+now" job is served by an explicit
 typed per-record `exportDocument` operation that produces one self-contained
 V2 update. Yjs composition therefore happens in exactly two places: on the
 authority at Backup capture, and in that typed export. It never happens
@@ -124,7 +126,7 @@ receipt semantics.
   independent refusal even when encoded bytes are below 1 MiB.
 - Bound state is durably observable. Local editing and persistence continue
   while publication is parked, and Epicenter never claims the parked document
-  is synchronized. Byte fullness may recover after edits shrink the compact
+  is settled. Byte fullness may recover after edits shrink the compact
   state; structural fullness requires moving the content to a fresh row.
 - Data owns one address-scoped synchronization-status surface. A document-bound
   observation distinguishes encoded bytes from decoded structs and reports the
@@ -136,7 +138,7 @@ receipt semantics.
   state only; it never captures unpublished work from a replica.
 - The authority can produce one compact accepted document for Backup without
   trusting a client checkpoint or waiting for every replica to reconnect.
-- Realtime fanout lowers latency but never proves durability. ADR-0171's exact
+- Realtime fanout lowers latency but never proves durability. ADR-0171's
   post-commit publication receipt owns that proof.
 - A single principal authority remains the lifecycle and transaction owner.
   Per-document Durable Objects are not introduced merely to host live sockets.
@@ -145,8 +147,9 @@ receipt semantics.
   causal history.
 
 The durable publication obligation is the first implementation requirement for
-bound refusal: a refused document remains dirty or in flight and can never make
-Epicenter report the address as synchronized. The structured address-scoped
+bound refusal: a refused document remains owed and can never make Epicenter
+report the address as settled. Compact refusal measurements persist on the
+record for the refused local revision; no payload is frozen. The structured address-scoped
 observation and its Home presentation may land later in the implementation
 wave. Until they do, this ADR remains Proposed; applications do not receive a
 temporary mutation error or a manual settlement action.
@@ -158,8 +161,8 @@ Before this ADR becomes Accepted, maintained tests must prove:
 - applying the compact baseline and tail is state-equivalent to the logical
   document before and after compaction, including deletion-only state and
   unresolved dependencies;
-- duplicate and reordered valid updates converge, while a local edit racing an
-  exact frozen publication payload cannot be cleared by that payload's receipt;
+- duplicate and reordered valid updates converge, while a local edit racing a
+  publication attempt cannot be cleared by the earlier attempt's receipt;
 - stale common-history state cannot roll back newer accepted content or
   resurrect deleted Yjs structs, duplicate exact first-attachment publication
   is idempotent, and concurrent shared-lineage branches converge;

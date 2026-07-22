@@ -4,7 +4,7 @@
 - **Date:** 2026-07-20 (rewritten 2026-07-21 from the frozen record
   architecture)
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), and [ADR-0177](../docs/adr/0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
+- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), and [ADR-0177](../docs/adr/0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
 
 ## Product sentence
 
@@ -32,10 +32,10 @@
 - A replica record has three crash lanes (`confirmed`, `sealed`, `pending`)
   plus the `parked` overlay retaining a refused operation. Sealing persists
   the exact canonical request bytes for retry (ADR-0163).
-- ADR-0177 selects the wide interned record row as the physical candidate.
-  That selection is itself Proposed behind three named reversal charters; the
-  accepted premise is only that one candidate is selected and that a reversal
-  is a store-owner schema swap no caller-facing surface may depend on.
+- ADR-0177 selects physical layout by semantic role. Authorities use the wide
+  interned record row. Replicas target split confirmed-fact and sparse-intent
+  relations, pending a complete production-shaped proof. Every adapter within
+  one role shares that role's schema; no caller-facing surface depends on it.
 - Epicenter is a curated personal universe, not an ingestion lake. The
   representative normal stress target remains 1,000,000 final-present
   addresses at the 512 MiB versioned proxy (ADR-0161), with the mobile floors.
@@ -131,7 +131,7 @@ await using doc = await data.whispering.recordings.openDocument(recording.id);
 await data.whispering.recordings.blob.put(recording.id, audioSource);
 
 await data.whispering.settings.language.set("en"); // lowers to replace
-await data.whispering.settings.language.unset();   // lowers to unset
+await data.whispering.settings.language.unset(); // lowers to unset
 const stopTheme = data.whispering.settings.theme.subscribe(() => {});
 
 await epicenter.attachSync(session);
@@ -152,15 +152,14 @@ a fresh replica.
 
 ## Physical model
 
-ADR-0177 owns the physical layout: one `records` relation per store owner
-whose row is the whole per-address crash-state machine, with a private
-`record_id` rowid interning the triple for the byte-heavy sibling relations
-(document chains, frozen in-flight images), lane-shape CHECK disjunctions with
-explicit NULL guards, explicit tombstone-transaction cleanup (no cascades),
-and one explicit single-row `meta` table per owner. The split-relation layout
-is the sole runner-up, alive only behind ADR-0177's three charters
-(wide-versus-split hot paths, Durable Object billing, physical OPFS capacity
-and reopen).
+ADR-0177 owns physical layout by semantic role. Durable Object and Bun
+authorities share the wide interned `records` relation. Browser OPFS and Bun
+replicas target one split schema separating confirmed facts from sparse local
+intents; the current production-shaped wide replica remains the runner-up until
+the complete split candidate proves document and blob watermarks, refusal
+evidence, tombstone cleanup, sealing, erase, reopen, and reacquisition. Every
+role owns one explicit single-row state relation. No adapter invents another
+schema and no caller-facing surface depends on relation shape.
 
 The four-combination relation-and-coordinate benchmark matrix that this spec
 previously carried is retired. The retained 2026-07-21 Bun/native run and its
@@ -316,13 +315,20 @@ fixed bound. It never replays a mutation after owner loss. Maintained tests
 cover takeover fencing, lossy coordination, bounded failure, and the unchanged
 replica contract.
 
-The browser layout harness also completed full headless Chromium and WebKit
-profiles at 1,000,000 records and the exact 536,870,912-byte proxy. Both
-profiles passed integrity and reopen checks and materially favored split for
-traversal and lane writes; the remaining hot metrics stayed inside the stop
-rule's neutral band or tied at engine timer resolution. Raw reports live under
-`docs/benchmarks/replica-layout/` and remain explicitly provisional and
-decision-ineligible.
+The maintained browser layout harness and raw reports are under
+`packages/data/browser-evidence/replica-layout-*` and
+`docs/benchmarks/replica-layout/`. Clean-source Chromium 149.0.7827.55 and
+Playwright WebKit 26.5 runs each completed all six wide-versus-split repetitions
+at 1,000,000 records and exactly 536,870,912 proxy bytes, passed integrity and
+reopen checks, and retained raw hot-path timings, query plans, schema hashes,
+storage measurements, and runtime provenance. Both engines fired ADR-0177's
+material-direction stop rule: split traversal and pending-lane writes were
+materially faster, while point reads, feed installs, reopen, and the 3.11%
+storage difference were closer. These desktop results select split as the
+replica target. They do not yet accept the production split schema: the
+measured split candidate predates the document and blob foundations, and the
+physical mobile charter remains open. Wide remains the implemented fallback
+until the complete split candidate passes the acceptance charter.
 
 W1C remains incomplete. Physical iOS Safari and Android Chrome still owe the
 250,000-address and 128 MiB floor, the conditional full-envelope run,
@@ -368,17 +374,19 @@ index. Current Cloudflare allowances and rates make shared row writes the
 governing billing term, so that read delta does not reverse the selection.
 Both layouts reopened with complete row counts. The raw reports, pricing
 calculation, and limitations live under `docs/benchmarks/authority-layout/`.
-ADR-0177 remains Proposed because the mixed Bun replica evidence and unfinished
-browser OPFS charters still own the cross-owner decision.
+This evidence accepts wide for the authority role. ADR-0177 remains Proposed
+only because the production-shaped split replica, Bun replica rerun, and
+physical mobile browser charter remain unfinished.
 
 W2 may begin after W1A passes independent review while W1B and W1C continue
 against the frozen shared kernel and conformance contracts.
 
 ### W3: document and blob foundations
 
-- Persist bounded baseline-plus-tail chains keyed by `record_id`, the frozen
-  in-flight publication image, dirty revisions, and receipts (ADR-0174,
-  ADR-0171).
+- Persist bounded baseline-plus-tail chains keyed by `record_id`, local and
+  authority-accepted document revisions, compact bound-refusal evidence, and
+  acceptance receipts (ADR-0174, ADR-0171). Do not persist a frozen publication
+  payload: regenerate the authority update after an interrupted attempt.
 - Implement the record-wide latent capabilities with the only-tombstone-reaps
   law and the typed per-record `exportDocument` operation.
 - Implement the blob staging write-order law and both idempotent sweeps
@@ -553,9 +561,11 @@ application SQL escape hatches, projection DTOs, workspace compatibility barrel
 
 The destination exists when:
 
-- Either owner's database shows the ADR-0177 relations plus `meta`, and one
-  `SELECT` by triple answers: authority truth, in flight, wanted, refused,
-  owed.
+- Each replica adapter exposes the accepted split replica schema, and each
+  authority adapter exposes the accepted wide authority schema. Both implement
+  the same semantic store contract. A record lookup answers accepted scalar
+  truth, sealed and pending scalar work, document and blob publication
+  obligations, and compact refusal evidence without scanning visible state.
 - Killing any process at any statement boundary and reopening never scans
   visible state to rebuild an obligation, never re-adjudicates, and never
   mints a new replica ID.
@@ -593,5 +603,8 @@ Violations proving drift:
 3. **Realtime row-document topology.** Fixed-address socket per open record,
    multiplexed connection, or no dedicated overlay until a collaborative
    surface ships.
-4. **Physical layout charters (ADR-0177).** Their outcome can swap the store
-   schema in W1/W2 without touching W4+ surfaces.
+4. **Split replica acceptance charter (ADR-0177).** Run the complete
+   production-shaped split candidate, including document and blob state,
+   refusal evidence, crash/reopen transitions, Bun, browser OPFS, and physical
+   mobile qualification. Its outcome may retain the current wide fallback or
+   accept split without touching the semantic API or W4+ surfaces.

@@ -164,8 +164,10 @@ latest authority truth learned locally), `sealed` (the immutable in-flight
 desire, with its exact canonical request bytes persisted for retry), and
 `pending` (the mutable compacted current desire), plus `parked`, which retains
 a refused operation as a visible, non-retrying overlay until a later write
-consumes it. ADR-0177 owns the selected physical layout: one wide interned
-record row per address, Proposed behind named reversal charters.
+consumes it. ADR-0177 owns physical layout by semantic role. Authorities use
+the wide interned record row. Replicas target split confirmed-fact and sparse
+intent relations behind a complete production acceptance charter; relation
+shape remains private to the store owner.
 
 ## Inspection is capture
 

@@ -8,7 +8,7 @@
 - **Supersedes:** [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md), [ADR-0141](0141-authority-current-state-and-receipt-watermarks-drive-row-convergence.md), and [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md)
 - **Amends:** the scalar protocol in [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md)
 - **Amended by:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md) (the convergence unit), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (lifetime replacement), and [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md) (the obligation law)
-- **Relates:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md) and [ADR-0177](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
+- **Relates:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md) and [ADR-0177](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
 
 ## Context
 
@@ -142,9 +142,9 @@ type Intent = { address: RecordAddress } & Operation;
 
 type Operation =
   | { op: "patch"; set: JsonObject; unset: string[] } // make or keep present by folding fields
-  | { op: "replace"; value: JsonValue }               // make or keep present by whole replacement
-  | { op: "tombstone" }                                // terminal absence in this lifetime
-  | { op: "unset" };                                   // reversible absence
+  | { op: "replace"; value: JsonValue } // make or keep present by whole replacement
+  | { op: "tombstone" } // terminal absence in this lifetime
+  | { op: "unset" }; // reversible absence
 ```
 
 Table create and update do not exist on the wire: both become a `patch`, which
