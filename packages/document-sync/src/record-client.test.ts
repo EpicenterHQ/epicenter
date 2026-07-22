@@ -120,11 +120,13 @@ test('record connector uses the V3 address and stops after a document bound', as
 			await connection.whenConnected;
 			expect(connection.status).toBe('connected');
 			expect(
-				epicenter.inspectRecord({
-					namespace: lens.namespace,
-					collection: 'notes',
-					recordKey: row.id,
-				}).document?.dirty,
+				(
+					await epicenter.inspectRecord({
+						namespace: lens.namespace,
+						collection: 'notes',
+						recordKey: row.id,
+					})
+				).document?.dirty,
 			).toBe(false);
 
 			document.transact(() => {

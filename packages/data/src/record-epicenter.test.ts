@@ -1,7 +1,19 @@
+/**
+ * Record Owner and Lens Runtime Tests
+ *
+ * Verifies typed Lens behavior over the owner's local schema-opaque access and
+ * the record-owned document and blob capabilities composed by that owner.
+ *
+ * Key behaviors:
+ * - Lens validation and projection stay in the Lens runtime
+ * - One owner persists scalar, document, blob, and subscription state
+ * - Accepted remote document updates do not create local publication work
+ */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import * as Y from '@y/y';
 
 import type {
 	BlobFileStore,
@@ -11,6 +23,7 @@ import type {
 import { defineLens, defineTable, defineValues } from './lens.js';
 import { sha256HexBytes } from './protocol/v1/canonical.js';
 import { makeLimits } from './protocol/v1/kernel.test-support.js';
+import { recordDocumentConnectionTarget } from './record-document-connection.js';
 import { createRecordEpicenter } from './record-epicenter.js';
 import {
 	createReplicaBlobStore,
@@ -105,6 +118,14 @@ describe('record Epicenter Lens runtime', () => {
 		try {
 			const changed: string[][] = [];
 			context.data.notes.notes.subscribe((ids) => changed.push(ids));
+			const invalid: unknown = { title: 42 };
+			await expect(
+				context.data.notes.notes.create(invalid as never),
+			).rejects.toThrow();
+			expect(
+				context.replica.visibleRecords(notesLens.namespace, 'notes').entries,
+			).toEqual([]);
+
 			const row = await context.data.notes.notes.create({ title: 'First' });
 			expect(await context.data.notes.notes.get(row.id)).toMatchObject({
 				data: { id: row.id, title: 'First' },
@@ -181,7 +202,7 @@ describe('record Epicenter Lens runtime', () => {
 
 			const bytes = new TextEncoder().encode('audio');
 			const digest = await context.data.notes.notes.blob.put(row.id, bytes);
-			expect(context.data.notes.notes.blob.inspect(row.id)).toEqual({
+			expect(await context.data.notes.notes.blob.inspect(row.id)).toEqual({
 				kind: 'pending',
 				digest,
 			});
@@ -212,5 +233,71 @@ describe('record Epicenter Lens runtime', () => {
 			await context.epicenter[Symbol.asyncDispose]();
 			context.database.close();
 		}
+	});
+
+	test('accepted remote document updates stay outside local publication work', async () => {
+		const context = setup();
+		try {
+			const row = await context.data.notes.notes.create({ title: 'Shared' });
+			const document = await context.data.notes.notes.openDocument(row.id);
+			const remote = new Y.Doc({ gc: true });
+			remote.get('content').insert(0, 'from authority');
+			const accepted = new Uint8Array(Y.encodeStateAsUpdateV2(remote));
+
+			recordDocumentConnectionTarget(document).applyUpdate(
+				accepted,
+				'authority',
+			);
+
+			expect(document.get('content').toString()).toBe('from authority');
+			expect(
+				context.replica.inspectDocument({
+					namespace: notesLens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				}),
+			).toMatchObject({ dirty: false });
+			expect(context.replica.workSummary().document.pending).toBe(0);
+
+			remote.destroy();
+			await document[Symbol.asyncDispose]();
+		} finally {
+			await context.epicenter[Symbol.asyncDispose]();
+			context.database.close();
+		}
+	});
+
+	test('separate Lens bindings borrow one owner without gaining its lifecycle', async () => {
+		const context = setup();
+		try {
+			const first = context.epicenter.bind({ first: notesLens });
+			const second = context.epicenter.bind({ second: notesLens });
+			expect(Symbol.asyncDispose in first).toBe(false);
+			expect(Symbol.asyncDispose in second).toBe(false);
+
+			const row = await first.first.notes.create({ title: 'Borrowed' });
+			const document = await first.first.notes.openDocument(row.id);
+			document.get('content').insert(0, 'temporary handle');
+			await document[Symbol.asyncDispose]();
+
+			await second.second.notes.update(row.id, { note: 'Still open' });
+			expect(await first.first.notes.get(row.id)).toMatchObject({
+				data: { id: row.id, title: 'Borrowed', note: 'Still open' },
+			});
+		} finally {
+			await context.epicenter[Symbol.asyncDispose]();
+			context.database.close();
+		}
+	});
+
+	test('disposed owners refuse status reads and bound operations', async () => {
+		const context = setup();
+		await context.epicenter[Symbol.asyncDispose]();
+
+		expect(() => context.epicenter.attachment).toThrow('disposed');
+		expect(() => context.epicenter.syncStatus).toThrow('disposed');
+		await expect(context.data.notes.notes.scan()).rejects.toThrow('disposed');
+
+		context.database.close();
 	});
 });

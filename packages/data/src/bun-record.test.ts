@@ -1,3 +1,13 @@
+/**
+ * Bun Record Epicenter Opener Tests
+ *
+ * Verifies that the Bun composition opens one durable owner and binds typed
+ * Lens access in process without leaking storage into the application API.
+ *
+ * Key behaviors:
+ * - Scalar records survive owner disposal and reopen
+ * - The opener owns the SQLite and blob directory lifecycle
+ */
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

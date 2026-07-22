@@ -25,7 +25,17 @@ import {
 	type RecordSyncSession,
 	type RecordSyncStatus,
 } from './record-sync-supervisor.js';
-import type { ReplicaBlobStore, ReplicaStore } from './store/replica/index.js';
+import type {
+	BlobInspection,
+	DocumentInspection,
+	ReplicaAttachmentState,
+	ReplicaBlobStore,
+	ReplicaParkedWorkPage,
+	ReplicaRecordLanes,
+	ReplicaStore,
+	ReplicaVisibleRecord,
+	ReplicaVisibleRecordPage,
+} from './store/replica/index.js';
 
 const mintRecordKey = customAlphabet(
 	'abcdefghijklmnopqrstuvwxyz0123456789',
@@ -46,9 +56,7 @@ export type RecordTableEntry<TDefinition extends TableDefinition> = Result<
 export type RecordBlobLens<TSource, TRead> = {
 	put(recordId: string, source: TSource): Promise<string>;
 	get(recordId: string): Promise<TRead | null>;
-	inspect(
-		recordId: string,
-	): ReturnType<ReplicaBlobStore<TSource, TRead>['inspect']>;
+	inspect(recordId: string): Promise<BlobInspection>;
 };
 
 export type RecordTableLens<
@@ -104,11 +112,58 @@ export type BoundLenses<
 	[K in keyof TLenses]: BoundLens<TLenses[K], TSource, TRead>;
 };
 
+/**
+ * Local capabilities used by Lens interpretation.
+ *
+ * This function-bearing facade is not an RPC or wire protocol. Browser and
+ * desktop adapters must define separate cloneable operation protocols. A
+ * local adapter may return a page-local RowDocument from openDocument.
+ */
+export type RecordLensAccess<TSource, TRead> = {
+	read(address: RecordAddress): Promise<ReplicaVisibleRecord | null>;
+	readPage(
+		namespace: string,
+		collection: string,
+		after?: string,
+		limit?: number,
+	): Promise<ReplicaVisibleRecordPage>;
+	createRecord(
+		namespace: string,
+		collection: string,
+		payload: Record<string, JsonValue>,
+	): Promise<string>;
+	patchLive(
+		address: RecordAddress,
+		patch: { set: Record<string, JsonValue>; unset: string[] },
+	): Promise<ReplicaVisibleRecord | null>;
+	tombstoneLive(address: RecordAddress): Promise<boolean>;
+	replace(address: RecordAddress, value: JsonValue): Promise<void>;
+	unset(address: RecordAddress): Promise<void>;
+	subscribeRecords(
+		listener: (addresses: readonly RecordAddress[]) => void,
+	): () => void;
+	openDocument(address: RecordAddress): Promise<RowDocument>;
+	putBlob(address: RecordAddress, source: TSource): Promise<string>;
+	readBlob(address: RecordAddress): Promise<TRead | null>;
+	inspectBlob(address: RecordAddress): Promise<BlobInspection>;
+	subscribeBlobs(listener: (address: RecordAddress) => void): () => void;
+};
+
+export type CreateRecordLensRuntimeOptions = {
+	log?: Logger;
+};
+
 export type CreateRecordEpicenterOptions<TSource, TRead> = {
 	replica: ReplicaStore;
 	blobs: ReplicaBlobStore<TSource, TRead>;
 	dispose?: () => void | Promise<void>;
 	log?: Logger;
+};
+
+export type RecordInspection = {
+	lanes: ReplicaRecordLanes | null;
+	document: DocumentInspection | null;
+	blob: BlobInspection;
 };
 
 function collectionKey(namespace: string, collection: string): string {
@@ -123,15 +178,11 @@ function addressKey(address: RecordAddress): string {
 	]);
 }
 
-/** Bind pure JSON Lenses to one V1 record replica and blob owner. */
-export function createRecordEpicenter<TSource, TRead>({
-	replica,
-	blobs,
-	dispose = () => undefined,
-	log = createLogger('data'),
-}: CreateRecordEpicenterOptions<TSource, TRead>) {
-	const documents = createRecordDocumentRuntime(replica);
-	const sync = createRecordSyncSupervisor({ replica, blobs });
+/** Create one owner's local Lens binder and subscription projection. */
+export function createRecordLensRuntime<TSource, TRead>(
+	access: RecordLensAccess<TSource, TRead>,
+	{ log = createLogger('data') }: CreateRecordLensRuntimeOptions = {},
+) {
 	const tableListeners = new Map<string, Set<(ids: string[]) => void>>();
 	const valueListeners = new Map<string, Set<() => void>>();
 	let isDisposed = false;
@@ -157,13 +208,12 @@ export function createRecordEpicenter<TSource, TRead>({
 		}
 	}
 
-	const stopReplicaSubscription = replica.subscribe((addresses) => {
+	const stopRecordSubscription = access.subscribeRecords((addresses) => {
 		const tables = new Map<
 			string,
 			{ namespace: string; collection: string; ids: string[] }
 		>();
 		for (const address of addresses) {
-			if (replica.visible(address)?.state !== 'live') documents.revoke(address);
 			const key = collectionKey(address.namespace, address.collection);
 			const table = tables.get(key) ?? {
 				namespace: address.namespace,
@@ -186,7 +236,7 @@ export function createRecordEpicenter<TSource, TRead>({
 			notifyTable(table.namespace, table.collection, table.ids);
 		}
 	});
-	const stopBlobSubscription = blobs.subscribe((address) => {
+	const stopBlobSubscription = access.subscribeBlobs((address) => {
 		notifyTable(address.namespace, address.collection, [address.recordKey]);
 	});
 
@@ -232,8 +282,8 @@ export function createRecordEpicenter<TSource, TRead>({
 			recordKey,
 		});
 
-		function read(id: string) {
-			const stored = replica.visible(address(id));
+		async function read(id: string) {
+			const stored = await access.read(address(id));
 			if (stored?.state !== 'live') return Ok(undefined);
 			return compiled.project(id, stored.payload) as Result<
 				RowFor<TDefinition>,
@@ -244,7 +294,7 @@ export function createRecordEpicenter<TSource, TRead>({
 		async function* entries(): AsyncIterable<RecordTableEntry<TDefinition>> {
 			let after: string | undefined;
 			do {
-				const page = replica.visibleRecords(
+				const page = await access.readPage(
 					namespace,
 					collection,
 					after,
@@ -264,15 +314,15 @@ export function createRecordEpicenter<TSource, TRead>({
 		const blob: RecordBlobLens<TSource, TRead> = Object.freeze({
 			async put(recordId, source) {
 				requireOpen();
-				return blobs.capture(address(recordId), source);
+				return access.putBlob(address(recordId), source);
 			},
 			get(recordId) {
 				requireOpen();
-				return blobs.read(address(recordId));
+				return access.readBlob(address(recordId));
 			},
 			inspect(recordId) {
 				requireOpen();
-				return blobs.inspect(address(recordId));
+				return access.inspectBlob(address(recordId));
 			},
 		});
 
@@ -280,22 +330,7 @@ export function createRecordEpicenter<TSource, TRead>({
 			async create(input: Record<string, unknown>) {
 				requireOpen();
 				const payload = compiled.validateCreate(input);
-				let id = mintRecordKey();
-				for (
-					let attempts = 0;
-					replica.record(address(id)) !== null;
-					attempts += 1
-				) {
-					if (attempts === 9)
-						throw new Error('Could not mint a fresh record ID');
-					id = mintRecordKey();
-				}
-				replica.localWrite({
-					address: address(id),
-					op: 'patch',
-					set: payload,
-					unset: [],
-				});
+				const id = await access.createRecord(namespace, collection, payload);
 				const projected = compiled.project(id, payload);
 				if (projected.error !== null) throw projected.error;
 				return projected.data as RowFor<TDefinition>;
@@ -307,19 +342,21 @@ export function createRecordEpicenter<TSource, TRead>({
 			async update(id: string, input: Record<string, unknown>) {
 				requireOpen();
 				const patch = compiled.normalizeUpdate(input);
-				const before = read(id);
+				const before = await read(id);
 				if (before.error !== null || before.data === undefined) return before;
 				if (Object.keys(patch.set).length === 0 && patch.unset.length === 0) {
 					return before;
 				}
-				replica.localWrite({ address: address(id), op: 'patch', ...patch });
-				return read(id);
+				const stored = await access.patchLive(address(id), patch);
+				if (stored?.state !== 'live') return Ok(undefined);
+				return compiled.project(id, stored.payload) as Result<
+					RowFor<TDefinition>,
+					NonconformingRowError
+				>;
 			},
 			async delete(id: string) {
 				requireOpen();
-				if (replica.visible(address(id))?.state !== 'live') return false;
-				replica.localWrite({ address: address(id), op: 'tombstone' });
-				return true;
+				return access.tombstoneLive(address(id));
 			},
 			async scan() {
 				const rows: RowFor<TDefinition>[] = [];
@@ -344,7 +381,7 @@ export function createRecordEpicenter<TSource, TRead>({
 			},
 			openDocument(recordId: string) {
 				requireOpen();
-				return documents.open(address(recordId));
+				return access.openDocument(address(recordId));
 			},
 			blob,
 		}) as RecordTableLens<TDefinition, TSource, TRead>;
@@ -363,7 +400,7 @@ export function createRecordEpicenter<TSource, TRead>({
 					const lens: RecordValueLens<TSchema> = Object.freeze({
 						async get() {
 							requireOpen();
-							const stored = replica.visible(address);
+							const stored = await access.read(address);
 							return stored?.state === 'live'
 								? (compiled.project(stored.payload, address) as Result<
 										ValueFor<TSchema>,
@@ -373,15 +410,11 @@ export function createRecordEpicenter<TSource, TRead>({
 						},
 						async set(value: JsonValue) {
 							requireOpen();
-							replica.localWrite({
-								address,
-								op: 'replace',
-								value: compiled.validate(value),
-							});
+							await access.replace(address, compiled.validate(value));
 						},
 						async unset() {
 							requireOpen();
-							replica.localWrite({ address, op: 'unset' });
+							await access.unset(address);
 						},
 						subscribe(listener: () => void) {
 							requireOpen();
@@ -403,25 +436,153 @@ export function createRecordEpicenter<TSource, TRead>({
 
 	return Object.freeze({
 		bind,
+		async dispose(): Promise<void> {
+			if (isDisposed) return;
+			isDisposed = true;
+			tableListeners.clear();
+			valueListeners.clear();
+			const failures: unknown[] = [];
+			for (const release of [stopRecordSubscription, stopBlobSubscription]) {
+				try {
+					await release();
+				} catch (cause) {
+					failures.push(cause);
+				}
+			}
+			if (failures.length === 1) throw failures[0];
+			if (failures.length > 1) {
+				throw new AggregateError(failures, 'Lens runtime cleanup failed');
+			}
+		},
+	});
+}
+
+export type RecordLensRuntime<TSource, TRead> = ReturnType<
+	typeof createRecordLensRuntime<TSource, TRead>
+>;
+
+/** Own one in-process replica, blob store, document runtime, and Lens runtime. */
+export function createRecordOwner<TSource, TRead>({
+	replica,
+	blobs,
+	dispose = () => undefined,
+	log = createLogger('data'),
+}: CreateRecordEpicenterOptions<TSource, TRead>) {
+	const documents = createRecordDocumentRuntime(replica);
+	const sync = createRecordSyncSupervisor({ replica, blobs, log });
+	let isDisposed = false;
+
+	function requireOpen(): void {
+		if (isDisposed) throw new Error('Epicenter owner is disposed');
+	}
+
+	const stopDocumentRevocation = replica.subscribe((addresses) => {
+		for (const address of addresses) {
+			if (replica.visible(address)?.state !== 'live') documents.revoke(address);
+		}
+	});
+
+	const access: RecordLensAccess<TSource, TRead> = {
+		async read(address) {
+			requireOpen();
+			return replica.visible(address);
+		},
+		async readPage(namespace, collection, after, limit) {
+			requireOpen();
+			return replica.visibleRecords(namespace, collection, after, limit);
+		},
+		async createRecord(namespace, collection, payload) {
+			requireOpen();
+			let recordKey = mintRecordKey();
+			for (
+				let attempts = 0;
+				replica.record({ namespace, collection, recordKey }) !== null;
+				attempts += 1
+			) {
+				if (attempts === 9) {
+					throw new Error('Could not mint a fresh record ID');
+				}
+				recordKey = mintRecordKey();
+			}
+			replica.localWrite({
+				address: { namespace, collection, recordKey },
+				op: 'patch',
+				set: payload,
+				unset: [],
+			});
+			return recordKey;
+		},
+		async patchLive(address, patch) {
+			requireOpen();
+			const before = replica.visible(address);
+			if (before?.state !== 'live') return before;
+			replica.localWrite({ address, op: 'patch', ...patch });
+			return replica.visible(address);
+		},
+		async tombstoneLive(address) {
+			requireOpen();
+			if (replica.visible(address)?.state !== 'live') return false;
+			replica.localWrite({ address, op: 'tombstone' });
+			return true;
+		},
+		async replace(address, value) {
+			requireOpen();
+			replica.localWrite({ address, op: 'replace', value });
+		},
+		async unset(address) {
+			requireOpen();
+			replica.localWrite({ address, op: 'unset' });
+		},
+		subscribeRecords(listener) {
+			requireOpen();
+			return replica.subscribe(listener);
+		},
+		openDocument(address) {
+			requireOpen();
+			return documents.open(address);
+		},
+		putBlob(address, source) {
+			requireOpen();
+			return blobs.capture(address, source);
+		},
+		readBlob(address) {
+			requireOpen();
+			return blobs.read(address);
+		},
+		async inspectBlob(address) {
+			requireOpen();
+			return blobs.inspect(address);
+		},
+		subscribeBlobs(listener) {
+			requireOpen();
+			return blobs.subscribe(listener);
+		},
+	};
+	const lenses = createRecordLensRuntime(access, { log });
+
+	return Object.freeze({
+		bind: lenses.bind,
 		attachSync(session: RecordSyncSession<TRead>): Promise<void> {
 			requireOpen();
 			return sync.attach(session);
 		},
-		get attachment() {
+		get attachment(): ReplicaAttachmentState {
+			requireOpen();
 			return replica.attachment();
 		},
 		get syncStatus(): RecordSyncStatus {
+			requireOpen();
 			return sync.status;
 		},
 		subscribeSyncStatus(listener: (status: RecordSyncStatus) => void) {
 			requireOpen();
 			return sync.subscribe(listener);
 		},
-		parkedWork(after?: RecordAddress) {
+		async parkedWork(after?: RecordAddress): Promise<ReplicaParkedWorkPage> {
 			requireOpen();
 			return sync.parked(after);
 		},
-		inspectRecord(address: RecordAddress) {
+		async inspectRecord(address: RecordAddress): Promise<RecordInspection> {
 			requireOpen();
 			return {
 				lanes: replica.record(address),
@@ -432,15 +593,37 @@ export function createRecordEpicenter<TSource, TRead>({
 		async [Symbol.asyncDispose](): Promise<void> {
 			if (isDisposed) return;
 			isDisposed = true;
-			sync.dispose();
-			stopReplicaSubscription();
-			stopBlobSubscription();
-			tableListeners.clear();
-			valueListeners.clear();
-			await documents[Symbol.asyncDispose]();
-			await dispose();
+			const failures: unknown[] = [];
+			for (const release of [
+				() => sync.dispose(),
+				() => lenses.dispose(),
+				stopDocumentRevocation,
+				() => documents[Symbol.asyncDispose](),
+				dispose,
+			]) {
+				try {
+					await release();
+				} catch (cause) {
+					failures.push(cause);
+				}
+			}
+			if (failures.length === 1) throw failures[0];
+			if (failures.length > 1) {
+				throw new AggregateError(failures, 'Epicenter owner cleanup failed');
+			}
 		},
 	});
+}
+
+export type RecordOwner<TSource, TRead> = ReturnType<
+	typeof createRecordOwner<TSource, TRead>
+>;
+
+/** Open the public in-process owner surface. */
+export function createRecordEpicenter<TSource, TRead>(
+	options: CreateRecordEpicenterOptions<TSource, TRead>,
+) {
+	return createRecordOwner(options);
 }
 
 export type RecordEpicenter<TSource, TRead> = ReturnType<

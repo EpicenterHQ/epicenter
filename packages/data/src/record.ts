@@ -29,17 +29,15 @@ export {
 	type RecordDocumentConnectionTarget,
 	recordDocumentConnectionTarget,
 } from './record-document-connection.js';
-export {
-	type BoundLens,
-	type BoundLenses,
-	type CreateRecordEpicenterOptions,
-	createRecordEpicenter,
-	type RecordBlobLens,
-	type RecordEpicenter,
-	type RecordTableEntry,
-	type RecordTableLens,
-	type RecordTableScan,
-	type RecordValueLens,
+export type {
+	BoundLens,
+	BoundLenses,
+	RecordBlobLens,
+	RecordEpicenter,
+	RecordTableEntry,
+	RecordTableLens,
+	RecordTableScan,
+	RecordValueLens,
 } from './record-epicenter.js';
 export {
 	createHttpRecordSyncSession,
