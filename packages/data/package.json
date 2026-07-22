@@ -15,7 +15,8 @@
 	"files": [
 		"src",
 		"!src/**/*.test.ts",
-		"!src/**/*.test-support.ts"
+		"!src/**/*.test-support.ts",
+		"!src/**/*.bench.ts"
 	],
 	"license": "MIT",
 	"scripts": {

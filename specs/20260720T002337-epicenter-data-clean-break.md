@@ -269,8 +269,13 @@ maintained proof surface exist.
 
 Implementation checkpoint (2026-07-22): the private production store now owns
 the ADR-0177 wide relation and passes the unchanged replica conformance cases
-through a Bun binding whose crash injection stays entirely test-side. The
-wide-versus-split Bun charter remains before W1B can close.
+through a Bun binding whose crash injection stays entirely test-side. The full
+Bun charter slice then exercised exactly 1,000,000 final-present records at the
+536,870,912-byte V1 proxy. Its stop rule fired with mixed material directions:
+wide won point-read and median feed-install work, while split won traversal,
+lane-write, reopen, and feed-install tail latency. The report lives under
+`docs/benchmarks/replica-layout/`; W1C and W2 still own the browser and Durable
+Object slices before ADR-0177's Proposed selection can be accepted or reversed.
 
 #### W1C: browser replica adapter
 
