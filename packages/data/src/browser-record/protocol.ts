@@ -1,4 +1,18 @@
-import type { JsonValue, RecordAddress } from '../protocol/v1/index.js';
+import type {
+	BlobAcceptance,
+	BlobPublicationRequest,
+} from '../blob-v1/index.js';
+import type {
+	DocumentAcceptance,
+	DocumentPublicationRequest,
+} from '../document-v1/index.js';
+import type {
+	FactsRequest,
+	FactsResponse,
+	JsonValue,
+	RecordAddress,
+	SubmissionResponse,
+} from '../protocol/v1/index.js';
 import type { RecordInspection } from '../record-epicenter.js';
 import type {
 	RecordSyncState,
@@ -11,6 +25,7 @@ import type {
 	ReplicaParkedWorkPage,
 	ReplicaVisibleRecord,
 	ReplicaVisibleRecordPage,
+	SealedRequest,
 } from '../store/replica/index.js';
 
 export type BrowserRecordOperation =
@@ -51,15 +66,14 @@ export type BrowserRecordOperation =
 	| { kind: 'put-blob'; address: RecordAddress; bytes: Blob }
 	| { kind: 'read-blob'; address: RecordAddress }
 	| { kind: 'inspect-blob'; address: RecordAddress }
-	| { kind: 'attachment' }
+	| { kind: 'parked-work'; after?: RecordAddress }
+	| { kind: 'inspect-record'; address: RecordAddress }
 	| {
-			kind: 'prepare-attachment';
+			kind: 'attach-sync';
+			transportKey: number;
 			attachment: ReplicaAttachment;
 			firstAttachmentChoice?: 'bring' | 'discard';
-	  }
-	| { kind: 'sync-status' }
-	| { kind: 'parked-work'; after?: RecordAddress }
-	| { kind: 'inspect-record'; address: RecordAddress };
+	  };
 
 export type BrowserRecordRequest = {
 	type: 'request';
@@ -68,7 +82,11 @@ export type BrowserRecordRequest = {
 };
 
 export type BrowserRecordResult =
-	| { kind: 'open' }
+	| {
+			kind: 'open';
+			attachment: ReplicaAttachmentState;
+			syncStatus: BrowserRecordSyncStatus;
+	  }
 	| { kind: 'read'; record: ReplicaVisibleRecord | null }
 	| { kind: 'read-page'; page: ReplicaVisibleRecordPage }
 	| { kind: 'create-record'; recordKey: string }
@@ -86,19 +104,38 @@ export type BrowserRecordResult =
 	| { kind: 'put-blob'; digest: string }
 	| { kind: 'read-blob'; bytes: Blob | null }
 	| { kind: 'inspect-blob'; inspection: BlobInspection }
-	| { kind: 'attachment'; attachment: ReplicaAttachmentState }
-	| {
-			kind: 'prepare-attachment';
-			attached: boolean;
-			discarded: boolean;
-	  }
-	| { kind: 'sync-status'; status: BrowserRecordSyncStatus }
 	| { kind: 'parked-work'; page: ReplicaParkedWorkPage }
-	| { kind: 'inspect-record'; inspection: RecordInspection };
+	| { kind: 'inspect-record'; inspection: RecordInspection }
+	| {
+			kind: 'attach-sync';
+			attachment: ReplicaAttachmentState;
+			syncStatus: BrowserRecordSyncStatus;
+	  };
+
+export type BrowserRecordAuthorityOperation =
+	| { kind: 'read-facts'; request: FactsRequest }
+	| { kind: 'submit'; request: SealedRequest }
+	| { kind: 'publish-document'; request: DocumentPublicationRequest }
+	| {
+			kind: 'publish-blob';
+			request: BlobPublicationRequest;
+			bytes: Blob;
+	  };
+
+export type BrowserRecordAuthorityResult =
+	| { kind: 'read-facts'; response: FactsResponse }
+	| { kind: 'submit'; response: SubmissionResponse }
+	| { kind: 'publish-document'; acceptance: DocumentAcceptance }
+	| { kind: 'publish-blob'; acceptance: BlobAcceptance };
+
+export type BrowserRecordAuthorityErrorCode =
+	| 'transport-unavailable'
+	| 'transport-failed'
+	| 'lifetime-mismatch';
 
 export type BrowserRecordSyncStatus = Omit<RecordSyncStatus, 'lastError'> & {
 	state: RecordSyncState;
-	lastError?: string;
+	lastError?: { name: string; message: string };
 };
 
 export type BrowserRecordCandidateStart = {
@@ -114,6 +151,35 @@ export type BrowserRecordCandidateStart = {
 export type BrowserRecordWorkerInbound =
 	| BrowserRecordCandidateStart
 	| BrowserRecordRequest
+	| {
+			type: 'transport-register';
+			transportKey: number;
+			attachment: ReplicaAttachment;
+			hasCredentials: boolean;
+	  }
+	| {
+			type: 'transport-credentials';
+			transportKey: number;
+			hasCredentials: boolean;
+	  }
+	| { type: 'transport-unregister'; transportKey: number }
+	| {
+			type: 'authority-result';
+			authorityId: number;
+			transportKey: number;
+			ownerSession: string;
+			ownerGeneration: number;
+			result: BrowserRecordAuthorityResult;
+	  }
+	| {
+			type: 'authority-error';
+			authorityId: number;
+			transportKey: number;
+			ownerSession: string;
+			ownerGeneration: number;
+			code: BrowserRecordAuthorityErrorCode;
+			activeAuthorityLifetime?: string;
+	  }
 	| { type: 'close' };
 
 export type BrowserRecordCandidateStatus = {
@@ -142,6 +208,26 @@ export type BrowserRecordWorkerMessage =
 			type: 'sync-status';
 			token: string;
 			status: BrowserRecordSyncStatus;
+	  }
+	| {
+			type: 'attachment';
+			token: string;
+			attachment: ReplicaAttachmentState;
+	  }
+	| {
+			type: 'authority-request';
+			authorityId: number;
+			transportKey: number;
+			ownerSession: string;
+			ownerGeneration: number;
+			operation: BrowserRecordAuthorityOperation;
+	  }
+	| {
+			type: 'authority-cancel';
+			authorityId: number;
+			transportKey: number;
+			ownerSession: string;
+			ownerGeneration: number;
 	  }
 	| { type: 'owner-lost'; name: string; message: string }
 	| BrowserRecordCandidateStatus
@@ -188,7 +274,66 @@ export type BrowserRecordCoordinationMessage =
 						| 'records-invalidated'
 						| 'blob-invalidated'
 						| 'address-revoked'
-						| 'sync-status';
+						| 'sync-status'
+						| 'attachment';
 				}
 			>;
+	  }
+	| {
+			version: 1;
+			type: 'transport';
+			candidateId: string;
+			ownerSession: string;
+			ownerGeneration: number;
+			transportKey: number;
+			attachment: ReplicaAttachment;
+			hasCredentials: boolean;
+	  }
+	| {
+			version: 1;
+			type: 'transport-remove';
+			candidateId: string;
+			ownerSession: string;
+			ownerGeneration: number;
+			transportKey: number;
+	  }
+	| {
+			version: 1;
+			type: 'authority-request';
+			candidateId: string;
+			ownerSession: string;
+			ownerGeneration: number;
+			authorityId: number;
+			transportKey: number;
+			operation: BrowserRecordAuthorityOperation;
+	  }
+	| {
+			version: 1;
+			type: 'authority-cancel';
+			candidateId: string;
+			ownerSession: string;
+			ownerGeneration: number;
+			authorityId: number;
+			transportKey: number;
+	  }
+	| {
+			version: 1;
+			type: 'authority-result';
+			candidateId: string;
+			ownerSession: string;
+			ownerGeneration: number;
+			authorityId: number;
+			transportKey: number;
+			result: BrowserRecordAuthorityResult;
+	  }
+	| {
+			version: 1;
+			type: 'authority-error';
+			candidateId: string;
+			ownerSession: string;
+			ownerGeneration: number;
+			authorityId: number;
+			transportKey: number;
+			code: BrowserRecordAuthorityErrorCode;
+			activeAuthorityLifetime?: string;
 	  };

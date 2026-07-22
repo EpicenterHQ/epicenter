@@ -70,6 +70,11 @@ export class RecordAuthorityLifetimeMismatchError extends Error {
 	}
 }
 
+/** A dispatched page-owned transport call was canceled without a result. */
+export class RecordSyncTransportCancelledError extends Error {
+	override readonly name = 'RecordSyncTransportCancelled';
+}
+
 class DrainCancelled extends Error {}
 
 /** Own attachment, automatic plane drains, retry, status, and disposal. */
@@ -98,6 +103,7 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 	let runningGeneration: number | undefined;
 	let runRequested = false;
 	let retryAttempt = 0;
+	let requiresReattach = false;
 	let generation = 0;
 	let isDisposed = false;
 
@@ -281,7 +287,11 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 					try {
 						return await operation();
 					} catch (cause) {
-						if (cause instanceof DrainCancelled) throw cause;
+						if (
+							cause instanceof DrainCancelled ||
+							cause instanceof RecordSyncTransportCancelledError
+						)
+							throw cause;
 						errors.push(cause);
 						return false;
 					}
@@ -337,6 +347,12 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 				if (retryImmediately) runRequested = true;
 			} catch (cause) {
 				if (cause instanceof DrainCancelled) return;
+				if (cause instanceof RecordSyncTransportCancelledError) {
+					requiresReattach = true;
+					setStatus('offline', cause);
+					runRequested = false;
+					return;
+				}
 				const error =
 					cause instanceof Error
 						? cause
@@ -357,6 +373,7 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 			setStatus('local');
 			return Promise.resolve();
 		}
+		if (requiresReattach) return Promise.resolve();
 		cancelWake();
 		runRequested = true;
 		if (running !== undefined) {
@@ -378,6 +395,7 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 
 	function credentialsChanged(): void {
 		if (isDisposed || session === undefined) return;
+		if (requiresReattach) return;
 		generation += 1;
 		cancelWake();
 		if (!hasCredentials()) {
@@ -400,6 +418,7 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 	return {
 		async attach(next: RecordSyncSession<TBlobRead>): Promise<void> {
 			if (isDisposed) throw new Error('Sync supervisor is disposed');
+			requiresReattach = false;
 			const attached = replica.attach(
 				next.attachment,
 				next.firstAttachmentChoice,

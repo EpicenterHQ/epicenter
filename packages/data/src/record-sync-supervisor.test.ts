@@ -15,6 +15,7 @@ import {
 	createRecordSyncSupervisor,
 	RecordAuthorityLifetimeMismatchError,
 	type RecordSyncTransport,
+	RecordSyncTransportCancelledError,
 } from './record-sync-supervisor.js';
 import {
 	createReplicaBlobStore,
@@ -257,6 +258,66 @@ describe('record sync supervisor', () => {
 				state: 'offline',
 				lastError: { message: 'facts unavailable' },
 			});
+		} finally {
+			context.supervisor.dispose();
+			context.database.close();
+		}
+	});
+
+	test('an ambiguous mutation stops later planes until explicit reattachment', async () => {
+		const context = setup('lifetime-one');
+		try {
+			context.replica.localWrite({
+				address: ADDRESS,
+				op: 'replace',
+				value: { title: 'Local' },
+			});
+			const document = new Y.Doc({ gc: true });
+			let update: Uint8Array | undefined;
+			document.on(
+				'updateV2',
+				(next: Uint8Array) => (update = new Uint8Array(next)),
+			);
+			document.get('content').insert(0, 'hello');
+			document.destroy();
+			if (update === undefined) throw new Error('document update missing');
+			context.replica.appendLocalDocumentUpdate(ADDRESS, update);
+			await context.blobs.capture(
+				ADDRESS,
+				new TextEncoder().encode('blob bytes'),
+			);
+
+			const ambiguous = acceptingTransport();
+			ambiguous.submit = async () => {
+				ambiguous.calls.push('scalar');
+				throw new RecordSyncTransportCancelledError('response is ambiguous');
+			};
+			await context.supervisor.attach({
+				attachment: ATTACHMENT,
+				firstAttachmentChoice: 'bring',
+				transport: ambiguous,
+			});
+			expect(ambiguous.calls).toEqual(['facts', 'scalar']);
+			expect(context.supervisor.status).toMatchObject({
+				state: 'offline',
+				lastError: { name: 'RecordSyncTransportCancelled' },
+			});
+			expect(context.scheduled).toHaveLength(0);
+			await context.supervisor.requestDrain();
+			expect(ambiguous.calls).toEqual(['facts', 'scalar']);
+
+			const reattached = acceptingTransport();
+			await context.supervisor.attach({
+				attachment: ATTACHMENT,
+				transport: reattached,
+			});
+			expect(reattached.calls).toEqual([
+				'facts',
+				'scalar',
+				'document',
+				'blob',
+				'facts',
+			]);
 		} finally {
 			context.supervisor.dispose();
 			context.database.close();

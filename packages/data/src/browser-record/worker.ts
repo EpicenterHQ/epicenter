@@ -11,8 +11,18 @@ import {
 	type BrowserReplicaOwner,
 	openBrowserReplicaOwner,
 } from '../store/replica/browser-owner.js';
-import type { ReplicaBlobStore, ReplicaStore } from '../store/replica/index.js';
 import type {
+	ReplicaAttachment,
+	ReplicaAttachmentState,
+	ReplicaBlobStore,
+	ReplicaStore,
+} from '../store/replica/index.js';
+import {
+	type BrowserRecordAuthorityRelay,
+	createBrowserRecordAuthorityRelay,
+} from './authority-relay.js';
+import type {
+	BrowserRecordAuthorityOperation,
 	BrowserRecordCandidateStart,
 	BrowserRecordCoordinationMessage,
 	BrowserRecordOperation,
@@ -65,7 +75,10 @@ export type OpenBrowserRecordWorkerOwner = (options: {
 }) => Promise<BrowserRecordWorkerOwner>;
 
 type OwnerRuntime = BrowserRecordWorkerOwner & {
-	execute(operation: BrowserRecordOperation): Promise<BrowserRecordResult>;
+	execute(
+		operation: BrowserRecordOperation,
+		candidateId: string,
+	): Promise<BrowserRecordResult>;
 	stopEvents(): Promise<void>;
 };
 
@@ -81,7 +94,8 @@ type EventMessage = Extract<
 			| 'records-invalidated'
 			| 'blob-invalidated'
 			| 'address-revoked'
-			| 'sync-status';
+			| 'sync-status'
+			| 'attachment';
 	}
 >;
 
@@ -99,7 +113,12 @@ function serializeSyncStatus(
 		work: structuredClone(status.work),
 		...(status.lastError === undefined
 			? {}
-			: { lastError: status.lastError.message }),
+			: {
+					lastError: {
+						name: status.lastError.name,
+						message: status.lastError.message,
+					},
+				}),
 	};
 }
 
@@ -117,13 +136,40 @@ function addressLabel(address: RecordAddress): string {
 	return `${address.namespace}/${address.collection}/${address.recordKey}`;
 }
 
-function createOwnerOperations(opened: BrowserRecordWorkerOwner) {
+function attachmentsEqual(
+	left: ReplicaAttachmentState,
+	right: ReplicaAttachmentState,
+): boolean {
+	if (left.kind !== right.kind) return false;
+	if (left.kind === 'unattached' && right.kind === 'unattached') {
+		return left.requiresChoice === right.requiresChoice;
+	}
+	return (
+		left.kind === 'attached' &&
+		right.kind === 'attached' &&
+		left.attachment.deploymentId === right.attachment.deploymentId &&
+		left.attachment.principalId === right.attachment.principalId
+	);
+}
+
+function createOwnerOperations(
+	opened: BrowserRecordWorkerOwner,
+	attachSync: (
+		candidateId: string,
+		operation: Extract<BrowserRecordOperation, { kind: 'attach-sync' }>,
+	) => Promise<Extract<BrowserRecordResult, { kind: 'attach-sync' }>>,
+) {
 	return async function execute(
 		operation: BrowserRecordOperation,
+		candidateId: string,
 	): Promise<BrowserRecordResult> {
 		switch (operation.kind) {
 			case 'open':
-				return { kind: 'open' };
+				return {
+					kind: 'open',
+					attachment: opened.owner.attachment,
+					syncStatus: serializeSyncStatus(opened.owner.syncStatus),
+				};
 			case 'read':
 				return {
 					kind: 'read',
@@ -247,24 +293,6 @@ function createOwnerOperations(opened: BrowserRecordWorkerOwner) {
 					kind: 'inspect-blob',
 					inspection: opened.blobs.inspect(operation.address),
 				};
-			case 'attachment':
-				return {
-					kind: 'attachment',
-					attachment: opened.replica.attachment(),
-				};
-			case 'prepare-attachment': {
-				const attached = opened.replica.attach(
-					operation.attachment,
-					operation.firstAttachmentChoice,
-				);
-				if (attached.discarded) await opened.blobs.sweepDebris();
-				return { kind: 'prepare-attachment', ...attached };
-			}
-			case 'sync-status':
-				return {
-					kind: 'sync-status',
-					status: serializeSyncStatus(opened.owner.syncStatus),
-				};
 			case 'parked-work':
 				return {
 					kind: 'parked-work',
@@ -275,6 +303,8 @@ function createOwnerOperations(opened: BrowserRecordWorkerOwner) {
 					kind: 'inspect-record',
 					inspection: await opened.owner.inspectRecord(operation.address),
 				};
+			case 'attach-sync':
+				return attachSync(candidateId, operation);
 			default:
 				return operation satisfies never;
 		}
@@ -289,12 +319,14 @@ export function startBrowserRecordCandidateWorker(
 		createChannel = createBrowserRecordCoordinationChannel,
 		candidateId = crypto.randomUUID(),
 		mintOwnerSession = () => crypto.randomUUID(),
+		authorityTimeoutMs,
 		log = createLogger('data/browser-record-worker'),
 	}: {
 		openOwner?: OpenBrowserRecordWorkerOwner;
 		createChannel?: (name: string) => BrowserRecordCoordinationChannel;
 		candidateId?: string;
 		mintOwnerSession?: () => string;
+		authorityTimeoutMs?: number;
 		log?: Logger;
 	} = {},
 ): void {
@@ -308,6 +340,19 @@ export function startBrowserRecordCandidateWorker(
 	let owner: OwnerRuntime | undefined;
 	let ownerSession: string | undefined;
 	let ownerGeneration: number | undefined;
+	let authorityRelay: BrowserRecordAuthorityRelay | undefined;
+	let isOwnerSyncAttached = false;
+	let pageTransport:
+		| {
+				transportKey: number;
+				attachment: ReplicaAttachment;
+				hasCredentials: boolean;
+		  }
+		| undefined;
+	const pageAuthorityRequests = new Map<
+		number,
+		{ transportKey: number; ownerSession: string; ownerGeneration: number }
+	>();
 	let currentSession: string | undefined;
 	let currentGeneration = 0;
 	let ownerTail = Promise.resolve();
@@ -364,6 +409,204 @@ export function startBrowserRecordCandidateWorker(
 		});
 	}
 
+	function requireOwnerFence(): { session: string; generation: number } {
+		if (ownerSession === undefined || ownerGeneration === undefined) {
+			throw new Error('Browser record candidate is not the owner');
+		}
+		return { session: ownerSession, generation: ownerGeneration };
+	}
+
+	function sendAuthorityRequest(
+		capability: { candidateId: string; transportKey: number },
+		authorityId: number,
+		operation: BrowserRecordAuthorityOperation,
+	): void {
+		const { session, generation } = requireOwnerFence();
+		const message: Extract<
+			BrowserRecordWorkerMessage,
+			{ type: 'authority-request' }
+		> = {
+			type: 'authority-request',
+			authorityId,
+			transportKey: capability.transportKey,
+			ownerSession: session,
+			ownerGeneration: generation,
+			operation,
+		};
+		if (capability.candidateId === candidateId) {
+			pageAuthorityRequests.set(authorityId, {
+				transportKey: capability.transportKey,
+				ownerSession: session,
+				ownerGeneration: generation,
+			});
+			scope.postMessage(message);
+			return;
+		}
+		channel?.postMessage({
+			version: 1,
+			type: 'authority-request',
+			candidateId: capability.candidateId,
+			ownerSession: session,
+			ownerGeneration: generation,
+			authorityId,
+			transportKey: capability.transportKey,
+			operation,
+		});
+	}
+
+	function sendAuthorityCancel(
+		capability: { candidateId: string; transportKey: number },
+		authorityId: number,
+	): void {
+		const { session, generation } = requireOwnerFence();
+		const message: Extract<
+			BrowserRecordWorkerMessage,
+			{ type: 'authority-cancel' }
+		> = {
+			type: 'authority-cancel',
+			authorityId,
+			transportKey: capability.transportKey,
+			ownerSession: session,
+			ownerGeneration: generation,
+		};
+		if (capability.candidateId === candidateId) {
+			pageAuthorityRequests.delete(authorityId);
+			scope.postMessage(message);
+			return;
+		}
+		channel?.postMessage({
+			version: 1,
+			type: 'authority-cancel',
+			candidateId: capability.candidateId,
+			ownerSession: session,
+			ownerGeneration: generation,
+			authorityId,
+			transportKey: capability.transportKey,
+		});
+	}
+
+	function announcePageTransport(): void {
+		const transport = pageTransport;
+		const session = currentSession;
+		if (
+			transport === undefined ||
+			session === undefined ||
+			currentGeneration === 0
+		)
+			return;
+		if (ownerSession === session && ownerGeneration === currentGeneration) {
+			registerAuthorityCapability(
+				candidateId,
+				transport.transportKey,
+				transport.attachment,
+				transport.hasCredentials,
+			);
+			return;
+		}
+		channel?.postMessage({
+			version: 1,
+			type: 'transport',
+			candidateId,
+			ownerSession: session,
+			ownerGeneration: currentGeneration,
+			transportKey: transport.transportKey,
+			attachment: structuredClone(transport.attachment),
+			hasCredentials: transport.hasCredentials,
+		});
+	}
+
+	function registerAuthorityCapability(
+		transportCandidateId: string,
+		transportKey: number,
+		attachment: ReplicaAttachment,
+		hasCredentials: boolean,
+	): void {
+		const opened = owner;
+		const relay = authorityRelay;
+		if (opened === undefined || relay === undefined) return;
+		const current = opened.owner.attachment;
+		if (
+			current.kind === 'attached' &&
+			(current.attachment.deploymentId !== attachment.deploymentId ||
+				current.attachment.principalId !== attachment.principalId)
+		)
+			return;
+		relay.register(transportCandidateId, transportKey, hasCredentials);
+		maybeRestoreOwnerSync(attachment);
+	}
+
+	function maybeRestoreOwnerSync(attachment: ReplicaAttachment): void {
+		const opened = owner;
+		const relay = authorityRelay;
+		if (opened === undefined || relay === undefined || isOwnerSyncAttached)
+			return;
+		const current = opened.owner.attachment;
+		if (
+			current.kind !== 'attached' ||
+			current.attachment.deploymentId !== attachment.deploymentId ||
+			current.attachment.principalId !== attachment.principalId
+		)
+			return;
+		ownerTail = ownerTail
+			.then(async () => {
+				if (owner !== opened || authorityRelay !== relay || isOwnerSyncAttached)
+					return;
+				await opened.owner.attachSync({
+					attachment,
+					transport: relay.transport,
+					credentials: relay.credentials,
+				});
+				isOwnerSyncAttached = true;
+			})
+			.catch((cause: unknown) => {
+				log.error(
+					new Error('Browser owner sync restoration failed', { cause }),
+				);
+			});
+	}
+
+	async function attachOwnerSync(
+		opened: BrowserRecordWorkerOwner,
+		requestingCandidate: string,
+		operation: Extract<BrowserRecordOperation, { kind: 'attach-sync' }>,
+	): Promise<Extract<BrowserRecordResult, { kind: 'attach-sync' }>> {
+		const relay = authorityRelay;
+		if (owner !== undefined && owner.owner !== opened.owner) {
+			throw new Error('Browser record owner changed while attaching sync');
+		}
+		if (relay === undefined)
+			throw new Error('Browser authority relay is unavailable');
+		if (requestingCandidate === candidateId) announcePageTransport();
+		if (!relay.has(requestingCandidate, operation.transportKey)) {
+			throw new Error('Browser authority transport was not registered');
+		}
+		await opened.owner.attachSync({
+			attachment: operation.attachment,
+			...(operation.firstAttachmentChoice === undefined
+				? {}
+				: { firstAttachmentChoice: operation.firstAttachmentChoice }),
+			transport: relay.transport,
+			credentials: relay.credentials,
+		});
+		isOwnerSyncAttached = true;
+		const attachment = opened.owner.attachment;
+		const syncStatus = serializeSyncStatus(opened.owner.syncStatus);
+		const session = ownerSession;
+		const generation = ownerGeneration;
+		if (session !== undefined && generation !== undefined) {
+			emit(
+				{
+					type: 'attachment',
+					token: `${generation}:${session}:attachment`,
+					attachment,
+				},
+				session,
+				generation,
+			);
+		}
+		return { kind: 'attach-sync', attachment, syncStatus };
+	}
+
 	function bindOwnerEvents(
 		opened: BrowserRecordWorkerOwner,
 		session: string,
@@ -373,6 +616,7 @@ export function startBrowserRecordCandidateWorker(
 			nextEventId += 1;
 			return `${generation}:${session}:${nextEventId}`;
 		}
+		let lastAttachment = opened.owner.attachment;
 		const stops: (() => void)[] = [];
 		try {
 			stops.push(
@@ -392,6 +636,19 @@ export function startBrowserRecordCandidateWorker(
 								token: token(),
 								address,
 								message: `Row document was revoked because '${addressLabel(address)}' is no longer live`,
+							},
+							session,
+							generation,
+						);
+					}
+					const attachment = opened.owner.attachment;
+					if (!attachmentsEqual(attachment, lastAttachment)) {
+						lastAttachment = attachment;
+						emit(
+							{
+								type: 'attachment',
+								token: token(),
+								attachment,
 							},
 							session,
 							generation,
@@ -485,7 +742,7 @@ export function startBrowserRecordCandidateWorker(
 					respond(candidate, ownerLostMessage(request.id), session, generation);
 					return;
 				}
-				const result = await active.execute(request.operation);
+				const result = await active.execute(request.operation, candidate);
 				respond(
 					candidate,
 					ownerSession === session && ownerGeneration === generation
@@ -540,6 +797,16 @@ export function startBrowserRecordCandidateWorker(
 		if (generation <= currentGeneration) return;
 		const previousSession = currentSession;
 		const previousGeneration = currentGeneration;
+		for (const [authorityId, request] of pageAuthorityRequests) {
+			scope.postMessage({
+				type: 'authority-cancel',
+				authorityId,
+				transportKey: request.transportKey,
+				ownerSession: request.ownerSession,
+				ownerGeneration: request.ownerGeneration,
+			});
+		}
+		pageAuthorityRequests.clear();
 		currentSession = session;
 		currentGeneration = generation;
 		if (previousSession !== undefined || previousGeneration !== 0) {
@@ -558,6 +825,7 @@ export function startBrowserRecordCandidateWorker(
 			queued.delete(id);
 			route(id, operation);
 		}
+		announcePageTransport();
 	}
 
 	function receiveCoordination(
@@ -607,6 +875,99 @@ export function startBrowserRecordCandidateWorker(
 					return;
 				scope.postMessage(message.message);
 				return;
+			case 'transport':
+				if (
+					message.ownerSession !== ownerSession ||
+					message.ownerGeneration !== ownerGeneration
+				)
+					return;
+				registerAuthorityCapability(
+					message.candidateId,
+					message.transportKey,
+					message.attachment,
+					message.hasCredentials,
+				);
+				return;
+			case 'transport-remove':
+				if (
+					message.ownerSession !== ownerSession ||
+					message.ownerGeneration !== ownerGeneration
+				)
+					return;
+				authorityRelay?.remove(message.candidateId, message.transportKey);
+				return;
+			case 'authority-request':
+				if (
+					message.candidateId !== candidateId ||
+					message.ownerSession !== currentSession ||
+					message.ownerGeneration !== currentGeneration ||
+					pageTransport?.transportKey !== message.transportKey
+				)
+					return;
+				pageAuthorityRequests.set(message.authorityId, {
+					transportKey: message.transportKey,
+					ownerSession: message.ownerSession,
+					ownerGeneration: message.ownerGeneration,
+				});
+				scope.postMessage({
+					type: 'authority-request',
+					authorityId: message.authorityId,
+					transportKey: message.transportKey,
+					ownerSession: message.ownerSession,
+					ownerGeneration: message.ownerGeneration,
+					operation: message.operation,
+				});
+				return;
+			case 'authority-cancel':
+				if (
+					message.candidateId !== candidateId ||
+					message.ownerSession !== currentSession ||
+					message.ownerGeneration !== currentGeneration
+				)
+					return;
+				pageAuthorityRequests.delete(message.authorityId);
+				scope.postMessage({
+					type: 'authority-cancel',
+					authorityId: message.authorityId,
+					transportKey: message.transportKey,
+					ownerSession: message.ownerSession,
+					ownerGeneration: message.ownerGeneration,
+				});
+				return;
+			case 'authority-result':
+				if (
+					message.ownerSession !== ownerSession ||
+					message.ownerGeneration !== ownerGeneration
+				)
+					return;
+				authorityRelay?.handleResponse(
+					message.candidateId,
+					message.transportKey,
+					message.authorityId,
+					{ type: 'result', result: message.result },
+				);
+				return;
+			case 'authority-error':
+				if (
+					message.ownerSession !== ownerSession ||
+					message.ownerGeneration !== ownerGeneration
+				)
+					return;
+				authorityRelay?.handleResponse(
+					message.candidateId,
+					message.transportKey,
+					message.authorityId,
+					{
+						type: 'error',
+						code: message.code,
+						...(message.activeAuthorityLifetime === undefined
+							? {}
+							: {
+									activeAuthorityLifetime: message.activeAuthorityLifetime,
+								}),
+					},
+				);
+				return;
 		}
 	}
 
@@ -614,9 +975,13 @@ export function startBrowserRecordCandidateWorker(
 		const lostSession = ownerSession;
 		const lostGeneration = ownerGeneration;
 		const opened = owner;
+		authorityRelay?.dispose();
+		authorityRelay = undefined;
+		isOwnerSyncAttached = false;
 		owner = undefined;
 		ownerSession = undefined;
 		ownerGeneration = undefined;
+		await ownerTail;
 		if (
 			lostSession !== undefined &&
 			lostGeneration !== undefined &&
@@ -700,10 +1065,21 @@ export function startBrowserRecordCandidateWorker(
 			ownerGeneration = opened.ownerGeneration;
 			const session = ownerSession;
 			const generation = ownerGeneration;
+			const admitted = opened;
+			authorityRelay = createBrowserRecordAuthorityRelay({
+				sendRequest: sendAuthorityRequest,
+				sendCancel: sendAuthorityCancel,
+				...(authorityTimeoutMs === undefined ? {} : { authorityTimeoutMs }),
+				log,
+			});
 			owner = {
-				...opened,
-				execute: createOwnerOperations(opened),
-				stopEvents: bindOwnerEvents(opened, session, generation),
+				...admitted,
+				execute: createOwnerOperations(
+					admitted,
+					(requestingCandidate, operation) =>
+						attachOwnerSync(admitted, requestingCandidate, operation),
+				),
+				stopEvents: bindOwnerEvents(admitted, session, generation),
 			};
 			opened = undefined;
 			acceptOwner(session, generation);
@@ -714,8 +1090,29 @@ export function startBrowserRecordCandidateWorker(
 				ownerSession: session,
 				ownerGeneration: generation,
 			});
+			emit(
+				{
+					type: 'attachment',
+					token: `${generation}:${session}:owner-attachment`,
+					attachment: admitted.owner.attachment,
+				},
+				session,
+				generation,
+			);
+			emit(
+				{
+					type: 'sync-status',
+					token: `${generation}:${session}:owner-sync-status`,
+					status: serializeSyncStatus(admitted.owner.syncStatus),
+				},
+				session,
+				generation,
+			);
 		} catch (cause) {
 			let admissionFailure = cause;
+			authorityRelay?.dispose();
+			authorityRelay = undefined;
+			isOwnerSyncAttached = false;
 			if (opened !== undefined) {
 				try {
 					await opened.owner[Symbol.asyncDispose]();
@@ -768,6 +1165,9 @@ export function startBrowserRecordCandidateWorker(
 		}
 		failures.push(...lifecycleFailures);
 		const opened = owner;
+		authorityRelay?.dispose();
+		authorityRelay = undefined;
+		isOwnerSyncAttached = false;
 		owner = undefined;
 		ownerSession = undefined;
 		ownerGeneration = undefined;
@@ -803,6 +1203,108 @@ export function startBrowserRecordCandidateWorker(
 		return closure;
 	}
 
+	function unregisterPageTransport(transportKey: number): void {
+		if (pageTransport?.transportKey !== transportKey) return;
+		for (const [authorityId, request] of pageAuthorityRequests) {
+			if (request.transportKey !== transportKey) continue;
+			pageAuthorityRequests.delete(authorityId);
+			scope.postMessage({
+				type: 'authority-cancel',
+				authorityId,
+				transportKey,
+				ownerSession: request.ownerSession,
+				ownerGeneration: request.ownerGeneration,
+			});
+		}
+		const session = currentSession;
+		const generation = currentGeneration;
+		if (
+			session !== undefined &&
+			generation !== 0 &&
+			ownerSession === session &&
+			ownerGeneration === generation
+		) {
+			authorityRelay?.remove(candidateId, transportKey);
+		} else if (session !== undefined && generation !== 0) {
+			channel?.postMessage({
+				version: 1,
+				type: 'transport-remove',
+				candidateId,
+				ownerSession: session,
+				ownerGeneration: generation,
+				transportKey,
+			});
+		}
+		pageTransport = undefined;
+	}
+
+	function handlePageAuthorityResponse(
+		message: Extract<
+			BrowserRecordWorkerInbound,
+			{ type: 'authority-result' | 'authority-error' }
+		>,
+	): void {
+		const request = pageAuthorityRequests.get(message.authorityId);
+		if (
+			request === undefined ||
+			request.transportKey !== message.transportKey ||
+			request.ownerSession !== message.ownerSession ||
+			request.ownerGeneration !== message.ownerGeneration
+		)
+			return;
+		pageAuthorityRequests.delete(message.authorityId);
+		if (
+			ownerSession === message.ownerSession &&
+			ownerGeneration === message.ownerGeneration
+		) {
+			authorityRelay?.handleResponse(
+				candidateId,
+				message.transportKey,
+				message.authorityId,
+				message.type === 'authority-result'
+					? { type: 'result', result: message.result }
+					: {
+							type: 'error',
+							code: message.code,
+							...(message.activeAuthorityLifetime === undefined
+								? {}
+								: {
+										activeAuthorityLifetime: message.activeAuthorityLifetime,
+									}),
+						},
+			);
+			return;
+		}
+		channel?.postMessage(
+			message.type === 'authority-result'
+				? {
+						version: 1,
+						type: 'authority-result',
+						candidateId,
+						ownerSession: message.ownerSession,
+						ownerGeneration: message.ownerGeneration,
+						authorityId: message.authorityId,
+						transportKey: message.transportKey,
+						result: message.result,
+					}
+				: {
+						version: 1,
+						type: 'authority-error',
+						candidateId,
+						ownerSession: message.ownerSession,
+						ownerGeneration: message.ownerGeneration,
+						authorityId: message.authorityId,
+						transportKey: message.transportKey,
+						code: message.code,
+						...(message.activeAuthorityLifetime === undefined
+							? {}
+							: {
+									activeAuthorityLifetime: message.activeAuthorityLifetime,
+								}),
+					},
+		);
+	}
+
 	scope.addEventListener('message', ({ data: message }) => {
 		if (message.type === 'start') {
 			if (isStarted) {
@@ -827,6 +1329,54 @@ export function startBrowserRecordCandidateWorker(
 			acquisition = compete(message);
 			return;
 		}
+		if (message.type === 'transport-register') {
+			if (
+				!Number.isSafeInteger(message.transportKey) ||
+				message.transportKey <= 0
+			)
+				return;
+			if (
+				pageTransport !== undefined &&
+				pageTransport.transportKey !== message.transportKey
+			) {
+				unregisterPageTransport(pageTransport.transportKey);
+			}
+			pageTransport = {
+				transportKey: message.transportKey,
+				attachment: structuredClone(message.attachment),
+				hasCredentials: message.hasCredentials,
+			};
+			announcePageTransport();
+			return;
+		}
+		if (message.type === 'transport-credentials') {
+			if (pageTransport?.transportKey !== message.transportKey) return;
+			pageTransport.hasCredentials = message.hasCredentials;
+			if (
+				ownerSession === currentSession &&
+				ownerGeneration === currentGeneration
+			) {
+				authorityRelay?.credentialsChanged(
+					candidateId,
+					message.transportKey,
+					message.hasCredentials,
+				);
+			} else {
+				announcePageTransport();
+			}
+			return;
+		}
+		if (message.type === 'transport-unregister') {
+			unregisterPageTransport(message.transportKey);
+			return;
+		}
+		if (
+			message.type === 'authority-result' ||
+			message.type === 'authority-error'
+		) {
+			handlePageAuthorityResponse(message);
+			return;
+		}
 		if (message.type === 'request') {
 			if (!isStarted || isClosed) {
 				scope.postMessage({
@@ -839,6 +1389,16 @@ export function startBrowserRecordCandidateWorker(
 			}
 			route(message.id, message.operation);
 			return;
+		}
+		if (pageTransport !== undefined) {
+			if (
+				ownerSession === currentSession &&
+				ownerGeneration === currentGeneration
+			) {
+				pageTransport = undefined;
+			} else {
+				unregisterPageTransport(pageTransport.transportKey);
+			}
 		}
 		void close()
 			.then(() => scope.postMessage({ type: 'closed' }))

@@ -1,6 +1,8 @@
 import * as Y from '@y/y';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import type {
+	BrowserRecordAuthorityOperation,
+	BrowserRecordAuthorityResult,
 	BrowserRecordCandidateStart,
 	BrowserRecordOperation,
 	BrowserRecordResult,
@@ -15,10 +17,15 @@ import { registerRecordDocumentConnectionTarget } from './record-document-connec
 import {
 	type BoundLenses,
 	createRecordLensRuntime,
+	type RecordEpicenter,
 	type RecordInspection,
 } from './record-epicenter.js';
+import {
+	RecordAuthorityLifetimeMismatchError,
+	type RecordSyncSession,
+	type RecordSyncStatus,
+} from './record-sync-supervisor.js';
 import type {
-	ReplicaAttachment,
 	ReplicaAttachmentState,
 	ReplicaParkedWorkPage,
 } from './store/replica/index.js';
@@ -32,6 +39,12 @@ type PageDocument = {
 	refresh(update?: Uint8Array): void;
 	revoke(message: string): void;
 	dispose(): Promise<void>;
+};
+
+type PageAuthorityCall = {
+	transportKey: number;
+	ownerSession: string;
+	ownerGeneration: number;
 };
 
 export type BrowserRecordClientWorker = {
@@ -82,9 +95,7 @@ export async function openBrowserRecordEpicenterForTest({
 		(addresses: readonly RecordAddress[]) => void
 	>();
 	const blobListeners = new Set<(address: RecordAddress) => void>();
-	const syncStatusListeners = new Set<
-		(status: BrowserRecordSyncStatus) => void
-	>();
+	const syncStatusListeners = new Set<(status: RecordSyncStatus) => void>();
 	const documents = new Map<string, Set<PageDocument>>();
 	const revokedAddresses = new Set<string>();
 	const seenTokens = new Set<string>();
@@ -94,6 +105,13 @@ export async function openBrowserRecordEpicenterForTest({
 	let isDisposing = false;
 	let isDisposed = false;
 	let disposalPromise: Promise<void> | undefined;
+	const transports = new Map<number, RecordSyncSession<Blob>>();
+	const authorityCalls = new Map<number, PageAuthorityCall>();
+	let nextTransportKey = 0;
+	let activeTransportKey: number | undefined;
+	let stopCredentials: (() => void) | undefined;
+	let attachmentCache: ReplicaAttachmentState | undefined;
+	let syncStatusCache: RecordSyncStatus | undefined;
 	let closeWaiter:
 		| {
 				promise: Promise<void>;
@@ -179,6 +197,19 @@ export async function openBrowserRecordEpicenterForTest({
 			return;
 		}
 		workerFailure = cause;
+		try {
+			stopCredentials?.();
+		} catch (cleanupCause) {
+			log.error(
+				new Error('Browser authority credential cleanup failed', {
+					cause: cleanupCause,
+				}),
+			);
+		}
+		stopCredentials = undefined;
+		activeTransportKey = undefined;
+		transports.clear();
+		authorityCalls.clear();
 		closeWaiter?.reject(cause);
 		closeWaiter = undefined;
 		for (const request of [...pending.values()]) request.reject(cause);
@@ -224,6 +255,117 @@ export async function openBrowserRecordEpicenterForTest({
 			if (revokedAddresses.has(addressKey(address))) return;
 			log.error(new Error('Browser record document refresh failed', { cause }));
 		}
+	}
+
+	function deserializeSyncStatus(
+		status: BrowserRecordSyncStatus,
+	): RecordSyncStatus {
+		const lastError =
+			status.lastError === undefined
+				? undefined
+				: Object.assign(new Error(status.lastError.message), {
+						name: status.lastError.name,
+					});
+		return {
+			state: status.state,
+			work: structuredClone(status.work),
+			...(lastError === undefined ? {} : { lastError }),
+		};
+	}
+
+	function postControl(message: BrowserRecordWorkerInbound): void {
+		try {
+			worker.postMessage(message);
+		} catch (cause) {
+			failWorker(new Error('Browser record worker port failed', { cause }));
+		}
+	}
+
+	async function executeAuthority(
+		operation: BrowserRecordAuthorityOperation,
+		transport: RecordSyncSession<Blob>['transport'],
+	): Promise<BrowserRecordAuthorityResult> {
+		switch (operation.kind) {
+			case 'read-facts':
+				return {
+					kind: 'read-facts',
+					response: await transport.readFacts(operation.request),
+				};
+			case 'submit':
+				return {
+					kind: 'submit',
+					response: await transport.submit(operation.request),
+				};
+			case 'publish-document':
+				return {
+					kind: 'publish-document',
+					acceptance: await transport.publishDocument(operation.request),
+				};
+			case 'publish-blob':
+				return {
+					kind: 'publish-blob',
+					acceptance: await transport.publishBlob({
+						request: operation.request,
+						bytes: operation.bytes,
+					}),
+				};
+			default:
+				return operation satisfies never;
+		}
+	}
+
+	function runAuthorityRequest(
+		message: Extract<BrowserRecordWorkerMessage, { type: 'authority-request' }>,
+	): void {
+		const transport = transports.get(message.transportKey)?.transport;
+		if (transport === undefined) {
+			postControl({
+				type: 'authority-error',
+				authorityId: message.authorityId,
+				transportKey: message.transportKey,
+				ownerSession: message.ownerSession,
+				ownerGeneration: message.ownerGeneration,
+				code: 'transport-unavailable',
+			});
+			return;
+		}
+		const call: PageAuthorityCall = {
+			transportKey: message.transportKey,
+			ownerSession: message.ownerSession,
+			ownerGeneration: message.ownerGeneration,
+		};
+		authorityCalls.set(message.authorityId, call);
+		void executeAuthority(message.operation, transport).then(
+			(result) => {
+				if (authorityCalls.get(message.authorityId) !== call) return;
+				authorityCalls.delete(message.authorityId);
+				postControl({
+					type: 'authority-result',
+					authorityId: message.authorityId,
+					transportKey: message.transportKey,
+					ownerSession: message.ownerSession,
+					ownerGeneration: message.ownerGeneration,
+					result,
+				});
+			},
+			(cause: unknown) => {
+				if (authorityCalls.get(message.authorityId) !== call) return;
+				authorityCalls.delete(message.authorityId);
+				postControl({
+					type: 'authority-error',
+					authorityId: message.authorityId,
+					transportKey: message.transportKey,
+					ownerSession: message.ownerSession,
+					ownerGeneration: message.ownerGeneration,
+					...(cause instanceof RecordAuthorityLifetimeMismatchError
+						? {
+								code: 'lifetime-mismatch' as const,
+								activeAuthorityLifetime: cause.activeAuthorityLifetime,
+							}
+						: { code: 'transport-failed' as const }),
+				});
+			},
+		);
 	}
 
 	worker.addEventListener('message', ({ data: message }) => {
@@ -275,14 +417,32 @@ export async function openBrowserRecordEpicenterForTest({
 			}
 			case 'sync-status':
 				if (!rememberToken(message.token)) return;
+				syncStatusCache = deserializeSyncStatus(message.status);
 				for (const listener of syncStatusListeners) {
 					try {
-						listener(structuredClone(message.status));
+						listener(deserializeSyncStatus(message.status));
 					} catch (cause) {
 						log.error(new Error('Sync status subscriber threw', { cause }));
 					}
 				}
 				return;
+			case 'attachment':
+				if (!rememberToken(message.token)) return;
+				attachmentCache = structuredClone(message.attachment);
+				return;
+			case 'authority-request':
+				runAuthorityRequest(message);
+				return;
+			case 'authority-cancel': {
+				const call = authorityCalls.get(message.authorityId);
+				if (
+					call?.transportKey === message.transportKey &&
+					call.ownerSession === message.ownerSession &&
+					call.ownerGeneration === message.ownerGeneration
+				)
+					authorityCalls.delete(message.authorityId);
+				return;
+			}
 			case 'owner-lost': {
 				const cause = new Error(message.message);
 				cause.name = message.name;
@@ -315,7 +475,9 @@ export async function openBrowserRecordEpicenterForTest({
 	});
 
 	try {
-		await request({ kind: 'open' });
+		const opened = await request({ kind: 'open' });
+		attachmentCache = structuredClone(opened.attachment);
+		syncStatusCache = deserializeSyncStatus(opened.syncStatus);
 	} catch (cause) {
 		isDisposing = true;
 		const failures: unknown[] = [];
@@ -354,9 +516,11 @@ export async function openBrowserRecordEpicenterForTest({
 		const document = new Y.Doc({ gc: true });
 		let isHandleDisposed = false;
 		let revoked: Error | undefined;
+		let persistenceFailure: Error | undefined;
 		let acceptedUpdateDepth = 0;
 		const revocationListeners = new Set<(error: Error) => void>();
 		let persistenceTail = Promise.resolve();
+		let entry!: PageDocument;
 
 		function requireUsable(): void {
 			if (isHandleDisposed) throw new Error('Row document handle is disposed');
@@ -364,9 +528,19 @@ export async function openBrowserRecordEpicenterForTest({
 		}
 
 		function queueDocumentOperation(operation: BrowserRecordOperation): void {
-			persistenceTail = persistenceTail.then(async () => {
-				await sendRequest(operation);
-			});
+			if (persistenceFailure !== undefined) return;
+			persistenceTail = persistenceTail
+				.then(async () => {
+					await sendRequest(operation);
+				})
+				.catch((cause: unknown) => {
+					persistenceFailure =
+						cause instanceof Error
+							? cause
+							: new Error('Browser document persistence failed', { cause });
+					entry.revoke(persistenceFailure.message);
+					throw persistenceFailure;
+				});
 		}
 
 		const persist = (update: Uint8Array, origin: unknown) => {
@@ -421,7 +595,7 @@ export async function openBrowserRecordEpicenterForTest({
 			},
 		};
 
-		const entry: PageDocument = {
+		entry = {
 			refresh(update) {
 				if (isHandleDisposed || revoked !== undefined || update === undefined)
 					return;
@@ -546,6 +720,71 @@ export async function openBrowserRecordEpicenterForTest({
 		return lenses.bind(definitions);
 	}
 
+	async function attachSync(session: RecordSyncSession<Blob>): Promise<void> {
+		requireOpen();
+		const transportKey = ++nextTransportKey;
+		const hasCredentials =
+			session.credentials === undefined ||
+			session.credentials.get() !== undefined;
+		transports.set(transportKey, session);
+		postControl({
+			type: 'transport-register',
+			transportKey,
+			attachment: structuredClone(session.attachment),
+			hasCredentials,
+		});
+		let stopNextCredentials: (() => void) | undefined;
+		try {
+			stopNextCredentials = session.credentials?.subscribe?.(() => {
+				if (!transports.has(transportKey) || isDisposing || isDisposed) return;
+				postControl({
+					type: 'transport-credentials',
+					transportKey,
+					hasCredentials: session.credentials?.get() !== undefined,
+				});
+			});
+			const result = await request({
+				kind: 'attach-sync',
+				transportKey,
+				attachment: structuredClone(session.attachment),
+				...(session.firstAttachmentChoice === undefined
+					? {}
+					: { firstAttachmentChoice: session.firstAttachmentChoice }),
+			});
+			requireOpen();
+			attachmentCache = structuredClone(result.attachment);
+			syncStatusCache = deserializeSyncStatus(result.syncStatus);
+			const previousTransportKey = activeTransportKey;
+			const stopPreviousCredentials = stopCredentials;
+			activeTransportKey = transportKey;
+			stopCredentials = stopNextCredentials;
+			stopNextCredentials = undefined;
+			if (previousTransportKey !== undefined) {
+				transports.delete(previousTransportKey);
+			}
+			stopPreviousCredentials?.();
+		} catch (cause) {
+			transports.delete(transportKey);
+			postControl({ type: 'transport-unregister', transportKey });
+			const previous =
+				activeTransportKey === undefined
+					? undefined
+					: transports.get(activeTransportKey);
+			if (previous !== undefined && activeTransportKey !== undefined) {
+				postControl({
+					type: 'transport-register',
+					transportKey: activeTransportKey,
+					attachment: structuredClone(previous.attachment),
+					hasCredentials:
+						previous.credentials === undefined ||
+						previous.credentials.get() !== undefined,
+				});
+			}
+			stopNextCredentials?.();
+			throw cause;
+		}
+	}
+
 	function dispose(): Promise<void> {
 		disposalPromise ??= performDispose();
 		return disposalPromise;
@@ -555,6 +794,21 @@ export async function openBrowserRecordEpicenterForTest({
 		if (isDisposed) return;
 		isDisposing = true;
 		const failures: unknown[] = [];
+		try {
+			stopCredentials?.();
+		} catch (cause) {
+			failures.push(cause);
+		}
+		stopCredentials = undefined;
+		if (activeTransportKey !== undefined) {
+			postControl({
+				type: 'transport-unregister',
+				transportKey: activeTransportKey,
+			});
+		}
+		activeTransportKey = undefined;
+		transports.clear();
+		authorityCalls.clear();
 		for (const result of await Promise.allSettled(
 			[...documents.values()].flatMap((entries) =>
 				[...entries].map((document) => document.dispose()),
@@ -594,26 +848,33 @@ export async function openBrowserRecordEpicenterForTest({
 
 	return Object.freeze({
 		bind,
-		async attachment(): Promise<ReplicaAttachmentState> {
-			return (await request({ kind: 'attachment' })).attachment;
+		attachSync,
+		get attachment(): ReplicaAttachmentState {
+			requireOpen();
+			if (attachmentCache === undefined) {
+				throw new Error('Browser record attachment cache is not initialized');
+			}
+			return structuredClone(attachmentCache);
 		},
-		async prepareAttachment(
-			attachment: ReplicaAttachment,
-			firstAttachmentChoice?: 'bring' | 'discard',
-		): Promise<{ attached: boolean; discarded: boolean }> {
-			const result = await request({
-				kind: 'prepare-attachment',
-				attachment,
-				...(firstAttachmentChoice === undefined
+		get syncStatus(): RecordSyncStatus {
+			requireOpen();
+			if (syncStatusCache === undefined) {
+				throw new Error('Browser record sync-status cache is not initialized');
+			}
+			return {
+				state: syncStatusCache.state,
+				work: structuredClone(syncStatusCache.work),
+				...(syncStatusCache.lastError === undefined
 					? {}
-					: { firstAttachmentChoice }),
-			});
-			return { attached: result.attached, discarded: result.discarded };
+					: {
+							lastError: Object.assign(
+								new Error(syncStatusCache.lastError.message),
+								{ name: syncStatusCache.lastError.name },
+							),
+						}),
+			};
 		},
-		async syncStatus(): Promise<BrowserRecordSyncStatus> {
-			return (await request({ kind: 'sync-status' })).status;
-		},
-		subscribeSyncStatus(listener: (status: BrowserRecordSyncStatus) => void) {
+		subscribeSyncStatus(listener: (status: RecordSyncStatus) => void) {
 			requireOpen();
 			syncStatusListeners.add(listener);
 			return () => syncStatusListeners.delete(listener);
@@ -630,7 +891,7 @@ export async function openBrowserRecordEpicenterForTest({
 			return (await request({ kind: 'inspect-record', address })).inspection;
 		},
 		[Symbol.asyncDispose]: dispose,
-	});
+	}) satisfies RecordEpicenter<Blob, Blob>;
 }
 
 export type BrowserRecordEpicenter = Awaited<

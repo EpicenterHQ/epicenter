@@ -23,7 +23,10 @@ import type {
 	OwnedBlobFile,
 	StagedBlob,
 } from './blob-v1/index.js';
+import { BLOB_PUBLICATION_VERSION } from './blob-v1/index.js';
 import type {
+	BrowserRecordAuthorityOperation,
+	BrowserRecordAuthorityResult,
 	BrowserRecordCoordinationMessage,
 	BrowserRecordOperation,
 	BrowserRecordResult,
@@ -40,17 +43,27 @@ import {
 	type BrowserRecordClientWorker,
 	openBrowserRecordEpicenterForTest,
 } from './browser-record.js';
+import { DOCUMENT_PUBLICATION_VERSION } from './document-v1/index.js';
 import { defineLens, defineTable, defineValues } from './lens.js';
 import { sha256HexBytes } from './protocol/v1/canonical.js';
-import type { RecordAddress } from './protocol/v1/index.js';
+import {
+	foldIntent,
+	type RecordAddress,
+	type SubmissionRequest,
+} from './protocol/v1/index.js';
 import { makeLimits } from './protocol/v1/kernel.test-support.js';
 import { recordDocumentConnectionTarget } from './record-document-connection.js';
 import { createRecordOwner } from './record-epicenter.js';
+import type {
+	RecordSyncSession,
+	RecordSyncTransport,
+} from './record-sync-supervisor.js';
 import {
 	createReplicaBlobStore,
 	openReplicaStore,
 	type ReplicaStore,
 } from './store/replica/index.js';
+import type { SyncCredentialProvider } from './sync-supervisor.js';
 
 class MemoryBlobFiles implements BlobFileStore<Blob, Blob> {
 	readonly staged = new Map<string, Blob>();
@@ -281,20 +294,37 @@ const ADDRESS: RecordAddress = {
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 };
 
+const LOCAL_SYNC_STATUS = {
+	state: 'local' as const,
+	work: {
+		scalar: { pending: 0, sealed: 0, parked: 0 },
+		document: { pending: 0, parked: 0 },
+		blob: { pending: 0, parked: 0 },
+	},
+};
+
+const UNATTACHED = { kind: 'unattached' as const, requiresChoice: false };
+
 function setup({
 	afterLocalWrite,
+	beforeBlobCapture,
 	afterOwnerAcquired,
 	beforeOwnerDispose,
 	integrityCheck,
+	failDocumentAppend = false,
 	failFirstOpen = false,
 	cleanupFailures = false,
+	authorityTimeoutMs,
 }: {
 	afterLocalWrite?(): void;
+	beforeBlobCapture?(): void | Promise<void>;
 	afterOwnerAcquired?(openCount: number): void | Promise<void>;
 	beforeOwnerDispose?(disposeCount: number): void | Promise<void>;
 	integrityCheck?(openCount: number): void | Promise<void>;
+	failDocumentAppend?: boolean;
 	failFirstOpen?: boolean;
 	cleanupFailures?: boolean;
+	authorityTimeoutMs?: number;
 } = {}) {
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
@@ -362,6 +392,10 @@ function setup({
 				localWriteCount += 1;
 				afterLocalWrite?.();
 			},
+			appendLocalDocumentUpdate(address, update) {
+				if (failDocumentAppend) throw new Error('document persistence failed');
+				storedReplica.appendLocalDocumentUpdate(address, update);
+			},
 			subscribe(listener) {
 				const stop = storedReplica.subscribe(listener);
 				return () => {
@@ -376,6 +410,10 @@ function setup({
 		const storedBlobs = createReplicaBlobStore(adapter, files);
 		const blobs = {
 			...storedBlobs,
+			async capture(...args: Parameters<typeof storedBlobs.capture>) {
+				await beforeBlobCapture?.();
+				return storedBlobs.capture(...args);
+			},
 			subscribe(listener: Parameters<typeof storedBlobs.subscribe>[0]) {
 				const stop = storedBlobs.subscribe(listener);
 				return () => {
@@ -403,6 +441,12 @@ function setup({
 		});
 		const owner = {
 			...storedOwner,
+			get attachment() {
+				return storedOwner.attachment;
+			},
+			get syncStatus() {
+				return storedOwner.syncStatus;
+			},
 			subscribeSyncStatus(
 				listener: Parameters<typeof storedOwner.subscribeSyncStatus>[0],
 			) {
@@ -466,6 +510,7 @@ function setup({
 			createChannel,
 			candidateId: `candidate-${candidateCount}`,
 			mintOwnerSession: () => `owner-${candidateCount}-${openCount + 1}`,
+			...(authorityTimeoutMs === undefined ? {} : { authorityTimeoutMs }),
 		});
 		workers.push(worker);
 		return worker;
@@ -537,6 +582,96 @@ function deferred() {
 	return { promise, resolve, reject };
 }
 
+const SYNC_ATTACHMENT = {
+	deploymentId: 'https://api.example.com/',
+	principalId: 'principal-one',
+} as const;
+
+function mutableCredentials(initial?: string): SyncCredentialProvider & {
+	set(value?: string): void;
+} {
+	let value = initial;
+	const listeners = new Set<() => void>();
+	return {
+		get: () => value,
+		subscribe(listener) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		set(next) {
+			value = next;
+			for (const listener of listeners) listener();
+		},
+	};
+}
+
+function acceptingAuthorityTransport(
+	calls: string[],
+): RecordSyncTransport<Blob> {
+	let sequence = 0;
+	return {
+		async readFacts() {
+			calls.push('read-facts');
+			return {
+				authorityLifetime: 'authority-one',
+				facts: [],
+				hasMore: false,
+			};
+		},
+		async submit(sealed) {
+			calls.push('submit');
+			const request = JSON.parse(sealed.bytes) as SubmissionRequest;
+			const facts = request.intents.map((intent) => {
+				const outcome = foldIntent(undefined, intent, ++sequence);
+				if (outcome.kind !== 'changed') {
+					throw new Error('test authority expected a changed fact');
+				}
+				return outcome.fact;
+			});
+			return {
+				authorityLifetime: request.authorityLifetime,
+				facts,
+				parked: [],
+			};
+		},
+		async publishDocument(request) {
+			calls.push('publish-document');
+			return {
+				kind: 'accepted',
+				receipt: {
+					authorityLifetime: request.authorityLifetime,
+					address: request.address,
+					protocolVersion: request.protocolVersion,
+					digest: request.digest,
+				},
+			};
+		},
+		async publishBlob({ request, bytes }) {
+			calls.push(`publish-blob:${await bytes.text()}`);
+			return { kind: 'accepted', receipt: request };
+		},
+	};
+}
+
+function syncSession(
+	transport: RecordSyncTransport<Blob>,
+	options: {
+		credentials?: SyncCredentialProvider;
+		firstAttachmentChoice?: 'bring' | 'discard';
+	} = {},
+): RecordSyncSession<Blob> {
+	return {
+		attachment: SYNC_ATTACHMENT,
+		transport,
+		...(options.credentials === undefined
+			? {}
+			: { credentials: options.credentials }),
+		...(options.firstAttachmentChoice === undefined
+			? {}
+			: { firstAttachmentChoice: options.firstAttachmentChoice }),
+	};
+}
+
 test('all record browser protocol variants survive structured clone', () => {
 	const operations: BrowserRecordOperation[] = [
 		{ kind: 'open' },
@@ -576,15 +711,14 @@ test('all record browser protocol variants survive structured clone', () => {
 		{ kind: 'put-blob', address: ADDRESS, bytes: new Blob(['blob']) },
 		{ kind: 'read-blob', address: ADDRESS },
 		{ kind: 'inspect-blob', address: ADDRESS },
-		{ kind: 'attachment' },
-		{
-			kind: 'prepare-attachment',
-			attachment: { deploymentId: 'cloud', principalId: 'person' },
-			firstAttachmentChoice: 'bring',
-		},
-		{ kind: 'sync-status' },
 		{ kind: 'parked-work', after: ADDRESS },
 		{ kind: 'inspect-record', address: ADDRESS },
+		{
+			kind: 'attach-sync',
+			transportKey: 1,
+			attachment: SYNC_ATTACHMENT,
+			firstAttachmentChoice: 'bring',
+		},
 	];
 	const status = {
 		state: 'offline' as const,
@@ -593,10 +727,14 @@ test('all record browser protocol variants survive structured clone', () => {
 			document: { pending: 0, parked: 0 },
 			blob: { pending: 0, parked: 0 },
 		},
-		lastError: 'offline',
+		lastError: { name: 'Error', message: 'offline' },
 	};
 	const results: BrowserRecordResult[] = [
-		{ kind: 'open' },
+		{
+			kind: 'open',
+			attachment: UNATTACHED,
+			syncStatus: LOCAL_SYNC_STATUS,
+		},
 		{ kind: 'read', record: null },
 		{ kind: 'read-page', page: { entries: [], nextAfter: 'next' } },
 		{ kind: 'create-record', recordKey: ADDRESS.recordKey },
@@ -614,12 +752,6 @@ test('all record browser protocol variants survive structured clone', () => {
 		{ kind: 'put-blob', digest: 'a'.repeat(64) },
 		{ kind: 'read-blob', bytes: new Blob(['blob']) },
 		{ kind: 'inspect-blob', inspection: { kind: 'absent' } },
-		{
-			kind: 'attachment',
-			attachment: { kind: 'unattached', requiresChoice: false },
-		},
-		{ kind: 'prepare-attachment', attached: true, discarded: false },
-		{ kind: 'sync-status', status },
 		{ kind: 'parked-work', page: { entries: [] } },
 		{
 			kind: 'inspect-record',
@@ -627,6 +759,70 @@ test('all record browser protocol variants survive structured clone', () => {
 				lanes: null,
 				document: null,
 				blob: { kind: 'absent' },
+			},
+		},
+		{
+			kind: 'attach-sync',
+			attachment: {
+				kind: 'attached',
+				attachment: SYNC_ATTACHMENT,
+			},
+			syncStatus: LOCAL_SYNC_STATUS,
+		},
+	];
+	const authorityOperations: BrowserRecordAuthorityOperation[] = [
+		{ kind: 'read-facts', request: { afterSequence: 0 } },
+		{ kind: 'submit', request: { bytes: '{}', hash: 'a'.repeat(64) } },
+		{
+			kind: 'publish-document',
+			request: {
+				authorityLifetime: 'authority',
+				address: ADDRESS,
+				protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+				payload: new Uint8Array([1, 2]),
+				digest: 'b'.repeat(64),
+			},
+		},
+		{
+			kind: 'publish-blob',
+			request: {
+				authorityLifetime: 'authority',
+				address: ADDRESS,
+				protocolVersion: BLOB_PUBLICATION_VERSION,
+				digest: 'c'.repeat(64),
+			},
+			bytes: new Blob(['authority blob']),
+		},
+	];
+	const authorityResults: BrowserRecordAuthorityResult[] = [
+		{
+			kind: 'read-facts',
+			response: {
+				authorityLifetime: 'authority',
+				facts: [],
+				hasMore: false,
+			},
+		},
+		{
+			kind: 'submit',
+			response: {
+				authorityLifetime: 'authority',
+				facts: [],
+				parked: [],
+			},
+		},
+		{
+			kind: 'publish-document',
+			acceptance: {
+				kind: 'lifetime-mismatch',
+				activeAuthorityLifetime: 'authority',
+			},
+		},
+		{
+			kind: 'publish-blob',
+			acceptance: {
+				kind: 'lifetime-mismatch',
+				activeAuthorityLifetime: 'authority',
 			},
 		},
 	];
@@ -646,6 +842,22 @@ test('all record browser protocol variants survive structured clone', () => {
 			message: 'revoked',
 		},
 		{ type: 'sync-status', token: 'owner:4', status },
+		{ type: 'attachment', token: 'owner:5', attachment: UNATTACHED },
+		{
+			type: 'authority-request',
+			authorityId: 1,
+			transportKey: 1,
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			operation: authorityOperations[0] as BrowserRecordAuthorityOperation,
+		},
+		{
+			type: 'authority-cancel',
+			authorityId: 1,
+			transportKey: 1,
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+		},
 		{ type: 'owner-lost', name: 'OwnerLost', message: 'lost' },
 		{
 			type: 'status',
@@ -657,7 +869,11 @@ test('all record browser protocol variants survive structured clone', () => {
 		{ type: 'fatal', name: 'Error', message: 'fatal' },
 	];
 	const sampleOperation: BrowserRecordOperation = { kind: 'open' };
-	const sampleResult: BrowserRecordResult = { kind: 'open' };
+	const sampleResult: BrowserRecordResult = {
+		kind: 'open',
+		attachment: UNATTACHED,
+		syncStatus: LOCAL_SYNC_STATUS,
+	};
 	const request = {
 		type: 'request' as const,
 		id: 1,
@@ -698,10 +914,92 @@ test('all record browser protocol variants survive structured clone', () => {
 				{ type: 'records-invalidated' }
 			>,
 		},
+		{
+			version: 1,
+			type: 'transport',
+			candidateId: 'candidate',
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			transportKey: 1,
+			attachment: SYNC_ATTACHMENT,
+			hasCredentials: true,
+		},
+		{
+			version: 1,
+			type: 'transport-remove',
+			candidateId: 'candidate',
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			transportKey: 1,
+		},
+		{
+			version: 1,
+			type: 'authority-request',
+			candidateId: 'candidate',
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			authorityId: 1,
+			transportKey: 1,
+			operation: authorityOperations[1] as BrowserRecordAuthorityOperation,
+		},
+		{
+			version: 1,
+			type: 'authority-cancel',
+			candidateId: 'candidate',
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			authorityId: 1,
+			transportKey: 1,
+		},
+		{
+			version: 1,
+			type: 'authority-result',
+			candidateId: 'candidate',
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			authorityId: 1,
+			transportKey: 1,
+			result: authorityResults[0] as BrowserRecordAuthorityResult,
+		},
+		{
+			version: 1,
+			type: 'authority-error',
+			candidateId: 'candidate',
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			authorityId: 2,
+			transportKey: 1,
+			code: 'lifetime-mismatch',
+			activeAuthorityLifetime: 'authority',
+		},
 	];
 	const inbound: BrowserRecordWorkerInbound[] = [
 		{ type: 'start', coordinationId: 'clone' },
 		request,
+		{
+			type: 'transport-register',
+			transportKey: 1,
+			attachment: SYNC_ATTACHMENT,
+			hasCredentials: true,
+		},
+		{ type: 'transport-credentials', transportKey: 1, hasCredentials: false },
+		{ type: 'transport-unregister', transportKey: 1 },
+		{
+			type: 'authority-result',
+			authorityId: 1,
+			transportKey: 1,
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			result: authorityResults[1] as BrowserRecordAuthorityResult,
+		},
+		{
+			type: 'authority-error',
+			authorityId: 2,
+			transportKey: 1,
+			ownerSession: 'owner',
+			ownerGeneration: 1,
+			code: 'transport-failed',
+		},
 		{ type: 'close' },
 	];
 
@@ -714,6 +1012,8 @@ test('all record browser protocol variants survive structured clone', () => {
 		...inbound,
 		...messages,
 		...coordination,
+		...authorityOperations,
+		...authorityResults,
 	]) {
 		expect(() => structuredClone(value)).not.toThrow();
 	}
@@ -749,11 +1049,11 @@ test('two tabs share one elected owner and receive record and blob invalidations
 			kind: 'pending',
 			digest,
 		});
-		expect(await second.attachment()).toEqual({
+		expect(second.attachment).toEqual({
 			kind: 'unattached',
 			requiresChoice: true,
 		});
-		expect((await second.syncStatus()).state).toBe('local');
+		expect(second.syncStatus.state).toBe('local');
 		expect((await second.parkedWork()).entries).toEqual([]);
 		expect(context.openCount).toBe(1);
 	} finally {
@@ -831,6 +1131,27 @@ test('accepted document updates are durable before whenDurable resolves', async 
 		).toMatchObject({ document: { dirty: false } });
 		remote.destroy();
 		await document[Symbol.asyncDispose]();
+	} finally {
+		await tab[Symbol.asyncDispose]();
+		await context.dispose();
+	}
+});
+
+test('a document persistence failure revokes the page-local handle', async () => {
+	const context = setup({ failDocumentAppend: true });
+	const tab = await context.openTab();
+	try {
+		const notes = bindNotes(tab).notes;
+		const row = await notes.create({ title: 'failed document' });
+		const document = await notes.openDocument(row.id);
+		document.get('content').insert(0, 'memory only');
+		await expect(document.whenDurable()).rejects.toThrow(
+			/document persistence failed/,
+		);
+		expect(() => document.get('content')).toThrow(
+			/document persistence failed/,
+		);
+		await document[Symbol.asyncDispose]().catch(() => undefined);
 	} finally {
 		await tab[Symbol.asyncDispose]();
 		await context.dispose();
@@ -1012,7 +1333,15 @@ test('a candidate accepts a newer owner generation after missing its predecessor
 		candidateId: 'waiting-candidate',
 		ownerSession: 'session-3',
 		ownerGeneration: 3,
-		message: { type: 'result', id: 42, result: { kind: 'open' } },
+		message: {
+			type: 'result',
+			id: 42,
+			result: {
+				kind: 'open',
+				attachment: UNATTACHED,
+				syncStatus: LOCAL_SYNC_STATUS,
+			},
+		},
 	});
 	await waitFor(() =>
 		worker.messages.some(
@@ -1068,6 +1397,37 @@ test('close waits for in-flight owner-loss disposal', async () => {
 	releaseDisposal.resolve();
 	await closing;
 	expect(context.disposeCount).toBe(1);
+	await context.dispose();
+});
+
+test('owner loss drains an admitted blob capture before disposing storage', async () => {
+	const captureStarted = deferred();
+	const releaseCapture = deferred();
+	const disposalStarted = deferred();
+	const context = setup({
+		beforeBlobCapture: async () => {
+			captureStarted.resolve();
+			await releaseCapture.promise;
+		},
+		beforeOwnerDispose: () => disposalStarted.resolve(),
+	});
+	const tab = await context.openTab();
+	const notes = bindNotes(tab).notes;
+	const row = await notes.create({ title: 'blob overlap' });
+	const capture = notes.blob.put(row.id, new Blob(['owned']));
+	await captureStarted.promise;
+	context.steal();
+	await Bun.sleep(20);
+	let disposalObserved = false;
+	void disposalStarted.promise.then(() => {
+		disposalObserved = true;
+	});
+	await Bun.sleep(20);
+	expect(disposalObserved).toBeFalse();
+	releaseCapture.resolve();
+	await capture.catch(() => undefined);
+	await disposalStarted.promise;
+	await tab[Symbol.asyncDispose]();
 	await context.dispose();
 });
 
@@ -1180,4 +1540,309 @@ test('owner integrity is checked before its generation is announced', async () =
 	).toBeFalse();
 	expect(rejected.activeOwners).toBe(0);
 	await rejected.dispose();
+});
+
+test('one worker-owned supervisor relays all authority planes through one page', async () => {
+	const context = setup();
+	const tab = await context.openTab();
+	try {
+		const notes = bindNotes(tab).notes;
+		const row = await notes.create({ title: 'authority planes' });
+		const document = await notes.openDocument(row.id);
+		document.get('content').insert(0, 'document bytes');
+		await document.whenDurable();
+		await notes.blob.put(row.id, new Blob(['blob bytes']));
+
+		const calls: string[] = [];
+		const credentials = mutableCredentials('top-secret-bearer');
+		await tab.attachSync(
+			syncSession(acceptingAuthorityTransport(calls), {
+				credentials,
+				firstAttachmentChoice: 'bring',
+			}),
+		);
+
+		expect(calls).toContain('read-facts');
+		expect(calls).toContain('submit');
+		expect(calls).toContain('publish-document');
+		expect(calls).toContain('publish-blob:blob bytes');
+		expect(tab.attachment).toEqual({
+			kind: 'attached',
+			attachment: SYNC_ATTACHMENT,
+		});
+		expect(tab.syncStatus.state).toBe('idle');
+		expect(context.openCount).toBe(1);
+		const wire = JSON.stringify({
+			inbound: context.workers.flatMap((worker) => worker.inbound),
+			outbound: context.workers.flatMap((worker) => worker.messages),
+			coordination: context.broadcasts.messages,
+		});
+		expect(wire).not.toContain('top-secret-bearer');
+		await document[Symbol.asyncDispose]();
+	} finally {
+		await tab[Symbol.asyncDispose]();
+		await context.dispose();
+	}
+});
+
+test('page transport failures cannot put credential text on the wire', async () => {
+	const context = setup();
+	const tab = await context.openTab();
+	const secret = 'Authorization: Bearer sentinel-secret';
+	try {
+		await expect(
+			tab.attachSync(
+				syncSession({
+					...acceptingAuthorityTransport([]),
+					readFacts: async () => {
+						throw new Error(secret);
+					},
+				}),
+			),
+		).resolves.toBeUndefined();
+		expect(tab.syncStatus).toMatchObject({
+			state: 'offline',
+			lastError: { message: 'Browser authority transport failed' },
+		});
+		const wire = JSON.stringify({
+			inbound: context.workers.flatMap((worker) => worker.inbound),
+			outbound: context.workers.flatMap((worker) => worker.messages),
+			coordination: context.broadcasts.messages,
+		});
+		expect(wire).not.toContain('sentinel-secret');
+		expect(wire).not.toContain('Authorization');
+	} finally {
+		await tab[Symbol.asyncDispose]();
+		await context.dispose();
+	}
+});
+
+test('a failed mutation response halts until explicit reattachment', async () => {
+	const context = setup();
+	const tab = await context.openTab();
+	const credentials = mutableCredentials('page-credential');
+	const secret = 'Authorization: Bearer mutation-sentinel';
+	let submitCount = 0;
+	try {
+		const failedAuthority = acceptingAuthorityTransport([]);
+		await tab.attachSync(
+			syncSession(
+				{
+					...failedAuthority,
+					async submit(request) {
+						submitCount += 1;
+						await failedAuthority.submit(request);
+						throw new Error(secret);
+					},
+				},
+				{ credentials },
+			),
+		);
+
+		await bindNotes(tab).notes.create({ title: 'unknown remote outcome' });
+		await waitFor(() => submitCount === 1);
+		await waitFor(() => tab.syncStatus.state === 'offline');
+		expect(tab.syncStatus.lastError?.name).toBe('RecordSyncTransportCancelled');
+
+		credentials.set(undefined);
+		credentials.set('wake-without-proof');
+		await Bun.sleep(650);
+		expect(submitCount).toBe(1);
+
+		const recoveredCalls: string[] = [];
+		await tab.attachSync(
+			syncSession(acceptingAuthorityTransport(recoveredCalls), { credentials }),
+		);
+		await waitFor(() => recoveredCalls.includes('submit'));
+		await waitFor(() => tab.syncStatus.state === 'idle');
+
+		const wire = JSON.stringify({
+			inbound: context.workers.flatMap((worker) => worker.inbound),
+			outbound: context.workers.flatMap((worker) => worker.messages),
+			coordination: context.broadcasts.messages,
+		});
+		expect(wire).not.toContain('mutation-sentinel');
+		expect(wire).not.toContain('Authorization');
+	} finally {
+		await tab[Symbol.asyncDispose]().catch(() => undefined);
+		await context.dispose();
+	}
+});
+
+test('credential availability wakes sync without putting credentials on the wire', async () => {
+	const context = setup();
+	const tab = await context.openTab();
+	try {
+		const calls: string[] = [];
+		const credentials = mutableCredentials();
+		await tab.attachSync(
+			syncSession(acceptingAuthorityTransport(calls), { credentials }),
+		);
+		expect(calls).toEqual([]);
+		expect(tab.syncStatus.state).toBe('authentication-required');
+
+		credentials.set('credential-that-must-stay-local');
+		await waitFor(() => calls.includes('read-facts'));
+		await waitFor(() => tab.syncStatus.state === 'idle');
+		const wire = JSON.stringify({
+			inbound: context.workers.flatMap((worker) => worker.inbound),
+			outbound: context.workers.flatMap((worker) => worker.messages),
+			coordination: context.broadcasts.messages,
+		});
+		expect(wire).not.toContain('credential-that-must-stay-local');
+	} finally {
+		await tab[Symbol.asyncDispose]();
+		await context.dispose();
+	}
+});
+
+test('selected page disposal cancels its callback and fails over to a live page', async () => {
+	const context = setup();
+	const first = await context.openTab();
+	const second = await context.openTab();
+	try {
+		const firstCalls: string[] = [];
+		const secondCalls: string[] = [];
+		await first.attachSync(
+			syncSession(acceptingAuthorityTransport(firstCalls)),
+		);
+		await second.attachSync(
+			syncSession(acceptingAuthorityTransport(secondCalls)),
+		);
+		const firstReads = firstCalls.filter(
+			(call) => call === 'read-facts',
+		).length;
+		const secondReads = secondCalls.filter(
+			(call) => call === 'read-facts',
+		).length;
+		expect(firstReads).toBeGreaterThan(0);
+		expect(secondReads).toBeGreaterThan(0);
+
+		await second[Symbol.asyncDispose]();
+		await waitFor(
+			() =>
+				firstCalls.filter((call) => call === 'read-facts').length > firstReads,
+		);
+		expect(context.activeOwners).toBe(1);
+	} finally {
+		await second[Symbol.asyncDispose]().catch(() => undefined);
+		await first[Symbol.asyncDispose]();
+		await context.dispose();
+	}
+});
+
+test('a transportless promoted owner refreshes stale sync status', async () => {
+	const context = setup();
+	const ownerPage = await context.openTab();
+	const follower = await context.openTab();
+	try {
+		await ownerPage.attachSync(syncSession(acceptingAuthorityTransport([])));
+		await waitFor(() => follower.syncStatus.state === 'idle');
+		await ownerPage[Symbol.asyncDispose]();
+		await waitFor(() => context.openCount === 2);
+		await waitFor(() => follower.syncStatus.state === 'local');
+	} finally {
+		await follower[Symbol.asyncDispose]().catch(() => undefined);
+		await ownerPage[Symbol.asyncDispose]().catch(() => undefined);
+		await context.dispose();
+	}
+});
+
+test('ambiguous mutating relay cancellation is not automatically replayed', async () => {
+	const context = setup();
+	const first = await context.openTab();
+	const second = await context.openTab();
+	const firstCredentials = mutableCredentials('first-page');
+	const firstCalls: string[] = [];
+	const secondCalls: string[] = [];
+	const releaseSecondSubmit = deferred();
+	let secondSubmitCount = 0;
+	try {
+		await first.attachSync(
+			syncSession(acceptingAuthorityTransport(firstCalls), {
+				credentials: firstCredentials,
+			}),
+		);
+		const acceptingSecond = acceptingAuthorityTransport(secondCalls);
+		await second.attachSync(
+			syncSession({
+				...acceptingSecond,
+				async submit(request) {
+					secondSubmitCount += 1;
+					await releaseSecondSubmit.promise;
+					return acceptingSecond.submit(request);
+				},
+			}),
+		);
+
+		await bindNotes(first).notes.create({ title: 'ambiguous' });
+		await waitFor(() => secondSubmitCount === 1);
+		const secondWorker = context.workers[1];
+		if (secondWorker === undefined) throw new Error('second worker is missing');
+		await second[Symbol.asyncDispose]();
+		await Bun.sleep(650);
+		expect(firstCalls.filter((call) => call === 'submit')).toHaveLength(0);
+		expect(secondSubmitCount).toBe(1);
+		expect(first.syncStatus).toMatchObject({
+			state: 'offline',
+			lastError: { name: 'RecordSyncTransportCancelled' },
+		});
+
+		const resultsBefore = secondWorker.inbound.filter(
+			(message) => message.type === 'authority-result',
+		).length;
+		releaseSecondSubmit.resolve();
+		await Bun.sleep(20);
+		expect(
+			secondWorker.inbound.filter(
+				(message) => message.type === 'authority-result',
+			).length,
+		).toBe(resultsBefore);
+
+		firstCredentials.set(undefined);
+		firstCredentials.set('explicit-wake');
+		await Bun.sleep(50);
+		expect(firstCalls.filter((call) => call === 'submit')).toHaveLength(0);
+		await first.attachSync(
+			syncSession(acceptingAuthorityTransport(firstCalls), {
+				credentials: firstCredentials,
+			}),
+		);
+		await waitFor(() => firstCalls.includes('submit'));
+	} finally {
+		releaseSecondSubmit.resolve();
+		await second[Symbol.asyncDispose]().catch(() => undefined);
+		await first[Symbol.asyncDispose]().catch(() => undefined);
+		await context.dispose();
+	}
+});
+
+test('canonical attachSync enforces and reflects the first attachment choice', async () => {
+	const context = setup();
+	const tab = await context.openTab();
+	try {
+		const notes = bindNotes(tab).notes;
+		const row = await notes.create({ title: 'discard me' });
+		const calls: string[] = [];
+		const transport = acceptingAuthorityTransport(calls);
+		await expect(tab.attachSync(syncSession(transport))).rejects.toThrow(
+			/requires bring or discard/,
+		);
+		expect(tab.attachment).toEqual({
+			kind: 'unattached',
+			requiresChoice: true,
+		});
+
+		await tab.attachSync(
+			syncSession(transport, { firstAttachmentChoice: 'discard' }),
+		);
+		expect(tab.attachment).toEqual({
+			kind: 'attached',
+			attachment: SYNC_ATTACHMENT,
+		});
+		expect(await notes.get(row.id)).toEqual({ data: undefined, error: null });
+	} finally {
+		await tab[Symbol.asyncDispose]();
+		await context.dispose();
+	}
 });
