@@ -55,16 +55,13 @@ workspace deletion. Compaction replays a fixed covered prefix through a fresh
 capture is one owner command taken after the renderer's durability barrier;
 there is no page-side capture overlay.
 
-Exactly one live local surface owns a workspace at a time, on both browser
-and desktop, and the newest surface wins. The browser already enforced this
-through the storage lease; co-locating documents in the Worker extends the
-same displacement to document work. The desktop records route now carries a
-per-runtime surface id: an `open` from a newer surface claims the workspace
-and the displaced surface's operations fail with the shared
-`WorkspaceStorageMovedError` name, so one guard and one blocking moved screen
-serve both carriers. The desktop cross-window document and records relay is
-deleted rather than preserved; in-process host consumers of owner-opened
-handles (Home's conversation store) are not surfaces and are unaffected.
+This decision originally made exactly one live local surface own a workspace,
+with the newest surface displacing the previous one. ADR-0165 replaces that
+browser rule for the universal Epicenter: multiple pages may remain clients of
+one origin replica while an exclusive Web Lock elects one dedicated-worker
+SQLite owner. ADR-0174 replaces the unbounded document log below that owner.
+The pre-clean-break desktop surface rule remains history rather than a contract
+for the replacement Data runtime.
 
 This is a greenfield cut with no migration: the IndexedDB row-document store,
 the single-BLOB `documents` table, the desktop temp-open document bridge, and

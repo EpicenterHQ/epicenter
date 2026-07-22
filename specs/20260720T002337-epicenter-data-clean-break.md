@@ -286,6 +286,18 @@ Object slices before ADR-0177's Proposed selection can be accepted or reversed.
 
 #### W1C: browser replica adapter
 
+- First pass W1C0, the browser-owner topology admission checkpoint. Each live
+  page starts one dedicated-worker candidate; one exclusive origin Web Lock
+  elects the only worker allowed to open the OPFS SAH pool and SQLite replica;
+  waiting candidates own no store or semantic cache. A versioned
+  BroadcastChannel carries addressed RPC, replies, and invalidations only.
+  Prove in maintained Chromium and WebKit evidence that the actual owner
+  context admits the SAH pool, two tabs observe at most one SQLite owner,
+  owner-page close and forced worker termination promote a waiting candidate,
+  reopen passes integrity and accepts another write, profile relaunch preserves
+  the semantic witness, and a mutating request pending across owner loss fails
+  explicitly rather than replaying. Do not begin the browser layout charter
+  until W1C0 passes.
 - Implement the browser OPFS adapter behind the same store boundary and run
   the maintained harness unchanged.
 - Complete the browser slice of the wide-versus-split hot-path charter.
