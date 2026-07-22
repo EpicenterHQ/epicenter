@@ -217,6 +217,15 @@ function tarSections(archive: Uint8Array): TarSection[] {
 	return sections;
 }
 
+function tarEntrySize(archive: Uint8Array, section: TarSection): number {
+	return Number.parseInt(
+		new TextDecoder().decode(
+			archive.subarray(section.start + 124, section.start + 135),
+		),
+		8,
+	);
+}
+
 function concatenate(...parts: Uint8Array[]): Uint8Array {
 	const output = new Uint8Array(
 		parts.reduce((length, part) => length + part.byteLength, 0),
@@ -252,14 +261,16 @@ async function expectImportRefusal(
 	archive: Uint8Array,
 ): Promise<ImportCapture> {
 	const { capture, handler } = setup();
-	await expect(
-		handler(
-			new Request('http://materializer.test/import', {
-				method: 'POST',
-				body: new Blob([Uint8Array.from(archive)]),
-			}),
-		),
-	).rejects.toThrow();
+	const response = await handler(
+		new Request('http://materializer.test/import', {
+			method: 'POST',
+			body: new Blob([Uint8Array.from(archive)]),
+		}),
+	);
+	expect(response.status).toBe(400);
+	expect((await response.json()) as unknown).toEqual({
+		error: 'invalid-portable-backup',
+	});
 	return capture;
 }
 
@@ -357,8 +368,18 @@ test('import refuses malformed, non-file, and oversized TAR headers', async () =
 		),
 		124,
 	);
+	const binaryChecksum = archive.slice();
+	binaryChecksum[index.start + 148] = 0xff;
+	const binaryNumericHeader = archive
+		.subarray(index.start, index.start + 512)
+		.slice();
+	binaryNumericHeader[124] = 0xff;
 
 	await expectImportRefusal(malformed);
+	await expectImportRefusal(binaryChecksum);
+	await expectImportRefusal(
+		replaceHeader(archive, index, withChecksum(binaryNumericHeader)),
+	);
 	await expectImportRefusal(
 		replaceHeader(archive, index, withChecksum(symlinkHeader)),
 	);
@@ -409,4 +430,33 @@ test('import refuses missing and digest-corrupt blob membership', async () => {
 		expect(capture.deleted).toBe(true);
 		expect(capture.sealed).toBe(false);
 	}
+});
+
+test('import refuses hidden bytes in index and blob padding', async () => {
+	const archive = await exportedArchive();
+	const [index, blob] = tarSections(archive);
+	if (index === undefined || blob === undefined) {
+		throw new Error('test archive omitted expected entries');
+	}
+	const blobPadding = archive.slice();
+	blobPadding[blob.start + 512 + tarEntrySize(archive, blob)] = 1;
+	await expectImportRefusal(blobPadding);
+
+	const indexSize = tarEntrySize(archive, index);
+	const shortenedHeader = archive
+		.subarray(index.start, index.start + 512)
+		.slice();
+	shortenedHeader.set(
+		new TextEncoder().encode(
+			`${(indexSize - 1).toString(8).padStart(11, '0')}\0`,
+		),
+		124,
+	);
+	const indexPadding = replaceHeader(
+		archive,
+		index,
+		withChecksum(shortenedHeader),
+	);
+	indexPadding[index.start + 512 + indexSize - 1] = 1;
+	await expectImportRefusal(indexPadding);
 });

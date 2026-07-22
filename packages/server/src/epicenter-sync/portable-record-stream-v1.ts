@@ -206,6 +206,6 @@ export async function* decodePortableMaterializerRecordStream(
 			throw new Error('portable record stream has an unterminated frame');
 		}
 	} finally {
-		reader.releaseLock();
+		await reader.cancel().catch(() => undefined);
 	}
 }

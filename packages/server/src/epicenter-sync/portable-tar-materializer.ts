@@ -16,6 +16,11 @@ import type { SqliteRow } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import {
+	PORTABLE_MATERIALIZER_ADDRESS_HEADERS,
+	PORTABLE_MATERIALIZER_PATHS,
+	PORTABLE_SQLITE_INDEX_MAX_BYTES,
+} from './portable-materializer-contract-v1.js';
+import {
 	decodePortableMaterializerRecordStream,
 	encodePortableMaterializerRecordFrame,
 } from './portable-record-stream-v1.js';
@@ -30,23 +35,27 @@ const ZERO_BLOCK = new Uint8Array(TAR_BLOCK_BYTES);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
-export const PORTABLE_MATERIALIZER_PATHS = {
-	export: '/export',
-	import: '/import',
-	records: '/records',
-	importBegin: '/import/begin',
-	importRecords: '/import/records',
-	importBlobs: '/import/blobs',
-	importSeal: '/import/seal',
-} as const;
+export class InvalidPortableBackupError extends Error {
+	override name = 'InvalidPortableBackupError';
+}
 
-export const PORTABLE_MATERIALIZER_ADDRESS_HEADERS = {
-	namespace: 'x-epicenter-record-namespace',
-	collection: 'x-epicenter-record-collection',
-	recordKey: 'x-epicenter-record-key',
-} as const;
+function invalidPortableBackup(message: string): never {
+	throw new InvalidPortableBackupError(message);
+}
 
-export const PORTABLE_SQLITE_INDEX_MAX_BYTES = 1024 * 1024 * 1024;
+function decodeTarField(bytes: Uint8Array): string {
+	try {
+		return decoder.decode(bytes);
+	} catch {
+		invalidPortableBackup('portable TAR header is not canonical');
+	}
+}
+
+export {
+	PORTABLE_MATERIALIZER_ADDRESS_HEADERS,
+	PORTABLE_MATERIALIZER_PATHS,
+	PORTABLE_SQLITE_INDEX_MAX_BYTES,
+} from './portable-materializer-contract-v1.js';
 
 export type PortableMaterializerFetcher = {
 	fetch(request: Request): Promise<Response>;
@@ -230,6 +239,13 @@ function padding(size: number): Uint8Array {
 	return new Uint8Array(bytes);
 }
 
+async function readZeroPadding(reader: TarReader, size: number): Promise<void> {
+	const bytes = await reader.readExact(padding(size).byteLength);
+	if (bytes.some((byte) => byte !== 0)) {
+		invalidPortableBackup('portable TAR padding is not canonical');
+	}
+}
+
 function streamFromGenerator(
 	generator: AsyncGenerator<Uint8Array>,
 ): ReadableStream<Uint8Array> {
@@ -265,10 +281,14 @@ async function* verifiedBlobChunks(
 	const hasher = new Bun.CryptoHasher('sha256');
 	let seen = 0;
 	const reader = response.body.getReader();
+	let completed = false;
 	try {
 		for (;;) {
 			const result = await reader.read();
-			if (result.done) break;
+			if (result.done) {
+				completed = true;
+				break;
+			}
 			seen += result.value.byteLength;
 			if (seen > expectedSize) {
 				throw new Error('portable Backup blob length changed');
@@ -277,7 +297,7 @@ async function* verifiedBlobChunks(
 			yield result.value;
 		}
 	} finally {
-		reader.releaseLock();
+		if (!completed) await reader.cancel().catch(() => undefined);
 	}
 	if (seen !== expectedSize)
 		throw new Error('portable Backup blob length changed');
@@ -397,7 +417,8 @@ class TarReader {
 		while (offset < length) {
 			if (this.pending.byteLength === 0) {
 				const result = await this.reader.read();
-				if (result.done) throw new Error('portable TAR ended unexpectedly');
+				if (result.done)
+					invalidPortableBackup('portable TAR ended unexpectedly');
 				this.pending = new Uint8Array(result.value);
 			}
 			const count = Math.min(length - offset, this.pending.byteLength);
@@ -411,7 +432,7 @@ class TarReader {
 	async readAtMost(length: number): Promise<Uint8Array> {
 		if (this.pending.byteLength === 0) {
 			const result = await this.reader.read();
-			if (result.done) throw new Error('portable TAR ended unexpectedly');
+			if (result.done) invalidPortableBackup('portable TAR ended unexpectedly');
 			this.pending = new Uint8Array(result.value);
 		}
 		const count = Math.min(length, this.pending.byteLength);
@@ -422,16 +443,15 @@ class TarReader {
 
 	async assertEnd(): Promise<void> {
 		if (this.pending.byteLength !== 0) {
-			throw new Error('portable TAR has trailing bytes');
+			invalidPortableBackup('portable TAR has trailing bytes');
 		}
 		const result = await this.reader.read();
-		if (!result.done) throw new Error('portable TAR has trailing bytes');
+		if (!result.done) invalidPortableBackup('portable TAR has trailing bytes');
 		this.ended = true;
 	}
 
 	async close(): Promise<void> {
 		if (!this.ended) await this.reader.cancel().catch(() => undefined);
-		this.reader.releaseLock();
 	}
 }
 
@@ -444,12 +464,12 @@ function nullTerminatedAscii(
 	const end = field.indexOf(0);
 	const used = end === -1 ? field : field.subarray(0, end);
 	if (end !== -1 && field.subarray(end).some((byte) => byte !== 0)) {
-		throw new Error('portable TAR header is not canonical');
+		invalidPortableBackup('portable TAR header is not canonical');
 	}
 	if (used.some((byte) => byte < 0x20 || byte > 0x7e)) {
-		throw new Error('portable TAR header is not canonical');
+		invalidPortableBackup('portable TAR header is not canonical');
 	}
-	return decoder.decode(used);
+	return decodeTarField(used);
 }
 
 function parseOctalField(
@@ -457,13 +477,13 @@ function parseOctalField(
 	offset: number,
 	length: number,
 ): number {
-	const field = decoder.decode(header.subarray(offset, offset + length));
+	const field = decodeTarField(header.subarray(offset, offset + length));
 	if (!/^[0-7]+\0$/u.test(field)) {
-		throw new Error('portable TAR numeric field is not canonical');
+		invalidPortableBackup('portable TAR numeric field is not canonical');
 	}
 	const value = Number.parseInt(field.slice(0, -1), 8);
 	if (!Number.isSafeInteger(value) || value > MAX_TAR_ENTRY_BYTES) {
-		throw new Error('portable TAR entry is too large');
+		invalidPortableBackup('portable TAR entry is too large');
 	}
 	return value;
 }
@@ -472,29 +492,29 @@ function parseHeader(
 	header: Uint8Array,
 ): { path: string; size: number } | undefined {
 	if (header.every((byte) => byte === 0)) return undefined;
-	const checksumField = decoder.decode(header.subarray(148, 156));
+	const checksumField = decodeTarField(header.subarray(148, 156));
 	if (!/^[0-7]{6}\0 $/u.test(checksumField)) {
-		throw new Error('portable TAR checksum is not canonical');
+		invalidPortableBackup('portable TAR checksum is not canonical');
 	}
 	const expected = Number.parseInt(checksumField.slice(0, 6), 8);
 	const copy = header.slice();
 	copy.fill(0x20, 148, 156);
 	if (copy.reduce((sum, byte) => sum + byte, 0) !== expected) {
-		throw new Error('portable TAR checksum is invalid');
+		invalidPortableBackup('portable TAR checksum is invalid');
 	}
 	if (
-		decoder.decode(header.subarray(100, 108)) !== '0000644\0' ||
-		decoder.decode(header.subarray(108, 116)) !== '0000000\0' ||
-		decoder.decode(header.subarray(116, 124)) !== '0000000\0' ||
-		decoder.decode(header.subarray(136, 148)) !== '00000000000\0' ||
+		decodeTarField(header.subarray(100, 108)) !== '0000644\0' ||
+		decodeTarField(header.subarray(108, 116)) !== '0000000\0' ||
+		decodeTarField(header.subarray(116, 124)) !== '0000000\0' ||
+		decodeTarField(header.subarray(136, 148)) !== '00000000000\0' ||
 		header[156] !== 0x30 ||
-		decoder.decode(header.subarray(257, 263)) !== 'ustar\0' ||
-		decoder.decode(header.subarray(263, 265)) !== '00' ||
+		decodeTarField(header.subarray(257, 263)) !== 'ustar\0' ||
+		decodeTarField(header.subarray(263, 265)) !== '00' ||
 		header.subarray(157, 257).some((byte) => byte !== 0) ||
 		header.subarray(265, 345).some((byte) => byte !== 0) ||
 		header.subarray(500).some((byte) => byte !== 0)
 	) {
-		throw new Error('portable TAR header is not canonical');
+		invalidPortableBackup('portable TAR header is not canonical');
 	}
 	const name = nullTerminatedAscii(header, 0, 100);
 	const prefix = nullTerminatedAscii(header, 345, 155);
@@ -530,7 +550,7 @@ async function writeIndexEntry(
 	} finally {
 		await handle.close();
 	}
-	await reader.readExact(padding(size).byteLength);
+	await readZeroPadding(reader, size);
 }
 
 function streamTarEntry(
@@ -556,9 +576,9 @@ function streamTarEntry(
 					controller.enqueue(chunk);
 					return;
 				}
-				await reader.readExact(padding(size).byteLength);
+				await readZeroPadding(reader, size);
 				if (hasher.digest('hex') !== digest) {
-					throw new Error('portable TAR blob digest verification failed');
+					invalidPortableBackup('portable TAR blob digest verification failed');
 				}
 				controller.close();
 				resolve();
@@ -589,7 +609,7 @@ async function importPortableTar(
 	request: Request,
 ): Promise<Response> {
 	if (request.body === null)
-		throw new Error('portable TAR request body is missing');
+		invalidPortableBackup('portable TAR request body is missing');
 	const directory = await mkdtemp(join(tmpdir(), 'epicenter-portable-import-'));
 	const reader = new TarReader(request.body);
 	let index: Database | undefined;
@@ -598,18 +618,27 @@ async function importPortableTar(
 	try {
 		const first = parseHeader(await reader.readExact(TAR_BLOCK_BYTES));
 		if (first === undefined || first.path !== INDEX_PATH || first.size === 0) {
-			throw new Error('portable TAR must begin with epicenter.sqlite');
+			invalidPortableBackup('portable TAR must begin with epicenter.sqlite');
 		}
 		if (first.size > PORTABLE_SQLITE_INDEX_MAX_BYTES) {
-			throw new Error('portable SQLite index exceeds its byte bound');
+			invalidPortableBackup('portable SQLite index exceeds its byte bound');
 		}
 		const indexPath = join(directory, INDEX_PATH);
 		await writeIndexEntry(reader, indexPath, first.size);
-		index = new Database(indexPath, { readonly: true, strict: true });
-		const metadata = scanPortableArtifactIndex({
-			database: createBunSqliteAdapter(index),
-			onPage: () => undefined,
-		});
+		try {
+			index = new Database(indexPath, { readonly: true, strict: true });
+		} catch {
+			invalidPortableBackup('portable SQLite index is not recognized');
+		}
+		let metadata: ReturnType<typeof scanPortableArtifactIndex>;
+		try {
+			metadata = scanPortableArtifactIndex({
+				database: createBunSqliteAdapter(index),
+				onPage: () => undefined,
+			});
+		} catch {
+			invalidPortableBackup('portable SQLite index is not recognized');
+		}
 		manifest = createManifest(directory, index);
 		importStarted = true;
 		await expectInternalResponse(
@@ -636,10 +665,10 @@ async function importPortableTar(
 			for (const expected of page) {
 				const header = parseHeader(await reader.readExact(TAR_BLOCK_BYTES));
 				if (header === undefined) {
-					throw new Error('portable TAR blob membership is incomplete');
+					invalidPortableBackup('portable TAR blob membership is incomplete');
 				}
 				if (header.path !== expected.path) {
-					throw new Error(
+					invalidPortableBackup(
 						'portable TAR blob order or membership is not canonical',
 					);
 				}
@@ -666,7 +695,7 @@ async function importPortableTar(
 		const firstEnd = parseHeader(await reader.readExact(TAR_BLOCK_BYTES));
 		const secondEnd = parseHeader(await reader.readExact(TAR_BLOCK_BYTES));
 		if (firstEnd !== undefined || secondEnd !== undefined) {
-			throw new Error('portable TAR contains an unexpected entry');
+			invalidPortableBackup('portable TAR contains an unexpected entry');
 		}
 		await reader.assertEnd();
 		await expectInternalResponse(
@@ -694,13 +723,23 @@ export function createPortableTarMaterializer(
 	return async (request) => {
 		const url = new URL(request.url);
 		if (request.method !== 'POST') return new Response(null, { status: 405 });
-		switch (url.pathname) {
-			case PORTABLE_MATERIALIZER_PATHS.export:
-				return exportPortableTar(fetcher);
-			case PORTABLE_MATERIALIZER_PATHS.import:
-				return importPortableTar(fetcher, request);
-			default:
-				return new Response(null, { status: 404 });
+		try {
+			switch (url.pathname) {
+				case PORTABLE_MATERIALIZER_PATHS.export:
+					return await exportPortableTar(fetcher);
+				case PORTABLE_MATERIALIZER_PATHS.import:
+					return await importPortableTar(fetcher, request);
+				default:
+					return new Response(null, { status: 404 });
+			}
+		} catch (cause) {
+			if (cause instanceof InvalidPortableBackupError) {
+				return Response.json(
+					{ error: 'invalid-portable-backup' },
+					{ status: 400 },
+				);
+			}
+			throw cause;
 		}
 	};
 }
