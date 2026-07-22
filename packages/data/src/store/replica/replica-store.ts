@@ -1,5 +1,6 @@
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 
+import { isBlobDigest } from '../../blob-v1/index.js';
 import {
 	type AdmittedSubmissionRequest,
 	admitFactsPage,
@@ -948,6 +949,46 @@ export function openReplicaStore({
 		notify([intent.address]);
 	}
 
+	/**
+	 * Admit one newly minted live record and its already-promoted blob as one
+	 * SQLite fact. The caller owns file staging and debris recovery.
+	 */
+	function admitLocalRecordWithBlob({
+		address,
+		payload,
+		digest,
+	}: {
+		address: RecordAddress;
+		payload: Record<string, JsonValue>;
+		digest: string;
+	}): void {
+		const parsed = parseIntent(
+			{ address, op: 'patch', set: payload, unset: [] },
+			limits,
+		);
+		if (parsed.error !== null) throw new Error(parsed.error.message);
+		if (!isBlobDigest(digest)) throw new TypeError('invalid blob digest');
+		const operation = intentOperation(parsed.data);
+		database.transaction(() => {
+			if (readRecord(database, parsed.data.address) !== null) {
+				throw new Error('record address is already occupied');
+			}
+			database.run(
+				`INSERT INTO records (
+					namespace, collection, record_key, pending_op, pending_args,
+					blob_sha256, blob_pending, blob_parked_code
+				) VALUES (?, ?, ?, ?, ?, ?, 1, NULL)`,
+				[
+					...tripleParams(parsed.data.address),
+					operation.op,
+					operationArgs(operation),
+					digest,
+				],
+			);
+		});
+		notify([parsed.data.address]);
+	}
+
 	function seal(): SealedRequest {
 		return database.transaction(() => {
 			const meta = readMeta(database);
@@ -1270,6 +1311,7 @@ export function openReplicaStore({
 		sync,
 		sealedRequest,
 		localWrite,
+		admitLocalRecordWithBlob,
 		seal,
 		reconstructSealedRequest,
 		installFacts,
