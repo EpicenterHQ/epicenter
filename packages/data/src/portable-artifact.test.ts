@@ -4,6 +4,8 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
 
 import {
+	appendPortableArtifactScratchRecords,
+	initializePortableArtifactScratchIndex,
 	scanPortableArtifactIndex,
 	writePortableArtifactIndex,
 } from './portable-artifact.js';
@@ -74,6 +76,105 @@ test('portable artifacts round-trip live and unset records without source identi
 			},
 			{ scalar: { state: 'unset' }, blobSha256: null },
 		]);
+	} finally {
+		raw.close();
+	}
+});
+
+test('portable scratch indexes accept atomic record pages before publication', () => {
+	const raw = new Database(':memory:', { strict: true });
+	const database = createBunSqliteAdapter(raw);
+	try {
+		initializePortableArtifactScratchIndex(database);
+		expect(
+			appendPortableArtifactScratchRecords({
+				database,
+				records: [
+					{
+						address: {
+							namespace: 'so.epicenter.notes',
+							collection: 'notes',
+							recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+						},
+						scalar: { state: 'live', payload: 'first' },
+						documentUpdateV2: null,
+						blobSha256: null,
+					},
+				],
+			}),
+		).toBe(1);
+		expect(
+			appendPortableArtifactScratchRecords({
+				database,
+				records: [
+					{
+						address: {
+							namespace: 'so.epicenter.notes',
+							collection: 'notes',
+							recordKey: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+						},
+						scalar: { state: 'unset' },
+						documentUpdateV2: documentUpdate(),
+						blobSha256: 'b'.repeat(64),
+					},
+				],
+			}),
+		).toBe(1);
+		expect(
+			scanPortableArtifactIndex({ database, onPage: () => undefined }),
+		).toEqual({
+			kind: 'portable',
+			formatVersion: 1,
+			recordCount: 2,
+		});
+
+		const entries: unknown[] = [];
+		scanPortableArtifactIndex({
+			database,
+			onPage: (page) => entries.push(...page),
+		});
+		expect(entries).toHaveLength(2);
+	} finally {
+		raw.close();
+	}
+});
+
+test('a rejected portable page leaves no partial records', () => {
+	const raw = new Database(':memory:', { strict: true });
+	const database = createBunSqliteAdapter(raw);
+	try {
+		initializePortableArtifactScratchIndex(database);
+		expect(() =>
+			appendPortableArtifactScratchRecords({
+				database,
+				records: [
+					{
+						address: {
+							namespace: 'so.epicenter.notes',
+							collection: 'notes',
+							recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+						},
+						scalar: { state: 'unset' },
+						documentUpdateV2: null,
+						blobSha256: null,
+					},
+					{
+						address: {
+							namespace: 'so.epicenter.notes',
+							collection: 'notes',
+							recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+						},
+						scalar: { state: 'unset' },
+						documentUpdateV2: null,
+						blobSha256: null,
+					},
+				],
+			}),
+		).toThrow();
+		expect(
+			scanPortableArtifactIndex({ database, onPage: () => undefined })
+				.recordCount,
+		).toBe(0);
 	} finally {
 		raw.close();
 	}

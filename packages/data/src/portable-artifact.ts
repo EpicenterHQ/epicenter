@@ -317,6 +317,93 @@ function recordFromRow(row: PortableRow): PortableArtifactRecord {
 	};
 }
 
+function createPortableArtifactSchema(database: SqliteDatabase): void {
+	for (const statement of PORTABLE_SCHEMA) database.run(statement);
+	database.run(
+		`INSERT INTO _epicenter_artifact (singleton, kind, format_version)
+		VALUES (1, 'portable', ?)`,
+		[PORTABLE_ARTIFACT_FORMAT_VERSION],
+	);
+}
+
+function insertPortableArtifactRecords(
+	database: SqliteDatabase,
+	records: Iterable<PortableArtifactRecord>,
+): number {
+	let recordCount = 0;
+	for (const record of records) {
+		const address = validateAddress(record.address);
+		const payload = validateScalar(address, record.scalar);
+		const document =
+			record.documentUpdateV2 === null
+				? null
+				: validateDocument(record.documentUpdateV2);
+		if (record.blobSha256 !== null && !isBlobDigest(record.blobSha256)) {
+			throw new Error('Portable record has an invalid blob digest');
+		}
+		database.run(
+			`INSERT INTO _epicenter_records (
+				namespace, collection, record_key, payload_json,
+				document_update_v2, blob_sha256
+			) VALUES (?, ?, ?, ?, ?, ?)`,
+			[
+				address.namespace,
+				address.collection,
+				address.recordKey,
+				payload,
+				document,
+				record.blobSha256,
+			],
+		);
+		recordCount += 1;
+	}
+	return recordCount;
+}
+
+function portableArtifactMetadata(
+	database: SqliteDatabase,
+): PortableArtifactIndexMetadata {
+	assertPortableSchema(database);
+	assertCellBounds(database);
+	assertIntegrity(database);
+	const recordCount =
+		database.all<{ count: number }>(
+			'SELECT count(*) AS count FROM _epicenter_records',
+		)[0]?.count ?? 0;
+	return {
+		kind: 'portable',
+		formatVersion: PORTABLE_ARTIFACT_FORMAT_VERSION,
+		recordCount,
+	};
+}
+
+/**
+ * Initialize disposable scratch storage for bounded portable-index writes.
+ *
+ * The caller must keep the database unpublished until a complete scan passes.
+ * An interrupted or uncertain build is discarded wholesale, never resumed.
+ */
+export function initializePortableArtifactScratchIndex(
+	database: SqliteDatabase,
+): void {
+	assertEmpty(database);
+	database.transaction(() => createPortableArtifactSchema(database));
+}
+
+/** Append one atomic page to unpublished portable-index scratch storage. */
+export function appendPortableArtifactScratchRecords({
+	database,
+	records,
+}: {
+	database: SqliteDatabase;
+	records: Iterable<PortableArtifactRecord>;
+}): number {
+	return database.transaction(() => {
+		assertPortableSchema(database);
+		return insertPortableArtifactRecords(database, records);
+	});
+}
+
 /** Write the identity-free SQLite index for one portable Epicenter. */
 export function writePortableArtifactIndex({
 	database,
@@ -326,49 +413,11 @@ export function writePortableArtifactIndex({
 	records: Iterable<PortableArtifactRecord>;
 }): PortableArtifactIndexMetadata {
 	assertEmpty(database);
-	let recordCount = 0;
-	database.transaction(() => {
-		for (const statement of PORTABLE_SCHEMA) database.run(statement);
-		database.run(
-			`INSERT INTO _epicenter_artifact (singleton, kind, format_version)
-			VALUES (1, 'portable', ?)`,
-			[PORTABLE_ARTIFACT_FORMAT_VERSION],
-		);
-		for (const record of records) {
-			const address = validateAddress(record.address);
-			const payload = validateScalar(address, record.scalar);
-			const document =
-				record.documentUpdateV2 === null
-					? null
-					: validateDocument(record.documentUpdateV2);
-			if (record.blobSha256 !== null && !isBlobDigest(record.blobSha256)) {
-				throw new Error('Portable record has an invalid blob digest');
-			}
-			database.run(
-				`INSERT INTO _epicenter_records (
-					namespace, collection, record_key, payload_json,
-					document_update_v2, blob_sha256
-				) VALUES (?, ?, ?, ?, ?, ?)`,
-				[
-					address.namespace,
-					address.collection,
-					address.recordKey,
-					payload,
-					document,
-					record.blobSha256,
-				],
-			);
-			recordCount += 1;
-		}
-		assertPortableSchema(database);
-		assertCellBounds(database);
-		assertIntegrity(database);
+	return database.transaction(() => {
+		createPortableArtifactSchema(database);
+		insertPortableArtifactRecords(database, records);
+		return portableArtifactMetadata(database);
 	});
-	return {
-		kind: 'portable',
-		formatVersion: PORTABLE_ARTIFACT_FORMAT_VERSION,
-		recordCount,
-	};
 }
 
 /**
@@ -386,13 +435,8 @@ export function scanPortableArtifactIndex({
 	onPage(page: PortableArtifactRecordPage): void;
 }): PortableArtifactIndexMetadata {
 	return database.readTransaction(() => {
-		assertPortableSchema(database);
-		assertCellBounds(database);
-		assertIntegrity(database);
-		const recordCount =
-			database.all<{ count: number }>(
-				'SELECT count(*) AS count FROM _epicenter_records',
-			)[0]?.count ?? 0;
+		const metadata = portableArtifactMetadata(database);
+		const recordCount = metadata.recordCount;
 		let cursor: RecordAddress | undefined;
 		let seen = 0;
 		for (;;) {
@@ -430,10 +474,6 @@ export function scanPortableArtifactIndex({
 		if (seen !== recordCount) {
 			throw new Error('Portable artifact record scan is incomplete');
 		}
-		return {
-			kind: 'portable',
-			formatVersion: PORTABLE_ARTIFACT_FORMAT_VERSION,
-			recordCount,
-		};
+		return metadata;
 	});
 }
