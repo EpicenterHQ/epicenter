@@ -7,6 +7,12 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { createEpicenter } from './epicenter.js';
 import { openReplica } from './replica/index.js';
 
+export {
+	type BlobByteSource,
+	type BunBlobRead,
+	createBunBlobFileStore,
+} from './store/replica/bun-blob-files.js';
+
 export type OpenBunEpicenterOptions =
 	| { path: string; directory?: never }
 	| { path?: never; directory: string };
