@@ -2,14 +2,16 @@
  * Scalar V1 Authority Fold Tests
  *
  * Exercises every transition of the pure authority fold: one current fact plus
- * one intent yields the next fact, or reports the current fact unchanged so no
- * sequence is spent.
+ * one operation yields the next fact, reports the current fact unchanged so no
+ * sequence is spent, or refuses a patch over a live non-object base.
  *
  * Key behaviors:
- * - Row-present is upsert-patch: it folds over the live row or an empty base
- * - Independent top-level fields compose; `set` is applied before `unset`
- * - A terminal row tombstone dominates a later row-present intent
- * - Row-absent installs or preserves the tombstone; value-absent is reversible
+ * - Absorption first: a stored tombstone settles every operation as
+ *   superseded, before any payload or operation-specific logic
+ * - Patch is upsert: it folds over the live payload or an empty base
+ * - Independent top-level fields compose; set and unset are disjoint
+ * - A patch over a live non-object base is refused as patch-base-not-object
+ * - Unset is reversible: a later replace or patch resurrects the record
  * - Idempotent transitions report `unchanged`
  */
 import { describe, expect, test } from 'bun:test';
@@ -20,164 +22,209 @@ import {
 	type Intent,
 	type JsonObject,
 	type JsonValue,
-	type RowAddress,
-	type ValueAddress,
+	type RecordAddress,
 } from './index.js';
 
-const ROW: RowAddress = {
-	kind: 'row',
+const RECORD: RecordAddress = {
 	namespace: 'so.epicenter.notes',
-	table: 'recordings',
-	rowId: 'abc123def456ghi789jkl012',
-};
-const VALUE: ValueAddress = {
-	kind: 'value',
-	namespace: 'so.epicenter.settings',
-	value: 'language',
+	collection: 'recordings',
+	recordKey: 'abc123def456ghi789jkl012',
 };
 
-const rowPresent = (fields: JsonObject, sequence = 1): Fact => ({
-	address: ROW,
+const live = (payload: JsonValue, sequence = 1): Fact => ({
+	address: RECORD,
 	sequence,
-	presence: 'present',
-	fields,
+	state: 'live',
+	payload,
 });
-const rowAbsent = (sequence = 2): Fact => ({
-	address: ROW,
+const tombstone = (sequence = 2): Fact => ({
+	address: RECORD,
 	sequence,
-	presence: 'absent',
+	state: 'tombstone',
 });
-const valuePresent = (content: JsonValue, sequence = 1): Fact => ({
-	address: VALUE,
+const unsetFact = (sequence = 2): Fact => ({
+	address: RECORD,
 	sequence,
-	presence: 'present',
-	content,
-});
-const valueAbsent = (sequence = 2): Fact => ({
-	address: VALUE,
-	sequence,
-	presence: 'absent',
+	state: 'unset',
 });
 
-const rowPatch = (set: JsonObject, unset: string[] = []): Intent => ({
-	address: ROW,
-	presence: 'present',
+const patch = (set: JsonObject, unset: string[] = []): Intent => ({
+	address: RECORD,
+	op: 'patch',
 	set,
 	unset,
 });
-const rowDelete = (): Intent => ({ address: ROW, presence: 'absent' });
-const valueSet = (content: JsonValue): Intent => ({
-	address: VALUE,
-	presence: 'present',
-	content,
+const replace = (value: JsonValue): Intent => ({
+	address: RECORD,
+	op: 'replace',
+	value,
 });
-const valueUnset = (): Intent => ({ address: VALUE, presence: 'absent' });
+const deleteOp = (): Intent => ({ address: RECORD, op: 'tombstone' });
+const unsetOp = (): Intent => ({ address: RECORD, op: 'unset' });
 
-describe('row-present upsert-patch', () => {
-	test('over no fact installs a present row from an empty base', () => {
-		expect(foldIntent(undefined, rowPatch({ title: 'A' }), 5)).toEqual({
+describe('patch is upsert', () => {
+	test('over no fact installs a live record from an empty base', () => {
+		expect(foldIntent(undefined, patch({ title: 'A' }), 5)).toEqual({
 			kind: 'changed',
-			fact: rowPresent({ title: 'A' }, 5),
+			fact: live({ title: 'A' }, 5),
 		});
 	});
 
-	test('over no fact with an empty patch installs a present empty row', () => {
-		expect(foldIntent(undefined, rowPatch({}), 5)).toEqual({
+	test('over no fact with an empty patch installs a live empty object', () => {
+		expect(foldIntent(undefined, patch({}), 5)).toEqual({
 			kind: 'changed',
-			fact: rowPresent({}, 5),
+			fact: live({}, 5),
 		});
 	});
 
-	test('independent top-level fields compose over the live row', () => {
-		const afterFirst = foldIntent(undefined, rowPatch({ title: 'A' }), 1);
+	test('over a reversible unset folds over an empty base', () => {
+		expect(foldIntent(unsetFact(), patch({ title: 'A' }), 5)).toEqual({
+			kind: 'changed',
+			fact: live({ title: 'A' }, 5),
+		});
+	});
+
+	test('independent top-level fields compose over the live payload', () => {
+		const afterFirst = foldIntent(undefined, patch({ title: 'A' }), 1);
 		expect(afterFirst.kind).toBe('changed');
 		const base = afterFirst.kind === 'changed' ? afterFirst.fact : undefined;
-		expect(foldIntent(base, rowPatch({ status: 'open' }), 2)).toEqual({
+		expect(foldIntent(base, patch({ status: 'open' }), 2)).toEqual({
 			kind: 'changed',
-			fact: rowPresent({ title: 'A', status: 'open' }, 2),
+			fact: live({ title: 'A', status: 'open' }, 2),
 		});
 	});
 
-	test('applies set before unset', () => {
+	test('set and unset apply as one disjoint field patch', () => {
 		const folded = foldIntent(
-			rowPresent({ title: 'A', keep: true }),
-			rowPatch({ title: 'B', remove: 'set-first' }, ['remove']),
+			live({ title: 'A', keep: true, remove: 'x' }),
+			patch({ title: 'B' }, ['remove']),
 			9,
 		);
 		expect(folded).toEqual({
 			kind: 'changed',
-			fact: rowPresent({ title: 'B', keep: true }, 9),
+			fact: live({ title: 'B', keep: true }, 9),
 		});
 	});
 
-	test('an idempotent patch over the live row is unchanged', () => {
+	test('unknown fields written by another Lens survive a patch', () => {
 		expect(
-			foldIntent(rowPresent({ title: 'A' }), rowPatch({ title: 'A' }), 9),
+			foldIntent(
+				live({ title: 'A', unknownField: [1, 2] }),
+				patch({ title: 'B' }),
+				9,
+			),
 		).toEqual({
-			kind: 'unchanged',
-		});
-		expect(foldIntent(rowPresent({ title: 'A' }), rowPatch({}), 9)).toEqual({
-			kind: 'unchanged',
-		});
-	});
-
-	test('over a terminal tombstone the row does not resurrect', () => {
-		expect(foldIntent(rowAbsent(), rowPatch({ title: 'A' }), 9)).toEqual({
-			kind: 'unchanged',
-		});
-	});
-});
-
-describe('row-absent tombstone', () => {
-	test('over a live row installs the tombstone', () => {
-		expect(foldIntent(rowPresent({ title: 'A' }), rowDelete(), 9)).toEqual({
 			kind: 'changed',
-			fact: rowAbsent(9),
+			fact: live({ title: 'B', unknownField: [1, 2] }, 9),
 		});
 	});
-	test('over no fact installs the tombstone', () => {
-		expect(foldIntent(undefined, rowDelete(), 9)).toEqual({
-			kind: 'changed',
-			fact: rowAbsent(9),
+
+	test('an idempotent patch over the live payload is unchanged', () => {
+		expect(foldIntent(live({ title: 'A' }), patch({ title: 'A' }), 9)).toEqual({
+			kind: 'unchanged',
 		});
-	});
-	test('over an existing tombstone is unchanged', () => {
-		expect(foldIntent(rowAbsent(), rowDelete(), 9)).toEqual({
+		expect(foldIntent(live({ title: 'A' }), patch({}), 9)).toEqual({
 			kind: 'unchanged',
 		});
 	});
-});
 
-describe('value present and reversible absence', () => {
-	test('set replaces over no fact, live, and unset', () => {
-		for (const current of [undefined, valuePresent('dark'), valueAbsent()]) {
-			expect(foldIntent(current, valueSet('light'), 7)).toEqual({
-				kind: 'changed',
-				fact: valuePresent('light', 7),
+	test('over a live non-object base is refused as patch-base-not-object', () => {
+		for (const payload of ['scalar', 0, false, null, [1, 2]] as JsonValue[]) {
+			expect(foldIntent(live(payload), patch({ title: 'A' }), 9)).toEqual({
+				kind: 'refused',
+				code: 'patch-base-not-object',
 			});
 		}
 	});
-	test('an idempotent set is unchanged', () => {
-		expect(foldIntent(valuePresent('dark'), valueSet('dark'), 7)).toEqual({
+});
+
+describe('replace', () => {
+	test('replaces over no fact, live, and unset', () => {
+		for (const current of [undefined, live('dark'), unsetFact()]) {
+			expect(foldIntent(current, replace('light'), 7)).toEqual({
+				kind: 'changed',
+				fact: live('light', 7),
+			});
+		}
+	});
+	test('replaces a live object with a scalar and back', () => {
+		expect(foldIntent(live({ a: 1 }), replace(5), 7)).toEqual({
+			kind: 'changed',
+			fact: live(5, 7),
+		});
+		expect(foldIntent(live(5), replace({ a: 1 }), 8)).toEqual({
+			kind: 'changed',
+			fact: live({ a: 1 }, 8),
+		});
+	});
+	test('an idempotent replace is unchanged', () => {
+		expect(foldIntent(live('dark'), replace('dark'), 7)).toEqual({
 			kind: 'unchanged',
 		});
 	});
-	test('unset over a live value installs a reversible absence a later set revives', () => {
-		expect(foldIntent(valuePresent('dark'), valueUnset(), 7)).toEqual({
+	test('null is an ordinary live payload, not absence', () => {
+		expect(foldIntent(live('dark'), replace(null), 7)).toEqual({
 			kind: 'changed',
-			fact: valueAbsent(7),
+			fact: live(null, 7),
 		});
-		expect(foldIntent(valueAbsent(), valueSet('again'), 8)).toEqual({
+	});
+});
+
+describe('tombstone is terminal, absorption evaluated first', () => {
+	test('over a live record installs the tombstone', () => {
+		expect(foldIntent(live({ title: 'A' }), deleteOp(), 9)).toEqual({
 			kind: 'changed',
-			fact: valuePresent('again', 8),
+			fact: tombstone(9),
+		});
+	});
+	test('over no fact installs the tombstone', () => {
+		expect(foldIntent(undefined, deleteOp(), 9)).toEqual({
+			kind: 'changed',
+			fact: tombstone(9),
+		});
+	});
+	test('over a reversible unset installs the tombstone', () => {
+		expect(foldIntent(unsetFact(), deleteOp(), 9)).toEqual({
+			kind: 'changed',
+			fact: tombstone(9),
+		});
+	});
+	test('every operation over an existing tombstone is unchanged', () => {
+		for (const op of [
+			patch({ title: 'A' }),
+			replace('resurrect'),
+			deleteOp(),
+			unsetOp(),
+		]) {
+			expect(foldIntent(tombstone(), op, 9)).toEqual({ kind: 'unchanged' });
+		}
+	});
+	test('absorption is checked before the patch base: a tombstone never refuses', () => {
+		// If payload logic ran first, a patch would probe the (absent) base. The
+		// tombstone must absorb before any payload inspection.
+		expect(foldIntent(tombstone(), patch({ a: 1 }, ['b']), 9)).toEqual({
+			kind: 'unchanged',
+		});
+	});
+});
+
+describe('unset is reversible absence', () => {
+	test('unset over a live record installs an absence a later replace revives', () => {
+		expect(foldIntent(live('dark'), unsetOp(), 7)).toEqual({
+			kind: 'changed',
+			fact: unsetFact(7),
+		});
+		expect(foldIntent(unsetFact(7), replace('again'), 8)).toEqual({
+			kind: 'changed',
+			fact: live('again', 8),
 		});
 	});
 	test('unset over no fact installs absence; over existing absence is unchanged', () => {
-		expect(foldIntent(undefined, valueUnset(), 7)).toEqual({
+		expect(foldIntent(undefined, unsetOp(), 7)).toEqual({
 			kind: 'changed',
-			fact: valueAbsent(7),
+			fact: unsetFact(7),
 		});
-		expect(foldIntent(valueAbsent(), valueUnset(), 8)).toEqual({
+		expect(foldIntent(unsetFact(), unsetOp(), 8)).toEqual({
 			kind: 'unchanged',
 		});
 	});

@@ -1,7 +1,7 @@
 /**
  * Scalar V1 Reference Authority Tests
  *
- * Proves the authority state machine that Wave 2c will realize over SQLite:
+ * Proves the authority state machine that W2 will realize over SQLite:
  * numbered submissions, exact retry (including under concurrent rewrites and
  * tombstones), fork and gap refusal, lifetime binding, the fact feed, direct
  * settlement facts, terminal tombstones, bounded parked results, sequence
@@ -15,6 +15,7 @@
  *   bytes and `hasMore` comes from one snapshot
  * - Exact retry returns newer current facts while preserving original
  *   adjudication and parked results
+ * - Both parked codes park without touching the current fact
  * - Every response, ledger entry, and successor state is detached: mutating one
  *   never affects another
  */
@@ -29,11 +30,10 @@ import {
 	type Fact,
 	type Intent,
 	minimumFactsResponseBytes,
-	type RowAddress,
+	type RecordAddress,
 	readFacts,
 	type SubmissionRequest,
 	submit,
-	type ValueAddress,
 } from './index.js';
 import {
 	admitFacts,
@@ -49,32 +49,31 @@ const OTHER_LIFETIME = 'lifetime-two';
 const REPLICA = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const REPLICA_B = 'ssssssssssssssssssssssss';
 
-const valueAt = (key: string): ValueAddress => ({
-	kind: 'value',
-	namespace: 'so.epicenter.settings',
-	value: key,
+const valueAt = (key: string): RecordAddress => ({
+	namespace: 'so.epicenter.whispering',
+	collection: 'settings',
+	recordKey: key,
 });
-const rowId = (index: number): string => String(index).padStart(24, 'a');
-const rowAt = (index: number): RowAddress => ({
-	kind: 'row',
+const recordKey = (index: number): string => String(index).padStart(24, 'a');
+const rowAt = (index: number): RecordAddress => ({
 	namespace: 'so.epicenter.notes',
-	table: 'recordings',
-	rowId: rowId(index),
+	collection: 'recordings',
+	recordKey: recordKey(index),
 });
-const setValue = (key: string, content: string): Intent => ({
+const setValue = (key: string, value: string): Intent => ({
 	address: valueAt(key),
-	presence: 'present',
-	content,
+	op: 'replace',
+	value,
 });
 const patchRow = (index: number, set: Record<string, string>): Intent => ({
 	address: rowAt(index),
-	presence: 'present',
+	op: 'patch',
 	set,
 	unset: [],
 });
 const deleteRow = (index: number): Intent => ({
 	address: rowAt(index),
-	presence: 'absent',
+	op: 'tombstone',
 });
 
 const sub = (
@@ -98,14 +97,8 @@ const advance = (
 ): AuthorityState =>
 	expectOk(submit(state, admitSubmission(request, limits), limits)).state;
 
-const factContent = (fact: Fact | undefined): unknown =>
-	fact !== undefined && fact.presence === 'present' && 'content' in fact
-		? fact.content
-		: undefined;
-const factFields = (fact: Fact | undefined): unknown =>
-	fact !== undefined && fact.presence === 'present' && 'fields' in fact
-		? fact.fields
-		: undefined;
+const factPayload = (fact: Fact | undefined): unknown =>
+	fact !== undefined && fact.state === 'live' ? fact.payload : undefined;
 
 describe('fresh authority', () => {
 	test('starts at sequence one with no facts', () => {
@@ -129,7 +122,7 @@ describe('sequence assignment', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(state, sub(1, [setValue('theme', 'dark')]));
 		expect(state.nextSequence).toBe(2);
-		// An idempotent set spends nothing; installing a tombstone spends one.
+		// An idempotent replace spends nothing; installing a tombstone spends one.
 		const next = advance(
 			state,
 			sub(2, [setValue('theme', 'dark'), deleteRow(9)]),
@@ -357,7 +350,26 @@ describe('fact feed', () => {
 		);
 		expect(seen.facts).toHaveLength(1);
 		expect(seen.facts[0]?.sequence).toBe(2);
-		expect(factContent(seen.facts[0])).toBe('light');
+		expect(factPayload(seen.facts[0])).toBe('light');
+	});
+
+	test('a fresh replica learns live facts, tombstones, and unsets from zero', () => {
+		let state = makeAuthority(LIFETIME, LIMITS);
+		state = advance(
+			state,
+			sub(1, [patchRow(0, { title: 'A' }), setValue('theme', 'dark')]),
+		);
+		state = advance(
+			state,
+			sub(2, [deleteRow(0), { address: valueAt('theme'), op: 'unset' }]),
+		);
+		const read = expectOk(
+			readFacts(state, admitFacts({ afterSequence: 0 }, LIMITS), LIMITS),
+		);
+		expect(read.facts.map((fact) => fact.state).sort()).toEqual([
+			'tombstone',
+			'unset',
+		]);
 	});
 
 	test('a rewrite between pages still makes forward progress', () => {
@@ -434,7 +446,7 @@ describe('direct settlement facts', () => {
 		]);
 	});
 
-	test('a deleted row settles a later row-present intent to the tombstone', () => {
+	test('a deleted record settles a later patch to the tombstone', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(state, sub(1, [patchRow(0, { title: 'A' })]));
 		state = advance(state, sub(2, [deleteRow(0)]));
@@ -445,7 +457,25 @@ describe('direct settlement facts', () => {
 				LIMITS,
 			),
 		);
-		expect(result.response.facts[0]?.presence).toBe('absent');
+		expect(result.response.facts[0]?.state).toBe('tombstone');
+	});
+
+	test('a tombstone settles a later replace and unset as superseded too', () => {
+		let state = makeAuthority(LIFETIME, LIMITS);
+		state = advance(state, sub(1, [setValue('theme', 'dark')]));
+		state = advance(
+			state,
+			sub(2, [{ address: valueAt('theme'), op: 'tombstone' }]),
+		);
+		const result = expectOk(
+			submit(
+				state,
+				admitSubmission(sub(3, [setValue('theme', 'light')]), LIMITS),
+				LIMITS,
+			),
+		);
+		expect(result.response.facts[0]?.state).toBe('tombstone');
+		expect(result.state.nextSequence).toBe(state.nextSequence);
 	});
 });
 
@@ -453,7 +483,7 @@ describe('parked fact-too-large', () => {
 	const tight = makeLimits({ maxEncodedFactBytes: 420 });
 	const big = 'x'.repeat(150);
 
-	test('a patch over a different live base is parked while the live row stays', () => {
+	test('a patch over a different live base is parked while the live record stays', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(state, sub(1, [patchRow(0, { a: big })]), tight);
 		const result = expectOk(
@@ -464,14 +494,12 @@ describe('parked fact-too-large', () => {
 			),
 		);
 		expect(result.response.parked).toHaveLength(1);
-		expect(result.response.parked[0]?.code).toBe('fact-too-large');
-		expect(result.response.parked[0]?.limitBytes).toBe(
-			tight.maxEncodedFactBytes,
-		);
-		expect(result.response.parked[0]?.measuredBytes).toBeGreaterThan(
-			tight.maxEncodedFactBytes,
-		);
-		expect(factFields(result.response.facts[0])).toEqual({ a: big });
+		const parked = result.response.parked[0];
+		expect(parked?.code).toBe('fact-too-large');
+		if (parked?.code !== 'fact-too-large') throw new Error('unreachable');
+		expect(parked.limitBytes).toBe(tight.maxEncodedFactBytes);
+		expect(parked.measuredBytes).toBeGreaterThan(tight.maxEncodedFactBytes);
+		expect(factPayload(result.response.facts[0])).toEqual({ a: big });
 		expect(result.state.nextSequence).toBe(state.nextSequence);
 	});
 
@@ -484,7 +512,7 @@ describe('parked fact-too-large', () => {
 		expect(retry.response.parked).toEqual(first.response.parked);
 	});
 
-	test('parked retry after another replica tombstones the row keeps parked and returns the tombstone', () => {
+	test('parked retry after another replica tombstones the record keeps parked and returns the tombstone', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(state, sub(1, [patchRow(0, { a: big })]), tight);
 		const parkingRequest = admitSubmission(
@@ -492,7 +520,7 @@ describe('parked fact-too-large', () => {
 			tight,
 		);
 		const parked = expectOk(submit(state, parkingRequest, tight));
-		// Another replica deletes the row.
+		// Another replica deletes the record.
 		const tombstoned = advance(
 			parked.state,
 			sub(1, [deleteRow(0)], { replicaId: REPLICA_B }),
@@ -501,7 +529,73 @@ describe('parked fact-too-large', () => {
 		// The original replica retries its parked submission.
 		const retry = expectOk(submit(tombstoned, parkingRequest, tight));
 		expect(retry.response.parked).toEqual(parked.response.parked);
-		expect(retry.response.facts[0]?.presence).toBe('absent');
+		expect(retry.response.facts[0]?.state).toBe('tombstone');
+	});
+});
+
+describe('parked patch-base-not-object', () => {
+	test('a patch over a live non-object base is parked while the live value stays', () => {
+		let state = makeAuthority(LIFETIME, LIMITS);
+		state = advance(state, sub(1, [setValue('scalar', 'five')]));
+		const result = expectOk(
+			submit(
+				state,
+				admitSubmission(
+					sub(2, [
+						{
+							address: valueAt('scalar'),
+							op: 'patch',
+							set: { a: 1 },
+							unset: [],
+						},
+					]),
+					LIMITS,
+				),
+				LIMITS,
+			),
+		);
+		expect(result.response.parked).toEqual([
+			{ address: valueAt('scalar'), code: 'patch-base-not-object' },
+		]);
+		expect(factPayload(result.response.facts[0])).toBe('five');
+		expect(result.state.nextSequence).toBe(state.nextSequence);
+	});
+
+	test('exact retry returns the same stable parked result', () => {
+		let state = makeAuthority(LIFETIME, LIMITS);
+		state = advance(state, sub(1, [setValue('scalar', 'five')]));
+		const request = admitSubmission(
+			sub(2, [
+				{ address: valueAt('scalar'), op: 'patch', set: { a: 1 }, unset: [] },
+			]),
+			LIMITS,
+		);
+		const first = expectOk(submit(state, request, LIMITS));
+		const retry = expectOk(submit(first.state, request, LIMITS));
+		expect(retry.response.parked).toEqual(first.response.parked);
+	});
+
+	test('a patch over a missing or unset base folds over an empty object instead', () => {
+		const state = makeAuthority(LIFETIME, LIMITS);
+		const fresh = expectOk(
+			submit(
+				state,
+				admitSubmission(
+					sub(1, [
+						{
+							address: valueAt('missing'),
+							op: 'patch',
+							set: { a: 1 },
+							unset: [],
+						},
+					]),
+					LIMITS,
+				),
+				LIMITS,
+			),
+		);
+		expect(fresh.response.parked).toEqual([]);
+		expect(factPayload(fresh.response.facts[0])).toEqual({ a: 1 });
 	});
 });
 
@@ -517,7 +611,7 @@ describe('exact retry under concurrent rewrite', () => {
 			sub(1, [setValue('k', 'b')], { replicaId: REPLICA_B }),
 		);
 		const retry = expectOk(submit(rewritten, request, LIMITS));
-		expect(factContent(retry.response.facts[0])).toBe('b');
+		expect(factPayload(retry.response.facts[0])).toBe('b');
 		// Original adjudication preserved: no new sequence, no state change.
 		expect(retry.state.nextSequence).toBe(rewritten.nextSequence);
 	});
@@ -560,12 +654,12 @@ describe('ownership and mutation isolation', () => {
 		// The admitted request is sealed, so a mutation attempt throws; the stored
 		// fact is unaffected either way.
 		const intent = admitted.intents[0];
-		if (intent?.presence === 'present' && 'set' in intent) {
+		if (intent?.op === 'patch') {
 			expect(() => {
 				(intent.set as Record<string, string>).title = 'MUTATED';
 			}).toThrow();
 		}
-		expect(factFields([...result.state.facts.values()][0])).toEqual({
+		expect(factPayload([...result.state.facts.values()][0])).toEqual({
 			title: 'A',
 		});
 	});
@@ -579,9 +673,15 @@ describe('ownership and mutation isolation', () => {
 			),
 		);
 		const returned = result.response.facts[0];
-		if (returned?.presence === 'present' && 'fields' in returned)
-			returned.fields.title = 'MUTATED';
-		expect(factFields([...result.state.facts.values()][0])).toEqual({
+		if (
+			returned?.state === 'live' &&
+			typeof returned.payload === 'object' &&
+			returned.payload !== null &&
+			!Array.isArray(returned.payload)
+		) {
+			returned.payload.title = 'MUTATED';
+		}
+		expect(factPayload([...result.state.facts.values()][0])).toEqual({
 			title: 'A',
 		});
 	});
@@ -610,9 +710,13 @@ describe('ownership and mutation isolation', () => {
 		const request = admitSubmission(sub(2, [patchRow(0, { b: big })]), tight);
 		const first = expectOk(submit(state, request, tight));
 		const parked = first.response.parked[0];
-		if (parked !== undefined) parked.measuredBytes = 0;
+		if (parked?.code === 'fact-too-large') parked.measuredBytes = 0;
 		const retry = expectOk(submit(first.state, request, tight));
-		expect(retry.response.parked[0]?.measuredBytes).toBeGreaterThan(
+		const retriedParked = retry.response.parked[0];
+		if (retriedParked?.code !== 'fact-too-large') {
+			throw new Error('expected a fact-too-large parked result');
+		}
+		expect(retriedParked.measuredBytes).toBeGreaterThan(
 			tight.maxEncodedFactBytes,
 		);
 	});
@@ -624,11 +728,21 @@ describe('ownership and mutation isolation', () => {
 		);
 		const successor = advance(predecessor, sub(2, [setValue('k', 'v')]));
 		const carried = [...successor.facts.values()].find(
-			(fact) => fact.presence === 'present' && 'fields' in fact,
+			(fact) =>
+				fact.state === 'live' &&
+				typeof fact.payload === 'object' &&
+				fact.payload !== null &&
+				!Array.isArray(fact.payload),
 		);
-		if (carried?.presence === 'present' && 'fields' in carried)
-			carried.fields.title = 'MUTATED';
-		expect(factFields([...predecessor.facts.values()][0])).toEqual({
+		if (
+			carried?.state === 'live' &&
+			typeof carried.payload === 'object' &&
+			carried.payload !== null &&
+			!Array.isArray(carried.payload)
+		) {
+			carried.payload.title = 'MUTATED';
+		}
+		expect(factPayload([...predecessor.facts.values()][0])).toEqual({
 			title: 'A',
 		});
 	});
@@ -649,8 +763,9 @@ describe('ownership and mutation isolation', () => {
 		expect(ledgerA1).not.toBe(ledgerA2); // distinct objects
 		// Mutate the successor's copy of A's touched addresses.
 		const touched = ledgerA2?.touchedAddresses[0];
-		if (touched !== undefined && touched.kind === 'value')
-			touched.value = 'MUTATED';
+		if (touched !== undefined) {
+			(touched as { recordKey: string }).recordKey = 'mutatedmutatedmutatedmut';
+		}
 		// A's exact retry against the predecessor is unaffected.
 		const retry = expectOk(
 			submit(
@@ -676,12 +791,12 @@ describe('ownership and mutation isolation', () => {
 			(admitted.intents as Intent[]).push(setValue('x', 'y'));
 		}).toThrow();
 		const intent = admitted.intents[0];
-		if (intent?.presence === 'present' && 'set' in intent) {
+		if (intent?.op === 'patch') {
 			expect(() => {
 				(intent.set as Record<string, string>).title = 'MUTATED';
 			}).toThrow();
 			expect(() => {
-				(intent.address as { rowId: string }).rowId = rowId(9);
+				(intent.address as { recordKey: string }).recordKey = recordKey(9);
 			}).toThrow();
 		}
 	});
@@ -781,8 +896,8 @@ describe('authority lifetime admission', () => {
 		const atFact: Fact = {
 			address: valueAt('k'),
 			sequence: 1,
-			presence: 'present',
-			content: 'x'.repeat(200),
+			state: 'live',
+			payload: 'x'.repeat(200),
 		};
 		const maxEncodedFactBytes = encodedFactBytes(atFact);
 		const draft = { ...BASE_LIMITS, maxLifetimeBytes, maxEncodedFactBytes };

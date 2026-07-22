@@ -1,8 +1,8 @@
 /**
  * Reference authority: a pure, in-memory model of the scalar V1 authority.
  *
- * This is the semantic contract that Wave 2c will realize over SQLite. It owns
- * no storage and no runtime, so every law can be proven as a state transition.
+ * This is the semantic contract that W2 will realize over SQLite. It owns no
+ * storage and no runtime, so every law can be proven as a state transition.
  * `readFacts` and `submit` are the two authority operations behind the two wire
  * operations; each is a pure function of `(state, request, limits)`.
  *
@@ -26,7 +26,7 @@
  */
 import { Ok, type Result } from 'wellcrafted/result';
 
-import { type Address, addressKey } from './addresses.js';
+import { addressKey, type RecordAddress } from './addresses.js';
 import {
 	canonicalize,
 	isWellFormedString,
@@ -43,7 +43,7 @@ import type {
 	FactsResponse,
 	ParkedIntent,
 	SubmissionResponse,
-} from './operations.js';
+} from './wire.js';
 
 /** Deep copy that detaches a value from every state and caller reference. */
 function detach<T>(value: T): T {
@@ -57,7 +57,7 @@ export type ReplicaLedger = {
 	/** SHA-256 of the canonical last request; private fork-detection witness. */
 	readonly lastRequestHash: string;
 	/** Addresses touched by the last submission, in sealed intent order. */
-	readonly touchedAddresses: readonly Address[];
+	readonly touchedAddresses: readonly RecordAddress[];
 	/** Bounded parked results of the last submission, remembered for exact retry. */
 	readonly parked: readonly ParkedIntent[];
 };
@@ -173,7 +173,7 @@ export function readFacts(
 
 function currentFactsFor(
 	facts: ReadonlyMap<string, Fact>,
-	addresses: readonly Address[],
+	addresses: readonly RecordAddress[],
 ): Fact[] {
 	const result: Fact[] = [];
 	for (const address of addresses) {
@@ -191,8 +191,9 @@ function currentFactsFor(
  * different content is a fork; a number other than the expected next is a gap.
  * A new submission folds each intent in order, assigns a sequence only when the
  * current fact changes, refuses before assigning a sequence beyond the JSON-safe
- * range, parks a row patch whose folded fact exceeds the encoded ceiling, and
- * returns the current fact for every distinct touched address in sealed order.
+ * range, parks a patch that the fold refuses over a non-object live base or
+ * whose folded fact exceeds the encoded ceiling, and returns the current fact
+ * for every distinct touched address in sealed order.
  */
 export function submit(
 	state: AuthorityState,
@@ -249,16 +250,23 @@ export function submit(
 		const key = addressKey(intent.address);
 		const outcome = foldIntent(facts.get(key), intent, nextSequence);
 		if (outcome.kind === 'unchanged') continue;
-		const measuredBytes = encodedFactBytes(outcome.fact);
-		if (
-			outcome.fact.presence === 'present' &&
-			'fields' in outcome.fact &&
-			measuredBytes > limits.maxEncodedFactBytes
-		) {
-			// A row patch folded over a different live base overflowed. Park it and
-			// leave the current fact untouched, so the address keeps its live row.
+		if (outcome.kind === 'refused') {
+			// A patch over a live non-object base. Park it and leave the current
+			// fact untouched, so the address keeps its live payload.
 			parked.push({
-				address: detach(outcome.fact.address),
+				address: detach(intent.address),
+				code: outcome.code,
+			});
+			continue;
+		}
+		const measuredBytes = encodedFactBytes(outcome.fact);
+		if (intent.op === 'patch' && measuredBytes > limits.maxEncodedFactBytes) {
+			// A patch folded over a different live base overflowed. Park it and
+			// leave the current fact untouched, so the address keeps its live row.
+			// Only a patch can overflow: every other operation's fact was bounded
+			// at admission with a maximum-sequence measurement.
+			parked.push({
+				address: detach(intent.address),
 				code: 'fact-too-large',
 				measuredBytes,
 				limitBytes: limits.maxEncodedFactBytes,

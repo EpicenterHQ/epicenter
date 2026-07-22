@@ -1,34 +1,31 @@
 /**
- * Scalar Sync V1 protocol kernel (ADR-0163, ADR-0164, ADR-0160).
+ * Scalar Sync V1 protocol kernel (ADR-0160, ADR-0163, ADR-0164).
  *
  * This is a deliberately private barrel. It is NOT listed in the package
  * `exports` map, so no production consumer can import it: the kernel stands
  * beside the current combined-exchange protocol without replacing or composing
- * with it. Tests import from here; the local replica (Wave 2b) and the server
- * authority (Wave 2c) will consume the kernel once those waves land.
+ * with it. Tests import from here; the replica store (W1B) and the server
+ * authority (W2) will consume the kernel once those waves land.
  *
  * The kernel is a complete executable contract:
- * - structured row and value addresses;
- * - the four fact shapes and four intent shapes;
+ * - the kindless record address `(namespace, collection, recordKey)`;
+ * - one fact shape whose stored state carries the meaning of absence;
+ * - the four operations (`patch`, `replace`, `tombstone`, `unset`) and the one
+ *   absorption-first algebra governing composition and the authority fold;
  * - the two wire operations, context-aware settlement admission, and the
- *   bounded parked-result shape;
+ *   bounded parked-result shapes;
  * - a mandatory limits validator that derives (never trusts) response capacity;
- * - a defensive RFC 8785 canonical encoder and SHA-256 request hash;
- * - the pure authority fold; and
+ * - a defensive RFC 8785 canonical encoder and SHA-256 request hash; and
  * - a pure, storage-free reference authority over admitted, validated inputs.
  */
 
 export {
-	type Address,
-	AddressSchema,
 	addressesEqual,
 	addressKey,
 	isAdmissibleAddress,
 	parseAddress,
-	type RowAddress,
-	RowAddressSchema,
-	type ValueAddress,
-	ValueAddressSchema,
+	type RecordAddress,
+	RecordAddressSchema,
 } from './addresses.js';
 export {
 	type AuthorityState,
@@ -56,13 +53,12 @@ export {
 	parseFact,
 	SequenceSchema,
 } from './facts.js';
-export { type FoldOutcome, foldIntent } from './fold.js';
 export {
-	type Intent,
-	IntentSchema,
-	isAdmissibleIntent,
-	parseIntent,
-} from './intents.js';
+	type ComposeOutcome,
+	composeOperations,
+	type FoldOutcome,
+	foldIntent,
+} from './fold.js';
 export {
 	isAdmissibleFieldKey,
 	isJsonObject,
@@ -80,6 +76,13 @@ export {
 	type ValidatedLimits,
 	validateLimits,
 } from './limits.js';
+export {
+	type Intent,
+	IntentSchema,
+	isAdmissibleIntent,
+	type Operation,
+	parseIntent,
+} from './operations.js';
 export {
 	type AdmittedFactsRequest,
 	type AdmittedSubmissionRequest,
@@ -99,4 +102,4 @@ export {
 	SubmissionRequestSchema,
 	type SubmissionResponse,
 	SubmissionResponseSchema,
-} from './operations.js';
+} from './wire.js';

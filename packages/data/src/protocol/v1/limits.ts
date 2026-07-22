@@ -36,10 +36,10 @@ import type { JsonLimits } from './json.js';
 export type ScalarSyncLimits = JsonLimits & {
 	/** Maximum UTF-8 bytes of a namespace key. */
 	maxNamespaceBytes: number;
-	/** Maximum UTF-8 bytes of a table key. */
-	maxTableKeyBytes: number;
-	/** Maximum UTF-8 bytes of a value key. */
-	maxValueKeyBytes: number;
+	/** Maximum UTF-8 bytes of a collection key. */
+	maxCollectionKeyBytes: number;
+	/** Maximum UTF-8 bytes of a record key. */
+	maxRecordKeyBytes: number;
 	/** Maximum UTF-8 bytes of an opaque authority-lifetime identity. */
 	maxLifetimeBytes: number;
 	/** Maximum UTF-8 bytes of a top-level field key inside a row payload. */
@@ -98,9 +98,12 @@ const FACTS_ENVELOPE_SKELETON = utf8ByteLength(
 const SUBMISSION_ENVELOPE_SKELETON = utf8ByteLength(
 	canonicalize({ authorityLifetime: '', facts: [], parked: [] }),
 );
+// The fact-too-large variant with maximal integer measurements is the larger of
+// the two parked shapes: its measurement members outweigh the longer
+// patch-base-not-object code string.
 const PARKED_SKELETON = utf8ByteLength(
 	canonicalize({
-		address: { kind: 'row', namespace: '', rowId: 'a'.repeat(24), table: '' },
+		address: { collection: '', namespace: '', recordKey: '' },
 		code: 'fact-too-large',
 		limitBytes: Number.MAX_SAFE_INTEGER,
 		measuredBytes: Number.MAX_SAFE_INTEGER,
@@ -117,14 +120,17 @@ function worstLifetimeBytes(maxLifetimeBytes: number): number {
 }
 
 /**
- * Canonical-encoded bytes of the worst-case parked entry: a maximal row address
- * (ASCII namespace and table canonicalize byte-for-byte) with maximal integer
+ * Canonical-encoded bytes of the worst-case parked entry: a maximal record
+ * address (ASCII coordinates canonicalize byte-for-byte) with maximal integer
  * measurements. Computed arithmetically from the fixed skeleton.
  */
 function worstParkedEntryBytes(limits: ScalarSyncLimits): number {
 	return checkedAdd(
-		checkedAdd(PARKED_SKELETON, limits.maxNamespaceBytes),
-		limits.maxTableKeyBytes,
+		checkedAdd(
+			checkedAdd(PARKED_SKELETON, limits.maxNamespaceBytes),
+			limits.maxCollectionKeyBytes,
+		),
+		limits.maxRecordKeyBytes,
 	);
 }
 
@@ -184,8 +190,8 @@ function isNonNegativeSafeInteger(value: number): boolean {
 const POSITIVE_LIMIT_KEYS = [
 	'jsonDepth',
 	'maxNamespaceBytes',
-	'maxTableKeyBytes',
-	'maxValueKeyBytes',
+	'maxCollectionKeyBytes',
+	'maxRecordKeyBytes',
 	'maxLifetimeBytes',
 	'maxFieldKeyBytes',
 	'maxEncodedFactBytes',

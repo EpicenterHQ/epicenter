@@ -1,28 +1,23 @@
 /**
- * Facts: the current authority state at one scalar address (ADR-0163).
+ * Facts: the current authority state at one record address (ADR-0163).
  *
- * The authority stores exactly one current fact per address. A fact carries two
- * independent axes:
+ * The authority stores exactly one current fact per address. There is one fact
+ * shape; the stored `state`, not a caller species, carries the meaning of
+ * absence:
  *
- * - address `kind` (row or value) answers what is addressed; and
- * - `presence` (present or absent) answers whether that address currently
- *   exists.
+ * - `live` is presence, with `payload` present exactly then;
+ * - `tombstone` is terminal absence within one authority lifetime; and
+ * - `unset` is reversible absence.
  *
- * The axes stay separate because an empty object is a valid present row and
- * `null` is a valid present value, so absence cannot be inferred from an empty
- * or null payload. Row absence is a terminal tombstone within one authority
- * lifetime; value absence is a reversible unset. Every fact carries the unique
+ * An empty object and `null` are ordinary live payloads, never absence, so
+ * absence can never be inferred from a payload. Every fact carries the unique
  * increasing authority `sequence` assigned when that current fact last changed.
  */
 import { type Static, Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { Ok, type Result } from 'wellcrafted/result';
 
-import {
-	isAdmissibleAddress,
-	RowAddressSchema,
-	ValueAddressSchema,
-} from './addresses.js';
+import { isAdmissibleAddress, RecordAddressSchema } from './addresses.js';
 import {
 	canonicalize,
 	isCanonicalJson,
@@ -30,13 +25,7 @@ import {
 	utf8ByteLength,
 } from './canonical.js';
 import { catchAsInvalid, ScalarProtocolError } from './errors.js';
-import {
-	isAdmissibleFieldKey,
-	isJsonObject,
-	isJsonValue,
-	JsonObjectSchema,
-	JsonValueSchema,
-} from './json.js';
+import { isJsonValue, JsonValueSchema } from './json.js';
 import type { ValidatedLimits } from './limits.js';
 
 const CLOSED = { additionalProperties: false } as const;
@@ -47,46 +36,36 @@ export const SequenceSchema = Type.Integer({
 	maximum: Number.MAX_SAFE_INTEGER,
 });
 
-const rowPresentFactSchema = Type.Object(
+const liveFactSchema = Type.Object(
 	{
-		address: RowAddressSchema,
+		address: RecordAddressSchema,
 		sequence: SequenceSchema,
-		presence: Type.Literal('present'),
-		fields: JsonObjectSchema,
+		state: Type.Literal('live'),
+		payload: JsonValueSchema,
 	},
 	CLOSED,
 );
-const rowAbsentFactSchema = Type.Object(
+const tombstoneFactSchema = Type.Object(
 	{
-		address: RowAddressSchema,
+		address: RecordAddressSchema,
 		sequence: SequenceSchema,
-		presence: Type.Literal('absent'),
+		state: Type.Literal('tombstone'),
 	},
 	CLOSED,
 );
-const valuePresentFactSchema = Type.Object(
+const unsetFactSchema = Type.Object(
 	{
-		address: ValueAddressSchema,
+		address: RecordAddressSchema,
 		sequence: SequenceSchema,
-		presence: Type.Literal('present'),
-		content: JsonValueSchema,
-	},
-	CLOSED,
-);
-const valueAbsentFactSchema = Type.Object(
-	{
-		address: ValueAddressSchema,
-		sequence: SequenceSchema,
-		presence: Type.Literal('absent'),
+		state: Type.Literal('unset'),
 	},
 	CLOSED,
 );
 
 export const FactSchema = Type.Union([
-	rowPresentFactSchema,
-	rowAbsentFactSchema,
-	valuePresentFactSchema,
-	valueAbsentFactSchema,
+	liveFactSchema,
+	tombstoneFactSchema,
+	unsetFactSchema,
 ]);
 export type Fact = Static<typeof FactSchema>;
 
@@ -98,19 +77,15 @@ export function encodedFactBytes(fact: Fact): number {
 /** Semantic admission for an already structurally valid fact. */
 export function isAdmissibleFact(fact: Fact, limits: ValidatedLimits): boolean {
 	if (!isAdmissibleAddress(fact.address, limits)) return false;
-	if (fact.presence === 'present') {
-		if ('fields' in fact) {
-			if (!isJsonObject(fact.fields, limits)) return false;
-			if (
-				!Object.keys(fact.fields).every((key) =>
-					isAdmissibleFieldKey(key, limits.maxFieldKeyBytes),
-				)
-			) {
-				return false;
-			}
-		} else if (!isJsonValue(fact.content, limits)) {
+	// `payload` is present exactly when the state is live. The closed schemas
+	// already refuse a payload on an absent state; this keeps a live fact from
+	// smuggling `undefined` (or an exotic value) through the structural check.
+	if (fact.state === 'live') {
+		if (!('payload' in fact) || !isJsonValue(fact.payload, limits)) {
 			return false;
 		}
+	} else if ('payload' in fact) {
+		return false;
 	}
 	return encodedFactBytes(fact) <= limits.maxEncodedFactBytes;
 }

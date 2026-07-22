@@ -1,5 +1,5 @@
 /**
- * Scalar V1 Operation Schema and Settlement Tests
+ * Scalar V1 Wire Operation and Settlement Tests
  *
  * Proves parsing and admission for the two wire operations and the context-aware
  * settlement admission that retires durable work. `afterSequence` is the only
@@ -16,7 +16,7 @@
  *   distinct address
  * - Settlement admission requires one fact per intent in sealed order, globally
  *   distinct sequences, and parked entries that are an ordered distinct subset
- *   of touched rows with valid measurements
+ *   of touched patch addresses with code-appropriate measurements
  */
 import { describe, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -30,10 +30,9 @@ import {
 	parseFactsResponse,
 	parseSubmissionRequest,
 	parseSubmissionResponse,
-	type RowAddress,
+	type RecordAddress,
 	type SubmissionResponse,
 	submit,
-	type ValueAddress,
 } from './index.js';
 import {
 	admitSubmission,
@@ -45,36 +44,31 @@ const LIMITS = makeLimits();
 const LIFETIME = '01hzzzzzzzzzzzzzzzzzzzzzzz';
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const loneSurrogate = String.fromCharCode(0xdc00);
-const VALUE: ValueAddress = {
-	kind: 'value',
-	namespace: 'so.epicenter.settings',
-	value: 'language',
-};
-const rowId = (index: number): string => String(index).padStart(24, 'a');
-const rowAt = (index: number): RowAddress => ({
-	kind: 'row',
+const recordKey = (index: number): string => String(index).padStart(24, 'a');
+const rowAt = (index: number): RecordAddress => ({
 	namespace: 'so.epicenter.notes',
-	table: 'recordings',
-	rowId: rowId(index),
+	collection: 'recordings',
+	recordKey: recordKey(index),
 });
 const rowIntent = (index: number): Intent => ({
 	address: rowAt(index),
-	presence: 'present',
+	op: 'patch',
 	set: { n: index },
 	unset: [],
 });
-const valueAt = (key: string): ValueAddress => ({
-	kind: 'value',
-	namespace: 'so.epicenter.settings',
-	value: key,
+const valueAt = (key: string): RecordAddress => ({
+	namespace: 'so.epicenter.whispering',
+	collection: 'settings',
+	recordKey: key,
 });
+const VALUE = valueAt('language');
 const vFact = (
-	address: ValueAddress,
+	address: RecordAddress,
 	sequence: number,
-	content: string,
-): Fact => ({ address, sequence, presence: 'present', content });
-const valueFact = (sequence: number, content: string): Fact =>
-	vFact(VALUE, sequence, content);
+	payload: string,
+): Fact => ({ address, sequence, state: 'live', payload });
+const valueFact = (sequence: number, payload: string): Fact =>
+	vFact(VALUE, sequence, payload);
 /** Strip the phantom admission brand so a plain literal can be compared. */
 const plain = (value: object): Record<string, unknown> => ({ ...value });
 
@@ -395,6 +389,25 @@ describe('submission request', () => {
 			),
 		);
 	});
+	test('the same triple is one address regardless of operation shape', () => {
+		// The wire carries no kind, so a replace and an unset at one triple are
+		// duplicate addresses even though a legacy kinded wire would have split
+		// them into disjoint key spaces.
+		expectErr(
+			parseSubmissionRequest(
+				{
+					authorityLifetime: LIFETIME,
+					replicaId: REPLICA_ID,
+					submissionNumber: 1,
+					intents: [
+						{ address: valueAt('theme'), op: 'replace', value: 'dark' },
+						{ address: valueAt('theme'), op: 'unset' },
+					],
+				},
+				LIMITS,
+			),
+		);
+	});
 	test('distinct-address count is inclusive: at the max admits, one over rejects', () => {
 		const tight = makeLimits({ maxSubmissionAddresses: 3 });
 		const base = {
@@ -434,13 +447,14 @@ describe('submission response structure', () => {
 					measuredBytes: 5000,
 					limitBytes: 4096,
 				},
+				{ address: rowAt(1), code: 'patch-base-not-object' },
 			],
 		};
 		expect(expectOk(parseSubmissionResponse(response, LIMITS))).toEqual(
 			response,
 		);
 	});
-	test('rejects a parked code other than fact-too-large', () => {
+	test('rejects an unknown parked code', () => {
 		expectErr(
 			parseSubmissionResponse(
 				{
@@ -459,6 +473,37 @@ describe('submission response structure', () => {
 			),
 		);
 	});
+	test('rejects measurements on a patch-base-not-object entry', () => {
+		expectErr(
+			parseSubmissionResponse(
+				{
+					authorityLifetime: LIFETIME,
+					facts: [],
+					parked: [
+						{
+							address: rowAt(0),
+							code: 'patch-base-not-object',
+							measuredBytes: 1,
+							limitBytes: 1,
+						},
+					],
+				},
+				LIMITS,
+			),
+		);
+	});
+	test('rejects a fact-too-large entry missing its measurements', () => {
+		expectErr(
+			parseSubmissionResponse(
+				{
+					authorityLifetime: LIFETIME,
+					facts: [],
+					parked: [{ address: rowAt(0), code: 'fact-too-large' }],
+				},
+				LIMITS,
+			),
+		);
+	});
 });
 
 describe('context-aware settlement admission', () => {
@@ -471,7 +516,7 @@ describe('context-aware settlement admission', () => {
 			intents: [
 				rowIntent(0),
 				rowIntent(1),
-				{ address: valueAt('k'), presence: 'present', content: 'v' },
+				{ address: valueAt('k'), op: 'replace', value: 'v' },
 			],
 		},
 		LIMITS,
@@ -612,42 +657,62 @@ describe('context-aware settlement admission', () => {
 		);
 	});
 
-	test('rejects parked metadata for a row-absent delete intent', () => {
-		// Seal a submission whose row intent is a delete, then present a response
-		// that parks that address. Parking is legal only for a row-present patch.
-		const deleteSealed = admitSubmission(
+	test('admits a patch-base-not-object parked entry for a touched patch address', () => {
+		expect(
+			expectOk(
+				admitSettlement(
+					{
+						...settled,
+						parked: [{ address: rowAt(0), code: 'patch-base-not-object' }],
+					},
+					sealed,
+					durableSettlement,
+					LIMITS,
+				),
+			).parked,
+		).toEqual([{ address: rowAt(0), code: 'patch-base-not-object' }]);
+	});
+
+	test('rejects parked metadata for a non-patch intent', () => {
+		// Seal a submission whose intents are a tombstone and a replace, then
+		// present responses that park those addresses. Parking is legal only for
+		// a patch.
+		const nonPatchSealed = admitSubmission(
 			{
 				authorityLifetime: 'lifetime-one',
 				replicaId: REPLICA_ID,
 				submissionNumber: 1,
-				intents: [{ address: rowAt(0), presence: 'absent' }],
+				intents: [
+					{ address: rowAt(0), op: 'tombstone' },
+					{ address: valueAt('v'), op: 'replace', value: 'x' },
+				],
 			},
 			LIMITS,
 		);
-		const deleteSettled = expectOk(
-			submit(makeAuthority('lifetime-one', LIMITS), deleteSealed, LIMITS),
+		const nonPatchSettled = expectOk(
+			submit(makeAuthority('lifetime-one', LIMITS), nonPatchSealed, LIMITS),
 		).response;
-		expectErr(
-			admitSettlement(
-				{
-					...deleteSettled,
-					parked: [
-						{
-							address: rowAt(0),
-							code: 'fact-too-large',
-							measuredBytes: LIMITS.maxEncodedFactBytes + 1,
-							limitBytes: LIMITS.maxEncodedFactBytes,
-						},
-					],
-				},
-				deleteSealed,
-				{
-					authorityLifetime: deleteSealed.authorityLifetime,
-					sealedSubmission: deleteSealed,
-				},
-				LIMITS,
-			),
-		);
+		for (const parked of [
+			{
+				address: rowAt(0),
+				code: 'fact-too-large' as const,
+				measuredBytes: LIMITS.maxEncodedFactBytes + 1,
+				limitBytes: LIMITS.maxEncodedFactBytes,
+			},
+			{ address: valueAt('v'), code: 'patch-base-not-object' as const },
+		]) {
+			expectErr(
+				admitSettlement(
+					{ ...nonPatchSettled, parked: [parked] },
+					nonPatchSealed,
+					{
+						authorityLifetime: nonPatchSealed.authorityLifetime,
+						sealedSubmission: nonPatchSealed,
+					},
+					LIMITS,
+				),
+			);
+		}
 	});
 });
 
@@ -726,8 +791,8 @@ describe('total parsing under deep trees and proxies', () => {
 			intents: [
 				{
 					address: valueAt('k'),
-					presence: 'present' as const,
-					content: deepValue(20000),
+					op: 'replace' as const,
+					value: deepValue(20000),
 				},
 			],
 		};
@@ -762,11 +827,7 @@ describe('total parsing under deep trees and proxies', () => {
 					replicaId: REPLICA_ID,
 					submissionNumber: 1,
 					intents: [
-						{
-							address: valueAt('k'),
-							presence: 'present',
-							content: deepValue(20000),
-						},
+						{ address: valueAt('k'), op: 'replace', value: deepValue(20000) },
 					],
 				},
 				LIMITS,
@@ -783,8 +844,8 @@ describe('total parsing under deep trees and proxies', () => {
 						{
 							address: valueAt('k'),
 							sequence: 1,
-							presence: 'present',
-							content: deepValue(20000),
+							state: 'live',
+							payload: deepValue(20000),
 						},
 					],
 					hasMore: false,
