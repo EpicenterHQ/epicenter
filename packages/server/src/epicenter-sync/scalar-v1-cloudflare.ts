@@ -24,6 +24,10 @@ import type { Result } from 'wellcrafted/result';
 import type { Env } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
 import {
+	type DocumentAuthorityV1Endpoint,
+	mountDocumentV1App,
+} from './document-v1-route.js';
+import {
 	mountScalarV1App,
 	type ScalarAuthorityV1Endpoint,
 } from './scalar-v1-route.js';
@@ -120,7 +124,9 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 
 /** Narrow RPC namespace shape consumed by the shared mount. */
 export type DataAuthorityNamespace = {
-	getByName(name: string): ScalarAuthorityV1Endpoint;
+	getByName(
+		name: string,
+	): ScalarAuthorityV1Endpoint & DocumentAuthorityV1Endpoint;
 };
 
 export type DeletableDataAuthorityNamespace = {
@@ -130,11 +136,12 @@ export type DeletableDataAuthorityNamespace = {
 function stubFor(
 	namespace: DataAuthorityNamespace,
 	principalId: PrincipalId,
-): ScalarAuthorityV1Endpoint {
+): ScalarAuthorityV1Endpoint & DocumentAuthorityV1Endpoint {
 	const stub = namespace.getByName(principalName(principalId));
 	return {
 		readFacts: (request) => stub.readFacts(request),
 		submit: (request) => stub.submit(request),
+		acceptDocument: (request) => stub.acceptDocument(request),
 	};
 }
 
@@ -153,6 +160,12 @@ export function mountCloudflareScalarV1App<E extends Env = Env>(
 		auth,
 		limits: SCALAR_SYNC_V1_LIMITS,
 		rawSubmissionBytes: SCALAR_SYNC_V1_RAW_SUBMISSION_BYTES,
+		locateAuthority: (principalId, env) =>
+			stubFor(resolveNamespace(env), principalId),
+	});
+	mountDocumentV1App(app, {
+		auth,
+		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: (principalId, env) =>
 			stubFor(resolveNamespace(env), principalId),
 	});

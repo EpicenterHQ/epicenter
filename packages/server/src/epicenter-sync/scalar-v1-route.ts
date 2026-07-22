@@ -76,7 +76,7 @@ function factsRequestFromUrl(
 	return parsed.error === null ? parsed.data : undefined;
 }
 
-async function readBoundedBody(
+export async function readBoundedBody(
 	request: Request,
 	maximumBytes: number,
 ): Promise<

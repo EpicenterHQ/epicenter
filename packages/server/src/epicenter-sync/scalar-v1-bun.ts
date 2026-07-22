@@ -12,6 +12,7 @@ import type { Hono, MiddlewareHandler } from 'hono';
 
 import type { Env } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
+import { mountDocumentV1App } from './document-v1-route.js';
 import { mountScalarV1App } from './scalar-v1-route.js';
 
 function encodePathComponent(value: string): string {
@@ -86,6 +87,11 @@ export function mountBunScalarV1App<E extends Env = Env>(
 		auth,
 		limits: SCALAR_SYNC_V1_LIMITS,
 		rawSubmissionBytes: SCALAR_SYNC_V1_RAW_SUBMISSION_BYTES,
+		locateAuthority: runtime.locateAuthority,
+	});
+	mountDocumentV1App(app, {
+		auth,
+		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: runtime.locateAuthority,
 	});
 }
