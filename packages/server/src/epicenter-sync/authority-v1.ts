@@ -37,6 +37,7 @@ type MetaRow = SqliteRow & {
 	format_version: number;
 	authority_lifetime: string;
 	next_sequence: number;
+	next_capture_revision: number;
 };
 
 type RecordRow = SqliteRow & {
@@ -148,21 +149,33 @@ function readWitness(
 	);
 }
 
-function storeFact(database: SqliteDatabase, fact: Fact): void {
+function storeFact(
+	database: SqliteDatabase,
+	fact: Fact,
+	captureRevision: number,
+): void {
 	const payload = fact.state === 'live' ? canonicalize(fact.payload) : null;
 	database.run(
 		`INSERT INTO records (
-			namespace, collection, record_key, state, payload, sequence
-		) VALUES (?, ?, ?, ?, ?, ?)
+			namespace, collection, record_key, state, payload, sequence,
+			capture_revision
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (namespace, collection, record_key) DO UPDATE SET
 			state = excluded.state,
 			payload = excluded.payload,
 			sequence = excluded.sequence,
+			capture_revision = excluded.capture_revision,
 			accepted_blob_sha256 = CASE
 				WHEN excluded.state = 'tombstone' THEN NULL
 				ELSE records.accepted_blob_sha256
 			END`,
-		[...tripleParams(fact.address), fact.state, payload, fact.sequence],
+		[
+			...tripleParams(fact.address),
+			fact.state,
+			payload,
+			fact.sequence,
+			captureRevision,
+		],
 	);
 	if (fact.state === 'tombstone') {
 		database.run(
@@ -325,8 +338,9 @@ export function openScalarAuthorityV1({
 				}
 
 				let nextSequence = currentMeta.next_sequence;
+				let nextCaptureRevision = currentMeta.next_capture_revision;
 				const parked: ParkedIntent[] = [];
-				const changed: Fact[] = [];
+				const changed: Array<{ fact: Fact; captureRevision: number }> = [];
 				for (const intent of request.intents) {
 					const outcome = foldIntent(
 						readFact(database, intent.address),
@@ -357,14 +371,25 @@ export function openScalarAuthorityV1({
 					if (!Number.isSafeInteger(nextSequence)) {
 						return AuthorityError.SequenceExhausted({ nextSequence });
 					}
-					changed.push(outcome.fact);
+					if (!Number.isSafeInteger(nextCaptureRevision)) {
+						throw new Error('authority capture revision exhausted');
+					}
+					changed.push({
+						fact: outcome.fact,
+						captureRevision: nextCaptureRevision,
+					});
 					nextSequence += 1;
+					nextCaptureRevision += 1;
 				}
 
-				for (const fact of changed) storeFact(database, fact);
-				database.run('UPDATE meta SET next_sequence = ? WHERE singleton = 1', [
-					nextSequence,
-				]);
+				for (const entry of changed) {
+					storeFact(database, entry.fact, entry.captureRevision);
+				}
+				database.run(
+					`UPDATE meta SET next_sequence = ?, next_capture_revision = ?
+					WHERE singleton = 1`,
+					[nextSequence, nextCaptureRevision],
+				);
 				database.run(
 					`INSERT INTO replica_witness (
 						replica_id, submission_number, request_hash, parked

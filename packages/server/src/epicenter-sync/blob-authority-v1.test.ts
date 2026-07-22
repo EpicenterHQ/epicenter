@@ -120,24 +120,62 @@ async function setup() {
 	};
 }
 
+function captureState(raw: Database): {
+	recordRevision: number;
+	nextRevision: number;
+} {
+	const record = raw
+		.query<{ capture_revision: number }, []>(
+			'SELECT capture_revision FROM records WHERE record_id = 1',
+		)
+		.get();
+	const meta = raw
+		.query<{ next_capture_revision: number }, []>(
+			'SELECT next_capture_revision FROM meta WHERE singleton = 1',
+		)
+		.get();
+	if (record === null || meta === null)
+		throw new Error('capture state is missing');
+	return {
+		recordRevision: record.capture_revision,
+		nextRevision: meta.next_capture_revision,
+	};
+}
+
 describe('record blob authority', () => {
 	test('accepts A, retries A idempotently, and refuses B without replacement', async () => {
 		const context = await setup();
 		try {
+			expect(captureState(context.raw)).toEqual({
+				recordRevision: 1,
+				nextRevision: 2,
+			});
 			const a = request('first');
 			expect(await context.blobs.accept(a, source('first'))).toEqual({
 				kind: 'accepted',
 				receipt: a,
 			});
+			expect(captureState(context.raw)).toEqual({
+				recordRevision: 2,
+				nextRevision: 3,
+			});
 			expect(await context.blobs.accept(a, source('first'))).toEqual({
 				kind: 'accepted',
 				receipt: a,
+			});
+			expect(captureState(context.raw)).toEqual({
+				recordRevision: 2,
+				nextRevision: 3,
 			});
 			const b = request('second');
 			expect(await context.blobs.accept(b, source('second'))).toEqual({
 				kind: 'blob-conflict',
 				receipt: b,
 				acceptedDigest: a.digest,
+			});
+			expect(captureState(context.raw)).toEqual({
+				recordRevision: 2,
+				nextRevision: 3,
 			});
 			const bytes = await context.blobs.read(ADDRESS);
 			if (bytes === undefined) throw new Error('accepted blob is missing');

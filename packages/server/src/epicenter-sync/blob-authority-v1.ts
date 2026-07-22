@@ -18,6 +18,11 @@ type RecordRow = SqliteRow & {
 	accepted_blob_sha256: string | null;
 };
 
+type MetaRow = SqliteRow & {
+	authority_lifetime: string;
+	next_capture_revision: number;
+};
+
 function one<TRow extends SqliteRow>(
 	database: SqliteDatabase,
 	sql: string,
@@ -107,9 +112,10 @@ export function createAuthorityBlobV1<TSource, TRead>(
 			);
 
 			const result = database.transaction((): BlobAcceptance => {
-				const currentMeta = one<SqliteRow & { authority_lifetime: string }>(
+				const currentMeta = one<MetaRow>(
 					database,
-					'SELECT authority_lifetime FROM meta WHERE singleton = 1',
+					`SELECT authority_lifetime, next_capture_revision
+					FROM meta WHERE singleton = 1`,
 				);
 				if (currentMeta === null) {
 					throw new Error('authority metadata is missing');
@@ -153,10 +159,21 @@ export function createAuthorityBlobV1<TSource, TRead>(
 					};
 				}
 				if (row.accepted_blob_sha256 === null) {
+					if (!Number.isSafeInteger(currentMeta.next_capture_revision)) {
+						throw new Error('authority capture revision exhausted');
+					}
 					database.run(
-						`UPDATE records SET accepted_blob_sha256 = ?
+						`UPDATE records SET accepted_blob_sha256 = ?, capture_revision = ?
 						WHERE ${TRIPLE_WHERE}`,
-						[request.digest, ...tripleParams(request.address)],
+						[
+							request.digest,
+							currentMeta.next_capture_revision,
+							...tripleParams(request.address),
+						],
+					);
+					database.run(
+						`UPDATE meta SET next_capture_revision = ? WHERE singleton = 1`,
+						[currentMeta.next_capture_revision + 1],
 					);
 				}
 				return { kind: 'accepted', receipt: receiptFor(request) };

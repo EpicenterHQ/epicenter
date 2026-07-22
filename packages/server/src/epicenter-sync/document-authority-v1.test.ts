@@ -86,6 +86,28 @@ function seedLive(authority: ScalarAuthorityV1, lifetime: string): void {
 	);
 }
 
+function captureState(raw: Database): {
+	recordRevision: number;
+	nextRevision: number;
+} {
+	const record = raw
+		.query<{ capture_revision: number }, []>(
+			'SELECT capture_revision FROM records WHERE record_id = 1',
+		)
+		.get();
+	const meta = raw
+		.query<{ next_capture_revision: number }, []>(
+			'SELECT next_capture_revision FROM meta WHERE singleton = 1',
+		)
+		.get();
+	if (record === null || meta === null)
+		throw new Error('capture state is missing');
+	return {
+		recordRevision: record.capture_revision,
+		nextRevision: meta.next_capture_revision,
+	};
+}
+
 function publication(
 	lifetime: string,
 	payload: Uint8Array,
@@ -140,6 +162,10 @@ for (const [name, adapt] of [
 		test('joins a publication, returns exact postcommit proof, and retries idempotently', () => {
 			const { raw, authority } = setup();
 			try {
+				expect(captureState(raw)).toEqual({
+					recordRevision: 1,
+					nextRevision: 2,
+				});
 				const request = publication('lifetime-one', updateFor('accepted'));
 				const first = authority.acceptDocument(request);
 				expect(first).toEqual({
@@ -152,7 +178,15 @@ for (const [name, adapt] of [
 					},
 				});
 				expect(textOf(authority.exportDocument(ADDRESS))).toBe('accepted');
+				expect(captureState(raw)).toEqual({
+					recordRevision: 2,
+					nextRevision: 3,
+				});
 				expect(authority.acceptDocument(request)).toEqual(first);
+				expect(captureState(raw)).toEqual({
+					recordRevision: 2,
+					nextRevision: 3,
+				});
 				expect(
 					raw
 						.query<{ count: number }, []>(
@@ -249,6 +283,10 @@ for (const [name, adapt] of [
 					),
 				);
 				expect(authority.exportDocument(ADDRESS)).toBeUndefined();
+				expect(captureState(raw)).toEqual({
+					recordRevision: 3,
+					nextRevision: 4,
+				});
 				expect(
 					expectOk(
 						authority.readFacts(

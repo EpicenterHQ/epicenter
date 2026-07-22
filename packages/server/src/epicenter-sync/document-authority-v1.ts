@@ -27,6 +27,11 @@ type RecordRow = SqliteRow & {
 	state: 'live' | 'tombstone' | 'unset';
 };
 
+type MetaRow = SqliteRow & {
+	authority_lifetime: string;
+	next_capture_revision: number;
+};
+
 type ChainRow = SqliteRow & {
 	seq: number;
 	kind: 'baseline' | 'update';
@@ -103,9 +108,10 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 		}
 		const payload = new Uint8Array(request.payload);
 		return database.transaction(() => {
-			const meta = one<SqliteRow & { authority_lifetime: string }>(
+			const meta = one<MetaRow>(
 				database,
-				'SELECT authority_lifetime FROM meta WHERE singleton = 1',
+				`SELECT authority_lifetime, next_capture_revision
+				FROM meta WHERE singleton = 1`,
 			);
 			if (meta === null) throw new Error('authority metadata is missing');
 			if (request.authorityLifetime !== meta.authority_lifetime) {
@@ -156,6 +162,9 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 					before.byteLength !== after.byteLength ||
 					before.some((byte, index) => byte !== after[index]);
 				if (changed) {
+					if (!Number.isSafeInteger(meta.next_capture_revision)) {
+						throw new Error('authority capture revision exhausted');
+					}
 					const tail = chain.filter((entry) => entry.kind === 'update');
 					const tailBytes = tail.reduce(
 						(total, entry) => total + copyBytes(entry.bytes).byteLength,
@@ -181,6 +190,14 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 							[row.record_id, (chain.at(-1)?.seq ?? 0) + 1, payload],
 						);
 					}
+					database.run(
+						'UPDATE records SET capture_revision = ? WHERE record_id = ?',
+						[meta.next_capture_revision, row.record_id],
+					);
+					database.run(
+						`UPDATE meta SET next_capture_revision = ? WHERE singleton = 1`,
+						[meta.next_capture_revision + 1],
+					);
 				}
 				return { kind: 'accepted', receipt: receiptFor(request) };
 			} finally {

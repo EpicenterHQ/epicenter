@@ -4,7 +4,7 @@ import {
 	StorageUpgradeRequiredError,
 } from '@epicenter/sqlite';
 
-export const AUTHORITY_V1_FORMAT_VERSION = 2;
+export const AUTHORITY_V1_FORMAT_VERSION = 3;
 
 export const AUTHORITY_V1_TABLES = [
 	'meta',
@@ -15,6 +15,7 @@ export const AUTHORITY_V1_TABLES = [
 
 export const AUTHORITY_V1_INDEXES = [
 	'records_address',
+	'records_capture_revision',
 	'records_sequence',
 ] as const;
 
@@ -24,7 +25,9 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 		format_version     INTEGER NOT NULL,
 		authority_lifetime TEXT NOT NULL,
 		next_sequence      INTEGER NOT NULL
-			CHECK (next_sequence BETWEEN 1 AND 9007199254740992)
+			CHECK (next_sequence BETWEEN 1 AND 9007199254740992),
+		next_capture_revision INTEGER NOT NULL
+			CHECK (next_capture_revision BETWEEN 1 AND 9007199254740992)
 	) STRICT`,
 	`CREATE TABLE records (
 		record_id            INTEGER PRIMARY KEY,
@@ -35,6 +38,8 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 		payload              TEXT,
 		sequence             INTEGER NOT NULL
 			CHECK (sequence BETWEEN 1 AND 9007199254740991),
+		capture_revision     INTEGER NOT NULL
+			CHECK (capture_revision BETWEEN 1 AND 9007199254740991),
 		accepted_blob_sha256 TEXT,
 		CHECK ((state = 'live' AND payload IS NOT NULL AND json_valid(payload))
 			OR (state IN ('tombstone', 'unset') AND payload IS NULL)),
@@ -45,6 +50,7 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 	`CREATE UNIQUE INDEX records_address
 		ON records(namespace, collection, record_key)`,
 	`CREATE UNIQUE INDEX records_sequence ON records(sequence)`,
+	`CREATE UNIQUE INDEX records_capture_revision ON records(capture_revision)`,
 	`CREATE TABLE record_documents (
 		chain_id   INTEGER PRIMARY KEY,
 		record_id  INTEGER NOT NULL,
@@ -74,8 +80,9 @@ export function createAuthorityV1Schema(
 	}
 	database.run(
 		`INSERT INTO meta (
-			singleton, format_version, authority_lifetime, next_sequence
-		) VALUES (1, ?, ?, 1)`,
+			singleton, format_version, authority_lifetime, next_sequence,
+			next_capture_revision
+		) VALUES (1, ?, ?, 1, 1)`,
 		[AUTHORITY_V1_FORMAT_VERSION, authorityLifetime],
 	);
 }
