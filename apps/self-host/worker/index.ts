@@ -27,6 +27,9 @@ import {
 	createServerApp,
 	DataAuthority,
 	type DataAuthorityNamespace,
+	DataBackup,
+	DataBackupRegistry,
+	type DataBackupRegistryNamespace,
 	EpicenterAuthority,
 	mountBlobsApp,
 	mountCloudflareEpicenterSyncApp,
@@ -105,6 +108,9 @@ mountCloudflareScalarV1App(app, {
 	),
 	resolveNamespace: (env) =>
 		(env as Cloudflare.Env).DATA_AUTHORITY as unknown as DataAuthorityNamespace,
+	resolveBackupRegistry: (env) =>
+		(env as Cloudflare.Env)
+			.DATA_BACKUP_REGISTRY as unknown as DataBackupRegistryNamespace,
 });
 // Cap the inference burn rate so a leaked or overused bearer cannot run the
 // operator's house key up unbounded. Per-isolate on Cloudflare (approximate);
@@ -127,4 +133,10 @@ mountTranscriptionApp(app, {
 mountBlobsApp(app, { auth });
 
 export default app;
-export { DataAuthority, EpicenterAuthority, Room };
+export {
+	DataAuthority,
+	DataBackup,
+	DataBackupRegistry,
+	EpicenterAuthority,
+	Room,
+};

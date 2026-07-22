@@ -67,6 +67,13 @@ export {
 	mountCloudflareEpicenterSyncApp,
 } from './epicenter-sync/cloudflare.js';
 export {
+	createDataBackupRegistryAccountAuthorities,
+	DataBackupRegistry,
+	type DataBackupRegistryNamespace,
+	type DeletableDataBackupRegistryNamespace,
+} from './epicenter-sync/cloudflare-backup-registry-v1.js';
+export { DataBackup } from './epicenter-sync/cloudflare-backup-v1.js';
+export {
 	createDataAuthorityAccountAuthorities,
 	DataAuthority,
 	type DataAuthorityNamespace,

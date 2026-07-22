@@ -54,7 +54,7 @@ export function createBackupV1App<E extends Env = Env>({
 	restoreBackup,
 }: {
 	locateRegistry: BackupV1RegistryLocator<E>;
-	restoreBackup: BackupV1Restore<E>;
+	restoreBackup?: BackupV1Restore<E>;
 }): Hono<E> {
 	const app = new Hono<E>();
 
@@ -70,26 +70,28 @@ export function createBackupV1App<E extends Env = Env>({
 		return c.json({ backups: backups.map(metadataOf) });
 	});
 
-	app.post(BACKUP_V1_RESTORE_PATH, async (c) => {
-		const backupId = backupIdFrom(c.req.param('backupId'));
-		if (backupId === undefined) {
-			return c.json({ error: 'invalid-backup-id' } as const, 400);
-		}
-		const restored = await restoreBackup(c.var.principal.id, backupId, c.env);
-		if (restored.kind === 'backup-not-found') {
-			return c.json({ error: 'backup-not-found' } as const, 404);
-		}
-		if (restored.kind === 'restore-in-progress') {
-			return c.json({ error: 'restore-in-progress' } as const, 409);
-		}
-		return c.json({
-			restored: {
-				backupId,
-				authorityLifetime: restored.authorityLifetime,
-				recordCount: restored.recordCount,
-			},
+	if (restoreBackup !== undefined) {
+		app.post(BACKUP_V1_RESTORE_PATH, async (c) => {
+			const backupId = backupIdFrom(c.req.param('backupId'));
+			if (backupId === undefined) {
+				return c.json({ error: 'invalid-backup-id' } as const, 400);
+			}
+			const restored = await restoreBackup(c.var.principal.id, backupId, c.env);
+			if (restored.kind === 'backup-not-found') {
+				return c.json({ error: 'backup-not-found' } as const, 404);
+			}
+			if (restored.kind === 'restore-in-progress') {
+				return c.json({ error: 'restore-in-progress' } as const, 409);
+			}
+			return c.json({
+				restored: {
+					backupId,
+					authorityLifetime: restored.authorityLifetime,
+					recordCount: restored.recordCount,
+				},
+			});
 		});
-	});
+	}
 
 	app.delete(BACKUP_V1_ENTRY_PATH, async (c) => {
 		const backupId = backupIdFrom(c.req.param('backupId'));
@@ -115,11 +117,13 @@ export function mountBackupV1App<E extends Env = Env>(
 	}: {
 		auth: MiddlewareHandler<E>;
 		locateRegistry: BackupV1RegistryLocator<E>;
-		restoreBackup: BackupV1Restore<E>;
+		restoreBackup?: BackupV1Restore<E>;
 	},
 ): void {
 	app.use(BACKUP_V1_REGISTRY_PATH, auth);
 	app.use(BACKUP_V1_ENTRY_PATH, auth);
-	app.use(BACKUP_V1_RESTORE_PATH, auth);
+	if (options.restoreBackup !== undefined) {
+		app.use(BACKUP_V1_RESTORE_PATH, auth);
+	}
 	app.route('/', createBackupV1App(options));
 }

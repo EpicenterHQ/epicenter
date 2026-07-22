@@ -50,6 +50,14 @@
 			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
+			},
+			{
+				"name": "DATA_BACKUP",
+				"class_name": "DataBackup"
+			},
+			{
+				"name": "DATA_BACKUP_REGISTRY",
+				"class_name": "DataBackupRegistry"
 			}
 		]
 	},
@@ -70,11 +78,16 @@
 			"tag": "v4",
 			"new_sqlite_classes": ["DataAuthority"],
 			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
+		},
+		{
+			"tag": "v5",
+			"new_sqlite_classes": ["DataBackup", "DataBackupRegistry"]
 		}
 	],
 
-	// Record-owned blobs live beside the principal DataAuthority. This binding
-	// is only for the Cloudflare deployment; the Bun deployment uses native files.
+	// Live DataAuthority blobs and immutable Backup control/blob objects share
+	// this binding under disjoint owner prefixes. The Bun deployment uses native
+	// files instead.
 	"r2_buckets": [
 		{
 			"binding": "DATA_BLOBS",
@@ -84,7 +97,8 @@
 
 	// No Hyperdrive binding: the instance composes no Postgres (no Better Auth or
 	// telemetry). ROOM, EPICENTER_SYNC (legacy caller path until W4B), and
-	// DATA_AUTHORITY and DATA_BLOBS are its complete durable substrate
+	// DATA_AUTHORITY, DATA_BACKUP, DATA_BACKUP_REGISTRY, and DATA_BLOBS are its
+	// complete durable substrate
 	// (ADR-0075). No workspace catalog exists: the authority derives from the
 	// principal alone (ADR-0092, ADR-0145).
 }

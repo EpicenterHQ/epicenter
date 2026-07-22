@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 
+import type { PrincipalId } from '@epicenter/identity';
 import {
 	createDurableObjectSqliteAdapter,
 	type DurableObjectSqliteStorage,
@@ -62,6 +63,16 @@ export type CloudflareBackupRegistryV1Entry = {
 	recordCount: number;
 };
 
+export type DataBackupRegistryNamespace = {
+	getByName(
+		name: string,
+	): Pick<DataBackupRegistry, 'create' | 'list' | 'delete'>;
+};
+
+export type DeletableDataBackupRegistryNamespace = {
+	getByName(name: string): Pick<DataBackupRegistry, 'deleteAccount'>;
+};
+
 type EntryRow = {
 	backup_id: string;
 	state: 'building' | 'sealed' | 'deleting';
@@ -88,6 +99,17 @@ function mintBackupId(): string {
 	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
 		'',
 	);
+}
+
+function principalName(principalId: PrincipalId): string {
+	return encodeURIComponent(principalId).replaceAll('.', '%2E');
+}
+
+export function locateDataBackupRegistryV1(
+	namespace: DataBackupRegistryNamespace,
+	principalId: PrincipalId,
+) {
+	return namespace.getByName(principalName(principalId));
 }
 
 function normalizeSchema(sql: string): string {
@@ -395,4 +417,18 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			release();
 		}
 	}
+}
+
+/** Bind hosted account deletion to the principal-owned Backup registry. */
+export function createDataBackupRegistryAccountAuthorities(
+	namespace: DeletableDataBackupRegistryNamespace,
+) {
+	return {
+		authority(principalId: PrincipalId) {
+			return {
+				deleteAccount: () =>
+					namespace.getByName(principalName(principalId)).deleteAccount(),
+			};
+		},
+	};
 }

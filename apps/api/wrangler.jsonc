@@ -64,6 +64,14 @@
 			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
+			},
+			{
+				"name": "DATA_BACKUP",
+				"class_name": "DataBackup"
+			},
+			{
+				"name": "DATA_BACKUP_REGISTRY",
+				"class_name": "DataBackupRegistry"
 			}
 		]
 	},
@@ -103,6 +111,10 @@
 			"tag": "v7",
 			"new_sqlite_classes": ["DataAuthority"],
 			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
+		},
+		{
+			"tag": "v8",
+			"new_sqlite_classes": ["DataBackup", "DataBackupRegistry"]
 		}
 	],
 	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---
@@ -152,9 +164,10 @@
 		}
 	],
 	// --- R2 ---
-	// DATA_BLOBS stores record-owned blobs for the DataAuthority. The existing
-	// opaque-id blob store still uses the portable S3 API and its BLOBS_S3_*
-	// secrets. Both can share this bucket because their key spaces are disjoint.
+	// DATA_BLOBS stores live DataAuthority blobs plus immutable Backup control
+	// and blob objects. The existing opaque-id blob store still uses the portable
+	// S3 API and its BLOBS_S3_* secrets. They can share this bucket because their
+	// key spaces are disjoint.
 	"r2_buckets": [
 		{
 			"binding": "DATA_BLOBS",

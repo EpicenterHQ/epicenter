@@ -23,6 +23,9 @@ import {
 	createServerApp,
 	DataAuthority,
 	type DataAuthorityNamespace,
+	DataBackup,
+	DataBackupRegistry,
+	type DataBackupRegistryNamespace,
 	EpicenterAuthority,
 	mountAttachRelayApp,
 	mountBlobsApp,
@@ -160,6 +163,9 @@ mountCloudflareScalarV1App(app, {
 	// the two RPC methods the shared mount consumes.
 	resolveNamespace: (env) =>
 		(env as Cloudflare.Env).DATA_AUTHORITY as unknown as DataAuthorityNamespace,
+	resolveBackupRegistry: (env) =>
+		(env as Cloudflare.Env)
+			.DATA_BACKUP_REGISTRY as unknown as DataBackupRegistryNamespace,
 });
 // Rooms resolves the bearer itself (WS-aware), so it takes the raw resolver, not
 // a prebuilt wrapper.
@@ -229,4 +235,11 @@ app.get('/billing', (c) => c.redirect('/dashboard'));
 export default {
 	fetch: app.fetch,
 };
-export { AttachRelay, DataAuthority, EpicenterAuthority, Room };
+export {
+	AttachRelay,
+	DataAuthority,
+	DataBackup,
+	DataBackupRegistry,
+	EpicenterAuthority,
+	Room,
+};

@@ -30,6 +30,7 @@ import type { Result } from 'wellcrafted/result';
 import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
 import { createR2BackupBlobStore } from './backup-files-r2.js';
+import { mountBackupV1App } from './backup-v1-route.js';
 import {
 	type AuthorityBlobV1,
 	createAuthorityBlobV1,
@@ -40,6 +41,10 @@ import {
 	mountBlobV1App,
 } from './blob-v1-route.js';
 import { createAuthorityCaptureManifestV1 } from './capture-manifest-v1.js';
+import {
+	type DataBackupRegistryNamespace,
+	locateDataBackupRegistryV1,
+} from './cloudflare-backup-registry-v1.js';
 import {
 	type CloudflareBackupV1Status,
 	type DataBackup,
@@ -674,10 +679,12 @@ export function mountCloudflareScalarV1App<E extends Env = Env>(
 		auth,
 		resolveDocumentPrincipal,
 		resolveNamespace,
+		resolveBackupRegistry,
 	}: {
 		auth: MiddlewareHandler<E>;
 		resolveDocumentPrincipal: ResolveDocumentPrincipal<E>;
 		resolveNamespace(env: E['Bindings']): DataAuthorityNamespace;
+		resolveBackupRegistry(env: E['Bindings']): DataBackupRegistryNamespace;
 	},
 ): void {
 	mountScalarV1App(app, {
@@ -698,6 +705,11 @@ export function mountCloudflareScalarV1App<E extends Env = Env>(
 		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: (principalId, env) =>
 			blobStubFor(resolveNamespace(env), principalId),
+	});
+	mountBackupV1App(app, {
+		auth,
+		locateRegistry: (principalId, env) =>
+			locateDataBackupRegistryV1(resolveBackupRegistry(env), principalId),
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(

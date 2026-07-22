@@ -31,9 +31,11 @@ const RESTORE_PATH = `${ENTRY_PATH}/restore`;
 function setup({
 	mounted = false,
 	restoreInProgress = false,
+	crudOnly = false,
 }: {
 	mounted?: boolean;
 	restoreInProgress?: boolean;
+	crudOnly?: boolean;
 } = {}) {
 	const principals: PrincipalId[] = [];
 	const restored: Array<{ principalId: PrincipalId; backupId: string }> = [];
@@ -86,9 +88,12 @@ function setup({
 			};
 		},
 	};
+	const routeOptions = crudOnly
+		? { locateRegistry: options.locateRegistry }
+		: options;
 	if (mounted) {
 		mountBackupV1App(app, {
-			...options,
+			...routeOptions,
 			auth: async (c, next) => {
 				if (c.req.header('authorization') !== 'Bearer token') {
 					return c.json({ error: 'unauthorized' } as const, 401);
@@ -102,7 +107,7 @@ function setup({
 			c.set('principal', Principal.assert({ id: PRINCIPAL }));
 			await next();
 		});
-		app.route('/', createBackupV1App(options));
+		app.route('/', createBackupV1App(routeOptions));
 	}
 	return { app, backups, deleted, principals, restored };
 }
@@ -143,6 +148,42 @@ describe('Backup V1 routes', () => {
 			],
 		});
 		expect(context.principals).toEqual([PRINCIPAL, PRINCIPAL]);
+	});
+
+	test('CRUD-only mount does not advertise an unimplemented Restore route', async () => {
+		const context = setup({ mounted: true, crudOnly: true });
+		const authorized = { authorization: 'Bearer token' };
+		expect(
+			(
+				await context.app.request(BACKUP_V1_REGISTRY_PATH, {
+					method: 'POST',
+					headers: authorized,
+				})
+			).status,
+		).toBe(201);
+		expect(
+			(
+				await context.app.request(BACKUP_V1_REGISTRY_PATH, {
+					headers: authorized,
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await context.app.request(ENTRY_PATH, {
+					method: 'DELETE',
+					headers: authorized,
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await context.app.request(RESTORE_PATH, {
+					method: 'POST',
+					headers: authorized,
+				})
+			).status,
+		).toBe(404);
 	});
 
 	test('restore activates the selected principal Backup and returns its new lifetime', async () => {

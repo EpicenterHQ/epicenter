@@ -13,6 +13,7 @@
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { beforeAll, expect, mock, test } from 'bun:test';
 
+import { asPrincipalId } from '@epicenter/identity';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 
 mock.module('cloudflare:workers', () => ({
@@ -28,9 +29,15 @@ mock.module('cloudflare:workers', () => ({
 }));
 
 let DataBackupRegistry: typeof import('./cloudflare-backup-registry-v1.js').DataBackupRegistry;
+let createDataBackupRegistryAccountAuthorities: typeof import('./cloudflare-backup-registry-v1.js').createDataBackupRegistryAccountAuthorities;
+let locateDataBackupRegistryV1: typeof import('./cloudflare-backup-registry-v1.js').locateDataBackupRegistryV1;
 
 beforeAll(async () => {
-	({ DataBackupRegistry } = await import('./cloudflare-backup-registry-v1.js'));
+	({
+		DataBackupRegistry,
+		createDataBackupRegistryAccountAuthorities,
+		locateDataBackupRegistryV1,
+	} = await import('./cloudflare-backup-registry-v1.js'));
 });
 
 const PRINCIPAL_NAME = 'principal%40example.com';
@@ -72,6 +79,7 @@ function setupState({
 	statuses?: Map<string, BackupStatus>;
 } = {}) {
 	const destroyed: string[] = [];
+	const backupNames: string[] = [];
 	const r2Keys = new Set<string>();
 	const deletedR2Keys: string[] = [];
 	let insideConcurrencyBlock = false;
@@ -123,6 +131,7 @@ function setupState({
 		},
 		DATA_BACKUP: {
 			getByName(name: string) {
+				backupNames.push(name);
 				const backupId = backupIdFromName(name);
 				return {
 					async status() {
@@ -159,6 +168,7 @@ function setupState({
 		env,
 		statuses,
 		destroyed,
+		backupNames,
 		r2Keys,
 		deletedR2Keys,
 		get insideConcurrencyBlock() {
@@ -252,6 +262,11 @@ test('account deletion destroys all SQL owners then sweeps the exact R2 owner', 
 
 		await registry.deleteAccount();
 
+		expect(
+			owned.backupNames.every((name) =>
+				name.startsWith(`backup-v1:${OWNER_STORAGE_KEY}:`),
+			),
+		).toBe(true);
 		expect(owned.destroyed.sort()).toEqual(
 			[first.backupId, second.backupId].sort(),
 		);
@@ -395,6 +410,47 @@ test('account deletion retries a transient startup cleanup failure', async () =>
 	} finally {
 		owned.raw.close();
 	}
+});
+
+test('account deletion resolves the same principal-owned registry', async () => {
+	const names: string[] = [];
+	let deleted = false;
+	const authorities = createDataBackupRegistryAccountAuthorities({
+		getByName(name) {
+			names.push(name);
+			return {
+				deleteAccount: async () => {
+					deleted = true;
+				},
+			};
+		},
+	});
+
+	await authorities
+		.authority(asPrincipalId('alice@example.com'))
+		.deleteAccount();
+
+	expect(names).toEqual(['alice%40example%2Ecom']);
+	expect(deleted).toBe(true);
+});
+
+test('registry lookup keeps percent-sensitive principal names distinct', () => {
+	const names: string[] = [];
+	const namespace = {
+		getByName(name: string) {
+			names.push(name);
+			return {
+				create: async () => ({ backupId: 'a'.repeat(24), recordCount: 0 }),
+				list: async () => [],
+				delete: async () => false,
+			};
+		},
+	};
+
+	locateDataBackupRegistryV1(namespace, asPrincipalId('alice@example.com'));
+	locateDataBackupRegistryV1(namespace, asPrincipalId('alice@example%2Ecom'));
+
+	expect(names).toEqual(['alice%40example%2Ecom', 'alice%40example%252Ecom']);
 });
 
 test('unrecognized schema and control state fail closed', async () => {
