@@ -23,6 +23,7 @@
 	"scripts": {
 		"evidence:browser": "bun browser-evidence/run.ts --profile smoke",
 		"evidence:browser-replica": "bun browser-evidence/replica-owner-run.ts",
+		"test:browser-replica": "bun test browser-evidence/replica-conformance.test.ts",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p browser-evidence/tsconfig.json",
 		"test": "bun test"
 	},
