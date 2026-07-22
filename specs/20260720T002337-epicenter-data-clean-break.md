@@ -200,35 +200,71 @@ delete the old path
 This is a rollback checkpoint, not a compatibility mode: while the old path
 remains on disk, no retained caller imports both.
 
-### W0: durable contracts and maintained lane harness
+### W0: durable contracts
 
 - Amend and replace the owning ADRs so the record model, lanes, artifacts,
   and physical selection each have one durable owner (done in this revision:
   ADR-0160 through ADR-0177).
 - Align `docs/CONTEXT.md`, the architecture guide, and this spec (this
   revision).
-- Stand up the maintained lane-machine conformance harness as a permanent
-  suite: the eleven lane transitions executed with statement-boundary fault
-  injection over the ADR-0177 schema, the absorption-first composition
-  property tests, the blob staging write-order kills, and the
-  sealed-request-bytes assertion. The disposable probe that first executed
-  these proofs is evidence that the harness can pass; the harness, not the
-  probe, is the shipping gate.
+- Preserve the disposable lane probe as evidence only. It proved transaction
+  rollback and logical-state equivalence in memory; it did not prove
+  file-backed crash and reopen behavior. W0 is documentation only; W1 begins
+  by promoting and strengthening its transition proofs in the maintained
+  repository suite. The maintained harness, not the probe, is the shipping
+  gate.
 
-Rollback point: docs and tests only.
+Rollback point: docs only.
 
 ### W1: replica records and lanes
 
-- Rewrite the protocol kernel's address and shape layer to the record triple
-  and four operations; keep the hardened canonical encoder and admission
-  architecture.
+W1 is deliberately serial at its foundation. Do not fan out into the replica,
+authority, browser, and Cloudflare stacks before the shared semantics and
+maintained proof surface exist.
+
+#### W1A: shared semantics and maintained harness
+
+- Rewrite the private protocol kernel's address and shape layer to the record
+  triple, one fact shape, and four operations; keep the hardened canonical
+  encoder and admission architecture.
+- Land the four-operation composition tests, including randomized sequential
+  equivalence and tombstone absorption evaluated before any payload logic.
+- Promote the disposable probe's transition cases into a permanent conformance
+  suite: preserve all eleven transition scenarios as reference fixtures,
+  partition them by replica, authority, and document/blob owner, and retain
+  statement-boundary fault injection. One unexported test-only SQLite driver
+  may execute the reference cases; it is an oracle, not a second product
+  store. Strengthen the old in-memory rollback probe to file-backed close and
+  reopen coverage, and add the new assertion that persisted first-seal
+  canonical request bytes and their hash survive every retry. Shape the
+  replica subset so adapters can run it without copying the cases; W2 and W3
+  bind the authority and document/blob subsets to their production owners.
+- Stop for an independent review before implementing a production replica
+  store. Blob staging write-order cases join the same maintained suite in W3,
+  when the blob foundation gives them a real adapter to exercise; do not add
+  skipped or stubbed tests in W1A.
+
+#### W1B: Bun replica store
+
 - Implement the replica store on the ADR-0177 schema: lane transitions,
   composition and compaction under the one algebra, seal with persisted
   request bytes, settle, monotonic fact installation, tombstone dominance,
   parked retention and consumption, erase and reacquire.
-- Run the W0 harness against every replica adapter (Bun, browser OPFS).
-- Stop importing, then delete, the Workspace/SQLite experiment relations and
-  the shipped outbox/state paths as callers move.
+- Run the maintained harness against the Bun adapter and complete the
+  wide-versus-split hot-path evidence that can be measured on Bun.
+
+#### W1C: browser replica adapter
+
+- Implement the browser OPFS adapter behind the same store boundary and run
+  the maintained harness unchanged.
+- Complete the browser slice of the wide-versus-split hot-path charter.
+- Complete the physical OPFS capacity and reopen charter on physical iOS
+  Safari and Android Chrome. Keep honest quota refusal outside the semantic
+  store API.
+
+W1 does not migrate retained callers or delete Workspace. W4 owns the point at
+which every replacement capability exists, callers stop importing the old
+path, verification passes, and `packages/workspace` can be deleted.
 
 ### W2: authority records and retry witness
 
@@ -242,28 +278,13 @@ Rollback point: docs and tests only.
 - Derive and freeze the inclusive V1 constants from the settlement-response
   inequality plus measured browser, Bun, and Cloudflare evidence, including
   the DO 2 MB row ceiling and the combined-replica-row bound.
-- The ADR-0177 billing charter rides this wave.
+- Complete the Durable Object slices of ADR-0177's wide-versus-split hot-path
+  and billing/write-amplification charters.
 
-W1 and W2 may proceed in parallel against the shared kernel.
+W2 may begin after W1A passes independent review while W1B and W1C continue
+against the frozen shared kernel and conformance contracts.
 
-### W3: Lens API and retained caller migration
-
-- Implement `defineLens`, `defineTable`, `defineValues`, `parseLens`, `bind`,
-  classified reads, value property access, subscriptions, and the status and
-  parked observation surface.
-- Build the runtime supervisor: one lifecycle owner for attachment,
-  credentials, wakeups, independent fact and submission drains, backoff,
-  status, and disposal. Implement the one-time first-attachment gate.
-- Migrate retained callers from their composition roots inward: apps/epicenter,
-  apps/whispering, packages/skills, apps/honeycrisp, packages/chat,
-  packages/app-shell, packages/svelte-utils, packages/ui, packages/server,
-  packages/cli (decide data-backed mounts versus retirement before this wave
-  ends).
-- Stop every import of `@epicenter/workspace` and the old exchange path;
-  verify; then delete `packages/workspace` and sweep stale exports, tests,
-  examples, docs, and manifest dependencies.
-
-### W4: documents and blobs
+### W3: document and blob foundations
 
 - Persist bounded baseline-plus-tail chains keyed by `record_id`, the frozen
   in-flight publication image, dirty revisions, and receipts (ADR-0174,
@@ -272,11 +293,47 @@ W1 and W2 may proceed in parallel against the shared kernel.
   law and the typed per-record `exportDocument` operation.
 - Implement the blob staging write-order law and both idempotent sweeps
   (ADR-0172, ADR-0173); replace browser IndexedDB blobs with OPFS raw files.
+- Enable the maintained blob staging write-order fault cases now that they
+  exercise real storage owners.
 - Route the realtime overlay through the same authority acceptance operation;
   it earns no second acknowledgement path.
 
+### W4: Lens API, complete caller migration, and Workspace deletion
+
+W4 has three standalone rollback checkpoints. Do not combine import cut,
+verification, and deletion into one commit.
+
+#### W4A: build the complete replacement and migrate callers
+
+- Implement `defineLens`, `defineTable`, `defineValues`, `parseLens`, `bind`,
+  classified reads, value property access, subscriptions, and the status and
+  parked observation surface, including the W3 document and blob operations.
+- Build the runtime supervisor: one lifecycle owner for attachment,
+  credentials, wakeups, independent fact and submission drains, backoff,
+  status, and disposal. Implement the one-time first-attachment gate.
+- Migrate retained callers from their composition roots inward: apps/epicenter,
+  apps/whispering, packages/skills, apps/honeycrisp, packages/chat,
+  packages/app-shell, packages/svelte-utils, packages/ui, packages/server,
+  packages/cli (decide data-backed mounts versus retirement before this wave
+  ends).
+
+#### W4B: stop imports and prove the replacement
+
+- Stop every import of `@epicenter/workspace` and the old exchange path while
+  leaving the old code on disk. Verify typechecks, maintained suites, and the
+  retained application smoke paths against only the replacement.
+
+#### W4C: remove the old path
+
+- After verification passes, delete `packages/workspace` and the old exchange
+  path, then sweep stale exports, tests, examples, docs, and manifest
+  dependencies.
+
 ### W5: snapshot capture and the Home query artifact
 
+- Ship snapshot capture in the first Home release. The release includes
+  `captureSnapshot` plus a minimal way to open or query the artifact; a
+  polished SQL console is explicitly deferred.
 - Implement `captureSnapshot` on the store owner: one read transaction, the
   visible-state fold in owner code, `_epicenter_records`, document and blob
   metadata columns, `_epicenter_artifact(kind='snapshot')`, and selected-Lens
@@ -290,8 +347,6 @@ W1 and W2 may proceed in parallel against the shared kernel.
 - The snapshot capture probe (capture time and one-transaction consistency at
   the 100k envelope) gates this wave; it is a product charter, not a physical
   layout selector.
-
-W4 and W5 may proceed in parallel.
 
 ### W6: portable Backup and Restore
 
@@ -398,9 +453,5 @@ Violations proving drift:
 3. **Realtime row-document topology.** Fixed-address socket per open record,
    multiplexed connection, or no dedicated overlay until a collaborative
    surface ships.
-4. **Snapshot capture scope in first Home release.** Ship `captureSnapshot`
-   plus a minimal Home query surface, or defer the SQL surface until typed
-   browsing proves insufficient. Recommendation: ship capture, defer console
-   polish.
-5. **Physical layout charters (ADR-0177).** Their outcome can swap the store
-   schema in W1/W2 without touching W3+ surfaces.
+4. **Physical layout charters (ADR-0177).** Their outcome can swap the store
+   schema in W1/W2 without touching W4+ surfaces.

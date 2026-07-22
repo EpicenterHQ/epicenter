@@ -67,7 +67,7 @@ _epicenter_records(
   record_key,
   payload_json,
   document_revision,
-  document_encoded_bytes,
+  document_byte_length,
   document_dirty,
   blob_sha256
 )
@@ -81,8 +81,8 @@ installed.
 
 Snapshots are lightweight. The document columns are metadata: the record-local
 revision, the encoded chain size in bytes (never document content), and
-whether unpublished work exists. A
-snapshot never contains a composed document cell or blob bytes, so a missing
+whether unpublished work exists. A snapshot never contains a composed
+document cell or blob bytes, so a missing
 value can never lie about document existence and capture needs no cross-file
 cut. Complete document state and blob bytes belong to the portable Backup
 (ADR-0167, ADR-0170). The rare single-document export job is served by an
@@ -117,8 +117,10 @@ show live; it removes only ad hoc SQL from the live connection.
 - Typed application reads may use private SQL and the canonical address index
   internally. Additional index-backed reads require the separately owned
   decision described by ADR-0176.
-- Home offers a table browser live and a SQL console over snapshots, without
-  granting applications SQL or stabilizing the private live schema.
+- Home offers a table browser live and ad hoc SQL over snapshots, without
+  granting applications SQL or stabilizing the private live schema. The first
+  release needs a minimal way to open or query the artifact, not a polished SQL
+  console.
 - The owner's inspection surface shrinks from a SQL executor with session
   lifecycle to one capture command.
 - Long analytical queries run in Home's context and can never stall the
