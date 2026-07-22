@@ -33,7 +33,7 @@ import {
 	type AuthorityBlobV1,
 	createAuthorityBlobV1,
 } from './blob-authority-v1.js';
-import { createR2BlobFileStore } from './blob-files-r2.js';
+import { createR2BlobFileStore, deleteR2BlobOwner } from './blob-files-r2.js';
 import {
 	type BlobAuthorityV1Endpoint,
 	mountBlobV1App,
@@ -106,7 +106,7 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	private blobAuthority:
 		| AuthorityBlobV1<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>>
 		| undefined;
-	private readonly blobFiles: ReturnType<typeof createR2BlobFileStore>;
+	private readonly blobOwnerStorageKey: string;
 	private realtime: DocumentRealtimeV1Server | undefined;
 	private readonly sockets = new WeakMap<WebSocket, DocumentRealtimeV1Socket>();
 	private initializationError: unknown;
@@ -117,14 +117,11 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		this.database = createDurableObjectSqliteAdapter(
 			ctx.storage as unknown as DurableObjectSqliteStorage,
 		);
-		this.blobFiles = createR2BlobFileStore(env.DATA_BLOBS, ctx.id.toString());
+		this.blobOwnerStorageKey = ctx.id.toString();
 		this.ready = ctx.blockConcurrencyWhile(async () => {
 			try {
 				this.authority = this.openFreshOwner();
-				this.blobAuthority = createAuthorityBlobV1(
-					this.database,
-					this.blobFiles,
-				);
+				this.blobAuthority = this.openBlobOwner(this.authority);
 				await this.blobAuthority.reopenSweep();
 				this.realtime = createDocumentRealtimeV1Server({
 					authority: this.authority,
@@ -296,12 +293,8 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		await this.ready;
 		await this.ctx.blockConcurrencyWhile(async () => {
 			this.realtime?.closeAll();
-			if (this.blobAuthority === undefined) {
-				await this.blobFiles.sweepStaging();
-				await this.blobFiles.sweepContent([]);
-			} else {
-				await this.blobAuthority.deleteAll();
-			}
+			await this.blobAuthority?.deleteAll();
+			await deleteR2BlobOwner(this.env.DATA_BLOBS, this.blobOwnerStorageKey);
 			this.realtime = undefined;
 			this.authority = undefined;
 			this.blobAuthority = undefined;
@@ -310,7 +303,8 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			// step. Reopen an empty successor lifetime so a partial downstream
 			// failure does not strand this actor in an unusable in-memory state.
 			this.authority = this.openFreshOwner();
-			this.blobAuthority = createAuthorityBlobV1(this.database, this.blobFiles);
+			this.blobAuthority = this.openBlobOwner(this.authority);
+			await this.blobAuthority.reopenSweep();
 			this.realtime = createDocumentRealtimeV1Server({
 				authority: this.authority,
 			});
@@ -346,6 +340,19 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			limits: SCALAR_SYNC_V1_LIMITS,
 			initialize: { authorityLifetime: crypto.randomUUID() },
 		});
+	}
+
+	private openBlobOwner(
+		authority: DataAuthorityV1,
+	): AuthorityBlobV1<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>> {
+		return createAuthorityBlobV1(
+			this.database,
+			createR2BlobFileStore(
+				this.env.DATA_BLOBS,
+				this.blobOwnerStorageKey,
+				authority.authorityLifetime(),
+			),
+		);
 	}
 
 	private async acceptDocumentUpgrade(request: Request): Promise<Response> {

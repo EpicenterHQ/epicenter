@@ -13,12 +13,33 @@ function checksumHex(object: R2Object): string | undefined {
 		: bytesToHex(new Uint8Array(checksum));
 }
 
-/** R2 implementation used by one principal DataAuthority Durable Object. */
+function ownerPrefix(ownerStorageKey: string): string {
+	return `data-authorities/${encodeURIComponent(ownerStorageKey)}/`;
+}
+
+async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
+	while (true) {
+		const page = await bucket.list({ prefix });
+		if (page.objects.length === 0) return;
+		await bucket.delete(page.objects.map((object) => object.key));
+	}
+}
+
+/** Delete every R2 object owned by one principal DataAuthority. */
+export async function deleteR2BlobOwner(
+	bucket: R2Bucket,
+	ownerStorageKey: string,
+): Promise<void> {
+	await deletePrefix(bucket, ownerPrefix(ownerStorageKey));
+}
+
+/** R2 implementation bound to one principal authority lifetime. */
 export function createR2BlobFileStore(
 	bucket: R2Bucket,
 	ownerStorageKey: string,
+	authorityLifetime: string,
 ): BlobFileStore<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>> {
-	const root = `data-authorities/${encodeURIComponent(ownerStorageKey)}/blobs`;
+	const root = `${ownerPrefix(ownerStorageKey)}authorities/${encodeURIComponent(authorityLifetime)}/blobs`;
 	const stagingPrefix = `${root}/staging/`;
 	const contentPrefix = `${root}/content/`;
 
@@ -103,16 +124,6 @@ export function createR2BlobFileStore(
 		return object.body;
 	}
 
-	async function deletePrefix(prefix: string): Promise<void> {
-		while (true) {
-			const page = await bucket.list({ prefix });
-			if (page.objects.length === 0) return;
-			if (page.objects.length > 0) {
-				await bucket.delete(page.objects.map((object) => object.key));
-			}
-		}
-	}
-
 	async function sweepContent(owned: readonly OwnedBlobFile[]): Promise<void> {
 		const retained = new Set(owned.map(contentKey));
 		let cursor: string | undefined;
@@ -138,7 +149,7 @@ export function createR2BlobFileStore(
 		stage,
 		promote,
 		open,
-		sweepStaging: () => deletePrefix(stagingPrefix),
+		sweepStaging: () => deletePrefix(bucket, stagingPrefix),
 		sweepContent,
 	};
 }

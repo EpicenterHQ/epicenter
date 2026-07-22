@@ -1,3 +1,13 @@
+/**
+ * R2 Blob File Store Tests
+ *
+ * Verifies streaming blob persistence and the physical lifetime boundary.
+ *
+ * Key behaviors:
+ * - Staged bytes promote into digest-verified content
+ * - Paginated sweeps delete only unowned bytes
+ * - One authority lifetime cannot read or sweep a sibling lifetime's bytes
+ */
 import { expect, test } from 'bun:test';
 
 import { blobFileOwner } from '@epicenter/data/blob-v1';
@@ -99,7 +109,7 @@ async function textOf(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 test('R2 blob files stream, verify, reopen, and sweep without skipping pages', async () => {
 	const { bucket, objects } = setupBucket();
-	const store = createR2BlobFileStore(bucket, 'owner-one');
+	const store = createR2BlobFileStore(bucket, 'owner-one', 'lifetime-one');
 	const digest = sha256Hex('kept');
 	const owner = blobFileOwner(ADDRESS, digest);
 	const staged = await store.stage(source('kept'));
@@ -120,6 +130,37 @@ test('R2 blob files stream, verify, reopen, and sweep without skipping pages', a
 	await store.sweepStaging();
 	await store.sweepContent([owner]);
 	expect([...objects.keys()]).toEqual([
-		`data-authorities/owner-one/blobs/content/${owner.ownerKey}/${owner.digest}`,
+		`data-authorities/owner-one/authorities/lifetime-one/blobs/content/${owner.ownerKey}/${owner.digest}`,
 	]);
+});
+
+test("R2 blob sweeps cannot see or delete a sibling authority lifetime's bytes", async () => {
+	const { bucket, objects } = setupBucket();
+	const first = createR2BlobFileStore(bucket, 'owner-one', 'lifetime-one');
+	const second = createR2BlobFileStore(bucket, 'owner-one', 'lifetime-two');
+	const digest = sha256Hex('shared bytes');
+	const owner = blobFileOwner(ADDRESS, digest);
+
+	await first.promote(await first.stage(source('shared bytes')), owner);
+	await expect(second.open(owner)).rejects.toThrow(
+		'owned R2 blob bytes are missing',
+	);
+	await second.promote(await second.stage(source('shared bytes')), owner);
+	await first.stage(source('first staging debris'));
+	await second.stage(source('second staging debris'));
+
+	await first.sweepStaging();
+	await first.sweepContent([]);
+
+	expect(await textOf(await second.open(owner))).toBe('shared bytes');
+	expect(
+		[...objects.keys()].every((key) =>
+			key.startsWith(
+				'data-authorities/owner-one/authorities/lifetime-two/blobs/',
+			),
+		),
+	).toBe(true);
+	expect([...objects.keys()].some((key) => key.includes('/staging/'))).toBe(
+		true,
+	);
 });
