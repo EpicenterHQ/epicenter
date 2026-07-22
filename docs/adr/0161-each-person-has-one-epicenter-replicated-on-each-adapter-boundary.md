@@ -146,10 +146,11 @@ excludes terminal row tombstones, reversible value absences, sequences, wire
 framing, SQLite pages, documents, blob digests, and raw blob bytes. The target is
 therefore representative present-state stress evidence, not a bound on total
 replica size or lifetime growth. The
-[maintained benchmark contract](../../scripts/benchmarks/scalar-facts-layout/README.md)
-owns the proxy encoding, fixture ratios, physical measurements, and outcome
-vocabulary; it reports current-fact count and current protocol-fact bytes
-separately.
+[ADR-0177 acceptance charters](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
+own the physical measurements that exercise this proxy; the retired benchmark
+matrix's retained run under `docs/benchmarks/scalar-facts-layout/` remains
+historical evidence about its own fixture, reporting current-fact count and
+current protocol-fact bytes separately.
 
 Browser capacity remains conditional. Physical iOS Safari and physical Android
 Chrome must complete a maintained floor of 250,000 final-present addresses and
