@@ -13,7 +13,7 @@ function checksumHex(object: R2Object): string | undefined {
 		: bytesToHex(new Uint8Array(checksum));
 }
 
-function ownerPrefix(ownerStorageKey: string): string {
+export function r2DataOwnerPrefix(ownerStorageKey: string): string {
 	return `data-authorities/${encodeURIComponent(ownerStorageKey)}/`;
 }
 
@@ -30,7 +30,7 @@ export async function deleteR2BlobOwner(
 	bucket: R2Bucket,
 	ownerStorageKey: string,
 ): Promise<void> {
-	await deletePrefix(bucket, ownerPrefix(ownerStorageKey));
+	await deletePrefix(bucket, r2DataOwnerPrefix(ownerStorageKey));
 }
 
 /** R2 implementation bound to one principal authority lifetime. */
@@ -39,7 +39,7 @@ export function createR2BlobFileStore(
 	ownerStorageKey: string,
 	authorityLifetime: string,
 ): BlobFileStore<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>> {
-	const root = `${ownerPrefix(ownerStorageKey)}authorities/${encodeURIComponent(authorityLifetime)}/blobs`;
+	const root = `${r2DataOwnerPrefix(ownerStorageKey)}authorities/${encodeURIComponent(authorityLifetime)}/blobs`;
 	const stagingPrefix = `${root}/staging/`;
 	const contentPrefix = `${root}/content/`;
 
