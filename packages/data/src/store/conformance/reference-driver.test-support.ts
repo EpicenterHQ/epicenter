@@ -657,6 +657,11 @@ export class AuthorityRef {
 				});
 				continue;
 			}
+			// Mirror the pure authority (protocol/v1/authority.ts): refuse before
+			// storing a fact whose sequence would leave the JSON-safe range.
+			if (!Number.isSafeInteger(nextSequence)) {
+				throw new Error(`sequence exhausted at ${nextSequence}`);
+			}
 			folded.set(key, outcome.fact);
 			const payload =
 				outcome.fact.state === 'live'
