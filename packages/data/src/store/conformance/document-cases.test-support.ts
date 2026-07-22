@@ -170,6 +170,41 @@ export function runDocumentConformanceCases(
 			}
 		});
 
+		test('tail compaction is atomic and preserves the complete document', async () => {
+			let replica = await binding.create();
+			try {
+				const values = Array.from({ length: 65 }, (_, index) =>
+					String.fromCharCode(65 + (index % 26)),
+				);
+				const updates = sourceUpdates(...values);
+				for (const update of updates.slice(0, -1)) {
+					await (
+						await replica.prepare({
+							kind: 'append-local',
+							address: ADDRESS,
+							update,
+						})
+					).commit();
+				}
+				const last = updates.at(-1);
+				if (last === undefined) throw new Error('missing compaction update');
+				await applyWithCrashes(replica, {
+					kind: 'append-local',
+					address: ADDRESS,
+					update: last,
+				});
+				expect(documentText(await replica.exportDocument(ADDRESS))).toBe(
+					values.toReversed().join(''),
+				);
+				replica = await replica.reopen();
+				expect(documentText(await replica.exportDocument(ADDRESS))).toBe(
+					values.toReversed().join(''),
+				);
+			} finally {
+				await replica.dispose();
+			}
+		});
+
 		test('an older receipt cannot clear a newer local revision', async () => {
 			const replica = await binding.create();
 			try {
