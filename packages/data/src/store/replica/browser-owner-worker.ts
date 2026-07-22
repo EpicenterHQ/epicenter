@@ -2,13 +2,13 @@ import {
 	type BrowserReplicaOwner,
 	openBrowserReplicaOwner,
 } from './browser-owner.js';
+import { createBrowserReplicaOwnerOperations } from './browser-owner-operations.js';
 import type {
 	BrowserReplicaOwnerMessage,
 	BrowserReplicaOwnerOperation,
 	BrowserReplicaOwnerRequest,
 	BrowserReplicaOwnerResult,
 } from './browser-owner-protocol.js';
-import type { ReplicaStore } from './replica-store.js';
 
 export type BrowserReplicaOwnerWorkerScope = {
 	postMessage(message: BrowserReplicaOwnerMessage): void;
@@ -26,16 +26,14 @@ function serializeError(cause: unknown): { name: string; message: string } {
 	return { name: 'Error', message: String(cause) };
 }
 
-function requireStore(owner: BrowserReplicaOwner | undefined): ReplicaStore {
-	if (owner === undefined) throw new Error('browser replica owner is not open');
-	return owner.store;
-}
-
 /** Bind the semantic replica RPC surface to one dedicated-worker scope. */
 export function startBrowserReplicaOwnerWorker(
 	scope: BrowserReplicaOwnerWorkerScope,
 ): void {
 	let owner: BrowserReplicaOwner | undefined;
+	let operations:
+		| ReturnType<typeof createBrowserReplicaOwnerOperations>
+		| undefined;
 	let requestTail = Promise.resolve();
 
 	async function execute(
@@ -52,43 +50,27 @@ export function startBrowserReplicaOwnerWorker(
 						: { initialize: operation.initialize }),
 					...(operation.storage ?? {}),
 				});
+				operations = createBrowserReplicaOwnerOperations(owner);
 				return undefined;
 			}
 			case 'record':
-				return requireStore(owner).record(operation.address);
 			case 'sync':
-				return requireStore(owner).sync();
 			case 'sealed-request':
-				return requireStore(owner).sealedRequest();
 			case 'local-write':
-				requireStore(owner).localWrite(operation.intent);
-				return undefined;
 			case 'seal':
-				return requireStore(owner).seal();
 			case 'reconstruct-sealed-request':
-				return requireStore(owner).reconstructSealedRequest();
 			case 'install-facts':
-				requireStore(owner).installFacts(operation.page);
-				return undefined;
 			case 'settle':
-				requireStore(owner).settle(operation.response);
-				return undefined;
 			case 'erase':
-				requireStore(owner).erase();
-				return undefined;
 			case 'integrity-check':
-				if (owner === undefined)
-					throw new Error('browser replica owner is not open');
-				owner.integrityCheck();
-				return undefined;
 			case 'reopen':
-				if (owner === undefined)
+				if (operations === undefined)
 					throw new Error('browser replica owner is not open');
-				owner.reopen();
-				return undefined;
+				return operations.execute(operation);
 			case 'dispose': {
 				const opened = owner;
 				owner = undefined;
+				operations = undefined;
 				await opened?.dispose();
 				return undefined;
 			}

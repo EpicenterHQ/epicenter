@@ -39,6 +39,11 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'reopen' }
 	| { kind: 'dispose' };
 
+export type BrowserReplicaStoreOperation = Exclude<
+	BrowserReplicaOwnerOperation,
+	{ kind: 'open' | 'dispose' }
+>;
+
 export type BrowserReplicaOwnerResult =
 	| undefined
 	| ReplicaRecordLanes
