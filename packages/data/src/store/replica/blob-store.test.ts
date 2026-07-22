@@ -281,7 +281,7 @@ describe('record blob store', () => {
 			await expect(
 				context.blobs.settle(ADDRESS, accepted(ADDRESS, '0'.repeat(64))),
 			).rejects.toThrow(/does not match/);
-			expect(context.blobs.inspect(ADDRESS).kind).toBe('pending');
+			expect(context.blobs.inspect(ADDRESS).kind).toBe('owed');
 			await context.blobs.settle(ADDRESS, accepted(ADDRESS, digest));
 			expect(context.blobs.inspect(ADDRESS)).toEqual({
 				kind: 'accepted',
@@ -347,7 +347,7 @@ describe('record blob store', () => {
 					expect(context.blobs.inspect(ADDRESS)).toEqual({ kind: 'absent' });
 				} else {
 					expect(context.files.content.size).toBe(1);
-					expect(context.blobs.inspect(ADDRESS).kind).toBe('pending');
+					expect(context.blobs.inspect(ADDRESS).kind).toBe('owed');
 				}
 
 				await context.blobs.reopenSweep();
@@ -381,7 +381,7 @@ describe('record blob store', () => {
 				new TextEncoder().encode('retained'),
 			);
 			unset.replica.localWrite({ address: ADDRESS, op: 'unset' });
-			expect(unset.blobs.inspect(ADDRESS)).toEqual({ kind: 'pending', digest });
+			expect(unset.blobs.inspect(ADDRESS)).toEqual({ kind: 'owed', digest });
 			await unset.blobs.sweepDebris();
 			expect(unset.files.content.size).toBe(1);
 		} finally {
@@ -414,7 +414,7 @@ describe('record blob store', () => {
 			await context.blobs.sweepDebris();
 			expect(context.files.content.size).toBe(1);
 			expect(context.blobs.inspect(ADDRESS)).toEqual({
-				kind: 'pending',
+				kind: 'owed',
 				digest,
 			});
 		} finally {

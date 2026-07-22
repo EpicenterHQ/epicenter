@@ -5,10 +5,11 @@ export {
 	type ReplicaBlobStore,
 } from './blob-store.js';
 export {
+	type CapturedDocumentPublication,
 	DOCUMENT_CHAIN_LIMITS,
 	type DocumentInspection,
 	type DocumentPublicationState,
-	type FrozenDocumentPublication,
+	type DocumentRefusalEvidence,
 } from './document-store.js';
 export {
 	type CaptureReplicaProposalOptions,

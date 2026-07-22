@@ -408,20 +408,18 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 				parked_measured = NULL,
 				parked_limit = NULL,
 				blob_sha256 = NULL,
-				blob_pending = 0,
+				blob_accepted_sha256 = NULL,
 				blob_parked_code = NULL,
-				doc_revision = 0,
-				doc_dirty = 0
+				document_revision = 0,
+				document_accepted_revision = 0,
+				document_refused_revision = NULL,
+				document_refused_bytes = NULL,
+				document_refused_structs = NULL
 			WHERE ${TRIPLE_WHERE}`,
 			[fact.sequence, ...tripleParams(fact.address)],
 		);
 		database.run(
 			`DELETE FROM record_documents WHERE record_id =
-				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-			tripleParams(fact.address),
-		);
-		database.run(
-			`DELETE FROM document_inflight WHERE record_id =
 				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
 			tripleParams(fact.address),
 		);
@@ -1065,8 +1063,8 @@ export function openReplicaStore({
 			database.run(
 				`INSERT INTO records (
 					namespace, collection, record_key, pending_op, pending_args,
-					blob_sha256, blob_pending, blob_parked_code
-				) VALUES (?, ?, ?, ?, ?, ?, 1, NULL)`,
+					blob_sha256, blob_accepted_sha256, blob_parked_code
+				) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`,
 				[
 					...tripleParams(parsed.data.address),
 					operation.op,
@@ -1359,7 +1357,6 @@ export function openReplicaStore({
 		>('SELECT namespace, collection, record_key FROM records');
 		database.transaction(() => {
 			database.run('DELETE FROM record_documents');
-			database.run('DELETE FROM document_inflight');
 			database.run('DELETE FROM records');
 			database.run(
 				`UPDATE meta SET

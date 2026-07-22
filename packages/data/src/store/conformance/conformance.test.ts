@@ -216,7 +216,7 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 });
 
 describe('document/blob subset (W3 binds these to the real foundations)', () => {
-	/** A replica whose record owns a document chain, an in-flight image, and blob evidence. */
+	/** A replica whose record owns a document chain and owed watermark state. */
 	const documentFixture = () => {
 		const replica = ReplicaRef.create({
 			replicaId: REPLICA_ID,
@@ -241,17 +241,14 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		);
 		replica.store.applyTransaction([
 			{
-				sql: `UPDATE records SET blob_sha256 = ?, blob_pending = 0 WHERE record_key = ?`,
+				sql: `UPDATE records SET blob_sha256 = ?, blob_accepted_sha256 = NULL,
+				        document_revision = 1, document_accepted_revision = 0
+				      WHERE record_key = ?`,
 				params: ['a'.repeat(64), recordA.recordKey],
 			},
 			{
 				sql: `INSERT INTO record_documents (record_id, seq, kind, bytes)
 				      SELECT record_id, 1, 'baseline', X'01' FROM records WHERE record_key = ?`,
-				params: [recordA.recordKey],
-			},
-			{
-				sql: `INSERT INTO document_inflight (record_id, payload, digest, captured_revision)
-				      SELECT record_id, X'02', 'digest', 0 FROM records WHERE record_key = ?`,
 				params: [recordA.recordKey],
 			},
 		]);
@@ -262,21 +259,18 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		documents: replica.store.get<{ n: number }>(
 			'SELECT count(*) AS n FROM record_documents',
 		)?.n,
-		inflight: replica.store.get<{ n: number }>(
-			'SELECT count(*) AS n FROM document_inflight',
-		)?.n,
 	});
 
-	test('a terminal tombstone installs, clears blob evidence, and deletes child rows in one transaction', () => {
+	test('a terminal tombstone installs, clears watermarks, and deletes child rows in one transaction', () => {
 		const replica = documentFixture();
-		expect(childCounts(replica)).toEqual({ documents: 1, inflight: 1 });
+		expect(childCounts(replica)).toEqual({ documents: 1 });
 
 		// One crash-injected transaction installs the tombstone, clears the blob
-		// evidence, and explicitly deletes the document chain and in-flight image
-		// (no cascade exists to do any of it implicitly). A crash at any
-		// statement boundary restores the fully live record with both children,
-		// so no observable state ever holds a committed tombstone beside a
-		// half-done cleanup.
+		// and document watermarks, and explicitly deletes the document chain (no
+		// cascade exists to do any of it implicitly). A crash at any statement
+		// boundary restores the fully live owed record with its chain, so no
+		// observable state ever holds a committed tombstone beside a half-done
+		// cleanup.
 		applyWithCrashes(
 			replica.store,
 			replica.installFactsStatements({
@@ -290,10 +284,10 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 			(crashed) => {
 				const recovered = new ReplicaRef(crashed);
 				expect(recovered.record(recordA)?.confirmed_state).toBe('live');
-				expect(childCounts(recovered)).toEqual({ documents: 1, inflight: 1 });
+				expect(childCounts(recovered)).toEqual({ documents: 1 });
 			},
 		);
-		expect(childCounts(replica)).toEqual({ documents: 0, inflight: 0 });
+		expect(childCounts(replica)).toEqual({ documents: 0 });
 		const row = replica.record(recordA);
 		expect(row?.blob_sha256).toBeNull();
 		expect(row?.confirmed_state).toBe('tombstone');
@@ -317,7 +311,7 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		expect(
 			replica.store.get<{ n: number }>('SELECT count(*) AS n FROM records')?.n,
 		).toBe(0);
-		expect(childCounts(replica)).toEqual({ documents: 0, inflight: 0 });
+		expect(childCounts(replica)).toEqual({ documents: 0 });
 		const meta = replica.meta();
 		expect(meta.authority_lifetime).toBeNull();
 		expect(meta.after_sequence).toBe(0);
