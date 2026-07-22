@@ -29,6 +29,7 @@ import {
 	REPLICA_STORE_FORMAT_VERSION,
 	REPLICA_STORE_INDEXES,
 	REPLICA_STORE_TABLES,
+	replicaStoreSchemaMatches,
 } from './schema.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
@@ -446,7 +447,8 @@ function openSchema(
 		].sort();
 		if (
 			actual.length !== expected.length ||
-			actual.some((entry, index) => entry !== expected[index])
+			actual.some((entry, index) => entry !== expected[index]) ||
+			!replicaStoreSchemaMatches(database)
 		) {
 			throw new Error(
 				`replica store schema does not match format ${REPLICA_STORE_FORMAT_VERSION}`,

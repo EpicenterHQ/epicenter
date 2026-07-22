@@ -1,4 +1,4 @@
-import type { SqliteDatabase } from '@epicenter/sqlite';
+import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 
 export const REPLICA_STORE_FORMAT_VERSION = 3;
 
@@ -16,6 +16,158 @@ export const REPLICA_STORE_INDEXES = [
 	'records_pending',
 	'records_sealed',
 ] as const;
+
+const TABLE_SHAPES = {
+	meta: [
+		'singleton:INTEGER:0:1:0',
+		'format_version:INTEGER:1:0:0',
+		'replica_id:TEXT:1:0:0',
+		'attached_deployment:TEXT:0:0:0',
+		'attached_principal:TEXT:0:0:0',
+		'authority_lifetime:TEXT:0:0:0',
+		'erased_authority_lifetime:TEXT:0:0:0',
+		'after_sequence:INTEGER:1:0:0',
+		'sealed_submission:INTEGER:0:0:0',
+		'sealed_request:TEXT:0:0:0',
+		'sealed_request_hash:TEXT:0:0:0',
+		'next_submission:INTEGER:1:0:0',
+	],
+	records: [
+		'record_id:INTEGER:0:1:0',
+		'namespace:TEXT:1:0:0',
+		'collection:TEXT:1:0:0',
+		'record_key:TEXT:1:0:0',
+		'confirmed_state:TEXT:0:0:0',
+		'confirmed_payload:TEXT:0:0:0',
+		'confirmed_sequence:INTEGER:0:0:0',
+		'sealed_op:TEXT:0:0:0',
+		'sealed_args:TEXT:0:0:0',
+		'pending_op:TEXT:0:0:0',
+		'pending_args:TEXT:0:0:0',
+		'parked_op:TEXT:0:0:0',
+		'parked_args:TEXT:0:0:0',
+		'parked_code:TEXT:0:0:0',
+		'parked_measured:INTEGER:0:0:0',
+		'parked_limit:INTEGER:0:0:0',
+		'doc_revision:INTEGER:1:0:0',
+		'doc_dirty:INTEGER:1:0:0',
+		'blob_sha256:TEXT:0:0:0',
+		'blob_pending:INTEGER:1:0:0',
+		'blob_parked_code:TEXT:0:0:0',
+	],
+	record_documents: [
+		'chain_id:INTEGER:0:1:0',
+		'record_id:INTEGER:1:0:0',
+		'seq:INTEGER:1:0:0',
+		'kind:TEXT:1:0:0',
+		'bytes:BLOB:1:0:0',
+	],
+	document_inflight: [
+		'record_id:INTEGER:0:1:0',
+		'payload:BLOB:0:0:0',
+		'digest:TEXT:1:0:0',
+		'captured_revision:INTEGER:1:0:0',
+		'parked_code:TEXT:0:0:0',
+		'parked_state:TEXT:0:0:0',
+		'measured_bytes:INTEGER:0:0:0',
+		'measured_structs:INTEGER:0:0:0',
+		'limit_bytes:INTEGER:0:0:0',
+		'limit_structs:INTEGER:0:0:0',
+	],
+} as const;
+
+const INDEX_SHAPES = {
+	records_address: {
+		unique: 1,
+		partial: 0,
+		columns: ['namespace', 'collection', 'record_key'],
+	},
+	records_pending: {
+		unique: 0,
+		partial: 1,
+		columns: ['namespace', 'collection', 'record_key'],
+	},
+	records_sealed: {
+		unique: 0,
+		partial: 1,
+		columns: ['namespace', 'collection', 'record_key'],
+	},
+	records_doc_dirty: {
+		unique: 0,
+		partial: 1,
+		columns: ['record_id'],
+	},
+	records_blob_pending: {
+		unique: 0,
+		partial: 1,
+		columns: ['record_id'],
+	},
+} as const;
+
+type TableInfoRow = SqliteRow & {
+	name: string;
+	type: string;
+	notnull: number;
+	pk: number;
+	hidden: number;
+};
+
+type IndexListRow = SqliteRow & {
+	name: string;
+	unique: number;
+	partial: number;
+};
+
+type IndexInfoRow = SqliteRow & {
+	seqno: number;
+	cid: number;
+	name: string | null;
+	key: number;
+};
+
+function sameStrings(actual: readonly string[], expected: readonly string[]) {
+	return (
+		actual.length === expected.length &&
+		actual.every((entry, index) => entry === expected[index])
+	);
+}
+
+/** Recognize the current physical shape without comparing SQLite DDL text. */
+export function replicaStoreSchemaMatches(database: SqliteDatabase): boolean {
+	try {
+		for (const [table, expected] of Object.entries(TABLE_SHAPES)) {
+			const actual = database
+				.all<TableInfoRow>(`PRAGMA table_xinfo("${table}")`)
+				.map(
+					({ name, type, notnull, pk, hidden }) =>
+						`${name}:${type.toUpperCase()}:${notnull}:${pk}:${hidden}`,
+				);
+			if (!sameStrings(actual, expected)) return false;
+		}
+
+		const indexes = database.all<IndexListRow>('PRAGMA index_list("records")');
+		for (const [name, expected] of Object.entries(INDEX_SHAPES)) {
+			const index = indexes.find((candidate) => candidate.name === name);
+			if (
+				index === undefined ||
+				index.unique !== expected.unique ||
+				index.partial !== expected.partial
+			) {
+				return false;
+			}
+			const columns = database
+				.all<IndexInfoRow>(`PRAGMA index_xinfo("${name}")`)
+				.filter((column) => column.key === 1 && column.cid >= 0)
+				.sort((left, right) => left.seqno - right.seqno)
+				.map((column) => column.name)
+				.filter((column): column is string => column !== null);
+			if (!sameStrings(columns, expected.columns)) return false;
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 const SCHEMA = [
 	`CREATE TABLE meta (

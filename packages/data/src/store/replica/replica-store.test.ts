@@ -8,7 +8,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-
+import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
@@ -249,6 +249,67 @@ describe('production replica store format', () => {
 			expect(() =>
 				openReplicaStore({ database: adapter, limits: LIMITS }),
 			).toThrow(/does not match format 3/);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('refuses current object names and format marker over malformed tables', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			database.exec(`
+				CREATE TABLE meta (
+					singleton INTEGER PRIMARY KEY,
+					format_version INTEGER,
+					replica_id TEXT
+				) STRICT;
+				INSERT INTO meta VALUES (1, 3, '${REPLICA_ID}');
+				CREATE TABLE records (id INTEGER PRIMARY KEY) STRICT;
+				CREATE TABLE record_documents (id INTEGER PRIMARY KEY) STRICT;
+				CREATE TABLE document_inflight (id INTEGER PRIMARY KEY) STRICT;
+				CREATE UNIQUE INDEX records_address ON records(id);
+				CREATE INDEX records_pending ON records(id) WHERE id > 0;
+				CREATE INDEX records_sealed ON records(id) WHERE id > 0;
+				CREATE INDEX records_doc_dirty ON records(id) WHERE id > 0;
+				CREATE INDEX records_blob_pending ON records(id) WHERE id > 0;
+			`);
+			expect(() =>
+				openReplicaStore({
+					database: createBunSqliteAdapter(database),
+					limits: LIMITS,
+				}),
+			).toThrow(/does not match format 3/);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('rolls back every schema object when initial DDL fails', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const inner = createBunSqliteAdapter(database);
+			const injected: SqliteDatabase = {
+				run(sql, parameters) {
+					if (sql.startsWith('CREATE INDEX records_sealed')) {
+						throw new Error('injected schema failure');
+					}
+					inner.run(sql, parameters);
+				},
+				all<TRow extends SqliteRow>(sql: string, parameters = []): TRow[] {
+					return inner.all<TRow>(sql, parameters);
+				},
+				transaction<TResult>(run: () => TResult): TResult {
+					return inner.transaction(run);
+				},
+			};
+			expect(() =>
+				openReplicaStore({
+					database: injected,
+					limits: LIMITS,
+					initialize: { replicaId: REPLICA_ID },
+				}),
+			).toThrow('injected schema failure');
+			expect(userSchemaObjects(database)).toEqual([]);
 		} finally {
 			database.close();
 		}
