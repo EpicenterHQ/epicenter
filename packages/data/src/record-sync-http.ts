@@ -22,15 +22,6 @@ const MAX_PLANE_RESPONSE_BYTES = 64 * 1024;
 type Fetch = (request: Request) => Promise<Response>;
 export type RecordBlobHttpBody = Blob | ReadableStream<Uint8Array>;
 
-function bearer(credentials: SyncCredentialProvider): string {
-	const token = credentials.get();
-	if (token === undefined) throw new Error('Sync credentials are unavailable');
-	if (token.length === 0 || /[\r\n]/u.test(token)) {
-		throw new Error('Sync bearer is invalid');
-	}
-	return `Bearer ${token}`;
-}
-
 function endpoint(deploymentId: string, path: string): URL {
 	return new URL(path, deploymentId);
 }
@@ -125,24 +116,19 @@ function planePath(
 	return `api/sync/v1/records/${encodeURIComponent(address.namespace)}/${encodeURIComponent(address.collection)}/${encodeURIComponent(address.recordKey)}/${suffix}`;
 }
 
-/** Create the strict bearer-authenticated HTTP realization of Sync V1. */
+/** Create the strict HTTP realization of Sync V1 over an auth-owned fetch. */
 export function createHttpRecordSyncTransport<
 	TBlobRead extends RecordBlobHttpBody,
 >({
 	deploymentId,
-	credentials,
 	limits = SCALAR_SYNC_V1_LIMITS,
-	fetch: runFetch = globalThis.fetch,
+	fetch: runFetch,
 }: {
 	deploymentId: string;
-	credentials: SyncCredentialProvider;
 	limits?: ValidatedLimits;
-	fetch?: Fetch;
+	/** Fetch that owns authentication, refresh, and audience scoping. */
+	fetch: Fetch;
 }): RecordSyncTransport<TBlobRead> {
-	function headers(extra: Record<string, string> = {}): Headers {
-		return new Headers({ ...extra, authorization: bearer(credentials) });
-	}
-
 	return {
 		async readFacts(request: FactsRequest): Promise<FactsResponse> {
 			const url = endpoint(deploymentId, FACTS_PATH);
@@ -151,7 +137,7 @@ export function createHttpRecordSyncTransport<
 				url.searchParams.set('authorityLifetime', request.authorityLifetime);
 			}
 			return scalarResponse<FactsResponse>(
-				await runFetch(new Request(url.href, { headers: headers() })),
+				await runFetch(new Request(url.href)),
 				limits.maxFactsResponseBytes,
 			);
 		},
@@ -160,7 +146,7 @@ export function createHttpRecordSyncTransport<
 				await runFetch(
 					new Request(endpoint(deploymentId, SUBMISSIONS_PATH).href, {
 						method: 'POST',
-						headers: headers({ 'content-type': 'application/json' }),
+						headers: { 'content-type': 'application/json' },
 						body: request.bytes,
 					}),
 				),
@@ -177,12 +163,12 @@ export function createHttpRecordSyncTransport<
 					).href,
 					{
 						method: 'POST',
-						headers: headers({
+						headers: {
 							'content-type': 'application/octet-stream',
 							'x-epicenter-authority-lifetime': request.authorityLifetime,
 							'x-epicenter-document-protocol': request.protocolVersion,
 							'x-epicenter-document-digest': request.digest,
-						}),
+						},
 						body,
 					},
 				),
@@ -197,13 +183,13 @@ export function createHttpRecordSyncTransport<
 		async publishBlob(publication): Promise<BlobAcceptance> {
 			const init: RequestInit & { duplex?: 'half' } = {
 				method: 'POST',
-				headers: headers({
+				headers: {
 					'content-type': 'application/octet-stream',
 					'x-epicenter-authority-lifetime':
 						publication.request.authorityLifetime,
 					'x-epicenter-blob-protocol': publication.request.protocolVersion,
 					'x-epicenter-blob-digest': publication.request.digest,
-				}),
+				},
 				body: publication.bytes,
 			};
 			if (publication.bytes instanceof ReadableStream) init.duplex = 'half';
@@ -242,7 +228,8 @@ export function createHttpRecordSyncSession<
 	credentials: SyncCredentialProvider;
 	firstAttachmentChoice?: FirstAttachmentChoice;
 	limits?: ValidatedLimits;
-	fetch?: Fetch;
+	/** Fetch that owns authentication, refresh, and audience scoping. */
+	fetch: Fetch;
 }): RecordSyncSession<TBlobRead> {
 	return {
 		attachment: { deploymentId, principalId },
@@ -250,9 +237,8 @@ export function createHttpRecordSyncSession<
 		credentials,
 		transport: createHttpRecordSyncTransport<TBlobRead>({
 			deploymentId,
-			credentials,
 			...(limits === undefined ? {} : { limits }),
-			...(fetch === undefined ? {} : { fetch }),
+			fetch,
 		}),
 	};
 }

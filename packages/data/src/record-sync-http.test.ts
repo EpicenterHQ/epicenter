@@ -1,8 +1,22 @@
+/**
+ * Record Sync HTTP Transport Tests
+ *
+ * Verifies that Sync V1 requests preserve the auth client's fetch boundary,
+ * enforce response parsing, and keep credential availability on the session.
+ *
+ * Key behaviors:
+ * - The transport never fabricates an Authorization header
+ * - Scalar lifetime mismatches become the supervisor reset signal
+ * - Unknown plane responses fail closed
+ */
 import { describe, expect, test } from 'bun:test';
 
 import { BLOB_PUBLICATION_VERSION } from './blob-v1/index.js';
 import { DOCUMENT_PUBLICATION_VERSION } from './document-v1/index.js';
-import { createHttpRecordSyncTransport } from './record-sync-http.js';
+import {
+	createHttpRecordSyncSession,
+	createHttpRecordSyncTransport,
+} from './record-sync-http.js';
 import { RecordAuthorityLifetimeMismatchError } from './record-sync-supervisor.js';
 
 const ADDRESS = {
@@ -12,11 +26,10 @@ const ADDRESS = {
 } as const;
 
 describe('record sync HTTP transport', () => {
-	test('sends bounded bearer-authenticated requests for every plane', async () => {
+	test('sends every plane through auth-owned fetch without fabricating authorization', async () => {
 		const requests: Request[] = [];
 		const transport = createHttpRecordSyncTransport<Blob>({
 			deploymentId: 'https://api.example.com/',
-			credentials: { get: () => 'secret' },
 			async fetch(request) {
 				requests.push(request);
 				const url = new URL(request.url);
@@ -81,7 +94,7 @@ describe('record sync HTTP transport', () => {
 
 		expect(requests).toHaveLength(4);
 		for (const request of requests) {
-			expect(request.headers.get('authorization')).toBe('Bearer secret');
+			expect(request.headers.has('authorization')).toBe(false);
 		}
 		const factsUrl = new URL(requests[0]?.url ?? '');
 		expect(factsUrl.pathname).toBe('/api/sync/v1/facts');
@@ -97,10 +110,40 @@ describe('record sync HTTP transport', () => {
 		);
 	});
 
+	test('keeps credential availability on the session instead of consulting it in transport', async () => {
+		let credentialReads = 0;
+		const credentials = {
+			get() {
+				credentialReads += 1;
+				return undefined;
+			},
+		};
+		const session = createHttpRecordSyncSession<Blob>({
+			deploymentId: 'https://api.example.com/',
+			principalId: 'principal-one',
+			credentials,
+			fetch: async (request) => {
+				expect(request.headers.has('authorization')).toBe(false);
+				return Response.json({
+					authorityLifetime: 'lifetime-one',
+					facts: [],
+					hasMore: false,
+				});
+			},
+		});
+
+		expect(session.credentials).toBe(credentials);
+		expect(await session.transport.readFacts({ afterSequence: 0 })).toEqual({
+			authorityLifetime: 'lifetime-one',
+			facts: [],
+			hasMore: false,
+		});
+		expect(credentialReads).toBe(0);
+	});
+
 	test('turns the scalar 409 lifetime response into the reset signal', async () => {
 		const transport = createHttpRecordSyncTransport<Blob>({
 			deploymentId: 'https://api.example.com/',
-			credentials: { get: () => 'secret' },
 			fetch: async () =>
 				Response.json(
 					{
@@ -118,7 +161,6 @@ describe('record sync HTTP transport', () => {
 	test('rejects non-acceptance JSON instead of spinning an unknown plane result', async () => {
 		const transport = createHttpRecordSyncTransport<Blob>({
 			deploymentId: 'https://api.example.com/',
-			credentials: { get: () => 'secret' },
 			fetch: async () =>
 				Response.json({ error: 'unauthorized' }, { status: 401 }),
 		});
