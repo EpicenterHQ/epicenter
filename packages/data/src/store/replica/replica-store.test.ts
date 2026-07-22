@@ -108,6 +108,19 @@ describe('production replica store format', () => {
 				payload: 'dark',
 			});
 			expect(store.record(ADDRESS)?.parked?.code).toBe('patch-base-not-object');
+			expect(store.workSummary()).toMatchObject({
+				scalar: { pending: 0, sealed: 0, parked: 1 },
+			});
+			expect(store.parkedWork()).toMatchObject({
+				entries: [
+					{
+						address: ADDRESS,
+						scalar: { code: 'patch-base-not-object' },
+						document: null,
+						blob: null,
+					},
+				],
+			});
 		} finally {
 			database.close();
 		}

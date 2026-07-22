@@ -186,6 +186,24 @@ describe('record Epicenter Lens runtime', () => {
 				digest,
 			});
 			expect(await context.data.notes.notes.blob.get(row.id)).toEqual(bytes);
+			expect(context.replica.workSummary()).toMatchObject({
+				document: { pending: 1, parked: 0 },
+				blob: { pending: 1, parked: 0 },
+			});
+			expect(context.replica.publicationAddresses('document')).toEqual([
+				{
+					namespace: notesLens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				},
+			]);
+			expect(context.replica.publicationAddresses('blob')).toEqual([
+				{
+					namespace: notesLens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				},
+			]);
 
 			await context.data.notes.notes.delete(row.id);
 			expect(() => reopened.get('content')).toThrow('no longer live');

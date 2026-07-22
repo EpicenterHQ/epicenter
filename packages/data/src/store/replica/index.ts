@@ -17,12 +17,15 @@ export {
 	type ReplicaAttachment,
 	type ReplicaAttachmentState,
 	type ReplicaFactsPage,
+	type ReplicaParkedWork,
+	type ReplicaParkedWorkPage,
 	type ReplicaRecordLanes,
 	type ReplicaStore,
 	type ReplicaStoreSync,
 	type ReplicaVisibleRecord,
 	type ReplicaVisibleRecordEntry,
 	type ReplicaVisibleRecordPage,
+	type ReplicaWorkSummary,
 	type SealedRequest,
 } from './replica-store.js';
 export {

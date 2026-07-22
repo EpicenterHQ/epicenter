@@ -113,6 +113,30 @@ export type ReplicaVisibleRecordPage = {
 	nextAfter?: string;
 };
 
+export type ReplicaWorkSummary = {
+	scalar: { pending: number; sealed: number; parked: number };
+	document: { pending: number; parked: number };
+	blob: { pending: number; parked: number };
+};
+
+export type ReplicaParkedWork = {
+	address: RecordAddress;
+	scalar: ReplicaRecordLanes['parked'];
+	document: {
+		code: 'document-bound';
+		measuredBytes: number;
+		measuredStructs: number;
+		limitBytes: number;
+		limitStructs: number;
+	} | null;
+	blob: { code: 'blob-conflict' | 'record-not-live' } | null;
+};
+
+export type ReplicaParkedWorkPage = {
+	entries: ReplicaParkedWork[];
+	nextAfter?: RecordAddress;
+};
+
 export type SealedRequest = { bytes: string; hash: string };
 
 export type ReplicaFactsPage = {
@@ -525,6 +549,182 @@ export function openReplicaStore({
 		return {
 			entries,
 			...(hasNext && last !== undefined ? { nextAfter: last.record_key } : {}),
+		};
+	}
+
+	function workSummary(): ReplicaWorkSummary {
+		const row = one<
+			SqliteRow & {
+				scalar_pending: number;
+				scalar_sealed: number;
+				scalar_parked: number;
+				document_pending: number;
+				document_parked: number;
+				blob_pending: number;
+				blob_parked: number;
+			}
+		>(
+			database,
+			`SELECT
+				count(*) FILTER (WHERE pending_op IS NOT NULL) AS scalar_pending,
+				count(*) FILTER (WHERE sealed_op IS NOT NULL) AS scalar_sealed,
+				count(*) FILTER (WHERE parked_op IS NOT NULL) AS scalar_parked,
+				count(*) FILTER (WHERE doc_dirty = 1 AND NOT EXISTS (
+					SELECT 1 FROM document_inflight i
+					WHERE i.record_id = records.record_id AND i.parked_code IS NOT NULL
+				)) AS document_pending,
+				count(*) FILTER (WHERE EXISTS (
+					SELECT 1 FROM document_inflight i
+					WHERE i.record_id = records.record_id AND i.parked_code IS NOT NULL
+				)) AS document_parked,
+				count(*) FILTER (WHERE blob_pending = 1 AND blob_parked_code IS NULL)
+					AS blob_pending,
+				count(*) FILTER (WHERE blob_parked_code IS NOT NULL) AS blob_parked
+			FROM records`,
+		);
+		if (row === null) throw new Error('replica work summary failed');
+		return {
+			scalar: {
+				pending: row.scalar_pending,
+				sealed: row.scalar_sealed,
+				parked: row.scalar_parked,
+			},
+			document: {
+				pending: row.document_pending,
+				parked: row.document_parked,
+			},
+			blob: { pending: row.blob_pending, parked: row.blob_parked },
+		};
+	}
+
+	function publicationAddresses(
+		plane: 'document' | 'blob',
+		limit = 32,
+	): RecordAddress[] {
+		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+			throw new Error('publication address limit must be 1 through 1000');
+		}
+		const predicate =
+			plane === 'document'
+				? `doc_dirty = 1 AND NOT EXISTS (
+					SELECT 1 FROM document_inflight i
+					WHERE i.record_id = records.record_id AND i.parked_code IS NOT NULL
+				)`
+				: 'blob_pending = 1 AND blob_parked_code IS NULL';
+		return database
+			.all<
+				SqliteRow & {
+					namespace: string;
+					collection: string;
+					record_key: string;
+				}
+			>(
+				`SELECT namespace, collection, record_key FROM records
+				WHERE ${predicate}
+				ORDER BY namespace, collection, record_key LIMIT ?`,
+				[limit],
+			)
+			.map((row) => ({
+				namespace: row.namespace,
+				collection: row.collection,
+				recordKey: row.record_key,
+			}));
+	}
+
+	function parkedWork(
+		after?: RecordAddress,
+		limit = 100,
+	): ReplicaParkedWorkPage {
+		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+			throw new Error('parked work limit must be 1 through 1000');
+		}
+		if (after !== undefined) {
+			const parsed = parseAddress(after, limits);
+			if (parsed.error !== null)
+				throw new Error('parked work cursor is invalid');
+		}
+		const parameters: (string | number)[] = [];
+		const cursor =
+			after === undefined
+				? ''
+				: `AND (r.namespace > ?
+					OR (r.namespace = ? AND r.collection > ?)
+					OR (r.namespace = ? AND r.collection = ? AND r.record_key > ?))`;
+		if (after !== undefined) {
+			parameters.push(
+				after.namespace,
+				after.namespace,
+				after.collection,
+				after.namespace,
+				after.collection,
+				after.recordKey,
+			);
+		}
+		parameters.push(limit + 1);
+		const rows = database.all<
+			RecordRow & {
+				namespace: string;
+				collection: string;
+				record_key: string;
+				document_code: 'document-bound' | null;
+				document_measured_bytes: number | null;
+				document_measured_structs: number | null;
+				document_limit_bytes: number | null;
+				document_limit_structs: number | null;
+				blob_parked_code: 'blob-conflict' | 'record-not-live' | null;
+			}
+		>(
+			`SELECT r.*,
+				i.parked_code AS document_code,
+				i.measured_bytes AS document_measured_bytes,
+				i.measured_structs AS document_measured_structs,
+				i.limit_bytes AS document_limit_bytes,
+				i.limit_structs AS document_limit_structs
+			FROM records r
+			LEFT JOIN document_inflight i ON i.record_id = r.record_id
+			WHERE (r.parked_op IS NOT NULL OR r.blob_parked_code IS NOT NULL
+				OR i.parked_code IS NOT NULL) ${cursor}
+			ORDER BY r.namespace, r.collection, r.record_key LIMIT ?`,
+			parameters,
+		);
+		const hasNext = rows.length > limit;
+		const pageRows = hasNext ? rows.slice(0, limit) : rows;
+		const entries = pageRows.map((row): ReplicaParkedWork => {
+			const address = {
+				namespace: row.namespace,
+				collection: row.collection,
+				recordKey: row.record_key,
+			};
+			const document =
+				row.document_code === null
+					? null
+					: row.document_measured_bytes === null ||
+							row.document_measured_structs === null ||
+							row.document_limit_bytes === null ||
+							row.document_limit_structs === null
+						? (() => {
+								throw new Error('parked document measurements are corrupt');
+							})()
+						: {
+								code: row.document_code,
+								measuredBytes: row.document_measured_bytes,
+								measuredStructs: row.document_measured_structs,
+								limitBytes: row.document_limit_bytes,
+								limitStructs: row.document_limit_structs,
+							};
+			return {
+				address,
+				scalar: lanesOf(row)?.parked ?? null,
+				document,
+				blob:
+					row.blob_parked_code === null ? null : { code: row.blob_parked_code },
+			};
+		});
+		return {
+			entries,
+			...(hasNext && entries.length > 0
+				? { nextAfter: entries.at(-1)?.address }
+				: {}),
 		};
 	}
 
@@ -1023,6 +1223,9 @@ export function openReplicaStore({
 		record,
 		visible,
 		visibleRecords,
+		workSummary,
+		publicationAddresses,
+		parkedWork,
 		attachment,
 		attach,
 		subscribe(listener: (addresses: readonly RecordAddress[]) => void) {
