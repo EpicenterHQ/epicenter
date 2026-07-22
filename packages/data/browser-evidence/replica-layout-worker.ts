@@ -15,20 +15,23 @@ import {
 	type RecordAddress,
 	utf8ByteLength,
 } from '../src/protocol/v1/index.js';
-import { createReplicaStoreSchema } from '../src/store/replica/schema.js';
+import {
+	createReplicaStoreSchema,
+	REPLICA_STORE_FORMAT_VERSION,
+} from '../src/store/replica/schema.js';
 import type {
-	ReplicaLayoutAggregate,
 	ReplicaLayoutCandidate,
 	ReplicaLayoutCandidateRun,
-	ReplicaLayoutComparison,
 	ReplicaLayoutEngineResult,
-	ReplicaLayoutMetric,
 	ReplicaLayoutProfileParameters,
-	ReplicaLayoutSummary,
 	ReplicaLayoutWorkerMessage,
 	ReplicaLayoutWorkerRequest,
 } from './replica-layout-contract.js';
-import { REPLICA_LAYOUT_PROFILES } from './replica-layout-contract.js';
+import {
+	deriveReplicaLayoutAggregate,
+	REPLICA_LAYOUT_PROFILES,
+	summarizeReplicaLayoutSamples,
+} from './replica-layout-contract.js';
 
 type WorkerScope = {
 	postMessage(message: ReplicaLayoutWorkerMessage): void;
@@ -41,6 +44,7 @@ type WorkerScope = {
 const scope = globalThis as unknown as WorkerScope;
 const NAMESPACE_COUNT = 25;
 const COLLECTION_COUNT = 40;
+const SPLIT_FORMAT_VERSION = 1;
 
 const SPLIT_DDL = `
 CREATE TABLE meta (
@@ -56,7 +60,7 @@ CREATE TABLE meta (
 ) STRICT;
 INSERT INTO meta (
   singleton, format_version, replica_id, authority_lifetime
-) VALUES (1, 1, 'rrrrrrrrrrrrrrrrrrrrrrrr', 'lifetime-one');
+) VALUES (1, ${SPLIT_FORMAT_VERSION}, 'rrrrrrrrrrrrrrrrrrrrrrrr', 'lifetime-one');
 
 CREATE TABLE confirmed_records (
   namespace TEXT NOT NULL,
@@ -250,7 +254,10 @@ function hasRow(statement: PreparedStatement, bindings: BindingSpec): boolean {
 	}
 }
 
-function countRows(statement: PreparedStatement, bindings: BindingSpec): number {
+function countRows(
+	statement: PreparedStatement,
+	bindings: BindingSpec,
+): number {
 	let count = 0;
 	try {
 		statement.bind(bindings);
@@ -305,24 +312,6 @@ function seed(
 	} finally {
 		statement.finalize();
 	}
-}
-
-function percentile(values: readonly number[], fraction: number): number {
-	const sorted = [...values].sort((left, right) => left - right);
-	return (
-		sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ??
-		0
-	);
-}
-
-function summarize(rawMs: number[]): ReplicaLayoutSummary {
-	return {
-		rawMs,
-		p50Ms: percentile(rawMs, 0.5),
-		p95Ms: percentile(rawMs, 0.95),
-		minimumMs: Math.min(...rawMs),
-		maximumMs: Math.max(...rawMs),
-	};
 }
 
 function timed(run: () => void): number {
@@ -625,7 +614,13 @@ async function runCandidate({
 							reopened,
 							'SELECT format_version AS value FROM meta WHERE singleton = 1',
 						);
-						if (meta !== 1) throw new Error('Reopen format mismatch');
+						const expectedFormat =
+							candidate === 'wide'
+								? REPLICA_STORE_FORMAT_VERSION
+								: SPLIT_FORMAT_VERSION;
+						if (meta !== expectedFormat) {
+							throw new Error('Reopen format mismatch');
+						}
 						const probe = recordAt(sample % parameters.records, shape);
 						const table =
 							candidate === 'wide' ? 'records' : 'confirmed_records';
@@ -660,11 +655,11 @@ async function runCandidate({
 				candidate,
 				repetition,
 				metrics: {
-					pointRead: summarize(pointSamples),
-					traversal: summarize(traversalSamples),
-					laneWrite: summarize(laneSamples),
-					feedInstall: summarize(feedSamples),
-					reopen: summarize(reopenSamples),
+					pointRead: summarizeReplicaLayoutSamples(pointSamples),
+					traversal: summarizeReplicaLayoutSamples(traversalSamples),
+					laneWrite: summarizeReplicaLayoutSamples(laneSamples),
+					feedInstall: summarizeReplicaLayoutSamples(feedSamples),
+					reopen: summarizeReplicaLayoutSamples(reopenSamples),
 				},
 				storage: {
 					pageSize,
@@ -683,67 +678,6 @@ async function runCandidate({
 		database?.close();
 		await pool?.removeVfs();
 	}
-}
-
-function median(values: readonly number[]): number {
-	return percentile(values, 0.5);
-}
-
-function comparison(wideMs: number, splitMs: number): ReplicaLayoutComparison {
-	const minimum = Math.min(wideMs, splitMs);
-	return {
-		wideMs,
-		splitMs,
-		differencePercent:
-			minimum === 0
-				? wideMs === splitMs
-					? 0
-					: null
-				: (Math.abs(wideMs - splitMs) / minimum) * 100,
-		faster: wideMs <= splitMs ? 'wide' : 'split',
-	};
-}
-
-function aggregate(runs: ReplicaLayoutCandidateRun[]): ReplicaLayoutAggregate {
-	const metrics = {} as ReplicaLayoutAggregate['metrics'];
-	for (const metric of [
-		'pointRead',
-		'traversal',
-		'laneWrite',
-		'feedInstall',
-		'reopen',
-	] as const satisfies readonly ReplicaLayoutMetric[]) {
-		const wide = runs.filter(({ candidate }) => candidate === 'wide');
-		const split = runs.filter(({ candidate }) => candidate === 'split');
-		metrics[metric] = {
-			p50: comparison(
-				median(wide.map((run) => run.metrics[metric].p50Ms)),
-				median(split.map((run) => run.metrics[metric].p50Ms)),
-			),
-			p95: comparison(
-				median(wide.map((run) => run.metrics[metric].p95Ms)),
-				median(split.map((run) => run.metrics[metric].p95Ms)),
-			),
-		};
-	}
-	const differences = Object.values(metrics).flatMap(({ p50, p95 }) =>
-		[p50.differencePercent, p95.differencePercent].filter(
-			(difference): difference is number => difference !== null,
-		),
-	);
-	const hasUnquantifiableDifference = Object.values(metrics).some(
-		({ p50, p95 }) =>
-			p50.differencePercent === null || p95.differencePercent === null,
-	);
-	return {
-		metrics,
-		stopRule: differences.some((difference) => difference > 20)
-			? 'material-direction-found'
-			: !hasUnquantifiableDifference &&
-					differences.every((difference) => difference < 10)
-				? 'all-hot-metrics-equivalent'
-				: 'continue-measurement',
-	};
 }
 
 async function runBenchmark({
@@ -871,7 +805,7 @@ async function runBenchmark({
 			splitDdlSha256: await sha256(SPLIT_DDL),
 		},
 		runs,
-		aggregate: aggregate(runs),
+		aggregate: deriveReplicaLayoutAggregate(runs),
 	};
 }
 

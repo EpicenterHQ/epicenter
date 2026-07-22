@@ -11,6 +11,20 @@ export type ReplicaLayoutMetric =
 	| 'feedInstall'
 	| 'reopen';
 
+export const REPLICA_LAYOUT_METRICS = [
+	'pointRead',
+	'traversal',
+	'laneWrite',
+	'feedInstall',
+	'reopen',
+] as const satisfies readonly ReplicaLayoutMetric[];
+
+export const REPLICA_LAYOUT_CLEAN_SCOPE =
+	'listed harness files, package manifest, and lockfile; bundled transitive modules excluded' as const;
+
+export const REPLICA_LAYOUT_PROVENANCE_LIMITATION =
+	'The source fingerprint covers only source.files plus bun.lock. It does not cover bundled transitive modules such as the production schema, canonical encoder, SQLite adapter, or installed dependency bytes.' as const;
+
 export type ReplicaLayoutProfileParameters = {
 	records: number;
 	proxyBytes: number;
@@ -181,7 +195,7 @@ export type ReplicaLayoutEvidenceReport = {
 	source: {
 		commit: string;
 		clean: boolean;
-		cleanScope: 'fingerprinted harness, package manifest, and lockfile';
+		cleanScope: typeof REPLICA_LAYOUT_CLEAN_SCOPE;
 		dirtyPaths: string[];
 		lockfileSha256: string;
 		harnessSha256: string;
@@ -203,6 +217,132 @@ export type ReplicaLayoutEvidenceReport = {
 	overall: 'provisional' | 'incomplete' | 'invalid';
 };
 
+function percentile(values: readonly number[], fraction: number): number {
+	const sorted = [...values].sort((left, right) => left - right);
+	return (
+		sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ??
+		0
+	);
+}
+
+export function summarizeReplicaLayoutSamples(
+	rawMs: number[],
+): ReplicaLayoutSummary {
+	return {
+		rawMs,
+		p50Ms: percentile(rawMs, 0.5),
+		p95Ms: percentile(rawMs, 0.95),
+		minimumMs: Math.min(...rawMs),
+		maximumMs: Math.max(...rawMs),
+	};
+}
+
+function comparison(wideMs: number, splitMs: number): ReplicaLayoutComparison {
+	const minimum = Math.min(wideMs, splitMs);
+	return {
+		wideMs,
+		splitMs,
+		differencePercent:
+			minimum === 0
+				? wideMs === splitMs
+					? 0
+					: null
+				: (Math.abs(wideMs - splitMs) / minimum) * 100,
+		faster: wideMs <= splitMs ? 'wide' : 'split',
+	};
+}
+
+function comparisonsEqual(
+	left: ReplicaLayoutComparison,
+	right: ReplicaLayoutComparison,
+): boolean {
+	return (
+		left.wideMs === right.wideMs &&
+		left.splitMs === right.splitMs &&
+		left.differencePercent === right.differencePercent &&
+		left.faster === right.faster
+	);
+}
+
+export function deriveReplicaLayoutAggregate(
+	runs: ReplicaLayoutCandidateRun[],
+): ReplicaLayoutAggregate {
+	const metrics = {} as ReplicaLayoutAggregate['metrics'];
+	for (const metric of REPLICA_LAYOUT_METRICS) {
+		const wide = runs.filter(({ candidate }) => candidate === 'wide');
+		const split = runs.filter(({ candidate }) => candidate === 'split');
+		metrics[metric] = {
+			p50: comparison(
+				percentile(
+					wide.map((run) => run.metrics[metric].p50Ms),
+					0.5,
+				),
+				percentile(
+					split.map((run) => run.metrics[metric].p50Ms),
+					0.5,
+				),
+			),
+			p95: comparison(
+				percentile(
+					wide.map((run) => run.metrics[metric].p95Ms),
+					0.5,
+				),
+				percentile(
+					split.map((run) => run.metrics[metric].p95Ms),
+					0.5,
+				),
+			),
+		};
+	}
+	const differences = Object.values(metrics).flatMap(({ p50, p95 }) =>
+		[p50.differencePercent, p95.differencePercent].filter(
+			(difference): difference is number => difference !== null,
+		),
+	);
+	const hasUnquantifiableDifference = Object.values(metrics).some(
+		({ p50, p95 }) =>
+			p50.differencePercent === null || p95.differencePercent === null,
+	);
+	return {
+		metrics,
+		stopRule: differences.some((difference) => difference > 20)
+			? 'material-direction-found'
+			: !hasUnquantifiableDifference &&
+					differences.every((difference) => difference < 10)
+				? 'all-hot-metrics-equivalent'
+				: 'continue-measurement',
+	};
+}
+
+export function deriveReplicaLayoutInterpretation(
+	profile: ReplicaLayoutProfile,
+	result: ReplicaLayoutEngineResult,
+): string[] {
+	if (result.outcome !== 'passed') {
+		return [
+			`The ${profile} charter ${result.outcome}: ${result.reason ?? 'unknown reason'}.`,
+		];
+	}
+	const statements = [
+		profile === 'smoke'
+			? 'Smoke validates the measurement method only; it is not decision eligible.'
+			: 'The full charter measures 1,000,000 records and 536,870,912 canonical proxy bytes, but remains pre-physical browser-engine evidence.',
+		`ADR-0177 stop rule: ${result.aggregate?.stopRule ?? 'missing'}.`,
+	];
+	for (const metric of REPLICA_LAYOUT_METRICS) {
+		const aggregate = result.aggregate?.metrics[metric];
+		if (aggregate === undefined) continue;
+		const difference = (value: number | null): string =>
+			value === null
+				? 'not quantifiable at timer resolution'
+				: `${value.toFixed(2)}%`;
+		statements.push(
+			`${metric}: ${aggregate.p50.faster} p50 difference is ${difference(aggregate.p50.differencePercent)}; ${aggregate.p95.faster} p95 difference is ${difference(aggregate.p95.differencePercent)}.`,
+		);
+	}
+	return statements;
+}
+
 export function assertReplicaLayoutEvidence(
 	value: unknown,
 ): asserts value is ReplicaLayoutEvidenceReport {
@@ -221,11 +361,11 @@ export function assertReplicaLayoutEvidence(
 	if (report.source?.clean !== (report.source?.dirtyPaths.length === 0)) {
 		throw new Error('Replica layout source cleanliness is inconsistent');
 	}
-	if (
-		report.source?.cleanScope !==
-		'fingerprinted harness, package manifest, and lockfile'
-	) {
+	if (report.source?.cleanScope !== REPLICA_LAYOUT_CLEAN_SCOPE) {
 		throw new Error('Replica layout source cleanliness scope is invalid');
+	}
+	if (!report.limitations?.includes(REPLICA_LAYOUT_PROVENANCE_LIMITATION)) {
+		throw new Error('Replica layout source limitation is missing');
 	}
 	if (!Array.isArray(report.engines) || report.engines.length === 0) {
 		throw new Error('Replica layout evidence has no engine results');
@@ -273,6 +413,7 @@ export function assertReplicaLayoutEvidence(
 					`Engine '${entry.engine}' lacks schema or aggregate evidence`,
 				);
 			}
+			const aggregate = result.aggregate;
 			const candidateRepetitions = new Set<string>();
 			for (const run of result.runs) {
 				candidateRepetitions.add(`${run.candidate}:${run.repetition}`);
@@ -283,9 +424,8 @@ export function assertReplicaLayoutEvidence(
 				) {
 					throw new Error(`Engine '${entry.engine}' retained an invalid run`);
 				}
-				for (const [metric, summary] of Object.entries(run.metrics) as Array<
-					[ReplicaLayoutMetric, ReplicaLayoutSummary]
-				>) {
+				for (const metric of REPLICA_LAYOUT_METRICS) {
+					const summary = run.metrics[metric];
 					const expectedSamples =
 						metric === 'pointRead'
 							? result.parameters.pointBatches
@@ -306,6 +446,17 @@ export function assertReplicaLayoutEvidence(
 							`Engine '${entry.engine}' retained invalid raw timing`,
 						);
 					}
+					const expectedSummary = summarizeReplicaLayoutSamples(summary.rawMs);
+					if (
+						summary.p50Ms !== expectedSummary.p50Ms ||
+						summary.p95Ms !== expectedSummary.p95Ms ||
+						summary.minimumMs !== expectedSummary.minimumMs ||
+						summary.maximumMs !== expectedSummary.maximumMs
+					) {
+						throw new Error(
+							`Engine '${entry.engine}' retained an invalid timing summary`,
+						);
+					}
 				}
 			}
 			for (const candidate of ['wide', 'split'] as const) {
@@ -321,6 +472,23 @@ export function assertReplicaLayoutEvidence(
 					}
 				}
 			}
+			const expectedAggregate = deriveReplicaLayoutAggregate(result.runs);
+			const aggregateMatches = REPLICA_LAYOUT_METRICS.every((metric) =>
+				(['p50', 'p95'] as const).every((percentile) =>
+					comparisonsEqual(
+						aggregate.metrics[metric][percentile],
+						expectedAggregate.metrics[metric][percentile],
+					),
+				),
+			);
+			if (
+				!aggregateMatches ||
+				aggregate.stopRule !== expectedAggregate.stopRule
+			) {
+				throw new Error(
+					`Engine '${entry.engine}' retained an invalid aggregate`,
+				);
+			}
 		} else if (
 			result.reason === undefined ||
 			result.runs.length !== 0 ||
@@ -329,6 +497,20 @@ export function assertReplicaLayoutEvidence(
 		) {
 			throw new Error(
 				`Engine '${entry.engine}' has invalid incomplete evidence`,
+			);
+		}
+		const expectedInterpretation = deriveReplicaLayoutInterpretation(
+			report.profile ?? 'smoke',
+			result,
+		);
+		if (
+			entry.interpretation.length !== expectedInterpretation.length ||
+			entry.interpretation.some(
+				(statement, index) => statement !== expectedInterpretation[index],
+			)
+		) {
+			throw new Error(
+				`Engine '${entry.engine}' retained an invalid interpretation`,
 			);
 		}
 	}
