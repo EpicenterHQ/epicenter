@@ -123,6 +123,24 @@ This closes the Durable Object hot-path and billing slices in favor of wide. It
 does not accept this ADR: the Bun replica direction is mixed, and browser OPFS
 hot-path plus physical mobile capacity evidence remains open.
 
+### Evidence checkpoint: desktop browser engines
+
+The 2026-07-22 Chromium and WebKit full profiles each exercised both layouts
+with 1,000,000 records and the exact 536,870,912-byte proxy through the OPFS
+SAH-pool VFS. Both passed integrity and reopen checks, and both fired the
+material-direction stop rule. Chromium measured split materially faster for
+traversal and lane writes while point reads, feed installation, and reopen were
+within the stop rule's neutral band. WebKit recorded the same split direction
+for traversal and lane writes at coarser timer resolution; its other metrics
+were tied at that resolution. The raw reports live under
+`docs/benchmarks/replica-layout/`.
+
+These reports are deliberately marked provisional and decision-ineligible.
+They are headless desktop engine evidence, not physical iOS Safari or Android
+Chrome evidence. They strengthen the split runner-up but do not complete the
+physical capacity and reopen charter or, by themselves, reverse the selected
+wide layout.
+
 ## Consequences
 
 - One `SELECT` by triple answers what the authority said, what is in flight,

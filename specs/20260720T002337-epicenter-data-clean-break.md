@@ -305,6 +305,28 @@ Object slices before ADR-0177's Proposed selection can be accepted or reversed.
   Safari and Android Chrome. Keep honest quota refusal outside the semantic
   store API.
 
+Implementation checkpoint (2026-07-22, partial): the production browser
+replica runs the W1B store behind sqlite-wasm's OPFS SAH-pool VFS in one
+dedicated Worker holding the exclusive origin Web Lock. Waiting page
+candidates open no database. The versioned candidate protocol retries lost
+discovery, idempotent reads, replies, and invalidation heartbeats within a
+fixed bound. It never replays a mutation after owner loss. Maintained tests
+cover takeover fencing, lossy coordination, bounded failure, and the unchanged
+replica contract.
+
+The browser layout harness also completed full headless Chromium and WebKit
+profiles at 1,000,000 records and the exact 536,870,912-byte proxy. Both
+profiles passed integrity and reopen checks and materially favored split for
+traversal and lane writes; the remaining hot metrics stayed inside the stop
+rule's neutral band or tied at engine timer resolution. Raw reports live under
+`docs/benchmarks/replica-layout/` and remain explicitly provisional and
+decision-ineligible.
+
+W1C remains incomplete. Physical iOS Safari and Android Chrome still owe the
+250,000-address and 128 MiB floor, the conditional full-envelope run,
+quota-refusal prefix and durable-progress proof, and hidden-owner suspension
+and eviction qualification. No physical result is inferred from Playwright.
+
 W1 does not migrate retained callers or delete Workspace. W4 owns the point at
 which every replacement capability exists, callers stop importing the old
 path, verification passes, and `packages/workspace` can be deleted.
