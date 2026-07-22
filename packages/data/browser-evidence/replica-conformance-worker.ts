@@ -160,8 +160,12 @@ function analyze(action: BrowserReplicaAction) {
 		},
 	};
 	const analysisStore = openReplicaStore({ database: analysisAdapter, limits });
-	const result = executeAction(analysisStore, action);
-	return { boundaries: writes, ...(result === undefined ? {} : { result }) };
+	try {
+		const result = executeAction(analysisStore, action);
+		return { boundaries: writes, ...(result === undefined ? {} : { result }) };
+	} catch (cause) {
+		return { boundaries: writes, error: serializeError(cause) };
+	}
 }
 
 function crash(

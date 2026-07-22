@@ -46,6 +46,7 @@ export type BrowserReplicaTestRequest =
 export type BrowserReplicaAnalysis = {
 	boundaries: number;
 	result?: SealWitness;
+	error?: { name: string; message: string };
 };
 
 export type BrowserReplicaTestResult =
@@ -84,7 +85,7 @@ export type BrowserReplicaConformanceEvidenceDriver = {
 		observation: BrowserReplicaObservation,
 	): Promise<BrowserReplicaTestResult>;
 	analyze(action: BrowserReplicaAction): Promise<BrowserReplicaAnalysis>;
-	commit(action: BrowserReplicaAction): Promise<void>;
+	commit(action: BrowserReplicaAction): Promise<BrowserReplicaTestResult>;
 	reopen(): Promise<void>;
 	dispose(): Promise<void>;
 	openStorage(
