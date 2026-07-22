@@ -26,6 +26,11 @@ import {
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
+import {
+	defineErrors,
+	extractErrorMessage,
+	type InferErrors,
+} from 'wellcrafted/error';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
 import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
 import {
@@ -39,11 +44,17 @@ import {
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOTSTRAP_ROUTE,
+	HOME_SNAPSHOT_CAPTURE_ROUTE,
+	HOME_SNAPSHOT_QUERY_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
 	SURFACE_ROUTES,
 	type SurfaceId,
 } from './routes.ts';
+import type {
+	HomeSnapshotLens,
+	SnapshotQueryService,
+} from './snapshot-query.ts';
 import type { AppCatalog, EpicenterStaticAssets } from './static-assets.ts';
 import { PLACEHOLDER_SURFACE_PAGES } from './surface-pages.ts';
 
@@ -69,6 +80,8 @@ export type HomeServerOptions = {
 	appCatalog?: AppCatalog;
 	/** The composition root's one Bun-owned record carrier capability. */
 	recordOwner: Pick<DesktopRecordEpicenterOwner, 'execute'>;
+	/** Trusted Home-only snapshot capture and bounded artifact query surface. */
+	snapshotQueries?: Pick<SnapshotQueryService, 'capture' | 'query'>;
 	/** Current attachment state of that same shared replica. */
 	recordAttachment(): DesktopRecordEpicenterOwner['epicenter']['attachment'];
 	/** Native-only, record-addressed Whispering audio reader. */
@@ -83,6 +96,16 @@ export type HomeServerOptions = {
 	/** Test seam for the one host-owned authenticated deployment transport. */
 	deploymentFetch?: AuthFetch;
 };
+
+export const SnapshotRouteError = defineErrors({
+	QueryFailed: ({ cause }: { cause: unknown }) => ({
+		message: `Snapshot query failed: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+});
+export type SnapshotRouteError = InferErrors<typeof SnapshotRouteError>;
+
+const MAX_HOME_SNAPSHOT_BODY_BYTES = 128 * 1024;
 
 export const NATIVE_WHISPERING_AUDIO_ROUTE =
 	'/_epicenter/native/whispering/recordings/:recordingId/audio';
@@ -102,6 +125,7 @@ export function createHomeServer({
 	staticAssets,
 	appCatalog = { apps: [] },
 	recordOwner,
+	snapshotQueries,
 	recordAttachment,
 	readRecordingAudio,
 	chooseFirstAttachment,
@@ -321,6 +345,7 @@ export function createHomeServer({
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
 	app.use('/api/apps', requireBrowserSession);
+	app.use('/api/home/data/*', requirePrivateBroker);
 	app.use('/api/home/*', requireBrowserSession);
 	app.use(DESKTOP_RECORD_ROUTE, requirePrivateBroker);
 	app.use(DESKTOP_RECORD_ATTACHMENT_ROUTE, requirePrivateBroker);
@@ -344,6 +369,47 @@ export function createHomeServer({
 			apps: appCatalog.apps.map(({ id, title }) => ({ id, title })),
 		}),
 	);
+
+	app.post(HOME_SNAPSHOT_CAPTURE_ROUTE.pattern, async (c) => {
+		if (snapshotQueries === undefined) return c.text('Not Found', 404);
+		const input = await readJsonObject(c.req.raw, MAX_HOME_SNAPSHOT_BODY_BYTES);
+		if (
+			input === null ||
+			Object.keys(input).some((key) => key !== 'lens') ||
+			!isHomeSnapshotLens(input.lens)
+		) {
+			return c.text('Invalid snapshot capture', 400);
+		}
+		const lens = input.lens;
+		return runRecordTransition(async () => {
+			try {
+				return c.json(await snapshotQueries.capture(lens), 201);
+			} catch {
+				return c.text('Snapshot capture failed', 500);
+			}
+		});
+	});
+
+	app.post(HOME_SNAPSHOT_QUERY_ROUTE.pattern, async (c) => {
+		if (snapshotQueries === undefined) return c.text('Not Found', 404);
+		const snapshotId = c.req.param('snapshotId');
+		const input = await readJsonObject(c.req.raw, MAX_HOME_SNAPSHOT_BODY_BYTES);
+		if (
+			snapshotId === undefined ||
+			!/^[a-f0-9]{32}$/u.test(snapshotId) ||
+			input === null ||
+			Object.keys(input).some((key) => key !== 'sql') ||
+			typeof input.sql !== 'string'
+		) {
+			return c.text('Invalid snapshot query', 400);
+		}
+		const sql = input.sql;
+		try {
+			return c.json(await snapshotQueries.query(snapshotId, sql));
+		} catch (cause) {
+			return c.json(SnapshotRouteError.QueryFailed({ cause }), 400);
+		}
+	});
 
 	app.post(DESKTOP_RECORD_ROUTE, async (c) => {
 		const input = await c.req.json().catch(() => undefined);
@@ -482,6 +548,15 @@ export function createHomeServer({
 	);
 
 	return { app, websocket };
+}
+
+function isHomeSnapshotLens(value: unknown): value is HomeSnapshotLens {
+	return (
+		value === 'raw' ||
+		value === 'chat' ||
+		value === 'honeycrisp' ||
+		value === 'whispering'
+	);
 }
 
 const MAX_DESKTOP_TRANSCRIPTION_BODY_BYTES = 64 * 1024 * 1024;
@@ -712,9 +787,29 @@ function contentSecurityPolicy(page: string): string {
 
 async function readJsonObject(
 	request: Request,
+	maxBytes?: number,
 ): Promise<Record<string, unknown> | null> {
 	try {
-		const value: unknown = await request.json();
+		const value: unknown =
+			maxBytes === undefined
+				? await request.json()
+				: await (async () => {
+						const contentLength = parseContentLength(
+							request.headers.get('content-length') ?? undefined,
+						);
+						if (
+							contentLength === null ||
+							(contentLength !== undefined && contentLength > maxBytes) ||
+							request.body === null
+						) {
+							return undefined;
+						}
+						return JSON.parse(
+							new TextDecoder().decode(
+								await readBoundedBody(request.body, maxBytes),
+							),
+						);
+					})();
 		return typeof value === 'object' && value !== null && !Array.isArray(value)
 			? (value as Record<string, unknown>)
 			: null;

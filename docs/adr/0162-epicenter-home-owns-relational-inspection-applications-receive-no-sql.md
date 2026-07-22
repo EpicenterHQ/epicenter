@@ -1,6 +1,6 @@
 # 0162. Epicenter Home owns relational inspection; applications receive no SQL
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-21: the live owner-mediated SQL session
   is replaced by point-in-time inspection snapshot artifacts)
 - **Supersedes:** [ADR-0157](0157-read-only-sql-exposes-one-schema-opaque-row-relation.md)

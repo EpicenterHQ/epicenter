@@ -46,3 +46,11 @@ export const MAIL_ROUTE = SURFACE_ROUTES.mail;
 export const BOOKS_ROUTE = SURFACE_ROUTES.books;
 export const SESSION_ROUTE = route('/api/home/session');
 export const SESSION_STREAM_ROUTE = route('/api/home/session/stream');
+export const HOME_SNAPSHOT_CAPTURE_ROUTE = route('/api/home/data/snapshots');
+export const HOME_SNAPSHOT_QUERY_ROUTE = route(
+	'/api/home/data/snapshots/:snapshotId/query',
+);
+
+export function homeSnapshotQueryPath(snapshotId: string): string {
+	return `/api/home/data/snapshots/${encodeURIComponent(snapshotId)}/query`;
+}

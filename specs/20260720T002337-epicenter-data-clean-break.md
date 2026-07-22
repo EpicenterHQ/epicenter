@@ -446,6 +446,20 @@ Epicenter process, not a data-path failure. No compatibility barrel remains.
   the 100k envelope) gates this wave; it is a product charter, not a physical
   layout selector.
 
+Implementation checkpoint (2026-07-22): the replica now captures one coherent
+visible-state cut into a self-identifying SQLite artifact, with raw records,
+document and blob metadata, and optional Lens views. The 100,000-record probe
+completed repeatedly in under one second while a concurrent source mutation
+proved the read cut stayed coherent. Desktop publishes artifacts by atomic
+rename and reaps ephemeral crash debris. The browser owner transfers inert
+bytes without exposing capture on the application Epicenter API; Chromium and
+WebKit OPFS evidence pass. Home holds only opaque artifact IDs, runs bounded
+read statements in a disposable child process with a two-second deadline, and
+offers the first-release capture and query sheet. The sheet passed typecheck,
+build, and UI-boundary gates; visual browser inspection was unavailable in the
+current Codex environment and remains a manual presentation check rather than
+a storage correctness gap.
+
 ### W6: portable Backup and Restore
 
 - Implement the authority-side capture: bounded catch-up then brief quiesce,

@@ -36,6 +36,14 @@ import {
 	superviseSidecar,
 	watchParentPipe,
 } from './sidecar-runtime.ts';
+import {
+	createSnapshotQueryService,
+	type SnapshotQueryService,
+} from './snapshot-query.ts';
+import {
+	createSnapshotQueryProcessRunner,
+	runSnapshotQueryProcess,
+} from './snapshot-query-process.ts';
 import { loadStaticAssets } from './static-assets.ts';
 
 async function main(): Promise<void> {
@@ -45,6 +53,7 @@ async function main(): Promise<void> {
 		| Awaited<ReturnType<typeof createDesktopRecordEpicenterOwner>>
 		| undefined;
 	let desktopAuth: DesktopAuthAuthority | undefined;
+	let snapshotQueries: SnapshotQueryService | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
 
@@ -72,6 +81,20 @@ async function main(): Promise<void> {
 			resolveNativeCapture: createNativeRecordingCaptureResolver(
 				join(epicenterDataDir, 'recording-captures'),
 			),
+		});
+		snapshotQueries = createSnapshotQueryService({
+			captureSnapshot: recordOwner.captureSnapshot,
+			runQuery: createSnapshotQueryProcessRunner({
+				command:
+					typeof Bun.argv[1] === 'string' && Bun.argv[1].endsWith('.ts')
+						? [process.execPath, Bun.argv[1]]
+						: [process.execPath],
+			}),
+			lenses: {
+				chat: chatLens,
+				honeycrisp: honeycrispLens,
+				whispering: whisperingLens,
+			},
 		});
 		const activeRecordOwner = recordOwner;
 		const attachRecordOwner = async (choice?: FirstAttachmentChoice) => {
@@ -151,6 +174,7 @@ async function main(): Promise<void> {
 			staticAssets,
 			appCatalog,
 			recordOwner,
+			snapshotQueries,
 			recordAttachment: () => activeRecordOwner.epicenter.attachment,
 			async readRecordingAudio(recordingId) {
 				const recording = await home.whispering.recordings.get(recordingId);
@@ -179,6 +203,7 @@ async function main(): Promise<void> {
 		lifecycleOwnsResources = true;
 		const ownedHost = host;
 		const ownedData = recordOwner;
+		const ownedSnapshots = snapshotQueries;
 		const ownedDesktopAuth = auth;
 		await superviseSidecar({
 			server,
@@ -186,6 +211,7 @@ async function main(): Promise<void> {
 				async [Symbol.asyncDispose]() {
 					ownedDesktopAuth[Symbol.dispose]();
 					await ownedHost[Symbol.asyncDispose]();
+					await ownedSnapshots[Symbol.asyncDispose]();
 					await ownedData[Symbol.asyncDispose]();
 				},
 			},
@@ -197,6 +223,7 @@ async function main(): Promise<void> {
 			if (server) await server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
 			if (host) await host[Symbol.asyncDispose]();
+			if (snapshotQueries) await snapshotQueries[Symbol.asyncDispose]();
 			if (recordOwner) await recordOwner[Symbol.asyncDispose]();
 			await parentPipe.cancel();
 		}
@@ -254,7 +281,11 @@ export function homeEngineFromEnvironment(
 }
 
 try {
-	await main();
+	if (process.env.EPICENTER_SNAPSHOT_QUERY_PROCESS === '1') {
+		await runSnapshotQueryProcess();
+	} else {
+		await main();
+	}
 } catch (error) {
 	console.error(error instanceof Error ? error.message : String(error));
 	process.exitCode = 1;
