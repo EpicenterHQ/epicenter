@@ -19,7 +19,7 @@
  * `String.fromCodePoint` so the exact code units under test are unambiguous.
  */
 import { describe, expect, test } from 'bun:test';
-
+import { sha256HexBytes } from './canonical.js';
 import {
 	canonicalize,
 	isCanonicalJson,
@@ -132,6 +132,12 @@ describe('SHA-256 request hash', () => {
 		);
 		expect(sha256Hex('a'.repeat(56))).toBe(
 			'b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a',
+		);
+	});
+
+	test('hashes exact binary bytes without text coercion', () => {
+		expect(sha256HexBytes(new Uint8Array([0, 255, 1, 128]))).toBe(
+			'edc81f7e4ee358fb91e94bd9bd74079c3dcba36f40f2c8a36e7ae0567afecc8f',
 		);
 	});
 

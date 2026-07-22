@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from '@epicenter/sqlite';
 
-export const REPLICA_STORE_FORMAT_VERSION = 1;
+export const REPLICA_STORE_FORMAT_VERSION = 2;
 
 export const REPLICA_STORE_TABLES = [
 	'document_inflight',
@@ -66,7 +66,8 @@ const SCHEMA = [
 		parked_measured     INTEGER,
 		parked_limit        INTEGER,
 
-		doc_revision        INTEGER NOT NULL DEFAULT 0 CHECK (doc_revision >= 0),
+		doc_revision        INTEGER NOT NULL DEFAULT 0
+			CHECK (doc_revision BETWEEN 0 AND 9007199254740991),
 		doc_dirty           INTEGER NOT NULL DEFAULT 0 CHECK (doc_dirty IN (0, 1)),
 		blob_sha256         TEXT,
 		blob_pending        INTEGER NOT NULL DEFAULT 0 CHECK (blob_pending IN (0, 1)),
@@ -116,16 +117,33 @@ const SCHEMA = [
 	`CREATE TABLE record_documents (
 		chain_id   INTEGER PRIMARY KEY,
 		record_id  INTEGER NOT NULL,
-		seq        INTEGER NOT NULL,
+		seq        INTEGER NOT NULL CHECK (seq >= 1),
 		kind       TEXT NOT NULL CHECK (kind IN ('baseline', 'update')),
-		bytes      BLOB NOT NULL,
+		bytes      BLOB NOT NULL CHECK (length(bytes) > 0),
+		CHECK (kind = 'update' OR seq = 1),
 		UNIQUE (record_id, seq)
 	) STRICT`,
 	`CREATE TABLE document_inflight (
 		record_id          INTEGER PRIMARY KEY,
-		payload            BLOB NOT NULL,
+		payload            BLOB,
 		digest             TEXT NOT NULL,
-		captured_revision  INTEGER NOT NULL CHECK (captured_revision >= 0)
+		captured_revision  INTEGER NOT NULL
+			CHECK (captured_revision BETWEEN 0 AND 9007199254740991),
+		parked_code        TEXT,
+		measured_bytes     INTEGER,
+		measured_structs   INTEGER,
+		limit_bytes        INTEGER,
+		limit_structs      INTEGER,
+		CHECK (length(digest) = 64 AND digest NOT GLOB '*[^a-f0-9]*'),
+		CHECK ((parked_code IS NULL AND payload IS NOT NULL
+				AND length(payload) > 0 AND measured_bytes IS NULL
+				AND measured_structs IS NULL AND limit_bytes IS NULL
+				AND limit_structs IS NULL)
+			OR (parked_code = 'document-bound' AND payload IS NULL
+				AND measured_bytes IS NOT NULL AND measured_bytes >= 0
+				AND measured_structs IS NOT NULL AND measured_structs >= 0
+				AND limit_bytes IS NOT NULL AND limit_bytes >= 0
+				AND limit_structs IS NOT NULL AND limit_structs >= 0))
 	) STRICT`,
 ] as const;
 

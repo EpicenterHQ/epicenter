@@ -4,7 +4,7 @@
  * The conformance suite owns lane semantics and crash atomicity. These cases
  * protect the clean-break boundary around the dedicated SQLite file itself:
  * initialization occurs only in an empty database, and reopening recognizes
- * exactly the format-one tables and indexes owned by this store.
+ * exactly the format-two tables and indexes owned by this store.
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
@@ -72,14 +72,14 @@ describe('production replica store format', () => {
 					limits: LIMITS,
 					initialize: { replicaId: REPLICA_ID },
 				}),
-			).toThrow(/does not match format 1/);
+			).toThrow(/does not match format 2/);
 			expect(userSchemaObjects(database)).toEqual(['table:legacy_workspace']);
 		} finally {
 			database.close();
 		}
 	});
 
-	test('refuses an incomplete format-one schema', () => {
+	test('refuses an incomplete format-two schema', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const adapter = createBunSqliteAdapter(database);
@@ -91,7 +91,7 @@ describe('production replica store format', () => {
 			database.exec('DROP INDEX records_pending');
 			expect(() =>
 				openReplicaStore({ database: adapter, limits: LIMITS }),
-			).toThrow(/does not match format 1/);
+			).toThrow(/does not match format 2/);
 		} finally {
 			database.close();
 		}
@@ -111,6 +111,45 @@ describe('production replica store format', () => {
 				}),
 			).toThrow(/replica initialization failed/);
 			expect(userSchemaObjects(database)).toEqual([]);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('enforces the bounded document-chain and retry-image row shapes', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: { replicaId: REPLICA_ID },
+			});
+			const address = {
+				namespace: 'so.epicenter.notes',
+				collection: 'recordings',
+				recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+			};
+			store.localWrite({ address, op: 'replace', value: {} });
+			const recordId = database
+				.query<{ record_id: number }, []>('SELECT record_id FROM records')
+				.get()?.record_id;
+			if (recordId === undefined) throw new Error('record was not created');
+
+			expect(() =>
+				database.run(
+					`INSERT INTO record_documents (record_id, seq, kind, bytes)
+					VALUES (?, 2, 'baseline', X'01')`,
+					[recordId],
+				),
+			).toThrow(/constraint failed/);
+			expect(() =>
+				database.run(
+					`INSERT INTO document_inflight (
+						record_id, payload, digest, captured_revision
+					) VALUES (?, NULL, ?, 0)`,
+					[recordId, 'a'.repeat(64)],
+				),
+			).toThrow(/constraint failed/);
 		} finally {
 			database.close();
 		}
