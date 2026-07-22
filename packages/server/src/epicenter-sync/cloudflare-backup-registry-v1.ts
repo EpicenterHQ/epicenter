@@ -13,13 +13,13 @@ import {
 	dataBackupV1Name,
 } from './cloudflare-backup-v1.js';
 
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 const BACKUP_ID_CHARACTERS = /^[a-z0-9]+$/u;
 
 const SCHEMA_STATEMENTS = [
 	`CREATE TABLE backup_registry_control (
 		singleton      INTEGER PRIMARY KEY CHECK (singleton = 1),
-		format_version INTEGER NOT NULL CHECK (format_version = 1),
+		format_version INTEGER NOT NULL CHECK (format_version = 2),
 		deleting       INTEGER NOT NULL CHECK (deleting IN (0, 1))
 	) STRICT`,
 	`CREATE TABLE backup_registry_entries (
@@ -32,17 +32,34 @@ const SCHEMA_STATEMENTS = [
 		CHECK ((state = 'building' AND record_count IS NULL) OR
 			(state IN ('sealed', 'deleting') AND record_count IS NOT NULL))
 	) STRICT`,
+	`CREATE TABLE backup_registry_restores (
+		request_id TEXT PRIMARY KEY
+			CHECK (length(request_id) = 24 AND request_id NOT GLOB '*[^a-z0-9]*'),
+		backup_id TEXT NOT NULL
+			CHECK (length(backup_id) = 24 AND backup_id NOT GLOB '*[^a-z0-9]*'),
+		successor_lifetime TEXT NOT NULL UNIQUE CHECK (length(successor_lifetime) = 36),
+		record_count INTEGER NOT NULL
+			CHECK (record_count BETWEEN 0 AND 9007199254740991),
+		state TEXT NOT NULL CHECK (state IN ('building', 'succeeded'))
+	) STRICT`,
+	`CREATE UNIQUE INDEX backup_registry_one_active_restore
+		ON backup_registry_restores ((1)) WHERE state = 'building'`,
 ] as const;
 
-type DataAuthorityCaptureStub = {
+type DataAuthorityStub = {
 	captureBackup(backupId: string): Promise<{ recordCount: number }>;
+	currentAuthorityLifetime(): Promise<string>;
+	restoreBackup(
+		backupId: string,
+		successorLifetime: string,
+	): Promise<{ authorityLifetime: string; recordCount: number }>;
 };
 
 type DataBackupStub = Pick<DataBackup, 'destroy' | 'status'>;
 
 type DataAuthorityNamespace = {
 	idFromName(name: string): DurableObjectId;
-	get(id: DurableObjectId): DataAuthorityCaptureStub;
+	get(id: DurableObjectId): DataAuthorityStub;
 };
 
 type DataBackupNamespace = {
@@ -63,10 +80,20 @@ export type CloudflareBackupRegistryV1Entry = {
 	recordCount: number;
 };
 
+export type CloudflareRestoreBackupV1Result =
+	| {
+			kind: 'restored';
+			authorityLifetime: string;
+			recordCount: number;
+	  }
+	| { kind: 'backup-not-found' }
+	| { kind: 'restore-in-progress' }
+	| { kind: 'idempotency-conflict' };
+
 export type DataBackupRegistryNamespace = {
 	getByName(
 		name: string,
-	): Pick<DataBackupRegistry, 'create' | 'list' | 'delete'>;
+	): Pick<DataBackupRegistry, 'create' | 'list' | 'delete' | 'restore'>;
 };
 
 export type DeletableDataBackupRegistryNamespace = {
@@ -79,10 +106,26 @@ type EntryRow = {
 	record_count: number | null;
 };
 
+type RestoreRow = {
+	request_id: string;
+	backup_id: string;
+	successor_lifetime: string;
+	record_count: number;
+	state: 'building' | 'succeeded';
+};
+
 function validateBackupId(backupId: string): void {
 	if (backupId.length !== 24 || !BACKUP_ID_CHARACTERS.test(backupId)) {
 		throw new TypeError(
 			'backup ID must be 24 lowercase alphanumeric characters',
+		);
+	}
+}
+
+function validateRestoreRequestId(requestId: string): void {
+	if (requestId.length !== 24 || !BACKUP_ID_CHARACTERS.test(requestId)) {
+		throw new TypeError(
+			'Restore request ID must be 24 lowercase alphanumeric characters',
 		);
 	}
 }
@@ -122,10 +165,11 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 		typeof createDurableObjectSqliteAdapter
 	>;
 	private readonly ownerStorageKey: string;
-	private readonly authority: DataAuthorityCaptureStub;
+	private readonly authority: DataAuthorityStub;
 	private readonly ready: Promise<void>;
 	private operationTail = Promise.resolve();
 	private deletionRequested = false;
+	private restoreRequested = false;
 	private controlReady = false;
 	private initializationError: unknown;
 
@@ -215,6 +259,9 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			this.refuseDeleting();
 			const row = this.readEntry(rawBackupId);
 			if (row?.state !== 'sealed') return false;
+			if (this.readActiveRestore()?.backup_id === rawBackupId) {
+				throw new Error('Cloudflare Backup Restore is incomplete');
+			}
 			this.database.run(
 				`UPDATE backup_registry_entries SET state = 'deleting'
 				WHERE backup_id = ? AND state = 'sealed'`,
@@ -226,6 +273,59 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 				[rawBackupId],
 			);
 			return true;
+		});
+	}
+
+	/** Atomically replace the live authority once for one durable request ID. */
+	restore(
+		rawBackupId: string,
+		rawRequestId: string,
+	): Promise<CloudflareRestoreBackupV1Result> {
+		this.refuseDeleting();
+		validateBackupId(rawBackupId);
+		validateRestoreRequestId(rawRequestId);
+		if (this.restoreRequested) {
+			return Promise.resolve({ kind: 'restore-in-progress' });
+		}
+		this.restoreRequested = true;
+		return this.exclusive<CloudflareRestoreBackupV1Result>(async () => {
+			await this.recoverAvailability();
+			this.refuseDeleting();
+			const prior = this.readRestore(rawRequestId);
+			if (prior !== undefined) {
+				if (prior.backup_id !== rawBackupId) {
+					return { kind: 'idempotency-conflict' };
+				}
+				return prior.state === 'succeeded'
+					? this.restoredResult(prior)
+					: this.executeRestore(prior);
+			}
+			if (this.readActiveRestore() !== undefined) {
+				return { kind: 'restore-in-progress' };
+			}
+			const entry = this.readEntry(rawBackupId);
+			if (entry?.state !== 'sealed') return { kind: 'backup-not-found' };
+			const restore: RestoreRow = {
+				request_id: rawRequestId,
+				backup_id: rawBackupId,
+				successor_lifetime: crypto.randomUUID(),
+				record_count: validateRecordCount(entry.record_count),
+				state: 'building',
+			};
+			this.database.run(
+				`INSERT INTO backup_registry_restores
+				(request_id, backup_id, successor_lifetime, record_count, state)
+				VALUES (?, ?, ?, ?, 'building')`,
+				[
+					restore.request_id,
+					restore.backup_id,
+					restore.successor_lifetime,
+					restore.record_count,
+				],
+			);
+			return this.executeRestore(restore);
+		}).finally(() => {
+			this.restoreRequested = false;
 		});
 	}
 
@@ -268,7 +368,8 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			.sort();
 		const actual = objects
 			.map((object) =>
-				object.type === 'table' && object.sql !== null
+				(object.type === 'table' || object.type === 'index') &&
+				object.sql !== null
 					? normalizeSchema(object.sql)
 					: `${object.type}:${object.name}`,
 			)
@@ -310,6 +411,76 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 			FROM backup_registry_entries WHERE backup_id = ?`,
 			[backupId],
 		)[0];
+	}
+
+	private readRestore(requestId: string): RestoreRow | undefined {
+		return this.database.all<RestoreRow>(
+			`SELECT request_id, backup_id, successor_lifetime, record_count, state
+			FROM backup_registry_restores WHERE request_id = ?`,
+			[requestId],
+		)[0];
+	}
+
+	private readActiveRestore(): RestoreRow | undefined {
+		return this.database.all<RestoreRow>(
+			`SELECT request_id, backup_id, successor_lifetime, record_count, state
+			FROM backup_registry_restores WHERE state = 'building'`,
+		)[0];
+	}
+
+	private restoredResult(row: RestoreRow): CloudflareRestoreBackupV1Result {
+		return {
+			kind: 'restored',
+			authorityLifetime: row.successor_lifetime,
+			recordCount: validateRecordCount(row.record_count),
+		};
+	}
+
+	private publishRestore(row: RestoreRow): CloudflareRestoreBackupV1Result {
+		this.database.run(
+			`UPDATE backup_registry_restores SET state = 'succeeded'
+			WHERE request_id = ? AND state = 'building'`,
+			[row.request_id],
+		);
+		return this.restoredResult({ ...row, state: 'succeeded' });
+	}
+
+	private async executeRestore(
+		restore: RestoreRow,
+	): Promise<CloudflareRestoreBackupV1Result> {
+		try {
+			const restored = await this.authority.restoreBackup(
+				restore.backup_id,
+				restore.successor_lifetime,
+			);
+			if (
+				restored.authorityLifetime !== restore.successor_lifetime ||
+				validateRecordCount(restored.recordCount) !== restore.record_count
+			) {
+				throw new Error('Data authority Restore result is not recognized');
+			}
+			return this.publishRestore(restore);
+		} catch (cause) {
+			try {
+				const activeLifetime = await this.authority.currentAuthorityLifetime();
+				if (activeLifetime === restore.successor_lifetime) {
+					return this.publishRestore(restore);
+				}
+				// The authority has proven that this attempt did not activate. Release
+				// the one-active slot so a corrupt Backup cannot brick all Restore work.
+				this.database.run(
+					`DELETE FROM backup_registry_restores
+					WHERE request_id = ? AND state = 'building'`,
+					[restore.request_id],
+				);
+			} catch (reconciliationCause) {
+				throw new AggregateError(
+					[cause, reconciliationCause],
+					'Cloudflare Restore outcome is indeterminate',
+				);
+			}
+			throw cause;
+		}
 	}
 
 	private publish(
@@ -366,6 +537,14 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 				[row.backup_id],
 			);
 		}
+		const restore = this.readActiveRestore();
+		if (
+			restore !== undefined &&
+			(await this.authority.currentAuthorityLifetime()) ===
+				restore.successor_lifetime
+		) {
+			this.publishRestore(restore);
+		}
 	}
 
 	private async finishAccountDeletion(): Promise<void> {
@@ -379,6 +558,7 @@ export class DataBackupRegistry extends DurableObject<CloudflareBackupRegistryV1
 				[row.backup_id],
 			);
 		}
+		this.database.run('DELETE FROM backup_registry_restores');
 		await deleteR2BlobOwner(this.env.DATA_BLOBS, this.ownerStorageKey);
 	}
 

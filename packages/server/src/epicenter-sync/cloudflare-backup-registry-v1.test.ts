@@ -42,6 +42,7 @@ beforeAll(async () => {
 
 const PRINCIPAL_NAME = 'principal%40example.com';
 const OWNER_STORAGE_KEY = 'authority-storage-key';
+const RESTORE_REQUEST_ID = 'r'.repeat(24);
 
 type BackupStatus =
 	| { state: 'empty' }
@@ -69,13 +70,23 @@ function setupState({
 		statuses.set(backupId, { state: 'sealed', recordCount: 0 });
 		return { recordCount: 0 };
 	},
+	currentAuthorityLifetime = async () => 'outgoing-lifetime',
 	destroy,
 	raw = new Database(':memory:', { strict: true }),
+	restoreBackup = async (_backupId: string, successorLifetime: string) => ({
+		authorityLifetime: successorLifetime,
+		recordCount: 0,
+	}),
 	statuses = new Map<string, BackupStatus>(),
 }: {
 	capture?: (backupId: string) => Promise<{ recordCount: number }>;
+	currentAuthorityLifetime?: () => Promise<string>;
 	destroy?: (backupId: string) => Promise<void>;
 	raw?: Database;
+	restoreBackup?: (
+		backupId: string,
+		successorLifetime: string,
+	) => Promise<{ authorityLifetime: string; recordCount: number }>;
 	statuses?: Map<string, BackupStatus>;
 } = {}) {
 	const destroyed: string[] = [];
@@ -126,7 +137,11 @@ function setupState({
 				} as unknown as DurableObjectId;
 			},
 			get() {
-				return { captureBackup: capture };
+				return {
+					captureBackup: capture,
+					currentAuthorityLifetime,
+					restoreBackup,
+				};
 			},
 		},
 		DATA_BACKUP: {
@@ -244,6 +259,185 @@ test('deleting one sealed Backup leaves its sibling published', async () => {
 		expect(await registry.delete(first.backupId)).toBe(false);
 		expect(await registry.list()).toEqual([second]);
 		expect(owned.destroyed).toEqual([first.backupId]);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Restore selects one sealed Backup without consuming it', async () => {
+	let restoredId = '';
+	const owned = setupState({
+		async restoreBackup(backupId, successorLifetime) {
+			restoredId = backupId;
+			return { authorityLifetime: successorLifetime, recordCount: 0 };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		const restored = await registry.restore(
+			backup.backupId,
+			RESTORE_REQUEST_ID,
+		);
+
+		expect(restored).toMatchObject({
+			kind: 'restored',
+			recordCount: 0,
+		});
+		expect(
+			restored.kind === 'restored' ? restored.authorityLifetime : undefined,
+		).toMatch(/^[0-9a-f-]{36}$/u);
+		expect(restoredId).toBe(backup.backupId);
+		expect(await registry.list()).toEqual([backup]);
+		expect(await registry.restore('c'.repeat(24), 's'.repeat(24))).toEqual({
+			kind: 'backup-not-found',
+		});
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('concurrent Restore reports in progress while retaining its Backup lease', async () => {
+	const started = deferred<{ backupId: string; successorLifetime: string }>();
+	const release = deferred<void>();
+	const owned = setupState({
+		async restoreBackup(backupId, successorLifetime) {
+			started.resolve({ backupId, successorLifetime });
+			await release.promise;
+			return { authorityLifetime: successorLifetime, recordCount: 0 };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		const first = registry.restore(backup.backupId, RESTORE_REQUEST_ID);
+		const active = await started.promise;
+
+		expect(await registry.restore(backup.backupId, RESTORE_REQUEST_ID)).toEqual(
+			{
+				kind: 'restore-in-progress',
+			},
+		);
+		expect(active.backupId).toBe(backup.backupId);
+		release.resolve();
+		expect(await first).toEqual({
+			kind: 'restored',
+			authorityLifetime: active.successorLifetime,
+			recordCount: 0,
+		});
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Restore reconciles an activated authority whose RPC response was lost', async () => {
+	let activeLifetime = 'outgoing-lifetime';
+	const owned = setupState({
+		currentAuthorityLifetime: async () => activeLifetime,
+		async restoreBackup(_backupId, successorLifetime) {
+			activeLifetime = successorLifetime;
+			throw new Error('lost Restore RPC response');
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+
+		expect(await registry.restore(backup.backupId, RESTORE_REQUEST_ID)).toEqual(
+			{
+				kind: 'restored',
+				authorityLifetime: activeLifetime,
+				recordCount: 0,
+			},
+		);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Restore retry survives registry restart without minting another lifetime', async () => {
+	let activeLifetime = 'outgoing-lifetime';
+	let restoreCalls = 0;
+	const owned = setupState({
+		currentAuthorityLifetime: async () => activeLifetime,
+		async restoreBackup(_backupId, successorLifetime) {
+			restoreCalls += 1;
+			activeLifetime = successorLifetime;
+			return { authorityLifetime: successorLifetime, recordCount: 0 };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		const first = await registry.restore(backup.backupId, RESTORE_REQUEST_ID);
+		if (first.kind !== 'restored')
+			throw new Error('test Restore did not finish');
+
+		expect(await registry.restore(backup.backupId, RESTORE_REQUEST_ID)).toEqual(
+			first,
+		);
+		expect(restoreCalls).toBe(1);
+
+		// Model eviction after authority activation but before registry publication.
+		owned.raw.exec(
+			`UPDATE backup_registry_restores SET state = 'building'
+			WHERE request_id = '${RESTORE_REQUEST_ID}'`,
+		);
+		const reopened = new DataBackupRegistry(owned.state, owned.env);
+		expect(await reopened.restore(backup.backupId, RESTORE_REQUEST_ID)).toEqual(
+			first,
+		);
+		expect(restoreCalls).toBe(1);
+		expect(activeLifetime).toBe(first.authorityLifetime);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('Restore request ID cannot be reused for another Backup', async () => {
+	const owned = setupState();
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const first = await registry.create();
+		const second = await registry.create();
+		expect(
+			(await registry.restore(first.backupId, RESTORE_REQUEST_ID)).kind,
+		).toBe('restored');
+		expect(await registry.restore(second.backupId, RESTORE_REQUEST_ID)).toEqual(
+			{
+				kind: 'idempotency-conflict',
+			},
+		);
+	} finally {
+		owned.raw.close();
+	}
+});
+
+test('definitive Restore failure releases the durable active slot', async () => {
+	let attempts = 0;
+	const owned = setupState({
+		async restoreBackup(_backupId, successorLifetime) {
+			attempts += 1;
+			if (attempts === 1) throw new Error('portable Backup is corrupt');
+			return { authorityLifetime: successorLifetime, recordCount: 0 };
+		},
+	});
+	try {
+		const registry = new DataBackupRegistry(owned.state, owned.env);
+		const backup = await registry.create();
+		await expect(
+			registry.restore(backup.backupId, RESTORE_REQUEST_ID),
+		).rejects.toThrow('portable Backup is corrupt');
+		expect(
+			owned.raw
+				.query(
+					`SELECT * FROM backup_registry_restores WHERE state = 'building'`,
+				)
+				.all(),
+		).toEqual([]);
+		expect(
+			(await registry.restore(backup.backupId, RESTORE_REQUEST_ID)).kind,
+		).toBe('restored');
 	} finally {
 		owned.raw.close();
 	}
@@ -443,6 +637,7 @@ test('registry lookup keeps percent-sensitive principal names distinct', () => {
 				create: async () => ({ backupId: 'a'.repeat(24), recordCount: 0 }),
 				list: async () => [],
 				delete: async () => false,
+				restore: async () => ({ kind: 'backup-not-found' as const }),
 			};
 		},
 	};
