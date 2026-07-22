@@ -181,6 +181,34 @@ export function createReplicaBlobStore<TSource, TRead>(
 		return digest;
 	}
 
+	/**
+	 * Stage and promote bytes before a caller atomically admits a fresh record
+	 * plus blob membership. A failed admission leaves only sweepable file debris.
+	 */
+	async function captureNewRecord(
+		address: RecordAddress,
+		source: TSource,
+		admit: (digest: string) => void,
+	): Promise<string> {
+		return exclusive(async () => {
+			const staged = await files.stage(source);
+			if (!isBlobDigest(staged.digest)) {
+				await files.sweepStaging();
+				throw new Error('blob file store returned an invalid digest');
+			}
+			hooks.afterStage?.();
+			if (rowFor(database, address) !== null) {
+				await files.sweepStaging();
+				throw new Error('record address is already occupied');
+			}
+			await files.promote(staged, blobFileOwner(address, staged.digest));
+			hooks.afterPromote?.();
+			admit(staged.digest);
+			hooks.afterMembership?.();
+			return staged.digest;
+		});
+	}
+
 	async function publication(
 		address: RecordAddress,
 	): Promise<BlobPublication<TRead> | null> {
@@ -321,6 +349,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 
 	return {
 		capture,
+		captureNewRecord,
 		inspect,
 		publication,
 		settle,

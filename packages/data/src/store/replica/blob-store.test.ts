@@ -26,6 +26,11 @@ const OTHER_ADDRESS: RecordAddress = {
 	recordKey: 'bbbbbbbbbbbbbbbbbbbbbbbb',
 };
 
+const NEW_ADDRESS: RecordAddress = {
+	...ADDRESS,
+	recordKey: 'cccccccccccccccccccccccc',
+};
+
 class MemoryBlobFiles implements BlobFileStore<Uint8Array, Uint8Array> {
 	readonly staging = new Map<string, Uint8Array>();
 	readonly content = new Map<string, Uint8Array>();
@@ -109,6 +114,125 @@ function accepted(address: RecordAddress, digest: string): BlobAcceptance {
 }
 
 describe('record blob store', () => {
+	test('admits a new live record and blob membership as one fact', async () => {
+		const context = setup();
+		try {
+			const notifications: RecordAddress[][] = [];
+			context.replica.subscribe((addresses) =>
+				notifications.push([...addresses]),
+			);
+			const bytes = new TextEncoder().encode('complete recording');
+			const digest = await context.blobs.captureNewRecord(
+				NEW_ADDRESS,
+				bytes,
+				(capturedDigest) =>
+					context.replica.admitLocalRecordWithBlob({
+						address: NEW_ADDRESS,
+						payload: { title: 'Captured' },
+						digest: capturedDigest,
+					}),
+			);
+
+			expect(context.replica.visible(NEW_ADDRESS)).toEqual({
+				state: 'live',
+				payload: { title: 'Captured' },
+			});
+			expect(context.blobs.inspect(NEW_ADDRESS)).toEqual({
+				kind: 'pending',
+				digest,
+			});
+			expect(await context.blobs.read(NEW_ADDRESS)).toEqual(bytes);
+			expect(notifications).toEqual([[NEW_ADDRESS]]);
+			const row = context.database
+				.query<
+					{
+						pending_op: string;
+						blob_pending: number;
+						blob_sha256: string;
+					},
+					[]
+				>(
+					`SELECT pending_op, blob_pending, blob_sha256 FROM records
+					WHERE namespace = '${NEW_ADDRESS.namespace}'
+						AND collection = '${NEW_ADDRESS.collection}'
+						AND record_key = '${NEW_ADDRESS.recordKey}'`,
+				)
+				.get();
+			expect(row).toEqual({
+				pending_op: 'patch',
+				blob_pending: 1,
+				blob_sha256: digest,
+			});
+		} finally {
+			context.database.close();
+		}
+	});
+
+	for (const boundary of [
+		'afterStage',
+		'afterPromote',
+		'afterMembership',
+	] as const) {
+		test(`new-record admission recovers a crash ${boundary}`, async () => {
+			const crash = new Error(`new record crash ${boundary}`);
+			const context = setup(new MemoryBlobFiles(), {
+				[boundary]: () => {
+					throw crash;
+				},
+			});
+			try {
+				await expect(
+					context.blobs.captureNewRecord(
+						NEW_ADDRESS,
+						new TextEncoder().encode(boundary),
+						(digest) =>
+							context.replica.admitLocalRecordWithBlob({
+								address: NEW_ADDRESS,
+								payload: { boundary },
+								digest,
+							}),
+					),
+				).rejects.toBe(crash);
+				const committed = boundary === 'afterMembership';
+				expect(context.replica.visible(NEW_ADDRESS)?.state ?? null).toBe(
+					committed ? 'live' : null,
+				);
+				expect(context.blobs.inspect(NEW_ADDRESS).kind).toBe(
+					committed ? 'pending' : 'absent',
+				);
+				await context.blobs.reopenSweep();
+				await context.blobs.reopenSweep();
+				expect(context.files.staging.size).toBe(0);
+				expect(context.files.content.size).toBe(committed ? 1 : 0);
+			} finally {
+				context.database.close();
+			}
+		});
+	}
+
+	test('new-record admission refuses an occupied address before promotion', async () => {
+		const context = setup();
+		try {
+			await expect(
+				context.blobs.captureNewRecord(
+					ADDRESS,
+					new TextEncoder().encode('collision'),
+					(digest) =>
+						context.replica.admitLocalRecordWithBlob({
+							address: ADDRESS,
+							payload: {},
+							digest,
+						}),
+				),
+			).rejects.toThrow('already occupied');
+			expect(context.files.staging.size).toBe(0);
+			expect(context.files.content.size).toBe(0);
+			expect(context.blobs.inspect(ADDRESS)).toEqual({ kind: 'absent' });
+		} finally {
+			context.database.close();
+		}
+	});
+
 	test('enforces one write-once slot while keeping equal bytes independently owned', async () => {
 		const context = setup();
 		try {
