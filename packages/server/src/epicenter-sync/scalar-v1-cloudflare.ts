@@ -2,12 +2,14 @@ import { DurableObject } from 'cloudflare:workers';
 
 import {
 	type BlobAcceptance,
+	blobFileOwner,
 	parseBlobPublicationRequest,
 } from '@epicenter/data/blob-v1';
 import {
 	type DocumentAcceptance,
 	parseDocumentPublicationRequest,
 } from '@epicenter/data/document-v1';
+import type { PortableArtifactIndexPage } from '@epicenter/data/portable';
 import {
 	type AuthorityError,
 	type FactsResponse,
@@ -35,7 +37,14 @@ import {
 	type AuthorityBlobV1,
 	createAuthorityBlobV1,
 } from './blob-authority-v1.js';
-import { createR2BlobFileStore, deleteR2BlobOwner } from './blob-files-r2.js';
+import {
+	copyR2AuthorityBlob,
+	createR2BlobFileStore,
+	deleteR2AuthorityLifetime,
+	deleteR2BlobOwner,
+	sealR2AuthorityBlobs,
+	sweepR2AuthorityLifetimes,
+} from './blob-files-r2.js';
 import {
 	type BlobAuthorityV1Endpoint,
 	mountBlobV1App,
@@ -47,9 +56,16 @@ import {
 } from './cloudflare-backup-registry-v1.js';
 import {
 	type CloudflareBackupV1Status,
-	type DataBackup,
 	dataBackupV1Name,
 } from './cloudflare-backup-v1.js';
+import {
+	abandonCloudflareRestoreV1,
+	activateCloudflareRestoreV1,
+	appendCloudflareRestoreV1Page,
+	initializeCloudflareRestoreV1,
+	recoverCloudflareRestoreV1,
+	sealCloudflareRestoreV1,
+} from './cloudflare-restore-v1.js';
 import {
 	createDocumentRealtimeV1Server,
 	type DocumentRealtimeV1Server,
@@ -108,12 +124,16 @@ function principalName(principalId: PrincipalId): string {
 	return encodeURIComponent(principalId).replaceAll('.', '%2E');
 }
 
-type DataBackupStub = Pick<
-	DataBackup,
-	'append' | 'destroy' | 'initialize' | 'seal' | 'status'
->;
+type DataBackupStub = {
+	initialize(expectedRecordCount: number): Promise<void>;
+	append(rawRecords: unknown): Promise<number>;
+	seal(): Promise<{ version: 1; state: 'sealed'; recordCount: number }>;
+	status(): Promise<CloudflareBackupV1Status>;
+	readPage(rawAfter?: unknown): Promise<PortableArtifactIndexPage>;
+	destroy(): Promise<void>;
+};
 
-export type DataAuthorityEnv = Cloudflare.Env & {
+export type DataAuthorityEnv = {
 	DATA_BACKUP: { getByName(name: string): DataBackupStub };
 	DATA_BLOBS: R2Bucket;
 };
@@ -133,8 +153,12 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	private initializationError: unknown;
 	private readonly ready: Promise<void>;
 	private readonly operations = new Set<Promise<unknown>>();
+	private readonly resourceCancels = new Set<() => Promise<void>>();
 	private operationBarrier: Promise<void> | undefined;
+	private releaseOperationBarrier: (() => void) | undefined;
+	private maintenance: 'restore' | 'account-delete' | undefined;
 	private accountDeletion: Promise<void> | undefined;
+	private restoreOperation: Promise<unknown> | undefined;
 	private backupCaptureFenced = false;
 
 	constructor(ctx: DurableObjectState, env: DataAuthorityEnv) {
@@ -143,18 +167,40 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			ctx.storage as unknown as DurableObjectSqliteStorage,
 		);
 		this.blobOwnerStorageKey = ctx.id.toString();
-		this.ready = ctx.blockConcurrencyWhile(async () => {
+		const loaded = ctx.blockConcurrencyWhile(async () => {
 			try {
+				recoverCloudflareRestoreV1(this.database);
 				this.authority = this.openFreshOwner();
 				this.blobAuthority = this.openBlobOwner(this.authority);
-				await this.blobAuthority.reopenSweep();
-				this.realtime = createDocumentRealtimeV1Server({
-					authority: this.authority,
-				});
+			} catch (cause) {
+				// Keep the actor reachable for account deletion. A rejected constructor
+				// block prevents later RPC events from reaching deleteAccount at all.
+				this.initializationError = cause;
+			}
+		});
+		this.ready = loaded.then(async () => {
+			if (this.initializationError !== undefined) return;
+			const authority = this.authority;
+			const blobAuthority = this.blobAuthority;
+			if (authority === undefined || blobAuthority === undefined) return;
+			try {
+				// R2 work is deliberately outside blockConcurrencyWhile. Events still
+				// await ready, without exposing startup to the constructor gate timeout.
+				await sweepR2AuthorityLifetimes(
+					this.env.DATA_BLOBS,
+					this.blobOwnerStorageKey,
+					authority.authorityLifetime(),
+				);
+				await blobAuthority.reopenSweep();
+				this.realtime = createDocumentRealtimeV1Server({ authority });
 				for (const socket of ctx.getWebSockets()) {
 					const attachment = socket.deserializeAttachment();
 					if (!isDataDocumentAttachment(attachment)) {
 						socket.close(1011, 'invalid-document-attachment');
+						continue;
+					}
+					if (attachment.authorityLifetime !== authority.authorityLifetime()) {
+						socket.close(1012, 'authority-replaced');
 						continue;
 					}
 					this.realtime.restore(
@@ -164,9 +210,10 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 					);
 				}
 			} catch (cause) {
-				// Keep the actor reachable for account deletion. A rejected constructor
-				// block prevents later RPC events from reaching deleteAccount at all.
 				this.initializationError = cause;
+				for (const socket of ctx.getWebSockets()) {
+					socket.close(1011, 'authority-initialization-failed');
+				}
 			}
 		});
 	}
@@ -201,7 +248,9 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 					}
 				}
 				if (reapedBlob && this.blobAuthority !== undefined) {
-					this.ctx.waitUntil(this.blobAuthority.sweepDebris());
+					this.ctx.waitUntil(
+						this.trackOperation(this.blobAuthority.sweepDebris()),
+					);
 				}
 			}
 			return result;
@@ -250,7 +299,11 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			throw new TypeError('invalid blob V1 read RPC request');
 		}
 		return this.runOperation(async () =>
-			(await this.blobs()).read(parsed.data),
+			(await this.blobs())
+				.read(parsed.data)
+				.then((stream) =>
+					stream === undefined ? undefined : this.leaseBlobRead(stream),
+				),
 		);
 	}
 
@@ -278,6 +331,64 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		});
 	}
 
+	/** Read the canonical activation selector for lost Restore response recovery. */
+	currentAuthorityLifetime(): Promise<string> {
+		return this.runOperation(() => this.readCanonicalAuthorityLifetime());
+	}
+
+	/** Construct and atomically activate one sealed Backup as a fresh authority. */
+	restoreBackup(
+		rawBackupId: unknown,
+		rawSuccessorLifetime: unknown,
+	): Promise<{ authorityLifetime: string; recordCount: number }> {
+		if (typeof rawBackupId !== 'string') {
+			return Promise.reject(new TypeError('backup ID must be a string'));
+		}
+		let backupName: string;
+		try {
+			backupName = dataBackupV1Name(this.blobOwnerStorageKey, rawBackupId);
+		} catch (cause) {
+			return Promise.reject(cause);
+		}
+		const parsedLifetime = parseFactsRequest(
+			{ authorityLifetime: rawSuccessorLifetime, afterSequence: 0 },
+			SCALAR_SYNC_V1_LIMITS,
+		);
+		if (
+			parsedLifetime.error !== null ||
+			typeof rawSuccessorLifetime !== 'string'
+		) {
+			return Promise.reject(
+				new TypeError('invalid Restore successor authority lifetime'),
+			);
+		}
+		if (this.backupCaptureFenced) {
+			return Promise.reject(new Error('Data authority is being deleted'));
+		}
+		if (this.restoreOperation !== undefined) {
+			return Promise.reject(
+				new Error('Data authority Restore is already active'),
+			);
+		}
+		let restoring!: Promise<{
+			authorityLifetime: string;
+			recordCount: number;
+		}>;
+		restoring = this.runOperation((currentOperation) =>
+			this.restoreBackupOperation({
+				backupId: rawBackupId,
+				backupName,
+				successorAuthorityLifetime: rawSuccessorLifetime,
+				currentOperation,
+			}),
+		);
+		this.restoreOperation = restoring;
+		return restoring.finally(() => {
+			if (this.restoreOperation === restoring)
+				this.restoreOperation = undefined;
+		});
+	}
+
 	override async fetch(request: Request): Promise<Response> {
 		return this.runOperation(async () => {
 			const url = new URL(request.url);
@@ -299,6 +410,16 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			const attachment = socket.deserializeAttachment();
 			if (!isDataDocumentAttachment(attachment)) {
 				socket.close(1011, 'invalid-document-attachment');
+				return;
+			}
+			const currentLifetime = this.authority?.authorityLifetime();
+			if (currentLifetime === undefined) {
+				socket.close(1011, 'authority-unavailable');
+				return;
+			}
+			if (attachment.authorityLifetime !== currentLifetime) {
+				this.realtime?.disconnect(this.socket(socket));
+				socket.close(1012, 'authority-replaced');
 				return;
 			}
 			if (Date.now() >= attachment.authorizationExpiresAt) {
@@ -354,15 +475,16 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	deleteAccount(): Promise<void> {
 		this.backupCaptureFenced = true;
 		if (this.accountDeletion !== undefined) return this.accountDeletion;
-		let releaseBarrier!: () => void;
-		const barrier = new Promise<void>((resolve) => {
-			releaseBarrier = resolve;
-		});
-		this.operationBarrier = barrier;
+		if (this.maintenance === 'restore') {
+			// Keep the Restore barrier installed and transfer it to deletion. The
+			// Restore observes the synchronous fence and abandons before activation.
+			this.maintenance = 'account-delete';
+		} else if (this.maintenance === undefined) {
+			this.beginMaintenance('account-delete');
+		}
 		const deletion = this.deleteAccountOperation().finally(() => {
 			this.accountDeletion = undefined;
-			this.operationBarrier = undefined;
-			releaseBarrier();
+			this.finishMaintenance('account-delete');
 		});
 		this.accountDeletion = deletion;
 		return deletion;
@@ -370,9 +492,9 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 
 	private async deleteAccountOperation(): Promise<void> {
 		await this.ready;
-		await Promise.allSettled([...this.operations]);
+		await this.cancelResourcesAndDrain();
 		await this.ctx.blockConcurrencyWhile(async () => {
-			this.realtime?.closeAll();
+			this.closeDocumentSockets(1001, 'server-shutdown');
 			await this.blobAuthority?.deleteAll();
 			await deleteR2BlobOwner(this.env.DATA_BLOBS, this.blobOwnerStorageKey);
 			this.realtime = undefined;
@@ -389,6 +511,293 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 				authority: this.authority,
 			});
 			this.initializationError = undefined;
+		});
+	}
+
+	private readCanonicalAuthorityLifetime(): string {
+		const rows = this.database.all<{ authority_lifetime: string }>(
+			'SELECT authority_lifetime FROM meta WHERE singleton = 1',
+		);
+		if (rows.length !== 1 || typeof rows[0]?.authority_lifetime !== 'string') {
+			throw new Error('canonical authority lifetime is missing');
+		}
+		return rows[0].authority_lifetime;
+	}
+
+	private canonicalRecordCount(): number {
+		const count = this.database.all<{ record_count: number }>(
+			'SELECT count(*) AS record_count FROM records',
+		)[0]?.record_count;
+		if (!Number.isSafeInteger(count) || (count ?? -1) < 0) {
+			throw new Error('canonical authority record count is invalid');
+		}
+		return count as number;
+	}
+
+	private async restoreBackupOperation({
+		backupId,
+		backupName,
+		successorAuthorityLifetime,
+		currentOperation,
+	}: {
+		backupId: string;
+		backupName: string;
+		successorAuthorityLifetime: string;
+		currentOperation: Promise<unknown>;
+	}): Promise<{ authorityLifetime: string; recordCount: number }> {
+		await this.ready;
+		if (this.readCanonicalAuthorityLifetime() === successorAuthorityLifetime) {
+			return {
+				authorityLifetime: successorAuthorityLifetime,
+				recordCount: this.canonicalRecordCount(),
+			};
+		}
+		if (this.backupCaptureFenced) {
+			throw new Error('Data authority is being deleted');
+		}
+
+		const backup = this.env.DATA_BACKUP.getByName(backupName);
+		const status = await backup.status();
+		if (
+			status.state !== 'sealed' ||
+			!Number.isSafeInteger(status.recordCount) ||
+			status.recordCount < 0
+		) {
+			throw new Error('Data authority Restore Backup is not sealed');
+		}
+		const expectedRecordCount = status.recordCount;
+		const backupBlobs = createR2BackupBlobStore(
+			this.env.DATA_BLOBS,
+			this.blobOwnerStorageKey,
+			backupId,
+		);
+		let initialized = false;
+		let activated = false;
+		let restoreBarrier = false;
+		let outgoingAuthorityLifetime: string | undefined;
+		try {
+			const construction = initializeCloudflareRestoreV1({
+				database: this.database,
+				successorAuthorityLifetime,
+			});
+			initialized = true;
+			outgoingAuthorityLifetime = construction.outgoingAuthorityLifetime;
+
+			let after: Parameters<DataBackupStub['readPage']>[0];
+			let recordCount = 0;
+			let blobCount = 0;
+			for (;;) {
+				if (this.backupCaptureFenced) {
+					throw new Error('Data authority is being deleted');
+				}
+				const page = await backup.readPage(after);
+				if (page.records.length > 0) {
+					appendCloudflareRestoreV1Page({
+						database: this.database,
+						records: page.records,
+					});
+				}
+				for (const record of page.records) {
+					if (record.blobSha256 === null) continue;
+					const source = await backupBlobs.open(
+						record.address,
+						record.blobSha256,
+					);
+					await copyR2AuthorityBlob(
+						this.env.DATA_BLOBS,
+						this.blobOwnerStorageKey,
+						successorAuthorityLifetime,
+						blobFileOwner(record.address, record.blobSha256),
+						source,
+					);
+					blobCount += 1;
+				}
+				recordCount += page.records.length;
+				if (recordCount > expectedRecordCount) {
+					throw new Error('Data authority Restore contains extra records');
+				}
+				if (page.nextAfter === undefined) break;
+				if (page.records.length === 0) {
+					throw new Error('Data authority Restore page did not advance');
+				}
+				after = page.nextAfter;
+			}
+			const sealed = sealCloudflareRestoreV1({
+				database: this.database,
+				expectedRecordCount,
+			});
+			if (
+				sealed.authorityLifetime !== successorAuthorityLifetime ||
+				sealed.recordCount !== expectedRecordCount ||
+				recordCount !== expectedRecordCount
+			) {
+				throw new Error(
+					'Data authority Restore staging result is not recognized',
+				);
+			}
+			await sealR2AuthorityBlobs(
+				this.env.DATA_BLOBS,
+				this.blobOwnerStorageKey,
+				successorAuthorityLifetime,
+				blobCount,
+			);
+			if (this.backupCaptureFenced || this.maintenance !== undefined) {
+				throw new Error(
+					'Data authority cannot activate Restore while quiescing',
+				);
+			}
+
+			this.beginMaintenance('restore');
+			restoreBarrier = true;
+			await this.cancelResourcesAndDrain(currentOperation);
+			if (this.backupCaptureFenced || this.maintenance !== 'restore') {
+				throw new Error('Data authority Restore was superseded by deletion');
+			}
+			this.closeDocumentSockets(1012, 'authority-replaced');
+			const activation = activateCloudflareRestoreV1({
+				database: this.database,
+				outgoingAuthorityLifetime,
+			});
+			activated = true;
+			this.authority = openScalarAuthorityV1({
+				database: this.database,
+				limits: SCALAR_SYNC_V1_LIMITS,
+			});
+			this.blobAuthority = this.openBlobOwner(this.authority);
+			this.realtime = createDocumentRealtimeV1Server({
+				authority: this.authority,
+			});
+			this.initializationError = undefined;
+			this.finishMaintenance('restore');
+			restoreBarrier = false;
+			this.ctx.waitUntil(
+				deleteR2AuthorityLifetime(
+					this.env.DATA_BLOBS,
+					this.blobOwnerStorageKey,
+					outgoingAuthorityLifetime,
+				),
+			);
+			return {
+				authorityLifetime: activation.authorityLifetime,
+				recordCount: activation.recordCount,
+			};
+		} catch (cause) {
+			const cleanupFailures: unknown[] = [];
+			if (!activated && initialized) {
+				try {
+					abandonCloudflareRestoreV1(this.database);
+				} catch (failure) {
+					cleanupFailures.push(failure);
+				}
+				await deleteR2AuthorityLifetime(
+					this.env.DATA_BLOBS,
+					this.blobOwnerStorageKey,
+					successorAuthorityLifetime,
+				).catch((failure) => cleanupFailures.push(failure));
+			}
+			if (restoreBarrier && this.maintenance === 'restore') {
+				this.finishMaintenance('restore');
+			}
+			if (activated) this.initializationError = cause;
+			if (cleanupFailures.length > 0) {
+				throw new AggregateError(
+					[cause, ...cleanupFailures],
+					'Data authority Restore failed and cleanup was incomplete',
+				);
+			}
+			throw cause;
+		}
+	}
+
+	private beginMaintenance(kind: 'restore' | 'account-delete'): void {
+		if (this.operationBarrier !== undefined || this.maintenance !== undefined) {
+			throw new Error('Data authority is already quiescing');
+		}
+		this.maintenance = kind;
+		this.operationBarrier = new Promise<void>((resolve) => {
+			this.releaseOperationBarrier = resolve;
+		});
+	}
+
+	private finishMaintenance(kind: 'restore' | 'account-delete'): void {
+		if (this.maintenance !== kind) return;
+		const release = this.releaseOperationBarrier;
+		this.maintenance = undefined;
+		this.operationBarrier = undefined;
+		this.releaseOperationBarrier = undefined;
+		release?.();
+	}
+
+	private async cancelResourcesAndDrain(
+		excluded?: Promise<unknown>,
+	): Promise<void> {
+		while ([...this.operations].some((operation) => operation !== excluded)) {
+			await Promise.allSettled(
+				[...this.resourceCancels].map((cancel) => cancel()),
+			);
+			await Promise.allSettled(
+				[...this.operations].filter((operation) => operation !== excluded),
+			);
+		}
+	}
+
+	private leaseBlobRead(
+		source: ReadableStream<Uint8Array>,
+	): ReadableStream<Uint8Array> {
+		const reader = source.getReader();
+		let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+		let completed = false;
+		let releaseHold!: () => void;
+		const hold = new Promise<void>((resolve) => {
+			releaseHold = resolve;
+		});
+		this.operations.add(hold);
+
+		const finish = async (cancel: boolean): Promise<void> => {
+			if (completed) return;
+			completed = true;
+			this.resourceCancels.delete(cancelResource);
+			try {
+				if (cancel) await reader.cancel('authority-replaced');
+			} finally {
+				reader.releaseLock();
+				this.operations.delete(hold);
+				releaseHold();
+			}
+		};
+		const cancelResource = async (): Promise<void> => {
+			if (completed) return;
+			controller?.error(
+				new Error('Blob read interrupted by authority replacement'),
+			);
+			await finish(true);
+		};
+		this.resourceCancels.add(cancelResource);
+
+		return new ReadableStream<Uint8Array>({
+			start(outward) {
+				controller = outward;
+			},
+			async pull(outward) {
+				if (completed) {
+					outward.close();
+					return;
+				}
+				try {
+					const result = await reader.read();
+					if (result.done) {
+						await finish(false);
+						outward.close();
+					} else {
+						outward.enqueue(result.value);
+					}
+				} catch (cause) {
+					const interrupted = completed;
+					await finish(false);
+					if (!interrupted) outward.error(cause);
+				}
+			},
+			cancel: () => finish(true),
 		});
 	}
 
@@ -500,7 +909,9 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 	}
 
 	private async runOperation<TResult>(
-		operation: () => TResult | Promise<TResult>,
+		operation: (
+			currentOperation: Promise<unknown>,
+		) => TResult | Promise<TResult>,
 	): Promise<TResult> {
 		await this.ready;
 		const barrier = this.operationBarrier;
@@ -508,12 +919,19 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 			await barrier;
 			return this.runOperation(operation);
 		}
-		const result = Promise.resolve().then(operation);
-		this.operations.add(result);
-		void result
-			.finally(() => this.operations.delete(result))
+		let result!: Promise<TResult>;
+		result = Promise.resolve().then(() => operation(result));
+		return this.trackOperation(result);
+	}
+
+	private trackOperation<TResult>(
+		operation: Promise<TResult>,
+	): Promise<TResult> {
+		this.operations.add(operation);
+		void operation
+			.finally(() => this.operations.delete(operation))
 			.catch(() => undefined);
-		return result;
+		return operation;
 	}
 
 	private async owner(): Promise<DataAuthorityV1> {
@@ -559,6 +977,10 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		);
 	}
 
+	private closeDocumentSockets(code: number, reason: string): void {
+		for (const socket of this.ctx.getWebSockets()) socket.close(code, reason);
+	}
+
 	private async acceptDocumentUpgrade(request: Request): Promise<Response> {
 		if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
 			return new Response(null, { status: 426 });
@@ -591,7 +1013,10 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 		) {
 			return new Response(null, { status: 400 });
 		}
-		await this.owner();
+		const authority = await this.owner();
+		if (authority.authorityLifetime() !== authorityLifetime) {
+			return new Response(null, { status: 409 });
+		}
 		if (!this.realtime?.admit(parsedAddress.data)) {
 			return new Response(null, { status: 404 });
 		}
@@ -710,6 +1135,11 @@ export function mountCloudflareScalarV1App<E extends Env = Env>(
 		auth,
 		locateRegistry: (principalId, env) =>
 			locateDataBackupRegistryV1(resolveBackupRegistry(env), principalId),
+		restoreBackup: (principalId, backupId, restoreRequestId, env) =>
+			locateDataBackupRegistryV1(
+				resolveBackupRegistry(env),
+				principalId,
+			).restore(backupId, restoreRequestId),
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(
