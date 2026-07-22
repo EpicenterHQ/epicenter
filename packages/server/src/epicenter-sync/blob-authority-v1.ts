@@ -65,7 +65,15 @@ export function createAuthorityBlobV1<TSource, TRead>(
 				}
 			>(
 				`SELECT namespace, collection, record_key, accepted_blob_sha256
-				FROM records WHERE accepted_blob_sha256 IS NOT NULL`,
+				FROM records WHERE accepted_blob_sha256 IS NOT NULL
+				UNION
+				SELECT pinned.namespace, pinned.collection, pinned.record_key,
+					pinned.blob_sha256 AS accepted_blob_sha256
+				FROM capture_manifest_records AS pinned
+				JOIN capture_manifests AS manifest
+					ON manifest.capture_id = pinned.capture_id
+				WHERE pinned.blob_sha256 IS NOT NULL
+					AND manifest.state IN ('building', 'sealed')`,
 			)
 			.map((row) =>
 				blobFileOwner(

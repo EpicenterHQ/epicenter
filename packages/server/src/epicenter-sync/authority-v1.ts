@@ -23,6 +23,7 @@ import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
 
 import { openAuthorityV1Schema } from './authority-v1-schema.js';
+import { recoverInterruptedCaptureManifests } from './capture-manifest-v1.js';
 import {
 	type AuthorityDocumentRead,
 	createAuthorityDocumentV1,
@@ -282,6 +283,7 @@ export function openScalarAuthorityV1({
 		}
 	}
 	openAuthorityV1Schema(database, initialize);
+	recoverInterruptedCaptureManifests(database);
 	const meta = readMeta(database);
 	const admittedMeta = parseFactsRequest(
 		{ authorityLifetime: meta.authority_lifetime, afterSequence: 0 },

@@ -16,6 +16,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { openScalarAuthorityV1 } from './authority-v1.js';
 import { authorityV1TestLimits } from './authority-v1-cases.test-support.js';
 import { createAuthorityBlobV1 } from './blob-authority-v1.js';
+import { createAuthorityCaptureManifestV1 } from './capture-manifest-v1.js';
 
 const LIFETIME = 'lifetime-one';
 const ADDRESS = {
@@ -241,6 +242,46 @@ describe('record blob authority', () => {
 				state: 'tombstone',
 			});
 			expect(await context.blobs.read(ADDRESS)).toBeUndefined();
+		} finally {
+			await context.close();
+		}
+	});
+
+	test('a sealed capture pins blob bytes until its terminal transition', async () => {
+		const context = await setup();
+		try {
+			const publication = request('pinned');
+			await context.blobs.accept(publication, source('pinned'));
+			const captures = createAuthorityCaptureManifestV1(
+				createBunSqliteAdapter(context.raw),
+			);
+			const captureId = 'cccccccccccccccccccccccc';
+			captures.start(captureId);
+			expect(captures.advance(captureId)).toMatchObject({
+				kind: 'advanced',
+				caughtUp: true,
+			});
+			expect(captures.seal(captureId)).toMatchObject({ kind: 'sealed' });
+
+			context.submit('tombstone');
+			await context.blobs.sweepDebris();
+			expect(
+				(
+					await readdir(join(context.root, 'blobs', 'content'), {
+						recursive: true,
+					})
+				).some((entry) => entry.endsWith(publication.digest)),
+			).toBe(true);
+
+			captures.finish(captureId, 'cancelled');
+			await context.blobs.sweepDebris();
+			expect(
+				(
+					await readdir(join(context.root, 'blobs', 'content'), {
+						recursive: true,
+					})
+				).some((entry) => entry.endsWith(publication.digest)),
+			).toBe(false);
 		} finally {
 			await context.close();
 		}

@@ -87,6 +87,8 @@ function setupState() {
 		},
 		async deleteAll() {
 			database.exec(`
+				DROP TABLE IF EXISTS capture_manifest_records;
+				DROP TABLE IF EXISTS capture_manifests;
 				DROP TABLE IF EXISTS replica_witness;
 				DROP TABLE IF EXISTS record_documents;
 				DROP TABLE IF EXISTS records;

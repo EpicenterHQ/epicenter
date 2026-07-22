@@ -45,6 +45,10 @@ export type AuthorityDocumentRead =
 			update: Uint8Array | undefined;
 	  };
 
+export type AuthorityDocumentCapture =
+	| { kind: 'settled'; update: Uint8Array | null }
+	| { kind: 'not-settled' };
+
 function one<TRow extends SqliteRow>(
 	database: SqliteDatabase,
 	sql: string,
@@ -81,6 +85,30 @@ function hydrate(chain: readonly ChainRow[]): Y.Doc {
 	} catch (cause) {
 		document.destroy();
 		throw cause;
+	}
+}
+
+/** Compose one record's accepted chain for a portable capture cut. */
+export function captureAuthorityDocument(
+	database: SqliteDatabase,
+	recordId: number,
+): AuthorityDocumentCapture {
+	const chain = chainFor(database, recordId);
+	if (chain.length === 0) return { kind: 'settled', update: null };
+	const document = hydrate(chain);
+	try {
+		if (
+			document.store.pendingStructs !== null ||
+			document.store.pendingDs !== null
+		) {
+			return { kind: 'not-settled' };
+		}
+		return {
+			kind: 'settled',
+			update: new Uint8Array(Y.encodeStateAsUpdateV2(document)),
+		};
+	} finally {
+		document.destroy();
 	}
 }
 

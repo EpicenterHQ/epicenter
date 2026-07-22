@@ -4,9 +4,11 @@ import {
 	StorageUpgradeRequiredError,
 } from '@epicenter/sqlite';
 
-export const AUTHORITY_V1_FORMAT_VERSION = 3;
+export const AUTHORITY_V1_FORMAT_VERSION = 4;
 
 export const AUTHORITY_V1_TABLES = [
+	'capture_manifest_records',
+	'capture_manifests',
 	'meta',
 	'record_documents',
 	'records',
@@ -14,6 +16,7 @@ export const AUTHORITY_V1_TABLES = [
 ] as const;
 
 export const AUTHORITY_V1_INDEXES = [
+	'capture_manifests_one_active',
 	'records_address',
 	'records_capture_revision',
 	'records_sequence',
@@ -69,6 +72,40 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 			CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^a-f0-9]*'),
 		parked            TEXT NOT NULL CHECK (json_valid(parked))
 	) STRICT`,
+	`CREATE TABLE capture_manifests (
+		capture_id              TEXT PRIMARY KEY
+			CHECK (length(capture_id) = 24 AND
+			capture_id NOT GLOB '*[^a-z0-9]*'),
+		state                   TEXT NOT NULL
+			CHECK (state IN ('building', 'sealed', 'succeeded', 'cancelled', 'crashed')),
+		after_capture_revision  INTEGER NOT NULL
+			CHECK (after_capture_revision BETWEEN 0 AND 9007199254740991),
+		sealed_capture_revision INTEGER
+			CHECK (sealed_capture_revision IS NULL OR
+			sealed_capture_revision BETWEEN 0 AND 9007199254740991)
+	) STRICT`,
+	`CREATE TABLE capture_manifest_records (
+		capture_id        TEXT NOT NULL,
+		record_id         INTEGER NOT NULL,
+		capture_revision  INTEGER NOT NULL
+			CHECK (capture_revision BETWEEN 1 AND 9007199254740991),
+		namespace         TEXT NOT NULL,
+		collection        TEXT NOT NULL,
+		record_key        TEXT NOT NULL,
+		state             TEXT NOT NULL CHECK (state IN ('live', 'unset')),
+		payload           TEXT,
+		document_update_v2 BLOB,
+		blob_sha256       TEXT,
+		PRIMARY KEY (capture_id, record_id),
+		UNIQUE (capture_id, namespace, collection, record_key),
+		CHECK ((state = 'live' AND payload IS NOT NULL AND json_valid(payload)) OR
+			(state = 'unset' AND payload IS NULL)),
+		CHECK (document_update_v2 IS NULL OR length(document_update_v2) > 0),
+		CHECK (blob_sha256 IS NULL OR
+			(length(blob_sha256) = 64 AND blob_sha256 NOT GLOB '*[^a-f0-9]*'))
+	) STRICT, WITHOUT ROWID`,
+	`CREATE UNIQUE INDEX capture_manifests_one_active
+		ON capture_manifests ((1)) WHERE state IN ('building', 'sealed')`,
 ] as const;
 
 export function createAuthorityV1Schema(
