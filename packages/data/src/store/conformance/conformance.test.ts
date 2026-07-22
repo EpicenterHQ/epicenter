@@ -149,7 +149,7 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		expect(row?.pending_op).toBe('replace');
 		expect(row?.pending_args).toBe(canonicalize({ z: 1 }));
 		expect(row?.confirmed_state).toBeNull();
-		reopened.store.close();
+		reopened.store.dispose();
 	});
 
 	test('2: pending compaction happens inside the write transaction under the one law', () => {
@@ -178,7 +178,7 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		const row = replica.record(rowB);
 		expect(row?.pending_op).toBe('replace');
 		expect(row?.pending_args).toBe(canonicalize({ y: 2, z: 1 }));
-		replica.store.close();
+		replica.store.dispose();
 	});
 
 	test('3: sealing moves pending to sealed and persists the first-seal canonical bytes and hash', () => {
@@ -222,7 +222,7 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		// Debug assertion retained by ADR-0163: reconstruction from the sealed
 		// lanes reproduces the persisted bytes under the same encoder.
 		expect(replica.reconstructSealedRequest()).toBe(witness.bytes);
-		replica.store.close();
+		replica.store.dispose();
 	});
 
 	test('4: a new write while sealed cannot change the first-seal retry bytes', () => {
@@ -250,7 +250,7 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		// A clean process restart also preserves them exactly.
 		const reopened = new ReplicaRef(replica.store.reopen());
 		expect(reopened.sealedRequest()).toEqual(firstSeal);
-		reopened.store.close();
+		reopened.store.dispose();
 	});
 
 	test('7: settlement installs facts, retires the seal, clears the bytes, and keeps newer pending', () => {
@@ -293,8 +293,8 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		expect(meta.sealed_request).toBeNull();
 		expect(meta.sealed_request_hash).toBeNull();
 		expect(meta.next_submission).toBe(2);
-		replica.store.close();
-		authority.store.close();
+		replica.store.dispose();
+		authority.store.dispose();
 	});
 
 	test('7p: a parked refusal is stored whole and consumed by the next local write', () => {
@@ -355,8 +355,8 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		expect(consumed?.parked_code).toBeNull();
 		expect(consumed?.pending_op).toBe('replace');
 		expect(consumed?.pending_args).toBe(canonicalize('light'));
-		replica.store.close();
-		authority.store.close();
+		replica.store.dispose();
+		authority.store.dispose();
 	});
 
 	test('7q: a parked refusal compacts beneath newer pending desire instead of overlaying', () => {
@@ -404,8 +404,8 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		expect(row?.pending_args).toBe(
 			canonicalize({ set: { a: 1, b: 2 }, unset: [] }),
 		);
-		replica.store.close();
-		authority.store.close();
+		replica.store.dispose();
+		authority.store.dispose();
 	});
 
 	test('7t: a remembered parked result cannot overlay a newer tombstone at retry settlement', () => {
@@ -463,8 +463,8 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		expect(row?.confirmed_state).toBe('tombstone');
 		expect(row?.parked_op).toBeNull();
 		expect(row?.pending_op).toBeNull();
-		replica.store.close();
-		authority.store.close();
+		replica.store.dispose();
+		authority.store.dispose();
 	});
 
 	test('8: a feed-ahead tombstone dominates unsealed work while the sealed retry image survives', () => {
@@ -534,7 +534,7 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 				afterSequence: 12,
 			}),
 		).toThrow(/corruption/);
-		replica.store.close();
+		replica.store.dispose();
 	});
 
 	test('11: a superseded replica erases and reacquires from zero under the successor lifetime', () => {
@@ -566,7 +566,7 @@ describe('replica subset (W1B/W1C bind these to production adapters)', () => {
 		expect(meta.after_sequence).toBe(1);
 		expect(meta.next_submission).toBe(1);
 		expect(replica.record(theme)?.confirmed_payload).toBe(canonicalize('dark'));
-		replica.store.close();
+		replica.store.dispose();
 	});
 });
 
@@ -586,8 +586,8 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 		expect(authority.meta().next_sequence).toBe(3);
 		// The witness records the replica's exact persisted-bytes hash.
 		expect(authority.witness(REPLICA_ID)?.request_hash).toBe(witness.hash);
-		replica.store.close();
-		authority.store.close();
+		replica.store.dispose();
+		authority.store.dispose();
 	});
 
 	test('6: a lost response is answered from the witness by exact persisted-bytes retry', () => {
@@ -626,8 +626,8 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 			intents: [{ address: rowA, op: 'replace', value: 2 }],
 		});
 		expect(authority.acceptance(skipped).kind).toBe('gap');
-		replica.store.close();
-		authority.store.close();
+		replica.store.dispose();
+		authority.store.dispose();
 	});
 
 	test('a submission bound to another lifetime is a terminal mismatch, never adjudicated', () => {
@@ -646,7 +646,7 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 		expect(authority.acceptance(mismatched).kind).toBe('lifetime-mismatch');
 		expect(authority.store.logicalState()).toBe(before);
 		expect(authority.witness(REPLICA_ID)).toBeNull();
-		authority.store.close();
+		authority.store.dispose();
 	});
 });
 
@@ -721,7 +721,7 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		const row = replica.record(rowA);
 		expect(row?.blob_sha256).toBeNull();
 		expect(row?.confirmed_state).toBe('tombstone');
-		replica.store.close();
+		replica.store.dispose();
 	});
 
 	test('10: lifetime erase deletes records and every sibling relation and resets sync metadata', () => {
@@ -749,6 +749,6 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		expect(meta.sealed_request).toBeNull();
 		expect(meta.next_submission).toBe(1);
 		expect(meta.replica_id).toBe(REPLICA_ID); // the attachment identity survives
-		replica.store.close();
+		replica.store.dispose();
 	});
 });

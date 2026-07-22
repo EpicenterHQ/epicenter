@@ -29,7 +29,7 @@
  * (journal rollback on open) is what restores the persistent state.
  */
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
-import { copyFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -198,11 +198,20 @@ export type Statement = { sql: string; params?: SQLQueryBindings[] };
 
 let crashCounter = 0;
 
-/** One file-backed reference database with transactional crash simulation. */
+/**
+ * One file-backed reference database with transactional crash simulation.
+ *
+ * Ownership of the on-disk fixture is explicit: `create` makes a fresh
+ * temporary directory and the returned instance owns it; `reopen` transfers
+ * that ownership to the reopened handle; crashed copies opened via `open` are
+ * never owners and just `close`. The owner's `dispose` removes the whole
+ * directory (database file, journals, and every crashed copy) after tests.
+ */
 export class ReferenceDb {
 	private constructor(
 		readonly path: string,
 		readonly db: Database,
+		private ownedDir: string | null,
 	) {}
 
 	static create(kind: 'replica' | 'authority'): ReferenceDb {
@@ -211,11 +220,11 @@ export class ReferenceDb {
 		const db = new Database(path, { create: true, strict: true });
 		db.run('PRAGMA journal_mode = DELETE');
 		db.run(kind === 'replica' ? REPLICA_DDL : AUTHORITY_DDL);
-		return new ReferenceDb(path, db);
+		return new ReferenceDb(path, db, dir);
 	}
 
 	static open(path: string): ReferenceDb {
-		return new ReferenceDb(path, new Database(path, { strict: true }));
+		return new ReferenceDb(path, new Database(path, { strict: true }), null);
 	}
 
 	run(statement: Statement): void {
@@ -268,10 +277,20 @@ export class ReferenceDb {
 		return ReferenceDb.open(crashedPath);
 	}
 
-	/** Close and reopen the same file, as a clean process restart would. */
+	/**
+	 * Close and reopen the same file, as a clean process restart would.
+	 * Directory ownership moves to the reopened handle, so the fixture stays
+	 * disposable through any number of restarts.
+	 */
 	reopen(): ReferenceDb {
 		this.db.close();
-		return ReferenceDb.open(this.path);
+		const reopened = new ReferenceDb(
+			this.path,
+			new Database(this.path, { strict: true }),
+			this.ownedDir,
+		);
+		this.ownedDir = null;
+		return reopened;
 	}
 
 	/**
@@ -322,5 +341,19 @@ export class ReferenceDb {
 
 	close(): void {
 		this.db.close();
+	}
+
+	/**
+	 * Owning disposal: close the handle and delete the fixture's temporary
+	 * directory, taking the database file, its journals, and every crashed
+	 * copy with it. Only the current owner (the created instance, or the
+	 * latest reopen of it) removes anything; disposing a non-owner is a close.
+	 */
+	dispose(): void {
+		this.db.close();
+		if (this.ownedDir !== null) {
+			rmSync(this.ownedDir, { recursive: true, force: true });
+			this.ownedDir = null;
+		}
 	}
 }
