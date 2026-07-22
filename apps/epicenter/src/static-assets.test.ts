@@ -26,9 +26,9 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
+import { EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME } from '@epicenter/data/desktop-record-owner';
 import { BOOTSTRAP_ROUTE, SURFACE_ROUTES } from './routes.ts';
-import { createHomeServer } from './server.ts';
+import { createHomeServer, type HomeServerOptions } from './server.ts';
 import {
 	type AppCatalog,
 	deriveAppCatalog,
@@ -48,6 +48,15 @@ const TOKEN = 'per-launch-secret';
 const HOME_PAGE = '<!doctype html><html><body>Home test page</body></html>';
 const WHISPERING_PAGE =
 	'<!doctype html><html><body>Whispering test application</body></html>';
+const closedRecordOwner = {
+	execute: async () => ({
+		result: null,
+		error: {
+			name: EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME,
+			message: 'Desktop record operation failed' as const,
+		},
+	}),
+} satisfies HomeServerOptions['recordOwner'];
 
 function tempDir(prefix: string): string {
 	return mkdtempSync(join(tmpdir(), prefix));
@@ -242,11 +251,8 @@ describe('home server catalog routes', () => {
 			launchToken: TOKEN,
 			staticAssets: await loadStaticAssets(appsDist),
 			appCatalog: await derive(catalogRoot),
-			blobs: createBunBlobStore({
-				directory: join(tempDir('epicenter-blobs-'), 'blobs'),
-			}),
+			recordOwner: closedRecordOwner,
 			desktopAuth: createTestDesktopAuth(),
-			blobRemote: null,
 		});
 		const server = Bun.serve({
 			hostname: '127.0.0.1',

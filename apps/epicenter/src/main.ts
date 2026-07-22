@@ -9,17 +9,11 @@
  */
 
 import { join } from 'node:path';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-import {
-	type AgentEngine,
-	createBunBlobRemote,
-	createEpicenterClient,
-	createOpenAiAgentEngine,
-} from '@epicenter/client';
-import type { SyncCredentialProvider } from '@epicenter/data';
-import { createDesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
-import { connectRowDocument } from '@epicenter/document-sync';
+import { chatLens } from '@epicenter/chat';
+import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
+import { createDesktopRecordEpicenterOwner } from '@epicenter/data/desktop-record-owner';
+import { createHttpRecordSyncSession } from '@epicenter/data/record';
+import { honeycrispLens } from '@epicenter/honeycrisp';
 import { loadActiveAppCatalog } from './app-catalog.ts';
 import {
 	createDesktopAuthAuthority,
@@ -38,13 +32,12 @@ import {
 	watchParentPipe,
 } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
-import { homeDefinitions } from './workspace.ts';
 
 async function main(): Promise<void> {
 	const parentPipe = watchParentPipe(Bun.stdin.stream());
 	let host: HomeHost | undefined;
-	let dataOwner:
-		| Awaited<ReturnType<typeof createDesktopEpicenterOwner>>
+	let recordOwner:
+		| Awaited<ReturnType<typeof createDesktopRecordEpicenterOwner>>
 		| undefined;
 	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
@@ -69,73 +62,45 @@ async function main(): Promise<void> {
 			);
 		}
 		const authorityFetch = createDesktopAuthorityFetch(auth);
-		const documentCredentials = createDesktopSyncCredentials();
-		if (auth.bootSnapshot.state.status === 'signed-in') {
-			await documentCredentials.refresh(auth);
-		}
-		const nodeId = crypto.randomUUID();
-		dataOwner = await createDesktopEpicenterOwner({
+		recordOwner = await createDesktopRecordEpicenterOwner({
 			directory: join(epicenterDataDir, 'data'),
-			...(auth.bootSnapshot.state.status === 'signed-in'
-				? {
-						connectDocument: (document) =>
-							connectRowDocument({
-								document,
-								baseUrl: auth.baseURL,
-								credentials: documentCredentials,
-								nodeId,
-							}),
-					}
-				: {}),
 		});
 		if (auth.bootSnapshot.state.status === 'signed-in') {
-			const syncUrl = new URL('/api/sync/v1', auth.baseURL);
-			const attached = await dataOwner.epicenter.attachSync({
-				deploymentId: new URL(auth.baseURL).href,
-				principalId: auth.bootSnapshot.state.principalId,
-				credentials: documentCredentials,
-				exchange: async (request) => {
-					await documentCredentials.refresh(auth);
-					const response = await authorityFetch(syncUrl, {
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify(request),
-					});
-					if (!response.ok) {
-						throw new Error(`Epicenter sync failed (${response.status})`);
-					}
-					const parsed = parseExchangeResponse(await response.json());
-					if (parsed.error !== null) throw parsed.error;
-					return parsed.data;
-				},
-			});
-			if (attached.error !== null) throw attached.error;
+			const attachment = recordOwner.epicenter.attachment;
+			const deploymentId = deploymentUrl(auth.baseURL);
+			const principalId = auth.bootSnapshot.state.principalId;
+			if (
+				attachment.kind === 'attached' &&
+				(attachment.attachment.deploymentId !== deploymentId ||
+					attachment.attachment.principalId !== principalId)
+			) {
+				throw new Error(
+					'The local record replica is attached to a different deployment or principal.',
+				);
+			}
+			const canStartSync =
+				attachment.kind === 'attached' || !attachment.requiresChoice;
+			if (canStartSync) {
+				await recordOwner.epicenter.attachSync(
+					createHttpRecordSyncSession<ReadableStream<Uint8Array>>({
+						deploymentId,
+						principalId,
+						credentials: { get: () => 'available' },
+						fetch: authorityFetch,
+					}),
+				);
+			}
 		}
-		const home = dataOwner.epicenter.bind(homeDefinitions).tables;
+		const home = recordOwner.epicenter.bind({
+			chat: chatLens,
+			honeycrisp: honeycrispLens,
+		});
 		host = await createHomeHost({
 			engine,
 			model,
-			honeycrisp: { folders: home.folders, notes: home.notes },
-			conversations: { conversations: home.conversations },
+			honeycrisp: home.honeycrisp,
+			conversations: { conversations: home.chat.conversations },
 		});
-		const blobs = createBunBlobStore({
-			directory: join(epicenterDataDir, 'blobs'),
-		});
-		// Identity is immutable per process generation, so remote availability
-		// is a boot-time fact: a signed-in generation composes the streaming
-		// remote over the authority's own deployment fetch, a signed-out one
-		// has none until sign-in relaunches the app.
-		const blobRemote =
-			auth.bootSnapshot.state.status === 'signed-in'
-				? createBunBlobRemote({
-						store: blobs,
-						client: createEpicenterClient({
-							baseURL: auth.baseURL,
-							fetch: createDesktopAuthorityFetch(auth),
-						}),
-					})
-				: null;
-
 		const appsDist = process.env.EPICENTER_APPS_DIST;
 		if (!appsDist) {
 			throw new Error(
@@ -158,10 +123,8 @@ async function main(): Promise<void> {
 			launchToken: boot.token,
 			staticAssets,
 			appCatalog,
-			dataOwner,
-			blobs,
+			recordOwner,
 			desktopAuth: auth,
-			blobRemote,
 		});
 
 		server = Bun.serve({
@@ -174,7 +137,7 @@ async function main(): Promise<void> {
 		process.stdout.write(`${JSON.stringify(createReadyFrame(boot.port))}\n`);
 		lifecycleOwnsResources = true;
 		const ownedHost = host;
-		const ownedData = dataOwner;
+		const ownedData = recordOwner;
 		const ownedDesktopAuth = auth;
 		await superviseSidecar({
 			server,
@@ -193,34 +156,16 @@ async function main(): Promise<void> {
 			if (server) await server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
 			if (host) await host[Symbol.asyncDispose]();
-			if (dataOwner) await dataOwner[Symbol.asyncDispose]();
+			if (recordOwner) await recordOwner[Symbol.asyncDispose]();
 			await parentPipe.cancel();
 		}
 	}
 }
 
-function createDesktopSyncCredentials(): SyncCredentialProvider & {
-	refresh(authority: DesktopAuthAuthority): Promise<void>;
-} {
-	let bearer: string | undefined;
-	const listeners = new Set<() => void>();
-	return {
-		get: () => bearer,
-		subscribe(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
-		},
-		async refresh(authority) {
-			const authorization = await authority.authorize();
-			const next =
-				authorization.status === 'authorized'
-					? authorization.accessToken
-					: undefined;
-			if (next === bearer) return;
-			bearer = next;
-			for (const listener of listeners) listener();
-		},
-	};
+function deploymentUrl(baseUrl: string): string {
+	const url = new URL(baseUrl);
+	if (!url.pathname.endsWith('/')) url.pathname += '/';
+	return url.href;
 }
 
 export function homeEngineFromEnvironment(

@@ -22,10 +22,10 @@ import type {
 	Approval,
 	EngineChunk,
 } from '@epicenter/agent';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { chatLens } from '@epicenter/chat';
+import { openBunRecordEpicenter } from '@epicenter/data/bun';
 import { type HomeHostInputs, parseHomeCommand } from './host.ts';
 import { createOwnedTestHomeHost } from './test-home-host.ts';
-import { conversationsTable } from './workspace.ts';
 
 const FIXTURE = new URL('../test-fixtures/mini-mcp-server.ts', import.meta.url)
 	.pathname;
@@ -93,13 +93,10 @@ function toolResults(parts: AgentMessagePart[]) {
 
 /** Read the conversation rows a disposed host left behind in its data dir. */
 async function readConversationRows(dataDir: string) {
-	await using epicenter = await openBunEpicenter({
+	await using epicenter = await openBunRecordEpicenter({
 		directory: join(dataDir, 'data'),
 	});
-	const conversations = epicenter.bind({
-		tables: { conversations: conversationsTable },
-		values: {},
-	}).tables.conversations;
+	const conversations = epicenter.bind({ chat: chatLens }).chat.conversations;
 	return (await conversations.scan()).rows;
 }
 

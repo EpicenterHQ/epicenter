@@ -1,18 +1,17 @@
-/** Whispering scalar convergence through the authenticated Data sync route. */
+/** Whispering scalar convergence through the authenticated record sync routes. */
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Principal } from '@epicenter/auth';
-import { generateBlobId } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/bun';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
+import { openBunRecordEpicenter } from '@epicenter/data/bun';
+import { createHttpRecordSyncSession } from '@epicenter/data/record';
 import { InstantString } from '@epicenter/field';
 import {
-	createBunEpicenterSyncRuntime,
-	mountBunEpicenterSyncApp,
+	createBunScalarV1Runtime,
+	mountBunScalarV1App,
 } from '@epicenter/server/bun';
-import { whisperingDefinitions } from '@epicenter/whispering/workspace-contract';
+import { whisperingLens } from '@epicenter/whispering/workspace-contract';
 import { type Context, Hono, type Next } from 'hono';
 import { Ok } from 'wellcrafted/result';
 
@@ -20,12 +19,12 @@ const PRINCIPAL_ID = 'whispering-test-person';
 
 test('offline Whispering scalar edits converge in both directions', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'epicenter-whispering-sync-'));
-	const authority = createBunEpicenterSyncRuntime({
+	const authority = createBunScalarV1Runtime({
 		dir: join(root, 'authority'),
 	});
 	let online = false;
 	const app = new Hono();
-	mountBunEpicenterSyncApp(app as never, {
+	mountBunScalarV1App(app as never, {
 		runtime: authority,
 		auth: async (context: Context, next: Next) => {
 			context.set('principal', Principal.assert({ id: PRINCIPAL_ID }));
@@ -37,32 +36,26 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 				authorizationExpiresAt: Date.now() + 60_000,
 			}),
 	});
-	const exchange = async (request: unknown) => {
+	const authorityFetch = async (request: Request) => {
 		if (!online) throw new Error('Simulated offline transport');
-		const response = await app.request('/api/sync/v1', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(request),
+		return app.request(request);
+	};
+	const syncSession = (firstAttachmentChoice?: 'bring') =>
+		createHttpRecordSyncSession<ReadableStream<Uint8Array>>({
+			deploymentId: 'https://example.test/',
+			principalId: PRINCIPAL_ID,
+			credentials: { get: () => 'available' },
+			...(firstAttachmentChoice === undefined ? {} : { firstAttachmentChoice }),
+			fetch: authorityFetch,
 		});
-		if (!response.ok) throw new Error(`Record HTTP ${response.status}`);
-		const parsed = parseExchangeResponse(await response.json());
-		if (parsed.error !== null) throw parsed.error;
-		return parsed.data;
-	};
-	const attachment = {
-		deploymentId: 'https://example.test/',
-		principalId: PRINCIPAL_ID,
-		exchange,
-	};
 
 	try {
-		await using first = await openBunEpicenter({
+		await using first = await openBunRecordEpicenter({
 			directory: join(root, 'first'),
 		});
-		const firstRecordings = first.bind(whisperingDefinitions).tables.recordings;
+		const firstRecordings = first.bind({ whispering: whisperingLens })
+			.whispering.recordings;
 		const recording = await firstRecordings.create({
-			audioBlobId: generateBlobId(),
-			uploadedAt: null,
 			title: 'Offline',
 			recordedAt: InstantString.now(),
 			recordedAtZone: 'UTC',
@@ -73,13 +66,13 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 		});
 
 		online = true;
-		await using second = await openBunEpicenter({
+		await using second = await openBunRecordEpicenter({
 			directory: join(root, 'second'),
 		});
-		const secondRecordings = second.bind(whisperingDefinitions).tables
-			.recordings;
-		expect((await first.attachSync(attachment)).error).toBeNull();
-		expect((await second.attachSync(attachment)).error).toBeNull();
+		const secondRecordings = second.bind({ whispering: whisperingLens })
+			.whispering.recordings;
+		await first.attachSync(syncSession('bring'));
+		await second.attachSync(syncSession());
 		expect((await secondRecordings.get(recording.id)).data?.transcript).toBe(
 			'Authored offline',
 		);
@@ -87,13 +80,13 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 		await secondRecordings.update(recording.id, {
 			title: 'Edited on second device',
 		});
-		expect((await second.attachSync(attachment)).error).toBeNull();
-		expect((await first.attachSync(attachment)).error).toBeNull();
+		await second.attachSync(syncSession());
+		await first.attachSync(syncSession());
 		expect((await firstRecordings.get(recording.id)).data?.title).toBe(
 			'Edited on second device',
 		);
 	} finally {
-		authority.close();
+		await authority.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });

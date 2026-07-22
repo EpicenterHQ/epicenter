@@ -29,14 +29,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEngine, EngineChunk } from '@epicenter/agent';
-import {
-	type BlobRemote,
-	BlobRemoteError,
-	generateBlobId,
-} from '@epicenter/blobs';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { desktopBlobUrl } from '@epicenter/blobs/webview';
-import { Ok } from 'wellcrafted/result';
+import { EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME } from '@epicenter/data/desktop-record-owner';
 import type { HomeHost, HomeHostInputs } from './host.ts';
 import {
 	ACCOUNT_INSTANCE_ROUTE,
@@ -54,6 +47,7 @@ import {
 import {
 	createHomeServer,
 	type HomeServerEvent,
+	type HomeServerOptions,
 	type HomeSessionResponse,
 } from './server.ts';
 import type { ReadyFrame } from './sidecar-runtime.ts';
@@ -100,9 +94,15 @@ function testDataDir(): string {
 	return mkdtempSync(join(tmpdir(), 'query-server-test-'));
 }
 
-function createTestBlobs() {
-	return createBunBlobStore({ directory: join(testDataDir(), 'blobs') });
-}
+const closedRecordOwner = {
+	execute: async () => ({
+		result: null,
+		error: {
+			name: EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME,
+			message: 'Desktop record operation failed' as const,
+		},
+	}),
+} satisfies HomeServerOptions['recordOwner'];
 
 function boundPort(server: { port?: number }): number {
 	if (server.port === undefined) throw new Error('server did not bind a port');
@@ -125,7 +125,7 @@ function createTestHost(
 async function serveHost(
 	host: HomeHost,
 	page: string = PAGE,
-	blobRemote: BlobRemote | null = null,
+	recordOwner: HomeServerOptions['recordOwner'] = closedRecordOwner,
 ) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
@@ -140,9 +140,8 @@ async function serveHost(
 		origin,
 		launchToken: TOKEN,
 		staticAssets: await createAppsDistFixture(page),
-		blobs: createTestBlobs(),
+		recordOwner,
 		desktopAuth: createTestDesktopAuth(),
-		blobRemote,
 	});
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
@@ -347,9 +346,8 @@ describe('createHomeServer', () => {
 				origin: 'http://127.0.0.1:39130',
 				launchToken: '',
 				staticAssets,
-				blobs: createTestBlobs(),
+				recordOwner: closedRecordOwner,
 				desktopAuth,
-				blobRemote: null,
 			}),
 		).toThrow(/launch token/);
 		for (const origin of [
@@ -364,9 +362,8 @@ describe('createHomeServer', () => {
 					origin,
 					launchToken: TOKEN,
 					staticAssets,
-					blobs: createTestBlobs(),
+					recordOwner: closedRecordOwner,
 					desktopAuth,
-					blobRemote: null,
 				}),
 			).toThrow(/exact http:\/\/127\.0\.0\.1/);
 		}
@@ -407,6 +404,59 @@ describe('createHomeServer', () => {
 				`${SESSION_ROUTE.url(origin)}?token=${TOKEN}`,
 			);
 			expect(queryToken.status).toBe(401);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('the record carrier requires session and Origin then forwards the sanitized envelope', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const inputs: unknown[] = [];
+		const envelope = {
+			result: null,
+			error: {
+				name: EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME,
+				message: 'Desktop record operation failed',
+			},
+		} as const;
+		const server = await serveHost(host, PAGE, {
+			async execute(input) {
+				inputs.push(input);
+				return structuredClone(envelope);
+			},
+		});
+		const { cookie, origin } = authenticationFor(server);
+		const url = `${server.url.origin}/api/data/records`;
+		try {
+			expect(
+				(
+					await fetch(url, {
+						method: 'POST',
+						headers: { origin },
+						body: '{}',
+					})
+				).status,
+			).toBe(401);
+			expect(
+				(
+					await fetch(url, {
+						method: 'POST',
+						headers: { cookie },
+						body: '{}',
+					})
+				).status,
+			).toBe(403);
+
+			const forwarded = await fetch(url, {
+				method: 'POST',
+				headers: { cookie, origin },
+				body: 'not-json',
+			});
+			expect(forwarded.status).toBe(400);
+			expect(await forwarded.json()).toEqual(envelope);
+			expect(inputs).toEqual([undefined]);
 		} finally {
 			await server.stop(true);
 		}
@@ -903,289 +953,6 @@ describe('createHomeServer', () => {
 				});
 				expect(outcome).toBe('refused');
 			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-});
-
-describe('local blob routes', () => {
-	test('session authentication protects every local blob operation', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId();
-		try {
-			for (const method of ['GET', 'HEAD', 'PUT', 'DELETE']) {
-				const response = await fetch(
-					`${server.url.origin}${desktopBlobUrl(id)}`,
-					{ method },
-				);
-				expect(response.status).toBe(401);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('remote copy routes take only the blob id and map typed results', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const calls: { operation: string; id: string }[] = [];
-		const stubRemote: BlobRemote = {
-			async upload(id) {
-				calls.push({ operation: 'upload', id });
-				return Ok(undefined);
-			},
-			async download(id) {
-				calls.push({ operation: 'download', id });
-				return BlobRemoteError.RemoteBlobNotFound({ id });
-			},
-			async purge(id) {
-				calls.push({ operation: 'purge', id });
-				return BlobRemoteError.BlobRemoteFailed({
-					id,
-					cause: new Error('remote unreachable'),
-				});
-			},
-		};
-		const server = await serveHost(host, PAGE, stubRemote);
-		const id = generateBlobId();
-		const { cookie, origin } = authenticationFor(server);
-		const session = { headers: { cookie, origin } };
-		try {
-			const unauthenticated = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/upload`,
-				{ method: 'POST' },
-			);
-			expect(unauthenticated.status).toBe(401);
-			expect(calls).toHaveLength(0);
-
-			const invalidId = await fetch(
-				`${server.url.origin}/api/local-blobs/not-a-blob-id/upload`,
-				{ method: 'POST', ...session },
-			);
-			expect(invalidId.status).toBe(400);
-
-			// A caller-supplied body is dead weight, never a transfer target: the
-			// stub still receives only the path id.
-			const uploaded = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/upload`,
-				{
-					method: 'POST',
-					headers: { ...session.headers, 'content-type': 'application/json' },
-					body: JSON.stringify({ uploadUrl: 'https://evil.example/steal' }),
-				},
-			);
-			expect(uploaded.status).toBe(204);
-
-			const downloaded = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/download`,
-				{ method: 'POST', ...session },
-			);
-			expect(downloaded.status).toBe(404);
-
-			const purged = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/purge`,
-				{ method: 'POST', ...session },
-			);
-			expect(purged.status).toBe(502);
-
-			expect(calls).toEqual([
-				{ operation: 'upload', id },
-				{ operation: 'download', id },
-				{ operation: 'purge', id },
-			]);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('a signed-out generation answers 503 for every remote copy operation', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId();
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			for (const operation of ['upload', 'download', 'purge']) {
-				const response = await fetch(
-					`${server.url.origin}${desktopBlobUrl(id)}/${operation}`,
-					{ method: 'POST', headers: { cookie, origin } },
-				);
-				expect(response.status).toBe(503);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('put, head, byte-range forms, collision, and idempotent delete share one id', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId();
-		const url = `${server.url.origin}${desktopBlobUrl(id)}`;
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			const put = await fetch(url, {
-				method: 'PUT',
-				headers: {
-					cookie,
-					'content-type': 'audio/test',
-					origin,
-				},
-				body: '0123456789',
-			});
-			expect(put.status).toBe(201);
-
-			const head = await fetch(url, {
-				method: 'HEAD',
-				headers: { cookie },
-			});
-			expect(head.status).toBe(200);
-			expect(head.headers.get('content-length')).toBe('10');
-			expect(head.headers.get('content-type')).toBe('audio/test');
-			expect(await head.text()).toBe('');
-
-			const range = await fetch(url, {
-				headers: { cookie, range: 'bytes=2-5' },
-			});
-			expect(range.status).toBe(206);
-			expect(range.headers.get('content-range')).toBe('bytes 2-5/10');
-			expect(await range.text()).toBe('2345');
-			const suffix = await fetch(url, {
-				headers: { cookie, range: 'bytes=-3' },
-			});
-			expect(suffix.status).toBe(206);
-			expect(suffix.headers.get('content-range')).toBe('bytes 7-9/10');
-			expect(await suffix.text()).toBe('789');
-			const oversizedSuffix = await fetch(url, {
-				headers: { cookie, range: 'bytes=-99' },
-			});
-			expect(oversizedSuffix.status).toBe(206);
-			expect(oversizedSuffix.headers.get('content-range')).toBe('bytes 0-9/10');
-			expect(await oversizedSuffix.text()).toBe('0123456789');
-			const openEnded = await fetch(url, {
-				headers: { cookie, range: 'bytes=6-' },
-			});
-			expect(openEnded.status).toBe(206);
-			expect(openEnded.headers.get('content-range')).toBe('bytes 6-9/10');
-			expect(await openEnded.text()).toBe('6789');
-			const clamped = await fetch(url, {
-				headers: { cookie, range: 'bytes=7-99' },
-			});
-			expect(clamped.status).toBe(206);
-			expect(clamped.headers.get('content-range')).toBe('bytes 7-9/10');
-			expect(await clamped.text()).toBe('789');
-			const unsatisfiable = await fetch(url, {
-				headers: { cookie, range: 'bytes=99-' },
-			});
-			expect(unsatisfiable.status).toBe(416);
-			expect(unsatisfiable.headers.get('content-range')).toBe('bytes */10');
-			for (const refusedRange of [
-				'bytes=',
-				'bytes=-',
-				'bytes=5-2',
-				'bytes=0-1,3-4',
-				'bytes = 0-1',
-				'items=0-1',
-			]) {
-				const refused = await fetch(url, {
-					headers: { cookie, range: refusedRange },
-				});
-				expect(refused.status).toBe(416);
-				expect(refused.headers.get('content-range')).toBe('bytes */10');
-			}
-
-			const emptyId = generateBlobId();
-			const emptyUrl = `${server.url.origin}${desktopBlobUrl(emptyId)}`;
-			expect(
-				(
-					await fetch(emptyUrl, {
-						method: 'PUT',
-						headers: { cookie, origin },
-						body: '',
-					})
-				).status,
-			).toBe(201);
-			const emptyRange = await fetch(emptyUrl, {
-				headers: { cookie, range: 'bytes=0-' },
-			});
-			expect(emptyRange.status).toBe(416);
-			expect(emptyRange.headers.get('content-range')).toBe('bytes */0');
-
-			const collision = await fetch(url, {
-				method: 'PUT',
-				headers: { cookie, 'content-type': 'audio/test', origin },
-				body: 'replacement',
-			});
-			expect(collision.status).toBe(409);
-
-			for (const expectedGetStatus of [404, 404]) {
-				const deleted = await fetch(url, {
-					method: 'DELETE',
-					headers: { cookie, origin },
-				});
-				expect(deleted.status).toBe(204);
-				const missing = await fetch(url, { headers: { cookie } });
-				expect(missing.status).toBe(expectedGetStatus);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('hostile blob content is downloadable but cannot become same-origin code', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId();
-		const url = `${server.url.origin}${desktopBlobUrl(id)}`;
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			expect(
-				(
-					await fetch(url, {
-						method: 'PUT',
-						headers: { cookie, 'content-type': 'text/html', origin },
-						body: '<script>globalThis.compromised = true</script>',
-					})
-				).status,
-			).toBe(201);
-
-			const response = await fetch(url, { headers: { cookie } });
-			expect(response.headers.get('content-disposition')).toBe('attachment');
-			expect(response.headers.get('content-security-policy')).toBe(
-				"sandbox; default-src 'none'",
-			);
-			expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-			expect(response.headers.get('cache-control')).toBe('no-store');
-			expect(response.headers.get('cross-origin-resource-policy')).toBe(
-				'same-origin',
-			);
-			expect(await response.text()).toContain('<script>');
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('path-hostile and foreign ids are rejected before filesystem access', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		try {
-			const response = await fetch(
-				`${server.url.origin}/api/local-blobs/not-a-blob-id`,
-				{ headers: authenticatedHeaders(server) },
-			);
-			expect(response.status).toBe(400);
 		} finally {
 			await server.stop(true);
 		}

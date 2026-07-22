@@ -1,14 +1,16 @@
 import { join } from 'node:path';
-import { createDesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
+import { type ConversationsTable, chatLens } from '@epicenter/chat';
+import { createDesktopRecordEpicenterOwner } from '@epicenter/data/desktop-record-owner';
+import { honeycrispLens } from '@epicenter/honeycrisp';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.ts';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
-import type { ConversationsData } from './workspace.ts';
-import { homeDefinitions } from './workspace.ts';
+
+type ConversationsData = { conversations: ConversationsTable };
 
 type OwnedTestHomeHostOptions = HomeHostInputs & {
 	/** Fixture root only. Production has no separate Home data directory. */
 	dataDir: string;
-	workspacesRoot?: string;
+	recordRoot?: string;
 	wrapConversations?: (workspace: ConversationsData) => ConversationsData;
 };
 
@@ -34,12 +36,12 @@ export function createTestDesktopAuth() {
 export async function createOwnedTestHomeHost(
 	options: OwnedTestHomeHostOptions,
 ): Promise<HomeHost> {
-	const { host, dataOwner } = await createOwnedTestHomeHostBundle(options);
+	const { host, recordOwner } = await createOwnedTestHomeHostBundle(options);
 	return Object.freeze({
 		...host,
 		async [Symbol.asyncDispose]() {
 			await host[Symbol.asyncDispose]();
-			await dataOwner[Symbol.asyncDispose]();
+			await recordOwner[Symbol.asyncDispose]();
 		},
 	});
 }
@@ -47,22 +49,24 @@ export async function createOwnedTestHomeHost(
 export async function createOwnedTestHomeHostBundle(
 	options: OwnedTestHomeHostOptions,
 ) {
-	const { dataDir, workspacesRoot, wrapConversations, ...hostOptions } =
-		options;
-	const dataOwner = await createDesktopEpicenterOwner({
-		directory: workspacesRoot ?? join(dataDir, 'data'),
+	const { dataDir, recordRoot, wrapConversations, ...hostOptions } = options;
+	const recordOwner = await createDesktopRecordEpicenterOwner({
+		directory: recordRoot ?? join(dataDir, 'data'),
 	});
 	try {
-		const home = dataOwner.epicenter.bind(homeDefinitions).tables;
-		const conversations = { conversations: home.conversations };
+		const home = recordOwner.epicenter.bind({
+			chat: chatLens,
+			honeycrisp: honeycrispLens,
+		});
+		const conversations = { conversations: home.chat.conversations };
 		const host = await createHomeHost({
 			...hostOptions,
-			honeycrisp: { folders: home.folders, notes: home.notes },
+			honeycrisp: home.honeycrisp,
 			conversations: wrapConversations?.(conversations) ?? conversations,
 		});
-		return { host, dataOwner };
+		return { host, recordOwner };
 	} catch (cause) {
-		await dataOwner[Symbol.asyncDispose]();
+		await recordOwner[Symbol.asyncDispose]();
 		throw cause;
 	}
 }

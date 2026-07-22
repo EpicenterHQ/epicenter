@@ -1,4 +1,4 @@
-/** Desktop Data RPC integration over one Bun-owned Epicenter replica. */
+/** Desktop record carrier integration over one Bun-owned replica. */
 import { expect, test } from 'bun:test';
 import {
 	existsSync,
@@ -9,15 +9,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateBlobId } from '@epicenter/blobs';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { defineTable } from '@epicenter/data';
 import {
-	type OpenDesktopEpicenterOptions,
-	openDesktopEpicenter,
-} from '@epicenter/data/desktop';
-import { field, InstantString } from '@epicenter/field';
-import { whisperingDefinitions } from '@epicenter/whispering/workspace-contract';
+	type OpenDesktopRecordEpicenterOptions,
+	openDesktopRecordEpicenter,
+} from '@epicenter/data/desktop-record';
+import { defineLens, defineTable, defineValues } from '@epicenter/data/record';
+import { field } from '@epicenter/field';
 import { BOOTSTRAP_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import { loadStaticAssets } from './static-assets.ts';
@@ -27,9 +24,26 @@ import {
 } from './test-home-host.ts';
 
 const TOKEN = 'desktop-data-test-token';
-const documentsTable = defineTable({
-	key: 'so.epicenter.tests.desktop-documents',
-	fields: { name: field.string(), updatedAt: field.instant() },
+const desktopTestLens = defineLens({
+	namespace: 'so.epicenter.tests.desktop',
+	title: 'Desktop integration',
+	description: 'Trusted WebView record carrier integration.',
+	collections: {
+		recordings: defineTable({
+			title: 'Recordings',
+			fields: { title: field.string(), transcript: field.string() },
+			optional: [],
+		}),
+		documents: defineTable({
+			title: 'Documents',
+			fields: { name: field.string() },
+			optional: [],
+		}),
+		settings: defineValues({
+			title: 'Settings',
+			values: { analytics: field.boolean() },
+		}),
+	},
 });
 
 test('WebView surfaces share one replica and state survives restart', async () => {
@@ -42,43 +56,25 @@ test('WebView surfaces share one replica and state survives restart', async () =
 			firstServer.fetch,
 			operations,
 		);
-		const firstData = first.bind({
-			tables: {
-				recordings: whisperingDefinitions.tables.recordings,
-				documents: documentsTable,
-			},
-			values: {
-				analytics: whisperingDefinitions.values['analytics.enabled'],
-			},
-		});
-		const recording = await firstData.tables.recordings.create({
-			audioBlobId: generateBlobId(),
-			uploadedAt: null,
+		const firstData = first.bind({ desktop: desktopTestLens }).desktop;
+		const recording = await firstData.recordings.create({
 			title: 'Shared recording',
-			recordedAt: InstantString.now(),
-			recordedAtZone: 'UTC',
 			transcript: 'Shared transcript',
-			polishedTranscript: null,
-			duration: null,
-			transcription: null,
 		});
 		expect(
 			(
-				await firstData.tables.recordings.update(recording.id, {
+				await firstData.recordings.update(recording.id, {
 					transcript: 'Updated transcript',
 				})
 			).data?.transcript,
 		).toBe('Updated transcript');
-		await firstData.values.analytics.set(false);
+		await firstData.settings.analytics.set(false);
 
-		const row = await firstData.tables.documents.create({
+		const row = await firstData.documents.create({
 			name: 'Shared document',
-			updatedAt: InstantString.now(),
 		});
 		{
-			await using document = await firstData.tables.documents.openDocument(
-				row.id,
-			);
+			await using document = await firstData.documents.openDocument(row.id);
 			document.get('content').insert(0, 'Desktop document');
 			await document.whenDurable();
 		}
@@ -86,16 +82,13 @@ test('WebView surfaces share one replica and state survives restart', async () =
 		// A second WebView binds the same qualified definitions to the same host
 		// replica. There is no Device/Account or per-workspace adoption ceremony.
 		const second = await createClient(firstServer.origin, firstServer.fetch);
-		const secondData = second.bind({
-			tables: { recordings: whisperingDefinitions.tables.recordings },
-			values: {},
-		});
+		const secondData = second.bind({ desktop: desktopTestLens }).desktop;
 		expect(
-			(await secondData.tables.recordings.get(recording.id)).data?.transcript,
+			(await secondData.recordings.get(recording.id)).data?.transcript,
 		).toBe('Updated transcript');
-		expect(
-			(await firstData.tables.recordings.get(recording.id)).data?.title,
-		).toBe('Shared recording');
+		expect((await firstData.recordings.get(recording.id)).data?.title).toBe(
+			'Shared recording',
+		);
 
 		await first[Symbol.asyncDispose]();
 		await second[Symbol.asyncDispose]();
@@ -105,20 +98,12 @@ test('WebView surfaces share one replica and state survives restart', async () =
 		const restarted = await startDesktopServer(root);
 		try {
 			const client = await createClient(restarted.origin, restarted.fetch);
-			const data = client.bind({
-				tables: {
-					recordings: whisperingDefinitions.tables.recordings,
-					documents: documentsTable,
-				},
-				values: {
-					analytics: whisperingDefinitions.values['analytics.enabled'],
-				},
-			});
-			expect(
-				(await data.tables.recordings.get(recording.id)).data?.transcript,
-			).toBe('Updated transcript');
-			expect((await data.values.analytics.get()).data).toBeFalse();
-			await using document = await data.tables.documents.openDocument(row.id);
+			const data = client.bind({ desktop: desktopTestLens }).desktop;
+			expect((await data.recordings.get(recording.id)).data?.transcript).toBe(
+				'Updated transcript',
+			);
+			expect((await data.settings.analytics.get()).data).toBeFalse();
+			await using document = await data.documents.openDocument(row.id);
 			expect(document.get('content').toString()).toBe('Desktop document');
 			for (const request of operations) {
 				expect(request).not.toHaveProperty('lens');
@@ -135,9 +120,9 @@ test('WebView surfaces share one replica and state survives restart', async () =
 
 async function startDesktopServer(root: string) {
 	const origin = 'http://127.0.0.1:39130';
-	const { host, dataOwner } = await createOwnedTestHomeHostBundle({
+	const { host, recordOwner } = await createOwnedTestHomeHostBundle({
 		dataDir: root,
-		workspacesRoot: join(root, 'data'),
+		recordRoot: join(root, 'data'),
 		model: 'test',
 		engine: async function* () {},
 	});
@@ -146,10 +131,8 @@ async function startDesktopServer(root: string) {
 		origin,
 		launchToken: TOKEN,
 		staticAssets: await testAssets(root),
-		dataOwner,
-		blobs: createBunBlobStore({ directory: join(root, 'blobs') }),
+		recordOwner,
 		desktopAuth: createTestDesktopAuth(),
-		blobRemote: null,
 	});
 	void websocket;
 	const bootstrap = await app.request(`${origin}${BOOTSTRAP_ROUTE.pattern}`, {
@@ -177,7 +160,7 @@ async function startDesktopServer(root: string) {
 		},
 		async dispose() {
 			await host[Symbol.asyncDispose]();
-			await dataOwner[Symbol.asyncDispose]();
+			await recordOwner[Symbol.asyncDispose]();
 		},
 	};
 }
@@ -190,7 +173,7 @@ function createClient(
 	) => Promise<Response>,
 	operations?: Record<string, unknown>[],
 ) {
-	return openDesktopEpicenter({
+	return openDesktopRecordEpicenter({
 		baseUrl: origin,
 		async fetch(input, init) {
 			if (operations && typeof init?.body === 'string') {
@@ -198,7 +181,7 @@ function createClient(
 			}
 			return request(input, init);
 		},
-	} satisfies OpenDesktopEpicenterOptions);
+	} satisfies OpenDesktopRecordEpicenterOptions);
 }
 
 async function testAssets(root: string) {

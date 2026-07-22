@@ -5,8 +5,8 @@
  * may join as local stdio MCP subprocesses (arm B, Local Books today). One
  * agent loop consumes the composed catalog and never learns where a verb lives.
  *
- * Home and its built-in apps use device-owned SQLite workspaces opened by one
- * desktop owner. Sign-in remains an enhancement.
+ * Home and its built-in apps use pure record Lenses bound by one desktop
+ * record owner. Sign-in remains an enhancement.
  */
 
 import {
@@ -23,11 +23,14 @@ import {
 	resolveApprovedToolCall,
 	type ToolCatalog,
 } from '@epicenter/agent';
-import { InstantString } from '@epicenter/field';
 import {
 	type AgentMessageDocumentStore,
+	type Conversation,
+	type ConversationsTable,
 	createAgentMessageDocumentStore,
-} from './agent-message-store.ts';
+} from '@epicenter/chat';
+import { InstantString } from '@epicenter/field';
+import type { HoneycrispData } from '@epicenter/honeycrisp';
 import { createHoneycrispCatalog } from './honeycrisp-catalog.js';
 import {
 	createLocalSourceCatalog,
@@ -37,11 +40,6 @@ import {
 	createStdioMcpCatalog,
 	type StdioMcpCatalogOptions,
 } from './stdio-mcp-catalog.ts';
-import type {
-	Conversation,
-	ConversationsData,
-	HoneycrispData,
-} from './workspace.ts';
 
 export type HomeHostInputs = {
 	/** The inference backend driving the loop (BYOK, local, or scripted). */
@@ -71,10 +69,10 @@ export type HomeHostInputs = {
 };
 
 export type HomeHostOptions = HomeHostInputs & {
-	/** Canonical Honeycrisp handle opened by the one desktop workspace owner. */
+	/** Canonical Honeycrisp Lens bound by the one desktop record owner. */
 	honeycrisp: HoneycrispData;
-	/** Home conversation workspace opened by the same desktop owner. */
-	conversations: ConversationsData;
+	/** Canonical Chat Lens bound by the same desktop record owner. */
+	conversations: { conversations: ConversationsTable };
 };
 
 export type PendingApproval = {
@@ -392,6 +390,7 @@ export async function createHomeHost(
 				const nextConversation = buildConversation(nextStore);
 				unbindConversation();
 				conversation[Symbol.dispose]();
+				await activeStore[Symbol.asyncDispose]();
 				activeConversation = nextConversationRow;
 				activeStore = nextStore;
 				conversation = nextConversation;
@@ -451,6 +450,7 @@ export async function createHomeHost(
 			await localBooks?.[Symbol.asyncDispose]();
 			await activeStore.whenDurable();
 			conversation[Symbol.dispose]();
+			await activeStore[Symbol.asyncDispose]();
 		},
 	};
 }
