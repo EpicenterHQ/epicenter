@@ -1,6 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
 
 import {
+	type DocumentAcceptance,
+	parseDocumentPublicationRequest,
+} from '@epicenter/data/document-v1';
+import {
 	type AuthorityError,
 	type FactsResponse,
 	parseFactsRequest,
@@ -18,10 +22,7 @@ import type { Hono, MiddlewareHandler } from 'hono';
 import type { Result } from 'wellcrafted/result';
 
 import type { Env } from '../types.js';
-import {
-	openScalarAuthorityV1,
-	type ScalarAuthorityV1,
-} from './authority-v1.js';
+import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
 import {
 	mountScalarV1App,
 	type ScalarAuthorityV1Endpoint,
@@ -33,7 +34,7 @@ function principalName(principalId: PrincipalId): string {
 
 /** One principal-owned scalar V1 authority on Durable Object SQLite. */
 export class DataAuthority extends DurableObject<Cloudflare.Env> {
-	private authority: ScalarAuthorityV1 | undefined;
+	private authority: DataAuthorityV1 | undefined;
 	private initializationError: unknown;
 	private readonly ready: Promise<void>;
 
@@ -70,6 +71,17 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 		return (await this.owner()).submit(parsed.data);
 	}
 
+	async acceptDocument(rawRequest: unknown): Promise<DocumentAcceptance> {
+		const parsed = parseDocumentPublicationRequest(
+			rawRequest,
+			SCALAR_SYNC_V1_LIMITS,
+		);
+		if (parsed === undefined) {
+			throw new TypeError('invalid document V1 publication RPC request');
+		}
+		return (await this.owner()).acceptDocument(parsed);
+	}
+
 	/** Delete every scalar V1 byte owned by this principal. */
 	async deleteAccount(): Promise<void> {
 		await this.ready;
@@ -84,7 +96,7 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 		});
 	}
 
-	private async owner(): Promise<ScalarAuthorityV1> {
+	private async owner(): Promise<DataAuthorityV1> {
 		await this.ready;
 		if (this.initializationError !== undefined) {
 			throw this.initializationError;
@@ -95,7 +107,7 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 		return this.authority;
 	}
 
-	private openFreshOwner(): ScalarAuthorityV1 {
+	private openFreshOwner(): DataAuthorityV1 {
 		return openScalarAuthorityV1({
 			database: createDurableObjectSqliteAdapter(
 				this.ctx.storage as unknown as DurableObjectSqliteStorage,
