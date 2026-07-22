@@ -124,11 +124,15 @@ export async function createDesktopRecordEpicenterOwner({
 	resolveNativeCapture,
 }: CreateDesktopRecordEpicenterOwnerOptions) {
 	const opened = await openBunRecordOwner({ directory });
-	return createDesktopRecordEpicenterOwnerForTest({
+	const runtime = createDesktopRecordEpicenterOwnerForTest({
 		...opened,
 		decodeBlob: decodeBunBlob,
 		encodeBlob: encodeBunBlob,
 		resolveNativeCapture,
+	});
+	return Object.freeze({
+		...runtime,
+		captureSnapshot: opened.captureSnapshot,
 	});
 }
 
