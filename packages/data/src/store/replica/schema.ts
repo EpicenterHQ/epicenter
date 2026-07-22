@@ -3,7 +3,6 @@ import type { SqliteDatabase } from '@epicenter/sqlite';
 export const REPLICA_STORE_FORMAT_VERSION = 2;
 
 export const REPLICA_STORE_TABLES = [
-	'document_inflight',
 	'meta',
 	'record_documents',
 	'records',
@@ -11,8 +10,8 @@ export const REPLICA_STORE_TABLES = [
 
 export const REPLICA_STORE_INDEXES = [
 	'records_address',
-	'records_blob_pending',
-	'records_doc_dirty',
+	'records_blob_owed',
+	'records_document_owed',
 	'records_pending',
 	'records_sealed',
 ] as const;
@@ -66,12 +65,16 @@ const SCHEMA = [
 		parked_measured     INTEGER,
 		parked_limit        INTEGER,
 
-		doc_revision        INTEGER NOT NULL DEFAULT 0
-			CHECK (doc_revision BETWEEN 0 AND 9007199254740991),
-		doc_dirty           INTEGER NOT NULL DEFAULT 0 CHECK (doc_dirty IN (0, 1)),
-		blob_sha256         TEXT,
-		blob_pending        INTEGER NOT NULL DEFAULT 0 CHECK (blob_pending IN (0, 1)),
-		blob_parked_code    TEXT,
+		document_revision           INTEGER NOT NULL DEFAULT 0
+			CHECK (document_revision BETWEEN 0 AND 9007199254740991),
+		document_accepted_revision  INTEGER NOT NULL DEFAULT 0
+			CHECK (document_accepted_revision BETWEEN 0 AND 9007199254740991),
+		document_refused_revision   INTEGER,
+		document_refused_bytes      INTEGER,
+		document_refused_structs    INTEGER,
+		blob_sha256                 TEXT,
+		blob_accepted_sha256        TEXT,
+		blob_parked_code            TEXT,
 
 		CHECK ((confirmed_state IS NULL AND confirmed_payload IS NULL
 				AND confirmed_sequence IS NULL)
@@ -99,11 +102,21 @@ const SCHEMA = [
 					OR (parked_code = 'patch-base-not-object'
 						AND parked_measured IS NULL AND parked_limit IS NULL)))),
 		CHECK (parked_op IS NULL OR (pending_op IS NULL AND sealed_op IS NULL)),
+		CHECK (document_accepted_revision <= document_revision),
+		CHECK ((document_refused_revision IS NULL AND document_refused_bytes IS NULL
+				AND document_refused_structs IS NULL)
+			OR (document_refused_revision = document_revision
+				AND document_revision > document_accepted_revision
+				AND document_refused_bytes IS NOT NULL AND document_refused_bytes >= 0
+				AND document_refused_structs IS NOT NULL
+				AND document_refused_structs >= 0)),
 		CHECK (blob_sha256 IS NULL OR
 			(length(blob_sha256) = 64 AND blob_sha256 NOT GLOB '*[^a-f0-9]*')),
-		CHECK (blob_pending = 0 OR blob_sha256 IS NOT NULL),
+		CHECK (blob_accepted_sha256 IS NULL OR
+			(blob_sha256 IS NOT NULL AND blob_accepted_sha256 = blob_sha256)),
 		CHECK (blob_parked_code IS NULL OR
-			(blob_pending = 1 AND blob_parked_code IN ('blob-conflict', 'record-not-live'))),
+			(blob_parked_code IN ('blob-conflict', 'record-not-live')
+				AND blob_sha256 IS NOT NULL AND blob_accepted_sha256 IS NULL)),
 		CHECK (confirmed_state IS NOT NULL OR pending_op IS NOT NULL
 			OR sealed_op IS NOT NULL OR parked_op IS NOT NULL)
 	) STRICT`,
@@ -113,10 +126,13 @@ const SCHEMA = [
 		ON records(namespace, collection, record_key) WHERE pending_op IS NOT NULL`,
 	`CREATE INDEX records_sealed
 		ON records(namespace, collection, record_key) WHERE sealed_op IS NOT NULL`,
-	`CREATE INDEX records_doc_dirty
-		ON records(record_id) WHERE doc_dirty = 1`,
-	`CREATE INDEX records_blob_pending
-		ON records(record_id) WHERE blob_pending = 1`,
+	`CREATE INDEX records_document_owed
+		ON records(namespace, collection, record_key)
+		WHERE document_revision > document_accepted_revision`,
+	`CREATE INDEX records_blob_owed
+		ON records(namespace, collection, record_key)
+		WHERE blob_sha256 IS NOT NULL AND
+			(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)`,
 	`CREATE TABLE record_documents (
 		chain_id   INTEGER PRIMARY KEY,
 		record_id  INTEGER NOT NULL,
@@ -125,28 +141,6 @@ const SCHEMA = [
 		bytes      BLOB NOT NULL CHECK (length(bytes) > 0),
 		CHECK (kind = 'update' OR seq = 1),
 		UNIQUE (record_id, seq)
-	) STRICT`,
-	`CREATE TABLE document_inflight (
-		record_id          INTEGER PRIMARY KEY,
-		payload            BLOB,
-		digest             TEXT NOT NULL,
-		captured_revision  INTEGER NOT NULL
-			CHECK (captured_revision BETWEEN 0 AND 9007199254740991),
-		parked_code        TEXT,
-		measured_bytes     INTEGER,
-		measured_structs   INTEGER,
-		limit_bytes        INTEGER,
-		limit_structs      INTEGER,
-		CHECK (length(digest) = 64 AND digest NOT GLOB '*[^a-f0-9]*'),
-		CHECK ((parked_code IS NULL AND payload IS NOT NULL
-				AND length(payload) > 0 AND measured_bytes IS NULL
-				AND measured_structs IS NULL AND limit_bytes IS NULL
-				AND limit_structs IS NULL)
-			OR (parked_code = 'document-bound' AND payload IS NULL
-				AND measured_bytes IS NOT NULL AND measured_bytes >= 0
-				AND measured_structs IS NOT NULL AND measured_structs >= 0
-				AND limit_bytes IS NOT NULL AND limit_bytes >= 0
-				AND limit_structs IS NOT NULL AND limit_structs >= 0))
 	) STRICT`,
 ] as const;
 

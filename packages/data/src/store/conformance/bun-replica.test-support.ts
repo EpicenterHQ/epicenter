@@ -128,18 +128,8 @@ function logicalState(database: Database): string {
 		JOIN records r ON r.record_id = d.record_id
 		ORDER BY r.namespace, r.collection, r.record_key, d.seq`,
 	);
-	const inflight = all<Record<string, string | number | null>>(
-		database,
-		`SELECT r.namespace, r.collection, r.record_key,
-			hex(i.payload) AS payload, i.digest, i.captured_revision,
-			i.parked_code, i.measured_bytes, i.measured_structs,
-			i.limit_bytes, i.limit_structs
-		FROM document_inflight i
-		JOIN records r ON r.record_id = i.record_id
-		ORDER BY r.namespace, r.collection, r.record_key`,
-	);
 	return canonicalize(
-		JSON.parse(JSON.stringify({ meta, records, documents, inflight })),
+		JSON.parse(JSON.stringify({ meta, records, documents })),
 	);
 }
 
@@ -324,9 +314,13 @@ function documentAction(
 			store.installAcceptedDocumentUpdate(action.address, action.update);
 			return undefined;
 		case 'publication':
-			return store.documentPublication(action.address);
+			return store.documentPublication(action.address, action.stateVector);
 		case 'settle-publication':
-			store.settleDocumentPublication(action.address, action.proof);
+			store.settleDocumentPublication(
+				action.address,
+				action.proof,
+				action.captured,
+			);
 			return undefined;
 		case 'local-write':
 			store.localWrite(action.intent);

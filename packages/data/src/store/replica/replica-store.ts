@@ -249,20 +249,18 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 				parked_measured = NULL,
 				parked_limit = NULL,
 				blob_sha256 = NULL,
-				blob_pending = 0,
+				blob_accepted_sha256 = NULL,
 				blob_parked_code = NULL,
-				doc_revision = 0,
-				doc_dirty = 0
+				document_revision = 0,
+				document_accepted_revision = 0,
+				document_refused_revision = NULL,
+				document_refused_bytes = NULL,
+				document_refused_structs = NULL
 			WHERE ${TRIPLE_WHERE}`,
 			[fact.sequence, ...tripleParams(fact.address)],
 		);
 		database.run(
 			`DELETE FROM record_documents WHERE record_id =
-				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-			tripleParams(fact.address),
-		);
-		database.run(
-			`DELETE FROM document_inflight WHERE record_id =
 				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
 			tripleParams(fact.address),
 		);
@@ -449,19 +447,17 @@ export function openReplicaStore({
 			);
 			if (outcome.operation.op === 'tombstone') {
 				database.run(
-					`UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
-						blob_parked_code = NULL,
-						doc_revision = 0, doc_dirty = 0
+					`UPDATE records SET blob_sha256 = NULL,
+						blob_accepted_sha256 = NULL, blob_parked_code = NULL,
+						document_revision = 0, document_accepted_revision = 0,
+						document_refused_revision = NULL,
+						document_refused_bytes = NULL,
+						document_refused_structs = NULL
 					WHERE ${TRIPLE_WHERE}`,
 					tripleParams(intent.address),
 				);
 				database.run(
 					`DELETE FROM record_documents WHERE record_id =
-						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-					tripleParams(intent.address),
-				);
-				database.run(
-					`DELETE FROM document_inflight WHERE record_id =
 						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
 					tripleParams(intent.address),
 				);
@@ -743,7 +739,6 @@ export function openReplicaStore({
 	function erase(): void {
 		database.transaction(() => {
 			database.run('DELETE FROM record_documents');
-			database.run('DELETE FROM document_inflight');
 			database.run('DELETE FROM records');
 			database.run(
 				`UPDATE meta SET

@@ -75,7 +75,7 @@ describe('Bun blob owner crash conformance', () => {
 						integrity_check: 'ok',
 					});
 					expect(reopenedBlobs.inspect(ADDRESS).kind).toBe(
-						boundary === 'afterMembership' ? 'pending' : 'absent',
+						boundary === 'afterMembership' ? 'owed' : 'absent',
 					);
 					expect(await readdir(join(root, 'blobs', 'staging'))).toEqual([]);
 					const ownerDirectories = await readdir(

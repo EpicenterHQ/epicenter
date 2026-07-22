@@ -169,7 +169,7 @@ try {
 					blobBefore.inspection !== null &&
 					typeof blobBefore.inspection === 'object' &&
 					'kind' in blobBefore.inspection &&
-					blobBefore.inspection.kind === 'pending',
+					blobBefore.inspection.kind === 'owed',
 				`${engineName} OPFS blob capture was not publishable`,
 			);
 			await page.evaluate(() =>

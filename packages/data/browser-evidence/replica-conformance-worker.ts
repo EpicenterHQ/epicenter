@@ -85,15 +85,8 @@ function logicalState(target: Database): string {
 		JOIN records r ON r.record_id = d.record_id
 		ORDER BY r.namespace, r.collection, r.record_key, d.seq`,
 	);
-	const inflight = adapter.all<Record<string, string | number | null>>(
-		`SELECT r.namespace, r.collection, r.record_key,
-			hex(i.payload) AS payload, i.digest, i.captured_revision
-		FROM document_inflight i
-		JOIN records r ON r.record_id = i.record_id
-		ORDER BY r.namespace, r.collection, r.record_key`,
-	);
 	return canonicalize(
-		JSON.parse(JSON.stringify({ meta, records, documents, inflight })),
+		JSON.parse(JSON.stringify({ meta, records, documents })),
 	);
 }
 

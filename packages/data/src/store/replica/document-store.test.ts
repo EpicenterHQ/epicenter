@@ -10,6 +10,7 @@ import type {
 } from '../../document-v1/index.js';
 import type { RecordAddress } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
+import type { CapturedDocumentPublication } from './document-store.js';
 import { openReplicaStore } from './replica-store.js';
 
 const ADDRESS: RecordAddress = {
@@ -54,10 +55,7 @@ function documentText(update: Uint8Array): string {
 }
 
 function receipt(
-	publication: Extract<
-		ReturnType<ReturnType<typeof openReplicaStore>['documentPublication']>,
-		{ kind: 'ready' }
-	>['publication'],
+	publication: CapturedDocumentPublication,
 ): DocumentPublicationReceipt {
 	return {
 		authorityLifetime: publication.authorityLifetime,
@@ -67,8 +65,15 @@ function receipt(
 	};
 }
 
+function capturedOf(publication: CapturedDocumentPublication): {
+	revision: number;
+	digest: string;
+} {
+	return { revision: publication.capturedRevision, digest: publication.digest };
+}
+
 describe('record document store', () => {
-	test('persists local updates, revision, dirty state, and self-contained export', () => {
+	test('persists local updates, watermarks, and self-contained export', () => {
 		const context = setup();
 		try {
 			const [update] = sourceUpdates('hello');
@@ -77,8 +82,9 @@ describe('record document store', () => {
 
 			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
 				revision: 1,
-				dirty: true,
-				inflight: 'none',
+				acceptedRevision: 0,
+				owed: true,
+				refused: false,
 			});
 			const exported = context.store.exportDocument(ADDRESS);
 			if (exported === undefined) throw new Error('document was not exported');
@@ -115,7 +121,7 @@ describe('record document store', () => {
 		}
 	});
 
-	test('duplicate and dependency-reordered updates converge without duplicate storage', () => {
+	test('duplicate and dependency-reordered installs converge without a local obligation', () => {
 		const context = setup();
 		try {
 			const [first, second] = sourceUpdates('a', 'b');
@@ -128,7 +134,11 @@ describe('record document store', () => {
 			const exported = context.store.exportDocument(ADDRESS);
 			if (exported === undefined) throw new Error('document was not exported');
 			expect(documentText(exported)).toBe('ba');
-			expect(context.store.inspectDocument(ADDRESS)?.dirty).toBe(false);
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 0,
+				acceptedRevision: 0,
+				owed: false,
+			});
 			expect(
 				context.database
 					.query<{ count: number }, []>(
@@ -141,7 +151,7 @@ describe('record document store', () => {
 		}
 	});
 
-	test('freezes one exact retry image and an older receipt cannot clean a newer revision', () => {
+	test('publication regenerates from durable state and a delayed receipt cannot settle newer work', () => {
 		const context = setup();
 		try {
 			const [first, second] = sourceUpdates('a', 'b');
@@ -149,38 +159,107 @@ describe('record document store', () => {
 				throw new Error('missing source updates');
 			}
 			context.store.appendLocalDocumentUpdate(ADDRESS, first);
-			const frozen = context.store.documentPublication(ADDRESS);
-			if (frozen.kind !== 'ready') throw new Error('publication was not ready');
-			const retry = context.store.documentPublication(ADDRESS);
-			expect(retry).toEqual(frozen);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			// A lost reply regenerates the same attempt from durable state.
+			const regenerated = context.store.documentPublication(ADDRESS);
+			expect(regenerated).toEqual(attempt);
 
 			context.store.appendLocalDocumentUpdate(ADDRESS, second);
-			expect(context.store.documentPublication(ADDRESS)).toEqual(frozen);
+			// The delayed receipt for revision 1 advances only to revision 1: the
+			// racing edit at revision 2 remains owed.
 			context.store.settleDocumentPublication(
 				ADDRESS,
-				receipt(frozen.publication),
+				receipt(attempt.publication),
+				capturedOf(attempt.publication),
 			);
 			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
 				revision: 2,
-				dirty: true,
-				inflight: 'none',
+				acceptedRevision: 1,
+				owed: true,
 			});
 
 			const newer = context.store.documentPublication(ADDRESS);
-			if (newer.kind !== 'ready')
-				throw new Error('newer publication not ready');
-			expect(newer.publication.digest).not.toBe(frozen.publication.digest);
+			if (newer.kind !== 'ready') throw new Error('newer publication not ready');
+			expect(newer.publication.capturedRevision).toBe(2);
 			context.store.settleDocumentPublication(
 				ADDRESS,
 				receipt(newer.publication),
+				capturedOf(newer.publication),
 			);
-			expect(context.store.inspectDocument(ADDRESS)?.dirty).toBe(false);
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 2,
+				acceptedRevision: 2,
+				owed: false,
+			});
+
+			// A duplicate of the older receipt is a no-op, never a regression.
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				receipt(attempt.publication),
+				capturedOf(attempt.publication),
+			);
+			expect(context.store.inspectDocument(ADDRESS)?.acceptedRevision).toBe(2);
 		} finally {
 			context.database.close();
 		}
 	});
 
-	test('persists a bound refusal and a newer local edit supersedes it', () => {
+	test('a delete-only update stays owed and publishes despite state-vector equality', () => {
+		const context = setup();
+		try {
+			const source = new Y.Doc({ gc: true });
+			const updates: Uint8Array[] = [];
+			source.on('updateV2', (update: Uint8Array) => {
+				updates.push(new Uint8Array(update));
+			});
+			source.get('content').insert(0, 'ab');
+			source.get('content').delete(0, 1);
+			source.destroy();
+			const [insert, deletion] = updates;
+			if (insert === undefined || deletion === undefined) {
+				throw new Error('missing source updates');
+			}
+			context.store.appendLocalDocumentUpdate(ADDRESS, insert);
+			const first = context.store.documentPublication(ADDRESS);
+			if (first.kind !== 'ready') throw new Error('publication not ready');
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				receipt(first.publication),
+				capturedOf(first.publication),
+			);
+
+			context.store.appendLocalDocumentUpdate(ADDRESS, deletion);
+			expect(context.store.inspectDocument(ADDRESS)?.owed).toBe(true);
+			// The authority already holds every struct, so its state vector equals
+			// ours; the obligation derives from the revision watermark, never from
+			// state-vector comparison.
+			const exported = context.store.exportDocument(ADDRESS);
+			if (exported === undefined) throw new Error('document was not exported');
+			const local = new Y.Doc({ gc: true });
+			Y.applyUpdateV2(local, exported);
+			const stateVector = Y.encodeStateVector(local);
+			local.destroy();
+			const deleteOnly = context.store.documentPublication(
+				ADDRESS,
+				stateVector,
+			);
+			if (deleteOnly.kind !== 'ready') {
+				throw new Error('delete-only publication was not ready');
+			}
+			expect(deleteOnly.publication.payload.byteLength).toBeGreaterThan(0);
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				receipt(deleteOnly.publication),
+				capturedOf(deleteOnly.publication),
+			);
+			expect(context.store.inspectDocument(ADDRESS)?.owed).toBe(false);
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('persists an authority bound refusal and a newer local edit supersedes it', () => {
 		const context = setup();
 		try {
 			const [first, second] = sourceUpdates('a', 'b');
@@ -188,10 +267,10 @@ describe('record document store', () => {
 				throw new Error('missing source updates');
 			}
 			context.store.appendLocalDocumentUpdate(ADDRESS, first);
-			const frozen = context.store.documentPublication(ADDRESS);
-			if (frozen.kind !== 'ready') throw new Error('publication was not ready');
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
 			const refusal: DocumentBoundRefusal = {
-				...receipt(frozen.publication),
+				...receipt(attempt.publication),
 				kind: 'document-bound',
 				measured: {
 					stateBytes: DOCUMENT_BOUND.stateBytes + 1,
@@ -199,47 +278,97 @@ describe('record document store', () => {
 				},
 				limit: DOCUMENT_BOUND,
 			};
-			context.store.settleDocumentPublication(ADDRESS, refusal);
-			expect(context.store.documentPublication(ADDRESS)).toEqual({
-				kind: 'parked',
+			context.store.settleDocumentPublication(
+				ADDRESS,
 				refusal,
+				capturedOf(attempt.publication),
+			);
+			expect(context.store.documentPublication(ADDRESS)).toEqual({
+				kind: 'refused',
+				refusal: {
+					revision: 1,
+					measured: refusal.measured,
+					limit: DOCUMENT_BOUND,
+				},
 			});
+			// The refusal evidence is durable across a clean reopen.
 			expect(
 				openReplicaStore({
 					database: createBunSqliteAdapter(context.database),
 					limits: makeLimits(),
-				}).documentPublication(ADDRESS),
-			).toEqual({ kind: 'parked', refusal });
+				}).documentPublication(ADDRESS).kind,
+			).toBe('refused');
 
 			context.store.appendLocalDocumentUpdate(ADDRESS, second);
-			expect(context.store.inspectDocument(ADDRESS)?.inflight).toBe('none');
+			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(false);
 			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
 		} finally {
 			context.database.close();
 		}
 	});
 
-	test('parks an over-bound local state without duplicating its payload', () => {
+	test('an obsolete refusal for a superseded revision is dropped, not recorded', () => {
+		const context = setup();
+		try {
+			const [first, second] = sourceUpdates('a', 'b');
+			if (first === undefined || second === undefined) {
+				throw new Error('missing source updates');
+			}
+			context.store.appendLocalDocumentUpdate(ADDRESS, first);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			context.store.appendLocalDocumentUpdate(ADDRESS, second);
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				{
+					...receipt(attempt.publication),
+					kind: 'document-bound',
+					measured: {
+						stateBytes: DOCUMENT_BOUND.stateBytes + 1,
+						stateStructs: DOCUMENT_BOUND.stateStructs,
+					},
+					limit: DOCUMENT_BOUND,
+				},
+				capturedOf(attempt.publication),
+			);
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 2,
+				owed: true,
+				refused: false,
+			});
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('blocks an over-bound local state durably with measurements', () => {
 		const context = setup();
 		try {
 			const [update] = sourceUpdates('x'.repeat(DOCUMENT_BOUND.stateBytes + 1));
 			if (update === undefined) throw new Error('missing source update');
 			context.store.appendLocalDocumentUpdate(ADDRESS, update);
 			const publication = context.store.documentPublication(ADDRESS);
-			expect(publication.kind).toBe('parked');
-			if (publication.kind !== 'parked') {
-				throw new Error('over-bound document was not parked');
+			expect(publication.kind).toBe('refused');
+			if (publication.kind !== 'refused') {
+				throw new Error('over-bound document was not refused');
 			}
 			expect(publication.refusal.measured.stateBytes).toBeGreaterThan(
 				DOCUMENT_BOUND.stateBytes,
 			);
+			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(true);
+			// The refusal stores compact measurements, never the oversized payload.
 			expect(
 				context.database
-					.query<{ payload: Uint8Array | null }, []>(
-						'SELECT payload FROM document_inflight',
-					)
-					.get()?.payload,
-			).toBeNull();
+					.query<
+						{ measured: number; revision: number },
+						[]
+					>(`SELECT document_refused_bytes AS measured,
+							document_refused_revision AS revision FROM records`)
+					.get(),
+			).toEqual({
+				revision: 1,
+				measured: publication.refusal.measured.stateBytes,
+			});
 		} finally {
 			context.database.close();
 		}
@@ -257,16 +386,17 @@ describe('record document store', () => {
 			).toThrow();
 			expect(context.store.exportDocument(ADDRESS)).toEqual(beforeInvalid);
 
-			const frozen = context.store.documentPublication(ADDRESS);
-			if (frozen.kind !== 'ready') throw new Error('publication was not ready');
-			const beforeProof = context.store.documentPublication(ADDRESS);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			// A proof whose digest is not the captured attempt's digest is refused.
 			expect(() =>
-				context.store.settleDocumentPublication(ADDRESS, {
-					...receipt(frozen.publication),
-					digest: 'f'.repeat(64),
-				}),
-			).toThrow(/does not match inflight/);
-			expect(context.store.documentPublication(ADDRESS)).toEqual(beforeProof);
+				context.store.settleDocumentPublication(
+					ADDRESS,
+					{ ...receipt(attempt.publication), digest: 'f'.repeat(64) },
+					capturedOf(attempt.publication),
+				),
+			).toThrow(/captured attempt/);
+			expect(context.store.inspectDocument(ADDRESS)?.owed).toBe(true);
 		} finally {
 			context.database.close();
 		}
@@ -278,7 +408,6 @@ describe('record document store', () => {
 			const [update] = sourceUpdates('a');
 			if (update === undefined) throw new Error('missing source update');
 			context.store.appendLocalDocumentUpdate(ADDRESS, update);
-			context.store.documentPublication(ADDRESS);
 
 			context.store.localWrite({ address: ADDRESS, op: 'unset' });
 			expect(context.store.exportDocument(ADDRESS)).toBeDefined();
@@ -293,7 +422,7 @@ describe('record document store', () => {
 			expect(
 				context.database
 					.query<{ count: number }, []>(
-						'SELECT count(*) AS count FROM document_inflight',
+						'SELECT count(*) AS count FROM record_documents',
 					)
 					.get()?.count,
 			).toBe(0);

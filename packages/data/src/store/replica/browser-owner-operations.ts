@@ -54,6 +54,7 @@ export function createBrowserReplicaOwnerOperations(
 					owner.store.settleDocumentPublication(
 						operation.address,
 						operation.proof,
+						operation.captured,
 					);
 					return undefined;
 				case 'capture-blob':

@@ -74,6 +74,7 @@ const w3MutationOperations = [
 			protocolVersion: DOCUMENT_PUBLICATION_VERSION,
 			digest: 'a'.repeat(64),
 		},
+		captured: { revision: 1, digest: 'a'.repeat(64) },
 	},
 	{ kind: 'capture-blob', address, bytes: new Blob(['immutable']) },
 	{

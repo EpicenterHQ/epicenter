@@ -10,7 +10,7 @@
  *
  * The replica row is the whole per-address crash-state machine: identity
  * triple, confirmed lane, sealed lane, pending lane, parked overlay, and the
- * small document and blob obligation columns. `record_id` interns the triple
+ * small document and blob publication watermarks. `record_id` interns the triple
  * for the byte-heavy sibling relations. Lane shapes are row-local CHECK
  * disjunctions with explicit IS NOT NULL guards on every occupied branch (the
  * disposable probe proved that `confirmed_sequence >= 1` alone admits a NULL
@@ -81,11 +81,19 @@ CREATE TABLE records (
   parked_measured     INTEGER,
   parked_limit        INTEGER,
 
-  -- obligations (small; bytes live elsewhere)
-  doc_revision        INTEGER NOT NULL DEFAULT 0 CHECK (doc_revision >= 0),
-  doc_dirty           INTEGER NOT NULL DEFAULT 0 CHECK (doc_dirty IN (0,1)),
-  blob_sha256         TEXT,
-  blob_pending        INTEGER NOT NULL DEFAULT 0 CHECK (blob_pending IN (0,1)),
+  -- publication watermarks (small; bytes live elsewhere). Obligations are
+  -- derived, never stored: a document is owed while the local revision runs
+  -- ahead of the authority-accepted revision, and a blob is owed while its
+  -- local digest lacks a matching accepted digest.
+  document_revision           INTEGER NOT NULL DEFAULT 0
+    CHECK (document_revision >= 0),
+  document_accepted_revision  INTEGER NOT NULL DEFAULT 0
+    CHECK (document_accepted_revision >= 0),
+  document_refused_revision   INTEGER,
+  document_refused_bytes      INTEGER,
+  document_refused_structs    INTEGER,
+  blob_sha256                 TEXT,
+  blob_accepted_sha256        TEXT,
 
   -- Lane shapes. SQLite CHECKs pass on NULL, so every occupied branch carries
   -- explicit IS NOT NULL guards; a branch is definitively false, never NULL.
@@ -117,8 +125,16 @@ CREATE TABLE records (
   -- parked excludes newer desire: a later write consumes the parked lane
   CHECK (parked_op IS NULL
       OR (pending_op IS NULL AND sealed_op IS NULL)),
+  CHECK (document_accepted_revision <= document_revision),
+  CHECK ((document_refused_revision IS NULL AND document_refused_bytes IS NULL
+            AND document_refused_structs IS NULL)
+      OR (document_refused_revision = document_revision
+            AND document_revision > document_accepted_revision
+            AND document_refused_bytes IS NOT NULL
+            AND document_refused_structs IS NOT NULL)),
   CHECK (blob_sha256 IS NULL OR length(blob_sha256) = 64),
-  CHECK (blob_pending = 0 OR blob_sha256 IS NOT NULL),
+  CHECK (blob_accepted_sha256 IS NULL OR
+    (blob_sha256 IS NOT NULL AND blob_accepted_sha256 = blob_sha256)),
   -- a row exists only while something is true at the address
   CHECK (confirmed_state IS NOT NULL OR pending_op IS NOT NULL
          OR sealed_op IS NOT NULL OR parked_op IS NOT NULL)
@@ -130,8 +146,11 @@ CREATE INDEX records_pending ON records(namespace, collection, record_key)
   WHERE pending_op IS NOT NULL;
 CREATE INDEX records_sealed  ON records(namespace, collection, record_key)
   WHERE sealed_op IS NOT NULL;
-CREATE INDEX records_doc_dirty    ON records(record_id) WHERE doc_dirty = 1;
-CREATE INDEX records_blob_pending ON records(record_id) WHERE blob_pending = 1;
+CREATE INDEX records_document_owed ON records(namespace, collection, record_key)
+  WHERE document_revision > document_accepted_revision;
+CREATE INDEX records_blob_owed ON records(namespace, collection, record_key)
+  WHERE blob_sha256 IS NOT NULL AND
+    (blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256);
 
 CREATE TABLE record_documents (        -- bounded baseline-plus-tail chain
   chain_id   INTEGER PRIMARY KEY,
@@ -142,12 +161,6 @@ CREATE TABLE record_documents (        -- bounded baseline-plus-tail chain
   UNIQUE (record_id, seq)
 ) STRICT;
 
-CREATE TABLE document_inflight (       -- exact frozen publication image
-  record_id         INTEGER PRIMARY KEY,
-  payload           BLOB NOT NULL,
-  digest            TEXT NOT NULL,
-  captured_revision INTEGER NOT NULL CHECK (captured_revision >= 0)
-) STRICT;
 `;
 
 export const AUTHORITY_DDL = `
@@ -320,23 +333,13 @@ export class ReferenceDb {
 			 FROM record_documents d JOIN records r ON r.record_id = d.record_id
 			 ORDER BY r.namespace, r.collection, r.record_key, d.seq`,
 		);
-		const inflight = this.hasTable('document_inflight')
-			? this.all<Record<string, unknown>>(
-					`SELECT r.namespace, r.collection, r.record_key, hex(i.payload) AS payload,
-					        i.digest, i.captured_revision
-					 FROM document_inflight i JOIN records r ON r.record_id = i.record_id
-					 ORDER BY r.namespace, r.collection, r.record_key`,
-				)
-			: [];
 		const witness = this.hasTable('replica_witness')
 			? this.all<Record<string, unknown>>(
 					'SELECT * FROM replica_witness ORDER BY replica_id',
 				)
 			: [];
 		return canonicalize(
-			JSON.parse(
-				JSON.stringify({ meta, records, documents, inflight, witness }),
-			),
+			JSON.parse(JSON.stringify({ meta, records, documents, witness })),
 		);
 	}
 

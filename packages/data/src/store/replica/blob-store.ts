@@ -19,14 +19,14 @@ type BlobRow = SqliteRow & {
 	sealed_op: 'patch' | 'replace' | 'tombstone' | 'unset' | null;
 	pending_op: 'patch' | 'replace' | 'tombstone' | 'unset' | null;
 	blob_sha256: string | null;
-	blob_pending: number;
+	blob_accepted_sha256: string | null;
 	blob_parked_code: 'blob-conflict' | 'record-not-live' | null;
 };
 
 export type BlobInspection =
 	| { kind: 'absent' }
 	| {
-			kind: 'accepted' | 'pending' | 'parked';
+			kind: 'accepted' | 'owed' | 'parked';
 			digest: string;
 			parkedCode?: 'blob-conflict' | 'record-not-live';
 	  };
@@ -61,7 +61,7 @@ function rowFor(
 	return one<BlobRow>(
 		database,
 		`SELECT record_id, confirmed_state, sealed_op, pending_op,
-			blob_sha256, blob_pending, blob_parked_code
+			blob_sha256, blob_accepted_sha256, blob_parked_code
 		FROM records WHERE ${TRIPLE_WHERE}`,
 		tripleParams(address),
 	);
@@ -89,6 +89,13 @@ function requireLiveRecord(
 	return row;
 }
 
+/** The derived obligation: local durable truth without a matching authority proof. */
+function isOwed(row: BlobRow): boolean {
+	return (
+		row.blob_sha256 !== null && row.blob_accepted_sha256 !== row.blob_sha256
+	);
+}
+
 function matchingProof(
 	request: BlobPublicationRequest,
 	proof: BlobPublicationReceipt,
@@ -104,8 +111,11 @@ function matchingProof(
 /**
  * Compose one SQLite replica with a runtime-owned streaming blob filesystem.
  *
- * Calls are serialized because file promotion and SQLite membership form one
- * owner protocol even though they cannot share a transaction.
+ * `blob_sha256` is local durable truth and `blob_accepted_sha256` is the
+ * authority's proof for the active lifetime; their inequality derives the
+ * publication obligation. Calls are serialized because file promotion and
+ * SQLite membership form one owner protocol even though they cannot share a
+ * transaction.
  */
 export function createReplicaBlobStore<TSource, TRead>(
 	database: SqliteDatabase,
@@ -133,7 +143,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 			};
 		}
 		return {
-			kind: row.blob_pending === 1 ? 'pending' : 'accepted',
+			kind: isOwed(row) ? 'owed' : 'accepted',
 			digest: row.blob_sha256,
 		};
 	}
@@ -164,7 +174,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 				}
 				if (row.blob_sha256 === null) {
 					database.run(
-						`UPDATE records SET blob_sha256 = ?, blob_pending = 1,
+						`UPDATE records SET blob_sha256 = ?, blob_accepted_sha256 = NULL,
 							blob_parked_code = NULL WHERE ${TRIPLE_WHERE}`,
 						[staged.digest, ...tripleParams(address)],
 					);
@@ -182,7 +192,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 			const row = requireLiveRecord(database, address);
 			if (
 				row.blob_sha256 === null ||
-				row.blob_pending !== 1 ||
+				!isOwed(row) ||
 				row.blob_parked_code !== null
 			) {
 				return null;
@@ -214,8 +224,8 @@ export function createReplicaBlobStore<TSource, TRead>(
 		return exclusive(async () =>
 			database.transaction(() => {
 				const row = requireLiveRecord(database, address);
-				if (row.blob_sha256 === null || row.blob_pending !== 1) {
-					throw new Error('no blob publication is pending');
+				if (row.blob_sha256 === null || !isOwed(row)) {
+					throw new Error('no blob publication is owed');
 				}
 				const meta = one<SqliteRow & { authority_lifetime: string | null }>(
 					database,
@@ -239,7 +249,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 						!addressesEqual(acceptance.address, request.address)
 					) {
 						throw new Error(
-							'blob acceptance does not match the pending publication',
+							'blob acceptance does not match the owed publication',
 						);
 					}
 					database.run(
@@ -251,12 +261,13 @@ export function createReplicaBlobStore<TSource, TRead>(
 				}
 				if (!matchingProof(request, acceptance.receipt)) {
 					throw new Error(
-						'blob acceptance does not match the pending publication',
+						'blob acceptance does not match the owed publication',
 					);
 				}
 				if (acceptance.kind === 'accepted') {
 					database.run(
-						`UPDATE records SET blob_pending = 0, blob_parked_code = NULL
+						`UPDATE records SET blob_accepted_sha256 = blob_sha256,
+							blob_parked_code = NULL
 					WHERE ${TRIPLE_WHERE}`,
 						tripleParams(address),
 					);

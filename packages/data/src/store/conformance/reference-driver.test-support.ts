@@ -68,7 +68,7 @@ type LaneRow = {
 	parked_measured: number | null;
 	parked_limit: number | null;
 	blob_sha256: string | null;
-	blob_pending: number;
+	blob_accepted_sha256: string | null;
 };
 
 type ReplicaMeta = {
@@ -365,9 +365,9 @@ export class ReplicaRef {
 			// the address as superseded. The sealed lane stays immutable for exact
 			// retry; it stops overlaying and retires at settlement. The same
 			// transaction owns the record's terminal cleanup (ADR-0173, ADR-0174,
-			// ADR-0177): it clears the blob evidence and explicitly deletes the
-			// document chain and in-flight image, because no cascade exists and a
-			// committed tombstone must never leave child rows alive.
+			// ADR-0177): it clears the blob and document watermarks and explicitly
+			// deletes the document chain, because no cascade exists and a committed
+			// tombstone must never leave child rows alive.
 			return [
 				{
 					sql: `UPDATE records SET confirmed_state = 'tombstone',
@@ -375,17 +375,16 @@ export class ReplicaRef {
 					        pending_op = NULL, pending_args = NULL,
 					        parked_op = NULL, parked_args = NULL, parked_code = NULL,
 					        parked_measured = NULL, parked_limit = NULL,
-					        blob_sha256 = NULL, blob_pending = 0, doc_dirty = 0
+					        blob_sha256 = NULL, blob_accepted_sha256 = NULL,
+					        document_revision = 0, document_accepted_revision = 0,
+					        document_refused_revision = NULL,
+					        document_refused_bytes = NULL,
+					        document_refused_structs = NULL
 					      WHERE ${TRIPLE_WHERE}`,
 					params: [fact.sequence, ...tripleParams(fact.address)],
 				},
 				{
 					sql: `DELETE FROM record_documents WHERE record_id =
-					        (SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-					params: tripleParams(fact.address),
-				},
-				{
-					sql: `DELETE FROM document_inflight WHERE record_id =
 					        (SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
 					params: tripleParams(fact.address),
 				},
@@ -550,7 +549,6 @@ export class ReplicaRef {
 	eraseStatements(): Statement[] {
 		return [
 			{ sql: 'DELETE FROM record_documents' },
-			{ sql: 'DELETE FROM document_inflight' },
 			{ sql: 'DELETE FROM records' },
 			{
 				sql: `UPDATE meta SET erased_authority_lifetime = COALESCE(

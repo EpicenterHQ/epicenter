@@ -61,6 +61,7 @@ export type BrowserReplicaOwnerOperation =
 			kind: 'settle-document-publication';
 			address: RecordAddress;
 			proof: DocumentPublicationReceipt | DocumentBoundRefusal;
+			captured: { revision: number; digest: string };
 	  }
 	| { kind: 'capture-blob'; address: RecordAddress; bytes: Blob }
 	| { kind: 'inspect-blob'; address: RecordAddress }
