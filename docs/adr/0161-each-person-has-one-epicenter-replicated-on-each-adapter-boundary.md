@@ -4,7 +4,7 @@
 - **Date:** 2026-07-20
 - **Supersedes:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md) and [ADR-0143](0143-account-open-never-consumes-device-data.md)
 - **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) by removing workspaces beneath the principal authority
-- **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup and Restore above the replica boundary) and [ADR-0177](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md) (supersedes the schema-wide coordinate-layout evidence enumeration)
+- **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup and Restore above the replica boundary) and [ADR-0177](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md) (supersedes the schema-wide coordinate-layout evidence enumeration)
 
 ## Context
 
@@ -146,7 +146,7 @@ excludes terminal row tombstones, reversible value absences, sequences, wire
 framing, SQLite pages, documents, blob digests, and raw blob bytes. The target is
 therefore representative present-state stress evidence, not a bound on total
 replica size or lifetime growth. The
-[ADR-0177 acceptance charters](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
+[ADR-0177 acceptance charters](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
 own the physical measurements that exercise this proxy; the retired benchmark
 matrix's retained run under `docs/benchmarks/scalar-facts-layout/` remains
 historical evidence about its own fixture, reporting current-fact count and
@@ -160,8 +160,8 @@ previous committed prefix and durable progress, but it does not prove capacity.
 Private or incognito storage supplies negative refusal evidence only.
 
 The physical layout selection and its evidence charters are owned by ADR-0177,
-which selects the wide interned record row as the Proposed candidate with the
-split layout as its sole runner-up. This ADR's representative envelope and
+which selects role-specific wide interned record rows and records split as the
+measured rejected replica candidate. This ADR's representative envelope and
 mobile floors remain the fixture those charters measure against; nothing in
 this ADR's evidence selects a layout.
 

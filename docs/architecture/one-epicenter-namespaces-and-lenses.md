@@ -164,10 +164,9 @@ latest authority truth learned locally), `sealed` (the immutable in-flight
 desire, with its exact canonical request bytes persisted for retry), and
 `pending` (the mutable compacted current desire), plus `parked`, which retains
 a refused operation as a visible, non-retrying overlay until a later write
-consumes it. ADR-0177 owns physical layout by semantic role. Authorities use
-the wide interned record row. Replicas target split confirmed-fact and sparse
-intent relations behind a complete production acceptance charter; relation
-shape remains private to the store owner.
+consumes it. ADR-0177 gives both semantic roles a wide interned record row,
+with role-specific columns and invariants. Relation shape remains private to
+the store owner.
 
 ## Inspection is capture
 
@@ -223,8 +222,7 @@ and reacquire.
 2. The exact pure JSON table metadata shape and typed reference-navigation
    ergonomics for the non-enforcing record references settled by ADR-0169.
 3. The realtime row-document topology for the live-collaboration overlay.
-4. The physical layout charters of ADR-0177 (wide versus split hot paths,
-   Durable Object billing, physical browser OPFS capacity and reopen); their
-   outcome can swap the store schema without touching any public contract.
+4. Physical iOS Safari and Android Chrome qualification of the selected wide
+   browser owner: capacity, reopen, quota, suspension, and eviction.
 5. The Proposal prototype (nine bounded tests); its ADR and product build wait
    for that proof.

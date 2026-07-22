@@ -4,6 +4,48 @@ This directory records the bounded physical evidence owned by ADR-0177. The
 reports are evidence, not current architecture truth. ADR-0177 and the active
 clean-break spec remain authoritative.
 
+## 2026-07-22 complete replica decision
+
+Retained reports:
+
+- `2026-07-22-bun-complete-wide-vs-split-wide-first.json`
+- `2026-07-22-bun-complete-wide-vs-split-split-first.json`
+- `2026-07-22-wide-drain-index-probe.json`
+- `2026-07-22-replica-watermark-layout-probe.json`
+
+The complete Bun charter extended both candidates to 1,000,000 records with
+scalar lanes, documents, blobs, tombstones, reopen checks, and the exact
+536,870,912-byte V1 proxy. Both candidate orders passed integrity checks. Wide
+won point reads by 2.3 to 2.5 times, fact installation by about 1.2 times, and
+complete traversal slightly. Lane writes were at parity. Seal ranged from
+parity to 2.2 times faster on wide depending on order. Split's earlier scalar
+traversal win collapsed to 7 to 17 percent. Split used 588 MB versus wide's
+759 MB.
+
+The first complete run made split document and blob drains appear dramatically
+faster. The attribution probe showed that production wide indexes covered only
+`record_id`, forcing address-ordered scans through `records_address`. Covering
+the address triple in the two partial indexes reduced wide document drain from
+about 1,143 ms to 2.4 ms and blob drain from about 1,149 ms to 26 ms. That loss
+belonged to index shape, not the wide relation.
+
+The final clean-source probe gave both candidates the target publication model:
+local and authority-accepted document revisions, local and accepted blob
+digests, and covering partial indexes on the derived owed predicates. Its source
+commit is `68845f5a9dd99190052d568fba3a66c330c10db0`; both installed schema hashes
+are embedded in the report. Wide and split document drains were both about
+0.3 ms. Wide blob drain was 2.0 ms versus split's 7.4 ms. Split settled batches
+of 64 receipts about 0.04 to 0.07 ms faster. The stripped split fixture used
+107 MB versus wide's 174 MB.
+
+These results select wide for the replica role. Split is viable and smaller,
+but it materially regresses point reads, no longer retains a material everyday
+traversal or local-write advantage, and introduces eight cross-relation
+invariants. Its evidence implementation remains unexported on
+`codex/replica-layout-evidence`; it is not a second production adapter. Physical
+iOS Safari and Android Chrome qualification remains open for the selected wide
+browser owner.
+
 ## 2026-07-22 Bun wide-versus-split run
 
 Report:
@@ -65,10 +107,9 @@ checkpointing remains active. The report retains every raw sample; this Bun
 slice does not attribute that reversal to a specific mechanism.
 
 This run completes only the scalar-shaped Bun slice of the charter. Later
-browser evidence selected split as the replica target, while Durable Object
-evidence selected wide for authorities. This artifact does not accept the
-production replica schema: its split candidate predates document and blob
-watermarks and must be rerun through ADR-0177's complete acceptance charter.
+browser evidence repeated its split direction, but the complete replica charter
+above supersedes that recommendation. The artifact remains useful evidence for
+how an incomplete fixture can reverse once every production plane is present.
 
 The report embeds SHA-256 fingerprints for the maintained benchmark source and
 both installed SQLite schemas, so a later production-schema change cannot be

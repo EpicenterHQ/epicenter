@@ -5,7 +5,7 @@
   is replaced by point-in-time inspection snapshot artifacts)
 - **Supersedes:** [ADR-0157](0157-read-only-sql-exposes-one-schema-opaque-row-relation.md)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
-- **Relates:** [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0177](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
+- **Relates:** [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0177](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
 
 ## Context
 
