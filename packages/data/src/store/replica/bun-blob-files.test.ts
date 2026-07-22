@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { OwnedBlobFile } from './blob-store.js';
+import type { OwnedBlobFile } from '../../blob-v1/index.js';
 import { createBunBlobFileStore } from './bun-blob-files.js';
 
 async function collect(source: AsyncIterable<Uint8Array>): Promise<Uint8Array> {

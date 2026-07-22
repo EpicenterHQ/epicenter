@@ -3,16 +3,13 @@ import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import {
 	BLOB_PUBLICATION_VERSION,
 	type BlobAcceptance,
+	type BlobFileStore,
 	type BlobPublicationReceipt,
 	type BlobPublicationRequest,
+	blobFileOwner,
 	isBlobDigest,
 } from '../../blob-v1/index.js';
-import {
-	addressesEqual,
-	canonicalize,
-	type RecordAddress,
-	sha256Hex,
-} from '../../protocol/v1/index.js';
+import { addressesEqual, type RecordAddress } from '../../protocol/v1/index.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
 
@@ -24,26 +21,6 @@ type BlobRow = SqliteRow & {
 	blob_sha256: string | null;
 	blob_pending: number;
 	blob_parked_code: 'blob-conflict' | 'record-not-live' | null;
-};
-
-export type StagedBlob = {
-	id: string;
-	digest: string;
-};
-
-export type OwnedBlobFile = {
-	/** Private digest of the complete record address, never an application ID. */
-	ownerKey: string;
-	digest: string;
-};
-
-/** Runtime-specific raw-file operations. SQLite remains the membership owner. */
-export type BlobFileStore<TSource, TRead> = {
-	stage(source: TSource): Promise<StagedBlob>;
-	promote(staged: StagedBlob, owner: OwnedBlobFile): Promise<void>;
-	open(owner: OwnedBlobFile): Promise<TRead>;
-	sweepStaging(): Promise<void>;
-	sweepContent(owned: readonly OwnedBlobFile[]): Promise<void>;
 };
 
 export type BlobInspection =
@@ -112,13 +89,6 @@ function requireLiveRecord(
 	return row;
 }
 
-function ownerFor(address: RecordAddress, digest: string): OwnedBlobFile {
-	return {
-		ownerKey: sha256Hex(canonicalize(address)),
-		digest,
-	};
-}
-
 function matchingProof(
 	request: BlobPublicationRequest,
 	proof: BlobPublicationReceipt,
@@ -178,7 +148,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 				throw new Error('blob file store returned an invalid digest');
 			}
 			hooks.afterStage?.();
-			const owner = ownerFor(address, staged.digest);
+			const owner = blobFileOwner(address, staged.digest);
 			await files.promote(staged, owner);
 			hooks.afterPromote?.();
 			database.transaction(() => {
@@ -226,7 +196,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 			};
 			return {
 				request,
-				bytes: await files.open(ownerFor(address, row.blob_sha256)),
+				bytes: await files.open(blobFileOwner(address, row.blob_sha256)),
 			};
 		});
 	}
@@ -257,7 +227,23 @@ export function createReplicaBlobStore<TSource, TRead>(
 				if (acceptance.kind === 'lifetime-mismatch') {
 					throw new Error('lifetime mismatch: erase and reacquire instead');
 				}
-				if (!matchingProof(request, acceptance)) {
+				if (acceptance.kind === 'record-not-live') {
+					if (
+						acceptance.activeAuthorityLifetime !== request.authorityLifetime ||
+						!addressesEqual(acceptance.address, request.address)
+					) {
+						throw new Error(
+							'blob acceptance does not match the pending publication',
+						);
+					}
+					database.run(
+						`UPDATE records SET blob_parked_code = 'record-not-live'
+					WHERE ${TRIPLE_WHERE}`,
+						tripleParams(address),
+					);
+					return;
+				}
+				if (!matchingProof(request, acceptance.receipt)) {
 					throw new Error(
 						'blob acceptance does not match the pending publication',
 					);
@@ -272,7 +258,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 				}
 				database.run(
 					`UPDATE records SET blob_parked_code = ? WHERE ${TRIPLE_WHERE}`,
-					[acceptance.kind, ...tripleParams(address)],
+					['blob-conflict', ...tripleParams(address)],
 				);
 			}),
 		);
@@ -283,7 +269,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 			const row = requireLiveRecord(database, address);
 			return row.blob_sha256 === null
 				? null
-				: files.open(ownerFor(address, row.blob_sha256));
+				: files.open(blobFileOwner(address, row.blob_sha256));
 		});
 	}
 
@@ -302,7 +288,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 					FROM records WHERE blob_sha256 IS NOT NULL`,
 				)
 				.map((row) =>
-					ownerFor(
+					blobFileOwner(
 						{
 							namespace: row.namespace,
 							collection: row.collection,

@@ -3,6 +3,11 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+	type BlobByteSource,
+	type BunBlobRead,
+	createBunBlobFileStore,
+} from '@epicenter/data/bun';
+import {
 	SCALAR_SYNC_V1_LIMITS,
 	SCALAR_SYNC_V1_RAW_SUBMISSION_BYTES,
 } from '@epicenter/data/protocol/v1';
@@ -13,6 +18,8 @@ import type { Hono, MiddlewareHandler } from 'hono';
 
 import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
+import { createAuthorityBlobV1 } from './blob-authority-v1.js';
+import { mountBlobV1App } from './blob-v1-route.js';
 import {
 	type BunDataDocumentV1SocketData,
 	type BunDocumentRealtimeV1Binding,
@@ -29,31 +36,43 @@ function encodePathComponent(value: string): string {
 	return encodeURIComponent(value).replaceAll('.', '%2E');
 }
 
-function authorityPath(dir: string, principalId: PrincipalId): string {
+function authorityDirectory(dir: string, principalId: PrincipalId): string {
 	const principalDir = join(
 		dir,
 		'principals',
 		encodePathComponent(principalId),
 	);
 	mkdirSync(principalDir, { recursive: true });
-	return join(principalDir, 'data-v1.sqlite');
+	return principalDir;
 }
+
+function authorityPath(dir: string, principalId: PrincipalId): string {
+	return join(authorityDirectory(dir, principalId), 'data-v1.sqlite');
+}
+
+type BunAuthorityBlobs = ReturnType<
+	typeof createAuthorityBlobV1<BlobByteSource, BunBlobRead>
+>;
+
+type OpenedAuthority = {
+	raw: Database;
+	authority: DataAuthorityV1;
+	blobs: BunAuthorityBlobs;
+	ensureBlobsReady(): Promise<void>;
+};
 
 /** Open a principal-partitioned Bun owner for one Data V1 authority file. */
 export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 	mkdirSync(dir, { recursive: true });
-	const authorities = new Map<
-		PrincipalId,
-		{ raw: Database; authority: DataAuthorityV1 }
-	>();
+	const authorities = new Map<PrincipalId, OpenedAuthority>();
 	let documentBinding: BunDocumentRealtimeV1Binding | undefined;
 	let server: Server<BunDataDocumentV1SocketData> | undefined;
 	let closed = false;
 
-	function load(principalId: PrincipalId): DataAuthorityV1 {
+	function loadEntry(principalId: PrincipalId): OpenedAuthority {
 		if (closed) throw new Error('Bun scalar V1 runtime is closed');
 		const existing = authorities.get(principalId);
-		if (existing !== undefined) return existing.authority;
+		if (existing !== undefined) return existing;
 
 		const raw = new Database(authorityPath(dir, principalId), {
 			create: true,
@@ -61,8 +80,9 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 		});
 		try {
 			raw.run('PRAGMA journal_mode = WAL');
+			const database = createBunSqliteAdapter(raw);
 			const stored = openScalarAuthorityV1({
-				database: createBunSqliteAdapter(raw),
+				database,
 				limits: SCALAR_SYNC_V1_LIMITS,
 				initialize: { authorityLifetime: crypto.randomUUID() },
 			});
@@ -80,12 +100,29 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 					return result;
 				},
 			};
-			authorities.set(principalId, { raw, authority });
-			return authority;
+			const blobs = createAuthorityBlobV1(
+				database,
+				createBunBlobFileStore(authorityDirectory(dir, principalId)),
+			);
+			const opened = {
+				raw,
+				authority,
+				blobs,
+				ensureBlobsReady: (() => {
+					let ready: Promise<void> | undefined;
+					return () => (ready ??= blobs.reopenSweep());
+				})(),
+			};
+			authorities.set(principalId, opened);
+			return opened;
 		} catch (cause) {
 			raw.close();
 			throw cause;
 		}
+	}
+
+	function load(principalId: PrincipalId): DataAuthorityV1 {
+		return loadEntry(principalId).authority;
 	}
 
 	const documents = createBunDocumentRealtimeV1Binding({
@@ -95,6 +132,11 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 
 	return {
 		locateAuthority: load,
+		async locateBlobAuthority(principalId: PrincipalId) {
+			const opened = loadEntry(principalId);
+			await opened.ensureBlobsReady();
+			return opened.blobs;
+		},
 		websocket: documents.websocket,
 		bindServer(bound: Server<BunDataDocumentV1SocketData>): void {
 			server = bound;
@@ -148,6 +190,11 @@ export function mountBunScalarV1App<E extends Env = Env>(
 		auth,
 		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: runtime.locateAuthority,
+	});
+	mountBlobV1App(app, {
+		auth,
+		limits: SCALAR_SYNC_V1_LIMITS,
+		locateAuthority: runtime.locateBlobAuthority,
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(
