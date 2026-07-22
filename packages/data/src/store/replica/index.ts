@@ -11,6 +11,7 @@ export {
 	type FrozenDocumentPublication,
 } from './document-store.js';
 export {
+	type CaptureReplicaSnapshotOptions,
 	type FirstAttachmentChoice,
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
@@ -34,3 +35,8 @@ export {
 	REPLICA_STORE_INDEXES,
 	REPLICA_STORE_TABLES,
 } from './schema.js';
+export {
+	SNAPSHOT_ARTIFACT_FORMAT_VERSION,
+	type SnapshotArtifactMetadata,
+	type SnapshotArtifactRecord,
+} from './snapshot-artifact.js';

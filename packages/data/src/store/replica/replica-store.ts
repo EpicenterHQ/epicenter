@@ -1,6 +1,7 @@
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 
 import { isBlobDigest } from '../../blob-v1/index.js';
+import type { LensDefinition } from '../../lens.js';
 import {
 	type AdmittedSubmissionRequest,
 	admitFactsPage,
@@ -32,6 +33,11 @@ import {
 	REPLICA_STORE_TABLES,
 	replicaStoreSchemaMatches,
 } from './schema.js';
+import {
+	type SnapshotArtifactMetadata,
+	type SnapshotArtifactRecord,
+	writeSnapshotArtifact,
+} from './snapshot-artifact.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
 
@@ -156,6 +162,11 @@ export type OpenReplicaStoreOptions = {
 	database: SqliteDatabase;
 	limits: ValidatedLimits;
 	initialize?: { replicaId: string; authorityLifetime?: string };
+};
+
+export type CaptureReplicaSnapshotOptions = {
+	database: SqliteDatabase;
+	lens?: LensDefinition;
 };
 
 function tripleParams(address: RecordAddress): [string, string, string] {
@@ -1295,6 +1306,69 @@ export function openReplicaStore({
 		);
 	}
 
+	function captureSnapshot({
+		database: target,
+		lens,
+	}: CaptureReplicaSnapshotOptions): SnapshotArtifactMetadata {
+		return database.readTransaction(() => {
+			const meta = readMeta(database);
+
+			function* records(): Generator<SnapshotArtifactRecord> {
+				let afterRecordId = 0;
+				while (true) {
+					const rows = database.all<
+						RecordRow & {
+							record_id: number;
+							namespace: string;
+							collection: string;
+							record_key: string;
+							doc_revision: number;
+							doc_dirty: number;
+							blob_sha256: string | null;
+							document_byte_length: number;
+						}
+					>(
+						`SELECT r.*, COALESCE((
+							SELECT sum(length(d.bytes)) FROM record_documents d
+							WHERE d.record_id = r.record_id
+						), 0) AS document_byte_length
+						FROM records r
+						WHERE r.record_id > ?
+						ORDER BY r.record_id LIMIT 1000`,
+						[afterRecordId],
+					);
+					for (const row of rows) {
+						const address = {
+							namespace: row.namespace,
+							collection: row.collection,
+							recordKey: row.record_key,
+						};
+						const visible = visibleOf(address, lanesOf(row));
+						if (visible?.state !== 'live') continue;
+						yield {
+							...address,
+							payload: visible.payload,
+							documentRevision: row.doc_revision,
+							documentByteLength: row.document_byte_length,
+							documentDirty: row.doc_dirty === 1,
+							blobSha256: row.blob_sha256,
+						};
+					}
+					const last = rows.at(-1);
+					if (last === undefined || rows.length < 1000) return;
+					afterRecordId = last.record_id;
+				}
+			}
+			return writeSnapshotArtifact({
+				database: target,
+				sourceAuthorityLifetime: meta.authority_lifetime,
+				captureWatermark: meta.after_sequence,
+				records: records(),
+				...(lens === undefined ? {} : { lens }),
+			});
+		});
+	}
+
 	return {
 		record,
 		visible,
@@ -1317,6 +1391,7 @@ export function openReplicaStore({
 		installFacts,
 		settle,
 		erase,
+		captureSnapshot,
 		appendLocalDocumentUpdate(address: RecordAddress, update: Uint8Array) {
 			documents.appendLocal(address, update);
 			notify([address]);
