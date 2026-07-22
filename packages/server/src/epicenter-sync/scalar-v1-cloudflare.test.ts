@@ -33,6 +33,14 @@ beforeAll(async () => {
 	({ DataAuthority } = await import('./scalar-v1-cloudflare.js'));
 });
 
+function setupEnv(): ConstructorParameters<typeof DataAuthority>[1] {
+	return {
+		DATA_BLOBS: {
+			list: async () => ({ objects: [], truncated: false }),
+		},
+	} as unknown as ConstructorParameters<typeof DataAuthority>[1];
+}
+
 function setupState() {
 	const database = new Database(':memory:', { strict: true });
 	let ready = Promise.resolve();
@@ -105,7 +113,7 @@ function fakeSocket(attachment: unknown) {
 test('Durable Object authority persists acceptance and retry state across restart', async () => {
 	const owned = setupState();
 	try {
-		let authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		let authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		const lifetime = expectOk(
 			await authority.readFacts(
@@ -158,7 +166,7 @@ test('Durable Object authority persists acceptance and retry state across restar
 		};
 		expect((await authority.acceptDocument(publication)).kind).toBe('accepted');
 
-		authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		expect(expectOk(await authority.submit(request))).toEqual(accepted);
 		expect((await authority.acceptDocument(publication)).kind).toBe('accepted');
@@ -170,7 +178,7 @@ test('Durable Object authority persists acceptance and retry state across restar
 test('Durable Object hibernation restores document sessions from attachments', async () => {
 	const owned = setupState();
 	try {
-		let authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		let authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		const lifetime = expectOk(
 			await authority.readFacts(
@@ -210,7 +218,7 @@ test('Durable Object hibernation restores document sessions from attachments', a
 		const second = fakeSocket(attachment);
 		owned.sockets.push(first.socket, second.socket);
 
-		authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		const document = new Y.Doc({ gc: true });
 		document.get('content').insert(0, 'after wake');
@@ -235,7 +243,7 @@ test('Durable Object hibernation restores document sessions from attachments', a
 test('Durable Object RPC boundary revalidates structured input', async () => {
 	const owned = setupState();
 	try {
-		const authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		const authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		await expect(authority.readFacts({ afterSequence: '0' })).rejects.toThrow(
 			'invalid scalar V1 facts RPC request',
@@ -246,6 +254,9 @@ test('Durable Object RPC boundary revalidates structured input', async () => {
 		await expect(authority.acceptDocument({})).rejects.toThrow(
 			'invalid document V1 publication RPC request',
 		);
+		await expect(authority.acceptBlob({}, undefined as never)).rejects.toThrow(
+			'invalid blob V1 publication RPC request',
+		);
 	} finally {
 		owned.database.close();
 	}
@@ -254,7 +265,7 @@ test('Durable Object RPC boundary revalidates structured input', async () => {
 test('account deletion reopens an empty successor lifetime', async () => {
 	const owned = setupState();
 	try {
-		const authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		const authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		const before = expectOk(
 			await authority.readFacts(
@@ -282,7 +293,7 @@ test('account deletion recovers an authority whose stored schema is malformed', 
 	const owned = setupState();
 	try {
 		owned.database.exec('CREATE TABLE records (wrong TEXT) STRICT');
-		const authority = new DataAuthority(owned.state, {} as Cloudflare.Env);
+		const authority = new DataAuthority(owned.state, setupEnv());
 		await owned.ready();
 		await expect(
 			authority.readFacts(

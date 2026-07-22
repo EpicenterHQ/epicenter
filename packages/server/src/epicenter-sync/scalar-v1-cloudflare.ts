@@ -1,6 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
 
 import {
+	type BlobAcceptance,
+	parseBlobPublicationRequest,
+} from '@epicenter/data/blob-v1';
+import {
 	type DocumentAcceptance,
 	parseDocumentPublicationRequest,
 } from '@epicenter/data/document-v1';
@@ -25,6 +29,15 @@ import type { Result } from 'wellcrafted/result';
 
 import type { Env, ResolveDocumentPrincipal } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
+import {
+	type AuthorityBlobV1,
+	createAuthorityBlobV1,
+} from './blob-authority-v1.js';
+import { createR2BlobFileStore } from './blob-files-r2.js';
+import {
+	type BlobAuthorityV1Endpoint,
+	mountBlobV1App,
+} from './blob-v1-route.js';
 import {
 	createDocumentRealtimeV1Server,
 	type DocumentRealtimeV1Server,
@@ -82,19 +95,40 @@ function principalName(principalId: PrincipalId): string {
 	return encodeURIComponent(principalId).replaceAll('.', '%2E');
 }
 
+export type DataAuthorityEnv = Cloudflare.Env & { DATA_BLOBS: R2Bucket };
+
 /** One principal-owned scalar V1 authority on Durable Object SQLite. */
-export class DataAuthority extends DurableObject<Cloudflare.Env> {
+export class DataAuthority extends DurableObject<DataAuthorityEnv> {
+	private readonly database: ReturnType<
+		typeof createDurableObjectSqliteAdapter
+	>;
 	private authority: DataAuthorityV1 | undefined;
+	private blobAuthority:
+		| AuthorityBlobV1<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>>
+		| undefined;
+	private blobFiles: ReturnType<typeof createR2BlobFileStore> | undefined;
 	private realtime: DocumentRealtimeV1Server | undefined;
 	private readonly sockets = new WeakMap<WebSocket, DocumentRealtimeV1Socket>();
 	private initializationError: unknown;
 	private readonly ready: Promise<void>;
 
-	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
+	constructor(ctx: DurableObjectState, env: DataAuthorityEnv) {
 		super(ctx, env);
+		this.database = createDurableObjectSqliteAdapter(
+			ctx.storage as unknown as DurableObjectSqliteStorage,
+		);
 		this.ready = ctx.blockConcurrencyWhile(async () => {
 			try {
 				this.authority = this.openFreshOwner();
+				this.blobFiles = createR2BlobFileStore(
+					env.DATA_BLOBS,
+					this.authority.authorityLifetime(),
+				);
+				this.blobAuthority = createAuthorityBlobV1(
+					this.database,
+					this.blobFiles,
+				);
+				await this.blobAuthority.reopenSweep();
 				this.realtime = createDocumentRealtimeV1Server({
 					authority: this.authority,
 				});
@@ -137,10 +171,15 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 		}
 		const result = (await this.owner()).submit(parsed.data);
 		if (result.error === null) {
+			let reapedBlob = false;
 			for (const fact of result.data.facts) {
 				if (fact.state === 'tombstone') {
 					this.realtime?.closeAddress(fact.address);
+					reapedBlob = true;
 				}
+			}
+			if (reapedBlob && this.blobAuthority !== undefined) {
+				this.ctx.waitUntil(this.blobAuthority.sweepDebris());
 			}
 		}
 		return result;
@@ -155,6 +194,35 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 			throw new TypeError('invalid document V1 publication RPC request');
 		}
 		return (await this.owner()).acceptDocument(parsed);
+	}
+
+	async acceptBlob(
+		rawRequest: unknown,
+		bytes: ReadableStream<Uint8Array>,
+	): Promise<BlobAcceptance> {
+		const parsed = parseBlobPublicationRequest(
+			rawRequest,
+			SCALAR_SYNC_V1_LIMITS,
+		);
+		if (
+			parsed === undefined ||
+			typeof bytes !== 'object' ||
+			bytes === null ||
+			typeof bytes.getReader !== 'function'
+		) {
+			throw new TypeError('invalid blob V1 publication RPC request');
+		}
+		return (await this.blobs()).accept(parsed, bytes);
+	}
+
+	async readBlob(
+		rawAddress: unknown,
+	): Promise<ReadableStream<Uint8Array> | undefined> {
+		const parsed = parseAddress(rawAddress, SCALAR_SYNC_V1_LIMITS);
+		if (parsed.error !== null) {
+			throw new TypeError('invalid blob V1 read RPC request');
+		}
+		return (await this.blobs()).read(parsed.data);
 	}
 
 	override async fetch(request: Request): Promise<Response> {
@@ -231,13 +299,20 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 		await this.ready;
 		await this.ctx.blockConcurrencyWhile(async () => {
 			this.realtime?.closeAll();
+			await this.blobAuthority?.deleteAll();
 			this.realtime = undefined;
 			this.authority = undefined;
+			this.blobAuthority = undefined;
 			await this.ctx.storage.deleteAll();
 			// Authentication survives until the hosted deletion coordinator's last
 			// step. Reopen an empty successor lifetime so a partial downstream
 			// failure does not strand this actor in an unusable in-memory state.
 			this.authority = this.openFreshOwner();
+			this.blobFiles = createR2BlobFileStore(
+				this.env.DATA_BLOBS,
+				this.authority.authorityLifetime(),
+			);
+			this.blobAuthority = createAuthorityBlobV1(this.database, this.blobFiles);
 			this.realtime = createDocumentRealtimeV1Server({
 				authority: this.authority,
 			});
@@ -256,11 +331,20 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 		return this.authority;
 	}
 
+	private async blobs(): Promise<
+		AuthorityBlobV1<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>>
+	> {
+		await this.ready;
+		if (this.initializationError !== undefined) throw this.initializationError;
+		if (this.blobAuthority === undefined) {
+			throw new Error('blob V1 authority is unavailable');
+		}
+		return this.blobAuthority;
+	}
+
 	private openFreshOwner(): DataAuthorityV1 {
 		return openScalarAuthorityV1({
-			database: createDurableObjectSqliteAdapter(
-				this.ctx.storage as unknown as DurableObjectSqliteStorage,
-			),
+			database: this.database,
 			limits: SCALAR_SYNC_V1_LIMITS,
 			initialize: { authorityLifetime: crypto.randomUUID() },
 		});
@@ -341,6 +425,13 @@ export class DataAuthority extends DurableObject<Cloudflare.Env> {
 export type DataAuthorityNamespace = {
 	getByName(name: string): ScalarAuthorityV1Endpoint &
 		DocumentAuthorityV1Endpoint & {
+			acceptBlob(
+				request: Parameters<BlobAuthorityV1Endpoint['accept']>[0],
+				bytes: ReadableStream<Uint8Array>,
+			): Promise<BlobAcceptance>;
+			readBlob(
+				address: Parameters<BlobAuthorityV1Endpoint['read']>[0],
+			): Promise<ReadableStream<Uint8Array> | undefined>;
 			fetch(request: Request): Promise<Response>;
 		};
 };
@@ -361,7 +452,18 @@ function stubFor(
 	};
 }
 
-/** Mount the two authenticated scalar V1 routes on a Cloudflare deployment. */
+function blobStubFor(
+	namespace: DataAuthorityNamespace,
+	principalId: PrincipalId,
+): BlobAuthorityV1Endpoint {
+	const stub = namespace.getByName(principalName(principalId));
+	return {
+		accept: (request, bytes) => stub.acceptBlob(request, bytes),
+		read: (address) => stub.readBlob(address),
+	};
+}
+
+/** Mount the authenticated Data V1 surfaces on a Cloudflare deployment. */
 export function mountCloudflareScalarV1App<E extends Env = Env>(
 	app: Hono<E>,
 	{
@@ -386,6 +488,12 @@ export function mountCloudflareScalarV1App<E extends Env = Env>(
 		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: (principalId, env) =>
 			stubFor(resolveNamespace(env), principalId),
+	});
+	mountBlobV1App(app, {
+		auth,
+		limits: SCALAR_SYNC_V1_LIMITS,
+		locateAuthority: (principalId, env) =>
+			blobStubFor(resolveNamespace(env), principalId),
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(
