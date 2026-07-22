@@ -585,12 +585,15 @@ export class AuthorityRef {
 
 	/**
 	 * One-transaction acceptance of a submission delivered as the replica's
-	 * persisted canonical bytes: witness admission (number, hash), the kernel
-	 * fold per intent, sequence assignment, record upserts, `next_sequence`,
-	 * and the witness upsert with bounded parked results (memo transition 5).
-	 * An exact retry (same number, same hash) is answered from the witness
-	 * without statements (memo transition 6); a reused number with different
-	 * bytes is a fork.
+	 * persisted canonical bytes: lifetime validation, witness admission
+	 * (number, hash), the kernel fold per intent, sequence assignment, record
+	 * upserts, `next_sequence`, and the witness upsert with bounded parked
+	 * results (memo transition 5). An exact retry (same number, same hash) is
+	 * answered from the witness without statements (memo transition 6); a
+	 * reused number with different bytes is a fork. Like the pure protocol
+	 * authority, a request bound to a different lifetime is terminally
+	 * mismatched before any ledger logic runs: it is never adjudicated,
+	 * retried, or classified as a fork or gap.
 	 */
 	acceptance(requestBytes: string):
 		| {
@@ -600,13 +603,16 @@ export class AuthorityRef {
 				parked: ParkedIntent[];
 		  }
 		| { kind: 'retry'; response: SubmissionResponse }
-		| { kind: 'fork' | 'gap' } {
+		| { kind: 'fork' | 'gap' | 'lifetime-mismatch' } {
 		const { data: request, error } = parseSubmissionRequest(
 			JSON.parse(requestBytes),
 			LIMITS,
 		);
 		if (error !== null)
 			throw new Error(`acceptance admission: ${error.message}`);
+		if (request.authorityLifetime !== this.meta().authority_lifetime) {
+			return { kind: 'lifetime-mismatch' };
+		}
 		const requestHash = sha256Hex(canonicalize(request));
 		const witness = this.witness(request.replicaId);
 		const lastNumber = witness?.submission_number ?? 0;

@@ -629,6 +629,25 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 		replica.store.close();
 		authority.store.close();
 	});
+
+	test('a submission bound to another lifetime is a terminal mismatch, never adjudicated', () => {
+		// Matches the pure protocol authority (`submit` in protocol/v1): the
+		// lifetime is validated before any ledger logic, so a mismatched request
+		// is refused even when its number and content would otherwise be an
+		// exact retry, a fork, or the expected next submission.
+		const authority = AuthorityRef.create(LIFETIME);
+		const before = authority.store.logicalState();
+		const mismatched = requestBytes({
+			authorityLifetime: 'lifetime-two',
+			replicaId: REPLICA_ID,
+			submissionNumber: 1,
+			intents: [{ address: rowA, op: 'replace', value: 1 }],
+		});
+		expect(authority.acceptance(mismatched).kind).toBe('lifetime-mismatch');
+		expect(authority.store.logicalState()).toBe(before);
+		expect(authority.witness(REPLICA_ID)).toBeNull();
+		authority.store.close();
+	});
 });
 
 describe('document/blob subset (W3 binds these to the real foundations)', () => {
