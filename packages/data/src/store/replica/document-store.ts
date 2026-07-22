@@ -8,6 +8,7 @@ import * as Y from '@y/y';
 
 import {
 	DOCUMENT_PUBLICATION_VERSION,
+	type DocumentAcceptance,
 	type DocumentBoundRefusal,
 	type DocumentPublicationReceipt,
 	type DocumentPublicationRequest,
@@ -42,7 +43,8 @@ type InflightRow = SqliteRow & {
 	payload: Uint8Array | ArrayBuffer | null;
 	digest: string;
 	captured_revision: number;
-	parked_code: 'document-bound' | null;
+	parked_code: 'document-bound' | 'record-not-live' | null;
+	parked_state: 'absent' | 'tombstone' | 'unset' | null;
 	measured_bytes: number | null;
 	measured_structs: number | null;
 	limit_bytes: number | null;
@@ -63,7 +65,12 @@ export type FrozenDocumentPublication = DocumentPublicationRequest & {
 export type DocumentPublicationState =
 	| { kind: 'clean' }
 	| { kind: 'ready'; publication: FrozenDocumentPublication }
-	| { kind: 'parked'; refusal: DocumentBoundRefusal };
+	| {
+			kind: 'parked';
+			refusal:
+				| DocumentBoundRefusal
+				| Extract<DocumentAcceptance, { kind: 'record-not-live' }>;
+	  };
 
 type DocumentChainOptions = {
 	tailEntries?: number;
@@ -357,6 +364,20 @@ export function createReplicaDocumentStore(
 						},
 					};
 				}
+				if (existing.parked_code === 'record-not-live') {
+					if (existing.parked_state === null) {
+						throw new Error('parked document record state is corrupt');
+					}
+					return {
+						kind: 'parked',
+						refusal: {
+							kind: 'record-not-live',
+							activeAuthorityLifetime: meta.authority_lifetime,
+							address: structuredClone(address),
+							state: existing.parked_state,
+						},
+					};
+				}
 				return {
 					kind: 'ready',
 					publication: publicationFrom(
@@ -430,9 +451,36 @@ export function createReplicaDocumentStore(
 
 	function settle(
 		address: RecordAddress,
-		proof: DocumentPublicationReceipt | DocumentBoundRefusal,
+		proof:
+			| DocumentPublicationReceipt
+			| DocumentBoundRefusal
+			| Extract<DocumentAcceptance, { kind: 'record-not-live' }>,
 	): void {
 		database.transaction(() => {
+			if ('kind' in proof && proof.kind === 'record-not-live') {
+				const meta = one<SqliteRow & { authority_lifetime: string | null }>(
+					database,
+					'SELECT authority_lifetime FROM meta WHERE singleton = 1',
+				);
+				if (
+					meta?.authority_lifetime !== proof.activeAuthorityLifetime ||
+					!addressesEqual(address, proof.address)
+				) {
+					throw new Error('document refusal does not match its publication');
+				}
+				const row = requireDocumentOwner(database, address);
+				const inflight = inflightFor(database, row.record_id);
+				if (inflight === null || inflight.parked_code !== null) {
+					throw new Error('document refusal has no active publication');
+				}
+				database.run(
+					`UPDATE document_inflight SET payload = NULL,
+						parked_code = 'record-not-live', parked_state = ?
+					WHERE record_id = ?`,
+					[proof.state, row.record_id],
+				);
+				return;
+			}
 			if (
 				!addressesEqual(address, proof.address) ||
 				proof.protocolVersion !== DOCUMENT_PUBLICATION_VERSION

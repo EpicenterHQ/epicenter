@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from '@epicenter/sqlite';
 
-export const REPLICA_STORE_FORMAT_VERSION = 2;
+export const REPLICA_STORE_FORMAT_VERSION = 3;
 
 export const REPLICA_STORE_TABLES = [
 	'document_inflight',
@@ -133,20 +133,28 @@ const SCHEMA = [
 		captured_revision  INTEGER NOT NULL
 			CHECK (captured_revision BETWEEN 0 AND 9007199254740991),
 		parked_code        TEXT,
+		parked_state       TEXT,
 		measured_bytes     INTEGER,
 		measured_structs   INTEGER,
 		limit_bytes        INTEGER,
 		limit_structs      INTEGER,
 		CHECK (length(digest) = 64 AND digest NOT GLOB '*[^a-f0-9]*'),
-		CHECK ((parked_code IS NULL AND payload IS NOT NULL
+		CHECK ((parked_code IS NULL AND parked_state IS NULL AND payload IS NOT NULL
 				AND length(payload) > 0 AND measured_bytes IS NULL
 				AND measured_structs IS NULL AND limit_bytes IS NULL
 				AND limit_structs IS NULL)
-			OR (parked_code = 'document-bound' AND payload IS NULL
+			OR (parked_code IS NOT NULL AND parked_code = 'document-bound'
+				AND parked_state IS NULL
+				AND payload IS NULL
 				AND measured_bytes IS NOT NULL AND measured_bytes >= 0
 				AND measured_structs IS NOT NULL AND measured_structs >= 0
 				AND limit_bytes IS NOT NULL AND limit_bytes >= 0
-				AND limit_structs IS NOT NULL AND limit_structs >= 0))
+				AND limit_structs IS NOT NULL AND limit_structs >= 0)
+			OR (parked_code IS NOT NULL AND parked_code = 'record-not-live'
+				AND parked_state IN ('absent', 'tombstone', 'unset')
+				AND payload IS NULL AND measured_bytes IS NULL
+				AND measured_structs IS NULL AND limit_bytes IS NULL
+				AND limit_structs IS NULL))
 	) STRICT`,
 ] as const;
 

@@ -122,13 +122,19 @@ export type ReplicaWorkSummary = {
 export type ReplicaParkedWork = {
 	address: RecordAddress;
 	scalar: ReplicaRecordLanes['parked'];
-	document: {
-		code: 'document-bound';
-		measuredBytes: number;
-		measuredStructs: number;
-		limitBytes: number;
-		limitStructs: number;
-	} | null;
+	document:
+		| {
+				code: 'document-bound';
+				measuredBytes: number;
+				measuredStructs: number;
+				limitBytes: number;
+				limitStructs: number;
+		  }
+		| {
+				code: 'record-not-live';
+				state: 'absent' | 'tombstone' | 'unset';
+		  }
+		| null;
 	blob: { code: 'blob-conflict' | 'record-not-live' } | null;
 };
 
@@ -393,6 +399,14 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 		WHERE ${TRIPLE_WHERE}`,
 		[fact.state, payload, fact.sequence, ...tripleParams(fact.address)],
 	);
+	if (fact.state === 'live') {
+		database.run(
+			`DELETE FROM document_inflight
+			WHERE parked_code = 'record-not-live' AND record_id =
+				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+			tripleParams(fact.address),
+		);
+	}
 }
 
 function openSchema(
@@ -666,7 +680,8 @@ export function openReplicaStore({
 				namespace: string;
 				collection: string;
 				record_key: string;
-				document_code: 'document-bound' | null;
+				document_code: 'document-bound' | 'record-not-live' | null;
+				document_state: 'absent' | 'tombstone' | 'unset' | null;
 				document_measured_bytes: number | null;
 				document_measured_structs: number | null;
 				document_limit_bytes: number | null;
@@ -676,6 +691,7 @@ export function openReplicaStore({
 		>(
 			`SELECT r.*,
 				i.parked_code AS document_code,
+				i.parked_state AS document_state,
 				i.measured_bytes AS document_measured_bytes,
 				i.measured_structs AS document_measured_structs,
 				i.limit_bytes AS document_limit_bytes,
@@ -698,20 +714,26 @@ export function openReplicaStore({
 			const document =
 				row.document_code === null
 					? null
-					: row.document_measured_bytes === null ||
-							row.document_measured_structs === null ||
-							row.document_limit_bytes === null ||
-							row.document_limit_structs === null
-						? (() => {
-								throw new Error('parked document measurements are corrupt');
-							})()
-						: {
-								code: row.document_code,
-								measuredBytes: row.document_measured_bytes,
-								measuredStructs: row.document_measured_structs,
-								limitBytes: row.document_limit_bytes,
-								limitStructs: row.document_limit_structs,
-							};
+					: row.document_code === 'record-not-live'
+						? row.document_state === null
+							? (() => {
+									throw new Error('parked document record state is corrupt');
+								})()
+							: { code: row.document_code, state: row.document_state }
+						: row.document_measured_bytes === null ||
+								row.document_measured_structs === null ||
+								row.document_limit_bytes === null ||
+								row.document_limit_structs === null
+							? (() => {
+									throw new Error('parked document measurements are corrupt');
+								})()
+							: {
+									code: row.document_code,
+									measuredBytes: row.document_measured_bytes,
+									measuredStructs: row.document_measured_structs,
+									limitBytes: row.document_limit_bytes,
+									limitStructs: row.document_limit_structs,
+								};
 			return {
 				address,
 				scalar: lanesOf(row)?.parked ?? null,
@@ -906,6 +928,17 @@ export function openReplicaStore({
 				database.run(
 					`DELETE FROM document_inflight WHERE record_id =
 						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+					tripleParams(intent.address),
+				);
+			}
+			if (
+				outcome.operation.op === 'patch' ||
+				outcome.operation.op === 'replace'
+			) {
+				database.run(
+					`DELETE FROM document_inflight
+						WHERE parked_code = 'record-not-live' AND record_id =
+							(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
 					tripleParams(intent.address),
 				);
 			}

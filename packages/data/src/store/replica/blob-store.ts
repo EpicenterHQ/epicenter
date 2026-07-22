@@ -113,6 +113,10 @@ export function createReplicaBlobStore<TSource, TRead>(
 	hooks: BlobFaultHooks = {},
 ) {
 	let tail = Promise.resolve();
+	const listeners = new Set<(address: RecordAddress) => void>();
+	function notify(address: RecordAddress): void {
+		for (const listener of listeners) listener(structuredClone(address));
+	}
 	function exclusive<T>(operation: () => Promise<T>): Promise<T> {
 		const result = tail.then(operation, operation);
 		tail = result.then(
@@ -142,7 +146,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 		address: RecordAddress,
 		source: TSource,
 	): Promise<string> {
-		return exclusive(async () => {
+		const digest = await exclusive(async () => {
 			const staged = await files.stage(source);
 			if (!isBlobDigest(staged.digest)) {
 				await files.sweepStaging();
@@ -173,6 +177,8 @@ export function createReplicaBlobStore<TSource, TRead>(
 			hooks.afterMembership?.();
 			return staged.digest;
 		});
+		notify(address);
+		return digest;
 	}
 
 	async function publication(
@@ -211,7 +217,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 		address: RecordAddress,
 		acceptance: BlobAcceptance,
 	): Promise<void> {
-		return exclusive(async () =>
+		await exclusive(async () =>
 			database.transaction(() => {
 				const row = requireLiveRecord(database, address);
 				if (row.blob_sha256 === null || row.blob_pending !== 1) {
@@ -268,6 +274,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 				);
 			}),
 		);
+		notify(address);
 	}
 
 	async function read(address: RecordAddress): Promise<TRead | null> {
@@ -318,6 +325,10 @@ export function createReplicaBlobStore<TSource, TRead>(
 		publication,
 		settle,
 		read,
+		subscribe(listener: (address: RecordAddress) => void) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
 		sweepDebris,
 		reopenSweep,
 	};

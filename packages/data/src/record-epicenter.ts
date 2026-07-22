@@ -180,6 +180,9 @@ export function createRecordEpicenter<TSource, TRead>({
 			notifyTable(table.namespace, table.collection, table.ids);
 		}
 	});
+	const stopBlobSubscription = blobs.subscribe((address) => {
+		notifyTable(address.namespace, address.collection, [address.recordKey]);
+	});
 
 	function bind<const TLenses extends Record<string, LensDefinition>>(
 		lenses: TLenses,
@@ -255,9 +258,7 @@ export function createRecordEpicenter<TSource, TRead>({
 		const blob: RecordBlobLens<TSource, TRead> = Object.freeze({
 			async put(recordId, source) {
 				requireOpen();
-				const digest = await blobs.capture(address(recordId), source);
-				notifyTable(namespace, collection, [recordId]);
-				return digest;
+				return blobs.capture(address(recordId), source);
 			},
 			get(recordId) {
 				requireOpen();
@@ -411,6 +412,7 @@ export function createRecordEpicenter<TSource, TRead>({
 			if (isDisposed) return;
 			isDisposed = true;
 			stopReplicaSubscription();
+			stopBlobSubscription();
 			tableListeners.clear();
 			valueListeners.clear();
 			await documents[Symbol.asyncDispose]();

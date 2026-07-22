@@ -4,7 +4,7 @@
  * The conformance suite owns lane semantics and crash atomicity. These cases
  * protect the clean-break boundary around the dedicated SQLite file itself:
  * initialization occurs only in an empty database, and reopening recognizes
- * exactly the format-two tables and indexes owned by this store.
+ * exactly the current tables and indexes owned by this store.
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
@@ -229,14 +229,14 @@ describe('production replica store format', () => {
 					limits: LIMITS,
 					initialize: { replicaId: REPLICA_ID },
 				}),
-			).toThrow(/does not match format 2/);
+			).toThrow(/does not match format 3/);
 			expect(userSchemaObjects(database)).toEqual(['table:legacy_workspace']);
 		} finally {
 			database.close();
 		}
 	});
 
-	test('refuses an incomplete format-two schema', () => {
+	test('refuses an incomplete current schema', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const adapter = createBunSqliteAdapter(database);
@@ -248,7 +248,7 @@ describe('production replica store format', () => {
 			database.exec('DROP INDEX records_pending');
 			expect(() =>
 				openReplicaStore({ database: adapter, limits: LIMITS }),
-			).toThrow(/does not match format 2/);
+			).toThrow(/does not match format 3/);
 		} finally {
 			database.close();
 		}

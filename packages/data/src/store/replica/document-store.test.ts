@@ -219,6 +219,65 @@ describe('record document store', () => {
 		}
 	});
 
+	test('parks record-not-live and a new live scalar desire makes it eligible', () => {
+		const context = setup();
+		try {
+			const [update] = sourceUpdates('hello');
+			if (update === undefined) throw new Error('missing source update');
+			context.store.appendLocalDocumentUpdate(ADDRESS, update);
+			const frozen = context.store.documentPublication(ADDRESS);
+			if (frozen.kind !== 'ready') throw new Error('publication was not ready');
+			const refusal = {
+				kind: 'record-not-live',
+				activeAuthorityLifetime: 'lifetime-one',
+				address: ADDRESS,
+				state: 'unset',
+			} as const;
+			context.store.settleDocumentPublication(ADDRESS, refusal);
+			expect(context.store.documentPublication(ADDRESS)).toEqual({
+				kind: 'parked',
+				refusal,
+			});
+			expect(context.store.parkedWork()).toMatchObject({
+				entries: [
+					{
+						address: ADDRESS,
+						document: { code: 'record-not-live', state: 'unset' },
+					},
+				],
+			});
+
+			context.store.localWrite({
+				address: ADDRESS,
+				op: 'patch',
+				set: { title: 'local' },
+				unset: [],
+			});
+			expect(context.store.inspectDocument(ADDRESS)?.inflight).toBe('none');
+			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
+
+			context.store.settleDocumentPublication(ADDRESS, refusal);
+			context.store.installFacts({
+				request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
+				response: {
+					authorityLifetime: 'lifetime-one',
+					facts: [
+						{
+							address: ADDRESS,
+							sequence: 1,
+							state: 'live',
+							payload: { title: 'remote' },
+						},
+					],
+					hasMore: false,
+				},
+			});
+			expect(context.store.inspectDocument(ADDRESS)?.inflight).toBe('none');
+		} finally {
+			context.database.close();
+		}
+	});
+
 	test('parks an over-bound local state without duplicating its payload', () => {
 		const context = setup();
 		try {
@@ -229,6 +288,9 @@ describe('record document store', () => {
 			expect(publication.kind).toBe('parked');
 			if (publication.kind !== 'parked') {
 				throw new Error('over-bound document was not parked');
+			}
+			if (publication.refusal.kind !== 'document-bound') {
+				throw new Error('over-bound document has the wrong refusal');
 			}
 			expect(publication.refusal.measured.stateBytes).toBeGreaterThan(
 				DOCUMENT_BOUND.stateBytes,
