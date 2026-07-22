@@ -13,7 +13,13 @@ import { expect, test } from 'bun:test';
 import { blobFileOwner } from '@epicenter/data/blob-v1';
 import { sha256Hex } from '@epicenter/data/protocol/v1';
 
-import { createR2BlobFileStore } from './blob-files-r2.js';
+import {
+	copyR2AuthorityBlob,
+	createR2BlobFileStore,
+	deleteR2AuthorityLifetime,
+	sealR2AuthorityBlobs,
+	sweepR2AuthorityLifetimes,
+} from './blob-files-r2.js';
 
 const ADDRESS = {
 	namespace: 'so.epicenter.notes',
@@ -162,5 +168,76 @@ test("R2 blob sweeps cannot see or delete a sibling authority lifetime's bytes",
 	).toBe(true);
 	expect([...objects.keys()].some((key) => key.includes('/staging/'))).toBe(
 		true,
+	);
+});
+
+test('Restore copies directly into one unpublished lifetime and can abandon it', async () => {
+	const { bucket, objects } = setupBucket();
+	const digest = sha256Hex('restored bytes');
+	const owner = blobFileOwner(ADDRESS, digest);
+
+	await copyR2AuthorityBlob(
+		bucket,
+		'owner-one',
+		'successor-lifetime',
+		owner,
+		source('restored bytes'),
+	);
+	await sealR2AuthorityBlobs(bucket, 'owner-one', 'successor-lifetime', 1);
+	await copyR2AuthorityBlob(
+		bucket,
+		'owner-one',
+		'successor-lifetime',
+		owner,
+		source('restored bytes'),
+	);
+	objects.set(
+		'data-authorities/owner-one/authorities/sibling-lifetime/blobs/content/keep',
+		new TextEncoder().encode('keep'),
+	);
+
+	expect([...objects.keys()]).toContain(
+		`data-authorities/owner-one/authorities/successor-lifetime/blobs/content/${owner.ownerKey}/${owner.digest}`,
+	);
+	await deleteR2AuthorityLifetime(bucket, 'owner-one', 'successor-lifetime');
+	expect([...objects.keys()]).toEqual([
+		'data-authorities/owner-one/authorities/sibling-lifetime/blobs/content/keep',
+	]);
+});
+
+test('Restore sealing rejects incomplete and malformed lifetime membership', async () => {
+	const { bucket, objects } = setupBucket();
+	await expect(
+		sealR2AuthorityBlobs(bucket, 'owner-one', 'successor-lifetime', 1),
+	).rejects.toThrow('membership is incomplete');
+	objects.set(
+		'data-authorities/owner-one/authorities/successor-lifetime/blobs/staging/unexpected',
+		new TextEncoder().encode('unexpected'),
+	);
+	await expect(
+		sealR2AuthorityBlobs(bucket, 'owner-one', 'successor-lifetime', 1),
+	).rejects.toThrow('unexpected R2 blob');
+});
+
+test('reopen retains only the canonical authority lifetime', async () => {
+	const { bucket, objects } = setupBucket();
+	for (const key of [
+		'data-authorities/owner-one/authorities/active/blobs/content/a',
+		'data-authorities/owner-one/authorities/retired/blobs/content/b',
+		'data-authorities/owner-one/authorities/partial/blobs/content/c',
+		'data-authorities/owner-one/backups/aaaaaaaaaaaaaaaaaaaaaaaa/control/state-v1.json',
+		'data-authorities/owner-two/authorities/retired/blobs/content/d',
+	]) {
+		objects.set(key, new TextEncoder().encode(key));
+	}
+
+	await sweepR2AuthorityLifetimes(bucket, 'owner-one', 'active');
+
+	expect([...objects.keys()].sort()).toEqual(
+		[
+			'data-authorities/owner-one/authorities/active/blobs/content/a',
+			'data-authorities/owner-one/backups/aaaaaaaaaaaaaaaaaaaaaaaa/control/state-v1.json',
+			'data-authorities/owner-two/authorities/retired/blobs/content/d',
+		].sort(),
 	);
 });

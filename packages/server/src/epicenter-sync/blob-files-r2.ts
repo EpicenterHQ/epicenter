@@ -17,6 +17,27 @@ export function r2DataOwnerPrefix(ownerStorageKey: string): string {
 	return `data-authorities/${encodeURIComponent(ownerStorageKey)}/`;
 }
 
+function r2AuthorityLifetimePrefix(
+	ownerStorageKey: string,
+	authorityLifetime: string,
+): string {
+	return `${r2DataOwnerPrefix(ownerStorageKey)}authorities/${encodeURIComponent(authorityLifetime)}/`;
+}
+
+function r2BlobContentKey(
+	ownerStorageKey: string,
+	authorityLifetime: string,
+	owner: OwnedBlobFile,
+): string {
+	if (!/^[a-f0-9]{64}$/u.test(owner.ownerKey)) {
+		throw new Error('invalid R2 blob owner');
+	}
+	if (!/^[a-f0-9]{64}$/u.test(owner.digest)) {
+		throw new Error('invalid R2 blob digest');
+	}
+	return `${r2AuthorityLifetimePrefix(ownerStorageKey, authorityLifetime)}blobs/content/${owner.ownerKey}/${owner.digest}`;
+}
+
 async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
 	while (true) {
 		const page = await bucket.list({ prefix });
@@ -33,13 +54,134 @@ export async function deleteR2BlobOwner(
 	await deletePrefix(bucket, r2DataOwnerPrefix(ownerStorageKey));
 }
 
+/** Delete one unpublished or retired authority lifetime without touching siblings. */
+export async function deleteR2AuthorityLifetime(
+	bucket: R2Bucket,
+	ownerStorageKey: string,
+	authorityLifetime: string,
+): Promise<void> {
+	await deletePrefix(
+		bucket,
+		r2AuthorityLifetimePrefix(ownerStorageKey, authorityLifetime),
+	);
+}
+
+/** Retain only the canonical active lifetime after a crash or completed Restore. */
+export async function sweepR2AuthorityLifetimes(
+	bucket: R2Bucket,
+	ownerStorageKey: string,
+	activeAuthorityLifetime: string,
+): Promise<void> {
+	const authoritiesPrefix = `${r2DataOwnerPrefix(ownerStorageKey)}authorities/`;
+	const activePrefix = r2AuthorityLifetimePrefix(
+		ownerStorageKey,
+		activeAuthorityLifetime,
+	);
+	let cursor: string | undefined;
+	for (;;) {
+		const page = await bucket.list({
+			prefix: authoritiesPrefix,
+			...(cursor === undefined ? {} : { cursor }),
+		});
+		const debris = page.objects
+			.map((object) => object.key)
+			.filter((key) => !key.startsWith(activePrefix));
+		if (debris.length > 0) {
+			await bucket.delete(debris);
+			cursor = undefined;
+			continue;
+		}
+		if (!page.truncated) return;
+		if (page.cursor === undefined) {
+			throw new Error('R2 omitted an authority lifetime sweep cursor');
+		}
+		cursor = page.cursor;
+	}
+}
+
+/** Copy already digest-verified R2 bytes into an unpublished authority lifetime. */
+export async function copyR2AuthorityBlob(
+	bucket: R2Bucket,
+	ownerStorageKey: string,
+	authorityLifetime: string,
+	owner: OwnedBlobFile,
+	source: ReadableStream<Uint8Array>,
+): Promise<void> {
+	const destination = r2BlobContentKey(
+		ownerStorageKey,
+		authorityLifetime,
+		owner,
+	);
+	const existing = await bucket.head(destination);
+	if (existing !== null) {
+		if (checksumHex(existing) !== owner.digest) {
+			throw new Error('restored R2 blob failed digest verification');
+		}
+		return;
+	}
+	const stored = await bucket.put(destination, source, {
+		sha256: owner.digest,
+	});
+	if (stored === null || checksumHex(stored) !== owner.digest) {
+		throw new Error('R2 did not verify restored blob bytes');
+	}
+}
+
+/** Verify exact physical membership before an unpublished lifetime can activate. */
+export async function sealR2AuthorityBlobs(
+	bucket: R2Bucket,
+	ownerStorageKey: string,
+	authorityLifetime: string,
+	expectedBlobCount: number,
+): Promise<void> {
+	if (!Number.isSafeInteger(expectedBlobCount) || expectedBlobCount < 0) {
+		throw new RangeError(
+			'restored R2 blob count must be a non-negative integer',
+		);
+	}
+	const blobsPrefix = `${r2AuthorityLifetimePrefix(ownerStorageKey, authorityLifetime)}blobs/`;
+	let count = 0;
+	let cursor: string | undefined;
+	for (;;) {
+		const page = await bucket.list({
+			prefix: blobsPrefix,
+			...(cursor === undefined ? {} : { cursor }),
+		});
+		for (const object of page.objects) {
+			const [kind, ownerKey, digest, extra] = object.key
+				.slice(blobsPrefix.length)
+				.split('/');
+			if (
+				kind !== 'content' ||
+				extra !== undefined ||
+				ownerKey === undefined ||
+				digest === undefined ||
+				!/^[a-f0-9]{64}$/u.test(ownerKey) ||
+				!/^[a-f0-9]{64}$/u.test(digest) ||
+				checksumHex(object) !== digest
+			) {
+				throw new Error('restored authority contains an unexpected R2 blob');
+			}
+			count += 1;
+		}
+		if (!page.truncated) break;
+		if (page.cursor === undefined) {
+			throw new Error('R2 omitted a restored authority blob cursor');
+		}
+		cursor = page.cursor;
+	}
+	if (count !== expectedBlobCount) {
+		throw new Error('restored authority R2 blob membership is incomplete');
+	}
+}
+
 /** R2 implementation bound to one principal authority lifetime. */
 export function createR2BlobFileStore(
 	bucket: R2Bucket,
 	ownerStorageKey: string,
 	authorityLifetime: string,
 ): BlobFileStore<ReadableStream<Uint8Array>, ReadableStream<Uint8Array>> {
-	const root = `${r2DataOwnerPrefix(ownerStorageKey)}authorities/${encodeURIComponent(authorityLifetime)}/blobs`;
+	const root = `${r2AuthorityLifetimePrefix(ownerStorageKey, authorityLifetime)}blobs`;
 	const stagingPrefix = `${root}/staging/`;
 	const contentPrefix = `${root}/content/`;
 
@@ -51,13 +193,7 @@ export function createR2BlobFileStore(
 	}
 
 	function contentKey(owner: OwnedBlobFile): string {
-		if (!/^[a-f0-9]{64}$/u.test(owner.ownerKey)) {
-			throw new Error('invalid R2 blob owner');
-		}
-		if (!/^[a-f0-9]{64}$/u.test(owner.digest)) {
-			throw new Error('invalid R2 blob digest');
-		}
-		return `${contentPrefix}${owner.ownerKey}/${owner.digest}`;
+		return r2BlobContentKey(ownerStorageKey, authorityLifetime, owner);
 	}
 
 	async function stage(
