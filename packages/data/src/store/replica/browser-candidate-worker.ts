@@ -37,6 +37,9 @@ function isMutation(operation: BrowserReplicaStoreOperation): boolean {
 		operation.kind === 'seal' ||
 		operation.kind === 'settle' ||
 		operation.kind === 'install-facts' ||
+		operation.kind === 'capture-blob' ||
+		operation.kind === 'settle-blob-publication' ||
+		operation.kind === 'sweep-blob-debris' ||
 		operation.kind === 'erase'
 	);
 }
@@ -120,7 +123,7 @@ export function startBrowserReplicaCandidateWorker(
 		if (ownerOperations === undefined || ownerSession !== session) return;
 		ownerTail = ownerTail.then(async () => {
 			try {
-				const value = ownerOperations?.execute(operation);
+				const value = await ownerOperations?.execute(operation);
 				respond(candidate, { type: 'result', id, value }, session);
 				if (isMutation(operation)) emitInvalidation(session);
 			} catch (cause) {

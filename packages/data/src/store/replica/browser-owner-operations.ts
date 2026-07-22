@@ -9,9 +9,9 @@ export function createBrowserReplicaOwnerOperations(
 	owner: BrowserReplicaOwner,
 ) {
 	return {
-		execute(
+		async execute(
 			operation: BrowserReplicaStoreOperation,
-		): BrowserReplicaOwnerResult {
+		): Promise<BrowserReplicaOwnerResult> {
 			switch (operation.kind) {
 				case 'record':
 					return owner.store.record(operation.address);
@@ -56,14 +56,29 @@ export function createBrowserReplicaOwnerOperations(
 						operation.proof,
 					);
 					return undefined;
+				case 'capture-blob':
+					return owner.blobs.capture(operation.address, operation.bytes);
+				case 'inspect-blob':
+					return owner.blobs.inspect(operation.address);
+				case 'blob-publication':
+					return owner.blobs.publication(operation.address);
+				case 'settle-blob-publication':
+					await owner.blobs.settle(operation.address, operation.acceptance);
+					return undefined;
+				case 'read-blob':
+					return owner.blobs.read(operation.address);
+				case 'sweep-blob-debris':
+					await owner.blobs.sweepDebris();
+					return undefined;
 				case 'erase':
 					owner.store.erase();
+					await owner.blobs.sweepDebris();
 					return undefined;
 				case 'integrity-check':
 					owner.integrityCheck();
 					return undefined;
 				case 'reopen':
-					owner.reopen();
+					await owner.reopen();
 					return undefined;
 			}
 		},

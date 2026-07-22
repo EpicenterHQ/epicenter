@@ -67,6 +67,12 @@ export function startBrowserReplicaOwnerWorker(
 			case 'export-document':
 			case 'document-publication':
 			case 'settle-document-publication':
+			case 'capture-blob':
+			case 'inspect-blob':
+			case 'blob-publication':
+			case 'settle-blob-publication':
+			case 'read-blob':
+			case 'sweep-blob-debris':
 			case 'erase':
 			case 'integrity-check':
 			case 'reopen':

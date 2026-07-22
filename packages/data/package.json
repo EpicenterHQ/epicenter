@@ -36,6 +36,7 @@
 		"@epicenter/field": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",
+		"@noble/hashes": "catalog:",
 		"@sqlite.org/sqlite-wasm": "catalog:",
 		"@y/y": "14.0.0-rc.24",
 		"nanoid": "catalog:",

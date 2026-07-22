@@ -1,3 +1,4 @@
+import type { BlobAcceptance } from '../../blob-v1/index.js';
 import type {
 	DocumentBoundRefusal,
 	DocumentPublicationReceipt,
@@ -10,6 +11,7 @@ import type {
 	SubmissionResponse,
 	ValidatedLimits,
 } from '../../protocol/v1/index.js';
+import type { BlobInspection, BlobPublication } from './blob-store.js';
 import type {
 	DocumentInspection,
 	DocumentPublicationState,
@@ -60,6 +62,16 @@ export type BrowserReplicaOwnerOperation =
 			address: RecordAddress;
 			proof: DocumentPublicationReceipt | DocumentBoundRefusal;
 	  }
+	| { kind: 'capture-blob'; address: RecordAddress; bytes: Blob }
+	| { kind: 'inspect-blob'; address: RecordAddress }
+	| { kind: 'blob-publication'; address: RecordAddress }
+	| {
+			kind: 'settle-blob-publication';
+			address: RecordAddress;
+			acceptance: BlobAcceptance;
+	  }
+	| { kind: 'read-blob'; address: RecordAddress }
+	| { kind: 'sweep-blob-debris' }
 	| { kind: 'erase' }
 	| { kind: 'integrity-check' }
 	| { kind: 'reopen' }
@@ -77,6 +89,9 @@ export type BrowserReplicaOwnerResult =
 	| SealedRequest
 	| DocumentInspection
 	| DocumentPublicationState
+	| BlobInspection
+	| BlobPublication<Blob>
+	| Blob
 	| Uint8Array
 	| string
 	| null;

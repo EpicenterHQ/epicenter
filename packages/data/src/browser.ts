@@ -892,3 +892,5 @@ function isEpicenterDesktopSurface(): boolean {
 		document?.getElementById('epicenter-auth-bootstrap') !== null
 	);
 }
+
+export { createBrowserOpfsBlobFileStore } from './store/replica/browser-opfs-blob-files.js';
