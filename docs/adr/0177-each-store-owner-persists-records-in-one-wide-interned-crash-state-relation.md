@@ -104,6 +104,25 @@ shipping gate for whichever layout ships. It is not a selector between them.
 Inspection snapshot capture is likewise a product charter owned by ADR-0162,
 not a physical-layout selector.
 
+### Evidence checkpoint: Durable Object authority
+
+The 2026-07-22 workerd charter ran the selected production authority DDL and
+the split runner-up in both candidate orders. Each run held 1,000,000 records
+at the exact 536,870,912-byte V1 proxy and measured 128 batches of 64
+addresses. Wide used 602,787,840 bytes versus split's 644,837,376 and
+materially won feed, fact write, and settlement timings. Split won
+only the isolated accepted-blob write. Both averaged 130.008 written rows per
+submission; wide read one extra row per touched address because its UPSERT
+probed the secondary address index. Current Cloudflare allowances and rates
+make the shared write count the governing billing term, so the read delta does
+not reverse the authority result. Both layouts reopened with complete semantic
+row counts. The reports, pricing calculation, and measurement limits live under
+`docs/benchmarks/authority-layout/`.
+
+This closes the Durable Object hot-path and billing slices in favor of wide. It
+does not accept this ADR: the Bun replica direction is mixed, and browser OPFS
+hot-path plus physical mobile capacity evidence remains open.
+
 ## Consequences
 
 - One `SELECT` by triple answers what the authority said, what is in flight,
@@ -114,9 +133,10 @@ not a physical-layout selector.
   facts-versus-intents orphan class, though not empty; the conformance harness
   owns it.
 - The address triple is stored twice per record (the row and its unique
-  index). The wide layout measured about 3% more total bytes than the leanest
-  split layout on the probe fixture; that cost buys single-relation
-  transitions and the deleted orphan class.
+  index). Wide measured 3.46% larger than split in the Bun replica fixture and
+  6.52% smaller in the Durable Object authority fixture. Layout cost depends on
+  the owner's state machine; the cross-owner decision waits for the browser
+  charters.
 - The four-combination relation-and-coordinate benchmark matrix is retired.
   Historical benchmark artifacts remain honest evidence about their own
   fixture; they do not select this layout and are not rerun as a gate.

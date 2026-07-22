@@ -1,0 +1,8486 @@
+{
+	"generatedAt": "2026-07-22T10:33:15.631Z",
+	"profile": "full",
+	"candidateOrder": ["wide", "split"],
+	"fixture": {
+		"records": 1000000,
+		"proxyBytes": 536870912,
+		"repetitions": 128,
+		"batchSize": 64,
+		"seedBatch": 5000,
+		"baseFillerBytes": 401,
+		"extraFillerRecords": 102024
+	},
+	"environment": {
+		"platform": "darwin",
+		"release": "25.5.0",
+		"cpu": "Apple M4 Max",
+		"bun": "1.3.1",
+		"miniflare": "4.20260401.0",
+		"workerd": "1.20260401.1"
+	},
+	"fingerprints": {
+		"runnerSha256": "30833f79c39ff825471e9fb89b6bccd564b9d9bafa153fbdc3b61772b91a017a",
+		"workerSha256": "59520a469ba88334a4fa95034c0e9839c5b4adabc91127606dbe3fe1110a9f58",
+		"authoritySchemaSha256": "2640122f84b8a7061808ddcfc876d699a8d27b77de44ed91ea72e7d50e127f8d",
+		"bundleSha256": "ff56966351f208fc1313a841ce8c667df6f33b689a301346203fc3c9590f2e22"
+	},
+	"candidates": {
+		"wide": {
+			"seed": [
+				{
+					"milliseconds": 22,
+					"rowsWritten": 15000,
+					"databaseSize": 3035136
+				},
+				{
+					"milliseconds": 20,
+					"rowsWritten": 15000,
+					"databaseSize": 6037504
+				},
+				{
+					"milliseconds": 21,
+					"rowsWritten": 15000,
+					"databaseSize": 8986624
+				},
+				{
+					"milliseconds": 23,
+					"rowsWritten": 15000,
+					"databaseSize": 11988992
+				},
+				{
+					"milliseconds": 28,
+					"rowsWritten": 15000,
+					"databaseSize": 14966784
+				},
+				{
+					"milliseconds": 27,
+					"rowsWritten": 15000,
+					"databaseSize": 17973248
+				},
+				{
+					"milliseconds": 28,
+					"rowsWritten": 15000,
+					"databaseSize": 20959232
+				},
+				{
+					"milliseconds": 35,
+					"rowsWritten": 15000,
+					"databaseSize": 23916544
+				},
+				{
+					"milliseconds": 37,
+					"rowsWritten": 15000,
+					"databaseSize": 26955776
+				},
+				{
+					"milliseconds": 35,
+					"rowsWritten": 15000,
+					"databaseSize": 29974528
+				},
+				{
+					"milliseconds": 34,
+					"rowsWritten": 15000,
+					"databaseSize": 32952320
+				},
+				{
+					"milliseconds": 35,
+					"rowsWritten": 15000,
+					"databaseSize": 35889152
+				},
+				{
+					"milliseconds": 36,
+					"rowsWritten": 15000,
+					"databaseSize": 38920192
+				},
+				{
+					"milliseconds": 36,
+					"rowsWritten": 15000,
+					"databaseSize": 41934848
+				},
+				{
+					"milliseconds": 36,
+					"rowsWritten": 15000,
+					"databaseSize": 44945408
+				},
+				{
+					"milliseconds": 37,
+					"rowsWritten": 15000,
+					"databaseSize": 47964160
+				},
+				{
+					"milliseconds": 38,
+					"rowsWritten": 15000,
+					"databaseSize": 50987008
+				},
+				{
+					"milliseconds": 40,
+					"rowsWritten": 15000,
+					"databaseSize": 54026240
+				},
+				{
+					"milliseconds": 40,
+					"rowsWritten": 15000,
+					"databaseSize": 57155584
+				},
+				{
+					"milliseconds": 40,
+					"rowsWritten": 15000,
+					"databaseSize": 60342272
+				},
+				{
+					"milliseconds": 41,
+					"rowsWritten": 15000,
+					"databaseSize": 63373312
+				},
+				{
+					"milliseconds": 41,
+					"rowsWritten": 15000,
+					"databaseSize": 66240512
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 69025792
+				},
+				{
+					"milliseconds": 43,
+					"rowsWritten": 15000,
+					"databaseSize": 71876608
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 74997760
+				},
+				{
+					"milliseconds": 54,
+					"rowsWritten": 15000,
+					"databaseSize": 77889536
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 80863232
+				},
+				{
+					"milliseconds": 62,
+					"rowsWritten": 15000,
+					"databaseSize": 83939328
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 87068672
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 90058752
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 93216768
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 96243712
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 99328000
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 102285312
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 105230336
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 108326912
+				},
+				{
+					"milliseconds": 55,
+					"rowsWritten": 15000,
+					"databaseSize": 111489024
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 114700288
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 117960704
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 121253888
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 124399616
+				},
+				{
+					"milliseconds": 45,
+					"rowsWritten": 15000,
+					"databaseSize": 127291392
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 130117632
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 132898816
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 135729152
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 138641408
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 141754368
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 144957440
+				},
+				{
+					"milliseconds": 58,
+					"rowsWritten": 15000,
+					"databaseSize": 148246528
+				},
+				{
+					"milliseconds": 67,
+					"rowsWritten": 15000,
+					"databaseSize": 151523328
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 154718208
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 157765632
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 160595968
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 163360768
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 166092800
+				},
+				{
+					"milliseconds": 54,
+					"rowsWritten": 15000,
+					"databaseSize": 168894464
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 171773952
+				},
+				{
+					"milliseconds": 59,
+					"rowsWritten": 15000,
+					"databaseSize": 174796800
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 177958912
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 181248000
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 184598528
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 187842560
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 190865408
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 193716224
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 196534272
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 199274496
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 202014720
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 204857344
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 207839232
+				},
+				{
+					"milliseconds": 54,
+					"rowsWritten": 15000,
+					"databaseSize": 210984960
+				},
+				{
+					"milliseconds": 62,
+					"rowsWritten": 15000,
+					"databaseSize": 214265856
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 217645056
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 220905472
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 223903744
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 226783232
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 229625856
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 232398848
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 235147264
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 237985792
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 240910336
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 244027392
+				},
+				{
+					"milliseconds": 60,
+					"rowsWritten": 15000,
+					"databaseSize": 247275520
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 250658816
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 253964288
+				},
+				{
+					"milliseconds": 46,
+					"rowsWritten": 15000,
+					"databaseSize": 256978944
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 259862528
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 262713344
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 265510912
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 268304384
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 271142912
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 274051072
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 277049344
+				},
+				{
+					"milliseconds": 63,
+					"rowsWritten": 15000,
+					"databaseSize": 280313856
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 283631616
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 286937088
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 289992704
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 292913152
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 295776256
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 298618880
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 301391872
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 304259072
+				},
+				{
+					"milliseconds": 55,
+					"rowsWritten": 15000,
+					"databaseSize": 307167232
+				},
+				{
+					"milliseconds": 55,
+					"rowsWritten": 15000,
+					"databaseSize": 310145024
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 313339904
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 316633088
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 319901696
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 322998272
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 325939200
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 328830976
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 331673600
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 334512128
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 337371136
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 340303872
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 343289856
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 346411008
+				},
+				{
+					"milliseconds": 58,
+					"rowsWritten": 15000,
+					"databaseSize": 349708288
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 352919552
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 355991552
+				},
+				{
+					"milliseconds": 47,
+					"rowsWritten": 15000,
+					"databaseSize": 358961152
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 361873408
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 364748800
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 367575040
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 370483200
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 373440512
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 376446976
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 379535360
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 382795776
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 386043904
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 389054464
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 391991296
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 394936320
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 397795328
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 400658432
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 403529728
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 406511616
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 409534464
+				},
+				{
+					"milliseconds": 61,
+					"rowsWritten": 15000,
+					"databaseSize": 412663808
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 415883264
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 419115008
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 422109184
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 425033728
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 427913216
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 430850048
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 433692672
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 436621312
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 439541760
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 442572800
+				},
+				{
+					"milliseconds": 58,
+					"rowsWritten": 15000,
+					"databaseSize": 445726720
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 448942080
+				},
+				{
+					"milliseconds": 54,
+					"rowsWritten": 15000,
+					"databaseSize": 452136960
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 455163904
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 458100736
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 461008896
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 463847424
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 466739200
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 469667840
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 472612864
+				},
+				{
+					"milliseconds": 63,
+					"rowsWritten": 15000,
+					"databaseSize": 475656192
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 478806016
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 482033664
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 485257216
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 488271872
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 491180032
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 494063616
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 496881664
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 499769344
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 502697984
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 505716736
+				},
+				{
+					"milliseconds": 57,
+					"rowsWritten": 15000,
+					"databaseSize": 508772352
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 511901696
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 515100672
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 518279168
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 521367552
+				},
+				{
+					"milliseconds": 48,
+					"rowsWritten": 15000,
+					"databaseSize": 524234752
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 527159296
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 529993728
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 532832256
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 535781376
+				},
+				{
+					"milliseconds": 64,
+					"rowsWritten": 15000,
+					"databaseSize": 538750976
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 541798400
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 544952320
+				},
+				{
+					"milliseconds": 70,
+					"rowsWritten": 15000,
+					"databaseSize": 548167680
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 551366656
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 554369024
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 557330432
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 560193536
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 563093504
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 15000,
+					"databaseSize": 565911552
+				},
+				{
+					"milliseconds": 63,
+					"rowsWritten": 15000,
+					"databaseSize": 568836096
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 571863040
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 574861312
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 578023424
+				},
+				{
+					"milliseconds": 50,
+					"rowsWritten": 15000,
+					"databaseSize": 581226496
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 584454144
+				},
+				{
+					"milliseconds": 52,
+					"rowsWritten": 15000,
+					"databaseSize": 587481088
+				},
+				{
+					"milliseconds": 49,
+					"rowsWritten": 15000,
+					"databaseSize": 590417920
+				},
+				{
+					"milliseconds": 54,
+					"rowsWritten": 15000,
+					"databaseSize": 593289216
+				},
+				{
+					"milliseconds": 51,
+					"rowsWritten": 15000,
+					"databaseSize": 596180992
+				},
+				{
+					"milliseconds": 61,
+					"rowsWritten": 15000,
+					"databaseSize": 599019520
+				},
+				{
+					"milliseconds": 55,
+					"rowsWritten": 15000,
+					"databaseSize": 601927680
+				}
+			],
+			"measurement": {
+				"candidate": "wide",
+				"point": [
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.03125,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.03125,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					}
+				],
+				"feed": [
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					}
+				],
+				"factWrite": [
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 2
+					}
+				],
+				"blobWrite": [
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 1
+					}
+				],
+				"settlement": [
+					{
+						"milliseconds": 1,
+						"rowsRead": 194,
+						"rowsWritten": 131
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 196,
+						"rowsWritten": 130
+					}
+				],
+				"databaseSize": 602787840,
+				"rowCount": 1000000
+			},
+			"reopen": {
+				"processReopenMs": 24.05704199999309,
+				"firstRequestMs": 4.273750000000291,
+				"inspection": {
+					"candidate": "wide",
+					"count": 1000000,
+					"databaseSize": 602787840
+				}
+			}
+		},
+		"split": {
+			"seed": [
+				{
+					"milliseconds": 21,
+					"rowsWritten": 10000,
+					"databaseSize": 3284992
+				},
+				{
+					"milliseconds": 34,
+					"rowsWritten": 10000,
+					"databaseSize": 6541312
+				},
+				{
+					"milliseconds": 41,
+					"rowsWritten": 10000,
+					"databaseSize": 9809920
+				},
+				{
+					"milliseconds": 53,
+					"rowsWritten": 10000,
+					"databaseSize": 13041664
+				},
+				{
+					"milliseconds": 58,
+					"rowsWritten": 10000,
+					"databaseSize": 16388096
+				},
+				{
+					"milliseconds": 63,
+					"rowsWritten": 10000,
+					"databaseSize": 20172800
+				},
+				{
+					"milliseconds": 64,
+					"rowsWritten": 10000,
+					"databaseSize": 23658496
+				},
+				{
+					"milliseconds": 66,
+					"rowsWritten": 10000,
+					"databaseSize": 27213824
+				},
+				{
+					"milliseconds": 71,
+					"rowsWritten": 10000,
+					"databaseSize": 30371840
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 33447936
+				},
+				{
+					"milliseconds": 70,
+					"rowsWritten": 10000,
+					"databaseSize": 36732928
+				},
+				{
+					"milliseconds": 69,
+					"rowsWritten": 10000,
+					"databaseSize": 39849984
+				},
+				{
+					"milliseconds": 70,
+					"rowsWritten": 10000,
+					"databaseSize": 43151360
+				},
+				{
+					"milliseconds": 71,
+					"rowsWritten": 10000,
+					"databaseSize": 46317568
+				},
+				{
+					"milliseconds": 71,
+					"rowsWritten": 10000,
+					"databaseSize": 49680384
+				},
+				{
+					"milliseconds": 73,
+					"rowsWritten": 10000,
+					"databaseSize": 53125120
+				},
+				{
+					"milliseconds": 76,
+					"rowsWritten": 10000,
+					"databaseSize": 56307712
+				},
+				{
+					"milliseconds": 72,
+					"rowsWritten": 10000,
+					"databaseSize": 59781120
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 63131648
+				},
+				{
+					"milliseconds": 73,
+					"rowsWritten": 10000,
+					"databaseSize": 66236416
+				},
+				{
+					"milliseconds": 75,
+					"rowsWritten": 10000,
+					"databaseSize": 69656576
+				},
+				{
+					"milliseconds": 74,
+					"rowsWritten": 10000,
+					"databaseSize": 72847360
+				},
+				{
+					"milliseconds": 74,
+					"rowsWritten": 10000,
+					"databaseSize": 76255232
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 79556608
+				},
+				{
+					"milliseconds": 75,
+					"rowsWritten": 10000,
+					"databaseSize": 82812928
+				},
+				{
+					"milliseconds": 77,
+					"rowsWritten": 10000,
+					"databaseSize": 86224896
+				},
+				{
+					"milliseconds": 76,
+					"rowsWritten": 10000,
+					"databaseSize": 89350144
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 92672000
+				},
+				{
+					"milliseconds": 77,
+					"rowsWritten": 10000,
+					"databaseSize": 95952896
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 99094528
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 102445056
+				},
+				{
+					"milliseconds": 77,
+					"rowsWritten": 10000,
+					"databaseSize": 105672704
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 108855296
+				},
+				{
+					"milliseconds": 78,
+					"rowsWritten": 10000,
+					"databaseSize": 112144384
+				},
+				{
+					"milliseconds": 92,
+					"rowsWritten": 10000,
+					"databaseSize": 115298304
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 118489088
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 121757696
+				},
+				{
+					"milliseconds": 77,
+					"rowsWritten": 10000,
+					"databaseSize": 124878848
+				},
+				{
+					"milliseconds": 78,
+					"rowsWritten": 10000,
+					"databaseSize": 128094208
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 131325952
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 134598656
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 137924608
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 141176832
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 144584704
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 147795968
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 151076864
+				},
+				{
+					"milliseconds": 78,
+					"rowsWritten": 10000,
+					"databaseSize": 154312704
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 157532160
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 160632832
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 163815424
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 167067648
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 170229760
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 173424640
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 176615424
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 179908608
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 183201792
+				},
+				{
+					"milliseconds": 94,
+					"rowsWritten": 10000,
+					"databaseSize": 186474496
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 189947904
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 193097728
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 196341760
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 199733248
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 202887168
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 205996032
+				},
+				{
+					"milliseconds": 95,
+					"rowsWritten": 10000,
+					"databaseSize": 209137664
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 212217856
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 215363584
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 218517504
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 221708288
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 224894976
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 228102144
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 231272448
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 234627072
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 237993984
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 241115136
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 244441088
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 247742464
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 250904576
+				},
+				{
+					"milliseconds": 94,
+					"rowsWritten": 10000,
+					"databaseSize": 254083072
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 257245184
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 260317184
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 263442432
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 266682368
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 269975552
+				},
+				{
+					"milliseconds": 80,
+					"rowsWritten": 10000,
+					"databaseSize": 273010688
+				},
+				{
+					"milliseconds": 100,
+					"rowsWritten": 10000,
+					"databaseSize": 276328448
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 279543808
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 282865664
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 286056448
+				},
+				{
+					"milliseconds": 101,
+					"rowsWritten": 10000,
+					"databaseSize": 289243136
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 292483072
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 295632896
+				},
+				{
+					"milliseconds": 96,
+					"rowsWritten": 10000,
+					"databaseSize": 298799104
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 302047232
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 305160192
+				},
+				{
+					"milliseconds": 79,
+					"rowsWritten": 10000,
+					"databaseSize": 308215808
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 311377920
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 314523648
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 317800448
+				},
+				{
+					"milliseconds": 98,
+					"rowsWritten": 10000,
+					"databaseSize": 320942080
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 324341760
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 327401472
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 330776576
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 333848576
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 337084416
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 340201472
+				},
+				{
+					"milliseconds": 97,
+					"rowsWritten": 10000,
+					"databaseSize": 343388160
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 346587136
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 349696000
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 352845824
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 355876864
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 359137280
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 362328064
+				},
+				{
+					"milliseconds": 97,
+					"rowsWritten": 10000,
+					"databaseSize": 365428736
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 368672768
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 371806208
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 375218176
+				},
+				{
+					"milliseconds": 100,
+					"rowsWritten": 10000,
+					"databaseSize": 378339328
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 381562880
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 384782336
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 387956736
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 391163904
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 394240000
+				},
+				{
+					"milliseconds": 91,
+					"rowsWritten": 10000,
+					"databaseSize": 397443072
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 400658432
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 403914752
+				},
+				{
+					"milliseconds": 86,
+					"rowsWritten": 10000,
+					"databaseSize": 407031808
+				},
+				{
+					"milliseconds": 93,
+					"rowsWritten": 10000,
+					"databaseSize": 410304512
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 413466624
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 416690176
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 419926016
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 423157760
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 426299392
+				},
+				{
+					"milliseconds": 98,
+					"rowsWritten": 10000,
+					"databaseSize": 429457408
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 432742400
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 435924992
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 439242752
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 442408960
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 445591552
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 448720896
+				},
+				{
+					"milliseconds": 94,
+					"rowsWritten": 10000,
+					"databaseSize": 452067328
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 455065600
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 458227712
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 461479936
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 464818176
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 467931136
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 471166976
+				},
+				{
+					"milliseconds": 92,
+					"rowsWritten": 10000,
+					"databaseSize": 474214400
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 477519872
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 480522240
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 483827712
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 487006208
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 490315776
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 493551616
+				},
+				{
+					"milliseconds": 94,
+					"rowsWritten": 10000,
+					"databaseSize": 496820224
+				},
+				{
+					"milliseconds": 90,
+					"rowsWritten": 10000,
+					"databaseSize": 499986432
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 503070720
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 506314752
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 509444096
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 512630784
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 515842048
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 519086080
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 522276864
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 525475840
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 528728064
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 531894272
+				},
+				{
+					"milliseconds": 88,
+					"rowsWritten": 10000,
+					"databaseSize": 535126016
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 538361856
+				},
+				{
+					"milliseconds": 87,
+					"rowsWritten": 10000,
+					"databaseSize": 541519872
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 544755712
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 547831808
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 550998016
+				},
+				{
+					"milliseconds": 92,
+					"rowsWritten": 10000,
+					"databaseSize": 554098688
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 557293568
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 560467968
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 563712000
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 566931456
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 570060800
+				},
+				{
+					"milliseconds": 86,
+					"rowsWritten": 10000,
+					"databaseSize": 573247488
+				},
+				{
+					"milliseconds": 81,
+					"rowsWritten": 10000,
+					"databaseSize": 576430080
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 579751936
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 582971392
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 586264576
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 589529088
+				},
+				{
+					"milliseconds": 92,
+					"rowsWritten": 10000,
+					"databaseSize": 592707584
+				},
+				{
+					"milliseconds": 90,
+					"rowsWritten": 10000,
+					"databaseSize": 595841024
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 599011328
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 602202112
+				},
+				{
+					"milliseconds": 97,
+					"rowsWritten": 10000,
+					"databaseSize": 605372416
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 608489472
+				},
+				{
+					"milliseconds": 85,
+					"rowsWritten": 10000,
+					"databaseSize": 611680256
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 614936576
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 618205184
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 621268992
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 624476160
+				},
+				{
+					"milliseconds": 98,
+					"rowsWritten": 10000,
+					"databaseSize": 627642368
+				},
+				{
+					"milliseconds": 86,
+					"rowsWritten": 10000,
+					"databaseSize": 630890496
+				},
+				{
+					"milliseconds": 84,
+					"rowsWritten": 10000,
+					"databaseSize": 634167296
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 637337600
+				},
+				{
+					"milliseconds": 82,
+					"rowsWritten": 10000,
+					"databaseSize": 640520192
+				},
+				{
+					"milliseconds": 83,
+					"rowsWritten": 10000,
+					"databaseSize": 643612672
+				}
+			],
+			"measurement": {
+				"candidate": "split",
+				"point": [
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.0625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					}
+				],
+				"feed": [
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 1,
+						"rowsWritten": 0
+					}
+				],
+				"factWrite": [
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 2
+					}
+				],
+				"blobWrite": [
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					},
+					{
+						"milliseconds": 0.015625,
+						"rowsRead": 0,
+						"rowsWritten": 1
+					}
+				],
+				"settlement": [
+					{
+						"milliseconds": 1,
+						"rowsRead": 130,
+						"rowsWritten": 131
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 2,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					},
+					{
+						"milliseconds": 1,
+						"rowsRead": 132,
+						"rowsWritten": 130
+					}
+				],
+				"databaseSize": 644837376,
+				"rowCount": 1000000
+			},
+			"reopen": {
+				"processReopenMs": 24.05704199999309,
+				"firstRequestMs": 15.359208000001672,
+				"inspection": {
+					"candidate": "split",
+					"count": 1000000,
+					"databaseSize": 644837376
+				}
+			}
+		}
+	}
+}
