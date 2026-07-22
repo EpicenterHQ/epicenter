@@ -305,23 +305,41 @@ Object slices before ADR-0177's Proposed selection can be accepted or reversed.
   Safari and Android Chrome. Keep honest quota refusal outside the semantic
   store API.
 
-Implementation checkpoint (2026-07-22, partial): W1C starts from the verified
-W1B base `888eb23efb6efab298c6a1972c3dc8e89cc81e88`. The production browser
-owner runs the ADR-0177 `openReplicaStore` behind sqlite-wasm's OPFS SAH-pool
+Implementation checkpoint (2026-07-22, physical qualification open): W1C
+starts from the verified W1B base
+`888eb23efb6efab298c6a1972c3dc8e89cc81e88`. The production browser owner runs
+the ADR-0177 `openReplicaStore` behind sqlite-wasm's OPFS SAH-pool
 VFS in one dedicated Worker holding the exclusive origin Web Lock. Waiting
 page candidates open no database. Chromium 149.0.7827.55 and Playwright WebKit
 26.5, both headless on arm64 macOS through Playwright 1.61.1, passed the shared
 replica conformance cases, dedicated-owner reopen and integrity checks, elected
 single-owner topology, page-close takeover, forced-worker takeover, explicit
 pending-mutation refusal on owner loss, and persistent-profile relaunch. The
-package suite reported 413 passing tests and no failures. These are simulated
-engine results, not physical Safari or Chrome evidence.
+lossy coordination suite additionally proves bounded recovery from lost owner
+discovery, read requests, read replies, and invalidations. Read-only work may
+retry across an owner-session change; mutations never replay and fail with an
+explicit owner-lost result. The integrated package suite reported 424 passing
+tests and no failures. These are simulated engine results, not physical Safari
+or Chrome evidence.
 
-W1C remains incomplete. No browser wide-versus-split result or capacity result
-has landed yet. Physical iOS Safari and Android Chrome still owe the 250,000
-address and 128 MiB floor, conditional full-envelope run, quota-refusal prefix
-and progress proof, and hidden-owner suspension and eviction qualification.
-The older SharedWorker smoke harness is not W1C evidence: Chromium refuses its
+The maintained browser layout harness and raw reports are under
+`packages/data/browser-evidence/replica-layout-*` and
+`docs/benchmarks/replica-layout/`. Clean-source Chromium 149.0.7827.55 and
+Playwright WebKit 26.5 runs each completed all six wide-versus-split repetitions
+at 1,000,000 records and exactly 536,870,912 proxy bytes, passed integrity and
+reopen checks, and retained raw hot-path timings, query plans, schema hashes,
+storage measurements, and runtime provenance. Both engines fired ADR-0177's
+material-direction stop rule: split traversal and pending-lane writes were
+materially faster, while point reads, feed installs, reopen, and the 3.11%
+storage difference were closer. These desktop results keep the selected wide
+layout provisional; they do not accept ADR-0177 or silently discard its split
+runner-up.
+
+W1C's automatable owner, conformance, liveness, and desktop layout work is
+complete. Physical iOS Safari and Android Chrome still owe the 250,000-address
+and 128 MiB floor, conditional full-envelope run, quota-refusal prefix and
+progress proof, and hidden-owner suspension and eviction qualification. The
+older SharedWorker smoke harness is not W1C evidence: Chromium refuses its
 SAH-pool execution context, and its WebKit worker-termination cell failed in
 this run. W1 is therefore not complete, and no physical result is inferred from
 Playwright.
