@@ -14,6 +14,8 @@
 		"./bun": "./src/bun.ts",
 		"./desktop": "./src/desktop.ts",
 		"./desktop-owner": "./src/desktop-owner.ts",
+		"./desktop-record": "./src/desktop-record-public.ts",
+		"./desktop-record-owner": "./src/desktop-record-owner-public.ts",
 		"./document-v1": "./src/document-v1/index.ts",
 		"./protocol": "./src/protocol/index.ts",
 		"./protocol/v1": "./src/protocol/v1/index.ts",

@@ -3,22 +3,9 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
-import { customAlphabet } from 'nanoid';
-
+import { openBunRecordOwner } from './bun-record-owner.js';
 import { createEpicenter } from './epicenter.js';
-import { SCALAR_SYNC_V1_LIMITS } from './protocol/v1/index.js';
-import { createRecordEpicenter } from './record-epicenter.js';
 import { openReplica } from './replica/index.js';
-import { createBunBlobFileStore } from './store/replica/bun-blob-files.js';
-import {
-	createReplicaBlobStore,
-	openReplicaStore,
-} from './store/replica/index.js';
-
-const mintReplicaId = customAlphabet(
-	'abcdefghijklmnopqrstuvwxyz0123456789',
-	24,
-);
 
 export {
 	type BlobByteSource,
@@ -36,32 +23,7 @@ export type OpenBunRecordEpicenterOptions = { directory: string };
 export async function openBunRecordEpicenter({
 	directory,
 }: OpenBunRecordEpicenterOptions) {
-	await mkdir(directory, { recursive: true });
-	const rawDatabase = new Database(join(directory, 'epicenter.sqlite3'), {
-		create: true,
-		strict: true,
-	});
-	try {
-		const database = createBunSqliteAdapter(rawDatabase);
-		const replica = openReplicaStore({
-			database,
-			limits: SCALAR_SYNC_V1_LIMITS,
-			initialize: { replicaId: mintReplicaId() },
-		});
-		const blobs = createReplicaBlobStore(
-			database,
-			createBunBlobFileStore(directory),
-		);
-		await blobs.reopenSweep();
-		return createRecordEpicenter({
-			replica,
-			blobs,
-			dispose: () => rawDatabase.close(),
-		});
-	} catch (cause) {
-		rawDatabase.close();
-		throw cause;
-	}
+	return (await openBunRecordOwner({ directory })).owner;
 }
 
 /** Open one Bun SQLite-backed Epicenter replica. */
