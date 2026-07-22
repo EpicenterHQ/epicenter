@@ -10,4 +10,6 @@ export {
 export {
 	createReplicaStoreSchema,
 	REPLICA_STORE_FORMAT_VERSION,
+	REPLICA_STORE_INDEXES,
+	REPLICA_STORE_TABLES,
 } from './schema.js';

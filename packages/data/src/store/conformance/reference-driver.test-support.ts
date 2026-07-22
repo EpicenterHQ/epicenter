@@ -14,6 +14,7 @@
  * to production adapters.
  */
 import {
+	admitFactsPage,
 	canonicalize,
 	composeOperations,
 	encodedFactBytes,
@@ -23,6 +24,7 @@ import {
 	type JsonValue,
 	type Operation,
 	type ParkedIntent,
+	parseFactsRequest,
 	parseSubmissionRequest,
 	type RecordAddress,
 	type SubmissionRequest,
@@ -35,6 +37,7 @@ import { ReferenceDb, type Statement } from './reference-store.test-support.js';
 import type {
 	ConformanceReplica,
 	CrashedReplica,
+	FactsPage,
 	RecordLanes,
 	ReplicaConformanceBinding,
 	ReplicaObservations,
@@ -382,25 +385,34 @@ export class ReplicaRef {
 	 * monotonic rule and advance the durable cursor, in one transaction. A
 	 * fresh replica binds the lifetime in the same transaction.
 	 */
-	installFactsStatements(page: {
-		authorityLifetime: string;
-		facts: readonly Fact[];
-		afterSequence: number;
-	}): Statement[] {
+	installFactsStatements(page: FactsPage): Statement[] {
 		const meta = this.meta();
-		if (
-			meta.authority_lifetime !== null &&
-			meta.authority_lifetime !== page.authorityLifetime
-		) {
-			throw new Error('lifetime mismatch: erase and reacquire instead');
+		const parsedRequest = parseFactsRequest(page.request, LIMITS);
+		if (parsedRequest.error !== null) {
+			throw new Error(parsedRequest.error.message);
 		}
+		const admitted = admitFactsPage(
+			page.response,
+			parsedRequest.data,
+			{
+				...(meta.authority_lifetime === null
+					? {}
+					: { authorityLifetime: meta.authority_lifetime }),
+				afterSequence: meta.after_sequence,
+			},
+			LIMITS,
+		);
+		if (admitted.error !== null) throw new Error(admitted.error.message);
+		const response = admitted.data;
 		const statements: Statement[] = [];
-		for (const fact of page.facts) {
+		for (const fact of response.facts) {
 			statements.push(...this.installFactStatements(fact));
 		}
+		const afterSequence =
+			response.facts.at(-1)?.sequence ?? parsedRequest.data.afterSequence;
 		statements.push({
 			sql: 'UPDATE meta SET authority_lifetime = ?, after_sequence = ? WHERE singleton = 1',
-			params: [page.authorityLifetime, page.afterSequence],
+			params: [response.authorityLifetime, afterSequence],
 		});
 		return statements;
 	}

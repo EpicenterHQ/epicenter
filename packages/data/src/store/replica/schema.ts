@@ -2,6 +2,21 @@ import type { SqliteDatabase } from '@epicenter/sqlite';
 
 export const REPLICA_STORE_FORMAT_VERSION = 1;
 
+export const REPLICA_STORE_TABLES = [
+	'document_inflight',
+	'meta',
+	'record_documents',
+	'records',
+] as const;
+
+export const REPLICA_STORE_INDEXES = [
+	'records_address',
+	'records_blob_pending',
+	'records_doc_dirty',
+	'records_pending',
+	'records_sealed',
+] as const;
+
 const SCHEMA = [
 	`CREATE TABLE meta (
 		singleton              INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -12,7 +27,7 @@ const SCHEMA = [
 		attached_principal     TEXT,
 		authority_lifetime     TEXT,
 		after_sequence         INTEGER NOT NULL DEFAULT 0
-			CHECK (after_sequence >= 0),
+			CHECK (after_sequence BETWEEN 0 AND 9007199254740991),
 		sealed_submission      INTEGER,
 		sealed_request         TEXT,
 		sealed_request_hash    TEXT,
@@ -21,7 +36,8 @@ const SCHEMA = [
 		CHECK ((attached_deployment IS NULL) = (attached_principal IS NULL)),
 		CHECK ((sealed_submission IS NULL) = (sealed_request IS NULL)),
 		CHECK ((sealed_submission IS NULL) = (sealed_request_hash IS NULL)),
-		CHECK (sealed_submission IS NULL OR sealed_submission >= 1),
+		CHECK (sealed_submission IS NULL OR
+			sealed_submission BETWEEN 1 AND 9007199254740991),
 		CHECK (sealed_request_hash IS NULL OR
 			(length(sealed_request_hash) = 64 AND sealed_request_hash NOT GLOB '*[^a-f0-9]*'))
 	) STRICT`,
@@ -56,9 +72,11 @@ const SCHEMA = [
 				AND confirmed_sequence IS NULL)
 			OR (confirmed_state = 'live' AND confirmed_payload IS NOT NULL
 				AND json_valid(confirmed_payload)
-				AND confirmed_sequence IS NOT NULL AND confirmed_sequence >= 1)
+				AND confirmed_sequence IS NOT NULL
+				AND confirmed_sequence BETWEEN 1 AND 9007199254740991)
 			OR (confirmed_state IN ('tombstone', 'unset') AND confirmed_payload IS NULL
-				AND confirmed_sequence IS NOT NULL AND confirmed_sequence >= 1)),
+				AND confirmed_sequence IS NOT NULL
+				AND confirmed_sequence BETWEEN 1 AND 9007199254740991)),
 		CHECK ((sealed_op IS NULL AND sealed_args IS NULL)
 			OR (sealed_op IN ('patch', 'replace') AND sealed_args IS NOT NULL
 				AND json_valid(sealed_args))

@@ -28,7 +28,8 @@ import { describe, expect, test } from 'bun:test';
 import {
 	canonicalize,
 	createAuthority,
-	type Fact,
+	type FactsRequest,
+	type FactsResponse,
 	type Intent,
 	type JsonValue,
 	type Operation,
@@ -82,9 +83,8 @@ export type SealWitness = { bytes: string; hash: string };
 
 /** One facts-feed page to install as a single transaction. */
 export type FactsPage = {
-	authorityLifetime: string;
-	facts: readonly Fact[];
-	afterSequence: number;
+	request: FactsRequest;
+	response: FactsResponse;
 };
 
 /**
@@ -575,6 +575,8 @@ export function runReplicaConformanceCases(
 			const { replica } = sealedFixture();
 			const firstSeal = replica.sealedRequest();
 			if (firstSeal === null) throw new Error('seal persisted nothing');
+			const authority = createKernelAuthority(LIFETIME);
+			const delayedSettlement = authority.submitBytes(firstSeal.bytes);
 			// Newer pending desire exists beside the sealed lane.
 			replica
 				.localWrite({ address: recordB, op: 'replace', value: { z: 9 } })
@@ -585,12 +587,20 @@ export function runReplicaConformanceCases(
 			applyWithCrashes(
 				replica,
 				replica.installFacts({
-					authorityLifetime: LIFETIME,
-					facts: [
-						{ address: recordB, sequence: 8, state: 'tombstone' },
-						{ address: theme, sequence: 10, state: 'live', payload: 'dark' },
-					],
-					afterSequence: 10,
+					request: { authorityLifetime: LIFETIME, afterSequence: 0 },
+					response: {
+						authorityLifetime: LIFETIME,
+						facts: [
+							{ address: recordB, sequence: 8, state: 'tombstone' },
+							{
+								address: theme,
+								sequence: 10,
+								state: 'live',
+								payload: 'dark',
+							},
+						],
+						hasMore: false,
+					},
 				}),
 				(crashed) => {
 					expect(crashed.sealedRequest()).toEqual(firstSeal);
@@ -608,29 +618,56 @@ export function runReplicaConformanceCases(
 				payload: 'dark',
 				sequence: 10,
 			});
-
-			// Monotonic installation: a delayed older fact is ignored while the
-			// cursor still advances; an equal sequence with different content is
-			// corruption.
-			replica
-				.installFacts({
-					authorityLifetime: LIFETIME,
-					facts: [
-						{ address: theme, sequence: 9, state: 'live', payload: 'stale' },
-					],
-					afterSequence: 11,
-				})
-				.commit();
-			expect(replica.record(theme)?.confirmed?.payload).toEqual('dark');
-			expect(replica.sync().afterSequence).toBe(11);
 			expect(() =>
 				replica
 					.installFacts({
+						request: { authorityLifetime: LIFETIME, afterSequence: 0 },
+						response: {
+							authorityLifetime: LIFETIME,
+							facts: [],
+							hasMore: false,
+						},
+					})
+					.commit(),
+			).toThrow(/facts page stale request/);
+			expect(replica.sync().afterSequence).toBe(10);
+
+			// Submission facts do not advance the feed cursor. A delayed settlement
+			// therefore installs record A, ignores record B's older sequence, and
+			// retires the exact sealed image without weakening the tombstone.
+			applyWithCrashes(replica, replica.settle(delayedSettlement));
+			expect(replica.record(recordA)?.confirmed).toEqual({
+				state: 'live',
+				payload: 1,
+				sequence: 1,
+			});
+			expect(replica.record(recordB)?.confirmed).toEqual({
+				state: 'tombstone',
+				sequence: 8,
+			});
+			expect(replica.sync().afterSequence).toBe(10);
+			expect(replica.sealedRequest()).toBeNull();
+
+			// An equal sequence with different content is corruption, even through
+			// an otherwise context-valid settlement response.
+			replica
+				.localWrite({ address: recordA, op: 'replace', value: 'newer' })
+				.commit();
+			const secondSeal = replica.seal();
+			secondSeal.transition.commit();
+			expect(() =>
+				replica
+					.settle({
 						authorityLifetime: LIFETIME,
 						facts: [
-							{ address: theme, sequence: 10, state: 'live', payload: 'other' },
+							{
+								address: recordA,
+								sequence: 1,
+								state: 'live',
+								payload: 'conflict',
+							},
 						],
-						afterSequence: 12,
+						parked: [],
 					})
 					.commit(),
 			).toThrow(/corruption/);
@@ -647,12 +684,18 @@ export function runReplicaConformanceCases(
 			expect(() =>
 				replica
 					.installFacts({
-						authorityLifetime: 'lifetime-two',
-						facts: [],
-						afterSequence: 0,
+						request: {
+							authorityLifetime: LIFETIME,
+							afterSequence: 0,
+						},
+						response: {
+							authorityLifetime: 'lifetime-two',
+							facts: [],
+							hasMore: false,
+						},
 					})
 					.commit(),
-			).toThrow(/lifetime mismatch/);
+			).toThrow(/facts page lifetime/);
 			expect(() =>
 				replica
 					.settle({ authorityLifetime: 'lifetime-two', facts: [], parked: [] })
@@ -665,11 +708,19 @@ export function runReplicaConformanceCases(
 			applyWithCrashes(
 				replica,
 				replica.installFacts({
-					authorityLifetime: 'lifetime-two',
-					facts: [
-						{ address: theme, sequence: 1, state: 'live', payload: 'dark' },
-					],
-					afterSequence: 1,
+					request: { afterSequence: 0 },
+					response: {
+						authorityLifetime: 'lifetime-two',
+						facts: [
+							{
+								address: theme,
+								sequence: 1,
+								state: 'live',
+								payload: 'dark',
+							},
+						],
+						hasMore: false,
+					},
 				}),
 			);
 			const sync = replica.sync();

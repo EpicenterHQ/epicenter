@@ -224,11 +224,19 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		});
 		replica.store.applyTransaction(
 			replica.installFactsStatements({
-				authorityLifetime: LIFETIME,
-				facts: [
-					{ address: recordA, sequence: 1, state: 'live', payload: { t: 'x' } },
-				],
-				afterSequence: 1,
+				request: { authorityLifetime: LIFETIME, afterSequence: 0 },
+				response: {
+					authorityLifetime: LIFETIME,
+					facts: [
+						{
+							address: recordA,
+							sequence: 1,
+							state: 'live',
+							payload: { t: 'x' },
+						},
+					],
+					hasMore: false,
+				},
 			}),
 		);
 		replica.store.applyTransaction([
@@ -272,9 +280,12 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		applyWithCrashes(
 			replica.store,
 			replica.installFactsStatements({
-				authorityLifetime: LIFETIME,
-				facts: [{ address: recordA, sequence: 2, state: 'tombstone' }],
-				afterSequence: 2,
+				request: { authorityLifetime: LIFETIME, afterSequence: 1 },
+				response: {
+					authorityLifetime: LIFETIME,
+					facts: [{ address: recordA, sequence: 2, state: 'tombstone' }],
+					hasMore: false,
+				},
 			}),
 			(crashed) => {
 				const recovered = new ReplicaRef(crashed);

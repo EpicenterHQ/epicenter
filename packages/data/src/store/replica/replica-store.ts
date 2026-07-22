@@ -1,15 +1,17 @@
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 
 import {
+	admitFactsPage,
 	admitSettlement,
 	canonicalize,
 	composeOperations,
 	type Fact,
+	type FactsRequest,
+	type FactsResponse,
 	type Intent,
 	type JsonValue,
 	type Operation,
 	type ParkedIntent,
-	parseFact,
 	parseFactsRequest,
 	parseIntent,
 	parseSubmissionRequest,
@@ -21,6 +23,8 @@ import {
 import {
 	createReplicaStoreSchema,
 	REPLICA_STORE_FORMAT_VERSION,
+	REPLICA_STORE_INDEXES,
+	REPLICA_STORE_TABLES,
 } from './schema.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
@@ -80,9 +84,8 @@ export type ReplicaStoreSync = {
 export type SealedRequest = { bytes: string; hash: string };
 
 export type ReplicaFactsPage = {
-	authorityLifetime: string;
-	facts: readonly Fact[];
-	afterSequence: number;
+	request: FactsRequest;
+	response: FactsResponse;
 };
 
 export type OpenReplicaStoreOptions = {
@@ -273,27 +276,64 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 
 function openSchema(
 	database: SqliteDatabase,
+	limits: ValidatedLimits,
 	initialize: OpenReplicaStoreOptions['initialize'],
 ): void {
-	const tables = database.all<SqliteRow & { name: string }>(
-		`SELECT name FROM sqlite_schema
-		WHERE type = 'table' AND name IN ('meta', 'records')`,
+	const objects = database.all<SqliteRow & { name: string; type: string }>(
+		`SELECT type, name FROM sqlite_schema
+		WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'
+		ORDER BY type, name`,
 	);
-	if (tables.length === 0) {
+	if (objects.length === 0) {
 		if (initialize === undefined) {
 			throw new Error('replica store does not exist');
 		}
+		const initialFacts = parseFactsRequest(
+			{
+				...(initialize.authorityLifetime === undefined
+					? {}
+					: { authorityLifetime: initialize.authorityLifetime }),
+				afterSequence: 0,
+			},
+			limits,
+		);
+		if (initialFacts.error !== null) {
+			throw new Error(
+				`replica initialization failed: ${initialFacts.error.message}`,
+			);
+		}
 		database.transaction(() => createReplicaStoreSchema(database, initialize));
-	} else if (
-		!tables.some((table) => table.name === 'meta') ||
-		!tables.some((table) => table.name === 'records')
-	) {
-		throw new Error('replica store schema is incomplete');
+	} else {
+		const actual = objects.map(({ type, name }) => `${type}:${name}`);
+		const expected = [
+			...REPLICA_STORE_INDEXES.map((name) => `index:${name}`),
+			...REPLICA_STORE_TABLES.map((name) => `table:${name}`),
+		].sort();
+		if (
+			actual.length !== expected.length ||
+			actual.some((entry, index) => entry !== expected[index])
+		) {
+			throw new Error(
+				`replica store schema does not match format ${REPLICA_STORE_FORMAT_VERSION}`,
+			);
+		}
 	}
 
 	const meta = readMeta(database);
 	if (meta.format_version !== REPLICA_STORE_FORMAT_VERSION) {
 		throw new Error(`unsupported replica store format ${meta.format_version}`);
+	}
+	const durableFacts = parseFactsRequest(
+		{
+			...(meta.authority_lifetime === null
+				? {}
+				: { authorityLifetime: meta.authority_lifetime }),
+			afterSequence: meta.after_sequence,
+		},
+		limits,
+	);
+	if (durableFacts.error !== null) {
+		throw new Error('replica store synchronization metadata is invalid');
 	}
 }
 
@@ -310,7 +350,7 @@ export function openReplicaStore({
 	limits,
 	initialize,
 }: OpenReplicaStoreOptions) {
-	openSchema(database, initialize);
+	openSchema(database, limits, initialize);
 
 	function record(address: RecordAddress): ReplicaRecordLanes | null {
 		return lanesOf(readRecord(database, address));
@@ -480,36 +520,34 @@ export function openReplicaStore({
 	}
 
 	function installFacts(page: ReplicaFactsPage): void {
-		const requestShape = parseFactsRequest(
-			{
-				authorityLifetime: page.authorityLifetime,
-				afterSequence: page.afterSequence,
-			},
-			limits,
-		);
-		if (requestShape.error !== null)
-			throw new Error(requestShape.error.message);
-		const facts = page.facts.map((fact) => {
-			const parsed = parseFact(fact, limits);
-			if (parsed.error !== null) throw new Error(parsed.error.message);
-			return parsed.data;
-		});
+		const parsedRequest = parseFactsRequest(page.request, limits);
+		if (parsedRequest.error !== null) {
+			throw new Error(parsedRequest.error.message);
+		}
 		database.transaction(() => {
 			const meta = readMeta(database);
-			if (
-				meta.authority_lifetime !== null &&
-				meta.authority_lifetime !== page.authorityLifetime
-			) {
-				throw new Error('lifetime mismatch: erase and reacquire instead');
+			const admitted = admitFactsPage(
+				page.response,
+				parsedRequest.data,
+				{
+					...(meta.authority_lifetime === null
+						? {}
+						: { authorityLifetime: meta.authority_lifetime }),
+					afterSequence: meta.after_sequence,
+				},
+				limits,
+			);
+			if (admitted.error !== null) {
+				throw new Error(admitted.error.message);
 			}
-			if (page.afterSequence < meta.after_sequence) {
-				throw new Error('facts page would move afterSequence backward');
-			}
-			for (const fact of facts) installFact(database, fact);
+			const response = admitted.data;
+			for (const fact of response.facts) installFact(database, fact);
+			const afterSequence =
+				response.facts.at(-1)?.sequence ?? parsedRequest.data.afterSequence;
 			database.run(
 				`UPDATE meta SET authority_lifetime = ?, after_sequence = ?
 				WHERE singleton = 1`,
-				[page.authorityLifetime, page.afterSequence],
+				[response.authorityLifetime, afterSequence],
 			);
 		});
 	}
