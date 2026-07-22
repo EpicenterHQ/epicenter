@@ -2,6 +2,7 @@ import { rmSync, statSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
+import * as Y from '@y/y';
 import { chromium, webkit } from 'playwright';
 
 import type { RecordAddress } from '../src/protocol/v1/index.js';
@@ -17,6 +18,18 @@ const address: RecordAddress = {
 	collection: 'records',
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 };
+
+function documentUpdate(value: string): number[] {
+	const document = new Y.Doc({ gc: true });
+	let update: Uint8Array | undefined;
+	document.on('updateV2', (next: Uint8Array) => {
+		update = new Uint8Array(next);
+	});
+	document.get('content').insert(0, value);
+	document.destroy();
+	if (update === undefined) throw new Error('document update was not emitted');
+	return [...update];
+}
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
@@ -95,6 +108,31 @@ try {
 					}),
 				`${engineName} browser replica write was not visible`,
 			);
+			const update = documentUpdate(engineName);
+			await page.evaluate(
+				({ address, update }) =>
+					window.browserReplicaOwnerEvidence.request({
+						kind: 'append-local-document',
+						address,
+						update: new Uint8Array(update),
+					}),
+				{ address, update },
+			);
+			const documentBefore = await page.evaluate(
+				({ address }) =>
+					window.browserReplicaOwnerEvidence.request({
+						kind: 'inspect-document',
+						address,
+					}),
+				{ address },
+			);
+			assert(
+				documentBefore !== null &&
+					typeof documentBefore === 'object' &&
+					'revision' in documentBefore &&
+					documentBefore.revision === 1,
+				`${engineName} document append was not visible`,
+			);
 			await page.evaluate(() =>
 				window.browserReplicaOwnerEvidence.request({ kind: 'reopen' }),
 			);
@@ -112,6 +150,18 @@ try {
 			assert(
 				JSON.stringify(after) === JSON.stringify(before),
 				`${engineName} browser replica changed after reopen`,
+			);
+			const documentAfter = await page.evaluate(
+				({ address }) =>
+					window.browserReplicaOwnerEvidence.request({
+						kind: 'inspect-document',
+						address,
+					}),
+				{ address },
+			);
+			assert(
+				JSON.stringify(documentAfter) === JSON.stringify(documentBefore),
+				`${engineName} browser document changed after reopen`,
 			);
 			await page.evaluate(() => window.browserReplicaOwnerEvidence.dispose());
 			console.log(`${engineName}: dedicated OPFS replica owner passed`);

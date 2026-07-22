@@ -1,4 +1,8 @@
 import type {
+	DocumentBoundRefusal,
+	DocumentPublicationReceipt,
+} from '../../document-v1/index.js';
+import type {
 	FactsRequest,
 	FactsResponse,
 	Intent,
@@ -6,6 +10,10 @@ import type {
 	SubmissionResponse,
 	ValidatedLimits,
 } from '../../protocol/v1/index.js';
+import type {
+	DocumentInspection,
+	DocumentPublicationState,
+} from './document-store.js';
 import type {
 	ReplicaRecordLanes,
 	ReplicaStoreSync,
@@ -34,6 +42,24 @@ export type BrowserReplicaOwnerOperation =
 			page: { request: FactsRequest; response: FactsResponse };
 	  }
 	| { kind: 'settle'; response: SubmissionResponse }
+	| {
+			kind: 'append-local-document';
+			address: RecordAddress;
+			update: Uint8Array;
+	  }
+	| {
+			kind: 'install-accepted-document';
+			address: RecordAddress;
+			update: Uint8Array;
+	  }
+	| { kind: 'inspect-document'; address: RecordAddress }
+	| { kind: 'export-document'; address: RecordAddress }
+	| { kind: 'document-publication'; address: RecordAddress }
+	| {
+			kind: 'settle-document-publication';
+			address: RecordAddress;
+			proof: DocumentPublicationReceipt | DocumentBoundRefusal;
+	  }
 	| { kind: 'erase' }
 	| { kind: 'integrity-check' }
 	| { kind: 'reopen' }
@@ -49,6 +75,9 @@ export type BrowserReplicaOwnerResult =
 	| ReplicaRecordLanes
 	| ReplicaStoreSync
 	| SealedRequest
+	| DocumentInspection
+	| DocumentPublicationState
+	| Uint8Array
 	| string
 	| null;
 

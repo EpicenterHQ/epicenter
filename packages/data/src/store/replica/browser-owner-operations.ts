@@ -32,6 +32,30 @@ export function createBrowserReplicaOwnerOperations(
 				case 'settle':
 					owner.store.settle(operation.response);
 					return undefined;
+				case 'append-local-document':
+					owner.store.appendLocalDocumentUpdate(
+						operation.address,
+						operation.update,
+					);
+					return undefined;
+				case 'install-accepted-document':
+					owner.store.installAcceptedDocumentUpdate(
+						operation.address,
+						operation.update,
+					);
+					return undefined;
+				case 'inspect-document':
+					return owner.store.inspectDocument(operation.address);
+				case 'export-document':
+					return owner.store.exportDocument(operation.address);
+				case 'document-publication':
+					return owner.store.documentPublication(operation.address);
+				case 'settle-document-publication':
+					owner.store.settleDocumentPublication(
+						operation.address,
+						operation.proof,
+					);
+					return undefined;
 				case 'erase':
 					owner.store.erase();
 					return undefined;
