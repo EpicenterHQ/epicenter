@@ -1,0 +1,299 @@
+import { Database, type SQLQueryBindings } from 'bun:sqlite';
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { SqliteDatabase, SqliteRow, SqliteValue } from '@epicenter/sqlite';
+import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+
+import { canonicalize } from '../../protocol/v1/index.js';
+import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
+import { openReplicaStore, type ReplicaStore } from '../replica/index.js';
+import type {
+	ConformanceReplica,
+	CrashedReplica,
+	ReplicaConformanceBinding,
+	ReplicaObservations,
+	ReplicaTransition,
+} from './replica-cases.test-support.js';
+
+const LIMITS = makeLimits();
+
+let copyCounter = 0;
+
+class CapturedCrash extends Error {}
+
+function run(
+	database: Database,
+	sql: string,
+	parameters: readonly SqliteValue[] = [],
+): void {
+	database.run(sql, parameters as SQLQueryBindings[]);
+}
+
+function all<TRow extends SqliteRow>(
+	database: Database,
+	sql: string,
+	parameters: readonly SqliteValue[] = [],
+): TRow[] {
+	return database
+		.query<TRow, SQLQueryBindings[]>(sql)
+		.all(...(parameters as SQLQueryBindings[]));
+}
+
+function countingAdapter(database: Database) {
+	let writes = 0;
+	const adapter: SqliteDatabase = {
+		run(sql, parameters): void {
+			writes += 1;
+			run(database, sql, parameters);
+		},
+		all<TRow extends SqliteRow>(
+			sql: string,
+			parameters?: readonly SqliteValue[],
+		) {
+			return all<TRow>(database, sql, parameters);
+		},
+		transaction<TResult>(work: () => TResult): TResult {
+			return database.transaction(work).immediate();
+		},
+	};
+	return { adapter, writes: () => writes };
+}
+
+function crashAdapter(
+	database: Database,
+	path: string,
+	recoveredPath: string,
+	boundary: number,
+): SqliteDatabase {
+	let isInsideTransaction = false;
+	let writes = 0;
+	return {
+		run(sql, parameters): void {
+			run(database, sql, parameters);
+			if (!isInsideTransaction) return;
+			writes += 1;
+			if (writes !== boundary) return;
+			copyFileSync(path, recoveredPath);
+			const journal = `${path}-journal`;
+			if (existsSync(journal)) {
+				copyFileSync(journal, `${recoveredPath}-journal`);
+			}
+			throw new CapturedCrash();
+		},
+		all<TRow extends SqliteRow>(
+			sql: string,
+			parameters?: readonly SqliteValue[],
+		) {
+			return all<TRow>(database, sql, parameters);
+		},
+		transaction<TResult>(work: () => TResult): TResult {
+			run(database, 'BEGIN IMMEDIATE');
+			isInsideTransaction = true;
+			try {
+				const result = work();
+				isInsideTransaction = false;
+				run(database, 'COMMIT');
+				return result;
+			} catch (cause) {
+				isInsideTransaction = false;
+				run(database, 'ROLLBACK');
+				throw cause;
+			}
+		},
+	};
+}
+
+function logicalState(database: Database): string {
+	const meta = all<Record<string, string | number | null>>(
+		database,
+		'SELECT * FROM meta WHERE singleton = 1',
+	)[0];
+	const records = all<Record<string, string | number | null>>(
+		database,
+		'SELECT * FROM records ORDER BY namespace, collection, record_key',
+	).map(({ record_id: _recordId, ...logical }) => logical);
+	const documents = all<Record<string, string | number | null>>(
+		database,
+		`SELECT r.namespace, r.collection, r.record_key, d.seq, d.kind,
+			hex(d.bytes) AS bytes
+		FROM record_documents d
+		JOIN records r ON r.record_id = d.record_id
+		ORDER BY r.namespace, r.collection, r.record_key, d.seq`,
+	);
+	const inflight = all<Record<string, string | number | null>>(
+		database,
+		`SELECT r.namespace, r.collection, r.record_key,
+			hex(i.payload) AS payload, i.digest, i.captured_revision
+		FROM document_inflight i
+		JOIN records r ON r.record_id = i.record_id
+		ORDER BY r.namespace, r.collection, r.record_key`,
+	);
+	return canonicalize(
+		JSON.parse(JSON.stringify({ meta, records, documents, inflight })),
+	);
+}
+
+type StoreAction<TResult = void> = (store: ReplicaStore) => TResult;
+
+class BunReplicaFixture {
+	private constructor(
+		readonly path: string,
+		readonly database: Database,
+		readonly store: ReplicaStore,
+		private ownedDirectory: string | null,
+	) {}
+
+	static create(fixture: {
+		replicaId: string;
+		authorityLifetime?: string;
+	}): BunReplicaFixture {
+		const directory = mkdtempSync(join(tmpdir(), 'epicenter-bun-replica-'));
+		const path = join(directory, 'replica.sqlite');
+		const database = new Database(path, { create: true, strict: true });
+		database.run('PRAGMA journal_mode = DELETE');
+		const store = openReplicaStore({
+			database: createBunSqliteAdapter(database),
+			limits: LIMITS,
+			initialize: fixture,
+		});
+		return new BunReplicaFixture(path, database, store, directory);
+	}
+
+	static open(path: string): BunReplicaFixture {
+		const database = new Database(path, { strict: true });
+		return new BunReplicaFixture(
+			path,
+			database,
+			openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+			}),
+			null,
+		);
+	}
+
+	analyze<TResult>(action: StoreAction<TResult>): {
+		boundaries: number;
+		result: TResult;
+	} {
+		copyCounter += 1;
+		const path = `${this.path}.analysis-${copyCounter}`;
+		copyFileSync(this.path, path);
+		const database = new Database(path, { strict: true });
+		try {
+			const counted = countingAdapter(database);
+			const store = openReplicaStore({
+				database: counted.adapter,
+				limits: LIMITS,
+			});
+			const result = action(store);
+			return { boundaries: counted.writes(), result };
+		} finally {
+			database.close();
+			rmSync(path, { force: true });
+		}
+	}
+
+	crash(action: StoreAction, boundary: number): BunReplicaFixture {
+		copyCounter += 1;
+		const workingPath = `${this.path}.working-${copyCounter}`;
+		const recoveredPath = `${this.path}.crash-${copyCounter}`;
+		copyFileSync(this.path, workingPath);
+		const database = new Database(workingPath, { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: crashAdapter(database, workingPath, recoveredPath, boundary),
+				limits: LIMITS,
+			});
+			action(store);
+			throw new Error(`fault boundary ${boundary} was not reached`);
+		} catch (cause) {
+			if (!(cause instanceof CapturedCrash)) throw cause;
+		} finally {
+			database.close();
+			rmSync(workingPath, { force: true });
+			rmSync(`${workingPath}-journal`, { force: true });
+		}
+		return BunReplicaFixture.open(recoveredPath);
+	}
+
+	reopen(): BunReplicaFixture {
+		this.database.close();
+		const reopened = BunReplicaFixture.open(this.path);
+		reopened.ownedDirectory = this.ownedDirectory;
+		this.ownedDirectory = null;
+		return reopened;
+	}
+
+	snapshot(): string {
+		return logicalState(this.database);
+	}
+
+	close(): void {
+		this.database.close();
+	}
+
+	dispose(): void {
+		this.database.close();
+		if (this.ownedDirectory !== null) {
+			rmSync(this.ownedDirectory, { recursive: true, force: true });
+			this.ownedDirectory = null;
+		}
+	}
+}
+
+function observations(fixture: BunReplicaFixture): ReplicaObservations {
+	return {
+		record: (address) => fixture.store.record(address),
+		sync: () => fixture.store.sync(),
+		sealedRequest: () => fixture.store.sealedRequest(),
+		snapshot: () => fixture.snapshot(),
+	};
+}
+
+function transition(
+	fixture: BunReplicaFixture,
+	action: StoreAction,
+	boundaries = fixture.analyze(action).boundaries,
+): ReplicaTransition {
+	return {
+		boundaries,
+		crash(boundary): CrashedReplica {
+			const crashed = fixture.crash(action, boundary);
+			return { ...observations(crashed), close: () => crashed.close() };
+		},
+		commit: () => action(fixture.store),
+	};
+}
+
+function conformanceReplica(fixture: BunReplicaFixture): ConformanceReplica {
+	return {
+		...observations(fixture),
+		localWrite: (intent) =>
+			transition(fixture, (store) => store.localWrite(intent)),
+		seal: () => {
+			const action = (store: ReplicaStore) => store.seal();
+			const analyzed = fixture.analyze(action);
+			return {
+				transition: transition(fixture, action, analyzed.boundaries),
+				requestBytes: analyzed.result.bytes,
+				requestHash: analyzed.result.hash,
+			};
+		},
+		settle: (response) =>
+			transition(fixture, (store) => store.settle(response)),
+		installFacts: (page) =>
+			transition(fixture, (store) => store.installFacts(page)),
+		erase: () => transition(fixture, (store) => store.erase()),
+		reconstructSealedRequest: () => fixture.store.reconstructSealedRequest(),
+		reopen: () => conformanceReplica(fixture.reopen()),
+		dispose: () => fixture.dispose(),
+	};
+}
+
+export const bunReplicaBinding: ReplicaConformanceBinding = {
+	name: 'production Bun replica store',
+	create: (fixture) => conformanceReplica(BunReplicaFixture.create(fixture)),
+};

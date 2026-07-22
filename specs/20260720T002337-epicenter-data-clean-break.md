@@ -267,6 +267,11 @@ maintained proof surface exist.
 - Run the maintained harness against the Bun adapter and complete the
   wide-versus-split hot-path evidence that can be measured on Bun.
 
+Implementation checkpoint (2026-07-22): the private production store now owns
+the ADR-0177 wide relation and passes the unchanged replica conformance cases
+through a Bun binding whose crash injection stays entirely test-side. The
+wide-versus-split Bun charter remains before W1B can close.
+
 #### W1C: browser replica adapter
 
 - Implement the browser OPFS adapter behind the same store boundary and run

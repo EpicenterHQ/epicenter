@@ -48,6 +48,7 @@ import {
 	type RecordAddress,
 	type SubmissionRequest,
 } from '../../protocol/v1/index.js';
+import { bunReplicaBinding } from './bun-replica.test-support.js';
 import {
 	AuthorityRef,
 	LIMITS,
@@ -132,6 +133,7 @@ const sealedFixture = () => {
 };
 
 runReplicaConformanceCases(referenceReplicaBinding);
+runReplicaConformanceCases(bunReplicaBinding);
 
 describe('authority subset (W2 binds these to the production authority)', () => {
 	test('5: acceptance folds, sequences, and witnesses in one transaction', () => {
