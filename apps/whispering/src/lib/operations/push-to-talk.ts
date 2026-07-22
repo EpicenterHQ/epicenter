@@ -1,19 +1,19 @@
-import type { BlobId } from '@epicenter/blobs';
 import { log, report } from '$lib/report';
+import type { RecordingSessionId } from '$lib/services/recorder/contract';
 import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { startManualRecording, stopManualRecordingById } from './recording';
+import { startManualRecording, stopManualRecordingSession } from './recording';
 
 /**
- * Push-to-talk owns the recording it starts. A press starts a session; a release
- * (the plugin's `Released` edge) or the 5-minute cap stops only THAT recording,
- * by its id.
+ * Push-to-talk owns the capture session it starts. A press starts a session; a
+ * release (the plugin's `Released` edge) or the 5-minute cap stops only that
+ * session by its ephemeral id.
  *
  * Two correctness properties, both of which the bare "Released calls stop" model
  * lacked, and whose absence let a lost release edge leave recording stuck on:
  *
- * - Id-scoped: a press remembers the id of the recording it started, so a stray
- *   or duplicated release (or one that lands after that recording was supplanted
+ * - Id-scoped: a press remembers the id of the session it started, so a stray
+ *   or duplicated release (or one that lands after that session was supplanted
  *   by a toggle/button capture) never stops the wrong one.
  * - Startup-safe: a release that lands while the recording is still starting is
  *   latched (`stopRequested`) and honored the moment the recording exists, where
@@ -35,8 +35,8 @@ type Session = {
 	id: number;
 	/** The ready app whose command started this session. */
 	app: WhisperingApp;
-	/** The recording this press started, or null until startup resolves. */
-	recordingId: BlobId | null;
+	/** The capture this press started, or null until startup resolves. */
+	recordingSessionId: RecordingSessionId | null;
 	/** A release that arrived before startup finished, honored once it exists. */
 	stopRequested: boolean;
 };
@@ -73,9 +73,11 @@ function createPushToTalk() {
 		options?: { capped?: boolean },
 	) {
 		if (session?.id !== id) return; // superseded by a newer press
-		const { recordingId } = session;
+		const { recordingSessionId } = session;
 		clearSession();
-		if (recordingId) await stopManualRecordingById(app, recordingId);
+		if (recordingSessionId) {
+			await stopManualRecordingSession(app, recordingSessionId);
+		}
 		if (options?.capped) {
 			report.info({
 				title: 'Recording stopped',
@@ -91,7 +93,7 @@ function createPushToTalk() {
 		if (session) return; // genuinely still holding (recording or starting)
 
 		const id = ++generation;
-		session = { id, app, recordingId: null, stopRequested: false };
+		session = { id, app, recordingSessionId: null, stopRequested: false };
 		const completion = Promise.withResolvers<void>();
 		pendingStart = completion.promise;
 
@@ -99,23 +101,25 @@ function createPushToTalk() {
 			// Null means this press started nothing it owns: startup failed, or a
 			// recording was already live (a toggle/button capture) so the start no-op'd.
 			// Either way, do not arm a cap or stop another source's recording.
-			let recordingId: BlobId | null;
+			let recordingSessionId: RecordingSessionId | null;
 			try {
-				recordingId = await startManualRecording(app);
+				recordingSessionId = await startManualRecording(app);
 			} catch (cause) {
 				if (session?.id === id) clearSession();
 				throw cause;
 			}
 
 			if (session?.id !== id) {
-				if (recordingId) await stopManualRecordingById(app, recordingId);
+				if (recordingSessionId) {
+					await stopManualRecordingSession(app, recordingSessionId);
+				}
 				return;
 			}
-			if (!recordingId) {
+			if (!recordingSessionId) {
 				clearSession();
 				return;
 			}
-			session.recordingId = recordingId;
+			session.recordingSessionId = recordingSessionId;
 			// A release or app teardown arrived during startup: honor it now
 			// that the recording exists, before the old app can be disposed.
 			if (session.stopRequested) {

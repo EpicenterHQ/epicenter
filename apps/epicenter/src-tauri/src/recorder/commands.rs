@@ -1,4 +1,4 @@
-use crate::recorder::capture::{stage_capture, StagedRecordingCapture};
+use crate::recorder::capture::{stage_pending_capture, StagedRecordingCapture};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{Recorder, Result};
 use log::{debug, error, info, warn};
@@ -107,12 +107,15 @@ pub async fn stop_recording(app_handle: AppHandle) -> Result<StagedRecordingCapt
             return Ok(capture);
         }
 
-        recorder
+        recorder.retain_stopped_samples()?;
+        let session_id = recorder
             .session_id()
-            .ok_or_else(|| RecorderError::failed("no active recording session at stop"))?;
-        let samples = recorder.stop_recording()?;
+            .ok_or_else(|| RecorderError::failed("no recoverable recording session at stop"))?;
+        let samples = recorder
+            .stopped_samples()
+            .ok_or_else(|| RecorderError::failed("stopped recording samples are unavailable"))?;
         let capture = crate::timing::measure("stop.wav_stage+fsync", || {
-            stage_capture(&operation_app, &samples)
+            stage_pending_capture(&operation_app, &session_id, samples)
         })?;
         recorder.remember_completed_capture(capture.clone())?;
         Ok(capture)
@@ -144,12 +147,13 @@ pub async fn acknowledge_recording_capture(
     session_id: String,
     capture_id: String,
     recorder: State<'_, Mutex<Recorder>>,
+    app_handle: AppHandle,
 ) -> Result<()> {
     let mut recorder = recorder.lock().map_err(|lock_error| {
         error!("Failed to lock recorder during capture acknowledgement: {lock_error}");
         RecorderError::failed("could not access the native recorder")
     })?;
-    recorder.acknowledge_capture(&session_id, &capture_id)
+    recorder.acknowledge_capture(&app_handle, &session_id, &capture_id)
 }
 
 #[tauri::command]

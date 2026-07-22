@@ -20,4 +20,18 @@ export const DownloadServiceLive = {
 			},
 			catch: (error) => DownloadError.BrowserDownloadFailed({ cause: error }),
 		}),
+	downloadUrl: ({ name, url }) =>
+		tryAsync({
+			try: async () => downloadUrl(name, url),
+			catch: (error) => DownloadError.BrowserDownloadFailed({ cause: error }),
+		}),
 } satisfies DownloadService;
+
+function downloadUrl(name: string, url: string): void {
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.download = name;
+	document.body.appendChild(anchor);
+	anchor.click();
+	document.body.removeChild(anchor);
+}

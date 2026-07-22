@@ -27,7 +27,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::resample_mono;
-use crate::recorder::capture::StagedRecordingCapture;
+use crate::recorder::capture::{
+    acknowledge_pending_capture, recover_pending_capture, PendingRecordingCapture,
+    StagedRecordingCapture, MAX_RECORDING_CAPTURE_BYTES,
+};
 use crate::recorder::error::RecorderError;
 
 /// Recorder result type. Errors cross the IPC boundary as the internally
@@ -57,11 +60,13 @@ const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
 /// 1.25 s). Suppresses Whisper hallucination on near-silent short
 /// clips. Empty recordings (no samples ever delivered) are left empty.
 const SHORT_RECORDING_PAD_SAMPLES: usize = 20_000;
+const WAV_HEADER_BYTES: u64 = 44;
+const PCM_SAMPLE_BYTES: u64 = std::mem::size_of::<f32>() as u64;
 
 /// Worker-thread command channel.
 #[derive(Debug)]
 enum RecorderCmd {
-    Start(mpsc::Sender<()>),
+    Start(mpsc::Sender<Result<()>>),
     Stop(mpsc::Sender<Result<Vec<f32>>>),
     Cancel(mpsc::Sender<Result<()>>),
     Shutdown,
@@ -83,6 +88,13 @@ enum RecordingLifecycle {
     Live {
         session_id: String,
     },
+    /// The worker has finalized the only copy of the PCM, but durable WAV
+    /// staging has not completed yet. Generic lifecycle operations must not
+    /// discard these samples; a repeated stop retries staging them.
+    StoppedUnstaged {
+        session_id: String,
+        samples: Vec<f32>,
+    },
     StoppedPending {
         session_id: String,
         capture: StagedRecordingCapture,
@@ -103,6 +115,34 @@ impl Recorder {
             is_recording: Arc::new(AtomicBool::new(false)),
             lifecycle: RecordingLifecycle::Idle,
         }
+    }
+
+    /// Reconstruct the exact durable pending coordinate before any WebView can
+    /// issue recorder commands. Invalid manifests fail closed.
+    pub fn recover_pending_capture(&mut self, app: &AppHandle) -> Result<()> {
+        if !matches!(self.lifecycle, RecordingLifecycle::Idle) {
+            return Err(RecorderError::failed(
+                "cannot recover a recording capture into an active recorder",
+            ));
+        }
+        let Some(pending) = recover_pending_capture(app)? else {
+            return Ok(());
+        };
+        self.restore_pending_capture(pending)
+    }
+
+    fn restore_pending_capture(&mut self, pending: PendingRecordingCapture) -> Result<()> {
+        if !matches!(self.lifecycle, RecordingLifecycle::Idle) {
+            return Err(RecorderError::failed(
+                "cannot restore a recording capture into an active recorder",
+            ));
+        }
+        let capture = pending.capture();
+        self.lifecycle = RecordingLifecycle::StoppedPending {
+            session_id: pending.session_id,
+            capture,
+        };
+        Ok(())
     }
 
     /// List available recording devices by name.
@@ -210,8 +250,7 @@ impl Recorder {
             .map_err(|e| RecorderError::failed(format!("Failed to send start command: {e}")))?;
         reply_rx.recv().map_err(|e| {
             RecorderError::failed(format!("Failed to receive start confirmation: {e}"))
-        })?;
-        Ok(())
+        })?
     }
 
     /// Stop recording and consume the worker's mono 16 kHz PCM.
@@ -230,7 +269,10 @@ impl Recorder {
 
     /// Cancel the active recording, discarding any in-flight samples.
     pub fn cancel_recording(&mut self) -> Result<()> {
-        if matches!(self.lifecycle, RecordingLifecycle::StoppedPending { .. }) {
+        if matches!(
+            self.lifecycle,
+            RecordingLifecycle::StoppedUnstaged { .. } | RecordingLifecycle::StoppedPending { .. }
+        ) {
             return Err(RecorderError::failed(
                 "the stopped recording must be admitted before it can be discarded",
             ));
@@ -253,10 +295,13 @@ impl Recorder {
         }
     }
 
-    /// Tear down a live or failed session. A stopped-pending capture is a
-    /// durable user result and cannot be erased by a generic close request.
+    /// Tear down a live or failed session. Finalized samples and a pending
+    /// capture are user results and cannot be erased by a generic close.
     pub fn close_session(&mut self) -> Result<()> {
-        if matches!(self.lifecycle, RecordingLifecycle::StoppedPending { .. }) {
+        if matches!(
+            self.lifecycle,
+            RecordingLifecycle::StoppedUnstaged { .. } | RecordingLifecycle::StoppedPending { .. }
+        ) {
             return Err(RecorderError::failed(
                 "the stopped recording is awaiting record admission",
             ));
@@ -269,8 +314,8 @@ impl Recorder {
         Ok(())
     }
 
-    /// Recording id of the recoverable session, if any. A staged capture keeps
-    /// the session discoverable until JS admits it and closes the session.
+    /// Recording id of the recoverable session, if any. Finalized samples or a
+    /// staged capture keep it discoverable until JS completes admission.
     pub fn get_current_recording_id(&self) -> Option<String> {
         match &self.lifecycle {
             RecordingLifecycle::Live { session_id }
@@ -278,7 +323,8 @@ impl Recorder {
             {
                 Some(session_id.clone())
             }
-            RecordingLifecycle::StoppedPending { session_id, .. } => Some(session_id.clone()),
+            RecordingLifecycle::StoppedUnstaged { session_id, .. }
+            | RecordingLifecycle::StoppedPending { session_id, .. } => Some(session_id.clone()),
             RecordingLifecycle::Idle
             | RecordingLifecycle::Live { .. }
             | RecordingLifecycle::Acknowledged { .. } => None,
@@ -293,47 +339,105 @@ impl Recorder {
         }
     }
 
+    /// Finalize the worker exactly once, then retain its PCM until durable
+    /// staging and manifest publication both succeed.
+    pub fn retain_stopped_samples(&mut self) -> Result<()> {
+        if matches!(self.lifecycle, RecordingLifecycle::StoppedUnstaged { .. }) {
+            return Ok(());
+        }
+        let RecordingLifecycle::Live { session_id } = &self.lifecycle else {
+            return Err(RecorderError::failed("no active recording session at stop"));
+        };
+        let session_id = session_id.clone();
+        let samples = self.stop_recording()?;
+        info!(
+            "Retaining finalized recording samples for durable staging: session_id={}, sample_count={}",
+            session_id,
+            samples.len()
+        );
+        self.lifecycle = RecordingLifecycle::StoppedUnstaged {
+            session_id,
+            samples,
+        };
+        self.close_worker();
+        Ok(())
+    }
+
+    pub fn stopped_samples(&self) -> Option<&[f32]> {
+        match &self.lifecycle {
+            RecordingLifecycle::StoppedUnstaged { samples, .. } => Some(samples),
+            _ => None,
+        }
+    }
+
     /// Retain the durable result until the record owner admits it.
     pub fn remember_completed_capture(&mut self, capture: StagedRecordingCapture) -> Result<()> {
-        let RecordingLifecycle::Live { session_id } = &self.lifecycle else {
+        let RecordingLifecycle::StoppedUnstaged { session_id, .. } = &self.lifecycle else {
             return Err(RecorderError::failed(
                 "recording lifecycle changed before capture staging completed",
             ));
         };
+        let session_id = session_id.clone();
         self.lifecycle = RecordingLifecycle::StoppedPending {
             session_id: session_id.clone(),
             capture,
         };
-        // Stop makes the worker exit. Join it now without clearing the durable
-        // pending coordinate that a WebView reload may still need.
-        self.close_worker();
+        info!("Recording capture is durably pending record admission: session_id={session_id}");
         Ok(())
     }
 
     /// Clear a pending coordinate only after exact record admission. Repeating
     /// the same acknowledgement is safe when its first IPC response was lost.
-    pub fn acknowledge_capture(&mut self, session_id: &str, capture_id: &str) -> Result<()> {
+    pub fn acknowledge_capture(
+        &mut self,
+        app: &AppHandle,
+        session_id: &str,
+        capture_id: &str,
+    ) -> Result<()> {
+        let Some(pending) = self.pending_acknowledgement(session_id, capture_id)? else {
+            return Ok(());
+        };
+        acknowledge_pending_capture(app, &pending)?;
+        self.finish_acknowledgement(session_id, capture_id);
+        info!(
+            "Recording capture admission acknowledged: session_id={session_id}, capture_id={capture_id}"
+        );
+        Ok(())
+    }
+
+    fn pending_acknowledgement(
+        &self,
+        session_id: &str,
+        capture_id: &str,
+    ) -> Result<Option<PendingRecordingCapture>> {
         match &self.lifecycle {
             RecordingLifecycle::StoppedPending {
                 session_id: pending_session_id,
                 capture,
             } if pending_session_id == session_id && capture.capture_id == capture_id => {
-                self.lifecycle = RecordingLifecycle::Acknowledged {
-                    session_id: session_id.to_string(),
-                    capture_id: capture_id.to_string(),
-                };
-                Ok(())
+                Ok(Some(PendingRecordingCapture {
+                    session_id: pending_session_id.clone(),
+                    capture_id: capture.capture_id.clone(),
+                    byte_length: capture.byte_length,
+                }))
             }
             RecordingLifecycle::Acknowledged {
                 session_id: acknowledged_session_id,
                 capture_id: acknowledged_capture_id,
             } if acknowledged_session_id == session_id && acknowledged_capture_id == capture_id => {
-                Ok(())
+                Ok(None)
             }
             _ => Err(RecorderError::failed(
                 "recording capture acknowledgement did not match the pending capture",
             )),
         }
+    }
+
+    fn finish_acknowledgement(&mut self, session_id: &str, capture_id: &str) {
+        self.lifecycle = RecordingLifecycle::Acknowledged {
+            session_id: session_id.to_string(),
+            capture_id: capture_id.to_string(),
+        };
     }
 
     /// Session id without the is_recording gate. Used by `stop_recording`
@@ -342,6 +446,7 @@ impl Recorder {
     pub fn session_id(&self) -> Option<String> {
         match &self.lifecycle {
             RecordingLifecycle::Live { session_id }
+            | RecordingLifecycle::StoppedUnstaged { session_id, .. }
             | RecordingLifecycle::StoppedPending { session_id, .. } => Some(session_id.clone()),
             RecordingLifecycle::Idle | RecordingLifecycle::Acknowledged { .. } => None,
         }
@@ -359,12 +464,17 @@ mod lifecycle_tests {
     use super::*;
 
     #[test]
-    fn staged_capture_keeps_session_recoverable_until_close() {
+    fn unstaged_stop_retries_without_discarding_samples_then_keeps_capture_recoverable() {
         let mut recorder = Recorder::new();
-        recorder.lifecycle = RecordingLifecycle::Live {
-            session_id: "session-1".to_string(),
+        recorder.lifecycle = RecordingLifecycle::StoppedUnstaged {
+            session_id: "01234567-89ab-4cde-8f01-23456789abcd".to_string(),
+            samples: vec![0.25, -0.5],
         };
-        assert_eq!(recorder.get_current_recording_id(), None);
+        assert_eq!(recorder.stopped_samples(), Some([0.25, -0.5].as_slice()));
+        recorder.retain_stopped_samples().unwrap();
+        assert_eq!(recorder.stopped_samples(), Some([0.25, -0.5].as_slice()));
+        assert!(recorder.close_session().is_err());
+        assert!(recorder.cancel_recording().is_err());
 
         let capture = StagedRecordingCapture {
             capture_id: "capture_0123456789abcdef0123456789abcdef".to_string(),
@@ -376,7 +486,7 @@ mod lifecycle_tests {
 
         assert_eq!(
             recorder.get_current_recording_id().as_deref(),
-            Some("session-1")
+            Some("01234567-89ab-4cde-8f01-23456789abcd")
         );
         assert_eq!(recorder.completed_capture(), Some(capture.clone()));
         // The command's repeated-stop fast path reads this exact coordinate.
@@ -385,21 +495,47 @@ mod lifecycle_tests {
         assert!(recorder.close_session().is_err());
         assert_eq!(recorder.completed_capture(), Some(capture.clone()));
 
-        recorder
-            .acknowledge_capture("session-1", &capture.capture_id)
+        let pending = recorder
+            .pending_acknowledgement("01234567-89ab-4cde-8f01-23456789abcd", &capture.capture_id)
+            .unwrap()
             .unwrap();
+        assert_eq!(pending.capture(), capture);
         recorder
-            .acknowledge_capture("session-1", &capture.capture_id)
-            .unwrap();
+            .finish_acknowledgement("01234567-89ab-4cde-8f01-23456789abcd", &capture.capture_id);
+        assert!(recorder
+            .pending_acknowledgement("01234567-89ab-4cde-8f01-23456789abcd", &capture.capture_id,)
+            .unwrap()
+            .is_none());
         assert_eq!(recorder.get_current_recording_id(), None);
         assert_eq!(recorder.completed_capture(), None);
     }
 
     #[test]
+    fn restored_pending_capture_blocks_generic_lifecycle_operations() {
+        let mut recorder = Recorder::new();
+        let pending = PendingRecordingCapture {
+            session_id: "01234567-89ab-4cde-8f01-23456789abcd".to_string(),
+            capture_id: "capture_0123456789abcdef0123456789abcdef".to_string(),
+            byte_length: 48,
+        };
+
+        recorder.restore_pending_capture(pending.clone()).unwrap();
+
+        assert_eq!(recorder.completed_capture(), Some(pending.capture()));
+        assert_eq!(
+            recorder.get_current_recording_id().as_deref(),
+            Some(pending.session_id.as_str())
+        );
+        assert!(recorder.cancel_recording().is_err());
+        assert!(recorder.close_session().is_err());
+    }
+
+    #[test]
     fn wrong_acknowledgement_cancel_and_close_cannot_discard_pending_capture() {
         let mut recorder = Recorder::new();
-        recorder.lifecycle = RecordingLifecycle::Live {
-            session_id: "session-1".to_string(),
+        recorder.lifecycle = RecordingLifecycle::StoppedUnstaged {
+            session_id: "01234567-89ab-4cde-8f01-23456789abcd".to_string(),
+            samples: vec![0.25],
         };
         let capture = StagedRecordingCapture {
             capture_id: "capture_0123456789abcdef0123456789abcdef".to_string(),
@@ -410,10 +546,13 @@ mod lifecycle_tests {
             .unwrap();
 
         assert!(recorder
-            .acknowledge_capture("session-2", &capture.capture_id)
+            .pending_acknowledgement("ffffffff-ffff-4fff-8fff-ffffffffffff", &capture.capture_id,)
             .is_err());
         assert!(recorder
-            .acknowledge_capture("session-1", "capture_ffffffffffffffffffffffffffffffff")
+            .pending_acknowledgement(
+                "01234567-89ab-4cde-8f01-23456789abcd",
+                "capture_ffffffffffffffffffffffffffffffff"
+            )
             .is_err());
         assert!(recorder.cancel_recording().is_err());
         assert!(recorder.close_session().is_err());
@@ -437,6 +576,8 @@ fn run_consumer(
 
     let mut recording = false;
     let mut buffer: Vec<f32> = Vec::new();
+    let max_buffered_samples = max_buffered_input_samples(device_rate);
+    let mut terminal_error: Option<RecorderError> = None;
     // Mic-level metering accumulators, averaged and flushed on an interval.
     let mut level_sumsq = 0f64;
     let mut level_count = 0usize;
@@ -448,20 +589,29 @@ fn run_consumer(
         if let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
                 RecorderCmd::Start(reply) => {
+                    if terminal_error.is_some() {
+                        let _ = reply.send(Err(RecorderError::failed(
+                            "recording exceeded the native capture size limit",
+                        )));
+                        continue;
+                    }
                     recording = true;
                     is_recording.store(true, Ordering::Release);
                     buffer.clear();
                     level_sumsq = 0.0;
                     level_count = 0;
                     last_level_emit = Instant::now();
-                    let _ = reply.send(());
+                    let _ = reply.send(Ok(()));
                     continue;
                 }
                 RecorderCmd::Stop(reply) => {
                     is_recording.store(false, Ordering::Release);
-                    let result = crate::timing::measure("finalize", || {
-                        finalize(std::mem::take(&mut buffer), device_rate)
-                    });
+                    let result = match terminal_error.take() {
+                        Some(error) => Err(error),
+                        None => crate::timing::measure("finalize", || {
+                            finalize(std::mem::take(&mut buffer), device_rate)
+                        }),
+                    };
                     let _ = reply.send(result);
                     return;
                 }
@@ -480,11 +630,25 @@ fn run_consumer(
         match sample_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => {
                 if recording {
+                    if let Err(limit_error) =
+                        append_samples_with_limit(&mut buffer, &samples, max_buffered_samples)
+                    {
+                        error!(
+                            "Recording stopped at its live sample ceiling: device_rate={}, buffered_samples={}, incoming_samples={}, max_buffered_samples={}",
+                            device_rate,
+                            buffer.len(),
+                            samples.len(),
+                            max_buffered_samples
+                        );
+                        recording = false;
+                        is_recording.store(false, Ordering::Release);
+                        terminal_error = Some(limit_error);
+                        continue;
+                    }
                     for &sample in &samples {
                         level_sumsq += (sample as f64) * (sample as f64);
                     }
                     level_count += samples.len();
-                    buffer.extend_from_slice(&samples);
 
                     if last_level_emit.elapsed() >= MIC_LEVEL_EMIT_INTERVAL && level_count > 0 {
                         let rms = (level_sumsq / level_count as f64).sqrt() as f32;
@@ -501,6 +665,31 @@ fn run_consumer(
             Err(RecvTimeoutError::Disconnected) => return,
         }
     }
+}
+
+/// Bound both the live input Vec and the worst-case 16 kHz WAV after
+/// resampling. CPAL chunks are already downmixed to mono before they reach this
+/// worker, so channel count cannot multiply this sample budget.
+fn max_buffered_input_samples(device_rate: u32) -> usize {
+    let max_pcm_samples = (MAX_RECORDING_CAPTURE_BYTES - WAV_HEADER_BYTES) / PCM_SAMPLE_BYTES;
+    let output_bounded_input =
+        max_pcm_samples.saturating_mul(u64::from(device_rate)) / u64::from(TARGET_RATE);
+    let bounded = max_pcm_samples.min(output_bounded_input);
+    usize::try_from(bounded).unwrap_or(usize::MAX)
+}
+
+fn append_samples_with_limit(
+    buffer: &mut Vec<f32>,
+    incoming: &[f32],
+    max_samples: usize,
+) -> Result<()> {
+    if incoming.len() > max_samples.saturating_sub(buffer.len()) {
+        return Err(RecorderError::failed(
+            "recording exceeded the native capture size limit",
+        ));
+    }
+    buffer.extend_from_slice(incoming);
+    Ok(())
 }
 
 /// Resample to 16 kHz if needed, pad short clips, build the samples.
@@ -742,6 +931,43 @@ fn downmix_u16(interleaved: &[u16], channels: usize) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sample_limit_accepts_the_inclusive_boundary() {
+        let mut buffer = vec![0.0, 0.25];
+
+        append_samples_with_limit(&mut buffer, &[0.5, 0.75], 4).unwrap();
+
+        assert_eq!(buffer, vec![0.0, 0.25, 0.5, 0.75]);
+    }
+
+    #[test]
+    fn sample_limit_refuses_the_next_sample_without_mutating_the_buffer() {
+        let mut buffer = vec![0.0, 0.25, 0.5];
+
+        let error = append_samples_with_limit(&mut buffer, &[0.75], 3).unwrap_err();
+
+        assert!(matches!(error, RecorderError::Failed { .. }));
+        assert_eq!(
+            error.to_string(),
+            "recording exceeded the native capture size limit"
+        );
+        assert_eq!(buffer, vec![0.0, 0.25, 0.5]);
+    }
+
+    #[test]
+    fn input_sample_budget_bounds_memory_and_low_rate_resampling() {
+        let max_pcm_samples =
+            ((MAX_RECORDING_CAPTURE_BYTES - WAV_HEADER_BYTES) / PCM_SAMPLE_BYTES) as usize;
+
+        assert_eq!(max_buffered_input_samples(TARGET_RATE), max_pcm_samples);
+        assert_eq!(
+            max_buffered_input_samples(TARGET_RATE / 2),
+            max_pcm_samples / 2
+        );
+        assert_eq!(max_buffered_input_samples(TARGET_RATE * 3), max_pcm_samples);
+        assert_eq!(max_buffered_input_samples(0), 0);
+    }
 
     #[test]
     fn downmix_stereo_to_mono_averages_pairs() {

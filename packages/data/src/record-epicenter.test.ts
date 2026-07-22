@@ -256,6 +256,27 @@ describe('record Epicenter Lens runtime', () => {
 		}
 	});
 
+	test('discarding the first local replica revokes its open documents', async () => {
+		const context = setup();
+		try {
+			const row = await context.data.notes.notes.create({
+				title: 'Discard me',
+			});
+			const document = await context.data.notes.notes.openDocument(row.id);
+			document.get('content').insert(0, 'local only');
+
+			expect(context.replica.attach(ATTACHMENT, 'discard')).toEqual({
+				attached: true,
+				discarded: true,
+			});
+			expect(() => document.get('content')).toThrow('no longer live');
+			await document[Symbol.asyncDispose]();
+		} finally {
+			await context.epicenter[Symbol.asyncDispose]();
+			context.database.close();
+		}
+	});
+
 	test('creates a live row and its blob as one Lens operation', async () => {
 		const context = setup();
 		try {

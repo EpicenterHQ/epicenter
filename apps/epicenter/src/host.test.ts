@@ -199,6 +199,42 @@ describe('createHomeHost', () => {
 		});
 	});
 
+	test('record attachment pauses every command and discard rebuilds Home', async () => {
+		const engine = scriptedEngine([
+			[
+				{
+					type: 'tool-call',
+					toolCallId: 'call-1',
+					toolName: 'honeycrisp__folders_create',
+					input: { name: 'Must not survive discard' },
+				},
+			],
+			[{ type: 'text-delta', delta: 'done' }],
+		]);
+		await using host = await createTestHost({ engine });
+
+		expect(
+			await host.handleCommand({ type: 'send', content: 'start a mutation' }),
+		).toBe(true);
+		await waitFor(
+			() => host.snapshot().pendingApprovals.length === 1,
+			'a pending approval',
+		);
+
+		await host.runRecordAttachmentTransition('discard', async () => {
+			expect(
+				await host.handleCommand({ type: 'send', content: 'race the choice' }),
+			).toBe(false);
+		});
+
+		expect(host.snapshot().pendingApprovals).toEqual([]);
+		expect(host.snapshot().conversation.messages).toEqual([]);
+		expect(host.snapshot().conversation.isGenerating).toBe(false);
+		expect(
+			await host.handleCommand({ type: 'send', content: 'after attachment' }),
+		).toBe(true);
+	});
+
 	test('always allow approves the next matching mutation without a second prompt', async () => {
 		const engine = scriptedEngine([
 			[

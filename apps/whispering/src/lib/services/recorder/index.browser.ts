@@ -1,11 +1,9 @@
-import type { BlobId } from '@epicenter/blobs';
 import {
 	cleanupRecordingStream,
 	enumerateDevices,
 	getRecordingStream,
 } from '@epicenter/recorder';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
-import { BlobsLive } from '#platform/blobs';
 import {
 	type NavigatorRecordingParams,
 	RecorderError,
@@ -32,7 +30,7 @@ const TIMESLICE_MS = 1000;
  */
 function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 	function buildSession(args: {
-		audioBlobId: BlobId;
+		id: RecordingSession['id'];
 		stream: MediaStream;
 		mediaRecorder: MediaRecorder;
 		recordedChunks: Blob[];
@@ -40,7 +38,7 @@ function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 		stopLevelMeter: () => void;
 	}) {
 		const {
-			audioBlobId,
+			id,
 			stream,
 			mediaRecorder,
 			recordedChunks,
@@ -67,7 +65,8 @@ function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 		};
 
 		const recordingSession = {
-			audioBlobId,
+			id,
+			awaitingAdmission: false,
 
 			stop: async () => {
 				const { data: blob, error: stopError } = await tryAsync({
@@ -90,14 +89,13 @@ function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 					teardown();
 					return Err(stopError);
 				}
-				const { error: putError } = await BlobsLive.local.put(
-					audioBlobId,
-					blob,
-				);
 				teardown();
-				if (putError !== null) return Err(putError);
 
-				return Ok({ audioBlobId, durationMs, byteLength: blob.size });
+				return Ok({
+					audio: { kind: 'bytes', bytes: blob },
+					durationMs,
+					byteLength: blob.size,
+				});
 			},
 
 			cancel: async () => {
@@ -144,7 +142,7 @@ function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 		},
 
 		startRecording: async (
-			{ selectedDeviceId, audioBlobId, bitrateKbps }: NavigatorRecordingParams,
+			{ selectedDeviceId, bitrateKbps }: NavigatorRecordingParams,
 			{ onLevel }: RecordingCallbacks,
 		) => {
 			const { data: streamResult, error: acquireStreamError } =
@@ -196,7 +194,7 @@ function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 			const startedAtMs = Date.now();
 
 			const session = buildSession({
-				audioBlobId,
+				id: crypto.randomUUID() as RecordingSession['id'],
 				stream,
 				mediaRecorder,
 				recordedChunks,

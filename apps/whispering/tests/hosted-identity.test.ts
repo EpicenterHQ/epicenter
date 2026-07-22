@@ -46,11 +46,12 @@ describe('Epicenter-hosted Whispering identity', () => {
 		expect(normalizeWhisperingPath('/settings')).toBe('/settings');
 	});
 
-	test('the canonical SPA no longer documents the retired native identifier', () => {
-		expect(read('src/lib/services/fs-paths.ts')).not.toContain(
-			'so.epicenter.whispering',
-		);
-		expect(read('src/lib/services/fs-paths.ts')).toContain('so.epicenter');
+	test('native recording storage belongs entirely to the Epicenter host', () => {
+		expect(existsSync(join(ROOT, 'src/lib/services/fs-paths.ts'))).toBe(false);
+		const recorder = read('src/lib/services/recorder/index.tauri.ts');
+		expect(recorder).not.toContain('appDataDir');
+		expect(recorder).not.toContain('join(');
+		expect(recorder).toContain("kind: 'native-capture'");
 	});
 
 	test('desktop auth uses the Bun authority instead of a window OAuth launcher', () => {

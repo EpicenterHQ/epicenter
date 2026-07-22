@@ -29,4 +29,16 @@ export const DownloadServiceLive = {
 			catch: (error) => DownloadError.WriteFailed({ cause: error }),
 		});
 	},
+	downloadUrl: ({ name, url }) =>
+		tryAsync({
+			try: async () => {
+				const anchor = document.createElement('a');
+				anchor.href = url;
+				anchor.download = name;
+				document.body.appendChild(anchor);
+				anchor.click();
+				document.body.removeChild(anchor);
+			},
+			catch: (error) => DownloadError.WriteFailed({ cause: error }),
+		}),
 } satisfies DownloadService;

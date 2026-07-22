@@ -8,8 +8,10 @@ pub use config::{TranscriptionSpec, UnloadPolicy};
 pub use error::TranscriptionError;
 pub use model_cache::ModelCache;
 
-use crate::recorder::read_blob_samples;
-use tauri::{AppHandle, State};
+use crate::audio::decode_to_pcm16k_mono;
+use crate::recorder::read_recording_bytes;
+use crate::HostState;
+use tauri::State;
 
 /// Reconcile the current local-model unload policy into the native idle
 /// watcher. The frontend owns the value and pushes it on every change; Rust
@@ -21,21 +23,25 @@ pub fn set_unload_policy(policy: UnloadPolicy, model_cache: State<'_, ModelCache
     model_cache.set_unload_policy(policy);
 }
 
-/// Temporary legacy transcribe-by-id path.
-///
-/// This still resolves the retired local blob layout until the record owner
-/// supplies the private launch-token audio route in the next checkpoint.
+/// Transcribe one saved recording through the record-addressed host boundary.
 #[tauri::command]
 #[specta::specta]
 pub async fn transcribe_recording(
-    audio_blob_id: String,
+    recording_id: String,
     spec: TranscriptionSpec,
-    app_handle: AppHandle,
+    host: State<'_, HostState>,
     model_cache: State<'_, ModelCache>,
 ) -> Result<String, TranscriptionError> {
-    let samples = crate::timing::measure("transcribe.read+decode", || {
-        read_blob_samples(&app_handle, &audio_blob_id)
+    let bytes = read_recording_bytes(host.inner(), &recording_id)
+        .await
+        .map_err(|error| TranscriptionError::AudioReadError {
+            message: error.to_string(),
+        })?;
+    let samples = tauri::async_runtime::spawn_blocking(move || {
+        crate::timing::measure("transcribe.decode", || decode_to_pcm16k_mono(&bytes))
     })
+    .await
+    .map_err(join_err)?
     .map_err(|e| TranscriptionError::AudioReadError {
         message: e.to_string(),
     })?;

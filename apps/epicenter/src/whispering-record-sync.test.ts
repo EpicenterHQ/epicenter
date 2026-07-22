@@ -57,6 +57,8 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 			.whispering.recordings;
 		const recording = await firstRecordings.create({
 			title: 'Offline',
+			audioMediaType: 'audio/wav',
+			audioFileName: 'offline.wav',
 			recordedAt: InstantString.now(),
 			recordedAtZone: 'UTC',
 			transcript: 'Authored offline',

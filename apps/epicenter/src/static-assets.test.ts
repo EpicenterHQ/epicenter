@@ -252,6 +252,12 @@ describe('home server catalog routes', () => {
 			staticAssets: await loadStaticAssets(appsDist),
 			appCatalog: await derive(catalogRoot),
 			recordOwner: closedRecordOwner,
+			recordAttachment: () => ({
+				kind: 'unattached',
+				requiresChoice: false,
+			}),
+			readRecordingAudio: async () => null,
+			chooseFirstAttachment: async () => undefined,
 			desktopAuth: createTestDesktopAuth(),
 		});
 		const server = Bun.serve({

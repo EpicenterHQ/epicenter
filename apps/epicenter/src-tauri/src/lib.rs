@@ -194,7 +194,7 @@ struct ManagedChild {
     stdin: Option<ChildStdin>,
 }
 
-struct HostState {
+pub struct HostState {
     port: std::result::Result<u16, String>,
     next_generation: AtomicU64,
     process: Mutex<Option<ManagedChild>>,
@@ -499,6 +499,16 @@ pub fn run() {
         })
         .setup(move |app| {
             specta_builder.mount_events(app);
+
+            {
+                let recorder_state = app.state::<Mutex<Recorder>>();
+                let mut recorder = recorder_state
+                    .lock()
+                    .map_err(|error| anyhow!("lock recorder during recovery: {error}"))?;
+                recorder
+                    .recover_pending_capture(app.handle())
+                    .map_err(|error| anyhow!("recover pending native recording: {error}"))?;
+            }
 
             let cache = ModelCache::new();
             cache.start_idle_watcher();

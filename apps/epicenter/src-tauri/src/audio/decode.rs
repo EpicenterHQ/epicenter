@@ -32,6 +32,17 @@ const TARGET_RATE: u32 = 16_000;
 /// produces output at this rate.
 const OPUS_RATE: u32 = 48_000;
 
+/// Local dictation processing is intentionally bounded even for tiny highly
+/// compressed inputs. Thirty minutes at 16 kHz mono is 28.8 million samples;
+/// source-lane limits are scaled by their discovered rate and channel count.
+const MAX_AUDIO_DURATION_SECONDS: usize = 30 * 60;
+
+/// Decoders accumulate interleaved f32 source samples before downmixing. Keep
+/// that allocation below 128 MiB even when a small compressed file expands to
+/// high-rate, multi-channel PCM. The native 16 kHz mono capture lane still
+/// admits the full thirty-minute duration limit above.
+const MAX_DECODED_INTERLEAVED_SAMPLES: usize = 32 * 1024 * 1024;
+
 /// Decode arbitrary audio bytes into 16 kHz mono interleaved f32 PCM.
 ///
 /// Returns an empty `Vec` when the input decodes to zero audible samples
@@ -152,6 +163,12 @@ fn decode_via_symphonia(
                 }
                 let buf = sample_buf.as_mut().expect("initialised above");
                 buf.copy_interleaved_ref(decoded);
+                enforce_decoded_sample_limit(
+                    interleaved.len(),
+                    buf.samples().len(),
+                    spec.rate,
+                    spec.channels.count(),
+                )?;
                 interleaved.extend_from_slice(buf.samples());
             }
             Err(SymphoniaError::DecodeError(e)) => {
@@ -240,6 +257,12 @@ fn decode_via_libopus(
             .map_err(|e| AudioError::decode(format!("libopus decode failed: {e}")))?;
 
         let n_samples = frames * channel_count as usize;
+        enforce_decoded_sample_limit(
+            interleaved.len(),
+            n_samples,
+            OPUS_RATE,
+            channel_count as usize,
+        )?;
         interleaved.extend_from_slice(&scratch[..n_samples]);
     }
 
@@ -253,6 +276,29 @@ fn decode_via_libopus(
     }
 
     Ok((interleaved, OPUS_RATE, channel_count))
+}
+
+fn enforce_decoded_sample_limit(
+    accumulated: usize,
+    incoming: usize,
+    sample_rate: u32,
+    channels: usize,
+) -> Result<(), AudioError> {
+    let duration_maximum = (sample_rate as usize)
+        .checked_mul(channels)
+        .and_then(|samples_per_second| samples_per_second.checked_mul(MAX_AUDIO_DURATION_SECONDS))
+        .ok_or_else(|| AudioError::decode("decoded audio dimensions overflow"))?;
+    if incoming > duration_maximum.saturating_sub(accumulated) {
+        return Err(AudioError::decode(
+            "decoded audio exceeds the 30 minute native processing limit",
+        ));
+    }
+    if incoming > MAX_DECODED_INTERLEAVED_SAMPLES.saturating_sub(accumulated) {
+        return Err(AudioError::decode(
+            "decoded audio exceeds the native processing memory limit",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -347,6 +393,25 @@ mod tests {
             matches!(result, Err(AudioError::DecodeFailed { .. })),
             "expected DecodeFailed, got {result:?}",
         );
+    }
+
+    #[test]
+    fn decoded_sample_limit_is_inclusive_and_rejects_the_next_sample() {
+        let maximum = 16_000 * MAX_AUDIO_DURATION_SECONDS;
+        assert!(enforce_decoded_sample_limit(maximum - 1, 1, 16_000, 1).is_ok());
+        let error = enforce_decoded_sample_limit(maximum, 1, 16_000, 1).unwrap_err();
+        assert!(error.to_string().contains("30 minute"));
+    }
+
+    #[test]
+    fn decoded_sample_memory_limit_is_inclusive_and_rejects_the_next_sample() {
+        assert!(
+            enforce_decoded_sample_limit(MAX_DECODED_INTERLEAVED_SAMPLES - 1, 1, 48_000, 2,)
+                .is_ok()
+        );
+        let error = enforce_decoded_sample_limit(MAX_DECODED_INTERLEAVED_SAMPLES, 1, 48_000, 2)
+            .unwrap_err();
+        assert!(error.to_string().contains("memory limit"));
     }
 
     #[test]

@@ -47,7 +47,7 @@ const OGG_SERIAL: u32 = 0x57_48_53_50; // "WHSP"
 /// Encode a mono f32 PCM buffer to an OGG/Opus blob.
 ///
 /// This is the canonical fast path for cloud uploads: the recorder
-/// consumer worker (and `read_blob_samples`) always produce mono
+/// consumer worker (and `decode_to_pcm16k_mono`) always produce mono
 /// 16 kHz f32, so we resample to 48 kHz (libopus's internal rate) and
 /// encode straight into the OGG container. No WAV synthesis, no
 /// Symphonia round-trip, no detour.

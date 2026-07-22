@@ -1,15 +1,20 @@
 import type { Accessor } from '@tanstack/svelte-query';
+import { defineErrors } from 'wellcrafted/error';
 import { defineKeys } from 'wellcrafted/query';
+import { tryAsync } from 'wellcrafted/result';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
-import type { Recording } from '$lib/state/recordings.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import type { RecordingId } from '$lib/workspace';
 
 export const audioKeys = defineKeys({
-	availability: (
-		id: Recording['id'],
-		audioBlobId: Recording['audioBlobId'],
-		uploadedAt: Recording['uploadedAt'],
-	) => ['audio', 'availability', id, audioBlobId, uploadedAt] as const,
+	recording: (id: RecordingId) => ['audio', 'recording', id] as const,
+});
+
+const AudioQueryError = defineErrors({
+	ReadFailed: ({ cause }: { cause: unknown }) => ({
+		message: 'Could not read recording audio.',
+		cause,
+	}),
 });
 
 export function createAudioQueries(
@@ -17,17 +22,15 @@ export function createAudioQueries(
 	{ defineQuery }: Pick<WhisperingQueryRuntime, 'defineQuery'>,
 ) {
 	return {
-		availability: (
-			recording: Accessor<Pick<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
-		) => {
-			const current = recording();
+		recording: (recordingId: Accessor<RecordingId>) => {
+			const id = recordingId();
 			return defineQuery({
-				queryKey: audioKeys.availability(
-					current.id,
-					current.audioBlobId,
-					current.uploadedAt,
-				),
-				queryFn: () => app.recordings.audioAvailability(recording().id),
+				queryKey: audioKeys.recording(id),
+				queryFn: () =>
+					tryAsync({
+						try: () => app.recordings.readPlaybackAudio(id),
+						catch: (cause) => AudioQueryError.ReadFailed({ cause }),
+					}),
 			});
 		},
 	};

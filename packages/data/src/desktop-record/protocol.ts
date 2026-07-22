@@ -1,3 +1,4 @@
+import { defineErrors } from 'wellcrafted/error';
 import type { JsonValue, RecordAddress } from '../protocol/v1/index.js';
 import type { RecordInspection } from '../record-epicenter.js';
 import type { RecordSyncState } from '../record-sync-supervisor.js';
@@ -11,12 +12,22 @@ import type {
 } from '../store/replica/index.js';
 
 export const DESKTOP_RECORD_ROUTE = '/api/data/records';
+export const DESKTOP_RECORD_ATTACHMENT_ROUTE = '/api/data/attachment';
 export const EPICENTER_DESKTOP_RECORD_MOVED_ERROR_NAME =
 	'EpicenterDesktopRecordMovedError';
 export const EPICENTER_DESKTOP_RECORD_REQUEST_ERROR_NAME =
 	'EpicenterDesktopRecordRequestError';
 export const EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME =
 	'EpicenterDesktopRecordOperationError';
+export const EPICENTER_DESKTOP_RECORD_ATTACHMENT_REQUIRED_ERROR_NAME =
+	'EpicenterDesktopRecordAttachmentRequiredError';
+
+export const DesktopRecordProtocolError = defineErrors({
+	[EPICENTER_DESKTOP_RECORD_ATTACHMENT_REQUIRED_ERROR_NAME]: () => ({
+		message:
+			'Choose whether to bring or discard local Epicenter data before making changes' as const,
+	}),
+});
 
 /** Inclusive ceiling shared by inline and host-owned record blob sources. */
 export const MAX_RECORD_BLOB_BYTES = 5 * 1024 * 1024 * 1024;
@@ -167,10 +178,18 @@ export type DesktopRecordError =
 	| {
 			name: typeof EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME;
 			message: 'Desktop record operation failed';
+	  }
+	| {
+			name: typeof EPICENTER_DESKTOP_RECORD_ATTACHMENT_REQUIRED_ERROR_NAME;
+			message: 'Choose whether to bring or discard local Epicenter data before making changes';
 	  };
 
 export function desktopRecordUrl(baseUrl: string): string {
 	return new URL(DESKTOP_RECORD_ROUTE, baseUrl).toString();
+}
+
+export function desktopRecordAttachmentUrl(baseUrl: string): string {
+	return new URL(DESKTOP_RECORD_ATTACHMENT_ROUTE, baseUrl).toString();
 }
 
 export function isDesktopRecordMutation(
@@ -200,5 +219,41 @@ export function isDesktopRecordMutation(
 			return false;
 		default:
 			return operation satisfies never;
+	}
+}
+
+/**
+ * Classify an untrusted desktop envelope without weakening the owner's full
+ * protocol validation. The host uses this only to hold valid mutation-shaped
+ * requests behind the first-attachment decision; malformed requests still go
+ * to the owner and receive the canonical request error.
+ */
+export function isDesktopRecordMutationRequest(input: unknown): boolean {
+	if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+		return false;
+	}
+	if (!('operation' in input)) return false;
+	const operation = input.operation;
+	if (
+		typeof operation !== 'object' ||
+		operation === null ||
+		Array.isArray(operation) ||
+		!('kind' in operation)
+	) {
+		return false;
+	}
+	switch (operation.kind) {
+		case 'create-record':
+		case 'create-record-with-blob':
+		case 'patch-live':
+		case 'tombstone-live':
+		case 'replace':
+		case 'unset':
+		case 'append-local-document-update':
+		case 'install-accepted-document-update':
+		case 'put-blob':
+			return true;
+		default:
+			return false;
 	}
 }

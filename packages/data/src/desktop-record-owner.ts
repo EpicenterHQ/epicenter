@@ -1,5 +1,4 @@
 import { customAlphabet } from 'nanoid';
-import { createLogger, type Logger } from 'wellcrafted/logger';
 
 import { openBunRecordOwner } from './bun-record-owner.js';
 import type {
@@ -28,6 +27,7 @@ import {
 	parseAddress,
 	type RecordAddress,
 	SCALAR_SYNC_V1_LIMITS,
+	sha256Hex,
 } from './protocol/v1/index.js';
 import type { RecordOwner } from './record-epicenter.js';
 import type { RecordSyncStatus } from './record-sync-supervisor.js';
@@ -83,13 +83,12 @@ type DesktopRecordOwnerRuntimeOptions = {
 	now?: () => number;
 	surfaceLeaseMs?: number;
 	maxSurfaces?: number;
-	log?: Logger;
 };
 
 type DesktopRecordNativeCaptureResolutionFor<TSource> = {
 	source: TSource;
-	/** Permanently remove the capture after its record and blob are admitted. */
-	consume(): void | Promise<void>;
+	/** Release the opened source after its record and blob are admitted. */
+	release(): void | Promise<void>;
 };
 
 type DesktopRecordNativeCaptureResolverFor<TSource> = (
@@ -98,7 +97,7 @@ type DesktopRecordNativeCaptureResolverFor<TSource> = (
 
 type ResolvedDesktopRecordBlobSource<TSource> = {
 	source: TSource;
-	consume?: () => void | Promise<void>;
+	release?: () => void | Promise<void>;
 };
 
 export type DesktopRecordNativeCaptureResolution =
@@ -107,8 +106,8 @@ export type DesktopRecordNativeCaptureResolution =
 /**
  * Resolve one app-owned capture without exposing its path to the WebView.
  * The resolver must verify that the opened bytes still have the coordinate's
- * declared byte length. `consume` removes that exact capture; Data invokes it
- * only after blob storage and scalar record admission both succeed.
+ * declared byte length. `release` closes the pinned source after blob storage
+ * and scalar admission. The native capture owner retains cleanup responsibility.
  */
 export type DesktopRecordNativeCaptureResolver = (
 	capture: DesktopRecordNativeCapture,
@@ -147,7 +146,6 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 		now = Date.now,
 		surfaceLeaseMs = DEFAULT_SURFACE_LEASE_MS,
 		maxSurfaces = DEFAULT_MAX_SURFACES,
-		log = createLogger('data/desktop-record-owner'),
 	}: DesktopRecordOwnerRuntimeOptions = {},
 ) {
 	if (!Number.isSafeInteger(surfaceLeaseMs) || surfaceLeaseMs < 1) {
@@ -178,19 +176,11 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 		return resolveNativeCapture(structuredClone(input));
 	}
 
-	async function consumeResolvedBlobSource(
+	async function releaseResolvedBlobSource(
 		resolved: ResolvedDesktopRecordBlobSource<TSource>,
 	): Promise<void> {
-		if (resolved.consume === undefined) return;
-		try {
-			await resolved.consume();
-		} catch (cause) {
-			log.error(
-				new Error('Desktop native capture cleanup failed after admission', {
-					cause,
-				}),
-			);
-		}
+		if (resolved.release === undefined) return;
+		await resolved.release();
 	}
 
 	function sweepExpiredSurfaces(at: number): void {
@@ -382,21 +372,41 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 				return { kind: 'create-record', recordKey };
 			}
 			case 'create-record-with-blob': {
-				const recordKey = freshRecordKey(replica, operation);
+				const recordKey =
+					operation.source.kind === 'native-capture'
+						? nativeCaptureRecordKey(operation.source)
+						: freshRecordKey(replica, operation);
 				const address = {
 					namespace: operation.namespace,
 					collection: operation.collection,
 					recordKey,
 				};
+				const existing = replica.visible(address);
+				if (existing !== null) {
+					if (
+						operation.source.kind !== 'native-capture' ||
+						existing.state !== 'live' ||
+						blobs.inspect(address).kind === 'absent'
+					) {
+						throw new Error('record address is already occupied');
+					}
+					// The deterministic address is the durable admission receipt for
+					// this 120-bit capture coordinate. The record already owns immutable
+					// bytes, so replay must not reopen or restage Rust's source file.
+					return { kind: 'create-record-with-blob', recordKey };
+				}
 				const resolved = await resolveBlobSource(operation.source);
-				await blobs.captureNewRecord(address, resolved.source, (digest) =>
-					replica.admitLocalRecordWithBlob({
-						address,
-						payload: operation.payload,
-						digest,
-					}),
-				);
-				await consumeResolvedBlobSource(resolved);
+				try {
+					await blobs.captureNewRecord(address, resolved.source, (digest) =>
+						replica.admitLocalRecordWithBlob({
+							address,
+							payload: operation.payload,
+							digest,
+						}),
+					);
+				} finally {
+					await releaseResolvedBlobSource(resolved);
+				}
 				return { kind: 'create-record-with-blob', recordKey };
 			}
 			case 'patch-live': {
@@ -589,6 +599,13 @@ export function createDesktopRecordEpicenterOwnerForTest<TSource, TRead>(
 		},
 		[Symbol.asyncDispose]: dispose,
 	});
+}
+
+function nativeCaptureRecordKey(capture: DesktopRecordNativeCapture): string {
+	const digest = sha256Hex(capture.captureId);
+	return BigInt(`0x${digest.slice(0, 30)}`)
+		.toString(36)
+		.padStart(24, '0');
 }
 
 export type DesktopRecordEpicenterOwner = Awaited<

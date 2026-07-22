@@ -4,9 +4,8 @@ import type { Recording } from '$lib/state/recordings.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 /**
- * Confirm and run the app's recording deletion workflow. The copy escalates
- * when any selected recording has an online copy, since deletion then removes
- * the recording everywhere, not just on this device.
+ * Confirm and run the app's recording deletion workflow. The record tombstone
+ * covers its scalar row, document, and audio obligation as one deletion.
  */
 export function deleteRecordingsWithConfirmation(
 	app: WhisperingApp,
@@ -16,15 +15,12 @@ export function deleteRecordingsWithConfirmation(
 	const arr = Array.isArray(toDelete) ? toDelete : [toDelete];
 	const isSingle = arr.length === 1;
 	const noun = isSingle ? 'recording' : 'recordings';
-	const deletesRemote = arr.some(({ uploadedAt }) => uploadedAt !== null);
 
 	confirmationDialog.open({
-		title: deletesRemote ? `Delete ${noun} everywhere` : `Delete ${noun}`,
-		description: deletesRemote
-			? `This permanently deletes ${isSingle ? 'this recording' : 'these recordings'} from this device and online storage.`
-			: `Are you sure you want to delete ${isSingle ? 'this' : 'these'} ${noun}?`,
+		title: `Delete ${noun}`,
+		description: `Are you sure you want to delete ${isSingle ? 'this' : 'these'} ${noun}?`,
 		confirm: {
-			text: deletesRemote ? 'Delete everywhere' : 'Delete',
+			text: 'Delete',
 			variant: 'destructive',
 		},
 		onConfirm: async () => {

@@ -19,10 +19,6 @@
 			"tauri": "./src/lib/services/analytics/index.tauri.ts",
 			"default": "./src/lib/services/analytics/index.browser.ts"
 		},
-		"#platform/blobs": {
-			"tauri": "./src/lib/services/blobs/index.tauri.ts",
-			"default": "./src/lib/services/blobs/index.browser.ts"
-		},
 		"#platform/download": {
 			"tauri": "./src/lib/services/download/index.tauri.ts",
 			"default": "./src/lib/services/download/index.browser.ts"
@@ -130,7 +126,6 @@
 		"@aptabase/web": "^0.4.3",
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/blobs": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",

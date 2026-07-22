@@ -1,14 +1,9 @@
 import type {
-	BlobAlreadyExists,
-	BlobId,
-	BlobNotFound,
-	BlobStoreFailed,
-} from '@epicenter/blobs';
-import type {
 	Device,
 	DeviceAcquisitionOutcome,
 	DeviceIdentifier,
 } from '@epicenter/recorder';
+import type { Brand } from 'wellcrafted/brand';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -74,8 +69,10 @@ export type RecorderError = InferErrors<typeof RecorderError>;
  */
 export type BaseRecordingParams = {
 	selectedDeviceId: DeviceIdentifier | null;
-	audioBlobId: BlobId;
 };
+
+/** Ephemeral identity used only to stop the exact live capture session. */
+export type RecordingSessionId = string & Brand<'RecordingSessionId'>;
 
 /**
  * Live callbacks supplied by the caller at the moment of starting, kept
@@ -103,18 +100,34 @@ export type NavigatorRecordingParams = BaseRecordingParams & {
 	bitrateKbps: string;
 };
 
-/** Finalized local audio. Every platform has committed bytes before returning. */
+/**
+ * Finalized audio ready for the app to capture under a durable recording id.
+ * Native capture stays opaque until the Bun owner adopts its fsynced staging
+ * artifact; browser and imported bytes remain ordinary Blobs.
+ */
+export type FinalizedAudio =
+	| { kind: 'bytes'; bytes: Blob }
+	| {
+			kind: 'native-capture';
+			captureId: string;
+			byteLength: number;
+			/** Clear native pending state only after atomic record admission. */
+			acknowledgeAdmission(): Promise<void>;
+	  };
+
+/** Refuse an opaque native capture in runtimes that can only admit bytes. */
+export function requireFinalizedAudioBytes(audio: FinalizedAudio): Blob {
+	if (audio.kind === 'bytes') return audio.bytes;
+	throw new Error('Native capture requires the desktop record owner');
+}
+
 export type RecorderStopResult = {
-	audioBlobId: BlobId;
+	audio: FinalizedAudio;
 	durationMs: number | null;
 	byteLength: number;
 };
 
-export type RecorderStopError =
-	| RecorderError
-	| BlobAlreadyExists
-	| BlobNotFound
-	| BlobStoreFailed;
+export type RecorderStopError = RecorderError;
 
 /**
  * A live recording session returned by the recorder implementation that started it.
@@ -128,7 +141,9 @@ export type RecorderStopError =
  * stop/cancel.
  */
 export type RecordingSession = {
-	readonly audioBlobId: BlobId;
+	readonly id: RecordingSessionId;
+	/** True after durable stop until the recording row admits the capture. */
+	readonly awaitingAdmission: boolean;
 	stop(): Promise<Result<RecorderStopResult, RecorderStopError>>;
 	/**
 	 * Cancel the in-flight recording and discard it. Success carries no payload

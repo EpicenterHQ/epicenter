@@ -42,9 +42,11 @@ describe('Bun blob files', () => {
 				digest: staged.digest,
 			};
 			await files.promote(staged, owner);
-			expect(
-				new TextDecoder().decode(await collect(await files.open(owner))),
-			).toBe('streamed bytes');
+			const opened = await files.open(owner);
+			expect(opened.byteLength).toBe(14);
+			expect(new TextDecoder().decode(await collect(opened))).toBe(
+				'streamed bytes',
+			);
 			expect(
 				await readFile(
 					join(root, 'blobs', 'content', owner.ownerKey, owner.digest),

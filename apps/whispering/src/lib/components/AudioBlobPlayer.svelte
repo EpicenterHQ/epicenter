@@ -1,6 +1,13 @@
 <script lang="ts">
-	import type { BlobId, BlobSource } from '@epicenter/blobs';
-	import { services } from '$lib/services';
+	import { createQuery } from '@tanstack/svelte-query';
+	import {
+		getWhisperingApp,
+		getWhisperingQueries,
+	} from '$lib/whispering/context';
+	import type { RecordingId } from '$lib/workspace';
+
+	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
 
 	let {
 		id,
@@ -8,50 +15,59 @@
 		class: className,
 		viewTransitionName,
 	}: {
-		id: BlobId;
+		id: RecordingId;
 		enabled?: boolean;
 		class?: string;
 		viewTransitionName?: string;
 	} = $props();
 
-	let handle = $state<BlobSource | null>(null);
+	const audio = createQuery(() => ({
+		...queries.audio.recording(() => id).options,
+		enabled,
+	}));
+	let url = $state<string | null>(null);
 
-	// The source outlives any lexical scope (`using` cannot span a component
-	// lifetime), so effect teardown owns the manual [Symbol.dispose]() call.
+	// Record table notifications include blob-lane invalidations. Refetch only
+	// this address so unrelated scalar edits do not reread every mounted blob.
+	$effect(() =>
+		app.recordings.subscribe((changedIds) => {
+			if (changedIds.includes(id)) void audio.refetch();
+		}),
+	);
+
+	// Object URLs outlive a lexical scope, so component effect teardown owns
+	// revocation whenever the recording, enabled state, or bytes change.
 	$effect(() => {
-		const requestedId = id;
-		if (!enabled) {
-			handle = null;
-			return;
+		const source = audio.data;
+		if (!enabled || source === null || source === undefined) return;
+		if (typeof source === 'string') {
+			url = source;
+			return () => {
+				if (url === source) url = null;
+			};
 		}
-
-		let cancelled = false;
-		let owned: BlobSource | null = null;
-		void services.blobSources.open(requestedId).then(({ data }) => {
-			if (data === null) return;
-			if (cancelled) {
-				data[Symbol.dispose]();
-				return;
-			}
-			owned = data;
-			handle = data;
-		});
-
+		const owned = URL.createObjectURL(source);
+		url = owned;
 		return () => {
-			cancelled = true;
-			owned?.[Symbol.dispose]();
-			if (handle === owned) handle = null;
+			URL.revokeObjectURL(owned);
+			if (url === owned) url = null;
 		};
 	});
 </script>
 
-{#if handle}
+{#if url}
 	<audio
 		class={className}
 		style:view-transition-name={viewTransitionName}
 		controls
-		src={handle.url}
+		src={url}
 	>
 		Your browser does not support the audio element.
 	</audio>
+{:else if enabled && audio.isPending}
+	<p class={className} aria-live="polite">Loading audio...</p>
+{:else if enabled && audio.isError}
+	<p class={className} role="alert">Audio could not be loaded.</p>
+{:else if enabled && audio.data === null}
+	<p class={className}>Audio is unavailable.</p>
 {/if}

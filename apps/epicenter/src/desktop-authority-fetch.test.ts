@@ -105,3 +105,35 @@ test('desktop authority fetch retries one deployment 401 with a refreshed bearer
 		},
 	]);
 });
+
+test('desktop authority fetch replays a buffered request body after one deployment 401', async () => {
+	const authority: AuthorityTransport = {
+		baseURL: 'https://api.epicenter.so',
+		async authorize(options) {
+			return {
+				status: 'authorized',
+				accessToken: options?.forceRefresh ? 'refreshed' : 'initial',
+				tokenGeneration: options?.forceRefresh ? 2 : 1,
+			};
+		},
+		reportRejected() {},
+	};
+	const bodies: string[] = [];
+	const fetch = createDesktopAuthorityFetch(authority, {
+		fetch: async (_input, init) => {
+			bodies.push(await new Response(init?.body).text());
+			return new Response(null, { status: bodies.length === 1 ? 401 : 204 });
+		},
+	});
+
+	const response = await fetch('/api/ai/audio/transcriptions', {
+		method: 'POST',
+		body: new TextEncoder().encode('reusable multipart body'),
+	});
+
+	expect(response.status).toBe(204);
+	expect(bodies).toEqual([
+		'reusable multipart body',
+		'reusable multipart body',
+	]);
+});

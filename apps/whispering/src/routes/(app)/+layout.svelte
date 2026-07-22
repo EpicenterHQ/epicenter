@@ -20,6 +20,8 @@
 	import { whisperingPlatform } from '#platform/whispering';
 	import { log } from '$lib/report';
 	import WhisperingUiSessionProvider from '$lib/whispering/WhisperingUiSessionProvider.svelte';
+	import WhisperingIdentityGate from '$lib/whispering/WhisperingIdentityGate.svelte';
+	import WhisperingReplicaAttachmentChoice from '$lib/whispering/WhisperingReplicaAttachmentChoice.svelte';
 	import { createWhisperingUiSessionOpening } from '$lib/whispering/ui-session-opening';
 	import { openWhisperingUiSession } from '$lib/whispering/ui-session';
 	import AppEffects from './_components/AppEffects.svelte';
@@ -57,29 +59,33 @@
 	<Loading class="h-dvh" />
 {:then session}
 	<WhisperingUiSessionProvider {session}>
-		<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
-		<Tooltip.Provider>
-			<AppEffects />
+		<WhisperingIdentityGate>
+			<WhisperingReplicaAttachmentChoice>
+				<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
+				<Tooltip.Provider>
+					<AppEffects />
 
-			{#if isNarrow.current}
-				<div class="flex h-full min-h-svh flex-col">
-					<div class="flex-1 pb-14">
-						<ContentShell>{@render children()}</ContentShell>
-					</div>
-					<BottomNav />
-				</div>
-			{:else}
-				<Sidebar.Provider bind:open={sidebarOpen}>
-					<VerticalNav />
-					<Sidebar.Inset>
-						<ContentShell>{@render children()}</ContentShell>
-					</Sidebar.Inset>
-				</Sidebar.Provider>
-			{/if}
+					{#if isNarrow.current}
+						<div class="flex h-full min-h-svh flex-col">
+							<div class="flex-1 pb-14">
+								<ContentShell>{@render children()}</ContentShell>
+							</div>
+							<BottomNav />
+						</div>
+					{:else}
+						<Sidebar.Provider bind:open={sidebarOpen}>
+							<VerticalNav />
+							<Sidebar.Inset>
+								<ContentShell>{@render children()}</ContentShell>
+							</Sidebar.Inset>
+						</Sidebar.Provider>
+					{/if}
 
-			<GlobalDialogs />
-			<DictationIndicator />
-		</Tooltip.Provider>
+					<GlobalDialogs />
+					<DictationIndicator />
+				</Tooltip.Provider>
+			</WhisperingReplicaAttachmentChoice>
+		</WhisperingIdentityGate>
 	</WhisperingUiSessionProvider>
 {:catch error}
 	<div class="flex h-dvh flex-col items-center justify-center gap-4 p-8 text-center">

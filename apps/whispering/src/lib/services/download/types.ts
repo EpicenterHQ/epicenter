@@ -29,4 +29,8 @@ export type DownloadService = {
 		name: string;
 		blob: Blob;
 	}) => Promise<Result<void, DownloadError>>;
+	downloadUrl: (args: {
+		name: string;
+		url: string;
+	}) => Promise<Result<void, DownloadError>>;
 };

@@ -16,6 +16,22 @@ function createWhisperingUiSession(core: WhisperingApp) {
 		settings: createSettingsView(core.settings),
 		recordings: createRecordings(core),
 		recipes: createRecipes(core),
+		get identity() {
+			return core.identity;
+		},
+		get attachment() {
+			return core.attachment;
+		},
+		get syncStatus() {
+			return core.syncStatus;
+		},
+		subscribeIdentity: core.subscribeIdentity,
+		subscribeAttachment: core.subscribeAttachment,
+		subscribeSyncStatus: core.subscribeSyncStatus,
+		chooseFirstAttachment: core.chooseFirstAttachment,
+		...(core.beginAuthenticatedRequest === undefined
+			? {}
+			: { beginAuthenticatedRequest: core.beginAuthenticatedRequest }),
 	};
 	const queryRuntime = createWhisperingQueryRuntime();
 	const queries = createWhisperingQueries(app, queryRuntime);
@@ -41,8 +57,8 @@ function createWhisperingUiSession(core: WhisperingApp) {
 
 export type WhisperingUiSession = ReturnType<typeof createWhisperingUiSession>;
 
-export async function openWhisperingUiSession(
-	dependencies: WhisperingAppDependencies,
+export async function openWhisperingUiSession<TSource, TRead, TCreateSource>(
+	dependencies: WhisperingAppDependencies<TSource, TRead, TCreateSource>,
 	signal: AbortSignal,
 ): Promise<WhisperingUiSession> {
 	const core = await openWhisperingApp(dependencies, { signal });

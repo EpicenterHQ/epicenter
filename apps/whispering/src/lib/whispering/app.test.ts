@@ -3,33 +3,29 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BlobStore } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/bun';
-import { Ok } from 'wellcrafted/result';
+import {
+	type BlobByteSource,
+	type BunBlobRead,
+	openBunRecordEpicenter,
+} from '@epicenter/data/bun';
+import type { RecordEpicenter } from '@epicenter/data/record';
+import { Err } from 'wellcrafted/result';
+import { whisperingLens } from '../workspace';
 import { openWhisperingApp, type WhisperingAppDependencies } from './app';
-
-const local: BlobStore = {
-	async put() {
-		return Ok(undefined);
-	},
-	async get() {
-		return Ok(new Blob());
-	},
-	async stat() {
-		return Ok({ size: 0, contentType: 'application/octet-stream' });
-	},
-	async delete() {
-		return Ok(undefined);
-	},
-};
 
 function dependencies(
 	root: string,
-	overrides: Partial<WhisperingAppDependencies> = {},
-): WhisperingAppDependencies {
+	overrides: Partial<
+		WhisperingAppDependencies<BlobByteSource, BunBlobRead>
+	> = {},
+): WhisperingAppDependencies<BlobByteSource, BunBlobRead> {
 	return {
-		openEpicenter: () => openBunEpicenter({ directory: root }),
-		blobs: { local, remote: null },
+		openEpicenter: () => openBunRecordEpicenter({ directory: root }),
+		prepareAudio: (audio) => {
+			if (audio.kind !== 'bytes') throw new Error('Unexpected native capture');
+			return audio.bytes.stream();
+		},
+		materializeAudio: (read) => new Response(read).blob(),
 		defaultTranscriptionService: 'OpenAI',
 		reportBackgroundError: () => undefined,
 		...overrides,
@@ -41,7 +37,6 @@ test('resolves a ready facade with release-local setting defaults', async () => 
 	try {
 		await using app = await openWhisperingApp(dependencies(root));
 		expect(app.settings.get('transcription.service')).toBe('OpenAI');
-		expect(app.settings.get('recording.autoUpload')).toBe(false);
 		expect(app.recordings.count).toBe(0);
 		expect(app.recipes.count).toBe(0);
 	} finally {
@@ -58,14 +53,56 @@ test('settings writes are optimistic, subscribed, and durable', async () => {
 			const stop = app.settings.subscribe(() => {
 				notifications += 1;
 			});
-			app.settings.set('recording.autoUpload', true);
-			expect(app.settings.get('recording.autoUpload')).toBe(true);
+			app.settings.set('recording.pausePlayback', true);
+			expect(app.settings.get('recording.pausePlayback')).toBe(true);
 			expect(notifications).toBeGreaterThan(0);
 			stop();
 			await Bun.sleep(10);
 		}
 		await using reopened = await openWhisperingApp(dependencies(root));
-		expect(reopened.settings.get('recording.autoUpload')).toBe(true);
+		expect(reopened.settings.get('recording.pausePlayback')).toBe(true);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('nonconforming settings use their defaults and preserve the classified error', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'whispering-app-nonconforming-'));
+	const classified = new Error('stored setting is nonconforming');
+	const reported: unknown[] = [];
+	try {
+		const actual = await openBunRecordEpicenter({ directory: root });
+		const openEpicenter = async () =>
+			({
+				bind() {
+					const bound = actual.bind({ whispering: whisperingLens });
+					const whispering = bound.whispering;
+					return {
+						...bound,
+						whispering: {
+							...whispering,
+							settings: {
+								...whispering.settings,
+								recordingPausePlayback: {
+									...whispering.settings.recordingPausePlayback,
+									get: async () => Err(classified),
+								},
+							},
+						},
+					};
+				},
+				[Symbol.asyncDispose]: () => actual[Symbol.asyncDispose](),
+			}) as unknown as RecordEpicenter<BlobByteSource, BunBlobRead>;
+
+		await using app = await openWhisperingApp(
+			dependencies(root, {
+				openEpicenter,
+				reportBackgroundError: (cause) => reported.push(cause),
+			}),
+		);
+		expect(app.settings.get('recording.pausePlayback')).toBe(false);
+		expect(app.settings.loadError).toBe(classified);
+		expect(reported).toContain(classified);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -97,7 +134,7 @@ test('abort wins an in-flight Epicenter acquisition and late open is released', 
 			dependencies(root, {
 				openEpicenter: async () => {
 					await gate.promise;
-					const epicenter = await openBunEpicenter({ directory: root });
+					const epicenter = await openBunRecordEpicenter({ directory: root });
 					return {
 						...epicenter,
 						async [Symbol.asyncDispose]() {

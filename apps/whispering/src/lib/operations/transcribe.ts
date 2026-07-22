@@ -1,4 +1,3 @@
-import type { BlobId } from '@epicenter/blobs';
 import {
 	type ResolvedConnection,
 	resolveConnection,
@@ -6,7 +5,7 @@ import {
 } from '@epicenter/client';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { type AnyTaggedError, defineErrors } from 'wellcrafted/error';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { auth } from '#platform/auth';
 import { customFetch } from '#platform/http';
 import { tauri } from '#platform/tauri';
@@ -17,7 +16,6 @@ import {
 	type TranscriptionSuccess,
 } from '$lib/operations/transcription-history';
 import { report } from '$lib/report';
-import { services } from '$lib/services';
 import { DeepgramTranscriptionServiceLive } from '$lib/services/transcription/cloud/deepgram';
 import { ElevenLabsTranscriptionServiceLive } from '$lib/services/transcription/cloud/elevenlabs';
 import { MistralTranscriptionServiceLive } from '$lib/services/transcription/cloud/mistral';
@@ -60,6 +58,17 @@ const TranscriptionOperationError = defineErrors({
 	}),
 	LocalModelNotSelected: () => ({
 		message: 'Please select a local model in settings.',
+	}),
+	RecordingAudioUnavailable: ({
+		recordingId,
+		cause,
+	}: {
+		recordingId: RecordingId;
+		cause?: unknown;
+	}) => ({
+		message: 'The audio for this recording is unavailable.',
+		recordingId,
+		cause,
 	}),
 });
 
@@ -129,10 +138,15 @@ const uploadDispatch = (app: WhisperingApp) =>
 		// self-host deployment does not. The model is fixed by the gateway.
 		epicenter: {
 			kind: 'wire',
-			resolve: () => ({
-				fetch: auth.fetch,
-				baseURL: API_ROUTES.ai.baseUrl(auth.deployment.baseURL),
-			}),
+			resolve: () => {
+				const authenticated = app.beginAuthenticatedRequest?.();
+				return {
+					fetch: authenticated?.fetch ?? auth.fetch,
+					baseURL: API_ROUTES.ai.baseUrl(
+						authenticated?.baseURL ?? auth.deployment.baseURL,
+					),
+				};
+			},
 			model: () => PROVIDERS.epicenter.model,
 		},
 		OpenAI: {
@@ -208,16 +222,16 @@ const uploadDispatch = (app: WhisperingApp) =>
 
 /**
  * Materialize the bytes for an upload transcription. On Tauri, Rust reads the
- * local blob and compresses it with libopus. On the web, the original local
- * blob is uploaded as-is.
+ * recording's blob through the private host boundary and compresses it with
+ * libopus. On the web, the original record blob is uploaded as-is.
  */
 async function loadForUpload(
 	app: WhisperingApp,
-	audioBlobId: BlobId,
+	recordingId: RecordingId,
 ): Promise<Result<Blob, TranscriptionError>> {
 	if (tauri) {
 		const { data: oggBytes, error } =
-			await tauri.transcription.encodeRecordingForUpload(audioBlobId);
+			await tauri.transcription.encodeRecordingForUpload(recordingId);
 		if (error === null) return Ok(new Blob([oggBytes], { type: 'audio/ogg' }));
 		report.info({
 			title: 'Audio compression skipped',
@@ -230,16 +244,30 @@ async function loadForUpload(
 		});
 	}
 
-	return services.blobs.local.get(audioBlobId);
+	const read = await tryAsync({
+		try: () => app.recordings.readAudio(recordingId),
+		catch: (cause) =>
+			TranscriptionOperationError.RecordingAudioUnavailable({
+				recordingId,
+				cause,
+			}),
+	});
+	if (read.error !== null) return Err(read.error);
+	if (read.data === null) {
+		return TranscriptionOperationError.RecordingAudioUnavailable({
+			recordingId,
+		});
+	}
+	return Ok(read.data);
 }
 
 /**
  * Transcribe a saved recording by id. This is the single canonical entry
  * point for transcription:
  *
- * - The cpal stop path saves the WAV via Rust and returns the id.
- * - The navigator / VAD / file import paths commit the local blob and pass
- *   its id here.
+ * The recording record owns the bytes at its own address, so every caller
+ * passes only that recording id. Upload providers read through the recordings
+ * domain; the desktop host resolves the same address for on-device work.
  *
  * Local transcription always goes through `transcribe_recording(id)`.
  * Upload (non-on-device) transcription uploads compressed bytes derived from the
@@ -247,7 +275,7 @@ async function loadForUpload(
  */
 export async function transcribeAudio(
 	app: WhisperingApp,
-	audioBlobId: BlobId,
+	recordingId: RecordingId,
 ): Promise<Result<string, TranscriptionError>> {
 	const selectedService = app.settings.get('transcription.service');
 
@@ -261,8 +289,8 @@ export async function transcribeAudio(
 	// to `OnDeviceProviderId` in one arm and `UploadProviderId` in the other, so each
 	// helper receives an already-narrowed id and neither re-checks.
 	const transcriptionResult = isOnDeviceProviderId(selectedService)
-		? await transcribeOnDevice(app, audioBlobId, selectedService)
-		: await transcribeViaUpload(app, audioBlobId, selectedService);
+		? await transcribeOnDevice(app, recordingId, selectedService)
+		: await transcribeViaUpload(app, recordingId, selectedService);
 
 	const duration = Date.now() - startTime;
 	if (transcriptionResult.error) {
@@ -293,12 +321,11 @@ export async function transcribeAudio(
 export async function transcribeAndPersist(
 	app: WhisperingApp,
 	recordingId: RecordingId,
-	audioBlobId: BlobId,
 ): Promise<Result<TranscriptionSuccess, TranscriptionError>> {
 	return recordTranscriptionOutcome(
 		app,
 		recordingId,
-		await transcribeAudio(app, audioBlobId),
+		await transcribeAudio(app, recordingId),
 	);
 }
 
@@ -348,7 +375,7 @@ function withDictionaryTerms(prompt: string, dictionary: string[]): string {
 
 async function transcribeOnDevice(
 	app: WhisperingApp,
-	audioBlobId: BlobId,
+	recordingId: RecordingId,
 	selectedService: OnDeviceProviderId,
 ): Promise<Result<string, TranscriptionError>> {
 	if (!tauri) {
@@ -373,7 +400,7 @@ async function transcribeOnDevice(
 		app.settings.get('transcription.prompt'),
 		app.settings.get('dictionary'),
 	);
-	return tauri.transcription.transcribeRecording(audioBlobId, {
+	return tauri.transcription.transcribeRecording(recordingId, {
 		modelId,
 		language: language === 'auto' ? undefined : language,
 		initialPrompt: prompt || undefined,
@@ -382,12 +409,18 @@ async function transcribeOnDevice(
 
 async function transcribeViaUpload(
 	app: WhisperingApp,
-	audioBlobId: BlobId,
+	recordingId: RecordingId,
 	selectedService: UploadProviderId,
 ): Promise<Result<string, TranscriptionError>> {
+	const entry = uploadDispatch(app)[selectedService];
+	// Bind authenticated wires before reading local audio. In browsers the
+	// returned transport is fenced to this operation's principal generation, so
+	// an account switch during the read terminates the old operation instead of
+	// sending its audio with the new account's credentials.
+	const connection = entry.kind === 'wire' ? entry.resolve() : undefined;
 	const { data: audio, error: loadError } = await loadForUpload(
 		app,
-		audioBlobId,
+		recordingId,
 	);
 	if (loadError) return Err(loadError);
 
@@ -401,10 +434,12 @@ async function transcribeViaUpload(
 		app.settings.get('transcription.prompt'),
 		app.settings.get('dictionary'),
 	);
-	const entry = uploadDispatch(app)[selectedService];
 	switch (entry.kind) {
 		case 'wire': {
-			const result = await transcribe(audio, entry.resolve(), {
+			if (connection === undefined) {
+				throw new Error('Wire transcription has no resolved transport');
+			}
+			const result = await transcribe(audio, connection, {
 				model: entry.model(),
 				language: spokenLanguage === 'auto' ? undefined : spokenLanguage,
 				prompt: prompt || undefined,

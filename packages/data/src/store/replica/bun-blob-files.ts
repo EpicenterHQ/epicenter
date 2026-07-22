@@ -20,7 +20,10 @@ export type BlobByteSource =
 	| AsyncIterable<Uint8Array>
 	| ReadableStream<Uint8Array>;
 
-export type BunBlobRead = ReadableStream<Uint8Array>;
+export type BunBlobRead = ReadableStream<Uint8Array> & {
+	/** Exact physical file length observed by the blob owner. */
+	readonly byteLength: number;
+};
 
 const SAFE_COMPONENT = /^[a-f0-9]{64}$/u;
 
@@ -183,9 +186,11 @@ export function createBunBlobFileStore(
 	async function openOwned(owner: OwnedBlobFile): Promise<BunBlobRead> {
 		const path = contentPath(owner);
 		await verify(path, owner.digest);
-		return Readable.toWeb(
+		const byteLength = (await stat(path)).size;
+		const stream = Readable.toWeb(
 			createReadStream(path),
 		) as unknown as ReadableStream<Uint8Array>;
+		return Object.assign(stream, { byteLength });
 	}
 
 	async function sweepStaging(): Promise<void> {

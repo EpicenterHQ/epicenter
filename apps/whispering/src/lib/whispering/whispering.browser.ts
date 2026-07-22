@@ -1,6 +1,6 @@
 import { auth } from '#platform/auth';
-import { BlobsLive } from '#platform/blobs';
 import { log } from '$lib/report';
+import { requireFinalizedAudioBytes } from '../services/recorder/contract';
 import type { WhisperingAppDependencies } from './app';
 import { openWhisperingBrowserEpicenter } from './whispering.browser-runtime';
 
@@ -20,7 +20,8 @@ export const whisperingPlatform: WhisperingAppDependencies = {
 					'Whispering sync failure',
 				),
 		}),
-	blobs: BlobsLive,
+	prepareAudio: requireFinalizedAudioBytes,
+	materializeAudio: async (audio) => audio,
 	defaultTranscriptionService: 'OpenAI',
 	reportBackgroundError: (cause) =>
 		log.warn(

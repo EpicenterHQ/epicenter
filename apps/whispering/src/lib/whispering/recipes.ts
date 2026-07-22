@@ -1,4 +1,7 @@
-import type { NonconformingRowError, TableLens } from '@epicenter/data';
+import type {
+	NonconformingRowError,
+	RecordTableLens,
+} from '@epicenter/data/record';
 import { BUILTIN_RECIPES } from '../state/builtin-recipes';
 import type { Recipe, recipesTable } from '../workspace';
 
@@ -17,7 +20,7 @@ export function createWhisperingRecipes({
 	table,
 	reportBackgroundError,
 }: {
-	table: TableLens<typeof recipesTable>;
+	table: RecordTableLens<typeof recipesTable, never, unknown>;
 	reportBackgroundError(cause: unknown): void;
 }) {
 	let rows: Recipe[] = [];

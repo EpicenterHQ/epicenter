@@ -1,65 +1,55 @@
-/**
- * Whispering Bun Construction Tests
- *
- * Locks the standalone Bun contract: one caller-supplied `dataDir` roots all
- * persistent storage, the constructor returns the same app shape as every
- * other environment, and remote audio workflows honestly refuse without a
- * signed-in deployment.
- *
- * Key behaviors:
- * - SQLite and audio bytes both derive from the supplied dataDir
- * - storeAudio + create + delete round-trip through the one app contract
- * - uploadAudio refuses with RemoteUnavailable instead of pretending
- */
+/** Whispering's Bun composition evidence over the record replica. */
 import { expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstantString } from '@epicenter/field';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { expectOk } from 'wellcrafted/testing';
+import type { RecordingId } from '../workspace';
 import { openWhisperingApp } from './app';
 import { createWhisperingBunDependencies } from './app.bun';
 
-test('one dataDir roots SQLite and blobs behind the shared app contract', async () => {
+test('one dataDir owns scalar records and row-addressed audio', async () => {
 	const dataDir = mkdtempSync(join(tmpdir(), 'whispering-bun-app-'));
 	try {
-		await using app = await openWhisperingApp(
+		let recordingId: RecordingId;
+		{
+			await using app = await openWhisperingApp(
+				createWhisperingBunDependencies({ dataDir }),
+			);
+			const recording = await app.recordings.create({
+				audio: {
+					kind: 'bytes',
+					bytes: new Blob(['audio'], { type: 'audio/wav' }),
+				},
+				title: 'Bun capture',
+				recordedAt: InstantString.now(),
+				recordedAtZone: 'UTC',
+				transcript: '',
+				polishedTranscript: null,
+				duration: null,
+				transcription: null,
+			});
+			recordingId = recording.id;
+		}
+		expect(existsSync(join(dataDir, 'epicenter.sqlite3'))).toBe(true);
+
+		await using reopened = await openWhisperingApp(
 			createWhisperingBunDependencies({ dataDir }),
 		);
-
-		const stored = expectOk(
-			await app.recordings.storeAudio(
-				new Blob(['audio'], { type: 'audio/wav' }),
-			),
+		expect(reopened.recordings.get(recordingId)?.title).toBe('Bun capture');
+		expect(reopened.recordings.get(recordingId)?.audioMediaType).toBe(
+			'audio/wav',
 		);
-		const recording = await app.recordings.create({
-			audioBlobId: stored.audioBlobId,
-			title: 'Bun capture',
-			recordedAt: InstantString.now(),
-			recordedAtZone: 'UTC',
-			transcript: '',
-			polishedTranscript: null,
-			duration: null,
-			transcription: null,
-		});
-		expect(recording.uploadedAt).toBeNull();
+		const audio = await reopened.recordings.readAudio(recordingId);
+		expect(audio).not.toBeNull();
+		expect(audio?.type).toBe('audio/wav');
+		expect(await audio?.text()).toBe('audio');
 
-		// Every persistent path derives from the one supplied root.
-		expect(existsSync(join(dataDir, 'epicenter.sqlite3'))).toBe(true);
-		expect(existsSync(join(dataDir, 'blobs', stored.audioBlobId))).toBe(true);
-
-		// No signed-in deployment means no remote capability, honestly.
-		expect(app.recordings.remoteAvailable).toBe(false);
-		const uploadRefusal = expectErr(
-			await app.recordings.uploadAudio(recording.id),
-		);
-		expect(uploadRefusal.name).toBe('RemoteUnavailable');
-
-		// Deletion owns both the row and its audio bytes.
-		expectOk(await app.recordings.delete(recording.id));
-		expect(existsSync(join(dataDir, 'blobs', stored.audioBlobId))).toBe(false);
-		await app.recordings.refresh();
-		expect(app.recordings.get(recording.id)).toBeUndefined();
+		expectOk(await reopened.recordings.delete(recordingId));
+		expect(await reopened.recordings.readAudio(recordingId)).toBeNull();
+		await reopened.recordings.refresh();
+		expect(reopened.recordings.get(recordingId)).toBeUndefined();
 	} finally {
 		rmSync(dataDir, { recursive: true, force: true });
 	}

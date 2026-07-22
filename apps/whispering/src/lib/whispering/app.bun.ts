@@ -1,15 +1,18 @@
-import { join } from 'node:path';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import {
+	type BlobByteSource,
+	type BunBlobRead,
+	openBunRecordEpicenter,
+} from '@epicenter/data/bun';
 import { consoleSink, type LogEvent } from 'wellcrafted/logger';
+import { requireFinalizedAudioBytes } from '../services/recorder/contract';
 import type { TranscriptionServiceId } from '../services/transcription/providers';
 import type { WhisperingAppDependencies } from './app';
 
 export type CreateWhisperingBunDependenciesOptions = {
 	/**
 	 * The one caller-owned root for all persistent Whispering storage. Every
-	 * child path derives from it: Data owns `<dataDir>/epicenter.sqlite3` and
-	 * audio bytes live under `<dataDir>/blobs/`.
+	 * child path derives from it: the replica owns `<dataDir>/epicenter.sqlite3`
+	 * and content-addressed audio files below `<dataDir>/blobs/`.
 	 */
 	dataDir: string;
 	defaultTranscriptionService?: TranscriptionServiceId;
@@ -17,21 +20,21 @@ export type CreateWhisperingBunDependenciesOptions = {
 
 /**
  * Native dependencies for scripts and long-lived local agent hosts.
- * Construction is inert; SQLite opens and directories appear only when the
- * caller awaits `openWhisperingApp`. There is no remote blob capability: a
- * standalone Bun host has no signed-in deployment, so remote audio workflows
- * honestly refuse instead of pretending.
+ * Construction is inert; the record replica opens only when the caller awaits
+ * `openWhisperingApp`. Blob publication is part of record sync, not a second
+ * application-owned remote storage capability.
  */
 export function createWhisperingBunDependencies({
 	dataDir,
 	defaultTranscriptionService = 'local',
-}: CreateWhisperingBunDependenciesOptions): WhisperingAppDependencies {
+}: CreateWhisperingBunDependenciesOptions): WhisperingAppDependencies<
+	BlobByteSource,
+	BunBlobRead
+> {
 	return {
-		openEpicenter: () => openBunEpicenter({ directory: dataDir }),
-		blobs: {
-			local: createBunBlobStore({ directory: join(dataDir, 'blobs') }),
-			remote: null,
-		},
+		openEpicenter: () => openBunRecordEpicenter({ directory: dataDir }),
+		prepareAudio: (audio) => requireFinalizedAudioBytes(audio).stream(),
+		materializeAudio: (read) => new Response(read).blob(),
 		defaultTranscriptionService,
 		reportBackgroundError(cause) {
 			consoleSink({

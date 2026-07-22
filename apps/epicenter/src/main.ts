@@ -12,8 +12,12 @@ import { join } from 'node:path';
 import { chatLens } from '@epicenter/chat';
 import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
 import { createDesktopRecordEpicenterOwner } from '@epicenter/data/desktop-record-owner';
-import { createHttpRecordSyncSession } from '@epicenter/data/record';
+import {
+	createHttpRecordSyncSession,
+	type FirstAttachmentChoice,
+} from '@epicenter/data/record';
 import { honeycrispLens } from '@epicenter/honeycrisp';
+import { whisperingLens } from '@epicenter/whispering/workspace-contract';
 import { loadActiveAppCatalog } from './app-catalog.ts';
 import {
 	createDesktopAuthAuthority,
@@ -21,6 +25,7 @@ import {
 } from './desktop-auth-authority.ts';
 import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
+import { createNativeRecordingCaptureResolver } from './native-recording-captures.ts';
 import { SURFACE_ROUTES } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import {
@@ -64,7 +69,37 @@ async function main(): Promise<void> {
 		const authorityFetch = createDesktopAuthorityFetch(auth);
 		recordOwner = await createDesktopRecordEpicenterOwner({
 			directory: join(epicenterDataDir, 'data'),
+			resolveNativeCapture: createNativeRecordingCaptureResolver(
+				join(epicenterDataDir, 'recording-captures'),
+			),
 		});
+		const activeRecordOwner = recordOwner;
+		const attachRecordOwner = async (choice?: FirstAttachmentChoice) => {
+			if (auth.bootSnapshot.state.status !== 'signed-in') {
+				throw new Error('Sign in before attaching local recordings.');
+			}
+			const attachment = activeRecordOwner.epicenter.attachment;
+			const deploymentId = deploymentUrl(auth.baseURL);
+			const principalId = auth.bootSnapshot.state.principalId;
+			if (
+				attachment.kind === 'attached' &&
+				(attachment.attachment.deploymentId !== deploymentId ||
+					attachment.attachment.principalId !== principalId)
+			) {
+				throw new Error(
+					'The local record replica is attached to a different deployment or principal.',
+				);
+			}
+			await activeRecordOwner.epicenter.attachSync(
+				createHttpRecordSyncSession<ReadableStream<Uint8Array>>({
+					deploymentId,
+					principalId,
+					credentials: { get: () => 'available' },
+					...(choice === undefined ? {} : { firstAttachmentChoice: choice }),
+					fetch: authorityFetch,
+				}),
+			);
+		};
 		if (auth.bootSnapshot.state.status === 'signed-in') {
 			const attachment = recordOwner.epicenter.attachment;
 			const deploymentId = deploymentUrl(auth.baseURL);
@@ -80,20 +115,12 @@ async function main(): Promise<void> {
 			}
 			const canStartSync =
 				attachment.kind === 'attached' || !attachment.requiresChoice;
-			if (canStartSync) {
-				await recordOwner.epicenter.attachSync(
-					createHttpRecordSyncSession<ReadableStream<Uint8Array>>({
-						deploymentId,
-						principalId,
-						credentials: { get: () => 'available' },
-						fetch: authorityFetch,
-					}),
-				);
-			}
+			if (canStartSync) await attachRecordOwner();
 		}
 		const home = recordOwner.epicenter.bind({
 			chat: chatLens,
 			honeycrisp: honeycrispLens,
+			whispering: whisperingLens,
 		});
 		host = await createHomeHost({
 			engine,
@@ -124,6 +151,20 @@ async function main(): Promise<void> {
 			staticAssets,
 			appCatalog,
 			recordOwner,
+			recordAttachment: () => activeRecordOwner.epicenter.attachment,
+			async readRecordingAudio(recordingId) {
+				const recording = await home.whispering.recordings.get(recordingId);
+				if (recording.error !== null || recording.data === undefined)
+					return null;
+				const bytes = await home.whispering.recordings.blob.get(recordingId);
+				if (bytes === null) return null;
+				return {
+					bytes,
+					mediaType: recording.data.audioMediaType,
+					byteLength: bytes.byteLength,
+				};
+			},
+			chooseFirstAttachment: attachRecordOwner,
 			desktopAuth: auth,
 		});
 

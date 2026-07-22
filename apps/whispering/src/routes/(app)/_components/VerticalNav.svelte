@@ -12,8 +12,10 @@
 	import { instanceSetting } from '#platform/instance';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
+	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const sidebar = useSidebar();
+	const app = getWhisperingApp();
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -76,6 +78,7 @@
 			<Sidebar.MenuItem>
 				<AccountPopover
 					{auth}
+					dataSync={app}
 					syncNoun="recordings"
 					disabledReason={recordingActive.current
 						? 'Stop recording to change your account'

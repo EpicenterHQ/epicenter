@@ -1,4 +1,3 @@
-import { type BlobId, parseBlobId } from '@epicenter/blobs';
 import {
 	asDeviceIdentifier,
 	type Device,
@@ -7,14 +6,16 @@ import {
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { BlobsLive } from '#platform/blobs';
 import type { WhisperingRecordingState } from '$lib/constants/audio';
 import { recorderErrorFromIpc } from '$lib/services/recorder/categorize-error';
 import {
 	type BaseRecordingParams,
 	RecorderError,
 	type RecorderService,
+	type RecorderStopError,
+	type RecorderStopResult,
 	type RecordingSession,
+	type RecordingSessionId,
 } from '$lib/services/recorder/contract';
 import { commands } from '$lib/tauri/commands';
 // This file is the Tauri impl, so it imports the non-null capability bag
@@ -114,23 +115,36 @@ const enumerateDevices = async (): Promise<Result<Device[], RecorderError>> => {
  * Rust via `get_current_recording_id` and reattaches a new
  * `RecordingSession` wrapper if Rust still has one going.
  *
- * Stop atomically finalizes the durable WAV under `<appDataDir>/blobs/{id}`
- * and returns only its blob id. There is no raw PCM on the wire.
+ * Stop returns one opaque native-capture coordinate. The recording domain
+ * passes it to the Bun record owner, which adopts the fsynced WAV without
+ * copying it through WebView memory.
  */
 function createCpalRecorder() {
 	let activeSession: RecordingSession | null = null;
+	let finishActiveAdmission: (() => void) | null = null;
+	let pendingAdmissionAcknowledgement: {
+		sessionId: RecordingSessionId;
+		captureId: string;
+	} | null = null;
 
-	function buildSession(audioBlobId: BlobId, startedAtMs: number | null) {
+	function buildSession(
+		sessionId: RecordingSessionId,
+		startedAtMs: number | null,
+	) {
 		const subscribers = new Set<(s: WhisperingRecordingState) => void>();
 		let currentState: WhisperingRecordingState = 'RECORDING';
 		let tauriUnlisten: Promise<UnlistenFn> | null = null;
+		let stopPromise: Promise<
+			Result<RecorderStopResult, RecorderStopError>
+		> | null = null;
+		let awaitingAdmission = false;
 
-		const notify = (state: WhisperingRecordingState) => {
+		const notify = (state: WhisperingRecordingState, force = false) => {
 			// Idempotent: same-state notifications collapse to a no-op. Rust
 			// emits 'recorder:state-changed' IDLE from `stop_recording`, then
 			// our explicit `teardown()` also notifies IDLE; without this
 			// guard we'd fire the handler twice for one transition.
-			if (currentState === state) return;
+			if (!force && currentState === state) return;
 			currentState = state;
 			for (const handler of subscribers) handler(state);
 		};
@@ -143,7 +157,13 @@ function createCpalRecorder() {
 			// disconnect) reach the UI.
 			tauriUnlisten = listen<WhisperingRecordingState>(
 				'recorder:state-changed',
-				(event) => notify(event.payload),
+				(event) => {
+					// Rust becomes physically idle before the durable stop result has
+					// crossed IPC. Keep the logical session attached while that outcome
+					// is uncertain so a repeated stop can recover the cached coordinate.
+					if (event.payload === 'IDLE' && stopPromise !== null) return;
+					notify(event.payload);
+				},
 			);
 		};
 
@@ -155,64 +175,106 @@ function createCpalRecorder() {
 		// `session = ...` initializer.
 		const teardown = (session: RecordingSession) => {
 			if (activeSession === session) activeSession = null;
+			finishActiveAdmission = null;
 			if (tauriUnlisten) {
 				void tauriUnlisten.then((unlisten) => unlisten());
 				tauriUnlisten = null;
 			}
-			notify('IDLE');
+			awaitingAdmission = false;
+			notify('IDLE', true);
 		};
 
 		const session = {
-			audioBlobId,
+			id: sessionId,
+			get awaitingAdmission() {
+				return awaitingAdmission;
+			},
 
-			stop: async () => {
-				const { data: returnedId, error: stopRecordingError } =
-					await commands.stopRecording();
-				if (stopRecordingError !== null) {
-					const { error: closeError } = await commands.closeRecordingSession();
-					if (closeError !== null)
-						log.error(RecorderError.StopFailed({ cause: closeError }));
-					teardown(session);
-					return RecorderError.StopFailed({ cause: stopRecordingError });
-				}
+			stop: () => {
+				if (stopPromise !== null) return stopPromise;
 
-				// Rust's `stop_recording` returns only the committed blob id but does
-				// not close the worker; we still own the cpal stream and the
-				// worker thread. Send `close_recording_session` so Rust can
-				// join the worker and free the stream.
-				const { error: closeError } = await commands.closeRecordingSession();
-				if (closeError !== null)
-					log.error(RecorderError.StopFailed({ cause: closeError }));
-				teardown(session);
-				const parsedId = parseBlobId(returnedId);
-				if (parsedId !== audioBlobId) {
-					return RecorderError.StopFailed({
-						cause: new Error('Native recorder returned an unexpected blob id.'),
-					});
-				}
-				const { data: blobStat, error: statError } =
-					await BlobsLive.local.stat(audioBlobId);
-				if (statError !== null) return Err(statError);
+				const attempt: Promise<Result<RecorderStopResult, RecorderStopError>> =
+					(async (): Promise<Result<RecorderStopResult, RecorderStopError>> => {
+						try {
+							const { data: capture, error: stopRecordingError } =
+								await commands.stopRecording();
+							if (stopRecordingError !== null) {
+								const { error: closeError } =
+									await commands.closeRecordingSession();
+								if (closeError === null) teardown(session);
+								else {
+									// A refused close means Rust may hold StoppedPending. Keep
+									// this session attached so the caller can repeat stop.
+									log.error(RecorderError.StopFailed({ cause: closeError }));
+								}
+								return RecorderError.StopFailed({ cause: stopRecordingError });
+							}
 
-				return Ok({
-					audioBlobId,
-					durationMs: startedAtMs === null ? null : Date.now() - startedAtMs,
-					byteLength: blobStat.size,
+							awaitingAdmission = true;
+							notify('IDLE');
+							return Ok({
+								audio: {
+									kind: 'native-capture',
+									captureId: capture.captureId,
+									byteLength: capture.byteLength,
+									async acknowledgeAdmission() {
+										let lastCause: unknown = null;
+										for (let attempt = 0; attempt < 2; attempt += 1) {
+											try {
+												const result =
+													await commands.acknowledgeRecordingCapture(
+														sessionId,
+														capture.captureId,
+													);
+												if (result.error === null) {
+													if (
+														pendingAdmissionAcknowledgement?.sessionId ===
+															sessionId &&
+														pendingAdmissionAcknowledgement.captureId ===
+															capture.captureId
+													) {
+														pendingAdmissionAcknowledgement = null;
+													}
+													teardown(session);
+													return;
+												}
+												lastCause = result.error;
+											} catch (cause) {
+												lastCause = cause;
+											}
+										}
+										pendingAdmissionAcknowledgement = {
+											sessionId,
+											captureId: capture.captureId,
+										};
+										throw RecorderError.StopFailed({ cause: lastCause }).error;
+									},
+								},
+								durationMs:
+									startedAtMs === null ? null : Date.now() - startedAtMs,
+								byteLength: capture.byteLength,
+							});
+						} catch (cause) {
+							// Unknown transport outcome: do not close or detach. Rust may
+							// already hold the durable coordinate for an idempotent retry.
+							return RecorderError.StopFailed({ cause });
+						}
+					})();
+				stopPromise = attempt;
+				void attempt.then((result) => {
+					if (result.error !== null) stopPromise = null;
 				});
+				return attempt;
 			},
 
 			cancel: async () => {
 				// cancel_recording on the Rust side discards the in-flight
 				// samples and tears down the session worker. One round trip.
 				const { error: cancelError } = await commands.cancelRecording();
-
-				// Tear down unconditionally first so the JS-side state can never
-				// wedge in RECORDING, even when the Rust cancel failed.
-				teardown(session);
-
 				if (cancelError !== null) {
 					return RecorderError.CancelFailed({ cause: cancelError });
 				}
+				teardown(session);
 				return Ok(undefined);
 			},
 
@@ -227,6 +289,7 @@ function createCpalRecorder() {
 				};
 			},
 		} satisfies RecordingSession;
+		finishActiveAdmission = () => teardown(session);
 
 		return session;
 	}
@@ -235,24 +298,39 @@ function createCpalRecorder() {
 		resumeActiveSession: async (): Promise<
 			Result<RecordingSession | null, RecorderError>
 		> => {
+			if (pendingAdmissionAcknowledgement !== null) {
+				const pending = pendingAdmissionAcknowledgement;
+				const result = await commands.acknowledgeRecordingCapture(
+					pending.sessionId,
+					pending.captureId,
+				);
+				if (result.error === null) {
+					pendingAdmissionAcknowledgement = null;
+					if (activeSession?.id === pending.sessionId) {
+						finishActiveAdmission?.();
+					}
+				} else log.error(RecorderError.StopFailed({ cause: result.error }));
+			}
 			// If we still hold the in-memory pointer, prefer it; otherwise
 			// probe Rust in case a recording session outlived a JS reload.
 			if (activeSession) return Ok(activeSession);
 
-			const { data: liveBlobId, error: getIdError } =
+			const { data: liveSessionId, error: getIdError } =
 				await commands.getCurrentRecordingId();
 			if (getIdError !== null) {
 				return RecorderError.GetStateFailed({ cause: getIdError });
 			}
-			if (!liveBlobId) return Ok(null);
-			const parsedId = parseBlobId(liveBlobId);
-			if (parsedId === undefined) {
+			if (!liveSessionId) return Ok(null);
+			if (liveSessionId.trim() === '') {
 				return RecorderError.GetStateFailed({
-					cause: new Error('Native recorder returned an invalid blob id.'),
+					cause: new Error('Native recorder returned an invalid session id.'),
 				});
 			}
 
-			const rehydrated = buildSession(parsedId, null);
+			const rehydrated = buildSession(
+				liveSessionId as RecordingSessionId,
+				null,
+			);
 			activeSession = rehydrated;
 			return Ok(rehydrated);
 		},
@@ -267,9 +345,9 @@ function createCpalRecorder() {
 		// the export below publishes, so they still pass both arguments.
 		startRecording: async ({
 			selectedDeviceId,
-			audioBlobId,
 			sampleRate,
 		}: CpalRecordingParams) => {
+			const sessionId = crypto.randomUUID() as RecordingSessionId;
 			const { error: permissionError } = await requestMicrophonePermission();
 			if (permissionError) return Err(permissionError);
 
@@ -312,7 +390,7 @@ function createCpalRecorder() {
 			const { error: initRecordingSessionError } =
 				await commands.initRecordingSession(
 					deviceIdentifier,
-					audioBlobId,
+					sessionId,
 					sampleRateNum,
 				);
 			if (initRecordingSessionError !== null)
@@ -337,7 +415,7 @@ function createCpalRecorder() {
 				);
 			}
 
-			const session = buildSession(audioBlobId, Date.now());
+			const session = buildSession(sessionId, Date.now());
 			activeSession = session;
 			return Ok({ session, deviceAcquisition: deviceOutcome });
 		},

@@ -1,11 +1,16 @@
 export {
 	createWhisperingSettingDefaults,
+	EPICENTER_DESKTOP_AI_BASE_ROUTE,
 	type Recipe,
 	type Recording,
 	type RecordingId,
 	recipesTable,
 	recordingsTable,
+	settingsValues,
+	WHISPERING_DESKTOP_AUDIO_ROUTE,
 	type WhisperingSettingValues,
-	whisperingDefinitions,
-	whisperingSettingValues,
+	whisperingDesktopAudioUrl,
+	whisperingLens,
+	whisperingSettingRecordKeys,
+	whisperingSettingSchemas,
 } from './definition';

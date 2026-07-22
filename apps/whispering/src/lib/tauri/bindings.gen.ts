@@ -68,10 +68,10 @@ export const commands = {
 	/**  Cancel the active recording without creating a staged capture. */
 	cancelRecording: () =>
 		typedError<null, RecorderError>(__TAURI_INVOKE('cancel_recording')),
-	/**  Temporary legacy transcribe-by-id path. */
-	transcribeRecording: (audioBlobId: string, spec: TranscriptionSpec) =>
+	/**  Transcribe one saved recording through the record-addressed host boundary. */
+	transcribeRecording: (recordingId: string, spec: TranscriptionSpec) =>
 		typedError<string, TranscriptionError>(
-			__TAURI_INVOKE('transcribe_recording', { audioBlobId, spec }),
+			__TAURI_INVOKE('transcribe_recording', { recordingId, spec }),
 		),
 	/**
 	 *  Prewarm the local model for `spec` so a following transcribe finds it

@@ -27,7 +27,7 @@ export function createTranscriptionQueries(
 		transcribeRecording: defineMutation({
 			mutationKey: transcriptionKeys.isTranscribing,
 			mutationFn: (recording: Recording) =>
-				transcribeAndPersist(app, recording.id, recording.audioBlobId),
+				transcribeAndPersist(app, recording.id),
 		}),
 
 		transcribeRecordings: defineMutation({
@@ -35,7 +35,7 @@ export function createTranscriptionQueries(
 			mutationFn: async (recordings: Recording[]) => {
 				const results = await Promise.all(
 					recordings.map((recording) =>
-						transcribeAndPersist(app, recording.id, recording.audioBlobId),
+						transcribeAndPersist(app, recording.id),
 					),
 				);
 				return Ok(partitionResults(results));

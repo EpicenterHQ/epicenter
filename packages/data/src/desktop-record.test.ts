@@ -7,7 +7,7 @@
  * Key behaviors:
  * - protocol requests, results, and events are JSON-native and cloneable
  * - create-with-blob admits one complete record without a compensating delete
- * - native capture tokens resolve only in the host and consume after admission
+ * - native capture tokens resolve only in the host and release after admission
  * - page-local documents persist and revoke through the host owner
  * - attachment and sanitized sync state cross the observable event boundary
  * - stale surface generations cannot mutate the current owner
@@ -16,7 +16,6 @@ import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
-import { createLogger, memorySink } from 'wellcrafted/logger';
 
 import type {
 	BlobFileStore,
@@ -105,7 +104,7 @@ const notesLens = defineLens({
 type Setup = ReturnType<typeof setup>;
 type TestNativeCaptureResolver = (
 	capture: DesktopRecordNativeCapture,
-) => Promise<{ source: Blob; consume(): void | Promise<void> }>;
+) => Promise<{ source: Blob; release(): void | Promise<void> }>;
 type TextRoot = {
 	insert(index: number, value: string): void;
 	toString(): string;
@@ -266,7 +265,7 @@ test('page Lens CRUD and create-with-blob cross one JSON-native owner protocol',
 	}
 });
 
-test('native create request stays JSON-native and removes capture after admission', async () => {
+test('native create request stays JSON-native and releases its source after admission', async () => {
 	const order: string[] = [];
 	const bytes = new Blob(['native recording']);
 	const capture = {
@@ -289,8 +288,8 @@ test('native create request stays JSON-native and removes capture after admissio
 				expect(received).toEqual(coordinate);
 				return {
 					source: bytes,
-					consume() {
-						order.push('consume');
+					release() {
+						order.push('release');
 					},
 				};
 			},
@@ -300,7 +299,16 @@ test('native create request stays JSON-native and removes capture after admissio
 	try {
 		const notes = page.bind({ notes: notesLens }).notes.notes;
 		const row = await notes.createWithBlob({ title: 'Native' }, capture);
-		expect(order).toEqual(['resolve', 'admit', 'consume']);
+		expect(order).toEqual(['resolve', 'admit', 'release']);
+		const retried = await notes.createWithBlob({ title: 'Native' }, capture);
+		expect(retried.id).toBe(row.id);
+		expect(order).toEqual(['resolve', 'admit', 'release']);
+		const recovered = await notes.createWithBlob(
+			{ title: 'Different payload' },
+			capture,
+		);
+		expect(recovered).toEqual(row);
+		expect(order).toHaveLength(3);
 		expect(await (await notes.blob.get(row.id))?.text()).toBe(
 			'native recording',
 		);
@@ -320,8 +328,8 @@ test('native create request stays JSON-native and removes capture after admissio
 	}
 });
 
-test('native capture remains available when record admission fails', async () => {
-	let removals = 0;
+test('native capture source releases when record admission fails', async () => {
+	let releases = 0;
 	const bytes = new Blob(['retain me']);
 	const context = setup(
 		{},
@@ -330,8 +338,8 @@ test('native capture remains available when record admission fails', async () =>
 			async resolveNativeCapture() {
 				return {
 					source: bytes,
-					consume() {
-						removals += 1;
+					release() {
+						releases += 1;
 					},
 				};
 			},
@@ -350,7 +358,7 @@ test('native capture remains available when record admission fails', async () =>
 				},
 			),
 		).rejects.toThrow('Desktop record operation failed');
-		expect(removals).toBe(0);
+		expect(releases).toBe(1);
 		expect((await notes.scan()).rows).toEqual([]);
 	} finally {
 		await dispose(context, page);
@@ -392,7 +400,7 @@ test('invalid native capture IDs and lengths are refused before resolution', asy
 			{
 				async resolveNativeCapture() {
 					resolutions += 1;
-					return { source: new Blob(), consume() {} };
+					return { source: new Blob(), release() {} };
 				},
 			},
 		);
@@ -425,7 +433,7 @@ test('native resolver stat refusal retains the capture and admits no row', async
 				if (received.byteLength !== bytes.size) {
 					throw new Error('native capture stat changed');
 				}
-				return { source: bytes, consume() {} };
+				return { source: bytes, release() {} };
 			},
 		},
 	);
@@ -480,59 +488,112 @@ test('oversized inline Blob is refused before materialization or transport', asy
 	}
 });
 
-test('native cleanup failure preserves successful mutation replay', async () => {
-	const { sink, events } = memorySink();
-	const log = createLogger('desktop-native-test', sink);
+test('native cleanup failure retries one deterministic record after a page reload', async () => {
 	let opens = 0;
 	let removals = 0;
 	const bytes = new Blob(['durable native bytes']);
 	const context = setup(
-		{ log },
+		{},
 		{
 			async resolveNativeCapture() {
 				opens += 1;
 				return {
 					source: bytes,
-					consume() {
+					release() {
 						removals += 1;
-						throw new Error('capture is temporarily locked');
+						if (removals === 1) {
+							throw new Error('capture is temporarily locked');
+						}
 					},
 				};
 			},
 		},
 	);
-	let dropped = false;
-	const flakyFetch: Setup['fetch'] = async (input, init) => {
-		const request = JSON.parse(String(init?.body)) as DesktopRecordRequest;
-		const response = await context.fetch(input, init);
-		if (!dropped && request.operation.kind === 'create-record-with-blob') {
-			dropped = true;
-			throw new Error('response lost after commit');
-		}
-		return response;
-	};
-	const page = await openPage(context, { fetch: flakyFetch });
+	let page = await openPage(context);
 	try {
+		const source = {
+			kind: 'native-capture' as const,
+			captureId: 'capture_2123456789abcdef0123456789abcdef',
+			byteLength: bytes.size,
+		};
+		await expect(
+			page
+				.bind({ notes: notesLens })
+				.notes.notes.createWithBlob({ title: 'Original capture' }, source),
+		).rejects.toThrow('Desktop record operation failed');
+		await page[Symbol.asyncDispose]().catch(() => undefined);
+		page = await openPage(context);
 		const notes = page.bind({ notes: notesLens }).notes.notes;
 		const row = await notes.createWithBlob(
-			{ title: 'Cleanup replay' },
-			{
-				kind: 'native-capture',
-				captureId: 'capture_2123456789abcdef0123456789abcdef',
-				byteLength: bytes.size,
-			},
+			{ title: 'Original capture' },
+			source,
 		);
+		expect(row.id).toHaveLength(24);
+		expect(row.title).toBe('Original capture');
 		expect((await notes.scan()).rows).toEqual([
-			{ id: row.id, title: 'Cleanup replay' },
+			{ id: row.id, title: 'Original capture' },
 		]);
 		expect(opens).toBe(1);
 		expect(removals).toBe(1);
-		expect(events).toHaveLength(1);
-		expect(events[0]).toMatchObject({
-			level: 'error',
-			source: 'desktop-native-test',
-			message: 'Desktop native capture cleanup failed after admission',
-		});
+	} finally {
+		await dispose(context, page);
+	}
+});
+
+test('native admission survives two lost responses and replays after a page reload', async () => {
+	let resolutions = 0;
+	let releases = 0;
+	const bytes = new Blob(['response-loss native bytes']);
+	const context = setup(
+		{},
+		{
+			async resolveNativeCapture() {
+				resolutions += 1;
+				return {
+					source: bytes,
+					release() {
+						releases += 1;
+					},
+				};
+			},
+		},
+	);
+	let losses = 0;
+	const lostResponses: Setup['fetch'] = async (input, init) => {
+		const request = JSON.parse(String(init?.body)) as DesktopRecordRequest;
+		const response = await context.fetch(input, init);
+		if (request.operation.kind === 'create-record-with-blob' && losses < 2) {
+			losses += 1;
+			throw new Error('response lost after admission');
+		}
+		return response;
+	};
+	let page = await openPage(context, { fetch: lostResponses });
+	try {
+		const source = {
+			kind: 'native-capture' as const,
+			captureId: 'capture_3123456789abcdef0123456789abcdef',
+			byteLength: bytes.size,
+		};
+		await expect(
+			page
+				.bind({ notes: notesLens })
+				.notes.notes.createWithBlob({ title: 'Before reload' }, source),
+		).rejects.toThrow();
+		await page[Symbol.asyncDispose]().catch(() => undefined);
+		page = await openPage(context);
+
+		const notes = page.bind({ notes: notesLens }).notes.notes;
+		const recovered = await notes.createWithBlob(
+			{ title: 'Before reload' },
+			source,
+		);
+		expect(recovered.title).toBe('Before reload');
+		expect((await notes.scan()).rows).toEqual([
+			{ id: recovered.id, title: 'Before reload' },
+		]);
+		expect(resolutions).toBe(1);
+		expect(releases).toBe(1);
 	} finally {
 		await dispose(context, page);
 	}

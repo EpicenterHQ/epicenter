@@ -8,8 +8,6 @@
  * code.
  */
 
-import { LOCAL_BLOB_PATH } from '@epicenter/blobs/webview';
-
 const stripTrailing = (value: string) => value.replace(/\/+$/, '');
 
 function route(pattern: string) {
@@ -48,16 +46,3 @@ export const MAIL_ROUTE = SURFACE_ROUTES.mail;
 export const BOOKS_ROUTE = SURFACE_ROUTES.books;
 export const SESSION_ROUTE = route('/api/home/session');
 export const SESSION_STREAM_ROUTE = route('/api/home/session/stream');
-export const LOCAL_BLOB_ROUTE = {
-	pattern: `${LOCAL_BLOB_PATH}/:blobId`,
-} as const;
-/**
- * Host-owned remote copy operations for one local blob. The id is the only
- * input: no route accepts a destination URL, transfer header, or body, so the
- * host's own deployment authority is the only reachable target.
- */
-export const LOCAL_BLOB_REMOTE_ROUTES = {
-	upload: { pattern: `${LOCAL_BLOB_PATH}/:blobId/upload` },
-	download: { pattern: `${LOCAL_BLOB_PATH}/:blobId/download` },
-	purge: { pattern: `${LOCAL_BLOB_PATH}/:blobId/purge` },
-} as const;

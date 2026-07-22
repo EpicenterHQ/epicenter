@@ -12,6 +12,7 @@ import type {
 	DesktopRecordSyncStatus,
 } from './desktop-record/protocol.js';
 import {
+	desktopRecordAttachmentUrl,
 	desktopRecordUrl,
 	EPICENTER_DESKTOP_RECORD_MOVED_ERROR_NAME,
 	EPICENTER_DESKTOP_RECORD_REQUEST_ERROR_NAME,
@@ -29,6 +30,7 @@ import {
 } from './record-epicenter.js';
 import type { RecordSyncStatus } from './record-sync-supervisor.js';
 import type {
+	FirstAttachmentChoice,
 	ReplicaAttachmentState,
 	ReplicaParkedWorkPage,
 } from './store/replica/index.js';
@@ -695,6 +697,27 @@ export async function openDesktopRecordEpicenterForTest({
 		},
 		async inspectRecord(address: RecordAddress): Promise<RecordInspection> {
 			return (await request({ kind: 'inspect-record', address })).inspection;
+		},
+		chooseFirstAttachment(choice: FirstAttachmentChoice): Promise<void> {
+			requireOpen();
+			return track(
+				(async () => {
+					const response = await fetchWithDeadline(
+						desktopRecordAttachmentUrl(baseUrl),
+						{
+							method: 'POST',
+							headers: { 'content-type': 'application/json' },
+							credentials: 'same-origin',
+							body: JSON.stringify({ choice }),
+						},
+					);
+					if (!response.ok) {
+						throw new DesktopRecordHostError(
+							`Desktop record attachment choice failed (${response.status})`,
+						);
+					}
+				})(),
+			);
 		},
 		[Symbol.asyncDispose]: dispose,
 	});

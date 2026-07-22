@@ -390,7 +390,14 @@ export function createRecordLensRuntime<
 					payload,
 					source,
 				);
-				const projected = compiled.project(id, payload);
+				// Native capture replay can return a record admitted before a WebView
+				// reload. Read the owner's durable payload instead of projecting the
+				// retried create input as though it had won again.
+				const stored = await access.read(address(id));
+				const projected = compiled.project(
+					id,
+					stored?.state === 'live' ? stored.payload : payload,
+				);
 				if (projected.error !== null) throw projected.error;
 				return projected.data as RowFor<TDefinition>;
 			},
@@ -554,7 +561,8 @@ export function createRecordOwner<TSource, TRead>({
 
 	const stopDocumentRevocation = replica.subscribe((addresses) => {
 		for (const address of addresses) {
-			if (replica.visible(address)?.state === 'tombstone') {
+			const visible = replica.visible(address);
+			if (replica.record(address) === null || visible?.state === 'tombstone') {
 				documents.revoke(address);
 			}
 		}

@@ -33,12 +33,12 @@ export type ShortcutConflict =
 
 /**
  * Contract for a single shortcut backend. Two implement it: `focusedShortcuts`
- * (in-app keydown shortcuts in workspace KV, universal) and `systemShortcuts`
- * (system-global plugin-chord bindings in device-config, Tauri-only). The reach router
- * (`shortcuts.ts`) composes the two and routes each write by realized reach
- * (ADR-0052), so app code talks to the router, not to a backend directly. The
- * trigger dispatch itself converges in `dispatchCommandTrigger`; this owns the
- * binding configuration around it.
+ * (in-app keydown shortcuts in Whispering Lens values, universal) and
+ * `systemShortcuts` (system-global plugin-chord bindings in device-config,
+ * Tauri-only). The reach router (`shortcuts.ts`) composes the two and routes each
+ * write by realized reach (ADR-0052), so app code talks to the router, not to a
+ * backend directly. The trigger dispatch itself converges in
+ * `dispatchCommandTrigger`; this owns the binding configuration around it.
  */
 export type Shortcuts = {
 	/** Push every command's configured binding to this platform's backend. */

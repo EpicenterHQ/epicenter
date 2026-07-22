@@ -29,6 +29,7 @@ import {
 	type ConversationsTable,
 	createAgentMessageDocumentStore,
 } from '@epicenter/chat';
+import type { FirstAttachmentChoice } from '@epicenter/data/record';
 import { InstantString } from '@epicenter/field';
 import type { HoneycrispData } from '@epicenter/honeycrisp';
 import { createHoneycrispCatalog } from './honeycrisp-catalog.js';
@@ -199,6 +200,14 @@ export type HomeHost = {
 	subscribe(listener: () => void): () => void;
 	/** Apply one client command to the host-owned session. */
 	handleCommand(command: HomeClientCommand): Promise<boolean>;
+	/**
+	 * Pause every command transport around the one whole-replica attachment
+	 * transition. A discard also rebuilds Home over the newly empty replica.
+	 */
+	runRecordAttachmentTransition<T>(
+		choice: FirstAttachmentChoice,
+		work: () => Promise<T>,
+	): Promise<T>;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
@@ -313,6 +322,8 @@ export async function createHomeHost(
 	const invokeAbort = new AbortController();
 	const invocations: HomeInvocation[] = [];
 	let commandQueue = Promise.resolve();
+	let recordAttachmentTransition: Promise<void> | undefined;
+	let commandsPaused = false;
 	let disposing = false;
 	const runInvocation = (toolName: string, input: AgentToolCall['input']) => {
 		const invocation: HomeInvocation = {
@@ -413,6 +424,38 @@ export async function createHomeHost(
 		}
 	}
 
+	const isSessionIdle = () =>
+		!conversation.snapshot().isGenerating &&
+		invocations.every((invocation) => invocation.status !== 'running');
+
+	const whenSessionIdle = (): Promise<void> => {
+		if (isSessionIdle()) return Promise.resolve();
+		return new Promise((resolve) => {
+			const listener = () => {
+				if (!isSessionIdle()) return;
+				listeners.delete(listener);
+				resolve();
+			};
+			listeners.add(listener);
+			listener();
+		});
+	};
+
+	async function rebuildConversationAfterDiscard(): Promise<void> {
+		unbindConversation();
+		conversation[Symbol.dispose]();
+		await activeStore[Symbol.asyncDispose]();
+		const nextConversationRow = await createConversationRow();
+		const nextStore = createAgentMessageDocumentStore(
+			await conversations.openDocument(nextConversationRow.id),
+		);
+		activeConversation = nextConversationRow;
+		activeStore = nextStore;
+		conversation = buildConversation(nextStore);
+		unbindConversation = conversation.subscribe(notify);
+		notify();
+	}
+
 	return {
 		toolDefinitions() {
 			return tools.definitions();
@@ -431,7 +474,7 @@ export async function createHomeHost(
 			};
 		},
 		handleCommand(command) {
-			if (disposing) return Promise.resolve(false);
+			if (disposing || commandsPaused) return Promise.resolve(false);
 			const result = commandQueue.then(() => applyCommand(command));
 			commandQueue = result.then(
 				() => undefined,
@@ -439,10 +482,39 @@ export async function createHomeHost(
 			);
 			return result;
 		},
+		runRecordAttachmentTransition(choice, work) {
+			if (disposing) {
+				return Promise.reject(new Error('Home host is disposing'));
+			}
+			if (commandsPaused) {
+				return Promise.reject(
+					new Error('A record attachment transition is already running'),
+				);
+			}
+			commandsPaused = true;
+			const transition = (async () => {
+				await commandQueue;
+				conversation.stop();
+				sessionApproval.cancelAll();
+				await whenSessionIdle();
+				await activeStore.whenDurable();
+				const result = await work();
+				if (choice === 'discard') await rebuildConversationAfterDiscard();
+				return result;
+			})();
+			recordAttachmentTransition = transition.then(
+				() => undefined,
+				() => undefined,
+			);
+			return transition.finally(() => {
+				commandsPaused = false;
+			});
+		},
 		async [Symbol.asyncDispose]() {
 			// The conversation first (aborts any in-flight turn and disposes the
 			// store), then the subprocess, then the in-process docs.
 			disposing = true;
+			await recordAttachmentTransition;
 			await commandQueue;
 			conversation.stop();
 			invokeAbort.abort();

@@ -1,4 +1,3 @@
-import type { BlobId } from '@epicenter/blobs';
 import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
 import { reportRecordingMicLevel } from '#platform/recording-mic-level';
@@ -11,6 +10,7 @@ import { processRecordingPipeline } from '$lib/operations/pipeline';
 import { playSoundIfEnabled } from '$lib/operations/sound';
 import { prewarmOnDeviceModel } from '$lib/operations/transcribe';
 import { log, report } from '$lib/report';
+import type { RecordingSessionId } from '$lib/services/recorder/contract';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
@@ -72,7 +72,7 @@ function isVadRecordingActive() {
  */
 export async function startManualRecording(
 	app: WhisperingApp,
-): Promise<BlobId | null> {
+): Promise<RecordingSessionId | null> {
 	app.settings.set('recording.trigger', 'manual');
 	// A new dictation is starting: clear any lingering failed/delivered state so
 	// the pill follows this attempt, not the last one.
@@ -114,7 +114,7 @@ export async function startManualRecording(
 
 	log.info('Recording started');
 	void playSoundIfEnabled(app, 'manual-start');
-	return manualRecorder.currentAudioBlobId;
+	return manualRecorder.currentSessionId;
 }
 
 export async function stopManualRecording(app: WhisperingApp) {
@@ -128,7 +128,7 @@ export async function stopManualRecording(app: WhisperingApp) {
 		return;
 	}
 
-	const { audioBlobId, durationMs, byteLength } = source;
+	const { audio, durationMs, byteLength } = source;
 
 	// The pill carries "stopped -> transcribing"; the transcript landing is the
 	// receipt. No per-step toast.
@@ -143,24 +143,24 @@ export async function stopManualRecording(app: WhisperingApp) {
 	});
 
 	await processRecordingPipeline(app, {
-		audioBlobId,
+		audio,
 		durationMs,
 	});
 }
 
 /**
- * Stop the manual recording only if `recordingId` names the one that is live. A
+ * Stop the manual recording only if `sessionId` names the one that is live. A
  * no-op otherwise, so a push-to-talk release that is stray, duplicated, or lands
  * after its recording was supplanted by a toggle/button recording never stops the
  * wrong one. This is the idempotent stop push-to-talk routes every stop through.
  */
-export async function stopManualRecordingById(
+export async function stopManualRecordingSession(
 	app: WhisperingApp,
-	recordingId: BlobId,
+	sessionId: RecordingSessionId,
 ) {
 	if (
 		manualRecorder.state !== 'RECORDING' ||
-		manualRecorder.currentAudioBlobId !== recordingId
+		manualRecorder.currentSessionId !== sessionId
 	) {
 		return;
 	}
@@ -286,16 +286,8 @@ export async function startVadRecording(app: WhisperingApp) {
 				blob_size: blob.size,
 			});
 
-			const finalized = await app.recordings.storeAudio(blob);
-			if (finalized.error !== null) {
-				dictationLifecycle.markFailed({
-					tier: 'silent-loss',
-					error: finalized.error,
-				});
-				return;
-			}
 			await processRecordingPipeline(app, {
-				audioBlobId: finalized.data.audioBlobId,
+				audio: { kind: 'bytes', bytes: blob },
 				durationMs: null,
 			});
 		},

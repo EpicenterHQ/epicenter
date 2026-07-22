@@ -42,7 +42,7 @@ export type TranscriptionSuccess = {
 export async function saveRecordingHistory(
 	app: WhisperingApp,
 	recordingId: RecordingId,
-	changes: Partial<Omit<Recording, 'id' | 'audioBlobId'>>,
+	changes: Partial<Omit<Recording, 'id'>>,
 ): Promise<Result<void, RecordingHistoryError>> {
 	const { data: update, error: updateError } = await tryAsync({
 		try: () => app.recordings.update(recordingId, changes),

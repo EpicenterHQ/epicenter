@@ -2,7 +2,7 @@
 
 Reactive state that stays in sync with the app. Unlike the query layer, which uses stale-while-revalidate caching, state modules maintain live state that updates immediately and persists across the app lifecycle.
 
-Two shapes live here. Workspace-backed state (`settings`, `recordings`, `recipes`) is owned and hydrated by the UI-free app; these modules are thin Svelte reactivity adapters over that ready product API. Device/hardware state (`device-config`, recorders, lifecycle) remains module singletons.
+Two shapes live here. Record-backed state (`settings`, `recordings`, `recipes`) is owned and hydrated by the UI-free app; these modules are thin Svelte reactivity adapters over that ready product API. Device and hardware state (`device-config`, recorders, lifecycle) remains in module singletons.
 
 ## When to Use State vs Query Layer
 
@@ -11,14 +11,14 @@ Two shapes live here. Workspace-backed state (`settings`, `recordings`, `recipes
 | **Pattern** | App-owned domain state plus Svelte adapters | Stale-while-revalidate (TanStack Query) |
 | **State Location** | Ready `WhisperingApp` | TanStack Query cache |
 | **Updates** | Immediate, live | Cached with background refresh |
-| **Use Case** | Hardware state, user preferences, live status, workspace table data | Data fetching, mutations, external API calls |
+| **Use Case** | Hardware state, user preferences, live status, record Lens data | Data fetching, mutations, external API calls |
 | **Lifecycle** | App lifetime | Managed by TanStack Query |
 
 ## Current State Modules
 
 ### `settings.svelte.ts`
 
-Synced workspace settings backed by the canonical workspace KV lens (ADR-0130). Settings roam across devices through row sync. The app core hydrates every key before the app resolves; `createSettingsView` wraps it with `createSubscriber` so reads are reactive. Product defaults remain release-local app policy.
+Synced settings backed by the Whispering Lens's `settings` values collection. Settings roam with the person's record replica. The app core hydrates every key before the app resolves; `createSettingsView` wraps it with `createSubscriber` so reads are reactive. Product defaults remain release-local app policy.
 
 ```typescript
 import { getWhisperingApp } from '$lib/whispering/context';
@@ -28,13 +28,13 @@ const app = getWhisperingApp(); // component initialisation
 // Read settings reactively (re-renders on change)
 const trigger = app.settings.get('recording.trigger');
 
-// Update settings (writes to the document and syncs to other devices)
+// Update one canonical setting record and publish its ordinary sync obligation.
 app.settings.set('recording.trigger', 'vad');
 ```
 
 ### `recordings.svelte.ts`
 
-Recording metadata backed by structural workspace row ids. The app namespace maintains the cache, owns row/blob consistency (`storeAudio`, `create` cleanup, `delete`, the audio workflows, and the `uploadedAt` marker), and refreshes after local writes or installed remote record changes; this module only makes its reads reactive. Use `$lib/queries/audio` for availability query identity and `services.blobSources` for playback.
+Recording metadata and audio backed by one record address. The app namespace maintains the row cache and captures one write-once blob when it creates a recording. Record sync owns publication; product code has no second blob id or manual upload lifecycle. This module only makes committed row reads reactive.
 
 ```typescript
 import { InstantString } from '@epicenter/field';
@@ -47,19 +47,16 @@ const { recordings } = getWhisperingApp(); // component initialisation
 const recording = recordings.get(id);
 const sorted = recordings.sorted; // newest first
 
-// Writes are async and refresh the app-level cache after commit.
-// `uploadedAt` is blob-state metadata owned by the audio workflows; creation
-// starts it at null and public updates cannot touch it.
-const stored = await recordings.storeAudio(blob);
+// Creation captures the Blob into the new record's own audio slot.
 const created = await recordings.create({
-	audioBlobId: stored.data.audioBlobId,
+	audio: blob,
 	// remaining recording fields
 });
 await recordings.update(id, {
 	transcript,
 	transcription: { status: 'completed', completedAt: InstantString.now() },
 });
-// Deletes the online copy (when one exists), the device copy, then the row.
+// One tombstone deletes the record and revokes its owned audio.
 await recordings.delete(id);
 ```
 

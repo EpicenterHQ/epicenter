@@ -1,4 +1,3 @@
-import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -9,6 +8,7 @@ import type {
 	RecorderError,
 	RecordingCallbacks,
 	RecordingSession,
+	RecordingSessionId,
 } from '$lib/services/recorder/contract';
 
 const ManualRecorderError = defineErrors({
@@ -54,10 +54,9 @@ const manualRecorderKeys = defineKeys({
 function createManualRecorder() {
 	let _state = $state<WhisperingRecordingState>('IDLE');
 	let _current: RecordingSession | null = null;
-	// The blob id reserved for the live recording and its future workspace row.
-	// Null when idle; set while recording. The push-to-talk stop path reads it to
-	// stop only the exact recording it started, never one a later press supplanted.
-	let _currentAudioBlobId: BlobId | null = null;
+	// The ephemeral session id exists only to let push-to-talk stop the exact
+	// capture it started. A durable RecordingId is minted after finalization.
+	let _currentSessionId: RecordingSessionId | null = null;
 	let _unsubscribe: (() => void) | null = null;
 	// Synchronous in-flight guard for start. `_current` is not set until after
 	// two awaits (bootstrap + the service start), so without this a second
@@ -68,9 +67,10 @@ function createManualRecorder() {
 	function attach(session: RecordingSession) {
 		_unsubscribe?.();
 		_current = session;
+		_currentSessionId = session.id;
 		_unsubscribe = session.subscribe((s) => {
 			_state = s;
-			if (s === 'IDLE') detach();
+			if (s === 'IDLE' && !session.awaitingAdmission) detach();
 		});
 	}
 
@@ -78,7 +78,7 @@ function createManualRecorder() {
 		_unsubscribe?.();
 		_unsubscribe = null;
 		_current = null;
-		_currentAudioBlobId = null;
+		_currentSessionId = null;
 		_state = 'IDLE';
 	}
 
@@ -91,19 +91,24 @@ function createManualRecorder() {
 	// that gate, a user action that fires before bootstrap resolves sees a
 	// stale `_current === null` and either no-ops the cancel (leaking the
 	// Rust session) or double-starts on top of a rehydrated one.
-	let bootstrapped: Promise<Result<void, RecorderError>> | null = null;
+	let bootstrapInFlight: Promise<Result<void, RecorderError>> | null = null;
 
 	function ensureBootstrapped() {
-		bootstrapped ??= ManualRecorderLive.resumeActiveSession().then((result) => {
+		if (_current !== null && !_current.awaitingAdmission) {
+			return Promise.resolve(Ok(undefined));
+		}
+		if (bootstrapInFlight !== null) return bootstrapInFlight;
+		const attempt = ManualRecorderLive.resumeActiveSession().then((result) => {
 			const { data: found, error } = result;
-			if (error) {
-				bootstrapped = null;
-				return Err(error);
-			}
+			if (error) return Err(error);
 			if (found) attach(found);
 			return Ok(undefined);
 		});
-		return bootstrapped;
+		bootstrapInFlight = attempt;
+		void attempt.finally(() => {
+			if (bootstrapInFlight === attempt) bootstrapInFlight = null;
+		});
+		return attempt;
 	}
 
 	return {
@@ -112,8 +117,8 @@ function createManualRecorder() {
 		},
 
 		/** The live recording's id (only set while `state` is RECORDING, else null). */
-		get currentAudioBlobId(): BlobId | null {
-			return _currentAudioBlobId;
+		get currentSessionId(): RecordingSessionId | null {
+			return _currentSessionId;
 		},
 
 		/** True between a start request and the recording attaching (or failing). */
@@ -142,14 +147,12 @@ function createManualRecorder() {
 				const { error: bootstrapError } = await ensureBootstrapped();
 				if (bootstrapError) return Err(bootstrapError);
 				if (_current) return ManualRecorderError.AlreadyRecording();
-				const audioBlobId = generateBlobId();
-				const params = manualRecorderConfig.resolveStartParams(audioBlobId);
+				const params = manualRecorderConfig.resolveStartParams();
 				const { data, error: startRecordingError } =
 					await ManualRecorderLive.startRecording(params, callbacks);
 
 				if (startRecordingError) return Err(startRecordingError);
 
-				_currentAudioBlobId = audioBlobId;
 				attach(data.session);
 				return Ok(data.deviceAcquisition);
 			} finally {

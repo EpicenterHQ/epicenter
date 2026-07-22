@@ -29,7 +29,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEngine, EngineChunk } from '@epicenter/agent';
-import { EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME } from '@epicenter/data/desktop-record-owner';
+import { API_ROUTES } from '@epicenter/constants/api-routes';
+import {
+	DESKTOP_RECORD_ATTACHMENT_ROUTE,
+	EPICENTER_DESKTOP_RECORD_OPERATION_ERROR_NAME,
+} from '@epicenter/data/desktop-record-owner';
 import type { HomeHost, HomeHostInputs } from './host.ts';
 import {
 	ACCOUNT_INSTANCE_ROUTE,
@@ -46,9 +50,12 @@ import {
 } from './routes.ts';
 import {
 	createHomeServer,
+	DESKTOP_AI_TRANSCRIPTIONS_ROUTE,
+	DESKTOP_WHISPERING_AUDIO_ROUTE,
 	type HomeServerEvent,
 	type HomeServerOptions,
 	type HomeSessionResponse,
+	NATIVE_WHISPERING_AUDIO_ROUTE,
 } from './server.ts';
 import type { ReadyFrame } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
@@ -58,6 +65,26 @@ import {
 } from './test-home-host.ts';
 
 const TOKEN = 'per-launch-secret';
+const SIGNED_AUTH_CELL = JSON.stringify({
+	grant: {
+		accessToken: 'host-owned-access-token',
+		refreshToken: 'host-owned-refresh-token',
+		accessTokenExpiresAt: Date.now() + 3_600_000,
+	},
+	principalId: 'alice',
+});
+
+function createSignedTestDesktopAuth() {
+	return createTestDesktopAuth({
+		authCell: SIGNED_AUTH_CELL,
+		fetch: async (input) => {
+			if (String(input).endsWith('/api/session')) {
+				return Response.json({ principalId: 'alice' });
+			}
+			throw new Error(`Unexpected auth request: ${String(input)}`);
+		},
+	});
+}
 
 /** A stand-in for the built SPA document; `/` must return it byte-for-byte. */
 const PAGE = '<!doctype html><html><body>Home test page</body></html>';
@@ -126,6 +153,16 @@ async function serveHost(
 	host: HomeHost,
 	page: string = PAGE,
 	recordOwner: HomeServerOptions['recordOwner'] = closedRecordOwner,
+	readRecordingAudio: HomeServerOptions['readRecordingAudio'] = async () =>
+		null,
+	chooseFirstAttachment: HomeServerOptions['chooseFirstAttachment'] = async () =>
+		undefined,
+	recordAttachment: HomeServerOptions['recordAttachment'] = () => ({
+		kind: 'unattached',
+		requiresChoice: false,
+	}),
+	desktopAuth: HomeServerOptions['desktopAuth'] = createTestDesktopAuth(),
+	deploymentFetch?: HomeServerOptions['deploymentFetch'],
 ) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
@@ -141,7 +178,11 @@ async function serveHost(
 		launchToken: TOKEN,
 		staticAssets: await createAppsDistFixture(page),
 		recordOwner,
-		desktopAuth: createTestDesktopAuth(),
+		recordAttachment,
+		readRecordingAudio,
+		chooseFirstAttachment,
+		desktopAuth,
+		...(deploymentFetch === undefined ? {} : { deploymentFetch }),
 	});
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
@@ -347,6 +388,12 @@ describe('createHomeServer', () => {
 				launchToken: '',
 				staticAssets,
 				recordOwner: closedRecordOwner,
+				recordAttachment: () => ({
+					kind: 'unattached',
+					requiresChoice: false,
+				}),
+				readRecordingAudio: async () => null,
+				chooseFirstAttachment: async () => undefined,
 				desktopAuth,
 			}),
 		).toThrow(/launch token/);
@@ -363,6 +410,12 @@ describe('createHomeServer', () => {
 					launchToken: TOKEN,
 					staticAssets,
 					recordOwner: closedRecordOwner,
+					recordAttachment: () => ({
+						kind: 'unattached',
+						requiresChoice: false,
+					}),
+					readRecordingAudio: async () => null,
+					chooseFirstAttachment: async () => undefined,
 					desktopAuth,
 				}),
 			).toThrow(/exact http:\/\/127\.0\.0\.1/);
@@ -404,6 +457,341 @@ describe('createHomeServer', () => {
 				`${SESSION_ROUTE.url(origin)}?token=${TOKEN}`,
 			);
 			expect(queryToken.status).toBe(401);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('native recording audio accepts only the launch bearer and existing record keys', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const recordingId = 'abc123abc123abc123abc123';
+		const requested: string[] = [];
+		const server = await serveHost(
+			host,
+			PAGE,
+			closedRecordOwner,
+			async (candidate) => {
+				requested.push(candidate);
+				return candidate === recordingId
+					? {
+							bytes: new Blob(['record audio']).stream(),
+							mediaType: 'audio/webm',
+							byteLength: 12,
+						}
+					: null;
+			},
+		);
+		const pathFor = (candidate: string) =>
+			NATIVE_WHISPERING_AUDIO_ROUTE.replace(':recordingId', candidate);
+		const browserPathFor = (candidate: string) =>
+			DESKTOP_WHISPERING_AUDIO_ROUTE.replace(':recordingId', candidate);
+		try {
+			const cookieOnly = await fetch(
+				new URL(pathFor(recordingId), server.url),
+				{
+					headers: authenticatedHeaders(server),
+				},
+			);
+			expect(cookieOnly.status).toBe(401);
+			expect(requested).toEqual([]);
+
+			const wrongBearer = await fetch(
+				new URL(pathFor(recordingId), server.url),
+				{ headers: { authorization: 'Bearer wrong' } },
+			);
+			expect(wrongBearer.status).toBe(401);
+			expect(requested).toEqual([]);
+
+			const invalid = await fetch(
+				new URL(pathFor('../not-a-record'), server.url),
+				{ headers: { authorization: `Bearer ${TOKEN}` } },
+			);
+			expect(invalid.status).toBe(404);
+			expect(requested).toEqual([]);
+
+			const missing = await fetch(
+				new URL(pathFor('def456def456def456def456'), server.url),
+				{ headers: { authorization: `Bearer ${TOKEN}` } },
+			);
+			expect(missing.status).toBe(404);
+
+			const audio = await fetch(new URL(pathFor(recordingId), server.url), {
+				headers: { authorization: `Bearer ${TOKEN}` },
+			});
+			expect(audio.status).toBe(200);
+			expect(audio.headers.get('content-type')).toBe('audio/webm');
+			expect(audio.headers.get('cache-control')).toBe('no-store');
+			expect(audio.headers.get('accept-ranges')).toBe('bytes');
+			expect(audio.headers.get('content-length')).toBe('12');
+			expect(await audio.text()).toBe('record audio');
+			expect(requested).toEqual(['def456def456def456def456', recordingId]);
+
+			const range = await fetch(new URL(pathFor(recordingId), server.url), {
+				headers: {
+					authorization: `Bearer ${TOKEN}`,
+					range: 'bytes=7-11',
+				},
+			});
+			expect(range.status).toBe(206);
+			expect(range.headers.get('content-range')).toBe('bytes 7-11/12');
+			expect(range.headers.get('content-length')).toBe('5');
+			expect(await range.text()).toBe('audio');
+
+			const unsatisfiable = await fetch(
+				new URL(pathFor(recordingId), server.url),
+				{
+					headers: {
+						authorization: `Bearer ${TOKEN}`,
+						range: 'bytes=12-',
+					},
+				},
+			);
+			expect(unsatisfiable.status).toBe(416);
+			expect(unsatisfiable.headers.get('content-range')).toBe('bytes */12');
+
+			const browserAudio = await fetch(
+				new URL(browserPathFor(recordingId), server.url),
+				{ headers: authenticatedHeaders(server) },
+			);
+			expect(browserAudio.status).toBe(200);
+			expect(await browserAudio.text()).toBe('record audio');
+			expect(
+				(
+					await fetch(new URL(browserPathFor(recordingId), server.url), {
+						headers: { authorization: `Bearer ${TOKEN}` },
+					})
+				).status,
+			).toBe(401);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('recording audio never reflects synchronized active content types', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const recordingId = 'abc123abc123abc123abc123';
+		const server = await serveHost(host, PAGE, closedRecordOwner, async () => ({
+			bytes: new Blob(['not markup']).stream(),
+			mediaType: 'text/html\r\nx-injected: yes',
+			byteLength: 10,
+		}));
+		try {
+			const response = await fetch(
+				new URL(
+					NATIVE_WHISPERING_AUDIO_ROUTE.replace(':recordingId', recordingId),
+					server.url,
+				),
+				{ headers: { authorization: `Bearer ${TOKEN}` } },
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get('content-type')).toBe(
+				'application/octet-stream',
+			);
+			expect(response.headers.get('x-injected')).toBeNull();
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('the desktop transcription broker exposes one fixed authenticated gateway', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const upstream: Array<{
+			url: string;
+			contentType: string | null;
+			body: string;
+		}> = [];
+		const server = await serveHost(
+			host,
+			PAGE,
+			closedRecordOwner,
+			async () => null,
+			async () => undefined,
+			() => ({ kind: 'unattached', requiresChoice: false }),
+			createSignedTestDesktopAuth(),
+			async (input, init) => {
+				expect(init?.body).toBeInstanceOf(ArrayBuffer);
+				upstream.push({
+					url: String(input),
+					contentType: new Headers(init?.headers).get('content-type'),
+					body: await new Response(init?.body).text(),
+				});
+				return Response.json({ text: 'transcribed' });
+			},
+		);
+		const { cookie, origin } = authenticationFor(server);
+		const form = new FormData();
+		form.set('model', 'epicenter');
+		form.set(
+			'file',
+			new File(['audio'], 'recording.wav', { type: 'audio/wav' }),
+		);
+		const request = (headers: Record<string, string>) =>
+			fetch(new URL(DESKTOP_AI_TRANSCRIPTIONS_ROUTE, server.url), {
+				method: 'POST',
+				headers,
+				body: form,
+			});
+		try {
+			expect((await request({ origin })).status).toBe(401);
+			expect((await request({ cookie })).status).toBe(403);
+			const response = await request({ cookie, origin });
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ text: 'transcribed' });
+			expect(upstream).toHaveLength(1);
+			expect(upstream[0]?.url).toBe(
+				API_ROUTES.ai.transcriptions.url('https://api.epicenter.so'),
+			);
+			expect(upstream[0]?.contentType).toStartWith('multipart/form-data;');
+			expect(upstream[0]?.body).toContain('recording.wav');
+			expect(upstream[0]?.body).not.toContain('host-owned-access-token');
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('the browser session delegates one validated attachment choice to the host', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const choices: string[] = [];
+		const server = await serveHost(
+			host,
+			PAGE,
+			closedRecordOwner,
+			async () => null,
+			async (choice) => {
+				choices.push(choice);
+			},
+		);
+		const { cookie, origin } = authenticationFor(server);
+		const request = (body: string, headers: Record<string, string>) =>
+			fetch(new URL(DESKTOP_RECORD_ATTACHMENT_ROUTE, server.url), {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', ...headers },
+				body,
+			});
+		try {
+			expect(
+				(
+					await request('{"choice":"bring"}', {
+						authorization: `Bearer ${TOKEN}`,
+						origin,
+					})
+				).status,
+			).toBe(401);
+			expect((await request('{"choice":"bring"}', { cookie })).status).toBe(
+				403,
+			);
+			expect(
+				(await request('{"choice":"keep"}', { cookie, origin })).status,
+			).toBe(400);
+			expect(
+				(await request('{"choice":"bring"}', { cookie, origin })).status,
+			).toBe(204);
+			expect(choices).toEqual(['bring']);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('the host gates every app and serializes shared-replica mutations behind attachment', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		let attachment: ReturnType<HomeServerOptions['recordAttachment']> = {
+			kind: 'unattached',
+			requiresChoice: true,
+		};
+		const inputs: unknown[] = [];
+		const choices: string[] = [];
+		const server = await serveHost(
+			host,
+			PAGE,
+			{
+				async execute(input: unknown) {
+					inputs.push(input);
+					return structuredClone(await closedRecordOwner.execute());
+				},
+			},
+			async () => null,
+			async (choice) => {
+				choices.push(choice);
+				attachment = {
+					kind: 'attached',
+					attachment: {
+						deploymentId: 'https://api.epicenter.so/',
+						principalId: 'alice',
+					},
+				};
+			},
+			() => attachment,
+			createSignedTestDesktopAuth(),
+		);
+		const { cookie, origin } = authenticationFor(server);
+		const requestRecord = (input: unknown) =>
+			fetch(new URL('/api/data/records', server.url), {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					cookie,
+					origin,
+				},
+				body: JSON.stringify(input),
+			});
+		const mutation = {
+			surfaceId: 'home',
+			generation: 1,
+			mutationId: 1,
+			operation: {
+				kind: 'create-record',
+				namespace: 'so.epicenter.test',
+				collection: 'notes',
+				payload: { title: 'Blocked until choice' },
+			},
+		};
+		try {
+			const gate = await fetch(HOME_ROUTE.url(origin), {
+				headers: { cookie },
+			});
+			const gateText = await gate.text();
+			expect(gateText).toContain('Home, Whispering, and installed apps');
+			expect(gateText).toContain('Discard all local data');
+
+			const blocked = await requestRecord(mutation);
+			expect(blocked.status).toBe(409);
+			expect(inputs).toEqual([]);
+
+			const read = await requestRecord({
+				surfaceId: 'home',
+				operation: { kind: 'open' },
+			});
+			expect(read.status).toBe(400);
+			expect(inputs).toHaveLength(1);
+
+			const choice = await fetch(
+				new URL(DESKTOP_RECORD_ATTACHMENT_ROUTE, server.url),
+				{
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json',
+						cookie,
+						origin,
+					},
+					body: '{"choice":"bring"}',
+				},
+			);
+			expect(choice.status).toBe(204);
+			expect(choices).toEqual(['bring']);
+
+			const admitted = await requestRecord(mutation);
+			expect(admitted.status).toBe(400);
+			expect(inputs).toHaveLength(2);
 		} finally {
 			await server.stop(true);
 		}

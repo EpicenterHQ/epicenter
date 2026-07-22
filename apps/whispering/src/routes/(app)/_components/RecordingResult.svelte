@@ -4,12 +4,11 @@
 	it" step both render this, so the two cannot drift.
 
 	The audio renders whenever the clip exists, independent of the transcript, so a
-	silent or not-yet-transcribed recording still plays back. This component owns
-	its playback URL acquisition and disposes it on teardown.
+	silent or not-yet-transcribed recording still plays back. The record-addressed
+	player owns its playback URL and disposes it on teardown.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import type { BlobId } from '@epicenter/blobs';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import TextPreviewDialog from '$lib/components/copyable/TextPreviewDialog.svelte';
@@ -18,20 +17,17 @@
 
 	let {
 		recordingId,
-		audioBlobId,
 		transcript,
 		rows = 1,
 		onDelete,
 	}: {
 		recordingId: RecordingId;
-		audioBlobId: BlobId;
 		transcript: string;
 		/** Visible rows of the transcript preview before it scrolls/expands. */
 		rows?: number;
 		/** When provided, a delete button is shown at the end of the audio row. */
 		onDelete?: () => void;
 	} = $props();
-
 </script>
 
 <div class="flex w-full flex-col gap-2">
@@ -46,25 +42,23 @@
 	<!-- Delete is a companion action on the audio row, mirroring the copy button
 	     on the transcript row above: content stretches, its action caps the row.
 	     Icon-only with a tooltip; the confirmation dialog carries the words. -->
-	{#if audioBlobId || onDelete}
-		<div class="flex w-full items-center gap-2">
-			<AudioBlobPlayer
-				id={audioBlobId}
-				class="h-8 min-w-0 flex-1"
-				viewTransitionName={viewTransition.recording(recordingId).audio}
-			/>
-			{#if onDelete}
-				<Button
-					class="ml-auto"
-					variant="ghost-destructive"
-					size="icon-sm"
-					tooltip="Delete recording"
-					aria-label="Delete recording"
-					onclick={onDelete}
-				>
-					<TrashIcon class="size-4" />
-				</Button>
-			{/if}
-		</div>
-	{/if}
+	<div class="flex w-full items-center gap-2">
+		<AudioBlobPlayer
+			id={recordingId}
+			class="h-8 min-w-0 flex-1"
+			viewTransitionName={viewTransition.recording(recordingId).audio}
+		/>
+		{#if onDelete}
+			<Button
+				class="ml-auto"
+				variant="ghost-destructive"
+				size="icon-sm"
+				tooltip="Delete recording"
+				aria-label="Delete recording"
+				onclick={onDelete}
+			>
+				<TrashIcon class="size-4" />
+			</Button>
+		{/if}
+	</div>
 </div>

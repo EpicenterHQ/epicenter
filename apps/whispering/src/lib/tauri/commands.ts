@@ -86,12 +86,12 @@ const wrappedGen = Object.fromEntries(
  * struct. Error path is a plain string from Tauri's reject channel.
  */
 async function encodeRecordingForUpload(
-	audioBlobId: string,
+	recordingId: string,
 ): Promise<Result<ArrayBuffer, string>> {
 	try {
 		return Ok(
 			await rawInvoke<ArrayBuffer>('encode_recording_for_upload', {
-				audioBlobId,
+				recordingId,
 			}),
 		);
 	} catch (e) {

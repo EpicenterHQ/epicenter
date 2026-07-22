@@ -1,4 +1,3 @@
-import type { BlobId } from '@epicenter/blobs';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import type { NavigatorRecordingParams } from '$lib/services/recorder/contract';
 import { deviceConfig } from '$lib/state/device-config.svelte';
@@ -30,10 +29,9 @@ export const manualRecorderConfig = {
 	 * Only settings-derived config lives here; live callbacks (the meter sink)
 	 * are passed separately to `startRecording`.
 	 */
-	resolveStartParams(audioBlobId: BlobId): NavigatorRecordingParams {
+	resolveStartParams(): NavigatorRecordingParams {
 		const deviceId = this.deviceId;
 		return {
-			audioBlobId,
 			selectedDeviceId: deviceId ? asDeviceIdentifier(deviceId) : null,
 			bitrateKbps: deviceConfig.get('recording.navigator.bitrateKbps'),
 		};

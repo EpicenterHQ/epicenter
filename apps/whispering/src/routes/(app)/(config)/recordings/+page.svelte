@@ -19,7 +19,6 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
-	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import StartTranscriptionIcon from '@lucide/svelte/icons/play';
 	import RetryTranscriptionIcon from '@lucide/svelte/icons/repeat';
@@ -44,18 +43,16 @@
 	} from '@tanstack/table-core';
 	import { type } from 'arktype';
 	import { createRawSnippet } from 'svelte';
-	import { PATHS } from '$lib/services/fs-paths';
 	import { report } from '$lib/report';
-	import { tauri } from '#platform/tauri';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
+	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import type { Recording } from '$lib/state/recordings.svelte';
 	import type { RecordingId } from '$lib/workspace';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
+	import { viewTransition } from '$lib/utils/viewTransitions';
 	import RecordingTranscriptCell from './RecordingTranscriptCell.svelte';
-	import RecordingAudioCell from './RecordingAudioCell.svelte';
-	import RecordingStorageBadge from './RecordingStorageBadge.svelte';
 	import TranscriptionStatusBadge from './TranscriptionStatusBadge.svelte';
-	import RecordingRowActions from './actions/RecordingRowActions.svelte';
+	import TranscribeRecordingButton from './actions/TranscribeRecordingButton.svelte';
 	import {
 		getWhisperingApp,
 		getWhisperingQueries,
@@ -189,21 +186,14 @@
 					column,
 					headerText: 'Audio',
 				}),
-			cell: ({ getValue }) =>
-				renderComponent(RecordingAudioCell, {
-					recording: getValue<Recording>(),
-				}),
-		},
-		{
-			id: 'storage',
-			meta: { label: 'Storage' },
-			accessorFn: (recording) => recording,
-			header: 'Storage',
-			enableSorting: false,
-			cell: ({ getValue }) =>
-				renderComponent(RecordingStorageBadge, {
-					recording: getValue<Recording>(),
-				}),
+			cell: ({ getValue }) => {
+				const id = getValue<Recording>().id;
+				return renderComponent(AudioBlobPlayer, {
+					id,
+					class: 'h-8',
+					viewTransitionName: viewTransition.recording(id).audio,
+				});
+			},
 		},
 		{
 			id: 'status',
@@ -225,10 +215,10 @@
 					column,
 					headerText: 'Actions',
 				}),
-			cell: ({ getValue }) => {
-				const recording = getValue<Recording>();
-				return renderComponent(RecordingRowActions, { recording });
-			},
+			cell: ({ getValue }) =>
+				renderComponent(TranscribeRecordingButton, {
+					recording: getValue<Recording>(),
+				}),
 		},
 	] satisfies ColumnDef<Recording>[];
 
@@ -353,11 +343,6 @@
 		return transcriptions.join(delimiter);
 	});
 
-	async function openBlobsFolder() {
-		if (!tauri) return;
-		const { error } = await tauri.opener.openPath(await PATHS.DB.BLOBS());
-		if (error) report.error({ title: 'Failed to open folder', cause: error });
-	}
 </script>
 
 <svelte:head> <title>All Recordings</title> </svelte:head>
@@ -371,8 +356,8 @@
 			Recordings
 		</SectionHeader.Title>
 		<SectionHeader.Description>
-			Your latest recordings and transcriptions, stored locally
-			{tauri ? 'on your file system' : 'in IndexedDB'}.
+			Your latest recordings and transcriptions, stored locally on this
+			device.
 		</SectionHeader.Description>
 	</SectionHeader.Root>
 	<Card class="flex flex-col gap-4 p-6">
@@ -543,17 +528,6 @@
 							)}
 					>
 						<TrashIcon class="size-4" />
-					</Button>
-				{/if}
-
-				{#if tauri}
-					<Button
-						tooltip="Open audio storage folder"
-						variant="outline"
-						size="icon"
-						onclick={openBlobsFolder}
-					>
-						<ExternalLinkIcon class="size-4" />
 					</Button>
 				{/if}
 

@@ -1,5 +1,5 @@
-import type { BlobId } from '@epicenter/blobs';
 import { InstantString } from '@epicenter/field';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import {
 	deliverTranscriptionResult,
 	type TranscriptionSource,
@@ -9,9 +9,17 @@ import { playSoundIfEnabled } from '$lib/operations/sound';
 import { transcribeAndPersist } from '$lib/operations/transcribe';
 import { saveRecordingHistory } from '$lib/operations/transcription-history';
 import { report } from '$lib/report';
+import type { FinalizedAudio } from '$lib/services/recorder/contract';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+
+const RecordingPipelineError = defineErrors({
+	AudioCaptureFailed: ({ cause }: { cause: unknown }) => ({
+		message: `Failed to save recording audio: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+});
 
 /**
  * Argument shape for the pipeline. The recorder produces a
@@ -20,7 +28,7 @@ import type { WhisperingApp } from '$lib/whispering/app';
  * straight to delivery, so it shares delivery's `TranscriptionSource` type.
  */
 type PipelineInput = {
-	audioBlobId: BlobId;
+	audio: FinalizedAudio;
 	durationMs: number | null;
 	deliverySource?: TranscriptionSource;
 };
@@ -29,14 +37,15 @@ type PipelineInput = {
  * Processes finalized local audio through row creation, transcription, and
  * polishing.
  *
- * Audio bytes never live in pipeline state. Every acquisition path has
- * committed the local blob before calling this operation.
+ * The pipeline holds finalized audio only until `recordings.create` mints the
+ * durable record id and captures the bytes, or adopts the native staging
+ * artifact, into its blob slot. Every later step carries only that record id.
  *
  * `deliverySource` only shapes the success copy (recording vs file import).
  */
 export async function processRecordingPipeline(
 	app: WhisperingApp,
-	{ audioBlobId, durationMs, deliverySource = 'recording' }: PipelineInput,
+	{ audio, durationMs, deliverySource = 'recording' }: PipelineInput,
 ) {
 	const now = InstantString.now();
 
@@ -47,35 +56,28 @@ export async function processRecordingPipeline(
 	const isDictation = deliverySource === 'recording';
 	if (isDictation) dictationLifecycle.markTranscribing();
 
-	// Row creation owns row/blob consistency: on failure it removes the
-	// already-committed audio and rethrows, so a lost row never strands bytes.
-	const recording = await app.recordings.create({
-		audioBlobId,
-		title: '',
-		recordedAt: now,
-		recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		transcript: '',
-		polishedTranscript: null,
-		duration: durationMs,
-		transcription: null,
-	});
-
-	if (app.settings.get('recording.autoUpload')) {
-		// One new row earns one best-effort attempt. Manual upload calls the same
-		// workflow; there is no history scan, queue, persisted failure, or retry.
-		void app.recordings
-			.uploadAudio(recording.id)
-			.then(({ error }) => {
-				if (error !== null) {
-					report.info({
-						title: 'Recording kept on this device',
-						description: error.message,
-					});
-				}
-			})
-			.catch((cause) => {
-				report.error({ title: 'Automatic upload failed', cause });
-			});
+	// Row creation owns row/blob consistency: it creates the record and captures
+	// these staged bytes into that record's one write-once blob slot.
+	let recording: Awaited<ReturnType<WhisperingApp['recordings']['create']>>;
+	try {
+		recording = await app.recordings.create({
+			audio,
+			title: '',
+			recordedAt: now,
+			recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			transcript: '',
+			polishedTranscript: null,
+			duration: durationMs,
+			transcription: null,
+		});
+	} catch (cause) {
+		const error = RecordingPipelineError.AudioCaptureFailed({ cause }).error;
+		if (isDictation) {
+			dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+		} else {
+			report.error({ title: 'Failed to save imported audio', cause: error });
+		}
+		return;
 	}
 
 	// File import has no pill, so it keeps a progress toast; the dictation path is
@@ -88,7 +90,7 @@ export async function processRecordingPipeline(
 			});
 
 	const { data: transcription, error: transcribeError } =
-		await transcribeAndPersist(app, recording.id, audioBlobId);
+		await transcribeAndPersist(app, recording.id);
 
 	if (transcribeError) {
 		if (isDictation) {

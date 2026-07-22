@@ -14,12 +14,12 @@ Whispering uses a clean three-layer architecture that shares one SPA between its
          Reactive Updates
 ```
 
-## Workspace Composition
+## Record composition
 
-Whispering binds its inert workspace contract through one environment-owned SQLite runtime, acquired as one ready app inside the mounted Svelte root:
+Whispering binds its inert Lens through one environment-owned record Epicenter, acquired as one ready app inside the mounted Svelte root:
 
 ```txt
-defineWorkspace()                       src/lib/workspace/contract.ts (inert schema)
+defineLens()                            src/lib/workspace/contract.ts (inert projection)
   -> openWhisperingApp()        src/lib/whispering/app.ts (transactional async open)
     -> #platform/whispering             whisperingPlatform: the per-build dependencies
       -> openWhisperingUiSession()      src/lib/whispering/ui-session.ts (app + query runtime)
@@ -27,9 +27,9 @@ defineWorkspace()                       src/lib/workspace/contract.ts (inert sch
           -> WhisperingUiSessionProvider      typed context for ready-only descendants
 ```
 
-`src/lib/workspace/contract.ts` defines the fixed workspace id, row tables, and KV settings schema with no platform APIs. `openWhisperingApp(whisperingPlatform, { signal })` opens the Whispering workspace through the runtime the environment supplies, hydrates settings, recordings, and recipes, and resolves only with those UI-free product namespaces ready; any failure releases everything it opened and rejects. The (app) layout wraps that open in one UI session (`openWhisperingUiSession`), which composes the Svelte reactivity adapters, a session-scoped TanStack `QueryClient`, and the query namespace over the ready app, and owns their ordered disposal. The layout creates the session promise during component initialisation, so the `{#await}` observes it from the first microtask. The fulfilled branch mounts `WhisperingUiSessionProvider`, which only publishes the ready session: typed `getWhisperingApp()` / `getWhisperingQueries()` context plus the session's query client. Boot retry is a full page reload; unmount/HMR aborts the acquisition, and the layout is the single owner of session disposal. Bun scripts import `@epicenter/whispering/app` and `@epicenter/whispering/app/bun`, then use the same product API: `await using app = await openWhisperingApp(createWhisperingBunDependencies({ dataDir }))`. The one `dataDir` roots all persistent Bun storage (`<dataDir>/device/<workspaceId>/store.sqlite3`, `<dataDir>/blobs/`).
+`src/lib/workspace/contract.ts` defines the Whispering Lens, its record tables, and its settings collection with no platform APIs. `openWhisperingApp(whisperingPlatform, { signal })` opens the record Epicenter supplied by the environment, hydrates settings, recordings, and recipes, and resolves only when those UI-free product namespaces are ready. Any failure releases everything it opened and rejects. The (app) layout wraps that open in one UI session (`openWhisperingUiSession`), which composes the Svelte reactivity adapters, a session-scoped TanStack `QueryClient`, and the query namespace over the ready app, and owns their ordered disposal. The layout creates the session promise during component initialisation, so the `{#await}` observes it from the first microtask. The fulfilled branch mounts `WhisperingUiSessionProvider`, which publishes only the ready session: typed `getWhisperingApp()` and `getWhisperingQueries()` context plus the session's query client. Boot retry is a full page reload; unmount or HMR aborts acquisition, and the layout is the single owner of session disposal. Bun scripts import `@epicenter/whispering/app` and `@epicenter/whispering/app/bun`, then use the same product API: `await using app = await openWhisperingApp(createWhisperingBunDependencies({ dataDir }))`. That `dataDir` roots one record replica and its blob obligations.
 
-The `#platform/whispering` leaves are pure dependency bindings of the workspace runtime plus the platform's composed blob capability (`#platform/blobs`): the web build (`whispering.browser.ts`) selects the device or account browser runtime from the boot auth state (`whispering.browser-runtime.ts`); the Epicenter-hosted build (`whispering.tauri.ts`) uses the same-origin desktop workspace runtime, whose `open` performs an honest host acquisition handshake. The app's recordings namespace owns row/blob consistency: audio storage, upload/download/purge, the `uploadedAt` marker, and deletion of the online copy, device copy, and row as one workflow. Scalar rows live in runtime-native SQLite; row documents are lazy Yjs 14 documents behind the runtime's document provider (ADR-0144).
+The `#platform/whispering` leaves bind the platform's record Epicenter: the web build (`whispering.browser.ts`) selects the device or account browser owner from the boot auth state (`whispering.browser-runtime.ts`); the Epicenter-hosted build (`whispering.tauri.ts`) uses the same-origin desktop record owner, whose `open` performs an honest host acquisition handshake. The app's recordings namespace owns scalar and immutable audio consistency at one record address. Scalar rows live in runtime-native SQLite; row documents are lazy Yjs 14 documents behind the record runtime's document provider (ADR-0144).
 
 ## Service Layer - Pure Business Logic + Platform Abstraction
 
@@ -96,24 +96,24 @@ The query layer (`$lib/queries`) is where TanStack Query reactivity gets injecte
   const app = getWhisperingApp();
   const queries = getWhisperingQueries();
 
-  // Domain data: workspace state (reactive, no queries needed)
-  const latestRecording = $derived(app.recordings.sorted[0]);
+	// Domain data: record state (reactive, no queries needed)
+	const latestRecording = $derived(app.recordings.sorted[0]);
 
-  // Audio availability: still needs TanStack Query (blobs are too large for
-  // workspace rows)
-  const availability = createQuery(
-    () => queries.audio.availability(() => latestRecording).options,
-  );
+	// Audio playback: TanStack owns the async read or host media URL for this
+	// record's immutable blob.
+	const audio = createQuery(
+		() => queries.audio.recording(() => latestRecording.id).options,
+	);
 </script>
 ```
 
-**Workspace State** - The UI-free app owns domain data (recordings, recipes, settings). Thin `$lib/state/*.svelte.ts` adapters add `createSubscriber` tracking, so components react to the same namespaces that Bun scripts use.
+**Record state**: The UI-free app owns domain data (recordings, recipes, settings). Thin `$lib/state/*.svelte.ts` adapters add `createSubscriber` tracking, so components react to the same namespaces that Bun scripts use.
 
-The query layer's role has narrowed to things that don't fit in workspace rows:
+The query layer's role has narrowed to asynchronous work that does not belong in the live scalar projection:
 
 - **External APIs**: Transcription mutations (`queries.transcription.*`) around the transcription operations
 - **Microphone enumeration**: Async device list with loading states (`manualRecorder.enumerateDevices`). Recorder state itself lives in `$lib/state/manual-recorder.svelte.ts` and `$lib/state/vad-recorder.svelte.ts` as `$state`, not queries.
-- **Audio blob access**: Too large for workspace rows, still served via the blob store (`queries.audio.availability`, `queries.download.downloadRecording`)
+- **Audio blob access**: Each recording owns one immutable blob at its record address. The browser reads it from its record owner; desktop playback and downloads use the host media URL (`queries.audio.recording`, `queries.download.downloadRecording`).
 
 This design keeps services pure and platform-agnostic while giving the UI immediate reactivity for domain data and cached access for external resources.
 

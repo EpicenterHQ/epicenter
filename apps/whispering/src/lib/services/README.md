@@ -33,7 +33,6 @@ services/
 |   |-- types.ts
 |   |-- index.browser.ts
 |   `-- index.tauri.ts
-|-- blobs/
 |-- download/
 |-- http/
 |-- recorder/
@@ -120,8 +119,6 @@ platform imports resolve:
 export const services = {
 	analytics: AnalyticsServiceLive,
 	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
 	download: DownloadServiceLive,
 	localShortcutManager: LocalShortcutManagerLive,
 	sound: PlaySoundServiceLive,

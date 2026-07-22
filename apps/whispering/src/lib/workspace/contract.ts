@@ -1,10 +1,10 @@
-import { BLOB_ID_ROUTE_REGEX, type BlobId } from '@epicenter/blobs';
 import {
+	defineLens,
 	defineTable,
-	defineValue,
+	defineValues,
 	type RowFor,
 	type ValueFor,
-} from '@epicenter/data';
+} from '@epicenter/data/record';
 import { field } from '@epicenter/field';
 import { Type } from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
@@ -26,13 +26,13 @@ const TranscriptionOutcome = Type.Union([
 ]);
 
 export const recordingsTable = defineTable({
-	key: 'so.epicenter.whispering.recordings',
+	title: 'Recordings',
+	description:
+		'Whispering recording metadata. Each live row owns one write-once audio blob at the same record address.',
 	fields: {
-		/** Opaque local and remote identity for this recording's immutable audio. */
-		audioBlobId: field.string<BlobId>({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
-		/** Set only after a future explicit replica upload succeeds. */
-		uploadedAt: field.json(Type.Union([field.instant(), Type.Null()])),
 		title: field.string(),
+		audioMediaType: field.string(),
+		audioFileName: field.string(),
 		recordedAt: field.instant(),
 		recordedAtZone: field.string(),
 		transcript: field.string(),
@@ -40,17 +40,33 @@ export const recordingsTable = defineTable({
 		duration: field.json(Type.Union([Type.Number(), Type.Null()])),
 		transcription: field.json(Type.Union([TranscriptionOutcome, Type.Null()])),
 	},
+	optional: [],
 });
 
 type RecordingRow = RowFor<typeof recordingsTable>;
 
-/** Structural data identity, independent from the recording's audio blob. */
+/** Structural identity of the record that also owns this recording's audio. */
 export type RecordingId = string & Brand<'RecordingId'>;
+
+export const WHISPERING_DESKTOP_AUDIO_ROUTE =
+	'/_epicenter/media/whispering/recordings/:recordingId/audio';
+export const EPICENTER_DESKTOP_AI_BASE_ROUTE = '/_epicenter/ai';
+
+export function whisperingDesktopAudioUrl(
+	baseURL: string,
+	recordingId: RecordingId,
+): string {
+	const path = WHISPERING_DESKTOP_AUDIO_ROUTE.replace(
+		':recordingId',
+		encodeURIComponent(recordingId),
+	);
+	return new URL(path, baseURL).toString();
+}
 
 export type Recording = Omit<RecordingRow, 'id'> & { id: RecordingId };
 
 export const recipesTable = defineTable({
-	key: 'so.epicenter.whispering.recipes',
+	title: 'Recipes',
 	fields: {
 		/** Stable portable recipe identity. The canonical record id stays structural. */
 		sourceId: field.string(),
@@ -58,6 +74,7 @@ export const recipesTable = defineTable({
 		instructions: field.string(),
 		icon: field.json(Type.Union([Type.String(), Type.Null()])),
 	},
+	optional: [],
 });
 
 type RecipeRecord = RowFor<typeof recipesTable>;
@@ -78,170 +95,111 @@ const KeyBindingSchema = Type.Object({
 	keys: Type.Array(Type.String()),
 });
 
-/** Inert singleton definitions for every persisted Whispering setting. */
-export const whisperingSettingValues = {
-	'sound.manualStart': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.manual-start',
-		value: field.boolean(),
-	}),
-	'sound.manualStop': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.manual-stop',
-		value: field.boolean(),
-	}),
-	'sound.manualCancel': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.manual-cancel',
-		value: field.boolean(),
-	}),
-	'sound.vadStart': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.vad-start',
-		value: field.boolean(),
-	}),
-	'sound.vadCapture': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.vad-capture',
-		value: field.boolean(),
-	}),
-	'sound.vadStop': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.vad-stop',
-		value: field.boolean(),
-	}),
-	'sound.transcriptionComplete': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.transcription-complete',
-		value: field.boolean(),
-	}),
-	'sound.recipeComplete': defineValue({
-		key: 'so.epicenter.whispering.settings.sound.recipe-complete',
-		value: field.boolean(),
-	}),
-	'output.transcription.clipboard': defineValue({
-		key: 'so.epicenter.whispering.settings.output.transcription.clipboard',
-		value: field.boolean(),
-	}),
-	'output.transcription.cursor': defineValue({
-		key: 'so.epicenter.whispering.settings.output.transcription.cursor',
-		value: field.boolean(),
-	}),
-	'output.transcription.enter': defineValue({
-		key: 'so.epicenter.whispering.settings.output.transcription.enter',
-		value: field.boolean(),
-	}),
-	'output.recipe.clipboard': defineValue({
-		key: 'so.epicenter.whispering.settings.output.recipe.clipboard',
-		value: field.boolean(),
-	}),
-	'output.recipe.cursor': defineValue({
-		key: 'so.epicenter.whispering.settings.output.recipe.cursor',
-		value: field.boolean(),
-	}),
-	'output.recipe.enter': defineValue({
-		key: 'so.epicenter.whispering.settings.output.recipe.enter',
-		value: field.boolean(),
-	}),
-	'recording.trigger': defineValue({
-		key: 'so.epicenter.whispering.settings.recording.trigger',
-		value: field.select(RECORDING_TRIGGERS),
-	}),
-	'recording.pausePlayback': defineValue({
-		key: 'so.epicenter.whispering.settings.recording.pause-playback',
-		value: field.boolean(),
-	}),
-	'recording.autoUpload': defineValue({
-		key: 'so.epicenter.whispering.settings.recording.auto-upload',
-		value: field.boolean(),
-	}),
-	'transcription.service': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.service',
-		value: field.select(TRANSCRIPTION_SERVICE_IDS),
-	}),
-	'transcription.openai.model': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.openai.model',
-		value: field.string(),
-	}),
-	'transcription.groq.model': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.groq.model',
-		value: field.string(),
-	}),
-	'transcription.elevenlabs.model': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.elevenlabs.model',
-		value: field.string(),
-	}),
-	'transcription.deepgram.model': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.deepgram.model',
-		value: field.string(),
-	}),
-	'transcription.mistral.model': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.mistral.model',
-		value: field.string(),
-	}),
-	'transcription.language': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.language',
-		value: field.select(SUPPORTED_LANGUAGES),
-	}),
-	'transcription.prompt': defineValue({
-		key: 'so.epicenter.whispering.settings.transcription.prompt',
-		value: field.string(),
-	}),
-	'completion.provider': defineValue({
-		key: 'so.epicenter.whispering.settings.completion.provider',
-		value: field.select(INFERENCE_PROVIDER_IDS),
-	}),
-	'completion.model': defineValue({
-		key: 'so.epicenter.whispering.settings.completion.model',
-		value: field.string(),
-	}),
-	dictionary: defineValue({
-		key: 'so.epicenter.whispering.settings.dictionary',
-		value: field.tags(),
-	}),
-	'polish.enabled': defineValue({
-		key: 'so.epicenter.whispering.settings.polish.enabled',
-		value: field.boolean(),
-	}),
-	'polish.instructions': defineValue({
-		key: 'so.epicenter.whispering.settings.polish.instructions',
-		value: field.string(),
-	}),
-	'analytics.enabled': defineValue({
-		key: 'so.epicenter.whispering.settings.analytics.enabled',
-		value: field.boolean(),
-	}),
-	'shortcut.pushToTalk': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.push-to-talk',
-		value: field.json(KeyBindingSchema),
-	}),
-	'shortcut.toggleManualRecording': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.toggle-manual-recording',
-		value: field.json(KeyBindingSchema),
-	}),
-	'shortcut.cancelRecording': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.cancel-recording',
-		value: field.json(KeyBindingSchema),
-	}),
-	'shortcut.toggleVadRecording': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.toggle-vad-recording',
-		value: field.json(KeyBindingSchema),
-	}),
-	'shortcut.openRecipePicker': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.open-recipe-picker',
-		value: field.json(KeyBindingSchema),
-	}),
-	'shortcut.runRecipeOnClipboard': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.run-recipe-on-clipboard',
-		value: field.json(KeyBindingSchema),
-	}),
-	'shortcut.openSettings': defineValue({
-		key: 'so.epicenter.whispering.settings.shortcut.open-settings',
-		value: field.json(KeyBindingSchema),
-	}),
+/** Canonical local record keys for settings within the `settings` collection. */
+export const whisperingSettingSchemas = {
+	soundManualStart: field.boolean(),
+	soundManualStop: field.boolean(),
+	soundManualCancel: field.boolean(),
+	soundVadStart: field.boolean(),
+	soundVadCapture: field.boolean(),
+	soundVadStop: field.boolean(),
+	soundTranscriptionComplete: field.boolean(),
+	soundRecipeComplete: field.boolean(),
+	outputTranscriptionClipboard: field.boolean(),
+	outputTranscriptionCursor: field.boolean(),
+	outputTranscriptionEnter: field.boolean(),
+	outputRecipeClipboard: field.boolean(),
+	outputRecipeCursor: field.boolean(),
+	outputRecipeEnter: field.boolean(),
+	recordingTrigger: field.select(RECORDING_TRIGGERS),
+	recordingPausePlayback: field.boolean(),
+	transcriptionService: field.select(TRANSCRIPTION_SERVICE_IDS),
+	transcriptionOpenaiModel: field.string(),
+	transcriptionGroqModel: field.string(),
+	transcriptionElevenlabsModel: field.string(),
+	transcriptionDeepgramModel: field.string(),
+	transcriptionMistralModel: field.string(),
+	transcriptionLanguage: field.select(SUPPORTED_LANGUAGES),
+	transcriptionPrompt: field.string(),
+	completionProvider: field.select(INFERENCE_PROVIDER_IDS),
+	completionModel: field.string(),
+	dictionary: field.tags(),
+	polishEnabled: field.boolean(),
+	polishInstructions: field.string(),
+	analyticsEnabled: field.boolean(),
+	shortcutPushToTalk: field.json(KeyBindingSchema),
+	shortcutToggleManualRecording: field.json(KeyBindingSchema),
+	shortcutCancelRecording: field.json(KeyBindingSchema),
+	shortcutToggleVadRecording: field.json(KeyBindingSchema),
+	shortcutOpenRecipePicker: field.json(KeyBindingSchema),
+	shortcutRunRecipeOnClipboard: field.json(KeyBindingSchema),
+	shortcutOpenSettings: field.json(KeyBindingSchema),
+} as const;
+
+export const settingsValues = defineValues({
+	title: 'Settings',
+	description: 'Persisted Whispering preferences.',
+	values: whisperingSettingSchemas,
+});
+
+/**
+ * App vocabulary projected onto canonical record keys. Dotted names are the
+ * settings API used by product code, not alternate persisted addresses.
+ */
+export const whisperingSettingRecordKeys = {
+	'sound.manualStart': 'soundManualStart',
+	'sound.manualStop': 'soundManualStop',
+	'sound.manualCancel': 'soundManualCancel',
+	'sound.vadStart': 'soundVadStart',
+	'sound.vadCapture': 'soundVadCapture',
+	'sound.vadStop': 'soundVadStop',
+	'sound.transcriptionComplete': 'soundTranscriptionComplete',
+	'sound.recipeComplete': 'soundRecipeComplete',
+	'output.transcription.clipboard': 'outputTranscriptionClipboard',
+	'output.transcription.cursor': 'outputTranscriptionCursor',
+	'output.transcription.enter': 'outputTranscriptionEnter',
+	'output.recipe.clipboard': 'outputRecipeClipboard',
+	'output.recipe.cursor': 'outputRecipeCursor',
+	'output.recipe.enter': 'outputRecipeEnter',
+	'recording.trigger': 'recordingTrigger',
+	'recording.pausePlayback': 'recordingPausePlayback',
+	'transcription.service': 'transcriptionService',
+	'transcription.openai.model': 'transcriptionOpenaiModel',
+	'transcription.groq.model': 'transcriptionGroqModel',
+	'transcription.elevenlabs.model': 'transcriptionElevenlabsModel',
+	'transcription.deepgram.model': 'transcriptionDeepgramModel',
+	'transcription.mistral.model': 'transcriptionMistralModel',
+	'transcription.language': 'transcriptionLanguage',
+	'transcription.prompt': 'transcriptionPrompt',
+	'completion.provider': 'completionProvider',
+	'completion.model': 'completionModel',
+	dictionary: 'dictionary',
+	'polish.enabled': 'polishEnabled',
+	'polish.instructions': 'polishInstructions',
+	'analytics.enabled': 'analyticsEnabled',
+	'shortcut.pushToTalk': 'shortcutPushToTalk',
+	'shortcut.toggleManualRecording': 'shortcutToggleManualRecording',
+	'shortcut.cancelRecording': 'shortcutCancelRecording',
+	'shortcut.toggleVadRecording': 'shortcutToggleVadRecording',
+	'shortcut.openRecipePicker': 'shortcutOpenRecipePicker',
+	'shortcut.runRecipeOnClipboard': 'shortcutRunRecipeOnClipboard',
+	'shortcut.openSettings': 'shortcutOpenSettings',
 } as const;
 
 export type WhisperingSettingValues = {
-	[K in keyof typeof whisperingSettingValues]: ValueFor<
-		(typeof whisperingSettingValues)[K]
+	[K in keyof typeof whisperingSettingRecordKeys]: ValueFor<
+		(typeof whisperingSettingSchemas)[(typeof whisperingSettingRecordKeys)[K]]
 	>;
 };
 
-/** The inert Whispering definitions. Runtimes bind them to one Epicenter. */
-export const whisperingDefinitions = {
-	tables: { recordings: recordingsTable, recipes: recipesTable },
-	values: whisperingSettingValues,
-} as const;
+/** The one inert, pure-JSON projection Whispering binds to a record Epicenter. */
+export const whisperingLens = defineLens({
+	namespace: 'so.epicenter.whispering',
+	title: 'Whispering',
+	description: 'Recordings, recipes, and product settings for Whispering.',
+	collections: {
+		recordings: recordingsTable,
+		recipes: recipesTable,
+		settings: settingsValues,
+	},
+});

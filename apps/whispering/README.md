@@ -90,7 +90,7 @@ bun run --cwd apps/epicenter desktop:build
 
 ## Data boundary
 
-Whispering stores settings and recording metadata locally first. Audio leaves the device only when the selected transcription provider requires an upload. The browser and Epicenter builds can both use direct provider connections, the hosted Epicenter gateway, or a self-hosted endpoint. On-device transcription is available only through Epicenter because it depends on the native model runtime.
+Whispering stores settings, recording metadata, and audio locally first. When you attach local Epicenter data to an account and choose Bring, record sync publishes both the recording metadata and its audio to that deployment. A selected cloud transcription provider also receives the audio needed for transcription. The browser and Epicenter builds can use direct provider connections, the hosted Epicenter gateway, or a self-hosted endpoint. On-device transcription is available only through Epicenter because it depends on the native model runtime.
 
 See the repository [trust model](../../docs/trust-model.md) for hosted sync and account boundaries.
 
