@@ -12,7 +12,8 @@
 		"./bun": "./src/bun.ts",
 		"./desktop": "./src/desktop.ts",
 		"./desktop-owner": "./src/desktop-owner.ts",
-		"./protocol": "./src/protocol/index.ts"
+		"./protocol": "./src/protocol/index.ts",
+		"./protocol/v1": "./src/protocol/v1/index.ts"
 	},
 	"files": [
 		"src",
