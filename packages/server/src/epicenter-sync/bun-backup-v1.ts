@@ -55,7 +55,7 @@ function mintBackupId(): string {
 	);
 }
 
-function portableBlobPath(
+export function bunPortableBlobPath(
 	directory: string,
 	address: Parameters<typeof blobFileOwner>[0],
 	digest: string,
@@ -203,7 +203,7 @@ export async function validateBunPortableDirectory(
 			);
 			if (rows.length === 0) break;
 			for (const row of rows) {
-				const path = portableBlobPath(
+				const path = bunPortableBlobPath(
 					directory,
 					{
 						namespace: row.namespace,
@@ -344,7 +344,7 @@ export function createBunBackupV1Owner({
 					}
 					await copyPinnedBlob(
 						read,
-						portableBlobPath(temporary, record.address, record.blobSha256),
+						bunPortableBlobPath(temporary, record.address, record.blobSha256),
 						record.blobSha256,
 					);
 				}
