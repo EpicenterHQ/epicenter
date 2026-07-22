@@ -63,6 +63,7 @@ function setupState() {
 	function r2Object(key: string, bytes: Uint8Array): R2Object {
 		return {
 			key,
+			size: bytes.byteLength,
 			checksums: { sha256: Uint8Array.from(sha256(bytes)).buffer },
 		} as R2Object;
 	}
@@ -247,9 +248,9 @@ test('Cloudflare Backup owns verified blob writes and reads', async () => {
 			state: 'sealed',
 			recordCount: 1,
 		});
-		expect(
-			await new Response(await backup.openBlob(record.address, digest)).text(),
-		).toBe(bytes);
+		const opened = await backup.openBlob(record.address, digest);
+		expect(opened.byteLength).toBe(bytes.length);
+		expect(await new Response(opened.bytes).text()).toBe(bytes);
 	} finally {
 		owned.raw.close();
 	}

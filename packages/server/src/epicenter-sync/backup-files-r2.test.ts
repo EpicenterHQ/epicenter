@@ -46,6 +46,7 @@ function setupBucket() {
 				? null
 				: ({
 						key,
+						size: object.bytes.byteLength,
 						checksums: { sha256: object.checksum },
 						body: new Blob([
 							object.bytes.slice().buffer as ArrayBuffer,
@@ -97,9 +98,9 @@ test('R2 Backup blobs copy, verify, page, reopen, and seal', async () => {
 		{ address: secondAddress, digest: secondDigest },
 		{ address: thirdAddress, digest: thirdDigest },
 	]);
-	expect(
-		await new Response(await store.open(ADDRESS, firstDigest)).text(),
-	).toBe('first');
+	const opened = await store.open(ADDRESS, firstDigest);
+	expect(opened.byteLength).toBe(5);
+	expect(await new Response(opened.bytes).text()).toBe('first');
 	expect(objects.size).toBe(3);
 });
 

@@ -278,7 +278,7 @@ export class DataBackup extends DurableObject<DataBackupEnv> {
 	openBlob(
 		address: RecordAddress,
 		digest: string,
-	): Promise<ReadableStream<Uint8Array>> {
+	): Promise<{ bytes: ReadableStream<Uint8Array>; byteLength: number }> {
 		return this.exclusive(async () => {
 			await this.sealedState();
 			return this.blobs.open(address, digest);

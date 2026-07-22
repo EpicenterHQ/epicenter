@@ -47,7 +47,7 @@ export function createR2BackupBlobStore(
 	async function open(
 		address: RecordAddress,
 		digest: string,
-	): Promise<ReadableStream<Uint8Array>> {
+	): Promise<{ bytes: ReadableStream<Uint8Array>; byteLength: number }> {
 		const object = await bucket.get(contentKey(address, digest));
 		if (object === null || !('body' in object)) {
 			throw new Error('Backup blob bytes are missing');
@@ -55,7 +55,7 @@ export function createR2BackupBlobStore(
 		if (checksumHex(object) !== digest) {
 			throw new Error('Backup blob failed digest verification');
 		}
-		return object.body;
+		return { bytes: object.body, byteLength: object.size };
 	}
 
 	async function seal(

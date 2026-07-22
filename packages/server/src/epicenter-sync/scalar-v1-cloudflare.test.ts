@@ -93,6 +93,7 @@ function setupDeferredPutEnv() {
 		if (bytes === undefined) return null;
 		return {
 			key,
+			size: bytes.byteLength,
 			checksums: {
 				sha256: await crypto.subtle.digest('SHA-256', bufferOf(bytes)),
 			},
@@ -350,7 +351,7 @@ function setupBackupEnv({
 				`${currentBackupPrefix}blobs/content/${owner.ownerKey}/${owner.digest}`,
 			);
 			if (object === null) throw new Error('Backup blob bytes are missing');
-			return object.body;
+			return { bytes: object.body, byteLength: object.size };
 		},
 		async destroy() {
 			destroyed = true;

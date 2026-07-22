@@ -137,7 +137,7 @@ type DataBackupStub = {
 	openBlob(
 		address: Parameters<typeof blobFileOwner>[0],
 		digest: string,
-	): Promise<ReadableStream<Uint8Array>>;
+	): Promise<{ bytes: ReadableStream<Uint8Array>; byteLength: number }>;
 	destroy(): Promise<void>;
 };
 
@@ -608,7 +608,7 @@ export class DataAuthority extends DurableObject<DataAuthorityEnv> {
 						this.blobOwnerStorageKey,
 						successorAuthorityLifetime,
 						blobFileOwner(record.address, record.blobSha256),
-						source,
+						source.bytes,
 					);
 					blobCount += 1;
 				}
