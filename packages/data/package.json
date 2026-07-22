@@ -6,6 +6,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
+		"./browser-replica-worker": "./src/browser-replica-worker.ts",
 		"./browser-worker": "./src/browser-worker.ts",
 		"./bun": "./src/bun.ts",
 		"./desktop": "./src/desktop.ts",
@@ -21,6 +22,7 @@
 	"license": "MIT",
 	"scripts": {
 		"evidence:browser": "bun browser-evidence/run.ts --profile smoke",
+		"evidence:browser-replica": "bun browser-evidence/replica-owner-run.ts",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p browser-evidence/tsconfig.json",
 		"test": "bun test"
 	},

@@ -6,6 +6,8 @@ import {
 import type { ExchangeResponse } from '@epicenter/data/protocol';
 import { field } from '@epicenter/field';
 
+import './replica-owner-client.js';
+
 import {
 	type BrowserEvidenceDriver,
 	CONTROL_CHANNEL,
