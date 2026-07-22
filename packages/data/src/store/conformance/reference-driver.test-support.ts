@@ -32,6 +32,14 @@ import {
 } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import { ReferenceDb, type Statement } from './reference-store.test-support.js';
+import type {
+	ConformanceReplica,
+	CrashedReplica,
+	RecordLanes,
+	ReplicaConformanceBinding,
+	ReplicaObservations,
+	ReplicaTransition,
+} from './replica-cases.test-support.js';
 
 export const LIMITS: ValidatedLimits = makeLimits();
 
@@ -708,3 +716,109 @@ export class AuthorityRef {
 		};
 	}
 }
+
+/**
+ * The SQLite reference implementation bound to the reusable replica
+ * conformance contract. Everything below is translation, not semantics: lane
+ * columns decode to kernel operations and payload values, `meta` projects to
+ * the sync view, statement lists become prepared transitions whose fault
+ * boundaries are statement boundaries, and snapshots delegate to the store's
+ * canonical logical-state serialization. W1B and W1C supply their own
+ * `ReplicaConformanceBinding` against production adapters.
+ */
+const lanesOf = (row: LaneRow | null): RecordLanes | null => {
+	if (row === null) return null;
+	return {
+		confirmed:
+			row.confirmed_state === null || row.confirmed_sequence === null
+				? null
+				: {
+						state: row.confirmed_state as 'live' | 'tombstone' | 'unset',
+						...(row.confirmed_payload === null
+							? {}
+							: { payload: JSON.parse(row.confirmed_payload) as JsonValue }),
+						sequence: row.confirmed_sequence,
+					},
+		sealed:
+			row.sealed_op === null
+				? null
+				: laneOperation(row.sealed_op, row.sealed_args),
+		pending:
+			row.pending_op === null
+				? null
+				: laneOperation(row.pending_op, row.pending_args),
+		parked:
+			row.parked_op === null || row.parked_code === null
+				? null
+				: {
+						operation: laneOperation(row.parked_op, row.parked_args),
+						code: row.parked_code,
+						...(row.parked_measured === null
+							? {}
+							: { measuredBytes: row.parked_measured }),
+						...(row.parked_limit === null
+							? {}
+							: { limitBytes: row.parked_limit }),
+					},
+	};
+};
+
+const referenceObservations = (ref: ReplicaRef): ReplicaObservations => ({
+	record: (address) => lanesOf(ref.record(address)),
+	sync: () => {
+		const meta = ref.meta();
+		return {
+			replicaId: meta.replica_id,
+			authorityLifetime: meta.authority_lifetime,
+			afterSequence: meta.after_sequence,
+			sealedSubmission: meta.sealed_submission,
+			nextSubmission: meta.next_submission,
+		};
+	},
+	sealedRequest: () => ref.sealedRequest(),
+	snapshot: () => ref.store.logicalState(),
+});
+
+const referenceTransition = (
+	ref: ReplicaRef,
+	statements: readonly Statement[],
+): ReplicaTransition => ({
+	boundaries: statements.length,
+	crash: (boundary): CrashedReplica => {
+		const crashed = new ReplicaRef(
+			ref.store.crashDuringTransaction(statements, boundary),
+		);
+		return {
+			...referenceObservations(crashed),
+			close: () => crashed.store.close(),
+		};
+	},
+	commit: () => ref.store.applyTransaction(statements),
+});
+
+const referenceReplica = (ref: ReplicaRef): ConformanceReplica => ({
+	...referenceObservations(ref),
+	localWrite: (intent) =>
+		referenceTransition(ref, ref.localWriteStatements(intent)),
+	seal: () => {
+		const seal = ref.sealStatements();
+		return {
+			transition: referenceTransition(ref, seal.statements),
+			requestBytes: seal.requestBytes,
+			requestHash: seal.requestHash,
+		};
+	},
+	settle: (response) =>
+		referenceTransition(ref, ref.settleStatements(response)),
+	installFacts: (page) =>
+		referenceTransition(ref, ref.installFactsStatements(page)),
+	erase: () => referenceTransition(ref, ref.eraseStatements()),
+	reconstructSealedRequest: () => ref.reconstructSealedRequest(),
+	reopen: () => referenceReplica(new ReplicaRef(ref.store.reopen())),
+	dispose: () => ref.store.dispose(),
+});
+
+export const referenceReplicaBinding: ReplicaConformanceBinding = {
+	name: 'sqlite reference driver',
+	create: (fixture) => referenceReplica(ReplicaRef.create(fixture)),
+};

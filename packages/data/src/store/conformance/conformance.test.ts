@@ -5,7 +5,14 @@
  * reference transition of the per-address crash-state machine, executed
  * against explicit ADR-0177-shaped fixtures through one unexported test-only
  * SQLite reference driver, partitioned by the production owner that will bind
- * each subset (W1B/W1C replica adapters, W2 authority, W3 document/blob).
+ * each subset.
+ *
+ * The replica subset is stated once, adapter-agnostically, in
+ * `runReplicaConformanceCases` (see `replica-cases.test-support.ts`); this
+ * file binds the SQLite reference driver to it, and W1B/W1C bind their
+ * production replica adapters to the same cases. The authority subset (W2)
+ * and the document/blob lifecycle subset (W3) remain reference-bound here
+ * until their production owners exist.
  *
  * The eleven reference transitions map to the frozen decision memo's section
  * 4d list: (1) local write, (2) pending compaction, (3) sealing, (4) new
@@ -15,13 +22,13 @@
  * (9) process failure at every boundary, (10) lifetime erase, and
  * (11) reacquisition by a superseded replica, plus the terminal-tombstone
  * document/blob cleanup owned by ADR-0173/0174. Transition 9 is not a
- * separate case: it is the `applyWithCrashes` harness, which strengthens the
- * probe's in-memory rollback into a file-backed kill. Every multi-statement
- * transition is run once per statement boundary: the statement prefix
- * executes inside an open transaction, the database file and its hot journal
- * are copied exactly as they exist at that instant, and the copy is reopened
- * so SQLite's own crash recovery must restore the pre-transition logical
- * state.
+ * separate case: it is the crash-matrix harness (`applyWithCrashes` here and
+ * in the replica case runner), which strengthens the probe's in-memory
+ * rollback into a file-backed kill. Every multi-statement transition is run
+ * once per statement boundary: the statement prefix executes inside an open
+ * transaction, the database file and its hot journal are copied exactly as
+ * they exist at that instant, and the copy is reopened so SQLite's own crash
+ * recovery must restore the pre-transition logical state.
  *
  * Beyond the probe, this suite adds the first-seal witness the probe lacked
  * (ADR-0163): sealing persists the exact canonical request bytes and their
@@ -37,22 +44,21 @@ import { describe, expect, test } from 'bun:test';
 
 import {
 	canonicalize,
-	type Fact,
 	parseSubmissionRequest,
 	type RecordAddress,
 	type SubmissionRequest,
-	sha256Hex,
 } from '../../protocol/v1/index.js';
 import {
 	AuthorityRef,
 	LIMITS,
 	ReplicaRef,
+	referenceReplicaBinding,
 } from './reference-driver.test-support.js';
 import type { ReferenceDb, Statement } from './reference-store.test-support.js';
+import { runReplicaConformanceCases } from './replica-cases.test-support.js';
 
 const LIFETIME = 'lifetime-one';
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
-const REPLICA_B = 'ssssssssssssssssssssssss';
 
 const rowA: RecordAddress = {
 	namespace: 'so.epicenter.notes',
@@ -64,18 +70,13 @@ const rowB: RecordAddress = {
 	collection: 'recordings',
 	recordKey: 'bbbbbbbbbbbbbbbbbbbbbbbb',
 };
-const theme: RecordAddress = {
-	namespace: 'so.epicenter.whispering',
-	collection: 'settings',
-	recordKey: 'theme',
-};
 
 /**
  * Transition 9, applied to every multi-statement transition: for each
  * statement boundary, execute the prefix, kill the process at the file level,
  * reopen from the crashed copy, and require the exact pre-transition logical
- * state (plus any caller assertion, such as first-seal byte stability). Then
- * commit the full transition on the live store.
+ * state (plus any caller assertion). Then commit the full transition on the
+ * live store.
  */
 const applyWithCrashes = (
 	db: ReferenceDb,
@@ -130,445 +131,7 @@ const sealedFixture = () => {
 	return { replica, seal };
 };
 
-describe('replica subset (W1B/W1C bind these to production adapters)', () => {
-	test('1: a local write folds into the pending lane and survives reopen', () => {
-		const replica = ReplicaRef.create({
-			replicaId: REPLICA_ID,
-			authorityLifetime: LIFETIME,
-		});
-		applyWithCrashes(
-			replica.store,
-			replica.localWriteStatements({
-				address: rowB,
-				op: 'replace',
-				value: { z: 1 },
-			}),
-		);
-		const reopened = new ReplicaRef(replica.store.reopen());
-		const row = reopened.record(rowB);
-		expect(row?.pending_op).toBe('replace');
-		expect(row?.pending_args).toBe(canonicalize({ z: 1 }));
-		expect(row?.confirmed_state).toBeNull();
-		reopened.store.dispose();
-	});
-
-	test('2: pending compaction happens inside the write transaction under the one law', () => {
-		const replica = ReplicaRef.create({
-			replicaId: REPLICA_ID,
-			authorityLifetime: LIFETIME,
-		});
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: rowB,
-				op: 'replace',
-				value: { z: 1 },
-			}),
-		);
-		// A second write composes: replace {z:1} then patch {y:2} compacts to one
-		// replace carrying both fields, never two queued operations.
-		applyWithCrashes(
-			replica.store,
-			replica.localWriteStatements({
-				address: rowB,
-				op: 'patch',
-				set: { y: 2 },
-				unset: [],
-			}),
-		);
-		const row = replica.record(rowB);
-		expect(row?.pending_op).toBe('replace');
-		expect(row?.pending_args).toBe(canonicalize({ y: 2, z: 1 }));
-		replica.store.dispose();
-	});
-
-	test('3: sealing moves pending to sealed and persists the first-seal canonical bytes and hash', () => {
-		const replica = ReplicaRef.create({
-			replicaId: REPLICA_ID,
-			authorityLifetime: LIFETIME,
-		});
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: rowB,
-				op: 'replace',
-				value: { z: 2 },
-			}),
-		);
-		replica.store.applyTransaction(
-			replica.localWriteStatements({ address: rowA, op: 'replace', value: 1 }),
-		);
-		const seal = replica.sealStatements();
-		applyWithCrashes(replica.store, seal.statements, (crashed) => {
-			// A crashed seal leaves no half-sealed state: no marker, no bytes.
-			expect(new ReplicaRef(crashed).sealedRequest()).toBeNull();
-		});
-
-		// Sealed lanes hold the operations; pending lanes are empty.
-		expect(replica.record(rowA)?.sealed_op).toBe('replace');
-		expect(replica.record(rowB)?.sealed_op).toBe('replace');
-		expect(replica.record(rowA)?.pending_op).toBeNull();
-
-		// The persisted bytes are the admitted request's canonical encoding, in
-		// canonical address order, and the hash is their SHA-256.
-		const witness = replica.sealedRequest();
-		if (witness === null) throw new Error('seal persisted nothing');
-		expect(witness.bytes).toBe(seal.requestBytes);
-		expect(sha256Hex(witness.bytes)).toBe(witness.hash);
-		const parsed = JSON.parse(witness.bytes) as SubmissionRequest;
-		expect(parsed.intents.map((intent) => intent.address.recordKey)).toEqual([
-			rowA.recordKey,
-			rowB.recordKey,
-		]);
-
-		// Debug assertion retained by ADR-0163: reconstruction from the sealed
-		// lanes reproduces the persisted bytes under the same encoder.
-		expect(replica.reconstructSealedRequest()).toBe(witness.bytes);
-		replica.store.dispose();
-	});
-
-	test('4: a new write while sealed cannot change the first-seal retry bytes', () => {
-		const { replica, seal } = sealedFixture();
-		const firstSeal = replica.sealedRequest();
-		if (firstSeal === null) throw new Error('seal persisted nothing');
-
-		const write = replica.localWriteStatements({
-			address: rowB,
-			op: 'replace',
-			value: { z: 3 },
-		});
-		applyWithCrashes(replica.store, write, (crashed) => {
-			expect(new ReplicaRef(crashed).sealedRequest()).toEqual(firstSeal);
-		});
-
-		// The sealed lane and the persisted first-seal bytes are byte-identical
-		// even though newer pending work now exists at the same address.
-		expect(replica.record(rowB)?.sealed_op).toBe('replace');
-		expect(replica.record(rowB)?.pending_op).toBe('replace');
-		expect(replica.sealedRequest()).toEqual(firstSeal);
-		expect(replica.sealedRequest()?.bytes).toBe(seal.requestBytes);
-		expect(replica.reconstructSealedRequest()).toBe(firstSeal.bytes);
-
-		// A clean process restart also preserves them exactly.
-		const reopened = new ReplicaRef(replica.store.reopen());
-		expect(reopened.sealedRequest()).toEqual(firstSeal);
-		reopened.store.dispose();
-	});
-
-	test('7: settlement installs facts, retires the seal, clears the bytes, and keeps newer pending', () => {
-		const { replica } = sealedFixture();
-		const witness = replica.sealedRequest();
-		if (witness === null) throw new Error('seal persisted nothing');
-		// Newer pending desire arrives while the submission is in flight.
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: rowB,
-				op: 'patch',
-				set: { newer: true },
-				unset: [],
-			}),
-		);
-
-		const authority = AuthorityRef.create(LIFETIME);
-		const response = accept(authority, witness.bytes);
-
-		applyWithCrashes(
-			replica.store,
-			replica.settleStatements(response),
-			(crashed) => {
-				// Before the settlement commits, the retry bytes must survive a crash.
-				expect(new ReplicaRef(crashed).sealedRequest()).toEqual(witness);
-			},
-		);
-
-		expect(replica.record(rowA)?.confirmed_state).toBe('live');
-		expect(replica.record(rowA)?.confirmed_payload).toBe(canonicalize(1));
-		expect(replica.record(rowB)?.confirmed_payload).toBe(
-			canonicalize({ z: 1 }),
-		);
-		expect(replica.record(rowA)?.sealed_op).toBeNull();
-		expect(replica.record(rowB)?.sealed_op).toBeNull();
-		// The newer pending desire survives settlement untouched.
-		expect(replica.record(rowB)?.pending_op).toBe('patch');
-		const meta = replica.meta();
-		expect(meta.sealed_submission).toBeNull();
-		expect(meta.sealed_request).toBeNull();
-		expect(meta.sealed_request_hash).toBeNull();
-		expect(meta.next_submission).toBe(2);
-		replica.store.dispose();
-		authority.store.dispose();
-	});
-
-	test('7p: a parked refusal is stored whole and consumed by the next local write', () => {
-		// Replica B establishes a live scalar; replica A patches it, which the
-		// authority refuses as patch-base-not-object.
-		const authority = AuthorityRef.create(LIFETIME);
-		accept(
-			authority,
-			requestBytes({
-				authorityLifetime: LIFETIME,
-				replicaId: REPLICA_B,
-				submissionNumber: 1,
-				intents: [{ address: theme, op: 'replace', value: 'dark' }],
-			}),
-		);
-
-		const replica = ReplicaRef.create({
-			replicaId: REPLICA_ID,
-			authorityLifetime: LIFETIME,
-		});
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: theme,
-				op: 'patch',
-				set: { a: 1 },
-				unset: [],
-			}),
-		);
-		const seal = replica.sealStatements();
-		replica.store.applyTransaction(seal.statements);
-		const response = accept(authority, seal.requestBytes);
-		expect(response.parked).toEqual([
-			{ address: theme, code: 'patch-base-not-object' },
-		]);
-
-		applyWithCrashes(replica.store, replica.settleStatements(response));
-		const row = replica.record(theme);
-		// The refused operation is retained whole as a visible non-retrying
-		// overlay with its refusal code; the confirmed lane keeps the live value.
-		expect(row?.parked_op).toBe('patch');
-		expect(row?.parked_code).toBe('patch-base-not-object');
-		expect(row?.parked_measured).toBeNull();
-		expect(row?.confirmed_payload).toBe(canonicalize('dark'));
-		expect(row?.pending_op).toBeNull();
-
-		// A later local write composes with the parked operation under the one
-		// law, clears the diagnostic, and creates newly pending work.
-		applyWithCrashes(
-			replica.store,
-			replica.localWriteStatements({
-				address: theme,
-				op: 'replace',
-				value: 'light',
-			}),
-		);
-		const consumed = replica.record(theme);
-		expect(consumed?.parked_op).toBeNull();
-		expect(consumed?.parked_code).toBeNull();
-		expect(consumed?.pending_op).toBe('replace');
-		expect(consumed?.pending_args).toBe(canonicalize('light'));
-		replica.store.dispose();
-		authority.store.dispose();
-	});
-
-	test('7q: a parked refusal compacts beneath newer pending desire instead of overlaying', () => {
-		const authority = AuthorityRef.create(LIFETIME);
-		accept(
-			authority,
-			requestBytes({
-				authorityLifetime: LIFETIME,
-				replicaId: REPLICA_B,
-				submissionNumber: 1,
-				intents: [{ address: theme, op: 'replace', value: 'dark' }],
-			}),
-		);
-		const replica = ReplicaRef.create({
-			replicaId: REPLICA_ID,
-			authorityLifetime: LIFETIME,
-		});
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: theme,
-				op: 'patch',
-				set: { a: 1 },
-				unset: [],
-			}),
-		);
-		const seal = replica.sealStatements();
-		replica.store.applyTransaction(seal.statements);
-		// Newer pending desire arrives before settlement.
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: theme,
-				op: 'patch',
-				set: { b: 2 },
-				unset: [],
-			}),
-		);
-		const response = accept(authority, seal.requestBytes);
-		applyWithCrashes(replica.store, replica.settleStatements(response));
-
-		const row = replica.record(theme);
-		// No overlay is stored: pending = pending-composed-beneath-parked, one
-		// operation per address, under the same composition law.
-		expect(row?.parked_op).toBeNull();
-		expect(row?.pending_op).toBe('patch');
-		expect(row?.pending_args).toBe(
-			canonicalize({ set: { a: 1, b: 2 }, unset: [] }),
-		);
-		replica.store.dispose();
-		authority.store.dispose();
-	});
-
-	test('7t: a remembered parked result cannot overlay a newer tombstone at retry settlement', () => {
-		const authority = AuthorityRef.create(LIFETIME);
-		accept(
-			authority,
-			requestBytes({
-				authorityLifetime: LIFETIME,
-				replicaId: REPLICA_B,
-				submissionNumber: 1,
-				intents: [{ address: theme, op: 'replace', value: 'dark' }],
-			}),
-		);
-		const replica = ReplicaRef.create({
-			replicaId: REPLICA_ID,
-			authorityLifetime: LIFETIME,
-		});
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: theme,
-				op: 'patch',
-				set: { a: 1 },
-				unset: [],
-			}),
-		);
-		const seal = replica.sealStatements();
-		replica.store.applyTransaction(seal.statements);
-		// First adjudication parks; its response is lost.
-		accept(authority, seal.requestBytes);
-		// Another replica terminally deletes the record before the retry.
-		accept(
-			authority,
-			requestBytes({
-				authorityLifetime: LIFETIME,
-				replicaId: REPLICA_B,
-				submissionNumber: 2,
-				intents: [{ address: theme, op: 'tombstone' }],
-			}),
-		);
-		// Exact retry with the persisted bytes returns the remembered parked
-		// result plus the newer tombstone fact.
-		const witness = replica.sealedRequest();
-		if (witness === null) throw new Error('seal persisted nothing');
-		const retry = authority.acceptance(witness.bytes);
-		if (retry.kind !== 'retry')
-			throw new Error(`expected retry, got ${retry.kind}`);
-		expect(retry.response.parked).toEqual([
-			{ address: theme, code: 'patch-base-not-object' },
-		]);
-		expect(retry.response.facts[0]?.state).toBe('tombstone');
-
-		applyWithCrashes(replica.store, replica.settleStatements(retry.response));
-		const row = replica.record(theme);
-		// The stored tombstone supersedes the parked overlay and its diagnostic.
-		expect(row?.confirmed_state).toBe('tombstone');
-		expect(row?.parked_op).toBeNull();
-		expect(row?.pending_op).toBeNull();
-		replica.store.dispose();
-		authority.store.dispose();
-	});
-
-	test('8: a feed-ahead tombstone dominates unsealed work while the sealed retry image survives', () => {
-		const { replica } = sealedFixture();
-		const firstSeal = replica.sealedRequest();
-		if (firstSeal === null) throw new Error('seal persisted nothing');
-		// Newer pending desire exists beside the sealed lane.
-		replica.store.applyTransaction(
-			replica.localWriteStatements({
-				address: rowB,
-				op: 'replace',
-				value: { z: 9 },
-			}),
-		);
-
-		// The facts feed learns a tombstone at the sealed address plus an
-		// unrelated live fact, and advances the cursor, in one transaction.
-		const page = {
-			authorityLifetime: LIFETIME,
-			facts: [
-				{ address: rowB, sequence: 8, state: 'tombstone' } as Fact,
-				{
-					address: theme,
-					sequence: 10,
-					state: 'live',
-					payload: 'dark',
-				} as Fact,
-			],
-			afterSequence: 10,
-		};
-		applyWithCrashes(
-			replica.store,
-			replica.installFactsStatements(page),
-			(crashed) => {
-				expect(new ReplicaRef(crashed).sealedRequest()).toEqual(firstSeal);
-			},
-		);
-
-		const row = replica.record(rowB);
-		expect(row?.confirmed_state).toBe('tombstone');
-		expect(row?.pending_op).toBeNull(); // dominated as superseded
-		expect(row?.sealed_op).toBe('replace'); // retry image untouched
-		expect(replica.sealedRequest()).toEqual(firstSeal);
-		expect(replica.meta().after_sequence).toBe(10);
-		expect(replica.record(theme)?.confirmed_payload).toBe(canonicalize('dark'));
-
-		// Monotonic installation: a delayed older fact is ignored while the
-		// cursor still advances; an equal sequence with different content is
-		// corruption.
-		replica.store.applyTransaction(
-			replica.installFactsStatements({
-				authorityLifetime: LIFETIME,
-				facts: [
-					{ address: theme, sequence: 9, state: 'live', payload: 'stale' },
-				],
-				afterSequence: 11,
-			}),
-		);
-		expect(replica.record(theme)?.confirmed_payload).toBe(canonicalize('dark'));
-		expect(replica.meta().after_sequence).toBe(11);
-		expect(() =>
-			replica.installFactsStatements({
-				authorityLifetime: LIFETIME,
-				facts: [
-					{ address: theme, sequence: 10, state: 'live', payload: 'other' },
-				],
-				afterSequence: 12,
-			}),
-		).toThrow(/corruption/);
-		replica.store.dispose();
-	});
-
-	test('11: a superseded replica erases and reacquires from zero under the successor lifetime', () => {
-		const { replica } = sealedFixture();
-		// A response carrying a different lifetime is a terminal mismatch: the
-		// driver refuses to install it, forcing erase-and-reacquire.
-		expect(() =>
-			replica.installFactsStatements({
-				authorityLifetime: 'lifetime-two',
-				facts: [],
-				afterSequence: 0,
-			}),
-		).toThrow(/lifetime mismatch/);
-
-		replica.store.applyTransaction(replica.eraseStatements());
-		// Reacquisition binds the successor lifetime and installs from zero.
-		applyWithCrashes(
-			replica.store,
-			replica.installFactsStatements({
-				authorityLifetime: 'lifetime-two',
-				facts: [
-					{ address: theme, sequence: 1, state: 'live', payload: 'dark' },
-				],
-				afterSequence: 1,
-			}),
-		);
-		const meta = replica.meta();
-		expect(meta.authority_lifetime).toBe('lifetime-two');
-		expect(meta.after_sequence).toBe(1);
-		expect(meta.next_submission).toBe(1);
-		expect(replica.record(theme)?.confirmed_payload).toBe(canonicalize('dark'));
-		replica.store.dispose();
-	});
-});
+runReplicaConformanceCases(referenceReplicaBinding);
 
 describe('authority subset (W2 binds these to the production authority)', () => {
 	test('5: acceptance folds, sequences, and witnesses in one transaction', () => {
