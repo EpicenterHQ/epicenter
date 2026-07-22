@@ -753,6 +753,19 @@ export function runReplicaConformanceCases(
 			expect(replica.sealedRequest()).not.toBeNull();
 
 			replica.erase().commit();
+			expect(() =>
+				replica
+					.installFacts({
+						request: { afterSequence: 0 },
+						response: {
+							authorityLifetime: LIFETIME,
+							facts: [],
+							hasMore: false,
+						},
+					})
+					.commit(),
+			).toThrow(/erased authority lifetime/);
+			expect(replica.sync().authorityLifetime).toBeNull();
 			// Reacquisition binds the successor lifetime and installs from zero.
 			applyWithCrashes(
 				replica,

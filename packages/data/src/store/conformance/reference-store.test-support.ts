@@ -43,6 +43,7 @@ CREATE TABLE meta (
   attached_deployment    TEXT,
   attached_principal     TEXT,
   authority_lifetime     TEXT,
+  erased_authority_lifetime TEXT,
   after_sequence         INTEGER NOT NULL DEFAULT 0 CHECK (after_sequence >= 0),
   sealed_submission      INTEGER,               -- NULL = nothing in flight
   sealed_request         TEXT,                  -- exact canonical request bytes

@@ -51,6 +51,7 @@ type MetaRow = SqliteRow & {
 	format_version: number;
 	replica_id: string;
 	authority_lifetime: string | null;
+	erased_authority_lifetime: string | null;
 	after_sequence: number;
 	sealed_submission: number | null;
 	sealed_request: string | null;
@@ -336,6 +337,18 @@ function openSchema(
 	if (durableFacts.error !== null) {
 		throw new Error('replica store synchronization metadata is invalid');
 	}
+	if (meta.erased_authority_lifetime !== null) {
+		const erasedLifetime = parseFactsRequest(
+			{
+				authorityLifetime: meta.erased_authority_lifetime,
+				afterSequence: 0,
+			},
+			limits,
+		);
+		if (erasedLifetime.error !== null) {
+			throw new Error('replica store erased-lifetime metadata is invalid');
+		}
+	}
 }
 
 /**
@@ -567,11 +580,15 @@ export function openReplicaStore({
 				throw new Error(admitted.error.message);
 			}
 			const response = admitted.data;
+			if (response.authorityLifetime === meta.erased_authority_lifetime) {
+				throw new Error('erased authority lifetime cannot be rebound');
+			}
 			for (const fact of response.facts) installFact(database, fact);
 			const afterSequence =
 				response.facts.at(-1)?.sequence ?? parsedRequest.data.afterSequence;
 			database.run(
-				`UPDATE meta SET authority_lifetime = ?, after_sequence = ?
+				`UPDATE meta SET authority_lifetime = ?,
+					erased_authority_lifetime = NULL, after_sequence = ?
 				WHERE singleton = 1`,
 				[response.authorityLifetime, afterSequence],
 			);
@@ -703,6 +720,9 @@ export function openReplicaStore({
 			database.run('DELETE FROM records');
 			database.run(
 				`UPDATE meta SET
+					erased_authority_lifetime = COALESCE(
+						authority_lifetime, erased_authority_lifetime
+					),
 					authority_lifetime = NULL,
 					after_sequence = 0,
 					sealed_submission = NULL,

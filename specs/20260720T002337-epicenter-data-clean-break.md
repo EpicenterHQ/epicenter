@@ -272,7 +272,10 @@ the ADR-0177 wide relation and passes the shared replica conformance cases
 through a Bun binding whose crash injection stays entirely test-side. The Bun
 store recognizes only its exact dedicated schema, and facts-feed pages are
 admitted against the exact durable request inside the installation transaction;
-the cursor is derived rather than supplied independently. The full
+the cursor is derived rather than supplied independently. Sealing takes the
+largest admissible canonical-address prefix while leaving overflow pending,
+and erase retains a lifetime fence so the same authority ledger cannot be
+rebound behind a reset submission number. The full
 Bun charter slice then exercised exactly 1,000,000 final-present records at the
 536,870,912-byte V1 proxy. Its stop rule fired with mixed material directions:
 wide won point-read and median feed-install work, while split won traversal,

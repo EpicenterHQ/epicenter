@@ -74,6 +74,7 @@ type LaneRow = {
 type ReplicaMeta = {
 	replica_id: string;
 	authority_lifetime: string | null;
+	erased_authority_lifetime: string | null;
 	after_sequence: number;
 	sealed_submission: number | null;
 	sealed_request: string | null;
@@ -429,6 +430,9 @@ export class ReplicaRef {
 		);
 		if (admitted.error !== null) throw new Error(admitted.error.message);
 		const response = admitted.data;
+		if (response.authorityLifetime === meta.erased_authority_lifetime) {
+			throw new Error('erased authority lifetime cannot be rebound');
+		}
 		const statements: Statement[] = [];
 		for (const fact of response.facts) {
 			statements.push(...this.installFactStatements(fact));
@@ -436,7 +440,9 @@ export class ReplicaRef {
 		const afterSequence =
 			response.facts.at(-1)?.sequence ?? parsedRequest.data.afterSequence;
 		statements.push({
-			sql: 'UPDATE meta SET authority_lifetime = ?, after_sequence = ? WHERE singleton = 1',
+			sql: `UPDATE meta SET authority_lifetime = ?,
+			        erased_authority_lifetime = NULL, after_sequence = ?
+			      WHERE singleton = 1`,
 			params: [response.authorityLifetime, afterSequence],
 		});
 		return statements;
@@ -547,7 +553,10 @@ export class ReplicaRef {
 			{ sql: 'DELETE FROM document_inflight' },
 			{ sql: 'DELETE FROM records' },
 			{
-				sql: `UPDATE meta SET authority_lifetime = NULL, after_sequence = 0,
+				sql: `UPDATE meta SET erased_authority_lifetime = COALESCE(
+				          authority_lifetime, erased_authority_lifetime
+				        ),
+				        authority_lifetime = NULL, after_sequence = 0,
 				        sealed_submission = NULL, sealed_request = NULL,
 				        sealed_request_hash = NULL, next_submission = 1
 				      WHERE singleton = 1`,

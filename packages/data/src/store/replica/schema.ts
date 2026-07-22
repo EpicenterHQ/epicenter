@@ -26,6 +26,7 @@ const SCHEMA = [
 		attached_deployment    TEXT,
 		attached_principal     TEXT,
 		authority_lifetime     TEXT,
+		erased_authority_lifetime TEXT,
 		after_sequence         INTEGER NOT NULL DEFAULT 0
 			CHECK (after_sequence BETWEEN 0 AND 9007199254740991),
 		sealed_submission      INTEGER,
@@ -34,6 +35,8 @@ const SCHEMA = [
 		next_submission        INTEGER NOT NULL DEFAULT 1
 			CHECK (next_submission BETWEEN 1 AND 9007199254740992),
 		CHECK ((attached_deployment IS NULL) = (attached_principal IS NULL)),
+		CHECK (erased_authority_lifetime IS NULL OR authority_lifetime IS NULL
+			OR erased_authority_lifetime != authority_lifetime),
 		CHECK ((sealed_submission IS NULL) = (sealed_request IS NULL)),
 		CHECK ((sealed_submission IS NULL) = (sealed_request_hash IS NULL)),
 		CHECK (sealed_submission IS NULL OR
