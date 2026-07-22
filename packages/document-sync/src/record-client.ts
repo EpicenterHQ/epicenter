@@ -34,6 +34,18 @@ export type RecordDocumentClientSocket = {
 	close(code?: number, reason?: string): void;
 };
 
+type OpenedRecordDocumentSocket = RecordDocumentClientSocket | WebSocket;
+
+export type RecordDocumentSocketOpener = (
+	url: URL,
+	protocols: string[],
+) => OpenedRecordDocumentSocket | Promise<OpenedRecordDocumentSocket>;
+
+export type RecordAuthorityLifetimeProvider = {
+	get(): string | undefined;
+	subscribe(listener: () => void): () => void;
+};
+
 export type RecordDocumentConnectionStatus =
 	| 'connecting'
 	| 'connected'
@@ -42,6 +54,25 @@ export type RecordDocumentConnectionStatus =
 	| 'refused'
 	| 'revoked'
 	| 'disposed';
+
+export type ConnectRecordDocumentOptions = {
+	document: RowDocument;
+	baseUrl: string | URL;
+	authorityLifetime: RecordAuthorityLifetimeProvider;
+	schedule?: (task: () => void, delayMs: number) => () => void;
+} & (
+	| {
+			/** Auth-owned opener that attaches its own credentials. */
+			openSocket: RecordDocumentSocketOpener;
+			/** Optional availability signal; its value is never sent by this connector. */
+			credentials?: SyncCredentialProvider;
+	  }
+	| {
+			/** Raw bearer used only by the default direct WebSocket opener. */
+			credentials: SyncCredentialProvider;
+			openSocket?: undefined;
+	  }
+);
 
 /** Build the record-scoped realtime overlay URL without putting credentials in it. */
 export function recordDocumentWebSocketUrl({
@@ -73,25 +104,17 @@ export function connectRecordDocument({
 	baseUrl,
 	authorityLifetime,
 	credentials,
-	openSocket = openBrowserSocket,
+	openSocket,
 	schedule = scheduleTimeout,
-}: {
-	document: RowDocument;
-	baseUrl: string | URL;
-	authorityLifetime: string;
-	credentials: SyncCredentialProvider;
-	openSocket?: (
-		url: URL,
-		protocols: string[],
-	) => RecordDocumentClientSocket | Promise<RecordDocumentClientSocket>;
-	schedule?: (task: () => void, delayMs: number) => () => void;
-}) {
+}: ConnectRecordDocumentOptions) {
 	const target = recordDocumentConnectionTarget(document);
+	const socketOpener = openSocket ?? openBrowserSocket;
+	const isAuthOwnedSocket = openSocket !== undefined;
 	const listeners = new Set<(status: RecordDocumentConnectionStatus) => void>();
 	const firstConnection = Promise.withResolvers<void>();
 	void firstConnection.promise.catch(() => undefined);
 	let status: RecordDocumentConnectionStatus = 'connecting';
-	let socket: RecordDocumentClientSocket | undefined;
+	let socket: OpenedRecordDocumentSocket | undefined;
 	let cancelRetry: (() => void) | undefined;
 	let retryAttempt = 0;
 	let cycle = 0;
@@ -99,6 +122,7 @@ export function connectRecordDocument({
 	let connectedOnce = false;
 	let handshakeComplete = false;
 	let serverStateVector: Uint8Array | undefined;
+	let observedAuthorityLifetime = authorityLifetime.get();
 
 	function setStatus(next: RecordDocumentConnectionStatus): void {
 		if (status === next) return;
@@ -161,6 +185,7 @@ export function connectRecordDocument({
 		cancelRetry = undefined;
 		stopUpdates();
 		stopCredentials?.();
+		stopAuthorityLifetime();
 		stopRevocation();
 		closeCurrent();
 		setStatus(next);
@@ -171,7 +196,11 @@ export function connectRecordDocument({
 
 	function retry(): void {
 		if (isDisposed) return;
-		if (credentials.get() === undefined) {
+		if (observedAuthorityLifetime === undefined) {
+			setStatus('offline');
+			return;
+		}
+		if (credentials?.get() === undefined && credentials !== undefined) {
 			setStatus('authentication-required');
 			return;
 		}
@@ -185,7 +214,7 @@ export function connectRecordDocument({
 		}, delay);
 	}
 
-	function bind(opened: RecordDocumentClientSocket, activeCycle: number): void {
+	function bind(opened: OpenedRecordDocumentSocket, activeCycle: number): void {
 		if (isDisposed || activeCycle !== cycle) {
 			opened.close();
 			return;
@@ -202,7 +231,7 @@ export function connectRecordDocument({
 			send({ kind: 'sync-request', stateVector: target.encodeStateVector() });
 		};
 		opened.onopen = onOpen;
-		opened.onmessage = (event) => {
+		opened.onmessage = (event: { data: unknown }) => {
 			if (socket !== opened || isDisposed) return;
 			try {
 				const frame = decodeDocumentFrame(messageBytes(event.data));
@@ -232,7 +261,7 @@ export function connectRecordDocument({
 			}
 		};
 		opened.onerror = () => undefined;
-		opened.onclose = ({ code, reason }) => {
+		opened.onclose = ({ code, reason }: { code: number; reason: string }) => {
 			if (socket !== opened) return;
 			socket = undefined;
 			if (isDisposed || activeCycle !== cycle) return;
@@ -256,25 +285,37 @@ export function connectRecordDocument({
 
 	async function connect(): Promise<void> {
 		if (isDisposed) return;
-		const bearer = credentials.get();
-		if (bearer === undefined) {
+		const activeAuthorityLifetime = observedAuthorityLifetime;
+		if (activeAuthorityLifetime === undefined) {
+			setStatus('offline');
+			return;
+		}
+		const credential = credentials?.get();
+		if (credentials !== undefined && credential === undefined) {
 			setStatus('authentication-required');
 			return;
 		}
-		if (bearer.length === 0 || /[\s,]/u.test(bearer)) {
+		if (
+			!isAuthOwnedSocket &&
+			(credential === undefined ||
+				credential.length === 0 ||
+				/[\s,]/u.test(credential))
+		) {
 			setStatus('authentication-required');
 			return;
 		}
 		const activeCycle = ++cycle;
 		setStatus('connecting');
 		try {
-			const opened = await openSocket(
+			const opened = await socketOpener(
 				recordDocumentWebSocketUrl({
 					baseUrl,
 					address: target.address,
-					authorityLifetime,
+					authorityLifetime: activeAuthorityLifetime,
 				}),
-				[DOCUMENT_SUBPROTOCOL, `${BEARER_SUBPROTOCOL_PREFIX}${bearer}`],
+				isAuthOwnedSocket
+					? [DOCUMENT_SUBPROTOCOL]
+					: [DOCUMENT_SUBPROTOCOL, `${BEARER_SUBPROTOCOL_PREFIX}${credential}`],
 			);
 			bind(opened, activeCycle);
 		} catch {
@@ -291,8 +332,23 @@ export function connectRecordDocument({
 		void connect();
 	}
 
+	function authorityLifetimeChanged(): void {
+		if (isDisposed) return;
+		const nextAuthorityLifetime = authorityLifetime.get();
+		if (nextAuthorityLifetime === observedAuthorityLifetime) return;
+		observedAuthorityLifetime = nextAuthorityLifetime;
+		cycle += 1;
+		cancelRetry?.();
+		cancelRetry = undefined;
+		closeCurrent();
+		void connect();
+	}
+
 	const stopUpdates = target.observe(handleUpdate);
-	const stopCredentials = credentials.subscribe?.(credentialsChanged);
+	const stopCredentials = credentials?.subscribe?.(credentialsChanged);
+	const stopAuthorityLifetime = authorityLifetime.subscribe(
+		authorityLifetimeChanged,
+	);
 	const stopRevocation = target.subscribeRevocation(() => finish('revoked'));
 	void connect();
 
