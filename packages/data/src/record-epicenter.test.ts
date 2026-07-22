@@ -226,6 +226,20 @@ describe('record Epicenter Lens runtime', () => {
 				},
 			]);
 
+			const address = {
+				namespace: notesLens.namespace,
+				collection: 'notes',
+				recordKey: row.id,
+			};
+			context.replica.localWrite({ address, op: 'unset' });
+			expect(reopened.get('content').toString()).toBe('hello');
+			expect(context.replica.inspectDocument(address)).not.toBeNull();
+			context.replica.localWrite({
+				address,
+				op: 'replace',
+				value: { title: 'Media again' },
+			});
+
 			await context.data.notes.notes.delete(row.id);
 			expect(() => reopened.get('content')).toThrow('no longer live');
 			await reopened[Symbol.asyncDispose]();

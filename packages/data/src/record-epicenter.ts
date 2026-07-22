@@ -478,7 +478,9 @@ export function createRecordOwner<TSource, TRead>({
 
 	const stopDocumentRevocation = replica.subscribe((addresses) => {
 		for (const address of addresses) {
-			if (replica.visible(address)?.state !== 'live') documents.revoke(address);
+			if (replica.visible(address)?.state === 'tombstone') {
+				documents.revoke(address);
+			}
 		}
 	});
 
