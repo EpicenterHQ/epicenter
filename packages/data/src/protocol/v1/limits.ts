@@ -42,9 +42,9 @@ export type ScalarSyncLimits = JsonLimits & {
 	maxRecordKeyBytes: number;
 	/** Maximum UTF-8 bytes of an opaque authority-lifetime identity. */
 	maxLifetimeBytes: number;
-	/** Maximum UTF-8 bytes of a top-level field key inside a row payload. */
+	/** Maximum UTF-8 bytes of a top-level field key inside a record payload. */
 	maxFieldKeyBytes: number;
-	/** Maximum number of unset field keys in one row-present intent. */
+	/** Maximum number of unset field keys in one patch intent. */
 	maxUnsetKeysPerIntent: number;
 	/** Maximum canonical-encoded bytes of one fact. */
 	maxEncodedFactBytes: number;

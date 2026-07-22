@@ -45,30 +45,30 @@ const LIFETIME = '01hzzzzzzzzzzzzzzzzzzzzzzz';
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const loneSurrogate = String.fromCharCode(0xdc00);
 const recordKey = (index: number): string => String(index).padStart(24, 'a');
-const rowAt = (index: number): RecordAddress => ({
+const recordingAt = (index: number): RecordAddress => ({
 	namespace: 'so.epicenter.notes',
 	collection: 'recordings',
 	recordKey: recordKey(index),
 });
-const rowIntent = (index: number): Intent => ({
-	address: rowAt(index),
+const recordingPatch = (index: number): Intent => ({
+	address: recordingAt(index),
 	op: 'patch',
 	set: { n: index },
 	unset: [],
 });
-const valueAt = (key: string): RecordAddress => ({
+const settingAt = (key: string): RecordAddress => ({
 	namespace: 'so.epicenter.whispering',
 	collection: 'settings',
 	recordKey: key,
 });
-const VALUE = valueAt('language');
-const vFact = (
+const SETTING = settingAt('language');
+const liveFact = (
 	address: RecordAddress,
 	sequence: number,
 	payload: string,
 ): Fact => ({ address, sequence, state: 'live', payload });
-const valueFact = (sequence: number, payload: string): Fact =>
-	vFact(VALUE, sequence, payload);
+const settingFact = (sequence: number, payload: string): Fact =>
+	liveFact(SETTING, sequence, payload);
 /** Strip the phantom admission brand so a plain literal can be compared. */
 const plain = (value: object): Record<string, unknown> => ({ ...value });
 
@@ -112,7 +112,7 @@ describe('facts response', () => {
 	test('accepts a strictly sequence-ordered prefix', () => {
 		const response = {
 			authorityLifetime: LIFETIME,
-			facts: [valueFact(3, 'a'), vFact(valueAt('other'), 7, 'b')],
+			facts: [settingFact(3, 'a'), liveFact(settingAt('other'), 7, 'b')],
 			hasMore: true,
 		};
 		expect(expectOk(parseFactsResponse(response, LIMITS))).toEqual(response);
@@ -122,7 +122,7 @@ describe('facts response', () => {
 			parseFactsResponse(
 				{
 					authorityLifetime: LIFETIME,
-					facts: [valueFact(7, 'a'), vFact(valueAt('x'), 3, 'b')],
+					facts: [settingFact(7, 'a'), liveFact(settingAt('x'), 3, 'b')],
 					hasMore: false,
 				},
 				LIMITS,
@@ -134,7 +134,7 @@ describe('facts response', () => {
 			parseFactsResponse(
 				{
 					authorityLifetime: LIFETIME,
-					facts: [valueFact(3, 'a'), valueFact(7, 'b')],
+					facts: [settingFact(3, 'a'), settingFact(7, 'b')],
 					hasMore: false,
 				},
 				LIMITS,
@@ -164,8 +164,8 @@ describe('facts response', () => {
 				{
 					authorityLifetime: LIFETIME,
 					facts: [
-						valueFact(1, 'x'.repeat(3900)),
-						vFact(valueAt('other'), 2, 'y'.repeat(3900)),
+						settingFact(1, 'x'.repeat(3900)),
+						liveFact(settingAt('other'), 2, 'y'.repeat(3900)),
 					],
 					hasMore: false,
 				},
@@ -202,7 +202,7 @@ describe('context-aware facts-page admission', () => {
 		);
 		const response = {
 			authorityLifetime: LIFETIME,
-			facts: [valueFact(1, 'a')],
+			facts: [settingFact(1, 'a')],
 			hasMore: false,
 		};
 
@@ -226,14 +226,14 @@ describe('context-aware facts-page admission', () => {
 		);
 		const response = {
 			authorityLifetime: LIFETIME,
-			facts: [valueFact(5, 'stale')],
+			facts: [settingFact(5, 'stale')],
 			hasMore: false,
 		};
 
 		expectErr(admitFactsPage(response, request, request, LIMITS));
 		expectOk(
 			admitFactsPage(
-				{ ...response, facts: [valueFact(6, 'newer')] },
+				{ ...response, facts: [settingFact(6, 'newer')] },
 				request,
 				request,
 				LIMITS,
@@ -279,12 +279,12 @@ describe('context-aware facts-page admission', () => {
 		);
 		const laterPage = {
 			authorityLifetime: LIFETIME,
-			facts: [valueFact(10, 'later')],
+			facts: [settingFact(10, 'later')],
 			hasMore: false,
 		};
 		const delayedEarlierPage = {
 			...laterPage,
-			facts: [valueFact(8, 'earlier')],
+			facts: [settingFact(8, 'earlier')],
 		};
 
 		expectOk(admitFactsPage(laterPage, request, request, LIMITS));
@@ -307,7 +307,7 @@ describe('context-aware facts-page admission', () => {
 		);
 		const response = {
 			authorityLifetime: 'old-lifetime',
-			facts: [valueFact(6, 'old')],
+			facts: [settingFact(6, 'old')],
 			hasMore: false,
 		};
 
@@ -346,7 +346,7 @@ describe('submission request', () => {
 			authorityLifetime: LIFETIME,
 			replicaId: REPLICA_ID,
 			submissionNumber: 1,
-			intents: [rowIntent(0), rowIntent(1)],
+			intents: [recordingPatch(0), recordingPatch(1)],
 		};
 		expect(plain(expectOk(parseSubmissionRequest(request, LIMITS)))).toEqual(
 			request,
@@ -359,7 +359,7 @@ describe('submission request', () => {
 					authorityLifetime: LIFETIME,
 					replicaId: REPLICA_ID,
 					submissionNumber: 0,
-					intents: [rowIntent(0)],
+					intents: [recordingPatch(0)],
 				},
 				LIMITS,
 			),
@@ -383,7 +383,7 @@ describe('submission request', () => {
 					authorityLifetime: LIFETIME,
 					replicaId: REPLICA_ID,
 					submissionNumber: 1,
-					intents: [rowIntent(0), rowIntent(0)],
+					intents: [recordingPatch(0), recordingPatch(0)],
 				},
 				LIMITS,
 			),
@@ -400,8 +400,8 @@ describe('submission request', () => {
 					replicaId: REPLICA_ID,
 					submissionNumber: 1,
 					intents: [
-						{ address: valueAt('theme'), op: 'replace', value: 'dark' },
-						{ address: valueAt('theme'), op: 'unset' },
+						{ address: settingAt('theme'), op: 'replace', value: 'dark' },
+						{ address: settingAt('theme'), op: 'unset' },
 					],
 				},
 				LIMITS,
@@ -418,7 +418,10 @@ describe('submission request', () => {
 		expect(
 			expectOk(
 				parseSubmissionRequest(
-					{ ...base, intents: [rowIntent(0), rowIntent(1), rowIntent(2)] },
+					{
+						...base,
+						intents: [recordingPatch(0), recordingPatch(1), recordingPatch(2)],
+					},
 					tight,
 				),
 			).intents,
@@ -427,7 +430,12 @@ describe('submission request', () => {
 			parseSubmissionRequest(
 				{
 					...base,
-					intents: [rowIntent(0), rowIntent(1), rowIntent(2), rowIntent(3)],
+					intents: [
+						recordingPatch(0),
+						recordingPatch(1),
+						recordingPatch(2),
+						recordingPatch(3),
+					],
 				},
 				tight,
 			),
@@ -439,15 +447,15 @@ describe('submission response structure', () => {
 	test('carries settlement facts and bounded parked results', () => {
 		const response: SubmissionResponse = {
 			authorityLifetime: LIFETIME,
-			facts: [valueFact(4, 'en')],
+			facts: [settingFact(4, 'en')],
 			parked: [
 				{
-					address: rowAt(0),
+					address: recordingAt(0),
 					code: 'fact-too-large',
 					measuredBytes: 5000,
 					limitBytes: 4096,
 				},
-				{ address: rowAt(1), code: 'patch-base-not-object' },
+				{ address: recordingAt(1), code: 'patch-base-not-object' },
 			],
 		};
 		expect(expectOk(parseSubmissionResponse(response, LIMITS))).toEqual(
@@ -462,7 +470,7 @@ describe('submission response structure', () => {
 					facts: [],
 					parked: [
 						{
-							address: rowAt(0),
+							address: recordingAt(0),
 							code: 'conflict',
 							measuredBytes: 1,
 							limitBytes: 1,
@@ -481,7 +489,7 @@ describe('submission response structure', () => {
 					facts: [],
 					parked: [
 						{
-							address: rowAt(0),
+							address: recordingAt(0),
 							code: 'patch-base-not-object',
 							measuredBytes: 1,
 							limitBytes: 1,
@@ -498,7 +506,7 @@ describe('submission response structure', () => {
 				{
 					authorityLifetime: LIFETIME,
 					facts: [],
-					parked: [{ address: rowAt(0), code: 'fact-too-large' }],
+					parked: [{ address: recordingAt(0), code: 'fact-too-large' }],
 				},
 				LIMITS,
 			),
@@ -514,9 +522,9 @@ describe('context-aware settlement admission', () => {
 			replicaId: REPLICA_ID,
 			submissionNumber: 1,
 			intents: [
-				rowIntent(0),
-				rowIntent(1),
-				{ address: valueAt('k'), op: 'replace', value: 'v' },
+				recordingPatch(0),
+				recordingPatch(1),
+				{ address: settingAt('k'), op: 'replace', value: 'v' },
 			],
 		},
 		LIMITS,
@@ -607,7 +615,7 @@ describe('context-aware settlement admission', () => {
 	});
 
 	test('rejects an unrelated fact address', () => {
-		const swapped = [{ ...f0, address: rowAt(99) }, f1, f2];
+		const swapped = [{ ...f0, address: recordingAt(99) }, f1, f2];
 		expectErr(
 			admitSettlement(
 				{ ...settled, facts: swapped },
@@ -625,7 +633,7 @@ describe('context-aware settlement admission', () => {
 					...settled,
 					parked: [
 						{
-							address: rowAt(0),
+							address: recordingAt(0),
 							code: 'fact-too-large',
 							measuredBytes: 10,
 							limitBytes: 20,
@@ -643,7 +651,7 @@ describe('context-aware settlement admission', () => {
 					...settled,
 					parked: [
 						{
-							address: rowAt(88),
+							address: recordingAt(88),
 							code: 'fact-too-large',
 							measuredBytes: LIMITS.maxEncodedFactBytes + 1,
 							limitBytes: LIMITS.maxEncodedFactBytes,
@@ -663,14 +671,16 @@ describe('context-aware settlement admission', () => {
 				admitSettlement(
 					{
 						...settled,
-						parked: [{ address: rowAt(0), code: 'patch-base-not-object' }],
+						parked: [
+							{ address: recordingAt(0), code: 'patch-base-not-object' },
+						],
 					},
 					sealed,
 					durableSettlement,
 					LIMITS,
 				),
 			).parked,
-		).toEqual([{ address: rowAt(0), code: 'patch-base-not-object' }]);
+		).toEqual([{ address: recordingAt(0), code: 'patch-base-not-object' }]);
 	});
 
 	test('rejects parked metadata for a non-patch intent', () => {
@@ -683,8 +693,8 @@ describe('context-aware settlement admission', () => {
 				replicaId: REPLICA_ID,
 				submissionNumber: 1,
 				intents: [
-					{ address: rowAt(0), op: 'tombstone' },
-					{ address: valueAt('v'), op: 'replace', value: 'x' },
+					{ address: recordingAt(0), op: 'tombstone' },
+					{ address: settingAt('v'), op: 'replace', value: 'x' },
 				],
 			},
 			LIMITS,
@@ -694,12 +704,12 @@ describe('context-aware settlement admission', () => {
 		).response;
 		for (const parked of [
 			{
-				address: rowAt(0),
+				address: recordingAt(0),
 				code: 'fact-too-large' as const,
 				measuredBytes: LIMITS.maxEncodedFactBytes + 1,
 				limitBytes: LIMITS.maxEncodedFactBytes,
 			},
-			{ address: valueAt('v'), code: 'patch-base-not-object' as const },
+			{ address: settingAt('v'), code: 'patch-base-not-object' as const },
 		]) {
 			expectErr(
 				admitSettlement(
@@ -721,7 +731,7 @@ describe('exotic outer shapes are rejected without throwing', () => {
 		authorityLifetime: LIFETIME,
 		replicaId: REPLICA_ID,
 		submissionNumber: 1,
-		intents: [rowIntent(0)],
+		intents: [recordingPatch(0)],
 	};
 	const withSymbol = (base: object): object => {
 		const copy = { ...base };
@@ -752,7 +762,7 @@ describe('exotic outer shapes are rejected without throwing', () => {
 	test('exotic response shapes return Invalid rather than throwing', () => {
 		const validResponse = {
 			authorityLifetime: LIFETIME,
-			facts: [valueFact(1, 'a')],
+			facts: [settingFact(1, 'a')],
 			hasMore: false,
 		};
 		expectErr(parseFactsResponse(withAccessor(validResponse), LIMITS));
@@ -790,7 +800,7 @@ describe('total parsing under deep trees and proxies', () => {
 			submissionNumber: 1,
 			intents: [
 				{
-					address: valueAt('k'),
+					address: settingAt('k'),
 					op: 'replace' as const,
 					value: deepValue(20000),
 				},
@@ -827,7 +837,7 @@ describe('total parsing under deep trees and proxies', () => {
 					replicaId: REPLICA_ID,
 					submissionNumber: 1,
 					intents: [
-						{ address: valueAt('k'), op: 'replace', value: deepValue(20000) },
+						{ address: settingAt('k'), op: 'replace', value: deepValue(20000) },
 					],
 				},
 				LIMITS,
@@ -842,7 +852,7 @@ describe('total parsing under deep trees and proxies', () => {
 					authorityLifetime: LIFETIME,
 					facts: [
 						{
-							address: valueAt('k'),
+							address: settingAt('k'),
 							sequence: 1,
 							state: 'live',
 							payload: deepValue(20000),
@@ -860,7 +870,7 @@ describe('total parsing under deep trees and proxies', () => {
 			authorityLifetime: LIFETIME,
 			replicaId: REPLICA_ID,
 			submissionNumber: 1,
-			intents: [rowIntent(0)],
+			intents: [recordingPatch(0)],
 		};
 		const transparent = new Proxy(validSubmission, {});
 		expectErr(parseSubmissionRequest(transparent, LIMITS));

@@ -60,12 +60,12 @@ import { runReplicaConformanceCases } from './replica-cases.test-support.js';
 const LIFETIME = 'lifetime-one';
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 
-const rowA: RecordAddress = {
+const recordA: RecordAddress = {
 	namespace: 'so.epicenter.notes',
 	collection: 'recordings',
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 };
-const rowB: RecordAddress = {
+const recordB: RecordAddress = {
 	namespace: 'so.epicenter.notes',
 	collection: 'recordings',
 	recordKey: 'bbbbbbbbbbbbbbbbbbbbbbbb',
@@ -118,13 +118,13 @@ const sealedFixture = () => {
 	});
 	replica.store.applyTransaction(
 		replica.localWriteStatements({
-			address: rowB,
+			address: recordB,
 			op: 'replace',
 			value: { z: 1 },
 		}),
 	);
 	replica.store.applyTransaction(
-		replica.localWriteStatements({ address: rowA, op: 'replace', value: 1 }),
+		replica.localWriteStatements({ address: recordA, op: 'replace', value: 1 }),
 	);
 	const seal = replica.sealStatements();
 	replica.store.applyTransaction(seal.statements);
@@ -144,8 +144,8 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 		if (outcome.kind !== 'accept') throw new Error('expected acceptance');
 		applyWithCrashes(authority.store, outcome.statements);
 
-		expect(authority.currentFact(rowA)?.sequence).toBe(1);
-		expect(authority.currentFact(rowB)?.sequence).toBe(2);
+		expect(authority.currentFact(recordA)?.sequence).toBe(1);
+		expect(authority.currentFact(recordB)?.sequence).toBe(2);
 		expect(authority.meta().next_sequence).toBe(3);
 		// The witness records the replica's exact persisted-bytes hash.
 		expect(authority.witness(REPLICA_ID)?.request_hash).toBe(witness.hash);
@@ -167,8 +167,8 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 		if (retry.kind !== 'retry')
 			throw new Error(`expected retry, got ${retry.kind}`);
 		expect(retry.response.facts.map((fact) => fact.address.recordKey)).toEqual([
-			rowA.recordKey,
-			rowB.recordKey,
+			recordA.recordKey,
+			recordB.recordKey,
 		]);
 		expect(authority.store.logicalState()).toBe(before);
 
@@ -177,7 +177,7 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 			authorityLifetime: LIFETIME,
 			replicaId: REPLICA_ID,
 			submissionNumber: 1,
-			intents: [{ address: rowA, op: 'replace', value: 'forged' }],
+			intents: [{ address: recordA, op: 'replace', value: 'forged' }],
 		});
 		expect(authority.acceptance(forked).kind).toBe('fork');
 
@@ -186,7 +186,7 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 			authorityLifetime: LIFETIME,
 			replicaId: REPLICA_ID,
 			submissionNumber: 3,
-			intents: [{ address: rowA, op: 'replace', value: 2 }],
+			intents: [{ address: recordA, op: 'replace', value: 2 }],
 		});
 		expect(authority.acceptance(skipped).kind).toBe('gap');
 		replica.store.dispose();
@@ -204,7 +204,7 @@ describe('authority subset (W2 binds these to the production authority)', () => 
 			authorityLifetime: 'lifetime-two',
 			replicaId: REPLICA_ID,
 			submissionNumber: 1,
-			intents: [{ address: rowA, op: 'replace', value: 1 }],
+			intents: [{ address: recordA, op: 'replace', value: 1 }],
 		});
 		expect(authority.acceptance(mismatched).kind).toBe('lifetime-mismatch');
 		expect(authority.store.logicalState()).toBe(before);
@@ -224,7 +224,7 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 			replica.installFactsStatements({
 				authorityLifetime: LIFETIME,
 				facts: [
-					{ address: rowA, sequence: 1, state: 'live', payload: { t: 'x' } },
+					{ address: recordA, sequence: 1, state: 'live', payload: { t: 'x' } },
 				],
 				afterSequence: 1,
 			}),
@@ -232,17 +232,17 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		replica.store.applyTransaction([
 			{
 				sql: `UPDATE records SET blob_sha256 = ?, blob_pending = 0 WHERE record_key = ?`,
-				params: ['a'.repeat(64), rowA.recordKey],
+				params: ['a'.repeat(64), recordA.recordKey],
 			},
 			{
 				sql: `INSERT INTO record_documents (record_id, seq, kind, bytes)
 				      SELECT record_id, 1, 'baseline', X'01' FROM records WHERE record_key = ?`,
-				params: [rowA.recordKey],
+				params: [recordA.recordKey],
 			},
 			{
 				sql: `INSERT INTO document_inflight (record_id, payload, digest, captured_revision)
 				      SELECT record_id, X'02', 'digest', 0 FROM records WHERE record_key = ?`,
-				params: [rowA.recordKey],
+				params: [recordA.recordKey],
 			},
 		]);
 		return replica;
@@ -271,17 +271,17 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 			replica.store,
 			replica.installFactsStatements({
 				authorityLifetime: LIFETIME,
-				facts: [{ address: rowA, sequence: 2, state: 'tombstone' }],
+				facts: [{ address: recordA, sequence: 2, state: 'tombstone' }],
 				afterSequence: 2,
 			}),
 			(crashed) => {
 				const recovered = new ReplicaRef(crashed);
-				expect(recovered.record(rowA)?.confirmed_state).toBe('live');
+				expect(recovered.record(recordA)?.confirmed_state).toBe('live');
 				expect(childCounts(recovered)).toEqual({ documents: 1, inflight: 1 });
 			},
 		);
 		expect(childCounts(replica)).toEqual({ documents: 0, inflight: 0 });
-		const row = replica.record(rowA);
+		const row = replica.record(recordA);
 		expect(row?.blob_sha256).toBeNull();
 		expect(row?.confirmed_state).toBe('tombstone');
 		replica.store.dispose();
@@ -293,7 +293,7 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		// abandoned by the erase.
 		replica.store.applyTransaction(
 			replica.localWriteStatements({
-				address: rowB,
+				address: recordB,
 				op: 'replace',
 				value: { z: 1 },
 			}),

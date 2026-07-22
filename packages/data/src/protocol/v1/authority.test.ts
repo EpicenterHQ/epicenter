@@ -49,30 +49,33 @@ const OTHER_LIFETIME = 'lifetime-two';
 const REPLICA = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const REPLICA_B = 'ssssssssssssssssssssssss';
 
-const valueAt = (key: string): RecordAddress => ({
+const settingAt = (key: string): RecordAddress => ({
 	namespace: 'so.epicenter.whispering',
 	collection: 'settings',
 	recordKey: key,
 });
 const recordKey = (index: number): string => String(index).padStart(24, 'a');
-const rowAt = (index: number): RecordAddress => ({
+const recordingAt = (index: number): RecordAddress => ({
 	namespace: 'so.epicenter.notes',
 	collection: 'recordings',
 	recordKey: recordKey(index),
 });
-const setValue = (key: string, value: string): Intent => ({
-	address: valueAt(key),
+const setSetting = (key: string, value: string): Intent => ({
+	address: settingAt(key),
 	op: 'replace',
 	value,
 });
-const patchRow = (index: number, set: Record<string, string>): Intent => ({
-	address: rowAt(index),
+const patchRecording = (
+	index: number,
+	set: Record<string, string>,
+): Intent => ({
+	address: recordingAt(index),
 	op: 'patch',
 	set,
 	unset: [],
 });
-const deleteRow = (index: number): Intent => ({
-	address: rowAt(index),
+const deleteRecording = (index: number): Intent => ({
+	address: recordingAt(index),
 	op: 'tombstone',
 });
 
@@ -120,21 +123,21 @@ describe('fresh authority', () => {
 describe('sequence assignment', () => {
 	test('a sequence is spent only when the current fact changes', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('theme', 'dark')]));
+		state = advance(state, sub(1, [setSetting('theme', 'dark')]));
 		expect(state.nextSequence).toBe(2);
 		// An idempotent replace spends nothing; installing a tombstone spends one.
 		const next = advance(
 			state,
-			sub(2, [setValue('theme', 'dark'), deleteRow(9)]),
+			sub(2, [setSetting('theme', 'dark'), deleteRecording(9)]),
 		);
 		expect(next.nextSequence).toBe(3);
 	});
 
 	test('an idempotent-only submission spends no sequence', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('theme', 'dark')]));
+		state = advance(state, sub(1, [setSetting('theme', 'dark')]));
 		expect(
-			advance(state, sub(2, [setValue('theme', 'dark')])).nextSequence,
+			advance(state, sub(2, [setSetting('theme', 'dark')])).nextSequence,
 		).toBe(state.nextSequence);
 	});
 
@@ -151,7 +154,7 @@ describe('sequence assignment', () => {
 			submit(
 				nearMax,
 				admitSubmission(
-					sub(1, [setValue('a', '1'), setValue('b', '2')]),
+					sub(1, [setSetting('a', '1'), setSetting('b', '2')]),
 					LIMITS,
 				),
 				LIMITS,
@@ -169,7 +172,7 @@ describe('submission numbering', () => {
 			expectErr(
 				submit(
 					state,
-					admitSubmission(sub(2, [setValue('a', '1')]), LIMITS),
+					admitSubmission(sub(2, [setSetting('a', '1')]), LIMITS),
 					LIMITS,
 				),
 			).name,
@@ -177,7 +180,7 @@ describe('submission numbering', () => {
 		expectOk(
 			submit(
 				state,
-				admitSubmission(sub(1, [setValue('a', '1')]), LIMITS),
+				admitSubmission(sub(1, [setSetting('a', '1')]), LIMITS),
 				LIMITS,
 			),
 		);
@@ -185,22 +188,22 @@ describe('submission numbering', () => {
 
 	test('a skipped number is refused', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('a', '1')]));
+		state = advance(state, sub(1, [setSetting('a', '1')]));
 		expect(
 			expectErr(
 				submit(
 					state,
-					admitSubmission(sub(3, [setValue('b', '2')]), LIMITS),
+					admitSubmission(sub(3, [setSetting('b', '2')]), LIMITS),
 					LIMITS,
 				),
 			).name,
 		).toBe('SubmissionGap');
-		state = advance(state, sub(2, [setValue('b', '2')]));
+		state = advance(state, sub(2, [setSetting('b', '2')]));
 		expect(state.nextSequence).toBe(3);
 	});
 
 	test('exact retry of the last number is idempotent and does not advance state', () => {
-		const request = admitSubmission(sub(1, [setValue('a', '1')]), LIMITS);
+		const request = admitSubmission(sub(1, [setSetting('a', '1')]), LIMITS);
 		const first = expectOk(
 			submit(makeAuthority(LIFETIME, LIMITS), request, LIMITS),
 		);
@@ -211,12 +214,12 @@ describe('submission numbering', () => {
 
 	test('reusing the last number with different content forks', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('a', '1')]));
+		state = advance(state, sub(1, [setSetting('a', '1')]));
 		expect(
 			expectErr(
 				submit(
 					state,
-					admitSubmission(sub(1, [setValue('a', 'changed')]), LIMITS),
+					admitSubmission(sub(1, [setSetting('a', 'changed')]), LIMITS),
 					LIMITS,
 				),
 			).name,
@@ -227,11 +230,11 @@ describe('submission numbering', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(
 			state,
-			sub(1, [setValue('a', '1')], { replicaId: REPLICA }),
+			sub(1, [setSetting('a', '1')], { replicaId: REPLICA }),
 		);
 		state = advance(
 			state,
-			sub(1, [setValue('b', '2')], { replicaId: REPLICA_B }),
+			sub(1, [setSetting('b', '2')], { replicaId: REPLICA_B }),
 		);
 		expect(state.nextSequence).toBe(3);
 	});
@@ -245,7 +248,9 @@ describe('lifetime binding', () => {
 				submit(
 					state,
 					admitSubmission(
-						sub(1, [setValue('a', '1')], { authorityLifetime: OTHER_LIFETIME }),
+						sub(1, [setSetting('a', '1')], {
+							authorityLifetime: OTHER_LIFETIME,
+						}),
 						LIMITS,
 					),
 					LIMITS,
@@ -288,7 +293,11 @@ describe('fact feed', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(
 			state,
-			sub(1, [setValue('a', big), setValue('b', big), setValue('c', big)]),
+			sub(1, [
+				setSetting('a', big),
+				setSetting('b', big),
+				setSetting('c', big),
+			]),
 		);
 		const tight = makeLimits({ maxFactsResponseBytes: 6000 });
 
@@ -322,7 +331,7 @@ describe('fact feed', () => {
 
 	test('a sequence ahead of the active authority in the same lifetime is corruption', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('a', '1')]));
+		state = advance(state, sub(1, [setSetting('a', '1')]));
 		expect(
 			expectErr(
 				readFacts(
@@ -339,8 +348,8 @@ describe('fact feed', () => {
 
 	test('a concurrently rewritten fact moves to a higher sequence and stays discoverable', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('theme', 'dark')]));
-		state = advance(state, sub(2, [setValue('theme', 'light')]));
+		state = advance(state, sub(1, [setSetting('theme', 'dark')]));
+		state = advance(state, sub(2, [setSetting('theme', 'light')]));
 		const seen = expectOk(
 			readFacts(
 				state,
@@ -357,11 +366,14 @@ describe('fact feed', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(
 			state,
-			sub(1, [patchRow(0, { title: 'A' }), setValue('theme', 'dark')]),
+			sub(1, [patchRecording(0, { title: 'A' }), setSetting('theme', 'dark')]),
 		);
 		state = advance(
 			state,
-			sub(2, [deleteRow(0), { address: valueAt('theme'), op: 'unset' }]),
+			sub(2, [
+				deleteRecording(0),
+				{ address: settingAt('theme'), op: 'unset' },
+			]),
 		);
 		const read = expectOk(
 			readFacts(state, admitFacts({ afterSequence: 0 }, LIMITS), LIMITS),
@@ -377,7 +389,11 @@ describe('fact feed', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
 		state = advance(
 			state,
-			sub(1, [setValue('a', big), setValue('b', big), setValue('c', big)]),
+			sub(1, [
+				setSetting('a', big),
+				setSetting('b', big),
+				setSetting('c', big),
+			]),
 		);
 		const tight = makeLimits({ maxFactsResponseBytes: 6000 });
 		// Read page one (sequence 1), then a rewrite of 'a' moves it to sequence 4.
@@ -385,7 +401,7 @@ describe('fact feed', () => {
 			readFacts(state, admitFacts({ afterSequence: 0 }, tight), tight),
 		);
 		expect(page1.facts[0]?.sequence).toBe(1);
-		state = advance(state, sub(2, [setValue('a', `${big}z`)]));
+		state = advance(state, sub(2, [setSetting('a', `${big}z`)]));
 		// Resuming after sequence 1 skips nothing and surfaces the rewrite at 4.
 		const sequences: number[] = [];
 		let after = 1;
@@ -415,9 +431,9 @@ describe('direct settlement facts', () => {
 				makeAuthority(LIFETIME, LIMITS),
 				admitSubmission(
 					sub(1, [
-						patchRow(2, { n: 'c' }),
-						patchRow(0, { n: 'a' }),
-						setValue('k', 'v'),
+						patchRecording(2, { n: 'c' }),
+						patchRecording(0, { n: 'a' }),
+						setSetting('k', 'v'),
 					]),
 					LIMITS,
 				),
@@ -425,9 +441,9 @@ describe('direct settlement facts', () => {
 			),
 		);
 		expect(result.response.facts.map((fact) => fact.address)).toEqual([
-			rowAt(2),
-			rowAt(0),
-			valueAt('k'),
+			recordingAt(2),
+			recordingAt(0),
+			settingAt('k'),
 		]);
 	});
 
@@ -435,7 +451,7 @@ describe('direct settlement facts', () => {
 		const result = expectOk(
 			submit(
 				makeAuthority(LIFETIME, LIMITS),
-				admitSubmission(sub(1, [setValue('a', '1')]), LIMITS),
+				admitSubmission(sub(1, [setSetting('a', '1')]), LIMITS),
 				LIMITS,
 			),
 		);
@@ -448,12 +464,12 @@ describe('direct settlement facts', () => {
 
 	test('a deleted record settles a later patch to the tombstone', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [patchRow(0, { title: 'A' })]));
-		state = advance(state, sub(2, [deleteRow(0)]));
+		state = advance(state, sub(1, [patchRecording(0, { title: 'A' })]));
+		state = advance(state, sub(2, [deleteRecording(0)]));
 		const result = expectOk(
 			submit(
 				state,
-				admitSubmission(sub(3, [patchRow(0, { title: 'B' })]), LIMITS),
+				admitSubmission(sub(3, [patchRecording(0, { title: 'B' })]), LIMITS),
 				LIMITS,
 			),
 		);
@@ -462,15 +478,15 @@ describe('direct settlement facts', () => {
 
 	test('a tombstone settles a later replace and unset as superseded too', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('theme', 'dark')]));
+		state = advance(state, sub(1, [setSetting('theme', 'dark')]));
 		state = advance(
 			state,
-			sub(2, [{ address: valueAt('theme'), op: 'tombstone' }]),
+			sub(2, [{ address: settingAt('theme'), op: 'tombstone' }]),
 		);
 		const result = expectOk(
 			submit(
 				state,
-				admitSubmission(sub(3, [setValue('theme', 'light')]), LIMITS),
+				admitSubmission(sub(3, [setSetting('theme', 'light')]), LIMITS),
 				LIMITS,
 			),
 		);
@@ -485,11 +501,11 @@ describe('parked fact-too-large', () => {
 
 	test('a patch over a different live base is parked while the live record stays', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [patchRow(0, { a: big })]), tight);
+		state = advance(state, sub(1, [patchRecording(0, { a: big })]), tight);
 		const result = expectOk(
 			submit(
 				state,
-				admitSubmission(sub(2, [patchRow(0, { b: big })]), tight),
+				admitSubmission(sub(2, [patchRecording(0, { b: big })]), tight),
 				tight,
 			),
 		);
@@ -505,8 +521,11 @@ describe('parked fact-too-large', () => {
 
 	test('exact retry returns the same stable parked result', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [patchRow(0, { a: big })]), tight);
-		const request = admitSubmission(sub(2, [patchRow(0, { b: big })]), tight);
+		state = advance(state, sub(1, [patchRecording(0, { a: big })]), tight);
+		const request = admitSubmission(
+			sub(2, [patchRecording(0, { b: big })]),
+			tight,
+		);
 		const first = expectOk(submit(state, request, tight));
 		const retry = expectOk(submit(first.state, request, tight));
 		expect(retry.response.parked).toEqual(first.response.parked);
@@ -514,16 +533,16 @@ describe('parked fact-too-large', () => {
 
 	test('parked retry after another replica tombstones the record keeps parked and returns the tombstone', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [patchRow(0, { a: big })]), tight);
+		state = advance(state, sub(1, [patchRecording(0, { a: big })]), tight);
 		const parkingRequest = admitSubmission(
-			sub(2, [patchRow(0, { b: big })]),
+			sub(2, [patchRecording(0, { b: big })]),
 			tight,
 		);
 		const parked = expectOk(submit(state, parkingRequest, tight));
 		// Another replica deletes the record.
 		const tombstoned = advance(
 			parked.state,
-			sub(1, [deleteRow(0)], { replicaId: REPLICA_B }),
+			sub(1, [deleteRecording(0)], { replicaId: REPLICA_B }),
 			tight,
 		);
 		// The original replica retries its parked submission.
@@ -536,14 +555,14 @@ describe('parked fact-too-large', () => {
 describe('parked patch-base-not-object', () => {
 	test('a patch over a live non-object base is parked while the live value stays', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('scalar', 'five')]));
+		state = advance(state, sub(1, [setSetting('scalar', 'five')]));
 		const result = expectOk(
 			submit(
 				state,
 				admitSubmission(
 					sub(2, [
 						{
-							address: valueAt('scalar'),
+							address: settingAt('scalar'),
 							op: 'patch',
 							set: { a: 1 },
 							unset: [],
@@ -555,7 +574,7 @@ describe('parked patch-base-not-object', () => {
 			),
 		);
 		expect(result.response.parked).toEqual([
-			{ address: valueAt('scalar'), code: 'patch-base-not-object' },
+			{ address: settingAt('scalar'), code: 'patch-base-not-object' },
 		]);
 		expect(factPayload(result.response.facts[0])).toBe('five');
 		expect(result.state.nextSequence).toBe(state.nextSequence);
@@ -563,10 +582,10 @@ describe('parked patch-base-not-object', () => {
 
 	test('exact retry returns the same stable parked result', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('scalar', 'five')]));
+		state = advance(state, sub(1, [setSetting('scalar', 'five')]));
 		const request = admitSubmission(
 			sub(2, [
-				{ address: valueAt('scalar'), op: 'patch', set: { a: 1 }, unset: [] },
+				{ address: settingAt('scalar'), op: 'patch', set: { a: 1 }, unset: [] },
 			]),
 			LIMITS,
 		);
@@ -583,7 +602,7 @@ describe('parked patch-base-not-object', () => {
 				admitSubmission(
 					sub(1, [
 						{
-							address: valueAt('missing'),
+							address: settingAt('missing'),
 							op: 'patch',
 							set: { a: 1 },
 							unset: [],
@@ -601,14 +620,14 @@ describe('parked patch-base-not-object', () => {
 
 describe('exact retry under concurrent rewrite', () => {
 	test('returns the newer current fact while preserving original adjudication', () => {
-		const request = admitSubmission(sub(1, [setValue('k', 'a')]), LIMITS);
+		const request = admitSubmission(sub(1, [setSetting('k', 'a')]), LIMITS);
 		const first = expectOk(
 			submit(makeAuthority(LIFETIME, LIMITS), request, LIMITS),
 		);
 		// A different replica rewrites the same address.
 		const rewritten = advance(
 			first.state,
-			sub(1, [setValue('k', 'b')], { replicaId: REPLICA_B }),
+			sub(1, [setSetting('k', 'b')], { replicaId: REPLICA_B }),
 		);
 		const retry = expectOk(submit(rewritten, request, LIMITS));
 		expect(factPayload(retry.response.facts[0])).toBe('b');
@@ -620,12 +639,12 @@ describe('exact retry under concurrent rewrite', () => {
 describe('atomic transition', () => {
 	test('a refused submission leaves the prior state unchanged', () => {
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [setValue('a', '1')]));
+		state = advance(state, sub(1, [setSetting('a', '1')]));
 		const before = state.nextSequence;
 		expectErr(
 			submit(
 				state,
-				admitSubmission(sub(5, [setValue('b', '2')]), LIMITS),
+				admitSubmission(sub(5, [setSetting('b', '2')]), LIMITS),
 				LIMITS,
 			),
 		);
@@ -635,7 +654,7 @@ describe('atomic transition', () => {
 
 	test('a successful submission returns a new state without mutating the old one', () => {
 		const state = makeAuthority(LIFETIME, LIMITS);
-		const next = advance(state, sub(1, [setValue('a', '1')]));
+		const next = advance(state, sub(1, [setSetting('a', '1')]));
 		expect(state.facts.size).toBe(0);
 		expect(next.facts.size).toBe(1);
 		expect(next).not.toBe(state);
@@ -645,7 +664,7 @@ describe('atomic transition', () => {
 describe('ownership and mutation isolation', () => {
 	test('mutating the admitted request after submit does not change stored facts', () => {
 		const admitted = admitSubmission(
-			sub(1, [patchRow(0, { title: 'A' })]),
+			sub(1, [patchRecording(0, { title: 'A' })]),
 			LIMITS,
 		);
 		const result = expectOk(
@@ -668,7 +687,7 @@ describe('ownership and mutation isolation', () => {
 		const result = expectOk(
 			submit(
 				makeAuthority(LIFETIME, LIMITS),
-				admitSubmission(sub(1, [patchRow(0, { title: 'A' })]), LIMITS),
+				admitSubmission(sub(1, [patchRecording(0, { title: 'A' })]), LIMITS),
 				LIMITS,
 			),
 		);
@@ -689,7 +708,7 @@ describe('ownership and mutation isolation', () => {
 	test('mutating a returned facts-feed fact does not change authority state', () => {
 		const state = advance(
 			makeAuthority(LIFETIME, LIMITS),
-			sub(1, [setValue('a', '1')]),
+			sub(1, [setSetting('a', '1')]),
 		);
 		const read = expectOk(
 			readFacts(state, admitFacts({ afterSequence: 0 }, LIMITS), LIMITS),
@@ -706,8 +725,11 @@ describe('ownership and mutation isolation', () => {
 		const tight = makeLimits({ maxEncodedFactBytes: 420 });
 		const big = 'x'.repeat(150);
 		let state = makeAuthority(LIFETIME, LIMITS);
-		state = advance(state, sub(1, [patchRow(0, { a: big })]), tight);
-		const request = admitSubmission(sub(2, [patchRow(0, { b: big })]), tight);
+		state = advance(state, sub(1, [patchRecording(0, { a: big })]), tight);
+		const request = admitSubmission(
+			sub(2, [patchRecording(0, { b: big })]),
+			tight,
+		);
 		const first = expectOk(submit(state, request, tight));
 		const parked = first.response.parked[0];
 		if (parked?.code === 'fact-too-large') parked.measuredBytes = 0;
@@ -724,9 +746,9 @@ describe('ownership and mutation isolation', () => {
 	test('mutating a successor state fact does not change the predecessor', () => {
 		const predecessor = advance(
 			makeAuthority(LIFETIME, LIMITS),
-			sub(1, [patchRow(0, { title: 'A' })]),
+			sub(1, [patchRecording(0, { title: 'A' })]),
 		);
-		const successor = advance(predecessor, sub(2, [setValue('k', 'v')]));
+		const successor = advance(predecessor, sub(2, [setSetting('k', 'v')]));
 		const carried = [...successor.facts.values()].find(
 			(fact) =>
 				fact.state === 'live' &&
@@ -752,11 +774,11 @@ describe('ownership and mutation isolation', () => {
 		// carries A's ledger.
 		const afterA = advance(
 			makeAuthority(LIFETIME, LIMITS),
-			sub(1, [setValue('a', '1')], { replicaId: REPLICA }),
+			sub(1, [setSetting('a', '1')], { replicaId: REPLICA }),
 		);
 		const afterB = advance(
 			afterA,
-			sub(1, [setValue('b', '2')], { replicaId: REPLICA_B }),
+			sub(1, [setSetting('b', '2')], { replicaId: REPLICA_B }),
 		);
 		const ledgerA1 = afterA.replicas.get(REPLICA);
 		const ledgerA2 = afterB.replicas.get(REPLICA);
@@ -771,24 +793,24 @@ describe('ownership and mutation isolation', () => {
 			submit(
 				afterA,
 				admitSubmission(
-					sub(1, [setValue('a', '1')], { replicaId: REPLICA }),
+					sub(1, [setSetting('a', '1')], { replicaId: REPLICA }),
 					LIMITS,
 				),
 				LIMITS,
 			),
 		);
-		expect(retry.response.facts[0]?.address).toEqual(valueAt('a'));
+		expect(retry.response.facts[0]?.address).toEqual(settingAt('a'));
 	});
 
 	test('a sealed admitted submission cannot be mutated after parsing', () => {
 		const admitted = admitSubmission(
-			sub(1, [patchRow(0, { title: 'A' })]),
+			sub(1, [patchRecording(0, { title: 'A' })]),
 			LIMITS,
 		);
 		// Frozen at every level: pushing an intent, replacing an address coordinate,
 		// and editing a nested payload all throw under strict mode.
 		expect(() => {
-			(admitted.intents as Intent[]).push(setValue('x', 'y'));
+			(admitted.intents as Intent[]).push(setSetting('x', 'y'));
 		}).toThrow();
 		const intent = admitted.intents[0];
 		if (intent?.op === 'patch') {
@@ -840,7 +862,7 @@ describe('authority lifetime admission', () => {
 	test('a created authority emits a request-compatible facts page', () => {
 		const state = advance(
 			makeAuthority(LIFETIME, LIMITS),
-			sub(1, [setValue('a', '1')]),
+			sub(1, [setSetting('a', '1')]),
 		);
 		const request = admitFacts({ afterSequence: 0 }, LIMITS);
 		const response = expectOk(readFacts(state, request, LIMITS));
@@ -869,7 +891,7 @@ describe('authority lifetime admission', () => {
 						authorityLifetime: escaped,
 						replicaId: REPLICA,
 						submissionNumber: 1,
-						intents: [setValue('a', '1')],
+						intents: [setSetting('a', '1')],
 					},
 					limits,
 				),
@@ -894,7 +916,7 @@ describe('authority lifetime admission', () => {
 		const maxLifetimeBytes = 8;
 		const escaped = '\u0000'.repeat(maxLifetimeBytes);
 		const atFact: Fact = {
-			address: valueAt('k'),
+			address: settingAt('k'),
 			sequence: 1,
 			state: 'live',
 			payload: 'x'.repeat(200),

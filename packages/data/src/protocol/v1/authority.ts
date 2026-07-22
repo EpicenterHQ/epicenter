@@ -262,7 +262,7 @@ export function submit(
 		const measuredBytes = encodedFactBytes(outcome.fact);
 		if (intent.op === 'patch' && measuredBytes > limits.maxEncodedFactBytes) {
 			// A patch folded over a different live base overflowed. Park it and
-			// leave the current fact untouched, so the address keeps its live row.
+			// leave the current fact untouched, so the address keeps its live fact.
 			// Only a patch can overflow: every other operation's fact was bounded
 			// at admission with a maximum-sequence measurement.
 			parked.push({
