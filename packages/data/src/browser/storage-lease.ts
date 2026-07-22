@@ -13,10 +13,7 @@ type LockManagerPort = {
 /** Retain one exclusive Web Lock for the OPFS SQLite owner. */
 export async function acquireBrowserStorageLease(
 	locks: LockManagerPort,
-	{
-		onStolen = () => undefined,
-		signal,
-	}: { onStolen?: () => void; signal?: AbortSignal } = {},
+	{ onStolen, signal }: { onStolen: () => void; signal?: AbortSignal },
 ): Promise<BrowserStorageLease> {
 	signal?.throwIfAborted();
 	const acquired = Promise.withResolvers<BrowserStorageLease>();
