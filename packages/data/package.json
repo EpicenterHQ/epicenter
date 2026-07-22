@@ -9,6 +9,7 @@
 		"./browser-replica-candidate-worker": "./src/browser-replica-candidate-worker.ts",
 		"./browser-replica-worker": "./src/browser-replica-worker.ts",
 		"./browser-worker": "./src/browser-worker.ts",
+		"./blob-v1": "./src/blob-v1/index.ts",
 		"./bun": "./src/bun.ts",
 		"./desktop": "./src/desktop.ts",
 		"./desktop-owner": "./src/desktop-owner.ts",

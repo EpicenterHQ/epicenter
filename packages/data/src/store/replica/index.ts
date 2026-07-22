@@ -1,4 +1,13 @@
 export {
+	type BlobFileStore,
+	type BlobInspection,
+	type BlobPublication,
+	createReplicaBlobStore,
+	type OwnedBlobFile,
+	type ReplicaBlobStore,
+	type StagedBlob,
+} from './blob-store.js';
+export {
 	DOCUMENT_CHAIN_LIMITS,
 	type DocumentInspection,
 	type DocumentPublicationState,
