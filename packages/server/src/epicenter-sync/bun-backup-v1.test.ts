@@ -94,6 +94,7 @@ async function setup() {
 	);
 	const backups = createBunBackupV1Owner({
 		backupsRoot: join(storageRoot, 'backups'),
+		uploadsRoot: join(storageRoot, 'backup-uploads'),
 	});
 	const captureSource = { captures, blobs };
 	let submissionNumber = 1;
@@ -192,6 +193,32 @@ test('Bun Backup publishes and validates one identity-free complete directory', 
 			format_version: 1,
 		});
 		expect(Object.keys(declaration)).not.toContain('authority_lifetime');
+
+		const download = await context.backups.download(backup.backupId);
+		if (download === undefined) throw new Error('Backup download is missing');
+		const archive = new Uint8Array(await download.arrayBuffer());
+		const archiveDigest = new Bun.CryptoHasher('sha256')
+			.update(archive)
+			.digest('hex');
+		const uploadRequestId = 'uuuuuuuuuuuuuuuuuuuuuuuu';
+		const upload = await context.backups.createUpload(uploadRequestId);
+		expect(
+			await context.backups.putUploadPart(
+				uploadRequestId,
+				1,
+				archive.byteLength,
+				archiveDigest,
+				new Blob([archive]).stream(),
+			),
+		).toEqual({ kind: 'stored' });
+		const imported = await context.backups.completeUpload(uploadRequestId, [1]);
+		expect(imported).toEqual({
+			kind: 'completed',
+			backup: { backupId: upload.backupId, recordCount: 2 },
+		});
+		expect(await context.backups.list()).toHaveLength(2);
+		expect(await context.backups.delete(upload.backupId)).toBe(true);
+		expect(await context.backups.list()).toEqual([backup]);
 
 		const successorDirectory = join(context.storageRoot, 'successor');
 		const restoreDebris = join(
@@ -293,7 +320,28 @@ test('Bun Backup publishes and validates one identity-free complete directory', 
 		await expect(
 			context.backups.delete(`${backup.backupId}\n`),
 		).rejects.toThrow('24 lowercase alphanumeric characters');
+		const interruptedDownload = await context.backups.download(backup.backupId);
+		if (
+			interruptedDownload?.body === null ||
+			interruptedDownload === undefined
+		) {
+			throw new Error('Backup download body is missing');
+		}
+		const interruptedReader = interruptedDownload.body.getReader();
+		expect((await interruptedReader.read()).done).toBe(false);
 		expect(await context.backups.delete(backup.backupId)).toBe(true);
+		let interruption: unknown;
+		for (let reads = 0; reads < 16 && interruption === undefined; reads += 1) {
+			try {
+				if ((await interruptedReader.read()).done) interruption = 'closed';
+			} catch (cause) {
+				interruption = cause;
+			}
+		}
+		expect(interruption).toBeDefined();
+		if (interruption instanceof Error) {
+			expect(interruption.message).toContain('cancelled by deletion');
+		}
 		expect(await context.backups.delete(backup.backupId)).toBe(false);
 		expect(await context.backups.get(backup.backupId)).toBeUndefined();
 		expect(await context.backups.list()).toEqual([]);
@@ -481,6 +529,7 @@ test('Bun Backup refuses corrupt pinned bytes and publishes no partial directory
 		await mkdir(join(context.storageRoot, 'backups', '.crash-debris'));
 		const reopened = createBunBackupV1Owner({
 			backupsRoot: join(context.storageRoot, 'backups'),
+			uploadsRoot: join(context.storageRoot, 'reopened-backup-uploads'),
 		});
 		await reopened.list();
 		await reopened.close();
@@ -509,6 +558,7 @@ test('Bun Backup reconciles a transient manifest failure after publication', asy
 		};
 		const backups = createBunBackupV1Owner({
 			backupsRoot: join(context.storageRoot, 'reconciled-backups'),
+			uploadsRoot: join(context.storageRoot, 'reconciled-backup-uploads'),
 		});
 		const backup = await backups.create({ captures, blobs: context.blobs });
 		expect(refused).toBe(true);

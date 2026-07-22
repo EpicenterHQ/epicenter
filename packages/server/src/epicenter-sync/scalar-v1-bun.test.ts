@@ -535,6 +535,87 @@ test('Bun Restore atomically replaces one principal authority and survives resta
 	}
 });
 
+test('uploaded Bun portable Backup restores through a fresh authority lifetime', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'epicenter-uploaded-restore-'));
+	const principal = asPrincipalId('principal-one');
+	const runtime = createBunScalarV1Runtime({ dir });
+	try {
+		const authority = await runtime.locateAuthority(principal);
+		const backups = await runtime.locateBackupOwner(principal);
+		const lifetime = expectOk(
+			await authority.readFacts(
+				expectOk(
+					parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+				),
+			),
+		).authorityLifetime;
+		async function replace(submissionNumber: number, value: string) {
+			expectOk(
+				await authority.submit(
+					expectOk(
+						parseSubmissionRequest(
+							{
+								authorityLifetime: lifetime,
+								replicaId: REPLICA,
+								submissionNumber,
+								intents: [{ address: LIVE, op: 'replace', value }],
+							},
+							SCALAR_SYNC_V1_LIMITS,
+						),
+					),
+				),
+			);
+		}
+		await replace(1, 'before-upload');
+		const source = await backups.create();
+		const download = await backups.download(source.backupId);
+		if (download === undefined) throw new Error('Backup download is missing');
+		const archive = new Uint8Array(await download.arrayBuffer());
+		const uploadId = 'uuuuuuuuuuuuuuuuuuuuuuuu';
+		const upload = await backups.createUpload(uploadId);
+		const digest = new Bun.CryptoHasher('sha256').update(archive).digest('hex');
+		expect(
+			await backups.putUploadPart(
+				uploadId,
+				1,
+				archive.byteLength,
+				digest,
+				new Blob([archive]).stream(),
+			),
+		).toEqual({ kind: 'stored' });
+		expect(await backups.completeUpload(uploadId, [1])).toEqual({
+			kind: 'completed',
+			backup: { backupId: upload.backupId, recordCount: 1 },
+		});
+		await replace(2, 'after-upload');
+		expect((await backups.list()).map((backup) => backup.backupId)).toContain(
+			upload.backupId,
+		);
+		const restored = requireRestored(
+			await runtime.restoreBackup(
+				principal,
+				upload.backupId,
+				'tttttttttttttttttttttttt',
+			),
+		);
+		expect(restored.authorityLifetime).not.toBe(lifetime);
+		expect(
+			expectOk(
+				await authority.readFacts(
+					expectOk(
+						parseFactsRequest({ afterSequence: 0 }, SCALAR_SYNC_V1_LIMITS),
+					),
+				),
+			).facts,
+		).toEqual([
+			{ address: LIVE, sequence: 1, state: 'live', payload: 'before-upload' },
+		]);
+	} finally {
+		await runtime.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test('Bun Restore drains a rejected blob publication before activation', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'epicenter-restore-drain-'));
 	const principal = asPrincipalId('principal-one');

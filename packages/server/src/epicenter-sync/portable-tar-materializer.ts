@@ -34,9 +34,17 @@ const HEX_64 = /^[a-f0-9]{64}$/u;
 const ZERO_BLOCK = new Uint8Array(TAR_BLOCK_BYTES);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
+const responseSettlements = new WeakMap<Response, Promise<void>>();
 
 export class InvalidPortableBackupError extends Error {
 	override name = 'InvalidPortableBackupError';
+}
+
+/** Wait until a local materializer response has released every scratch resource. */
+export function waitForPortableMaterializerResponse(
+	response: Response,
+): Promise<void> {
+	return responseSettlements.get(response) ?? Promise.resolve();
 }
 
 function invalidPortableBackup(message: string): never {
@@ -361,6 +369,10 @@ async function exportPortableTar(
 			built.manifest.close();
 			throw new Error('portable SQLite index exceeds its byte bound');
 		}
+		let resolveSettlement!: () => void;
+		const settlement = new Promise<void>((resolve) => {
+			resolveSettlement = resolve;
+		});
 		const body = streamFromGenerator(
 			(async function* () {
 				try {
@@ -388,14 +400,20 @@ async function exportPortableTar(
 					yield ZERO_BLOCK;
 					yield ZERO_BLOCK;
 				} finally {
-					built.manifest.close();
-					await rm(directory, { recursive: true, force: true });
+					try {
+						built.manifest.close();
+						await rm(directory, { recursive: true, force: true });
+					} finally {
+						resolveSettlement();
+					}
 				}
 			})(),
 		);
-		return new Response(body, {
+		const response = new Response(body, {
 			headers: { 'content-type': 'application/x-tar' },
 		});
+		responseSettlements.set(response, settlement);
+		return response;
 	} catch (cause) {
 		await rm(directory, { recursive: true, force: true });
 		throw cause;

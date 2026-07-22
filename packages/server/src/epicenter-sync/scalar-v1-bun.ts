@@ -58,7 +58,16 @@ const AUTHORITY_LIFETIME =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 type BunAuthorityBlobs = AuthorityBlobV1<BlobByteSource, BunBlobRead>;
-type BunBackupEndpoint = Pick<BunBackupV1Owner, 'list' | 'delete'> & {
+type BunBackupEndpoint = Pick<
+	BunBackupV1Owner,
+	| 'list'
+	| 'delete'
+	| 'download'
+	| 'createUpload'
+	| 'putUploadPart'
+	| 'completeUpload'
+	| 'deleteUpload'
+> & {
 	create(): ReturnType<BunBackupV1Owner['create']>;
 };
 type BunDataEndpoint = ScalarAuthorityV1Endpoint & DocumentAuthorityV1Endpoint;
@@ -373,6 +382,32 @@ export function createBunScalarV1Runtime({
 					),
 				),
 			list: () => runBackupRegistryOperation(state, () => state.backups.list()),
+			download: (backupId) =>
+				runBackupRegistryOperation(state, () =>
+					state.backups.download(backupId),
+				),
+			createUpload: (requestId) =>
+				runBackupRegistryOperation(state, () =>
+					state.backups.createUpload(requestId),
+				),
+			putUploadPart: (requestId, partNumber, byteLength, sha256, bytes) =>
+				runBackupRegistryOperation(state, () =>
+					state.backups.putUploadPart(
+						requestId,
+						partNumber,
+						byteLength,
+						sha256,
+						bytes,
+					),
+				),
+			completeUpload: (requestId, parts) =>
+				runBackupRegistryOperation(state, () =>
+					state.backups.completeUpload(requestId, parts),
+				),
+			deleteUpload: (requestId) =>
+				runBackupRegistryOperation(state, () =>
+					state.backups.deleteUpload(requestId),
+				),
 			delete: (backupId) =>
 				runBackupRegistryOperation(state, () => {
 					if (state.control.activeRestoreRequest()?.backupId === backupId) {
@@ -476,6 +511,7 @@ export function createBunScalarV1Runtime({
 				await syncDirectory(authoritiesRoot);
 				backups = createBunBackupV1Owner({
 					backupsRoot: join(root, 'backups'),
+					uploadsRoot: join(root, 'backup-uploads'),
 				});
 				const state = {
 					principalId,
@@ -890,6 +926,7 @@ export function mountBunScalarV1App<E extends Env = Env>(
 		locateRegistry: runtime.locateBackupOwner,
 		restoreBackup: (principalId, backupId, restoreRequestId) =>
 			runtime.restoreBackup(principalId, backupId, restoreRequestId),
+		portable: true,
 	});
 	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
 		const verified = await resolveDocumentRealtimeV1Upgrade(

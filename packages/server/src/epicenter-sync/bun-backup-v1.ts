@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { createReadStream } from 'node:fs';
 import {
+	link,
 	lstat,
 	mkdir,
 	open,
@@ -21,7 +22,10 @@ import type { SqliteRow } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import type { AuthorityBlobV1 } from './blob-authority-v1.js';
+import { createBunPortableTarMaterializer } from './bun-portable-tar-v1.js';
+import { createBunPortableUploadV1Owner } from './bun-portable-upload-v1.js';
 import type { createAuthorityCaptureManifestV1 } from './capture-manifest-v1.js';
+import { waitForPortableMaterializerResponse } from './portable-tar-materializer.js';
 
 const BACKUP_ID_CHARACTERS = /^[a-z0-9]+$/u;
 const INDEX_FILE = 'epicenter.sqlite';
@@ -254,19 +258,62 @@ async function sweepDebris(backupsRoot: string): Promise<void> {
 	}
 }
 
+async function createDownloadSnapshot(
+	sourceDirectory: string,
+	targetDirectory: string,
+): Promise<void> {
+	try {
+		await mkdir(join(targetDirectory, BLOBS_DIRECTORY), { recursive: true });
+		await link(
+			join(sourceDirectory, INDEX_FILE),
+			join(targetDirectory, INDEX_FILE),
+		);
+		for await (const owner of await opendir(
+			join(sourceDirectory, BLOBS_DIRECTORY),
+		)) {
+			if (!owner.isDirectory()) {
+				throw new Error('portable Backup blob owner is not a directory');
+			}
+			const sourceOwner = join(sourceDirectory, BLOBS_DIRECTORY, owner.name);
+			const targetOwner = join(targetDirectory, BLOBS_DIRECTORY, owner.name);
+			await mkdir(targetOwner);
+			for await (const blob of await opendir(sourceOwner)) {
+				if (!blob.isFile()) {
+					throw new Error('portable Backup blob is not a regular file');
+				}
+				await link(join(sourceOwner, blob.name), join(targetOwner, blob.name));
+			}
+		}
+	} catch (cause) {
+		await rm(targetDirectory, { recursive: true, force: true });
+		throw cause;
+	}
+}
+
 /** Host-owned Bun Backup registry over immutable portable directories. */
 export function createBunBackupV1Owner({
 	backupsRoot,
+	uploadsRoot,
 }: {
 	backupsRoot: string;
+	uploadsRoot: string;
 }) {
 	const ready = sweepDebris(backupsRoot);
 	const operations = new Set<Promise<unknown>>();
+	const activeDownloads = new Map<
+		string,
+		Set<(reason: unknown) => Promise<void>>
+	>();
+	let operationTail = Promise.resolve();
 	let closed = false;
 
 	function track<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
 		if (closed) return Promise.reject(new Error('Bun Backup owner is closed'));
-		const result = operation();
+		const result = operationTail.then(operation);
+		operationTail = result.then(
+			() => undefined,
+			() => undefined,
+		);
 		operations.add(result);
 		void result.finally(() => operations.delete(result)).catch(() => undefined);
 		return result;
@@ -430,9 +477,190 @@ export function createBunBackupV1Owner({
 		return { backupId, directory, recordCount: validation.recordCount };
 	}
 
+	function leaseDownload(
+		backupId: string,
+		response: Response,
+		settled: Promise<void>,
+		cleanup: () => Promise<void>,
+	): Response {
+		if (response.body === null) {
+			void cleanup();
+			return response;
+		}
+		const active =
+			activeDownloads.get(backupId) ??
+			new Set<(reason: unknown) => Promise<void>>();
+		activeDownloads.set(backupId, active);
+		const reader = response.body.getReader();
+		const pulls = new Set<Promise<void>>();
+		let outwardController:
+			| ReadableStreamDefaultController<Uint8Array>
+			| undefined;
+		let cancellationRequested = false;
+		let released = false;
+		let cleanupPromise: Promise<void> | undefined;
+		function clean(): Promise<void> {
+			cleanupPromise ??= cleanup();
+			return cleanupPromise;
+		}
+		let cancel!: (reason: unknown) => Promise<void>;
+		function release(): void {
+			if (released) return;
+			released = true;
+			reader.releaseLock();
+			active.delete(cancel);
+			if (active.size === 0) activeDownloads.delete(backupId);
+		}
+		cancel = async (reason) => {
+			if (released) return;
+			cancellationRequested = true;
+			try {
+				outwardController?.error(reason);
+			} catch {
+				// Consumer cancellation may already have closed the outward stream.
+			}
+			try {
+				await reader.cancel(reason);
+			} finally {
+				try {
+					await Promise.allSettled([...pulls]);
+					await settled;
+					await clean();
+				} finally {
+					release();
+				}
+			}
+		};
+		return new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					outwardController = controller;
+				},
+				pull(controller) {
+					const pulling = (async () => {
+						try {
+							const chunk = await reader.read();
+							if (cancellationRequested) return;
+							if (chunk.done) {
+								await settled;
+								await clean();
+								controller.close();
+								release();
+							} else {
+								controller.enqueue(chunk.value);
+							}
+						} catch (cause) {
+							if (!cancellationRequested) {
+								await clean().catch(() => undefined);
+								release();
+								controller.error(cause);
+							}
+						}
+					})();
+					pulls.add(pulling);
+					void pulling.finally(() => pulls.delete(pulling));
+					return pulling;
+				},
+				cancel,
+			}),
+			{
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+			},
+		);
+	}
+
+	async function cancelDownloads(backupId: string): Promise<void> {
+		const active = activeDownloads.get(backupId);
+		if (active === undefined) return;
+		await Promise.all(
+			[...active].map((cancel) =>
+				cancel(new Error('Backup download was cancelled by deletion')),
+			),
+		);
+	}
+
+	async function cancelAllDownloads(): Promise<void> {
+		await Promise.all(
+			[...activeDownloads.keys()].map((backupId) => cancelDownloads(backupId)),
+		);
+	}
+
+	async function downloadBackup(
+		backupId: string,
+	): Promise<Response | undefined> {
+		const backup = await getBackup(backupId);
+		if (backup === undefined) return undefined;
+		const snapshot = join(
+			backupsRoot,
+			`.${backupId}.download-${crypto.randomUUID()}`,
+		);
+		await createDownloadSnapshot(backup.directory, snapshot);
+		try {
+			const response = await createBunPortableTarMaterializer({
+				exportDirectory: snapshot,
+			})(new Request('http://epicenter.internal/export', { method: 'POST' }));
+			return leaseDownload(
+				backupId,
+				response,
+				waitForPortableMaterializerResponse(response),
+				() => rm(snapshot, { recursive: true, force: true }),
+			);
+		} catch (cause) {
+			await rm(snapshot, { recursive: true, force: true });
+			throw cause;
+		}
+	}
+
+	async function inspectUploadedBackup(
+		backupId: string,
+	): Promise<{ recordCount: number } | undefined> {
+		const backup = await getBackup(backupId);
+		return backup === undefined
+			? undefined
+			: { recordCount: backup.recordCount };
+	}
+
+	async function materializeUpload({
+		backupId,
+		bytes,
+	}: {
+		backupId: string;
+		bytes: ReadableStream<Uint8Array>;
+	}) {
+		validateBackupId(backupId);
+		const temporaryDirectory = join(
+			backupsRoot,
+			`.${backupId}.import-${crypto.randomUUID()}`,
+		);
+		const publishedDirectory = join(backupsRoot, backupId);
+		const response = await createBunPortableTarMaterializer({
+			importTarget: { temporaryDirectory, publishedDirectory },
+		})(
+			new Request('http://epicenter.internal/import', {
+				method: 'POST',
+				body: bytes,
+			}),
+		);
+		if (response.status === 400)
+			return { invalidPortableBackup: true } as const;
+		if (response.status !== 204) {
+			throw new Error(`portable Bun Backup import failed (${response.status})`);
+		}
+		return validateBunPortableDirectory(publishedDirectory);
+	}
+
+	const uploads = createBunPortableUploadV1Owner({
+		directory: uploadsRoot,
+		materialize: materializeUpload,
+		inspectPublished: inspectUploadedBackup,
+	});
+
 	async function deleteBackup(backupId: string): Promise<boolean> {
 		await ready;
 		validateBackupId(backupId);
+		await cancelDownloads(backupId);
 		try {
 			await rm(join(backupsRoot, basename(backupId)), {
 				recursive: true,
@@ -451,11 +679,33 @@ export function createBunBackupV1Owner({
 			track(() => createBackup(source)),
 		list: () => track(listBackups),
 		get: (backupId: string) => track(() => getBackup(backupId)),
+		download: (backupId: string) => track(() => downloadBackup(backupId)),
+		createUpload: (requestId: string) =>
+			track(() => uploads.createUpload(requestId)),
+		putUploadPart: (
+			requestId: string,
+			partNumber: number,
+			byteLength: number,
+			sha256: string,
+			bytes: ReadableStream<Uint8Array>,
+		) =>
+			track(() =>
+				uploads.putUploadPart(requestId, partNumber, byteLength, sha256, bytes),
+			),
+		completeUpload: (requestId: string, parts: unknown) =>
+			track(() => uploads.completeUpload(requestId, parts)),
+		deleteUpload: (requestId: string) =>
+			track(() => uploads.deleteUpload(requestId)),
 		delete: (backupId: string) => track(() => deleteBackup(backupId)),
 		async close(): Promise<void> {
 			closed = true;
 			const results = await Promise.allSettled([ready, ...operations]);
+			const shutdown = await Promise.allSettled([
+				cancelAllDownloads(),
+				uploads.close(),
+			]);
 			const failures = results
+				.concat(shutdown)
 				.filter(
 					(result): result is PromiseRejectedResult =>
 						result.status === 'rejected',
