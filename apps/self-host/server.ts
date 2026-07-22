@@ -52,6 +52,7 @@ import {
 	createAttachRelayBunServer,
 	createBunEpicenterSyncRuntime,
 	createBunRooms,
+	createBunScalarV1Runtime,
 	createDeviceGrantStore,
 	createEnvTokenResolver,
 	createServerApp,
@@ -60,6 +61,7 @@ import {
 	mountAttachRelayApp,
 	mountBlobsApp,
 	mountBunEpicenterSyncApp,
+	mountBunScalarV1App,
 	mountHostDirectoryApp,
 	mountInferenceApp,
 	mountRoomsApp,
@@ -146,6 +148,9 @@ export function startSelfHostServer(): void {
 	const epicenterSync = createBunEpicenterSyncRuntime({
 		dir: join(dataDir, 'records'),
 	});
+	const scalarV1 = createBunScalarV1Runtime({
+		dir: join(dataDir, 'records'),
+	});
 	// The AttachRelay coordinator for this instance (ADR-0115): the
 	// endpoint-addressed byte forwarder. It shares this process's one `Bun.serve`
 	// with the rooms backend (see the merged websocket handler below).
@@ -187,6 +192,7 @@ export function startSelfHostServer(): void {
 		),
 		runtime: epicenterSync,
 	});
+	mountBunScalarV1App(app, { auth, runtime: scalarV1 });
 	// The AttachRelay upgrade (`/attach`), WS-aware and gated by a per-device grant
 	// (ADR-0115), not the operator token: a connect resolves against the
 	// device-grant store, and the instance principal is stamped server-side so a
@@ -263,6 +269,7 @@ export function startSelfHostServer(): void {
 	// Close authority databases and their sockets before the process dies so WAL
 	// checkpoints land and clients see a clean 1001 instead of a dropped TCP.
 	const shutdown = () => {
+		scalarV1.close();
 		epicenterSync.close();
 		void server.stop(true);
 		process.exit(0);

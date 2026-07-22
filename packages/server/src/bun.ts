@@ -90,6 +90,11 @@ export {
 	createBunEpicenterSyncRuntime,
 	mountBunEpicenterSyncApp,
 } from './epicenter-sync/bun.js';
+export {
+	type BunScalarV1Runtime,
+	createBunScalarV1Runtime,
+	mountBunScalarV1App,
+} from './epicenter-sync/scalar-v1-bun.js';
 // Merge several Bun `WebSocketHandler`s onto one `Bun.serve`, dispatching each
 // socket to its backend by a `surface` tag (rooms + attach relay on one port).
 export { mergeBunWebSocketHandlers } from './merge-bun-websocket-handlers.js';
