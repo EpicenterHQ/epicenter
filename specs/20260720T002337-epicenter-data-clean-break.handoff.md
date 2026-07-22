@@ -55,7 +55,7 @@ Wave 0 decisions from the transcript.
    canonical retry bytes, and admission grammar.
 5. `docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md`
    for per-record convergence.
-6. `docs/adr/0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md`
+6. `docs/adr/0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md`
    for the lane machine and the role of the maintained harness. W1A freezes
    semantics and tests; it does not commit production code to the wide layout.
 7. The complete private kernel under `packages/data/src/protocol/v1/`.

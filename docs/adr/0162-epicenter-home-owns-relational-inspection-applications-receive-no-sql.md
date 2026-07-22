@@ -5,7 +5,7 @@
   is replaced by point-in-time inspection snapshot artifacts)
 - **Supersedes:** [ADR-0157](0157-read-only-sql-exposes-one-schema-opaque-row-relation.md)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
-- **Relates:** [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0177](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
+- **Relates:** [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0177](0177-replica-and-authority-layouts-are-selected-independently-by-semantic-role.md)
 
 ## Context
 
@@ -67,9 +67,10 @@ _epicenter_records(
   record_key,
   payload_json,
   document_revision,
+  document_accepted_revision,
   document_byte_length,
-  document_dirty,
-  blob_sha256
+  blob_sha256,
+  blob_accepted_sha256
 )
 ```
 
@@ -80,8 +81,10 @@ payload byte, including unknown and nonconforming data, with no Lens
 installed.
 
 Snapshots are lightweight. The document columns are metadata: the record-local
-revision, the encoded chain size in bytes (never document content), and
-whether unpublished work exists. A snapshot never contains a composed
+and authority-accepted revisions and the encoded chain size in bytes (never
+document content). The blob columns record local and authority-accepted
+digests. Publication obligations are derived by comparing each pair. A
+snapshot never contains a composed
 document cell or blob bytes, so a missing
 value can never lie about document existence and capture needs no cross-file
 cut. Complete document state and blob bytes belong to the portable Backup

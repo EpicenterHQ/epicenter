@@ -44,13 +44,13 @@ Environment:
 
 Aggregate median-of-repetition timings:
 
-| Hot metric | Wide p50 | Split p50 | Wide p95 | Split p95 | Read |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Point read, ms per address | 0.0093 | 0.0107 | 0.0099 | 0.0117 | Wide faster; neither difference is material |
-| Collection traversal, ms | 1.5492 | 0.4721 | 1.6011 | 0.5400 | Split materially faster |
-| Lane write, ms per address | 0.0127 | 0.0063 | 0.2426 | 0.0250 | Split materially faster |
-| Feed install, ms per fact | 0.0103 | 0.0166 | 0.3519 | 0.1148 | Wide wins the median; split wins the tail |
-| Reopen plus one point read, ms | 0.1284 | 0.1242 | 0.3732 | 0.3436 | Equivalent under the stop rule |
+| Hot metric                     | Wide p50 | Split p50 | Wide p95 | Split p95 | Read                                        |
+| ------------------------------ | -------: | --------: | -------: | --------: | ------------------------------------------- |
+| Point read, ms per address     |   0.0093 |    0.0107 |   0.0099 |    0.0117 | Wide faster; neither difference is material |
+| Collection traversal, ms       |   1.5492 |    0.4721 |   1.6011 |    0.5400 | Split materially faster                     |
+| Lane write, ms per address     |   0.0127 |    0.0063 |   0.2426 |    0.0250 | Split materially faster                     |
+| Feed install, ms per fact      |   0.0103 |    0.0166 |   0.3519 |    0.1148 | Wide wins the median; split wins the tail   |
+| Reopen plus one point read, ms |   0.1284 |    0.1242 |   0.3732 |    0.3436 | Equivalent under the stop rule              |
 
 Every run contained 1,000,000 records, passed `PRAGMA integrity_check`, and
 reopened successfully. Every reported read and update plan used the expected
@@ -64,10 +64,11 @@ install reverses between p50 and p95 while production-style automatic WAL
 checkpointing remains active. The report retains every raw sample; this Bun
 slice does not attribute that reversal to a specific mechanism.
 
-This run completes only the Bun slice of the charter. It neither accepts
-ADR-0177 nor silently reverses the selected wide candidate. Browser OPFS and
-Durable Object evidence remain owned by W1C and W2, after which the mixed Bun
-result must be reconciled explicitly before ADR-0177 can become Accepted.
+This run completes only the scalar-shaped Bun slice of the charter. Later
+browser evidence selected split as the replica target, while Durable Object
+evidence selected wide for authorities. This artifact does not accept the
+production replica schema: its split candidate predates document and blob
+watermarks and must be rerun through ADR-0177's complete acceptance charter.
 
 The report embeds SHA-256 fingerprints for the maintained benchmark source and
 both installed SQLite schemas, so a later production-schema change cannot be
