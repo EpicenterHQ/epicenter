@@ -1,8 +1,8 @@
 # 0169. Row references are non-enforcing table interpretations
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
-- **Relates:** [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md)
+- **Date:** 2026-07-20 (revised 2026-07-21: record vocabulary)
+- **Relates:** [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md), [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 
 ## Context
 
@@ -16,10 +16,10 @@ diagnostic depend on the substrate interpreting the table.
 ## Decision
 
 A row reference is non-enforcing table interpretation metadata. It says that a
-declared string field intends to contain the row ID of a named target table. It
-never guarantees that the target exists, remains present, is unique, arrives in
-the same synchronization step, or participates in ownership, cascading
-deletion, a transaction, or referential integrity.
+declared string field intends to contain the record key of a record in a named
+target table collection. It never guarantees that the target exists, remains
+present, is unique, arrives in the same synchronization step, or participates
+in ownership, cascading deletion, a transaction, or referential integrity.
 
 The shared field vocabulary describes scalar values only. The clean-break
 destination has no `field.reference()` kind and no reference marker inside a
@@ -67,7 +67,7 @@ boundary belongs in another vault and repository, and generic references do not
 cross that boundary.
 
 The exact Matter namespace layout remains open. A Matter vault currently
-supplies the enclosing address scope for its tables, while an Epicenter row
+supplies the enclosing address scope for its tables, while an Epicenter record
 address includes an explicit namespace coordinate.
 
 ## Transition

@@ -1,7 +1,7 @@
 # 0166. Data, document sync, and agent replace Workspace
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: record vocabulary)
 
 ## Context
 
@@ -15,8 +15,8 @@ the package would preserve a miscellaneous dependency owner under another noun.
 Three concrete capability packages replace the surviving Workspace families:
 
 ```txt
-@epicenter/data           Lenses, typed access, local owner, scalar sync, row blobs
-@epicenter/document-sync row-document protocol and realtime collaboration
+@epicenter/data           Lenses, typed access, local owner, scalar sync, record blobs
+@epicenter/document-sync  record-document protocol and realtime collaboration
 @epicenter/agent          UI-free agent loop over an explicit data interface
 ```
 
@@ -30,13 +30,13 @@ lenses.
 Data owns the one runtime lifecycle for attachment, credentials, wakeups,
 automatic scalar, document, and blob obligations, status, and disposal.
 Document Sync owns Yjs wire and realtime mechanics without becoming a second
-runtime owner. Row blob storage and publication stay in Data because their
-lifecycle is the owning row and the local Epicenter storage root.
+runtime owner. Record blob storage and publication stay in Data because their
+lifecycle is the owning record and the local Epicenter storage root.
 
 No `database-address`, `database-control`, or `database-migration` package
 survives. There are no database addresses, controls, or migrations to own.
-Structured namespace, table, value, and row addresses live at the narrowest
-shared protocol boundary that actually consumes them.
+Structured record addresses (namespace, collection, record key) live at the
+narrowest shared protocol boundary that actually consumes them.
 
 The root-Yjs Workspace API, workspace daemon and mount families, application SQL
 escape hatches, database experiments, compatibility barrels, aliases, and

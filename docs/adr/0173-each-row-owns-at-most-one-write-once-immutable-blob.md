@@ -1,7 +1,9 @@
 # 0173. Each row owns at most one write-once immutable blob
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: the slot is record-wide and only
+  the terminal tombstone reaps it; "row" in the title is the table
+  interpretation of the universal record slot)
 - **Supersedes:** [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md)
 - **Amends:** [ADR-0154](0154-blob-access-is-address-only.md)
 - **Relates:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md)
@@ -16,13 +18,15 @@ independently convergent multiplicity primitive.
 
 ## Decision
 
-Every live row universally owns one latent blob slot. The slot is undeclared by
-Lenses and contains either no bytes or exactly one finalized immutable byte
-stream. The row address is the blob's sole public identity. SHA-256 records the
-accepted bytes' integrity and makes publication idempotent; it is not a
-`BlobId` or another public address component.
+Every live record universally owns one latent blob slot, whatever collection
+it lives in. The slot is undeclared by Lenses and contains either no bytes or
+exactly one finalized immutable byte stream; typed APIs expose it only where
+the Lens makes it meaningful (table collections in V1). The record address is
+the blob's sole public identity. SHA-256 records the accepted bytes' integrity
+and makes publication idempotent; it is not a `BlobId` or another public
+address component.
 
-The slot is write-once during the row's life:
+The slot is write-once during the record's life:
 
 ```txt
 absent + digest A  -> accept A
@@ -30,53 +34,58 @@ digest A + A       -> idempotent success
 digest A + B       -> refuse or park B
 ```
 
-Incomplete capture has temporary staging state and no permanent blob identity.
-Finalization hashes the complete stream before the runtime admits it to a live
-row. New bytes require a new row, followed by an ordinary non-atomic reference
-change and deletion of the old row. Multiple binary assets therefore require
-multiple rows. Epicenter provides no multi-blob row, replacement-in-place,
-generic cascade, reference count, or blob garbage collector.
+Incomplete capture has temporary staging state and no permanent blob identity;
+ADR-0172's staging write-order law owns that lifecycle. Finalization hashes
+the complete stream before the runtime admits it to a live record. New bytes
+require a new record (applications experience this as a new row), followed by
+an ordinary non-atomic reference change and deletion of the old one. Multiple
+binary assets therefore require multiple records. Epicenter provides no
+multi-blob record, replacement-in-place, generic cascade, reference count, or
+blob garbage collector beyond ADR-0172's debris sweep.
 
-Row deletion is the only terminal distributed blob deletion. It revokes the
-row's scalar state, document, blob slot, and future publication at one durable
-row address. Physical byte cleanup may finish later and remains idempotent.
+The terminal tombstone is the only distributed blob deletion. It revokes the
+record's scalar state, document, blob slot, and future publication at one
+durable address; reversible unset reaps none of them. Physical byte cleanup
+may finish later and remains idempotent.
 
 First-attachment `Bring local data` uses this same publication law. A locally
-minted row ordinarily introduces a new live row and publishes its finalized
-bytes. At a shared live row, an equal digest is idempotent and a different
-digest is refused or parked; first attachment does not add blob replacement or
-merge semantics. A remote terminal row tombstone refuses the slot.
+minted record ordinarily introduces a new live record and publishes its
+finalized bytes. At a shared live record, an equal digest is idempotent and a
+different digest is refused or parked; first attachment does not add blob
+replacement or merge semantics. A remote terminal tombstone refuses the slot.
 `Discard local data` removes local blob membership and publication obligations
 before attachment, then reclaims only the pre-clear physical file identity under
-ADR-0172's debris rule. Later hydration of the same row address never adopts an
-unverified stale file and cannot make that file a target of delayed cleanup.
+ADR-0172's debris rule. Later hydration of the same record address never adopts
+an unverified stale file and cannot make that file a target of delayed cleanup.
 
 The private live store may use the digest in a filename or transfer key, but no
-physical path is part of logical identity. A portable or inspection row exposes
-the accepted digest as nullable platform state beside the row's scalar fields
-and compact document update. Application fields or documents give the bytes
+physical path is part of logical identity. A portable artifact exposes the
+accepted digest as nullable platform state beside the record's scalar payload
+and compact document update; an inspection snapshot exposes the same nullable
+digest as metadata (ADR-0162). Application fields or documents give the bytes
 their filename, media type, and meaning; those citations are not the platform's
 membership inventory.
 
 ## Consequences
 
-- Blob operations take a row address. No public operation takes a bare digest
-  or opaque blob ID.
-- Identical bytes owned by different rows have independent lifecycles and may
-  occupy independent physical files.
+- Blob operations take a record address. No public operation takes a bare
+  digest or opaque blob ID.
+- Identical bytes owned by different records have independent lifecycles and
+  may occupy independent physical files.
 - A row with several attachments becomes one parent row plus several ordinary
   asset rows. Those references are non-enforcing and may temporarily leave
   valid orphan asset rows.
-- A different digest cannot replace bytes beneath an existing live row. This
-  refusal deletes per-member identity, enumeration, revocation, convergence,
-  and Backup membership machinery.
-- A Backup derives blob membership from live rows whose nullable digest is
+- A different digest cannot replace bytes beneath an existing live record.
+  This refusal deletes per-member identity, enumeration, revocation,
+  convergence, and Backup membership machinery.
+- A Backup derives blob membership from live records whose nullable digest is
   present, then requires and verifies exactly one raw byte file for each such
-  row. No blob-membership manifest or separate portable blobs relation exists.
+  record. No blob-membership manifest or separate portable blobs relation
+  exists.
 - Authority publication remains a separate streamed transfer even though the
-  blob shares its row's lifecycle.
+  blob shares its record's lifecycle.
 - First attachment adds no blob-import protocol. `Bring` publishes through the
-  ordinary row-addressed obligation; `Discard` clears the unattached slot.
+  ordinary record-addressed obligation; `Discard` clears the unattached slot.
 
 ## Considered alternatives
 

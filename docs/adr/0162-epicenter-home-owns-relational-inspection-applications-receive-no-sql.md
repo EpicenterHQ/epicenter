@@ -1,165 +1,167 @@
 # 0162. Epicenter Home owns relational inspection; applications receive no SQL
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: the live owner-mediated SQL session
+  is replaced by point-in-time inspection snapshot artifacts)
 - **Supersedes:** [ADR-0157](0157-read-only-sql-exposes-one-schema-opaque-row-relation.md)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
+- **Relates:** [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0177](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
 
 ## Context
 
 Applications need typed local reads. People and agents also need to inspect one
 Epicenter as familiar tables and issue ad hoc relational queries across them.
 Giving every application a SQL escape hatch would couple product code to
-private storage and create a second untyped application API. Refusing all live
-inspection, however, would make Epicenter Home unable to explain the data that
-the platform exists to curate.
+private storage and create a second untyped application API.
+
+An earlier revision of this decision gave Epicenter Home a live SQL session
+executed by the store owner over TEMP views, with one-session exclusivity and
+busy refusals. Excavation showed that session was never implemented, and the
+lane-based record store removed its cheap foundation: visible state is now a
+fold of confirmed, sealed, and pending lanes with a parked overlay and
+tombstone suppression. That fold is not expressible in built-in SQL
+(`json_patch` is RFC 7386 MergePatch, which conflates null with removal), and
+bun:sqlite exposes no user-defined-function API. Honest live SQL would need
+either raw lane views that push the fold onto every query or a materialized
+visible-state column that ADR-0177 refuses. Those facts sharpened the product
+question, but the deciding observation is about ownership: the SQL job Home
+actually owes is analysis over a coherent state, and analysis is honest at a
+point in time. Live jobs are typed jobs.
 
 ## Decision
 
-Application-facing `Epicenter` APIs expose typed tables and values only. They
-expose no `sql()` method, raw SQLite connection, query builder, projection DTO,
-CTE injection, inspection session, TEMP view, persistent application view, or
+Application-facing `Epicenter` APIs expose typed collections only. They expose
+no `sql()` method, raw SQLite connection, query builder, projection DTO, CTE
+injection, inspection session, TEMP view, persistent application view, or
 native-reader contract. Binding any number of application Lenses creates no SQL
 state.
 
-Epicenter Home owns relational inspection as a trusted host capability. It can
-inspect a live Epicenter through that Epicenter's storage owner, or inspect an
-inert portable Epicenter artifact. It does not hand Home, applications, or
-agents a connection to a private live file. The owner executes read-only SQL
-over the logical inspection surface and returns ordinary result rows.
+Epicenter Home owns relational inspection as a trusted host capability, and
+inspection means capture: Home asks the store owner for a point-in-time
+**inspection snapshot**, an inert SQLite artifact, and runs SQL against that
+artifact in its own context. Nothing executes SQL on the live store's
+connection on anyone's behalf, and no one receives the private live file.
 
-Home is a capability owner, not a desktop-only storage assumption. Native Home
-reaches the Bun-owned store. Under ADR-0118, every desktop catalog SPA already
-shares one trusted origin and authority; “applications receive no SQL” is a
-supported API and product boundary there, not a per-SPA security sandbox.
+`captureSnapshot` is one owner command gated at the trusted host or origin
+boundary, exactly where the previous revision gated its session. The owner
+builds the artifact from one read transaction over its records: the visible
+scalar state fold happens in the owner's code at capture time. On desktop,
+Home then opens a separate read-only SQLite handle on the artifact file. In a
+browser, the owner builds the artifact beside its private file and transfers
+the inert bytes to Home; Home queries them in its own sandbox and never opens
+a second OPFS connection. The capture command is the security boundary; the
+querying surface holds only bytes it owns.
 
-A future standalone browser Home may send the same inspection operations to
-its existing storage-owner Worker, but only from a dedicated trusted
-first-party Home origin that does not cohost untrusted application code.
-Omitting inspection from the typed application API is not a web security
-boundary against a same-origin script that can construct Worker messages. The
-owner must therefore gate the command at the trusted host or origin boundary.
-Browser Home never opens another OPFS connection. This decision permits that
-surface but does not require the product to ship it.
+Every inspection snapshot self-identifies. Its `_epicenter_artifact` metadata
+row (ADR-0167) declares `kind = 'snapshot'`, the format version, the source
+authority lifetime, and the capture watermark. A snapshot has no apply meaning
+and no Restore meaning, structurally and permanently: it is never accepted as
+a portable Backup, a Proposal, or any other input.
 
-Every inspection session exposes two reserved lossless relations:
+The snapshot's lossless reserved relation is:
 
 ```sql
-_epicenter_rows(
-  namespace_key,
-  table_key,
-  row_id,
-  fields_json,
-  document_update_v2 BLOB NULL,
-  blob_sha256 TEXT NULL
+_epicenter_records(
+  namespace,
+  collection,
+  record_key,
+  payload_json,
+  document_revision,
+  document_encoded_bytes,
+  document_dirty,
+  blob_sha256
 )
-_epicenter_values(namespace_key, value_key, value_json)
 ```
 
-Their natural keys are `(namespace_key, table_key, row_id)` and
-`(namespace_key, value_key)`. This is a logical contract, not a promise that the
-private live store uses these physical tables. A live implementation may use a
-different schema, compact identifiers, or another adapter representation.
+One relation, because durable storage carries no collection kind: a kindless
+capture cannot split records into row and value relations without a Lens,
+which would break the no-Lens-installed promise. The relation preserves every
+payload byte, including unknown and nonconforming data, with no Lens
+installed.
 
-`document_update_v2` contains one self-contained compact Yjs V2 update produced
-from the complete document, never a state vector or concatenated live update
-log. `NULL` means no document state has ever been persisted for the row.
-`blob_sha256` records the accepted bytes in the row's universal zero-or-one blob
-slot. Both columns are platform-owned structural state outside Lens fields.
-The raw relations preserve unknown and nonconforming data exactly and remain
-available when no Lens is installed.
+Snapshots are lightweight. The document columns are metadata: the record-local
+revision, the encoded chain size in bytes (never document content), and
+whether unpublished work exists. A
+snapshot never contains a composed document cell or blob bytes, so a missing
+value can never lie about document existence and capture needs no cross-file
+cut. Complete document state and blob bytes belong to the portable Backup
+(ADR-0167, ADR-0170). The rare single-document export job is served by an
+explicit typed per-record export operation (ADR-0174), not by SQL.
 
-One Epicenter store owner supports zero or one active Home inspection session.
-That session has zero or one selected Lens interpretation. This is a naming-
-coherence rule for one unqualified SQL namespace, not a SQLite or OPFS capacity
-limit. Selecting a Lens creates one explicit-column, read-only `TEMP VIEW` per
-declared table, using
-the Lens's durable local table key as the view name. All of those views belong
-to the same interpretation; the rule limits interpretations, not view count.
-They project live rows from `_epicenter_rows`, use base JSON type guards, and
-store no rows. Missing, JSON null, and wrong base types project to SQL `NULL`.
-The reserved raw relation remains the honest fallback.
+Selecting a Lens at capture time writes one explicit-column SQL view per
+declared collection into the artifact, named by the Lens's durable local key,
+projecting from `_epicenter_records` with base JSON type guards. Views, not
+copied tables: the raw relation stays the one truth inside the artifact, and
+JSON1 is ubiquitous in consumers. The owner quotes generated identifiers,
+reserves the `_epicenter_` prefix and SQLite internal names, and refuses a
+capture whose declared collection keys collide under SQLite's ASCII
+case-insensitive identifier comparison. Snapshot metadata records which Lens,
+if any, generated the views.
 
-The owner quotes every generated identifier. The `_epicenter_` prefix and
-SQLite internal names are reserved. Selection fails with a typed refusal when
-two declared table keys collide under SQLite's ASCII case-insensitive
-identifier comparison; it never silently renames a durable local key.
+A snapshot is stale the moment it is captured; refresh is recapture. That is
+the honest consistency story: one owner read transaction, one stated
+watermark, rather than a live session in which several statements observe
+intervening writes. Because the artifact is inert bytes, there is no session
+lifecycle, no one-session exclusivity, no busy refusal, and no
+never-while-stepping discipline; concurrent captures and concurrent queries
+are ordinary file operations.
 
-A Lens is selected explicitly because several installed Lenses may interpret
-the same namespace or address differently. Home never merges incompatible
-definitions into one unqualified SQL namespace. Switching interpretation closes
-or replaces the current session's friendly views. A concurrent second session
-receives a typed busy refusal. Cross-namespace and unknown-data inspection
-remain possible through the reserved raw relations; V1 does not introduce
-prefixed friendly aliases or several simultaneous view namespaces.
-
-The store owner creates, drops, and queries the views on its existing SQLite
-connection, serialized with its other operations and never while a statement
-is stepping. In a browser this is the one Worker-owned connection already
-holding the OPFS storage lease. That single-connection fact is a physical
-storage constraint; it is not the reason only one interpretation is active. A
-TEMP view creates no OPFS owner, database file, copied rows, synchronization
-scope, or Lens lifecycle. Replacing or closing the inspection session drops
-its raw and friendly views. Closing the store connection removes any remaining
-TEMP views automatically. There are no
-`INSTEAD OF` triggers, Lens-declared indexes, materialized TEMP tables, or
-persisted view definitions.
-
-Inspection observes continuing live state rather than a durable snapshot.
-Each statement receives SQLite's ordinary consistent read, but several
-statements may observe intervening committed writes or synchronized facts.
-Portable-artifact inspection uses the same logical and selected-Lens surfaces
-over its inert point-in-time contents.
+Live jobs remain typed. Home's table browser uses the classified traversal
+(ADR-0175), sync status and parked work use the address-scoped observation
+surface (ADR-0163, ADR-0174), and none of them speak SQL. Deleting the live
+SQL session deletes none of those surfaces and does not reduce what Home can
+show live; it removes only ad hoc SQL from the live connection.
 
 ## Consequences
 
 - Typed application reads may use private SQL and the canonical address index
   internally. Additional index-backed reads require the separately owned
   decision described by ADR-0176.
-- Home can offer a table browser and SQL console without granting applications
-  arbitrary SQL or stabilizing the private live schema.
-- Friendly queries can use table-shaped relations without making release-local
-  Lens columns durable storage schema.
-- Raw queries can always address honest namespace, table, value, and row
-  coordinates, including unknown and nonconforming data.
-- Multiple application Lenses remain independent from the one Home inspection
-  interpretation because application binding creates no SQL state.
-- Browser OPFS retains one database owner. Home adds a connection-local query
-  interpretation inside that owner rather than another SQLite connection.
-- A portable artifact and a live Epicenter expose the same logical data model,
-  while only the live Epicenter has an owner and active runtime behavior.
+- Home offers a table browser live and a SQL console over snapshots, without
+  granting applications SQL or stabilizing the private live schema.
+- The owner's inspection surface shrinks from a SQL executor with session
+  lifecycle to one capture command.
+- Long analytical queries run in Home's context and can never stall the
+  owner's serialized write and synchronization path.
+- Agents get a durable, shareable query artifact whose provenance and
+  watermark are recorded in the artifact itself.
+- Raw queries always address honest namespace, collection, and record key
+  coordinates, including unknown and nonconforming data, with no Lens
+  installed.
+- Freshness is explicit: results are as of the capture watermark, and refresh
+  is recapture. A future live inspection mode would be a separately earned
+  capability and must never imply snapshot repeatability.
+- Browser Home never opens a second OPFS connection; capture reuses the one
+  owner and transfers bytes.
 
 ## Considered alternatives
 
-- **No live relational inspection.** Rejected because trusted human and agent
-  inspection is a core Epicenter Home responsibility, not merely an offline
-  recovery operation.
+- **The live owner-mediated SQL session (the previous revision).** Rejected
+  because the lane store makes honest live SQL expensive (the visible-state
+  fold is not built-in SQL, and the primary desktop owner has no
+  user-defined-function API), because a long statement stalls every mutation
+  behind the owner's serialized connection, and because its session
+  exclusivity, TEMP view lifecycle, and busy refusals existed only to
+  compensate for putting an interactive surface inside the one live
+  connection. Analysis, the actual SQL job, is honest at a point in time.
+- **A materialized visible-state column to keep live SQL cheap.** Rejected by
+  ADR-0177: a derived column maintained by every lane transition is a standing
+  corruption class whose only consumer was this surface.
+- **Kind-split raw relations (`_epicenter_rows` and `_epicenter_values`).**
+  Rejected because storage carries no collection kind; a kindless capture
+  cannot losslessly split unknown records without a Lens.
+- **Snapshots with composed document cells.** Rejected because per-record Yjs
+  composition makes capture expensive, and a NULL cell would be ambiguous
+  between no document and not composed. Metadata columns cannot lie; Backup
+  carries the real composed state.
+- **Copied friendly tables instead of views inside the artifact.** Rejected
+  because copied rows duplicate truth inside one file; views keep the raw
+  relation authoritative. (The prototype-gated Proposal candidate is expected
+  to make the opposite choice because it is an editing surface; its own ADR
+  waits for its prototype.)
 - **Expose the private live SQLite file.** Rejected because a physical adapter
   layout is not the logical Epicenter and may change independently.
 - **Read-only `sql()` guarded by parsing or `EXPLAIN`.** Rejected because it is
   still a second application query language over private storage.
-- **Expose only the raw relations.** Rejected because making every human and
-  agent query repeat JSON extraction hides the relational interpretation Home
-  already possesses.
-- **Open one SQLite connection per Lens.** Rejected because Lens interpretation
-  does not deserve another database owner. Browser SAH-pool storage also
-  permits only one simultaneous connection, but the one-interpretation rule
-  remains a semantic naming rule on runtimes that could open more connections.
-- **Install several incompatible friendly interpretations together.** Rejected
-  because unqualified view names would hide which release-local Lens defines a
-  column. One explicit selection keeps the interpretation honest.
-- **Persist Lens views or physical Lens tables.** Rejected because a
-  release-local, partial, overlapping interpretation cannot own durable schema,
-  migration, or unknown data.
-- **Generate CTEs, materialize TEMP tables, or implement virtual tables.**
-  Rejected because ordinary connection-local views already provide named live
-  relations without query rewriting, copied state, invalidation, or a custom
-  SQLite module.
-- **Make inspection desktop-only.** Rejected because trust and storage
-  ownership, not renderer technology, define the capability. A future browser
-  Home can route through its existing origin owner, provided Home has a
-  dedicated trusted first-party origin and the owner gates inspection there.
-- **Treat the desktop application boundary as a sandbox.** Rejected because
-  ADR-0118 deliberately gives every desktop catalog SPA one trusted origin and
-  authority. Withholding SQL remains a supported API boundary until a future
-  untrusted application model earns real isolation.
+- **No relational inspection at all.** Rejected because trusted human and
+  agent inspection is a core Epicenter Home responsibility.

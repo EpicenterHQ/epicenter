@@ -1,7 +1,8 @@
 # 0170. One live Epicenter has sealed Backups; Restore creates a fresh authority lifetime
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: the structural artifact-kind
+  refusal and the durable capture pin manifest)
 - **Amends:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), and [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md)
 
 ## Context
@@ -40,13 +41,25 @@ Implementations may deduplicate physical storage invisibly, but correctness
 never depends on shared bytes, reference counts, or another Backup remaining
 present.
 
-Backup membership comes from the portable SQLite row relation. Capture freezes
-one accepted authority cut, records each row's compact document update and
-nullable blob digest, pins every selected external blob against deletion, copies
-and verifies those bytes, and publishes the Backup only after the artifact is
-complete. A separate blob-membership manifest is neither authoritative nor
-required. The pin, copy, verify, and seal sequence remains necessary because a
-SQLite snapshot cannot atomically capture external files.
+Backup membership comes from the portable SQLite records relation. Capture
+freezes one accepted authority cut, records each record's compact document
+update and nullable blob digest, pins every selected external blob against
+deletion, copies and verifies those bytes, and publishes the Backup only after
+the artifact is complete. A separate blob-membership manifest is neither
+authoritative nor required. The pin, copy, verify, and seal sequence remains
+necessary because a SQLite snapshot cannot atomically capture external files.
+
+The scalar cut has a named mechanism because a current-state store cannot
+re-read an overwritten older value: capture scans in sequence-ordered chunks
+without pausing admissions, loops re-reading records whose sequence advanced
+past the chunk watermark, and closes with one brief admission-refusing pass
+over the residue. The document chains and blob digests selected by that cut
+are pinned by a durable **capture manifest** on the authority, created
+atomically with the scalar selection, which holds document-chain compaction
+and blob deletion for the pinned set until copy and verify complete, with
+explicit success, cancel, and crash transitions. The manifest is operational
+capture state, not a second artifact inventory, and it never enters the
+Backup.
 
 The Epicenter host control plane owns active-lifetime selection and Backup
 lifecycle independently of the replaceable authority. An authority lifetime
@@ -68,11 +81,15 @@ requires downloading the portable artifact. A Backup cannot be opened as a live
 Epicenter, synchronized, mutated in place, partially restored, merged into the
 live Epicenter, or browsed by the host as application data.
 
-Restore accepts a sealed Backup or a validated uploaded portable Epicenter. It
-constructs a fresh authority from that complete logical state, gives the
-successor a fresh opaque authority-lifetime identity, and atomically makes it
-the one active Epicenter. It never reactivates the authority lifetime that
-originally produced a Backup.
+Restore accepts a sealed Backup or a validated uploaded portable Epicenter,
+and only those: the artifact's `_epicenter_artifact` self-declaration
+(ADR-0167) must read `kind = 'portable'`. An inspection snapshot or Proposal
+artifact is structurally refused, whatever its contents resemble; Restore
+meaning is a property of the portable kind, never of a file that happens to
+validate. Restore constructs a fresh authority from that complete logical
+state, gives the successor a fresh opaque authority-lifetime identity, and
+atomically makes it the one active Epicenter. It never reactivates the
+authority lifetime that originally produced a Backup.
 
 ```txt
 Backup or uploaded portable Epicenter
@@ -119,12 +136,12 @@ converges through ordinary synchronization and likewise never replaces the
 authority as a whole. Restore remains the only operation that authoritatively
 replaces the live Epicenter.
 
-Row tombstones remain permanent within one authority lifetime. They do not enter
-a Backup and do not carry into the successor created by Restore. Backing up the
-current accepted state and restoring it is therefore the one semantic rebase
-that also clears tombstones, synchronization sequences, retry metadata, and
-document-log fragmentation. Routine SQLite and Yjs compaction remains separate
-and never invalidates replicas.
+Record tombstones remain permanent within one authority lifetime. They do not
+enter a Backup and do not carry into the successor created by Restore. Backing
+up the current accepted state and restoring it is therefore the one semantic
+rebase that also clears tombstones, synchronization sequences, retry metadata,
+and document-log fragmentation. Routine SQLite and Yjs compaction remains
+separate and never invalidates replicas.
 
 An authority lifetime is internal architecture. Its identity is opaque and used
 only for equality and refusal; it is not a public generation number, history

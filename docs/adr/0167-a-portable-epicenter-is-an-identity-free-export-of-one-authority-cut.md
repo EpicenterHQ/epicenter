@@ -1,8 +1,12 @@
 # 0167. A portable Epicenter is an identity-free export of one authority cut
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
-- **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md) and [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md)
+- **Date:** 2026-07-20 (revised 2026-07-21: one kindless `_epicenter_records`
+  relation and the `_epicenter_artifact` self-declaration every inert artifact
+  carries)
+- **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
+- **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup lifecycle and the capture pin manifest)
+- **Relates:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0177](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
 
 ## Context
 
@@ -20,7 +24,7 @@ It represents the same logical Epicenter as the live system, but it is a
 separate inert artifact, not a live authority database or replica database.
 
 For a synchronized Epicenter, the selected owner is the principal authority.
-The artifact contains every scalar row and value, accepted compact row-document
+The artifact contains every record's scalar state, accepted compact document
 state, and remotely owned blob byte present at the authority cut. It does not
 contain pending changes or local-only blobs that another offline device has
 never uploaded. For a local-only Epicenter, the selected local store is the
@@ -31,43 +35,58 @@ The logical artifact contains:
 ```txt
 portable Epicenter
 ├── logical SQLite
-│   ├── rows with scalar fields, compact documents, and blob digests
-│   └── scalar values
-└── one raw blob file for every row whose blob digest is present
+│   ├── records with scalar payloads, compact documents, and blob digests
+│   └── the _epicenter_artifact self-declaration
+└── one raw blob file for every record whose blob digest is present
 ```
 
-Its relations expose the stable structured logical addresses:
+Its one relation exposes the stable structured logical addresses:
 
 ```sql
-rows(
-  namespace_key,
-  table_key,
-  row_id,
-  fields_json,
+_epicenter_records(
+  namespace,
+  collection,
+  record_key,
+  payload_json,
   document_update_v2 BLOB NULL,
   blob_sha256 TEXT NULL
 )
-values(namespace_key, value_key, value_json)
 ```
 
+One kindless relation is forced, not chosen: durable storage carries no
+collection kind (ADR-0160), so a capture cannot split unknown records into row
+and value relations without a Lens, and the artifact must remain complete with
+no Lens installed.
+
+Every inert Epicenter artifact also carries one `_epicenter_artifact` metadata
+row declaring its `kind`, format version, source authority lifetime, and
+capture watermark. This ADR owns that self-declaration vocabulary. The
+portable artifact declares `kind = 'portable'`. Inspection snapshots
+(ADR-0162, `kind = 'snapshot'`) and the prototype-gated Proposal artifact
+(`kind = 'proposal'`) are non-portable kinds with their own contracts and
+column sets. No artifact is ever accepted as another kind; the refusal is
+structural, not conventional.
+
 ADR-0161's representative 512 MiB quantity is a versioned benchmark proxy over
-structured addresses, row fields, and value content. It excludes
+structured addresses and record payloads. It excludes
 `document_update_v2`, `blob_sha256`, raw blob bytes, container framing, and
-private synchronization state. It is neither a maximum row size, a maximum
+private synchronization state. It is neither a maximum record size, a maximum
 portable-Epicenter size, nor a claim that the portable artifact has canonical
 bytes. The maintained benchmark contract owns the proxy encoding.
 
 `document_update_v2` is one self-contained compact Yjs V2 update for the whole
 document, never a state vector or copied live update log. `NULL` means no
-document state has ever been persisted for the row. `blob_sha256` records the
-accepted bytes in the row's zero-or-one blob slot. The row relation is therefore
-the complete document and blob membership inventory.
+document state has ever been persisted for the record. `blob_sha256` records
+the accepted bytes in the record's zero-or-one blob slot. The records relation
+is therefore the complete document and blob membership inventory.
 
 Export requires one matching raw file for every non-null `blob_sha256` and
 verifies its digest. It carries no separate blob relation, document inventory,
 blob metadata file, or membership `manifest.json`. A generic container seal may
 still protect artifact completeness and format integrity; it must not recreate
-a second logical inventory.
+a second logical inventory. ADR-0170's durable capture pin manifest is
+authority-side operational state that protects the copy phase; it is not part
+of the artifact and is not a second logical inventory.
 
 The artifact always represents the complete selected authority. Namespace
 filtering is an inspection operation, never a partial portable-Epicenter export.
@@ -92,7 +111,7 @@ Inspect the artifact
 Initialize an empty Epicenter
 ```
 
-Initialization validates the complete artifact, preserves row identities and
+Initialization validates the complete artifact, preserves record identities and
 their accepted bytes, and creates a fresh authority and synchronization
 lifetime. It does not preserve a relationship with the source.
 

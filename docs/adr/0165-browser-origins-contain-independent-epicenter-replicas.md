@@ -1,8 +1,8 @@
 # 0165. Browser origins contain independent Epicenter replicas
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
-- **Relates:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md)
+- **Date:** 2026-07-20 (revised 2026-07-21: record-address vocabulary)
+- **Relates:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md) (browser snapshot capture transfers inert bytes; no second OPFS connection)
 
 ## Context
 
@@ -20,7 +20,7 @@ on BroadcastChannel delivery or one immortal owner tab.
 
 An origin cannot enumerate, open, migrate, or delete another origin's replica.
 Signed-in origins converge through the same principal authority. Origin never
-enters a namespace key, table key, value key, row ID, document address, or
+enters a namespace key, collection key, record key, document address, or
 public Lens.
 
 The adapter may evolve among a dedicated worker, shared worker, Web Locks, or a

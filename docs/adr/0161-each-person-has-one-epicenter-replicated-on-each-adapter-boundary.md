@@ -4,6 +4,7 @@
 - **Date:** 2026-07-20
 - **Supersedes:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md) and [ADR-0143](0143-account-open-never-consumes-device-data.md)
 - **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) by removing workspaces beneath the principal authority
+- **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup and Restore above the replica boundary) and [ADR-0177](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md) (supersedes the schema-wide coordinate-layout evidence enumeration)
 
 ## Context
 
@@ -69,13 +70,14 @@ The server derives the authority solely from the authenticated principal. The
 self-hosted deployment resolves its one principal in the same way. No catalog,
 database inventory, alias, grant, rekey map, or per-database lifecycle exists.
 
-The private SQLite schema has one format/version root plus relations for current
-scalar state, replica progress, pending local work, and row-document updates as
-needed by the adapter. Large row-owned blob bytes live as raw files under the
-same adapter lifecycle owner. Application data addresses contain an address kind,
-namespace key, table or value key, and, for rows, a row ID. A namespace never
-changes the whole-replica boundary. Private relation names and layouts are
-adapter implementation details, not native-reader contracts.
+The private SQLite schema has one format/version root plus relations for
+per-record lane state, replica progress, pending local work, and document
+updates as needed by the adapter. Large record-owned blob bytes live as raw
+files under the same adapter lifecycle owner. Application data addresses are
+the record triple: a namespace key, a collection key, and a record key; no
+address kind exists. A namespace never changes the whole-replica boundary.
+Private relation names and layouts are adapter implementation details, not
+native-reader contracts.
 
 ## Consequences
 
@@ -110,7 +112,8 @@ adapter implementation details, not native-reader contracts.
 Before this ADR becomes Accepted, maintained evidence must exercise the real
 replica and authority workflows on their supported production runtimes. The
 evidence records whether the required proof is ready for review. It never
-selects, ranks, or recommends a physical layout; a later ADR makes that choice.
+selects, ranks, or recommends a physical layout; ADR-0177 makes that choice
+under its named acceptance charters.
 
 The same evidence must prove the first-attachment boundary:
 
@@ -155,13 +158,11 @@ measured storage availability admits it. Honest quota refusal must preserve the
 previous committed prefix and durable progress, but it does not prove capacity.
 Private or incognito storage supplies negative refusal evidence only.
 
-Evidence that varies coordinate storage enumerates every address-bearing
-relation it covers. A benchmark limited to current confirmed facts may compare
-fact-table layouts, but it cannot decide whether coordinates are inline or
-normalized across pending intents, sealed submissions, parked diagnostics,
-document-liveness joins, or publication records. Schema-wide coordinate
-ownership remains unresolved until the candidate boundary includes every
-affected relation, workload, and constraint proof.
+The physical layout selection and its evidence charters are owned by ADR-0177,
+which selects the wide interned record row as the Proposed candidate with the
+split layout as its sole runner-up. This ADR's representative envelope and
+mobile floors remain the fixture those charters measure against; nothing in
+this ADR's evidence selects a layout.
 
 ## Considered alternatives
 

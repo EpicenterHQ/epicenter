@@ -1,7 +1,8 @@
 # 0171. Every durable local write leaves an automatic authority obligation
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: pending-lane and record
+  vocabulary)
 - **Supersedes:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md)
 - **Amends:** [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md), [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
 
@@ -59,9 +60,13 @@ The law has three independent protocol realizations:
 
 | Plane    | Durable local work                                                                                | Authority proof                                           |
 | -------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Scalar   | compacted desired-state intent in the scalar outbox                                               | current authority fact for every touched address          |
+| Scalar   | compacted pending operation in the record's pending lane                                          | current authority fact for every touched address          |
 | Document | bounded Yjs baseline-plus-tail chain plus a dirty revision and optional frozen `inflight` payload | post-commit receipt for the exact frozen `inflight` bytes |
-| Blob     | one immutable local byte stream plus its row-addressed publication record                         | accepted SHA-256 for the live row's blob slot             |
+| Blob     | one immutable local byte stream plus its record-addressed publication evidence                    | accepted SHA-256 for the live record's blob slot          |
+
+The scalar plane's sealing shares the document plane's exact-byte discipline:
+ADR-0163's seal transaction persists the canonical request bytes it will
+retry, just as `inflight` freezes exact document bytes.
 
 These are independent convergence units, not one transaction. They share one
 runtime lifecycle owner for attachment, credentials, wakeups, retry, backoff,
@@ -105,7 +110,8 @@ the immutable retry image.
 
 After the authority has applied and committed the submitted update, it returns
 a document publication receipt binding the active authority lifetime, complete
-row address, document protocol version, and digest of the exact frozen payload.
+record address, document protocol version, and digest of the exact frozen
+payload.
 The owner clears `inflight` only when every receipt field matches its stored
 retry image. It marks the row clean only when the current revision still equals
 the captured revision; otherwise the newer dirty revision enters another freeze
@@ -123,12 +129,12 @@ but leaves the SQLite revision and any in-flight retry image intact. A
 background drain therefore publishes dirty documents without depending on open
 handles.
 
-A row's blob publication is also write-once. The authority accepts an absent
-slot with digest A, treats a retry of A as idempotent, and refuses or parks a
-different digest B while that row remains live. The obligation clears only
-after the authority acknowledges matching bytes at the active lifetime and row
-address. New bytes require a new row rather than another blob member or mutable
-replacement protocol.
+A record's blob publication is also write-once. The authority accepts an
+absent slot with digest A, treats a retry of A as idempotent, and refuses or
+parks a different digest B while that record remains live. The obligation
+clears only after the authority acknowledges matching bytes at the active
+lifetime and record address. New bytes require a new record rather than
+another blob member or mutable replacement protocol.
 
 Document publication is outbound and automatic. Remote document state remains
 lazy and arrives when the row document is next opened. A realtime connection
@@ -161,9 +167,10 @@ device is not part of a Backup.
 - Oversized or otherwise refused work remains visibly pending or parked at its
   address. Epicenter never reports it as synchronized and never spins one
   failing address through a global retry loop.
-- Row deletion remains terminal. Its local transaction installs scalar
-  deletion state and removes document state and pending publication evidence;
-  later byte cleanup cannot resurrect the row.
+- The record tombstone remains terminal. Its local transaction installs the
+  tombstone and removes document state and pending publication evidence; later
+  byte cleanup cannot resurrect the record. Reversible unset reaps neither the
+  document nor the blob slot.
 - A device that never reconnects can still lose its unpublished work during a
   user-authorized Restore. This is the accepted limit of an authority Backup,
   not a hidden synchronization mode.
@@ -184,11 +191,11 @@ following laws across the three planes:
   pending after the earlier authority proof arrives;
 - no connection, state vector, sequence watermark, or fanout observation can clear an
   obligation without its plane-specific post-commit proof;
-- a row deletion racing document or blob publication cannot resurrect row-owned
-  state;
+- a record tombstone racing document or blob publication cannot resurrect
+  record-owned state;
 - first-attachment `Bring` retains every pre-attachment obligation until its
-  ordinary plane-specific proof, and a brought row deletion removes or refuses
-  row-owned document and blob work regardless of which plane reaches the
+  ordinary plane-specific proof, and a brought tombstone removes or refuses
+  record-owned document and blob work regardless of which plane reaches the
   authority first, while `Discard` removes every logical obligation in the same
   transaction that records attachment;
 - a crash after `Bring` commits attachment but before lifetime discovery,

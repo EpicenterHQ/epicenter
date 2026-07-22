@@ -1,13 +1,13 @@
 # 0164. Scalar facts converge independently; Epicenter refuses distributed transactions
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: the convergence unit is the record)
 - **Amends:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md) by defining the independently convergent semantic unit carried by the wire
 
 ## Context
 
-Epicenter stores one person's curated data as typed values and row aggregates
-that own scalar fields, lazy documents, and optional immutable bytes. The
+Epicenter stores one person's curated data as records that own scalar state,
+lazy documents, and optional immutable bytes. The
 current synchronization implementation groups pending scalar changes for
 transport and exact retry, but that grouping does not come from an application
 transaction. Treating an
@@ -21,21 +21,19 @@ One principal owns one Epicenter:
 ```txt
 One principal
 └── one Epicenter
-    ├── typed values
-    └── typed rows
-        ├── scalar fields
+    └── records, presented by Lenses as rows and values
+        ├── scalar state
         ├── one latent Yjs document
         └── zero or one write-once immutable blob
 ```
 
-Applications contribute typed lenses over portions of this shared Epicenter.
+Applications contribute typed Lenses over portions of this shared Epicenter.
 They do not own separate databases or synchronization streams.
 
-One scalar address is the unit of independent convergence: either a row
-addressed by `(namespace key, table key, row ID)` or a value addressed by
-`(namespace key, value key)`. A scalar operation becomes durable locally,
-remains available offline, and eventually converges with the authority and
-other replicas.
+One record, addressed by `(namespace, collection, record key)`, is the unit of
+independent convergence. A scalar operation becomes durable locally, remains
+available offline, and eventually converges with the authority and other
+replicas.
 
 Epicenter exposes no public multi-address transaction and promises no atomic
 remote visibility across scalar addresses. SQLite transactions may preserve
