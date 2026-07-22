@@ -19,6 +19,7 @@ import { openReplicaStore } from './replica-store.js';
 const DEFAULT_DATABASE_FILENAME = '/epicenter-data-v1.sqlite3';
 const DEFAULT_POOL_DIRECTORY = '.epicenter-data-v1-sahpool';
 const DEFAULT_POOL_NAME = 'epicenter-data-v1';
+const OWNER_GENERATION_FILENAME = '.epicenter-data-owner-generation';
 
 type ReplicaInitialization = {
 	replicaId: string;
@@ -31,9 +32,54 @@ export type OpenBrowserReplicaOwnerOptions = {
 	databaseFilename?: string;
 	poolDirectory?: string;
 	poolName?: string;
+	onStolen?: () => void;
+	signal?: AbortSignal;
 };
 
 type IntegrityRow = { integrity_check: string };
+
+async function incrementOwnerGeneration(): Promise<number> {
+	const root = await (
+		navigator as Navigator & {
+			storage: {
+				getDirectory(): Promise<{
+					getFileHandle(
+						name: string,
+						options: { create: boolean },
+					): Promise<{
+						getFile(): Promise<{ text(): Promise<string> }>;
+						createWritable(): Promise<{
+							write(value: string): Promise<void>;
+							close(): Promise<void>;
+							abort(cause?: unknown): Promise<void>;
+						}>;
+					}>;
+				}>;
+			};
+		}
+	).storage.getDirectory();
+	const handle = await root.getFileHandle(OWNER_GENERATION_FILENAME, {
+		create: true,
+	});
+	const text = await (await handle.getFile()).text();
+	const previous = text === '' ? 0 : Number(text);
+	if (!Number.isSafeInteger(previous) || previous < 0) {
+		throw new Error('browser owner generation is corrupt');
+	}
+	if (previous === Number.MAX_SAFE_INTEGER) {
+		throw new Error('browser owner generation is exhausted');
+	}
+	const next = previous + 1;
+	const writable = await handle.createWritable();
+	try {
+		await writable.write(String(next));
+		await writable.close();
+	} catch (cause) {
+		await writable.abort(cause).catch(() => undefined);
+		throw cause;
+	}
+	return next;
+}
 
 function configureDatabase(database: Database): void {
 	database.exec(`
@@ -94,13 +140,21 @@ export async function openBrowserReplicaOwner({
 	databaseFilename = DEFAULT_DATABASE_FILENAME,
 	poolDirectory = DEFAULT_POOL_DIRECTORY,
 	poolName = DEFAULT_POOL_NAME,
+	onStolen,
+	signal,
 }: OpenBrowserReplicaOwnerOptions) {
 	let lease: BrowserStorageLease | undefined;
 	let pool: SAHPoolUtil | undefined;
 	let database: Database | undefined;
+	let ownerGeneration: number | undefined;
 	let isDisposed = false;
 	try {
-		lease = await acquireBrowserStorageLease(navigator.locks);
+		lease = await acquireBrowserStorageLease(navigator.locks, {
+			...(onStolen === undefined ? {} : { onStolen }),
+			...(signal === undefined ? {} : { signal }),
+		});
+		ownerGeneration = await incrementOwnerGeneration();
+		signal?.throwIfAborted();
 		const sqlite = await sqlite3InitModule();
 		pool = await sqlite.installOpfsSAHPoolVfs({
 			name: poolName,
@@ -133,6 +187,12 @@ export async function openBrowserReplicaOwner({
 		await openedStores.blobs.reopenSweep();
 
 		return {
+			get ownerGeneration() {
+				if (isDisposed || ownerGeneration === undefined) {
+					throw new Error('browser replica owner is disposed');
+				}
+				return ownerGeneration;
+			},
 			get store() {
 				if (isDisposed) throw new Error('browser replica owner is disposed');
 				return openedStores.store;
