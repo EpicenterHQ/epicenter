@@ -74,9 +74,15 @@ export function openAuthorityV1Schema(
 	database: SqliteDatabase,
 	initialize: { authorityLifetime: string } | undefined,
 ): void {
+	// Cloudflare documents `__cf_kv`; the repository's pinned workerd exposes
+	// `_cf_KV`. Both are exact platform-owned identities, not a reserved prefix.
 	const objects = database.all<SqliteRow & { name: string; type: string }>(
 		`SELECT type, name FROM sqlite_schema
-		WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'
+		WHERE type IN ('table', 'index')
+			AND name NOT LIKE 'sqlite_%'
+			AND NOT (
+				type = 'table' AND name IN ('__cf_kv', '_cf_KV')
+			)
 		ORDER BY type, name`,
 	);
 	if (objects.length === 0) {
