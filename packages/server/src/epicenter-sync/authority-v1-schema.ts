@@ -4,7 +4,7 @@ import {
 	StorageUpgradeRequiredError,
 } from '@epicenter/sqlite';
 
-export const AUTHORITY_V1_FORMAT_VERSION = 4;
+export const AUTHORITY_V1_FORMAT_VERSION = 5;
 
 export const AUTHORITY_V1_TABLES = [
 	'capture_manifest_records',
@@ -15,15 +15,26 @@ export const AUTHORITY_V1_TABLES = [
 	'replica_witness',
 ] as const;
 
-export const AUTHORITY_V1_INDEXES = [
-	'capture_manifests_one_active',
-	'records_address',
-	'records_capture_revision',
-	'records_sequence',
-] as const;
+export const AUTHORITY_V1_INDEXES = ['capture_manifests_one_active'] as const;
 
-export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
-	`CREATE TABLE meta (
+export type AuthorityV1CoreTableNames = {
+	meta: string;
+	records: string;
+	recordDocuments: string;
+};
+
+function quoteIdentifier(identifier: string): string {
+	return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+/** Build the exact core-table declarations for canonical or staging names. */
+export function authorityV1CoreSchemaStatements({
+	meta,
+	records,
+	recordDocuments,
+}: AuthorityV1CoreTableNames): readonly string[] {
+	return [
+		`CREATE TABLE ${quoteIdentifier(meta)} (
 		singleton          INTEGER PRIMARY KEY CHECK (singleton = 1),
 		format_version     INTEGER NOT NULL,
 		authority_lifetime TEXT NOT NULL,
@@ -32,7 +43,7 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 		next_capture_revision INTEGER NOT NULL
 			CHECK (next_capture_revision BETWEEN 1 AND 9007199254740992)
 	) STRICT`,
-	`CREATE TABLE records (
+		`CREATE TABLE ${quoteIdentifier(records)} (
 		record_id            INTEGER PRIMARY KEY,
 		namespace            TEXT NOT NULL,
 		collection           TEXT NOT NULL,
@@ -44,17 +55,16 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 		capture_revision     INTEGER NOT NULL
 			CHECK (capture_revision BETWEEN 1 AND 9007199254740991),
 		accepted_blob_sha256 TEXT,
+		UNIQUE (namespace, collection, record_key),
+		UNIQUE (sequence),
+		UNIQUE (capture_revision),
 		CHECK ((state = 'live' AND payload IS NOT NULL AND json_valid(payload))
 			OR (state IN ('tombstone', 'unset') AND payload IS NULL)),
 		CHECK (accepted_blob_sha256 IS NULL OR
 			(length(accepted_blob_sha256) = 64 AND
 			accepted_blob_sha256 NOT GLOB '*[^a-f0-9]*'))
 	) STRICT`,
-	`CREATE UNIQUE INDEX records_address
-		ON records(namespace, collection, record_key)`,
-	`CREATE UNIQUE INDEX records_sequence ON records(sequence)`,
-	`CREATE UNIQUE INDEX records_capture_revision ON records(capture_revision)`,
-	`CREATE TABLE record_documents (
+		`CREATE TABLE ${quoteIdentifier(recordDocuments)} (
 		chain_id   INTEGER PRIMARY KEY,
 		record_id  INTEGER NOT NULL,
 		seq        INTEGER NOT NULL CHECK (seq >= 1),
@@ -63,6 +73,17 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 		CHECK (kind = 'update' OR seq = 1),
 		UNIQUE (record_id, seq)
 	) STRICT`,
+	];
+}
+
+export const AUTHORITY_V1_CORE_SCHEMA_STATEMENTS =
+	authorityV1CoreSchemaStatements({
+		meta: 'meta',
+		records: 'records',
+		recordDocuments: 'record_documents',
+	});
+
+const AUTHORITY_V1_OPERATIONAL_STATE_STATEMENTS = [
 	`CREATE TABLE replica_witness (
 		replica_id        TEXT PRIMARY KEY
 			CHECK (length(replica_id) = 24 AND replica_id NOT GLOB '*[^a-z0-9]*'),
@@ -108,6 +129,20 @@ export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
 		ON capture_manifests ((1)) WHERE state IN ('building', 'sealed')`,
 ] as const;
 
+export const AUTHORITY_V1_SCHEMA_STATEMENTS = [
+	...AUTHORITY_V1_CORE_SCHEMA_STATEMENTS,
+	...AUTHORITY_V1_OPERATIONAL_STATE_STATEMENTS,
+] as const;
+
+/** Create empty retry/capture state around canonical core tables. */
+export function createAuthorityV1OperationalState(
+	database: SqliteDatabase,
+): void {
+	for (const statement of AUTHORITY_V1_OPERATIONAL_STATE_STATEMENTS) {
+		database.run(statement);
+	}
+}
+
 export function createAuthorityV1Schema(
 	database: SqliteDatabase,
 	authorityLifetime: string,
@@ -124,13 +159,57 @@ export function createAuthorityV1Schema(
 	);
 }
 
+function assertAuthorityV1RecordUniqueness(database: SqliteDatabase): void {
+	const indexes = database.all<
+		SqliteRow & {
+			name: string;
+			is_unique: number;
+			origin: string;
+			partial: number;
+		}
+	>(
+		`SELECT name, "unique" AS is_unique, origin, partial
+		FROM pragma_index_list('records')`,
+	);
+	const actual = indexes
+		.filter(
+			(index) =>
+				index.is_unique === 1 && index.origin === 'u' && index.partial === 0,
+		)
+		.map((index) =>
+			database
+				.all<SqliteRow & { seqno: number; name: string }>(
+					`SELECT seqno, name FROM pragma_index_info(?) ORDER BY seqno`,
+					[index.name],
+				)
+				.map((column) => column.name)
+				.join('\u0000'),
+		)
+		.sort();
+	const expected = [
+		'capture_revision',
+		'namespace\u0000collection\u0000record_key',
+		'sequence',
+	].sort();
+	if (
+		actual.length !== expected.length ||
+		actual.some((entry, index) => entry !== expected[index])
+	) {
+		throw new StorageUpgradeRequiredError(
+			'scalar V1 authority',
+			`records uniqueness does not match format ${AUTHORITY_V1_FORMAT_VERSION}`,
+		);
+	}
+}
+
 export function openAuthorityV1Schema(
 	database: SqliteDatabase,
 	initialize: { authorityLifetime: string } | undefined,
 ): void {
 	const objects = database.all<SqliteRow & { name: string; type: string }>(
 		`SELECT type, name FROM sqlite_schema
-		WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'
+		WHERE type IN ('table', 'index', 'view', 'trigger')
+			AND name NOT LIKE 'sqlite_%'
 		ORDER BY type, name`,
 	);
 	if (objects.length === 0) {
@@ -169,4 +248,5 @@ export function openAuthorityV1Schema(
 				: `format ${meta.format_version} is not supported`,
 		);
 	}
+	assertAuthorityV1RecordUniqueness(database);
 }
