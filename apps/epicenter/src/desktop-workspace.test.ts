@@ -9,15 +9,13 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateBlobId } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { defineTable } from '@epicenter/data';
+import { defineTable, defineValue } from '@epicenter/data';
 import {
 	type OpenDesktopEpicenterOptions,
 	openDesktopEpicenter,
 } from '@epicenter/data/desktop';
 import { field, InstantString } from '@epicenter/field';
-import { whisperingDefinitions } from '@epicenter/whispering/workspace-contract';
 import { BOOTSTRAP_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import { loadStaticAssets } from './static-assets.ts';
@@ -30,6 +28,17 @@ const TOKEN = 'desktop-data-test-token';
 const documentsTable = defineTable({
 	key: 'so.epicenter.tests.desktop-documents',
 	fields: { name: field.string(), updatedAt: field.instant() },
+});
+// Local pre-W4 stand-ins: the desktop runtime still speaks the old Data
+// surface until its own migration wave, while Whispering's real contract has
+// moved to the W4 Lens.
+const recordingsTable = defineTable({
+	key: 'so.epicenter.tests.desktop-recordings',
+	fields: { title: field.string(), transcript: field.string() },
+});
+const analyticsValue = defineValue({
+	key: 'so.epicenter.tests.desktop-analytics',
+	value: field.boolean(),
 });
 
 test('WebView surfaces share one replica and state survives restart', async () => {
@@ -44,23 +53,16 @@ test('WebView surfaces share one replica and state survives restart', async () =
 		);
 		const firstData = first.bind({
 			tables: {
-				recordings: whisperingDefinitions.tables.recordings,
+				recordings: recordingsTable,
 				documents: documentsTable,
 			},
 			values: {
-				analytics: whisperingDefinitions.values['analytics.enabled'],
+				analytics: analyticsValue,
 			},
 		});
 		const recording = await firstData.tables.recordings.create({
-			audioBlobId: generateBlobId(),
-			uploadedAt: null,
 			title: 'Shared recording',
-			recordedAt: InstantString.now(),
-			recordedAtZone: 'UTC',
 			transcript: 'Shared transcript',
-			polishedTranscript: null,
-			duration: null,
-			transcription: null,
 		});
 		expect(
 			(
@@ -87,7 +89,7 @@ test('WebView surfaces share one replica and state survives restart', async () =
 		// replica. There is no Device/Account or per-workspace adoption ceremony.
 		const second = await createClient(firstServer.origin, firstServer.fetch);
 		const secondData = second.bind({
-			tables: { recordings: whisperingDefinitions.tables.recordings },
+			tables: { recordings: recordingsTable },
 			values: {},
 		});
 		expect(
@@ -107,11 +109,11 @@ test('WebView surfaces share one replica and state survives restart', async () =
 			const client = await createClient(restarted.origin, restarted.fetch);
 			const data = client.bind({
 				tables: {
-					recordings: whisperingDefinitions.tables.recordings,
+					recordings: recordingsTable,
 					documents: documentsTable,
 				},
 				values: {
-					analytics: whisperingDefinitions.values['analytics.enabled'],
+					analytics: analyticsValue,
 				},
 			});
 			expect(
