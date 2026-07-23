@@ -12,6 +12,7 @@
 import { expect, test } from 'bun:test';
 
 import { DOCUMENT_BOUND } from '@epicenter/sync/document-v3';
+import * as Y from '@y/y';
 
 import { makeLimits } from '../protocol/v1/kernel.test-support.js';
 import {
@@ -26,7 +27,10 @@ import {
 } from './index.js';
 
 const limits = makeLimits();
-const payload = new Uint8Array([1, 2, 3]);
+const document = new Y.Doc({ gc: true });
+document.get('content').insert(0, 'valid');
+const payload = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+document.destroy();
 const request: DocumentPublicationRequest = {
 	authorityLifetime: 'lifetime-one',
 	address: {
@@ -41,14 +45,26 @@ const request: DocumentPublicationRequest = {
 
 test('document publication admission owns and validates exact binary bytes', () => {
 	const candidate = { ...request, payload: new Uint8Array(request.payload) };
+	const firstByte = candidate.payload[0];
 	const admitted = parseDocumentPublicationRequest(candidate, limits);
 	expect(admitted).toEqual(candidate);
 	expect(admitted?.payload).not.toBe(candidate.payload);
 	candidate.payload[0] = 9;
-	expect(admitted?.payload[0]).toBe(1);
+	expect(admitted?.payload[0]).toBe(firstByte);
 });
 
 test('document publication admission refuses mismatched integrity and hostile shapes', () => {
+	const malformed = new Uint8Array([1, 2, 3]);
+	expect(
+		parseDocumentPublicationRequest(
+			{
+				...request,
+				payload: malformed,
+				digest: documentPayloadDigest(malformed),
+			},
+			limits,
+		),
+	).toBeUndefined();
 	expect(
 		parseDocumentPublicationRequest(
 			{ ...request, digest: 'f'.repeat(64) },
