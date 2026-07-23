@@ -196,45 +196,35 @@ describe('record Epicenter Lens runtime', () => {
 		}
 	});
 
-	test('classified table pages preserve the owner cursor and bounded results', async () => {
+	test('one bind refuses contradictory collection kinds', async () => {
 		const context = setup();
 		try {
-			for (const [recordKey, value] of [
-				['a'.repeat(24), { title: 'A' }],
-				['b'.repeat(24), 'not-an-object'],
-				['c'.repeat(24), { title: 'C' }],
-			] as const) {
-				context.replica.localWrite({
-					address: {
-						namespace: notesLens.namespace,
-						collection: 'notes',
-						recordKey,
-					},
-					op: 'replace',
-					value,
-				});
-			}
-
-			const first = await context.data.notes.notes.page({ limit: 2 });
-			expect(first.nextAfter).toBe('b'.repeat(24));
-			expect(first.entries).toHaveLength(2);
-			expect(first.entries[0]).toMatchObject({
-				data: { id: 'a'.repeat(24), title: 'A' },
-				error: null,
+			const table = defineLens({
+				namespace: 'so.epicenter.collision',
+				title: 'Table',
+				description: 'Table interpretation.',
+				collections: {
+					shared: defineTable({
+						title: 'Shared',
+						fields: { title: field.string() },
+						optional: [],
+					}),
+				},
 			});
-			expect(first.entries[1]?.error).toMatchObject({
-				name: 'NonconformingRow',
-				id: 'b'.repeat(24),
+			const values = defineLens({
+				namespace: 'so.epicenter.collision',
+				title: 'Values',
+				description: 'Values interpretation.',
+				collections: {
+					shared: defineValues({
+						title: 'Shared',
+						values: { title: field.string() },
+					}),
+				},
 			});
-
-			const second = await context.data.notes.notes.page({
-				after: first.nextAfter,
-				limit: 2,
-			});
-			expect(second).toMatchObject({
-				entries: [{ data: { id: 'c'.repeat(24), title: 'C' }, error: null }],
-			});
-			expect(second.nextAfter).toBeUndefined();
+			expect(() => context.epicenter.bind({ table, values })).toThrow(
+				"cannot be both 'table' and 'values'",
+			);
 		} finally {
 			await context.epicenter[Symbol.asyncDispose]();
 			context.database.close();

@@ -1,6 +1,11 @@
 import { customAlphabet } from 'nanoid';
 
 import { openBunRecordOwner } from './bun-record-owner.js';
+import {
+	compileTableDefinition,
+	type LensDefinition,
+	parseLens,
+} from './lens.js';
 import type {
 	DesktopRecordBlobOperationSource,
 	DesktopRecordError,
@@ -132,6 +137,44 @@ export async function createDesktopRecordEpicenterOwner({
 	});
 	return Object.freeze({
 		...runtime,
+		inspectTablePage({
+			lens: authoredLens,
+			collection,
+			after,
+			limit,
+		}: {
+			lens: LensDefinition;
+			collection: string;
+			after?: string;
+			limit: number;
+		}) {
+			const parsed = parseLens(authoredLens);
+			if (parsed.error !== null) throw parsed.error;
+			const definition = parsed.data.collections[collection];
+			if (definition === undefined || definition.kind !== 'table') {
+				throw new Error(`Lens collection '${collection}' is not a table`);
+			}
+			const compiled = compileTableDefinition(definition, {
+				namespace: parsed.data.namespace,
+				collection,
+			});
+			const stored = opened.replica.visibleRecords(
+				parsed.data.namespace,
+				collection,
+				after,
+				limit,
+			);
+			return {
+				entries: stored.entries.flatMap((entry) =>
+					entry.record.state === 'live'
+						? [compiled.project(entry.address.recordKey, entry.record.payload)]
+						: [],
+				),
+				...(stored.nextAfter === undefined
+					? {}
+					: { nextAfter: stored.nextAfter }),
+			};
+		},
 		captureSnapshot: opened.captureSnapshot,
 		proposals: opened.proposals,
 		createProposal: opened.createProposal,

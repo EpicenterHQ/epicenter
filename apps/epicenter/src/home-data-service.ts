@@ -56,23 +56,9 @@ export type HomeDataCollectionPage = {
 };
 
 type HomeDataOwner = Pick<
-	DesktopRecordEpicenterOwner['epicenter'],
-	'attachment' | 'bind' | 'parkedWork' | 'syncStatus'
+	DesktopRecordEpicenterOwner,
+	'epicenter' | 'inspectTablePage'
 >;
-
-type TableResult =
-	| { data: Record<string, unknown>; error: null }
-	| {
-			data: null;
-			error: { id: string; raw: unknown; message: string };
-	  };
-
-type InspectableTable = {
-	page(options: {
-		after?: string;
-		limit: number;
-	}): Promise<{ entries: TableResult[]; nextAfter?: string }>;
-};
 
 type ValueResult =
 	| { data: unknown; error: null }
@@ -119,7 +105,7 @@ export function createHomeDataService({
 		if (definition === undefined) {
 			throw new Error(`Lens '${lensId}' has no collection '${collectionKey}'`);
 		}
-		const bound = owner.bind({ selected: lens }).selected as Record<
+		const bound = owner.epicenter.bind({ selected: lens }).selected as Record<
 			string,
 			unknown
 		>;
@@ -128,10 +114,10 @@ export function createHomeDataService({
 
 	return {
 		async overview(): Promise<HomeDataOverview> {
-			const status = owner.syncStatus;
+			const status = owner.epicenter.syncStatus;
 			return {
 				lenses: structuredClone(catalog),
-				attachment: structuredClone(owner.attachment),
+				attachment: structuredClone(owner.epicenter.attachment),
 				sync: {
 					state: status.state,
 					work: structuredClone(status.work),
@@ -147,7 +133,7 @@ export function createHomeDataService({
 								},
 							}),
 				},
-				parked: await owner.parkedWork(),
+				parked: await owner.epicenter.parkedWork(),
 			};
 		},
 
@@ -167,7 +153,9 @@ export function createHomeDataService({
 			}
 			const { definition, collection } = selected(lensId, collectionKey);
 			if (definition.kind === 'table') {
-				const page = await (collection as InspectableTable).page({
+				const page = owner.inspectTablePage({
+					lens: lenses[lensId],
+					collection: collectionKey,
 					...(after === undefined ? {} : { after }),
 					limit,
 				});

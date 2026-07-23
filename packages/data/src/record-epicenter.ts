@@ -48,11 +48,6 @@ export type RecordTableScan<TDefinition extends TableDefinition> = {
 	nonconforming: NonconformingRowError[];
 };
 
-export type RecordTablePage<TDefinition extends TableDefinition> = {
-	entries: RecordTableEntry<TDefinition>[];
-	nextAfter?: string;
-};
-
 export type RecordTableEntry<TDefinition extends TableDefinition> = Result<
 	RowFor<TDefinition>,
 	NonconformingRowError
@@ -84,10 +79,6 @@ export type RecordTableLens<
 	): Promise<Result<RowFor<TDefinition> | undefined, NonconformingRowError>>;
 	delete(id: string): Promise<boolean>;
 	scan(): Promise<RecordTableScan<TDefinition>>;
-	page(options?: {
-		after?: string;
-		limit?: number;
-	}): Promise<RecordTablePage<TDefinition>>;
 	entries(): AsyncIterable<RecordTableEntry<TDefinition>>;
 	subscribe(listener: (changedIds: string[]) => void): () => void;
 	openDocument(recordId: string): Promise<RowDocument>;
@@ -291,12 +282,28 @@ export function createRecordLensRuntime<
 		lenses: TLenses,
 	): BoundLenses<TLenses, TSource, TRead, TCreateSource> {
 		requireOpen();
-		const bound = Object.fromEntries(
-			Object.entries(lenses).map(([property, authoredLens]) => {
+		const collectionKinds = new Map<string, 'table' | 'values'>();
+		const parsedLenses = Object.entries(lenses).map(
+			([property, authoredLens]) => {
 				const parsed = parseLens(authoredLens);
 				if (parsed.error !== null) throw parsed.error;
-				return [property, bindLens(parsed.data)];
-			}),
+				for (const [collection, definition] of Object.entries(
+					parsed.data.collections,
+				)) {
+					const key = collectionKey(parsed.data.namespace, collection);
+					const previous = collectionKinds.get(key);
+					if (previous !== undefined && previous !== definition.kind) {
+						throw new Error(
+							`Lens collection '${parsed.data.namespace}/${collection}' cannot be both '${previous}' and '${definition.kind}'`,
+						);
+					}
+					collectionKinds.set(key, definition.kind);
+				}
+				return [property, parsed.data] as const;
+			},
+		);
+		const bound = Object.fromEntries(
+			parsedLenses.map(([property, lens]) => [property, bindLens(lens)]),
 		);
 		return Object.freeze(bound) as BoundLenses<
 			TLenses,
@@ -363,32 +370,6 @@ export function createRecordLensRuntime<
 			} while (after !== undefined);
 		}
 
-		async function page({
-			after,
-			limit = ENTRIES_PAGE_SIZE,
-		}: {
-			after?: string;
-			limit?: number;
-		} = {}): Promise<RecordTablePage<TDefinition>> {
-			const stored = await access.readPage(namespace, collection, after, limit);
-			const projected: RecordTableEntry<TDefinition>[] = [];
-			for (const entry of stored.entries) {
-				if (entry.record.state !== 'live') continue;
-				projected.push(
-					compiled.project(
-						entry.address.recordKey,
-						entry.record.payload,
-					) as RecordTableEntry<TDefinition>,
-				);
-			}
-			return {
-				entries: projected,
-				...(stored.nextAfter === undefined
-					? {}
-					: { nextAfter: stored.nextAfter }),
-			};
-		}
-
 		const blob: RecordBlobLens<TSource, TRead> = Object.freeze({
 			async put(recordId, source) {
 				requireOpen();
@@ -427,7 +408,6 @@ export function createRecordLensRuntime<
 				);
 				// Native capture replay can return a record admitted before a WebView
 				// reload. Read the owner's durable payload instead of projecting the
-				// retried create input as though it had won again.
 				const stored = await access.read(address(id));
 				const projected = compiled.project(
 					id,
@@ -468,7 +448,6 @@ export function createRecordLensRuntime<
 				}
 				return { rows, nonconforming };
 			},
-			page,
 			entries,
 			subscribe(listener: (changedIds: string[]) => void) {
 				requireOpen();

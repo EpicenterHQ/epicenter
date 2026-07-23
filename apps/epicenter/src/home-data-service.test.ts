@@ -40,7 +40,7 @@ test('Home pages live Lens data and reports owner work without SQL', async () =>
 	const directory = await mkdtemp(join(tmpdir(), 'epicenter-home-data-'));
 	const owner = await createDesktopRecordEpicenterOwner({ directory });
 	const data = createHomeDataService({
-		owner: owner.epicenter,
+		owner,
 		lenses: { chat: lens, honeycrisp: lens, whispering: lens },
 	});
 	try {

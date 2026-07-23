@@ -107,7 +107,7 @@ async function main(): Promise<void> {
 			},
 		});
 		const dataInspection = createHomeDataService({
-			owner: recordOwner.epicenter,
+			owner: recordOwner,
 			lenses: {
 				chat: chatLens,
 				honeycrisp: honeycrispLens,
