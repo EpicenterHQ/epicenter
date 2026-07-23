@@ -163,24 +163,6 @@ function authorityLifetimeOf(database: SqliteDatabase): string {
 	return meta.authority_lifetime;
 }
 
-function refusalOf(row: RecordRow): DocumentRefusalEvidence {
-	if (
-		row.document_refused_revision === null ||
-		row.document_refused_bytes === null ||
-		row.document_refused_structs === null
-	) {
-		throw new Error('document refusal evidence is corrupt');
-	}
-	return {
-		revision: row.document_refused_revision,
-		measured: {
-			stateBytes: row.document_refused_bytes,
-			stateStructs: row.document_refused_structs,
-		},
-		limit: DOCUMENT_BOUND,
-	};
-}
-
 /**
  * Record-owned bounded document chains and publication watermarks.
  *
@@ -315,17 +297,11 @@ export function createReplicaDocumentStore(
 		}
 	}
 
-	function publication(
-		address: RecordAddress,
-		authorityStateVector?: Uint8Array,
-	): DocumentPublicationState {
+	function publication(address: RecordAddress): DocumentPublicationState {
 		return database.transaction(() => {
 			const row = requireDocumentOwner(database, address);
 			if (row.document_revision <= row.document_accepted_revision) {
 				return { kind: 'settled' };
-			}
-			if (row.document_refused_revision !== null) {
-				return { kind: 'refused', refusal: refusalOf(row) };
 			}
 			const authorityLifetime = authorityLifetimeOf(database);
 			const chain = chainFor(database, row.record_id);
@@ -354,12 +330,10 @@ export function createReplicaDocumentStore(
 						},
 					};
 				}
-				// The authority state vector is a transfer hint only: it shrinks the
-				// payload but never clears the obligation, so a delete-only update
-				// still publishes when state vectors match.
-				const payload = new Uint8Array(
-					Y.encodeStateAsUpdateV2(document, authorityStateVector),
-				);
+				// Publication always carries the complete compact state. A state vector
+				// that is stale, guessed, or obtained from another authority cannot omit
+				// local structs and then turn the resulting digest into settlement proof.
+				const payload = encodedState;
 				return {
 					kind: 'ready',
 					publication: {
@@ -417,6 +391,16 @@ export function createReplicaDocumentStore(
 				// A refusal binds the captured revision. A racing local edit already
 				// superseded it, so obsolete refusals are dropped, not recorded.
 				if (row.document_revision !== captured.revision) return;
+				const document = hydrate(chainFor(database, row.record_id));
+				let currentDigest: string;
+				try {
+					currentDigest = documentPayloadDigest(
+						new Uint8Array(Y.encodeStateAsUpdateV2(document)),
+					);
+				} finally {
+					document.destroy();
+				}
+				if (currentDigest !== captured.digest) return;
 				database.run(
 					`UPDATE records SET
 						document_refused_revision = ?,

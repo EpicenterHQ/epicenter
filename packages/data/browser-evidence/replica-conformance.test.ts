@@ -227,9 +227,6 @@ function createDriver(readPage: () => Page | undefined) {
 				return {
 					kind: 'document-publication',
 					address: action.address,
-					...(action.stateVector === undefined
-						? {}
-						: { stateVector: action.stateVector }),
 				};
 			case 'settle-publication':
 				return {
