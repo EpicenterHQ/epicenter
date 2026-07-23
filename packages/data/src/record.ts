@@ -21,6 +21,12 @@ export {
 	type ValuesDefinition,
 } from './lens.js';
 export type {
+	ProposalManifest,
+	ProposalManifestEntry,
+	ProposalSelection,
+	ProposalSourceRecord,
+} from './proposal-artifact.js';
+export type {
 	JsonObject,
 	JsonValue,
 	RecordAddress,
