@@ -12,6 +12,7 @@ export {
 } from './document-store.js';
 export {
 	type CaptureReplicaSnapshotOptions,
+	type FencedLocalWrite,
 	type FirstAttachmentChoice,
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
@@ -21,6 +22,7 @@ export {
 	type ReplicaParkedWork,
 	type ReplicaParkedWorkPage,
 	type ReplicaRecordLanes,
+	type ReplicaSourceFence,
 	type ReplicaStore,
 	type ReplicaStoreSync,
 	type ReplicaVisibleRecord,

@@ -42,6 +42,109 @@ function userSchemaObjects(database: Database): string[] {
 }
 
 describe('production replica store format', () => {
+	test('admits Proposal writes only through their source-fenced ordinary lane', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			const sourceFence = store.sync();
+			database.run(
+				`INSERT INTO records (
+					namespace, collection, record_key,
+					confirmed_state, confirmed_payload, confirmed_sequence,
+					parked_op, parked_args, parked_code, parked_measured, parked_limit
+				) VALUES (?, ?, ?, 'live', ?, 1, 'patch', ?, 'fact-too-large', 10, 9)`,
+				[
+					ADDRESS.namespace,
+					ADDRESS.collection,
+					ADDRESS.recordKey,
+					'{"title":"before"}',
+					'{"set":{"title":"after"},"unset":[]}',
+				],
+			);
+			expect(store.visible(ADDRESS)).toEqual({
+				state: 'live',
+				payload: { title: 'after' },
+			});
+
+			store.admitFencedLocalWrite({
+				sourceFence,
+				intent: {
+					address: ADDRESS,
+					op: 'patch',
+					set: { title: 'after' },
+					unset: [],
+				},
+			});
+
+			expect(store.record(ADDRESS)).toMatchObject({
+				parked: null,
+				pending: {
+					op: 'patch',
+					set: { title: 'after' },
+					unset: [],
+				},
+			});
+			expect(() =>
+				store.admitFencedLocalWrite({
+					sourceFence: { ...sourceFence, authorityLifetime: 'restored' },
+					intent: { address: ADDRESS, op: 'unset' },
+				}),
+			).toThrow(/source fence/);
+			expect(store.record(ADDRESS)?.pending?.op).toBe('patch');
+		} finally {
+			database.close();
+		}
+	});
+
+	test('converges Proposal creation retries and refuses occupied keys', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			const sourceFence = store.sync();
+			const creation = {
+				sourceFence,
+				expectAbsent: true,
+				intent: {
+					address: ADDRESS,
+					op: 'replace' as const,
+					value: { title: 'created' },
+				},
+			};
+			store.admitFencedLocalWrite(creation);
+			store.admitFencedLocalWrite(creation);
+			expect(store.record(ADDRESS)?.pending).toEqual({
+				op: 'replace',
+				value: { title: 'created' },
+			});
+			expect(() =>
+				store.admitFencedLocalWrite({
+					...creation,
+					intent: { ...creation.intent, value: { title: 'collision' } },
+				}),
+			).toThrow(/key collision/);
+
+			store.localWrite({ address: ADDRESS, op: 'tombstone' });
+			store.admitFencedLocalWrite(creation);
+			expect(store.record(ADDRESS)?.pending).toEqual({ op: 'tombstone' });
+		} finally {
+			database.close();
+		}
+	});
+
 	test('projects visible state through sealed and pending lanes', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {

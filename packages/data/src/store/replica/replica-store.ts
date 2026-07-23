@@ -96,6 +96,17 @@ export type ReplicaStoreSync = {
 	nextSubmission: number;
 };
 
+export type ReplicaSourceFence = Pick<
+	ReplicaStoreSync,
+	'replicaId' | 'authorityLifetime'
+>;
+
+export type FencedLocalWrite = {
+	sourceFence: ReplicaSourceFence;
+	intent: Intent;
+	expectAbsent?: boolean;
+};
+
 export type ReplicaAttachment = {
 	deploymentId: string;
 	principalId: string;
@@ -872,90 +883,144 @@ export function openReplicaStore({
 		return { bytes: meta.sealed_request, hash: meta.sealed_request_hash };
 	}
 
+	function writeLocalIntent(intent: Intent): void {
+		const row = readRecord(database, intent.address);
+		const operation = intentOperation(intent);
+		if (row === null) {
+			database.run(
+				`INSERT INTO records (
+					namespace, collection, record_key, pending_op, pending_args
+				) VALUES (?, ?, ?, ?, ?)`,
+				[
+					...tripleParams(intent.address),
+					operation.op,
+					operationArgs(operation),
+				],
+			);
+			return;
+		}
+		if (
+			row.confirmed_state === 'tombstone' ||
+			row.sealed_op === 'tombstone' ||
+			row.pending_op === 'tombstone'
+		) {
+			throw new Error('local write over a tombstone');
+		}
+
+		const older =
+			row.parked_op !== null
+				? decodeOperation(row.parked_op, row.parked_args)
+				: row.pending_op !== null
+					? decodeOperation(row.pending_op, row.pending_args)
+					: undefined;
+		const outcome =
+			older === undefined
+				? { kind: 'composed' as const, operation }
+				: composeOperations(older, operation);
+		if (outcome.kind === 'refused') {
+			throw new Error(`local compaction refused: ${outcome.code}`);
+		}
+		database.run(
+			row.parked_op === null
+				? `UPDATE records SET pending_op = ?, pending_args = ?
+					WHERE ${TRIPLE_WHERE}`
+				: `UPDATE records SET pending_op = ?, pending_args = ?,
+					parked_op = NULL, parked_args = NULL, parked_code = NULL,
+					parked_measured = NULL, parked_limit = NULL
+					WHERE ${TRIPLE_WHERE}`,
+			[
+				outcome.operation.op,
+				operationArgs(outcome.operation),
+				...tripleParams(intent.address),
+			],
+		);
+		if (outcome.operation.op === 'tombstone') {
+			database.run(
+				`UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
+					blob_parked_code = NULL,
+					doc_revision = 0, doc_dirty = 0
+				WHERE ${TRIPLE_WHERE}`,
+				tripleParams(intent.address),
+			);
+			database.run(
+				`DELETE FROM record_documents WHERE record_id =
+					(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+				tripleParams(intent.address),
+			);
+			database.run(
+				`DELETE FROM document_inflight WHERE record_id =
+					(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+				tripleParams(intent.address),
+			);
+		}
+		if (
+			outcome.operation.op === 'patch' ||
+			outcome.operation.op === 'replace'
+		) {
+			database.run(
+				`DELETE FROM document_inflight
+					WHERE parked_code = 'record-not-live' AND record_id =
+						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
+				tripleParams(intent.address),
+			);
+		}
+	}
+
 	function localWrite(rawIntent: Intent): void {
 		const { data: intent, error } = parseIntent(rawIntent, limits);
 		if (error !== null) throw new Error(error.message);
+		database.transaction(() => writeLocalIntent(intent));
+		notify([intent.address]);
+	}
+
+	/**
+	 * Admit one Proposal manifest change without creating a second durable lane.
+	 * The source check and ordinary local write share one SQLite transaction so
+	 * Restore or replica remint cannot enter between them.
+	 */
+	function admitFencedLocalWrite({
+		sourceFence,
+		intent: rawIntent,
+		expectAbsent = false,
+	}: FencedLocalWrite): void {
+		const { data: intent, error } = parseIntent(rawIntent, limits);
+		if (error !== null) throw new Error(error.message);
+		if (expectAbsent && intent.op !== 'replace') {
+			throw new Error('Proposal creation must be a replace');
+		}
+		const expectedCreation =
+			expectAbsent && intent.op === 'replace'
+				? canonicalize(intent.value)
+				: undefined;
 		database.transaction(() => {
+			const meta = readMeta(database);
+			if (
+				meta.replica_id !== sourceFence.replicaId ||
+				meta.authority_lifetime !== sourceFence.authorityLifetime
+			) {
+				throw new Error('Proposal source fence does not match this replica');
+			}
 			const row = readRecord(database, intent.address);
-			const operation = intentOperation(intent);
 			if (row === null) {
-				database.run(
-					`INSERT INTO records (
-						namespace, collection, record_key, pending_op, pending_args
-					) VALUES (?, ?, ?, ?, ?)`,
-					[
-						...tripleParams(intent.address),
-						operation.op,
-						operationArgs(operation),
-					],
-				);
+				writeLocalIntent(intent);
 				return;
 			}
-			if (
+			const terminal =
 				row.confirmed_state === 'tombstone' ||
 				row.sealed_op === 'tombstone' ||
-				row.pending_op === 'tombstone'
-			) {
-				throw new Error('local write over a tombstone');
+				row.pending_op === 'tombstone';
+			if (terminal) return;
+			if (expectedCreation !== undefined) {
+				const current = visibleOf(intent.address, lanesOf(row));
+				if (
+					current?.state === 'live' &&
+					canonicalize(current.payload) === expectedCreation
+				) {
+					return;
+				}
+				throw new Error('Proposal-created record key collision');
 			}
-
-			const older =
-				row.parked_op !== null
-					? decodeOperation(row.parked_op, row.parked_args)
-					: row.pending_op !== null
-						? decodeOperation(row.pending_op, row.pending_args)
-						: undefined;
-			const outcome =
-				older === undefined
-					? { kind: 'composed' as const, operation }
-					: composeOperations(older, operation);
-			if (outcome.kind === 'refused') {
-				throw new Error(`local compaction refused: ${outcome.code}`);
-			}
-			database.run(
-				row.parked_op === null
-					? `UPDATE records SET pending_op = ?, pending_args = ?
-						WHERE ${TRIPLE_WHERE}`
-					: `UPDATE records SET pending_op = ?, pending_args = ?,
-						parked_op = NULL, parked_args = NULL, parked_code = NULL,
-						parked_measured = NULL, parked_limit = NULL
-						WHERE ${TRIPLE_WHERE}`,
-				[
-					outcome.operation.op,
-					operationArgs(outcome.operation),
-					...tripleParams(intent.address),
-				],
-			);
-			if (outcome.operation.op === 'tombstone') {
-				database.run(
-					`UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
-						blob_parked_code = NULL,
-						doc_revision = 0, doc_dirty = 0
-					WHERE ${TRIPLE_WHERE}`,
-					tripleParams(intent.address),
-				);
-				database.run(
-					`DELETE FROM record_documents WHERE record_id =
-						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-					tripleParams(intent.address),
-				);
-				database.run(
-					`DELETE FROM document_inflight WHERE record_id =
-						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-					tripleParams(intent.address),
-				);
-			}
-			if (
-				outcome.operation.op === 'patch' ||
-				outcome.operation.op === 'replace'
-			) {
-				database.run(
-					`DELETE FROM document_inflight
-						WHERE parked_code = 'record-not-live' AND record_id =
-							(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-					tripleParams(intent.address),
-				);
-			}
+			writeLocalIntent(intent);
 		});
 		notify([intent.address]);
 	}
@@ -1385,6 +1450,7 @@ export function openReplicaStore({
 		sync,
 		sealedRequest,
 		localWrite,
+		admitFencedLocalWrite,
 		admitLocalRecordWithBlob,
 		seal,
 		reconstructSealedRequest,
