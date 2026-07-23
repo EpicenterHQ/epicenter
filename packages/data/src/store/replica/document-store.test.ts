@@ -180,7 +180,8 @@ describe('record document store', () => {
 			});
 
 			const newer = context.store.documentPublication(ADDRESS);
-			if (newer.kind !== 'ready') throw new Error('newer publication not ready');
+			if (newer.kind !== 'ready')
+				throw new Error('newer publication not ready');
 			expect(newer.publication.capturedRevision).toBe(2);
 			context.store.settleDocumentPublication(
 				ADDRESS,
@@ -397,6 +398,49 @@ describe('record document store', () => {
 				),
 			).toThrow(/captured attempt/);
 			expect(context.store.inspectDocument(ADDRESS)?.owed).toBe(true);
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('a valid receipt from the replaced authority lifetime cannot settle successor work', () => {
+		const context = setup();
+		try {
+			const [update] = sourceUpdates('same bytes across lifetimes');
+			if (update === undefined) throw new Error('missing source update');
+			context.store.appendLocalDocumentUpdate(ADDRESS, update);
+			const oldAttempt = context.store.documentPublication(ADDRESS);
+			if (oldAttempt.kind !== 'ready') throw new Error('publication not ready');
+			const oldReceipt = receipt(oldAttempt.publication);
+
+			context.store.erase();
+			context.store.installFacts({
+				request: { afterSequence: 0 },
+				response: {
+					authorityLifetime: 'lifetime-two',
+					facts: [
+						{ address: ADDRESS, sequence: 1, state: 'live', payload: {} },
+					],
+					hasMore: false,
+				},
+			});
+			context.store.appendLocalDocumentUpdate(ADDRESS, update);
+			const successorAttempt = context.store.documentPublication(ADDRESS);
+			if (successorAttempt.kind !== 'ready') {
+				throw new Error('successor publication not ready');
+			}
+			expect(successorAttempt.publication.digest).toBe(oldReceipt.digest);
+			expect(() =>
+				context.store.settleDocumentPublication(
+					ADDRESS,
+					oldReceipt,
+					capturedOf(successorAttempt.publication),
+				),
+			).toThrow(/lifetime mismatch/);
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				acceptedRevision: 0,
+				owed: true,
+			});
 		} finally {
 			context.database.close();
 		}
