@@ -157,7 +157,11 @@ export async function openBrowserReplicaOwner({
 	let pool: SAHPoolUtil | undefined;
 	let database: Database | undefined;
 	let ownerGeneration: number | undefined;
+	let stopInvalidationSources = () => undefined;
 	const lifetime = createBrowserReplicaOwnerLifetime({
+		stopSources() {
+			stopInvalidationSources();
+		},
 		closeDatabase() {
 			const opened = database;
 			database = undefined;
@@ -218,6 +222,28 @@ export async function openBrowserReplicaOwner({
 			stopRecords = openedStores.store.subscribe(notifyInvalidation);
 			stopBlobs = openedStores.blobs.subscribe(notifyInvalidation);
 		}
+		stopInvalidationSources = () => {
+			const failures: unknown[] = [];
+			const records = stopRecords;
+			stopRecords = undefined;
+			const blobs = stopBlobs;
+			stopBlobs = undefined;
+			invalidationListeners.clear();
+			for (const stop of [records, blobs]) {
+				try {
+					stop?.();
+				} catch (cause) {
+					failures.push(cause);
+				}
+			}
+			if (failures.length === 1) throw failures[0];
+			if (failures.length > 1) {
+				throw new AggregateError(
+					failures,
+					'Browser replica invalidation cleanup failed',
+				);
+			}
+		};
 		bindInvalidationSources();
 		await openedStores.blobs.reopenSweep();
 		lifetime.activate();
@@ -305,11 +331,7 @@ export async function openBrowserReplicaOwner({
 				lifetime.requireActive();
 			},
 			async dispose(): Promise<void> {
-				stopRecords?.();
-				stopRecords = undefined;
-				stopBlobs?.();
-				stopBlobs = undefined;
-				invalidationListeners.clear();
+				stopInvalidationSources();
 				await lifetime.dispose();
 			},
 		};

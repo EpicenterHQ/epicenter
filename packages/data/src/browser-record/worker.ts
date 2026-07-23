@@ -769,10 +769,15 @@ export function startBrowserRecordCandidateWorker(
 					generation,
 				);
 			} catch (cause) {
-				const error = serializeError(cause);
 				respond(
 					candidate,
-					{ type: 'error', id: request.id, ...error },
+					ownerSession === session && ownerGeneration === generation
+						? {
+								type: 'error',
+								id: request.id,
+								...serializeError(cause),
+							}
+						: ownerLostMessage(request.id),
 					session,
 					generation,
 				);
@@ -988,17 +993,17 @@ export function startBrowserRecordCandidateWorker(
 		}
 	}
 
-	async function loseLocalOwner(): Promise<void> {
+	function beginLocalOwnerLoss() {
 		const lostSession = ownerSession;
 		const lostGeneration = ownerGeneration;
 		const opened = owner;
+		const drain = ownerTail;
 		authorityRelay?.dispose();
 		authorityRelay = undefined;
 		isOwnerSyncAttached = false;
 		owner = undefined;
 		ownerSession = undefined;
 		ownerGeneration = undefined;
-		await ownerTail;
 		if (
 			lostSession !== undefined &&
 			lostGeneration !== undefined &&
@@ -1006,22 +1011,29 @@ export function startBrowserRecordCandidateWorker(
 			currentGeneration === lostGeneration
 		)
 			currentSession = undefined;
-		if (lostSession !== undefined && lostGeneration !== undefined) {
-			for (const request of localRequests.values()) {
-				respond(
-					request.candidate,
-					ownerLostMessage(request.id),
-					lostSession,
-					lostGeneration,
-				);
-			}
+		let stopEvents: Promise<unknown> | undefined;
+		try {
+			stopEvents = opened?.stopEvents().then(
+				() => undefined,
+				(cause) => cause,
+			);
+		} catch (cause) {
+			stopEvents = Promise.resolve(cause);
 		}
+		return { opened, drain, stopEvents };
+	}
+
+	async function finishLocalOwnerLoss({
+		opened,
+		drain,
+		stopEvents,
+	}: ReturnType<typeof beginLocalOwnerLoss>): Promise<void> {
+		await drain;
 		if (opened === undefined) return;
 		const failures: unknown[] = [];
-		for (const cleanup of [
-			() => opened.stopEvents(),
-			() => opened.owner[Symbol.asyncDispose](),
-		]) {
+		const stopEventsFailure = await stopEvents;
+		if (stopEventsFailure !== undefined) failures.push(stopEventsFailure);
+		for (const cleanup of [() => opened.owner[Symbol.asyncDispose]()]) {
 			try {
 				await cleanup();
 			} catch (cause) {
@@ -1039,9 +1051,10 @@ export function startBrowserRecordCandidateWorker(
 
 	function scheduleOwnerLoss(): void {
 		if (isClosed) return;
+		const loss = beginLocalOwnerLoss();
 		lossTransition = lossTransition.then(async () => {
 			try {
-				await loseLocalOwner();
+				await finishLocalOwnerLoss(loss);
 			} catch (cause) {
 				lifecycleFailures.push(cause);
 				log.error(

@@ -23,10 +23,12 @@ function ownerLostError(failures: readonly unknown[]): Error {
 
 /** Own the terminal transition between one Web Lock and its SQLite resources. */
 export function createBrowserReplicaOwnerLifetime({
+	stopSources,
 	closeDatabase,
 	pauseVfs,
 	releaseLease,
 }: {
+	stopSources(): void;
 	closeDatabase(): void;
 	pauseVfs(): void;
 	releaseLease(): Promise<void>;
@@ -36,7 +38,7 @@ export function createBrowserReplicaOwnerLifetime({
 	const physicalCleanupFailures: unknown[] = [];
 
 	function closePhysicalOwner(): void {
-		for (const stage of [closeDatabase, pauseVfs]) {
+		for (const stage of [stopSources, closeDatabase, pauseVfs]) {
 			try {
 				stage();
 			} catch (cause) {

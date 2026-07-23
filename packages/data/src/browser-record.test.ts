@@ -1320,6 +1320,34 @@ test('owner loss fails a follower mutation and never replays it', async () => {
 	}
 });
 
+test('owner loss masks an interrupted storage error with the stable fence', async () => {
+	let context: ReturnType<typeof setup>;
+	context = setup({
+		afterLocalWrite() {
+			context.steal();
+			throw new Error('sentinel-storage-error');
+		},
+	});
+	const tab = await context.openTab();
+	try {
+		let failure: unknown;
+		try {
+			await bindNotes(tab).notes.create({ title: 'ambiguous failure' });
+		} catch (cause) {
+			failure = cause;
+		}
+		expect(failure).toMatchObject({
+			name: 'EpicenterBrowserOwnerLostError',
+		});
+		expect(String(failure)).not.toContain('sentinel-storage-error');
+		await Bun.sleep(30);
+		expect(context.localWriteCount).toBe(1);
+	} finally {
+		await tab[Symbol.asyncDispose]().catch(() => undefined);
+		await context.dispose();
+	}
+});
+
 test('immediate document and page disposal drains admitted document updates', async () => {
 	const context = setup();
 	const first = await context.openTab();
@@ -1507,6 +1535,10 @@ test('owner loss drains an admitted blob capture before disposing storage', asyn
 	await captureStarted.promise;
 	context.steal();
 	await Bun.sleep(20);
+	expect(context.cleanupCounts.records).toBe(1);
+	expect(context.cleanupCounts.blobs).toBe(1);
+	expect(context.cleanupCounts.status).toBe(1);
+	expect(context.disposeCount).toBe(0);
 	let disposalObserved = false;
 	void disposalStarted.promise.then(() => {
 		disposalObserved = true;

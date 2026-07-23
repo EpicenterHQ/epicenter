@@ -16,9 +16,15 @@ import { createBrowserReplicaOwnerLifetime } from './browser-owner-lifetime.js';
 function setup({ activate = true }: { activate?: boolean } = {}) {
 	const events: string[] = [];
 	let isDatabaseOpen = true;
+	let areSourcesActive = true;
 	let isVfsPaused = false;
 	let isLeaseReleased = false;
 	const lifetime = createBrowserReplicaOwnerLifetime({
+		stopSources() {
+			if (!areSourcesActive) return;
+			areSourcesActive = false;
+			events.push('sources-stopped');
+		},
 		closeDatabase() {
 			if (!isDatabaseOpen) return;
 			isDatabaseOpen = false;
@@ -40,7 +46,7 @@ function setup({ activate = true }: { activate?: boolean } = {}) {
 		events,
 		lifetime,
 		enterReplacementOwner() {
-			if (isDatabaseOpen || !isVfsPaused) {
+			if (areSourcesActive || isDatabaseOpen || !isVfsPaused) {
 				throw new Error('Previous physical owner is still active');
 			}
 			events.push('replacement-entered');
@@ -53,7 +59,7 @@ test('owner loss closes SQLite and pauses the VFS before returning', () => {
 
 	lifetime.ownerLost();
 
-	expect(events).toEqual(['database-closed', 'vfs-paused']);
+	expect(events).toEqual(['sources-stopped', 'database-closed', 'vfs-paused']);
 	expect(() => lifetime.requireActive()).toThrow(
 		'Browser replica storage moved to a newer owner',
 	);
@@ -74,6 +80,7 @@ test('replacement physical storage stays blocked until loss cleanup pauses the V
 	enterReplacementOwner();
 
 	expect(events).toEqual([
+		'sources-stopped',
 		'database-closed',
 		'vfs-paused',
 		'replacement-entered',
@@ -90,7 +97,12 @@ test('disposal releases a lost lease once and preserves terminal loss', async ()
 	await lifetime.dispose();
 	await lifetime.dispose();
 
-	expect(events).toEqual(['database-closed', 'vfs-paused', 'lease-released']);
+	expect(events).toEqual([
+		'sources-stopped',
+		'database-closed',
+		'vfs-paused',
+		'lease-released',
+	]);
 	expect(() => lifetime.requireActive()).toThrow(
 		'Browser replica storage moved to a newer owner',
 	);
