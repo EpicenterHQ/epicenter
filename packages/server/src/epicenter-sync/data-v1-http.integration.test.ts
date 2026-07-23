@@ -235,8 +235,11 @@ test('scalar, document, and blob state converge through one authority and tombst
 		if (documentAcceptance.kind !== 'accepted') {
 			throw new Error('authority refused the bounded document');
 		}
-		first.store.settleDocumentPublication(ADDRESS, documentAcceptance.receipt);
-		expect(first.store.inspectDocument(ADDRESS)?.dirty).toBe(false);
+		first.store.settleDocumentPublication(ADDRESS, documentAcceptance.receipt, {
+			revision: document.publication.capturedRevision,
+			digest: document.publication.digest,
+		});
+		expect(first.store.inspectDocument(ADDRESS)?.owed).toBe(false);
 
 		const blob = await first.blobs.publication(ADDRESS);
 		if (blob === null) throw new Error('blob publication was not ready');
