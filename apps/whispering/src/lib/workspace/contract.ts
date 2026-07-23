@@ -8,7 +8,7 @@ import {
 import { field } from '@epicenter/field';
 import { Type } from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
-import { RECORDING_TRIGGERS } from '../constants/audio/recording-triggers';
+import { RECORDING_TRIGGERS } from '../constants/audio/recording-trigger-vocabulary.js';
 import { INFERENCE_PROVIDER_IDS } from '../constants/inference-provider-ids';
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
 import { TRANSCRIPTION_SERVICE_IDS } from '../services/transcription/provider-ids';

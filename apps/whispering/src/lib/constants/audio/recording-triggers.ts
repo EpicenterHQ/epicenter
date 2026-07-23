@@ -10,9 +10,12 @@
 import EarIcon from '@lucide/svelte/icons/ear';
 import MicIcon from '@lucide/svelte/icons/mic';
 import type { Component } from 'svelte';
+import {
+	RECORDING_TRIGGERS,
+	type RecordingTrigger,
+} from './recording-trigger-vocabulary.js';
 
-export const RECORDING_TRIGGERS = ['manual', 'vad'] as const;
-export type RecordingTrigger = (typeof RECORDING_TRIGGERS)[number];
+export { RECORDING_TRIGGERS, type RecordingTrigger };
 
 /**
  * Everything that varies per trigger, defined once. `satisfies Record<...>`
