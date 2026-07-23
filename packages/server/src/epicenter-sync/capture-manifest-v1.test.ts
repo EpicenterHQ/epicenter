@@ -143,7 +143,22 @@ test('capture refuses unresolved document dependencies and succeeds after settle
 	try {
 		context.submit(A, { kind: 'replace', value: { title: 'document' } });
 		const [first, dependent] = dependentUpdates();
-		publish(context.authority, A, dependent);
+		const record = context.raw
+			.query<{ record_id: number }, [string, string, string]>(
+				`SELECT record_id FROM records
+				WHERE namespace = ? AND collection = ? AND record_key = ?`,
+			)
+			.get(A.namespace, A.collection, A.recordKey);
+		if (record === null) throw new Error('test record was not admitted');
+		// Public admission rejects dependency-partial publications. Inject the
+		// physical state that capture must still fail closed on after an
+		// interrupted or older writer.
+		context.raw
+			.query(
+				`INSERT INTO record_documents (record_id, seq, kind, bytes)
+				VALUES (?, 1, 'update', ?)`,
+			)
+			.run(record.record_id, dependent);
 		context.captures.start(CAPTURE_ID);
 		expect(context.captures.advance(CAPTURE_ID)).toEqual({
 			kind: 'document-not-settled',
