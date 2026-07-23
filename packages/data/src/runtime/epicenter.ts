@@ -165,6 +165,11 @@ export type BoundLens<
 export type CreateEpicenterRuntimeOptions<TBlobSource, TBlobRead> = {
 	store: ReplicaStore;
 	blobs: ReplicaBlobStore<TBlobSource, TBlobRead> | null;
+	/**
+	 * Fixed for this runtime lifetime. The environment openers own the
+	 * ADR-0178 pairing rule (an unclaimed replica never receives a carrier);
+	 * this core factory composes whatever the opener resolved.
+	 */
 	carrier?: AuthorityCarrier<TBlobRead> | null;
 	intervalMs?: number;
 	backoff?: RuntimeBackoff;
@@ -430,13 +435,18 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 					async put(id: string, fields: Record<string, unknown>) {
 						requireOpen();
 						const payload = table.validateCreate(fields);
+						// A put is a full-row write: declared fields absent from the
+						// source are unset so a retry reproduces the identical record.
+						const unset = Object.keys(definition.fields).filter(
+							(key) => !(key in payload),
+						);
 						const address = {
 							namespace: lens.namespace,
 							collection: collectionKey,
 							recordKey: id,
 						};
 						if (terminal(store.record(address))) return Ok(undefined);
-						store.localWrite({ address, op: 'patch', set: payload, unset: [] });
+						store.localWrite({ address, op: 'patch', set: payload, unset });
 						afterWrite(address);
 						const visible = store.visibleRecord(address);
 						if (visible.state === 'absent') return Ok(undefined);

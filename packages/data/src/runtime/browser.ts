@@ -101,12 +101,14 @@ export type OpenBrowserEpicenterOptions = {
 
 /**
  * The stable storage slot for one replica identity on this origin:
- * `unclaimed`, or a digest of the owning deployment and principal.
+ * `unclaimed`, or a digest of the owning deployment and principal. The
+ * length-prefixed serialization is injective and the digest is kept whole,
+ * so distinct identities cannot share a slot.
  */
 function replicaSlot(owner: ReplicaOwner | null): string {
 	if (owner === null) return 'unclaimed';
-	const identity = `${owner.deploymentId}\n${owner.principalId}`;
-	return bytesToHex(sha256(new TextEncoder().encode(identity))).slice(0, 16);
+	const identity = `${owner.deploymentId.length}\n${owner.deploymentId}\n${owner.principalId}`;
+	return bytesToHex(sha256(new TextEncoder().encode(identity)));
 }
 
 function defaultStorage(slot: string) {
@@ -691,6 +693,11 @@ export async function openBrowserEpicenter({
 					async put(id: string, fields: Record<string, unknown>) {
 						requireOpen();
 						const payload = table.validateCreate(fields);
+						// A put is a full-row write: declared fields absent from the
+						// source are unset so a retry reproduces the identical record.
+						const unset = Object.keys(definition.fields).filter(
+							(key) => !(key in payload),
+						);
 						const address = {
 							namespace: lens.namespace,
 							collection: collectionKey,
@@ -701,7 +708,7 @@ export async function openBrowserEpicenter({
 							| { kind: 'written'; visible: VisibleRecordState }
 						>({
 							kind: 'runtime-put-record',
-							intent: { address, op: 'patch', set: payload, unset: [] },
+							intent: { address, op: 'patch', set: payload, unset },
 						});
 						if (
 							outcome.kind === 'record-not-live' ||

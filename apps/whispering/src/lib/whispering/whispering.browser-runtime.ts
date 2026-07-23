@@ -26,10 +26,28 @@ function syncUrl(auth: WhisperingAuth, path: string): URL {
  * The HTTP authority carrier over the signed-in deployment. Whispering's Lens
  * uses no record documents or record blobs, so those planes honestly refuse:
  * the supervisor never owes work it cannot create.
+ *
+ * The carrier is bound to the identity it was opened for: if the signed-in
+ * account changes while the old runtime is still draining or disposing, every
+ * request refuses instead of borrowing the next account's credentials.
  */
-function createCarrier(auth: WhisperingAuth): AuthorityCarrier<Blob> {
+function createCarrier(
+	auth: WhisperingAuth,
+	opened: { deploymentId: string; principalId: string },
+): AuthorityCarrier<Blob> {
+	function requireOpenedOwner(): void {
+		const current = whisperingReplicaOwner(auth);
+		if (
+			current === null ||
+			current.deploymentId !== opened.deploymentId ||
+			current.principalId !== opened.principalId
+		) {
+			throw new Error('authority carrier outlived its sign-in');
+		}
+	}
 	return {
 		async fetchFacts(request) {
+			requireOpenedOwner();
 			const url = syncUrl(auth, 'facts');
 			url.searchParams.set('afterSequence', String(request.afterSequence));
 			if (request.authorityLifetime !== undefined) {
@@ -47,6 +65,7 @@ function createCarrier(auth: WhisperingAuth): AuthorityCarrier<Blob> {
 			return data;
 		},
 		async submit(sealedRequestBytes) {
+			requireOpenedOwner();
 			const response = await auth.fetch(syncUrl(auth, 'submissions'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -97,5 +116,8 @@ export async function openWhisperingBrowserEpicenter({
 }): Promise<EpicenterRuntime<Blob, Blob>> {
 	const owner = whisperingReplicaOwner(auth);
 	if (owner === null) return await openBrowserEpicenter({ owner: null });
-	return await openBrowserEpicenter({ owner, carrier: createCarrier(auth) });
+	return await openBrowserEpicenter({
+		owner,
+		carrier: createCarrier(auth, owner),
+	});
 }

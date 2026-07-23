@@ -19,11 +19,15 @@
 	}
 
 	let sessionKey = $state(sessionIdentity());
-	$effect(() =>
-		auth.onStateChange(() => {
+	$effect(() => {
+		const stop = auth.onStateChange(() => {
 			sessionKey = sessionIdentity();
-		}),
-	);
+		});
+		// Catch an auth transition that landed between initialization and the
+		// subscription; onStateChange never replays the current state.
+		sessionKey = sessionIdentity();
+		return stop;
+	});
 </script>
 
 {#key sessionKey}

@@ -71,12 +71,21 @@
 
 	async function retire() {
 		try {
-			await capability.retire();
+			const outcome = await capability.retire();
+			if (outcome === 'held') {
+				failure =
+					'Another tab is still using the local data. Close other Whispering tabs and try again.';
+				phase = 'failed';
+				return;
+			}
 		} catch (cause) {
 			log.warn(
 				cause instanceof Error ? cause : new Error(String(cause)),
 				'Unclaimed replica retirement failed',
 			);
+			failure = 'Removing the local copy failed; nothing was deleted.';
+			phase = 'failed';
+			return;
 		}
 		isOpen = false;
 	}
