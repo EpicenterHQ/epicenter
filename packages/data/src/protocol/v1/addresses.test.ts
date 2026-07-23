@@ -129,6 +129,27 @@ describe('parse admission', () => {
 		expectErr(parseAddress(address({ recordKey: '' }), LIMITS));
 	});
 
+	test('accepts dotted values record keys and rejects malformed dotting', () => {
+		expect(
+			expectOk(
+				parseAddress(address({ recordKey: 'transcription.language' }), LIMITS),
+			).recordKey,
+		).toBe('transcription.language');
+		expect(
+			expectOk(
+				parseAddress(
+					address({ recordKey: 'output.transcription.cursor' }),
+					LIMITS,
+				),
+			).recordKey,
+		).toBe('output.transcription.cursor');
+		expectErr(parseAddress(address({ recordKey: 'trailing.' }), LIMITS));
+		expectErr(parseAddress(address({ recordKey: '.leading' }), LIMITS));
+		expectErr(parseAddress(address({ recordKey: 'double..dot' }), LIMITS));
+		// Collections stay undotted even though record keys admit dots.
+		expectErr(parseAddress(address({ collection: 'settings.audio' }), LIMITS));
+	});
+
 	test('accepts a 25-char local key that is not a runtime mint', () => {
 		// One char longer than the mint, valid under the local-key grammar.
 		const key = `a${'b'.repeat(24)}`;

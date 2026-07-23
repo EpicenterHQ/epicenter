@@ -99,47 +99,61 @@ export const whisperingLens = defineLens({
       title: "Settings",
       values: {
         language: field.string(),
-        theme: field.enum(["light", "dark"]),
+        theme: field.select(["light", "dark"]),
       },
     }),
   },
 });
 
-await using epicenter = await openEpicenter(options);
+await using epicenter = await openBunEpicenter(options);
+// openBrowserEpicenter / openDesktopEpicenter per runtime
 
-const data = epicenter.bind({ whispering: whisperingLens });
+const whispering = epicenter.bind(whisperingLens); // one Lens per bind
 
-const recording = await data.whispering.recordings.create({
+// A collection owns the collection.
+const created = await whispering.recordings.create({
   createdAt: Temporal.Now.instant(),
   transcript: "Hello",
 }); // lowers to patch over {}
-
-await data.whispering.recordings.update(recording.id, { note: undefined });
-await data.whispering.recordings.delete(recording.id); // lowers to tombstone
-
-const found = await data.whispering.recordings.get(recording.id);
-const { rows, nonconforming } = await data.whispering.recordings.scan();
-for await (const entry of data.whispering.recordings.entries()) {
+const { rows, nonconforming } = await whispering.recordings.scan();
+for await (const entry of whispering.recordings.entries()) {
   // entry is Result<Recording, NonconformingRowError>
 }
-const stop = data.whispering.recordings.subscribe((changedIds) => {});
+const stop = whispering.recordings.subscribe((changedIds) => {});
 
-await using doc = await data.whispering.recordings.openDocument(recording.id);
-await data.whispering.recordings.blob.put(recording.id, audioSource);
+// A record handle owns one durable record. record(...) is the only
+// point-access selector; the handle is a pure address view and exists
+// independently of scalar conformance.
+const recording = whispering.recordings.record(created.id);
+const row = await recording.get(); // Result<Row | undefined, NonconformingRowError>
+await recording.update({ note: undefined }); // field unset; cannot resurrect
+const { data: doc, error } = await recording.document.open();
+// doc is a revocable RowDocument (typed shared-type access, transact,
+// whenDurable, async disposal); error is RecordNotLiveError
+await recording.blob.capture(audioSource); // Result<void, ...>; no digest
+const audio = await recording.blob.read(); // local bytes or undefined
+const status = await recording.publication.get(); // settled | ready | blocked
+await recording.delete(); // terminal tombstone; reaps document + blob
 
-await data.whispering.settings.language.set("en"); // lowers to replace
-await data.whispering.settings.language.unset(); // lowers to unset
-const stopTheme = data.whispering.settings.theme.subscribe(() => {});
+// Values use the same selector law with a values-flavored handle.
+const language = whispering.settings.record("transcription.language");
+await language.set("en"); // lowers to replace
+await language.unset(); // lowers to unset (reversible)
+const stopLanguage = language.subscribe(() => {});
+await language.publication.get();
 
-await epicenter.attachSync(session);
+await epicenter.attach(session); // may return the first-attachment demand
 ```
 
-Values use property access (`settings.theme.set(...)`); declared record keys
-make dynamic-key collection verbs pointless. Wire verbs, lanes, sequences,
-submissions, and retry state never appear in the application API. Reads
-classify nonconforming data and preserve unknown fields. Status is
-observation, never settlement: a small state enum, pending counts, and
-address-scoped parked work (which Epicenter Home must surface).
+Values record keys are Lens-declared and admit dotted segments
+(ADR-0163); computed keys range over the declared closed set. Document and
+blob capabilities are exposed on table record handles only in V1 (ADR-0173,
+ADR-0174); values handles expose no terminal delete. Wire verbs, lanes,
+sequences, submissions, digests, and retry state never appear in the
+application API. Reads classify nonconforming data and preserve unknown
+fields. Status is observation, never settlement:
+`settled | ready | blocked` with a non-empty blocked-work evidence list, and
+`epicenter.blockedRecords()` is the Home enumeration of blocked addresses.
 
 The attachment record, `Bring`/`Discard` mechanics, and the
 `{ deploymentId, principalId }` invariant are unchanged from ADR-0161: the

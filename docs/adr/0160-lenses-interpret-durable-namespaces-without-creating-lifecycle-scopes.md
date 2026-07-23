@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-21: one kindless record address, one
-  `collections` map, and the record as the durable platform noun)
+  `collections` map, and the record as the durable platform noun; revised
+  2026-07-22: single-Lens `bind`)
 - **Supersedes:** [ADR-0156](0156-applications-bring-workspace-lenses-runtimes-own-workspaces-by-id.md), [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), and [ADR-0158](0158-installed-apps-declare-workspace-ids-but-run-no-bun-modules.md)
 - **Amended by:** [ADR-0168](0168-lenses-are-complete-pure-json-interpretations.md) (the pure JSON Lens grammar)
 - **Relates:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0177](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
@@ -79,13 +80,13 @@ it to another namespace, or changing the namespace addresses different data.
 
 A Lens interprets exactly one namespace, but it may describe only part of that
 namespace. Multiple installed Lenses may interpret the same namespace and the
-same addresses. None is canonical or authoritative. One `bind` refuses
-contradictory collection kinds it can see; independently installed
+same addresses. None is canonical or authoritative. Independently installed
 applications that disagree about a collection's kind are tolerated, because
 storage carries no kind to corrupt: each writer harms at most its own payloads,
-and Epicenter Home classifies the disagreement. An application that needs
-several namespaces binds several Lenses; property names in that outer binding
-are ergonomic aliases only.
+and Epicenter Home classifies the disagreement. `bind` accepts exactly one
+Lens, inside which every collection carries exactly one kind; an application
+that needs several namespaces binds several Lenses, and the variables it binds
+them to are ergonomic only.
 
 There is no independent Lens ID. The noun Lens is intentional: this is a
 partial, overlapping, release-local interpretation, not a complete schema or a

@@ -27,15 +27,32 @@ import type { ValidatedLimits } from './limits.js';
 
 const CLOSED = { additionalProperties: false } as const;
 
-/** V1-local reverse-domain namespace: two or more lowercase, dot-separated labels. */
-const NAMESPACE_PATTERN =
+/**
+ * V1-local reverse-domain namespace: two or more lowercase, dot-separated
+ * labels. The protocol owns these grammar strings; the Lens layer derives its
+ * authoring/parse predicates from them so admission and parseLens cannot
+ * diverge.
+ */
+export const NAMESPACE_PATTERN =
 	'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$';
 /** V1-local Lens local key: an identifier starting with a letter. */
-const LOCAL_KEY_PATTERN = '^[A-Za-z][A-Za-z0-9_]*$';
+export const LOCAL_KEY_PATTERN = '^[A-Za-z][A-Za-z0-9_]*$';
+/**
+ * V1-local Lens values record key: one or more dot-separated local-key
+ * segments (`transcription.language`). Lens-declared values keys are durable
+ * interoperation vocabulary, admitted without aliasing (ADR-0163's address
+ * grammar, widened at W4A1).
+ */
+export const VALUES_KEY_PATTERN =
+	'^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)*$';
 /** Runtime-minted 24-character lowercase alphanumeric record key; frozen by spec. */
 const RUNTIME_MINT_PATTERN = '^[a-z0-9]{24}$';
-/** A record key is either a runtime mint or a Lens-declared local key. */
-const RECORD_KEY_PATTERN = `(?:${RUNTIME_MINT_PATTERN})|(?:${LOCAL_KEY_PATTERN})`;
+/**
+ * A record key is either a runtime mint or a Lens-declared values key. The
+ * wire carries no collection kind, so admission is this union; an undotted
+ * local key is the zero-dot case of the values grammar.
+ */
+const RECORD_KEY_PATTERN = `(?:${RUNTIME_MINT_PATTERN})|(?:${VALUES_KEY_PATTERN})`;
 
 const namespaceSchema = Type.String({
 	minLength: 1,

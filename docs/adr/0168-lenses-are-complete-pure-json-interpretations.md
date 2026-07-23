@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-21: one `collections` map with
-  `defineTable` and `defineValues` as the two definition kinds)
+  `defineTable` and `defineValues` as the two definition kinds; revised
+  2026-07-22: dotted values record keys and single-Lens `bind`)
 - **Amends:** [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md), [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md), and [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 
 ## Context
@@ -56,9 +57,10 @@ This follows one identity rule across the model: the containing owner supplies
 identity. The Lens supplies its namespace, the `collections` object supplies
 the durable collection keys, a values collection's `values` object supplies its
 durable record keys, the `fields` object supplies field keys, and the runtime
-supplies table record keys. A Lens contains no name mapping at any level. The
-outer object passed to a multi-Lens bind may use ergonomic aliases only because
-those member names identify no durable data.
+supplies table record keys. A Lens contains no name mapping at any level.
+`bind` accepts exactly one Lens; an application that needs several namespaces
+binds several Lenses, and the variables it binds them to identify no durable
+data.
 
 `parseLens(unknown)` is the single legitimacy law for arbitrary Lens JSON. It:
 
@@ -68,8 +70,10 @@ those member names identify no durable data.
 3. checks semantic relationships that JSON Schema alone cannot express.
 
 Those semantic checks include the namespace and collection-key grammar, the
-same local-key grammar for a values collection's declared record keys, unknown
-or duplicate optional field names, and any future cross-field constraints.
+dotted values-key grammar (one or more dot-separated local-key segments, per
+ADR-0163's address grammar) for a values collection's declared record keys,
+unknown or duplicate optional field names, and any future cross-field
+constraints.
 Invalid installed Lenses remain visible as broken artifacts with a concrete
 parse error. The closed field vocabulary rejects a nested `id` or `key`; Home
 does not silently discard either property.

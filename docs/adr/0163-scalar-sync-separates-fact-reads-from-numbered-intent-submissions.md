@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-21: one kindless fact shape, four
   discriminated operations, named replica lanes, persisted sealed request
-  bytes, and a restricted address grammar)
+  bytes, and a restricted address grammar; revised 2026-07-22: dotted values
+  record keys)
 - **Supersedes:** [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md), [ADR-0141](0141-authority-current-state-and-receipt-watermarks-drive-row-convergence.md), and [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md)
 - **Amends:** the scalar protocol in [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md)
 - **Amended by:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md) (the convergence unit), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (lifetime replacement), and [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md) (the obligation law)
@@ -69,9 +70,16 @@ parser, or redundant definition-owned key.
 Address coordinates admit a restricted grammar, enforced at every admission
 boundary: no lone surrogates, no NUL, no unpaired combining edge cases. Table
 record keys are runtime-minted `[a-z0-9]{24}`. Namespaces use the
-reverse-domain grammar; collections and values record keys use the Lens
-local-key grammar that `parseLens` enforces. Canonical address ordering is
-therefore unsigned bytewise UTF-8 comparison with no Unicode ambiguity.
+reverse-domain grammar; collections use the Lens local-key grammar, and a
+values collection's declared record keys use the dotted values-key grammar
+(one or more dot-separated local-key segments, such as
+`transcription.language`), both enforced by `parseLens` (revised 2026-07-22:
+values record keys admit dotted segments; dotted names are durable
+interoperation vocabulary and hidden aliasing is refused). Because the wire
+carries no collection kind, record-key admission is the union of the mint and
+the dotted values grammar; mints contain no dots, so the grammars cannot
+collide. All patterns remain ASCII, so canonical address ordering is
+unsigned bytewise UTF-8 comparison with no Unicode ambiguity.
 
 ### A replica reads after one sequence
 
