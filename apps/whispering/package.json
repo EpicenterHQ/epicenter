@@ -146,6 +146,7 @@
 		"@tauri-apps/plugin-notification": "^2.3.0",
 		"@tauri-apps/plugin-opener": "catalog:",
 		"@tauri-apps/plugin-os": "^2.3.0",
+		"@y/y": "14.0.0-rc.24",
 		"arkregex": "catalog:",
 		"arktype": "catalog:",
 		"audio-recorder-polyfill": "^0.4.1",
