@@ -281,13 +281,10 @@ test('scalar, document, and blob state converge through one authority and tombst
 		expect((await blobRetry.json()) as BlobAcceptance).toEqual(blobAcceptance);
 
 		await readFacts(authority.app, second.store);
-		const authorityDocument = authority.runtime
-			.locateAuthority(PRINCIPAL_ID)
-			.exportDocument(ADDRESS);
-		if (authorityDocument === undefined) {
-			throw new Error('authority document was not exportable');
-		}
-		second.store.installAcceptedDocumentUpdate(ADDRESS, authorityDocument);
+		second.store.installAcceptedDocumentUpdate(
+			ADDRESS,
+			document.publication.payload,
+		);
 		expect(second.store.record(ADDRESS)?.confirmed).toMatchObject({
 			state: 'live',
 			payload: { title: 'Cross-plane recording' },
@@ -319,9 +316,20 @@ test('scalar, document, and blob state converge through one authority and tombst
 		expect(second.store.exportDocument(ADDRESS)).toBeUndefined();
 		expect(second.blobs.inspect(ADDRESS)).toEqual({ kind: 'absent' });
 		expect((await authority.app.request(BLOB_READ_PATH)).status).toBe(404);
-		expect(
-			authority.runtime.locateAuthority(PRINCIPAL_ID).exportDocument(ADDRESS),
-		).toBeUndefined();
+		const reapedDocument = await authority.app.request(DOCUMENT_PATH, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/octet-stream',
+				[DOCUMENT_LIFETIME_HEADER]: document.publication.authorityLifetime,
+				[DOCUMENT_PROTOCOL_HEADER]: DOCUMENT_PUBLICATION_VERSION,
+				[DOCUMENT_DIGEST_HEADER]: document.publication.digest,
+			},
+			body: bodyOf(document.publication.payload),
+		});
+		expect(await reapedDocument.json()).toMatchObject({
+			kind: 'record-not-live',
+			state: 'tombstone',
+		});
 	} finally {
 		first.raw.close();
 		second.raw.close();
