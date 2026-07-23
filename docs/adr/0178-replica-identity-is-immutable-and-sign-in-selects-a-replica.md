@@ -55,26 +55,27 @@ posture, so no worker-local sign-in memory exists to lose.
 
 After sign-in, if the unclaimed replica contains data visible through the
 application's Lens, the application may offer an explicit import. The user
-confirms the selection; sign-in itself never imports anything. Import reads
-through the source Lens and writes through ordinary destination record
-operations, preserving source record keys so a retry rewrites identical
-records and a crash resumes safely. It does not copy SQLite rows, replay raw
-storage patches, merge databases, or retarget a replica. Ordinary plane laws
-decide conflicts: patches compose, destination tombstones stay terminal,
-documents join by ordinary exact-state admission, and blobs pass through
-ordinary write-once capture.
+confirms one application-authored import policy; sign-in itself never imports
+anything. The application decides which Lens collections represent portable
+content. Import reads those collections through the source Lens and writes
+through ordinary destination record operations, preserving source record keys
+so repeated writes address the same logical records. Existing live records
+accept the imported state through ordinary write semantics; destination
+tombstones stay terminal. Import does not copy SQLite rows, replay raw storage
+patches, merge databases, or retarget a replica.
 
-Only after import success is durably established in the destination may the
-application offer retirement: an explicit, destructive, adapter-owned removal
-of the unclaimed replica's storage. Retirement refuses while any runtime
-holds the slot. Sign-in never retires anything, and retirement never runs
-implicitly.
+The same confirmation authorizes retirement after import success is durably
+established in the destination. Retirement is a destructive, adapter-owned
+removal of the whole unclaimed replica and refuses while any runtime holds the
+slot. Sign-in never imports or retires anything implicitly.
 
-This deliberately reopens ADR-0161's rejection of selective import: the
-per-item choice returns as an explicit, Lens-shaped, user-confirmed
-operation, because the alternative was a silent whole-replica adoption that
-violated consent. It also restores ADR-0143's principle, at replica scope,
-that account open never consumes device data.
+This deliberately replaces ADR-0161's whole-replica `Bring` with an explicit,
+Lens-shaped, user-confirmed operation. Import policy is application-owned,
+rather than inferred generically from table or values shapes or delegated to a
+per-import category picker. The consent boundary is whether the application's
+declared portable content joins the account and the staging replica is retired.
+It also restores ADR-0143's principle, at replica scope, that account open never
+consumes device data.
 
 ## Consequences
 
@@ -94,8 +95,9 @@ that account open never consumes device data.
 - Switching principals means opening a different replica. Every signed-in
   principal on an adapter pays its own full-replica storage cost; the
   unclaimed replica additionally persists until retired.
-- Import cost scales with selected records, not database size, and partial
-  import is legal: unselected records simply remain in the unclaimed replica.
+- Import cost scales with the application's declared importable Lens content,
+  not the raw database size. Content outside that policy is discarded only
+  when the person confirms import and retirement.
 - A buggy composition root that pairs an account replica with another
   principal's carrier is constrained by open-time identity verification plus
   the deployment refusing foreign credentials; the storage slot derivation

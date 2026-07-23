@@ -156,10 +156,10 @@ this ADR's evidence selects a layout.
   irreversibly converge anonymous or scratch data without the person's
   consent. This rejection stands and is the reason mutable attachment was
   withdrawn.
-- **Offer per-item keep, replace, or merge choices.** Originally rejected in
-  favor of whole-replica `Bring`/`Discard`. ADR-0178 reopens it deliberately:
-  selection is explicit, Lens-shaped, and user-confirmed, and convergence
-  still uses only the ordinary plane laws.
+- **Offer per-item keep, replace, or merge choices.** Rejected: ADR-0178 makes
+  import explicit, Lens-shaped, application-authored, and user-confirmed. It
+  does not create a second migration product for selecting records or
+  collections; ordinary record laws still own existing IDs and tombstones.
 - **One physical file literally shared by every app and browser origin.**
   Rejected because sandbox and origin isolation make that impossible; adapters
   may replicate the same logical Epicenter without changing its public model.
