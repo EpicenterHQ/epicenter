@@ -119,7 +119,7 @@ The boundary currently errs toward AGPL: some toolkit-shaped code is AGPL only b
 
 | Candidate | Today | Would become | Trigger to execute |
 |---|---|---|---|
-| `@epicenter/svelte` main barrel (`fromTable`, `fromKv`, `fromDisposableCache`, `createPersistedState`, `createPersistedMap`, `bindAgentConversation`) | AGPL | MIT; the auth wrapper (the `./auth` subpath) relocates to an AGPL `@epicenter/auth/svelte` | A third party embeds the MIT `@epicenter/data` in a Svelte app, or we publish the toolkit for external use. The data bindings already depend on the MIT toolkit; the auth wrapper is the remaining AGPL boundary. |
+| `@epicenter/svelte` main barrel (`fromTable`, `fromKv`, `createPersistedState`, `createPersistedMap`, `bindAgentConversation`) | AGPL | MIT; the auth wrapper (the `./auth` subpath) relocates to an AGPL `@epicenter/auth/svelte` | A third party embeds the MIT `@epicenter/data` in a Svelte app, or we publish the toolkit for external use. The data bindings already depend on the MIT toolkit; the auth wrapper is the remaining AGPL boundary. |
 | `@epicenter/client` | AGPL | MIT | We decide to offer a public client SDK. Requires closure surgery first: `AuthFetch` moves to `@epicenter/identity` and `API_ROUTES` to an MIT constants surface. |
 | `packages/matter-core` | AGPL | MIT | We offer Matter's markdown-to-SQLite engine for third-party embedding as a standalone library. |
 | `is-websocket-upgrade` (in `packages/server`) | AGPL (by location only) | MIT, no surgery needed | Its only import is Hono's `Context` type; nothing in its own closure is AGPL. It sits inside AGPL `packages/server` only because nothing ships it standalone yet, not because it needs surgery. Move the file out whenever a consumer wants it alone. |

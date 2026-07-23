@@ -3,13 +3,13 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: reactive workspace state, persisted state, and the auth/session adapter.",
+	"description": "Svelte 5 bindings for Epicenter data, persisted state, and authentication.",
 	"keywords": [
 		"svelte",
 		"local-first",
 		"CRDT",
 		"epicenter",
-		"workspace",
+		"data",
 		"reactive state"
 	],
 	"exports": {

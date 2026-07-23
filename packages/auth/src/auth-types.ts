@@ -5,8 +5,9 @@ import { type } from 'arktype';
  * The authenticated principal projected for Epicenter clients.
  *
  * Better Auth still owns its `user` table and session model. This projection is
- * the Epicenter principal used by the workspace partition. Hosted Cloud
- * principals include `email`; the self-hosted instance principal does not.
+ * the Epicenter principal used when a local replica attaches remotely. Hosted
+ * Cloud principals include `email`; the self-hosted instance principal does
+ * not.
  */
 export const Principal = type({
 	'+': 'delete',
@@ -52,8 +53,8 @@ export type OAuthTokenGrant = typeof OAuthTokenGrant.infer;
  * they display it.
  *
  * The grant is server-access material. The principal id is the offline-useful
- * partition key, so local workspace boot can still pick the right storage when
- * the network is unavailable.
+ * remote attachment identity, so the local replica retains its intended
+ * principal when the network is unavailable.
  */
 export const PersistedAuth = type({
 	'+': 'delete',

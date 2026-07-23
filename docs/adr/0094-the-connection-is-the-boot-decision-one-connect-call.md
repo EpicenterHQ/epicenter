@@ -1,7 +1,8 @@
 # 0094. The connection is the boot decision: one connect call
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-02
+- **Superseded by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md)
 
 ## Context
 

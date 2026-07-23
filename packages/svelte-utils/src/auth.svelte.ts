@@ -12,12 +12,6 @@ import {
 import { createBrowserOAuthLauncher } from '@epicenter/auth/oauth-launchers';
 import { createSubscriber } from 'svelte/reactivity';
 
-export { reloadOnPrincipalChange } from './reload-on-principal-change.js';
-// The one composition shape (ADR-0088/ADR-0094): boot-time doc selection plus
-// reload-on-principal-change. Apps boot with one call:
-// `model.connect(toConnection(auth, nodeId), compose?)`.
-export { toConnection } from './to-connection.js';
-
 /**
  * Make an auth client's `state` Svelte-reactive: spread the closure-bound
  * client and override `state` with a getter that calls `subscribe()` so reads
@@ -64,8 +58,8 @@ function reactiveAuthClient<T extends AuthClient>(auth: T): T {
 /**
  * Svelte 5 wrapper around `createAppAuthClient`: the one client-side choke point
  * that turns a persisted `Instance` into a hosted-OAuth or self-host-token
- * client (the branch is internal). Returns a Svelte-reactive `SyncAuthClient`,
- * so workspace boots can project it with `toConnection(auth, nodeId)`.
+ * client (the branch is internal). Returns a Svelte-reactive `SyncAuthClient`
+ * for record attachment and authenticated realtime transports.
  */
 export function createAppAuthClient(
 	instance: Instance,
@@ -77,7 +71,8 @@ export function createAppAuthClient(
 /**
  * Svelte 5 wrapper around `createSameOriginCookieAuth` (cookie client for a
  * browser app the API serves from its own origin, e.g. the dashboard). Returns
- * a plain `AuthClient` (no `openWebSocket`); it cannot drive workspace sync.
+ * a plain `AuthClient` (no `openWebSocket`); it cannot drive authenticated
+ * realtime transports.
  */
 export function createSameOriginCookieAuth(
 	config: CreateSameOriginCookieAuthConfig,
@@ -119,7 +114,8 @@ export type CreateHostedBrowserRedirectAuthOptions = {
  * persisted `Instance` fed to {@link createAppAuthClient}. Each app passes
  * only what varies: its namespace, OAuth client id, the hosted API origin,
  * and an optional SvelteKit base path. The result is a reactive
- * `SyncAuthClient`, ready for signed-in workspace sync.
+ * `SyncAuthClient`, ready for record attachment and authenticated realtime
+ * transports.
  *
  * Redirect-only and hosted-only by construction: it owns no Tauri deep-link or
  * extension launcher and no self-host token branch. The self-host path still works

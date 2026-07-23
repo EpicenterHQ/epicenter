@@ -46,7 +46,7 @@ describe('createInstanceTokenAuth', () => {
 		const auth = createInstanceTokenAuth({ baseURL, token, fetch });
 
 		// Optimistic boot: signed-in as the instance principal before the async
-		// check resolves, so the workspace opens principal-scoped synchronously.
+		// check resolves, so local data can open synchronously.
 		expect(auth.state).toEqual({
 			status: 'signed-in',
 			principalId: INSTANCE_PRINCIPAL_ID,
@@ -67,8 +67,8 @@ describe('createInstanceTokenAuth', () => {
 	test('a real instance (instance principal) sees no principal change across boot', async () => {
 		// The self-host box resolves every valid bearer to INSTANCE_PRINCIPAL_ID
 		// (ADR-0075), so the optimistic boot identity and the verified identity
-		// match: no `null -> instance` flip, so `reloadOnPrincipalChange` never
-		// reloads the page mid-session. This is the IndexedDB-race fix.
+		// match: no `signed-out -> instance` transition can restart consumers or
+		// redirect already-attached work during boot.
 		const seen: string[] = [];
 		const fetch: AuthFetch = async () => json(sessionBody('instance'));
 		const auth = createInstanceTokenAuth({ baseURL, token, fetch });
@@ -194,7 +194,7 @@ describe('createInstanceTokenAuth', () => {
 		const auth = createInstanceTokenAuth({ baseURL, token, fetch });
 		await flush();
 		// An unreachable instance leaves the optimistic identity: the self-hoster
-		// keeps their principal-scoped local workspace offline (the deployment's
+		// keeps their local records available offline (the deployment's
 		// connection channel, not `state`, carries the "unreachable" signal).
 		expect(auth.state).toEqual({
 			status: 'signed-in',

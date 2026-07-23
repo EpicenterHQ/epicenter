@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (local-first boot remains; record-replica attachment replaces identity-selected Workspace documents and the reload adapter)
 
 ## Context
 

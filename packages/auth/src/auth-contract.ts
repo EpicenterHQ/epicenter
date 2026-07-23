@@ -95,7 +95,7 @@ export type AuthClient = {
 	 * Clear local auth and revoke the refresh token when the server is reachable.
 	 *
 	 * Use this for explicit user logout. The local persisted cell is removed
-	 * first, so local workspace access stops depending on whether the best-effort
+	 * first, so local record access stops depending on whether the best-effort
 	 * revoke request succeeds.
 	 */
 	signOut(): Promise<Result<undefined, AuthError>>;
@@ -117,8 +117,8 @@ export type AuthClient = {
 	 * that displays it, never persisted or carried on `state`: `state` holds only
 	 * the principal id, which is offline-useful and license-clean (see
 	 * `@epicenter/identity` `AuthState` and `PersistedAuth`). Account UI calls
-	 * this when it renders the user; local workspace code reads `principalId`
-	 * off `state`.
+	 * this when it renders the user; remote replica attachment reads
+	 * `principalId` off `state`.
 	 */
 	getProfile(): Promise<Result<Principal, AuthError>>;
 	[Symbol.dispose](): void;
@@ -132,9 +132,9 @@ export type AuthClient = {
  * with no `openWebSocket`, because a same-origin cookie cannot carry the bearer
  * subprotocol the rooms route requires.
  *
- * Workspace sync (`toConnection`, `openCollaboration`) requires a
- * `SyncAuthClient`, so passing a cookie client where sync is needed is a
- * compile error rather than a runtime throw.
+ * Authenticated record, document, room, and relay transports require a
+ * `SyncAuthClient`, so passing a cookie client where a bearer WebSocket is
+ * needed is a compile error rather than a runtime throw.
  */
 export type SyncAuthClient = AuthClient & {
 	/**

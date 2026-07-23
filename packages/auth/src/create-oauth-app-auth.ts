@@ -53,7 +53,7 @@ export type CreateOAuthAppAuthConfig = {
  * Compose one hosted OAuth credential authority with local HTTP and WebSocket
  * transports. Application bytes stay in the injected browser-compatible
  * implementations; the authority supplies only transient bearer grants. The
- * cached principal remains available for offline workspace boot, while server
+ * cached principal remains available for later replica attachment, while server
  * access fails closed until `/api/session` verifies the current credential.
  */
 export function createOAuthAppAuth({

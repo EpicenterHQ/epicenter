@@ -34,7 +34,7 @@ session model.
 Use this composition sentence when explaining the architecture:
 
 ```txt
-Epicenter uses Better Auth for auth-server machinery, OAuth for the app/resource boundary, and AuthState{principalId} for workspace boot.
+Epicenter uses Better Auth for auth-server machinery, OAuth for the app/resource boundary, and AuthState{principalId} for attaching a local replica to a remote principal.
 ```
 
 That means Better Auth owns users, account cookies, login, consent, token
@@ -115,13 +115,10 @@ The public surface lives in one package plus a Svelte subpath:
   refresh, refresh-token revocation, `/api/session` verification, the network
   gate, authenticated fetch, and WebSocket opening. Also exports the Node
   machine-auth surface (`@epicenter/auth/node`) for CLI and daemons.
-- `@epicenter/svelte/auth`: Svelte 5 wrapper (in the `@epicenter/svelte`
-  package, which also exports `toConnection`, `reloadOnPrincipalChange`,
-  `createSession`, and `SignedIn`). Mirrors `auth.state` through
-  `createSubscriber` so templates and `$derived` reads are reactive.
-- `toConnection` from `@epicenter/svelte/auth`: the boot-time projection a
-  workspace `connect()` call consumes (`ConnectionConfig` signed in, `null`
-  signed out).
+- `@epicenter/svelte/auth`: Svelte 5 wrapper in the `@epicenter/svelte`
+  package. It mirrors `auth.state` through `createSubscriber` so templates and
+  `$derived` reads are reactive, and provides the hosted browser and deep-link
+  client factories.
 
 The API server composes Better Auth like this:
 
@@ -162,7 +159,7 @@ Linking note.
 
 ## Public Surface
 
-`AuthState` is defined in `@epicenter/identity` (MIT, so the workspace and the
+`AuthState` is defined in `@epicenter/identity` (MIT, so data clients and the
 AGPL auth client share one definition across the license firewall) and
 re-exported from `@epicenter/auth`:
 
@@ -212,8 +209,9 @@ export type SyncAuthClient = AuthClient & {
 object and no `user` field in state: profile (the email) is fetched on demand
 via `getProfile()` by the surface that displays it, never held in state.
 `principalId` is present in `signed-in` and `reauth-required` because it is the
-local partition key: even when the OAuth grant needs reauth, the cached
-principal id picks the right local storage partition.
+offline-useful attachment identity. Even when the OAuth grant needs reauth,
+the local replica can still open and retain the principal it will attach to
+when transport becomes available.
 
 `deployment` is the one runtime owner of the hosted vs self-hosted fact,
 fixed by the factory that built the client. UI branches on `deployment.kind`
@@ -221,17 +219,18 @@ instead of re-deriving the mode from the persisted `InstanceSetting`; only a
 self-hosted deployment carries a live `connection` status (the boot bearer
 check against the instance).
 
-`SyncAuthClient` (adds `openWebSocket`) is the type workspace sync requires. The
-same-origin cookie client is a plain `AuthClient`, so passing it where sync is
-needed is a compile error, not a runtime throw.
+`SyncAuthClient` (adds `openWebSocket`) is the type authenticated record,
+document, room, and relay transports require. The same-origin cookie client is
+a plain `AuthClient`, so passing it where a bearer WebSocket is needed is a
+compile error, not a runtime throw.
 
 Read `auth.state` synchronously. Use `auth.onStateChange(fn)` for future changes
 only; it does not replay. Consumers that need bootstrap behavior must read
 `auth.state` once and then register the listener.
 
 Do not expose raw tokens above auth storage and transport boundaries. UI,
-workspace binding, AI fetches, and sync consume capabilities: `auth.fetch` and
-`auth.openWebSocket`.
+replica attachment, AI fetches, and sync consume capabilities: `auth.fetch`
+and `auth.openWebSocket`.
 
 ## The Persisted Cell
 
@@ -270,18 +269,18 @@ The grant is a nested object; identity is a single `principalId`:
 ```txt
 PersistedAuth
   grant: { accessToken, refreshToken, accessTokenExpiresAt }  -> online-only server access
-  principalId -> local storage partition selection (offline-useful)
+  principalId -> local replica attachment identity (offline-useful)
 ```
 
 The grant lets the app call the server and is useless offline on its own.
-`principalId` stays useful offline: it selects this principal's local workspace
-data. Profile data is intentionally absent; application surfaces fetch it via
-`getProfile()` when they display it.
+`principalId` stays useful offline: it identifies the remote principal to which
+the local replica will attach. Profile data is intentionally absent;
+application surfaces fetch it via `getProfile()` when they display it.
 
-The app can boot from a cached `PersistedAuth` without calling the network.
-Refresh failure must preserve the cached `principalId` so local workspace data
-stays available. The cached principal id selects the local storage partition; it
-does not decrypt anything.
+The app can boot its local replica from a cached `PersistedAuth` without calling
+the network. Refresh failure must preserve the cached `principalId` so the
+intended remote attachment remains known. The principal id is not a decryption
+key and does not gate access to local records.
 
 ## Network Gate (local-first invariant)
 
@@ -301,13 +300,14 @@ refresh stale grant        -> if refresh fails, no bearer (offline = fail closed
 unverified -> call /api/session
   ok                       -> mark verified, attach bearer
   Rejected (401/403)       -> pauseNetworkAuth() -> reauth-required
-  Unavailable (offline)    -> no bearer; local workspace boot can continue by principalId
+  Unavailable (offline)    -> no bearer; the local replica remains usable
 ```
 
 Fail closed offline: server access is refused until the current persisted auth
-has been verified by the API, but local workspace boot continues because the
-cached `principalId` selects the right local partition. A different-`principalId`
-`/api/session` response wipes the local cell (same-principal guard).
+has been verified by the API, but local replica boot continues independently.
+A different-`principalId` `/api/session` response wipes the auth cell
+(same-principal guard) rather than silently attaching the replica to another
+principal.
 
 `auth.fetch` layers retry on top of the gate: verify-before-attach,
 `credentials: 'omit'`, one forced-refresh retry on a 401, and
@@ -403,15 +403,10 @@ const response = await auth.fetch(`${EPICENTER_API_URL}/api/ai/chat`, {
 401 after a forced refresh, and pauses network auth on a second 401. Storage
 writes are awaited before a refreshed token is used.
 
-Use `auth.openWebSocket` for sync:
+Use `auth.openWebSocket` for authenticated realtime transports:
 
 ```ts
-const collaboration = openCollaboration(workspace.ydoc, {
-	url: roomWsUrl({ baseURL, principalId, guid: workspace.ydoc.guid, nodeId }),
-	waitFor: idb.whenLoaded,
-	openWebSocket: signedIn.openWebSocket,
-	onReconnectSignal: signedIn.onReconnectSignal,
-});
+const socket = await auth.openWebSocket(roomUrl, ['epicenter']);
 ```
 
 Browsers cannot attach `Authorization` headers to `new WebSocket()`, so auth
@@ -543,9 +538,9 @@ mode flag on it.
   use OAuth access tokens through `createOAuthAppAuth`.
 - Do not treat `startSignIn()` resolving as signed-in. State is the source of
   truth; `startSignIn` takes no args.
-- Do not clear local workspace data on refresh failure. Move to
-  `reauth-required` (the runtime pauses network auth) and keep `principalId`
-  available for local partition selection.
+- Do not clear local record data on refresh failure. Move to `reauth-required`
+  (the runtime pauses network auth) and keep `principalId` available as the
+  intended remote attachment identity.
 - Do not let `accessTokenExpiresAt` decide local identity state. It is a
   transport refresh hint only; the resource server is the source of truth for
   token validity.
@@ -560,6 +555,7 @@ mode flag on it.
 - Do not write `ownerId` / `OwnerId`. The identity word is `principalId` /
   `PrincipalId`; the instance principal is `INSTANCE_PRINCIPAL_ID`.
 - Do not import `requireSignedIn`, `InferSignedIn`, `openFuji`,
-  `encryptionKeys`, `EncryptionKeys`, `keyring`, or `Keyring`. They do not
-  exist in Epicenter workspace auth. Workspace boot selection goes through
-  one call: `connect(toConnection(auth, nodeId))`.
+  `encryptionKeys`, `EncryptionKeys`, `keyring`, `Keyring`, `toConnection`, or
+  `reloadOnPrincipalChange`. They do not exist in Epicenter auth. Open the
+  local replica independently, then use `auth.fetch` and
+  `auth.openWebSocket` at the explicit remote attachment boundary.

@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-20 (accepted 2026-07-22 after caller migration and deletion)
+- **Supersedes:** [ADR-0094](0094-the-connection-is-the-boot-decision-one-connect-call.md) (the Workspace connection preset and `toConnection` adapter are deleted)
+- **Amends:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) (local-first boot remains; one record replica now attaches sync without an identity-selected Workspace document or reload adapter)
 
 ## Context
 

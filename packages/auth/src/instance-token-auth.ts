@@ -35,7 +35,7 @@ export type CreateInstanceTokenAuthConfig = {
  * Compose one static instance credential authority with local HTTP and
  * WebSocket transports. The instance token remains audience-scoped to its own
  * origin and is never exposed on the returned client. Identity boots
- * optimistically as the instance principal for local workspace selection, but
+ * optimistically as the instance principal for replica attachment, but
  * resource transports wait for `/api/session` verification.
  */
 export function createInstanceTokenAuth({

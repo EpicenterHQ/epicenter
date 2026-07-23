@@ -2,7 +2,7 @@
  * Machine auth API surface for CLI and daemons.
  *
  * `loginWithOob` runs the OOB OAuth dance once, fetches `/api/session` to derive
- * the local workspace identity, and persists a `PersistedAuth` cell to the
+ * the replica attachment identity, and persists a `PersistedAuth` cell to the
  * API-target-specific machine auth file (mode 0o600). `status` and `logout`
  * read that cell and reach the server through a regular `createOAuthAppAuth`
  * client. `createMachineAuthClient` is the daemon entry point: it loads the
@@ -250,7 +250,7 @@ type StatusResult =
 type LogoutResult = { status: 'signedOut' } | { status: 'loggedOut' };
 
 /**
- * Run the OOB OAuth dance, call `/api/session` for the local workspace identity,
+ * Run the OOB OAuth dance, call `/api/session` for the replica attachment identity,
  * persist `PersistedAuth`, and return the identity for the CLI to display.
  */
 export async function loginWithOob({
