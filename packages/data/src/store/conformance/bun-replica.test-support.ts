@@ -318,7 +318,7 @@ function documentAction(
 			store.installAcceptedDocumentUpdate(action.address, action.update);
 			return undefined;
 		case 'publication':
-			return store.documentPublication(action.address, action.stateVector);
+			return store.documentPublication(action.address);
 		case 'settle-publication':
 			store.settleDocumentPublication(
 				action.address,

@@ -53,10 +53,7 @@ export function createBrowserReplicaOwnerOperations(
 				case 'export-document':
 					return owner.store.exportDocument(operation.address);
 				case 'document-publication':
-					return owner.store.documentPublication(
-						operation.address,
-						operation.stateVector,
-					);
+					return owner.store.documentPublication(operation.address);
 				case 'settle-document-publication':
 					owner.store.settleDocumentPublication(
 						operation.address,
