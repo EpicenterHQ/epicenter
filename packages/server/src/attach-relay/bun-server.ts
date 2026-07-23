@@ -12,7 +12,7 @@
  * (`mountAttachRelayApp`) resolves the operator bearer to the one principal this
  * deployment admits (the instance principal on self-host) and stamps
  * `principalId` SERVER-SIDE, so a query `principalId` is never trusted. It
- * requires a bound `Server` (`bindServer`), the same impedance the rooms backend
+ * requires a bound `Server` (`bindServer`), the same impedance the document runtime
  * has, because Bun upgrades by calling `server.upgrade` rather than returning a
  * 101 from `fetch`. There is deliberately no unauthenticated path: every attach
  * carries a bearer, so the relay has one principal-resolution model, not two.
@@ -49,7 +49,7 @@ import {
  * registers under `(principalId, hostId)`; a client attaches under the full
  * endpoint quadruple. The `surface` tag lets {@link mergeBunWebSocketHandlers}
  * route this socket to the attach relay when it shares one `Bun.serve` with the
- * rooms backend; it is a server-side dispatch discriminant, never a wire field.
+ * document runtime; it is a server-side dispatch discriminant, never a wire field.
  */
 export type AttachRelaySocketData = { surface: 'attach' } & AttachEndpoint;
 

@@ -1,6 +1,6 @@
 # Epicenter Self-Hosted Instance (Reference)
 
-A self-hosted Epicenter is one instance: a single workspace partition behind one bearer token you generate and hand out. There are no accounts, no OAuth app to register, no sign-in flow, and no mode to pick. You run the box, you generate a token, and everyone you give that token to reaches the same data. Not operated by Epicenter: you run the infrastructure, so Epicenter never holds or sees what is stored here.
+A self-hosted Epicenter is one instance: one record authority behind one bearer token you generate and hand out. There are no accounts, no OAuth app to register, no sign-in flow, and no mode to pick. You run the box, you generate a token, and everyone you give that token to reaches the same data. Not operated by Epicenter: you run the infrastructure, so Epicenter never holds or sees what is stored here.
 
 "Solo" and "shared" are not settings. They are just how many people you hand the one token to. A homelab box for yourself and a small wiki for your family or lab are the same deployment; the only difference is the size of the group that holds the credential.
 
@@ -24,10 +24,8 @@ Then paste the same token into the client's instance setting (`{ baseURL, token 
 Boot fails closed if `INSTANCE_TOKEN` is missing or too weak, and the error names `gen-token`. The box never mints or stores a token: you own the secret, which is exactly what lets the same instance run on Cloudflare too. To rotate, generate a new token, restart with it, and redistribute it; there is no per-person revocation (see [Offboarding](#offboarding-and-rotation)).
 
 `INSTANCE_TOKEN` is the only required variable. The instance needs no external
-database and no auth secret: it currently stores Yjs rooms and record
-authorities as `bun:sqlite` files on local disk under `DATA_DIR`. The
-destination shape is even simpler: one instance principal, one authority
-database file containing every named workspace. Persist the whole directory.
+database and no auth secret. It stores the instance principal's record authority
+as SQLite files on local disk under `DATA_DIR`. Persist the whole directory.
 
 ### Use TLS
 
@@ -35,11 +33,11 @@ A static bearer over plaintext HTTP is total compromise: anyone who sees one req
 
 ### Redact WebSocket protocol headers
 
-Sync room WebSockets carry the instance bearer in `Sec-WebSocket-Protocol`
-during the upgrade. The server strips that token from the protocol it echoes
-back, but any reverse proxy in front of the instance can still log the incoming
-header. Caddy access logs, for example, redact `Authorization` and `Cookie` but
-not `Sec-WebSocket-Protocol` by default.
+Authenticated document and attach WebSockets carry the instance bearer in
+`Sec-WebSocket-Protocol` during the upgrade. The server strips that token from
+the selected protocol it echoes back, but any reverse proxy in front of the
+instance can still log the incoming header. Caddy access logs, for example,
+redact `Authorization` and `Cookie` but not `Sec-WebSocket-Protocol` by default.
 
 If you enable access logs, either omit request headers from the log or redact
 `Sec-WebSocket-Protocol` explicitly. Treat a captured value the same way you
@@ -83,21 +81,26 @@ Two things keep that from becoming a runaway bill:
 
 ## Composition
 
-The whole instance is the same handful of lines on either runtime: build the app
-with `createServerApp`, then mount session + rooms + inference. No billing, no
-SPA, no `mountCloudAuth`. Bun reads the token once at boot and runs the entropy
-gate there:
+The whole instance uses the same composition on either runtime: build the app
+with `createServerApp`, then mount session, record synchronization, inference,
+transcription, and blobs. No billing, no SPA, no `mountCloudAuth`. Bun reads
+the token once at boot and runs the entropy gate there:
 
 ```ts
 const token = assertStrongToken(env.INSTANCE_TOKEN);            // fail closed if weak
 const resolveBearerPrincipal = createEnvTokenResolver(token);   // one bearer
 const auth = requireBearerPrincipal(resolveBearerPrincipal);    // every surface
 const app = createServerApp({
-  runtime: bun({ rooms }),                                      // no db leg, no Postgres
   identity: { resolveOrigin, resolveTrustedOrigins },
 });
 mountSessionApp(app, { auth });
-mountRoomsApp(app, { resolveBearerPrincipal });                 // WS-aware, takes the resolver
+mountBunScalarV1App(app, {
+  auth,
+  resolveDocumentPrincipal: withDocumentAuthorizationDeadline(
+    resolveBearerPrincipal,
+  ),
+  runtime: scalarV1,
+});
 mountInferenceApp(app, {
   auth,
   policies: [rateLimit({ requests: 120, windowSeconds: 60 })], // burn-rate floor
@@ -113,14 +116,14 @@ const resolveBearerPrincipal: ResolveBearerPrincipal = (c, bearer) =>
     assertStrongToken((c.env as Cloudflare.Env).INSTANCE_TOKEN),
   )(c, bearer);
 const auth = requireBearerPrincipal(resolveBearerPrincipal);
-// ...createServerApp({ runtime, identity }), same session + rooms + inference mounts
+// ...createServerApp({ identity }), then the same record and product mounts
 ```
 
 Deliberately absent: `mountBillingApi`, any OAuth provider, a launch-time mode selector, an admission allowlist, and first-boot token minting. The shape is the contract.
 
 ## Offboarding and rotation
 
-A multi-person instance has one honest cost: removing someone means rotating the token and redistributing it to everyone who stays. There is no per-member revocation and no authenticated attribution; whoever holds the token is the instance owner, and attribution in collaborative presence is self-declared. This is fine for the trusted small group an instance targets (a family, a club, a lab, a small team) and gets painful past roughly six to eight people with involuntary churn.
+A multi-person instance has one honest cost: removing someone means rotating the token and redistributing it to everyone who stays. There is no per-member revocation or authenticated attribution; whoever holds the token is the instance owner. This is fine for the trusted small group an instance targets (a family, a club, a lab, a small team) and gets painful past roughly six to eight people with involuntary churn.
 
 The escape, when that pain is real, is named per-person tokens: a hashed token registry behind the same verifier and the same constant partition, so each person gets their own revocable token and a server-stamped identity, with zero data migration. It is a deliberately unbuilt seam (ADR-0075). If you are hitting the offboarding cliff, that is the signal to build it, or to move to Epicenter Cloud, which is multi-tenant by design.
 
@@ -128,6 +131,6 @@ The escape, when that pain is real, is named per-person tokens: a hashed token r
 
 - [ADR-0075](../../docs/adr/0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) for why an instance is one partition behind one bearer
 - [ADR-0076](../../docs/adr/0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md) for why the instance composes no Better Auth and no Postgres
-- [ADR-0095](../../docs/adr/0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) for why sync WebSockets carry the bearer as a route-owned subprotocol
+- [ADR-0095](../../docs/adr/0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) for why authenticated WebSockets carry the bearer as a route-owned subprotocol
 - `apps/api` for the hosted personal cloud variant (OAuth, principal partitions, billing)
 - `packages/server` for the shared library both deployables compose

@@ -411,12 +411,12 @@ const socket = await auth.openWebSocket(roomUrl, ['epicenter']);
 
 Browsers cannot attach `Authorization` headers to `new WebSocket()`, so auth
 carries the bearer token as a WebSocket subprotocol
-(`BEARER_SUBPROTOCOL_PREFIX`). The rooms route extracts that credential itself
-on upgrade (an explicit `Authorization` header wins; else exactly one
-`bearer.<token>` entry) and feeds the bare token to the deployment's
+(`BEARER_SUBPROTOCOL_PREFIX`). Each authenticated WebSocket surface extracts
+that credential on upgrade (an explicit `Authorization` header wins; else
+exactly one `bearer.<token>` entry) and feeds the bare token to the deployment's
 `ResolveBearerPrincipal`. Nothing rewrites `c.req.raw`: Bun's `server.upgrade`
-only accepts the runtime-minted request. The backends echo only the `epicenter`
-subprotocol on every 101 (accept and reject), so the token never round-trips.
+only accepts the runtime-minted request. The backend echoes only the selected
+application subprotocol on every 101, so the token never round-trips.
 
 ## Stateless access tokens and revocation windows
 

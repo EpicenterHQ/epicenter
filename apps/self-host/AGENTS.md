@@ -12,7 +12,7 @@ Multi-tenancy (many principals, OAuth, billing) is Epicenter Cloud's only (`apps
 - Do not add `autumn-js`, `AUTUMN_SECRET_KEY`, or `/api/billing/*` routes.
 - Do not add a dashboard SPA or Workers Static Assets binding.
 - Do not add OAuth, sessions, an allowlist, a launch-time mode selector, or first-boot token minting back: the instance is bearer-only by design (ADR-0075).
-- Do not re-add Better Auth, Postgres, a `pg` pool, `DATABASE_URL`, `BETTER_AUTH_SECRET`, or a Hyperdrive binding: the relational-auth substrate is Cloud-only (`mountCloudAuth`), and the instance composes neither (ADR-0076). It uses `requireBearerPrincipal` (never `requireCookieOrBearerPrincipal`). The rooms route records no telemetry on any deployment (the write-only `durableObjectInstance` table and its recorder seam were deleted, ADR-0076), so there is no telemetry knob to set here.
+- Do not re-add Better Auth, Postgres, a `pg` pool, `DATABASE_URL`, `BETTER_AUTH_SECRET`, or a Hyperdrive binding: the relational-auth substrate is Cloud-only (`mountCloudAuth`), and the instance composes neither (ADR-0076). It uses `requireBearerPrincipal` (never `requireCookieOrBearerPrincipal`). Record synchronization records no relational telemetry on any deployment, so there is no telemetry knob to set here.
 - Do not make `INSTANCE_PRINCIPAL_ID` env config: its value is byte-pinned durable data (`principals/instance` R2 prefix, DO name prefix, IDB prefix, and HKDF label input). Named tokens, if ever built, resolve to that same principal so they never re-partition.
 
 ## When editing

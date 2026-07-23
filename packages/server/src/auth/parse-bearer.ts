@@ -3,9 +3,8 @@
  * Case-insensitive on the scheme; trims surrounding whitespace; returns null
  * for missing, empty, or non-bearer inputs.
  *
- * Shared between the rooms route (WebSocket upgrade extraction) and
- * `require-auth` (HTTP wrappers) so both surfaces agree on what counts as a
- * bearer.
+ * Shared between WebSocket upgrade extraction and `require-auth` (HTTP
+ * wrappers) so both surfaces agree on what counts as a bearer.
  */
 export function parseBearer(value: string | null): string | null {
 	if (!value) return null;

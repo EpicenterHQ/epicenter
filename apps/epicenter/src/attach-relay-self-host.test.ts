@@ -3,7 +3,7 @@
  * grants.
  *
  * The relay is served the way a self-hosted instance serves it: mounted on
- * `createServerApp`, sharing one `Bun.serve` with the rooms backend through the
+ * `createServerApp`, sharing one `Bun.serve` with the document runtime through the
  * merged websocket handler. Wave 3 splits the single operator token into two
  * credentials on the attach surface:
  * - an attach CONNECT carries a per-device grant (`mountAttachRelayApp` closes

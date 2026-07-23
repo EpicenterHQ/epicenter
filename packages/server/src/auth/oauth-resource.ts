@@ -11,10 +11,8 @@ import type { OAuthError } from './oauth-errors.js';
  *
  * WebSocket-upgrade rejection is NOT handled here: a browser cannot read an
  * HTTP body from a failed upgrade, only a close code, and minting a closing
- * socket is runtime-specific. The rooms route (the only WebSocket surface) owns
- * that, rejecting through `Rooms.rejectUpgrade` so both runtimes emit a real
- * close frame; this helper stays runtime-neutral and serves the plain-HTTP
- * rejections (rooms non-upgrade, inference, session, billing).
+ * socket is runtime-specific. Each WebSocket surface owns that rejection. This
+ * helper stays runtime-neutral and serves plain-HTTP resource failures.
  */
 export function createOAuthUnauthorizedResourceResponse(
 	c: Context,

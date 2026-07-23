@@ -23,9 +23,6 @@
 import type { BlobId } from '@epicenter/blobs';
 import type { PrincipalId } from '@epicenter/identity';
 
-/** Durable Object name template, single form. */
-export type RoomDoName = `principals/${string}/rooms/${string}`;
-
 /**
  * Durable Object name template for one AttachRelay pair (ADR-0115). One DO per
  * `(principalId, hostId)`: the host and every client of that pair route to the
@@ -45,11 +42,6 @@ export type BlobR2Key = `principals/${string}/blobs/${string}`;
 
 /** Common prefix for one partition's blobs, used by the S3 client's list enumeration. */
 export type BlobPrincipalPrefix = `principals/${string}/blobs/`;
-
-/** Durable name of a room's Cloudflare Durable Object. */
-export function doName(principalId: PrincipalId, roomId: string): RoomDoName {
-	return `principals/${principalId}/rooms/${roomId}`;
-}
 
 /** Durable name of one AttachRelay pair's Cloudflare Durable Object. */
 export function attachHostDoName(
