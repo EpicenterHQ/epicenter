@@ -189,10 +189,10 @@ describe('record sync supervisor', () => {
 			]);
 			expect(context.replica.workSummary()).toEqual({
 				scalar: { pending: 0, sealed: 0, parked: 0 },
-				document: { pending: 0, parked: 0 },
-				blob: { pending: 0, parked: 0 },
+				document: { owed: 0, parked: 0 },
+				blob: { owed: 0, parked: 0 },
 			});
-			expect(context.replica.inspectDocument(ADDRESS)?.dirty).toBe(false);
+			expect(context.replica.inspectDocument(ADDRESS)?.owed).toBe(false);
 			expect(context.blobs.inspect(ADDRESS).kind).toBe('accepted');
 		} finally {
 			context.supervisor.dispose();
@@ -259,6 +259,64 @@ describe('record sync supervisor', () => {
 				state: 'offline',
 				lastError: { message: 'facts unavailable' },
 			});
+		} finally {
+			context.supervisor.dispose();
+			context.database.close();
+		}
+	});
+
+	test('record-not-live leaves a document owed without an immediate retry loop', async () => {
+		const context = setup('lifetime-one');
+		try {
+			context.replica.installFacts({
+				request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
+				response: {
+					authorityLifetime: 'lifetime-one',
+					facts: [
+						{
+							address: ADDRESS,
+							sequence: 1,
+							state: 'live',
+							payload: { title: 'Local' },
+						},
+					],
+					hasMore: false,
+				},
+			});
+			const document = new Y.Doc({ gc: true });
+			let update: Uint8Array | undefined;
+			document.on(
+				'updateV2',
+				(next: Uint8Array) => (update = new Uint8Array(next)),
+			);
+			document.get('content').insert(0, 'hello');
+			document.destroy();
+			if (update === undefined) throw new Error('document update missing');
+			context.replica.appendLocalDocumentUpdate(ADDRESS, update);
+
+			const transport = acceptingTransport();
+			transport.publishDocument = async (request) => {
+				transport.calls.push('document');
+				return {
+					kind: 'record-not-live',
+					activeAuthorityLifetime: request.authorityLifetime,
+					address: request.address,
+					state: 'absent',
+				};
+			};
+			await context.supervisor.attach({
+				attachment: ATTACHMENT,
+				firstAttachmentChoice: 'bring',
+				transport,
+			});
+
+			expect(transport.calls).toEqual(['facts', 'document']);
+			expect(context.replica.workSummary().document).toEqual({
+				owed: 1,
+				parked: 0,
+			});
+			expect(context.supervisor.status.state).toBe('idle');
+			expect(context.scheduled).toHaveLength(1);
 		} finally {
 			context.supervisor.dispose();
 			context.database.close();

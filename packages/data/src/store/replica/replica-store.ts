@@ -77,6 +77,14 @@ type RecordRow = SqliteRow & {
 	parked_code: 'fact-too-large' | 'patch-base-not-object' | null;
 	parked_measured: number | null;
 	parked_limit: number | null;
+	document_revision: number;
+	document_accepted_revision: number;
+	document_refused_revision: number | null;
+	document_refused_bytes: number | null;
+	document_refused_structs: number | null;
+	blob_sha256: string | null;
+	blob_accepted_sha256: string | null;
+	blob_parked_code: 'blob-conflict' | 'record-not-live' | null;
 };
 
 type MetaRow = SqliteRow & {
@@ -155,26 +163,20 @@ export type ReplicaVisibleRecordPage = {
 
 export type ReplicaWorkSummary = {
 	scalar: { pending: number; sealed: number; parked: number };
-	document: { pending: number; parked: number };
-	blob: { pending: number; parked: number };
+	document: { owed: number; parked: number };
+	blob: { owed: number; parked: number };
 };
 
 export type ReplicaParkedWork = {
 	address: RecordAddress;
 	scalar: ReplicaRecordLanes['parked'];
-	document:
-		| {
-				code: 'document-bound';
-				measuredBytes: number;
-				measuredStructs: number;
-				limitBytes: number;
-				limitStructs: number;
-		  }
-		| {
-				code: 'record-not-live';
-				state: 'absent' | 'tombstone' | 'unset';
-		  }
-		| null;
+	document: {
+		code: 'document-bound';
+		measuredBytes: number;
+		measuredStructs: number;
+		limitBytes: number;
+		limitStructs: number;
+	} | null;
 	blob: { code: 'blob-conflict' | 'record-not-live' } | null;
 };
 
@@ -655,9 +657,9 @@ export function openReplicaStore({
 				scalar_pending: number;
 				scalar_sealed: number;
 				scalar_parked: number;
-				document_pending: number;
+				document_owed: number;
 				document_parked: number;
-				blob_pending: number;
+				blob_owed: number;
 				blob_parked: number;
 			}
 		>(
@@ -666,16 +668,14 @@ export function openReplicaStore({
 				count(*) FILTER (WHERE pending_op IS NOT NULL) AS scalar_pending,
 				count(*) FILTER (WHERE sealed_op IS NOT NULL) AS scalar_sealed,
 				count(*) FILTER (WHERE parked_op IS NOT NULL) AS scalar_parked,
-				count(*) FILTER (WHERE doc_dirty = 1 AND NOT EXISTS (
-					SELECT 1 FROM document_inflight i
-					WHERE i.record_id = records.record_id AND i.parked_code IS NOT NULL
-				)) AS document_pending,
-				count(*) FILTER (WHERE EXISTS (
-					SELECT 1 FROM document_inflight i
-					WHERE i.record_id = records.record_id AND i.parked_code IS NOT NULL
-				)) AS document_parked,
-				count(*) FILTER (WHERE blob_pending = 1 AND blob_parked_code IS NULL)
-					AS blob_pending,
+				count(*) FILTER (WHERE
+					document_revision > document_accepted_revision
+				) AS document_owed,
+				count(*) FILTER (WHERE document_refused_revision IS NOT NULL)
+					AS document_parked,
+				count(*) FILTER (WHERE blob_sha256 IS NOT NULL AND
+					(blob_accepted_sha256 IS NULL OR
+						blob_accepted_sha256 != blob_sha256)) AS blob_owed,
 				count(*) FILTER (WHERE blob_parked_code IS NOT NULL) AS blob_parked
 			FROM records`,
 		);
@@ -687,45 +687,23 @@ export function openReplicaStore({
 				parked: row.scalar_parked,
 			},
 			document: {
-				pending: row.document_pending,
+				owed: row.document_owed,
 				parked: row.document_parked,
 			},
-			blob: { pending: row.blob_pending, parked: row.blob_parked },
+			blob: { owed: row.blob_owed, parked: row.blob_parked },
 		};
 	}
 
-	function publicationAddresses(
-		plane: 'document' | 'blob',
-		limit = 32,
+	function owedDocuments(
+		limit = PUBLICATION_OBLIGATION_PAGE_LIMIT,
 	): RecordAddress[] {
-		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
-			throw new Error('publication address limit must be 1 through 1000');
-		}
-		const predicate =
-			plane === 'document'
-				? `doc_dirty = 1 AND NOT EXISTS (
-					SELECT 1 FROM document_inflight i
-					WHERE i.record_id = records.record_id AND i.parked_code IS NOT NULL
-				)`
-				: 'blob_pending = 1 AND blob_parked_code IS NULL';
-		return database
-			.all<
-				SqliteRow & {
-					namespace: string;
-					collection: string;
-					record_key: string;
-				}
-			>(
-				`SELECT namespace, collection, record_key FROM records
-				WHERE ${predicate}
-				ORDER BY namespace, collection, record_key LIMIT ?`,
-				[limit],
-			)
-			.map((row) => ({
-				namespace: row.namespace,
-				collection: row.collection,
-				recordKey: row.record_key,
-			}));
+		return owedAddresses(database, OWED_DOCUMENTS_SQL, limit);
+	}
+
+	function owedBlobs(
+		limit = PUBLICATION_OBLIGATION_PAGE_LIMIT,
+	): RecordAddress[] {
+		return owedAddresses(database, OWED_BLOBS_SQL, limit);
 	}
 
 	function parkedWork(
@@ -763,26 +741,12 @@ export function openReplicaStore({
 				namespace: string;
 				collection: string;
 				record_key: string;
-				document_code: 'document-bound' | 'record-not-live' | null;
-				document_state: 'absent' | 'tombstone' | 'unset' | null;
-				document_measured_bytes: number | null;
-				document_measured_structs: number | null;
-				document_limit_bytes: number | null;
-				document_limit_structs: number | null;
 				blob_parked_code: 'blob-conflict' | 'record-not-live' | null;
 			}
 		>(
-			`SELECT r.*,
-				i.parked_code AS document_code,
-				i.parked_state AS document_state,
-				i.measured_bytes AS document_measured_bytes,
-				i.measured_structs AS document_measured_structs,
-				i.limit_bytes AS document_limit_bytes,
-				i.limit_structs AS document_limit_structs
-			FROM records r
-			LEFT JOIN document_inflight i ON i.record_id = r.record_id
+			`SELECT r.* FROM records r
 			WHERE (r.parked_op IS NOT NULL OR r.blob_parked_code IS NOT NULL
-				OR i.parked_code IS NOT NULL) ${cursor}
+				OR r.document_refused_revision IS NOT NULL) ${cursor}
 			ORDER BY r.namespace, r.collection, r.record_key LIMIT ?`,
 			parameters,
 		);
@@ -795,28 +759,20 @@ export function openReplicaStore({
 				recordKey: row.record_key,
 			};
 			const document =
-				row.document_code === null
+				row.document_refused_revision === null
 					? null
-					: row.document_code === 'record-not-live'
-						? row.document_state === null
-							? (() => {
-									throw new Error('parked document record state is corrupt');
-								})()
-							: { code: row.document_code, state: row.document_state }
-						: row.document_measured_bytes === null ||
-								row.document_measured_structs === null ||
-								row.document_limit_bytes === null ||
-								row.document_limit_structs === null
-							? (() => {
-									throw new Error('parked document measurements are corrupt');
-								})()
-							: {
-									code: row.document_code,
-									measuredBytes: row.document_measured_bytes,
-									measuredStructs: row.document_measured_structs,
-									limitBytes: row.document_limit_bytes,
-									limitStructs: row.document_limit_structs,
-								};
+					: row.document_refused_bytes === null ||
+							row.document_refused_structs === null
+						? (() => {
+								throw new Error('parked document measurements are corrupt');
+							})()
+						: {
+								code: 'document-bound' as const,
+								measuredBytes: row.document_refused_bytes,
+								measuredStructs: row.document_refused_structs,
+								limitBytes: documents.bound.stateBytes,
+								limitStructs: documents.bound.stateStructs,
+							};
 			return {
 				address,
 				scalar: lanesOf(row)?.parked ?? null,
@@ -894,7 +850,6 @@ export function openReplicaStore({
 					});
 				}
 				database.run('DELETE FROM record_documents');
-				database.run('DELETE FROM document_inflight');
 				database.run('DELETE FROM records');
 				database.run(
 					`UPDATE meta SET
@@ -994,31 +949,20 @@ export function openReplicaStore({
 		);
 		if (outcome.operation.op === 'tombstone') {
 			database.run(
-				`UPDATE records SET blob_sha256 = NULL, blob_pending = 0,
+				`UPDATE records SET blob_sha256 = NULL,
+					blob_accepted_sha256 = NULL,
 					blob_parked_code = NULL,
-					doc_revision = 0, doc_dirty = 0
+					document_revision = 0,
+					document_accepted_revision = 0,
+					document_refused_revision = NULL,
+					document_refused_bytes = NULL,
+					document_refused_structs = NULL
 				WHERE ${TRIPLE_WHERE}`,
 				tripleParams(intent.address),
 			);
 			database.run(
 				`DELETE FROM record_documents WHERE record_id =
 					(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-				tripleParams(intent.address),
-			);
-			database.run(
-				`DELETE FROM document_inflight WHERE record_id =
-					(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-				tripleParams(intent.address),
-			);
-		}
-		if (
-			outcome.operation.op === 'patch' ||
-			outcome.operation.op === 'replace'
-		) {
-			database.run(
-				`DELETE FROM document_inflight
-					WHERE parked_code = 'record-not-live' AND record_id =
-						(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
 				tripleParams(intent.address),
 			);
 		}
@@ -1444,8 +1388,8 @@ export function openReplicaStore({
 							namespace: string;
 							collection: string;
 							record_key: string;
-							doc_revision: number;
-							doc_dirty: number;
+							document_revision: number;
+							document_accepted_revision: number;
 							blob_sha256: string | null;
 							document_byte_length: number;
 						}
@@ -1470,9 +1414,10 @@ export function openReplicaStore({
 						yield {
 							...address,
 							payload: visible.payload,
-							documentRevision: row.doc_revision,
+							documentRevision: row.document_revision,
 							documentByteLength: row.document_byte_length,
-							documentDirty: row.doc_dirty === 1,
+							documentOwed:
+								row.document_revision > row.document_accepted_revision,
 							blobSha256: row.blob_sha256,
 						};
 					}
@@ -1535,7 +1480,8 @@ export function openReplicaStore({
 		visible,
 		visibleRecords,
 		workSummary,
-		publicationAddresses,
+		owedDocuments,
+		owedBlobs,
 		parkedWork,
 		attachment,
 		attach,
@@ -1565,19 +1511,17 @@ export function openReplicaStore({
 		},
 		inspectDocument: documents.inspect,
 		exportDocument: documents.exportDocument,
-		documentPublication(
-			address: RecordAddress,
-			authorityStateVector?: Uint8Array,
-		) {
-			const state = documents.publication(address, authorityStateVector);
-			notify([address]);
+		documentPublication(address: RecordAddress) {
+			const state = documents.publication(address);
+			if (state.kind === 'refused') notify([address]);
 			return state;
 		},
 		settleDocumentPublication(
 			address: RecordAddress,
 			proof: Parameters<typeof documents.settle>[1],
+			captured: Parameters<typeof documents.settle>[2],
 		) {
-			documents.settle(address, proof);
+			documents.settle(address, proof, captured);
 			notify([address]);
 		},
 		measureDocument: documents.measure,

@@ -116,8 +116,8 @@ function createEpicenter(initialAttachment: Attachment) {
 		state: initialAttachment.kind === 'attached' ? 'idle' : 'local',
 		work: {
 			scalar: { pending: 0, sealed: 0, parked: 0 },
-			document: { pending: 0, parked: 0 },
-			blob: { pending: 0, parked: 0 },
+			document: { owed: 0, parked: 0 },
+			blob: { owed: 0, parked: 0 },
 		},
 		...(initialAttachment.kind === 'attached'
 			? { authorityLifetime: 'lifetime-one' }

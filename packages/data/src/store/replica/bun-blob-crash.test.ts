@@ -219,7 +219,7 @@ describe('Bun blob owner crash conformance', () => {
 						committed ? 'live' : null,
 					);
 					expect(reopenedBlobs.inspect(ADDRESS).kind).toBe(
-						committed ? 'pending' : 'absent',
+						committed ? 'owed' : 'absent',
 					);
 					expect(reopenedRaw.query('PRAGMA integrity_check').get()).toEqual({
 						integrity_check: 'ok',

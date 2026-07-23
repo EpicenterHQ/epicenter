@@ -274,13 +274,14 @@ describe('record document store', () => {
 			);
 			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(true);
 			const retry = context.store.documentPublication(ADDRESS);
-			if (retry.kind !== 'ready') throw new Error('refused revision cannot retry');
+			if (retry.kind !== 'ready')
+				throw new Error('refused revision cannot retry');
 			expect(retry.publication.digest).toBe(attempt.publication.digest);
 			// The refusal evidence is durable across a clean reopen.
 			const reopened = openReplicaStore({
-					database: createBunSqliteAdapter(context.database),
-					limits: makeLimits(),
-				});
+				database: createBunSqliteAdapter(context.database),
+				limits: makeLimits(),
+			});
 			expect(reopened.inspectDocument(ADDRESS)?.refused).toBe(true);
 			expect(reopened.documentPublication(ADDRESS).kind).toBe('ready');
 
@@ -467,7 +468,7 @@ describe('record document store', () => {
 		}
 	});
 
-	test('unset preserves the chain while local tombstone reaps it atomically', () => {
+	test('unset preserves an existing chain while local tombstone reaps it atomically', () => {
 		const context = setup();
 		try {
 			const [update] = sourceUpdates('a');
@@ -476,9 +477,11 @@ describe('record document store', () => {
 
 			context.store.localWrite({ address: ADDRESS, op: 'unset' });
 			expect(context.store.exportDocument(ADDRESS)).toBeDefined();
-			expect(() =>
-				context.store.appendLocalDocumentUpdate(ADDRESS, update),
-			).toThrow(/not live/);
+			context.store.appendLocalDocumentUpdate(ADDRESS, update);
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 1,
+				owed: true,
+			});
 
 			context.store.localWrite({ address: ADDRESS, op: 'replace', value: {} });
 			context.store.localWrite({ address: ADDRESS, op: 'tombstone' });

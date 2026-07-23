@@ -250,9 +250,11 @@ async function setup(options?: {
 	const followerScope = new FakeWorkerScope();
 	const followerOwnership = deferred<{
 		execute(operation: BrowserReplicaStoreOperation): BrowserReplicaOwnerResult;
+		subscribeInvalidation(listener: () => void): () => void;
 		dispose(): Promise<void>;
 	}>();
 	const values = new Map<string, string>();
+	const invalidationListeners = new Set<() => void>();
 	const executions = {
 		ownerReads: 0,
 		followerReads: 0,
@@ -271,6 +273,7 @@ async function setup(options?: {
 				}
 				if (countedMutationKinds.has(operation.kind)) {
 					executions[`${label}Mutations`] += 1;
+					for (const listener of invalidationListeners) listener();
 				}
 				if (operation.kind === 'local-write') {
 					if (operation.intent.op === 'replace') {
@@ -281,6 +284,10 @@ async function setup(options?: {
 					}
 				}
 				return undefined;
+			},
+			subscribeInvalidation(listener: () => void) {
+				invalidationListeners.add(listener);
+				return () => invalidationListeners.delete(listener);
 			},
 			async dispose(): Promise<void> {
 				if (label === 'owner')

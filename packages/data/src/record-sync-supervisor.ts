@@ -118,9 +118,9 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 			left.scalar.pending === right.scalar.pending &&
 			left.scalar.sealed === right.scalar.sealed &&
 			left.scalar.parked === right.scalar.parked &&
-			left.document.pending === right.document.pending &&
+			left.document.owed === right.document.owed &&
 			left.document.parked === right.document.parked &&
-			left.blob.pending === right.blob.pending &&
+			left.blob.owed === right.blob.owed &&
 			left.blob.parked === right.blob.parked
 		);
 	}
@@ -220,27 +220,38 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 		transport: RecordSyncTransport<TBlobRead>,
 	): Promise<boolean> {
 		let progressed = false;
-		for (const address of replica.publicationAddresses('document')) {
+		for (const address of replica.owedDocuments()) {
 			const state = replica.documentPublication(address);
-			if (state.kind === 'clean' || state.kind === 'parked') {
-				progressed ||= state.kind === 'parked';
+			if (state.kind === 'settled' || state.kind === 'refused') {
 				continue;
 			}
-			const acceptance = await transport.publishDocument(state.publication);
+			const { capturedRevision, ...request } = state.publication;
+			const acceptance = await transport.publishDocument(request);
 			requireActive(activeGeneration);
 			switch (acceptance.kind) {
 				case 'accepted':
-					replica.settleDocumentPublication(address, acceptance.receipt);
+					replica.settleDocumentPublication(address, acceptance.receipt, {
+						revision: capturedRevision,
+						digest: request.digest,
+					});
+					progressed = true;
 					break;
 				case 'document-bound':
+					replica.settleDocumentPublication(address, acceptance, {
+						revision: capturedRevision,
+						digest: request.digest,
+					});
+					progressed = true;
+					break;
 				case 'record-not-live':
-					replica.settleDocumentPublication(address, acceptance);
+					// The scalar plane owns record liveness. Leave the document owed
+					// and wait for a later facts pass instead of persisting a second
+					// liveness state or immediately retrying the same publication.
 					break;
 				case 'lifetime-mismatch':
 					await replaceSupersededReplica(activeGeneration);
 					return true;
 			}
-			progressed = true;
 		}
 		return progressed;
 	}
@@ -250,7 +261,7 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 		transport: RecordSyncTransport<TBlobRead>,
 	): Promise<boolean> {
 		let progressed = false;
-		for (const address of replica.publicationAddresses('blob')) {
+		for (const address of replica.owedBlobs()) {
 			const publication = await blobs.publication(address);
 			if (publication === null) continue;
 			const acceptance = await transport.publishBlob(publication);
@@ -349,9 +360,7 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 					documentProgress ||
 					blobProgress ||
 					work.scalar.pending > 0 ||
-					work.scalar.sealed > 0 ||
-					work.document.pending > 0 ||
-					work.blob.pending > 0;
+					work.scalar.sealed > 0;
 				retryAttempt = 0;
 				setStatus('idle');
 				if (retryImmediately) runRequested = true;

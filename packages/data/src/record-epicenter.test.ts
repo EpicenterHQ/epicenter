@@ -210,22 +210,22 @@ describe('record Epicenter Lens runtime', () => {
 			const bytes = new TextEncoder().encode('audio');
 			const digest = await context.data.notes.notes.blob.put(row.id, bytes);
 			expect(await context.data.notes.notes.blob.inspect(row.id)).toEqual({
-				kind: 'pending',
+				kind: 'owed',
 				digest,
 			});
 			expect(await context.data.notes.notes.blob.get(row.id)).toEqual(bytes);
 			expect(context.replica.workSummary()).toMatchObject({
-				document: { pending: 1, parked: 0 },
-				blob: { pending: 1, parked: 0 },
+				document: { owed: 1, parked: 0 },
+				blob: { owed: 1, parked: 0 },
 			});
-			expect(context.replica.publicationAddresses('document')).toEqual([
+			expect(context.replica.owedDocuments()).toEqual([
 				{
 					namespace: notesLens.namespace,
 					collection: 'notes',
 					recordKey: row.id,
 				},
 			]);
-			expect(context.replica.publicationAddresses('blob')).toEqual([
+			expect(context.replica.owedBlobs()).toEqual([
 				{
 					namespace: notesLens.namespace,
 					collection: 'notes',
@@ -303,7 +303,7 @@ describe('record Epicenter Lens runtime', () => {
 			expect(await context.data.notes.notes.blob.get(row.id)).toEqual(bytes);
 			expect(await context.data.notes.notes.blob.inspect(row.id)).toMatchObject(
 				{
-					kind: 'pending',
+					kind: 'owed',
 				},
 			);
 			expect(changed).toEqual([[row.id]]);
@@ -374,8 +374,8 @@ describe('record Epicenter Lens runtime', () => {
 					collection: 'notes',
 					recordKey: row.id,
 				}),
-			).toMatchObject({ dirty: false });
-			expect(context.replica.workSummary().document.pending).toBe(0);
+			).toMatchObject({ owed: false });
+			expect(context.replica.workSummary().document.owed).toBe(0);
 
 			remote.destroy();
 			await document[Symbol.asyncDispose]();

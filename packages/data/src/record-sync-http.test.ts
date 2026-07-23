@@ -176,4 +176,30 @@ describe('record sync HTTP transport', () => {
 			}),
 		).rejects.toThrow('HTTP 401');
 	});
+
+	test('rejects a document acceptance with unrecognized fields', async () => {
+		const transport = createHttpRecordSyncTransport<Blob>({
+			deploymentId: 'https://api.example.com/',
+			fetch: async () =>
+				Response.json({
+					kind: 'accepted',
+					receipt: {
+						authorityLifetime: 'lifetime-one',
+						address: ADDRESS,
+						protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+						digest: 'd'.repeat(64),
+					},
+					unexpected: true,
+				}),
+		});
+		await expect(
+			transport.publishDocument({
+				authorityLifetime: 'lifetime-one',
+				address: ADDRESS,
+				protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+				payload: new Uint8Array([1, 2]),
+				digest: 'd'.repeat(64),
+			}),
+		).rejects.toThrow('unknown acceptance shape');
+	});
 });

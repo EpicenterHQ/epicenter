@@ -71,26 +71,33 @@ const INDEX_SHAPES = {
 		unique: 1,
 		partial: 0,
 		columns: ['namespace', 'collection', 'record_key'],
+		where: null,
 	},
 	records_pending: {
 		unique: 0,
 		partial: 1,
 		columns: ['namespace', 'collection', 'record_key'],
+		where: 'pending_op is not null',
 	},
 	records_sealed: {
 		unique: 0,
 		partial: 1,
 		columns: ['namespace', 'collection', 'record_key'],
+		where: 'sealed_op is not null',
 	},
 	records_document_owed: {
 		unique: 0,
 		partial: 1,
 		columns: ['namespace', 'collection', 'record_key'],
+		where:
+			'document_revision > document_accepted_revision and document_refused_revision is null',
 	},
 	records_blob_owed: {
 		unique: 0,
 		partial: 1,
 		columns: ['namespace', 'collection', 'record_key'],
+		where:
+			'blob_sha256 is not null and (blob_accepted_sha256 is null or blob_accepted_sha256 != blob_sha256) and blob_parked_code is null',
 	},
 } as const;
 
@@ -115,11 +122,21 @@ type IndexInfoRow = SqliteRow & {
 	key: number;
 };
 
+type SchemaSqlRow = SqliteRow & { sql: string | null };
+
 function sameStrings(actual: readonly string[], expected: readonly string[]) {
 	return (
 		actual.length === expected.length &&
 		actual.every((entry, index) => entry === expected[index])
 	);
+}
+
+function normalizedWhere(sql: string | null): string | null {
+	if (sql === null) return null;
+	const match = /\bwhere\b(?<predicate>[\s\S]+)$/iu.exec(sql);
+	return match?.groups?.predicate
+		? match.groups.predicate.replaceAll(/\s+/gu, ' ').trim().toLowerCase()
+		: null;
 }
 
 /** Recognize the current physical shape without comparing SQLite DDL text. */
@@ -152,6 +169,11 @@ export function replicaStoreSchemaMatches(database: SqliteDatabase): boolean {
 				.map((column) => column.name)
 				.filter((column): column is string => column !== null);
 			if (!sameStrings(columns, expected.columns)) return false;
+			const schema = database.all<SchemaSqlRow>(
+				`SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?`,
+				[name],
+			)[0];
+			if (normalizedWhere(schema?.sql ?? null) !== expected.where) return false;
 		}
 		return true;
 	} catch {
@@ -269,11 +291,11 @@ const SCHEMA = [
 		ON records(namespace, collection, record_key) WHERE pending_op IS NOT NULL`,
 	`CREATE INDEX records_sealed
 		ON records(namespace, collection, record_key) WHERE sealed_op IS NOT NULL`,
-		`CREATE INDEX records_document_owed
+	`CREATE INDEX records_document_owed
 			ON records(namespace, collection, record_key)
 			WHERE document_revision > document_accepted_revision
 				AND document_refused_revision IS NULL`,
-		`CREATE INDEX records_blob_owed
+	`CREATE INDEX records_blob_owed
 			ON records(namespace, collection, record_key)
 			WHERE blob_sha256 IS NOT NULL AND
 				(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)

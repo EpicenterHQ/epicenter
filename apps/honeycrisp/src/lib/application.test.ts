@@ -53,8 +53,8 @@ function createRuntime(
 					state: 'local',
 					work: {
 						scalar: { pending: 0, sealed: 0, parked: 0 },
-						document: { pending: 0, parked: 0 },
-						blob: { pending: 0, parked: 0 },
+						document: { owed: 0, parked: 0 },
+						blob: { owed: 0, parked: 0 },
 					},
 				},
 				subscribeSyncStatus: () => () => {},

@@ -248,7 +248,7 @@ test('page Lens CRUD and create-with-blob cross one JSON-native owner protocol',
 			error: null,
 		});
 		expect(await notes.notes.blob.inspect(row.id)).toMatchObject({
-			kind: 'pending',
+			kind: 'owed',
 		});
 		expect(await (await notes.notes.blob.get(row.id))?.text()).toBe(
 			'record bytes',

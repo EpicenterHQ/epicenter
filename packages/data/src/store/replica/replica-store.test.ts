@@ -333,7 +333,7 @@ describe('production replica store format', () => {
 					limits: LIMITS,
 					initialize: { replicaId: REPLICA_ID },
 				}),
-			).toThrow(/does not match format 3/);
+			).toThrow(/does not match format 4/);
 			expect(userSchemaObjects(database)).toEqual(['table:legacy_workspace']);
 		} finally {
 			database.close();
@@ -352,7 +352,30 @@ describe('production replica store format', () => {
 			database.exec('DROP INDEX records_pending');
 			expect(() =>
 				openReplicaStore({ database: adapter, limits: LIMITS }),
-			).toThrow(/does not match format 3/);
+			).toThrow(/does not match format 4/);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('refuses a current index name with the wrong obligation predicate', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const adapter = createBunSqliteAdapter(database);
+			openReplicaStore({
+				database: adapter,
+				limits: LIMITS,
+				initialize: { replicaId: REPLICA_ID },
+			});
+			database.exec(`
+				DROP INDEX records_document_owed;
+				CREATE INDEX records_document_owed
+					ON records(namespace, collection, record_key)
+					WHERE document_revision > document_accepted_revision;
+			`);
+			expect(() =>
+				openReplicaStore({ database: adapter, limits: LIMITS }),
+			).toThrow(/does not match format 4/);
 		} finally {
 			database.close();
 		}
@@ -367,22 +390,21 @@ describe('production replica store format', () => {
 					format_version INTEGER,
 					replica_id TEXT
 				) STRICT;
-				INSERT INTO meta VALUES (1, 3, '${REPLICA_ID}');
+				INSERT INTO meta VALUES (1, 4, '${REPLICA_ID}');
 				CREATE TABLE records (id INTEGER PRIMARY KEY) STRICT;
 				CREATE TABLE record_documents (id INTEGER PRIMARY KEY) STRICT;
-				CREATE TABLE document_inflight (id INTEGER PRIMARY KEY) STRICT;
 				CREATE UNIQUE INDEX records_address ON records(id);
 				CREATE INDEX records_pending ON records(id) WHERE id > 0;
 				CREATE INDEX records_sealed ON records(id) WHERE id > 0;
-				CREATE INDEX records_doc_dirty ON records(id) WHERE id > 0;
-				CREATE INDEX records_blob_pending ON records(id) WHERE id > 0;
+				CREATE INDEX records_document_owed ON records(id) WHERE id > 0;
+				CREATE INDEX records_blob_owed ON records(id) WHERE id > 0;
 			`);
 			expect(() =>
 				openReplicaStore({
 					database: createBunSqliteAdapter(database),
 					limits: LIMITS,
 				}),
-			).toThrow(/does not match format 3/);
+			).toThrow(/does not match format 4/);
 		} finally {
 			database.close();
 		}

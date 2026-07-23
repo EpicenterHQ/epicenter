@@ -1,5 +1,8 @@
 import type { BlobAcceptance } from './blob-v1/index.js';
-import type { DocumentAcceptance } from './document-v1/index.js';
+import {
+	type DocumentAcceptance,
+	parseDocumentAcceptance,
+} from './document-v1/index.js';
 import {
 	type FactsRequest,
 	type FactsResponse,
@@ -173,12 +176,15 @@ export function createHttpRecordSyncTransport<
 					},
 				),
 			);
-			return planeResponse<DocumentAcceptance>(response, [
-				'accepted',
-				'document-bound',
-				'record-not-live',
-				'lifetime-mismatch',
-			]);
+			const value = await readJson(response, MAX_PLANE_RESPONSE_BYTES);
+			if (response.status !== 200 && response.status !== 409) {
+				throw new Error(`Sync request failed with HTTP ${response.status}`);
+			}
+			const acceptance = parseDocumentAcceptance(value, limits);
+			if (acceptance === undefined) {
+				throw new Error('Sync response has an unknown acceptance shape');
+			}
+			return acceptance;
 		},
 		async publishBlob(publication): Promise<BlobAcceptance> {
 			const init: RequestInit & { duplex?: 'half' } = {
