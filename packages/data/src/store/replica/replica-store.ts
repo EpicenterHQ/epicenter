@@ -46,6 +46,22 @@ import {
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
 
+export const PUBLICATION_OBLIGATION_PAGE_LIMIT = 64;
+
+export const OWED_DOCUMENTS_SQL = `SELECT namespace, collection, record_key
+	FROM records
+	WHERE document_revision > document_accepted_revision
+		AND document_refused_revision IS NULL
+	ORDER BY namespace, collection, record_key
+	LIMIT ?`;
+
+export const OWED_BLOBS_SQL = `SELECT namespace, collection, record_key
+	FROM records
+	WHERE blob_sha256 IS NOT NULL AND
+		(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)
+		AND blob_parked_code IS NULL
+	ORDER BY namespace, collection, record_key
+	LIMIT ?`;
 type RecordAddress = Intent['address'];
 
 type RecordRow = SqliteRow & {
@@ -212,6 +228,35 @@ function assertAttachment(attachment: ReplicaAttachment): void {
 	} catch {
 		throw new Error('attachment deployment ID must be a canonical URL');
 	}
+}
+
+function owedAddresses(
+	database: SqliteDatabase,
+	sql: string,
+	limit: number,
+): RecordAddress[] {
+	if (
+		!Number.isSafeInteger(limit) ||
+		limit < 1 ||
+		limit > PUBLICATION_OBLIGATION_PAGE_LIMIT
+	) {
+		throw new TypeError(
+			`publication obligation limit must be between 1 and ${PUBLICATION_OBLIGATION_PAGE_LIMIT}`,
+		);
+	}
+	return database
+		.all<
+			SqliteRow & {
+				namespace: string;
+				collection: string;
+				record_key: string;
+			}
+		>(sql, [limit])
+		.map((row) => ({
+			namespace: row.namespace,
+			collection: row.collection,
+			recordKey: row.record_key,
+		}));
 }
 
 function operationArgs(operation: Operation): string | null {
@@ -430,18 +475,20 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 		`UPDATE records SET
 			confirmed_state = ?,
 			confirmed_payload = ?,
-			confirmed_sequence = ?
+			confirmed_sequence = ?,
+			blob_parked_code = CASE
+				WHEN ? = 'live' AND blob_parked_code = 'record-not-live' THEN NULL
+				ELSE blob_parked_code
+			END
 		WHERE ${TRIPLE_WHERE}`,
-		[fact.state, payload, fact.sequence, ...tripleParams(fact.address)],
+		[
+			fact.state,
+			payload,
+			fact.sequence,
+			fact.state,
+			...tripleParams(fact.address),
+		],
 	);
-	if (fact.state === 'live') {
-		database.run(
-			`DELETE FROM document_inflight
-			WHERE parked_code = 'record-not-live' AND record_id =
-				(SELECT record_id FROM records WHERE ${TRIPLE_WHERE})`,
-			tripleParams(fact.address),
-		);
-	}
 }
 
 function openSchema(

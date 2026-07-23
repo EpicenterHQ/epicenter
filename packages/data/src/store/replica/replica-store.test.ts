@@ -14,6 +14,7 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import {
 	openReplicaStore,
+	PUBLICATION_OBLIGATION_PAGE_LIMIT,
 	REPLICA_STORE_INDEXES,
 	REPLICA_STORE_TABLES,
 } from './index.js';
@@ -483,6 +484,52 @@ describe('production replica store format', () => {
 					[recordId],
 				),
 			).toThrow(/constraint failed/);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('bounded drain scans skip blocked work and reject unbounded pages', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: LIMITS,
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			const blocked = {
+				namespace: 'so.epicenter.notes',
+				collection: 'records',
+				recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+			};
+			const ready = { ...blocked, recordKey: 'zzzzzzzzzzzzzzzzzzzzzzzz' };
+			store.localWrite({ address: blocked, op: 'replace', value: {} });
+			store.localWrite({ address: ready, op: 'replace', value: {} });
+			database.run(
+				`UPDATE records SET
+					document_revision = 1,
+					document_refused_revision = CASE WHEN record_key = ? THEN 1 END,
+					document_refused_bytes = CASE WHEN record_key = ? THEN 1048577 END,
+					document_refused_structs = CASE WHEN record_key = ? THEN 1 END,
+					blob_sha256 = ?,
+					blob_parked_code = CASE WHEN record_key = ? THEN 'blob-conflict' END`,
+				[
+					blocked.recordKey,
+					blocked.recordKey,
+					blocked.recordKey,
+					'a'.repeat(64),
+					blocked.recordKey,
+				],
+			);
+
+			expect(store.owedDocuments(1)).toEqual([ready]);
+			expect(store.owedBlobs(1)).toEqual([ready]);
+			expect(() =>
+				store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT + 1),
+			).toThrow(/between 1 and 64/);
 		} finally {
 			database.close();
 		}

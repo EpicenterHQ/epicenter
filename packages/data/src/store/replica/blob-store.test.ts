@@ -321,6 +321,67 @@ describe('record blob store', () => {
 		}
 	});
 
+	test('a later live fact clears transient record-not-live evidence', async () => {
+		const context = setup();
+		try {
+			const digest = await context.blobs.capture(
+				ADDRESS,
+				new TextEncoder().encode('local'),
+			);
+			await context.blobs.settle(ADDRESS, {
+				kind: 'record-not-live',
+				activeAuthorityLifetime: 'lifetime-one',
+				address: ADDRESS,
+				state: 'absent',
+			});
+			expect(context.blobs.inspect(ADDRESS)).toMatchObject({
+				kind: 'parked',
+				parkedCode: 'record-not-live',
+			});
+
+			context.replica.installFacts({
+				request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
+				response: {
+					authorityLifetime: 'lifetime-one',
+					facts: [
+						{ address: ADDRESS, sequence: 1, state: 'live', payload: {} },
+					],
+					hasMore: false,
+				},
+			});
+
+			expect(context.blobs.inspect(ADDRESS)).toEqual({ kind: 'owed', digest });
+			expect(await context.blobs.publication(ADDRESS)).not.toBeNull();
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('ordinary non-live capture refusal leaves no staging debris', async () => {
+		const context = setup();
+		try {
+			const absent = {
+				...ADDRESS,
+				recordKey: 'cccccccccccccccccccccccc',
+			};
+			await expect(
+				context.blobs.capture(absent, new TextEncoder().encode('absent')),
+			).rejects.toThrow(/absent/);
+			expect(context.files.staging.size).toBe(0);
+
+			context.replica.localWrite({ address: OTHER_ADDRESS, op: 'tombstone' });
+			await expect(
+				context.blobs.capture(
+					OTHER_ADDRESS,
+					new TextEncoder().encode('tombstoned'),
+				),
+			).rejects.toThrow(/tombstoned/);
+			expect(context.files.staging.size).toBe(0);
+		} finally {
+			context.database.close();
+		}
+	});
+
 	for (const boundary of [
 		'afterStage',
 		'afterPromote',

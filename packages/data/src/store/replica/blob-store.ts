@@ -157,33 +157,40 @@ export function createReplicaBlobStore<TSource, TRead>(
 		source: TSource,
 	): Promise<string> {
 		const digest = await exclusive(async () => {
+			// Refuse ordinary invalid ownership before streaming bytes into staging.
+			// The post-stage check below still fences a liveness race.
+			requireLiveRecord(database, address);
 			const staged = await files.stage(source);
 			if (!isBlobDigest(staged.digest)) {
 				await files.sweepStaging();
 				throw new Error('blob file store returned an invalid digest');
 			}
 			hooks.afterStage?.();
-			const before = requireLiveRecord(database, address);
-			if (before.blob_sha256 !== null && before.blob_sha256 !== staged.digest) {
-				await files.sweepStaging();
-				throw new Error('blob slot already owns different bytes');
-			}
-			const owner = blobFileOwner(address, staged.digest);
-			await files.promote(staged, owner);
-			hooks.afterPromote?.();
-			database.transaction(() => {
-				const row = requireLiveRecord(database, address);
-				if (row.blob_sha256 !== null && row.blob_sha256 !== staged.digest) {
+			try {
+				const before = requireLiveRecord(database, address);
+				if (before.blob_sha256 !== null && before.blob_sha256 !== staged.digest) {
 					throw new Error('blob slot already owns different bytes');
 				}
-				if (row.blob_sha256 === null) {
-					database.run(
-						`UPDATE records SET blob_sha256 = ?, blob_accepted_sha256 = NULL,
-							blob_parked_code = NULL WHERE ${TRIPLE_WHERE}`,
-						[staged.digest, ...tripleParams(address)],
-					);
-				}
-			});
+				const owner = blobFileOwner(address, staged.digest);
+				await files.promote(staged, owner);
+				hooks.afterPromote?.();
+				database.transaction(() => {
+					const row = requireLiveRecord(database, address);
+					if (row.blob_sha256 !== null && row.blob_sha256 !== staged.digest) {
+						throw new Error('blob slot already owns different bytes');
+					}
+					if (row.blob_sha256 === null) {
+						database.run(
+							`UPDATE records SET blob_sha256 = ?, blob_accepted_sha256 = NULL,
+								blob_parked_code = NULL WHERE ${TRIPLE_WHERE}`,
+							[staged.digest, ...tripleParams(address)],
+						);
+					}
+				});
+			} catch (cause) {
+				await files.sweepStaging();
+				throw cause;
+			}
 			hooks.afterMembership?.();
 			return staged.digest;
 		});
