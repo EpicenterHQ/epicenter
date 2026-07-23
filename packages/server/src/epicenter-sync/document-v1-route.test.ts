@@ -165,6 +165,7 @@ describe('document V1 publication route', () => {
 		const context = setup();
 		try {
 			const payload = updateFor('x');
+			const malformed = new Uint8Array([1, 2, 3]);
 			for (const request of [
 				{
 					headers: { ...headers(payload), [DOCUMENT_DIGEST_HEADER]: 'bad' },
@@ -175,6 +176,7 @@ describe('document V1 publication route', () => {
 					body: bodyOf(payload),
 				},
 				{ headers: headers(payload), body: new ArrayBuffer(0) },
+				{ headers: headers(malformed), body: bodyOf(malformed) },
 			]) {
 				const response = await context.app.request(PATH, {
 					method: 'POST',

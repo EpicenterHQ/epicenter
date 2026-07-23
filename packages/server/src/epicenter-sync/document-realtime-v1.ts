@@ -2,10 +2,12 @@ import {
 	DOCUMENT_PUBLICATION_VERSION,
 	documentPayloadDigest,
 	encodeDocumentAcceptance,
+	parseDocumentPublicationRequest,
 } from '@epicenter/data/document-v1';
 import {
 	addressesEqual,
 	type RecordAddress,
+	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
 import {
 	DOCUMENT_BACKSTOP_CLOSE_CODE,
@@ -115,13 +117,20 @@ export function createDocumentRealtimeV1Server({
 	}
 
 	function acceptUpdate(session: Session, update: Uint8Array): void {
-		const result = authority.acceptDocument({
-			authorityLifetime: session.authorityLifetime,
-			address: session.address,
-			protocolVersion: DOCUMENT_PUBLICATION_VERSION,
-			payload: update,
-			digest: documentPayloadDigest(update),
-		});
+		const request = parseDocumentPublicationRequest(
+			{
+				authorityLifetime: session.authorityLifetime,
+				address: session.address,
+				protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+				payload: update,
+				digest: documentPayloadDigest(update),
+			},
+			SCALAR_SYNC_V1_LIMITS,
+		);
+		if (request === undefined) {
+			throw new TypeError('invalid document publication update');
+		}
+		const result = authority.acceptDocument(request);
 		if (
 			!trySend(session.socket, {
 				kind: 'publication-response',

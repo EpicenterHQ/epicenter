@@ -134,6 +134,31 @@ function lastAcceptance(sent: Uint8Array[]) {
 }
 
 describe('document realtime V1 overlay', () => {
+	test('rejects malformed Yjs bytes before authority acceptance', () => {
+		const context = setup();
+		try {
+			const peer = socket();
+			connect(context.server, peer.value);
+			const callsBefore = context.acceptCalls();
+			context.server.receive(
+				peer.value,
+				ADDRESS,
+				'lifetime-one',
+				encodeDocumentFrame({
+					kind: 'update',
+					update: new Uint8Array([1, 2, 3]),
+				}),
+			);
+			expect(context.acceptCalls()).toBe(callsBefore);
+			expect(peer.closed.at(-1)).toEqual({
+				code: 1002,
+				reason: 'invalid-document-frame',
+			});
+		} finally {
+			context.raw.close();
+		}
+	});
+
 	test('uses the authority acceptance function, returns its receipt, and fans out', () => {
 		const context = setup();
 		try {
