@@ -34,8 +34,8 @@ function requireComponent(value: string, label: string): void {
 }
 
 async function* chunks(source: BlobByteSource): AsyncIterable<Uint8Array> {
-	if ('getReader' in source) {
-		const reader = source.getReader();
+	if (typeof (source as ReadableStream<Uint8Array>).getReader === 'function') {
+		const reader = (source as ReadableStream<Uint8Array>).getReader();
 		try {
 			while (true) {
 				const result = await reader.read();
@@ -46,9 +46,15 @@ async function* chunks(source: BlobByteSource): AsyncIterable<Uint8Array> {
 				yield result.value;
 			}
 		} finally {
-			reader.releaseLock();
+			try {
+				reader.releaseLock();
+			} catch {
+				// Bun network request bodies can throw here after a complete read.
+				// Staging owns terminal consumption, so cleanup cannot overturn it.
+			}
 		}
 	}
+
 	for await (const chunk of source as AsyncIterable<Uint8Array>) {
 		if (!(chunk instanceof Uint8Array)) {
 			throw new TypeError('blob source yielded a non-byte chunk');

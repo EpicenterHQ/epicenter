@@ -58,6 +58,89 @@ describe('Bun blob files', () => {
 		}
 	});
 
+	test('falls back to the async iterator when no stream reader exists', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
+		try {
+			const files = createBunBlobFileStore(root);
+			const iterable = source('streamed bytes');
+			Object.defineProperty(iterable, 'getReader', { value: undefined });
+
+			const staged = await files.stage(iterable);
+			expect(staged.digest).toBe(
+				'7caf7cf97d16eb73533d88158e32aceb421e05830022d4648bd39c8e88527729',
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test('prefers the stream reader and releases it normally', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
+		try {
+			const files = createBunBlobFileStore(root);
+			const request = new Request('http://localhost/blob', {
+				method: 'POST',
+				body: 'streamed bytes',
+			});
+			if (request.body === null) throw new Error('request body is absent');
+			const reader = request.body.getReader();
+			let released = false;
+			Object.defineProperty(request.body, 'getReader', {
+				value: () => ({
+					read: reader.read.bind(reader),
+					releaseLock() {
+						released = true;
+						reader.releaseLock();
+					},
+				}),
+			});
+			Object.defineProperty(request.body, Symbol.asyncIterator, {
+				value() {
+					throw new TypeError('broken async iterator');
+				},
+			});
+
+			const staged = await files.stage(request.body);
+			expect(staged.digest).toBe(
+				'7caf7cf97d16eb73533d88158e32aceb421e05830022d4648bd39c8e88527729',
+			);
+			expect(released).toBe(true);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test('does not let Bun release failure overturn a complete stage', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
+		try {
+			const files = createBunBlobFileStore(root);
+			const request = new Request('http://localhost/blob', {
+				method: 'POST',
+				body: 'streamed bytes',
+			});
+			if (request.body === null) throw new Error('request body is absent');
+			const reader = request.body.getReader();
+			let releaseAttempted = false;
+			Object.defineProperty(request.body, 'getReader', {
+				value: () => ({
+					read: reader.read.bind(reader),
+					releaseLock() {
+						releaseAttempted = true;
+						throw new TypeError('broken Bun releaseLock');
+					},
+				}),
+			});
+
+			const staged = await files.stage(request.body);
+			expect(staged.digest).toBe(
+				'7caf7cf97d16eb73533d88158e32aceb421e05830022d4648bd39c8e88527729',
+			);
+			expect(releaseAttempted).toBe(true);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test('keeps equal bytes physically independent by record owner', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
 		try {
