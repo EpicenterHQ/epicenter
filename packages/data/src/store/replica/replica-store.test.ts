@@ -549,6 +549,10 @@ describe('production replica store format', () => {
 
 			expect(store.owedDocuments(1)).toEqual([ready]);
 			expect(store.owedBlobs(1)).toEqual([ready]);
+			expect(store.workSummary()).toMatchObject({
+				document: { owed: 1, parked: 1 },
+				blob: { owed: 1, parked: 1 },
+			});
 			expect(() =>
 				store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT + 1),
 			).toThrow(/between 1 and 64/);

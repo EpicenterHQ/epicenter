@@ -669,13 +669,15 @@ export function openReplicaStore({
 				count(*) FILTER (WHERE sealed_op IS NOT NULL) AS scalar_sealed,
 				count(*) FILTER (WHERE parked_op IS NOT NULL) AS scalar_parked,
 				count(*) FILTER (WHERE
-					document_revision > document_accepted_revision
+					document_revision > document_accepted_revision AND
+					document_refused_revision IS NULL
 				) AS document_owed,
 				count(*) FILTER (WHERE document_refused_revision IS NOT NULL)
 					AS document_parked,
 				count(*) FILTER (WHERE blob_sha256 IS NOT NULL AND
 					(blob_accepted_sha256 IS NULL OR
-						blob_accepted_sha256 != blob_sha256)) AS blob_owed,
+						blob_accepted_sha256 != blob_sha256) AND
+					blob_parked_code IS NULL) AS blob_owed,
 				count(*) FILTER (WHERE blob_parked_code IS NOT NULL) AS blob_parked
 			FROM records`,
 		);
