@@ -11,6 +11,7 @@ export {
 	type FrozenDocumentPublication,
 } from './document-store.js';
 export {
+	type CaptureReplicaProposalOptions,
 	type CaptureReplicaSnapshotOptions,
 	type FencedLocalWrite,
 	type FirstAttachmentChoice,

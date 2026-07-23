@@ -3,6 +3,11 @@ import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { isBlobDigest } from '../../blob-v1/index.js';
 import type { LensDefinition } from '../../lens.js';
 import {
+	type ProposalSelection,
+	type ProposalSourceRecord,
+	writeProposalArtifact,
+} from '../../proposal-artifact.js';
+import {
 	type AdmittedSubmissionRequest,
 	admitFactsPage,
 	admitSettlement,
@@ -178,6 +183,14 @@ export type OpenReplicaStoreOptions = {
 export type CaptureReplicaSnapshotOptions = {
 	database: SqliteDatabase;
 	lens?: LensDefinition;
+};
+
+export type CaptureReplicaProposalOptions = {
+	database: SqliteDatabase;
+	hmacKey: Uint8Array;
+	proposalId: string;
+	lens: LensDefinition;
+	selection: ProposalSelection;
 };
 
 function tripleParams(address: RecordAddress): [string, string, string] {
@@ -1434,6 +1447,45 @@ export function openReplicaStore({
 		});
 	}
 
+	function captureProposal({
+		database: target,
+		hmacKey,
+		proposalId,
+		lens,
+		selection,
+	}: CaptureReplicaProposalOptions): void {
+		database.readTransaction(() => {
+			const meta = readMeta(database);
+			function* records(): Generator<ProposalSourceRecord> {
+				for (const [collection, selected] of Object.entries(
+					selection.collections,
+				)) {
+					for (const recordKey of selected.recordKeys) {
+						const address = {
+							namespace: selection.namespace,
+							collection,
+							recordKey,
+						};
+						const current = visible(address);
+						yield current?.state === 'live'
+							? { address, state: 'live', payload: current.payload }
+							: { address, state: 'absent' };
+					}
+				}
+			}
+			writeProposalArtifact({
+				database: target,
+				hmacKey,
+				proposalId,
+				sourceReplicaId: meta.replica_id,
+				sourceAuthorityLifetime: meta.authority_lifetime,
+				lens,
+				selection,
+				records: records(),
+			});
+		});
+	}
+
 	return {
 		record,
 		visible,
@@ -1458,6 +1510,7 @@ export function openReplicaStore({
 		settle,
 		erase,
 		captureSnapshot,
+		captureProposal,
 		appendLocalDocumentUpdate(address: RecordAddress, update: Uint8Array) {
 			documents.appendLocal(address, update);
 			notify([address]);

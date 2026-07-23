@@ -133,6 +133,11 @@ export async function createDesktopRecordEpicenterOwner({
 	return Object.freeze({
 		...runtime,
 		captureSnapshot: opened.captureSnapshot,
+		proposals: opened.proposals,
+		createProposal: opened.createProposal,
+		compileProposal: opened.compileProposal,
+		applyProposal: opened.applyProposal,
+		deleteProposal: opened.deleteProposal,
 	});
 }
 

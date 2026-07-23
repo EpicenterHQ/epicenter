@@ -21,6 +21,7 @@ export {
 	type ValuesDefinition,
 } from './lens.js';
 export type {
+	ProposalArtifactStatus,
 	ProposalManifest,
 	ProposalManifestEntry,
 	ProposalSelection,

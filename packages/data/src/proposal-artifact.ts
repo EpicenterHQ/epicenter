@@ -59,6 +59,15 @@ export type ProposalManifest = {
 	appliedCount: number;
 };
 
+export type ProposalArtifactStatus = {
+	proposalId: string;
+	sourceReplicaId: string;
+	sourceAuthorityLifetime: string | null;
+	state: 'draft' | 'compiled';
+	changeCount: number;
+	appliedCount: number;
+};
+
 const PROPOSAL_CREATED_KEY = /^[a-f0-9]{24}$/u;
 
 function parseProposalManifestEntry(value: unknown): ProposalManifestEntry {
@@ -829,6 +838,25 @@ function readAndVerifyDraft(database: SqliteDatabase, hmacKey: Uint8Array) {
 	if (!signaturesEqual(draftHmac, expected)) {
 		throw new Error('Proposal draft seal is invalid');
 	}
+	if (metadata.manifest_hmac === null) {
+		const manifestRows = database.all<ManifestRow>(
+			'SELECT sequence, entry_json FROM _epicenter_proposal_manifest',
+		);
+		const watermarkRows = database.all<WatermarkRow>(
+			`SELECT applied_count, watermark_hmac
+			FROM _epicenter_proposal_apply WHERE singleton = 1`,
+		);
+		const watermark = watermarkRows[0];
+		if (
+			metadata.manifest_count !== 0 ||
+			manifestRows.length !== 0 ||
+			watermarkRows.length !== 1 ||
+			watermark?.applied_count !== 0 ||
+			watermark.watermark_hmac !== null
+		) {
+			throw new Error('Proposal draft lifecycle state is invalid');
+		}
+	}
 	return { metadata, lens: parsedLens.data, selection };
 }
 
@@ -1230,6 +1258,38 @@ export function readProposalManifest({
 	return database.readTransaction(() =>
 		readVerifiedManifest(database, hmacKey),
 	);
+}
+
+/** Read one authenticated artifact status without exposing its HMAC key. */
+export function readProposalArtifactStatus({
+	database,
+	hmacKey,
+}: {
+	database: SqliteDatabase;
+	hmacKey: Uint8Array;
+}): ProposalArtifactStatus {
+	return database.readTransaction(() => {
+		const draft = readAndVerifyDraft(database, hmacKey);
+		if (draft.metadata.manifest_hmac === null) {
+			return {
+				proposalId: draft.metadata.proposal_id,
+				sourceReplicaId: draft.metadata.source_replica_id,
+				sourceAuthorityLifetime: draft.metadata.source_authority_lifetime,
+				state: 'draft',
+				changeCount: 0,
+				appliedCount: 0,
+			};
+		}
+		const manifest = readVerifiedManifest(database, hmacKey);
+		return {
+			proposalId: manifest.proposalId,
+			sourceReplicaId: manifest.sourceReplicaId,
+			sourceAuthorityLifetime: manifest.sourceAuthorityLifetime,
+			state: 'compiled',
+			changeCount: manifest.entries.length,
+			appliedCount: manifest.appliedCount,
+		};
+	});
 }
 
 /** Authenticate and advance the manifest watermark by exactly one entry. */
