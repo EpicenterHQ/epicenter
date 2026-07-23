@@ -9,6 +9,7 @@ import * as Y from '@y/y';
 
 import {
 	DOCUMENT_PUBLICATION_VERSION,
+	type DocumentAcceptance,
 	type DocumentBoundRefusal,
 	type DocumentPublicationReceipt,
 	type DocumentPublicationRequest,
@@ -32,6 +33,7 @@ type RecordRow = SqliteRow & {
 	document_revision: number;
 	document_accepted_revision: number;
 	document_refused_revision: number | null;
+	document_refused_code: 'document-bound' | 'record-not-live' | null;
 	document_refused_bytes: number | null;
 	document_refused_structs: number | null;
 };
@@ -48,6 +50,7 @@ export type DocumentInspection = {
 	owed: boolean;
 	chainBytes: number;
 	refused: boolean;
+	refusal: DocumentRefusalInspection | null;
 };
 
 /**
@@ -65,6 +68,15 @@ export type DocumentRefusalEvidence = {
 	measured: DocumentMeasure;
 	limit: DocumentMeasure;
 };
+
+export type DocumentRefusalInspection =
+	| ({ kind: 'document-bound' } & DocumentRefusalEvidence)
+	| { kind: 'record-not-live'; revision: number };
+
+type RecordNotLiveRefusal = Extract<
+	DocumentAcceptance,
+	{ kind: 'record-not-live' }
+>;
 
 export type DocumentPublicationState =
 	| { kind: 'settled' }
@@ -102,7 +114,7 @@ function rowFor(
 		database,
 		`SELECT record_id, confirmed_state, sealed_op, pending_op,
 			document_revision, document_accepted_revision,
-			document_refused_revision, document_refused_bytes,
+			document_refused_revision, document_refused_code, document_refused_bytes,
 			document_refused_structs
 		FROM records WHERE ${TRIPLE_WHERE}`,
 		tripleParams(address),
@@ -249,11 +261,13 @@ export function createReplicaDocumentStore(
 						? `UPDATE records SET
 								document_revision = document_revision + 1,
 								document_refused_revision = NULL,
+								document_refused_code = NULL,
 								document_refused_bytes = NULL,
 								document_refused_structs = NULL
 							WHERE record_id = ?`
 						: `UPDATE records SET
 								document_refused_revision = NULL,
+								document_refused_code = NULL,
 								document_refused_bytes = NULL,
 								document_refused_structs = NULL
 							WHERE record_id = ?`,
@@ -275,12 +289,39 @@ export function createReplicaDocumentStore(
 			[row.record_id],
 		);
 		if ((aggregate?.entries ?? 0) === 0) return null;
+		let refusal: DocumentRefusalInspection | null = null;
+		if (row.document_refused_revision !== null) {
+			if (row.document_refused_code === 'record-not-live') {
+				refusal = {
+					kind: 'record-not-live',
+					revision: row.document_refused_revision,
+				};
+			} else {
+				if (
+					row.document_refused_code !== 'document-bound' ||
+					row.document_refused_bytes === null ||
+					row.document_refused_structs === null
+				) {
+					throw new Error('document refusal evidence is incomplete');
+				}
+				refusal = {
+					kind: 'document-bound',
+					revision: row.document_refused_revision,
+					measured: {
+						stateBytes: row.document_refused_bytes,
+						stateStructs: row.document_refused_structs,
+					},
+					limit: DOCUMENT_BOUND,
+				};
+			}
+		}
 		return {
 			revision: row.document_revision,
 			acceptedRevision: row.document_accepted_revision,
 			owed: row.document_revision > row.document_accepted_revision,
 			chainBytes: aggregate?.bytes ?? 0,
-			refused: row.document_refused_revision !== null,
+			refused: refusal !== null,
+			refusal,
 		};
 	}
 
@@ -316,6 +357,7 @@ export function createReplicaDocumentStore(
 					database.run(
 						`UPDATE records SET
 							document_refused_revision = document_revision,
+							document_refused_code = 'document-bound',
 							document_refused_bytes = ?,
 							document_refused_structs = ?
 						WHERE record_id = ?`,
@@ -353,22 +395,29 @@ export function createReplicaDocumentStore(
 
 	function settle(
 		address: RecordAddress,
-		proof: DocumentPublicationReceipt | DocumentBoundRefusal,
+		proof:
+			| DocumentPublicationReceipt
+			| DocumentBoundRefusal
+			| RecordNotLiveRefusal,
 		captured: { revision: number; digest: string },
 	): void {
 		database.transaction(() => {
-			if (
-				!addressesEqual(address, proof.address) ||
-				proof.protocolVersion !== DOCUMENT_PUBLICATION_VERSION
-			) {
+			if (!addressesEqual(address, proof.address)) {
 				throw new Error(
 					'document publication proof does not match its address',
 				);
 			}
-			if (proof.digest !== captured.digest) {
-				throw new Error(
-					'document publication proof does not match the captured attempt',
-				);
+			if (!('kind' in proof) || proof.kind === 'document-bound') {
+				if (proof.protocolVersion !== DOCUMENT_PUBLICATION_VERSION) {
+					throw new Error(
+						'document publication proof does not match its address',
+					);
+				}
+				if (proof.digest !== captured.digest) {
+					throw new Error(
+						'document publication proof does not match the captured attempt',
+					);
+				}
 			}
 			if (!Number.isSafeInteger(captured.revision) || captured.revision < 1) {
 				throw new Error('captured document revision is invalid');
@@ -377,7 +426,11 @@ export function createReplicaDocumentStore(
 				database,
 				'SELECT authority_lifetime FROM meta WHERE singleton = 1',
 			);
-			if (meta?.authority_lifetime !== proof.authorityLifetime) {
+			const proofLifetime =
+				'kind' in proof && proof.kind === 'record-not-live'
+					? proof.activeAuthorityLifetime
+					: proof.authorityLifetime;
+			if (meta?.authority_lifetime !== proofLifetime) {
 				throw new Error('document publication proof lifetime mismatch');
 			}
 			const row = requireDocumentOwner(database, address);
@@ -401,15 +454,19 @@ export function createReplicaDocumentStore(
 				database.run(
 					`UPDATE records SET
 						document_refused_revision = ?,
+						document_refused_code = ?,
 						document_refused_bytes = ?,
 						document_refused_structs = ?
 					WHERE record_id = ?`,
-					[
-						captured.revision,
-						proof.measured.stateBytes,
-						proof.measured.stateStructs,
-						row.record_id,
-					],
+					proof.kind === 'record-not-live'
+						? [captured.revision, proof.kind, null, null, row.record_id]
+						: [
+								captured.revision,
+								proof.kind,
+								proof.measured.stateBytes,
+								proof.measured.stateStructs,
+								row.record_id,
+							],
 				);
 				return;
 			}
@@ -424,6 +481,7 @@ export function createReplicaDocumentStore(
 					? `UPDATE records SET
 							document_accepted_revision = ?,
 							document_refused_revision = NULL,
+							document_refused_code = NULL,
 							document_refused_bytes = NULL,
 							document_refused_structs = NULL
 						WHERE record_id = ?`

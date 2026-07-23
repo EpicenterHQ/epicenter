@@ -4,7 +4,7 @@
  * The conformance suite owns lane semantics and crash atomicity. These cases
  * protect the clean-break boundary around the dedicated SQLite file itself:
  * initialization occurs only in an empty database, and reopening recognizes
- * exactly the format-two tables and indexes owned by this store. Visible-read
+ * exactly the format-three tables and indexes owned by this store. Visible-read
  * cases verify tombstone-first lane derivation and bytewise keyset paging.
  */
 import { Database } from 'bun:sqlite';
@@ -119,14 +119,14 @@ describe('production replica store format', () => {
 					limits: LIMITS,
 					initialize: { replicaId: REPLICA_ID },
 				}),
-			).toThrow(/does not match format 2/);
+			).toThrow(/does not match format 3/);
 			expect(userSchemaObjects(database)).toEqual(['table:legacy_workspace']);
 		} finally {
 			database.close();
 		}
 	});
 
-	test('refuses an incomplete format-two schema', () => {
+	test('refuses an incomplete format-three schema', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const adapter = createBunSqliteAdapter(database);
@@ -138,7 +138,7 @@ describe('production replica store format', () => {
 			database.exec('DROP INDEX records_pending');
 			expect(() =>
 				openReplicaStore({ database: adapter, limits: LIMITS }),
-			).toThrow(/does not match format 2/);
+			).toThrow(/does not match format 3/);
 		} finally {
 			database.close();
 		}
@@ -201,6 +201,7 @@ describe('production replica store format', () => {
 			expect(() =>
 				database.run(
 					`UPDATE records SET document_refused_revision = 0,
+						document_refused_code = 'document-bound',
 						document_refused_bytes = NULL, document_refused_structs = NULL
 					WHERE record_id = ?`,
 					[recordId],
@@ -234,11 +235,14 @@ describe('production replica store format', () => {
 				`UPDATE records SET
 					document_revision = 1,
 					document_refused_revision = CASE WHEN record_key = ? THEN 1 END,
+					document_refused_code =
+						CASE WHEN record_key = ? THEN 'document-bound' END,
 					document_refused_bytes = CASE WHEN record_key = ? THEN 1048577 END,
 					document_refused_structs = CASE WHEN record_key = ? THEN 1 END,
 					blob_sha256 = ?,
 					blob_parked_code = CASE WHEN record_key = ? THEN 'blob-conflict' END`,
 				[
+					blocked.recordKey,
 					blocked.recordKey,
 					blocked.recordKey,
 					blocked.recordKey,

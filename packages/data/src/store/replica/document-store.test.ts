@@ -1,10 +1,14 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { DOCUMENT_BOUND } from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
 
 import type {
+	DocumentAcceptance,
 	DocumentBoundRefusal,
 	DocumentPublicationReceipt,
 } from '../../document-v1/index.js';
@@ -70,6 +74,18 @@ function capturedOf(publication: CapturedDocumentPublication): {
 	digest: string;
 } {
 	return { revision: publication.capturedRevision, digest: publication.digest };
+}
+
+function recordNotLiveRefusal(): Extract<
+	DocumentAcceptance,
+	{ kind: 'record-not-live' }
+> {
+	return {
+		kind: 'record-not-live',
+		activeAuthorityLifetime: 'lifetime-one',
+		address: ADDRESS,
+		state: 'tombstone',
+	};
 }
 
 describe('record document store', () => {
@@ -288,6 +304,162 @@ describe('record document store', () => {
 			context.store.appendLocalDocumentUpdate(ADDRESS, second);
 			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(false);
 			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('record-not-live refusal is inspectable and excluded from owed scans across reopen', () => {
+		const directory = mkdtempSync(
+			join(tmpdir(), 'epicenter-document-refusal-'),
+		);
+		const path = join(directory, 'replica.sqlite');
+		let database = new Database(path, { strict: true });
+		try {
+			let store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: makeLimits(),
+				initialize: {
+					replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			store.localWrite({
+				address: ADDRESS,
+				op: 'replace',
+				value: { title: 'x' },
+			});
+			const [update] = sourceUpdates('refused');
+			if (update === undefined) throw new Error('missing source update');
+			store.appendLocalDocumentUpdate(ADDRESS, update);
+			const attempt = store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+
+			store.settleDocumentPublication(
+				ADDRESS,
+				recordNotLiveRefusal(),
+				capturedOf(attempt.publication),
+			);
+			expect(store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 1,
+				owed: true,
+				refused: true,
+				refusal: { kind: 'record-not-live', revision: 1 },
+			});
+			expect(store.owedDocuments(64)).toEqual([]);
+
+			database.close();
+			database = new Database(path, { strict: true });
+			store = openReplicaStore({
+				database: createBunSqliteAdapter(database),
+				limits: makeLimits(),
+			});
+			expect(store.inspectDocument(ADDRESS)?.refusal).toEqual({
+				kind: 'record-not-live',
+				revision: 1,
+			});
+			expect(store.owedDocuments(64)).toEqual([]);
+		} finally {
+			database.close();
+			rmSync(directory, { recursive: true });
+		}
+	});
+
+	test('record-not-live refusal for a racing older revision leaves newer work owed', () => {
+		const context = setup();
+		try {
+			const [first, second] = sourceUpdates('a', 'b');
+			if (first === undefined || second === undefined) {
+				throw new Error('missing source updates');
+			}
+			context.store.appendLocalDocumentUpdate(ADDRESS, first);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			context.store.appendLocalDocumentUpdate(ADDRESS, second);
+
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				recordNotLiveRefusal(),
+				capturedOf(attempt.publication),
+			);
+
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 2,
+				owed: true,
+				refused: false,
+				refusal: null,
+			});
+			expect(context.store.owedDocuments(64)).toEqual([ADDRESS]);
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('a local edit clears record-not-live refusal and restores automatic eligibility', () => {
+		const context = setup();
+		try {
+			const [first, second] = sourceUpdates('a', 'b');
+			if (first === undefined || second === undefined) {
+				throw new Error('missing source updates');
+			}
+			context.store.appendLocalDocumentUpdate(ADDRESS, first);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				recordNotLiveRefusal(),
+				capturedOf(attempt.publication),
+			);
+			expect(context.store.owedDocuments(64)).toEqual([]);
+
+			context.store.appendLocalDocumentUpdate(ADDRESS, second);
+
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 2,
+				owed: true,
+				refused: false,
+				refusal: null,
+			});
+			expect(context.store.owedDocuments(64)).toEqual([ADDRESS]);
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('an authoritative tombstone reaps record-not-live refusal with document state', () => {
+		const context = setup();
+		try {
+			const [update] = sourceUpdates('a');
+			if (update === undefined) throw new Error('missing source update');
+			context.store.appendLocalDocumentUpdate(ADDRESS, update);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				recordNotLiveRefusal(),
+				capturedOf(attempt.publication),
+			);
+
+			context.store.installFacts({
+				request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
+				response: {
+					authorityLifetime: 'lifetime-one',
+					facts: [{ address: ADDRESS, sequence: 1, state: 'tombstone' }],
+					hasMore: false,
+				},
+			});
+
+			expect(context.store.inspectDocument(ADDRESS)).toBeNull();
+			expect(context.store.exportDocument(ADDRESS)).toBeUndefined();
+			expect(
+				context.database
+					.query<
+						{ code: string | null; revision: number | null },
+						[]
+					>(`SELECT document_refused_code AS code,
+							document_refused_revision AS revision FROM records`)
+					.get(),
+			).toEqual({ code: null, revision: null });
 		} finally {
 			context.database.close();
 		}

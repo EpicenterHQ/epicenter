@@ -367,6 +367,7 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 				document_revision = 0,
 				document_accepted_revision = 0,
 				document_refused_revision = NULL,
+				document_refused_code = NULL,
 				document_refused_bytes = NULL,
 				document_refused_structs = NULL
 			WHERE ${TRIPLE_WHERE}`,
@@ -649,6 +650,7 @@ export function openReplicaStore({
 						blob_accepted_sha256 = NULL, blob_parked_code = NULL,
 						document_revision = 0, document_accepted_revision = 0,
 						document_refused_revision = NULL,
+						document_refused_code = NULL,
 						document_refused_bytes = NULL,
 						document_refused_structs = NULL
 					WHERE ${TRIPLE_WHERE}`,

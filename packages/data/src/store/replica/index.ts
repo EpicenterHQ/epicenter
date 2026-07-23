@@ -10,6 +10,7 @@ export {
 	type DocumentInspection,
 	type DocumentPublicationState,
 	type DocumentRefusalEvidence,
+	type DocumentRefusalInspection,
 } from './document-store.js';
 export {
 	type OpenReplicaStoreOptions,
@@ -20,8 +21,8 @@ export {
 	type ReplicaStore,
 	type ReplicaStoreSync,
 	type SealedRequest,
-	type VisibleRecordsPage,
 	type VisibleRecordState,
+	type VisibleRecordsPage,
 } from './replica-store.js';
 export {
 	createReplicaStoreSchema,
