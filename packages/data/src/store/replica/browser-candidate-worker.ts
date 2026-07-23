@@ -99,6 +99,7 @@ function isMutation(operation: BrowserReplicaStoreOperation): boolean {
 		operation.kind === 'install-facts' ||
 		operation.kind === 'append-local-document' ||
 		operation.kind === 'install-accepted-document' ||
+		operation.kind === 'document-publication' ||
 		operation.kind === 'settle-document-publication' ||
 		operation.kind === 'capture-blob' ||
 		operation.kind === 'settle-blob-publication' ||

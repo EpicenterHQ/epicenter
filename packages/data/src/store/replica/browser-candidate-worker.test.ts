@@ -48,6 +48,7 @@ const countedMutationKinds = new Set<BrowserReplicaStoreOperation['kind']>([
 	'local-write',
 	'append-local-document',
 	'install-accepted-document',
+	'document-publication',
 	'settle-document-publication',
 	'capture-blob',
 	'settle-blob-publication',
@@ -64,6 +65,10 @@ const w3MutationOperations = [
 		kind: 'install-accepted-document',
 		address,
 		update: new Uint8Array([2]),
+	},
+	{
+		kind: 'document-publication',
+		address,
 	},
 	{
 		kind: 'settle-document-publication',

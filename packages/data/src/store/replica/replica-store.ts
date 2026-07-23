@@ -31,6 +31,19 @@ import {
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
 
+export const OWED_DOCUMENTS_SQL = `SELECT namespace, collection, record_key
+	FROM records
+	WHERE document_revision > document_accepted_revision
+	ORDER BY namespace, collection, record_key
+	LIMIT ?`;
+
+export const OWED_BLOBS_SQL = `SELECT namespace, collection, record_key
+	FROM records
+	WHERE blob_sha256 IS NOT NULL AND
+		(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)
+	ORDER BY namespace, collection, record_key
+	LIMIT ?`;
+
 type RecordAddress = Intent['address'];
 
 type RecordRow = SqliteRow & {
@@ -99,6 +112,31 @@ export type OpenReplicaStoreOptions = {
 
 function tripleParams(address: RecordAddress): [string, string, string] {
 	return [address.namespace, address.collection, address.recordKey];
+}
+
+function owedAddresses(
+	database: SqliteDatabase,
+	sql: string,
+	limit: number,
+): RecordAddress[] {
+	if (!Number.isSafeInteger(limit) || limit < 1) {
+		throw new TypeError(
+			'publication obligation limit must be a positive integer',
+		);
+	}
+	return database
+		.all<
+			SqliteRow & {
+				namespace: string;
+				collection: string;
+				record_key: string;
+			}
+		>(sql, [limit])
+		.map((row) => ({
+			namespace: row.namespace,
+			collection: row.collection,
+			recordKey: row.record_key,
+		}));
 }
 
 function operationArgs(operation: Operation): string | null {
@@ -389,6 +427,14 @@ export function openReplicaStore({
 			return null;
 		}
 		return { bytes: meta.sealed_request, hash: meta.sealed_request_hash };
+	}
+
+	function owedDocuments(limit: number): RecordAddress[] {
+		return owedAddresses(database, OWED_DOCUMENTS_SQL, limit);
+	}
+
+	function owedBlobs(limit: number): RecordAddress[] {
+		return owedAddresses(database, OWED_BLOBS_SQL, limit);
 	}
 
 	function localWrite(rawIntent: Intent): void {
@@ -760,6 +806,8 @@ export function openReplicaStore({
 		record,
 		sync,
 		sealedRequest,
+		owedDocuments,
+		owedBlobs,
 		localWrite,
 		seal,
 		reconstructSealedRequest,

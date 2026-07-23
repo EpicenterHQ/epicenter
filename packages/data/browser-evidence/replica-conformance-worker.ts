@@ -11,6 +11,10 @@ import {
 	openReplicaStore,
 	type ReplicaStore,
 } from '../src/store/replica/index.js';
+import {
+	OWED_BLOBS_SQL,
+	OWED_DOCUMENTS_SQL,
+} from '../src/store/replica/replica-store.js';
 import type {
 	BrowserReplicaAction,
 	BrowserReplicaObservation,
@@ -85,13 +89,26 @@ function logicalState(target: Database): string {
 		JOIN records r ON r.record_id = d.record_id
 		ORDER BY r.namespace, r.collection, r.record_key, d.seq`,
 	);
-	return canonicalize(
-		JSON.parse(JSON.stringify({ meta, records, documents })),
-	);
+	return canonicalize(JSON.parse(JSON.stringify({ meta, records, documents })));
 }
 
 function executeAction(target: ReplicaStore, action: BrowserReplicaAction) {
 	switch (action.kind) {
+		case 'append-local':
+			target.appendLocalDocumentUpdate(action.address, action.update);
+			return undefined;
+		case 'install-accepted':
+			target.installAcceptedDocumentUpdate(action.address, action.update);
+			return undefined;
+		case 'publication':
+			return target.documentPublication(action.address, action.stateVector);
+		case 'settle-publication':
+			target.settleDocumentPublication(
+				action.address,
+				action.proof,
+				action.captured,
+			);
+			return undefined;
 		case 'local-write':
 			target.localWrite(action.intent);
 			return undefined;
@@ -124,6 +141,23 @@ function observe(
 			return logicalState(requireDatabase());
 		case 'reconstruct-sealed-request':
 			return target.reconstructSealedRequest();
+		case 'inspect-document':
+			return target.inspectDocument(observation.address);
+		case 'export-document':
+			return target.exportDocument(observation.address);
+		case 'owed-documents':
+			return target.owedDocuments(observation.limit);
+		case 'owed-query-plans': {
+			const database = adapterFor(requireDatabase());
+			const explain = (sql: string) =>
+				database
+					.all<{ detail: string }>(`EXPLAIN QUERY PLAN ${sql}`, [16])
+					.map(({ detail }) => detail);
+			return {
+				document: explain(OWED_DOCUMENTS_SQL),
+				blob: explain(OWED_BLOBS_SQL),
+			};
+		}
 	}
 }
 
