@@ -50,6 +50,20 @@ export const OWED_BLOBS_SQL = `SELECT namespace, collection, record_key
 	ORDER BY namespace, collection, record_key
 	LIMIT ?`;
 
+// Durable blocked-work enumeration for the Home observation surface: every
+// record holding parked scalar work, document refusal evidence, or a parked
+// blob. Keyset-paged so enumeration is complete without an unbounded read.
+const BLOCKED_RECORDS_SQL = `SELECT namespace, collection, record_key
+	FROM records
+	WHERE (parked_code IS NOT NULL
+		OR document_refused_revision IS NOT NULL
+		OR blob_parked_code IS NOT NULL)
+		AND (namespace > ?
+			OR (namespace = ? AND collection > ?)
+			OR (namespace = ? AND collection = ? AND record_key > ?))
+	ORDER BY namespace, collection, record_key
+	LIMIT ?`;
+
 type RecordAddress = Intent['address'];
 
 type RecordRow = SqliteRow & {
@@ -621,6 +635,44 @@ export function openReplicaStore({
 		);
 	}
 
+	function blockedRecordsPage(
+		after: RecordAddress | null,
+		limit: number,
+	): RecordAddress[] {
+		if (
+			!Number.isSafeInteger(limit) ||
+			limit < 1 ||
+			limit > PUBLICATION_OBLIGATION_PAGE_LIMIT
+		) {
+			throw new TypeError(
+				`blocked records page limit must be between 1 and ${PUBLICATION_OBLIGATION_PAGE_LIMIT}`,
+			);
+		}
+		// Empty-string cursor coordinates sort before every admitted address.
+		const cursor = after ?? { namespace: '', collection: '', recordKey: '' };
+		return database
+			.all<
+				SqliteRow & {
+					namespace: string;
+					collection: string;
+					record_key: string;
+				}
+			>(BLOCKED_RECORDS_SQL, [
+				cursor.namespace,
+				cursor.namespace,
+				cursor.collection,
+				cursor.namespace,
+				cursor.collection,
+				cursor.recordKey,
+				limit,
+			])
+			.map((row) => ({
+				namespace: row.namespace,
+				collection: row.collection,
+				recordKey: row.record_key,
+			}));
+	}
+
 	function visibleRecordsPage(
 		namespace: string,
 		collection: string,
@@ -1079,6 +1131,7 @@ export function openReplicaStore({
 		visibleRecord,
 		visibleRecordsPage,
 		isVisiblyLive,
+		blockedRecordsPage,
 		sync,
 		sealedRequest,
 		owedDocuments,
