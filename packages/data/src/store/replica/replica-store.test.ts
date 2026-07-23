@@ -491,6 +491,51 @@ describe('production replica store format', () => {
 		}
 	});
 
+	test('owed scans skip a full non-live prefix and expose later live work', () => {
+		const { database, store } = setup();
+		try {
+			for (let index = 0; index < PUBLICATION_OBLIGATION_PAGE_LIMIT; index++) {
+				const recordKey = `a${index.toString(36).padStart(23, '0')}`;
+				store.localWrite({
+					address: {
+						namespace: 'so.epicenter.notes',
+						collection: 'records',
+						recordKey,
+					},
+					op: 'unset',
+				});
+			}
+			const ready = {
+				namespace: 'so.epicenter.notes',
+				collection: 'records',
+				recordKey: 'zzzzzzzzzzzzzzzzzzzzzzzz',
+			};
+			store.localWrite({ address: ready, op: 'replace', value: {} });
+			database.run(
+				`UPDATE records SET document_revision = 1, blob_sha256 = ?`,
+				['a'.repeat(64)],
+			);
+
+			expect(store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT)).toEqual([
+				ready,
+			]);
+			expect(store.owedBlobs(PUBLICATION_OBLIGATION_PAGE_LIMIT)).toEqual([
+				ready,
+			]);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('seal reports empty pending work as a normal outcome', () => {
+		const { database, store } = setup();
+		try {
+			expect(store.seal()).toEqual({ kind: 'empty' });
+		} finally {
+			database.close();
+		}
+	});
+
 	test('retains one internal exhaustion sentinel but never seals it onto the wire', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
@@ -553,7 +598,9 @@ describe('production replica store format', () => {
 					value: 'x'.repeat(300),
 				});
 			}
-			const sealed = JSON.parse(store.seal().bytes) as {
+			const outcome = store.seal();
+			if (outcome.kind !== 'sealed') throw new Error('submission was not sealed');
+			const sealed = JSON.parse(outcome.request.bytes) as {
 				intents: { address: (typeof addresses)[number] }[];
 			};
 			expect(sealed.intents.map((intent) => intent.address)).toEqual([

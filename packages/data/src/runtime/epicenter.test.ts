@@ -1,9 +1,21 @@
+/**
+ * Epicenter Runtime Tests
+ *
+ * Exercises typed Lens-bound record handles over the production replica store.
+ *
+ * Key behaviors:
+ * - Scalar, document, blob, publication, and subscription surfaces stay typed
+ * - Concurrent document handles share one live document and durable append owner
+ * - Tombstone and runtime disposal revoke every affected document handle
+ */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { field } from '@epicenter/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import * as Y from '@y/y';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
+import type { StagedBlob } from '../blob-v1/index.js';
 import { defineLens, defineTable, defineValues } from '../lens/index.js';
 import type { Fact, RecordAddress } from '../protocol/v1/index.js';
 import {
@@ -47,13 +59,14 @@ type Fixture = {
 	epicenter: EpicenterRuntime<Uint8Array, Uint8Array>;
 	bound: ReturnType<typeof bindLens>;
 	carrier: ReturnType<typeof createTestCarrier>;
+	files: MemoryBlobFiles;
 };
 
 function bindLens(epicenter: EpicenterRuntime<Uint8Array, Uint8Array>) {
 	return epicenter.bind(lens);
 }
 
-function setup(): Fixture {
+function setup(files = new MemoryBlobFiles()): Fixture {
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
 	const store = openReplicaStore({
@@ -65,7 +78,7 @@ function setup(): Fixture {
 		},
 	});
 	const carrier = createTestCarrier();
-	const blobs = createReplicaBlobStore(adapter, new MemoryBlobFiles());
+	const blobs = createReplicaBlobStore(adapter, files);
 	const epicenter = createEpicenterRuntime({
 		store,
 		blobs,
@@ -78,6 +91,7 @@ function setup(): Fixture {
 		epicenter,
 		bound: bindLens(epicenter),
 		carrier,
+		files,
 	};
 }
 
@@ -105,6 +119,22 @@ function install(
 			hasMore: false,
 		},
 	});
+}
+
+function documentUpdate(text: string): Uint8Array {
+	const document = new Y.Doc({ gc: true });
+	try {
+		document.get('content').insert(0, text);
+		return new Uint8Array(Y.encodeStateAsUpdateV2(document));
+	} finally {
+		document.destroy();
+	}
+}
+
+class ProgrammingTypeErrorBlobFiles extends MemoryBlobFiles {
+	override async stage(_source: Uint8Array): Promise<StagedBlob> {
+		throw new TypeError('adapter programming error');
+	}
 }
 
 describe('record-handle runtime', () => {
@@ -234,6 +264,130 @@ describe('record-handle runtime', () => {
 		}
 	});
 
+	test('concurrent document handles share one live document and one durable append', async () => {
+		const fixture = setup();
+		try {
+			const firstRow = await fixture.bound.notes.create({ title: 'shared' });
+			const firstRecord = fixture.bound.notes.record(firstRow.id);
+			const first = expectOk(await firstRecord.document.open());
+			const second = expectOk(await firstRecord.document.open());
+
+			first.transact(() => first.getText('content').insert(0, 'a'));
+			expect(second.getText('content').toString()).toBe('a');
+			expect(second.export()).toEqual(first.export());
+			expect(fixture.store.inspectDocument({
+				namespace: lens.namespace,
+				collection: 'notes',
+				recordKey: firstRow.id,
+			})).toMatchObject({ revision: 1 });
+
+			await first[Symbol.asyncDispose]();
+			second.transact(() => second.getText('content').insert(1, 'b'));
+			expect(second.getText('content').toString()).toBe('ab');
+			expect(fixture.store.inspectDocument({
+				namespace: lens.namespace,
+				collection: 'notes',
+				recordKey: firstRow.id,
+			})).toMatchObject({ revision: 2 });
+			await second[Symbol.asyncDispose]();
+
+			const address = {
+				namespace: lens.namespace,
+				collection: 'notes',
+				recordKey: firstRow.id,
+			};
+			fixture.store.installAcceptedDocumentUpdate(
+				address,
+				documentUpdate('remote'),
+			);
+			const reopened = expectOk(await firstRecord.document.open());
+			expect(reopened.getText('content').toString()).toContain('remote');
+
+			const otherRow = await fixture.bound.notes.create({ title: 'other' });
+			const other = expectOk(
+				await fixture.bound.notes.record(otherRow.id).document.open(),
+			);
+			expect(other.getText('content').toString()).toBe('');
+			reopened.transact(() => reopened.getText('content').insert(0, 'x'));
+			expect(other.getText('content').toString()).toBe('');
+
+			await reopened[Symbol.asyncDispose]();
+			await other[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('terminal deletion revokes every concurrent document handle', async () => {
+		const fixture = setup();
+		try {
+			const row = await fixture.bound.notes.create({ title: 'revoke all' });
+			const record = fixture.bound.notes.record(row.id);
+			const first = expectOk(await record.document.open());
+			const second = expectOk(await record.document.open());
+
+			await record.delete();
+
+			for (const document of [first, second]) {
+				expect(() => document.transact(() => undefined)).toThrow(
+					expect.objectContaining({ name: 'RevokedDocument' }),
+				);
+				await document[Symbol.asyncDispose]();
+			}
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('authority replacement revokes the old in-memory document lineage', async () => {
+		const fixture = setup();
+		try {
+			const row = await fixture.bound.notes.create({ title: 'old' });
+			const record = fixture.bound.notes.record(row.id);
+			const first = expectOk(await record.document.open());
+			const second = expectOk(await record.document.open());
+			const oldText = first.getText('content');
+			oldText.insert(0, 'old lineage');
+			await fixture.epicenter.attach(
+				{
+					deploymentId: 'https://example.test/',
+					principalId: 'person',
+				},
+				'bring',
+			);
+			await Bun.sleep(50);
+
+			fixture.carrier.reset('runtime-life-two');
+			fixture.carrier.install({
+				address: {
+					namespace: lens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				},
+				state: 'live',
+				payload: { title: 'successor' },
+			});
+			await record.update({ title: 'trigger replacement' });
+			await Bun.sleep(100);
+
+			for (const document of [first, second]) {
+				expect(() => document.transact(() => undefined)).toThrow(
+					expect.objectContaining({ name: 'RevokedDocument' }),
+				);
+			}
+			const reopened = expectOk(await record.document.open());
+			expect(reopened.getText('content').toString()).toBe('');
+			oldText.insert(0, 'orphaned');
+			expect(reopened.getText('content').toString()).toBe('');
+
+			await first[Symbol.asyncDispose]();
+			await second[Symbol.asyncDispose]();
+			await reopened[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
 	test('remote tombstone delivered by supervisor revokes documents', async () => {
 		const fixture = setup();
 		try {
@@ -282,7 +436,9 @@ describe('record-handle runtime', () => {
 		try {
 			const row = await fixture.bound.notes.create({ title: 'held' });
 			const record = fixture.bound.notes.record(row.id);
-			const document = expectOk(await record.document.open());
+			const first = expectOk(await record.document.open());
+			const second = expectOk(await record.document.open());
+			first.transact(() => first.getText('content').insert(0, 'held'));
 			await fixture.epicenter.attach(
 				{
 					deploymentId: 'https://example.test/',
@@ -304,8 +460,10 @@ describe('record-handle runtime', () => {
 				principalId: 'person',
 			});
 			await Bun.sleep(50);
-			expect(() => document.export()).not.toThrow();
-			await document[Symbol.asyncDispose]();
+			expect(first.export()).toEqual(second.export());
+			await first[Symbol.asyncDispose]();
+			expect(second.getText('content').toString()).toBe('held');
+			await second[Symbol.asyncDispose]();
 		} finally {
 			await close(fixture);
 		}
@@ -331,6 +489,7 @@ describe('record-handle runtime', () => {
 						.blob.capture('not bytes' as never),
 				).name,
 			).toBe('BlobSourceRead');
+			expect(fixture.files.stagingSweepCount).toBeGreaterThan(0);
 			await record.delete();
 			expect(
 				expectErr(await record.blob.capture(new Uint8Array([1]))).name,
@@ -338,6 +497,42 @@ describe('record-handle runtime', () => {
 		} finally {
 			await close(fixture);
 		}
+	});
+
+	test('an unrelated blob adapter TypeError remains exceptional', async () => {
+		const fixture = setup(new ProgrammingTypeErrorBlobFiles());
+		try {
+			const row = await fixture.bound.notes.create({ title: 'adapter bug' });
+			await expect(
+				fixture.bound.notes
+					.record(row.id)
+					.blob.capture(new Uint8Array([1, 2, 3])),
+			).rejects.toThrow('adapter programming error');
+			expect(fixture.files.stagingSweepCount).toBe(1);
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('runtime disposal revokes every concurrent document handle', async () => {
+		const fixture = setup();
+		const row = await fixture.bound.notes.create({ title: 'dispose all' });
+		const record = fixture.bound.notes.record(row.id);
+		const first = expectOk(await record.document.open());
+		const second = expectOk(await record.document.open());
+
+		const disposing = fixture.epicenter[Symbol.asyncDispose]();
+
+		for (const document of [first, second]) {
+			expect(() => document.transact(() => undefined)).toThrow(
+				expect.objectContaining({ name: 'RevokedDocument' }),
+			);
+		}
+		await disposing;
+		for (const document of [first, second]) {
+			await document[Symbol.asyncDispose]();
+		}
+		fixture.database.close();
 	});
 
 	test('publication reports pending tombstones as ready and canonical blocked evidence', async () => {

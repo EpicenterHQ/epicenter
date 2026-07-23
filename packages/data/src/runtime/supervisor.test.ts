@@ -160,6 +160,10 @@ type TestCarrier = AuthorityCarrier<Uint8Array> & {
 		address: RecordAddress,
 		publication: DocumentPublicationRequest,
 	): void;
+	beforeBlobAcceptance?(
+		address: RecordAddress,
+		publication: BlobPublicationRequest,
+	): void;
 };
 
 function createCarrier(initialState = authority('lifetime-one')): TestCarrier {
@@ -252,6 +256,7 @@ function createCarrier(initialState = authority('lifetime-one')): TestCarrier {
 					activeAuthorityLifetime: state.lifetime,
 				};
 			}
+			carrier.beforeBlobAcceptance?.(target, publication);
 			if (state.facts.get(addressKey(target))?.state !== 'live') {
 				return {
 					kind: 'record-not-live',
@@ -311,7 +316,11 @@ function documentUpdate(text: string): Uint8Array {
 }
 
 function setup(
-	options: { authorityLifetime?: string; carrier?: TestCarrier | null } = {},
+	options: {
+		authorityLifetime?: string;
+		carrier?: TestCarrier | null;
+		onAuthorityReplacement?: () => void;
+	} = {},
 ) {
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
@@ -335,6 +344,7 @@ function setup(
 		blobs,
 		carrier: options.carrier ?? null,
 		onInvalidate: (addresses) => invalidations.push(addresses),
+		onAuthorityReplacement: options.onAuthorityReplacement ?? (() => undefined),
 		onStatus: (status) => statuses.push(status.state),
 		intervalMs: 1_000,
 		backoff: timing.backoff,
@@ -427,6 +437,22 @@ test('lost scalar reply retries exact persisted bytes without duplicate applicat
 	}
 });
 
+test('an empty scalar seal outcome leaves the plane healthy', async () => {
+	const carrier = createCarrier();
+	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
+	try {
+		context.store.attach(ATTACHMENT);
+
+		await context.supervisor.drainOnce();
+
+		expect(carrier.submittedBytes).toEqual([]);
+		expect(context.supervisor.status().state).toBe('idle');
+	} finally {
+		await context.supervisor.dispose();
+		context.database.close();
+	}
+});
+
 test('delayed duplicate proofs are monotonic and a racing edit stays owed', async () => {
 	const seeded = applyAuthority(authority('lifetime-one'), [
 		{ address: ADDRESS_A, op: 'replace', value: {} },
@@ -478,7 +504,8 @@ test('delayed duplicate proofs are monotonic and a racing edit stays owed', asyn
 			value: { version: 'delayed-submission' },
 		});
 		const sealed = context.store.seal();
-		const delayedResponse = await carrier.submit(sealed.bytes);
+		if (sealed.kind !== 'sealed') throw new Error('submission was not sealed');
+		const delayedResponse = await carrier.submit(sealed.request.bytes);
 		const newer = applyAuthority(carrier.state, [
 			{ address: ADDRESS_A, op: 'replace', value: { version: 2 } },
 		]);
@@ -608,7 +635,18 @@ test('authority replacement erases and reacquires while old document proof is fe
 		{ address: ADDRESS_A, op: 'replace', value: {} },
 	]);
 	const carrier = createCarrier(oldState);
-	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
+	let replacements = 0;
+	let documentExistedAtReplacement = false;
+	let context: ReturnType<typeof setup>;
+	context = setup({
+		authorityLifetime: 'lifetime-one',
+		carrier,
+		onAuthorityReplacement() {
+			replacements += 1;
+			documentExistedAtReplacement =
+				context.store.inspectDocument(ADDRESS_A) !== null;
+		},
+	});
 	try {
 		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
@@ -629,6 +667,8 @@ test('authority replacement erases and reacquires while old document proof is fe
 		]);
 		carrier.setState(successor);
 		await context.supervisor.drainOnce();
+		expect(replacements).toBe(1);
+		expect(documentExistedAtReplacement).toBe(true);
 		expect(context.store.sync()).toMatchObject({
 			authorityLifetime: null,
 			afterSequence: 0,
@@ -692,6 +732,89 @@ test('document tombstone race is swallowed and the pass continues', async () => 
 		await expect(context.supervisor.drainOnce()).resolves.toBeUndefined();
 		expect(context.store.inspectDocument(ADDRESS_A)).toBeNull();
 		expect(context.store.inspectDocument(ADDRESS_B)?.owed).toBe(false);
+	} finally {
+		await context.supervisor.dispose();
+		context.database.close();
+	}
+});
+
+test('blob tombstone race is isolated and later blobs still settle', async () => {
+	const seeded = applyAuthority(authority('lifetime-one'), [
+		{ address: ADDRESS_A, op: 'replace', value: {} },
+		{ address: ADDRESS_B, op: 'replace', value: {} },
+	]);
+	const carrier = createCarrier(seeded);
+	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
+	try {
+		context.store.attach(ATTACHMENT);
+		context.store.installFacts({
+			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
+			response: {
+				authorityLifetime: 'lifetime-one',
+				facts: [...seeded.facts.values()],
+				hasMore: false,
+			},
+		});
+		await context.blobs.capture(
+			ADDRESS_A,
+			new TextEncoder().encode('reaped'),
+		);
+		await context.blobs.capture(
+			ADDRESS_B,
+			new TextEncoder().encode('settled'),
+		);
+		carrier.beforeBlobAcceptance = (target) => {
+			if (addressKey(target) !== addressKey(ADDRESS_A)) return;
+			context.store.localWrite({ address: ADDRESS_A, op: 'tombstone' });
+			carrier.beforeBlobAcceptance = undefined;
+		};
+
+		await context.supervisor.drainOnce();
+
+		expect(context.blobs.inspect(ADDRESS_A)).toEqual({ kind: 'absent' });
+		expect(context.blobs.inspect(ADDRESS_B).kind).toBe('accepted');
+		expect(context.supervisor.status().state).toBe('idle');
+	} finally {
+		await context.supervisor.dispose();
+		context.database.close();
+	}
+});
+
+test('unexpected store failure enters ordinary plane backoff and later recovers', async () => {
+	const seeded = applyAuthority(authority('lifetime-one'), [
+		{ address: ADDRESS_A, op: 'replace', value: {} },
+	]);
+	const carrier = createCarrier(seeded);
+	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
+	try {
+		context.store.attach(ATTACHMENT);
+		context.store.installFacts({
+			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
+			response: {
+				authorityLifetime: 'lifetime-one',
+				facts: [...seeded.facts.values()],
+				hasMore: false,
+			},
+		});
+		context.store.appendLocalDocumentUpdate(
+			ADDRESS_A,
+			documentUpdate('owed'),
+		);
+		const publication = context.store.documentPublication;
+		context.store.documentPublication = () => {
+			throw new TypeError('unexpected store failure');
+		};
+
+		await context.supervisor.drainOnce();
+
+		expect(context.supervisor.status().state).toBe('offline');
+		expect(context.store.inspectDocument(ADDRESS_A)?.owed).toBe(true);
+
+		context.store.documentPublication = publication;
+		context.timing.advance(10);
+		await context.supervisor.drainOnce();
+		expect(context.supervisor.status().state).toBe('idle');
+		expect(context.store.inspectDocument(ADDRESS_A)?.owed).toBe(false);
 	} finally {
 		await context.supervisor.dispose();
 		context.database.close();

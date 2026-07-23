@@ -1,5 +1,6 @@
 import type { BlobAcceptance } from '../../blob-v1/index.js';
 import type {
+	DocumentAcceptance,
 	DocumentBoundRefusal,
 	DocumentPublicationReceipt,
 } from '../../document-v1/index.js';
@@ -11,14 +12,21 @@ import type {
 	SubmissionResponse,
 	ValidatedLimits,
 } from '../../protocol/v1/index.js';
-import type { BlobInspection, BlobPublication } from './blob-store.js';
+import type {
+	BlobCaptureOutcome,
+	BlobInspection,
+	BlobPublicationState,
+	BlobSettlementOutcome,
+} from './blob-store.js';
 import type {
 	DocumentInspection,
 	DocumentPublicationState,
+	DocumentSettlementOutcome,
 } from './document-store.js';
 import type {
 	ReplicaRecordLanes,
 	ReplicaStoreSync,
+	SealOutcome,
 	SealedRequest,
 } from './replica-store.js';
 
@@ -60,10 +68,13 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'export-document'; address: RecordAddress }
 	| { kind: 'document-publication'; address: RecordAddress }
 	| {
-			kind: 'settle-document-publication';
-			address: RecordAddress;
-			proof: DocumentPublicationReceipt | DocumentBoundRefusal;
-			captured: { revision: number; digest: string };
+		kind: 'settle-document-publication';
+		address: RecordAddress;
+		proof:
+			| DocumentPublicationReceipt
+			| DocumentBoundRefusal
+			| Extract<DocumentAcceptance, { kind: 'record-not-live' }>;
+		captured: { revision: number; digest: string };
 	  }
 	| { kind: 'capture-blob'; address: RecordAddress; bytes: Blob }
 	| { kind: 'inspect-blob'; address: RecordAddress }
@@ -89,12 +100,16 @@ export type BrowserReplicaOwnerResult =
 	| undefined
 	| ReplicaRecordLanes
 	| ReplicaStoreSync
+	| SealOutcome
 	| SealedRequest
 	| RecordAddress[]
 	| DocumentInspection
 	| DocumentPublicationState
+	| DocumentSettlementOutcome
+	| BlobCaptureOutcome
 	| BlobInspection
-	| BlobPublication<Blob>
+	| BlobPublicationState<Blob>
+	| BlobSettlementOutcome
 	| Blob
 	| Uint8Array
 	| string

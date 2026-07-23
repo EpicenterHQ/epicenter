@@ -6,6 +6,7 @@ import {
 	type BlobFileStore,
 	type BlobPublicationReceipt,
 	type BlobPublicationRequest,
+	BlobSourceReadFailure,
 	blobFileOwner,
 	isBlobDigest,
 } from '../../blob-v1/index.js';
@@ -35,6 +36,23 @@ export type BlobPublication<TRead> = {
 	request: BlobPublicationRequest;
 	bytes: TRead;
 };
+
+export type BlobCaptureOutcome =
+	| { kind: 'captured'; digest: string }
+	| { kind: 'record-not-live'; state: RecordNotLiveState }
+	| { kind: 'blob-conflict' }
+	| { kind: 'source-read-failed'; cause: unknown };
+
+export type BlobPublicationState<TRead> =
+	| { kind: 'settled' }
+	| { kind: 'ready'; publication: BlobPublication<TRead> }
+	| { kind: 'record-not-live'; state: RecordNotLiveState };
+
+export type BlobSettlementOutcome =
+	| { kind: 'settled' }
+	| { kind: 'record-not-live'; state: RecordNotLiveState };
+
+type RecordNotLiveState = 'absent' | 'unset' | 'tombstone';
 
 type BlobFaultHooks = {
 	afterStage?: () => void;
@@ -67,26 +85,46 @@ function rowFor(
 	);
 }
 
-function requireLiveRecord(
+function liveRecord(
 	database: SqliteDatabase,
 	address: RecordAddress,
-): BlobRow {
+):
+	| { kind: 'live'; row: BlobRow }
+	| { kind: 'record-not-live'; state: RecordNotLiveState } {
 	const row = rowFor(database, address);
-	if (row === null) throw new Error('blob record is absent');
+	if (row === null) return { kind: 'record-not-live', state: 'absent' };
 	if (
 		row.confirmed_state === 'tombstone' ||
 		row.sealed_op === 'tombstone' ||
 		row.pending_op === 'tombstone'
 	) {
-		throw new Error('blob record is tombstoned');
+		return { kind: 'record-not-live', state: 'tombstone' };
 	}
 	const newestOperation = row.pending_op ?? row.sealed_op;
 	const visibleLive =
 		newestOperation === 'patch' ||
 		newestOperation === 'replace' ||
 		(newestOperation === null && row.confirmed_state === 'live');
-	if (!visibleLive) throw new Error('blob record is not live');
-	return row;
+	if (!visibleLive) return { kind: 'record-not-live', state: 'unset' };
+	return { kind: 'live', row };
+}
+
+function requireLiveRecord(
+	database: SqliteDatabase,
+	address: RecordAddress,
+): BlobRow {
+	const outcome = liveRecord(database, address);
+	if (outcome.kind === 'live') return outcome.row;
+	switch (outcome.state) {
+		case 'absent':
+			throw new Error('blob record is absent');
+		case 'tombstone':
+			throw new Error('blob record is tombstoned');
+		case 'unset':
+			throw new Error('blob record is not live');
+		default:
+			return outcome.state satisfies never;
+	}
 }
 
 /** The derived obligation: local durable truth without a matching authority proof. */
@@ -151,32 +189,51 @@ export function createReplicaBlobStore<TSource, TRead>(
 	async function capture(
 		address: RecordAddress,
 		source: TSource,
-	): Promise<string> {
+	): Promise<BlobCaptureOutcome> {
 		return exclusive(async () => {
 			// Refuse ordinary invalid ownership before streaming bytes into staging.
 			// The post-stage check below still fences a liveness race.
-			requireLiveRecord(database, address);
-			const staged = await files.stage(source);
+			const initialOwner = liveRecord(database, address);
+			if (initialOwner.kind === 'record-not-live') return initialOwner;
+			let staged;
+			try {
+				staged = await files.stage(source);
+			} catch (cause) {
+				await files.sweepStaging();
+				if (!(cause instanceof BlobSourceReadFailure)) throw cause;
+				return {
+					kind: 'source-read-failed',
+					cause: cause.sourceCause,
+				};
+			}
 			if (!isBlobDigest(staged.digest)) {
 				await files.sweepStaging();
 				throw new Error('blob file store returned an invalid digest');
 			}
 			hooks.afterStage?.();
 			try {
-				const before = requireLiveRecord(database, address);
+				const beforeOwner = liveRecord(database, address);
+				if (beforeOwner.kind === 'record-not-live') {
+					await files.sweepStaging();
+					return beforeOwner;
+				}
+				const before = beforeOwner.row;
 				if (
 					before.blob_sha256 !== null &&
 					before.blob_sha256 !== staged.digest
 				) {
-					throw new Error('blob slot already owns different bytes');
+					await files.sweepStaging();
+					return { kind: 'blob-conflict' };
 				}
 				const owner = blobFileOwner(address, staged.digest);
 				await files.promote(staged, owner);
 				hooks.afterPromote?.();
-				database.transaction(() => {
-					const row = requireLiveRecord(database, address);
+				const membership = database.transaction((): BlobCaptureOutcome => {
+					const currentOwner = liveRecord(database, address);
+					if (currentOwner.kind === 'record-not-live') return currentOwner;
+					const row = currentOwner.row;
 					if (row.blob_sha256 !== null && row.blob_sha256 !== staged.digest) {
-						throw new Error('blob slot already owns different bytes');
+						return { kind: 'blob-conflict' };
 					}
 					if (row.blob_sha256 === null) {
 						database.run(
@@ -185,27 +242,34 @@ export function createReplicaBlobStore<TSource, TRead>(
 							[staged.digest, ...tripleParams(address)],
 						);
 					}
+					return { kind: 'captured', digest: staged.digest };
 				});
+				if (membership.kind !== 'captured') {
+					await files.sweepStaging();
+					return membership;
+				}
 			} catch (cause) {
 				await files.sweepStaging();
 				throw cause;
 			}
 			hooks.afterMembership?.();
-			return staged.digest;
+			return { kind: 'captured', digest: staged.digest };
 		});
 	}
 
 	async function publication(
 		address: RecordAddress,
-	): Promise<BlobPublication<TRead> | null> {
+	): Promise<BlobPublicationState<TRead>> {
 		return exclusive(async () => {
-			const row = requireLiveRecord(database, address);
+			const owner = liveRecord(database, address);
+			if (owner.kind === 'record-not-live') return owner;
+			const row = owner.row;
 			if (
 				row.blob_sha256 === null ||
 				!isOwed(row) ||
 				row.blob_parked_code !== null
 			) {
-				return null;
+				return { kind: 'settled' };
 			}
 			const meta = one<SqliteRow & { authority_lifetime: string | null }>(
 				database,
@@ -221,8 +285,11 @@ export function createReplicaBlobStore<TSource, TRead>(
 				digest: row.blob_sha256,
 			};
 			return {
-				request,
-				bytes: await files.open(blobFileOwner(address, row.blob_sha256)),
+				kind: 'ready',
+				publication: {
+					request,
+					bytes: await files.open(blobFileOwner(address, row.blob_sha256)),
+				},
 			};
 		});
 	}
@@ -230,10 +297,12 @@ export function createReplicaBlobStore<TSource, TRead>(
 	async function settle(
 		address: RecordAddress,
 		acceptance: BlobAcceptance,
-	): Promise<void> {
+	): Promise<BlobSettlementOutcome> {
 		return exclusive(async () =>
 			database.transaction(() => {
-				const row = requireLiveRecord(database, address);
+				const owner = liveRecord(database, address);
+				if (owner.kind === 'record-not-live') return owner;
+				const row = owner.row;
 				if (row.blob_sha256 === null || !isOwed(row)) {
 					throw new Error('no blob publication is owed');
 				}
@@ -267,7 +336,7 @@ export function createReplicaBlobStore<TSource, TRead>(
 					WHERE ${TRIPLE_WHERE}`,
 						tripleParams(address),
 					);
-					return;
+					return { kind: 'settled' };
 				}
 				if (!matchingProof(request, acceptance.receipt)) {
 					throw new Error(
@@ -281,12 +350,13 @@ export function createReplicaBlobStore<TSource, TRead>(
 					WHERE ${TRIPLE_WHERE}`,
 						tripleParams(address),
 					);
-					return;
+					return { kind: 'settled' };
 				}
 				database.run(
 					`UPDATE records SET blob_parked_code = ? WHERE ${TRIPLE_WHERE}`,
 					['blob-conflict', ...tripleParams(address)],
 				);
+				return { kind: 'settled' };
 			}),
 		);
 	}

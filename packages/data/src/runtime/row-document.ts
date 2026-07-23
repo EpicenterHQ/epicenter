@@ -7,6 +7,23 @@ import { RuntimeError } from './errors.js';
 type UpdateListener = (update: Uint8Array, origin: unknown) => void;
 const hydrationOrigin = Symbol('epicenter-runtime-document-hydration');
 
+type LiveDocumentEntry = {
+	addressKey: string;
+	document: Y.Doc;
+	references: number;
+	isRevoked: boolean;
+	isDestroyed: boolean;
+	persist: UpdateListener;
+};
+
+/**
+ * A revocable borrower of one runtime-shared document.
+ *
+ * Y shared types returned by `get` are document-scoped live references, not
+ * per-handle copies. Terminal revocation detaches the shared document from
+ * persistence and the runtime registry; any retained raw type then belongs
+ * only to that unreachable orphaned document.
+ */
 export type RowDocument = {
 	get: Y.Doc['get'];
 	getText(name?: string): ReturnType<Y.Doc['get']>;
@@ -33,58 +50,90 @@ export function createRowDocumentRegistry({
 	store: ReplicaStore;
 	onLocalUpdate(address: RecordAddress): void;
 }) {
-	const handles = new Map<string, Set<() => void>>();
+	const entries = new Map<string, LiveDocumentEntry>();
 	let disposed = false;
+
+	function destroy(entry: LiveDocumentEntry): void {
+		if (entry.isDestroyed) return;
+		entry.isDestroyed = true;
+		entry.document.off('updateV2', entry.persist);
+		if (entries.get(entry.addressKey) === entry) {
+			entries.delete(entry.addressKey);
+		}
+		entry.document.destroy();
+	}
+
+	function revoke(entry: LiveDocumentEntry): void {
+		if (entry.isRevoked) return;
+		entry.isRevoked = true;
+		destroy(entry);
+	}
+
+	function revokeAll(): void {
+		for (const entry of [...entries.values()]) revoke(entry);
+	}
+
+	function hydrate(address: RecordAddress, addressKey: string): LiveDocumentEntry {
+		const document = new Y.Doc({ gc: true });
+		try {
+			const initial = store.exportDocument(address);
+			if (initial !== undefined) {
+				Y.applyUpdateV2(document, initial, hydrationOrigin);
+			}
+		} catch (cause) {
+			document.destroy();
+			throw cause;
+		}
+		const entry: LiveDocumentEntry = {
+			addressKey,
+			document,
+			references: 0,
+			isRevoked: false,
+			isDestroyed: false,
+			persist(update: Uint8Array, origin: unknown): void {
+				if (origin === hydrationOrigin) return;
+				if (entry.isRevoked) {
+					throw RuntimeError.RevokedDocument({ address: addressKey }).error;
+				}
+				store.appendLocalDocumentUpdate(address, new Uint8Array(update));
+				onLocalUpdate(address);
+			},
+		};
+		document.on('updateV2', entry.persist);
+		entries.set(addressKey, entry);
+		return entry;
+	}
 
 	function open(address: RecordAddress): RowDocument {
 		if (disposed) throw new Error('Epicenter is disposed');
-		const document = new Y.Doc({ gc: true });
-		const initial = store.exportDocument(address);
-		if (initial !== undefined) {
-			Y.applyUpdateV2(document, initial, hydrationOrigin);
-		}
-		let revoked = false;
-		let handleDisposed = false;
 		const addressKey = key(address);
-
-		const revoke = () => {
-			if (revoked) return;
-			revoked = true;
-			document.off('updateV2', persist);
-		};
-		const bucket = handles.get(addressKey) ?? new Set();
-		bucket.add(revoke);
-		handles.set(addressKey, bucket);
+		const entry = entries.get(addressKey) ?? hydrate(address, addressKey);
+		entry.references += 1;
+		let handleDisposed = false;
+		const listeners = new Set<UpdateListener>();
 
 		function requireUsable(): void {
 			if (handleDisposed) throw new Error('Row document handle is disposed');
-			if (revoked)
+			if (entry.isRevoked)
 				throw RuntimeError.RevokedDocument({ address: addressKey }).error;
 		}
-		function persist(update: Uint8Array, origin: unknown): void {
-			if (origin === hydrationOrigin) return;
-			requireUsable();
-			store.appendLocalDocumentUpdate(address, new Uint8Array(update));
-			onLocalUpdate(address);
-		}
-		document.on('updateV2', persist);
 
 		return Object.freeze({
 			get: ((...args: Parameters<Y.Doc['get']>) => {
 				requireUsable();
-				return document.get(...args);
+				return entry.document.get(...args);
 			}) as Y.Doc['get'],
 			getText(name?: string) {
 				requireUsable();
-				return document.get(name);
+				return entry.document.get(name);
 			},
 			transact<T>(run: (transaction: Y.Transaction) => T, origin?: unknown): T {
 				requireUsable();
-				return document.transact(run, origin);
+				return entry.document.transact(run, origin);
 			},
 			export(): Uint8Array {
 				requireUsable();
-				return new Uint8Array(Y.encodeStateAsUpdateV2(document));
+				return new Uint8Array(Y.encodeStateAsUpdateV2(entry.document));
 			},
 			async whenDurable(): Promise<void> {
 				// In-process appends commit synchronously inside persist; the
@@ -93,21 +142,31 @@ export function createRowDocumentRegistry({
 			},
 			observe(listener: UpdateListener): () => void {
 				requireUsable();
-				document.on('updateV2', listener);
-				return () => document.off('updateV2', listener);
+				listeners.add(listener);
+				entry.document.on('updateV2', listener);
+				return () => {
+					listeners.delete(listener);
+					entry.document.off('updateV2', listener);
+				};
 			},
 			subscribe(listener: UpdateListener): () => void {
 				requireUsable();
-				document.on('updateV2', listener);
-				return () => document.off('updateV2', listener);
+				listeners.add(listener);
+				entry.document.on('updateV2', listener);
+				return () => {
+					listeners.delete(listener);
+					entry.document.off('updateV2', listener);
+				};
 			},
 			async [Symbol.asyncDispose](): Promise<void> {
 				if (handleDisposed) return;
 				handleDisposed = true;
-				document.off('updateV2', persist);
-				bucket.delete(revoke);
-				if (bucket.size === 0) handles.delete(addressKey);
-				document.destroy();
+				for (const listener of listeners) {
+					entry.document.off('updateV2', listener);
+				}
+				listeners.clear();
+				entry.references -= 1;
+				if (entry.references === 0) destroy(entry);
 			},
 		});
 	}
@@ -124,16 +183,14 @@ export function createRowDocumentRegistry({
 				lanes.sealed?.op === 'tombstone' ||
 				lanes.pending?.op === 'tombstone';
 			if (!terminal) return;
-			for (const revoke of handles.get(key(address)) ?? []) revoke();
-			handles.delete(key(address));
+			const entry = entries.get(key(address));
+			if (entry !== undefined) revoke(entry);
 		},
-		async dispose(): Promise<void> {
+		revokeAll,
+		dispose(): void {
 			if (disposed) return;
 			disposed = true;
-			for (const bucket of handles.values()) {
-				for (const revoke of bucket) revoke();
-			}
-			handles.clear();
+			revokeAll();
 		},
 	};
 }

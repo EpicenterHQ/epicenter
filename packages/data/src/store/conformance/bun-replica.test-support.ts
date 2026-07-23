@@ -272,10 +272,13 @@ function conformanceReplica(fixture: BunReplicaFixture): ConformanceReplica {
 		seal: () => {
 			const action = (store: ReplicaStore) => store.seal();
 			const analyzed = fixture.analyze(action);
+			if (analyzed.result.kind !== 'sealed') {
+				throw new Error('conformance seal action had no pending work');
+			}
 			return {
 				transition: transition(fixture, action, analyzed.boundaries),
-				requestBytes: analyzed.result.bytes,
-				requestHash: analyzed.result.hash,
+				requestBytes: analyzed.result.request.bytes,
+				requestHash: analyzed.result.request.hash,
 			};
 		},
 		settle: (response) =>

@@ -35,10 +35,17 @@ const VISIBLE_RECORD_SCAN_PAGE_LIMIT = 64;
 
 export const PUBLICATION_OBLIGATION_PAGE_LIMIT = 64;
 
+const VISIBLE_LIVE_RECORD_SQL = `(
+	pending_op IN ('patch', 'replace')
+	OR (pending_op IS NULL AND sealed_op IN ('patch', 'replace'))
+	OR (pending_op IS NULL AND sealed_op IS NULL AND confirmed_state = 'live')
+)`;
+
 export const OWED_DOCUMENTS_SQL = `SELECT namespace, collection, record_key
 	FROM records
 	WHERE document_revision > document_accepted_revision
 		AND document_refused_revision IS NULL
+		AND ${VISIBLE_LIVE_RECORD_SQL}
 	ORDER BY namespace, collection, record_key
 	LIMIT ?`;
 
@@ -47,6 +54,7 @@ export const OWED_BLOBS_SQL = `SELECT namespace, collection, record_key
 	WHERE blob_sha256 IS NOT NULL AND
 		(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)
 		AND blob_parked_code IS NULL
+		AND ${VISIBLE_LIVE_RECORD_SQL}
 	ORDER BY namespace, collection, record_key
 	LIMIT ?`;
 
@@ -120,6 +128,10 @@ export type ReplicaStoreSync = {
 };
 
 export type SealedRequest = { bytes: string; hash: string };
+
+export type SealOutcome =
+	| { kind: 'empty' }
+	| { kind: 'sealed'; request: SealedRequest };
 
 export type ReplicaFactsPage = {
 	request: FactsRequest;
@@ -832,7 +844,7 @@ export function openReplicaStore({
 		});
 	}
 
-	function seal(): SealedRequest {
+	function seal(): SealOutcome {
 		return database.transaction(() => {
 			const meta = readMeta(database);
 			if (meta.authority_lifetime === null) {
@@ -859,7 +871,7 @@ export function openReplicaStore({
 				ORDER BY namespace, collection, record_key LIMIT ?`,
 				[limits.maxSubmissionAddresses],
 			);
-			if (pending.length === 0) throw new Error('nothing to seal');
+			if (pending.length === 0) return { kind: 'empty' };
 			let admitted: AdmittedSubmissionRequest | undefined;
 			let admissionError: Error | undefined;
 			while (pending.length > 0) {
@@ -914,7 +926,7 @@ export function openReplicaStore({
 				WHERE singleton = 1`,
 				[bytes, hash],
 			);
-			return { bytes, hash };
+			return { kind: 'sealed', request: { bytes, hash } };
 		});
 	}
 

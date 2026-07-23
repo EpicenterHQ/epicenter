@@ -6,6 +6,7 @@ import type {
 	OwnedBlobFile,
 	StagedBlob,
 } from '../../blob-v1/index.js';
+import { BlobSourceReadFailure } from '../../blob-v1/index.js';
 
 const SAFE_COMPONENT = /^[a-f0-9]{64}$/u;
 
@@ -140,7 +141,12 @@ export async function createBrowserOpfsBlobFileStore(
 		let offset = 0;
 		try {
 			while (true) {
-				const result = await reader.read();
+				let result: Awaited<ReturnType<typeof reader.read>>;
+				try {
+					result = await reader.read();
+				} catch (cause) {
+					throw new BlobSourceReadFailure(cause);
+				}
 				if (result.done) break;
 				hasher.update(result.value);
 				let chunkOffset = 0;

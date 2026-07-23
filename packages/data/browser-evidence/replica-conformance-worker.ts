@@ -113,7 +113,13 @@ function executeAction(target: ReplicaStore, action: BrowserReplicaAction) {
 			target.localWrite(action.intent);
 			return undefined;
 		case 'seal':
-			return target.seal();
+			{
+				const outcome = target.seal();
+				if (outcome.kind !== 'sealed') {
+					throw new Error('browser conformance seal had no pending work');
+				}
+				return outcome.request;
+			}
 		case 'settle':
 			target.settle(action.response);
 			return undefined;

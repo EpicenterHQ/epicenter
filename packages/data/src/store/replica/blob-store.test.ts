@@ -12,7 +12,10 @@ import {
 import { sha256HexBytes } from '../../protocol/v1/canonical.js';
 import type { RecordAddress } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
-import { createReplicaBlobStore } from './blob-store.js';
+import {
+	type BlobCaptureOutcome,
+	createReplicaBlobStore,
+} from './blob-store.js';
 import { openReplicaStore } from './replica-store.js';
 
 const ADDRESS: RecordAddress = {
@@ -108,27 +111,40 @@ function accepted(address: RecordAddress, digest: string): BlobAcceptance {
 	};
 }
 
+function capturedDigest(outcome: BlobCaptureOutcome): string {
+	expect(outcome.kind).toBe('captured');
+	if (outcome.kind !== 'captured') throw new Error('blob was not captured');
+	return outcome.digest;
+}
+
 describe('record blob store', () => {
 	test('enforces one write-once slot while keeping equal bytes independently owned', async () => {
 		const context = setup();
 		try {
-			const first = await context.blobs.capture(
-				ADDRESS,
-				new TextEncoder().encode('same bytes'),
+			const first = capturedDigest(
+				await context.blobs.capture(
+					ADDRESS,
+					new TextEncoder().encode('same bytes'),
+				),
 			);
 			expect(
 				await context.blobs.capture(
 					ADDRESS,
 					new TextEncoder().encode('same bytes'),
 				),
-			).toBe(first);
-			await expect(
-				context.blobs.capture(ADDRESS, new TextEncoder().encode('different')),
-			).rejects.toThrow(/different bytes/);
+			).toEqual({ kind: 'captured', digest: first });
+			expect(
+				await context.blobs.capture(
+					ADDRESS,
+					new TextEncoder().encode('different'),
+				),
+			).toEqual({ kind: 'blob-conflict' });
 
-			const second = await context.blobs.capture(
-				OTHER_ADDRESS,
-				new TextEncoder().encode('same bytes'),
+			const second = capturedDigest(
+				await context.blobs.capture(
+					OTHER_ADDRESS,
+					new TextEncoder().encode('same bytes'),
+				),
 			);
 			expect(second).toBe(first);
 			expect(context.files.staging.size).toBe(0);
@@ -144,15 +160,17 @@ describe('record blob store', () => {
 		const context = setup();
 		try {
 			const bytes = new TextEncoder().encode('publication');
-			const digest = await context.blobs.capture(ADDRESS, bytes);
-			const publication = await context.blobs.publication(ADDRESS);
-			expect(publication?.request).toEqual({
+			const digest = capturedDigest(await context.blobs.capture(ADDRESS, bytes));
+			const state = await context.blobs.publication(ADDRESS);
+			expect(state.kind).toBe('ready');
+			if (state.kind !== 'ready') throw new Error('publication was not ready');
+			expect(state.publication.request).toEqual({
 				authorityLifetime: 'lifetime-one',
 				address: ADDRESS,
 				protocolVersion: BLOB_PUBLICATION_VERSION,
 				digest,
 			});
-			expect(publication?.bytes).toEqual(bytes);
+			expect(state.publication.bytes).toEqual(bytes);
 
 			await expect(
 				context.blobs.settle(ADDRESS, accepted(ADDRESS, '0'.repeat(64))),
@@ -163,7 +181,9 @@ describe('record blob store', () => {
 				kind: 'accepted',
 				digest,
 			});
-			expect(await context.blobs.publication(ADDRESS)).toBeNull();
+			expect(await context.blobs.publication(ADDRESS)).toEqual({
+				kind: 'settled',
+			});
 		} finally {
 			context.database.close();
 		}
@@ -172,9 +192,11 @@ describe('record blob store', () => {
 	test('parks a durable authority refusal instead of retrying it', async () => {
 		const context = setup();
 		try {
-			const digest = await context.blobs.capture(
-				ADDRESS,
-				new TextEncoder().encode('local'),
+			const digest = capturedDigest(
+				await context.blobs.capture(
+					ADDRESS,
+					new TextEncoder().encode('local'),
+				),
 			);
 			await context.blobs.settle(ADDRESS, {
 				kind: 'blob-conflict',
@@ -191,7 +213,9 @@ describe('record blob store', () => {
 				digest,
 				parkedCode: 'blob-conflict',
 			});
-			expect(await context.blobs.publication(ADDRESS)).toBeNull();
+			expect(await context.blobs.publication(ADDRESS)).toEqual({
+				kind: 'settled',
+			});
 		} finally {
 			context.database.close();
 		}
@@ -200,9 +224,11 @@ describe('record blob store', () => {
 	test('a later live fact clears transient record-not-live evidence', async () => {
 		const context = setup();
 		try {
-			const digest = await context.blobs.capture(
-				ADDRESS,
-				new TextEncoder().encode('local'),
+			const digest = capturedDigest(
+				await context.blobs.capture(
+					ADDRESS,
+					new TextEncoder().encode('local'),
+				),
 			);
 			await context.blobs.settle(ADDRESS, {
 				kind: 'record-not-live',
@@ -227,7 +253,7 @@ describe('record blob store', () => {
 			});
 
 			expect(context.blobs.inspect(ADDRESS)).toEqual({ kind: 'owed', digest });
-			expect(await context.blobs.publication(ADDRESS)).not.toBeNull();
+			expect((await context.blobs.publication(ADDRESS)).kind).toBe('ready');
 		} finally {
 			context.database.close();
 		}
@@ -240,18 +266,21 @@ describe('record blob store', () => {
 				...ADDRESS,
 				recordKey: 'cccccccccccccccccccccccc',
 			};
-			await expect(
-				context.blobs.capture(absent, new TextEncoder().encode('absent')),
-			).rejects.toThrow(/absent/);
+			expect(
+				await context.blobs.capture(
+					absent,
+					new TextEncoder().encode('absent'),
+				),
+			).toEqual({ kind: 'record-not-live', state: 'absent' });
 			expect(context.files.staging.size).toBe(0);
 
 			context.replica.localWrite({ address: OTHER_ADDRESS, op: 'tombstone' });
-			await expect(
-				context.blobs.capture(
+			expect(
+				await context.blobs.capture(
 					OTHER_ADDRESS,
 					new TextEncoder().encode('tombstoned'),
 				),
-			).rejects.toThrow(/tombstoned/);
+			).toEqual({ kind: 'record-not-live', state: 'tombstone' });
 			expect(context.files.staging.size).toBe(0);
 		} finally {
 			context.database.close();
@@ -313,9 +342,11 @@ describe('record blob store', () => {
 
 		const unset = setup();
 		try {
-			const digest = await unset.blobs.capture(
-				ADDRESS,
-				new TextEncoder().encode('retained'),
+			const digest = capturedDigest(
+				await unset.blobs.capture(
+					ADDRESS,
+					new TextEncoder().encode('retained'),
+				),
 			);
 			unset.replica.localWrite({ address: ADDRESS, op: 'unset' });
 			expect(unset.blobs.inspect(ADDRESS)).toEqual({ kind: 'owed', digest });
@@ -329,9 +360,11 @@ describe('record blob store', () => {
 	test('a delayed sweep rechecks current ownership at the same address', async () => {
 		const context = setup();
 		try {
-			const digest = await context.blobs.capture(
-				ADDRESS,
-				new TextEncoder().encode('rehydrated'),
+			const digest = capturedDigest(
+				await context.blobs.capture(
+					ADDRESS,
+					new TextEncoder().encode('rehydrated'),
+				),
 			);
 			context.replica.erase();
 			context.replica.installFacts({

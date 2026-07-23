@@ -15,6 +15,7 @@ import type {
 	OwnedBlobFile,
 	StagedBlob,
 } from '../../blob-v1/index.js';
+import { BlobSourceReadFailure } from '../../blob-v1/index.js';
 
 export type BlobByteSource =
 	| AsyncIterable<Uint8Array>
@@ -35,10 +36,17 @@ async function* chunks(source: BlobByteSource): AsyncIterable<Uint8Array> {
 		const reader = source.getReader();
 		try {
 			while (true) {
-				const result = await reader.read();
+				let result: Awaited<ReturnType<typeof reader.read>>;
+				try {
+					result = await reader.read();
+				} catch (cause) {
+					throw new BlobSourceReadFailure(cause);
+				}
 				if (result.done) return;
 				if (!(result.value instanceof Uint8Array)) {
-					throw new TypeError('blob source yielded a non-byte chunk');
+					throw new BlobSourceReadFailure(
+						new TypeError('blob source yielded a non-byte chunk'),
+					);
 				}
 				yield result.value;
 			}
@@ -46,11 +54,18 @@ async function* chunks(source: BlobByteSource): AsyncIterable<Uint8Array> {
 			reader.releaseLock();
 		}
 	}
-	for await (const chunk of source as AsyncIterable<Uint8Array>) {
-		if (!(chunk instanceof Uint8Array)) {
-			throw new TypeError('blob source yielded a non-byte chunk');
+	try {
+		for await (const chunk of source as AsyncIterable<Uint8Array>) {
+			if (!(chunk instanceof Uint8Array)) {
+				throw new BlobSourceReadFailure(
+					new TypeError('blob source yielded a non-byte chunk'),
+				);
+			}
+			yield chunk;
 		}
-		yield chunk;
+	} catch (cause) {
+		if (cause instanceof BlobSourceReadFailure) throw cause;
+		throw new BlobSourceReadFailure(cause);
 	}
 }
 

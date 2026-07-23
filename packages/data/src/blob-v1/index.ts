@@ -49,6 +49,20 @@ export type OwnedBlobFile = {
 	digest: string;
 };
 
+/**
+ * Marks a refusal produced while reading caller-owned blob source bytes.
+ *
+ * File adapters throw this only around their source reader. Filesystem,
+ * integrity, and programming failures remain ordinary exceptions.
+ */
+export class BlobSourceReadFailure extends Error {
+	override readonly name = 'BlobSourceReadFailure';
+
+	constructor(readonly sourceCause: unknown) {
+		super('Blob source could not be read');
+	}
+}
+
 /** Runtime-specific raw-file operations. SQLite remains the membership owner. */
 export type BlobFileStore<TSource, TRead> = {
 	stage(source: TSource): Promise<StagedBlob>;

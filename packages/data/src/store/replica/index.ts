@@ -1,6 +1,9 @@
 export {
+	type BlobCaptureOutcome,
 	type BlobInspection,
 	type BlobPublication,
+	type BlobPublicationState,
+	type BlobSettlementOutcome,
 	createReplicaBlobStore,
 	type ReplicaBlobStore,
 } from './blob-store.js';
@@ -9,8 +12,10 @@ export {
 	DOCUMENT_CHAIN_LIMITS,
 	type DocumentInspection,
 	type DocumentPublicationState,
+	type DocumentRecordNotLiveState,
 	type DocumentRefusalEvidence,
 	type DocumentRefusalInspection,
+	type DocumentSettlementOutcome,
 } from './document-store.js';
 export {
 	type AttachReplicaOptions,
@@ -22,6 +27,7 @@ export {
 	type ReplicaRecordLanes,
 	type ReplicaStore,
 	type ReplicaStoreSync,
+	type SealOutcome,
 	type SealedRequest,
 	type VisibleRecordState,
 	type VisibleRecordsPage,

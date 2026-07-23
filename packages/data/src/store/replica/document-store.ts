@@ -81,7 +81,14 @@ type RecordNotLiveRefusal = Extract<
 export type DocumentPublicationState =
 	| { kind: 'settled' }
 	| { kind: 'ready'; publication: CapturedDocumentPublication }
-	| { kind: 'refused'; refusal: DocumentRefusalEvidence };
+	| { kind: 'refused'; refusal: DocumentRefusalEvidence }
+	| { kind: 'record-not-live'; state: DocumentRecordNotLiveState };
+
+export type DocumentSettlementOutcome =
+	| { kind: 'settled' }
+	| { kind: 'record-not-live'; state: DocumentRecordNotLiveState };
+
+export type DocumentRecordNotLiveState = 'absent' | 'unset' | 'tombstone';
 
 type DocumentChainOptions = {
 	tailEntries?: number;
@@ -121,26 +128,46 @@ function rowFor(
 	);
 }
 
-function requireDocumentOwner(
+function documentOwner(
 	database: SqliteDatabase,
 	address: RecordAddress,
-): RecordRow {
+):
+	| { kind: 'live'; row: RecordRow }
+	| { kind: 'record-not-live'; state: DocumentRecordNotLiveState } {
 	const row = rowFor(database, address);
-	if (row === null) throw new Error('document record is absent');
+	if (row === null) return { kind: 'record-not-live', state: 'absent' };
 	if (
 		row.confirmed_state === 'tombstone' ||
 		row.sealed_op === 'tombstone' ||
 		row.pending_op === 'tombstone'
 	) {
-		throw new Error('document record is tombstoned');
+		return { kind: 'record-not-live', state: 'tombstone' };
 	}
 	const newestOperation = row.pending_op ?? row.sealed_op;
 	const isVisibleLive =
 		newestOperation === 'patch' ||
 		newestOperation === 'replace' ||
 		(newestOperation === null && row.confirmed_state === 'live');
-	if (!isVisibleLive) throw new Error('document record is not live');
-	return row;
+	if (!isVisibleLive) return { kind: 'record-not-live', state: 'unset' };
+	return { kind: 'live', row };
+}
+
+function requireDocumentOwner(
+	database: SqliteDatabase,
+	address: RecordAddress,
+): RecordRow {
+	const outcome = documentOwner(database, address);
+	if (outcome.kind === 'live') return outcome.row;
+	switch (outcome.state) {
+		case 'absent':
+			throw new Error('document record is absent');
+		case 'tombstone':
+			throw new Error('document record is tombstoned');
+		case 'unset':
+			throw new Error('document record is not live');
+		default:
+			return outcome.state satisfies never;
+	}
 }
 
 function chainFor(database: SqliteDatabase, recordId: number): ChainRow[] {
@@ -340,7 +367,9 @@ export function createReplicaDocumentStore(
 
 	function publication(address: RecordAddress): DocumentPublicationState {
 		return database.transaction(() => {
-			const row = requireDocumentOwner(database, address);
+			const owner = documentOwner(database, address);
+			if (owner.kind === 'record-not-live') return owner;
+			const row = owner.row;
 			if (row.document_revision <= row.document_accepted_revision) {
 				return { kind: 'settled' };
 			}
@@ -400,8 +429,8 @@ export function createReplicaDocumentStore(
 			| DocumentBoundRefusal
 			| RecordNotLiveRefusal,
 		captured: { revision: number; digest: string },
-	): void {
-		database.transaction(() => {
+	): DocumentSettlementOutcome {
+		return database.transaction(() => {
 			if (!addressesEqual(address, proof.address)) {
 				throw new Error(
 					'document publication proof does not match its address',
@@ -433,14 +462,18 @@ export function createReplicaDocumentStore(
 			if (meta?.authority_lifetime !== proofLifetime) {
 				throw new Error('document publication proof lifetime mismatch');
 			}
-			const row = requireDocumentOwner(database, address);
+			const owner = documentOwner(database, address);
+			if (owner.kind === 'record-not-live') return owner;
+			const row = owner.row;
 			if (captured.revision > row.document_revision) {
 				throw new Error('captured revision is beyond the local revision');
 			}
 			if ('kind' in proof) {
 				// A refusal binds the captured revision. A racing local edit already
 				// superseded it, so obsolete refusals are dropped, not recorded.
-				if (row.document_revision !== captured.revision) return;
+				if (row.document_revision !== captured.revision) {
+					return { kind: 'settled' };
+				}
 				const document = hydrate(chainFor(database, row.record_id));
 				let currentDigest: string;
 				try {
@@ -450,7 +483,7 @@ export function createReplicaDocumentStore(
 				} finally {
 					document.destroy();
 				}
-				if (currentDigest !== captured.digest) return;
+				if (currentDigest !== captured.digest) return { kind: 'settled' };
 				database.run(
 					`UPDATE records SET
 						document_refused_revision = ?,
@@ -468,11 +501,13 @@ export function createReplicaDocumentStore(
 								row.record_id,
 							],
 				);
-				return;
+				return { kind: 'settled' };
 			}
 			// Advance monotonically, and only to the revision whose bytes were
 			// captured: a delayed receipt can never settle newer racing work.
-			if (captured.revision <= row.document_accepted_revision) return;
+			if (captured.revision <= row.document_accepted_revision) {
+				return { kind: 'settled' };
+			}
 			const clearsRefusal =
 				row.document_refused_revision !== null &&
 				row.document_refused_revision <= captured.revision;
@@ -489,6 +524,7 @@ export function createReplicaDocumentStore(
 						WHERE record_id = ?`,
 				[captured.revision, row.record_id],
 			);
+			return { kind: 'settled' };
 		});
 	}
 

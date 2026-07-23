@@ -1,10 +1,17 @@
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import {
+	defineErrors,
+	type InferError,
+	type InferErrors,
+} from 'wellcrafted/error';
 
-export const RuntimeError = defineErrors({
+const RecordHandleError = defineErrors({
 	RecordNotLive: ({ address }: { address: string }) => ({
 		message: `Record '${address}' is not live`,
 		address,
 	}),
+});
+
+const BlobCaptureError = defineErrors({
 	BlobAlreadyCaptured: ({ address }: { address: string }) => ({
 		message: `Blob slot '${address}' already owns different bytes`,
 		address,
@@ -20,26 +27,31 @@ export const RuntimeError = defineErrors({
 		address,
 		cause,
 	}),
+});
+
+const RowDocumentError = defineErrors({
 	RevokedDocument: ({ address }: { address: string }) => ({
 		message: `Row document '${address}' was revoked because its record is no longer live`,
 		address,
 	}),
 });
 
-export type RuntimeError = InferErrors<typeof RuntimeError>;
-export type RecordNotLiveError = Extract<
-	RuntimeError,
-	{ name: 'RecordNotLive' }
+export const RuntimeError = {
+	...RecordHandleError,
+	...BlobCaptureError,
+	...RowDocumentError,
+};
+
+export type RecordNotLiveError = InferErrors<typeof RecordHandleError>;
+export type BlobCaptureError = InferErrors<typeof BlobCaptureError>;
+export type BlobAlreadyCapturedError = InferError<
+	typeof BlobCaptureError.BlobAlreadyCaptured
 >;
-export type BlobAlreadyCapturedError = Extract<
-	RuntimeError,
-	{ name: 'BlobAlreadyCaptured' }
+export type BlobSourceReadError = InferError<
+	typeof BlobCaptureError.BlobSourceRead
 >;
-export type BlobSourceReadError = Extract<
-	RuntimeError,
-	{ name: 'BlobSourceRead' }
->;
-export type RevokedDocumentError = Extract<
-	RuntimeError,
-	{ name: 'RevokedDocument' }
->;
+export type RevokedDocumentError = InferErrors<typeof RowDocumentError>;
+export type RuntimeError =
+	| RecordNotLiveError
+	| BlobCaptureError
+	| RevokedDocumentError;

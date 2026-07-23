@@ -215,11 +215,19 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 		}
 	}
 
+	const documents = createRowDocumentRegistry({
+		store,
+		onLocalUpdate(address) {
+			notify([address]);
+			supervisor.nudge();
+		},
+	});
 	const supervisor = createRuntimeSupervisor({
 		store,
 		blobs,
 		carrier,
 		onInvalidate: notify,
+		onAuthorityReplacement: documents.revokeAll,
 		onStatus(status) {
 			syncStatus = status;
 			if (!disposed) {
@@ -230,13 +238,6 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 		...(backoff === undefined ? {} : { backoff }),
 	});
 	syncStatus = supervisor.status();
-	const documents = createRowDocumentRegistry({
-		store,
-		onLocalUpdate(address) {
-			notify([address]);
-			supervisor.nudge();
-		},
-	});
 
 	function afterWrite(address: RecordAddress): void {
 		notify([address]);
@@ -309,26 +310,24 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 					requireOpen();
 					if (blobs === null) throw new Error('Blob storage is unavailable');
 					if (!store.isVisiblyLive(address)) return notLive(address);
-					try {
-						await blobs.capture(address, source);
-						afterWrite(address);
-						return Ok(undefined);
-					} catch (cause) {
-						if (
-							cause instanceof Error &&
-							cause.message === 'blob slot already owns different bytes'
-						) {
+					const outcome = await blobs.capture(address, source);
+					switch (outcome.kind) {
+						case 'captured':
+							afterWrite(address);
+							return Ok(undefined);
+						case 'record-not-live':
+							return notLive(address);
+						case 'blob-conflict':
 							return RuntimeError.BlobAlreadyCaptured({
 								address: addressKey(address),
 							});
-						}
-						if (cause instanceof TypeError) {
+						case 'source-read-failed':
 							return RuntimeError.BlobSourceRead({
 								address: addressKey(address),
-								cause,
+								cause: outcome.cause,
 							});
-						}
-						throw cause;
+						default:
+							return outcome satisfies never;
 					}
 				},
 				async read() {
@@ -549,8 +548,8 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 			addressListeners.clear();
 			tableListeners.clear();
 			syncListeners.clear();
+			documents.dispose();
 			await supervisor.dispose();
-			await documents.dispose();
 			await disposeOwned?.();
 		},
 	};

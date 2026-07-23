@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { OwnedBlobFile } from '../../blob-v1/index.js';
+import {
+	BlobSourceReadFailure,
+	type OwnedBlobFile,
+} from '../../blob-v1/index.js';
 import { createBunBlobFileStore } from './bun-blob-files.js';
 
 async function collect(source: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
@@ -24,6 +27,11 @@ async function collect(source: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
 
 async function* source(...values: string[]): AsyncIterable<Uint8Array> {
 	for (const value of values) yield new TextEncoder().encode(value);
+}
+
+async function* refusingSource(): AsyncIterable<Uint8Array> {
+	yield new TextEncoder().encode('partial');
+	throw new Error('source refused');
 }
 
 describe('Bun blob files', () => {
@@ -93,6 +101,19 @@ describe('Bun blob files', () => {
 				'corrupt',
 			);
 			await expect(files.open(owner)).rejects.toThrow(/digest verification/);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test('source iteration refusal is named and removes partial staging bytes', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
+		try {
+			const files = createBunBlobFileStore(root);
+			await expect(files.stage(refusingSource())).rejects.toBeInstanceOf(
+				BlobSourceReadFailure,
+			);
+			expect(await readdir(join(root, 'blobs', 'staging'))).toEqual([]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

@@ -4,7 +4,10 @@ import type {
 	OwnedBlobFile,
 	StagedBlob,
 } from '../blob-v1/index.js';
-import { BLOB_PUBLICATION_VERSION } from '../blob-v1/index.js';
+import {
+	BLOB_PUBLICATION_VERSION,
+	BlobSourceReadFailure,
+} from '../blob-v1/index.js';
 import {
 	DOCUMENT_PUBLICATION_VERSION,
 	type DocumentAcceptance,
@@ -35,10 +38,13 @@ function unwrap<T>(result: Result<T, { message: string }>): T {
 
 export class MemoryBlobFiles implements BlobFileStore<Uint8Array, Uint8Array> {
 	readonly content = new Map<string, Uint8Array>();
+	stagingSweepCount = 0;
 	private staged = new Map<string, Uint8Array>();
 
 	async stage(source: Uint8Array): Promise<StagedBlob> {
-		if (!(source instanceof Uint8Array)) throw new TypeError('expected bytes');
+		if (!(source instanceof Uint8Array)) {
+			throw new BlobSourceReadFailure(new TypeError('expected bytes'));
+		}
 		const bytes = new Uint8Array(source);
 		const digest = sha256HexBytes(bytes);
 		this.staged.set(digest, bytes);
@@ -56,6 +62,7 @@ export class MemoryBlobFiles implements BlobFileStore<Uint8Array, Uint8Array> {
 		return new Uint8Array(bytes);
 	}
 	async sweepStaging(): Promise<void> {
+		this.stagingSweepCount += 1;
 		this.staged.clear();
 	}
 	async sweepContent(owned: readonly OwnedBlobFile[]): Promise<void> {
@@ -78,11 +85,15 @@ export function createTestCarrier(): AuthorityCarrier<Uint8Array> & {
 			  }
 			| { address: RecordAddress; state: 'tombstone' | 'unset' },
 	): void;
+	reset(lifetime: string): void;
 } {
 	let state: AuthorityState = unwrap(
 		createAuthority('runtime-life', TEST_LIMITS),
 	);
 	return {
+		reset(lifetime) {
+			state = unwrap(createAuthority(lifetime, TEST_LIMITS));
+		},
 		install(fact) {
 			const request: SubmissionRequest = {
 				authorityLifetime: state.lifetime,
@@ -105,13 +116,24 @@ export function createTestCarrier(): AuthorityCarrier<Uint8Array> & {
 			).state;
 		},
 		async fetchFacts(request: FactsRequest) {
-			return unwrap(
-				readFacts(
-					state,
-					unwrap(parseFactsRequest(request, TEST_LIMITS)),
-					TEST_LIMITS,
-				),
-			);
+			const admitted = unwrap(parseFactsRequest(request, TEST_LIMITS));
+			const result = readFacts(state, admitted, TEST_LIMITS);
+			if (
+				result.error !== null &&
+				request.authorityLifetime !== undefined &&
+				request.authorityLifetime !== state.lifetime
+			) {
+				return unwrap(
+					readFacts(
+						state,
+						unwrap(
+							parseFactsRequest({ afterSequence: 0 }, TEST_LIMITS),
+						),
+						TEST_LIMITS,
+					),
+				);
+			}
+			return unwrap(result);
 		},
 		async submit(bytes: string): Promise<SubmissionResponse> {
 			const result = unwrap(

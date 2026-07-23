@@ -371,15 +371,23 @@ function createDriver(readPage: () => Page | undefined) {
 			return productionRequest(requirePage(readPage), operation);
 		},
 		captureBlob(address: RecordAddress, text: string) {
-			return requirePage(readPage).evaluate(
-				({ address, text }) =>
-					window.browserReplicaCandidateEvidence.request({
+			return requirePage(readPage).evaluate(async ({ address, text }) => {
+				const outcome =
+					await window.browserReplicaCandidateEvidence.request({
 						kind: 'capture-blob',
 						address,
 						bytes: new Blob([text]),
-					}),
-				{ address, text },
-			) as Promise<string>;
+					});
+				if (
+					outcome === null ||
+					typeof outcome !== 'object' ||
+					!('kind' in outcome) ||
+					outcome.kind !== 'captured'
+				) {
+					throw new Error('browser blob capture did not capture bytes');
+				}
+				return outcome.digest;
+			}, { address, text }) as Promise<string>;
 		},
 		blobPublication(address: RecordAddress) {
 			return requirePage(readPage).evaluate(async (address) => {
@@ -388,18 +396,27 @@ function createDriver(readPage: () => Page | undefined) {
 						kind: 'blob-publication',
 						address,
 					});
-				if (publication === null) return null;
 				if (
+					publication === null ||
 					typeof publication !== 'object' ||
-					!('request' in publication) ||
-					!('bytes' in publication) ||
-					!(publication.bytes instanceof Blob)
+					!('kind' in publication)
+				) {
+					throw new Error('browser blob publication has an invalid shape');
+				}
+				if (publication.kind !== 'ready') return null;
+				if (
+					!('publication' in publication) ||
+					typeof publication.publication !== 'object' ||
+					publication.publication === null ||
+					!('request' in publication.publication) ||
+					!('bytes' in publication.publication) ||
+					!(publication.publication.bytes instanceof Blob)
 				) {
 					throw new Error('browser blob publication has an invalid shape');
 				}
 				return {
-					digest: publication.request.digest,
-					text: await publication.bytes.text(),
+					digest: publication.publication.request.digest,
+					text: await publication.publication.bytes.text(),
 				};
 			}, address);
 		},
@@ -472,8 +489,16 @@ function createDriver(readPage: () => Page | undefined) {
 					),
 				action as never,
 			)) as BrowserReplicaTestResult;
+			const actionResult =
+				action.kind === 'seal' &&
+				productionResult !== null &&
+				typeof productionResult === 'object' &&
+				'kind' in productionResult &&
+				productionResult.kind === 'sealed'
+					? productionResult.request
+					: productionResult;
 			if (action.kind === 'seal') {
-				if (JSON.stringify(productionResult) !== JSON.stringify(shadowResult)) {
+				if (JSON.stringify(actionResult) !== JSON.stringify(shadowResult)) {
 					throw new Error(
 						'production browser owner and crash shadow produced different seal witnesses',
 					);
@@ -488,7 +513,7 @@ function createDriver(readPage: () => Page | undefined) {
 				);
 			}
 			await assertShadowMatchesProduction(page, action);
-			return productionResult;
+			return actionResult;
 		},
 		async crash(action: BrowserReplicaAction, boundary: number) {
 			const mainPage = requirePage(readPage);

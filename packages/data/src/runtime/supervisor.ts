@@ -31,9 +31,10 @@ export type AuthorityCarrier<TBlobBytes = unknown> = {
 	): Promise<DocumentAcceptance>;
 	publishBlob(
 		address: RecordAddress,
-		publication: NonNullable<
-			Awaited<ReturnType<ReplicaBlobStore<unknown, TBlobBytes>['publication']>>
-		>['request'],
+		publication: Extract<
+			Awaited<ReturnType<ReplicaBlobStore<unknown, TBlobBytes>['publication']>>,
+			{ kind: 'ready' }
+		>['publication']['request'],
 		bytes: TBlobBytes,
 	): Promise<BlobAcceptance>;
 };
@@ -69,6 +70,7 @@ export type CreateRuntimeSupervisorOptions<TBlobSource, TBlobBytes> = {
 	blobs: ReplicaBlobStore<TBlobSource, TBlobBytes> | null;
 	carrier: AuthorityCarrier<TBlobBytes> | null;
 	onInvalidate(addresses: RecordAddress[]): void;
+	onAuthorityReplacement(): void;
 	onStatus(status: SyncStatus): void;
 	intervalMs?: number;
 	backoff?: RuntimeBackoff;
@@ -89,27 +91,12 @@ function defaultBackoff(): RuntimeBackoff {
 	};
 }
 
-function errorMessage(cause: unknown): string {
-	return cause instanceof Error ? cause.message : String(cause);
-}
-
 function isLifetimeMismatch(cause: unknown): boolean {
 	return (
-		(typeof cause === 'object' &&
-			cause !== null &&
-			'name' in cause &&
-			cause.name === 'LifetimeMismatch') ||
-		/lifetime mismatch|lifetime does not match/u.test(errorMessage(cause))
-	);
-}
-
-// A record can stop being visibly live between an owed scan and the capture
-// or settlement it feeds: tombstoned (obligation reaped), or reversibly unset
-// (document/blob state preserved but not publishable until resurrection,
-// ADR-0160). Both are ordinary per-address races, never plane failures.
-function isRecordLivenessRace(cause: unknown): boolean {
-	return /(document|blob) record is (absent|tombstoned|not live)/u.test(
-		errorMessage(cause),
+		typeof cause === 'object' &&
+		cause !== null &&
+		'name' in cause &&
+		cause.name === 'LifetimeMismatch'
 	);
 }
 
@@ -124,6 +111,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 	blobs,
 	carrier: initialCarrier,
 	onInvalidate,
+	onAuthorityReplacement,
 	onStatus,
 	intervalMs = DEFAULT_INTERVAL_MS,
 	backoff = defaultBackoff(),
@@ -215,6 +203,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 	}
 
 	function replaceAuthority(): void {
+		onAuthorityReplacement();
 		store.erase();
 		setStatus('idle');
 		scheduleWake(0);
@@ -231,12 +220,9 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 			while (!isDisposed) {
 				let sealed = store.sealedRequest();
 				if (sealed === null) {
-					try {
-						sealed = store.seal();
-					} catch (cause) {
-						if (errorMessage(cause) === 'nothing to seal') break;
-						throw cause;
-					}
+					const outcome = store.seal();
+					if (outcome.kind === 'empty') break;
+					sealed = outcome.request;
 				}
 				const response = await activeCarrier.submit(sealed.bytes);
 				if (isDisposed || carrier !== activeCarrier) return 'ok';
@@ -316,29 +302,40 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 				addresses = store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT);
 				for (const address of addresses) {
 					if (isDisposed) return 'ok';
-					try {
-						const state = store.documentPublication(address);
-						if (state.kind !== 'ready') continue;
-						const acceptance = await activeCarrier.publishDocument(
-							address,
-							state.publication,
-						);
-						if (isDisposed || carrier !== activeCarrier) return 'ok';
-						if (acceptance.kind === 'lifetime-mismatch') {
-							replaceAuthority();
-							return 'replaced';
-						}
-						const proof =
-							acceptance.kind === 'accepted' ? acceptance.receipt : acceptance;
-						store.settleDocumentPublication(address, proof, {
-							revision: state.publication.capturedRevision,
-							digest: state.publication.digest,
-						});
-						invalidated.set(JSON.stringify(address), address);
-					} catch (cause) {
-						// One address's liveness race must not abort the rest of the
-						// page; every other failure still fails the plane.
-						if (!isRecordLivenessRace(cause)) throw cause;
+					const state = store.documentPublication(address);
+					switch (state.kind) {
+						case 'settled':
+						case 'refused':
+						case 'record-not-live':
+							continue;
+						case 'ready':
+							break;
+						default:
+							state satisfies never;
+					}
+					const acceptance = await activeCarrier.publishDocument(
+						address,
+						state.publication,
+					);
+					if (isDisposed || carrier !== activeCarrier) return 'ok';
+					if (acceptance.kind === 'lifetime-mismatch') {
+						replaceAuthority();
+						return 'replaced';
+					}
+					const proof =
+						acceptance.kind === 'accepted' ? acceptance.receipt : acceptance;
+					const settlement = store.settleDocumentPublication(address, proof, {
+						revision: state.publication.capturedRevision,
+						digest: state.publication.digest,
+					});
+					switch (settlement.kind) {
+						case 'settled':
+							invalidated.set(JSON.stringify(address), address);
+							break;
+						case 'record-not-live':
+							break;
+						default:
+							settlement satisfies never;
 					}
 				}
 			} while (
@@ -374,24 +371,35 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 				addresses = store.owedBlobs(PUBLICATION_OBLIGATION_PAGE_LIMIT);
 				for (const address of addresses) {
 					if (isDisposed) return 'ok';
-					try {
-						const publication = await blobs.publication(address);
-						if (publication === null) continue;
-						const acceptance = await activeCarrier.publishBlob(
-							address,
-							publication.request,
-							publication.bytes,
-						);
-						if (isDisposed || carrier !== activeCarrier) return 'ok';
-						if (acceptance.kind === 'lifetime-mismatch') {
-							replaceAuthority();
-							return 'replaced';
-						}
-						await blobs.settle(address, acceptance);
-						invalidated.set(JSON.stringify(address), address);
-					} catch (cause) {
-						// Same per-address liveness-race isolation as documents.
-						if (!isRecordLivenessRace(cause)) throw cause;
+					const state = await blobs.publication(address);
+					switch (state.kind) {
+						case 'settled':
+						case 'record-not-live':
+							continue;
+						case 'ready':
+							break;
+						default:
+							state satisfies never;
+					}
+					const acceptance = await activeCarrier.publishBlob(
+						address,
+						state.publication.request,
+						state.publication.bytes,
+					);
+					if (isDisposed || carrier !== activeCarrier) return 'ok';
+					if (acceptance.kind === 'lifetime-mismatch') {
+						replaceAuthority();
+						return 'replaced';
+					}
+					const settlement = await blobs.settle(address, acceptance);
+					switch (settlement.kind) {
+						case 'settled':
+							invalidated.set(JSON.stringify(address), address);
+							break;
+						case 'record-not-live':
+							break;
+						default:
+							settlement satisfies never;
 					}
 				}
 			} while (

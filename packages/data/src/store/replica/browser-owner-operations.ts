@@ -55,12 +55,11 @@ export function createBrowserReplicaOwnerOperations(
 				case 'document-publication':
 					return owner.store.documentPublication(operation.address);
 				case 'settle-document-publication':
-					owner.store.settleDocumentPublication(
+					return owner.store.settleDocumentPublication(
 						operation.address,
 						operation.proof,
 						operation.captured,
 					);
-					return undefined;
 				case 'capture-blob':
 					return owner.blobs.capture(operation.address, operation.bytes);
 				case 'inspect-blob':
@@ -68,8 +67,10 @@ export function createBrowserReplicaOwnerOperations(
 				case 'blob-publication':
 					return owner.blobs.publication(operation.address);
 				case 'settle-blob-publication':
-					await owner.blobs.settle(operation.address, operation.acceptance);
-					return undefined;
+					return owner.blobs.settle(
+						operation.address,
+						operation.acceptance,
+					);
 				case 'read-blob':
 					return owner.blobs.read(operation.address);
 				case 'sweep-blob-debris':
