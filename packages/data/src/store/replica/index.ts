@@ -14,6 +14,7 @@ export {
 export {
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
+	PUBLICATION_OBLIGATION_PAGE_LIMIT,
 	type ReplicaFactsPage,
 	type ReplicaRecordLanes,
 	type ReplicaStore,
