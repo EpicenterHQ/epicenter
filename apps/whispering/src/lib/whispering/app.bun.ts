@@ -27,7 +27,7 @@ export function createWhisperingBunDependencies({
 	defaultTranscriptionService = 'local',
 }: CreateWhisperingBunDependenciesOptions): WhisperingAppDependencies {
 	return {
-		openEpicenter: () => openBunEpicenter({ directory: dataDir }),
+		openEpicenter: () => openBunEpicenter({ directory: dataDir, owner: null }),
 		blobs: {
 			local: createBunBlobStore({ directory: join(dataDir, 'blobs') }),
 			remote: null,

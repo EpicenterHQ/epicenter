@@ -75,7 +75,10 @@ function createTestAuthority() {
 test('settings values set, get, unset, and subscribe through the bound lens', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-data-settings-'));
 	try {
-		await using epicenter = await openBunEpicenter({ directory: root });
+		await using epicenter = await openBunEpicenter({
+			directory: root,
+			owner: null,
+		});
 		const language = epicenter
 			.bind(whisperingLens)
 			.settings.record('transcription.language');
@@ -98,7 +101,10 @@ test('settings values set, get, unset, and subscribe through the bound lens', as
 test('the one bound lens composes recordings CRUD with settings access', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-data-composition-'));
 	try {
-		await using epicenter = await openBunEpicenter({ directory: root });
+		await using epicenter = await openBunEpicenter({
+			directory: root,
+			owner: null,
+		});
 		const bound = epicenter.bind(whisperingLens);
 		const older = await bound.recordings.create(
 			recording(
@@ -136,21 +142,23 @@ test('the one bound lens composes recordings CRUD with settings access', async (
 	}
 });
 
-test('first sign-in brings local records and converges through one authority', async () => {
-	const root = mkdtempSync(join(tmpdir(), 'whispering-data-attach-'));
+test('two replicas of one account converge through one authority', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'whispering-data-account-'));
 	const authority = createTestAuthority();
-	const attachment = Object.freeze({
+	const owner = Object.freeze({
 		deploymentId: 'https://example.com/',
 		principalId: 'principal-a',
 	});
 	try {
 		await using first = await openBunEpicenter({
 			directory: join(root, 'first'),
+			owner,
 			carrier: authority.carrier(),
 			intervalMs: 10,
 		});
 		await using second = await openBunEpicenter({
 			directory: join(root, 'second'),
+			owner,
 			carrier: authority.carrier(),
 			intervalMs: 10,
 		});
@@ -162,16 +170,6 @@ test('first sign-in brings local records and converges through one authority', a
 			.settings.record('transcription.language');
 		expectOk(await firstLanguage.set('de'));
 
-		// The nonempty replica surfaces the first-attachment choice; bringing
-		// mirrors the production composition root's silent adopt.
-		const outcome = await first.attach(attachment);
-		if (outcome.kind !== 'first-attachment-choice') {
-			throw new Error('a nonempty replica must surface the choice');
-		}
-		await outcome.proceed('bring');
-		expect(first.sync.status.attachment).toEqual(attachment);
-
-		expect((await second.attach(attachment)).kind).toBe('attached');
 		const until = Date.now() + 5_000;
 		while (Date.now() < until) {
 			if (expectOk(await secondLanguage.get()) === 'de') break;
@@ -179,10 +177,81 @@ test('first sign-in brings local records and converges through one authority', a
 		}
 		expect(expectOk(await secondLanguage.get())).toBe('de');
 
-		// Attachment identity is permanent: a second principal is refused.
+		// Replica identity is immutable: another principal cannot open this
+		// replica, and the refusal mutates nothing.
+		await first[Symbol.asyncDispose]();
 		await expect(
-			second.attach({ ...attachment, principalId: 'principal-b' }),
-		).rejects.toThrow(/permanently attached/);
+			openBunEpicenter({
+				directory: join(root, 'first'),
+				owner: { ...owner, principalId: 'principal-b' },
+			}),
+		).rejects.toThrow(/identity does not match/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('explicit Lens import copies unclaimed records and retries idempotently', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'whispering-data-import-'));
+	const authority = createTestAuthority();
+	const owner = Object.freeze({
+		deploymentId: 'https://example.com/',
+		principalId: 'principal-a',
+	});
+	try {
+		await using unclaimed = await openBunEpicenter({
+			directory: join(root, 'unclaimed'),
+			owner: null,
+		});
+		const source = unclaimed.bind(whisperingLens);
+		const kept = await source.recordings.create(
+			recording(
+				'kept',
+				InstantString.fromDate(new Date('2026-07-20T01:00:00.000Z')),
+			),
+		);
+		const removed = await source.recordings.create(
+			recording(
+				'removed downstream',
+				InstantString.fromDate(new Date('2026-07-20T02:00:00.000Z')),
+			),
+		);
+		expectOk(await source.settings.record('transcription.language').set('de'));
+
+		await using account = await openBunEpicenter({
+			directory: join(root, 'account'),
+			owner,
+			carrier: authority.carrier(),
+			intervalMs: 10,
+		});
+		const destination = account.bind(whisperingLens);
+
+		// Import writes through ordinary destination operations at the source
+		// record keys, so the copy is a plain function of the source Lens.
+		async function importRecordings(): Promise<void> {
+			for await (const row of source.recordings.entries()) {
+				if (row.error !== null) continue;
+				const { id, ...fields } = row.data;
+				expectOk(await destination.recordings.put(id, fields));
+			}
+		}
+		await importRecordings();
+		expect(
+			expectOk(await destination.recordings.record(kept.id).get()),
+		).toEqual(kept);
+
+		// A crash-resumed or repeated import rewrites identical records instead
+		// of duplicating them.
+		await importRecordings();
+		expect((await destination.recordings.scan()).rows).toHaveLength(2);
+
+		// A destination tombstone stays terminal; import cannot resurrect it.
+		await destination.recordings.record(removed.id).delete();
+		await importRecordings();
+		expect(
+			expectOk(await destination.recordings.record(removed.id).get()),
+		).toBeUndefined();
+		expect((await destination.recordings.scan()).rows).toHaveLength(1);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

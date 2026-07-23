@@ -74,7 +74,7 @@ async function setup({
 	seed?: ReturnType<typeof recording>[];
 } = {}) {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-recordings-'));
-	const epicenter = await openBunEpicenter({ directory: root });
+	const epicenter = await openBunEpicenter({ directory: root, owner: null });
 	const table = epicenter.bind(whisperingLens).recordings;
 	for (const row of seed) await table.create(row);
 	const domain = createWhisperingRecordings({

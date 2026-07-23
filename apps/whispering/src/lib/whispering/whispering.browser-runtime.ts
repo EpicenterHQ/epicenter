@@ -10,10 +10,7 @@ import type {
 } from '@epicenter/data/runtime';
 import { openBrowserEpicenter } from '@epicenter/data/runtime/browser';
 
-type WhisperingAuth = Pick<
-	SyncAuthClient,
-	'state' | 'deployment' | 'fetch' | 'onStateChange'
->;
+type WhisperingAuth = Pick<SyncAuthClient, 'state' | 'deployment' | 'fetch'>;
 
 function deploymentUrl(baseUrl: string): URL {
 	const url = new URL(baseUrl);
@@ -74,50 +71,31 @@ function createCarrier(auth: WhisperingAuth): AuthorityCarrier<Blob> {
 	};
 }
 
-/** Open this browser origin's replica and follow the auth session's sign-in state. */
+/** The signed-in account's immutable replica identity on this deployment. */
+export function whisperingReplicaOwner(
+	auth: WhisperingAuth,
+): { deploymentId: string; principalId: string } | null {
+	const state = auth.state;
+	if (state.status !== 'signed-in') return null;
+	return {
+		deploymentId: deploymentUrl(auth.deployment.baseURL).href,
+		principalId: state.principalId,
+	};
+}
+
+/**
+ * Open the replica the current authentication state selects (ADR-0178):
+ * the signed-in account's replica with synchronization authority, or this
+ * origin's unclaimed local-only replica when signed out. Authentication
+ * changes are session boundaries; the caller reopens instead of mutating a
+ * live runtime.
+ */
 export async function openWhisperingBrowserEpicenter({
 	auth,
-	reportBackgroundError,
 }: {
 	auth: WhisperingAuth;
-	reportBackgroundError(cause: unknown): void;
 }): Promise<EpicenterRuntime<Blob, Blob>> {
-	const browser = await openBrowserEpicenter({ carrier: createCarrier(auth) });
-
-	const syncAuthState = async () => {
-		const state = auth.state;
-		if (state.status !== 'signed-in') {
-			browser.signOut();
-			return;
-		}
-		browser.signIn();
-		const outcome = await browser.attach({
-			deploymentId: deploymentUrl(auth.deployment.baseURL).href,
-			principalId: state.principalId,
-		});
-		if (outcome.kind === 'first-attachment-choice') {
-			// Match the pre-W4 attach semantics: records created before the first
-			// sign-in join the account. Surfacing a bring/discard choice is a
-			// product decision this composition root does not own.
-			await outcome.proceed('bring');
-		}
-	};
-
-	try {
-		await syncAuthState();
-	} catch (cause) {
-		await browser[Symbol.asyncDispose]();
-		throw cause;
-	}
-	const stopAuth = auth.onStateChange(() => {
-		void syncAuthState().catch(reportBackgroundError);
-	});
-
-	return Object.freeze({
-		...browser,
-		async [Symbol.asyncDispose]() {
-			stopAuth();
-			await browser[Symbol.asyncDispose]();
-		},
-	});
+	const owner = whisperingReplicaOwner(auth);
+	if (owner === null) return await openBrowserEpicenter({ owner: null });
+	return await openBrowserEpicenter({ owner, carrier: createCarrier(auth) });
 }
