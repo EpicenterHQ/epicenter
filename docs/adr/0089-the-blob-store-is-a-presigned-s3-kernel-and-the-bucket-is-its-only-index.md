@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
-- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), and [ADR-0154](0154-blob-access-is-address-only.md)
+- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), [ADR-0154](0154-blob-access-is-address-only.md), and [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) (S3 may remain a private byte backend, but the record slot is the public identity and authority membership source; the bucket and hash are not)
 
 > **2026-07-02 amendment:** Blob keys now use `principals/<principalId>/blobs/<sha256>`. The bucket-only index and presigned-S3 kernel decision are unchanged.
 
@@ -12,7 +12,7 @@ Epicenter needs a home for bytes too large for git or a Yjs doc (media, archives
 
 ## Decision
 
-Blobs live in one S3-compatible bucket under owner-scoped content-addressed keys, `owners/<ownerId>/blobs/<sha256>`, and the bucket is the store's only state. The server (`packages/server/src/s3-blob-store.ts`, `routes/blobs.ts`) mints a presigned single PUT with the base64 checksum and content type pinned into the signature (the client echoes them verbatim; the store rejects bytes that do not match their address), and answers reads with a 302 to a short-TTL presigned GET. There is no blob database, no queue, no confirm endpoint: the object appearing under its hash is the record of a successful upload, and listing is a signed `ListObjectsV2`. Everything is standard SigV4 (`aws4fetch`), so the same code runs against R2, MinIO, Garage, or S3 from a Worker or a Bun process.
+Blobs live in one S3-compatible bucket under owner-scoped content-addressed keys, `owners/<ownerId>/blobs/<sha256>`, and the bucket is the store's only state. The original server implementation minted a presigned single PUT with the base64 checksum and content type pinned into the signature (the client echoed them verbatim; the store rejected bytes that did not match their address), and answered reads with a 302 to a short-TTL presigned GET. There was no blob database, queue, or confirm endpoint: the object appearing under its hash was the record of a successful upload, and listing was a signed `ListObjectsV2`. Everything used standard SigV4, so the same code ran against R2, MinIO, Garage, or S3 from a Worker or a Bun process. ADR-0173 later deleted this public surface and retained object storage only as a private byte backend beneath record-owned membership.
 
 ## Consequences
 

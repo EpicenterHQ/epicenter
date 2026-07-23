@@ -1,7 +1,8 @@
 # 0009. The CLI dispatches through a mandatory daemon; automation lives in library scripts
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-16
+- **Superseded by:** [ADR-0112](0112-the-cli-watcher-is-not-a-callable-action-server.md)
 
 ## Context
 

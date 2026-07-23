@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-18
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) and [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) (the one coordination box remains, but one universal-record authority now owns scalar, document, and record-addressed blob state; documents no longer carry a separate public blob reference)
 - **Note (2026-06-29):** iroh, the dependency, was deleted in the device-channel transport wave. This durable-storage decision is transport-agnostic and stands, but the two iroh-specific illustrations below (the **Iroh** deployment-mode bullet under Decision, and the iroh-blobs content-addressing parenthetical under Consequences) name a mechanism that is no longer in the repo. The relay/anchor split they sketch is now pursued without iroh: the per-user relay floor is the first step toward a self-hostable relay (see [ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md)), and content-addressing remains a store option over the existing S3 contract, not iroh-blobs.
 
 ## Context

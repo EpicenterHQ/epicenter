@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-12
 - **Amends:** [ADR-0126](0126-child-documents-use-format-capabilities-and-evolve-outside-records-databases.md) only for its table-level document-edit touch policy
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) and [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (the refusal of automatic touch policy remains; format-addressed rooms, Workspace openers, and their document runtime are deleted)
 
 ## Context
 

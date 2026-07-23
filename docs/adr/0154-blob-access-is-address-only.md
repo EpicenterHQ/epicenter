@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-19
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) and [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md)
+- **Amended by:** [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) (address-only access now means the owning record address, never a bare digest or opaque BlobId)
 
 ## Context
 

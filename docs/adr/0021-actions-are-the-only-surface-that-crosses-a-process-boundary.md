@@ -1,7 +1,8 @@
 # 0021. Actions are the only surface that crosses a process boundary
 
-- **Status:** Accepted, amended by [ADR-0112](0112-the-cli-watcher-is-not-a-callable-action-server.md)
+- **Status:** Accepted
 - **Date:** 2026-06-16
+- **Amended by:** [ADR-0112](0112-the-cli-watcher-is-not-a-callable-action-server.md) (deletes the callable CLI daemon) and [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (deletes the Workspace compose, mount, table, and KV surfaces while retaining explicit validated app and tool boundaries)
 
 ## 2026-07-06 amendment
 

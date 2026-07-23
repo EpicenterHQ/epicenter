@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-07-20
-- **Supersedes:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md) and [ADR-0143](0143-account-open-never-consumes-device-data.md)
 - **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) by removing workspaces beneath the principal authority
+- **Relates:** [ADR-0143](0143-account-open-never-consumes-device-data.md) and [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md), whose Workspace-era runtime contracts are superseded by ADR-0166
 - **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup and Restore above the replica boundary) and [ADR-0177](0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md) (supersedes the schema-wide coordinate-layout evidence enumeration)
 
 ## Context

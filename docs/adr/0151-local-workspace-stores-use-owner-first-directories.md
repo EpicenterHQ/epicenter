@@ -1,7 +1,8 @@
 # 0151. Local workspace stores use owner-first directories
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-19
+- **Superseded by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (the per-Workspace storage runtime is deleted; ADR-0161 proposes the replacement replica boundary)
 - **Relates:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md), [ADR-0143](0143-account-open-never-consumes-device-data.md)
 
 ## Context

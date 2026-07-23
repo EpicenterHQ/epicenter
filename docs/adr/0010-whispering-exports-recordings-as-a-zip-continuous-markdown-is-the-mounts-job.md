@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-16
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (the on-demand recording zip remains; the deleted Workspace mount and materializer no longer own continuous Markdown)
 
 ## Context
 

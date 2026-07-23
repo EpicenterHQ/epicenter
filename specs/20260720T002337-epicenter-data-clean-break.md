@@ -526,9 +526,10 @@ transfers inert bytes without exposing capture on the application Epicenter
 API; Chromium and WebKit OPFS evidence pass. Home holds only opaque artifact
 IDs, runs bounded read statements in a disposable child process with a
 two-second deadline, and offers the first-release capture and query sheet. The
-sheet passed typecheck, build, and UI-boundary gates; visual browser inspection
-was unavailable in the current Codex environment and remains a manual
-presentation check rather than a storage correctness gap.
+sheet passed typecheck, build, and UI-boundary gates. A 2026-07-22 isolated
+compiled-host check in Chromium captured the artifact, ran the bounded raw
+record query, and inspected the rendered sheet at 1440 by 1000 pixels with no
+browser console errors.
 
 ### W6: portable Backup and Restore
 
@@ -591,8 +592,9 @@ review, Apply, and Delete sheet. Failed incremental Apply refreshes
 authenticated progress before another action, or invalidates the catalog when
 that refresh fails. [ADR-0178](../docs/adr/0178-proposals-are-source-bound-artifacts-that-disappear-after-local-admission.md)
 is Accepted. The sheet passes typecheck, build, UI-boundary, service, and host
-tests; visual browser inspection remains a manual presentation check in the
-current Codex environment.
+tests. A 2026-07-22 isolated compiled-host check inspected the empty Proposal
+catalog, exact-selection editor, Lens summary, and action hierarchy at 1440 by
+1000 pixels with no browser console errors.
 
 ## Remaining execution gates
 
@@ -600,8 +602,6 @@ current Codex environment.
   including capacity, reopen, quota refusal, suspension, and eviction.
 - Run the physical iPhone Safari and installed-PWA Private Relay topology
   charter at 1, 2, 4, and 8 simultaneously open record documents.
-- Perform the manual visual browser check for the Home snapshot and Proposal
-  sheets. This is a presentation gate, not a storage correctness claim.
 
 ## Deletion ledger
 

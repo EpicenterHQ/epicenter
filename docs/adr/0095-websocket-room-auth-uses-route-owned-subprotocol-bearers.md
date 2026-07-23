@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-02
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (route-owned bearer extraction survives for authenticated document and attach WebSockets; the deleted room route and RoomCore do not)
 - **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md), [ADR-0092](0092-identity-is-the-partition.md)
 
 ## Context

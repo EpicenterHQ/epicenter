@@ -64,15 +64,14 @@ separate physical planes because their storage and transfer needs differ, but
 they do not receive different confidentiality promises.
 
 Document updates are plaintext to the document authority. Blob bytes are raw
-immutable content stored by the configured authority backend. SHA-256 proves
-identity and idempotency; it does not conceal content. Hosted storage operators
-can read hosted bytes. Self-hosted operators can read self-hosted bytes.
+immutable content stored by the authority backend. The owning record address is
+the blob's identity; SHA-256 verifies the published bytes and makes an exact
+retry idempotent, but it does not conceal content. Hosted storage operators can
+read hosted bytes. Self-hosted operators can read self-hosted bytes.
 
-The portable Backup design captures a complete authority cut, including
-composed documents and every owned blob byte. Until that implementation wave
-lands, it is a custody contract rather than a shipped surface. Backup
-encryption, if introduced, is an artifact-custody concern and does not change
-the live authority's trust model.
+Portable Backup captures a complete authority cut, including composed
+documents and every owned blob byte. Backup encryption, if introduced, is an
+artifact-custody concern and does not change the live authority's trust model.
 
 ## Remote attach is a live trusted channel
 

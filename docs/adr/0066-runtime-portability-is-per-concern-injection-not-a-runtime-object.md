@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-24
-- **Relates:** the in-flight spec `specs/20260623T234500-one-server-runtime-port-vs-per-owner-instance.md` (the grill and wave plan this harvests), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the same config-not-code, deployment-chooses posture for inference backends), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (why identity/secrets stay a shared plane, not per-instance), [ADR-0092](0092-identity-is-the-partition.md) (keeps the injection posture but collapses the ownership seam into the principal resolver)
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) and [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) (the per-concern portability rule remains; the deleted room family and generic presigned-S3 blob service no longer implement it, while the universal-record authority supplies its own Bun and Cloudflare storage adapters)
+- **Relates:** the removed `20260623T234500-one-server-runtime-port-vs-per-owner-instance` design spec (the grill and wave plan this harvests, recoverable in git history), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the same config-not-code, deployment-chooses posture for inference backends), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (why identity/secrets stay a shared plane, not per-instance), [ADR-0092](0092-identity-is-the-partition.md) (keeps the injection posture but collapses the ownership seam into the principal resolver)
 
 ## Context
 

@@ -62,14 +62,13 @@ shapes, see `docs/adr/`.
   tombstone and removes document and blob state, so an offline replica cannot
   recreate that lifetime. Liveness is a lifecycle invariant, not a per-record
   ACL.
-- **Star**: the one runnable program that holds your data, composing anchor,
-  store, sync, and identity/auth into a deployment (ADR-0069). The star is the
-  unit of self-host and the entire privacy question: Epicenter runs it (hosted)
-  or you run it (self-host). Distinct from a **service you call** (inference,
-  blob URLs): a service is addressed by `{baseUrl, token?}`, sees only the one
-  payload you hand it, and is never part of the star's topology. "Single-user /
-  sovereign" is a preset over the star's credential source and principal
-  resolver, not a mode (ADR-0070, amended by ADR-0092).
+- **Star**: the one runnable program that holds your data, composing the record
+  authority, sync, and identity/auth into a deployment (ADR-0069 as amended by
+  ADR-0166 and ADR-0173). The star is the unit of self-host and the entire
+  privacy question: Epicenter runs it (hosted) or you run it (self-host).
+  Inference remains a distinct service addressed by base URL; record blobs do
+  not. "Single-user / sovereign" is a preset over the star's credential source
+  and principal resolver, not a mode (ADR-0070, amended by ADR-0092).
 - **Anchor**: the always-on node that holds synchronized state so a sleeping
   device can catch up. Who runs the anchor is the whole privacy question (ADR-0068):
   user-run gives topology privacy, Epicenter-run is trusted plaintext. Privacy moves
@@ -79,9 +78,10 @@ shapes, see `docs/adr/`.
   today_: the hosted relay is one Cloudflare Durable Object that also holds and reads
   your plaintext (ADR-0035); separating the relay role from the anchor (ADR-0035) would
   let a blind relay route to an anchor you hold.
-- **Store**: the anchor's app-blind sibling for big binaries (audio, images),
-  `put` / `get` / `has` by reference; the doc carries the reference, never the bytes
-  (ADR-0035). Any S3-compatible endpoint (versitygw for dev, Garage for self-host).
+- **Store**: the authority's private physical backend for record-owned binary
+  bytes. A record address is the only public blob identity and membership
+  source; there is no generic blob service, inventory, or independently
+  configurable application endpoint (ADR-0173).
 - **Trusted relay**: the server reads Epicenter plaintext. Zero-knowledge was
   evaluated and rejected; the encryption layer was removed (ADR-0004).
 - **Node roles**: four distinct roles, separable even when one machine plays

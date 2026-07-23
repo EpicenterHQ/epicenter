@@ -1,8 +1,9 @@
 # 0143. Account open never consumes Device data
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-17
 - **Supersedes:** [ADR-0139](0139-account-runtime-open-adds-device-state-through-native-intents.md)
+- **Superseded by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (the Device and Account Workspace runtimes are deleted; ADR-0161 proposes the replacement first-attachment semantics)
 - **Amended by:** [ADR-0156](0156-applications-bring-workspace-lenses-runtimes-own-workspaces-by-id.md), which makes these lifecycle operations take a Workspace ID rather than an application lens.
 
 ## Context

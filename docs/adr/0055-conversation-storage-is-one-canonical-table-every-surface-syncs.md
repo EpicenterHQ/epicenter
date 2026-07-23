@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-22
-- **Amended by:** [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md) (one canonical schema now has owner-scoped instances; not every surface shares one physical synced table)
+- **Amended by:** [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md) (one canonical schema gained owner-scoped instances; not every surface shared one physical synced table) and [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (record Lenses and the explicit Agent data interface replace Workspace tables, child-doc openers, and `.connect()`)
 - **Supersedes:** [ADR-0051](0051-one-agent-loop-its-store-seam-chooses-persistence.md) (a chat surface no longer picks a store implementation by transcript reach; conversation storage is one synced table, and tab-manager's device-local store is removed). The one-loop decision carries forward unchanged.
 - **Relates:** [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md) (the one client loop and its by-id record store), [ADR-0046](0046-a-capability-free-agent-persists-finished-messages-not-live-doc-streams.md) (the finished-message record the messages child doc holds), [ADR-0049](0049-inference-is-its-own-box-the-daemon-never-infers.md) / [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible engine every surface drives)
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (design; the wire reshape and the edge shim are deferred behind the wedge trigger; a 2026-06-26 sizing spike refined the cost, see [Spike findings](#spike-findings-2026-06-26))
 - **Date:** 2026-06-26
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (the deferred MCP product trigger remains closed; the deleted Workspace gateway route table is no longer its reserved implementation seam)
 - **Relates:** [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) (actions are the only cross-process surface, the thing projected to MCP), [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md) (the client loop dispatches actions advertised over presence, the mesh in question), [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md) (the blind coordination box and the Iroh blind-relay direction), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (the relay reads plaintext), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the model boundary is OpenAI-compatible, never MCP), [ADR-0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md) (Local Books stays standalone, off the mesh)
 
 > Note (2026-06-30): Invariant 5 is refined by [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md); cross-device is two planes (Epicenter syncs the CRDT, the box is reached directly as a URL-addressed connection). This ADR's decision text stands.

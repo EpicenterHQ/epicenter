@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
+- **Amended by:** [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) (consumer-owned encryption may still transform bytes before publication, but the owning record address is the public identity; no bare hash, `blobs.add`, or cross-owner equality contract remains)
 
 ## Context
 

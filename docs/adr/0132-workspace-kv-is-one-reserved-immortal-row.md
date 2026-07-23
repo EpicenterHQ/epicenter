@@ -1,7 +1,8 @@
 # 0132. Workspace KV is one reserved immortal row
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-16
+- **Superseded by:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 - **Relates:** [ADR-0121](0121-background-sync-resolves-key-conflicts-by-server-order.md), [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md), [ADR-0131](0131-row-sync-folds-sealed-row-intent-rounds-without-refusal.md), [ADR-0134](0134-replicas-store-confirmed-state-and-compacted-row-intents.md)
 
 ## Context

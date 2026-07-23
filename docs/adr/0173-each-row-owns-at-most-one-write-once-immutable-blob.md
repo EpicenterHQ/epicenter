@@ -6,7 +6,7 @@
   interpretation of the universal record slot; accepted 2026-07-22 after
   replica, browser, authority, and portable-artifact proof)
 - **Supersedes:** [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md)
-- **Amends:** [ADR-0154](0154-blob-access-is-address-only.md)
+- **Amends:** [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md), [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md), [ADR-0069](0069-epicenter-is-one-runnable-star-plus-services-called-by-url-and-token.md), [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md), [ADR-0090](0090-the-blob-layer-stays-plaintext-confidentiality-belongs-to-the-encrypting-consumer.md), [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md), and [ADR-0154](0154-blob-access-is-address-only.md) by making the record address the sole public blob identity and authority membership source
 - **Relates:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md)
 
 ## Context

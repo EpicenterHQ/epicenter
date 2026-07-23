@@ -1,7 +1,8 @@
 # 0141. Authority current state and receipt watermarks drive row convergence
 
-- **Status:** Superseded by [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md)
+- **Status:** Superseded
 - **Date:** 2026-07-17
+- **Superseded by:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md)
 - **Supersedes:** [ADR-0131](0131-row-sync-folds-sealed-row-intent-rounds-without-refusal.md), [ADR-0133](0133-row-authority-stores-documents-as-sequence-addressed-update-logs.md), [ADR-0134](0134-replicas-store-confirmed-state-and-compacted-row-intents.md)
 
 ## Context

@@ -1,7 +1,8 @@
 # 0156. Applications bring workspace lenses; runtimes own workspaces by ID
 
-- **Status:** Superseded by [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
+- **Status:** Superseded
 - **Date:** 2026-07-19
+- **Superseded by:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 - **Amends:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md) by making simultaneous release-local interpretations a runtime property; [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md) by separating the application lens from the opened workspace owner; and [ADR-0143](0143-account-open-never-consumes-device-data.md) by making capture, add, export, and delete take Workspace IDs.
 - **Relates:** [ADR-0096](0096-local-workspace-persistence-is-environment-injected.md), [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md), [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md)
 

@@ -1,7 +1,8 @@
 # 0096. Local workspace persistence is environment-injected
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-02
+- **Superseded by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md)
 
 ## Context
 

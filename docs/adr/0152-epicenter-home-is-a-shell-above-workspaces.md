@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-19
 - **Amends:** [ADR-0055](0055-conversation-storage-is-one-canonical-table-every-surface-syncs.md), [ADR-0080](0080-the-super-app-is-a-desktop-host-cross-device-is-remote-access-to-the-session-not-a-per-app-capability-plane.md), [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md)
+- **Amended by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) (Home remains the shell and live-interface owner; one record Epicenter replaces workspace management, Device-owned history, registered Workspace IDs, and Workspace handles)
 - **Relates:** [ADR-0055](0055-conversation-storage-is-one-canonical-table-every-surface-syncs.md), [ADR-0111](0111-super-chat-v1-exposes-built-in-epicenter-apps-and-defers-extension-surfaces.md)
 
 ## Context

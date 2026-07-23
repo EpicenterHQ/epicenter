@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-20 (accepted 2026-07-22 after caller migration and deletion)
-- **Supersedes:** [ADR-0094](0094-the-connection-is-the-boot-decision-one-connect-call.md) (the Workspace connection preset and `toConnection` adapter are deleted)
-- **Amends:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) (local-first boot remains; one record replica now attaches sync without an identity-selected Workspace document or reload adapter)
+- **Supersedes:** [ADR-0094](0094-the-connection-is-the-boot-decision-one-connect-call.md), [ADR-0096](0096-local-workspace-persistence-is-environment-injected.md), [ADR-0143](0143-account-open-never-consumes-device-data.md), and [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md) (the Workspace connection, Device and Account lifecycle, and per-Workspace storage surfaces are deleted)
+- **Amends:** [ADR-0010](0010-whispering-exports-recordings-as-a-zip-continuous-markdown-is-the-mounts-job.md), [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md), [ADR-0049](0049-inference-is-its-own-box-the-daemon-never-infers.md), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md), [ADR-0055](0055-conversation-storage-is-one-canonical-table-every-surface-syncs.md), [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md), [ADR-0073](0073-tools-speak-mcp-natively-epicenter-owns-only-the-transport-mcp-lacks.md), [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md), [ADR-0092](0092-identity-is-the-partition.md), [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md), [ADR-0128](0128-tables-do-not-declare-document-edit-touch-policy-without-a-runtime-owner.md), [ADR-0135](0135-row-documents-have-application-owned-roots.md), and [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md) only where their durable product rule survives but their Workspace, room, daemon, mount, or materializer mechanism was deleted
 
 ## Context
 
