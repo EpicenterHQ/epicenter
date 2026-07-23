@@ -1,0 +1,304 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-23T05:04:32.290Z",
+  "claim": "Production DataAuthority accepts exactly 131072 decoded structs and atomically refuses 131073 without changing prior state.",
+  "environment": {
+    "platform": "darwin",
+    "release": "25.5.0",
+    "cpu": "Apple M4 Max",
+    "bun": "1.3.1",
+    "miniflare": "4.20260401.0",
+    "workerd": "1.20260401.1",
+    "compatibilityDate": "2026-03-06"
+  },
+  "bound": {
+    "stateBytes": 1048576,
+    "stateStructs": 131072
+  },
+  "fingerprints": {
+    "runnerSha256": "079d256977a745e33aed980a27d0af5ee7f7a354e15f3a9f5f67ea531f7b5391",
+    "workerSha256": "278893f3706f05fbef7c1a4fe38d83fda2f32c5032b6aea9adbb0a3b1b676947",
+    "bundleSha256": "031d49841b3e4075a3d5fa9235ab530b728a5960f7e9cc2926bdc6533bddcfa3",
+    "documentAuthoritySha256": "32d21712f544215137324719ccc3a5dc8cf14e8274c977eab2c3066ca1253527",
+    "dataAuthoritySha256": "3cab799b68154f4b5ab1f4f8c3227a286981ed0452d43bc5668fbe76b55f1ae8",
+    "documentProtocolSha256": "669de0d3312b27c552b4cbba5c4471de6784484b2fd29cbcb245b07fa34facab",
+    "rootPackageSha256": "5ca058062fdb25f33ad9b7f83833aa365e40d0b9170538c93a879a8d9e49cad2",
+    "lockfileSha256": "b79b15e7c6f1030c3d87587710c789f4bd93018413e1b0e2151653338058de69"
+  },
+  "inputs": {
+    "realistic": {
+      "measure": {
+        "stateBytes": 613,
+        "stateStructs": 28
+      },
+      "actors": [
+        "phone",
+        "browser",
+        "desktop",
+        "tablet"
+      ],
+      "behaviors": [
+        "typing",
+        "formatting",
+        "undo",
+        "deletion"
+      ],
+      "permutationCount": 24,
+      "distinctCanonicalDigests": [
+        "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd"
+      ],
+      "actorUpdateBytes": [
+        146,
+        117,
+        100,
+        157
+      ],
+      "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd"
+    },
+    "below": {
+      "measure": {
+        "stateBytes": 131371,
+        "stateStructs": 131071
+      },
+      "densePrepends": 131057,
+      "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc"
+    },
+    "exact": {
+      "measure": {
+        "stateBytes": 131372,
+        "stateStructs": 131072
+      },
+      "densePrepends": 131058,
+      "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f"
+    },
+    "above": {
+      "measure": {
+        "stateBytes": 131373,
+        "stateStructs": 131073
+      },
+      "densePrepends": 131059,
+      "digest": "a18d3ae794ad149eac35f4fa23c7d3b6603804b330c93b4bcd7c495c5ab13b31"
+    }
+  },
+  "results": {
+    "realistic": {
+      "publication": {
+        "acceptance": {
+          "kind": "accepted",
+          "receipt": {
+            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "address": {
+              "namespace": "so.epicenter.honeycrisp",
+              "collection": "notes",
+              "recordKey": "aaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "protocolVersion": "epicenter-document-v3",
+            "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd"
+          }
+        },
+        "authorityMilliseconds": 5,
+        "roundTripMilliseconds": 6.335332999999991
+      },
+      "state": {
+        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "captureRevision": 5,
+        "nextCaptureRevision": 9,
+        "chainEntries": 1,
+        "chainBytes": 613,
+        "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd",
+        "measure": {
+          "stateBytes": 613,
+          "stateStructs": 28
+        }
+      }
+    },
+    "below": {
+      "publication": {
+        "acceptance": {
+          "kind": "accepted",
+          "receipt": {
+            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "address": {
+              "namespace": "so.epicenter.honeycrisp",
+              "collection": "notes",
+              "recordKey": "bbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "protocolVersion": "epicenter-document-v3",
+            "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc"
+          }
+        },
+        "authorityMilliseconds": 215,
+        "roundTripMilliseconds": 219.37766699999997
+      },
+      "state": {
+        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "captureRevision": 6,
+        "nextCaptureRevision": 9,
+        "chainEntries": 1,
+        "chainBytes": 131371,
+        "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc",
+        "measure": {
+          "stateBytes": 131371,
+          "stateStructs": 131071
+        }
+      }
+    },
+    "exact": {
+      "publication": {
+        "acceptance": {
+          "kind": "accepted",
+          "receipt": {
+            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "address": {
+              "namespace": "so.epicenter.honeycrisp",
+              "collection": "notes",
+              "recordKey": "cccccccccccccccccccccccc"
+            },
+            "protocolVersion": "epicenter-document-v3",
+            "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f"
+          }
+        },
+        "authorityMilliseconds": 197,
+        "roundTripMilliseconds": 201.3933750000001
+      },
+      "state": {
+        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "captureRevision": 7,
+        "nextCaptureRevision": 9,
+        "chainEntries": 1,
+        "chainBytes": 131372,
+        "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f",
+        "measure": {
+          "stateBytes": 131372,
+          "stateStructs": 131072
+        }
+      }
+    },
+    "above": {
+      "priorInput": {
+        "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+        "measure": {
+          "stateBytes": 261,
+          "stateStructs": 14
+        }
+      },
+      "priorPublication": {
+        "acceptance": {
+          "kind": "accepted",
+          "receipt": {
+            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "address": {
+              "namespace": "so.epicenter.honeycrisp",
+              "collection": "notes",
+              "recordKey": "dddddddddddddddddddddddd"
+            },
+            "protocolVersion": "epicenter-document-v3",
+            "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81"
+          }
+        },
+        "authorityMilliseconds": 1,
+        "roundTripMilliseconds": 1.3529160000000502
+      },
+      "beforeRefusal": {
+        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "captureRevision": 8,
+        "nextCaptureRevision": 9,
+        "chainEntries": 1,
+        "chainBytes": 261,
+        "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+        "measure": {
+          "stateBytes": 261,
+          "stateStructs": 14
+        }
+      },
+      "publication": {
+        "acceptance": {
+          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "address": {
+            "namespace": "so.epicenter.honeycrisp",
+            "collection": "notes",
+            "recordKey": "dddddddddddddddddddddddd"
+          },
+          "protocolVersion": "epicenter-document-v3",
+          "digest": "a18d3ae794ad149eac35f4fa23c7d3b6603804b330c93b4bcd7c495c5ab13b31",
+          "kind": "document-bound",
+          "measured": {
+            "stateBytes": 131373,
+            "stateStructs": 131073
+          },
+          "limit": {
+            "stateBytes": 1048576,
+            "stateStructs": 131072
+          }
+        },
+        "authorityMilliseconds": 179,
+        "roundTripMilliseconds": 180.14258300000006
+      },
+      "afterRefusal": {
+        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "captureRevision": 8,
+        "nextCaptureRevision": 9,
+        "chainEntries": 1,
+        "chainBytes": 261,
+        "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+        "measure": {
+          "stateBytes": 261,
+          "stateStructs": 14
+        }
+      }
+    },
+    "reopen": {
+      "processReopenMilliseconds": 101.19970899999998,
+      "state": {
+        "realistic": {
+          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "captureRevision": 5,
+          "nextCaptureRevision": 9,
+          "chainEntries": 1,
+          "chainBytes": 613,
+          "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd",
+          "measure": {
+            "stateBytes": 613,
+            "stateStructs": 28
+          }
+        },
+        "below": {
+          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "captureRevision": 6,
+          "nextCaptureRevision": 9,
+          "chainEntries": 1,
+          "chainBytes": 131371,
+          "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc",
+          "measure": {
+            "stateBytes": 131371,
+            "stateStructs": 131071
+          }
+        },
+        "exact": {
+          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "captureRevision": 7,
+          "nextCaptureRevision": 9,
+          "chainEntries": 1,
+          "chainBytes": 131372,
+          "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f",
+          "measure": {
+            "stateBytes": 131372,
+            "stateStructs": 131072
+          }
+        },
+        "above": {
+          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "captureRevision": 8,
+          "nextCaptureRevision": 9,
+          "chainEntries": 1,
+          "chainBytes": 261,
+          "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+          "measure": {
+            "stateBytes": 261,
+            "stateStructs": 14
+          }
+        }
+      }
+    }
+  }
+}

@@ -22,6 +22,7 @@ const root = resolve(import.meta.dir, '..');
 const manifests = [
 	'docs/benchmarks/replica-layout/provenance.json',
 	'docs/benchmarks/authority-layout/provenance.json',
+	'docs/benchmarks/document-struct-bound/provenance.json',
 ];
 
 async function sha256(path: string): Promise<string> {

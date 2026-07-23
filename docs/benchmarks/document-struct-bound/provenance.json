@@ -1,0 +1,36 @@
+{
+	"files": [
+		{
+			"path": "docs/benchmarks/document-struct-bound/2026-07-22-workerd.json",
+			"sha256": "4ba831e53d9b187614bfcef7f9a0a21aa6a6c84eb56535dcc39b7aab4aa1c4b1"
+		},
+		{
+			"path": "packages/server/src/epicenter-sync/__benchmarks__/document-struct-bound.bench.ts",
+			"sha256": "079d256977a745e33aed980a27d0af5ee7f7a354e15f3a9f5f67ea531f7b5391"
+		},
+		{
+			"path": "packages/server/src/epicenter-sync/__benchmarks__/document-struct-bound-worker.ts",
+			"sha256": "278893f3706f05fbef7c1a4fe38d83fda2f32c5032b6aea9adbb0a3b1b676947"
+		},
+		{
+			"path": "packages/server/src/epicenter-sync/document-authority-v1.ts",
+			"sha256": "32d21712f544215137324719ccc3a5dc8cf14e8274c977eab2c3066ca1253527"
+		},
+		{
+			"path": "packages/server/src/epicenter-sync/scalar-v1-cloudflare.ts",
+			"sha256": "3cab799b68154f4b5ab1f4f8c3227a286981ed0452d43bc5668fbe76b55f1ae8"
+		},
+		{
+			"path": "packages/sync/src/document-v3/protocol.ts",
+			"sha256": "669de0d3312b27c552b4cbba5c4471de6784484b2fd29cbcb245b07fa34facab"
+		},
+		{
+			"path": "package.json",
+			"sha256": "5ca058062fdb25f33ad9b7f83833aa365e40d0b9170538c93a879a8d9e49cad2"
+		},
+		{
+			"path": "bun.lock",
+			"sha256": "b79b15e7c6f1030c3d87587710c789f4bd93018413e1b0e2151653338058de69"
+		}
+	]
+}
