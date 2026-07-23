@@ -1343,6 +1343,9 @@ describe('createHomeServer', () => {
 			expect(page.headers.get('content-security-policy')).toContain(
 				"script-src 'self'",
 			);
+			expect(page.headers.get('content-security-policy')).toContain(
+				"font-src 'self' data:",
+			);
 			expect(page.headers.get('content-security-policy')).not.toContain(
 				"script-src 'self' 'unsafe-inline'",
 			);

@@ -941,6 +941,7 @@ function contentSecurityPolicy(page: string): string {
 		"style-src 'self' 'unsafe-inline'",
 		"connect-src 'self' ipc: http://ipc.localhost",
 		"img-src 'self' data: blob:",
+		"font-src 'self' data:",
 		"media-src 'self' data: blob:",
 		"worker-src 'self' blob:",
 		"object-src 'none'",
