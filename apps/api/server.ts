@@ -38,9 +38,8 @@
  *
  * The dashboard SPA and billing data plane are intentionally omitted: Vite
  * serves the dashboard in dev, and billing is the hosted Worker's concern.
- * Existing current-state replicas in this runtime's own backend may still
- * sync; opening an old records database performs the authorized protocol reset
- * and does not resume legacy receipts.
+ * The record-only authority uses its own versioned database files. Legacy
+ * authority files are not opened, translated, or silently deleted.
  */
 
 import { mkdirSync } from 'node:fs';

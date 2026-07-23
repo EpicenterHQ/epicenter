@@ -250,7 +250,7 @@
 		const email = profile?.email ?? 'this account';
 		confirmationDialog.open({
 			title: 'Delete account',
-			description: `Permanently delete ${email} everywhere: synced workspaces, documents, uploaded files, billing, and every way to sign in. This cannot be undone. Data stored on your devices stays on your devices.`,
+			description: `Permanently delete ${email} everywhere: synced Epicenter records and documents, uploaded files, billing, and every way to sign in. This cannot be undone. Data stored on your devices stays on your devices.`,
 			confirm: { text: 'Delete forever', variant: 'destructive' },
 			onConfirm: async () => {
 				const response = await auth.fetch('/api/account', { method: 'DELETE' });
@@ -503,9 +503,9 @@
 		</Card.Header>
 		<Card.Content class="flex flex-col gap-4">
 			<p class="text-sm text-muted-foreground">
-				Permanently deletes your synced workspaces, documents, uploaded files,
-				billing, and every way to sign in. Data stored on your devices stays on
-				your devices. This cannot be undone.
+				Permanently deletes your synced Epicenter records and documents, uploaded
+				files, billing, and every way to sign in. Data stored on your devices stays
+				on your devices. This cannot be undone.
 			</p>
 			<div>
 				<Button variant="destructive" onclick={deleteAccount}>

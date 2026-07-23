@@ -176,28 +176,27 @@ canonical ordering are enforced at every admission boundary (ADR-0163).
 ## Protocol kernel status
 
 The executable protocol kernel lives under `packages/data/src/protocol/v1/`
-behind a private barrel, with defensive RFC 8785 canonical encoding,
-deep-frozen admitted requests, a pure storage-free reference authority, and
-runtime-free proofs. W1A (2026-07-21) rewrote its address and shape layer to
-the kindless record triple, one fact shape, and the four operations with the
-absorption-first algebra (`foldIntent` plus `composeOperations`), deleting the
-kinded row/value addresses and their eight shapes without aliases or a
-compatibility decoder; the canonicalization, admission hardening, and
-authority-fold architecture carried over unchanged. W1A also landed the
-maintained lane-machine conformance suite under
+and is published as `@epicenter/data/protocol/v1`. It provides defensive RFC
+8785 canonical encoding, deep-frozen admitted requests, a pure storage-free
+reference authority, and runtime-free proofs. W1A (2026-07-21) rewrote its
+address and shape layer to the kindless record triple, one fact shape, and the
+four operations with the absorption-first algebra (`foldIntent` plus
+`composeOperations`), deleting the kinded row/value addresses and their eight
+shapes without aliases or a compatibility decoder; the canonicalization,
+admission hardening, and authority-fold architecture carried over unchanged.
+W1A also landed the maintained lane-machine conformance suite under
 `packages/data/src/store/conformance/`: the probe's reference transitions as
 owner-partitioned cases over ADR-0177-shaped fixtures, with file-backed
 statement-boundary crash injection, owning fixture disposal, and the
 persisted first-seal request-bytes-and-hash assertions. The replica subset is
 stated once, adapter-agnostically, in a parameterized case runner behind a
 small binding contract (semantic lane observations plus prepared crash-probed
-transitions), with the pure protocol authority as its settlement oracle; the
-unexported SQLite reference driver binds to it now, and W1B/W1C bind
-production replica adapters to the same cases without copying them. The
-authority and document/blob subsets stay reference-bound until W2 and W3 bind
-their production owners; the terminal-tombstone case proves installation,
-blob-evidence clearing, and child-row deletion as one crash-injected
-transaction. No production consumer imports the kernel.
+transitions), with the pure protocol authority as its settlement oracle. The
+SQLite reference driver and production replica adapters bind to those cases
+without copying them. Server's retained authority, document, blob, Backup,
+and Restore owners import the same protocol kernel. The terminal-tombstone
+case proves installation, blob-evidence clearing, and child-row deletion as
+one crash-injected transaction.
 
 ## Execution waves
 

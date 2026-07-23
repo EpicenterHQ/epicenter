@@ -14,8 +14,8 @@
  *
  * After the gated steps succeed, the Backup registry, authority, and blob
  * sweeps run once more:
- * while the auth user still existed, a signed-in device could re-register
- * workspace state or land a blob, so one post-fence pass sweeps that window.
+ * while the auth user still existed, a signed-in device could publish record
+ * state or land a blob, so one post-fence pass sweeps that window.
  * Sweep failures are logged, not surfaced: the auth user is gone, no retry
  * can authenticate, and the residue is unreachable garbage, not user data.
  *

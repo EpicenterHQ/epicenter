@@ -1,10 +1,10 @@
 /**
  * Scalar Sync V1 protocol kernel (ADR-0160, ADR-0163, ADR-0164).
  *
- * This versioned barrel is the narrow shared boundary between Data's replica
- * stores and Server's authority stores. It stands beside the retained combined
- * exchange protocol until the W4 caller cutover; the two protocols never
- * translate into or compose with each other.
+ * This public versioned barrel is the one shared protocol boundary between
+ * Data's replica stores and Server's authority stores. Every retained caller
+ * exchanges kindless records through this contract; there is no parallel
+ * row/value protocol or compatibility translation.
  *
  * The kernel is a complete executable contract:
  * - the kindless record address `(namespace, collection, recordKey)`;
