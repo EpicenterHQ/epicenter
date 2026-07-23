@@ -138,7 +138,7 @@ describe('record blob store', () => {
 				payload: { title: 'Captured' },
 			});
 			expect(context.blobs.inspect(NEW_ADDRESS)).toEqual({
-				kind: 'pending',
+				kind: 'owed',
 				digest,
 			});
 			expect(await context.blobs.read(NEW_ADDRESS)).toEqual(bytes);
@@ -147,12 +147,12 @@ describe('record blob store', () => {
 				.query<
 					{
 						pending_op: string;
-						blob_pending: number;
+						blob_accepted_sha256: string | null;
 						blob_sha256: string;
 					},
 					[]
 				>(
-					`SELECT pending_op, blob_pending, blob_sha256 FROM records
+					`SELECT pending_op, blob_accepted_sha256, blob_sha256 FROM records
 					WHERE namespace = '${NEW_ADDRESS.namespace}'
 						AND collection = '${NEW_ADDRESS.collection}'
 						AND record_key = '${NEW_ADDRESS.recordKey}'`,
@@ -160,7 +160,7 @@ describe('record blob store', () => {
 				.get();
 			expect(row).toEqual({
 				pending_op: 'patch',
-				blob_pending: 1,
+				blob_accepted_sha256: null,
 				blob_sha256: digest,
 			});
 		} finally {
@@ -198,7 +198,7 @@ describe('record blob store', () => {
 					committed ? 'live' : null,
 				);
 				expect(context.blobs.inspect(NEW_ADDRESS).kind).toBe(
-					committed ? 'pending' : 'absent',
+					committed ? 'owed' : 'absent',
 				);
 				await context.blobs.reopenSweep();
 				await context.blobs.reopenSweep();

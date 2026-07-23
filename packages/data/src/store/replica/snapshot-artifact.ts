@@ -14,7 +14,7 @@ export type SnapshotArtifactRecord = {
 	payload: JsonValue;
 	documentRevision: number;
 	documentByteLength: number;
-	documentDirty: boolean;
+	documentOwed: boolean;
 	blobSha256: string | null;
 };
 
@@ -53,7 +53,7 @@ const SNAPSHOT_SCHEMA = [
 		document_revision INTEGER NOT NULL
 			CHECK (document_revision BETWEEN 0 AND 9007199254740991),
 		document_byte_length INTEGER NOT NULL CHECK (document_byte_length >= 0),
-		document_dirty INTEGER NOT NULL CHECK (document_dirty IN (0, 1)),
+		document_owed INTEGER NOT NULL CHECK (document_owed IN (0, 1)),
 		blob_sha256 TEXT,
 		PRIMARY KEY (namespace, collection, record_key),
 		CHECK (blob_sha256 IS NULL OR
@@ -259,7 +259,7 @@ export function writeSnapshotArtifact({
 			database.run(
 				`INSERT INTO _epicenter_records (
 					namespace, collection, record_key, payload_json,
-					document_revision, document_byte_length, document_dirty, blob_sha256
+					document_revision, document_byte_length, document_owed, blob_sha256
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				[
 					record.namespace,
@@ -268,7 +268,7 @@ export function writeSnapshotArtifact({
 					canonicalize(record.payload),
 					record.documentRevision,
 					record.documentByteLength,
-					record.documentDirty ? 1 : 0,
+					record.documentOwed ? 1 : 0,
 					record.blobSha256,
 				],
 			);

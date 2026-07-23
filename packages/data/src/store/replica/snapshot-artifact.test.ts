@@ -61,7 +61,8 @@ describe('inspection snapshot artifacts', () => {
 				value: { title: 'First', done: true, tags: ['local'] },
 			});
 			source.raw.run(
-				`UPDATE records SET doc_revision = 2, doc_dirty = 1,
+				`UPDATE records SET document_revision = 2,
+					document_accepted_revision = 0,
 					blob_sha256 = ? WHERE record_key = ?`,
 				['a'.repeat(64), NOTE.recordKey],
 			);
@@ -93,7 +94,7 @@ describe('inspection snapshot artifacts', () => {
 				target
 					.query(
 						`SELECT namespace, collection, record_key, payload_json,
-							document_revision, document_byte_length, document_dirty,
+							document_revision, document_byte_length, document_owed,
 							blob_sha256 FROM _epicenter_records`,
 					)
 					.get(),
@@ -104,7 +105,7 @@ describe('inspection snapshot artifacts', () => {
 				payload_json: '{"done":true,"tags":["local"],"title":"First"}',
 				document_revision: 2,
 				document_byte_length: 4,
-				document_dirty: 1,
+				document_owed: 1,
 				blob_sha256: 'a'.repeat(64),
 			});
 			expect(

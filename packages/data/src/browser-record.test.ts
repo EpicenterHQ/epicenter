@@ -299,8 +299,8 @@ const LOCAL_SYNC_STATUS = {
 	state: 'local' as const,
 	work: {
 		scalar: { pending: 0, sealed: 0, parked: 0 },
-		document: { pending: 0, parked: 0 },
-		blob: { pending: 0, parked: 0 },
+		document: { owed: 0, parked: 0 },
+		blob: { owed: 0, parked: 0 },
 	},
 };
 
@@ -746,8 +746,8 @@ test('all record browser protocol variants survive structured clone', () => {
 		state: 'offline' as const,
 		work: {
 			scalar: { pending: 1, sealed: 0, parked: 0 },
-			document: { pending: 0, parked: 0 },
-			blob: { pending: 0, parked: 0 },
+			document: { owed: 0, parked: 0 },
+			blob: { owed: 0, parked: 0 },
 		},
 		lastError: { name: 'Error', message: 'offline' },
 	};
@@ -1097,7 +1097,7 @@ test('two tabs share one elected owner and receive record and blob invalidations
 			'shared bytes',
 		);
 		expect(await secondData.notes.blob.inspect(row.id)).toEqual({
-			kind: 'pending',
+			kind: 'owed',
 			digest,
 		});
 		expect(second.attachment).toEqual({
@@ -1217,7 +1217,7 @@ test('accepted document updates are durable before whenDurable resolves', async 
 				collection: 'notes',
 				recordKey: row.id,
 			}),
-		).toMatchObject({ document: { dirty: false } });
+		).toMatchObject({ document: { owed: false } });
 		remote.destroy();
 		await document[Symbol.asyncDispose]();
 	} finally {

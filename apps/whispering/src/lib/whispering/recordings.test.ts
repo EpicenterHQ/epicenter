@@ -72,7 +72,7 @@ test('creation binds immutable audio to the new recording address', async () => 
 		expect(await stream?.text()).toBe('audio');
 		expect(stream?.type).toBe('audio/webm');
 		expect(await context.table.blob.inspect(row.id)).toMatchObject({
-			kind: 'pending',
+			kind: 'owed',
 		});
 	} finally {
 		await context.dispose();

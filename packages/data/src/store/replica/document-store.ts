@@ -127,7 +127,15 @@ function requireDocumentOwner(
 		newestOperation === 'patch' ||
 		newestOperation === 'replace' ||
 		(newestOperation === null && row.confirmed_state === 'live');
-	if (!isVisibleLive) throw new Error('document record is not live');
+	const isReversibleUnset =
+		newestOperation === 'unset' ||
+		(newestOperation === null && row.confirmed_state === 'unset');
+	if (
+		!isVisibleLive &&
+		(!isReversibleUnset || chainFor(database, row.record_id).length === 0)
+	) {
+		throw new Error('document record is not live');
+	}
 	return row;
 }
 
@@ -370,10 +378,7 @@ export function createReplicaDocumentStore(
 					'document publication proof does not match the captured attempt',
 				);
 			}
-			if (
-				!Number.isSafeInteger(captured.revision) ||
-				captured.revision < 1
-			) {
+			if (!Number.isSafeInteger(captured.revision) || captured.revision < 1) {
 				throw new Error('captured document revision is invalid');
 			}
 			const meta = one<SqliteRow & { authority_lifetime: string | null }>(

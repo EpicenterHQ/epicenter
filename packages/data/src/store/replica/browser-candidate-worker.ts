@@ -99,6 +99,8 @@ function isRetryable(operation: BrowserReplicaStoreOperation): boolean {
 		case 'sync':
 		case 'sealed-request':
 		case 'reconstruct-sealed-request':
+		case 'owed-documents':
+		case 'owed-blobs':
 		case 'inspect-document':
 		case 'export-document':
 		case 'inspect-blob':
