@@ -168,7 +168,7 @@ test('record connector uses the V3 address and stops after a document bound', as
 						collection: 'notes',
 						recordKey: opened.row.id,
 					})
-				).document?.dirty,
+				).document?.owed,
 			).toBe(false);
 
 			opened.document.transact(() => {
