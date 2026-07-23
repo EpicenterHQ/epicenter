@@ -38,12 +38,18 @@ import {
 	type HomeSessionSnapshot,
 	parseHomeCommand,
 } from './host.ts';
+import { isHomeProposalLens } from './proposal-contract.ts';
+import type { ProposalService } from './proposal-service.ts';
 import {
 	ACCOUNT_INSTANCE_ROUTE,
 	ACCOUNT_PROFILE_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOTSTRAP_ROUTE,
+	HOME_PROPOSAL_APPLY_ROUTE,
+	HOME_PROPOSAL_COMPILE_ROUTE,
+	HOME_PROPOSAL_ROUTE,
+	HOME_PROPOSALS_ROUTE,
 	HOME_SNAPSHOT_CAPTURE_ROUTE,
 	HOME_SNAPSHOT_QUERY_ROUTE,
 	SESSION_ROUTE,
@@ -82,6 +88,11 @@ export type HomeServerOptions = {
 	recordOwner: Pick<DesktopRecordEpicenterOwner, 'execute'>;
 	/** Trusted Home-only snapshot capture and bounded artifact query surface. */
 	snapshotQueries?: Pick<SnapshotQueryService, 'capture' | 'query'>;
+	/** Trusted Home-only editable Proposal artifact workflow. */
+	proposalService?: Pick<
+		ProposalService,
+		'list' | 'create' | 'compile' | 'apply' | 'delete'
+	>;
 	/** Current attachment state of that same shared replica. */
 	recordAttachment(): DesktopRecordEpicenterOwner['epicenter']['attachment'];
 	/** Native-only, record-addressed Whispering audio reader. */
@@ -105,6 +116,14 @@ export const SnapshotRouteError = defineErrors({
 });
 export type SnapshotRouteError = InferErrors<typeof SnapshotRouteError>;
 
+export const ProposalRouteError = defineErrors({
+	OperationFailed: ({ cause }: { cause: unknown }) => ({
+		message: `Proposal operation failed: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+});
+export type ProposalRouteError = InferErrors<typeof ProposalRouteError>;
+
 const MAX_HOME_SNAPSHOT_BODY_BYTES = 128 * 1024;
 
 export const NATIVE_WHISPERING_AUDIO_ROUTE =
@@ -126,6 +145,7 @@ export function createHomeServer({
 	appCatalog = { apps: [] },
 	recordOwner,
 	snapshotQueries,
+	proposalService,
 	recordAttachment,
 	readRecordingAudio,
 	chooseFirstAttachment,
@@ -345,7 +365,10 @@ export function createHomeServer({
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
 	app.use('/api/apps', requireBrowserSession);
-	app.use('/api/home/data/*', requirePrivateBroker);
+	app.use('/api/home/data/*', async (c, next) => {
+		if (c.req.method === 'GET') return requireBrowserSession(c, next);
+		return requirePrivateBroker(c, next);
+	});
 	app.use('/api/home/*', requireBrowserSession);
 	app.use(DESKTOP_RECORD_ROUTE, requirePrivateBroker);
 	app.use(DESKTOP_RECORD_ATTACHMENT_ROUTE, requirePrivateBroker);
@@ -409,6 +432,95 @@ export function createHomeServer({
 		} catch (cause) {
 			return c.json(SnapshotRouteError.QueryFailed({ cause }), 400);
 		}
+	});
+
+	app.get(HOME_PROPOSALS_ROUTE.pattern, async (c) => {
+		if (proposalService === undefined) return c.text('Not Found', 404);
+		c.header('Cache-Control', 'no-store');
+		return runRecordTransition(async () => {
+			try {
+				return c.json(await proposalService.list());
+			} catch (cause) {
+				return c.json(ProposalRouteError.OperationFailed({ cause }), 500);
+			}
+		});
+	});
+
+	app.post(HOME_PROPOSALS_ROUTE.pattern, async (c) => {
+		if (proposalService === undefined) return c.text('Not Found', 404);
+		const input = await readJsonObject(c.req.raw, MAX_HOME_SNAPSHOT_BODY_BYTES);
+		if (
+			input === null ||
+			Object.keys(input).some((key) => key !== 'lens' && key !== 'selection') ||
+			!isHomeProposalLens(input.lens) ||
+			!Object.hasOwn(input, 'selection')
+		) {
+			return c.text('Invalid Proposal creation', 400);
+		}
+		const lens = input.lens;
+		const selection = input.selection;
+		return runRecordTransition(async () => {
+			try {
+				return c.json(
+					await proposalService.create({
+						lens,
+						selection,
+					}),
+					201,
+				);
+			} catch (cause) {
+				return c.json(ProposalRouteError.OperationFailed({ cause }), 400);
+			}
+		});
+	});
+
+	app.post(HOME_PROPOSAL_COMPILE_ROUTE.pattern, async (c) => {
+		if (proposalService === undefined) return c.text('Not Found', 404);
+		const proposalId = c.req.param('proposalId');
+		if (!isHomeProposalId(proposalId)) {
+			return c.text('Invalid Proposal ID', 400);
+		}
+		return runRecordTransition(async () => {
+			try {
+				return c.json(await proposalService.compile(proposalId));
+			} catch (cause) {
+				return c.json(ProposalRouteError.OperationFailed({ cause }), 400);
+			}
+		});
+	});
+
+	app.post(HOME_PROPOSAL_APPLY_ROUTE.pattern, async (c) => {
+		if (proposalService === undefined) return c.text('Not Found', 404);
+		const proposalId = c.req.param('proposalId');
+		if (!isHomeProposalId(proposalId)) {
+			return c.text('Invalid Proposal ID', 400);
+		}
+		return runRecordTransition(async () => {
+			if (requiresFirstAttachmentChoice()) {
+				return c.text('Local data attachment choice required', 409);
+			}
+			try {
+				return c.json(await proposalService.apply(proposalId));
+			} catch (cause) {
+				return c.json(ProposalRouteError.OperationFailed({ cause }), 400);
+			}
+		});
+	});
+
+	app.delete(HOME_PROPOSAL_ROUTE.pattern, async (c) => {
+		if (proposalService === undefined) return c.text('Not Found', 404);
+		const proposalId = c.req.param('proposalId');
+		if (!isHomeProposalId(proposalId)) {
+			return c.text('Invalid Proposal ID', 400);
+		}
+		return runRecordTransition(async () => {
+			try {
+				await proposalService.delete(proposalId);
+				return c.body(null, 204);
+			} catch (cause) {
+				return c.json(ProposalRouteError.OperationFailed({ cause }), 400);
+			}
+		});
 	});
 
 	app.post(DESKTOP_RECORD_ROUTE, async (c) => {
@@ -557,6 +669,10 @@ function isHomeSnapshotLens(value: unknown): value is HomeSnapshotLens {
 		value === 'honeycrisp' ||
 		value === 'whispering'
 	);
+}
+
+function isHomeProposalId(value: unknown): value is string {
+	return typeof value === 'string' && /^[a-f0-9]{24}$/u.test(value);
 }
 
 const MAX_DESKTOP_TRANSCRIPTION_BODY_BYTES = 64 * 1024 * 1024;

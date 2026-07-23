@@ -50,7 +50,29 @@ export const HOME_SNAPSHOT_CAPTURE_ROUTE = route('/api/home/data/snapshots');
 export const HOME_SNAPSHOT_QUERY_ROUTE = route(
 	'/api/home/data/snapshots/:snapshotId/query',
 );
+export const HOME_PROPOSALS_ROUTE = route('/api/home/data/proposals');
+export const HOME_PROPOSAL_ROUTE = route(
+	'/api/home/data/proposals/:proposalId',
+);
+export const HOME_PROPOSAL_COMPILE_ROUTE = route(
+	'/api/home/data/proposals/:proposalId/compile',
+);
+export const HOME_PROPOSAL_APPLY_ROUTE = route(
+	'/api/home/data/proposals/:proposalId/apply',
+);
 
 export function homeSnapshotQueryPath(snapshotId: string): string {
 	return `/api/home/data/snapshots/${encodeURIComponent(snapshotId)}/query`;
+}
+
+export function homeProposalPath(proposalId: string): string {
+	return `/api/home/data/proposals/${encodeURIComponent(proposalId)}`;
+}
+
+export function homeProposalCompilePath(proposalId: string): string {
+	return `${homeProposalPath(proposalId)}/compile`;
+}
+
+export function homeProposalApplyPath(proposalId: string): string {
+	return `${homeProposalPath(proposalId)}/apply`;
 }

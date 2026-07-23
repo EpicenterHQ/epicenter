@@ -41,7 +41,11 @@ import {
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
+	HOME_PROPOSALS_ROUTE,
 	HOME_ROUTE,
+	homeProposalApplyPath,
+	homeProposalCompilePath,
+	homeProposalPath,
 	MAIL_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
@@ -163,6 +167,7 @@ async function serveHost(
 	}),
 	desktopAuth: HomeServerOptions['desktopAuth'] = createTestDesktopAuth(),
 	deploymentFetch?: HomeServerOptions['deploymentFetch'],
+	proposalService?: HomeServerOptions['proposalService'],
 ) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
@@ -182,6 +187,7 @@ async function serveHost(
 		readRecordingAudio,
 		chooseFirstAttachment,
 		desktopAuth,
+		...(proposalService === undefined ? {} : { proposalService }),
 		...(deploymentFetch === undefined ? {} : { deploymentFetch }),
 	});
 	const server = Bun.serve({
@@ -845,6 +851,219 @@ describe('createHomeServer', () => {
 			expect(forwarded.status).toBe(400);
 			expect(await forwarded.json()).toEqual(envelope);
 			expect(inputs).toEqual([undefined]);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('the Proposal broker validates and forwards the desktop artifact lifecycle', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const id = 'a'.repeat(24);
+		const draft = {
+			id,
+			path: `/tmp/proposal-${id}.sqlite3`,
+			proposalId: id,
+			sourceReplicaId: 'r'.repeat(24),
+			sourceAuthorityLifetime: null,
+			state: 'draft' as const,
+			changeCount: 0,
+			appliedCount: 0,
+		};
+		const calls: unknown[] = [];
+		let requiresAttachmentChoice = false;
+		let compileBlock: Promise<void> | undefined;
+		const proposalService = {
+			async list() {
+				calls.push(['list']);
+				return {
+					lenses: [
+						{
+							id: 'chat' as const,
+							title: 'Chat',
+							description: 'Conversations.',
+							namespace: 'so.epicenter.chat',
+							collections: [
+								{
+									key: 'conversations',
+									title: 'Conversations',
+									kind: 'table' as const,
+								},
+							],
+						},
+					],
+					proposals: [draft],
+				};
+			},
+			async create(input: unknown) {
+				calls.push(['create', input]);
+				return draft;
+			},
+			async compile(proposalId: string) {
+				calls.push(['compile', proposalId]);
+				await compileBlock;
+				return { ...draft, state: 'compiled' as const, changeCount: 2 };
+			},
+			async apply(proposalId: string) {
+				calls.push(['apply', proposalId]);
+				return { proposalId, admittedChanges: 2 };
+			},
+			async delete(proposalId: string) {
+				calls.push(['delete', proposalId]);
+			},
+		} satisfies NonNullable<HomeServerOptions['proposalService']>;
+		const server = await serveHost(
+			host,
+			PAGE,
+			closedRecordOwner,
+			undefined,
+			undefined,
+			() => ({
+				kind: 'unattached',
+				requiresChoice: requiresAttachmentChoice,
+			}),
+			createSignedTestDesktopAuth(),
+			undefined,
+			proposalService,
+		);
+		const { cookie, origin } = authenticationFor(server);
+		const mutationHeaders = {
+			cookie,
+			origin,
+			'content-type': 'application/json',
+		};
+		try {
+			const listed = await fetch(HOME_PROPOSALS_ROUTE.url(server.url.origin), {
+				headers: { cookie },
+			});
+			expect(listed.status).toBe(200);
+			expect(listed.headers.get('cache-control')).toBe('no-store');
+			expect(await listed.json()).toEqual({
+				lenses: [expect.objectContaining({ id: 'chat' })],
+				proposals: [draft],
+			});
+
+			const selection = {
+				namespace: 'so.epicenter.chat',
+				collections: {
+					conversations: {
+						kind: 'table',
+						recordKeys: [id],
+						allowCreate: false,
+					},
+				},
+			};
+			const created = await fetch(HOME_PROPOSALS_ROUTE.url(server.url.origin), {
+				method: 'POST',
+				headers: mutationHeaders,
+				body: JSON.stringify({ lens: 'chat', selection }),
+			});
+			expect(created.status).toBe(201);
+			expect(await created.json()).toEqual(draft);
+
+			expect(
+				(
+					await fetch(new URL(homeProposalCompilePath(id), server.url), {
+						method: 'POST',
+						headers: mutationHeaders,
+					})
+				).status,
+			).toBe(200);
+			expect(
+				(
+					await fetch(new URL(homeProposalApplyPath(id), server.url), {
+						method: 'POST',
+						headers: mutationHeaders,
+					})
+				).status,
+			).toBe(200);
+			expect(
+				(
+					await fetch(new URL(homeProposalPath(id), server.url), {
+						method: 'DELETE',
+						headers: mutationHeaders,
+					})
+				).status,
+			).toBe(204);
+			expect(calls).toEqual([
+				['list'],
+				['create', { lens: 'chat', selection }],
+				['compile', id],
+				['apply', id],
+				['delete', id],
+			]);
+			requiresAttachmentChoice = true;
+			expect(
+				(
+					await fetch(new URL(homeProposalApplyPath(id), server.url), {
+						method: 'POST',
+						headers: mutationHeaders,
+					})
+				).status,
+			).toBe(409);
+			expect(calls.at(-1)).toEqual(['delete', id]);
+
+			requiresAttachmentChoice = false;
+			let releaseCompile: () => void = () => undefined;
+			compileBlock = new Promise<void>((resolve) => {
+				releaseCompile = resolve;
+			});
+			const blockedCompile = fetch(
+				new URL(homeProposalCompilePath(id), server.url),
+				{ method: 'POST', headers: mutationHeaders },
+			);
+			for (let attempt = 0; attempt < 100; attempt += 1) {
+				if (
+					calls.filter((call) => Array.isArray(call) && call[0] === 'compile')
+						.length === 2
+				)
+					break;
+				await Bun.sleep(1);
+			}
+			expect(
+				calls.filter((call) => Array.isArray(call) && call[0] === 'compile'),
+			).toHaveLength(2);
+			let queuedListSettled = false;
+			const queuedList = fetch(HOME_PROPOSALS_ROUTE.url(server.url.origin), {
+				headers: { cookie },
+			}).then((response) => {
+				queuedListSettled = true;
+				return response;
+			});
+			await Bun.sleep(25);
+			expect(queuedListSettled).toBe(false);
+			const queuedApply = fetch(
+				new URL(homeProposalApplyPath(id), server.url),
+				{ method: 'POST', headers: mutationHeaders },
+			);
+			await Bun.sleep(25);
+			requiresAttachmentChoice = true;
+			releaseCompile();
+			const [compiledAfterWait, listedAfterWait, appliedAfterWait] =
+				await Promise.all([blockedCompile, queuedList, queuedApply]);
+			expect(compiledAfterWait.status).toBe(200);
+			expect(listedAfterWait.status).toBe(200);
+			expect(appliedAfterWait.status).toBe(409);
+			expect(
+				calls.filter((call) => Array.isArray(call) && call[0] === 'list'),
+			).toHaveLength(2);
+			expect(
+				calls.filter((call) => Array.isArray(call) && call[0] === 'apply'),
+			).toHaveLength(1);
+			compileBlock = undefined;
+
+			expect(
+				(
+					await fetch(
+						new URL(homeProposalCompilePath('not-an-id'), server.url),
+						{
+							method: 'POST',
+							headers: mutationHeaders,
+						},
+					)
+				).status,
+			).toBe(400);
 		} finally {
 			await server.stop(true);
 		}
