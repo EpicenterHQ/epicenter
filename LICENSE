@@ -31,7 +31,6 @@ entirely MIT; the boundary is enforced by 'bun run check:licenses'.
                                                          chat primitives
     - packages/sqlite           (@epicenter/sqlite)      portable embedded
                                                          SQLite adapter contract
-    - packages/row-sync         (@epicenter/row-sync)    scalar row protocol
     - packages/data             (@epicenter/data)        typed local-first
                                                          Epicenter replica and sync
     - packages/document-sync    (@epicenter/document-sync) row-document sync plane

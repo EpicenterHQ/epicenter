@@ -728,17 +728,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/row-sync": {
-      "name": "@epicenter/row-sync",
-      "version": "0.0.1",
-      "dependencies": {
-        "typebox": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/server": {
       "name": "@epicenter/server",
       "version": "0.1.1",
@@ -1270,8 +1259,6 @@
     "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
 
     "@epicenter/reddit": ["@epicenter/reddit@workspace:apps/reddit"],
-
-    "@epicenter/row-sync": ["@epicenter/row-sync@workspace:packages/row-sync"],
 
     "@epicenter/self-host": ["@epicenter/self-host@workspace:apps/self-host"],
 

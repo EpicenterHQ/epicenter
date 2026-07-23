@@ -170,8 +170,8 @@ In practice:
   connection while retaining one durable Epicenter owner.
 - `@epicenter/data` and `@epicenter/document-sync` use it behind the
   record-addressed document boundary.
-- `@epicenter/row-sync` never imports it; scalar convergence is a separate
-  protocol plane.
+- Scalar convergence lives in `@epicenter/data`; it is a separate protocol
+  plane.
 - Other packages need the wire format only when implementing a document
   transport or provider.
 

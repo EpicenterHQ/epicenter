@@ -47,7 +47,7 @@ Press record, speak, optionally transform the transcript, and copy or deliver th
 
 ## Build With The Toolkit
 
-The developer toolkit is MIT: build anything on it, including closed-source and commercial products, and you own what you build, with no obligation back to Epicenter. Its embeddable roots are [`@epicenter/data`](packages/data), [`@epicenter/document-sync`](packages/document-sync), [`@epicenter/agent`](packages/agent), [`@epicenter/ui`](packages/ui), [`@epicenter/sync`](packages/sync), [`@epicenter/sqlite`](packages/sqlite), and [`@epicenter/row-sync`](packages/row-sync). They are pre-1.0 and tuned for our own apps, so treat them as fork-and-own rather than a stability-guaranteed SDK for now.
+The developer toolkit is MIT: build anything on it, including closed-source and commercial products, and you own what you build, with no obligation back to Epicenter. Its embeddable roots are [`@epicenter/data`](packages/data), [`@epicenter/document-sync`](packages/document-sync), [`@epicenter/agent`](packages/agent), [`@epicenter/ui`](packages/ui), [`@epicenter/sync`](packages/sync), and [`@epicenter/sqlite`](packages/sqlite). They are pre-1.0 and tuned for our own apps, so treat them as fork-and-own rather than a stability-guaranteed SDK for now.
 
 The hard problem with local-first apps is synchronization. [`@epicenter/data`](packages/data) answers it with one record protocol and complete local replicas. Every durable record has scalar JSON and may own one bounded Yjs 14 document plus one immutable blob. Applications contribute pure Lenses that interpret portions of the same Epicenter as typed tables and values; a Lens does not create another database or synchronization scope.
 
@@ -166,7 +166,6 @@ These packages carry the main architecture.
 | [`@epicenter/data`](packages/data) | Record protocol, complete local replicas, pure Lenses, row documents, immutable blobs, and browser, Bun, and desktop owners. | MIT |
 | [`@epicenter/document-sync`](packages/document-sync) | Bounded row-document publication and realtime synchronization. | MIT |
 | [`@epicenter/agent`](packages/agent) | Agent loop and tool-catalog composition over application capabilities. | MIT |
-| [`@epicenter/row-sync`](packages/row-sync) | Portable scalar row protocol, admission, deterministic field folding, and exact-retry digests. It owns no authority database. | MIT |
 | [`@epicenter/sqlite`](packages/sqlite) | Neutral embedded-SQLite driver and Browser, Bun, and Durable Object adapters. It owns no product schema. | MIT |
 | [`@epicenter/sync`](packages/sync) | Yjs document protocol encoding and provider behavior, separate from scalar row synchronization. | MIT |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple app surfaces. | MIT |
@@ -246,7 +245,7 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 
 Epicenter uses a two-tier split by how you use the code:
 
-- [MIT](licenses/LICENSE-MIT) for code you build with: the toolkit roots (`@epicenter/data`, `@epicenter/document-sync`, `@epicenter/agent`, `@epicenter/ui`, `@epicenter/sync`, `@epicenter/sqlite`, `@epicenter/row-sync`) and the toolkit-internal contracts they carry (`@epicenter/identity`, `@epicenter/agent-protocol`, `@epicenter/encryption`, `@epicenter/field`, `@epicenter/chat`). Twelve packages today.
+- [MIT](licenses/LICENSE-MIT) for code you build with: the toolkit roots (`@epicenter/data`, `@epicenter/document-sync`, `@epicenter/agent`, `@epicenter/ui`, `@epicenter/sync`, `@epicenter/sqlite`) and the toolkit-internal contracts they carry (`@epicenter/identity`, `@epicenter/agent-protocol`, `@epicenter/encryption`, `@epicenter/field`, `@epicenter/chat`). Eleven packages today.
 - [AGPL-3.0](licenses/LICENSE-AGPL-3.0) or later for code we ship or run: every app, the shared server library, the CLI, and the rest of the internal packages.
 - There is no proprietary tier today. Revenue is intended to come from hosting and services, not from selling closed licenses.
 
