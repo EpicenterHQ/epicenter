@@ -70,6 +70,8 @@ type RecordRow = SqliteRow & {
 type MetaRow = SqliteRow & {
 	format_version: number;
 	replica_id: string;
+	attached_deployment: string | null;
+	attached_principal: string | null;
 	authority_lifetime: string | null;
 	erased_authority_lifetime: string | null;
 	after_sequence: number;
@@ -119,6 +121,15 @@ export type OpenReplicaStoreOptions = {
 	database: SqliteDatabase;
 	limits: ValidatedLimits;
 	initialize?: { replicaId: string; authorityLifetime?: string };
+};
+
+export type ReplicaAttachment = {
+	deploymentId: string;
+	principalId: string;
+};
+
+export type AttachReplicaOptions = ReplicaAttachment & {
+	choice?: 'bring' | 'discard';
 };
 
 function tripleParams(address: RecordAddress): [string, string, string] {
@@ -491,6 +502,110 @@ export function openReplicaStore({
 }: OpenReplicaStoreOptions) {
 	openSchema(database, limits, initialize);
 	const documents = createReplicaDocumentStore(database);
+
+	function attachment(): ReplicaAttachment | null {
+		const meta = readMeta(database);
+		return meta.attached_deployment === null || meta.attached_principal === null
+			? null
+			: {
+					deploymentId: meta.attached_deployment,
+					principalId: meta.attached_principal,
+				};
+	}
+
+	function isLogicallyEmpty(): boolean {
+		// Durable logical state and obligations live in records (all scalar lanes,
+		// tombstones, document/blob watermarks, digests, and parked evidence),
+		// record_documents (including a defensively detected orphan chain), and
+		// the meta row's sealed submission witness. Attachment identity and
+		// synchronization progress are replica metadata, not user logical state.
+		const state = one<
+			SqliteRow & {
+				has_records: number;
+				has_documents: number;
+				has_sealed_request: number;
+			}
+		>(
+			database,
+			`SELECT
+				EXISTS(SELECT 1 FROM records) AS has_records,
+				EXISTS(SELECT 1 FROM record_documents) AS has_documents,
+				(sealed_submission IS NOT NULL
+					OR sealed_request IS NOT NULL
+					OR sealed_request_hash IS NOT NULL) AS has_sealed_request
+			FROM meta WHERE singleton = 1`,
+		);
+		if (state === null) throw new Error('replica meta row missing');
+		return (
+			state.has_records === 0 &&
+			state.has_documents === 0 &&
+			state.has_sealed_request === 0
+		);
+	}
+
+	function attach({
+		deploymentId,
+		principalId,
+		choice,
+	}: AttachReplicaOptions): void {
+		if (deploymentId.length === 0 || principalId.length === 0) {
+			throw new TypeError('attachment identity must not be empty');
+		}
+		if (choice !== undefined && choice !== 'bring' && choice !== 'discard') {
+			throw new TypeError('attachment choice must be bring or discard');
+		}
+		database.transaction(() => {
+			const meta = readMeta(database);
+			if (
+				meta.attached_deployment === deploymentId &&
+				meta.attached_principal === principalId
+			) {
+				return;
+			}
+			if (
+				meta.attached_deployment !== null ||
+				meta.attached_principal !== null
+			) {
+				throw new Error('replica is permanently attached to another principal');
+			}
+
+			const empty = isLogicallyEmpty();
+			if (empty && choice !== undefined) {
+				throw new Error('an empty replica attaches without a choice');
+			}
+			if (!empty && choice === undefined) {
+				throw new Error('a nonempty replica requires bring or discard');
+			}
+
+			if (choice === 'discard') {
+				database.run('DELETE FROM record_documents');
+				database.run('DELETE FROM records');
+				// This is a logical-only clear. Raw blob files deliberately remain
+				// as debris for the adapter owner's idempotent sweep (ADR-0173).
+				database.run(
+					`UPDATE meta SET
+						attached_deployment = ?,
+						attached_principal = ?,
+						authority_lifetime = NULL,
+						erased_authority_lifetime = NULL,
+						after_sequence = 0,
+						sealed_submission = NULL,
+						sealed_request = NULL,
+						sealed_request_hash = NULL,
+						next_submission = 1
+					WHERE singleton = 1`,
+					[deploymentId, principalId],
+				);
+				return;
+			}
+
+			database.run(
+				`UPDATE meta SET attached_deployment = ?, attached_principal = ?
+				WHERE singleton = 1`,
+				[deploymentId, principalId],
+			);
+		});
+	}
 
 	function record(address: RecordAddress): ReplicaRecordLanes | null {
 		return lanesOf(readRecord(database, address));
@@ -957,6 +1072,9 @@ export function openReplicaStore({
 	}
 
 	return {
+		attachment,
+		isLogicallyEmpty,
+		attach,
 		record,
 		visibleRecord,
 		visibleRecordsPage,

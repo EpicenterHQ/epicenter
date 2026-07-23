@@ -9,8 +9,9 @@
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-
+import type { SqliteDatabase } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import * as Y from '@y/y';
 
 import type {
 	Fact,
@@ -30,6 +31,10 @@ const LIMITS = makeLimits();
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const NAMESPACE = 'so.epicenter.notes';
 const COLLECTION = 'recordings';
+const ATTACHMENT = {
+	deploymentId: 'https://example.test/',
+	principalId: 'principal-a',
+} as const;
 
 type FactInput =
 	| { address: RecordAddress; state: 'live'; payload: JsonValue }
@@ -68,6 +73,16 @@ function installFacts(store: ReplicaStore, inputs: readonly FactInput[]): void {
 	});
 }
 
+function documentUpdate(value: string): Uint8Array {
+	const document = new Y.Doc({ gc: true });
+	try {
+		document.get('content').insert(0, value);
+		return new Uint8Array(Y.encodeStateAsUpdateV2(document));
+	} finally {
+		document.destroy();
+	}
+}
+
 function userSchemaObjects(database: Database): string[] {
 	return database
 		.query<{ name: string; type: string }, []>(
@@ -78,6 +93,221 @@ function userSchemaObjects(database: Database): string[] {
 		.all()
 		.map(({ type, name }) => `${type}:${name}`);
 }
+
+describe('first attachment', () => {
+	test('empty replica attaches directly and reopening preserves the pair', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const adapter = createBunSqliteAdapter(database);
+			const store = openReplicaStore({
+				database: adapter,
+				limits: LIMITS,
+				initialize: { replicaId: REPLICA_ID },
+			});
+
+			expect(store.isLogicallyEmpty()).toBe(true);
+			store.attach(ATTACHMENT);
+			expect(store.attachment()).toEqual(ATTACHMENT);
+			expect(
+				openReplicaStore({ database: adapter, limits: LIMITS }).attachment(),
+			).toEqual(ATTACHMENT);
+			expect(() =>
+				openReplicaStore({
+					database: adapter,
+					limits: LIMITS,
+				}).attach({ ...ATTACHMENT, choice: 'discard' }),
+			).not.toThrow();
+		} finally {
+			database.close();
+		}
+	});
+
+	test('empty replica rejects a dishonest bring or discard choice', () => {
+		const { database, store } = setup();
+		try {
+			expect(() => store.attach({ ...ATTACHMENT, choice: 'bring' })).toThrow(
+				/empty replica attaches without a choice/,
+			);
+			expect(store.attachment()).toBeNull();
+		} finally {
+			database.close();
+		}
+	});
+
+	test('nonempty replica without a choice throws without changing state', () => {
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			store.localWrite({ address: target, op: 'replace', value: 'pending' });
+
+			expect(() => store.attach(ATTACHMENT)).toThrow(
+				/nonempty replica requires bring or discard/,
+			);
+			expect(store.attachment()).toBeNull();
+			expect(store.record(target)?.pending).toEqual({
+				op: 'replace',
+				value: 'pending',
+			});
+		} finally {
+			database.close();
+		}
+	});
+
+	test('bring preserves pending scalar, document, and blob obligations', () => {
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			const digest = 'a'.repeat(64);
+			store.localWrite({ address: target, op: 'replace', value: 'pending' });
+			store.appendLocalDocumentUpdate(target, documentUpdate('local'));
+			database.run('UPDATE records SET blob_sha256 = ? WHERE record_key = ?', [
+				digest,
+				target.recordKey,
+			]);
+
+			store.attach({ ...ATTACHMENT, choice: 'bring' });
+
+			expect(store.attachment()).toEqual(ATTACHMENT);
+			expect(store.record(target)?.pending).toEqual({
+				op: 'replace',
+				value: 'pending',
+			});
+			expect(store.inspectDocument(target)).toMatchObject({
+				revision: 1,
+				acceptedRevision: 0,
+				owed: true,
+			});
+			expect(store.owedBlobs(1)).toEqual([target]);
+			expect(
+				database
+					.query<{ blob_sha256: string }, [string]>(
+						'SELECT blob_sha256 FROM records WHERE record_key = ?',
+					)
+					.get(target.recordKey)?.blob_sha256,
+			).toBe(digest);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('discard atomically clears logical state and synchronization progress', () => {
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			installFacts(store, [
+				{ address: target, state: 'live', payload: { remote: true } },
+			]);
+			store.localWrite({ address: target, op: 'replace', value: 'pending' });
+			store.appendLocalDocumentUpdate(target, documentUpdate('local'));
+			database.run('UPDATE records SET blob_sha256 = ? WHERE record_key = ?', [
+				'b'.repeat(64),
+				target.recordKey,
+			]);
+			store.seal();
+
+			store.attach({ ...ATTACHMENT, choice: 'discard' });
+
+			expect(store.attachment()).toEqual(ATTACHMENT);
+			expect(store.isLogicallyEmpty()).toBe(true);
+			expect(store.sync()).toMatchObject({
+				authorityLifetime: null,
+				afterSequence: 0,
+				sealedSubmission: null,
+				nextSubmission: 1,
+			});
+			expect(store.sealedRequest()).toBeNull();
+			expect(
+				database
+					.query<{ count: number }, []>(
+						'SELECT count(*) AS count FROM record_documents',
+					)
+					.get()?.count,
+			).toBe(0);
+			store.localWrite({
+				address: address('bbbbbbbbbbbbbbbbbbbbbbbb'),
+				op: 'replace',
+				value: 'fresh',
+			});
+			expect(store.isLogicallyEmpty()).toBe(false);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('same-pair reattachment is idempotent and another pair is refused', () => {
+		const { database, store } = setup();
+		try {
+			store.attach(ATTACHMENT);
+			expect(() =>
+				store.attach({ ...ATTACHMENT, choice: 'discard' }),
+			).not.toThrow();
+			expect(() =>
+				store.attach({
+					deploymentId: ATTACHMENT.deploymentId,
+					principalId: 'principal-b',
+				}),
+			).toThrow(/permanently attached to another principal/);
+			expect(store.attachment()).toEqual(ATTACHMENT);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('a local tombstone alone makes the replica nonempty', () => {
+		const { database, store } = setup();
+		try {
+			store.localWrite({
+				address: address('aaaaaaaaaaaaaaaaaaaaaaaa'),
+				op: 'tombstone',
+			});
+			expect(store.isLogicallyEmpty()).toBe(false);
+			expect(() => store.attach(ATTACHMENT)).toThrow(
+				/nonempty replica requires bring or discard/,
+			);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('a thrown discard exposes the intact unattached replica', () => {
+		const database = new Database(':memory:', { strict: true });
+		const base = createBunSqliteAdapter(database);
+		let failAttachmentWrite = false;
+		const faulting: SqliteDatabase = {
+			run(sql, parameters) {
+				if (failAttachmentWrite && sql.includes('attached_deployment = ?')) {
+					throw new Error('injected attachment write failure');
+				}
+				base.run(sql, parameters);
+			},
+			all: base.all,
+			transaction: base.transaction,
+		};
+		try {
+			const store = openReplicaStore({
+				database: faulting,
+				limits: LIMITS,
+				initialize: {
+					replicaId: REPLICA_ID,
+					authorityLifetime: 'lifetime-one',
+				},
+			});
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			store.localWrite({ address: target, op: 'replace', value: 'pending' });
+			store.appendLocalDocumentUpdate(target, documentUpdate('local'));
+			failAttachmentWrite = true;
+
+			expect(() => store.attach({ ...ATTACHMENT, choice: 'discard' })).toThrow(
+				/injected attachment write failure/,
+			);
+			expect(store.attachment()).toBeNull();
+			expect(store.record(target)?.pending).not.toBeNull();
+			expect(store.inspectDocument(target)).toMatchObject({ revision: 1 });
+		} finally {
+			database.close();
+		}
+	});
+});
 
 describe('production replica store format', () => {
 	test('initializes an empty database and reopens only the exact owned schema', () => {

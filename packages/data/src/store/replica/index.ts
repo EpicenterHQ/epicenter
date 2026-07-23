@@ -13,9 +13,11 @@ export {
 	type DocumentRefusalInspection,
 } from './document-store.js';
 export {
+	type AttachReplicaOptions,
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
 	PUBLICATION_OBLIGATION_PAGE_LIMIT,
+	type ReplicaAttachment,
 	type ReplicaFactsPage,
 	type ReplicaRecordLanes,
 	type ReplicaStore,
