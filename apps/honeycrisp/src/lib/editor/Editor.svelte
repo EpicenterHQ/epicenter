@@ -504,7 +504,7 @@
 	 *
 	 * The text fills the full pane width (left-anchored, no reading-measure cap):
 	 * the writing surface uses the whole resizable pane the way the rest of the
-	 * workspace does, rather than floating a narrow column. Line length is
+	 * app does, rather than floating a narrow column. Line length is
 	 * governed by how wide the user drags the pane.
 	 */
 	:global(.ProseMirror) {

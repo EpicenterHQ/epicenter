@@ -19,7 +19,7 @@ type Attachment =
 			attachment: { deploymentId: string; principalId: string };
 	  };
 
-type TestAuthState =
+type AuthFixtureState =
 	| { status: 'signed-out' }
 	| { status: 'signed-in'; principalId: string };
 
@@ -64,10 +64,10 @@ function createAuth(
 	initiallySignedIn: boolean,
 	beforeFetchResponse: Promise<void> = Promise.resolve(),
 ) {
-	let state: TestAuthState = initiallySignedIn
+	let state: AuthFixtureState = initiallySignedIn
 		? { status: 'signed-in', principalId: 'principal-one' }
 		: { status: 'signed-out' };
-	const listeners = new Set<(state: TestAuthState) => void>();
+	const listeners = new Set<(state: AuthFixtureState) => void>();
 	const requests: Request[] = [];
 	const socketRequests: {
 		url: string | URL;
@@ -81,7 +81,7 @@ function createAuth(
 			return state;
 		},
 		deployment: { kind: 'hosted' as const, baseURL: 'https://api.example.com' },
-		onStateChange(listener: (next: TestAuthState) => void) {
+		onStateChange(listener: (next: AuthFixtureState) => void) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},

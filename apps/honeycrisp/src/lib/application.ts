@@ -7,7 +7,7 @@ import type {
 import type { connectRecordDocument } from '@epicenter/document-sync';
 import { type HoneycrispData, honeycrispLens } from '@epicenter/honeycrisp';
 import { createHoneycrispState } from '../routes/state/index.js';
-import type { HoneycrispReplicaIdentityState } from './workspace/browser.js';
+import type { HoneycrispReplicaIdentityState } from './data/browser.js';
 
 type ApplicationRuntime = {
 	epicenter: Pick<

@@ -5,7 +5,7 @@
 	"version": "0.0.2",
 	"type": "module",
 	"exports": {
-		".": "./src/lib/workspace/index.ts"
+		".": "./src/lib/data/index.ts"
 	},
 	"imports": {
 		"#platform/auth": {

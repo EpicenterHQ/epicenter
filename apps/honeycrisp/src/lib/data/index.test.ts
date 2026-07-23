@@ -1,5 +1,5 @@
 /**
- * Honeycrisp Record Lens Tests
+ * Honeycrisp data Lens tests.
  *
  * Exercises Honeycrisp's inert Lens through the real Bun record runtime.
  *

@@ -1,7 +1,7 @@
 import { createLogger } from 'wellcrafted/logger';
 import { auth } from '#platform/auth';
 import type { HoneycrispDependencies } from './application.js';
-import { openHoneycrispBrowserEpicenter } from './workspace/browser.js';
+import { openHoneycrispBrowserEpicenter } from './data/browser.js';
 
 const log = createLogger('honeycrisp/application');
 

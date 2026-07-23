@@ -11,7 +11,7 @@ import {
 	type RecordAuthorityLifetimeProvider,
 } from '@epicenter/document-sync';
 
-type WorkspaceAuth = Pick<
+type HoneycrispAuth = Pick<
 	SyncAuthClient,
 	'state' | 'deployment' | 'fetch' | 'openWebSocket' | 'onStateChange'
 >;
@@ -36,7 +36,7 @@ export async function openHoneycrispBrowserEpicenter({
 	reportBackgroundError,
 	openEpicenter = openBrowserRecordEpicenter,
 }: {
-	auth: WorkspaceAuth;
+	auth: HoneycrispAuth;
 	reportBackgroundError(cause: unknown): void;
 	openEpicenter?: typeof openBrowserRecordEpicenter;
 }) {

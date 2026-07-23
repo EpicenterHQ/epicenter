@@ -60,7 +60,7 @@ export type HoneycrispData = BoundLens<typeof honeycrispLens, never, unknown>;
 /**
  * Delete a folder after best-effort re-parenting of its current notes.
  *
- * The row runtime has no workspace action layer or cross-row transaction. A
+ * The row runtime has no action registry or cross-row transaction. A
  * failed note update stops before the folder is deleted, so the operation can
  * be retried without knowingly leaving a dangling folder id.
  */
