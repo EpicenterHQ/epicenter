@@ -1,6 +1,6 @@
 # 0174. Row documents project as nullable compact cells and persist as bounded live chains
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-22: publication uses local and
   authority-accepted revision watermarks; documents remain record-wide, the
   composed cell projects only into portable artifacts, snapshots carry
@@ -187,12 +187,15 @@ typing, formatting, undo, deletion, and multiple offline clients, plus maximal
 valid and maliciously dense fixtures in workerd. This evidence may revise the
 constant without reopening the bounded-structure product refusal.
 
-Acceptance remains gated on running that workload against the current
-131,072-struct ceiling. The evidence must include realistic rich-text editing,
-multiple offline clients, and maximal valid and maliciously dense updates in
-workerd, with deterministic below-bound, at-bound, and above-bound outcomes.
-The maintained logical fixtures prove bounded refusal mechanics, but not that
-the selected struct constant is the right production limit.
+The Workerd gate passed on 2026-07-22. The
+[retained report](../benchmarks/document-struct-bound/README.md) runs the
+production `DataAuthority` with Honeycrisp-shaped typing, formatting, undo,
+deletion, four offline clients, and every application order. Valid adversarial
+states at 131,071 and exactly 131,072 decoded structs are accepted; 131,073 is
+refused as `document-bound` without changing document bytes, chain length,
+record capture revision, or the next authority capture revision. All accepted
+and preserved states survive disposal and recreation of Workerd against the
+same Durable Object SQLite. The 131,072-struct constant therefore stands.
 
 ## Considered alternatives
 

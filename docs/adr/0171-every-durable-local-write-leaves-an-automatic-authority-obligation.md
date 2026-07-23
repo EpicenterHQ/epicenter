@@ -1,6 +1,6 @@
 # 0171. Every durable local write leaves an automatic authority obligation
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-22: document and blob obligations
   derive from local truth versus authority-accepted watermarks)
 - **Supersedes:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md)
@@ -203,14 +203,16 @@ Each storage adapter runs the same state-machine fixtures. Transport tests then
 prove that background exchange and realtime document delivery enter the same
 authority acceptance operation rather than two semantic paths.
 
-Acceptance remains gated on first-attachment crash and reopen evidence across
-every production replica adapter. That evidence must cover both choices:
-`Bring local data` must retain the exact pre-attachment scalar, document, and
-blob obligations through attachment, lifetime discovery, and first
-submission; `Discard local data` must commit attachment and the logical clear
-together without allowing hydration or physical cleanup to resurrect work.
-The maintained semantic and transport suites establish the law, but they do
-not substitute for those production-adapter crash boundaries.
+The production-adapter gate passed on 2026-07-22. The shared Bun, Chromium, and
+WebKit cases kill after every attachment SQLite write and immediately after
+commit. `Bring local data` retains the exact scalar operation, exact exported
+Yjs V2 digest, and blob digest through reopen, lifetime discovery, sealing, and
+the first accepted submission. `Discard local data` exposes either the intact
+unattached replica or the permanently attached empty replica, never a partial
+state. A production Bun raw-file composition test additionally reopens brought
+blob bytes as an ordinary publication and reclaims discarded bytes after the
+logical commit. The browser cross-medium process-kill evidence is recorded by
+ADR-0172.
 
 ## Considered alternatives
 

@@ -434,12 +434,15 @@ partial indexes derive bounded owed scans without mutable dirty flags or frozen
 in-flight payloads. HTTP and realtime document carriers decode one exact
 acceptance shape and enter one authority operation. Maintained crash,
 conformance, browser-owner, malformed-update, and cross-plane HTTP proofs pass.
-Three acceptance gates remain. ADR-0171 still needs first-attachment crash and
-reopen evidence across every production replica adapter. ADR-0172 still needs
-browser process-kill coverage across blob staging, promotion, SQLite
-membership, and `Discard local data` generation cleanup. ADR-0174 still needs
-the maintained 131,072-struct rich-text, offline-client, and malicious-update
-workload in workerd. Physical mobile qualification remains owned by W1C.
+The three production evidence gates have also passed. Shared Bun, Chromium, and
+WebKit cases prove first-attachment atomicity and exact obligation retention;
+production Bun raw files prove brought bytes remain publishable and discarded
+bytes are reclaimed. Chromium and WebKit process-kill cases cover blob staging,
+promotion, SQLite membership, `Discard local data`, cleanup interruption, and
+same-address hydration. The retained Workerd report accepts the current
+131,072-struct ceiling with a realistic offline rich-text workload and exact
+valid adversarial boundaries. ADR-0171, ADR-0172, and ADR-0174 are Accepted.
+Physical mobile qualification remains owned by W1C.
 
 ### W4: Lens API, complete caller migration, and Workspace deletion
 
@@ -597,9 +600,6 @@ current Codex environment.
   including capacity, reopen, quota refusal, suspension, and eviction.
 - Run the physical iPhone Safari and installed-PWA Private Relay topology
   charter at 1, 2, 4, and 8 simultaneously open record documents.
-- Complete the three W3 production evidence gates: first-attachment crash and
-  reopen across adapters, browser blob cross-medium and `Discard` generation
-  crash coverage, and the real 131,072-struct workerd workload.
 - Perform the manual visual browser check for the Home snapshot and Proposal
   sheets. This is a presentation gate, not a storage correctness claim.
 

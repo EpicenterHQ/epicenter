@@ -1,6 +1,6 @@
 # 0172. SQLite stores convergent facts and documents; raw files store blob bytes
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-22: publication obligations derive
   from local truth versus authority-accepted watermarks)
 - **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication uses revision watermarks rather than frozen retry images)
@@ -134,14 +134,15 @@ managed runtime does not expose. ADR-0161's scalar-only layout evidence remains
 separate and does not cap document chains, raw blob bytes, or choose a scalar
 layout.
 
-Acceptance remains gated on browser process-kill evidence across the SQLite
-and raw-file boundary. The maintained browser suite must kill between staging
-fsync, promotion, and SQLite ownership membership, then reopen and prove that
-each residue is either valid owned bytes or removable debris. It must also
-exercise first-attachment `Discard local data` across the logical clear,
-attachment commit, physical-generation switch, interrupted cleanup, and
-same-address hydration with equal and different digests. Current semantic
-tests do not yet prove those browser cross-medium and generation boundaries.
+The browser process-kill gate passed on 2026-07-22. The maintained Chromium and
+WebKit suite uses the production OPFS SQLite and raw-file stores, closes the
+whole page after staging flush, promotion, SQLite ownership membership,
+`Discard local data` commit, and cleanup, then reopens the same browser profile.
+Every result is valid owned bytes or removable debris. Delayed cleanup followed
+by same-address hydration with both equal and different digests proves that an
+old generation can neither satisfy nor delete the current owner. Bun raw-file
+tests cover the same staging order and compose real bytes with both
+first-attachment choices.
 
 ## Considered alternatives
 
