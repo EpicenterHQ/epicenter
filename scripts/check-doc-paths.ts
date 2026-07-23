@@ -45,6 +45,7 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {
 })
 	.split('\0')
 	.filter(Boolean);
+const trackedPaths = new Set(tracked);
 
 const EXCLUDED_DOC_DIRS = ['specs', 'docs/articles', '.agents', '.claude'];
 const REPO_ROOT_DIRS = [
@@ -97,7 +98,7 @@ for (const file of docs) {
 			) {
 				continue;
 			}
-			if (!existsSync(join(root, path))) {
+			if (!trackedPaths.has(path) || !existsSync(join(root, path))) {
 				violations.push({ file, line: i + 1, path });
 			}
 		}
