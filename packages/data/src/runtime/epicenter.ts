@@ -11,7 +11,6 @@ import {
 	type LensDefinition,
 	type NonconformingRowError,
 	type NonconformingValueError,
-	type NormalizedUpdate,
 	type RowFor,
 	type TableDefinition,
 	type ValuesDefinition,
@@ -74,16 +73,6 @@ function randomKey(): string {
 		}
 	}
 	return result.join('');
-}
-
-function asTypeError(cause: unknown): never {
-	if (
-		cause instanceof Error &&
-		/^(Unknown|Missing) (field|required field)/u.test(cause.message)
-	) {
-		throw new TypeError(cause.message);
-	}
-	throw cause;
 }
 
 export type CaptureError =
@@ -277,12 +266,7 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 			async update(changes) {
 				requireOpen();
 				if (!store.isVisiblyLive(address)) return Ok(undefined);
-				let normalized: NormalizedUpdate;
-				try {
-					normalized = compiled.normalizeUpdate(changes);
-				} catch (cause) {
-					asTypeError(cause);
-				}
+				const normalized = compiled.normalizeUpdate(changes);
 				store.localWrite({ address, op: 'patch', ...normalized });
 				afterWrite(address);
 				const visible = store.visibleRecord(address);
@@ -412,12 +396,7 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 				bound[collectionKey] = Object.freeze({
 					async create(fields: Record<string, unknown>) {
 						requireOpen();
-						let payload: JsonObject;
-						try {
-							payload = table.validateCreate(fields);
-						} catch (cause) {
-							asTypeError(cause);
-						}
+						const payload = table.validateCreate(fields);
 						const id = randomKey();
 						const address = {
 							namespace: lens.namespace,

@@ -119,12 +119,12 @@ function compileTable(key: string, table: TableDefinition): CompiledTable {
 			assertPlainObject(input, 'Create input');
 			const payload: JsonObject = {};
 			for (const name of Object.keys(input)) {
-				if (!fields.has(name)) throw new Error(`Unknown field '${name}'`);
+				if (!fields.has(name)) throw new TypeError(`Unknown field '${name}'`);
 			}
 			for (const [name, check] of fields) {
 				if (!Object.hasOwn(input, name) || input[name] === undefined) {
 					if (!optional.has(name))
-						throw new Error(`Missing required field '${name}'`);
+						throw new TypeError(`Missing required field '${name}'`);
 					continue;
 				}
 				const value = input[name];
@@ -139,7 +139,7 @@ function compileTable(key: string, table: TableDefinition): CompiledTable {
 			const unset: string[] = [];
 			for (const [name, value] of Object.entries(input)) {
 				const check = fields.get(name);
-				if (check === undefined) throw new Error(`Unknown field '${name}'`);
+				if (check === undefined) throw new TypeError(`Unknown field '${name}'`);
 				if (value === undefined) {
 					if (!optional.has(name)) {
 						throw new TypeError(`Required field '${name}' cannot be unset`);
