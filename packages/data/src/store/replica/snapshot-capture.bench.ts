@@ -9,6 +9,7 @@ import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import { openReplicaStore } from './replica-store.js';
 
 const RECORD_COUNT = 100_000;
+const MAX_CAPTURE_MS = 2_000;
 const directory = await mkdtemp(join(tmpdir(), 'epicenter-snapshot-probe-'));
 const sourcePath = join(directory, 'source.sqlite3');
 const source = new Database(sourcePath, { create: true, strict: true });
@@ -103,9 +104,15 @@ try {
 	if (sourceGeneration !== 1) {
 		throw new Error('snapshot race did not commit the concurrent source write');
 	}
+	if (elapsedMs > MAX_CAPTURE_MS) {
+		throw new Error(
+			`snapshot capture exceeded ${MAX_CAPTURE_MS} ms: ${Math.round(elapsedMs)} ms`,
+		);
+	}
 	console.log(
 		JSON.stringify({
 			records: RECORD_COUNT,
+			maximumMs: MAX_CAPTURE_MS,
 			elapsedMs: Math.round(elapsedMs),
 			rowsPerSecond: Math.round(RECORD_COUNT / (elapsedMs / 1_000)),
 			oneReadCut: true,
