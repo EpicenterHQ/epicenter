@@ -318,7 +318,7 @@ describe('document/blob subset (W3 binds these to the real foundations)', () => 
 		expect(meta.sealed_submission).toBeNull();
 		expect(meta.sealed_request).toBeNull();
 		expect(meta.next_submission).toBe(1);
-		expect(meta.replica_id).toBe(REPLICA_ID); // the attachment identity survives
+		expect(meta.replica_id).toBe(REPLICA_ID); // the replica identity survives
 		replica.store.dispose();
 	});
 });

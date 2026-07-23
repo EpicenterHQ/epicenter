@@ -40,8 +40,8 @@ CREATE TABLE meta (
   singleton              INTEGER PRIMARY KEY CHECK (singleton = 1),
   format_version         INTEGER NOT NULL,
   replica_id             TEXT    NOT NULL,
-  attached_deployment    TEXT,
-  attached_principal     TEXT,
+  owner_deployment       TEXT,
+  owner_principal        TEXT,
   authority_lifetime     TEXT,
   erased_authority_lifetime TEXT,
   after_sequence         INTEGER NOT NULL DEFAULT 0 CHECK (after_sequence >= 0),
@@ -49,7 +49,7 @@ CREATE TABLE meta (
   sealed_request         TEXT,                  -- exact canonical request bytes
   sealed_request_hash    TEXT,
   next_submission        INTEGER NOT NULL DEFAULT 1,
-  CHECK ((attached_deployment IS NULL) = (attached_principal IS NULL)),
+  CHECK ((owner_deployment IS NULL) = (owner_principal IS NULL)),
   -- The three sealed columns occupy together or not at all.
   CHECK ((sealed_submission IS NULL) = (sealed_request IS NULL)),
   CHECK ((sealed_submission IS NULL) = (sealed_request_hash IS NULL))
