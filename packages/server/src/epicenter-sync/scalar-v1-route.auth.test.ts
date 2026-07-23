@@ -25,6 +25,7 @@ import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
 import { jwt } from 'better-auth/plugins';
 import { Hono } from 'hono';
 import { Ok } from 'wellcrafted/result';
+import * as Y from 'yjs';
 
 import { JWT_SIGNING_ALG } from '../auth/base-config.js';
 import { createEnvTokenResolver } from '../auth/instance-token.js';
@@ -57,7 +58,7 @@ const ADDRESS = {
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 } as const;
 const DOCUMENT_PATH = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/${ADDRESS.recordKey}/document-publications`;
-const DOCUMENT_PAYLOAD = new Uint8Array([1, 2, 3]);
+const DOCUMENT_PAYLOAD = new Uint8Array(Y.encodeStateAsUpdateV2(new Y.Doc()));
 
 function createCaptureAuthority(principals: PrincipalId[]) {
 	const authority: ScalarAuthorityV1Endpoint & DocumentAuthorityV1Endpoint = {

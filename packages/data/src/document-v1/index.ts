@@ -5,6 +5,7 @@ import {
 	type DocumentMeasure,
 	exceedsDocumentBound,
 } from '@epicenter/sync/document-v3';
+import * as Y from '@y/y';
 
 import { parseAddress, type RecordAddress } from '../protocol/v1/addresses.js';
 import {
@@ -315,6 +316,7 @@ function parseDocumentPublicationRequestUnsafe(
 	) {
 		return undefined;
 	}
+	Y.decodeUpdateV2(candidate.payload);
 	const address = parseAddress(candidate.address, limits);
 	if (address.error !== null) return undefined;
 	return {
