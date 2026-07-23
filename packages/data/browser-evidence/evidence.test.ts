@@ -270,9 +270,7 @@ test('hung sync continuity requires two distinct writes witnessed exactly once',
 
 	for (const scenario of cases) {
 		const cells = evidence.cells.map((cell) =>
-			cell.id === hung.id
-				? { ...cell, parameters: scenario.parameters }
-				: cell,
+			cell.id === hung.id ? { ...cell, parameters: scenario.parameters } : cell,
 		);
 		expect(classifyEvidence('chromium', cells), scenario.name).toBe('invalid');
 		expect(() =>

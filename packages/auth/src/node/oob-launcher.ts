@@ -112,7 +112,7 @@ type CreateOobOAuthLauncherConfig = {
  * is not guaranteed. It prints the authorize URL, exchanges the pasted code
  * with PKCE, and returns a completed launch result with the OAuth grant. The
  * caller must still call `/api/session` before persisting anything, preserving
-	 * the split between network credentials and replica attachment identity.
+ * the split between network credentials and replica attachment identity.
  */
 export function createOobOAuthLauncher({
 	baseURL = EPICENTER_API_URL,

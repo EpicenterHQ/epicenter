@@ -28,9 +28,7 @@ declare namespace Cloudflare {
 		DATA_AUTHORITY: DurableObjectNamespace<
 			import('@epicenter/server').DataAuthority
 		>;
-		DATA_BACKUP: DurableObjectNamespace<
-			import('@epicenter/server').DataBackup
-		>;
+		DATA_BACKUP: DurableObjectNamespace<import('@epicenter/server').DataBackup>;
 		DATA_BACKUP_REGISTRY: DurableObjectNamespace<
 			import('@epicenter/server').DataBackupRegistry
 		>;

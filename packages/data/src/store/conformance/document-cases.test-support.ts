@@ -249,10 +249,12 @@ export function runDocumentConformanceCases(
 					address: ADDRESS,
 					update: second,
 				});
-				expect(await apply(replica, {
-					kind: 'publication',
-					address: ADDRESS,
-				})).toEqual({ kind: 'not-settled' });
+				expect(
+					await apply(replica, {
+						kind: 'publication',
+						address: ADDRESS,
+					}),
+				).toEqual({ kind: 'not-settled' });
 				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
 					owed: true,
 				});

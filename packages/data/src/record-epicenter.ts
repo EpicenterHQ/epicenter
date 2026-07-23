@@ -366,15 +366,11 @@ export function createRecordLensRuntime<
 		async function page({
 			after,
 			limit = ENTRIES_PAGE_SIZE,
-		}: { after?: string; limit?: number } = {}): Promise<
-			RecordTablePage<TDefinition>
-		> {
-			const stored = await access.readPage(
-				namespace,
-				collection,
-				after,
-				limit,
-			);
+		}: {
+			after?: string;
+			limit?: number;
+		} = {}): Promise<RecordTablePage<TDefinition>> {
+			const stored = await access.readPage(namespace, collection, after, limit);
 			const projected: RecordTableEntry<TDefinition>[] = [];
 			for (const entry of stored.entries) {
 				if (entry.record.state !== 'live') continue;

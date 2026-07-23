@@ -105,9 +105,7 @@ function dependencyOnlyDiff(): Uint8Array {
 	document.get('content').insert(0, 'a');
 	const afterFirst = Y.encodeStateVector(document);
 	document.get('content').insert(0, 'b');
-	const update = new Uint8Array(
-		Y.encodeStateAsUpdateV2(document, afterFirst),
-	);
+	const update = new Uint8Array(Y.encodeStateAsUpdateV2(document, afterFirst));
 	document.destroy();
 	return update;
 }

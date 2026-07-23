@@ -93,7 +93,8 @@ function isSelfContained(update: Uint8Array): boolean {
 	try {
 		Y.applyUpdateV2(document, update, hydrationOrigin);
 		return (
-			document.store.pendingStructs === null && document.store.pendingDs === null
+			document.store.pendingStructs === null &&
+			document.store.pendingDs === null
 		);
 	} catch {
 		return false;

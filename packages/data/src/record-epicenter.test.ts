@@ -232,9 +232,7 @@ describe('record Epicenter Lens runtime', () => {
 				limit: 2,
 			});
 			expect(second).toMatchObject({
-				entries: [
-					{ data: { id: 'c'.repeat(24), title: 'C' }, error: null },
-				],
+				entries: [{ data: { id: 'c'.repeat(24), title: 'C' }, error: null }],
 			});
 			expect(second.nextAfter).toBeUndefined();
 		} finally {

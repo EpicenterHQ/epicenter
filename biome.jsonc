@@ -34,6 +34,11 @@
 			"!.DS_Store",
 			"!docs/articles",
 			"!**/*.md",
+			// Dated benchmark reports are immutable measured artifacts. Their
+			// provenance manifests, not the formatter, verify their exact bytes.
+			"!docs/benchmarks/**/20*.json",
+			// This retained browser benchmark input is hash-bound to the reports.
+			"!packages/data/browser-evidence/replica-layout-worker.ts",
 			// svelte-check owns .svelte files. Biome's HTML/Svelte parser
 			// rejects valid Svelte 5 syntax (e.g. value-less `{:then}`),
 			// and the rules it can apply to script blocks duplicate what
