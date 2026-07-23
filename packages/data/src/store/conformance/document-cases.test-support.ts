@@ -17,7 +17,7 @@ import type { MaybePromise } from './replica-cases.test-support.js';
 export type DocumentAction =
 	| { kind: 'append-local'; address: RecordAddress; update: Uint8Array }
 	| { kind: 'install-accepted'; address: RecordAddress; update: Uint8Array }
-	| { kind: 'publication'; address: RecordAddress; stateVector?: Uint8Array }
+	| { kind: 'publication'; address: RecordAddress }
 	| {
 			kind: 'settle-publication';
 			address: RecordAddress;
@@ -315,7 +315,7 @@ export function runDocumentConformanceCases(
 			}
 		});
 
-		test('a delete-only update publishes despite state-vector equality', async () => {
+		test('a delete-only update publishes as complete state', async () => {
 			const replica = await binding.create();
 			try {
 				const source = new Y.Doc({ gc: true });
@@ -325,7 +325,6 @@ export function runDocumentConformanceCases(
 				});
 				source.get('content').insert(0, 'ab');
 				source.get('content').delete(0, 1);
-				const stateVector = new Uint8Array(Y.encodeStateVector(source));
 				source.destroy();
 				const [insert, deletion] = updates;
 				if (insert === undefined || deletion === undefined) {
@@ -348,9 +347,9 @@ export function runDocumentConformanceCases(
 					address: ADDRESS,
 					update: deletion,
 				});
-				// The authority already holds every struct; equality of state vectors
-				// must not clear the obligation because deletions live outside them.
-				const deleteOnly = await readyPublication(replica, { stateVector });
+				// Complete compact state makes the publication self-sufficient even
+				// when deletion semantics are not represented by a state-vector clock.
+				const deleteOnly = await readyPublication(replica);
 				expect(deleteOnly.capturedRevision).toBe(2);
 				expect(deleteOnly.payload.byteLength).toBeGreaterThan(0);
 				await apply(replica, {

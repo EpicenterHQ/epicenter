@@ -58,11 +58,7 @@ export type BrowserReplicaOwnerOperation =
 	  }
 	| { kind: 'inspect-document'; address: RecordAddress }
 	| { kind: 'export-document'; address: RecordAddress }
-	| {
-			kind: 'document-publication';
-			address: RecordAddress;
-			stateVector?: Uint8Array;
-	  }
+	| { kind: 'document-publication'; address: RecordAddress }
 	| {
 			kind: 'settle-document-publication';
 			address: RecordAddress;

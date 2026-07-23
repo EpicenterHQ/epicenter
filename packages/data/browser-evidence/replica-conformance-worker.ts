@@ -101,7 +101,7 @@ function executeAction(target: ReplicaStore, action: BrowserReplicaAction) {
 			target.installAcceptedDocumentUpdate(action.address, action.update);
 			return undefined;
 		case 'publication':
-			return target.documentPublication(action.address, action.stateVector);
+			return target.documentPublication(action.address);
 		case 'settle-publication':
 			target.settleDocumentPublication(
 				action.address,

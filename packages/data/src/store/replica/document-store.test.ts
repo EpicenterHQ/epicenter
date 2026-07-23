@@ -206,7 +206,7 @@ describe('record document store', () => {
 		}
 	});
 
-	test('a delete-only update stays owed and publishes despite state-vector equality', () => {
+	test('a delete-only update stays owed and publishes as complete state', () => {
 		const context = setup();
 		try {
 			const source = new Y.Doc({ gc: true });
@@ -232,19 +232,7 @@ describe('record document store', () => {
 
 			context.store.appendLocalDocumentUpdate(ADDRESS, deletion);
 			expect(context.store.inspectDocument(ADDRESS)?.owed).toBe(true);
-			// The authority already holds every struct, so its state vector equals
-			// ours; the obligation derives from the revision watermark, never from
-			// state-vector comparison.
-			const exported = context.store.exportDocument(ADDRESS);
-			if (exported === undefined) throw new Error('document was not exported');
-			const local = new Y.Doc({ gc: true });
-			Y.applyUpdateV2(local, exported);
-			const stateVector = Y.encodeStateVector(local);
-			local.destroy();
-			const deleteOnly = context.store.documentPublication(
-				ADDRESS,
-				stateVector,
-			);
+			const deleteOnly = context.store.documentPublication(ADDRESS);
 			if (deleteOnly.kind !== 'ready') {
 				throw new Error('delete-only publication was not ready');
 			}
@@ -260,7 +248,7 @@ describe('record document store', () => {
 		}
 	});
 
-	test('persists an authority bound refusal and a newer local edit supersedes it', () => {
+	test('keeps authority refusal evidence diagnostic while retry stays eligible', () => {
 		const context = setup();
 		try {
 			const [first, second] = sourceUpdates('a', 'b');
@@ -284,24 +272,57 @@ describe('record document store', () => {
 				refusal,
 				capturedOf(attempt.publication),
 			);
-			expect(context.store.documentPublication(ADDRESS)).toEqual({
-				kind: 'refused',
-				refusal: {
-					revision: 1,
-					measured: refusal.measured,
-					limit: DOCUMENT_BOUND,
-				},
-			});
+			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(true);
+			const retry = context.store.documentPublication(ADDRESS);
+			if (retry.kind !== 'ready') throw new Error('refused revision cannot retry');
+			expect(retry.publication.digest).toBe(attempt.publication.digest);
 			// The refusal evidence is durable across a clean reopen.
-			expect(
-				openReplicaStore({
+			const reopened = openReplicaStore({
 					database: createBunSqliteAdapter(context.database),
 					limits: makeLimits(),
-				}).documentPublication(ADDRESS).kind,
-			).toBe('refused');
+				});
+			expect(reopened.inspectDocument(ADDRESS)?.refused).toBe(true);
+			expect(reopened.documentPublication(ADDRESS).kind).toBe('ready');
 
 			context.store.appendLocalDocumentUpdate(ADDRESS, second);
 			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(false);
+			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('a remote install invalidates a delayed refusal for the same local revision', () => {
+		const context = setup();
+		try {
+			const [local, remote] = sourceUpdates('local', 'remote');
+			if (local === undefined || remote === undefined) {
+				throw new Error('missing source updates');
+			}
+			context.store.appendLocalDocumentUpdate(ADDRESS, local);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+
+			context.store.installAcceptedDocumentUpdate(ADDRESS, remote);
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				{
+					...receipt(attempt.publication),
+					kind: 'document-bound',
+					measured: {
+						stateBytes: DOCUMENT_BOUND.stateBytes + 1,
+						stateStructs: DOCUMENT_BOUND.stateStructs,
+					},
+					limit: DOCUMENT_BOUND,
+				},
+				capturedOf(attempt.publication),
+			);
+
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 1,
+				owed: true,
+				refused: false,
+			});
 			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
 		} finally {
 			context.database.close();
