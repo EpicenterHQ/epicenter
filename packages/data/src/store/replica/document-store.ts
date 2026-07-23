@@ -68,6 +68,7 @@ export type DocumentRefusalEvidence = {
 
 export type DocumentPublicationState =
 	| { kind: 'settled' }
+	| { kind: 'not-settled' }
 	| { kind: 'ready'; publication: CapturedDocumentPublication }
 	| { kind: 'refused'; refusal: DocumentRefusalEvidence };
 
@@ -318,6 +319,12 @@ export function createReplicaDocumentStore(
 			}
 			const document = hydrate(chain);
 			try {
+				if (
+					document.store.pendingStructs !== null ||
+					document.store.pendingDs !== null
+				) {
+					return { kind: 'not-settled' };
+				}
 				const encodedState = new Uint8Array(Y.encodeStateAsUpdateV2(document));
 				const measured = measureDocumentState(encodedState);
 				if (exceedsDocumentBound(measured)) {

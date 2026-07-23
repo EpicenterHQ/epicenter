@@ -88,6 +88,20 @@ function hydrate(chain: readonly ChainRow[]): Y.Doc {
 	}
 }
 
+function isSelfContained(update: Uint8Array): boolean {
+	const document = new Y.Doc({ gc: true });
+	try {
+		Y.applyUpdateV2(document, update, hydrationOrigin);
+		return (
+			document.store.pendingStructs === null && document.store.pendingDs === null
+		);
+	} catch {
+		return false;
+	} finally {
+		document.destroy();
+	}
+}
+
 /** Compose one record's accepted chain for a portable capture cut. */
 export function captureAuthorityDocument(
 	database: SqliteDatabase,
@@ -130,7 +144,8 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 			request.protocolVersion !== DOCUMENT_PUBLICATION_VERSION ||
 			!(request.payload instanceof Uint8Array) ||
 			request.payload.byteLength === 0 ||
-			documentPayloadDigest(request.payload) !== request.digest
+			documentPayloadDigest(request.payload) !== request.digest ||
+			!isSelfContained(request.payload)
 		) {
 			throw new TypeError('invalid document publication request');
 		}

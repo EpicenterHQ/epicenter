@@ -317,6 +317,18 @@ function parseDocumentPublicationRequestUnsafe(
 		return undefined;
 	}
 	Y.decodeUpdateV2(candidate.payload);
+	const document = new Y.Doc({ gc: true });
+	try {
+		Y.applyUpdateV2(document, candidate.payload);
+		if (
+			document.store.pendingStructs !== null ||
+			document.store.pendingDs !== null
+		) {
+			return undefined;
+		}
+	} finally {
+		document.destroy();
+	}
 	const address = parseAddress(candidate.address, limits);
 	if (address.error !== null) return undefined;
 	return {

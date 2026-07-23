@@ -222,7 +222,11 @@ export function createRecordSyncSupervisor<TSource, TBlobRead>({
 		let progressed = false;
 		for (const address of replica.owedDocuments()) {
 			const state = replica.documentPublication(address);
-			if (state.kind === 'settled' || state.kind === 'refused') {
+			if (
+				state.kind === 'settled' ||
+				state.kind === 'not-settled' ||
+				state.kind === 'refused'
+			) {
 				continue;
 			}
 			const { capturedRevision, ...request } = state.publication;

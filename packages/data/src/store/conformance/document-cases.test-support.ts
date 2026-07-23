@@ -237,6 +237,46 @@ export function runDocumentConformanceCases(
 			}
 		});
 
+		test('a dependency-partial chain stays owed until its prerequisite arrives', async () => {
+			const replica = await binding.create();
+			try {
+				const [first, second] = sourceUpdates('a', 'b');
+				if (first === undefined || second === undefined) {
+					throw new Error('missing dependent updates');
+				}
+				await apply(replica, {
+					kind: 'append-local',
+					address: ADDRESS,
+					update: second,
+				});
+				expect(await apply(replica, {
+					kind: 'publication',
+					address: ADDRESS,
+				})).toEqual({ kind: 'not-settled' });
+				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
+					owed: true,
+				});
+
+				await apply(replica, {
+					kind: 'append-local',
+					address: ADDRESS,
+					update: first,
+				});
+				const publication = await readyPublication(replica);
+				const detached = new Y.Doc({ gc: true });
+				try {
+					Y.applyUpdateV2(detached, publication.payload);
+					expect(detached.store.pendingStructs).toBeNull();
+					expect(detached.store.pendingDs).toBeNull();
+					expect(detached.get('content').toString()).toBe('ba');
+				} finally {
+					detached.destroy();
+				}
+			} finally {
+				await replica.dispose();
+			}
+		});
+
 		test('tail compaction is atomic and preserves the complete document', async () => {
 			let replica = await binding.create();
 			try {

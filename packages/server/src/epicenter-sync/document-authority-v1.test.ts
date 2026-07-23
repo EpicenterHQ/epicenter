@@ -215,18 +215,31 @@ for (const [name, adapt] of [
 			}
 		});
 
-		test('joins dependency-reordered updates and compacts a bounded tail', () => {
+		test('refuses dependency-partial publications and compacts a bounded tail', () => {
 			const { raw, authority } = setup();
 			try {
 				const [first, second] = dependentUpdates('a', 'b');
 				if (first === undefined || second === undefined) {
 					throw new Error('missing dependent updates');
 				}
-				authority.acceptDocument(publication('lifetime-one', second));
-				authority.acceptDocument(publication('lifetime-one', first));
+				expect(() =>
+					authority.acceptDocument(publication('lifetime-one', second)),
+				).toThrow('invalid document publication request');
+				expect(authority.exportDocument(ADDRESS)).toBeUndefined();
+				expect(captureState(raw)).toEqual({
+					recordRevision: 1,
+					nextRevision: 2,
+				});
+
+				const complete = new Y.Doc({ gc: true });
+				Y.applyUpdateV2(complete, first);
+				Y.applyUpdateV2(complete, second);
+				const compact = new Uint8Array(Y.encodeStateAsUpdateV2(complete));
+				complete.destroy();
+				authority.acceptDocument(publication('lifetime-one', compact));
 				expect(textOf(authority.exportDocument(ADDRESS))).toBe('ba');
 
-				for (let index = 0; index < 63; index += 1) {
+				for (let index = 0; index < 64; index += 1) {
 					authority.acceptDocument(
 						publication('lifetime-one', updateFor(String(index))),
 					);

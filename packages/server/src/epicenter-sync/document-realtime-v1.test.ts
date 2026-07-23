@@ -100,6 +100,18 @@ function updateFor(value: string): Uint8Array {
 	return update;
 }
 
+function dependencyOnlyDiff(): Uint8Array {
+	const document = new Y.Doc({ gc: true });
+	document.get('content').insert(0, 'a');
+	const afterFirst = Y.encodeStateVector(document);
+	document.get('content').insert(0, 'b');
+	const update = new Uint8Array(
+		Y.encodeStateAsUpdateV2(document, afterFirst),
+	);
+	document.destroy();
+	return update;
+}
+
 function connect(
 	server: ReturnType<typeof createDocumentRealtimeV1Server>,
 	peer: DocumentRealtimeV1Socket,
@@ -154,6 +166,35 @@ describe('document realtime V1 overlay', () => {
 				code: 1002,
 				reason: 'invalid-document-frame',
 			});
+		} finally {
+			context.raw.close();
+		}
+	});
+
+	test('does not receipt a diff whose claimed prerequisite is absent', () => {
+		const context = setup();
+		try {
+			const peer = socket();
+			connect(context.server, peer.value);
+			const callsBefore = context.acceptCalls();
+			context.server.receive(
+				peer.value,
+				ADDRESS,
+				'lifetime-one',
+				encodeDocumentFrame({
+					kind: 'update',
+					update: dependencyOnlyDiff(),
+				}),
+			);
+			expect(context.acceptCalls()).toBe(callsBefore);
+			expect(context.stored.exportDocument(ADDRESS)).toBeUndefined();
+			expect(peer.closed.at(-1)).toEqual({
+				code: 1002,
+				reason: 'invalid-document-frame',
+			});
+			expect(
+				peer.sent.map(decodeDocumentFrame).map((frame) => frame.kind),
+			).toEqual(['sync-request', 'sync-response']);
 		} finally {
 			context.raw.close();
 		}

@@ -86,6 +86,29 @@ test('document publication admission refuses mismatched integrity and hostile sh
 	).toBeUndefined();
 });
 
+test('document publication admission refuses dependency-partial Yjs state', () => {
+	const source = new Y.Doc({ gc: true });
+	const updates: Uint8Array[] = [];
+	source.on('updateV2', (update: Uint8Array) => {
+		updates.push(new Uint8Array(update));
+	});
+	source.get('content').insert(0, 'a');
+	source.get('content').insert(0, 'b');
+	source.destroy();
+	const second = updates[1];
+	if (second === undefined) throw new Error('missing dependent update');
+	expect(
+		parseDocumentPublicationRequest(
+			{
+				...request,
+				payload: second,
+				digest: documentPayloadDigest(second),
+			},
+			limits,
+		),
+	).toBeUndefined();
+});
+
 test('one acceptance encoding round trips every HTTP and WebSocket result', () => {
 	const receipt = {
 		authorityLifetime: request.authorityLifetime,

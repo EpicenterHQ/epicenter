@@ -117,13 +117,35 @@ export function createDocumentRealtimeV1Server({
 	}
 
 	function acceptUpdate(session: Session, update: Uint8Array): void {
+		const stored = authority.readDocument(session.address);
+		if (stored.state !== 'live') {
+			close(session.socket, 1000, 'record-not-live');
+			return;
+		}
+		const document = new Y.Doc({ gc: true });
+		let payload: Uint8Array;
+		try {
+			if (stored.update !== undefined) {
+				Y.applyUpdateV2(document, stored.update, hydrationOrigin);
+			}
+			Y.applyUpdateV2(document, update, hydrationOrigin);
+			if (
+				document.store.pendingStructs !== null ||
+				document.store.pendingDs !== null
+			) {
+				throw new TypeError('document update has unresolved dependencies');
+			}
+			payload = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+		} finally {
+			document.destroy();
+		}
 		const request = parseDocumentPublicationRequest(
 			{
 				authorityLifetime: session.authorityLifetime,
 				address: session.address,
 				protocolVersion: DOCUMENT_PUBLICATION_VERSION,
-				payload: update,
-				digest: documentPayloadDigest(update),
+				payload,
+				digest: documentPayloadDigest(payload),
 			},
 			SCALAR_SYNC_V1_LIMITS,
 		);
