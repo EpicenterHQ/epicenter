@@ -19,17 +19,12 @@ import {
 
 export type { WhisperingBlobs } from './recording-audio';
 
-/**
- * The app-facing runtime contract. Whispering never captures record blobs, so
- * the blob source is `never` and any environment's runtime satisfies this.
- */
-export type WhisperingEpicenter = EpicenterRuntime<never, unknown>;
-
-export type WhisperingData = BoundLens<typeof whisperingLens, never, unknown>;
+export type WhisperingData = BoundLens<typeof whisperingLens>;
 
 /** Environment-owned inputs for one fully acquired Whispering app. */
 export type WhisperingAppDependencies = {
-	openEpicenter(): Promise<WhisperingEpicenter>;
+	/** Whispering captures no record blobs, so any environment's runtime fits. */
+	openEpicenter(): Promise<EpicenterRuntime>;
 	blobs: WhisperingBlobs;
 	defaultTranscriptionService: TranscriptionServiceId;
 	reportBackgroundError(cause: unknown): void;
@@ -77,7 +72,7 @@ export async function openWhisperingApp(
 	}: WhisperingAppDependencies,
 	{ signal }: { signal?: AbortSignal } = {},
 ): Promise<WhisperingApp> {
-	let epicenter: WhisperingEpicenter | undefined;
+	let epicenter: EpicenterRuntime | undefined;
 	let disposeDomains: (() => void) | undefined;
 	let released = false;
 	let releasePromise: Promise<void> | undefined;

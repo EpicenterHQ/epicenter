@@ -122,7 +122,7 @@ export function createWhisperingRecordings({
 	blobs,
 	reportBackgroundError,
 }: {
-	table: TableLens<typeof recordingsTable, never, unknown>;
+	table: TableLens<typeof recordingsTable>;
 	blobs: WhisperingBlobs;
 	reportBackgroundError(cause: unknown): void;
 }) {

@@ -17,7 +17,7 @@ export function createWhisperingRecipes({
 	table,
 	reportBackgroundError,
 }: {
-	table: TableLens<typeof recipesTable, never, unknown>;
+	table: TableLens<typeof recipesTable>;
 	reportBackgroundError(cause: unknown): void;
 }) {
 	let rows: Recipe[] = [];

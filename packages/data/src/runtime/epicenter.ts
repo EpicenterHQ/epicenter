@@ -94,8 +94,8 @@ export type AttachOutcome =
 
 export type TableRecordHandle<
 	TTable extends TableDefinition,
-	TBlobSource,
-	TBlobRead,
+	TBlobSource = never,
+	TBlobRead = unknown,
 > = {
 	get(): Promise<Result<RowFor<TTable> | undefined, NonconformingRowError>>;
 	update<const TChanges extends Record<string, unknown>>(
@@ -122,8 +122,8 @@ export type ValuesRecordHandle<TValue> = {
 
 export type TableLens<
 	TTable extends TableDefinition,
-	TBlobSource,
-	TBlobRead,
+	TBlobSource = never,
+	TBlobRead = unknown,
 > = {
 	create(fields: CreateInputFor<TTable>): Promise<RowFor<TTable>>;
 	scan(): Promise<{
@@ -142,7 +142,17 @@ export type ValuesLens<TValues extends ValuesDefinition> = {
 	): ValuesRecordHandle<Static<TValues['values'][TKey]>>;
 };
 
-export type BoundLens<TLens extends LensDefinition, TBlobSource, TBlobRead> = {
+/**
+ * The typed application projection over one bound Lens. The blob parameters
+ * default to the capture-free shape (`never` source, opaque reads), so any
+ * environment's runtime satisfies `BoundLens<TLens>`; blob-capturing callers
+ * name their environment's concrete types.
+ */
+export type BoundLens<
+	TLens extends LensDefinition,
+	TBlobSource = never,
+	TBlobRead = unknown,
+> = {
 	[TKey in keyof TLens['collections']]: TLens['collections'][TKey] extends TableDefinition
 		? TableLens<TLens['collections'][TKey], TBlobSource, TBlobRead>
 		: TLens['collections'][TKey] extends ValuesDefinition
@@ -542,8 +552,13 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 	return epicenter;
 }
 
+/**
+ * One semantic Epicenter runtime. Bare `EpicenterRuntime` is the app-facing
+ * supertype every environment adapter satisfies: the default blob parameters
+ * describe a caller that captures nothing and reads opaquely.
+ */
 export type EpicenterRuntime<
-	TBlobSource = unknown,
+	TBlobSource = never,
 	TBlobRead = unknown,
 > = ReturnType<typeof createEpicenterRuntime<TBlobSource, TBlobRead>>;
 
