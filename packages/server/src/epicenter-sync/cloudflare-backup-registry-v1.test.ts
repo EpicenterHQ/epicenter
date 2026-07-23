@@ -28,6 +28,7 @@ mock.module('cloudflare:workers', () => ({
 			this.env = env;
 		}
 	},
+	WorkerEntrypoint: class {},
 }));
 
 let DataBackupRegistry: typeof import('./cloudflare-backup-registry-v1.js').DataBackupRegistry;

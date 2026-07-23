@@ -105,6 +105,7 @@ mock.module('cloudflare:workers', () => ({
 			this.env = env;
 		}
 	},
+	WorkerEntrypoint: class {},
 }));
 
 // ────────────────────────────────────────────────────────────────────────────

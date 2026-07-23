@@ -21,6 +21,7 @@ mock.module('cloudflare:workers', () => ({
 			this.env = env;
 		}
 	},
+	WorkerEntrypoint: class {},
 }));
 
 let DataBackup: typeof import('./cloudflare-backup-v1.js').DataBackup;

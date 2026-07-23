@@ -21,6 +21,7 @@ mock.module('cloudflare:workers', () => ({
 			this.ctx = ctx;
 		}
 	},
+	WorkerEntrypoint: class {},
 }));
 
 type SqlValue = ArrayBuffer | string | number | null;

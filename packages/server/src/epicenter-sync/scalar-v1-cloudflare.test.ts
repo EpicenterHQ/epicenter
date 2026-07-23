@@ -37,6 +37,7 @@ mock.module('cloudflare:workers', () => ({
 			this.env = env;
 		}
 	},
+	WorkerEntrypoint: class {},
 }));
 
 let DataAuthority: typeof import('./scalar-v1-cloudflare.js').DataAuthority;
