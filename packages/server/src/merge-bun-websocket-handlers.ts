@@ -1,11 +1,11 @@
 /**
- * Merge the two Bun `WebSocketHandler`s a self-hosted instance serves, the
- * rooms backend and the AttachRelay, into the one handler `Bun.serve` accepts,
+ * Merge the Bun `WebSocketHandler`s a self-hosted instance serves into the one
+ * handler `Bun.serve` accepts,
  * dispatching each socket to its owner by the `surface` tag on `ws.data`.
  *
  * `Bun.serve` accepts exactly ONE `websocket` handler, but a Bun host that
- * serves both the rooms surface and the AttachRelay needs both on one port and
- * one server (a WebSocket cannot pick a port after connecting). Each backend
+ * serves rooms, record documents, and AttachRelay needs them on one port and
+ * one server. Each backend
  * owns a DISJOINT `ws.data` shape (`createBunRooms` tags `surface: 'rooms'`,
  * `createAttachRelayBunServer` tags `surface: 'attach'`) and its own coordinator
  * state, so this merge never blends the two: it reads the tag stamped at
@@ -14,24 +14,20 @@
  * on `ws.data`, never a wire or addressing field: it never reaches a relay frame,
  * so it is not the "channel router" ADR-0115 forbids.
  *
- * This is a two-surface merge on purpose, not a generic N-way router: a Bun
- * instance has exactly these two WebSocket surfaces, and a third one earns a new
- * ADR, not another map entry. Both backends bind the SAME `Server` (`bindServer`
- * on each) so their respective `handleUpgrade`/`fetch` calls upgrade onto the one
- * Bun server this merged handler drives.
+ * This is a closed merge, not a generic N-way router. Each backend binds the
+ * same `Server` so its upgrade handler reaches the one Bun server this merged
+ * handler drives.
  */
 
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
 import type { AttachRelaySocketData } from './attach-relay/bun-server.js';
-import type { BunEpicenterDocumentSocketData } from './epicenter-sync/document-bun.js';
 import type { BunDataDocumentV1SocketData } from './epicenter-sync/document-realtime-v1-bun.js';
 import type { BunRoomSocketData } from './room/backends/bun/registry.js';
 
-/** The two disjoint `ws.data` shapes this merged handler dispatches between. */
+/** The disjoint `ws.data` shapes this merged handler dispatches between. */
 export type MergedSocketData =
 	| BunRoomSocketData
 	| AttachRelaySocketData
-	| BunEpicenterDocumentSocketData
 	| BunDataDocumentV1SocketData;
 
 /**
@@ -39,12 +35,11 @@ export type MergedSocketData =
  * by the `surface` tag `server.upgrade` stamped onto `ws.data`. Each backend
  * handler expects its own concrete `ws.data`, not the union, so `pick` reads the
  * tag and hands the socket to that backend's handler as its own type: this
- * function owns that one narrowing so each caller passes its two typed handlers
+ * function owns that one narrowing so each caller passes typed handlers
  * directly.
  */
 export function mergeBunWebSocketHandlers(handlers: {
 	rooms: WebSocketHandler<BunRoomSocketData>;
-	documents: WebSocketHandler<BunEpicenterDocumentSocketData>;
 	dataDocuments?: WebSocketHandler<BunDataDocumentV1SocketData>;
 	attach?: WebSocketHandler<AttachRelaySocketData>;
 }): WebSocketHandler<MergedSocketData> {
@@ -53,11 +48,9 @@ export function mergeBunWebSocketHandlers(handlers: {
 	): WebSocketHandler<MergedSocketData> =>
 		(ws.data.surface === 'rooms'
 			? handlers.rooms
-			: ws.data.surface === 'epicenter-document'
-				? handlers.documents
-				: ws.data.surface === 'epicenter-data-document'
-					? handlers.dataDocuments
-					: handlers.attach) as WebSocketHandler<MergedSocketData>;
+			: ws.data.surface === 'epicenter-data-document'
+				? handlers.dataDocuments
+				: handlers.attach) as WebSocketHandler<MergedSocketData>;
 
 	return {
 		open(ws) {

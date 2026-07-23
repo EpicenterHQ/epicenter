@@ -32,7 +32,6 @@ import {
 	mountBlobsApp,
 	mountCloudAuth,
 	mountCloudDb,
-	mountCloudflareEpicenterSyncApp,
 	mountCloudflareScalarV1App,
 	mountInferenceApp,
 	mountRoomsApp,
@@ -146,16 +145,6 @@ mountCloudAuth(app, {
 
 // Principal-partitioned reusable surfaces.
 mountSessionApp(app, { auth: cookieOrBearer });
-mountCloudflareEpicenterSyncApp(app, {
-	auth: bearer,
-	resolveDocumentPrincipal: resolveRequestOAuthDocumentAuthorization,
-	resolveNamespace: (env) =>
-		(
-			env as Cloudflare.Env & {
-				EPICENTER_SYNC: DurableObjectNamespace<EpicenterAuthority>;
-			}
-		).EPICENTER_SYNC,
-});
 mountCloudflareScalarV1App(app, {
 	auth: bearer,
 	resolveDocumentPrincipal: resolveRequestOAuthDocumentAuthorization,

@@ -33,7 +33,6 @@ import {
 	type DataBackupRegistryNamespace,
 	EpicenterAuthority,
 	mountBlobsApp,
-	mountCloudflareEpicenterSyncApp,
 	mountCloudflareScalarV1App,
 	mountInferenceApp,
 	mountRoomsApp,
@@ -91,18 +90,6 @@ app.get('/', (c) =>
 mountSessionApp(app, { auth });
 // Rooms resolves the bearer itself (WS-aware), so it takes the raw resolver.
 mountRoomsApp(app, { resolveBearerPrincipal });
-mountCloudflareEpicenterSyncApp(app, {
-	auth,
-	resolveDocumentPrincipal: withDocumentAuthorizationDeadline(
-		resolveBearerPrincipal,
-	),
-	resolveNamespace: (env) =>
-		(
-			env as Cloudflare.Env & {
-				EPICENTER_SYNC: DurableObjectNamespace<EpicenterAuthority>;
-			}
-		).EPICENTER_SYNC,
-});
 mountCloudflareScalarV1App(app, {
 	auth,
 	resolveDocumentPrincipal: withDocumentAuthorizationDeadline(
