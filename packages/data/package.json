@@ -15,7 +15,9 @@
 		"./desktop-owner": "./src/desktop-owner.ts",
 		"./document-v1": "./src/document-v1/index.ts",
 		"./protocol": "./src/protocol/index.ts",
-		"./protocol/v1": "./src/protocol/v1/index.ts"
+		"./protocol/v1": "./src/protocol/v1/index.ts",
+		"./runtime": "./src/runtime/index.ts",
+		"./runtime/browser": "./src/runtime/browser.ts"
 	},
 	"files": [
 		"src",

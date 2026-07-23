@@ -54,6 +54,17 @@ export function startBrowserReplicaOwnerWorker(
 				return undefined;
 			}
 			case 'record':
+			case 'attachment':
+			case 'is-logically-empty':
+			case 'visible-record':
+			case 'visible-records-page':
+			case 'is-visibly-live':
+			case 'blocked-records-page':
+			case 'publication-status':
+			case 'runtime-table-update':
+			case 'runtime-delete-record':
+			case 'runtime-value-write':
+			case 'runtime-read-blob':
 			case 'sync':
 			case 'sealed-request':
 			case 'owed-documents':
@@ -67,6 +78,8 @@ export function startBrowserReplicaOwnerWorker(
 			case 'install-accepted-document':
 			case 'inspect-document':
 			case 'export-document':
+			case 'open-runtime-document':
+			case 'refresh-runtime-document':
 			case 'document-publication':
 			case 'settle-document-publication':
 			case 'capture-blob':

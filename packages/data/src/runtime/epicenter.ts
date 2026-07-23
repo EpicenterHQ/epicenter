@@ -131,6 +131,7 @@ export type TableLens<
 		nonconforming: NonconformingRowError[];
 	}>;
 	entries(): AsyncIterable<Result<RowFor<TTable>, NonconformingRowError>>;
+	/** An empty list is a conservative broad invalidation and requires a rescan. */
 	subscribe(listener: (changedIds: string[]) => void): () => void;
 	record(id: string): TableRecordHandle<TTable, TBlobSource, TBlobRead>;
 };

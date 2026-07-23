@@ -242,17 +242,24 @@ async function flush(): Promise<void> {
 async function setup(options?: {
 	dropInitialDiscovery?: boolean;
 	dropEveryDiscovery?: boolean;
+	delayOwnerMutation?: boolean;
 }) {
 	const hub = new FakeBroadcastHub();
 	const ownerScheduler = new ManualScheduler();
 	const followerScheduler = new ManualScheduler();
 	const ownerScope = new FakeWorkerScope();
 	const followerScope = new FakeWorkerScope();
+	let ownerRuntime:
+		| Parameters<BrowserReplicaCandidateWorkerDependencies['openOwner']>[1]
+		| undefined;
 	const followerOwnership = deferred<{
-		execute(operation: BrowserReplicaStoreOperation): BrowserReplicaOwnerResult;
+		execute(
+			operation: BrowserReplicaStoreOperation,
+		): BrowserReplicaOwnerResult | Promise<BrowserReplicaOwnerResult>;
 		dispose(): Promise<void>;
 	}>();
 	const values = new Map<string, string>();
+	const delayedOwnerMutation = deferred<BrowserReplicaOwnerResult>();
 	const executions = {
 		ownerReads: 0,
 		followerReads: 0,
@@ -264,13 +271,20 @@ async function setup(options?: {
 		return {
 			execute(
 				operation: BrowserReplicaStoreOperation,
-			): BrowserReplicaOwnerResult {
+			): BrowserReplicaOwnerResult | Promise<BrowserReplicaOwnerResult> {
 				if (operation.kind === 'record') {
 					executions[`${label}Reads`] += 1;
 					return values.get(operation.address.recordKey) ?? null;
 				}
 				if (countedMutationKinds.has(operation.kind)) {
 					executions[`${label}Mutations`] += 1;
+				}
+				if (
+					label === 'owner' &&
+					options?.delayOwnerMutation === true &&
+					countedMutationKinds.has(operation.kind)
+				) {
+					return delayedOwnerMutation.promise;
 				}
 				if (operation.kind === 'local-write') {
 					if (operation.intent.op === 'replace') {
@@ -296,10 +310,13 @@ async function setup(options?: {
 		let nextUuid = 0;
 		return {
 			createChannel: (name) => hub.create(name, label),
-			openOwner: () =>
-				label === 'owner'
-					? Promise.resolve(createOwner('owner'))
-					: followerOwnership.promise,
+			openOwner: (_start, runtime) => {
+				if (label === 'owner') {
+					ownerRuntime = runtime;
+					return Promise.resolve(createOwner('owner'));
+				}
+				return followerOwnership.promise;
+			},
 			randomUuid: () => `${label}-${nextUuid++}`,
 			schedule: scheduler.schedule,
 			cancelSchedule: scheduler.cancel,
@@ -333,6 +350,14 @@ async function setup(options?: {
 		followerScope,
 		executions,
 		values,
+		releaseOwnerMutation() {
+			delayedOwnerMutation.resolve(undefined);
+		},
+		replaceOwnerAuthority() {
+			if (ownerRuntime === undefined)
+				throw new Error('owner runtime was not established');
+			ownerRuntime.onAuthorityReplacement();
+		},
 	};
 }
 
@@ -453,9 +478,62 @@ test('lost invalidation is repaired by the owner heartbeat token', async () => {
 		{
 			type: 'invalidation',
 			token: 'owner-2',
+			sequence: 1,
 			ownerSession: 'owner-1',
+			addresses: [address],
+			all: false,
 		},
 	]);
+});
+
+test('an invalidation sequence gap requests a conservative full refresh', async () => {
+	const { hub, followerScheduler, followerScope, ownerScope } = await setup();
+	hub.dropNext('owner', 'invalidation');
+	hub.dropNext('owner', 'invalidation');
+
+	for (const [id, recordKey] of [
+		[1, 'aaaaaaaaaaaaaaaaaaaaaaaa'],
+		[2, 'bbbbbbbbbbbbbbbbbbbbbbbb'],
+	] as const) {
+		ownerScope.send({
+			type: 'request',
+			id,
+			operation: {
+				kind: 'local-write',
+				intent: {
+					address: { ...address, recordKey },
+					op: 'replace',
+					value: 'changed',
+				},
+			},
+		});
+	}
+	await flush();
+	expect(messagesOfType(followerScope, 'invalidation')).toHaveLength(0);
+
+	followerScheduler.runNext();
+	await flush();
+	expect(messagesOfType(followerScope, 'invalidation').at(-1)).toMatchObject({
+		sequence: 2,
+		all: true,
+	});
+});
+
+test('a lost authority replacement is repaired by the owner heartbeat', async () => {
+	const { hub, followerScheduler, followerScope, replaceOwnerAuthority } =
+		await setup();
+	hub.dropNext('owner', 'runtime-authority-replacement');
+	replaceOwnerAuthority();
+	await flush();
+	expect(
+		messagesOfType(followerScope, 'runtime-authority-replacement'),
+	).toHaveLength(0);
+
+	followerScheduler.runNext();
+	await flush();
+	expect(
+		messagesOfType(followerScope, 'runtime-authority-replacement'),
+	).toHaveLength(1);
 });
 
 test('pending read is replayed after owner handoff', async () => {
@@ -526,4 +604,61 @@ test('pending document and blob mutations are never replayed after owner handoff
 		expect(executions.ownerMutations, operation.kind).toBe(1);
 		expect(executions.followerMutations, operation.kind).toBe(0);
 	}
+});
+
+test('owner-local queued mutations are fenced before and after session replacement', async () => {
+	const { hub, ownerScope, executions, releaseOwnerMutation } = await setup({
+		delayOwnerMutation: true,
+	});
+	const oldSession = messagesOfType(ownerScope, 'status').at(-1)?.ownerSession;
+	if (oldSession === null || oldSession === undefined) {
+		throw new Error('owner session was not established');
+	}
+
+	for (const id of [1, 2]) {
+		ownerScope.send({
+			type: 'request',
+			id,
+			operation: {
+				kind: 'local-write',
+				intent: {
+					address,
+					op: 'replace',
+					value: `value-${id}`,
+				},
+			},
+		});
+	}
+	await flush();
+	expect(executions.ownerMutations).toBe(1);
+
+	hub.create(start.coordinationId ?? '', 'replacement').postMessage({
+		version: 3,
+		type: 'owner',
+		candidateId: 'replacement',
+		recipientCandidateId: null,
+		ownerSession: 'replacement-session',
+		replacesOwnerSession: oldSession,
+		invalidationToken: null,
+		invalidationSequence: 0,
+		invalidationAddresses: [],
+		invalidationAll: false,
+		authorityReplacementToken: 'replacement-authority',
+		runtimeStatus: null,
+	});
+	releaseOwnerMutation();
+	await flush();
+
+	expect(executions.ownerMutations).toBe(1);
+	expect(
+		messagesOfType(ownerScope, 'error')
+			.filter((message) => message.name === 'EpicenterBrowserOwnerLostError')
+			.map((message) => message.id),
+	).toEqual([1, 2]);
+	expect(
+		messagesOfType(ownerScope, 'runtime-authority-replacement').at(-1),
+	).toMatchObject({
+		ownerSession: 'replacement-session',
+		token: 'replacement-authority',
+	});
 });

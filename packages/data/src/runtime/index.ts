@@ -1,10 +1,32 @@
+export {
+	type ConstrainedUpdate,
+	type CreateInputFor,
+	defineLens,
+	defineTable,
+	defineValues,
+	type LensDefinition,
+	type NonconformingRowError,
+	type NonconformingValueError,
+	type RowFor,
+	type TableDefinition,
+	type ValuesDefinition,
+	type ValueTypeFor,
+} from '../lens/index.js';
+export {
+	type BrowserEpicenter,
+	type BrowserRuntimeWorker,
+	type OpenBrowserEpicenterOptions,
+	openBrowserEpicenter,
+} from './browser.js';
 export { type OpenBunEpicenterOptions, openBunEpicenter } from './bun.js';
 export {
 	type AttachOutcome,
+	type BoundLens,
 	type CaptureError,
 	type CreateEpicenterRuntimeOptions,
 	createEpicenterRuntime,
 	type EpicenterRuntime,
+	type Publication,
 	type TableLens,
 	type TableRecordHandle,
 	type ValuesLens,

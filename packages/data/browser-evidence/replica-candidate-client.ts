@@ -93,8 +93,9 @@ async function open(
 					const target = pending.get(message.id);
 					if (target === undefined) return;
 					pending.delete(message.id);
-					if (message.type === 'result') target.resolve(message.value);
-					else {
+					if (message.type === 'result') {
+						target.resolve(message.value as BrowserReplicaOwnerResult);
+					} else {
 						const error = new Error(message.message);
 						error.name = message.name;
 						target.reject(error);

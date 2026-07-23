@@ -1,13 +1,22 @@
-import type { ValidatedLimits } from '../../protocol/v1/index.js';
 import type {
-	BrowserReplicaOwnerMessage,
-	BrowserReplicaStoreOperation,
+	RecordAddress,
+	ValidatedLimits,
+} from '../../protocol/v1/index.js';
+import type {
+	BrowserAuthorityResponse,
+	BrowserRuntimeEvent,
+} from '../../runtime/browser-protocol.js';
+import type { SyncStatus } from '../../runtime/supervisor.js';
+import type {
+	BrowserReplicaCandidateMessage,
+	BrowserReplicaCandidateOperation,
 } from './browser-owner-protocol.js';
 
 export type BrowserReplicaCandidateStart = {
 	type: 'start';
 	limits: ValidatedLimits;
 	initialize: { replicaId: string; authorityLifetime?: string };
+	hasCarrier?: boolean;
 	coordinationId?: string;
 	storage?: {
 		databaseFilename: string;
@@ -21,9 +30,10 @@ export type BrowserReplicaCandidateInbound =
 	| {
 			type: 'request';
 			id: number;
-			operation: BrowserReplicaStoreOperation;
+			operation: BrowserReplicaCandidateOperation;
 	  }
-	| { type: 'close' };
+	| { type: 'close' }
+	| BrowserAuthorityResponse;
 
 export type BrowserReplicaCandidateStatus = {
 	type: 'status';
@@ -32,46 +42,74 @@ export type BrowserReplicaCandidateStatus = {
 };
 
 export type BrowserReplicaCandidateOutbound =
-	| BrowserReplicaOwnerMessage
+	| BrowserReplicaCandidateMessage
 	| BrowserReplicaCandidateStatus
-	| { type: 'invalidation'; token: string; ownerSession: string }
+	| BrowserRuntimeEvent
+	| {
+			type: 'invalidation';
+			token: string;
+			sequence: number;
+			ownerSession: string;
+			addresses: RecordAddress[];
+			all: boolean;
+	  }
 	| { type: 'closed' }
 	| { type: 'fatal'; name: string; message: string };
 
 export type BrowserReplicaCoordinationMessage =
 	| {
-			version: 2;
+			version: 3;
 			type: 'discover';
 			candidateId: string;
 			knownOwnerSession: string | null;
 	  }
 	| {
-			version: 2;
+			version: 3;
 			type: 'owner';
 			candidateId: string;
 			recipientCandidateId: string | null;
 			ownerSession: string;
 			replacesOwnerSession: string | null;
 			invalidationToken: string | null;
+			invalidationSequence: number;
+			invalidationAddresses: RecordAddress[];
+			invalidationAll: boolean;
+			authorityReplacementToken: string | null;
+			runtimeStatus: SyncStatus | null;
 	  }
 	| {
-			version: 2;
+			version: 3;
 			type: 'request';
 			candidateId: string;
 			ownerSession: string;
 			id: number;
-			operation: BrowserReplicaStoreOperation;
+			operation: BrowserReplicaCandidateOperation;
 	  }
 	| {
-			version: 2;
+			version: 3;
 			type: 'response';
 			candidateId: string;
 			ownerSession: string;
-			message: BrowserReplicaOwnerMessage;
+			message: BrowserReplicaCandidateMessage;
 	  }
 	| {
-			version: 2;
+			version: 3;
 			type: 'invalidation';
+			ownerSession: string;
+			token: string;
+			sequence: number;
+			addresses: RecordAddress[];
+			all: boolean;
+	  }
+	| {
+			version: 3;
+			type: 'runtime-sync-status';
+			ownerSession: string;
+			status: SyncStatus;
+	  }
+	| {
+			version: 3;
+			type: 'runtime-authority-replacement';
 			ownerSession: string;
 			token: string;
 	  };

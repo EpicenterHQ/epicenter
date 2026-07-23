@@ -13,6 +13,11 @@ import type {
 	ValidatedLimits,
 } from '../../protocol/v1/index.js';
 import type {
+	BrowserRuntimeControlOperation,
+	BrowserRuntimeControlResult,
+} from '../../runtime/browser-protocol.js';
+import type { PublicationStatus } from '../../runtime/publication-status.js';
+import type {
 	BlobCaptureOutcome,
 	BlobInspection,
 	BlobPublicationState,
@@ -24,11 +29,22 @@ import type {
 	DocumentSettlementOutcome,
 } from './document-store.js';
 import type {
+	ReplicaAttachment,
 	ReplicaRecordLanes,
 	ReplicaStoreSync,
-	SealOutcome,
 	SealedRequest,
+	SealOutcome,
+	VisibleRecordState,
+	VisibleRecordsPage,
 } from './replica-store.js';
+
+export type BrowserDocumentOpenResult =
+	| { kind: 'ready'; update?: Uint8Array }
+	| { kind: 'record-not-live' };
+
+export type BrowserDocumentRefreshResult =
+	| { kind: 'terminal' }
+	| { kind: 'preserved'; update?: Uint8Array };
 
 export type BrowserReplicaOwnerOperation =
 	| {
@@ -42,6 +58,33 @@ export type BrowserReplicaOwnerOperation =
 			};
 	  }
 	| { kind: 'record'; address: RecordAddress }
+	| { kind: 'attachment' }
+	| { kind: 'is-logically-empty' }
+	| { kind: 'visible-record'; address: RecordAddress }
+	| {
+			kind: 'visible-records-page';
+			namespace: string;
+			collection: string;
+			afterRecordKey: string | null;
+			limit: number;
+	  }
+	| { kind: 'is-visibly-live'; address: RecordAddress }
+	| {
+			kind: 'blocked-records-page';
+			after: RecordAddress | null;
+			limit: number;
+	  }
+	| { kind: 'publication-status'; address: RecordAddress }
+	| {
+			kind: 'runtime-table-update';
+			intent: Extract<Intent, { op: 'patch' }>;
+	  }
+	| { kind: 'runtime-delete-record'; address: RecordAddress }
+	| {
+			kind: 'runtime-value-write';
+			intent: Extract<Intent, { op: 'replace' | 'unset' }>;
+	  }
+	| { kind: 'runtime-read-blob'; address: RecordAddress }
 	| { kind: 'sync' }
 	| { kind: 'sealed-request' }
 	| { kind: 'owed-documents'; limit: number }
@@ -66,15 +109,17 @@ export type BrowserReplicaOwnerOperation =
 	  }
 	| { kind: 'inspect-document'; address: RecordAddress }
 	| { kind: 'export-document'; address: RecordAddress }
+	| { kind: 'open-runtime-document'; address: RecordAddress }
+	| { kind: 'refresh-runtime-document'; address: RecordAddress }
 	| { kind: 'document-publication'; address: RecordAddress }
 	| {
-		kind: 'settle-document-publication';
-		address: RecordAddress;
-		proof:
-			| DocumentPublicationReceipt
-			| DocumentBoundRefusal
-			| Extract<DocumentAcceptance, { kind: 'record-not-live' }>;
-		captured: { revision: number; digest: string };
+			kind: 'settle-document-publication';
+			address: RecordAddress;
+			proof:
+				| DocumentPublicationReceipt
+				| DocumentBoundRefusal
+				| Extract<DocumentAcceptance, { kind: 'record-not-live' }>;
+			captured: { revision: number; digest: string };
 	  }
 	| { kind: 'capture-blob'; address: RecordAddress; bytes: Blob }
 	| { kind: 'inspect-blob'; address: RecordAddress }
@@ -91,18 +136,34 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'reopen' }
 	| { kind: 'dispose' };
 
+export type BrowserReplicaRuntimeOperation =
+	| BrowserReplicaOwnerOperation
+	| BrowserRuntimeControlOperation;
+
 export type BrowserReplicaStoreOperation = Exclude<
 	BrowserReplicaOwnerOperation,
 	{ kind: 'open' | 'dispose' }
 >;
 
+export type BrowserReplicaCandidateOperation =
+	| BrowserReplicaStoreOperation
+	| BrowserRuntimeControlOperation;
+
 export type BrowserReplicaOwnerResult =
 	| undefined
 	| ReplicaRecordLanes
+	| ReplicaAttachment
 	| ReplicaStoreSync
 	| SealOutcome
 	| SealedRequest
 	| RecordAddress[]
+	| VisibleRecordState
+	| VisibleRecordsPage
+	| BrowserDocumentOpenResult
+	| BrowserDocumentRefreshResult
+	| PublicationStatus
+	| { kind: 'written'; visible: VisibleRecordState }
+	| { kind: 'written' | 'record-not-live' }
 	| DocumentInspection
 	| DocumentPublicationState
 	| DocumentSettlementOutcome
@@ -113,7 +174,12 @@ export type BrowserReplicaOwnerResult =
 	| Blob
 	| Uint8Array
 	| string
+	| boolean
 	| null;
+
+export type BrowserReplicaCandidateResult =
+	| BrowserReplicaOwnerResult
+	| BrowserRuntimeControlResult;
 
 export type BrowserReplicaOwnerRequest = {
 	type: 'request';
@@ -121,6 +187,9 @@ export type BrowserReplicaOwnerRequest = {
 	operation: BrowserReplicaOwnerOperation;
 };
 
-export type BrowserReplicaOwnerMessage =
-	| { type: 'result'; id: number; value: BrowserReplicaOwnerResult }
+export type BrowserReplicaOwnerMessage<TResult = BrowserReplicaOwnerResult> =
+	| { type: 'result'; id: number; value: TResult }
 	| { type: 'error'; id: number; name: string; message: string };
+
+export type BrowserReplicaCandidateMessage =
+	BrowserReplicaOwnerMessage<BrowserReplicaCandidateResult>;
