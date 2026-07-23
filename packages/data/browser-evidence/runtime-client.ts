@@ -16,6 +16,7 @@ import {
 	type BrowserEpicenter,
 	type BrowserRuntimeWorker,
 	openBrowserEpicenter,
+	retireUnclaimedBrowserReplica,
 } from '../src/runtime/browser.js';
 import type { RowDocument } from '../src/runtime/row-document.js';
 import type { AuthorityCarrier } from '../src/runtime/supervisor.js';
@@ -426,6 +427,12 @@ function terminate(): void {
 	openedWorker = undefined;
 }
 
+async function retireUnclaimed(
+	storage: Parameters<BrowserRuntimeEvidenceDriver['retireUnclaimed']>[0],
+): Promise<'retired' | 'held'> {
+	return (await retireUnclaimedBrowserReplica({ storage })).kind;
+}
+
 window.browserRuntimeEvidence = Object.freeze({
 	open,
 	create,
@@ -461,4 +468,5 @@ window.browserRuntimeEvidence = Object.freeze({
 	waitForDisposal,
 	dispose,
 	terminate,
+	retireUnclaimed,
 });

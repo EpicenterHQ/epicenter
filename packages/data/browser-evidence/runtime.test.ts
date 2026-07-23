@@ -257,7 +257,47 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 			},
 		)) as { state: string },
 	).toMatchObject({ state: 'live' });
+
+	// Retirement refuses while the elected owner still holds the slot, and
+	// removes the whole store once released; a later open finds a fresh
+	// replica.
+	const retireStorage = {
+		poolDirectory: unclaimedOptions.storage.poolDirectory,
+		lockName: unclaimedOptions.storage.lockName,
+		blobDirectory: unclaimedOptions.storage.blobDirectory,
+	};
+	expect(
+		await page.evaluate(
+			(storage) => window.browserRuntimeEvidence.retireUnclaimed(storage),
+			retireStorage,
+		),
+	).toBe('held');
 	await page.evaluate(() => window.browserReplicaCandidateEvidence.close());
+	{
+		const deadline = Date.now() + 20_000;
+		for (;;) {
+			const outcome = await page.evaluate(
+				(storage) => window.browserRuntimeEvidence.retireUnclaimed(storage),
+				retireStorage,
+			);
+			if (outcome === 'retired') break;
+			if (Date.now() >= deadline) {
+				throw new Error('unclaimed retirement never acquired the slot');
+			}
+			await Bun.sleep(50);
+		}
+	}
+	await page.evaluate(
+		(value) => window.browserRuntimeEvidence.open(value),
+		unclaimedOptions,
+	);
+	expect(
+		await page.evaluate(
+			(id) => window.browserRuntimeEvidence.get(id),
+			unclaimedId,
+		),
+	).toBeNull();
+	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
 
 	const heldDisposalOptions = {
 		...slotOptions('held-disposal'),

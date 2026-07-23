@@ -62,4 +62,9 @@ export type BrowserRuntimeEvidenceDriver = {
 	waitForDisposal(): Promise<void>;
 	dispose(): Promise<void>;
 	terminate(): void;
+	retireUnclaimed(storage: {
+		poolDirectory: string;
+		lockName: string;
+		blobDirectory: string;
+	}): Promise<'retired' | 'held'>;
 };

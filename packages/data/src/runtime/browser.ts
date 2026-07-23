@@ -855,6 +855,67 @@ export async function openBrowserEpicenter({
 
 export type BrowserEpicenter = Awaited<ReturnType<typeof openBrowserEpicenter>>;
 
+export type RetireUnclaimedBrowserReplicaOptions = {
+	storage?: {
+		poolDirectory: string;
+		lockName: string;
+		blobDirectory: string;
+	};
+};
+
+export type RetireUnclaimedBrowserReplicaOutcome =
+	| { kind: 'retired' }
+	| { kind: 'held' };
+
+/**
+ * Destroy this origin's unclaimed replica storage (ADR-0178).
+ *
+ * Explicit and destructive: the application must only offer this after import
+ * success is durably established in the destination replica. Refuses with
+ * `held` while any runtime holds the unclaimed slot's Web Lock. Removal is
+ * idempotent; missing directories are already-retired evidence, not errors.
+ */
+export async function retireUnclaimedBrowserReplica({
+	storage,
+}: RetireUnclaimedBrowserReplicaOptions = {}): Promise<RetireUnclaimedBrowserReplicaOutcome> {
+	const names = storage ?? defaultStorage('unclaimed');
+	return await navigator.locks.request(
+		names.lockName,
+		{ mode: 'exclusive', ifAvailable: true },
+		async (lock): Promise<RetireUnclaimedBrowserReplicaOutcome> => {
+			if (lock === null) return { kind: 'held' };
+			const root = await (
+				navigator as unknown as {
+					storage: {
+						getDirectory(): Promise<{
+							removeEntry(
+								name: string,
+								options?: { recursive?: boolean },
+							): Promise<void>;
+						}>;
+					};
+				}
+			).storage.getDirectory();
+			for (const name of [names.poolDirectory, names.blobDirectory]) {
+				try {
+					await root.removeEntry(name, { recursive: true });
+				} catch (cause) {
+					if (
+						typeof cause === 'object' &&
+						cause !== null &&
+						'name' in cause &&
+						cause.name === 'NotFoundError'
+					) {
+						continue;
+					}
+					throw cause;
+				}
+			}
+			return { kind: 'retired' };
+		},
+	);
+}
+
 function defaultWorker(): BrowserRuntimeWorker {
 	return new Worker(
 		new URL('../browser-replica-candidate-worker.ts', import.meta.url),
