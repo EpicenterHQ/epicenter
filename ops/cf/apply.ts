@@ -17,7 +17,7 @@
  * Workspace) have their email DNS left alone.
  */
 
-import { APPS } from '@epicenter/constants/apps';
+import { APPS, prodOrigins } from '@epicenter/constants/apps';
 
 const ZONES = [
 	{ name: 'epicenter.so', email: 'managed-externally' }, // Google Workspace
@@ -140,7 +140,7 @@ async function cf<T>(method: string, path: string, body?: unknown): Promise<T> {
 // instead of silently leaving that zone unmanaged.
 const orphans: string[] = [];
 for (const [id, app] of Object.entries(APPS)) {
-	for (const url of [app.url, ...('aliases' in app ? app.aliases : [])]) {
+	for (const url of prodOrigins(app)) {
 		const host = new URL(url).hostname;
 		const onZone = ZONES.some(
 			(z) => host === z.name || host.endsWith(`.${z.name}`),
