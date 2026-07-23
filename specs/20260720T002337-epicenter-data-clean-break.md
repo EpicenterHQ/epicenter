@@ -475,6 +475,8 @@ a storage correctness gap.
 
 ### W7: Proposal prototype, then ADR, then product
 
+- Durable decision:
+  [ADR-0178](../docs/adr/0178-proposals-are-source-bound-artifacts-that-disappear-after-local-admission.md).
 - Run the bounded nine-test prototype (scratch code, bun:sqlite, no UI): a
   ~20-address proposal over one table and one values collection with
   creations, deletions, unknown fields, and a filtered base ledger;
