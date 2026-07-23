@@ -41,8 +41,10 @@ import {
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
+	HOME_DATA_OVERVIEW_ROUTE,
 	HOME_PROPOSALS_ROUTE,
 	HOME_ROUTE,
+	homeDataCollectionPath,
 	homeProposalApplyPath,
 	homeProposalCompilePath,
 	homeProposalPath,
@@ -168,6 +170,7 @@ async function serveHost(
 	desktopAuth: HomeServerOptions['desktopAuth'] = createTestDesktopAuth(),
 	deploymentFetch?: HomeServerOptions['deploymentFetch'],
 	proposalService?: HomeServerOptions['proposalService'],
+	dataInspection?: HomeServerOptions['dataInspection'],
 ) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
@@ -188,6 +191,7 @@ async function serveHost(
 		chooseFirstAttachment,
 		desktopAuth,
 		...(proposalService === undefined ? {} : { proposalService }),
+		...(dataInspection === undefined ? {} : { dataInspection }),
 		...(deploymentFetch === undefined ? {} : { deploymentFetch }),
 	});
 	const server = Bun.serve({
@@ -851,6 +855,87 @@ describe('createHomeServer', () => {
 			expect(forwarded.status).toBe(400);
 			expect(await forwarded.json()).toEqual(envelope);
 			expect(inputs).toEqual([undefined]);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('the live data broker exposes bounded Lens pages and parked work', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const calls: unknown[] = [];
+		const overview = {
+			lenses: [],
+			attachment: { kind: 'unattached' as const, requiresChoice: false },
+			sync: {
+				state: 'local' as const,
+				work: {
+					scalar: { pending: 0, sealed: 0, parked: 0 },
+					document: { owed: 0, parked: 0 },
+					blob: { owed: 0, parked: 0 },
+				},
+			},
+			parked: { entries: [] },
+		};
+		const server = await serveHost(
+			host,
+			PAGE,
+			closedRecordOwner,
+			async () => null,
+			async () => undefined,
+			() => ({ kind: 'unattached', requiresChoice: false }),
+			createTestDesktopAuth(),
+			undefined,
+			undefined,
+			{
+				async overview() {
+					return overview;
+				},
+				async collection(input) {
+					calls.push(input);
+					return {
+						lens: input.lens,
+						collection: input.collection,
+						kind: 'table',
+						entries: [],
+					};
+				},
+			},
+		);
+		try {
+			const headers = authenticatedHeaders(server);
+			const status = await fetch(
+				HOME_DATA_OVERVIEW_ROUTE.url(server.url.origin),
+				{
+					headers,
+				},
+			);
+			expect(status.status).toBe(200);
+			expect(await status.json()).toEqual(overview);
+
+			const page = await fetch(
+				new URL(
+					`${homeDataCollectionPath('chat', 'notes')}?after=${'a'.repeat(24)}&limit=25`,
+					server.url,
+				),
+				{ headers },
+			);
+			expect(page.status).toBe(200);
+			expect(calls).toEqual([
+				{
+					lens: 'chat',
+					collection: 'notes',
+					after: 'a'.repeat(24),
+					limit: 25,
+				},
+			]);
+			expect(
+				(
+					await fetch(
+						new URL(homeDataCollectionPath('unknown', 'notes'), server.url),
+						{ headers },
+					)
+				).status,
+			).toBe(400);
 		} finally {
 			await server.stop(true);
 		}

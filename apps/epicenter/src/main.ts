@@ -24,6 +24,7 @@ import {
 	type DesktopAuthAuthority,
 } from './desktop-auth-authority.ts';
 import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
+import { createHomeDataService } from './home-data-service.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
 import { createNativeRecordingCaptureResolver } from './native-recording-captures.ts';
 import { createProposalService } from './proposal-service.ts';
@@ -99,6 +100,14 @@ async function main(): Promise<void> {
 		});
 		const proposalService = createProposalService({
 			owner: recordOwner,
+			lenses: {
+				chat: chatLens,
+				honeycrisp: honeycrispLens,
+				whispering: whisperingLens,
+			},
+		});
+		const dataInspection = createHomeDataService({
+			owner: recordOwner.epicenter,
 			lenses: {
 				chat: chatLens,
 				honeycrisp: honeycrispLens,
@@ -185,6 +194,7 @@ async function main(): Promise<void> {
 			recordOwner,
 			snapshotQueries,
 			proposalService,
+			dataInspection,
 			recordAttachment: () => activeRecordOwner.epicenter.attachment,
 			async readRecordingAudio(recordingId) {
 				const recording = await home.whispering.recordings.get(recordingId);

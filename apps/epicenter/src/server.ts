@@ -33,6 +33,7 @@ import {
 } from 'wellcrafted/error';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
 import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
+import { type HomeDataService, isHomeDataLens } from './home-data-service.ts';
 import {
 	type HomeHost,
 	type HomeSessionSnapshot,
@@ -46,6 +47,8 @@ import {
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOTSTRAP_ROUTE,
+	HOME_DATA_COLLECTION_ROUTE,
+	HOME_DATA_OVERVIEW_ROUTE,
 	HOME_PROPOSAL_APPLY_ROUTE,
 	HOME_PROPOSAL_COMPILE_ROUTE,
 	HOME_PROPOSAL_ROUTE,
@@ -93,6 +96,8 @@ export type HomeServerOptions = {
 		ProposalService,
 		'list' | 'create' | 'compile' | 'apply' | 'delete'
 	>;
+	/** Trusted Home-only live Lens traversal and parked-work observation. */
+	dataInspection?: Pick<HomeDataService, 'collection' | 'overview'>;
 	/** Current attachment state of that same shared replica. */
 	recordAttachment(): DesktopRecordEpicenterOwner['epicenter']['attachment'];
 	/** Native-only, record-addressed Whispering audio reader. */
@@ -146,6 +151,7 @@ export function createHomeServer({
 	recordOwner,
 	snapshotQueries,
 	proposalService,
+	dataInspection,
 	recordAttachment,
 	readRecordingAudio,
 	chooseFirstAttachment,
@@ -392,6 +398,48 @@ export function createHomeServer({
 			apps: appCatalog.apps.map(({ id, title }) => ({ id, title })),
 		}),
 	);
+
+	app.get(HOME_DATA_OVERVIEW_ROUTE.pattern, async (c) => {
+		if (dataInspection === undefined) return c.text('Not Found', 404);
+		c.header('Cache-Control', 'no-store');
+		try {
+			return c.json(await dataInspection.overview());
+		} catch {
+			return c.text('Live data inspection failed', 500);
+		}
+	});
+
+	app.get(HOME_DATA_COLLECTION_ROUTE.pattern, async (c) => {
+		if (dataInspection === undefined) return c.text('Not Found', 404);
+		const lens = c.req.param('lens');
+		const collection = c.req.param('collection');
+		const after = c.req.query('after');
+		const rawLimit = c.req.query('limit');
+		const limit = rawLimit === undefined ? 100 : Number(rawLimit);
+		if (
+			!isHomeDataLens(lens) ||
+			collection === undefined ||
+			collection.length === 0 ||
+			!Number.isSafeInteger(limit) ||
+			limit < 1 ||
+			limit > 100
+		) {
+			return c.text('Invalid live data request', 400);
+		}
+		c.header('Cache-Control', 'no-store');
+		try {
+			return c.json(
+				await dataInspection.collection({
+					lens,
+					collection,
+					...(after === undefined ? {} : { after }),
+					limit,
+				}),
+			);
+		} catch {
+			return c.text('Invalid live data request', 400);
+		}
+	});
 
 	app.post(HOME_SNAPSHOT_CAPTURE_ROUTE.pattern, async (c) => {
 		if (snapshotQueries === undefined) return c.text('Not Found', 404);

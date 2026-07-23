@@ -132,7 +132,7 @@
 <Sheet.Root>
 	<Sheet.Trigger>
 		{#snippet child({ props })}
-			<Button {...props} variant="outline" size="sm">Data</Button>
+			<Button {...props} variant="outline" size="sm">Snapshot</Button>
 		{/snippet}
 	</Sheet.Trigger>
 	<Sheet.Content class="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
