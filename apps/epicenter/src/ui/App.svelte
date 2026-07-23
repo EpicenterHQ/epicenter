@@ -8,6 +8,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import type { HomeInvocation } from '../host.ts';
 	import Composer from './Composer.svelte';
+	import DataProposalSheet from './DataProposalSheet.svelte';
 	import DataSnapshotSheet from './DataSnapshotSheet.svelte';
 	import { readRuntimeInfo } from './runtime.ts';
 	import Transcript from './Transcript.svelte';
@@ -87,6 +88,7 @@
 				{connectionIndicator[session.connection].label}
 			</span>
 			<div class="ms-auto flex items-center gap-2">
+				<DataProposalSheet />
 				<DataSnapshotSheet />
 				<Popover.Root bind:open={toolsOpen}>
 					<Popover.Trigger>
