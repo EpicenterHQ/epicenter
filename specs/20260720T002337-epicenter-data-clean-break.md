@@ -312,7 +312,8 @@ candidates open no database. The versioned candidate protocol retries lost
 discovery, idempotent reads, replies, and invalidation heartbeats within a
 fixed bound. It never replays a mutation after owner loss. Maintained tests
 cover takeover fencing, lossy coordination, bounded failure, and the unchanged
-replica contract.
+replica contract. A stolen storage lock now terminally stops subscriptions,
+closes SQLite, pauses the VFS, and only then reports owner loss.
 
 The maintained browser layout harness and raw reports are under
 `packages/data/browser-evidence/replica-layout-*` and
@@ -373,9 +374,9 @@ Implementation checkpoint (2026-07-22): the production scalar V1 authority
 now owns the wide relation, monotonic sequence allocator, per-replica retry
 witness, atomic submission fold, and same-snapshot facts paging. Bun SQLite and
 Durable Object adapters run the same maintained authority cases. Strict bounded
-HTTP routes are mounted beside the legacy caller path in the hosted,
-self-hosted Cloudflare, and self-hosted Bun deployments. That path remains live
-until W4B migrates its callers and unmounts it; no caller uses both. V1 limits are frozen
+HTTP routes are the production path in the hosted, self-hosted Cloudflare, and
+self-hosted Bun deployments. W4 removed the legacy caller path after the
+replacement passed its gates. V1 limits are frozen
 from the settlement-response inequality and keep authority, witness, replica,
 and sealed-request rows below Durable Object SQLite's 2 MB row ceiling.
 
@@ -390,9 +391,9 @@ governing billing term, so that read delta does not reverse the selection.
 Both layouts reopened with complete row counts. The raw reports, pricing
 calculation, and limitations live under `docs/benchmarks/authority-layout/`.
 This evidence accepts wide for the authority role. Later complete replica
-evidence also selects a role-specific wide row. ADR-0177 remains Proposed until
-the target watermark schema, covering drain indexes, and physical mobile
-browser charter land together.
+evidence also selects a role-specific wide row. The watermark schema and
+covering drain indexes have landed. ADR-0177 remains Proposed until the
+physical mobile browser charter passes.
 
 W2 may begin after W1A passes independent review while W1B and W1C continue
 against the frozen shared kernel and conformance contracts.
@@ -411,6 +412,14 @@ against the frozen shared kernel and conformance contracts.
   exercise real storage owners.
 - Route the realtime overlay through the same authority acceptance operation;
   it earns no second acknowledgement path.
+
+Implementation checkpoint (2026-07-22): Bun and browser replicas persist local
+and accepted document revisions plus local and accepted blob digests. Covering
+partial indexes derive bounded owed scans without mutable dirty flags or frozen
+in-flight payloads. HTTP and realtime document carriers decode one exact
+acceptance shape and enter one authority operation. Maintained crash,
+conformance, browser-owner, malformed-update, and cross-plane HTTP proofs pass.
+Physical mobile qualification remains owned by W1C.
 
 ### W4: Lens API, complete caller migration, and Workspace deletion
 

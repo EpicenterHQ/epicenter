@@ -67,10 +67,9 @@ _epicenter_records(
   record_key,
   payload_json,
   document_revision,
-  document_accepted_revision,
   document_byte_length,
-  blob_sha256,
-  blob_accepted_sha256
+  document_owed,
+  blob_sha256
 )
 ```
 
@@ -81,11 +80,10 @@ payload byte, including unknown and nonconforming data, with no Lens
 installed.
 
 Snapshots are lightweight. The document columns are metadata: the record-local
-and authority-accepted revisions and the encoded chain size in bytes (never
-document content). The blob columns record local and authority-accepted
-digests. Publication obligations are derived by comparing each pair. A
-snapshot never contains a composed
-document cell or blob bytes, so a missing
+revision, encoded chain size in bytes, and whether that revision was still owed
+at capture time (never document content). The blob column records the local
+immutable digest. A snapshot never contains a composed document cell or blob
+bytes, so a missing
 value can never lie about document existence and capture needs no cross-file
 cut. Complete document state and blob bytes belong to the portable Backup
 (ADR-0167, ADR-0170). The rare single-document export job is served by an

@@ -104,9 +104,9 @@ advantage does not reverse the authority result.
 
 The physical iOS Safari and Android Chrome capacity, reopen, quota, suspension,
 and eviction charter remains open. It qualifies the selected production browser
-owner; it is no longer a wide-versus-split selection gate. ADR-0177 remains
-Proposed until the target watermark schema, covering drain indexes, and physical
-owner qualification land together.
+owner; it is no longer a wide-versus-split selection gate. The target watermark
+schema and covering drain indexes have landed. ADR-0177 remains Proposed until
+the physical owner qualification passes.
 
 ## Consequences
 

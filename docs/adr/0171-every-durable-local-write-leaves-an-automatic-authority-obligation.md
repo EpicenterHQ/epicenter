@@ -104,11 +104,10 @@ refusal evidence            optional measured bytes and structs for the current 
 ```
 
 When a document is owed, one SQLite snapshot reads its chain and revision
-together. The owner hydrates the current document and encodes the authority's
-missing V2 update. An authority state vector may reduce transfer bytes, but it
-never suppresses an owed attempt: delete-only Yjs changes can alter meaning
-without advancing state-vector clocks. Sending the complete compact state is
-the bounded correctness fallback.
+together. The owner hydrates the current document and encodes the complete
+compact V2 state. Publication is self-contained: no authority state vector can
+omit local structs or suppress a delete-only change and then become settlement
+proof for the captured revision.
 
 The attempt holds only its captured local revision and payload digest in
 memory. After the authority applies, bounds, and commits the update, HTTP and
@@ -120,10 +119,10 @@ the next attempt regenerates the newest missing update. Yjs idempotency makes
 that retry safe without durable per-attempt bytes or an authority-side
 per-replica document ledger.
 
-State vectors remain transfer hints, never authority-durability proof. Closing
-the last live handle destroys the in-memory `Y.Doc` but leaves the chain and
-both revisions intact. A background drain therefore publishes owed documents
-without depending on open handles.
+Authority publication does not use a state vector to reduce the owed update.
+Closing the last live handle destroys the in-memory `Y.Doc` but leaves the
+chain and both revisions intact. A background drain therefore publishes owed
+documents without depending on open handles.
 
 A record's blob publication is also write-once. The authority accepts an
 absent slot with digest A, treats a retry of A as idempotent, and refuses or
