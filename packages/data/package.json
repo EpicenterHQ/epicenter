@@ -36,7 +36,9 @@
 		"test:browser-replica": "bun test browser-evidence/replica-conformance.test.ts",
 		"test:browser-runtime": "bun test browser-evidence/runtime.test.ts",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p browser-evidence/tsconfig.json",
-		"test": "bun test"
+		"test:unit": "bun test src",
+		"test:browser": "for file in browser-evidence/*.test.ts; do bun test \"$file\" || exit 1; done",
+		"test": "bun run test:unit && bun run test:browser"
 	},
 	"dependencies": {
 		"@epicenter/field": "workspace:*",
