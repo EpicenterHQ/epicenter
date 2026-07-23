@@ -17,19 +17,8 @@
 			? `signed-in:${auth.deployment.baseURL}:${state.principalId}`
 			: 'signed-out';
 	}
-
-	let sessionKey = $state(sessionIdentity());
-	$effect(() => {
-		const stop = auth.onStateChange(() => {
-			sessionKey = sessionIdentity();
-		});
-		// Catch an auth transition that landed between initialization and the
-		// subscription; onStateChange never replays the current state.
-		sessionKey = sessionIdentity();
-		return stop;
-	});
 </script>
 
-{#key sessionKey}
+{#key sessionIdentity()}
 	<SessionShell {children} />
 {/key}
