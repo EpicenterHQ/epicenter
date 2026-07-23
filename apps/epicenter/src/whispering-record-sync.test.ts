@@ -94,7 +94,7 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 			throw new Error('WebSocket upgrade is outside this proof');
 		},
 	});
-	const attachment = {
+	const owner = {
 		deploymentId: 'https://example.test/',
 		principalId: PRINCIPAL_ID,
 	};
@@ -102,6 +102,7 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 	try {
 		await using first = await openBunEpicenter({
 			directory: join(root, 'first'),
+			owner,
 			carrier: createRouteCarrier(app, () => online),
 			intervalMs: 10,
 		});
@@ -121,20 +122,15 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 		online = true;
 		await using second = await openBunEpicenter({
 			directory: join(root, 'second'),
+			owner,
 			carrier: createRouteCarrier(app, () => online),
 			intervalMs: 10,
 		});
 		const secondRecordings = second.bind(whisperingLens).recordings;
 
-		// The offline-authored replica is nonempty, so its first attachment
-		// surfaces the choice; bringing mirrors the production silent adopt.
-		const outcome = await first.attach(attachment);
-		if (outcome.kind !== 'first-attachment-choice') {
-			throw new Error('a nonempty replica must surface the choice');
-		}
-		await outcome.proceed('bring');
-		expect((await second.attach(attachment)).kind).toBe('attached');
-
+		// The offline-authored account replica retains its obligations and
+		// drains them through its ordinary retry once the authority is
+		// reachable; no attachment ceremony exists (ADR-0178).
 		await until(async () => {
 			const { data } = await secondRecordings.record(recording.id).get();
 			return data?.transcript === 'Authored offline';
