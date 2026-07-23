@@ -6,12 +6,12 @@
  *
  * Pointer-field naming: the suffix names the store. A `*ConfigKey` field
  * holds the name of a `deviceConfig` entry (device-local, never synced); a
- * `*SettingKey` field holds the name of a `settings` entry (synced workspace
+ * `*SettingKey` field holds the name of a synced `settings` entry
  * KV). Dispatchers resolve the pointer against the matching store.
  *
  * Behavior is deliberately not here. The `id -> transcribe` wiring lives as a
  * static table in the dispatcher, where the provider SDKs already load. That
- * keeps this record free of SDK imports so the workspace schema can import
+ * keeps this record free of SDK imports so the data Lens can import
  * `TRANSCRIPTION_SERVICE_IDS` without bundling them. Icons and the UI-facing
  * join live in `./provider-ui.ts` (icons being the one field heavy enough to
  * pollute that import).

@@ -2,8 +2,8 @@ import { strToU8, zipSync } from 'fflate';
 import yaml from 'js-yaml';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type DownloadError, DownloadServiceLive } from '#platform/download';
+import type { Recording } from '$lib/data';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from '$lib/workspace';
 
 function recordingToMarkdown(recording: Recording): string {
 	const { transcript, ...frontmatter } = recording;

@@ -40,7 +40,7 @@
 	);
 
 	// ADR-0052 read-only reach text: where the shortcut fires, plus whether it syncs
-	// (focused shortcuts live in the synced workspace; global ones are per-device).
+	// (focused shortcuts live in synced settings; global ones are per-device).
 	// One string feeds the glyph tooltip, the live preview, and the success toast.
 	function reachLabel(reach: Reach): string {
 		if (reach === 'focused')

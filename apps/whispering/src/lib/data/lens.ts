@@ -192,7 +192,7 @@ export type WhisperingSettingValues = {
 	>;
 };
 
-/** The one inert, pure-JSON projection Whispering binds to a record Epicenter. */
+/** The one inert, pure-JSON Lens Whispering binds to a record Epicenter. */
 export const whisperingLens = defineLens({
 	namespace: 'so.epicenter.whispering',
 	title: 'Whispering',

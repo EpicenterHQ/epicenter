@@ -13,7 +13,7 @@ import { expect, mock, test } from 'bun:test';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { Recording, RecordingId } from '$lib/workspace';
+import type { Recording, RecordingId } from '$lib/data';
 
 const recordingId = 'recording-1' as RecordingId;
 const recording = { id: recordingId } as Recording;

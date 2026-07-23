@@ -50,18 +50,18 @@
 				</SectionHeader.Title>
 			</div>
 			<SectionHeader.Description class="max-w-2xl">
-				Workspace metrics. Only visible in development.
+				Record metrics. Only visible in development.
 			</SectionHeader.Description>
 		</SectionHeader.Root>
 
-		<!-- Workspace Metrics -->
+		<!-- Record metrics -->
 		<Card.Root>
 			<Card.Header>
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-2">
 						<DatabaseIcon class="h-4 w-4 text-muted-foreground" />
 						<Card.Title class="text-base font-medium"
-							>Workspace Metrics</Card.Title
+							>Record metrics</Card.Title
 						>
 					</div>
 					<Button variant="outline" size="sm" onclick={() => metrics.refresh()}>

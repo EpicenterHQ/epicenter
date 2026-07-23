@@ -4,10 +4,10 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { isErr, Ok, type Result } from 'wellcrafted/result';
+import type { Recipe } from '$lib/data';
 import { buildSystemPrompt } from '$lib/operations/build-system-prompt';
 import { completeWithGlobalDefault } from '$lib/operations/completion';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recipe } from '$lib/workspace';
 
 export const RunRecipeError = defineErrors({
 	InvalidInput: ({ message }: { message: string }) => ({ message }),
@@ -28,7 +28,7 @@ export type RunRecipeError = InferErrors<typeof RunRecipeError>;
  * model come from the single global `completion.*` default (via
  * `completeWithGlobalDefault`), not from the Recipe.
  *
- * Pure execution: no workspace writes, no persistence, no toasts. The picker is
+ * Pure execution: no record writes, no persistence, no toasts. The picker is
  * the caller; it owns delivery and any history bookkeeping.
  */
 export async function runRecipe(

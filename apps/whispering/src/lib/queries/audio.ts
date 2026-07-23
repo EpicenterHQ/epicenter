@@ -2,9 +2,9 @@ import type { Accessor } from '@tanstack/svelte-query';
 import { defineErrors } from 'wellcrafted/error';
 import { defineKeys } from 'wellcrafted/query';
 import { tryAsync } from 'wellcrafted/result';
+import type { RecordingId } from '$lib/data';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { RecordingId } from '$lib/workspace';
 
 export const audioKeys = defineKeys({
 	recording: (id: RecordingId) => ['audio', 'recording', id] as const,

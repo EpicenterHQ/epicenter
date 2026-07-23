@@ -35,9 +35,6 @@ state, queries, and UI
 4. **UI composition**: acquires once at the mounted root, provides the ready
    facade through typed context, and renders pending or failure honestly.
 
-The existing `src/lib/workspace/` directory names in Honeycrisp and Whispering
-are source-layout residue, not permission to restore the deleted Workspace API.
-
 ## Browser Host
 
 Open the origin-owned replica with `openBrowserRecordEpicenter()`. Then bind
@@ -147,7 +144,7 @@ Tauri leaf may be imported directly only by another `.tauri.ts` module.
 
 Ground against these current owners before copying a pattern:
 
-- `apps/honeycrisp/src/lib/workspace/browser.ts`
+- `apps/honeycrisp/src/lib/data/browser.ts`
 - `apps/honeycrisp/src/lib/application.ts`
 - `apps/whispering/src/lib/whispering/whispering.browser-runtime.ts`
 - `apps/whispering/src/lib/whispering/whispering.tauri.ts`

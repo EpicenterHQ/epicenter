@@ -7,8 +7,8 @@ import {
 } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Err, isErr, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { Recording, RecordingId } from '$lib/data';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording, RecordingId } from '$lib/workspace';
 
 const defaultLog = createLogger('whispering/transcription-history');
 
@@ -35,7 +35,7 @@ export type TranscriptionSuccess = {
 /**
  * Attempt one transcription-related recording update without letting storage,
  * transport, or release-lens failures escape the operation's Result contract.
- * The current workspace update may apply a patch before its row projection
+ * The current record update may apply a patch before its row projection
  * fails, so every non-success is described conservatively as an unconfirmed
  * history save rather than a definitive failed write.
  */

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
-	import type { RecordingId } from '$lib/workspace';
+	import type { RecordingId } from '$lib/data';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();

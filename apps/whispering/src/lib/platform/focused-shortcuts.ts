@@ -14,7 +14,7 @@ import type { Shortcuts } from './types';
 
 /**
  * The focused (in-app) shortcut backend: shortcuts that fire while the Whispering
- * window is focused, driven by the browser keydown matcher and stored in workspace
+ * window is focused, driven by the browser keydown matcher and stored in synced data
  * KV under `shortcut.*` as the structured `KeyBinding` the matcher and the system
  * tier already speak (via `field.json`; the global tier stores the same shape in
  * device-config). Read and written directly, with no string codec in between. A

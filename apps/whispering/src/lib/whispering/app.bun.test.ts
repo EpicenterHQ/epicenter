@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstantString } from '@epicenter/field';
 import { expectOk } from 'wellcrafted/testing';
-import type { RecordingId } from '../workspace';
+import type { RecordingId } from '../data';
 import { openWhisperingApp } from './app';
 import { createWhisperingBunDependencies } from './app.bun';
 

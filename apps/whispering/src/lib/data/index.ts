@@ -3,9 +3,9 @@ import {
 	type TranscriptionServiceId,
 } from '../services/transcription/providers';
 import type { KeyBinding } from '../utils/key-binding';
-import type { WhisperingSettingValues } from './contract';
+import type { WhisperingSettingValues } from './lens';
 
-export * from './contract';
+export * from './lens';
 
 const EMPTY_BINDING: KeyBinding = { modifiers: [], keys: [] };
 

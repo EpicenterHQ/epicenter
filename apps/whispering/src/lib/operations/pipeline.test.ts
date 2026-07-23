@@ -11,7 +11,7 @@
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import { Err, Ok } from 'wellcrafted/result';
-import type { RecordingId } from '$lib/workspace';
+import type { RecordingId } from '$lib/data';
 
 let willPolish = false;
 const deliverTranscriptionResult = mock(async () => ({

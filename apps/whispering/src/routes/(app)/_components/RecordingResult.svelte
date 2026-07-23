@@ -13,7 +13,7 @@
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import TextPreviewDialog from '$lib/components/copyable/TextPreviewDialog.svelte';
 	import { viewTransition } from '$lib/utils/viewTransitions';
-	import type { RecordingId } from '$lib/workspace';
+	import type { RecordingId } from '$lib/data';
 
 	let {
 		recordingId,

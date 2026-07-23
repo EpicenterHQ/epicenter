@@ -8,9 +8,9 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { Recording, RecordingId, recordingsTable } from '../data';
 import type { FinalizedAudio } from '../services/recorder/contract';
 import { getAudioExtension } from '../services/transcription/utils';
-import type { Recording, RecordingId, recordingsTable } from '../workspace';
 
 export const RecordingDeletionError = defineErrors({
 	RowDeleteFailed: ({ cause }: { cause: unknown }) => ({

@@ -3,7 +3,7 @@
 	import * as Select from '@epicenter/ui/select';
 
 	// Drives one typed dropdown over whatever store is passed: the synced
-	// workspace `settings` or the device-local `deviceConfig`. Both expose the
+	// synced `settings` or the device-local `deviceConfig`. Both expose the
 	// same `get(key)`/`set(key, value)` shape, so one component covers both. The
 	// store is an explicit prop, not a default, so each call site states where
 	// its value lives.

@@ -4,7 +4,7 @@
 		getWhisperingApp,
 		getWhisperingQueries,
 	} from '$lib/whispering/context';
-	import type { RecordingId } from '$lib/workspace';
+	import type { RecordingId } from '$lib/data';
 
 	const app = getWhisperingApp();
 	const queries = getWhisperingQueries();

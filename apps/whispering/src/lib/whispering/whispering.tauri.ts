@@ -2,11 +2,11 @@ import {
 	type DesktopRecordBlobSource,
 	openDesktopRecordEpicenter,
 } from '@epicenter/data/desktop-record';
-import { log } from '$lib/report';
 import {
 	EPICENTER_DESKTOP_AI_BASE_ROUTE,
 	whisperingDesktopAudioUrl,
-} from '$lib/workspace';
+} from '$lib/data';
+import { log } from '$lib/report';
 import type { WhisperingAppDependencies } from './app';
 
 /**

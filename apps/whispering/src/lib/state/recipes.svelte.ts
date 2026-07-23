@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid/non-secure';
 import { createSubscriber } from 'svelte/reactivity';
+import type { Recipe } from '$lib/data';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recipe } from '$lib/workspace';
 
 export type Recipes = ReturnType<typeof createRecipes>;
 

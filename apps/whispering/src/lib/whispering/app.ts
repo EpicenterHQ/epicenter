@@ -8,8 +8,6 @@ import type {
 	RecordSyncStatus,
 	RecordValueLens,
 } from '@epicenter/data/record';
-import type { FinalizedAudio } from '../services/recorder/contract';
-import type { TranscriptionServiceId } from '../services/transcription/providers';
 import {
 	createWhisperingSettingDefaults,
 	type RecordingId,
@@ -17,7 +15,9 @@ import {
 	whisperingLens,
 	whisperingSettingRecordKeys,
 	type whisperingSettingSchemas,
-} from '../workspace';
+} from '../data';
+import type { FinalizedAudio } from '../services/recorder/contract';
+import type { TranscriptionServiceId } from '../services/transcription/providers';
 import { createWhisperingRecipes, type WhisperingRecipes } from './recipes';
 import {
 	createWhisperingRecordings,

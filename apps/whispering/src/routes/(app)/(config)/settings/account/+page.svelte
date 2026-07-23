@@ -103,7 +103,7 @@
 		<Field.Legend variant="label">Sync</Field.Legend>
 		<Field.Description>
 			{#if tauri}
-				Desktop workspace data stays on this computer for now; signing in
+				Desktop recording data stays on this computer for now; signing in
 				powers hosted transcription. Use Whispering in the browser for
 				cross-device sync of recordings and settings.
 			{:else}

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { openBunRecordEpicenter } from '@epicenter/data/bun';
 import { InstantString } from '@epicenter/field';
 import { expectOk } from 'wellcrafted/testing';
-import { whisperingLens } from './definition';
+import { whisperingLens } from './lens';
 
 function recording(title: string, recordedAt: InstantString) {
 	return {

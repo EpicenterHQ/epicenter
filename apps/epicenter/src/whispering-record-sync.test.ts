@@ -11,7 +11,7 @@ import {
 	createBunScalarV1Runtime,
 	mountBunScalarV1App,
 } from '@epicenter/server/bun';
-import { whisperingLens } from '@epicenter/whispering/workspace-contract';
+import { whisperingLens } from '@epicenter/whispering/lens';
 import { type Context, Hono, type Next } from 'hono';
 import { Ok } from 'wellcrafted/result';
 

@@ -17,7 +17,7 @@ import {
 	type FirstAttachmentChoice,
 } from '@epicenter/data/record';
 import { honeycrispLens } from '@epicenter/honeycrisp';
-import { whisperingLens } from '@epicenter/whispering/workspace-contract';
+import { whisperingLens } from '@epicenter/whispering/lens';
 import { loadActiveAppCatalog } from './app-catalog.ts';
 import {
 	createDesktopAuthAuthority,

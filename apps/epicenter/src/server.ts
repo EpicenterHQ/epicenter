@@ -22,7 +22,7 @@ import type { FirstAttachmentChoice } from '@epicenter/data/record';
 import {
 	EPICENTER_DESKTOP_AI_BASE_ROUTE,
 	WHISPERING_DESKTOP_AUDIO_ROUTE,
-} from '@epicenter/whispering/workspace-contract';
+} from '@epicenter/whispering/lens';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';

@@ -91,7 +91,7 @@ export function polishWillRun(app: WhisperingApp, input: string): boolean {
  * when it aborts, the raw input is returned as a clean success, not an error,
  * because shipping the raw transcript was the user's explicit intent.
  *
- * Pure execution: no workspace writes, no toasts. The pipeline owns delivery and
+ * Pure execution: no record writes, no toasts. The pipeline owns delivery and
  * keeps the raw transcript on `recordings.transcript` underneath the polished
  * text. On a genuine AI failure the raw input rides along in the error so
  * delivery can still proceed.

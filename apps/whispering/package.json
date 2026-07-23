@@ -7,8 +7,7 @@
 		"./app": "./src/lib/whispering/app.ts",
 		"./app/bun": "./src/lib/whispering/app.bun.ts",
 		"./commands": "./src/lib/commands.ts",
-		"./workspace": "./src/lib/workspace/index.ts",
-		"./workspace-contract": "./src/lib/workspace/contract.ts"
+		"./lens": "./src/lib/data/lens.ts"
 	},
 	"imports": {
 		"#platform/commands": {

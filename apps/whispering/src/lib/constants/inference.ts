@@ -38,7 +38,7 @@ type InferenceProvider = {
  * Single source of truth for inference providers: their models, labels, the
  * deviceConfig key NAMES holding each provider's credential and endpoint override,
  * and the canonical base URL each provider's completions run against. SDK-free
- * (only a type import), so the workspace schema imports it without bundling any
+ * (only a type import), so the data Lens imports it without bundling any
  * provider client. This is the completion twin of transcription's `PROVIDERS`:
  * every provider speaks the OpenAI completion wire (Anthropic and Google through
  * their OpenAI-compatibility endpoints), so a completion resolves a

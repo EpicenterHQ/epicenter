@@ -1,6 +1,6 @@
 /**
  * UI-facing provider data: the icons plus the `TRANSCRIPTION_PROVIDERS` join.
- * Kept out of `providers.ts` so the workspace schema can import
+ * Kept out of `providers.ts` so the data Lens can import
  * `TRANSCRIPTION_SERVICE_IDS` without bundling these `?raw` SVGs.
  * `TRANSCRIPTION_PROVIDERS` is the join of each provider's data with its icon:
  * an array (id + every provider field + icon) that the settings selectors

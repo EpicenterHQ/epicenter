@@ -2,8 +2,8 @@ import type {
 	NonconformingRowError,
 	RecordTableLens,
 } from '@epicenter/data/record';
+import type { Recipe, recipesTable } from '../data';
 import { BUILTIN_RECIPES } from '../state/builtin-recipes';
-import type { Recipe, recipesTable } from '../workspace';
 
 export type WhisperingRecipes = {
 	readonly pickable: Recipe[];

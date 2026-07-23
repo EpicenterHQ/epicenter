@@ -10,7 +10,7 @@ import {
 } from '@epicenter/data/bun';
 import type { RecordEpicenter } from '@epicenter/data/record';
 import { Err } from 'wellcrafted/result';
-import { whisperingLens } from '../workspace';
+import { whisperingLens } from '../data';
 import { openWhisperingApp, type WhisperingAppDependencies } from './app';
 
 function dependencies(

@@ -1,8 +1,8 @@
 import { createSubscriber } from 'svelte/reactivity';
+import type { Recording } from '$lib/data';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from '$lib/workspace';
 
-export type { Recording } from '$lib/workspace';
+export type { Recording } from '$lib/data';
 
 export type Recordings = ReturnType<typeof createRecordings>;
 

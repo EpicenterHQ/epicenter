@@ -47,7 +47,7 @@
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import type { Recording } from '$lib/state/recordings.svelte';
-	import type { RecordingId } from '$lib/workspace';
+	import type { RecordingId } from '$lib/data';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import { viewTransition } from '$lib/utils/viewTransitions';
 	import RecordingTranscriptCell from './RecordingTranscriptCell.svelte';

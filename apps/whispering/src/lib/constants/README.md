@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This directory holds immutable, cross-cutting values that more than one part of the app needs and that have no single obvious owner: the language list, sound names, provider registries, and the setting-value enums the workspace schema validates against.
+This directory holds immutable, cross-cutting values that more than one part of the app needs and that have no single obvious owner: the language list, sound names, provider registries, and the setting-value enums the data Lens validates against.
 
 ## What belongs here (and what does not)
 
@@ -10,7 +10,7 @@ A constant lives with the code that owns its meaning. Only put something here wh
 
 - **Logic and functions** (formatters, guards, validators, normalizers) live in `$lib/utils` or `$lib/services`, never here. Example: shortcut parsing, labeling, and matching live in `$lib/utils/key-binding.ts`.
 - **Types owned by one module** live in that module. Example: `DeviceAcquisitionOutcome` lives in the `@epicenter/recorder` package, which owns browser microphone device vocabulary.
-- **Registries with behavior** live next to their service. The transcription and inference registries stay here only because their service-ID enums are shared vocabulary the workspace schema validates against.
+- **Registries with behavior** live next to their service. The transcription and inference registries stay here only because their service-ID enums are shared vocabulary the data Lens validates against.
 - **Build-target values** (platform identity) live behind the `#platform/*` seam (see below).
 
 Rule of thumb: no computed behavior, no functions, no runtime schema objects. If you reach for `arktype` or write a function, it does not belong here.

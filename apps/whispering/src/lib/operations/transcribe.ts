@@ -10,6 +10,7 @@ import { auth } from '#platform/auth';
 import { customFetch } from '#platform/http';
 import { tauri } from '#platform/tauri';
 import type { SupportedLanguage } from '$lib/constants/languages';
+import type { RecordingId } from '$lib/data';
 import { logAnalyticsEvent } from '$lib/operations/analytics';
 import {
 	recordTranscriptionOutcome,
@@ -28,7 +29,6 @@ import {
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { type SecretKey, secrets } from '$lib/state/secrets.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { RecordingId } from '$lib/workspace';
 
 /**
  * The error any transcription path can surface. Deliberately `AnyTaggedError`

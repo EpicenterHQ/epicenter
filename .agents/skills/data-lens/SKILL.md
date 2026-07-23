@@ -144,9 +144,9 @@ read-time migration layer.
 
 Current grounded examples:
 
-- `apps/honeycrisp/src/lib/workspace/index.ts`: tables, Lens, and a multi-row
+- `apps/honeycrisp/src/lib/data/index.ts`: tables, Lens, and a multi-row
   application operation.
-- `apps/whispering/src/lib/workspace/contract.ts`: tables, values, and a
+- `apps/whispering/src/lib/data/lens.ts`: tables, values, and a
   record-owned audio blob.
 - `apps/whispering/src/lib/whispering/app.ts`: binding and domain facades.
 - `apps/epicenter/src/main.ts`: one Bun owner binding several app Lenses.
