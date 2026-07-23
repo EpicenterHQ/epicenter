@@ -287,6 +287,7 @@ function createSchema(database: Database, candidate: Candidate): void {
 	if (candidate === 'wide') {
 		createReplicaStoreSchema(createBunSqliteAdapter(database), {
 			replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+			owner: null,
 			authorityLifetime: 'lifetime-one',
 		});
 		return;

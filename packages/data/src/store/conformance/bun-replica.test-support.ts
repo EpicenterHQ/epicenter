@@ -150,6 +150,7 @@ class BunReplicaFixture {
 		const database = new Database(path, { create: true, strict: true });
 		database.run('PRAGMA journal_mode = DELETE');
 		const store = openReplicaStore({
+			owner: null,
 			database: createBunSqliteAdapter(database),
 			limits: LIMITS,
 			initialize: fixture,
@@ -163,6 +164,7 @@ class BunReplicaFixture {
 			path,
 			database,
 			openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: LIMITS,
 			}),
@@ -181,6 +183,7 @@ class BunReplicaFixture {
 		try {
 			const counted = countingAdapter(database);
 			const store = openReplicaStore({
+				owner: null,
 				database: counted.adapter,
 				limits: LIMITS,
 			});
@@ -200,6 +203,7 @@ class BunReplicaFixture {
 		const database = new Database(workingPath, { strict: true });
 		try {
 			const store = openReplicaStore({
+				owner: null,
 				database: crashAdapter(database, workingPath, recoveredPath, boundary),
 				limits: LIMITS,
 			});

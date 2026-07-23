@@ -167,6 +167,7 @@ function createDriver(readPage: () => Page | undefined) {
 		const storageId = crypto.randomUUID();
 		const options = {
 			limits: makeLimits(),
+			owner: null,
 			initialize: fixture,
 			coordinationId: `epicenter-replica-conformance-${storageId}`,
 			storage: {

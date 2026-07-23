@@ -14,11 +14,11 @@ import { openBunEpicenter } from './bun.js';
 test('openBunEpicenter mints a schema-valid replica id by default', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'epicenter-bun-runtime-'));
 	try {
-		await using epicenter = await openBunEpicenter({ directory: root });
-		expect(epicenter.sync.status).toEqual({
-			state: 'unattached',
-			attachment: null,
+		await using epicenter = await openBunEpicenter({
+			directory: root,
+			owner: null,
 		});
+		expect(epicenter.sync.status).toEqual({ state: 'local-only' });
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

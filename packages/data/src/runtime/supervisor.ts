@@ -8,7 +8,6 @@ import type {
 } from '../protocol/v1/index.js';
 import {
 	PUBLICATION_OBLIGATION_PAGE_LIMIT,
-	type ReplicaAttachment,
 	type ReplicaBlobStore,
 	type ReplicaStore,
 } from '../store/replica/index.js';
@@ -47,23 +46,15 @@ export type RuntimeBackoff = {
 	schedule: RuntimeSchedule;
 };
 
+/**
+ * `local-only` is the one carrier-less state: the runtime was opened without
+ * synchronization authority (an unclaimed replica, or an account replica
+ * while signed out) and every durable obligation stays local until a later
+ * carrier-bearing open of the same replica.
+ */
 export type SyncStatus = {
-	state:
-		| 'unattached'
-		| 'attaching-first'
-		| 'idle'
-		| 'syncing'
-		| 'offline'
-		| 'signed-out';
-	attachment: ReplicaAttachment | null;
+	state: 'local-only' | 'idle' | 'syncing' | 'offline';
 };
-
-export type AttachOutcome =
-	| { kind: 'attached' }
-	| {
-			kind: 'first-attachment-choice';
-			proceed(choice: 'bring' | 'discard'): void;
-	  };
 
 export type CreateRuntimeSupervisorOptions<TBlobSource, TBlobBytes> = {
 	store: ReplicaStore;
@@ -103,26 +94,30 @@ function isLifetimeMismatch(cause: unknown): boolean {
 /**
  * Own the one runtime lifetime that drains every replica obligation.
  *
- * Disposal is strict: `nudge`, `setCarrier`, `attach`, and `drainOnce` throw
- * after disposal. `status` remains readable.
+ * The carrier is fixed for this lifetime: a supervisor opened without one is
+ * permanently local-only, and a takeover replacement reconstructed from the
+ * same open configuration is correct by construction (ADR-0178).
+ *
+ * Disposal is strict: `nudge` and `drainOnce` throw after disposal. `status`
+ * remains readable.
  */
 export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 	store,
 	blobs,
-	carrier: initialCarrier,
+	carrier,
 	onInvalidate,
 	onAuthorityReplacement,
 	onStatus,
 	intervalMs = DEFAULT_INTERVAL_MS,
 	backoff = defaultBackoff(),
 }: CreateRuntimeSupervisorOptions<TBlobSource, TBlobBytes>) {
-	let carrier = initialCarrier;
-	let currentStatus: SyncStatus = initialStatus();
+	let currentStatus: SyncStatus = {
+		state: carrier === null ? 'local-only' : 'idle',
+	};
 	let isDisposed = false;
 	let requestedFollowUp = false;
 	let running: Promise<void> | undefined;
 	let cancelScheduled: (() => void) | undefined;
-	let attachmentDemand = false;
 	const attempts: Record<Plane, number> = {
 		scalar: 0,
 		facts: 0,
@@ -136,35 +131,14 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 		blobs: 0,
 	};
 
-	function initialStatus(): SyncStatus {
-		const attachment = store.attachment();
-		return {
-			state:
-				attachment === null
-					? 'unattached'
-					: initialCarrier === null
-						? 'signed-out'
-						: 'idle',
-			attachment,
-		};
-	}
-
 	function assertActive(): void {
 		if (isDisposed) throw new Error('runtime supervisor is disposed');
 	}
 
 	function setStatus(state: SyncStatus['state']): void {
-		const next = { state, attachment: store.attachment() };
-		if (
-			next.state === currentStatus.state &&
-			next.attachment?.deploymentId ===
-				currentStatus.attachment?.deploymentId &&
-			next.attachment?.principalId === currentStatus.attachment?.principalId
-		) {
-			return;
-		}
-		currentStatus = next;
-		onStatus(structuredClone(next));
+		if (state === currentStatus.state) return;
+		currentStatus = { state };
+		onStatus(structuredClone(currentStatus));
 	}
 
 	function cancelWake(): void {
@@ -173,7 +147,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 	}
 
 	function scheduleWake(delayMs: number): void {
-		if (isDisposed || carrier === null || store.attachment() === null) return;
+		if (isDisposed || carrier === null) return;
 		cancelWake();
 		cancelScheduled = backoff.schedule(() => {
 			cancelScheduled = undefined;
@@ -194,12 +168,6 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 		const delay = backoff.delay(attempts[plane], plane);
 		attempts[plane] += 1;
 		blockedUntil[plane] = backoff.now() + delay;
-	}
-
-	function resetBackoff(): void {
-		for (const plane of Object.keys(attempts) as Plane[]) {
-			planeSucceeded(plane);
-		}
 	}
 
 	function replaceAuthority(): void {
@@ -225,7 +193,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 					sealed = outcome.request;
 				}
 				const response = await activeCarrier.submit(sealed.bytes);
-				if (isDisposed || carrier !== activeCarrier) return 'ok';
+				if (isDisposed) return 'ok';
 				if (response.authorityLifetime !== store.sync().authorityLifetime) {
 					replaceAuthority();
 					return 'replaced';
@@ -263,7 +231,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 					afterSequence: sync.afterSequence,
 				};
 				const response = await activeCarrier.fetchFacts(request);
-				if (isDisposed || carrier !== activeCarrier) return 'ok';
+				if (isDisposed) return 'ok';
 				if (
 					request.authorityLifetime !== undefined &&
 					response.authorityLifetime !== request.authorityLifetime
@@ -317,7 +285,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 						address,
 						state.publication,
 					);
-					if (isDisposed || carrier !== activeCarrier) return 'ok';
+					if (isDisposed) return 'ok';
 					if (acceptance.kind === 'lifetime-mismatch') {
 						replaceAuthority();
 						return 'replaced';
@@ -386,7 +354,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 						state.publication.request,
 						state.publication.bytes,
 					);
-					if (isDisposed || carrier !== activeCarrier) return 'ok';
+					if (isDisposed) return 'ok';
 					if (acceptance.kind === 'lifetime-mismatch') {
 						replaceAuthority();
 						return 'replaced';
@@ -421,11 +389,7 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 	async function pass(): Promise<void> {
 		const activeCarrier = carrier;
 		if (activeCarrier === null) {
-			setStatus(store.attachment() === null ? 'unattached' : 'signed-out');
-			return;
-		}
-		if (store.attachment() === null) {
-			setStatus(attachmentDemand ? 'attaching-first' : 'unattached');
+			setStatus('local-only');
 			return;
 		}
 
@@ -493,51 +457,6 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 			assertActive();
 			if (running === undefined) scheduleWake(0);
 			else requestedFollowUp = true;
-		},
-		setCarrier(nextCarrier: AuthorityCarrier<TBlobBytes> | null): void {
-			assertActive();
-			carrier = nextCarrier;
-			resetBackoff();
-			cancelWake();
-			if (nextCarrier === null) {
-				setStatus(store.attachment() === null ? 'unattached' : 'signed-out');
-				return;
-			}
-			if (store.attachment() !== null) scheduleWake(0);
-		},
-		attach(
-			pair: ReplicaAttachment,
-			choice?: 'bring' | 'discard',
-		): AttachOutcome {
-			assertActive();
-			if (
-				store.attachment() === null &&
-				!store.isLogicallyEmpty() &&
-				choice === undefined
-			) {
-				attachmentDemand = true;
-				setStatus('attaching-first');
-				let proceeded = false;
-				return {
-					kind: 'first-attachment-choice',
-					proceed(selectedChoice) {
-						assertActive();
-						if (proceeded) {
-							throw new Error('first-attachment choice was already resolved');
-						}
-						proceeded = true;
-						store.attach({ ...pair, choice: selectedChoice });
-						attachmentDemand = false;
-						setStatus(carrier === null ? 'signed-out' : 'idle');
-						if (carrier !== null) scheduleWake(0);
-					},
-				};
-			}
-			store.attach({ ...pair, ...(choice === undefined ? {} : { choice }) });
-			attachmentDemand = false;
-			setStatus(carrier === null ? 'signed-out' : 'idle');
-			if (carrier !== null) scheduleWake(0);
-			return { kind: 'attached' };
 		},
 		drainOnce(): Promise<void> {
 			return requestDrain();

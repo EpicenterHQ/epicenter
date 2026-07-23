@@ -134,78 +134,141 @@ async function waitForSettled(page: Page, ids: string[]): Promise<void> {
 
 async function runRuntimeCheckpoint(page: Page, engineName: string) {
 	const storageId = crypto.randomUUID();
-	const options = {
-		coordinationId: `epicenter-runtime-${storageId}`,
-		storage: {
-			databaseFilename: '/replica.sqlite3',
-			poolDirectory: `.epicenter-runtime-${storageId}`,
-			poolName: `epicenter-runtime-${storageId}`,
-		},
+	const OWNER = {
+		deploymentId: 'https://example.test/',
+		principalId: 'principal-evidence',
 	};
-	const discardOptions = {
-		coordinationId: `epicenter-runtime-discard-${storageId}`,
+	function slotOptions(prefix: string) {
+		const name = `epicenter-runtime-${prefix}-${storageId}`;
+		return {
+			coordinationId: name,
+			storage: {
+				databaseFilename: '/replica.sqlite3',
+				poolDirectory: `.${name}`,
+				poolName: name,
+				lockName: name,
+				blobDirectory: `${name}-blobs`,
+			},
+		};
+	}
+	const mainSlot = slotOptions('main');
+	const mainSignedOut = { ...mainSlot, owner: OWNER, withCarrier: false };
+	const mainSignedIn = { ...mainSlot, owner: OWNER, withCarrier: true };
+
+	// An unclaimed replica is permanently local-only: writes stay durable, no
+	// authority contact happens, identity cannot be reassigned, and an elected
+	// replacement while signed out stays local-only (ADR-0178).
+	const unclaimedSlot = slotOptions('unclaimed');
+	const unclaimedOptions = {
+		...unclaimedSlot,
 		replicaId: 'dddddddddddddddddddddddd',
-		storage: {
-			databaseFilename: '/discard.sqlite3',
-			poolDirectory: `.epicenter-runtime-discard-${storageId}`,
-			poolName: `epicenter-runtime-discard-${storageId}`,
-		},
+		owner: null,
 	};
 	await page.evaluate(
 		(value) => window.browserRuntimeEvidence.open(value),
-		discardOptions,
+		unclaimedOptions,
 	);
-	const discardedId = await page.evaluate(async () => {
+	const unclaimedId = await page.evaluate(async () => {
 		const runtime = window.browserRuntimeEvidence;
-		const id = await runtime.create('discard before first attachment');
-		await runtime.openDocument('discarded', id);
-		runtime.insertDocument('discarded', 0, 'discarded lineage');
-		await runtime.whenDocumentDurable('discarded');
+		const id = await runtime.create('unclaimed local data');
+		await runtime.openDocument('unclaimed', id);
+		runtime.insertDocument('unclaimed', 0, 'unclaimed lineage');
+		await runtime.whenDocumentDurable('unclaimed');
+		await runtime.closeDocument('unclaimed');
 		return id;
 	});
 	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach()),
-	).toBe('first-attachment-choice');
-	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach('discard')),
-	).toBe('attached');
-	expect(
-		await page.evaluate(() => {
-			try {
-				window.browserRuntimeEvidence.documentText('discarded');
-				return false;
-			} catch {
-				return true;
-			}
-		}),
-	).toBeTrue();
+		await page.evaluate(() => window.browserRuntimeEvidence.status().state),
+	).toBe('local-only');
+	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
+
+	// Opening the same physical replica under another identity fails without
+	// mutating it.
+	await expect(
+		page.evaluate(
+			(value) => window.browserRuntimeEvidence.open(value),
+			{ ...unclaimedOptions, owner: OWNER },
+		),
+	).rejects.toThrow(/identity does not match/);
+
+	// Same-identity reopen finds the data intact.
+	await page.evaluate(
+		(value) => window.browserRuntimeEvidence.open(value),
+		unclaimedOptions,
+	);
 	expect(
 		await page.evaluate(
 			(id) => window.browserRuntimeEvidence.get(id),
-			discardedId,
+			unclaimedId,
 		),
-	).toBeNull();
-	await page.evaluate(async () => {
-		await window.browserRuntimeEvidence.closeDocument('discarded');
-		await window.browserRuntimeEvidence.dispose();
-	});
+	).toMatchObject({ id: unclaimedId, title: 'unclaimed local data' });
+
+	// A second candidate on the same slot takes over after the first owner
+	// leaves and reconstructs the same local-only posture: no worker-local
+	// sign-in memory exists to lose.
+	await page.evaluate(
+		(candidateOptions) =>
+			window.browserReplicaCandidateEvidence.open(candidateOptions),
+		{
+			limits: makeLimits(),
+			owner: null,
+			initialize: { replicaId: 'dddddddddddddddddddddddd' },
+			hasCarrier: false,
+			coordinationId: unclaimedOptions.coordinationId,
+			storage: unclaimedOptions.storage,
+		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>,
+	);
+	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
+	{
+		const deadline = Date.now() + 20_000;
+		for (;;) {
+			const role = await page.evaluate(
+				() => window.browserReplicaCandidateEvidence.status().role,
+			);
+			if (role === 'owner') break;
+			if (Date.now() >= deadline) {
+				throw new Error('takeover candidate never became the elected owner');
+			}
+			await Bun.sleep(50);
+		}
+	}
+	expect(
+		(await page.evaluate(
+			(operation) =>
+				window.browserReplicaCandidateEvidence.request(
+					operation as BrowserReplicaStoreOperation,
+				),
+			{ kind: 'runtime-status' },
+		)) as { state: string },
+	).toMatchObject({ state: 'local-only' });
+	expect(
+		(await page.evaluate(
+			(operation) =>
+				window.browserReplicaCandidateEvidence.request(
+					operation as BrowserReplicaStoreOperation,
+				),
+			{
+				kind: 'visible-record',
+				address: {
+					namespace: 'so.epicenter.browser-runtime',
+					collection: 'notes',
+					recordKey: unclaimedId,
+				},
+			},
+		)) as { state: string },
+	).toMatchObject({ state: 'live' });
+	await page.evaluate(() => window.browserReplicaCandidateEvidence.close());
 
 	const heldDisposalOptions = {
-		coordinationId: `epicenter-runtime-held-disposal-${storageId}`,
+		...slotOptions('held-disposal'),
 		replicaId: 'hhhhhhhhhhhhhhhhhhhhhhhh',
-		storage: {
-			databaseFilename: '/held-disposal.sqlite3',
-			poolDirectory: `.epicenter-runtime-held-disposal-${storageId}`,
-			poolName: `epicenter-runtime-held-disposal-${storageId}`,
-		},
+		owner: OWNER,
+		withCarrier: true,
 	};
 	await page.evaluate(
 		(value) => window.browserRuntimeEvidence.open(value),
 		heldDisposalOptions,
 	);
-	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach()),
-	).toBe('attached');
 	const heldDisposalId = await page.evaluate(() =>
 		window.browserRuntimeEvidence.create('dispose during carrier request'),
 	);
@@ -248,17 +311,19 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 	).toBeTrue();
 	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
 
+	// The main slot: an account replica opened signed out records durable work
+	// that a later signed-in open of the same replica drains.
 	await page.evaluate(
 		(value) => window.browserRuntimeEvidence.open(value),
-		options,
+		mainSignedOut,
 	);
 
 	const firstId = await page.evaluate(() =>
-		window.browserRuntimeEvidence.create('before attachment'),
+		window.browserRuntimeEvidence.create('before sign-in'),
 	);
 	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach()),
-	).toBe('first-attachment-choice');
+		await page.evaluate(() => window.browserRuntimeEvidence.status().state),
+	).toBe('local-only');
 
 	await page.evaluate((id) => {
 		const runtime = window.browserRuntimeEvidence;
@@ -294,21 +359,20 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		(id) => window.browserRuntimeEvidence.captureBlob(id, 'immutable bytes'),
 		firstId,
 	);
-	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach('bring')),
-	).toBe('attached');
 
 	await page.evaluate(
 		(candidateOptions) =>
 			window.browserReplicaCandidateEvidence.open(candidateOptions),
 		{
 			limits: makeLimits(),
+			owner: OWNER,
 			initialize: {
 				replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
 				authorityLifetime: 'runtime-life',
 			},
 			hasCarrier: false,
-			...options,
+			coordinationId: mainSlot.coordinationId,
+			storage: mainSlot.storage,
 		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>,
 	);
 	const address: RecordAddress = {
@@ -331,16 +395,14 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		await window.browserRuntimeEvidence.closeDocument('second');
 		await window.browserRuntimeEvidence.dispose();
 	});
+	// Same-identity signed-out reopen finds everything intact and still owed.
 	await page.evaluate(
 		(value) => window.browserRuntimeEvidence.open(value),
-		options,
+		mainSignedOut,
 	);
 	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach()),
-	).toBe('attached');
-	expect(
 		await page.evaluate((id) => window.browserRuntimeEvidence.get(id), firstId),
-	).toMatchObject({ id: firstId, title: 'before attachment' });
+	).toMatchObject({ id: firstId, title: 'before sign-in' });
 	await page.evaluate(
 		(id) => window.browserRuntimeEvidence.openDocument('reopened', id),
 		firstId,
@@ -360,7 +422,6 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		window.browserRuntimeEvidence.closeDocument('reopened'),
 	);
 
-	await page.evaluate(() => window.browserRuntimeEvidence.setOnline(false));
 	const offlineIds = await page.evaluate(async () => {
 		const runtime = window.browserRuntimeEvidence;
 		const scalar = await runtime.create('offline scalar');
@@ -376,11 +437,8 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
 	await page.evaluate(
 		(value) => window.browserRuntimeEvidence.open(value),
-		options,
+		mainSignedOut,
 	);
-	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach()),
-	).toBe('attached');
 	for (const id of Object.values(offlineIds)) {
 		expect(
 			await page.evaluate(
@@ -408,14 +466,17 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		),
 	).toBe('offline bytes');
 
+	// Sign-in is a new runtime lifetime over the same replica; the initial
+	// drain publishes every retained obligation.
 	const beforeReconnect = await page.evaluate(() =>
 		window.browserRuntimeEvidence.authorityCounts(),
 	);
-	await page.evaluate(() => {
-		window.browserRuntimeEvidence.setOnline(true);
-		window.browserRuntimeEvidence.nudgeOnline();
-	});
-	await waitForSettled(page, Object.values(offlineIds));
+	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
+	await page.evaluate(
+		(value) => window.browserRuntimeEvidence.open(value),
+		mainSignedIn,
+	);
+	await waitForSettled(page, [firstId, ...Object.values(offlineIds)]);
 	const afterReconnect = await page.evaluate(() =>
 		window.browserRuntimeEvidence.authorityCounts(),
 	);
@@ -436,7 +497,7 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 	);
 	await page.evaluate(
 		(value) => window.browserRuntimeEvidence.open(value),
-		options,
+		mainSignedIn,
 	);
 	await waitForSettled(page, [reopenOnlineId]);
 	expect(
@@ -487,12 +548,14 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 			window.browserReplicaCandidateEvidence.open(candidateOptions),
 		{
 			limits: makeLimits(),
+			owner: OWNER,
 			initialize: {
 				replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
 				authorityLifetime: 'runtime-life',
 			},
 			hasCarrier: false,
-			...options,
+			coordinationId: mainSlot.coordinationId,
+			storage: mainSlot.storage,
 		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>,
 	);
 	await page.evaluate(
@@ -561,9 +624,9 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 			return true;
 		}
 	});
-	expect(
-		await page.evaluate(() => window.browserRuntimeEvidence.attach()),
-	).toBe('attached');
+	// The replacement lifetime rehydrates automatically; no reattachment
+	// operation exists to confirm.
+	await waitForSettled(page, []);
 
 	const disposalRecord = await page.evaluate(async () => {
 		const runtime = window.browserRuntimeEvidence;

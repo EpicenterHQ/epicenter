@@ -26,10 +26,6 @@ export function createBrowserReplicaOwnerOperations(
 			switch (operation.kind) {
 				case 'record':
 					return owner.store.record(operation.address);
-				case 'attachment':
-					return owner.store.attachment();
-				case 'is-logically-empty':
-					return owner.store.isLogicallyEmpty();
 				case 'visible-record':
 					return owner.store.visibleRecord(operation.address);
 				case 'visible-records-page':
@@ -50,6 +46,15 @@ export function createBrowserReplicaOwnerOperations(
 					return publicationStatus(owner.store, owner.blobs, operation.address);
 				case 'runtime-table-update':
 					if (!owner.store.isVisiblyLive(operation.intent.address)) {
+						return { kind: 'record-not-live' };
+					}
+					owner.store.localWrite(operation.intent);
+					return {
+						kind: 'written',
+						visible: owner.store.visibleRecord(operation.intent.address),
+					};
+				case 'runtime-put-record':
+					if (terminal(owner.store.record(operation.intent.address))) {
 						return { kind: 'record-not-live' };
 					}
 					owner.store.localWrite(operation.intent);

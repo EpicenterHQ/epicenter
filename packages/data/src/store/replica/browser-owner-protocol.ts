@@ -29,7 +29,6 @@ import type {
 	DocumentSettlementOutcome,
 } from './document-store.js';
 import type {
-	ReplicaAttachment,
 	ReplicaRecordLanes,
 	ReplicaStoreSync,
 	SealedRequest,
@@ -50,16 +49,17 @@ export type BrowserReplicaOwnerOperation =
 	| {
 			kind: 'open';
 			limits: ValidatedLimits;
+			owner: { deploymentId: string; principalId: string } | null;
 			initialize?: { replicaId: string; authorityLifetime?: string };
 			storage?: {
 				databaseFilename: string;
 				poolDirectory: string;
 				poolName: string;
+				lockName?: string;
+				blobDirectory?: string;
 			};
 	  }
 	| { kind: 'record'; address: RecordAddress }
-	| { kind: 'attachment' }
-	| { kind: 'is-logically-empty' }
 	| { kind: 'visible-record'; address: RecordAddress }
 	| {
 			kind: 'visible-records-page';
@@ -77,6 +77,10 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'publication-status'; address: RecordAddress }
 	| {
 			kind: 'runtime-table-update';
+			intent: Extract<Intent, { op: 'patch' }>;
+	  }
+	| {
+			kind: 'runtime-put-record';
 			intent: Extract<Intent, { op: 'patch' }>;
 	  }
 	| { kind: 'runtime-delete-record'; address: RecordAddress }
@@ -152,7 +156,6 @@ export type BrowserReplicaCandidateOperation =
 export type BrowserReplicaOwnerResult =
 	| undefined
 	| ReplicaRecordLanes
-	| ReplicaAttachment
 	| ReplicaStoreSync
 	| SealOutcome
 	| SealedRequest

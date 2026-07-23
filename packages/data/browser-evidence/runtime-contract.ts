@@ -5,6 +5,13 @@ export type BrowserRuntimeStorageIdentity = {
 	databaseFilename: string;
 	poolDirectory: string;
 	poolName: string;
+	lockName?: string;
+	blobDirectory?: string;
+};
+
+export type BrowserRuntimeReplicaOwner = {
+	deploymentId: string;
+	principalId: string;
 };
 
 export type BrowserRuntimeEvidenceDriver = {
@@ -12,8 +19,11 @@ export type BrowserRuntimeEvidenceDriver = {
 		coordinationId: string;
 		storage: BrowserRuntimeStorageIdentity;
 		replicaId?: string;
+		/** Immutable identity of the replica this open targets (ADR-0178). */
+		owner: BrowserRuntimeReplicaOwner | null;
+		/** Supply the page's authority carrier for this runtime lifetime. */
+		withCarrier?: boolean;
 	}): Promise<void>;
-	attach(choice?: 'bring' | 'discard'): Promise<string>;
 	create(title: string): Promise<string>;
 	get(id: string): Promise<{ id: string; title: string; body?: string } | null>;
 	update(id: string, title: string): Promise<void>;

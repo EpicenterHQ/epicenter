@@ -26,6 +26,7 @@ const ADDRESS: RecordAddress = {
 function setup() {
 	const database = new Database(':memory:', { strict: true });
 	const store = openReplicaStore({
+		owner: null,
 		database: createBunSqliteAdapter(database),
 		limits: makeLimits(),
 		initialize: {
@@ -295,6 +296,7 @@ describe('record document store', () => {
 			expect(retry.publication.digest).toBe(attempt.publication.digest);
 			// The refusal evidence is durable across a clean reopen.
 			const reopened = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(context.database),
 				limits: makeLimits(),
 			});
@@ -317,6 +319,7 @@ describe('record document store', () => {
 		let database = new Database(path, { strict: true });
 		try {
 			let store = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: makeLimits(),
 				initialize: {
@@ -351,6 +354,7 @@ describe('record document store', () => {
 			database.close();
 			database = new Database(path, { strict: true });
 			store = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: makeLimits(),
 			});

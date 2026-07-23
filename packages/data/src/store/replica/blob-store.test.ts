@@ -81,6 +81,7 @@ function setup(
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
 	const replica = openReplicaStore({
+		owner: null,
 		database: adapter,
 		limits: makeLimits(),
 		initialize: {

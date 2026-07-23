@@ -13,9 +13,12 @@ import {
 } from '../../browser/storage-lease.js';
 import type { ValidatedLimits } from '../../protocol/v1/index.js';
 import { createReplicaBlobStore } from './blob-store.js';
-import { createBrowserOpfsBlobFileStore } from './browser-opfs-blob-files.js';
+import {
+	createBrowserOpfsBlobFileStore,
+	type OpfsDirectoryHandle,
+} from './browser-opfs-blob-files.js';
 import { createBrowserReplicaOwnerLifetime } from './browser-owner-lifetime.js';
-import { openReplicaStore } from './replica-store.js';
+import { openReplicaStore, type ReplicaOwner } from './replica-store.js';
 
 const DEFAULT_DATABASE_FILENAME = '/epicenter-data-v1.sqlite3';
 const DEFAULT_POOL_DIRECTORY = '.epicenter-data-v1-sahpool';
@@ -28,11 +31,28 @@ type ReplicaInitialization = {
 
 export type OpenBrowserReplicaOwnerOptions = {
 	limits: ValidatedLimits;
+	/** Immutable identity this physical replica must have (ADR-0178). */
+	owner: ReplicaOwner | null;
 	initialize?: ReplicaInitialization;
 	databaseFilename?: string;
 	poolDirectory?: string;
 	poolName?: string;
+	lockName?: string;
+	/**
+	 * OPFS directory for raw blob bytes. Defaults to the legacy origin-root
+	 * `blobs` layout; identity-slotted callers pass their slot directory so
+	 * replicas never share blob storage.
+	 */
+	blobDirectory?: string;
 };
+
+async function opfsRoot(): Promise<OpfsDirectoryHandle> {
+	return await (
+		navigator as unknown as {
+			storage: { getDirectory(): Promise<OpfsDirectoryHandle> };
+		}
+	).storage.getDirectory();
+}
 
 type IntegrityRow = { integrity_check: string };
 
@@ -48,6 +68,7 @@ function configureDatabase(database: Database): void {
 function createStores(
 	database: Database,
 	limits: ValidatedLimits,
+	owner: ReplicaOwner | null,
 	files: Awaited<ReturnType<typeof createBrowserOpfsBlobFileStore>>,
 	initialize?: ReplicaInitialization,
 ) {
@@ -58,6 +79,7 @@ function createStores(
 		store: openReplicaStore({
 			database: adapter,
 			limits,
+			owner,
 			...(initialize === undefined ? {} : { initialize }),
 		}),
 		blobs: createReplicaBlobStore(adapter, files),
@@ -91,10 +113,13 @@ async function settleCleanup(
  */
 export async function openBrowserReplicaOwner({
 	limits,
+	owner,
 	initialize,
 	databaseFilename = DEFAULT_DATABASE_FILENAME,
 	poolDirectory = DEFAULT_POOL_DIRECTORY,
 	poolName = DEFAULT_POOL_NAME,
+	lockName,
+	blobDirectory,
 }: OpenBrowserReplicaOwnerOptions) {
 	let lease: BrowserStorageLease | undefined;
 	let pool: SAHPoolUtil | undefined;
@@ -118,6 +143,7 @@ export async function openBrowserReplicaOwner({
 	});
 	try {
 		lease = await acquireBrowserStorageLease(navigator.locks, {
+			...(lockName === undefined ? {} : { name: lockName }),
 			onStolen: lifetime.ownerLost,
 		});
 		lifetime.requireOpening();
@@ -131,9 +157,15 @@ export async function openBrowserReplicaOwner({
 		const openedPool = pool;
 		database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 		configureDatabase(database);
-		const files = await createBrowserOpfsBlobFileStore();
+		const files = await createBrowserOpfsBlobFileStore(
+			blobDirectory === undefined
+				? undefined
+				: await (await opfsRoot()).getDirectoryHandle(blobDirectory, {
+						create: true,
+					}),
+		);
 		lifetime.requireOpening();
-		let openedStores = createStores(database, limits, files, initialize);
+		let openedStores = createStores(database, limits, owner, files, initialize);
 		await openedStores.blobs.reopenSweep();
 		lifetime.activate();
 
@@ -161,7 +193,7 @@ export async function openBrowserReplicaOwner({
 				database?.close();
 				database = new openedPool.OpfsSAHPoolDb(databaseFilename);
 				configureDatabase(database);
-				openedStores = createStores(database, limits, files);
+				openedStores = createStores(database, limits, owner, files);
 				await openedStores.blobs.reopenSweep();
 				lifetime.requireActive();
 			},

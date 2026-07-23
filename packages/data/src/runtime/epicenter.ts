@@ -17,7 +17,6 @@ import {
 } from '../lens/index.js';
 import type { JsonObject, RecordAddress } from '../protocol/v1/index.js';
 import type {
-	ReplicaAttachment,
 	ReplicaBlobStore,
 	ReplicaStore,
 } from '../store/replica/index.js';
@@ -85,13 +84,6 @@ export type Publication = {
 	subscribe(listener: (status: PublicationStatus) => void): () => void;
 };
 
-export type AttachOutcome =
-	| { kind: 'attached' }
-	| {
-			kind: 'first-attachment-choice';
-			proceed(choice: 'bring' | 'discard'): Promise<void>;
-	  };
-
 export type TableRecordHandle<
 	TTable extends TableDefinition,
 	TBlobSource = never,
@@ -126,6 +118,16 @@ export type TableLens<
 	TBlobRead = unknown,
 > = {
 	create(fields: CreateInputFor<TTable>): Promise<RowFor<TTable>>;
+	/**
+	 * Write the full validated row at a caller-chosen record key, creating or
+	 * converging it through the ordinary patch law. This is the idempotent
+	 * import primitive (ADR-0178): repeating a put rewrites the identical
+	 * record. A terminal record stays terminal and returns `undefined`.
+	 */
+	put(
+		id: string,
+		fields: CreateInputFor<TTable>,
+	): Promise<Result<RowFor<TTable> | undefined, NonconformingRowError>>;
 	scan(): Promise<{
 		rows: RowFor<TTable>[];
 		nonconforming: NonconformingRowError[];
@@ -238,6 +240,7 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 		...(backoff === undefined ? {} : { backoff }),
 	});
 	syncStatus = supervisor.status();
+	if (carrier !== null) supervisor.nudge();
 
 	function afterWrite(address: RecordAddress): void {
 		notify([address]);
@@ -424,6 +427,21 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 						if (projected.error !== null) throw projected.error;
 						return projected.data;
 					},
+					async put(id: string, fields: Record<string, unknown>) {
+						requireOpen();
+						const payload = table.validateCreate(fields);
+						const address = {
+							namespace: lens.namespace,
+							collection: collectionKey,
+							recordKey: id,
+						};
+						if (terminal(store.record(address))) return Ok(undefined);
+						store.localWrite({ address, op: 'patch', set: payload, unset: [] });
+						afterWrite(address);
+						const visible = store.visibleRecord(address);
+						if (visible.state === 'absent') return Ok(undefined);
+						return table.project(id, visible.payload as JsonObject);
+					},
 					async scan() {
 						const rows: unknown[] = [];
 						const nonconforming: NonconformingRowError[] = [];
@@ -492,31 +510,6 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 				return () => syncListeners.delete(listener);
 			},
 		}),
-		async attach(
-			pair: ReplicaAttachment,
-			choice?: 'bring' | 'discard',
-		): Promise<AttachOutcome> {
-			requireOpen();
-			const outcome = supervisor.attach(pair, choice);
-			return outcome.kind === 'attached'
-				? outcome
-				: {
-						kind: 'first-attachment-choice',
-						async proceed(selectedChoice) {
-							outcome.proceed(selectedChoice);
-						},
-					};
-		},
-		/** Restore the carrier provided at open and resume parked authority work. */
-		signIn(): void {
-			requireOpen();
-			supervisor.setCarrier(carrier);
-		},
-		/** Park authority work; durable obligations stay local until sign-in. */
-		signOut(): void {
-			requireOpen();
-			supervisor.setCarrier(null);
-		},
 		async blockedRecords(): Promise<
 			{ address: RecordAddress; blocked: [BlockedWork, ...BlockedWork[]] }[]
 		> {

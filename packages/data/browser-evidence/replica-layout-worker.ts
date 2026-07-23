@@ -205,6 +205,7 @@ function createSchema(
 	if (candidate === 'wide') {
 		createReplicaStoreSchema(adapterFor(database), {
 			replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+			owner: null,
 			authorityLifetime: 'lifetime-one',
 		});
 		return;

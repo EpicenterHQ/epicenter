@@ -40,6 +40,7 @@ const address: RecordAddress = {
 const start: BrowserReplicaCandidateStart = {
 	type: 'start',
 	limits: makeLimits(),
+	owner: null,
 	initialize: { replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr' },
 	coordinationId: 'candidate-liveness-test',
 };

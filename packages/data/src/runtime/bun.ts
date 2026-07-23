@@ -16,6 +16,7 @@ import {
 import {
 	createReplicaBlobStore,
 	openReplicaStore,
+	type ReplicaOwner,
 } from '../store/replica/index.js';
 import { createEpicenterRuntime } from './epicenter.js';
 import type { AuthorityCarrier, RuntimeBackoff } from './supervisor.js';
@@ -24,6 +25,12 @@ export type OpenBunEpicenterOptions =
 	| {
 			directory: string;
 			database?: never;
+			/**
+			 * The immutable identity of the replica at this path: `null` opens the
+			 * unclaimed replica. The composition root selects the path per identity;
+			 * the store refuses an identity mismatch (ADR-0178).
+			 */
+			owner: ReplicaOwner | null;
 			limits?: ValidatedLimits;
 			carrier?: AuthorityCarrier<BunBlobRead> | null;
 			intervalMs?: number;
@@ -32,6 +39,7 @@ export type OpenBunEpicenterOptions =
 	| {
 			database: string;
 			directory?: never;
+			owner: ReplicaOwner | null;
 			limits?: ValidatedLimits;
 			carrier?: AuthorityCarrier<BunBlobRead> | null;
 			intervalMs?: number;
@@ -57,6 +65,11 @@ function replicaId(): string {
 }
 
 export async function openBunEpicenter(options: OpenBunEpicenterOptions) {
+	if ((options.carrier ?? null) !== null && options.owner === null) {
+		throw new TypeError(
+			'an unclaimed replica never synchronizes; open with an owner to supply a carrier',
+		);
+	}
 	const path =
 		options.database !== undefined
 			? options.database
@@ -72,6 +85,7 @@ export async function openBunEpicenter(options: OpenBunEpicenterOptions) {
 		const store = openReplicaStore({
 			database,
 			limits: options.limits ?? SCALAR_SYNC_V1_LIMITS,
+			owner: options.owner,
 			initialize: { replicaId: replicaId() },
 		});
 		const blobs = createReplicaBlobStore(

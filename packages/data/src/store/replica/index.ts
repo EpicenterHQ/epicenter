@@ -18,12 +18,11 @@ export {
 	type DocumentSettlementOutcome,
 } from './document-store.js';
 export {
-	type AttachReplicaOptions,
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
 	PUBLICATION_OBLIGATION_PAGE_LIMIT,
-	type ReplicaAttachment,
 	type ReplicaFactsPage,
+	type ReplicaOwner,
 	type ReplicaRecordLanes,
 	type ReplicaStore,
 	type ReplicaStoreSync,

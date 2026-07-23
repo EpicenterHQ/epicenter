@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from '@epicenter/sqlite';
 
-export const REPLICA_STORE_FORMAT_VERSION = 3;
+export const REPLICA_STORE_FORMAT_VERSION = 4;
 
 export const REPLICA_STORE_TABLES = [
 	'meta',
@@ -22,8 +22,8 @@ const SCHEMA = [
 		format_version         INTEGER NOT NULL,
 		replica_id             TEXT NOT NULL
 			CHECK (length(replica_id) = 24 AND replica_id NOT GLOB '*[^a-z0-9]*'),
-		attached_deployment    TEXT,
-		attached_principal     TEXT,
+		owner_deployment       TEXT,
+		owner_principal        TEXT,
 		authority_lifetime     TEXT,
 		erased_authority_lifetime TEXT,
 		after_sequence         INTEGER NOT NULL DEFAULT 0
@@ -33,7 +33,7 @@ const SCHEMA = [
 		sealed_request_hash    TEXT,
 		next_submission        INTEGER NOT NULL DEFAULT 1
 			CHECK (next_submission BETWEEN 1 AND 9007199254740992),
-		CHECK ((attached_deployment IS NULL) = (attached_principal IS NULL)),
+		CHECK ((owner_deployment IS NULL) = (owner_principal IS NULL)),
 		CHECK (erased_authority_lifetime IS NULL OR authority_lifetime IS NULL
 			OR erased_authority_lifetime != authority_lifetime),
 		CHECK ((sealed_submission IS NULL) = (sealed_request IS NULL)),
@@ -154,16 +154,23 @@ const SCHEMA = [
 
 export function createReplicaStoreSchema(
 	database: SqliteDatabase,
-	fixture: { replicaId: string; authorityLifetime?: string },
+	fixture: {
+		replicaId: string;
+		owner: { deploymentId: string; principalId: string } | null;
+		authorityLifetime?: string;
+	},
 ): void {
 	for (const statement of SCHEMA) database.run(statement);
 	database.run(
 		`INSERT INTO meta (
-			singleton, format_version, replica_id, authority_lifetime
-		) VALUES (1, ?, ?, ?)`,
+			singleton, format_version, replica_id,
+			owner_deployment, owner_principal, authority_lifetime
+		) VALUES (1, ?, ?, ?, ?, ?)`,
 		[
 			REPLICA_STORE_FORMAT_VERSION,
 			fixture.replicaId,
+			fixture.owner?.deploymentId ?? null,
+			fixture.owner?.principalId ?? null,
 			fixture.authorityLifetime ?? null,
 		],
 	);

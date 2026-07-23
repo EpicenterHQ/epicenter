@@ -3,13 +3,13 @@
  *
  * The conformance suite owns lane semantics and crash atomicity. These cases
  * protect the clean-break boundary around the dedicated SQLite file itself:
- * initialization occurs only in an empty database, and reopening recognizes
- * exactly the format-three tables and indexes owned by this store. Visible-read
+ * initialization occurs only in an empty database, reopening recognizes
+ * exactly the tables and indexes owned by this store format, and replica
+ * identity is written once and verified on every open (ADR-0178). Visible-read
  * cases verify tombstone-first lane derivation and bytewise keyset paging.
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import type { SqliteDatabase } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
 
@@ -31,7 +31,7 @@ const LIMITS = makeLimits();
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const NAMESPACE = 'so.epicenter.notes';
 const COLLECTION = 'recordings';
-const ATTACHMENT = {
+const OWNER = {
 	deploymentId: 'https://example.test/',
 	principalId: 'principal-a',
 } as const;
@@ -47,8 +47,9 @@ function address(recordKey: string): RecordAddress {
 function setup() {
 	const database = new Database(':memory:', { strict: true });
 	const store = openReplicaStore({
-		database: createBunSqliteAdapter(database),
+				database: createBunSqliteAdapter(database),
 		limits: LIMITS,
+		owner: null,
 		initialize: {
 			replicaId: REPLICA_ID,
 			authorityLifetime: 'lifetime-one',
@@ -94,57 +95,56 @@ function userSchemaObjects(database: Database): string[] {
 		.map(({ type, name }) => `${type}:${name}`);
 }
 
-describe('first attachment', () => {
-	test('empty replica attaches directly and reopening preserves the pair', () => {
+describe('replica identity', () => {
+	test('creation writes the owner once and reopening verifies it', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const adapter = createBunSqliteAdapter(database);
-			const store = openReplicaStore({
-				database: adapter,
+			openReplicaStore({
+								database: adapter,
 				limits: LIMITS,
+				owner: OWNER,
 				initialize: { replicaId: REPLICA_ID },
 			});
 
-			expect(store.isLogicallyEmpty()).toBe(true);
-			store.attach(ATTACHMENT);
-			expect(store.attachment()).toEqual(ATTACHMENT);
-			expect(
-				openReplicaStore({ database: adapter, limits: LIMITS }).attachment(),
-			).toEqual(ATTACHMENT);
 			expect(() =>
-				openReplicaStore({
-					database: adapter,
-					limits: LIMITS,
-				}).attach({ ...ATTACHMENT, choice: 'discard' }),
+				openReplicaStore({ database: adapter, limits: LIMITS, owner: OWNER }),
 			).not.toThrow();
 		} finally {
 			database.close();
 		}
 	});
 
-	test('empty replica rejects a dishonest bring or discard choice', () => {
-		const { database, store } = setup();
+	test('an owned replica refuses another principal without mutating state', () => {
+		const database = new Database(':memory:', { strict: true });
 		try {
-			expect(() => store.attach({ ...ATTACHMENT, choice: 'bring' })).toThrow(
-				/empty replica attaches without a choice/,
-			);
-			expect(store.attachment()).toBeNull();
-		} finally {
-			database.close();
-		}
-	});
-
-	test('nonempty replica without a choice throws without changing state', () => {
-		const { database, store } = setup();
-		try {
+			const adapter = createBunSqliteAdapter(database);
+			const store = openReplicaStore({
+								database: adapter,
+				limits: LIMITS,
+				owner: OWNER,
+				initialize: { replicaId: REPLICA_ID },
+			});
 			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
 			store.localWrite({ address: target, op: 'replace', value: 'pending' });
 
-			expect(() => store.attach(ATTACHMENT)).toThrow(
-				/nonempty replica requires bring or discard/,
-			);
-			expect(store.attachment()).toBeNull();
-			expect(store.record(target)?.pending).toEqual({
+			expect(() =>
+				openReplicaStore({
+										database: adapter,
+					limits: LIMITS,
+					owner: { deploymentId: OWNER.deploymentId, principalId: 'other' },
+				}),
+			).toThrow(/identity does not match/);
+			expect(() =>
+				openReplicaStore({ database: adapter, limits: LIMITS, owner: null }),
+			).toThrow(/identity does not match/);
+
+			const reopened = openReplicaStore({
+								database: adapter,
+				limits: LIMITS,
+				owner: OWNER,
+			});
+			expect(reopened.record(target)?.pending).toEqual({
 				op: 'replace',
 				value: 'pending',
 			});
@@ -153,9 +153,54 @@ describe('first attachment', () => {
 		}
 	});
 
-	test('bring preserves pending scalar, document, and blob obligations', () => {
-		const { database, store } = setup();
+	test('an unclaimed replica stays unclaimed across reopen', () => {
+		const database = new Database(':memory:', { strict: true });
 		try {
+			const adapter = createBunSqliteAdapter(database);
+			openReplicaStore({
+								database: adapter,
+				limits: LIMITS,
+				owner: null,
+				initialize: { replicaId: REPLICA_ID },
+			});
+
+			expect(() =>
+				openReplicaStore({ database: adapter, limits: LIMITS, owner: OWNER }),
+			).toThrow(/identity does not match/);
+			expect(() =>
+				openReplicaStore({ database: adapter, limits: LIMITS, owner: null }),
+			).not.toThrow();
+		} finally {
+			database.close();
+		}
+	});
+
+	test('an empty owner identity is rejected at open', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			expect(() =>
+				openReplicaStore({
+										database: createBunSqliteAdapter(database),
+					limits: LIMITS,
+					owner: { deploymentId: '', principalId: 'principal-a' },
+					initialize: { replicaId: REPLICA_ID },
+				}),
+			).toThrow(/owner identity must not be empty/);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('durable obligations recorded while unclaimed survive reopen unchanged', () => {
+		const database = new Database(':memory:', { strict: true });
+		try {
+			const adapter = createBunSqliteAdapter(database);
+			const store = openReplicaStore({
+								database: adapter,
+				limits: LIMITS,
+				owner: null,
+				initialize: { replicaId: REPLICA_ID },
+			});
 			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
 			const digest = 'a'.repeat(64);
 			store.localWrite({ address: target, op: 'replace', value: 'pending' });
@@ -165,144 +210,21 @@ describe('first attachment', () => {
 				target.recordKey,
 			]);
 
-			store.attach({ ...ATTACHMENT, choice: 'bring' });
-
-			expect(store.attachment()).toEqual(ATTACHMENT);
-			expect(store.record(target)?.pending).toEqual({
+			const reopened = openReplicaStore({
+								database: adapter,
+				limits: LIMITS,
+				owner: null,
+			});
+			expect(reopened.record(target)?.pending).toEqual({
 				op: 'replace',
 				value: 'pending',
 			});
-			expect(store.inspectDocument(target)).toMatchObject({
+			expect(reopened.inspectDocument(target)).toMatchObject({
 				revision: 1,
 				acceptedRevision: 0,
 				owed: true,
 			});
-			expect(store.owedBlobs(1)).toEqual([target]);
-			expect(
-				database
-					.query<{ blob_sha256: string }, [string]>(
-						'SELECT blob_sha256 FROM records WHERE record_key = ?',
-					)
-					.get(target.recordKey)?.blob_sha256,
-			).toBe(digest);
-		} finally {
-			database.close();
-		}
-	});
-
-	test('discard atomically clears logical state and synchronization progress', () => {
-		const { database, store } = setup();
-		try {
-			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
-			installFacts(store, [
-				{ address: target, state: 'live', payload: { remote: true } },
-			]);
-			store.localWrite({ address: target, op: 'replace', value: 'pending' });
-			store.appendLocalDocumentUpdate(target, documentUpdate('local'));
-			database.run('UPDATE records SET blob_sha256 = ? WHERE record_key = ?', [
-				'b'.repeat(64),
-				target.recordKey,
-			]);
-			store.seal();
-
-			store.attach({ ...ATTACHMENT, choice: 'discard' });
-
-			expect(store.attachment()).toEqual(ATTACHMENT);
-			expect(store.isLogicallyEmpty()).toBe(true);
-			expect(store.sync()).toMatchObject({
-				authorityLifetime: null,
-				afterSequence: 0,
-				sealedSubmission: null,
-				nextSubmission: 1,
-			});
-			expect(store.sealedRequest()).toBeNull();
-			expect(
-				database
-					.query<{ count: number }, []>(
-						'SELECT count(*) AS count FROM record_documents',
-					)
-					.get()?.count,
-			).toBe(0);
-			store.localWrite({
-				address: address('bbbbbbbbbbbbbbbbbbbbbbbb'),
-				op: 'replace',
-				value: 'fresh',
-			});
-			expect(store.isLogicallyEmpty()).toBe(false);
-		} finally {
-			database.close();
-		}
-	});
-
-	test('same-pair reattachment is idempotent and another pair is refused', () => {
-		const { database, store } = setup();
-		try {
-			store.attach(ATTACHMENT);
-			expect(() =>
-				store.attach({ ...ATTACHMENT, choice: 'discard' }),
-			).not.toThrow();
-			expect(() =>
-				store.attach({
-					deploymentId: ATTACHMENT.deploymentId,
-					principalId: 'principal-b',
-				}),
-			).toThrow(/permanently attached to another principal/);
-			expect(store.attachment()).toEqual(ATTACHMENT);
-		} finally {
-			database.close();
-		}
-	});
-
-	test('a local tombstone alone makes the replica nonempty', () => {
-		const { database, store } = setup();
-		try {
-			store.localWrite({
-				address: address('aaaaaaaaaaaaaaaaaaaaaaaa'),
-				op: 'tombstone',
-			});
-			expect(store.isLogicallyEmpty()).toBe(false);
-			expect(() => store.attach(ATTACHMENT)).toThrow(
-				/nonempty replica requires bring or discard/,
-			);
-		} finally {
-			database.close();
-		}
-	});
-
-	test('a thrown discard exposes the intact unattached replica', () => {
-		const database = new Database(':memory:', { strict: true });
-		const base = createBunSqliteAdapter(database);
-		let failAttachmentWrite = false;
-		const faulting: SqliteDatabase = {
-			run(sql, parameters) {
-				if (failAttachmentWrite && sql.includes('attached_deployment = ?')) {
-					throw new Error('injected attachment write failure');
-				}
-				base.run(sql, parameters);
-			},
-			all: base.all,
-			transaction: base.transaction,
-		};
-		try {
-			const store = openReplicaStore({
-				database: faulting,
-				limits: LIMITS,
-				initialize: {
-					replicaId: REPLICA_ID,
-					authorityLifetime: 'lifetime-one',
-				},
-			});
-			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
-			store.localWrite({ address: target, op: 'replace', value: 'pending' });
-			store.appendLocalDocumentUpdate(target, documentUpdate('local'));
-			failAttachmentWrite = true;
-
-			expect(() => store.attach({ ...ATTACHMENT, choice: 'discard' })).toThrow(
-				/injected attachment write failure/,
-			);
-			expect(store.attachment()).toBeNull();
-			expect(store.record(target)?.pending).not.toBeNull();
-			expect(store.inspectDocument(target)).toMatchObject({ revision: 1 });
+			expect(reopened.owedBlobs(1)).toEqual([target]);
 		} finally {
 			database.close();
 		}
@@ -315,6 +237,7 @@ describe('production replica store format', () => {
 		try {
 			const adapter = createBunSqliteAdapter(database);
 			const created = openReplicaStore({
+				owner: null,
 				database: adapter,
 				limits: LIMITS,
 				initialize: {
@@ -330,7 +253,7 @@ describe('production replica store format', () => {
 				].sort(),
 			);
 			expect(
-				openReplicaStore({ database: adapter, limits: LIMITS }).sync(),
+				openReplicaStore({ database: adapter, limits: LIMITS, owner: null }).sync(),
 			).toEqual(created.sync());
 		} finally {
 			database.close();
@@ -345,30 +268,32 @@ describe('production replica store format', () => {
 			);
 			expect(() =>
 				openReplicaStore({
+					owner: null,
 					database: createBunSqliteAdapter(database),
 					limits: LIMITS,
 					initialize: { replicaId: REPLICA_ID },
 				}),
-			).toThrow(/does not match format 3/);
+			).toThrow(/does not match format 4/);
 			expect(userSchemaObjects(database)).toEqual(['table:legacy_workspace']);
 		} finally {
 			database.close();
 		}
 	});
 
-	test('refuses an incomplete format-three schema', () => {
+	test('refuses an incomplete format-four schema', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const adapter = createBunSqliteAdapter(database);
 			openReplicaStore({
+				owner: null,
 				database: adapter,
 				limits: LIMITS,
 				initialize: { replicaId: REPLICA_ID },
 			});
 			database.exec('DROP INDEX records_pending');
 			expect(() =>
-				openReplicaStore({ database: adapter, limits: LIMITS }),
-			).toThrow(/does not match format 3/);
+				openReplicaStore({ database: adapter, limits: LIMITS, owner: null }),
+			).toThrow(/does not match format 4/);
 		} finally {
 			database.close();
 		}
@@ -379,6 +304,7 @@ describe('production replica store format', () => {
 		try {
 			expect(() =>
 				openReplicaStore({
+					owner: null,
 					database: createBunSqliteAdapter(database),
 					limits: LIMITS,
 					initialize: {
@@ -397,6 +323,7 @@ describe('production replica store format', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const store = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: LIMITS,
 				initialize: { replicaId: REPLICA_ID },
@@ -446,6 +373,7 @@ describe('production replica store format', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const store = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: LIMITS,
 				initialize: {
@@ -540,6 +468,7 @@ describe('production replica store format', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const store = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: LIMITS,
 				initialize: {
@@ -574,6 +503,7 @@ describe('production replica store format', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const store = openReplicaStore({
+				owner: null,
 				database: createBunSqliteAdapter(database),
 				limits: makeLimits({ maxSubmissionBytes: 700 }),
 				initialize: {

@@ -151,6 +151,7 @@ async function runEngine(
 	const runId = `${Date.now()}-${engineName}`;
 	const options = {
 		limits: makeLimits(),
+		owner: null,
 		initialize: { replicaId, authorityLifetime },
 		coordinationId: `epicenter-replica-candidate-${runId}`,
 		storage: {

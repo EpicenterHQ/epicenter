@@ -192,7 +192,7 @@ function analyze(action: BrowserReplicaAction) {
 			}
 		},
 	};
-	const analysisStore = openReplicaStore({ database: analysisAdapter, limits });
+	const analysisStore = openReplicaStore({ database: analysisAdapter, limits, owner: null });
 	try {
 		const result = executeAction(analysisStore, action);
 		return { boundaries: writes, ...(result === undefined ? {} : { result }) };
@@ -240,7 +240,7 @@ function crash(
 			}
 		},
 	};
-	const crashStore = openReplicaStore({ database: crashAdapter, limits });
+	const crashStore = openReplicaStore({ database: crashAdapter, limits, owner: null });
 	executeAction(crashStore, action);
 	throw new Error(`fault boundary ${boundary} was not reached`);
 }
@@ -289,6 +289,7 @@ async function execute(
 			store = openReplicaStore({
 				database: adapterFor(database),
 				limits,
+				owner: null,
 				...(request.initialize === undefined
 					? {}
 					: { initialize: request.initialize }),
@@ -316,7 +317,7 @@ async function execute(
 			database?.close();
 			database = new pool.OpfsSAHPoolDb(databaseFilename);
 			configure(database);
-			store = openReplicaStore({ database: adapterFor(database), limits });
+			store = openReplicaStore({ database: adapterFor(database), limits, owner: null });
 			return undefined;
 		}
 		case 'close': {

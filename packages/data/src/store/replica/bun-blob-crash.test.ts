@@ -38,6 +38,7 @@ describe('Bun blob owner crash conformance', () => {
 				});
 				const adapter = createBunSqliteAdapter(raw);
 				const replica = openReplicaStore({
+					owner: null,
 					database: adapter,
 					limits: makeLimits(),
 					initialize: {
@@ -61,6 +62,7 @@ describe('Bun blob owner crash conformance', () => {
 				try {
 					const reopenedAdapter = createBunSqliteAdapter(reopenedRaw);
 					openReplicaStore({
+						owner: null,
 						database: reopenedAdapter,
 						limits: makeLimits(),
 					});

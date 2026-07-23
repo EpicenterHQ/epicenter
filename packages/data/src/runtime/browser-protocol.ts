@@ -9,10 +9,7 @@ import type {
 	RecordAddress,
 	SubmissionResponse,
 } from '../protocol/v1/index.js';
-import type {
-	CapturedDocumentPublication,
-	ReplicaAttachment,
-} from '../store/replica/index.js';
+import type { CapturedDocumentPublication } from '../store/replica/index.js';
 import type { SyncStatus } from './supervisor.js';
 
 export type BrowserAuthorityRequest =
@@ -37,20 +34,10 @@ export type BrowserAuthorityResult =
 	| BlobAcceptance;
 
 export type BrowserRuntimeControlOperation =
-	| {
-			kind: 'runtime-attach';
-			attachment: ReplicaAttachment;
-			choice?: 'bring' | 'discard';
-	  }
 	| { kind: 'runtime-status' }
-	| { kind: 'runtime-nudge' }
-	| { kind: 'runtime-sign-in' }
-	| { kind: 'runtime-sign-out' };
+	| { kind: 'runtime-nudge' };
 
-export type BrowserRuntimeControlResult =
-	| undefined
-	| SyncStatus
-	| { kind: 'attached' | 'first-attachment-choice' };
+export type BrowserRuntimeControlResult = undefined | SyncStatus;
 
 export type BrowserRuntimeEvent =
 	| {

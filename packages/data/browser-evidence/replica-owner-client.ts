@@ -67,6 +67,7 @@ async function open(
 	await request({
 		kind: 'open',
 		limits: makeLimits(),
+		owner: null,
 		initialize: fixture,
 		storage: {
 			databaseFilename: '/replica.sqlite3',

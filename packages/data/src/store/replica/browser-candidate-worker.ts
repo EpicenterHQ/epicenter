@@ -104,10 +104,8 @@ function serializeError(cause: unknown): { name: string; message: string } {
 
 function isMutation(operation: BrowserReplicaCandidateOperation): boolean {
 	return (
-		operation.kind === 'runtime-attach' ||
-		operation.kind === 'runtime-sign-in' ||
-		operation.kind === 'runtime-sign-out' ||
 		operation.kind === 'runtime-table-update' ||
+		operation.kind === 'runtime-put-record' ||
 		operation.kind === 'runtime-delete-record' ||
 		operation.kind === 'runtime-value-write' ||
 		operation.kind === 'local-write' ||
@@ -166,6 +164,7 @@ function invalidatedAddresses(
 		case 'local-write':
 			return [operation.intent.address];
 		case 'runtime-table-update':
+		case 'runtime-put-record':
 		case 'runtime-value-write':
 			return [operation.intent.address];
 		case 'runtime-delete-record':
@@ -439,14 +438,7 @@ export function startBrowserReplicaCandidateWorker(
 					return;
 				}
 				respond(candidate, { type: 'result', id, value }, session);
-				if (
-					operation.kind === 'runtime-attach' &&
-					operation.choice === 'discard'
-				) {
-					emitInvalidation(session, [], true);
-				} else {
-					emitInvalidation(session, invalidatedAddresses(operation));
-				}
+				emitInvalidation(session, invalidatedAddresses(operation));
 			} catch (cause) {
 				if (!isCurrentOwner()) {
 					settleStaleExecution();

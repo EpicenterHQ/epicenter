@@ -33,6 +33,7 @@ function nudgesSupervisor(operation: BrowserReplicaStoreOperation): boolean {
 	switch (operation.kind) {
 		case 'local-write':
 		case 'runtime-table-update':
+		case 'runtime-put-record':
 		case 'runtime-delete-record':
 		case 'runtime-value-write':
 		case 'append-local-document':
@@ -60,12 +61,12 @@ export async function openBrowserRuntimeOwner({
 	try {
 		physical = await openPhysicalOwner({
 			limits: start.limits,
+			owner: start.owner,
 			initialize: start.initialize,
 			...(start.storage ?? {}),
 		});
 		const opened = physical;
 		const operations = createBrowserReplicaOwnerOperations(opened);
-		let isSignedOut = false;
 		const supervisor = createRuntimeSupervisor({
 			store: opened.store,
 			blobs: opened.blobs,
@@ -74,9 +75,7 @@ export async function openBrowserRuntimeOwner({
 			onAuthorityReplacement: events.onAuthorityReplacement,
 			onStatus: events.onStatus,
 		});
-		if (carrier !== null && opened.store.attachment() !== null) {
-			supervisor.nudge();
-		}
+		if (carrier !== null) supervisor.nudge();
 
 		return {
 			status(): SyncStatus {
@@ -86,26 +85,10 @@ export async function openBrowserRuntimeOwner({
 				operation: BrowserReplicaCandidateOperation,
 			): Promise<BrowserReplicaCandidateResult> {
 				switch (operation.kind) {
-					case 'runtime-attach': {
-						const outcome = supervisor.attach(
-							operation.attachment,
-							operation.choice,
-						);
-						return { kind: outcome.kind };
-					}
 					case 'runtime-status':
 						return supervisor.status();
 					case 'runtime-nudge':
-						if (carrier === null || isSignedOut) supervisor.nudge();
-						else supervisor.setCarrier(carrier);
-						return undefined;
-					case 'runtime-sign-in':
-						isSignedOut = false;
-						supervisor.setCarrier(carrier);
-						return undefined;
-					case 'runtime-sign-out':
-						isSignedOut = true;
-						supervisor.setCarrier(null);
+						supervisor.nudge();
 						return undefined;
 					default: {
 						const value = await operations.execute(operation);

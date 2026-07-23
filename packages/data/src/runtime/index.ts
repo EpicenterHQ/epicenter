@@ -16,7 +16,6 @@ export {
 // environment's modules: `@epicenter/data/runtime/browser` opens the elected
 // browser owner and `@epicenter/data/runtime/bun` opens the Bun replica.
 export {
-	type AttachOutcome,
 	type BoundLens,
 	type CaptureError,
 	type CreateEpicenterRuntimeOptions,

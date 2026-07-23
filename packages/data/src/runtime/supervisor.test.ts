@@ -5,10 +5,11 @@
  * in-memory carrier backed by the pure scalar reference authority.
  *
  * Key behaviors:
- * - Offline scalar, document, and blob obligations converge after attachment
+ * - Obligations recorded without a carrier drain under a later carrier-bearing
+ *   supervisor over the same store (ADR-0178)
  * - Exact scalar retries, racing publications, and delayed proofs are monotonic
- * - Plane failures, refusals, replacement, first attachment, and disposal obey
- *   their lifecycle laws without a socket or loopback server
+ * - Plane failures, refusals, replacement, and disposal obey their lifecycle
+ *   laws without a socket or loopback server
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
@@ -61,10 +62,6 @@ import {
 const LIMITS = makeLimits();
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const OTHER_REPLICA_ID = 'ssssssssssssssssssssssss';
-const ATTACHMENT = {
-	deploymentId: 'https://example.test/',
-	principalId: 'principal-a',
-} as const;
 const ADDRESS_A = address('aaaaaaaaaaaaaaaaaaaaaaaa');
 const ADDRESS_B = address('bbbbbbbbbbbbbbbbbbbbbbbb');
 const ADDRESS_C = address('cccccccccccccccccccccccc');
@@ -325,6 +322,7 @@ function setup(
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
 	const store = openReplicaStore({
+		owner: null,
 		database: adapter,
 		limits: LIMITS,
 		initialize: {
@@ -369,9 +367,11 @@ function makeLive(
 	store.localWrite({ address: target, op: 'replace', value });
 }
 
-test('offline-first attachment drains scalar, document, and blob obligations', async () => {
+test('obligations recorded without a carrier drain under a later carrier-bearing supervisor', async () => {
 	const carrier = createCarrier();
 	const context = setup();
+	const invalidations: RecordAddress[][] = [];
+	let resumed: ReturnType<typeof createRuntimeSupervisor> | undefined;
 	try {
 		makeLive(context.store, ADDRESS_A, { title: 'offline' });
 		context.store.appendLocalDocumentUpdate(
@@ -382,13 +382,26 @@ test('offline-first attachment drains scalar, document, and blob obligations', a
 			ADDRESS_A,
 			new TextEncoder().encode('offline blob'),
 		);
-		const outcome = context.supervisor.attach(ATTACHMENT);
-		expect(outcome.kind).toBe('first-attachment-choice');
-		if (outcome.kind !== 'first-attachment-choice') return;
-		outcome.proceed('bring');
-		context.supervisor.setCarrier(carrier);
 
+		// The local-only lifetime never contacts an authority.
 		await context.supervisor.drainOnce();
+		expect(context.supervisor.status().state).toBe('local-only');
+		expect(carrier.submittedBytes).toEqual([]);
+		await context.supervisor.dispose();
+
+		// A later lifetime over the same store, opened with a carrier, drains
+		// everything that stayed durable.
+		resumed = createRuntimeSupervisor({
+			store: context.store,
+			blobs: context.blobs,
+			carrier,
+			onInvalidate: (addresses) => invalidations.push(addresses),
+			onAuthorityReplacement: () => undefined,
+			onStatus: () => undefined,
+			intervalMs: 1_000,
+			backoff: context.timing.backoff,
+		});
+		await resumed.drainOnce();
 
 		expect(carrier.state.facts.get(addressKey(ADDRESS_A))).toMatchObject({
 			state: 'live',
@@ -404,9 +417,10 @@ test('offline-first attachment drains scalar, document, and blob obligations', a
 		});
 		expect(context.blobs.inspect(ADDRESS_A).kind).toBe('accepted');
 		expect(context.store.sync().afterSequence).toBe(1);
-		expect(context.supervisor.status().state).toBe('idle');
-		expect(context.invalidations.flat()).toContainEqual(ADDRESS_A);
+		expect(resumed.status().state).toBe('idle');
+		expect(invalidations.flat()).toContainEqual(ADDRESS_A);
 	} finally {
+		await resumed?.dispose();
 		await context.supervisor.dispose();
 		context.database.close();
 	}
@@ -417,7 +431,6 @@ test('lost scalar reply retries exact persisted bytes without duplicate applicat
 	carrier.dropNextSubmissionReply = true;
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		makeLive(context.store, ADDRESS_A, 'once');
 		await context.supervisor.drainOnce();
 		expect(context.supervisor.status().state).toBe('offline');
@@ -441,7 +454,6 @@ test('an empty scalar seal outcome leaves the plane healthy', async () => {
 	const carrier = createCarrier();
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 
 		await context.supervisor.drainOnce();
 
@@ -460,7 +472,6 @@ test('delayed duplicate proofs are monotonic and a racing edit stays owed', asyn
 	const carrier = createCarrier(seeded);
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -542,7 +553,6 @@ test('refused work does not block later ready scalar and document obligations', 
 	carrier.forceDocumentNotLive.add(addressKey(ADDRESS_B));
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -598,7 +608,6 @@ test('plane failure retains work and reconnect drains it', async () => {
 	carrier.fail.add('scalar');
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -619,7 +628,7 @@ test('plane failure retains work and reconnect drains it', async () => {
 		expect(context.store.inspectDocument(ADDRESS_B)?.owed).toBe(false);
 
 		carrier.fail.clear();
-		context.supervisor.setCarrier(carrier);
+		context.timing.advance(10);
 		await context.supervisor.drainOnce();
 		expect(context.supervisor.status().state).toBe('idle');
 		expect(context.store.sealedRequest()).toBeNull();
@@ -648,7 +657,6 @@ test('authority replacement erases and reacquires while old document proof is fe
 		},
 	});
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -709,7 +717,6 @@ test('document tombstone race is swallowed and the pass continues', async () => 
 	const carrier = createCarrier(seeded);
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -746,7 +753,6 @@ test('blob tombstone race is isolated and later blobs still settle', async () =>
 	const carrier = createCarrier(seeded);
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -787,7 +793,6 @@ test('unexpected store failure enters ordinary plane backoff and later recovers'
 	const carrier = createCarrier(seeded);
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -832,7 +837,6 @@ test('an unset record with an owed document does not starve later documents', as
 	const carrier = createCarrier(seeded);
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-		context.store.attach(ATTACHMENT);
 		context.store.installFacts({
 			request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
 			response: {
@@ -858,59 +862,46 @@ test('an unset record with an owed document does not starve later documents', as
 	}
 });
 
-test('first attachment demands a choice, bring preserves, discard hydrates, and empty attaches directly', async () => {
-	const bringCarrier = createCarrier();
-	const bring = setup();
+test('a local-only lifetime never contacts an authority and a carrier-bearing one hydrates it', async () => {
+	// A supervisor opened without a carrier is permanently local-only: no
+	// authority contact, no status churn, durable writes retained.
+	const local = setup();
 	try {
-		makeLive(bring.store, ADDRESS_A, 'bring');
-		const demand = bring.supervisor.attach(ATTACHMENT);
-		expect(demand.kind).toBe('first-attachment-choice');
-		expect(bring.supervisor.status().state).toBe('attaching-first');
-		if (demand.kind !== 'first-attachment-choice') return;
-		demand.proceed('bring');
-		bring.supervisor.setCarrier(bringCarrier);
-		await bring.supervisor.drainOnce();
-		expect(bringCarrier.state.facts.has(addressKey(ADDRESS_A))).toBe(true);
+		makeLive(local.store, ADDRESS_A, 'kept');
+		await local.supervisor.drainOnce();
+		expect(local.supervisor.status().state).toBe('local-only');
+		expect(local.store.visibleRecord(ADDRESS_A)).toEqual({
+			state: 'live',
+			payload: 'kept',
+		});
+		expect(local.statuses).toEqual([]);
 	} finally {
-		await bring.supervisor.dispose();
-		bring.database.close();
+		await local.supervisor.dispose();
+		local.database.close();
 	}
 
+	// A supervisor opened with a carrier over a fresh account replica
+	// bootstraps the authority's existing Epicenter.
 	const remote = applyAuthority(authority('lifetime-one'), [
 		{ address: ADDRESS_B, op: 'replace', value: 'remote' },
 	]);
-	const discardCarrier = createCarrier(remote);
-	const discard = setup();
+	const hydrate = setup({ carrier: createCarrier(remote) });
 	try {
-		makeLive(discard.store, ADDRESS_A, 'discard');
-		const demand = discard.supervisor.attach(ATTACHMENT);
-		if (demand.kind !== 'first-attachment-choice') return;
-		demand.proceed('discard');
-		discard.supervisor.setCarrier(discardCarrier);
-		await discard.supervisor.drainOnce();
-		expect(discard.store.visibleRecord(ADDRESS_A).state).toBe('absent');
-		expect(discard.store.visibleRecord(ADDRESS_B)).toEqual({
+		await hydrate.supervisor.drainOnce();
+		expect(hydrate.store.visibleRecord(ADDRESS_B)).toEqual({
 			state: 'live',
 			payload: 'remote',
 		});
+		expect(hydrate.supervisor.status().state).toBe('idle');
 	} finally {
-		await discard.supervisor.dispose();
-		discard.database.close();
-	}
-
-	const empty = setup();
-	try {
-		expect(empty.supervisor.attach(ATTACHMENT)).toEqual({ kind: 'attached' });
-	} finally {
-		await empty.supervisor.dispose();
-		empty.database.close();
+		await hydrate.supervisor.dispose();
+		hydrate.database.close();
 	}
 });
 
 test('dispose cancels scheduled work and makes mutating entry points terminal', async () => {
 	const carrier = createCarrier();
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
-	context.supervisor.attach(ATTACHMENT);
 	makeLive(context.store, ADDRESS_A, 'never sent');
 	context.supervisor.nudge();
 	await context.supervisor.dispose();
@@ -922,8 +913,6 @@ test('dispose cancels scheduled work and makes mutating entry points terminal', 
 	expect(carrier.submittedBytes).toEqual([]);
 	expect(() => context.supervisor.nudge()).toThrow(/disposed/);
 	expect(() => context.supervisor.drainOnce()).toThrow(/disposed/);
-	expect(() => context.supervisor.setCarrier(carrier)).toThrow(/disposed/);
-	expect(() => context.supervisor.attach(ATTACHMENT)).toThrow(/disposed/);
-	expect(context.supervisor.status().attachment).toEqual(ATTACHMENT);
+	expect(context.supervisor.status().state).toBe('idle');
 	context.database.close();
 });

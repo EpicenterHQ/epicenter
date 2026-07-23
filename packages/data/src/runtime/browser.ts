@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok } from 'wellcrafted/result';
 
@@ -31,7 +33,7 @@ import type {
 } from '../store/replica/browser-owner-protocol.js';
 import type {
 	BlobCaptureOutcome,
-	ReplicaAttachment,
+	ReplicaOwner,
 	VisibleRecordState,
 	VisibleRecordsPage,
 } from '../store/replica/index.js';
@@ -41,7 +43,6 @@ import type {
 } from './browser-protocol.js';
 import { createBrowserRowDocumentRegistry } from './browser-row-document.js';
 import type {
-	AttachOutcome,
 	BoundLens,
 	CaptureError,
 	EpicenterRuntime,
@@ -74,6 +75,14 @@ export type BrowserRuntimeWorker = {
 };
 
 export type OpenBrowserEpicenterOptions = {
+	/**
+	 * The immutable identity of the replica to open: `null` opens this
+	 * origin's unclaimed replica. Every physical name (SQLite pool, database,
+	 * blob directory, Web Lock, worker coordination channel) derives from this
+	 * identity, so the unclaimed replica and account replicas coexist
+	 * (ADR-0178).
+	 */
+	owner: ReplicaOwner | null;
 	carrier?: AuthorityCarrier<Blob> | null;
 	limits?: ValidatedLimits;
 	replicaId?: string;
@@ -83,10 +92,32 @@ export type OpenBrowserEpicenterOptions = {
 		databaseFilename: string;
 		poolDirectory: string;
 		poolName: string;
+		lockName?: string;
+		blobDirectory?: string;
 	};
 	createWorker?(): BrowserRuntimeWorker;
 	log?: Logger;
 };
+
+/**
+ * The stable storage slot for one replica identity on this origin:
+ * `unclaimed`, or a digest of the owning deployment and principal.
+ */
+function replicaSlot(owner: ReplicaOwner | null): string {
+	if (owner === null) return 'unclaimed';
+	const identity = `${owner.deploymentId}\n${owner.principalId}`;
+	return bytesToHex(sha256(new TextEncoder().encode(identity))).slice(0, 16);
+}
+
+function defaultStorage(slot: string) {
+	return {
+		databaseFilename: '/epicenter-data-v1.sqlite3',
+		poolDirectory: `.epicenter-data-v1-${slot}-sahpool`,
+		poolName: `epicenter-data-v1-${slot}`,
+		lockName: `epicenter-data-v1-${slot}`,
+		blobDirectory: `epicenter-data-v1-${slot}-blobs`,
+	};
+}
 
 function addressKey(address: RecordAddress): string {
 	return JSON.stringify([
@@ -130,6 +161,7 @@ function randomKey(): string {
  * automatic publication supervisor.
  */
 export async function openBrowserEpicenter({
+	owner,
 	carrier = null,
 	limits = SCALAR_SYNC_V1_LIMITS,
 	replicaId = createReplicaId(),
@@ -138,7 +170,13 @@ export async function openBrowserEpicenter({
 	storage,
 	createWorker = defaultWorker,
 	log = createLogger('data/runtime/browser'),
-}: OpenBrowserEpicenterOptions = {}): Promise<EpicenterRuntime<Blob, Blob>> {
+}: OpenBrowserEpicenterOptions): Promise<EpicenterRuntime<Blob, Blob>> {
+	if (carrier !== null && owner === null) {
+		throw new TypeError(
+			'an unclaimed replica never synchronizes; open with an owner to supply a carrier',
+		);
+	}
+	const slot = replicaSlot(owner);
 	const worker = createWorker();
 	const pending = new Map<number, PendingRequest>();
 	const activeRequests = new Set<Promise<void>>();
@@ -376,13 +414,15 @@ export async function openBrowserEpicenter({
 	const start: BrowserReplicaCandidateStart = {
 		type: 'start',
 		limits,
+		owner,
 		initialize: {
 			replicaId,
 			...(authorityLifetime === undefined ? {} : { authorityLifetime }),
 		},
 		hasCarrier: carrier !== null,
-		...(coordinationId === undefined ? {} : { coordinationId }),
-		...(storage === undefined ? {} : { storage }),
+		coordinationId:
+			coordinationId ?? `epicenter-data-replica-owner-v3-${slot}`,
+		storage: storage ?? defaultStorage(slot),
 	};
 	worker.postMessage(start);
 	try {
@@ -648,6 +688,29 @@ export async function openBrowserEpicenter({
 						if (projected.error !== null) throw projected.error;
 						return projected.data;
 					},
+					async put(id: string, fields: Record<string, unknown>) {
+						requireOpen();
+						const payload = table.validateCreate(fields);
+						const address = {
+							namespace: lens.namespace,
+							collection: collectionKey,
+							recordKey: id,
+						};
+						const outcome = await request<
+							| { kind: 'record-not-live' }
+							| { kind: 'written'; visible: VisibleRecordState }
+						>({
+							kind: 'runtime-put-record',
+							intent: { address, op: 'patch', set: payload, unset: [] },
+						});
+						if (
+							outcome.kind === 'record-not-live' ||
+							outcome.visible.state === 'absent'
+						) {
+							return Ok(undefined);
+						}
+						return table.project(id, outcome.visible.payload as JsonObject);
+					},
 					async scan() {
 						const rows: unknown[] = [];
 						const nonconforming: NonconformingRowError[] = [];
@@ -705,40 +768,6 @@ export async function openBrowserEpicenter({
 			}
 		}
 		return Object.freeze(bound) as BoundLens<TLens, Blob, Blob>;
-	}
-
-	async function attach(
-		pair: ReplicaAttachment,
-		choice?: 'bring' | 'discard',
-	): Promise<AttachOutcome> {
-		requireOpen();
-		const outcome = await request<{
-			kind: 'attached' | 'first-attachment-choice';
-		}>({
-			kind: 'runtime-attach',
-			attachment: pair,
-			...(choice === undefined ? {} : { choice }),
-		});
-		if (outcome.kind === 'attached') {
-			if (choice === 'discard') documents.revokeAll();
-			return { kind: 'attached' };
-		}
-		let proceeded = false;
-		return {
-			kind: 'first-attachment-choice',
-			async proceed(selectedChoice) {
-				if (proceeded) {
-					throw new Error('first-attachment choice was already resolved');
-				}
-				proceeded = true;
-				await request({
-					kind: 'runtime-attach',
-					attachment: pair,
-					choice: selectedChoice,
-				});
-				if (selectedChoice === 'discard') documents.revokeAll();
-			},
-		};
 	}
 
 	async function blockedRecords(): Promise<
@@ -811,9 +840,7 @@ export async function openBrowserEpicenter({
 		bind,
 		sync: Object.freeze({
 			get status(): SyncStatus {
-				return structuredClone(
-					syncStatus ?? { state: 'unattached', attachment: null },
-				);
+				return structuredClone(syncStatus ?? { state: 'local-only' });
 			},
 			subscribe(listener: (status: SyncStatus) => void) {
 				requireOpen();
@@ -821,29 +848,6 @@ export async function openBrowserEpicenter({
 				return () => syncListeners.delete(listener);
 			},
 		}),
-		attach,
-		/** Restore the carrier provided at open and resume parked authority work. */
-		signIn(): void {
-			requireOpen();
-			void request<void>({ kind: 'runtime-sign-in' }).catch(
-				(cause: unknown) => {
-					if (!isDisposing && !isDisposed) {
-						log.error(new Error('Browser runtime sign-in failed', { cause }));
-					}
-				},
-			);
-		},
-		/** Park authority work; durable obligations stay local until sign-in. */
-		signOut(): void {
-			requireOpen();
-			void request<void>({ kind: 'runtime-sign-out' }).catch(
-				(cause: unknown) => {
-					if (!isDisposing && !isDisposed) {
-						log.error(new Error('Browser runtime sign-out failed', { cause }));
-					}
-				},
-			);
-		},
 		blockedRecords,
 		[Symbol.asyncDispose]: dispose,
 	}) as EpicenterRuntime<Blob, Blob>;

@@ -15,13 +15,22 @@ import type {
 export type BrowserReplicaCandidateStart = {
 	type: 'start';
 	limits: ValidatedLimits;
+	/** Immutable identity of the replica this candidate opens (ADR-0178). */
+	owner: { deploymentId: string; principalId: string } | null;
 	initialize: { replicaId: string; authorityLifetime?: string };
+	/**
+	 * Whether the page supplied an authority carrier at open. Fixed for the
+	 * candidate's whole lifetime, so an elected replacement reconstructs the
+	 * same authorization posture by construction.
+	 */
 	hasCarrier?: boolean;
 	coordinationId?: string;
 	storage?: {
 		databaseFilename: string;
 		poolDirectory: string;
 		poolName: string;
+		lockName?: string;
+		blobDirectory?: string;
 	};
 };
 

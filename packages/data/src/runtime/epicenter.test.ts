@@ -58,7 +58,7 @@ type Fixture = {
 	store: ReplicaStore;
 	epicenter: EpicenterRuntime<Uint8Array, Uint8Array>;
 	bound: ReturnType<typeof bindLens>;
-	carrier: ReturnType<typeof createTestCarrier>;
+	carrier: ReturnType<typeof createTestCarrier> | null;
 	files: MemoryBlobFiles;
 };
 
@@ -66,10 +66,14 @@ function bindLens(epicenter: EpicenterRuntime<Uint8Array, Uint8Array>) {
 	return epicenter.bind(lens);
 }
 
-function setup(files = new MemoryBlobFiles()): Fixture {
+function setup(
+	files = new MemoryBlobFiles(),
+	carrier: ReturnType<typeof createTestCarrier> | null = createTestCarrier(),
+): Fixture {
 	const database = new Database(':memory:', { strict: true });
 	const adapter = createBunSqliteAdapter(database);
 	const store = openReplicaStore({
+		owner: null,
 		database: adapter,
 		limits: TEST_LIMITS,
 		initialize: {
@@ -77,7 +81,6 @@ function setup(files = new MemoryBlobFiles()): Fixture {
 			authorityLifetime: 'runtime-life',
 		},
 	});
-	const carrier = createTestCarrier();
 	const blobs = createReplicaBlobStore(adapter, files);
 	const epicenter = createEpicenterRuntime({
 		store,
@@ -348,17 +351,10 @@ describe('record-handle runtime', () => {
 			const second = expectOk(await record.document.open());
 			const oldText = first.getText('content');
 			oldText.insert(0, 'old lineage');
-			await fixture.epicenter.attach(
-				{
-					deploymentId: 'https://example.test/',
-					principalId: 'person',
-				},
-				'bring',
-			);
 			await Bun.sleep(50);
 
-			fixture.carrier.reset('runtime-life-two');
-			fixture.carrier.install({
+			fixture.carrier?.reset('runtime-life-two');
+			fixture.carrier?.install({
 				address: {
 					namespace: lens.namespace,
 					collection: 'notes',
@@ -396,15 +392,8 @@ describe('record-handle runtime', () => {
 			const document = expectOk(await record.document.open());
 			const changed: string[][] = [];
 			const stop = fixture.bound.notes.subscribe((ids) => changed.push(ids));
-			await fixture.epicenter.attach(
-				{
-					deploymentId: 'https://example.test/',
-					principalId: 'person',
-				},
-				'bring',
-			);
 			await Bun.sleep(50);
-			fixture.carrier.install({
+			fixture.carrier?.install({
 				address: {
 					namespace: lens.namespace,
 					collection: 'notes',
@@ -412,11 +401,8 @@ describe('record-handle runtime', () => {
 				},
 				state: 'tombstone',
 			});
-			// attach schedules a drain; a second attach is idempotent and nudges it.
-			await fixture.epicenter.attach({
-				deploymentId: 'https://example.test/',
-				principalId: 'person',
-			});
+			// Any local write nudges the supervisor, which delivers the fact.
+			await fixture.bound.settings.record('editor.theme').set('dark');
 			await Bun.sleep(50);
 			expect(() => document.transact(() => undefined)).toThrow(
 				expect.objectContaining({ name: 'RevokedDocument' }),
@@ -439,15 +425,8 @@ describe('record-handle runtime', () => {
 			const first = expectOk(await record.document.open());
 			const second = expectOk(await record.document.open());
 			first.transact(() => first.getText('content').insert(0, 'held'));
-			await fixture.epicenter.attach(
-				{
-					deploymentId: 'https://example.test/',
-					principalId: 'person',
-				},
-				'bring',
-			);
 			await Bun.sleep(50);
-			fixture.carrier.install({
+			fixture.carrier?.install({
 				address: {
 					namespace: lens.namespace,
 					collection: 'notes',
@@ -455,10 +434,8 @@ describe('record-handle runtime', () => {
 				},
 				state: 'unset',
 			});
-			await fixture.epicenter.attach({
-				deploymentId: 'https://example.test/',
-				principalId: 'person',
-			});
+			// Any local write nudges the supervisor, which delivers the fact.
+			await fixture.bound.settings.record('editor.theme').set('dark');
 			await Bun.sleep(50);
 			expect(first.export()).toEqual(second.export());
 			await first[Symbol.asyncDispose]();
@@ -621,6 +598,7 @@ describe('record-handle runtime', () => {
 			// blocked enumeration must come from the store, not runtime memory.
 			const adapter = createBunSqliteAdapter(fixture.database);
 			const reopened = openReplicaStore({
+				owner: null,
 				database: adapter,
 				limits: TEST_LIMITS,
 			});
@@ -655,14 +633,6 @@ describe('record-handle runtime', () => {
 			const row = await fixture.bound.notes.create({ title: 'publish' });
 			const record = fixture.bound.notes.record(row.id);
 			expect(await record.publication.get()).toEqual({ state: 'ready' });
-			const outcome = await fixture.epicenter.attach(
-				{
-					deploymentId: 'https://example.test/',
-					principalId: 'person',
-				},
-				'bring',
-			);
-			expect(outcome.kind).toBe('attached');
 			await Bun.sleep(10);
 			expect(await record.publication.get()).toEqual({ state: 'settled' });
 		} finally {
@@ -670,24 +640,39 @@ describe('record-handle runtime', () => {
 		}
 	});
 
-	test('sign-out parks authority work and sign-in resumes it', async () => {
-		const fixture = setup();
+	test('a carrier-less runtime is local-only and a later carrier-bearing one drains it', async () => {
+		const fixture = setup(new MemoryBlobFiles(), null);
 		try {
-			const attached = await fixture.epicenter.attach({
-				deploymentId: 'https://example.test/',
-				principalId: 'person',
-			});
-			expect(attached.kind).toBe('attached');
-			fixture.epicenter.signOut();
-			expect(fixture.epicenter.sync.status.state).toBe('signed-out');
+			expect(fixture.epicenter.sync.status.state).toBe('local-only');
 			const row = await fixture.bound.notes.create({ title: 'parked' });
 			const record = fixture.bound.notes.record(row.id);
 			await Bun.sleep(10);
 			expect(await record.publication.get()).toEqual({ state: 'ready' });
-			fixture.epicenter.signIn();
-			await Bun.sleep(10);
-			expect(fixture.epicenter.sync.status.state).toBe('idle');
-			expect(await record.publication.get()).toEqual({ state: 'settled' });
+			expect(fixture.epicenter.sync.status.state).toBe('local-only');
+
+			// A second runtime lifetime over the same store, opened with a
+			// carrier, drains the retained work (ADR-0178: authorization is
+			// fixed per lifetime, never toggled on a live runtime).
+			const adapter = createBunSqliteAdapter(fixture.database);
+			const resumed = createEpicenterRuntime({
+				store: openReplicaStore({
+					owner: null,
+					database: adapter,
+					limits: TEST_LIMITS,
+				}),
+				blobs: createReplicaBlobStore(adapter, fixture.files),
+				carrier: createTestCarrier(),
+				intervalMs: 60_000,
+			});
+			try {
+				await Bun.sleep(10);
+				expect(resumed.sync.status.state).toBe('idle');
+				expect(
+					await resumed.bind(lens).notes.record(row.id).publication.get(),
+				).toEqual({ state: 'settled' });
+			} finally {
+				await resumed[Symbol.asyncDispose]();
+			}
 		} finally {
 			await close(fixture);
 		}

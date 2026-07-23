@@ -163,10 +163,13 @@ async function open({
 	coordinationId,
 	storage,
 	replicaId = 'rrrrrrrrrrrrrrrrrrrrrrrr',
+	owner,
+	withCarrier = false,
 }: Parameters<BrowserRuntimeEvidenceDriver['open']>[0]): Promise<void> {
 	if (runtime !== undefined) await dispose();
 	runtime = await openBrowserEpicenter({
-		carrier,
+		owner,
+		carrier: withCarrier ? carrier : null,
 		limits,
 		replicaId,
 		authorityLifetime: 'runtime-life',
@@ -221,14 +224,6 @@ async function open({
 		},
 	});
 	bound = bindRuntime(runtime);
-}
-
-async function attach(choice?: 'bring' | 'discard'): Promise<string> {
-	const outcome = await requireRuntime().attach(
-		{ deploymentId: 'deployment', principalId: 'principal' },
-		choice,
-	);
-	return outcome.kind;
 }
 
 async function create(title: string): Promise<string> {
@@ -433,7 +428,6 @@ function terminate(): void {
 
 window.browserRuntimeEvidence = Object.freeze({
 	open,
-	attach,
 	create,
 	get,
 	update,

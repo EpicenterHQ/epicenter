@@ -45,6 +45,7 @@ export function startBrowserReplicaOwnerWorker(
 					throw new Error('browser replica owner is already open');
 				owner = await openBrowserReplicaOwner({
 					limits: operation.limits,
+					owner: operation.owner,
 					...(operation.initialize === undefined
 						? {}
 						: { initialize: operation.initialize }),
@@ -54,14 +55,13 @@ export function startBrowserReplicaOwnerWorker(
 				return undefined;
 			}
 			case 'record':
-			case 'attachment':
-			case 'is-logically-empty':
 			case 'visible-record':
 			case 'visible-records-page':
 			case 'is-visibly-live':
 			case 'blocked-records-page':
 			case 'publication-status':
 			case 'runtime-table-update':
+			case 'runtime-put-record':
 			case 'runtime-delete-record':
 			case 'runtime-value-write':
 			case 'runtime-read-blob':

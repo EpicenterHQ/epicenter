@@ -92,8 +92,8 @@ type RecordRow = SqliteRow & {
 type MetaRow = SqliteRow & {
 	format_version: number;
 	replica_id: string;
-	attached_deployment: string | null;
-	attached_principal: string | null;
+	owner_deployment: string | null;
+	owner_principal: string | null;
 	authority_lifetime: string | null;
 	erased_authority_lifetime: string | null;
 	after_sequence: number;
@@ -143,19 +143,21 @@ export type VisibleRecordsPage = {
 	hasMore: boolean;
 };
 
-export type OpenReplicaStoreOptions = {
-	database: SqliteDatabase;
-	limits: ValidatedLimits;
-	initialize?: { replicaId: string; authorityLifetime?: string };
-};
-
-export type ReplicaAttachment = {
+export type ReplicaOwner = {
 	deploymentId: string;
 	principalId: string;
 };
 
-export type AttachReplicaOptions = ReplicaAttachment & {
-	choice?: 'bring' | 'discard';
+export type OpenReplicaStoreOptions = {
+	database: SqliteDatabase;
+	limits: ValidatedLimits;
+	/**
+	 * The immutable identity this store must have: `null` opens the unclaimed
+	 * replica. Creation writes it once; reopening verifies it and refuses a
+	 * mismatch without mutating the store.
+	 */
+	owner: ReplicaOwner | null;
+	initialize?: { replicaId: string; authorityLifetime?: string };
 };
 
 function tripleParams(address: RecordAddress): [string, string, string] {
@@ -441,8 +443,15 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 function openSchema(
 	database: SqliteDatabase,
 	limits: ValidatedLimits,
+	owner: ReplicaOwner | null,
 	initialize: OpenReplicaStoreOptions['initialize'],
 ): void {
+	if (
+		owner !== null &&
+		(owner.deploymentId.length === 0 || owner.principalId.length === 0)
+	) {
+		throw new TypeError('replica owner identity must not be empty');
+	}
 	const objects = database.all<SqliteRow & { name: string; type: string }>(
 		`SELECT type, name FROM sqlite_schema
 		WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'
@@ -466,7 +475,9 @@ function openSchema(
 				`replica initialization failed: ${initialFacts.error.message}`,
 			);
 		}
-		database.transaction(() => createReplicaStoreSchema(database, initialize));
+		database.transaction(() =>
+			createReplicaStoreSchema(database, { ...initialize, owner }),
+		);
 	} else {
 		const actual = objects.map(({ type, name }) => `${type}:${name}`);
 		const expected = [
@@ -486,6 +497,21 @@ function openSchema(
 	const meta = readMeta(database);
 	if (meta.format_version !== REPLICA_STORE_FORMAT_VERSION) {
 		throw new Error(`unsupported replica store format ${meta.format_version}`);
+	}
+	const storedOwner =
+		meta.owner_deployment === null || meta.owner_principal === null
+			? null
+			: { deploymentId: meta.owner_deployment, principalId: meta.owner_principal };
+	const matches =
+		owner === null
+			? storedOwner === null
+			: storedOwner !== null &&
+				storedOwner.deploymentId === owner.deploymentId &&
+				storedOwner.principalId === owner.principalId;
+	if (!matches) {
+		throw new Error(
+			'replica store identity does not match the requested owner',
+		);
 	}
 	const durableFacts = parseFactsRequest(
 		{
@@ -524,114 +550,11 @@ function openSchema(
 export function openReplicaStore({
 	database,
 	limits,
+	owner,
 	initialize,
 }: OpenReplicaStoreOptions) {
-	openSchema(database, limits, initialize);
+	openSchema(database, limits, owner, initialize);
 	const documents = createReplicaDocumentStore(database);
-
-	function attachment(): ReplicaAttachment | null {
-		const meta = readMeta(database);
-		return meta.attached_deployment === null || meta.attached_principal === null
-			? null
-			: {
-					deploymentId: meta.attached_deployment,
-					principalId: meta.attached_principal,
-				};
-	}
-
-	function isLogicallyEmpty(): boolean {
-		// Durable logical state and obligations live in records (all scalar lanes,
-		// tombstones, document/blob watermarks, digests, and parked evidence),
-		// record_documents (including a defensively detected orphan chain), and
-		// the meta row's sealed submission witness. Attachment identity and
-		// synchronization progress are replica metadata, not user logical state.
-		const state = one<
-			SqliteRow & {
-				has_records: number;
-				has_documents: number;
-				has_sealed_request: number;
-			}
-		>(
-			database,
-			`SELECT
-				EXISTS(SELECT 1 FROM records) AS has_records,
-				EXISTS(SELECT 1 FROM record_documents) AS has_documents,
-				(sealed_submission IS NOT NULL
-					OR sealed_request IS NOT NULL
-					OR sealed_request_hash IS NOT NULL) AS has_sealed_request
-			FROM meta WHERE singleton = 1`,
-		);
-		if (state === null) throw new Error('replica meta row missing');
-		return (
-			state.has_records === 0 &&
-			state.has_documents === 0 &&
-			state.has_sealed_request === 0
-		);
-	}
-
-	function attach({
-		deploymentId,
-		principalId,
-		choice,
-	}: AttachReplicaOptions): void {
-		if (deploymentId.length === 0 || principalId.length === 0) {
-			throw new TypeError('attachment identity must not be empty');
-		}
-		if (choice !== undefined && choice !== 'bring' && choice !== 'discard') {
-			throw new TypeError('attachment choice must be bring or discard');
-		}
-		database.transaction(() => {
-			const meta = readMeta(database);
-			if (
-				meta.attached_deployment === deploymentId &&
-				meta.attached_principal === principalId
-			) {
-				return;
-			}
-			if (
-				meta.attached_deployment !== null ||
-				meta.attached_principal !== null
-			) {
-				throw new Error('replica is permanently attached to another principal');
-			}
-
-			const empty = isLogicallyEmpty();
-			if (empty && choice !== undefined) {
-				throw new Error('an empty replica attaches without a choice');
-			}
-			if (!empty && choice === undefined) {
-				throw new Error('a nonempty replica requires bring or discard');
-			}
-
-			if (choice === 'discard') {
-				database.run('DELETE FROM record_documents');
-				database.run('DELETE FROM records');
-				// This is a logical-only clear. Raw blob files deliberately remain
-				// as debris for the adapter owner's idempotent sweep (ADR-0173).
-				database.run(
-					`UPDATE meta SET
-						attached_deployment = ?,
-						attached_principal = ?,
-						authority_lifetime = NULL,
-						erased_authority_lifetime = NULL,
-						after_sequence = 0,
-						sealed_submission = NULL,
-						sealed_request = NULL,
-						sealed_request_hash = NULL,
-						next_submission = 1
-					WHERE singleton = 1`,
-					[deploymentId, principalId],
-				);
-				return;
-			}
-
-			database.run(
-				`UPDATE meta SET attached_deployment = ?, attached_principal = ?
-				WHERE singleton = 1`,
-				[deploymentId, principalId],
-			);
-		});
-	}
 
 	function record(address: RecordAddress): ReplicaRecordLanes | null {
 		return lanesOf(readRecord(database, address));
@@ -1136,9 +1059,6 @@ export function openReplicaStore({
 	}
 
 	return {
-		attachment,
-		isLogicallyEmpty,
-		attach,
 		record,
 		visibleRecord,
 		visibleRecordsPage,

@@ -13,7 +13,11 @@ type LockManagerPort = {
 /** Retain one exclusive Web Lock for the OPFS SQLite owner. */
 export async function acquireBrowserStorageLease(
 	locks: LockManagerPort,
-	{ onStolen, signal }: { onStolen: () => void; signal?: AbortSignal },
+	{
+		name = 'epicenter-data-sqlite',
+		onStolen,
+		signal,
+	}: { name?: string; onStolen: () => void; signal?: AbortSignal },
 ): Promise<BrowserStorageLease> {
 	signal?.throwIfAborted();
 	const acquired = Promise.withResolvers<BrowserStorageLease>();
@@ -28,7 +32,7 @@ export async function acquireBrowserStorageLease(
 	}
 
 	const completion = locks.request(
-		'epicenter-data-sqlite',
+		name,
 		{ mode: 'exclusive', ...(signal === undefined ? {} : { signal }) },
 		async () => {
 			isAcquired = true;
