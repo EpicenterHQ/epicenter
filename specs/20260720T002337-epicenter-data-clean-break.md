@@ -4,7 +4,7 @@
 - **Date:** 2026-07-20 (rewritten 2026-07-21 from the frozen record
   architecture)
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), and [ADR-0177](../docs/adr/0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
+- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), [ADR-0177](../docs/adr/0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md), and [ADR-0178](../docs/adr/0178-replica-identity-is-immutable-and-sign-in-selects-a-replica.md)
 
 ## Product sentence
 
@@ -58,14 +58,16 @@ alias, migration bridge, optional scope, or second runtime.
 
 ## The asymmetric refusals
 
-**First attachment is one whole-replica choice.** Before the first successful
-attachment permanently binds a nonempty unattached replica to a principal, the
-person chooses `Bring local data` (converge everything through the ordinary
-plane laws) or `Discard local data` (clear logical state and obligations in
-the transaction that records attachment). No Device-versus-Account owners,
-profile catalogs, adoption modes, per-item merge choices, or account-switch
-recovery. A brought tombstone terminally deletes a shared live record; a
-pre-existing remote tombstone remains final (ADR-0161).
+**Replica identity never changes.** Creation writes one permanent identity:
+unclaimed or owned by one deployment and principal pair. Authentication
+selects the matching account replica and supplies its fixed runtime carrier; it
+never adopts the unclaimed replica. An unclaimed replica never synchronizes.
+Its data leaves only through explicit, user-confirmed Lens import, which
+preserves record keys and writes through ordinary destination operations so
+retries rewrite identical records. Ordinary plane laws decide conflicts, and
+destination terminal tombstones remain final. Verified import may be followed
+by explicit adapter-owned retirement of the whole unclaimed replica
+(ADR-0178).
 
 **Permanent tombstones within one lifetime.** A small durable record per
 terminal deletion deletes acknowledgment catalogs, retention floors, baseline
@@ -105,7 +107,10 @@ export const whisperingLens = defineLens({
   },
 });
 
-await using epicenter = await openBunEpicenter(options);
+await using epicenter = await openBunEpicenter({
+  owner: { deploymentId, principalId },
+  carrier: session,
+});
 // openBrowserEpicenter / openDesktopEpicenter per runtime
 
 const whispering = epicenter.bind(whisperingLens); // one Lens per bind
@@ -142,7 +147,6 @@ await language.unset(); // lowers to unset (reversible)
 const stopLanguage = language.subscribe(() => {});
 await language.publication.get();
 
-await epicenter.attach(session); // may return the first-attachment demand
 ```
 
 Values record keys are Lens-declared and admit dotted segments
@@ -155,11 +159,13 @@ fields. Status is observation, never settlement:
 `settled | ready | blocked` with a non-empty blocked-work evidence list, and
 `epicenter.blockedRecords()` is the Home enumeration of blocked addresses.
 
-The attachment record, `Bring`/`Discard` mechanics, and the
-`{ deploymentId, principalId }` invariant are unchanged from ADR-0161: the
-pair persists in replica metadata in the transaction that enables
-synchronization; sign-out clears credentials only; another principal requires
-a fresh replica.
+Replica identity is written once at creation. An account replica is permanently
+owned by one `{ deploymentId, principalId }` pair; an unclaimed replica is
+permanently unclaimed. The adapter selects a separate physical identity slot
+for each. A carrier is fixed for one account-replica runtime lifetime. Signing
+out disposes that runtime and opens the unclaimed replica without a carrier;
+switching principals opens another account replica. There is no attach
+operation. Lens import and whole-replica retirement follow ADR-0178.
 
 ## Physical model
 
@@ -415,10 +421,10 @@ The settlement formulas derive only a 4,531-byte facts-response floor and a
 the selected 256 KiB and 1 MiB ceilings. Layout evidence proves feasibility,
 not the 4 KiB fact, 256 KiB request, or 64-address choices. Authority and retry
 witness rows are below Durable Object SQLite's 2 MB row ceiling, but the whole
-replica proof remains open because attachment deployment and principal text are
-not yet bounded. W2 cannot claim its inclusive constants frozen until one
-maintained boundary-vector charter runs the exact maximum shapes through Bun,
-browser OPFS, real workerd, the HTTP boundary, reopen, and row-size checks.
+replica proof remains open because immutable deployment and principal identity
+text are not yet bounded. W2 cannot claim its inclusive constants frozen until
+one maintained boundary-vector charter runs the exact maximum shapes through
+Bun, browser OPFS, real workerd, the HTTP boundary, reopen, and row-size checks.
 
 The full Durable Object charter used two opposite candidate orders, each with
 1,000,000 records at the exact 536,870,912-byte proxy and 128 measured
@@ -463,9 +469,11 @@ verification, and deletion into one commit.
 - Implement `defineLens`, `defineTable`, `defineValues`, `parseLens`, `bind`,
   classified reads, value property access, subscriptions, and the status and
   parked observation surface, including the W3 document and blob operations.
-- Build the runtime supervisor: one lifecycle owner for attachment,
-  credentials, wakeups, independent fact and submission drains, backoff,
-  status, and disposal. Implement the one-time first-attachment gate.
+- Build the runtime supervisor: one immutable identity slot, one fixed
+  open-time carrier for an account replica, wakeups, independent fact and
+  submission drains, backoff, status, and disposal. Implement account and
+  unclaimed opens, explicit Lens import, verified-import retirement, and
+  runtime replacement on authentication changes.
 - Migrate retained callers from their composition roots inward: apps/epicenter,
   apps/whispering, packages/skills, apps/honeycrisp, packages/chat,
   packages/app-shell, packages/svelte-utils, packages/ui, packages/server,
@@ -559,7 +567,7 @@ the materialized visible-state column (refused with a recorded reason)
 ambiguous applyable-snapshot semantics (artifact kinds are structural)
 the Workspace/SQLite experiment stack and its inspection hooks
 defineWorkspace, WorkspaceId, defineDatabase, database catalogs and aliases
-Device/Account parallel stores, adoption modes, rekeying, protocol floors
+mutable attachment, adoption modes, rekeying, protocol floors
 push/pull/acquire as public operations, retention floors, lineage recovery
 application SQL escape hatches, projection DTOs, workspace compatibility barrel
 ```

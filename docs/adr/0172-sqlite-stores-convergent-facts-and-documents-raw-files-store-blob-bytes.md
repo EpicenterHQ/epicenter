@@ -73,22 +73,22 @@ resurrectable product state. The runtime does not inspect schema-opaque
 application citations and cannot use them as a garbage-collection oracle while
 the record remains live.
 
-First-attachment `Discard local data` applies the same boundary to the whole
-unattached replica. One SQLite transaction removes scalar state, document
-chains, publication obligations, and accepted blob membership while recording
-the permanent principal attachment. Authority hydration begins only after that
-transaction commits. The owner then reclaims raw blob files idempotently. A
-crash may leave files with no live SQLite owner, but those bytes are debris and
-cannot reappear as product state.
+ADR-0178 retirement applies the same boundary to one whole unclaimed replica
+after verified Lens import. The adapter refuses retirement while a runtime
+holds the identity slot, then removes the replica's SQLite store and blob root
+as one explicit destructive lifecycle operation. A crash may leave files with
+no live SQLite owner, but those bytes are debris and cannot reappear as product
+state. Retirement never opens an account replica, hydrates authority state, or
+replaces an authority lifetime.
 
 A raw blob file is usable only when its bytes verify against the digest
-currently owned by SQLite. Delayed `Discard` cleanup targets the pre-clear
-physical generation or an equivalent immutable file identity. It can neither
-satisfy nor delete a blob owner created later by authority hydration at the same
-record address. A private blob-root generation switched by the logical transaction
-is one valid implementation. Digest-qualified immutable paths are valid only
-when cleanup rechecks or leases current SQLite ownership so it cannot delete a
-presently owned equal-digest file.
+currently owned by its replica's SQLite store. Delayed retirement cleanup
+targets the retired identity slot or an equivalent immutable physical
+generation. It can neither satisfy nor delete a blob owner in another identity
+slot. A private blob-root generation is one valid implementation.
+Digest-qualified immutable paths are valid only when cleanup rechecks or leases
+current SQLite ownership so it cannot delete a presently owned equal-digest
+file.
 
 ## Consequences
 
@@ -102,10 +102,10 @@ presently owned equal-digest file.
   filesystem adapters are one implementation.
 - Blob-file cleanup may lag the logical tombstone transaction. That lag costs
   storage only and cannot restore a deleted record.
-- Whole-replica `Discard` is logically atomic without pretending SQLite can
-  atomically delete external files. The attachment record and empty logical
-  state commit together; physical reclamation follows the same debris rule as
-  a record tombstone.
+- Whole-replica retirement is explicit adapter-owned destruction without
+  pretending SQLite can atomically delete external files. Verified import is
+  established before retirement; interrupted physical reclamation follows the
+  same debris rule as a record tombstone.
 
 ## Acceptance evidence
 
@@ -117,13 +117,13 @@ record-owned blob bytes or removable debris, never live bytes for a deleted
 record. It must also kill the process between the staging fsync, the rename,
 and the ownership commit, and prove both sweeps are idempotent.
 
-The same failure injection covers first-attachment `Discard`: hydration never
-starts before the logical clear and attachment commit, a failed transaction
-preserves the intact unattached replica, and a committed transaction exposes no
-live local record or obligation even when raw-file reclamation is interrupted.
-Same-address hydration with equal and different blob digests must prove that
-old-generation cleanup cannot satisfy or delete the new owner before or after a
-crash.
+The same failure injection covers retirement: an open runtime refuses
+destruction, the application withholds it until import is verified, an
+interrupted retirement is resumable, and a
+completed retirement exposes no live local record or obligation even when
+raw-file reclamation was interrupted. Equal- and different-digest files in
+another immutable identity slot must prove that retired-slot cleanup cannot
+satisfy or delete the other owner before or after a crash.
 
 Physical measurements are adapter-specific. Evidence from native SQLite and
 browser OPFS reports the database and the file-level measurements that the

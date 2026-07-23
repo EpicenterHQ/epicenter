@@ -48,15 +48,15 @@ record's scalar state, document, blob slot, and future publication at one
 durable address; reversible unset reaps none of them. Physical byte cleanup
 may finish later and remains idempotent.
 
-First-attachment `Bring local data` uses this same publication law. A locally
-minted record ordinarily introduces a new live record and publishes its
+ADR-0178 Lens import uses this same capture and publication law. It preserves
+the source record key, so a retry targets the identical destination record. A
+locally minted record ordinarily introduces a new live record and publishes its
 finalized bytes. At a shared live record, an equal digest is idempotent and a
-different digest is refused or parked; first attachment does not add blob
-replacement or merge semantics. A remote terminal tombstone refuses the slot.
-`Discard local data` removes local blob membership and publication obligations
-before attachment, then reclaims only the pre-clear physical file identity under
-ADR-0172's debris rule. Later hydration of the same record address never adopts
-an unverified stale file and cannot make that file a target of delayed cleanup.
+different digest is refused or parked; import adds no blob replacement or merge
+semantics. A destination terminal tombstone refuses the slot. After verified
+import, explicit retirement reclaims only the unclaimed replica's physical
+identity under ADR-0172's debris rule. Another identity slot never adopts an
+unverified stale file and cannot become a target of delayed retirement cleanup.
 
 The private live store may use the digest in a filename or transfer key, but no
 physical path is part of logical identity. A portable artifact exposes the
@@ -84,8 +84,9 @@ membership inventory.
   exists.
 - Authority publication remains a separate streamed transfer even though the
   blob shares its record's lifecycle.
-- First attachment adds no blob-import protocol. `Bring` publishes through the
-  ordinary record-addressed obligation; `Discard` clears the unattached slot.
+- Lens import adds no blob-specific transfer protocol. It captures through the
+  ordinary destination record operation; retirement destroys the unclaimed
+  replica only after verified import.
 
 ## Considered alternatives
 

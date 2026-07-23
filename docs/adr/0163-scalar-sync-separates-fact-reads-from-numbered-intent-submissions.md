@@ -171,18 +171,22 @@ installed Lenses that disagree about a collection. `unset` followed by
 `replace` is legal resurrection, because `unset` is a different stored state
 than `tombstone`.
 
-Every pre-attachment write already records its ordinary compacted pending
-operation. When an unattached replica chooses `Bring local data` under
-ADR-0161, attachment preserves those operations, learns the authority
-lifetime, and makes them eligible to seal. It never derives intents by
-scanning visible state. Independently minted table record keys ordinarily form
-a union. At a shared live address, the brought operation is ordinary newer
-desired state: disjoint top-level patches compose, and a brought `replace` or
-same-field `patch` may replace the current live value when the authority folds
-it. A stored tombstone still settles a brought operation as superseded, and a
-brought `tombstone` is an ordinary offline deletion. First attachment adds no
-import operation, historical fact replay, timestamp comparison, or conflict
-record.
+An account replica opened without a carrier records the same ordinary compacted
+pending operations. They survive crashes and become eligible to seal on the
+next carrier-bearing open of that same replica. The runtime never derives
+intents by scanning visible state.
+
+An unclaimed replica never seals or sends its pending operations. Data leaves
+it only through ADR-0178's explicit, user-confirmed Lens import. Import
+preserves record keys and writes through ordinary destination record
+operations, so a retry rewrites identical records. Independently minted table
+record keys ordinarily form a union. At a shared live address, the imported
+operation follows the ordinary desired-state algebra: disjoint top-level
+patches compose, and an imported `replace` or same-field `patch` may replace
+the current live value when the authority folds it. A destination tombstone
+still settles an imported operation as superseded, and an imported
+`tombstone` is an ordinary deletion. Import adds no scalar wire operation,
+historical fact replay, timestamp comparison, or conflict record.
 
 ### Replica lanes carry the crash state
 
@@ -364,9 +368,9 @@ present logical-state bytes.
   pending-address discard branch violates the protocol.
 - Parked work is never silent: the refused operation remains visible at its
   address until a later write consumes it or a tombstone supersedes it.
-- First attachment reuses the same desired-state algebra. It does not replay
-  another authority's facts or sequences and does not add scalar migration
-  semantics to V1.
+- Lens import reuses the same desired-state algebra. It preserves record keys,
+  does not replay another replica's facts or sequences, and adds no scalar
+  migration semantics to V1.
 - Because the wire carries no collection kind, the authority cannot branch on
   one, and independently installed Lenses that disagree about a collection
   cannot corrupt each other beyond their own payloads; tombstone absorption
@@ -391,12 +395,12 @@ Before this ADR becomes Accepted, shared model and adapter tests must prove:
   encoding;
 - randomized operation composition sequences match sequential application
   under the absorption-first law;
-- first-attachment `Bring` composes disjoint patches, resolves direct live
-  collisions through ordinary authority ordering, lets a brought tombstone
-  terminally delete a shared live record, and cannot resurrect an existing
-  tombstone;
-- pre-attachment operations survive attachment and a crash before lifetime
-  discovery or first submission without reconstruction from visible state;
+- repeated or crash-resumed Lens import rewrites identical record keys,
+  composes disjoint patches, resolves direct live collisions through ordinary
+  authority ordering, and cannot resurrect a destination tombstone;
+- account-replica operations recorded without a carrier survive a crash and
+  drain on the next carrier-bearing open without reconstruction from visible
+  state, while an unclaimed replica never seals or sends its obligations;
 - every touched address returns one current fact, while parked results remain
   stable across exact retry;
 - authority fact changes, sequences, retry metadata, parked results, and result

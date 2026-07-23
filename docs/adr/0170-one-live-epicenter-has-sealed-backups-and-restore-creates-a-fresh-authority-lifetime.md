@@ -128,13 +128,12 @@ preserved chooses Back up before Restore. Validation and successor construction
 must finish before activation, so failure before the atomic switch leaves the
 current Epicenter active.
 
-ADR-0161's pre-attachment `Discard local data` is not Restore. It clears only
-one unattached local replica before that replica binds to the already active
-authority. It neither mutates nor replaces the remote Epicenter, creates no
-authority lifetime, and cannot be used after attachment. `Bring local data`
-converges through ordinary synchronization and likewise never replaces the
-authority as a whole. Restore remains the only operation that authoritatively
-replaces the live Epicenter.
+ADR-0178's explicit retirement is not Restore. It destroys one immutable
+unclaimed replica after verified Lens import. It neither mutates nor replaces
+the remote Epicenter, creates no authority lifetime, nor transfers replica
+identity. Lens import writes through ordinary destination record operations
+and likewise never replaces the authority as a whole. Restore remains the only
+operation that authoritatively replaces the live Epicenter.
 
 Record tombstones remain permanent within one authority lifetime. They do not
 enter a Backup and do not carry into the successor created by Restore. Backing
@@ -170,8 +169,9 @@ deleted after the replacement is proven active.
   staging, atomic activation, replica reset, and failure-injection tests. It
   does not need multiple active generations, lineage ordering, branch merge, or
   per-device participation.
-- First-attachment `Discard` needs none of that authority-replacement machinery;
-  it is a local clear before permanent attachment, not a second recovery path.
+- Whole-replica retirement needs none of that authority-replacement machinery;
+  it is explicit adapter-owned destruction after verified import, not a second
+  recovery path.
 
 ## Considered alternatives
 
