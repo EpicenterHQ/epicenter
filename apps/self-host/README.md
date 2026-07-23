@@ -58,7 +58,7 @@ bun run --cwd apps/self-host typecheck
 bun run --cwd apps/self-host deploy
 ```
 
-`INSTANCE_TOKEN` is the only secret to set: the instance composes no Better Auth and no Postgres, so there is no `BETTER_AUTH_SECRET` and no Hyperdrive binding (ADR-0075). Set `API_PUBLIC_ORIGIN` in `wrangler.jsonc` to your domain. Proposed ADR-0145 collapses the current records and per-document room Durable Object bindings into one workspace authority binding. Each open row document uses one route-bound Yjs 14 socket to that authority. A Worker has no boot phase, so the entropy gate (`assertStrongToken`) runs per request at the edge: a weak or unset `INSTANCE_TOKEN` fails every request closed. Use `gen-token` for the secret.
+`INSTANCE_TOKEN` is the only secret to set: the instance composes no Better Auth and no Postgres, so there is no `BETTER_AUTH_SECRET` and no Hyperdrive binding (ADR-0075). Set `API_PUBLIC_ORIGIN` in `wrangler.jsonc` to your domain. `DataAuthority` owns scalar records, row documents, and blob membership for the instance principal. Each open row document uses one route-bound Yjs 14 socket to that authority. A Worker has no boot phase, so the entropy gate (`assertStrongToken`) runs per request at the edge: a weak or unset `INSTANCE_TOKEN` fails every request closed. Use `gen-token` for the secret.
 
 `worker-configuration.d.ts` is hand-written: it inherits the library's binding
 contract (`ServerBindings`) and declares the deployment-owned Durable Object

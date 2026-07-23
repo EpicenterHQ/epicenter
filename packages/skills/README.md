@@ -7,14 +7,14 @@ construct browser or Node runtimes, expose Yjs GUIDs, or register actions.
 ```ts
 import {
 	listSkills,
-	skillsDefinitions,
+	skillsLens,
 } from '@epicenter/skills';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunRecordEpicenter } from '@epicenter/data/bun';
 
-await using epicenter = await openBunEpicenter({
-	path: '/app/data/epicenter.sqlite3',
+await using epicenter = await openBunRecordEpicenter({
+	directory: '/app/data',
 });
-const skills = epicenter.bind(skillsDefinitions);
+const skills = epicenter.bind({ skills: skillsLens }).skills;
 const catalog = await listSkills(skills);
 ```
 
@@ -35,7 +35,7 @@ instructions.transact(() => content.insert(0, '# Instructions'));
 await instructions.whenDurable();
 ```
 
-The runtime derives persistence and synchronization from the row address.
+The runtime derives persistence and synchronization from the record address.
 Callers pass the structural row id they already own.
 
 Catalog reads return nonconforming diagnostics with the preserved canonical
