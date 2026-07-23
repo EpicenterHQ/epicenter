@@ -21,7 +21,7 @@
 /**
  * The minimal per-connection surface the coordinator drives, structural by
  * design so a Bun `ServerWebSocket`, a browser `WebSocket`, and a test double
- * all satisfy it without a wrapper (the same move {@link RoomSocket} makes).
+ * all satisfy it without a wrapper.
  *
  * `send` carries one opaque string frame; the coordinator never inspects it
  * beyond the envelope the host wire wraps it in. `readyState` follows the
@@ -99,8 +99,7 @@ export type AttachUpgrade = {
  * backend ({@link import('./bun-server.js')}) returns a synchronous `Response`;
  * the Cloudflare backend ({@link import('./cloudflare-do.js')}) forwards to a
  * Durable Object stub and returns a `Promise<Response>`. Both satisfy this one
- * seam, so the mount is backend-blind (the same move {@link ResolvedRoom} makes
- * for rooms).
+ * seam, so the mount is backend-blind.
  */
 export type AttachRelayUpgradeHandler = {
 	handleUpgrade(upgrade: AttachUpgrade): Response | Promise<Response>;

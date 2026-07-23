@@ -105,11 +105,11 @@ describe('createInstanceTokenAuth', () => {
 		const auth = createInstanceTokenAuth({ baseURL, token, fetch });
 		await flush();
 
-		await auth.fetch('/api/blobs');
-		const blobs = calls.at(-1);
-		expect(blobs?.url).toBe(`${baseURL}/api/blobs`);
-		expect(blobs?.init?.credentials).toBe('omit');
-		expect(new Headers(blobs?.init?.headers).get('authorization')).toBe(
+		await auth.fetch('/api/sync/v1/facts?afterSequence=0');
+		const facts = calls.at(-1);
+		expect(facts?.url).toBe(`${baseURL}/api/sync/v1/facts?afterSequence=0`);
+		expect(facts?.init?.credentials).toBe('omit');
+		expect(new Headers(facts?.init?.headers).get('authorization')).toBe(
 			`Bearer ${token}`,
 		);
 	});
@@ -140,7 +140,7 @@ describe('createInstanceTokenAuth', () => {
 		await flush();
 		expect(auth.state.status).toBe('signed-in');
 
-		await auth.fetch('/api/blobs');
+		await auth.fetch('/api/sync/v1/facts?afterSequence=0');
 		expect(auth.state.status).toBe('signed-out');
 	});
 
@@ -285,7 +285,7 @@ describe('createInstanceTokenAuth', () => {
 		await flush();
 		expect(connection(auth).status).toBe('connected');
 
-		await auth.fetch('/api/blobs');
+		await auth.fetch('/api/sync/v1/facts?afterSequence=0');
 		// A rejected token always drops `state` to signed-out, not just at boot: the
 		// signed-in account UI relies on this coupling to skip rejected-token copy
 		// (the sign-in panel owns it) and surface only `unreachable`.

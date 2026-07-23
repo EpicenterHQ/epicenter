@@ -59,9 +59,8 @@
  *   coordinator, and the target is "dead on the next connect." Live-socket
  *   eviction is a later refinement.
  * - The store is in-memory: grants do not survive a process restart, so a restart
- *   re-pairs devices. Persisting them (a `bun:sqlite` file beside the rooms, like
- *   the operator token's own durability story) is deferred until a real need earns
- *   it.
+ *   re-pairs devices. Persisting them in the deployment's data directory is
+ *   deferred until a real need earns it.
  */
 
 import { generateInstanceToken, Principal } from '@epicenter/auth';

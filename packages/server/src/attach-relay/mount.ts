@@ -1,8 +1,7 @@
 /**
- * Mount the AttachRelay on a Bun deployment behind its bearer gate (ADR-0115:
- * self-host symmetry). A self-hosted instance serves the relay
- * coordinator reached by URL and operator token (ADR-0075), so a desktop host
- * and a client attach against a self-host and it "just works after sign-in."
+ * Mount the AttachRelay behind a deployment-owned bearer gate. A self-hosted
+ * instance resolves a per-device grant to the instance principal; Epicenter
+ * Cloud resolves an OAuth bearer to the signed-in principal.
  * This is the one way the relay is reached: every attach is authenticated and
  * the principal is stamped server-side, so there is no unauthenticated path and
  * no second principal-resolution model.
@@ -16,17 +15,16 @@
  * resolved id is stamped onto the socket. A client that puts a different
  * `principalId` in its query cannot address another partition, and a client
  * with no valid bearer cannot connect at all: the surface is fail-closed behind
- * `INSTANCE_TOKEN`.
+ * the deployment's configured attach credential.
  *
  * ## Not a route surface
  *
  * There is one path (`/attach`) and the query carries only the endpoint
  * quadruple plus `role`. This adds no route, channel, capability, action, or
  * per-host directory; it only authenticates the one relay surface the
- * coordinator already shaped. The credential rides `Authorization` (a non-browser client)
- * or the `bearer.<token>` subprotocol (a browser), the same two channels the
- * rooms upgrade reads, and the 101 echoes only the main subprotocol so the
- * token never round-trips.
+ * coordinator already shaped. The credential rides `Authorization` (a
+ * non-browser client) or the `bearer.<token>` subprotocol (a browser), and the
+ * 101 echoes only the main subprotocol so the token never round-trips.
  */
 
 import {
@@ -47,17 +45,14 @@ import type { AttachRelayUpgradeHandler } from './contracts.js';
 import { ATTACH_RELAY_ROUTE } from './route.js';
 
 /**
- * Bearer auth for the attach surface. Mirrors the rooms upgrade guard: it owns
- * WebSocket credential extraction ({@link extractUpgradeBearer}: an
+ * Bearer auth for the attach surface. It owns WebSocket credential extraction
+ * ({@link extractUpgradeBearer}: an
  * `Authorization` header first, else a single `bearer.<token>` subprotocol) and
  * feeds the same {@link ResolveBearerPrincipal} every bearer surface uses, so a
  * browser cookie can never authenticate an attach.
  *
- * On failure it answers a standard OAuth 401. Rooms additionally closes a failed
- * WebSocket upgrade with a readable app close code (4401) so a browser's sync
- * supervisor can park permanently; the attach client has no such supervisor, so
- * the readable-close-code refinement is not duplicated here. A failed handshake
- * is still fail-closed: the attach cannot proceed.
+ * On failure it answers a standard OAuth 401. A failed handshake is
+ * fail-closed: the attach cannot proceed.
  */
 function requireAttachBearer<E extends Env>(
 	resolveBearerPrincipal: ResolveBearerPrincipal<E>,
@@ -82,8 +77,7 @@ function requireAttachBearer<E extends Env>(
  *
  * The backend is resolved per request from `c.env`, the one genuinely
  * runtime-specific concern (a Bun singleton coordinator, or a Cloudflare Durable
- * Object namespace bound only at request time), exactly as {@link createServerApp}
- * resolves the rooms registry.
+ * Object namespace bound only at request time).
  */
 function createAttachRelayApp(
 	resolveRelay: (env: ServerBindings) => AttachRelayUpgradeHandler,
@@ -118,7 +112,7 @@ function createAttachRelayApp(
 			return resolveRelay(c.env).handleUpgrade({
 				request: c.req.raw,
 				// Server-side principal: never the query's. On self-host this is the
-				// literal instance principal the operator bearer resolves to.
+				// literal instance principal the attach grant resolves to.
 				principalId: c.var.principal.id,
 				role: c.req.query('role'),
 				hostId: c.req.query('hostId'),

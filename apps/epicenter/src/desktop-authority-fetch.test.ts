@@ -87,7 +87,7 @@ test('desktop authority fetch retries one deployment 401 with a refreshed bearer
 		},
 	});
 
-	const response = await fetch('/api/blobs');
+	const response = await fetch('/api/sync/v1/facts?afterSequence=0');
 
 	expect(response.status).toBe(204);
 	expect(authorizeOptions).toEqual([undefined, { forceRefresh: true }]);
@@ -96,12 +96,12 @@ test('desktop authority fetch retries one deployment 401 with a refreshed bearer
 		{
 			authorization: 'Bearer desktop-1',
 			redirect: 'manual',
-			url: 'https://api.epicenter.so/api/blobs',
+			url: 'https://api.epicenter.so/api/sync/v1/facts?afterSequence=0',
 		},
 		{
 			authorization: 'Bearer desktop-2',
 			redirect: 'manual',
-			url: 'https://api.epicenter.so/api/blobs',
+			url: 'https://api.epicenter.so/api/sync/v1/facts?afterSequence=0',
 		},
 	]);
 });

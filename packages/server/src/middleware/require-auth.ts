@@ -7,8 +7,8 @@
  * dashboard, hosted UIs) and external OAuth clients (CLI, Tauri,
  * extension).
  *
- * For routes that are external-clients only (`/api/ai/*`, `/api/.../rooms/*`),
- * prefer {@link requireBearerPrincipal}, which skips the cookie attempt.
+ * For routes that are external-clients only (record sync and inference), prefer
+ * {@link requireBearerPrincipal}, which skips the cookie attempt.
  *
  * Cookie-vs-bearer is resolved deterministically here, cookie-first: a
  * request carrying both uses the cookie session and never consults the
@@ -135,12 +135,9 @@ export async function resolveRequestOAuthDocumentAuthorization(
  * The tail every bearer guard shares: project a resolved principal onto the
  * request, or hand the OAuth error to a transport-specific renderer.
  *
- * The three guards ({@link requireCookieOrBearerPrincipal},
- * {@link requireBearerPrincipal}, and the rooms upgrade guard) differ only in
- * how they extract the bearer and how they render a rejection (an HTTP 401 vs a
- * WebSocket close). Once each has a `Result<Principal, OAuthError>`, the effect
- * is identical: on success stamp `c.var.principal` and continue; on failure
- * defer to `reject`.
+ * Each caller owns credential extraction and rejection rendering. Once it has
+ * a `Result<Principal, OAuthError>`, the effect is identical: on success stamp
+ * `c.var.principal` and continue; on failure defer to `reject`.
  */
 export async function setPrincipalOrReject<E extends Env>(
 	c: Context<E>,
@@ -180,7 +177,7 @@ export function requireCookieOrBearerPrincipal(
  * but skips the cookie path, so the route always reports 401 with a
  * standard OAuth `WWW-Authenticate` header instead of the cookie failure
  * path. Use on protected resource routes that should never see a browser
- * cookie (rooms, AI chat).
+ * cookie (record sync, AI chat, and transcription).
  *
  * A factory that closes over the deployment's {@link ResolveBearerPrincipal}:
  * the cloud passes {@link resolveRequestOAuthPrincipal}, an instance its

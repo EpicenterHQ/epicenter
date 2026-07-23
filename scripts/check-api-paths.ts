@@ -11,9 +11,9 @@
  *   - The constants files themselves (they ARE the source of truth).
  *   - Vendored mirrors that intentionally re-declare these paths to avoid a
  *     runtime dependency on @epicenter/constants
- *     (packages/sync/src/room-route.ts, packages/auth/src/routes.ts,
- *     apps/epicenter/src/routes.ts, whose /api/session is the shell's own
- *     loopback contract, not the cloud session endpoint).
+ *     (packages/auth/src/routes.ts and apps/epicenter/src/routes.ts, whose
+ *     /api/session is the shell's own loopback contract, not the cloud session
+ *     endpoint).
  *   - *.test.ts / *.test.tsx (mock URL matchers may reference paths verbatim).
  *   - JSDoc/comment lines (descriptive prose, not constructions).
  *
@@ -43,12 +43,12 @@ const EXCLUDED_DIRS = new Set([
 // A quoted route literal for a path @epicenter/constants owns. `([^a-z]|$)`
 // keeps `/api/sessions-of-mine` style prefixes from matching.
 const HARDCODED_PATH =
-	/['"`]\/api\/(session|rooms|blobs|ai)([^a-z]|$)|['"`]\/auth\/(oauth2\/[a-z]+|cli-callback)/;
+	/['"`]\/api\/(session|ai)([^a-z]|$)|['"`]\/auth\/(oauth2\/[a-z]+|cli-callback)/;
 
 // The next two regexes test the full `path:line:content` record, exactly as
 // the workflow's `grep -v` filters did.
 const ALLOWED_RECORD =
-	/packages\/constants\/src\/(api|oauth)-routes\.ts|packages\/sync\/src\/room-route\.ts|packages\/auth\/src\/routes\.ts|apps\/epicenter\/src\/routes\.ts|packages\/server\/src\/auth-pages\/scripts\//;
+	/packages\/constants\/src\/(api|oauth)-routes\.ts|packages\/auth\/src\/routes\.ts|apps\/epicenter\/src\/routes\.ts|packages\/server\/src\/auth-pages\/scripts\//;
 const COMMENT_RECORD = /^[^:]+:[0-9]+:[ \t\v\f\r]*(\*|\/\/|\/\*)/;
 
 const isScannedFile = (name: string): boolean =>

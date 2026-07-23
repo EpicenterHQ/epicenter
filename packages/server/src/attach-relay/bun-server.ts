@@ -1,28 +1,25 @@
 /**
  * A Bun WebSocket transport for the {@link createAttachRelay} coordinator, the
- * runtime a self-hosted instance runs (ADR-0115: the relay is a WebSocket
- * channel on the per-user rendezvous each device dials out to; a Durable Object
- * backend for Cloud is not built). It returns the
+ * runtime a self-hosted instance runs. It is the Bun twin of the Cloudflare
+ * Durable Object transport: both drive the same runtime-agnostic coordinator.
+ * It returns the
  * `websocket` handler `Bun.serve` needs, `bindServer` to hand back the `Server`
  * once serving, and `handleUpgrade` to accept one authenticated attach.
  *
  * ## One authenticated upgrade path
  *
  * {@link handleUpgrade} is the only way in: the authenticated mount
- * (`mountAttachRelayApp`) resolves the operator bearer to the one principal this
- * deployment admits (the instance principal on self-host) and stamps
+ * (`mountAttachRelayApp`) resolves a per-device attach grant to the instance
+ * principal and stamps
  * `principalId` SERVER-SIDE, so a query `principalId` is never trusted. It
  * requires a bound `Server` (`bindServer`), the same impedance the document runtime
  * has, because Bun upgrades by calling `server.upgrade` rather than returning a
  * 101 from `fetch`. There is deliberately no unauthenticated path: every attach
  * carries a bearer, so the relay has one principal-resolution model, not two.
  *
- * Wave 3 replaces the bearer-to-instance-principal step with a per-device grant;
- * the coordinator and the socket-data shape do not change, only the layer above.
- *
  * The socket the coordinator drives is the Bun `ServerWebSocket` itself: it
  * satisfies {@link RelaySocket} structurally (`send`, `close`, `readyState`),
- * so no wrapper is needed, the same move the room backend makes.
+ * so no wrapper is needed.
  */
 
 import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
@@ -74,8 +71,8 @@ export type AttachRelayBunServer = {
 /**
  * Build the Bun transport around one relay coordinator. Bind the `Server` once
  * `Bun.serve` returns (Bun's `server.upgrade` needs the live instance), pass
- * `websocket` to `Bun.serve` (or merge it with the rooms handler), and accept
- * one authenticated `/attach` upgrade through `handleUpgrade`.
+ * `websocket` to `Bun.serve` (merged with the document handler when both share a
+ * port), and accept one authenticated `/attach` upgrade through `handleUpgrade`.
  */
 export function createAttachRelayBunServer(): AttachRelayBunServer {
 	const relay = createAttachRelay();

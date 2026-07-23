@@ -6,8 +6,8 @@
  * `InvalidToken`. Credential extraction (missing header, non-bearer scheme,
  * subprotocol entries) belongs to the surface wrappers, so the resolver only
  * ever sees a bare token; the wrappers' HTTP/WebSocket shaping is covered in
- * `require-auth.test.ts` and `rooms.test.ts`. The pure generator + entropy
- * gate (`generateInstanceToken` / `assertStrongToken`) live in
+ * `require-auth.test.ts` and the document/attach route tests. The pure generator
+ * + entropy gate (`generateInstanceToken` / `assertStrongToken`) live in
  * `@epicenter/auth` and are tested there.
  */
 

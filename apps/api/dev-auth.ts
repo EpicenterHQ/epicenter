@@ -37,7 +37,7 @@ const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
 /**
  * Resolve a `dev:<principalId>` bearer to a synthetic principal, on localhost
  * only. The surface wrapper owns extraction (the `Authorization` header, or the
- * `bearer.<token>` subprotocol on a room upgrade), so this only sees the bare
+ * `bearer.<token>` subprotocol on a WebSocket upgrade), so this only sees the bare
  * token. Any other input (off-box, non-`dev:` token, empty id) is an
  * `InvalidToken`, the same `Result` arm the real resolver returns, so the
  * surface wrappers reject it unchanged.

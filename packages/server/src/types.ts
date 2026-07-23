@@ -22,9 +22,9 @@ import type { ServerBindings } from './server-bindings.js';
  * The surface wrappers (`requireCookieOrBearerPrincipal`, `requireBearerPrincipal`,
  * the WebSocket upgrade wrappers) own credential EXTRACTION:
  * each knows where its transport carries the token (`Authorization` header, or
- * the `bearer.<token>` WebSocket subprotocol for rooms) and hands the resolver
- * a bare token. The resolver only VERIFIES; it never reads request headers, so
- * no transport ever has to fake another transport's header to authenticate.
+ * a `bearer.<token>` WebSocket subprotocol) and hands the resolver a bare token.
+ * The resolver only VERIFIES; it never reads request headers, so no transport
+ * ever has to fake another transport's header to authenticate.
  * The deployment builds each wrapper by closing it over its resolver
  * (`requireBearerPrincipal(resolveBearerPrincipal)`), so the resolver is held in
  * the wrapper's closure, not stamped on the context: there is no
@@ -76,9 +76,9 @@ export type ResolveDocumentPrincipal<E extends Env = Env> = (
  * receivers can render an "online since" affordance and tie-break multi-tab
  * same-node (newest wins).
  *
- * Every connection to a given room carries the authenticated principal id that
- * selected the partition. The room stays deployment-blind and never branches on
- * where that principal came from.
+ * Every connection carries the authenticated principal id that selected its
+ * partition. The transport stays deployment-blind and never branches on where
+ * that principal came from.
  */
 export type Connection = {
 	principalId: PrincipalId;
@@ -140,8 +140,8 @@ export type CloudEnv = {
 	Bindings: ServerBindings;
 	Variables: Env['Variables'] & {
 		/**
-		 * The per-request Postgres handle. Populated by `mountCloudDb`. Read by
-		 * Better Auth (the only Postgres consumer once room telemetry was deleted).
+		 * The per-request Postgres handle. Populated by `mountCloudDb` for hosted
+		 * relational auth and account-management operations.
 		 */
 		db: NodePgDatabase<typeof schema>;
 		/** The per-request Better Auth instance. Populated by `mountCloudAuth`. */

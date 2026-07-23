@@ -21,7 +21,7 @@
  * `cloudflare:workers` (the `DurableObject` base) and shim `WebSocketPair` with a
  * cross-linked stub pair that dispatches `message`/`close` events between the two
  * halves, then drive the DO through its public `fetch()` (via the registry) and
- * inspect the stub sockets. This mirrors the room DO test's shim approach.
+ * inspect the stub sockets without changing production socket ownership.
  */
 
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
@@ -93,8 +93,8 @@ class StubWebSocketPair {
 
 // `WebSocketPair` is a Workers global the DO's `fetch` mints. Install this stub
 // only around this file's own tests and restore the prior value afterward, so a
-// sibling DO test file (the room backend ships its own, differently shaped
-// `WebSocketPair` stub) is never clobbered in the shared Bun test process.
+// sibling DO test's differently shaped `WebSocketPair` stub is never clobbered
+// in the shared Bun test process.
 let priorWebSocketPair: unknown;
 beforeAll(() => {
 	// biome-ignore lint/suspicious/noExplicitAny: globalThis shim

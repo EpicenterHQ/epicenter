@@ -7,7 +7,8 @@
  * environment, and pastes it into the client's instance setting
  * (`{ baseURL, token }`, ADR-0071). Every request then carries that token (an
  * `Authorization: Bearer <token>` header, or the `bearer.<token>` WebSocket
- * subprotocol on a room upgrade), and {@link createEnvTokenResolver} is the
+ * subprotocol on a browser WebSocket upgrade).
+ * {@link createEnvTokenResolver} is the
  * `ResolveBearerPrincipal` the deployment injects on `createServerApp` to turn
  * the extracted bearer into the instance principal.
  *
@@ -73,10 +74,10 @@ async function constantTimeEqual(a: string, b: string): Promise<boolean> {
  * of the presented bearer against the operator-supplied secret, resolving an
  * exact match to `{ id: INSTANCE_PRINCIPAL_ID }` and a wrong token to
  * `InvalidToken`, the same `Result` arm the OAuth resolver returns, so the
- * surface wrappers reject it unchanged (HTTP 401 with the OAuth
- * `WWW-Authenticate` challenge, or the rooms 4401 close). The wrapper owns
- * extraction, so a missing or non-bearer credential never reaches this compare.
- * Nobody fabricates an email for the instance principal.
+ * surface wrappers reject it unchanged with their transport's unauthorized
+ * response. The wrapper owns extraction, so a missing or non-bearer credential
+ * never reaches this compare. Nobody fabricates an email for the instance
+ * principal.
  */
 export function createEnvTokenResolver(secret: string): ResolveBearerPrincipal {
 	return async (_c, presented) =>

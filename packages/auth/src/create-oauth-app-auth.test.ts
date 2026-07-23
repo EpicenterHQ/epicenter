@@ -157,14 +157,14 @@ describe('createOAuthAppAuth /api/session verification', () => {
 			principalId: asPrincipalId('principal-1'),
 		});
 
-		await auth.fetch('/api/blobs');
+		await auth.fetch('/api/sync/v1/facts?afterSequence=0');
 
 		const sessionCall = calls.find(
 			(call) => call.url === `${baseURL}/api/session`,
 		);
 		expect(sessionCall).toBeDefined();
 		const resourceCall = calls.find(
-			(call) => call.url === `${baseURL}/api/blobs`,
+			(call) => call.url === `${baseURL}/api/sync/v1/facts?afterSequence=0`,
 		);
 		expect(new Headers(resourceCall?.init?.headers).get('authorization')).toBe(
 			'Bearer access-1',
@@ -208,7 +208,7 @@ describe('createOAuthAppAuth /api/session verification', () => {
 			fetch,
 		});
 
-		await auth.fetch('/api/blobs');
+		await auth.fetch('/api/sync/v1/facts?afterSequence=0');
 		expect(auth.state).toEqual({
 			status: 'reauth-required',
 			principalId: asPrincipalId('principal-1'),
