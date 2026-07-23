@@ -16,7 +16,7 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1396 specs ever** (527 still in tree, 869 removed).
+**1396 specs ever** (525 still in tree, 871 removed).
 
 
 ## 2026
@@ -29,7 +29,7 @@
 | 2026-07-19 | app-owned-workspace-lenses-clean-break | in tree | specs/20260719T180000-app-owned-workspace-lenses-clean-break.md |
 | 2026-07-19 | owner-scoped-workspace-stores | removed | specs/20260719T003311-owner-scoped-workspace-stores.md |
 | 2026-07-17 | two-plane-row-document-runtime | in tree | specs/20260717T212450-two-plane-row-document-runtime.md |
-| 2026-07-17 | workspace-root-cleanup | in tree | specs/20260717T120000-workspace-root-cleanup.md |
+| 2026-07-17 | workspace-root-cleanup | removed | specs/20260717T120000-workspace-root-cleanup.md |
 | 2026-07-17 | hosted-storage-policy | removed | specs/20260717T004239-hosted-storage-policy.md |
 | 2026-07-16 | portable-workspace-tree-greenfield-dialectic | removed | specs/20260716T112345-portable-workspace-tree-greenfield-dialectic.md |
 | 2026-07-16 | workspace-tables-kv-row-documents | removed | specs/20260716T161934-workspace-tables-kv-row-documents.md |

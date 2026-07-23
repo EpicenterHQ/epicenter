@@ -1,6 +1,6 @@
 # 0158. Installed apps declare workspace IDs but run no Bun modules
 
-- **Status:** Proposed
+- **Status:** Superseded by [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 - **Date:** 2026-07-19
 - **Amends:** [ADR-0153](0153-trusted-apps-are-source-built-static-catalog-members.md) by adding declarative Workspace ID inventory while preserving its refusal of app server modules.
 - **Relates:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md), [ADR-0156](0156-applications-bring-workspace-lenses-runtimes-own-workspaces-by-id.md)

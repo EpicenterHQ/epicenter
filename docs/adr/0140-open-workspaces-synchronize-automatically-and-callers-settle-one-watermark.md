@@ -1,6 +1,6 @@
 # 0140. Open workspaces synchronize automatically and callers settle one watermark
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md)
 - **Date:** 2026-07-17
 
 ## Context

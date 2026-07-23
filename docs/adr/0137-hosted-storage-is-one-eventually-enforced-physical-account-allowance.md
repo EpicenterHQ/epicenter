@@ -6,6 +6,11 @@
   The allowance gates creation of new storage-producing capabilities (replica
   enrollment, hosted workspace creation, new blob upload grants) and never
   participates in row synchronization or semantic row folding (ADR-0131).
+- **Implementation note:** 2026-07-22: the Scalar V1 clean break removed the
+  old Workspace enrollment and creation service. No current Scalar V1 route
+  enforces this allowance. The policy remains accepted, but implementation is
+  deferred until a current account-lifetime capability boundary is designed;
+  the deleted Workspace service must not be restored as a shortcut.
 - **Relates:** [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md), [ADR-0131](0131-row-sync-folds-sealed-row-intent-rounds-without-refusal.md)
 
 ## Context
@@ -24,17 +29,16 @@ the hosted blob bytes under that account.
 
 Free has one account-wide included allowance with no overage, debt, expiry, or
 automatic deletion. The allowance is enforced at exactly one kind of moment:
-when Cloud is about to create a new storage-producing capability. Today that
-is replica enrollment, which also covers first contact with a new hosted
-workspace; new blob upload grants join the same gate when Free blob uploads
-ship. At issuance, Cloud refreshes every registered workspace authority's
-absolute `databaseSize`, combines those values with the hosted blob
-observation, and refuses the capability when the total has reached the
-allowance. An unseen enrollment target is not contacted or registered before
-that decision. Once admitted, Cloud registers the unseen source at zero bytes
-and only then mints the replica. A later issuance refreshes its absolute
-authority size. Refusal or a failed registry write leaves no target authority,
-source observation, or replica receipt.
+when Cloud is about to create a new storage-producing capability. The current
+Scalar V1 implementation does not yet expose that account-lifetime admission
+boundary, so it does not claim quota enforcement. When that boundary lands,
+Cloud refreshes every registered authority's absolute `databaseSize`, combines
+those values with the hosted blob observation, and refuses the capability when
+the total has reached the allowance. An unseen target is not contacted or
+registered before that decision. Once admitted, Cloud registers the unseen
+source at zero bytes and only then creates the capability. A later issuance
+refreshes its absolute authority size. Refusal or a failed registry write
+leaves no target authority, source observation, or replica receipt.
 
 Row synchronization never consults storage state. An enrolled replica's
 structurally valid durable RowIntents always enter authority order
@@ -70,10 +74,10 @@ Epicenter billing or account quota policy.
 - The sync request path carries no storage policy: no per-exchange
   observation, no eagerly maintained projection row, and no billing-provider
   call. The billing provider is consulted once per issuance attempt.
-- The `storage_observation` table is the account's source registry and
-  last-observed cache; issuance refreshes and overwrites it with current
-  absolutes. A new workspace enters before its first replica is minted; rows
-  leave only when their source is authoritatively deleted.
+- The retained `storage_observation` table is the account's source registry and
+  last-observed cache for the future gate. Current account deletion still uses
+  it to find and remove owned authorities; no current request reads it as quota
+  enforcement.
 - If the issuance decision cannot be computed, enrollment fails closed and
   retryably; nothing else depends on it.
 - Physical usage is page-granular. A small record deletion need not lower

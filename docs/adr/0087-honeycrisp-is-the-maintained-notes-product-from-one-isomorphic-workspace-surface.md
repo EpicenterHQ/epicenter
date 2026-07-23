@@ -1,6 +1,6 @@
 # 0087. Honeycrisp is the maintained notes product from one isomorphic workspace surface
 
-- **Status:** Proposed
+- **Status:** Superseded by [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 - **Date:** 2026-07-01
 - **Amended:** 2026-07-17 by [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md): Honeycrisp's one package contract now uses canonical SQLite rows and row-owned documents. It no longer exposes the legacy root-Yjs action registry.
 

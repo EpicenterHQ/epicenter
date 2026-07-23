@@ -280,9 +280,11 @@ Bun charter slice then exercised exactly 1,000,000 final-present records at the
 536,870,912-byte V1 proxy. Its stop rule fired with mixed material directions:
 wide won point-read and median feed-install work, while split won traversal,
 lane-write, and feed-install tail latency; reopen was equivalent under the
-stop rule. The report lives under
-`docs/benchmarks/replica-layout/`; W1C and W2 still own the browser and Durable
-Object slices before ADR-0177's Proposed selection can be accepted or reversed.
+stop rule. The report lives under `docs/benchmarks/replica-layout/`. At that
+checkpoint, W1C and W2 still owned the browser and Durable Object slices. Those
+charters have since completed except for W1C's physical mobile owner
+qualification, which keeps ADR-0177 Proposed without reopening the selected
+layout.
 
 #### W1C: browser replica adapter
 
@@ -315,21 +317,22 @@ cover takeover fencing, lossy coordination, bounded failure, and the unchanged
 replica contract. A stolen storage lock now terminally stops subscriptions,
 closes SQLite, pauses the VFS, and only then reports owner loss.
 
-The maintained browser layout harness and raw reports are under
-`packages/data/browser-evidence/replica-layout-*` and
-`docs/benchmarks/replica-layout/`. Clean-source Chromium 149.0.7827.55 and
-Playwright WebKit 26.5 runs each completed all six wide-versus-split repetitions
-at 1,000,000 records and exactly 536,870,912 proxy bytes, passed integrity and
-reopen checks, and retained raw hot-path timings, query plans, schema hashes,
-storage measurements, and runtime provenance. Both engines fired ADR-0177's
+The historical browser layout sources and raw reports are archived under
+`docs/benchmarks/replica-layout/`. Chromium 149.0.7827.55 and Playwright WebKit
+26.5 runs each completed all six wide-versus-split repetitions at 1,000,000
+records and exactly 536,870,912 proxy bytes, passed integrity and reopen
+checks, and retained raw hot-path timings, query plans, schema hashes, storage
+measurements, and runtime provenance. Both engines fired ADR-0177's
 material-direction stop rule: split traversal and pending-lane writes were
 materially faster, while point reads, feed installs, reopen, and the 3.11%
 storage difference were closer. These desktop results selected split only for
 their scalar-shaped fixture. The later complete Bun and watermark charters
 reversed that recommendation: split's material traversal and local-write wins
 did not survive the document and blob foundations, while wide materially won
-point reads and retained simpler invariant ownership. Physical mobile
-qualification of the selected wide owner remains open.
+point reads and retained simpler invariant ownership. The archived sources
+identify the measured revisions and hashes; their historical transitive source
+closure is not retained. Physical mobile qualification of the selected wide
+owner remains open.
 
 The subsequent complete Bun charter bound a production-shaped split store to
 the unchanged conformance suite, included scalar lanes plus document and blob
@@ -338,9 +341,9 @@ won point reads by 2.3 to 2.5 times and fact installation by about 1.2 times;
 complete traversal favored wide slightly and lane writes were at parity. Split
 used 588 MB versus wide's 759 MB, but introduced eight cross-relation
 invariants. A controlled index probe attributed the apparent wide drain losses
-to partial indexes covering only `record_id`. A final clean-source watermark
-probe gave both candidates covering owed indexes and the target revision/digest
-comparisons: document drains were equal at about 0.3 ms, wide blob drain was
+to partial indexes covering only `record_id`. A historical watermark probe
+gave both candidates covering owed indexes and the then-target
+revision/digest comparisons: document drains were equal at about 0.3 ms, wide blob drain was
 2.0 ms versus split's 7.4 ms, and split's 64-receipt settlement advantage was
 only 0.04 to 0.07 ms. ADR-0177 therefore selects role-specific wide rows for
 both replicas and authorities. The split implementation remains unexported
@@ -458,9 +461,8 @@ scalar, document, blob, attachment, status, and disposal surfaces. The API
 package stopped declaring the old dependency before deletion. The repository
 then deleted `packages/workspace`, its lockfile and patch residue, obsolete
 current guides and examples, and the Workspace-specific agent skills. Package
-tests pass against the replacement; the sole full-suite failure is the
-compiled-host smoke fixture's fixed port being occupied by an installed
-Epicenter process, not a data-path failure. No compatibility barrel remains.
+tests and retained host smoke paths pass against the replacement. No
+compatibility barrel remains.
 
 ### W5: snapshot capture and the Home query artifact
 
@@ -625,11 +627,8 @@ Violations proving drift:
 2. **Structured record references.** The exact pure JSON table metadata shape
    and typed navigation ergonomics for ADR-0169's non-enforcing references,
    plus the Matter replacement, before deleting `field.reference()`.
-3. **Realtime row-document topology.** Fixed-address socket per open record,
-   multiplexed connection, or no dedicated overlay until a collaborative
-   surface ships.
-4. **Selected wide browser-owner qualification (ADR-0177).** Land the target
-   document and blob watermark schema plus covering drain indexes, then qualify
-   capacity, reopen, quota refusal, suspension, and eviction on physical iOS
-   Safari and Android Chrome. This does not reopen split without contradictory
-   production-shaped evidence.
+3. **Selected wide browser-owner qualification (ADR-0177).** Qualify capacity,
+   reopen, quota refusal, suspension, and eviction on physical iOS Safari and
+   Android Chrome. The target document and blob watermark schema plus covering
+   drain indexes have landed. This qualification does not reopen split without
+   contradictory production-shaped evidence.

@@ -1,6 +1,6 @@
 # 0171. Every durable local write leaves an automatic authority obligation
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-22: document and blob obligations
   derive from local truth versus authority-accepted watermarks)
 - **Supersedes:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md)
@@ -178,8 +178,7 @@ device is not part of a Backup.
 
 ## Acceptance evidence
 
-Before this ADR becomes Accepted, one shared protocol suite must prove the
-following laws across the three planes:
+The shared protocol suite proves the following laws across the three planes:
 
 - a crash after the local write cannot erase the authority obligation;
 - a crash or lost response after authority commit cannot create a false

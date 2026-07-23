@@ -1,6 +1,6 @@
 # 0172. SQLite stores convergent facts and documents; raw files store blob bytes
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-22: publication obligations derive
   from local truth versus authority-accepted watermarks)
 - **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication uses revision watermarks rather than frozen retry images)
@@ -109,8 +109,8 @@ presently owned equal-digest file.
 
 ## Acceptance evidence
 
-Before this ADR becomes Accepted, each storage adapter must prove that bounded
-document chains remain transactional SQLite state, blob bytes remain streamable
+The maintained native and browser storage suites prove that bounded document
+chains remain transactional SQLite state, blob bytes remain streamable
 raw files, and a record tombstone cannot resurrect either medium. Failure
 injection must leave a complete committed SQLite state plus either valid
 record-owned blob bytes or removable debris, never live bytes for a deleted

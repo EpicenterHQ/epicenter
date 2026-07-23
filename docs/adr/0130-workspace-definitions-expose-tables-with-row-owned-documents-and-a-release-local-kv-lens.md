@@ -1,6 +1,6 @@
 # 0130. Workspace definitions expose tables with row-owned documents and a release-local KV lens
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 - **Date:** 2026-07-16
 - **Amended:** 2026-07-17: the replacement is also a storage clean break for
   first-party applications. Under the explicit pre-user assumption, old

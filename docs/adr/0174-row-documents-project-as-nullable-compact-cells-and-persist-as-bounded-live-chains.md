@@ -1,6 +1,6 @@
 # 0174. Row documents project as nullable compact cells and persist as bounded live chains
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-22: publication uses local and
   authority-accepted revision watermarks; documents remain record-wide, the
   composed cell projects only into portable artifacts, snapshots carry
@@ -146,17 +146,16 @@ receipt semantics.
   not create a second document merge path or ask the person to adjudicate
   causal history.
 
-The durable publication obligation is the first implementation requirement for
+The durable publication obligation is the implementation boundary for
 bound refusal: a refused document remains owed and can never make Epicenter
 report the address as settled. Compact refusal measurements persist on the
-record for the refused local revision; no payload is frozen. The structured address-scoped
-observation and its Home presentation may land later in the implementation
-wave. Until they do, this ADR remains Proposed; applications do not receive a
-temporary mutation error or a manual settlement action.
+record for the refused local revision; no payload is frozen. The structured
+address-scoped observation and its Home presentation have landed. Applications
+receive neither a temporary mutation error nor a manual settlement action.
 
 ## Acceptance evidence
 
-Before this ADR becomes Accepted, maintained tests must prove:
+Maintained tests prove:
 
 - applying the compact baseline and tail is state-equivalent to the logical
   document before and after compaction, including deletion-only state and
