@@ -370,10 +370,7 @@ export function createReplicaDocumentStore(
 					'document publication proof does not match the captured attempt',
 				);
 			}
-			if (
-				!Number.isSafeInteger(captured.revision) ||
-				captured.revision < 1
-			) {
+			if (!Number.isSafeInteger(captured.revision) || captured.revision < 1) {
 				throw new Error('captured document revision is invalid');
 			}
 			const meta = one<SqliteRow & { authority_lifetime: string | null }>(

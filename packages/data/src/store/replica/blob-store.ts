@@ -164,7 +164,10 @@ export function createReplicaBlobStore<TSource, TRead>(
 			hooks.afterStage?.();
 			try {
 				const before = requireLiveRecord(database, address);
-				if (before.blob_sha256 !== null && before.blob_sha256 !== staged.digest) {
+				if (
+					before.blob_sha256 !== null &&
+					before.blob_sha256 !== staged.digest
+				) {
 					throw new Error('blob slot already owns different bytes');
 				}
 				const owner = blobFileOwner(address, staged.digest);

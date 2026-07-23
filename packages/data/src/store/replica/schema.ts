@@ -126,11 +126,11 @@ const SCHEMA = [
 		ON records(namespace, collection, record_key) WHERE pending_op IS NOT NULL`,
 	`CREATE INDEX records_sealed
 		ON records(namespace, collection, record_key) WHERE sealed_op IS NOT NULL`,
-		`CREATE INDEX records_document_owed
+	`CREATE INDEX records_document_owed
 			ON records(namespace, collection, record_key)
 			WHERE document_revision > document_accepted_revision
 				AND document_refused_revision IS NULL`,
-		`CREATE INDEX records_blob_owed
+	`CREATE INDEX records_blob_owed
 			ON records(namespace, collection, record_key)
 			WHERE blob_sha256 IS NOT NULL AND
 				(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)

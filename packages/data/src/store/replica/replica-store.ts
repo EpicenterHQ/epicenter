@@ -313,8 +313,8 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 		return;
 	}
 
-		database.run(
-			`UPDATE records SET
+	database.run(
+		`UPDATE records SET
 				confirmed_state = ?,
 				confirmed_payload = ?,
 				confirmed_sequence = ?,
@@ -323,14 +323,14 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 					ELSE blob_parked_code
 				END
 			WHERE ${TRIPLE_WHERE}`,
-			[
-				fact.state,
-				payload,
-				fact.sequence,
-				fact.state,
-				...tripleParams(fact.address),
-			],
-		);
+		[
+			fact.state,
+			payload,
+			fact.sequence,
+			fact.state,
+			...tripleParams(fact.address),
+		],
+	);
 }
 
 function openSchema(

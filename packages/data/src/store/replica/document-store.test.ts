@@ -274,13 +274,14 @@ describe('record document store', () => {
 			);
 			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(true);
 			const retry = context.store.documentPublication(ADDRESS);
-			if (retry.kind !== 'ready') throw new Error('refused revision cannot retry');
+			if (retry.kind !== 'ready')
+				throw new Error('refused revision cannot retry');
 			expect(retry.publication.digest).toBe(attempt.publication.digest);
 			// The refusal evidence is durable across a clean reopen.
 			const reopened = openReplicaStore({
-					database: createBunSqliteAdapter(context.database),
-					limits: makeLimits(),
-				});
+				database: createBunSqliteAdapter(context.database),
+				limits: makeLimits(),
+			});
 			expect(reopened.inspectDocument(ADDRESS)?.refused).toBe(true);
 			expect(reopened.documentPublication(ADDRESS).kind).toBe('ready');
 
