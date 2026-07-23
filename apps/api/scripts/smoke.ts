@@ -110,11 +110,7 @@ async function main() {
 		headers: authHeaders,
 	});
 	if (retiredBlobsRes.status !== 404) {
-		record(
-			'FAIL',
-			'generic blob route absent',
-			`${retiredBlobsRes.status}`,
-		);
+		record('FAIL', 'generic blob route absent', `${retiredBlobsRes.status}`);
 		return summarize();
 	}
 	record('PASS', 'generic blob route absent', `${retiredBlobsRes.status}`);
