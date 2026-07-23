@@ -21,6 +21,7 @@ import {
 	compileProposalArtifact,
 	type ProposalSelection,
 	type ProposalSourceRecord,
+	parseProposalSelection,
 	readProposalManifest,
 	writeProposalArtifact,
 } from './proposal-artifact.js';
@@ -140,6 +141,20 @@ function openDraft(allowCreate = true) {
 }
 
 describe('Proposal artifacts', () => {
+	test('parses unknown selections into one normalized host-boundary shape', () => {
+		expect(() => parseProposalSelection(proposalLens(), null)).toThrow(
+			/must be an object/,
+		);
+		expect(
+			parseProposalSelection(proposalLens(), proposalSelection()).collections
+				.notes,
+		).toEqual({
+			kind: 'table',
+			recordKeys: [NOTE_A, NOTE_B],
+			allowCreate: true,
+		});
+	});
+
 	test('writes complete raw base data and editable Lens tables', () => {
 		const { raw } = openDraft();
 		try {

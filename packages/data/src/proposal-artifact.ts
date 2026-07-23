@@ -400,6 +400,17 @@ function validateSelection(
 	return normalized;
 }
 
+/** Parse one exact Lens-shaped Proposal selection at a trusted host boundary. */
+export function parseProposalSelection(
+	lens: LensDefinition,
+	input: unknown,
+): ProposalSelection {
+	if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+		throw new Error('Proposal selection must be an object');
+	}
+	return validateSelection(lens, input as ProposalSelection);
+}
+
 function fieldSql(schema: TSchema, isRequired: boolean): string {
 	const field = recognize(schema);
 	if (field === null || field.kind === 'reference') {

@@ -27,6 +27,7 @@ export type {
 	ProposalSelection,
 	ProposalSourceRecord,
 } from './proposal-artifact.js';
+export { parseProposalSelection } from './proposal-artifact.js';
 export type {
 	JsonObject,
 	JsonValue,
