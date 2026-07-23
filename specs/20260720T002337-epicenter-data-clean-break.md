@@ -4,7 +4,7 @@
 - **Date:** 2026-07-20 (rewritten 2026-07-21 from the frozen record
   architecture)
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), and [ADR-0177](../docs/adr/0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md)
+- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), [ADR-0177](../docs/adr/0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md), and [ADR-0178](../docs/adr/0178-proposals-are-source-bound-artifacts-that-disappear-after-local-admission.md)
 
 ## Product sentence
 
@@ -353,6 +353,19 @@ W1C remains incomplete. Physical iOS Safari and Android Chrome still owe the
 quota-refusal prefix and durable-progress proof, and hidden-owner suspension
 and eviction qualification. No physical result is inferred from Playwright.
 
+The fixed-record-document socket topology has a separate physical gate. Run
+the maintained Honeycrisp `/dev/topology?n=1|2|4|8` harness on one current
+physical iPhone in both Safari and an installed PWA with iCloud Private Relay
+enabled. Each matrix cell holds N documents open simultaneously in one page.
+Verify the `epicenter-document-v3` handshake, upstream and downstream edits,
+30-second and 5-minute background repair, hibernation repair after 2 minutes
+idle, and row-deletion revocation. Record device, iOS, surface, network,
+timestamps, N, and per-check results. Any systematic cap, starvation, or
+reconnect storm blocks acceptance of fixed-address sockets and requires a new
+single-topology decision; it never licenses a second mode or revival of
+arbitrary rooms. This gate is independent of the replica-owner storage charter
+above.
+
 W1 does not migrate retained callers or delete Workspace. W4 owns the point at
 which every replacement capability exists, callers stop importing the old
 path, verification passes, and `packages/workspace` can be deleted.
@@ -473,6 +486,13 @@ the `/api/sync/v1` exchange route, the row-keyed document connector, and the
 now deletes the retired Durable Object class. Existing orphaned legacy SQLite
 files are not silently erased.
 
+The final clean-break follow-up deleted the independently deployed Yjs 13
+`/api/rooms` family, Bun and Cloudflare room backends, root sync barrel,
+legacy protocol dependencies, and the obsolete single-`Y.Doc` benchmark.
+Hosted and self-hosted Durable Object migration histories remain append-only
+and now delete the retired `Room` class. Production retains only
+record-addressed Document V3 and the shared WebSocket auth subprotocol.
+
 ### W5: snapshot capture and the Home query artifact
 
 - Ship snapshot capture in the first Home release. The release includes
@@ -575,6 +595,8 @@ current Codex environment.
 
 - Run the W1C physical mobile owner charter on iOS Safari and Android Chrome,
   including capacity, reopen, quota refusal, suspension, and eviction.
+- Run the physical iPhone Safari and installed-PWA Private Relay topology
+  charter at 1, 2, 4, and 8 simultaneously open record documents.
 - Complete the three W3 production evidence gates: first-attachment crash and
   reopen across adapters, browser blob cross-medium and `Discard` generation
   crash coverage, and the real 131,072-struct workerd workload.

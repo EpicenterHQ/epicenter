@@ -1,7 +1,8 @@
 # 0146. Row documents use one Yjs 14 major and runtime-native update logs
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-07-17
+- **Superseded by:** [ADR-0166](0166-data-document-sync-and-agent-replace-workspace.md) and [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), which retain the Yjs-14-only refusal while replacing the Workspace-era store and lifecycle.
 - **Amends:** [ADR-0135](0135-row-documents-have-application-owned-roots.md)
 - **Amended by:** [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the per-runtime `DocumentStore` implementations collapse to one owner-side SQLite update log plus one shared attachment over a load/append seam; capture and deletion move to the owner), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (every live owner stores a bounded baseline-plus-tail chain while logical artifacts project one compact document cell). The Yjs-14-only rule, bounds, and `document-full` semantics stand.
 

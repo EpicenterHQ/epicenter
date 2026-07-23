@@ -70,8 +70,8 @@ Home is the custody and inspection surface. It browses live data through typed
 operations, captures a point-in-time SQLite artifact for ad hoc queries, and
 creates a portable Backup for Restore. A snapshot is deliberately stale and
 never applyable. A Backup is complete and may replace the live authority only
-through Restore. A reviewed Proposal, if its prototype earns the product, ends
-after compiling to ordinary typed writes.
+through Restore. A reviewed Proposal ends after compiling to ordinary typed
+writes.
 
 Trust follows topology. Hosted Epicenter can read synchronized records,
 documents, and blobs. Self-hosting moves the authority onto infrastructure you

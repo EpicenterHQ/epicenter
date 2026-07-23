@@ -1,10 +1,10 @@
 # One Epicenter, namespaces, and Lenses
 
 This is the explanatory map for the greenfield One-Epicenter destination. The
-record path is implemented through the W4 caller cutover and deletion; snapshot
-capture, portable Backup and Restore, and Proposal remain active waves. Durable
-decisions live in ADR-0160 through ADR-0177, each with its own current status.
-The active replacement plan lives in
+record path, caller cutover, snapshot capture, portable Backup and Restore, and
+Proposal product have landed. The remaining work is evidence and qualification,
+not another data model. Durable decisions live in ADR-0160 through ADR-0178,
+each with its own current status. The active evidence plan lives in
 [`specs/20260720T002337-epicenter-data-clean-break.md`](../../specs/20260720T002337-epicenter-data-clean-break.md).
 
 The whole system in one sentence:
@@ -24,7 +24,7 @@ typed applications ──► Lenses ──► live replica owner ──► autho
 Home typed live surfaces ───────────────┤   (table browser, status, parked work)
 Home capture ───────────────────────────┴─► inspection snapshot ──► ad hoc SQL
 Backup capture (authority) ───────────────► portable Backup ──────► Restore
-future Proposal (prototype-gated) ────────► reviewed semantic writes ──► live replica
+Home Proposal ────────────────────────────► reviewed semantic writes ──► live replica
 ```
 
 One principal owns one Epicenter: one logical body of records, replicated
@@ -189,7 +189,7 @@ inspection snapshot   point-in-time query artifact; scalar visible state plus
 
 Proposal              source-bound editable artifact; compiles reviewed
                       semantic changes into ordinary local typed writes; ends
-                      after local admission (prototype-gated, no ADR yet)
+                      after complete local admission (ADR-0178)
 
 portable Backup       complete custody artifact: records, self-contained
                       composed V2 documents, and every owned blob byte at one
@@ -215,14 +215,15 @@ validates only a portable artifact, constructs a successor authority with a
 fresh lifetime, and never emits ordinary intents; superseded replicas erase
 and reacquire.
 
-## Still open
+## Remaining evidence and product choices
 
 1. Whether app-bundled Lenses live only with the active app catalog or whether
    standalone installed Lenses have a separate discovery folder and lifecycle.
 2. The exact pure JSON table metadata shape and typed reference-navigation
    ergonomics for the non-enforcing record references settled by ADR-0169.
-3. The realtime row-document topology for the live-collaboration overlay.
+3. Physical qualification of the fixed-address, one-open-document-per-socket
+   realtime topology before considering multiplexing.
 4. Physical iOS Safari and Android Chrome qualification of the selected wide
    browser owner: capacity, reopen, quota, suspension, and eviction.
-5. The Proposal prototype (nine bounded tests); its ADR and product build wait
-   for that proof.
+5. Maintained crash evidence for first attachment and browser blob ownership,
+   plus the realistic Workerd document-bound workload.

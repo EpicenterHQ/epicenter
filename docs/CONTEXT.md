@@ -215,11 +215,10 @@ shapes, see `docs/adr/`.
   frozen document update, bound to its authority lifetime, record address,
   protocol version, and payload digest. State vectors are transfer hints, never
   receipts.
-- **Proposed scalar V1 vocabulary**: the fact, operation, lane, facts-feed, and
-  numbered submission terms below describe the destination selected by Proposed
-  ADR-0163. They are not the current production protocol. The transitional
-  runtime still uses the accepted ADR-0141 combined exchange, receipts,
-  checkpoints, and settlement watermarks until the V1 migration lands.
+- **Scalar V1 vocabulary**: the fact, operation, lane, facts-feed, and numbered
+  submission terms below describe the current record protocol selected by
+  ADR-0163. The deleted combined exchange, receipt, checkpoint, and global
+  settlement-watermark family is historical only.
 - **Scalar fact**: the authority's current state at one record address, in one
   shape: `{ address, sequence, state, payload? }`. `live` carries a payload;
   `tombstone` is terminal absence; `unset` is reversible absence. The stored
@@ -250,10 +249,10 @@ shapes, see `docs/adr/`.
   authority cut of records, self-contained composed V2 document cells, and
   every owned blob byte. Restore validates only this kind and creates a fresh
   authority lifetime.
-- **Proposal**: a prototype-gated product candidate: a source-bound editable
-  artifact that compiles reviewed semantic changes into ordinary local typed
-  writes and is consumed at local admission. No ADR exists until its prototype
-  passes.
+- **Proposal**: a source-bound editable artifact that compiles reviewed
+  semantic changes into ordinary local typed writes and is consumed after
+  complete local admission. It is neither a replica nor a second outbox;
+  ADR-0178 owns its accepted lifecycle.
 - **Data runtime**: one Epicenter replica composes typed table/value lenses and
   lazy Yjs 14 row documents over one private store.
 - **Agent**: the durable address a row or conversation binds to (an immutable

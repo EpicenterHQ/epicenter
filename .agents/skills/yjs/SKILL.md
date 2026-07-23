@@ -16,11 +16,11 @@ metadata:
 
 When conflict semantics, transaction origins, shared-type behavior, update encoding, storage growth, or shared-type APIs affect correctness, use source-backed grounding before relying on memory. If DeepWiki MCP is available, ask a narrow question against `yjs/yjs`; for sync and awareness algorithms, ask against `yjs/y-protocols`. If DeepWiki is unavailable or the repo is not indexed, use upstream source or official docs directly. Treat DeepWiki as orientation, then verify decisive details against the locally pinned `@y/y` types and source before changing code.
 
-Epicenter targets `@y/y` 14 only. Do not add `yjs` 13, `y-indexeddb`, a compatibility reader, a package alias, a dual wire, or a fallback. Existing Yjs 13 code is replacement material, not a compatibility surface.
+Epicenter targets `@y/y` 14 only. Do not add `yjs` 13, `y-indexeddb`, a
+compatibility reader, a package alias, a dual wire, or a fallback. The Yjs 13
+runtime and room protocol are deleted; do not reintroduce either.
 
 Skip DeepWiki for stable basics and repo-local patterns already documented below.
-
-> **Related Skills**: See `data-lens` for record-owned document boundaries.
 
 ## Transactions, Origins, And Undo
 
@@ -37,12 +37,20 @@ Skip DeepWiki for stable basics and repo-local patterns already documented below
 ## Row Document Connection
 
 - Yjs is network-agnostic. It supplies CRDT state, state vectors, updates, and awareness behavior, not Epicenter's connection topology, authorization, row lifecycle, or durability contract.
-- Each currently open row document uses one authenticated WebSocket at `/api/workspaces/:workspaceId/tables/:table/rows/:rowId/document`. Do not create an arbitrary room id or a mutable multiplex subscription set.
-- Authenticate the bearer into a principal. The account authority derives deterministically from that principal alone (ADR-0092: the principal is the partition and the actor); the route workspace id is a name inside the requester's own partition. There is no catalog, grant, or authority key.
-- The structured `(workspaceId, table, rowId)` route address selects one lifecycle-bound document inside the account authority. The address is a name, not a secret or capability. Check row liveness atomically with committed-state load on admission and again on every persisted update.
+- Each currently open record document uses one authenticated WebSocket at
+  `/api/sync/v1/records/:namespace/:collection/:recordKey/document`. Do not
+  create an arbitrary room id or a mutable multiplex subscription set.
+- Authenticate the bearer into a principal. The authority derives
+  deterministically from that principal alone (ADR-0092: the principal is the
+  partition and the actor). There is no catalog, grant, or client-supplied
+  authority key.
+- The structured `(namespace, collection, recordKey)` route address selects one
+  lifecycle-bound document inside the authority. The address is a name, not a
+  secret or capability. Check record liveness atomically with committed-state
+  load on admission and again on every persisted update.
 - Select the exact `epicenter-document-v3` WebSocket subprotocol. Binary messages carry `sync-request(stateVector)`, `sync-response(updateV2)`, `update(updateV2)`, and the server-only `publication-response(acceptanceBytes)`. Both peers request missing state. The response payload is the opaque, data-owned `DocumentAcceptance` encoding returned after the same durable authority operation used by HTTP; do not define another receipt or acknowledgement shape in the sync package. Do not add an envelope fact already owned by the route, subprotocol, WebSocket boundary, close code, state vector, update bytes, or acceptance payload.
 - There is no terminal document close verdict. The authority enforces the shared compound bound (`DOCUMENT_BOUND`: canonical encoded bytes and decoded struct count) exactly on the post-candidate state; the client measures the same bound, suppresses every upstream update-bearing frame while over it (including its deferred handshake reply), keeps applying downstream, and resumes automatically when a measure comes back under. Close 1009 is a retryable defensive backstop, never a product state. A row that is not live returns the authority's shared acceptance refusal and may close retryably with no reserved code; the client's scalar plane owns pending-versus-deleted knowledge and revokes the document when a deletion marker installs. Keep lifecycle meaning in the data-owned acceptance payload rather than inventing sync-owned verdict frames or durable statuses.
-- On Cloudflare, serialize the socket's complete fixed address within the 16,384 byte hibernation attachment limit and fan out by enumerating the actor's sockets and comparing complete attachment addresses. No tag index until measured socket counts earn one. The server retains no live Y.Doc; hydrate disposable committed state per admission and acceptance.
+- On Cloudflare, serialize the socket's complete fixed address within the 16,384 byte hibernation attachment limit and fan out by enumerating the actor's sockets and comparing complete attachment addresses. No tag index until measured socket counts earn one. The server retains no live Y.Doc; hydrate disposable committed state per admission and acceptance. Physical Safari/PWA socket-count evidence remains a release gate for this topology, not permission to add multiplexing preemptively.
 - Reconnect with the same structured route and repeat state-vector exchange. Do not add durable subscription recovery or multiplexing until measured open-document socket pressure earns that machinery.
 - Use state-vector exchange followed by incremental `updateV2` messages instead of exchanging complete documents by default.
 - Presence is deliberately absent from document v3 until a concrete consumer earns awareness state, disconnect cleanup, and a later protocol major. If added later, awareness is ephemeral and must never be persisted into Y.Doc or the SQLite update log as canonical data.
@@ -51,21 +59,28 @@ Skip DeepWiki for stable basics and repo-local patterns already documented below
 
 ## Owner-Side SQLite Persistence
 
-Row documents persist in the Workspace ID's own `store.sqlite3`, in one
-`workspace_document_updates` update-log table beside the scalar rows (ADR-0159).
-There is no IndexedDB row-document store and no per-runtime provider: the browser
-records Worker owns the log in its OPFS SQLite, the Bun host owns it natively,
-and the desktop WebView reaches it over the same-origin records route. There is
-no official `@y/indexeddb` provider for the Yjs 14 line; do not install or
-peer-override `y-indexeddb`.
+Record documents persist beside scalar records in the owner role's private wide
+SQLite relation, as one bounded baseline-plus-tail chain per record
+(ADR-0174/0177). There is no IndexedDB document store and no per-runtime
+provider: the browser Worker owns OPFS SQLite, the Bun host owns native SQLite,
+and the desktop WebView reaches the trusted owner over the same-origin record
+carrier. There is no official `@y/indexeddb` provider for the Yjs 14 line; do
+not install or peer-override `y-indexeddb`.
 
-- The owner side is `createSqliteDocumentLog`: it owns schema, append admission, compaction, capture, and durable deletion. It never holds a live `Y.Doc`.
-- Renderer-facing code owns live documents through `createRowDocumentRuntime` over one `createDocumentStore` load/append seam. The renderer capability is exactly `load(address)` and `append(address, updateV2)`; capture, deletion, and compaction policy are never reachable through renderer persistence.
+- The owner-side `createReplicaDocumentStore` seam owns load, append admission,
+  compaction, capture, and lifecycle deletion. It never owns application
+  handles.
+- Renderer-facing code owns live documents through
+  `createRecordDocumentRuntime` over the narrow record-owner document seam.
+  Capture, lifecycle deletion, and compaction policy never enter a Lens-bound
+  application capability.
 - Attach the `updateV2` listener before hydration can race application writes. Append copied update bytes and expose an invocation-time `whenDurable()` barrier over the persistence tail.
 - Apply stored updates with a private hydration origin so replay does not append them again.
 - `whenLoaded` means local owner hydration completed. It does not mean remote convergence.
 - The owner checks row liveness inside the same transaction as the insert: a late append after row deletion refuses with the address-scoped `DocumentRowAbsentError` instead of resurrecting content.
-- Document death happens in the transaction that ends the row's scalar life (local delete, replica lifecycle transitions, fresh-lineage reset, workspace deletion). Deletion is owner-side; a renderer never deletes a log.
+- Document death happens in the transaction that terminally tombstones the
+  record or replaces the replica with a fresh authority lifetime. Reversible
+  unset preserves it. Deletion is owner-side; a renderer never deletes a chain.
 - Compact at bounded thresholds by replaying a covered prefix through a fresh `gc: true` document and re-encoding one complete V2 update. Compaction does not remove CRDT modeling costs inside that encoded document.
 - Treat corruption, eviction, and transaction failure as storage failures. Do not silently continue with an empty document.
 
@@ -209,24 +224,24 @@ titleSchema.set('default', 'Untitled');
 
 `Y.Map` tombstones retain the key forever. Every `ymap.set(key, value)` creates a new internal item and tombstones the previous one.
 
-Do not use one workspace-wide Y.Doc as the row or KV database. Scalar tables and
-KV live in runtime-native SQLite so large record sets remain queryable without
-hydrating one CRDT graph into memory. Yjs is reserved for lazy row documents.
+Do not use one Epicenter-wide Y.Doc as the scalar record database. Scalar table
+rows and named values live as ordinary records in owner-native SQLite so large
+record sets remain queryable without hydrating one CRDT graph into memory. Yjs
+is reserved for lazy record documents.
 
 ```typescript
-// Scalar data stays on the row plane.
-workspace.tables.notes.set(note);
-workspace.kv.set('theme.mode', 'dark');
+// Scalar data stays on the record plane through a bound Lens.
+const notes = epicenter.bind({ app: notesLens }).app;
+const note = await notes.notes.create({ title: 'Draft' });
+await notes.preferences.theme.set('dark');
 
-// Keyed collaborative content may live inside one opened row document.
-using messages = workspace.tables.conversations.docs.messages.open(id);
-messages.set(message.id, message);
+// Collaborative content may live inside that record's one document.
+await using document = await notes.notes.openDocument(note.id);
+document.get('messages').set(message.id, message);
 ```
 
 Use raw `Y.Map` for bounded, rarely changing structures inside a private
-attachment. Use workspace tables and KV for scalar keyed data. Existing
-`YKeyValueLww` table and KV code is legacy replacement work; do not extend it or
-describe it as the final scalar storage model.
+document. Use Lens-bound tables and values for scalar keyed data.
 
 ### Epoch-Based Compaction
 

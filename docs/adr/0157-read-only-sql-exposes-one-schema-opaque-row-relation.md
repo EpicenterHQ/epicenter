@@ -1,7 +1,8 @@
 # 0157. Read-only SQL exposes one schema-opaque row relation
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-19
+- **Superseded by:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md) by replacing per-lens named table views with one runtime-owned logical relation.
 - **Relates:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md), [ADR-0156](0156-applications-bring-workspace-lenses-runtimes-own-workspaces-by-id.md)
 
