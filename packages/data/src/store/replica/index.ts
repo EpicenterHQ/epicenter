@@ -20,6 +20,8 @@ export {
 	type ReplicaStore,
 	type ReplicaStoreSync,
 	type SealedRequest,
+	type VisibleRecordsPage,
+	type VisibleRecordState,
 } from './replica-store.js';
 export {
 	createReplicaStoreSchema,

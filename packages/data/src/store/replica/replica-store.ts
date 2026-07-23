@@ -9,6 +9,7 @@ import {
 	type Fact,
 	type FactsRequest,
 	type FactsResponse,
+	foldIntent,
 	type Intent,
 	type JsonValue,
 	type Operation,
@@ -30,6 +31,7 @@ import {
 } from './schema.js';
 
 const TRIPLE_WHERE = 'namespace = ? AND collection = ? AND record_key = ?';
+const VISIBLE_RECORD_SCAN_PAGE_LIMIT = 64;
 
 export const PUBLICATION_OBLIGATION_PAGE_LIMIT = 64;
 
@@ -106,6 +108,11 @@ export type SealedRequest = { bytes: string; hash: string };
 export type ReplicaFactsPage = {
 	request: FactsRequest;
 	response: FactsResponse;
+};
+
+export type VisibleRecordsPage = {
+	records: { recordKey: string; payload: JsonValue }[];
+	hasMore: boolean;
 };
 
 export type OpenReplicaStoreOptions = {
@@ -225,6 +232,66 @@ function lanesOf(row: RecordRow | null): ReplicaRecordLanes | null {
 							: { limitBytes: row.parked_limit }),
 					},
 	};
+}
+
+// JSON null is an ordinary live payload (ADR-0163), so absence must be a
+// discriminated state rather than a null return.
+export type VisibleRecordState =
+	| { state: 'absent' }
+	| { state: 'live'; payload: JsonValue };
+
+function visibleStateOf(
+	address: RecordAddress,
+	row: RecordRow | null,
+): VisibleRecordState {
+	if (row === null) return { state: 'absent' };
+
+	let current: Fact | undefined;
+	if (row.confirmed_state !== null && row.confirmed_sequence !== null) {
+		current =
+			row.confirmed_state === 'live'
+				? {
+						address,
+						sequence: row.confirmed_sequence,
+						state: 'live',
+						payload: JSON.parse(row.confirmed_payload ?? '') as JsonValue,
+					}
+				: {
+						address,
+						sequence: row.confirmed_sequence,
+						state: row.confirmed_state,
+					};
+	}
+
+	for (const operation of [
+		row.sealed_op === null
+			? null
+			: decodeOperation(row.sealed_op, row.sealed_args),
+		row.pending_op === null
+			? null
+			: decodeOperation(row.pending_op, row.pending_args),
+	]) {
+		if (operation === null) continue;
+		const outcome = foldIntent(
+			current,
+			{ address, ...operation },
+			current?.sequence ?? 1,
+		);
+		// A locally unfoldable overlay (patch over a non-object base) is
+		// schema-valid, reachable state that the authority will park as
+		// `patch-base-not-object` (ADR-0163), leaving the confirmed fact in
+		// force. The optimistic visible state is therefore the unchanged base;
+		// throwing here would let one such record poison a whole traversal.
+		// The existing document/blob guards treat every patch overlay as live
+		// without folding; they agree with this base-stands derivation on
+		// presence.
+		if (outcome.kind === 'refused') continue;
+		if (outcome.kind === 'changed') current = outcome.fact;
+	}
+
+	return current?.state === 'live'
+		? { state: 'live', payload: current.payload }
+		: { state: 'absent' };
 }
 
 function one<TRow extends SqliteRow>(
@@ -426,6 +493,73 @@ export function openReplicaStore({
 
 	function record(address: RecordAddress): ReplicaRecordLanes | null {
 		return lanesOf(readRecord(database, address));
+	}
+
+	function visibleRecord(address: RecordAddress): VisibleRecordState {
+		return visibleStateOf(address, readRecord(database, address));
+	}
+
+	function isVisiblyLive(address: RecordAddress): boolean {
+		return (
+			visibleStateOf(address, readRecord(database, address)).state === 'live'
+		);
+	}
+
+	function visibleRecordsPage(
+		namespace: string,
+		collection: string,
+		afterRecordKey: string | null,
+		limit: number,
+	): VisibleRecordsPage {
+		if (!Number.isSafeInteger(limit) || limit < 1) {
+			throw new TypeError(
+				'visible records page limit must be a positive integer',
+			);
+		}
+
+		const records: VisibleRecordsPage['records'] = [];
+		let cursor = afterRecordKey;
+		while (records.length <= limit) {
+			const rawPageLimit = VISIBLE_RECORD_SCAN_PAGE_LIMIT + 1;
+			const rows = database.all<
+				RecordRow & {
+					namespace: string;
+					collection: string;
+					record_key: string;
+				}
+			>(
+				`SELECT * FROM records
+				WHERE namespace = ? AND collection = ?
+					AND (? IS NULL OR record_key > ? COLLATE BINARY)
+				ORDER BY record_key COLLATE BINARY
+				LIMIT ?`,
+				[namespace, collection, cursor, cursor, rawPageLimit],
+			);
+			if (rows.length === 0) break;
+
+			for (const row of rows) {
+				cursor = row.record_key;
+				const address = {
+					namespace,
+					collection,
+					recordKey: row.record_key,
+				};
+				const visible = visibleStateOf(address, row);
+				if (visible.state === 'live') {
+					records.push({
+						recordKey: row.record_key,
+						payload: visible.payload,
+					});
+					if (records.length > limit) break;
+				}
+			}
+			if (records.length > limit || rows.length < rawPageLimit) break;
+		}
+
+		return {
+			records: records.slice(0, limit),
+			hasMore: records.length > limit,
+		};
 	}
 
 	function sync(): ReplicaStoreSync {
@@ -822,6 +956,9 @@ export function openReplicaStore({
 
 	return {
 		record,
+		visibleRecord,
+		visibleRecordsPage,
+		isVisiblyLive,
 		sync,
 		sealedRequest,
 		owedDocuments,

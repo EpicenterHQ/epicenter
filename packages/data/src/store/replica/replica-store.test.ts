@@ -4,23 +4,69 @@
  * The conformance suite owns lane semantics and crash atomicity. These cases
  * protect the clean-break boundary around the dedicated SQLite file itself:
  * initialization occurs only in an empty database, and reopening recognizes
- * exactly the format-two tables and indexes owned by this store.
+ * exactly the format-two tables and indexes owned by this store. Visible-read
+ * cases verify tombstone-first lane derivation and bytewise keyset paging.
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
+import type {
+	Fact,
+	JsonValue,
+	RecordAddress,
+} from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import {
 	openReplicaStore,
 	PUBLICATION_OBLIGATION_PAGE_LIMIT,
 	REPLICA_STORE_INDEXES,
 	REPLICA_STORE_TABLES,
+	type ReplicaStore,
 } from './index.js';
 
 const LIMITS = makeLimits();
 const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
+const NAMESPACE = 'so.epicenter.notes';
+const COLLECTION = 'recordings';
+
+type FactInput =
+	| { address: RecordAddress; state: 'live'; payload: JsonValue }
+	| { address: RecordAddress; state: 'tombstone' | 'unset' };
+
+function address(recordKey: string): RecordAddress {
+	return { namespace: NAMESPACE, collection: COLLECTION, recordKey };
+}
+
+function setup() {
+	const database = new Database(':memory:', { strict: true });
+	const store = openReplicaStore({
+		database: createBunSqliteAdapter(database),
+		limits: LIMITS,
+		initialize: {
+			replicaId: REPLICA_ID,
+			authorityLifetime: 'lifetime-one',
+		},
+	});
+	return { database, store };
+}
+
+function installFacts(store: ReplicaStore, inputs: readonly FactInput[]): void {
+	const afterSequence = store.sync().afterSequence;
+	const facts: Fact[] = inputs.map((input, index) => ({
+		...input,
+		sequence: afterSequence + index + 1,
+	}));
+	store.installFacts({
+		request: { authorityLifetime: 'lifetime-one', afterSequence },
+		response: {
+			authorityLifetime: 'lifetime-one',
+			facts,
+			hasMore: false,
+		},
+	});
+}
 
 function userSchemaObjects(database: Database): string[] {
 	return database
@@ -281,6 +327,259 @@ describe('production replica store format', () => {
 			]);
 			expect(store.record(firstAddress)?.sealed).not.toBeNull();
 			expect(store.record(secondAddress)?.pending).not.toBeNull();
+		} finally {
+			database.close();
+		}
+	});
+});
+
+describe('visible record reads', () => {
+	test('confirmed tombstone hides a leftover sealed patch', () => {
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			installFacts(store, [
+				{ address: target, state: 'live', payload: { title: 'remote' } },
+			]);
+			store.localWrite({
+				address: target,
+				op: 'patch',
+				set: { title: 'local' },
+				unset: [],
+			});
+			store.seal();
+			installFacts(store, [{ address: target, state: 'tombstone' }]);
+
+			expect(store.record(target)?.sealed?.op).toBe('patch');
+			expect(store.visibleRecord(target)).toEqual({ state: 'absent' });
+			expect(store.isVisiblyLive(target)).toBe(false);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('pending tombstone and unset operations hide confirmed live records', () => {
+		const { database, store } = setup();
+		try {
+			const tombstoned = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			const unset = address('bbbbbbbbbbbbbbbbbbbbbbbb');
+			const confirmedUnset = address('cccccccccccccccccccccccc');
+			installFacts(store, [
+				{ address: tombstoned, state: 'live', payload: { value: 1 } },
+				{ address: unset, state: 'live', payload: { value: 2 } },
+				{ address: confirmedUnset, state: 'unset' },
+			]);
+
+			store.localWrite({ address: tombstoned, op: 'tombstone' });
+			store.localWrite({ address: unset, op: 'unset' });
+
+			expect(store.visibleRecord(tombstoned)).toEqual({ state: 'absent' });
+			expect(store.visibleRecord(unset)).toEqual({ state: 'absent' });
+			expect(store.visibleRecord(confirmedUnset)).toEqual({ state: 'absent' });
+			expect(store.isVisiblyLive(tombstoned)).toBe(false);
+			expect(store.isVisiblyLive(unset)).toBe(false);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('sealed and pending patches fold in order over confirmed live payload', () => {
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			installFacts(store, [
+				{
+					address: target,
+					state: 'live',
+					payload: { keep: true, remove: 'confirmed' },
+				},
+			]);
+			store.localWrite({
+				address: target,
+				op: 'patch',
+				set: { sealed: 1 },
+				unset: ['remove'],
+			});
+			store.seal();
+
+			expect(store.visibleRecord(target)).toEqual({
+				state: 'live',
+				payload: { keep: true, sealed: 1 },
+			});
+
+			store.localWrite({
+				address: target,
+				op: 'patch',
+				set: { pending: 2, sealed: 3 },
+				unset: [],
+			});
+			expect(store.visibleRecord(target)).toEqual({
+				state: 'live',
+				payload: { keep: true, sealed: 3, pending: 2 },
+			});
+			expect(store.isVisiblyLive(target)).toBe(true);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('pending replace substitutes for the confirmed live payload', () => {
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			installFacts(store, [
+				{ address: target, state: 'live', payload: { old: true } },
+			]);
+			store.localWrite({
+				address: target,
+				op: 'replace',
+				value: ['replacement'],
+			});
+
+			expect(store.visibleRecord(target)).toEqual({
+				state: 'live',
+				payload: ['replacement'],
+			});
+		} finally {
+			database.close();
+		}
+	});
+
+	test('an unfoldable patch overlay leaves the confirmed base visible', () => {
+		// A patch over a confirmed live non-object payload is schema-valid,
+		// reachable state (a values-style replace beneath a table-style patch).
+		// The authority will park it as patch-base-not-object (ADR-0163); the
+		// optimistic visible state is the unchanged base, never a thrown read.
+		const { database, store } = setup();
+		try {
+			const target = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			installFacts(store, [
+				{ address: target, state: 'live', payload: 'plain-string' },
+			]);
+			store.localWrite({
+				address: target,
+				op: 'patch',
+				set: { field: 1 },
+				unset: [],
+			});
+
+			expect(store.visibleRecord(target)).toEqual({
+				state: 'live',
+				payload: 'plain-string',
+			});
+			expect(store.isVisiblyLive(target)).toBe(true);
+			expect(
+				store.visibleRecordsPage(NAMESPACE, COLLECTION, null, 10).records,
+			).toContainEqual({
+				recordKey: target.recordKey,
+				payload: 'plain-string',
+			});
+		} finally {
+			database.close();
+		}
+	});
+
+	test('parked operations do not create or overlay visible state', () => {
+		const { database, store } = setup();
+		try {
+			const absent = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			const live = address('bbbbbbbbbbbbbbbbbbbbbbbb');
+			store.localWrite({
+				address: absent,
+				op: 'patch',
+				set: { parked: true },
+				unset: [],
+			});
+			installFacts(store, [
+				{ address: live, state: 'live', payload: { confirmed: true } },
+			]);
+			store.localWrite({
+				address: live,
+				op: 'patch',
+				set: { parked: true },
+				unset: [],
+			});
+			database.run(
+				`UPDATE records SET
+					parked_op = pending_op,
+					parked_args = pending_args,
+					parked_code = 'patch-base-not-object',
+					pending_op = NULL,
+					pending_args = NULL`,
+			);
+
+			expect(store.visibleRecord(absent)).toEqual({ state: 'absent' });
+			expect(store.visibleRecord(live)).toEqual({
+				state: 'live',
+				payload: { confirmed: true },
+			});
+		} finally {
+			database.close();
+		}
+	});
+
+	test('missing addresses are not visibly live', () => {
+		const { database, store } = setup();
+		try {
+			const missing = address('aaaaaaaaaaaaaaaaaaaaaaaa');
+			expect(store.visibleRecord(missing)).toEqual({ state: 'absent' });
+			expect(store.isVisiblyLive(missing)).toBe(false);
+		} finally {
+			database.close();
+		}
+	});
+});
+
+describe('visible record paging', () => {
+	test('pages live records bytewise and looks past hidden overlays for hasMore', () => {
+		const { database, store } = setup();
+		try {
+			const keys = ['Alpha', 'a', 'b', 'c', 'z'];
+			installFacts(
+				store,
+				keys.map((recordKey) => ({
+					address: address(recordKey),
+					state: 'live' as const,
+					payload: { recordKey },
+				})),
+			);
+			store.localWrite({ address: address('a'), op: 'tombstone' });
+			store.localWrite({ address: address('c'), op: 'unset' });
+
+			expect(store.visibleRecordsPage(NAMESPACE, COLLECTION, null, 2)).toEqual({
+				records: [
+					{ recordKey: 'Alpha', payload: { recordKey: 'Alpha' } },
+					{ recordKey: 'b', payload: { recordKey: 'b' } },
+				],
+				hasMore: true,
+			});
+			expect(
+				store.visibleRecordsPage(NAMESPACE, COLLECTION, 'Alpha', 2),
+			).toEqual({
+				records: [
+					{ recordKey: 'b', payload: { recordKey: 'b' } },
+					{ recordKey: 'z', payload: { recordKey: 'z' } },
+				],
+				hasMore: false,
+			});
+			expect(store.visibleRecordsPage(NAMESPACE, COLLECTION, 'z', 2)).toEqual({
+				records: [],
+				hasMore: false,
+			});
+		} finally {
+			database.close();
+		}
+	});
+
+	test('rejects non-positive and fractional page limits', () => {
+		const { database, store } = setup();
+		try {
+			expect(() =>
+				store.visibleRecordsPage(NAMESPACE, COLLECTION, null, 0),
+			).toThrow(/positive integer/);
+			expect(() =>
+				store.visibleRecordsPage(NAMESPACE, COLLECTION, null, 1.5),
+			).toThrow(/positive integer/);
 		} finally {
 			database.close();
 		}
