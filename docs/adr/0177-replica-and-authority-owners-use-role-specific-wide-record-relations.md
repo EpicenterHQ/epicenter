@@ -73,21 +73,23 @@ indexes, which covered only `record_id`, rather than to the wide relation. Wide
 address-covering partial indexes reduced the document scan from about 1,143 ms
 to 2.4 ms and the blob scan from about 1,149 ms to 26 ms.
 
-A clean-source watermark probe at commit `68845f5a9d` then gave both candidates
-the target local-versus-authority-accepted document revisions and blob digests,
-plus covering partial drain indexes. Wide and split document scans were both
-about 0.3 ms. Wide blob scan was 2.0 ms versus split's 7.4 ms. Split settled 64
-document or blob receipts about 0.04 to 0.07 ms faster, an absolute difference
-too small to offset wide's critical-path wins and simpler invariant ownership.
-The stripped split probe remained smaller, 107 MB versus wide's 174 MB.
+A historical watermark probe at commit `68845f5a9d` then gave both candidates
+the then-target local-versus-authority-accepted document revisions and blob
+digests, plus covering partial drain indexes. It predates the current refusal
+and parked-work exclusions. Wide and split document scans were both about 0.3
+ms. Wide blob scan was 2.0 ms versus split's 7.4 ms. Split settled 64 document
+or blob receipts about 0.04 to 0.07 ms faster, an absolute difference too small
+to offset wide's critical-path wins and simpler invariant ownership. The
+stripped split probe remained smaller, 107 MB versus wide's 174 MB.
 
 The complete split store passed the unchanged Bun conformance suite and direct
 browser OPFS conformance in Chromium and WebKit. That proves split is viable; it
 does not make it preferable. Split introduces eight additional cross-relation
 invariants, materially regresses point reads, and no longer retains a material
 everyday traversal or local-write advantage. Its storage saving does not repay
-that cost. The evidence branch remains reproducible rejected-candidate history;
-the split store is not exported or integrated into production.
+that cost. Archived source snapshots preserve the rejected candidate's measured
+top-level shape; exact complete replay still requires the historical transitive
+source tree. The split store is not exported or integrated into production.
 
 ### Authority evidence
 

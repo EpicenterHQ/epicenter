@@ -1,0 +1,46 @@
+{
+	"schemaVersion": 1,
+	"kind": "historical-benchmark-evidence-provenance",
+	"scope": "authority-layout",
+	"files": [
+		{
+			"path": "docs/benchmarks/authority-layout/2026-07-22-do-wide-vs-split-split-first.json",
+			"sha256": "2aaa15918f08902e711e13b657d8000d532c9ac593ce7c548d21b4125becfc71"
+		},
+		{
+			"path": "docs/benchmarks/authority-layout/2026-07-22-do-wide-vs-split-wide-first.json",
+			"sha256": "387d8bc03c943b48e5b25f5da856f6747286e339c12c9677de321334c5a13f79"
+		},
+		{
+			"path": "docs/benchmarks/authority-layout/sources/2026-07-22-authority-layout-runner.source.ts",
+			"sha256": "30833f79c39ff825471e9fb89b6bccd564b9d9bafa153fbdc3b61772b91a017a"
+		},
+		{
+			"path": "docs/benchmarks/authority-layout/sources/2026-07-22-authority-layout-worker.source.ts",
+			"sha256": "59520a469ba88334a4fa95034c0e9839c5b4adabc91127606dbe3fe1110a9f58"
+		},
+		{
+			"path": "docs/benchmarks/authority-layout/sources/2026-07-22-authority-v1-schema.source.ts",
+			"sha256": "2640122f84b8a7061808ddcfc876d699a8d27b77de44ed91ea72e7d50e127f8d"
+		},
+		{
+			"path": "docs/benchmarks/authority-layout/sources/2026-07-22-root-package.json",
+			"sha256": "a14145964d84b8bdc02bb79d5efedb9f51bbfaa0d153ce621c5a109d53399b28"
+		}
+	],
+	"originalCommit": "79ac1e606f",
+	"unretainedInputs": [
+		{
+			"name": "authority worker bundle",
+			"sha256": "ff56966351f208fc1313a841ce8c667df6f33b689a301346203fc3c9590f2e22"
+		},
+		{
+			"name": "authority benchmark bun.lock",
+			"sha256": "86b5436ce5ac50b97faa532a145aa996fb9fe3f03b60b93ce629b1cbaeaecd18"
+		},
+		{
+			"name": "historical build and runtime closure",
+			"reason": "The archived runner, worker, and schema prove recorded source identities; exact replay still requires the historical dependency and build closure."
+		}
+	]
+}

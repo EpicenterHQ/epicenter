@@ -1,0 +1,132 @@
+{
+	"schemaVersion": 1,
+	"kind": "historical-benchmark-evidence-provenance",
+	"scope": "replica-layout",
+	"files": [
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-chromium.json",
+			"sha256": "a9e3adfc3358e29396fdf1d75a72d8d71bad951dc7997f7e1c2d5dab9371d6b8"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-webkit.json",
+			"sha256": "cebb1a7f8ad6aa13c5f7b2782b795a54ec0dfd6cce8b8340e4410a87df818867"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-smoke.json",
+			"sha256": "5e76b648fb5898711f6801b9f1b389be566aadc70a03f3c67527a396d58ea017"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-bun-complete-wide-vs-split-split-first.json",
+			"sha256": "1d3fd7c21b4cdd438206fc58aa841a7d206cc88980f3741cdb450af6ca2675cf"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-bun-complete-wide-vs-split-wide-first.json",
+			"sha256": "c96094390ab960093de2d50dcf8f4b7376d214a57405a36df0296ed83ca8fca2"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-bun-wide-vs-split-full.json",
+			"sha256": "e91bca2b9f9f417394947c1eebe5769180df63fd330c8f405481d85d3559d049"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-replica-watermark-layout-probe.json",
+			"sha256": "1aa7ca416efefff8380b770bcd8028a32b7efb93996f3acf4dbb6bf5adf055bd"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/2026-07-22-wide-drain-index-probe.json",
+			"sha256": "eda5cca104908f690381c81c5e6d783b8ccb9dd2e6735297430f51faa64300d9"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/sources/2026-07-22-bun-complete-wide-vs-split.source.ts",
+			"sha256": "3b46f0616d4ad01f390ca22fdb05289ba65cb0eb3640e7aed6479ac42709cff9"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/sources/2026-07-22-bun-scalar-wide-vs-split.source.ts",
+			"sha256": "4716be7302e3627459a2db82531fff101696260abd8423229f844dab56ef5ac7"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/sources/2026-07-22-replica-watermark-layout-probe.source.ts",
+			"sha256": "04eb98ce651ba1f603e29f95470da1a577e5c66369f95737339340117e8c2169"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/sources/2026-07-22-wide-drain-index-probe.source.ts",
+			"sha256": "d94a79a57f3806540be958a290266d0cf407be456dcb461f07b2c6f89b921723"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/sources/2026-07-22-browser-package.json",
+			"sha256": "53ee661493ff8bab39431d66140e38eb9f6f961eca1e89c6441fb010db444cfe"
+		},
+		{
+			"path": "docs/benchmarks/replica-layout/sources/2026-07-22-complete-package.json",
+			"sha256": "de33d51d04ba3706429c4a798a3d661d1e31509f9d88ee4d256a6c1249c7662a"
+		}
+	],
+	"aggregates": [
+		{
+			"name": "browser harness",
+			"sha256": "fce979d6e651f1f83bd42010f78d659cde98c6a95caffb361803bed29b2868ff",
+			"entries": [
+				{
+					"logicalPath": "packages/data/package.json",
+					"path": "docs/benchmarks/replica-layout/sources/2026-07-22-browser-package.json",
+					"sha256": "53ee661493ff8bab39431d66140e38eb9f6f961eca1e89c6441fb010db444cfe"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-client.ts",
+					"path": "packages/data/browser-evidence/replica-layout-client.ts",
+					"sha256": "cc07037aab5478c49b1b1819628ad1c23406c654c36251de0edaa1a0c9cc0233"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-contract.test.ts",
+					"path": "packages/data/browser-evidence/replica-layout-contract.test.ts",
+					"sha256": "973b4e2db6411253de8ddb4e4182eee8dfe7a5af5cee6354b29775b016b5b201"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-contract.ts",
+					"path": "packages/data/browser-evidence/replica-layout-contract.ts",
+					"sha256": "e090ee0fc7056652234277c27f90af4b378d74405aaf96f5baff9afde576f077"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-index.html",
+					"path": "packages/data/browser-evidence/replica-layout-index.html",
+					"sha256": "ec26d36171f85d466a8471b60a786bed7dd912138130e2bf1bc6a35baf849638"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-run.ts",
+					"path": "packages/data/browser-evidence/replica-layout-run.ts",
+					"sha256": "5601c1ff1235b3acc8cfa7a14e4ac8e9256695367f326c37b15b6259a5fbe8ac"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-vite.config.ts",
+					"path": "packages/data/browser-evidence/replica-layout-vite.config.ts",
+					"sha256": "11f6cfb9e0f8175f9d15cc8984a83f35aac85ecc228bdafe17cbbfe9979d9a4f"
+				},
+				{
+					"logicalPath": "packages/data/browser-evidence/replica-layout-worker.ts",
+					"path": "packages/data/browser-evidence/replica-layout-worker.ts",
+					"sha256": "b4aa9dbad75dacf87900d7611daab523fccae42adec20705f0a62ea52b7e2f58"
+				}
+			]
+		}
+	],
+	"originalCommits": [
+		"cc5963637c1ad57a1ddcf759f104ef42a16803ff",
+		"f4e5c40c94",
+		"68845f5a9dd99190052d568fba3a66c330c10db0",
+		"8d4d252434",
+		"9f5fdcb8f3"
+	],
+	"unretainedInputs": [
+		{
+			"name": "browser bun.lock",
+			"sha256": "59c943a425d100da48577147bb2e8ad388c81820c286bd260deb91731b8cf165"
+		},
+		{
+			"name": "complete benchmark bun.lock",
+			"sha256": "a4bccfb64b2ef59d9dbda6d0935479f4c5e05154812358f3fea4449a9c3c5225"
+		},
+		{
+			"name": "complete benchmark transitive production store sources",
+			"reason": "The archived top-level runner proves source identity but is not a standalone replay kit."
+		}
+	]
+}

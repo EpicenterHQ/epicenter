@@ -1,0 +1,49 @@
+{
+	"name": "@epicenter/data",
+	"version": "0.0.1",
+	"description": "Local-first scalar data protocol and SQLite replica.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./browser": "./src/browser.ts",
+		"./browser-replica-candidate-worker": "./src/browser-replica-candidate-worker.ts",
+		"./browser-replica-worker": "./src/browser-replica-worker.ts",
+		"./browser-worker": "./src/browser-worker.ts",
+		"./bun": "./src/bun.ts",
+		"./desktop": "./src/desktop.ts",
+		"./desktop-owner": "./src/desktop-owner.ts",
+		"./protocol": "./src/protocol/index.ts"
+	},
+	"files": [
+		"src",
+		"!src/**/*.test.ts",
+		"!src/**/*.test-support.ts",
+		"!src/**/*.bench.ts"
+	],
+	"license": "MIT",
+	"scripts": {
+		"evidence:browser": "bun browser-evidence/run.ts --profile smoke",
+		"evidence:browser-replica-layout": "bun browser-evidence/replica-layout-run.ts --profile smoke",
+		"evidence:browser-replica-layout:full": "bun browser-evidence/replica-layout-run.ts --profile full",
+		"evidence:browser-replica": "bun browser-evidence/replica-owner-run.ts",
+		"evidence:browser-owner-topology": "bun browser-evidence/replica-candidate-run.ts",
+		"test:browser-replica": "bun test browser-evidence/replica-conformance.test.ts",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p browser-evidence/tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@epicenter/field": "workspace:*",
+		"@epicenter/sqlite": "workspace:*",
+		"@sqlite.org/sqlite-wasm": "catalog:",
+		"@y/y": "14.0.0-rc.24",
+		"nanoid": "catalog:",
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"playwright": "^1.61.1",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	}
+}

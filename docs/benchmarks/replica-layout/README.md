@@ -4,6 +4,12 @@ This directory records the bounded physical evidence owned by ADR-0177. The
 reports are evidence, not current architecture truth. ADR-0177 and the active
 clean-break spec remain authoritative.
 
+`provenance.json` binds every retained report and archived top-level source by
+SHA-256. Run `bun run check:evidence` to verify those bytes without access to a
+local evidence branch. The archives prove which source produced the reports;
+they are not complete replay environments because historical lockfiles and
+some transitive production sources are retained only by hash.
+
 ## 2026-07-22 complete replica decision
 
 Retained reports:
@@ -29,30 +35,32 @@ the address triple in the two partial indexes reduced wide document drain from
 about 1,143 ms to 2.4 ms and blob drain from about 1,149 ms to 26 ms. That loss
 belonged to index shape, not the wide relation.
 
-The final clean-source probe gave both candidates the target publication model:
-local and authority-accepted document revisions, local and accepted blob
-digests, and covering partial indexes on the derived owed predicates. Its source
-commit is `68845f5a9dd99190052d568fba3a66c330c10db0`; both installed schema hashes
-are embedded in the report. Wide and split document drains were both about
-0.3 ms. Wide blob drain was 2.0 ms versus split's 7.4 ms. Split settled batches
-of 64 receipts about 0.04 to 0.07 ms faster. The stripped split fixture used
-107 MB versus wide's 174 MB.
+The final historical watermark probe gave both candidates the then-target
+publication model: local and authority-accepted document revisions, local and
+accepted blob digests, and covering partial indexes on the derived owed
+predicates. It predates the current refusal and parked-work exclusions. Its
+source commit is `68845f5a9dd99190052d568fba3a66c330c10db0`; both installed
+schema hashes are embedded in the report. Wide and split document drains were
+both about 0.3 ms. Wide blob drain was 2.0 ms versus split's 7.4 ms. Split
+settled batches of 64 receipts about 0.04 to 0.07 ms faster. The stripped split
+fixture used 107 MB versus wide's 174 MB.
 
 These results select wide for the replica role. Split is viable and smaller,
 but it materially regresses point reads, no longer retains a material everyday
 traversal or local-write advantage, and introduces eight cross-relation
-invariants. Its evidence implementation remains unexported on
-`codex/replica-layout-evidence`; it is not a second production adapter. Physical
-iOS Safari and Android Chrome qualification remains open for the selected wide
-browser owner.
+invariants. The archived top-level benchmark sources preserve the rejected
+candidate's measured shape without restoring it as a production adapter. Exact
+replay of the complete benchmark still requires its historical transitive
+source tree. Physical iOS Safari and Android Chrome qualification remains open
+for the selected wide browser owner.
 
 ## 2026-07-22 Bun wide-versus-split run
 
 Report:
 `2026-07-22-bun-wide-vs-split-full.json`
 
-Maintained source:
-`packages/data/src/__benchmarks__/replica-layout.bench.ts`
+Historical source snapshot:
+`sources/2026-07-22-bun-scalar-wide-vs-split.source.ts`
 
 Invocation:
 
@@ -62,7 +70,8 @@ bun packages/data/src/__benchmarks__/replica-layout.bench.ts \
   --output docs/benchmarks/replica-layout/2026-07-22-bun-wide-vs-split-full.json
 ```
 
-The run used the production wide DDL from
+This is the historical invocation, not a command against current HEAD. The run
+used the production wide DDL from
 `packages/data/src/store/replica/schema.ts`. The split candidate exists only
 inside the benchmark. It stores confirmed facts and sparse local intents in
 separate relations under the same semantic model; no product caller imports or
@@ -111,7 +120,7 @@ browser evidence repeated its split direction, but the complete replica charter
 above supersedes that recommendation. The artifact remains useful evidence for
 how an incomplete fixture can reverse once every production plane is present.
 
-The report embeds SHA-256 fingerprints for the maintained benchmark source and
+The report embeds SHA-256 fingerprints for the historical benchmark source and
 both installed SQLite schemas, so a later production-schema change cannot be
 mistaken for the DDL measured here. The maintained source fingerprint is
 `4716be7302e3627459a2db82531fff101696260abd8423229f844dab56ef5ac7`,
@@ -119,5 +128,9 @@ the installed wide-schema fingerprint is
 `76e86c4c7c4dcc8f2a90aceae2c5a0ea296894ccaa35ba0dbf11dfd7bf965473`, and
 the installed split-schema fingerprint is
 `9f3bd1eb8da64c6c533ec416da1e9264be3245de787507f8f8dbd6bba387c8f4`.
+The source snapshot is byte-identical to the recorded top-level runner. Its
+production schema import and dependency closure are not archived, so the
+snapshot proves identity rather than standalone replayability.
+
 The older four-layout report under `docs/benchmarks/scalar-facts-layout/` is
 historical evidence for a retired matrix and is not combined with this run.

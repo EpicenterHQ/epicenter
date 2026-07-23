@@ -4,6 +4,12 @@ This directory records the Durable Object slices of ADR-0177's bounded
 physical evidence. The reports are evidence, not current architecture truth.
 ADR-0177 and the active clean-break spec remain authoritative.
 
+`provenance.json` binds both reports and the archived runner, worker, schema,
+and root package manifest by SHA-256. Run `bun run check:evidence` to verify
+those bytes. The generated worker bundle and historical lockfile are retained
+by hash only, so these files prove report provenance but do not form a complete
+standalone replay environment.
+
 ## 2026-07-22 Durable Object wide-versus-split runs
 
 Reports:
@@ -11,10 +17,11 @@ Reports:
 - `2026-07-22-do-wide-vs-split-wide-first.json`
 - `2026-07-22-do-wide-vs-split-split-first.json`
 
-Maintained sources:
+Historical source snapshots:
 
-- `packages/server/src/epicenter-sync/__benchmarks__/authority-layout.bench.ts`
-- `packages/server/src/epicenter-sync/__benchmarks__/authority-layout-worker.ts`
+- `sources/2026-07-22-authority-layout-runner.source.ts`
+- `sources/2026-07-22-authority-layout-worker.source.ts`
+- `sources/2026-07-22-authority-v1-schema.source.ts`
 
 Invocations:
 
@@ -30,7 +37,9 @@ bun packages/server/src/epicenter-sync/__benchmarks__/authority-layout.bench.ts 
   --output docs/benchmarks/authority-layout/2026-07-22-do-wide-vs-split-split-first.json
 ```
 
-The wide candidate imports the production schema statements from
+These are the historical invocations, not commands against current HEAD. The
+measured authority used schema format 1; the current authority has evolved to
+format 5. The wide candidate imported the production schema statements from
 `authority-v1-schema.ts`; it is not a copied approximation. The split
 candidate exists only inside the benchmark. Both candidates hold the same
 semantic fact, accepted-blob, metadata, and retry-witness state.
@@ -108,6 +117,8 @@ SHA-256 `59520a469ba88334a4fa95034c0e9839c5b4adabc91127606dbe3fe1110a9f58`,
 bundle SHA-256 `ff56966351f208fc1313a841ce8c667df6f33b689a301346203fc3c9590f2e22`,
 and authority-schema SHA-256
 `2640122f84b8a7061808ddcfc876d699a8d27b77de44ed91ea72e7d50e127f8d`.
+Those three source hashes verify directly from the archive. The recorded bundle
+hash is attested because the generated bundle was not retained.
 
 ## Two-megabyte row-ceiling proof
 
