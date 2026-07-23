@@ -1,6 +1,6 @@
 # 0171. Every durable local write leaves an automatic authority obligation
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-22: document and blob obligations
   derive from local truth versus authority-accepted watermarks)
 - **Supersedes:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md)
@@ -202,6 +202,15 @@ The shared protocol suite proves the following laws across the three planes:
 Each storage adapter runs the same state-machine fixtures. Transport tests then
 prove that background exchange and realtime document delivery enter the same
 authority acceptance operation rather than two semantic paths.
+
+Acceptance remains gated on first-attachment crash and reopen evidence across
+every production replica adapter. That evidence must cover both choices:
+`Bring local data` must retain the exact pre-attachment scalar, document, and
+blob obligations through attachment, lifetime discovery, and first
+submission; `Discard local data` must commit attachment and the logical clear
+together without allowing hydration or physical cleanup to resurrect work.
+The maintained semantic and transport suites establish the law, but they do
+not substitute for those production-adapter crash boundaries.
 
 ## Considered alternatives
 

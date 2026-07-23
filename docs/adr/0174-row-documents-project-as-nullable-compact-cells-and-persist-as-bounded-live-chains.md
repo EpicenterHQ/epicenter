@@ -1,6 +1,6 @@
 # 0174. Row documents project as nullable compact cells and persist as bounded live chains
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-22: publication uses local and
   authority-accepted revision watermarks; documents remain record-wide, the
   composed cell projects only into portable artifacts, snapshots carry
@@ -186,6 +186,13 @@ The exact struct ceiling requires a maintained rich-text workload covering
 typing, formatting, undo, deletion, and multiple offline clients, plus maximal
 valid and maliciously dense fixtures in workerd. This evidence may revise the
 constant without reopening the bounded-structure product refusal.
+
+Acceptance remains gated on running that workload against the current
+131,072-struct ceiling. The evidence must include realistic rich-text editing,
+multiple offline clients, and maximal valid and maliciously dense updates in
+workerd, with deterministic below-bound, at-bound, and above-bound outcomes.
+The maintained logical fixtures prove bounded refusal mechanics, but not that
+the selected struct constant is the right production limit.
 
 ## Considered alternatives
 

@@ -91,9 +91,11 @@ operations do not enter the application-facing Epicenter API.
 `@epicenter/data` owns exact selection parsing, sealed SQLite draft and
 manifest compilation, source-fenced ordinary admission, authenticated
 watermarks, crash recovery, and artifact cleanup. The maintained tests cover
-the prototype's concurrency, crash, duplicate, parked-overlay, source-change,
-creation-collision, and tamper cases without adding a Proposal replica,
-receipt log, or second outbox.
+disjoint and same-field concurrency, a crash after every individual admission
+boundary, duplicate admission, the parked-overlay trap, and a source-fence
+change between Proposal entries during Apply. They also cover
+creation-collision, tamper, and cleanup cases without adding a Proposal
+replica, receipt log, or second outbox.
 
 Epicenter Home publishes a closed catalog of its compiled Lenses and owns the
 desktop artifact lifecycle through authenticated, serialized routes. The Home

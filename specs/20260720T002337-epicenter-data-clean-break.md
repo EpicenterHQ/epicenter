@@ -422,7 +422,12 @@ partial indexes derive bounded owed scans without mutable dirty flags or frozen
 in-flight payloads. HTTP and realtime document carriers decode one exact
 acceptance shape and enter one authority operation. Maintained crash,
 conformance, browser-owner, malformed-update, and cross-plane HTTP proofs pass.
-Physical mobile qualification remains owned by W1C.
+Three acceptance gates remain. ADR-0171 still needs first-attachment crash and
+reopen evidence across every production replica adapter. ADR-0172 still needs
+browser process-kill coverage across blob staging, promotion, SQLite
+membership, and `Discard local data` generation cleanup. ADR-0174 still needs
+the maintained 131,072-struct rich-text, offline-client, and malicious-update
+workload in workerd. Physical mobile qualification remains owned by W1C.
 
 ### W4: Lens API, complete caller migration, and Workspace deletion
 
@@ -462,7 +467,12 @@ package stopped declaring the old dependency before deletion. The repository
 then deleted `packages/workspace`, its lockfile and patch residue, obsolete
 current guides and examples, and the Workspace-specific agent skills. Package
 tests and retained host smoke paths pass against the replacement. No
-compatibility barrel remains.
+compatibility barrel remains. The follow-up record-only cut removed the legacy
+kinded row/value API, old browser and desktop adapters, `EpicenterAuthority`,
+the `/api/sync/v1` exchange route, the row-keyed document connector, and the
+`EPICENTER_SYNC` binding. Cloudflare migration history remains append-only and
+now deletes the retired Durable Object class. Existing orphaned legacy SQLite
+files are not silently erased.
 
 ### W5: snapshot capture and the Home query artifact
 
@@ -487,15 +497,16 @@ Implementation checkpoint (2026-07-22): the replica now captures one coherent
 visible-state cut into a self-identifying SQLite artifact, with raw records,
 document and blob metadata, and optional Lens views. The 100,000-record probe
 completed repeatedly in under one second while a concurrent source mutation
-proved the read cut stayed coherent. Desktop publishes artifacts by atomic
-rename and reaps ephemeral crash debris. The browser owner transfers inert
-bytes without exposing capture on the application Epicenter API; Chromium and
-WebKit OPFS evidence pass. Home holds only opaque artifact IDs, runs bounded
-read statements in a disposable child process with a two-second deadline, and
-offers the first-release capture and query sheet. The sheet passed typecheck,
-build, and UI-boundary gates; visual browser inspection was unavailable in the
-current Codex environment and remains a manual presentation check rather than
-a storage correctness gap.
+proved the read cut stayed coherent. The maintained probe now enforces an
+explicit two-second regression threshold at that envelope. Desktop publishes
+artifacts by atomic rename and reaps ephemeral crash debris. The browser owner
+transfers inert bytes without exposing capture on the application Epicenter
+API; Chromium and WebKit OPFS evidence pass. Home holds only opaque artifact
+IDs, runs bounded read statements in a disposable child process with a
+two-second deadline, and offers the first-release capture and query sheet. The
+sheet passed typecheck, build, and UI-boundary gates; visual browser inspection
+was unavailable in the current Codex environment and remains a manual
+presentation check rather than a storage correctness gap.
 
 ### W6: portable Backup and Restore
 
@@ -547,17 +558,29 @@ the application data plane an artifact protocol.
 - Scheduling: after W6. Nothing in W1 through W6 depends on its outcome.
 
 Implementation checkpoint (2026-07-22): the bounded SQLite prototype passed
-its concurrency, crash-at-every-boundary, duplicate admission, parked-overlay,
-source-fence, creation-collision, consumption, and tamper cases without needing
-a Proposal replica, receipt log, or second outbox. `@epicenter/data` now owns
-sealed draft compilation, authenticated incremental admission, recovery, and
-artifact cleanup. Desktop Home publishes a closed compiled-Lens catalog and an
-explicit create, compile, review, Apply, and Delete sheet. Failed incremental
-Apply refreshes authenticated progress before another action, or invalidates
-the catalog when that refresh fails. [ADR-0178](../docs/adr/0178-proposals-are-source-bound-artifacts-that-disappear-after-local-admission.md)
+its disjoint and same-field concurrency cases, crash after every individual
+admission boundary, duplicate admission, parked-overlay trap, and source-fence
+change between entries during Apply. Creation-collision, consumption, and
+tamper cases also pass without needing a Proposal replica, receipt log, or
+second outbox. `@epicenter/data` now owns sealed draft compilation,
+authenticated incremental admission, recovery, and artifact cleanup. Desktop
+Home publishes a closed compiled-Lens catalog and an explicit create, compile,
+review, Apply, and Delete sheet. Failed incremental Apply refreshes
+authenticated progress before another action, or invalidates the catalog when
+that refresh fails. [ADR-0178](../docs/adr/0178-proposals-are-source-bound-artifacts-that-disappear-after-local-admission.md)
 is Accepted. The sheet passes typecheck, build, UI-boundary, service, and host
 tests; visual browser inspection remains a manual presentation check in the
 current Codex environment.
+
+## Remaining execution gates
+
+- Run the W1C physical mobile owner charter on iOS Safari and Android Chrome,
+  including capacity, reopen, quota refusal, suspension, and eviction.
+- Complete the three W3 production evidence gates: first-attachment crash and
+  reopen across adapters, browser blob cross-medium and `Discard` generation
+  crash coverage, and the real 131,072-struct workerd workload.
+- Perform the manual visual browser check for the Home snapshot and Proposal
+  sheets. This is a presentation gate, not a storage correctness claim.
 
 ## Deletion ledger
 

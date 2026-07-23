@@ -1,6 +1,6 @@
 # 0172. SQLite stores convergent facts and documents; raw files store blob bytes
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-07-20 (revised 2026-07-22: publication obligations derive
   from local truth versus authority-accepted watermarks)
 - **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication uses revision watermarks rather than frozen retry images)
@@ -133,6 +133,15 @@ does not invent WAL, temporary-file, or storage-root measurements that the
 managed runtime does not expose. ADR-0161's scalar-only layout evidence remains
 separate and does not cap document chains, raw blob bytes, or choose a scalar
 layout.
+
+Acceptance remains gated on browser process-kill evidence across the SQLite
+and raw-file boundary. The maintained browser suite must kill between staging
+fsync, promotion, and SQLite ownership membership, then reopen and prove that
+each residue is either valid owned bytes or removable debris. It must also
+exercise first-attachment `Discard local data` across the logical clear,
+attachment commit, physical-generation switch, interrupted cleanup, and
+same-address hydration with equal and different digests. Current semantic
+tests do not yet prove those browser cross-medium and generation boundaries.
 
 ## Considered alternatives
 
