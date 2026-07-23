@@ -823,6 +823,18 @@ export async function openBrowserEpicenter({
 			},
 		}),
 		attach,
+		/** Restore the carrier provided at open and resume parked authority work. */
+		signIn(): void {
+			requireOpen();
+			void request<void>({ kind: 'runtime-sign-in' }).catch(
+				(cause: unknown) => {
+					if (!isDisposing && !isDisposed) {
+						log.error(new Error('Browser runtime sign-in failed', { cause }));
+					}
+				},
+			);
+		},
+		/** Park authority work; durable obligations stay local until sign-in. */
 		signOut(): void {
 			requireOpen();
 			void request<void>({ kind: 'runtime-sign-out' }).catch(

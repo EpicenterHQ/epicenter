@@ -105,6 +105,7 @@ function serializeError(cause: unknown): { name: string; message: string } {
 function isMutation(operation: BrowserReplicaCandidateOperation): boolean {
 	return (
 		operation.kind === 'runtime-attach' ||
+		operation.kind === 'runtime-sign-in' ||
 		operation.kind === 'runtime-sign-out' ||
 		operation.kind === 'runtime-table-update' ||
 		operation.kind === 'runtime-delete-record' ||

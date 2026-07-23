@@ -497,6 +497,12 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 						},
 					};
 		},
+		/** Restore the carrier provided at open and resume parked authority work. */
+		signIn(): void {
+			requireOpen();
+			supervisor.setCarrier(carrier);
+		},
+		/** Park authority work; durable obligations stay local until sign-in. */
 		signOut(): void {
 			requireOpen();
 			supervisor.setCarrier(null);

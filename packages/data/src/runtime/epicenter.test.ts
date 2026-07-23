@@ -670,6 +670,29 @@ describe('record-handle runtime', () => {
 		}
 	});
 
+	test('sign-out parks authority work and sign-in resumes it', async () => {
+		const fixture = setup();
+		try {
+			const attached = await fixture.epicenter.attach({
+				deploymentId: 'https://example.test/',
+				principalId: 'person',
+			});
+			expect(attached.kind).toBe('attached');
+			fixture.epicenter.signOut();
+			expect(fixture.epicenter.sync.status.state).toBe('signed-out');
+			const row = await fixture.bound.notes.create({ title: 'parked' });
+			const record = fixture.bound.notes.record(row.id);
+			await Bun.sleep(10);
+			expect(await record.publication.get()).toEqual({ state: 'ready' });
+			fixture.epicenter.signIn();
+			await Bun.sleep(10);
+			expect(fixture.epicenter.sync.status.state).toBe('idle');
+			expect(await record.publication.get()).toEqual({ state: 'settled' });
+		} finally {
+			await close(fixture);
+		}
+	});
+
 	test('subscriptions notify and unsubscribe; disposal invalidates all surfaces', async () => {
 		const fixture = setup();
 		const notes = fixture.bound.notes;

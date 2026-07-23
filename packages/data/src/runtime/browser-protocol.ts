@@ -44,6 +44,7 @@ export type BrowserRuntimeControlOperation =
 	  }
 	| { kind: 'runtime-status' }
 	| { kind: 'runtime-nudge' }
+	| { kind: 'runtime-sign-in' }
 	| { kind: 'runtime-sign-out' };
 
 export type BrowserRuntimeControlResult =

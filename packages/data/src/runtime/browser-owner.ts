@@ -99,6 +99,10 @@ export async function openBrowserRuntimeOwner({
 						if (carrier === null || isSignedOut) supervisor.nudge();
 						else supervisor.setCarrier(carrier);
 						return undefined;
+					case 'runtime-sign-in':
+						isSignedOut = false;
+						supervisor.setCarrier(carrier);
+						return undefined;
 					case 'runtime-sign-out':
 						isSignedOut = true;
 						supervisor.setCarrier(null);
