@@ -1,5 +1,20 @@
+/**
+ * Data V1 Document Realtime Overlay Tests
+ *
+ * Verifies that fixed-address WebSocket updates enter the authority's durable
+ * document acceptance operation and return its semantic result before fanout.
+ *
+ * Key behaviors:
+ * - Accepted updates return a digest-bound post-commit receipt
+ * - Peer fanout happens only after durable authority acceptance
+ * - Bound refusals return the shared diagnostic before the transport backstop
+ */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
+import {
+	decodeDocumentAcceptance,
+	documentPayloadDigest,
+} from '@epicenter/data/document-v1';
 import {
 	parseSubmissionRequest,
 	SCALAR_SYNC_V1_LIMITS,
@@ -103,8 +118,23 @@ function connect(
 	);
 }
 
+function lastAcceptance(sent: Uint8Array[]) {
+	const frame = decodeDocumentFrame(sent.at(-1) ?? new Uint8Array());
+	if (frame.kind !== 'publication-response') {
+		throw new Error('expected document publication response');
+	}
+	const acceptance = decodeDocumentAcceptance(
+		frame.acceptance,
+		SCALAR_SYNC_V1_LIMITS,
+	);
+	if (acceptance === undefined) {
+		throw new Error('invalid document publication response');
+	}
+	return acceptance;
+}
+
 describe('document realtime V1 overlay', () => {
-	test('uses the authority acceptance function, fans out, and sends no durability receipt', () => {
+	test('uses the authority acceptance function, returns its receipt, and fans out', () => {
 		const context = setup();
 		try {
 			const first = socket();
@@ -123,7 +153,16 @@ describe('document realtime V1 overlay', () => {
 				encodeDocumentFrame({ kind: 'update', update }),
 			);
 			expect(context.acceptCalls()).toBe(1);
-			expect(first.sent).toHaveLength(2);
+			expect(first.sent).toHaveLength(3);
+			expect(lastAcceptance(first.sent)).toEqual({
+				kind: 'accepted',
+				receipt: {
+					authorityLifetime: 'lifetime-one',
+					address: ADDRESS,
+					protocolVersion: 'epicenter-document-v3',
+					digest: documentPayloadDigest(update),
+				},
+			});
 			expect(
 				decodeDocumentFrame(second.sent.at(-1) ?? new Uint8Array()).kind,
 			).toBe('update');
@@ -147,9 +186,54 @@ describe('document realtime V1 overlay', () => {
 					update: updateFor('x'.repeat(1_048_577)),
 				}),
 			);
+			expect(lastAcceptance(peer.sent)).toMatchObject({
+				kind: 'document-bound',
+				authorityLifetime: 'lifetime-one',
+				address: ADDRESS,
+			});
 			expect(peer.closed).toEqual([
 				{ code: DOCUMENT_BACKSTOP_CLOSE_CODE, reason: 'document-bound' },
 			]);
+		} finally {
+			context.raw.close();
+		}
+	});
+
+	test('a reply send failure after commit leaves exact retry idempotent', () => {
+		const context = setup();
+		try {
+			const failed = socket();
+			connect(context.server, failed.value);
+			failed.value.send = () => {
+				throw new Error('reply lost');
+			};
+			const update = updateFor('committed before reply loss');
+			context.server.receive(
+				failed.value,
+				ADDRESS,
+				'lifetime-one',
+				encodeDocumentFrame({ kind: 'update', update }),
+			);
+			expect(context.acceptCalls()).toBe(1);
+			expect(failed.closed).toEqual([{ code: 1011, reason: 'send-failed' }]);
+
+			const retry = socket();
+			connect(context.server, retry.value);
+			context.server.receive(
+				retry.value,
+				ADDRESS,
+				'lifetime-one',
+				encodeDocumentFrame({ kind: 'update', update }),
+			);
+			expect(lastAcceptance(retry.sent)).toMatchObject({ kind: 'accepted' });
+			expect(context.acceptCalls()).toBe(2);
+			expect(
+				context.raw
+					.query<{ count: number }, []>(
+						'SELECT count(*) AS count FROM record_documents',
+					)
+					.get()?.count,
+			).toBe(1);
 		} finally {
 			context.raw.close();
 		}

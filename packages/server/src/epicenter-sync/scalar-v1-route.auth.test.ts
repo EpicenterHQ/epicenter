@@ -1,9 +1,9 @@
 /**
- * Scalar V1 Deployment Authentication Tests
+ * Data V1 Deployment Authentication Tests
  *
- * Composes each production principal resolver with the facts and submissions
- * mount. The authority is a narrow capture fake because these cases prove the
- * deployment gate and partition selection, not authority storage semantics.
+ * Composes each production principal resolver with the scalar and document
+ * publication mounts. The authority is a narrow capture fake because these
+ * cases prove deployment gates and partition selection, not storage semantics.
  *
  * Key behaviors:
  * - a real hosted OAuth bearer selects its authenticated user partition
@@ -15,6 +15,10 @@ import { expect, test } from 'bun:test';
 
 import { oauthProvider } from '@better-auth/oauth-provider';
 import { EPICENTER_OAUTH_SCOPES } from '@epicenter/constants/oauth-clients';
+import {
+	DOCUMENT_PUBLICATION_VERSION,
+	documentPayloadDigest,
+} from '@epicenter/data/document-v1';
 import { INSTANCE_PRINCIPAL_ID, type PrincipalId } from '@epicenter/identity';
 import { betterAuth } from 'better-auth';
 import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
@@ -32,6 +36,13 @@ import { createOAuthTestDb, issueOAuthTokens } from '../test-helpers/oauth.js';
 import type { CloudEnv, Env } from '../types.js';
 import { authorityV1TestLimits } from './authority-v1-cases.test-support.js';
 import {
+	DOCUMENT_DIGEST_HEADER,
+	DOCUMENT_LIFETIME_HEADER,
+	DOCUMENT_PROTOCOL_HEADER,
+	type DocumentAuthorityV1Endpoint,
+	mountDocumentV1App,
+} from './document-v1-route.js';
+import {
 	mountScalarV1App,
 	SCALAR_V1_FACTS_PATH,
 	SCALAR_V1_SUBMISSIONS_PATH,
@@ -45,9 +56,11 @@ const ADDRESS = {
 	collection: 'recordings',
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 } as const;
+const DOCUMENT_PATH = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/${ADDRESS.recordKey}/document-publications`;
+const DOCUMENT_PAYLOAD = new Uint8Array([1, 2, 3]);
 
 function createCaptureAuthority(principals: PrincipalId[]) {
-	const authority: ScalarAuthorityV1Endpoint = {
+	const authority: ScalarAuthorityV1Endpoint & DocumentAuthorityV1Endpoint = {
 		readFacts: () =>
 			Ok({ authorityLifetime: LIFETIME, facts: [], hasMore: false }),
 		submit: (request) =>
@@ -56,6 +69,15 @@ function createCaptureAuthority(principals: PrincipalId[]) {
 				facts: [],
 				parked: [],
 			}),
+		acceptDocument: (request) => ({
+			kind: 'accepted',
+			receipt: {
+				authorityLifetime: request.authorityLifetime,
+				address: request.address,
+				protocolVersion: request.protocolVersion,
+				digest: request.digest,
+			},
+		}),
 	};
 	return {
 		locateAuthority(principalId: PrincipalId) {
@@ -74,7 +96,7 @@ function submissionBody() {
 	});
 }
 
-async function requestBoth<E extends Env>(app: Hono<E>, bearer: string) {
+async function requestAll<E extends Env>(app: Hono<E>, bearer: string) {
 	const headers = { authorization: `Bearer ${bearer}` };
 	const facts = await app.request(`${SCALAR_V1_FACTS_PATH}?afterSequence=0`, {
 		headers,
@@ -84,7 +106,18 @@ async function requestBoth<E extends Env>(app: Hono<E>, bearer: string) {
 		headers: { ...headers, 'content-type': 'application/json' },
 		body: submissionBody(),
 	});
-	return { facts, submission };
+	const document = await app.request(DOCUMENT_PATH, {
+		method: 'POST',
+		headers: {
+			...headers,
+			'content-type': 'application/octet-stream',
+			[DOCUMENT_LIFETIME_HEADER]: LIFETIME,
+			[DOCUMENT_PROTOCOL_HEADER]: DOCUMENT_PUBLICATION_VERSION,
+			[DOCUMENT_DIGEST_HEADER]: documentPayloadDigest(DOCUMENT_PAYLOAD),
+		},
+		body: DOCUMENT_PAYLOAD,
+	});
+	return { facts, submission, document };
 }
 
 function expectInvalidBearer(response: Response): void {
@@ -132,6 +165,11 @@ function createHostedSetup() {
 		rawSubmissionBytes: 262144,
 		...createCaptureAuthority(principals),
 	});
+	mountDocumentV1App(app, {
+		auth: requireBearerPrincipal(resolveRequestOAuthPrincipal),
+		limits: authorityV1TestLimits(),
+		...createCaptureAuthority(principals),
+	});
 	return { app, auth, baseURL, db, principals };
 }
 
@@ -145,7 +183,7 @@ function createFakeDb(memoryDb: MemoryDB) {
 	} as unknown as CloudEnv['Variables']['db'];
 }
 
-test('hosted OAuth selects the authenticated principal for facts and submissions', async () => {
+test('hosted OAuth selects one principal for scalar and document publication', async () => {
 	const setup = createHostedSetup();
 	const { accessToken } = await issueOAuthTokens(setup, {
 		clientName: 'Scalar V1 Auth Test',
@@ -155,18 +193,20 @@ test('hosted OAuth selects the authenticated principal for facts and submissions
 	const userId = setup.db.user?.[0]?.id;
 	expect(userId).toBeString();
 
-	const accepted = await requestBoth(setup.app, accessToken);
+	const accepted = await requestAll(setup.app, accessToken);
 	expect(accepted.facts.status).toBe(200);
 	expect(accepted.submission.status).toBe(200);
-	expect(setup.principals).toEqual([userId, userId]);
+	expect(accepted.document.status).toBe(200);
+	expect(setup.principals).toEqual([userId, userId, userId]);
 
-	const rejected = await requestBoth(setup.app, 'not-a-real-jwt');
+	const rejected = await requestAll(setup.app, 'not-a-real-jwt');
 	expectInvalidBearer(rejected.facts);
 	expectInvalidBearer(rejected.submission);
-	expect(setup.principals).toEqual([userId, userId]);
+	expectInvalidBearer(rejected.document);
+	expect(setup.principals).toEqual([userId, userId, userId]);
 });
 
-test('self-host bearer selects only the instance principal for both routes', async () => {
+test('self-host bearer selects only the instance principal for every data route', async () => {
 	const principals: PrincipalId[] = [];
 	const app = new Hono<Env>();
 	mountScalarV1App(app, {
@@ -175,14 +215,29 @@ test('self-host bearer selects only the instance principal for both routes', asy
 		rawSubmissionBytes: 262144,
 		...createCaptureAuthority(principals),
 	});
+	mountDocumentV1App(app, {
+		auth: requireBearerPrincipal(createEnvTokenResolver(INSTANCE_TOKEN)),
+		limits: authorityV1TestLimits(),
+		...createCaptureAuthority(principals),
+	});
 
-	const accepted = await requestBoth(app, INSTANCE_TOKEN);
+	const accepted = await requestAll(app, INSTANCE_TOKEN);
 	expect(accepted.facts.status).toBe(200);
 	expect(accepted.submission.status).toBe(200);
-	expect(principals).toEqual([INSTANCE_PRINCIPAL_ID, INSTANCE_PRINCIPAL_ID]);
+	expect(accepted.document.status).toBe(200);
+	expect(principals).toEqual([
+		INSTANCE_PRINCIPAL_ID,
+		INSTANCE_PRINCIPAL_ID,
+		INSTANCE_PRINCIPAL_ID,
+	]);
 
-	const rejected = await requestBoth(app, `${INSTANCE_TOKEN}-wrong`);
+	const rejected = await requestAll(app, `${INSTANCE_TOKEN}-wrong`);
 	expectInvalidBearer(rejected.facts);
 	expectInvalidBearer(rejected.submission);
-	expect(principals).toEqual([INSTANCE_PRINCIPAL_ID, INSTANCE_PRINCIPAL_ID]);
+	expectInvalidBearer(rejected.document);
+	expect(principals).toEqual([
+		INSTANCE_PRINCIPAL_ID,
+		INSTANCE_PRINCIPAL_ID,
+		INSTANCE_PRINCIPAL_ID,
+	]);
 });

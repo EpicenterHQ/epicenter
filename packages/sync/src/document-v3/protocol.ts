@@ -78,12 +78,14 @@ export const DOCUMENT_FRAME_LIMITS = {
 export type DocumentFrame =
 	| { kind: 'sync-request'; stateVector: Uint8Array }
 	| { kind: 'sync-response'; update: Uint8Array }
-	| { kind: 'update'; update: Uint8Array };
+	| { kind: 'update'; update: Uint8Array }
+	| { kind: 'publication-response'; acceptance: Uint8Array };
 
 const FRAME_TYPE = {
 	'sync-request': 0,
 	'sync-response': 1,
 	update: 2,
+	'publication-response': 3,
 } as const;
 
 /**
@@ -97,7 +99,11 @@ export function encodeDocumentFrame(
 ): Uint8Array<ArrayBuffer> {
 	assertFrame(frame);
 	const payload =
-		frame.kind === 'sync-request' ? frame.stateVector : frame.update;
+		frame.kind === 'sync-request'
+			? frame.stateVector
+			: frame.kind === 'publication-response'
+				? frame.acceptance
+				: frame.update;
 	const encoded = new Uint8Array(HEADER_BYTES + payload.byteLength);
 	encoded[0] = FRAME_TYPE[frame.kind];
 	encoded.set(payload, HEADER_BYTES);
@@ -122,6 +128,8 @@ export function decodeDocumentFrame(encoded: Uint8Array): DocumentFrame {
 			return { kind: 'sync-response', update: payload };
 		case FRAME_TYPE.update:
 			return { kind: 'update', update: payload };
+		case FRAME_TYPE['publication-response']:
+			return { kind: 'publication-response', acceptance: payload };
 		default:
 			throw new TypeError('Unknown document frame kind');
 	}
@@ -140,6 +148,10 @@ function assertFrame(frame: DocumentFrame): void {
 		case 'update':
 			assertExactKeys(frame, ['kind', 'update']);
 			assertPayload(frame.update);
+			return;
+		case 'publication-response':
+			assertExactKeys(frame, ['kind', 'acceptance']);
+			assertPayload(frame.acceptance);
 			return;
 		default:
 			throw new TypeError('Unknown document frame kind');
