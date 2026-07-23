@@ -28,6 +28,13 @@ import {
 import type { RecordAddress } from '../src/protocol/v1/index.js';
 import { makeLimits } from '../src/protocol/v1/kernel.test-support.js';
 import {
+	type AttachmentConformanceBinding,
+	type AttachmentConformanceReplica,
+	type AttachmentConformanceResult,
+	type AttachmentObservations,
+	runAttachmentConformanceCases,
+} from '../src/store/conformance/attachment-cases.test-support.js';
+import {
 	type BlobConformanceBinding,
 	type BlobConformanceReplica,
 	runBlobConformanceCases,
@@ -62,6 +69,9 @@ import type {
 import type {
 	BlobInspection,
 	DocumentInspection,
+	ReplicaAttachmentState,
+	ReplicaRecordLanes,
+	ReplicaWorkSummary,
 } from '../src/store/replica/index.js';
 import type {
 	BrowserOwedQueryPlans,
@@ -211,7 +221,13 @@ function createDriver(readPage: () => Page | undefined) {
 		action: BrowserReplicaAction,
 	): BrowserReplicaStoreOperation {
 		switch (action.kind) {
+			case 'admit-record-with-blob':
+			case 'attach':
+				throw new Error(
+					`${action.kind} is exercised directly against the browser SQLite adapter`,
+				);
 			case 'append-local':
+			case 'append-local-document':
 				return {
 					kind: 'append-local-document',
 					address: action.address,
@@ -260,11 +276,19 @@ function createDriver(readPage: () => Page | undefined) {
 			case 'inspect-document':
 			case 'export-document':
 			case 'owed-documents':
+			case 'owed-blobs':
 				return productionRequest(page, observation);
 			case 'sync':
 			case 'sealed-request':
 			case 'reconstruct-sealed-request':
 				return productionRequest(page, observation);
+			case 'blob-digest':
+			case 'attachment':
+			case 'work-summary':
+			case 'owed-query-plans':
+				throw new Error(
+					`${observation.kind} is a direct browser SQLite observation`,
+				);
 		}
 	}
 
@@ -278,6 +302,7 @@ function createDriver(readPage: () => Page | undefined) {
 		>[] = [{ kind: 'sync' }, { kind: 'sealed-request' }];
 		switch (action.kind) {
 			case 'append-local':
+			case 'append-local-document':
 			case 'install-accepted':
 			case 'publication':
 			case 'settle-publication':
@@ -293,6 +318,9 @@ function createDriver(readPage: () => Page | undefined) {
 			case 'local-write':
 				observations.push({ kind: 'record', address: action.intent.address });
 				break;
+			case 'admit-record-with-blob':
+				observations.push({ kind: 'record', address: action.address });
+				break;
 			case 'install-facts':
 			case 'settle':
 				for (const fact of action.kind === 'install-facts'
@@ -303,6 +331,7 @@ function createDriver(readPage: () => Page | undefined) {
 				break;
 			case 'seal':
 			case 'erase':
+			case 'attach':
 				break;
 		}
 		for (const observation of observations) {
@@ -357,6 +386,15 @@ function createDriver(readPage: () => Page | undefined) {
 				);
 				throw cause;
 			}
+		},
+		openShadow(fixture: { replicaId: string; authorityLifetime?: string }) {
+			return requirePage(readPage).evaluate(
+				(fixture) => window.browserReplicaConformanceEvidence.open(fixture),
+				fixture,
+			);
+		},
+		observeShadow(observation: BrowserReplicaObservation) {
+			return observeOn(requirePage(readPage), observation);
 		},
 		observe(observation: BrowserReplicaObservation) {
 			if (
@@ -490,6 +528,15 @@ function createDriver(readPage: () => Page | undefined) {
 			await assertShadowMatchesProduction(page, action);
 			return productionResult;
 		},
+		commitShadow(action: BrowserReplicaAction) {
+			return requirePage(readPage).evaluate(
+				(action: unknown) =>
+					window.browserReplicaConformanceEvidence.commit(
+						action as BrowserReplicaAction,
+					),
+				action as never,
+			) as Promise<BrowserReplicaTestResult>;
+		},
 		async crash(action: BrowserReplicaAction, boundary: number) {
 			const mainPage = requirePage(readPage);
 			const databaseBytes = await mainPage.evaluate(() =>
@@ -546,6 +593,28 @@ function createDriver(readPage: () => Page | undefined) {
 			if (status.role !== 'owner' || status.ownerSession === null) {
 				throw new Error('browser conformance candidate lost its owner session');
 			}
+		},
+		reopenShadow() {
+			return requirePage(readPage).evaluate(() =>
+				window.browserReplicaConformanceEvidence.reopen(),
+			);
+		},
+		async disposeShadow() {
+			for (const crashedId of [...crashedPages.keys()]) {
+				const page = crashedPages.get(crashedId);
+				if (page === undefined) continue;
+				crashedPages.delete(crashedId);
+				try {
+					await page.evaluate(() =>
+						window.browserReplicaConformanceEvidence.closeCurrent(true),
+					);
+				} finally {
+					await page.close();
+				}
+			}
+			await requirePage(readPage).evaluate(() =>
+				window.browserReplicaConformanceEvidence.dispose(),
+			);
 		},
 		async dispose() {
 			for (const crashedId of [...crashedPages.keys()]) {
@@ -665,6 +734,78 @@ function documentConformanceReplica(
 	};
 }
 
+function attachmentObservations(
+	driver: Driver,
+	crashedId?: number,
+): AttachmentObservations {
+	function observe(observation: BrowserReplicaObservation) {
+		return crashedId === undefined
+			? driver.observeShadow(observation)
+			: driver.observeCrashed(crashedId, observation);
+	}
+	return {
+		attachment: () =>
+			observe({ kind: 'attachment' }) as Promise<ReplicaAttachmentState>,
+		record: (address) =>
+			observe({
+				kind: 'record',
+				address,
+			}) as Promise<ReplicaRecordLanes | null>,
+		sync: () => observe({ kind: 'sync' }) as Promise<ReplicaSync>,
+		workSummary: () =>
+			observe({ kind: 'work-summary' }) as Promise<ReplicaWorkSummary>,
+		owedDocuments: (limit) =>
+			observe({ kind: 'owed-documents', limit }) as Promise<RecordAddress[]>,
+		owedBlobs: (limit) =>
+			observe({ kind: 'owed-blobs', limit }) as Promise<RecordAddress[]>,
+		blobDigest: (address) =>
+			observe({ kind: 'blob-digest', address }) as Promise<string | null>,
+		inspectDocument: (address) =>
+			observe({
+				kind: 'inspect-document',
+				address,
+			}) as Promise<DocumentInspection | null>,
+		exportDocument: (address) =>
+			observe({ kind: 'export-document', address }) as Promise<
+				Uint8Array | undefined
+			>,
+		snapshot: () => observe({ kind: 'snapshot' }) as Promise<string>,
+	};
+}
+
+function attachmentConformanceReplica(
+	driver: Driver,
+): AttachmentConformanceReplica {
+	return {
+		...attachmentObservations(driver),
+		async prepare(action) {
+			const analysis = await driver.analyze(action);
+			if (analysis.error !== undefined) {
+				const error = new Error(analysis.error.message);
+				error.name = analysis.error.name;
+				throw error;
+			}
+			return {
+				boundaries: analysis.boundaries,
+				async crash(boundary) {
+					const crashedId = await driver.crash(action, boundary);
+					return {
+						...attachmentObservations(driver, crashedId),
+						close: () => driver.closeCrashed(crashedId),
+					};
+				},
+				commit: () =>
+					driver.commitShadow(action) as Promise<AttachmentConformanceResult>,
+			};
+		},
+		async reopen() {
+			await driver.reopenShadow();
+			return attachmentConformanceReplica(driver);
+		},
+		dispose: () => driver.disposeShadow(),
+	};
+}
+
 function conformanceReplica(driver: Driver): ConformanceReplica {
 	async function prepare(action: BrowserReplicaAction) {
 		const analysis = await driver.analyze(action);
@@ -742,6 +883,20 @@ function createDocumentBinding(
 				},
 			});
 			return documentConformanceReplica(driver);
+		},
+	};
+}
+
+function createAttachmentBinding(
+	name: string,
+	readPage: () => Page | undefined,
+): AttachmentConformanceBinding {
+	const driver = createDriver(readPage);
+	return {
+		name,
+		async create(fixture) {
+			await driver.openShadow(fixture);
+			return attachmentConformanceReplica(driver);
 		},
 	};
 }
@@ -827,6 +982,18 @@ runReplicaConformanceCases(
 	createBinding(
 		'production browser replica store (Chromium)',
 		() => chromiumPage,
+	),
+);
+runAttachmentConformanceCases(
+	createAttachmentBinding(
+		'production browser SQLite replica adapter (Chromium)',
+		() => chromiumPage,
+	),
+);
+runAttachmentConformanceCases(
+	createAttachmentBinding(
+		'production browser SQLite replica adapter (WebKit)',
+		() => webkitPage,
 	),
 );
 

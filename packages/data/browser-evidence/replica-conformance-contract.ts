@@ -4,6 +4,10 @@ import type {
 	SubmissionResponse,
 } from '../src/protocol/v1/index.js';
 import type {
+	AttachmentConformanceAction,
+	AttachmentConformanceResult,
+} from '../src/store/conformance/attachment-cases.test-support.js';
+import type {
 	DocumentAction,
 	DocumentActionResult,
 } from '../src/store/conformance/document-cases.test-support.js';
@@ -13,10 +17,15 @@ import type {
 	ReplicaSync,
 	SealWitness,
 } from '../src/store/conformance/replica-cases.test-support.js';
-import type { DocumentInspection } from '../src/store/replica/index.js';
+import type {
+	DocumentInspection,
+	ReplicaAttachmentState,
+	ReplicaWorkSummary,
+} from '../src/store/replica/index.js';
 
 export type BrowserReplicaAction =
 	| DocumentAction
+	| AttachmentConformanceAction
 	| { kind: 'local-write'; intent: Intent }
 	| { kind: 'seal' }
 	| { kind: 'settle'; response: SubmissionResponse }
@@ -32,6 +41,10 @@ export type BrowserReplicaObservation =
 	| { kind: 'inspect-document'; address: RecordAddress }
 	| { kind: 'export-document'; address: RecordAddress }
 	| { kind: 'owed-documents'; limit: number }
+	| { kind: 'owed-blobs'; limit: number }
+	| { kind: 'blob-digest'; address: RecordAddress }
+	| { kind: 'attachment' }
+	| { kind: 'work-summary' }
 	| { kind: 'owed-query-plans' };
 
 export type BrowserOwedQueryPlans = {
@@ -60,7 +73,10 @@ export type BrowserReplicaTestRequest =
 
 export type BrowserReplicaAnalysis = {
 	boundaries: number;
-	result?: SealWitness | DocumentActionResult;
+	result?:
+		| SealWitness
+		| DocumentActionResult
+		| Exclude<AttachmentConformanceResult, undefined>;
 	error?: { name: string; message: string };
 };
 
@@ -69,8 +85,11 @@ export type BrowserReplicaTestResult =
 	| Uint8Array
 	| BrowserReplicaAnalysis
 	| BrowserOwedQueryPlans
+	| AttachmentConformanceResult
 	| RecordAddress[]
 	| DocumentInspection
+	| ReplicaAttachmentState
+	| ReplicaWorkSummary
 	| DocumentActionResult
 	| RecordLanes
 	| ReplicaSync

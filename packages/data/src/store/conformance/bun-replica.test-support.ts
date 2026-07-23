@@ -10,6 +10,12 @@ import { canonicalize } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import { openReplicaStore, type ReplicaStore } from '../replica/index.js';
 import type {
+	AttachmentConformanceAction,
+	AttachmentConformanceBinding,
+	AttachmentConformanceReplica,
+	AttachmentObservations,
+} from './attachment-cases.test-support.js';
+import type {
 	DocumentAction,
 	DocumentActionResult,
 	DocumentConformanceBinding,
@@ -111,6 +117,39 @@ function crashAdapter(
 			} catch (cause) {
 				isInsideTransaction = false;
 				run(database, 'ROLLBACK');
+				throw cause;
+			}
+		},
+	};
+}
+
+function committedCrashAdapter(
+	database: Database,
+	path: string,
+	recoveredPath: string,
+): SqliteDatabase {
+	return {
+		run(sql, parameters): void {
+			run(database, sql, parameters);
+		},
+		all<TRow extends SqliteRow>(
+			sql: string,
+			parameters?: readonly SqliteValue[],
+		) {
+			return all<TRow>(database, sql, parameters);
+		},
+		readTransaction<TResult>(work: () => TResult): TResult {
+			return database.transaction(work).deferred();
+		},
+		transaction<TResult>(work: () => TResult): TResult {
+			run(database, 'BEGIN IMMEDIATE');
+			try {
+				work();
+				run(database, 'COMMIT');
+				copyFileSync(path, recoveredPath);
+				throw new CapturedCrash();
+			} catch (cause) {
+				if (!(cause instanceof CapturedCrash)) run(database, 'ROLLBACK');
 				throw cause;
 			}
 		},
@@ -221,6 +260,29 @@ class BunReplicaFixture {
 		return BunReplicaFixture.open(recoveredPath);
 	}
 
+	crashAfterCommit(action: StoreAction): BunReplicaFixture {
+		copyCounter += 1;
+		const workingPath = `${this.path}.working-${copyCounter}`;
+		const recoveredPath = `${this.path}.crash-${copyCounter}`;
+		copyFileSync(this.path, workingPath);
+		const database = new Database(workingPath, { strict: true });
+		try {
+			const store = openReplicaStore({
+				database: committedCrashAdapter(database, workingPath, recoveredPath),
+				limits: LIMITS,
+			});
+			action(store);
+			throw new Error('attachment commit boundary was not reached');
+		} catch (cause) {
+			if (!(cause instanceof CapturedCrash)) throw cause;
+		} finally {
+			database.close();
+			rmSync(workingPath, { force: true });
+			rmSync(`${workingPath}-journal`, { force: true });
+		}
+		return BunReplicaFixture.open(recoveredPath);
+	}
+
 	reopen(): BunReplicaFixture {
 		this.database.close();
 		const reopened = BunReplicaFixture.open(this.path);
@@ -298,6 +360,88 @@ function conformanceReplica(fixture: BunReplicaFixture): ConformanceReplica {
 export const bunReplicaBinding: ReplicaConformanceBinding = {
 	name: 'production Bun replica store',
 	create: (fixture) => conformanceReplica(BunReplicaFixture.create(fixture)),
+};
+
+function attachmentAction(
+	store: ReplicaStore,
+	action: AttachmentConformanceAction,
+) {
+	switch (action.kind) {
+		case 'admit-record-with-blob':
+			store.admitLocalRecordWithBlob(action);
+			return undefined;
+		case 'append-local-document':
+			store.appendLocalDocumentUpdate(action.address, action.update);
+			return undefined;
+		case 'attach':
+			return store.attach(action.attachment, action.choice);
+		case 'install-facts':
+			store.installFacts(action.page);
+			return undefined;
+		case 'seal':
+			return store.seal();
+		case 'settle':
+			store.settle(action.response);
+			return undefined;
+	}
+}
+
+function attachmentObservations(
+	fixture: BunReplicaFixture,
+): AttachmentObservations {
+	return {
+		attachment: () => fixture.store.attachment(),
+		record: (address) => fixture.store.record(address),
+		sync: () => fixture.store.sync(),
+		workSummary: () => fixture.store.workSummary(),
+		owedDocuments: (limit) => fixture.store.owedDocuments(limit),
+		owedBlobs: (limit) => fixture.store.owedBlobs(limit),
+		blobDigest: (address) =>
+			all<{ blob_sha256: string | null }>(
+				fixture.database,
+				`SELECT blob_sha256 FROM records
+				WHERE namespace = ? AND collection = ? AND record_key = ?`,
+				[address.namespace, address.collection, address.recordKey],
+			)[0]?.blob_sha256 ?? null,
+		inspectDocument: (address) => fixture.store.inspectDocument(address),
+		exportDocument: (address) => fixture.store.exportDocument(address),
+		snapshot: () => fixture.snapshot(),
+	};
+}
+
+function attachmentConformanceReplica(
+	fixture: BunReplicaFixture,
+): AttachmentConformanceReplica {
+	return {
+		...attachmentObservations(fixture),
+		prepare(action) {
+			const execute = (store: ReplicaStore) => attachmentAction(store, action);
+			const analyzed = fixture.analyze(execute);
+			const includesCommitBoundary = action.kind === 'attach';
+			return {
+				boundaries: analyzed.boundaries + (includesCommitBoundary ? 1 : 0),
+				crash(boundary) {
+					const crashed =
+						includesCommitBoundary && boundary === analyzed.boundaries + 1
+							? fixture.crashAfterCommit(execute)
+							: fixture.crash(execute, boundary);
+					return {
+						...attachmentObservations(crashed),
+						close: () => crashed.close(),
+					};
+				},
+				commit: () => execute(fixture.store),
+			};
+		},
+		reopen: () => attachmentConformanceReplica(fixture.reopen()),
+		dispose: () => fixture.dispose(),
+	};
+}
+
+export const bunAttachmentBinding: AttachmentConformanceBinding = {
+	name: 'production Bun replica store',
+	create: (fixture) =>
+		attachmentConformanceReplica(BunReplicaFixture.create(fixture)),
 };
 
 const DOCUMENT_ADDRESS = {

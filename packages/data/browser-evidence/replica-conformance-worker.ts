@@ -94,7 +94,11 @@ function logicalState(target: Database): string {
 
 function executeAction(target: ReplicaStore, action: BrowserReplicaAction) {
 	switch (action.kind) {
+		case 'admit-record-with-blob':
+			target.admitLocalRecordWithBlob(action);
+			return undefined;
 		case 'append-local':
+		case 'append-local-document':
 			target.appendLocalDocumentUpdate(action.address, action.update);
 			return undefined;
 		case 'install-accepted':
@@ -123,6 +127,8 @@ function executeAction(target: ReplicaStore, action: BrowserReplicaAction) {
 		case 'erase':
 			target.erase();
 			return undefined;
+		case 'attach':
+			return target.attach(action.attachment, action.choice);
 	}
 }
 
@@ -147,6 +153,24 @@ function observe(
 			return target.exportDocument(observation.address);
 		case 'owed-documents':
 			return target.owedDocuments(observation.limit);
+		case 'owed-blobs':
+			return target.owedBlobs(observation.limit);
+		case 'blob-digest':
+			return (
+				adapterFor(requireDatabase()).all<{ blob_sha256: string | null }>(
+					`SELECT blob_sha256 FROM records
+					WHERE namespace = ? AND collection = ? AND record_key = ?`,
+					[
+						observation.address.namespace,
+						observation.address.collection,
+						observation.address.recordKey,
+					],
+				)[0]?.blob_sha256 ?? null
+			);
+		case 'attachment':
+			return target.attachment();
+		case 'work-summary':
+			return target.workSummary();
 		case 'owed-query-plans': {
 			const database = adapterFor(requireDatabase());
 			const explain = (sql: string) =>
@@ -189,7 +213,10 @@ function analyze(action: BrowserReplicaAction) {
 	};
 	const analysisStore = openReplicaStore({ database: analysisAdapter, limits });
 	const result = executeAction(analysisStore, action);
-	return { boundaries: writes, ...(result === undefined ? {} : { result }) };
+	return {
+		boundaries: writes + (action.kind === 'attach' ? 1 : 0),
+		...(result === undefined ? {} : { result }),
+	};
 }
 
 function crash(
@@ -224,6 +251,12 @@ function crash(
 				const result = work();
 				insideTransaction = false;
 				base.run('COMMIT');
+				if (action.kind === 'attach' && writes + 1 === boundary) {
+					scope.postMessage({ type: 'crash-boundary', id: requestId });
+					const fence = new Int32Array(new SharedArrayBuffer(4));
+					Atomics.wait(fence, 0, 0);
+					throw new Error('unreachable committed crash fence resumed');
+				}
 				return result;
 			} catch (cause) {
 				insideTransaction = false;

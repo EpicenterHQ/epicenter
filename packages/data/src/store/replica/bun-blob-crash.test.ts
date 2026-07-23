@@ -19,11 +19,147 @@ const ADDRESS: RecordAddress = {
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 };
 
+const ATTACHMENT = {
+	deploymentId: 'https://api.epicenter.so/',
+	principalId: 'principal-one',
+} as const;
+
 async function* source(value: string): AsyncIterable<Uint8Array> {
 	yield new TextEncoder().encode(value);
 }
 
 describe('Bun blob owner crash conformance', () => {
+	test('Bring keeps raw bytes publishable across attachment and reopen', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'epicenter-blob-bring-'));
+		const databasePath = join(root, 'epicenter.sqlite3');
+		try {
+			const raw = new Database(databasePath, { create: true, strict: true });
+			const adapter = createBunSqliteAdapter(raw);
+			const replica = openReplicaStore({
+				database: adapter,
+				limits: makeLimits(),
+				initialize: { replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr' },
+			});
+			const blobs = createReplicaBlobStore(
+				adapter,
+				createBunBlobFileStore(root),
+			);
+			const digest = await blobs.captureNewRecord(
+				ADDRESS,
+				source('bring bytes'),
+				(blobDigest) =>
+					replica.admitLocalRecordWithBlob({
+						address: ADDRESS,
+						payload: { title: 'kept' },
+						digest: blobDigest,
+					}),
+			);
+			expect(replica.attach(ATTACHMENT, 'bring')).toEqual({
+				attached: true,
+				discarded: false,
+			});
+			raw.close();
+
+			const reopenedRaw = new Database(databasePath, { strict: true });
+			try {
+				const reopenedAdapter = createBunSqliteAdapter(reopenedRaw);
+				const reopenedReplica = openReplicaStore({
+					database: reopenedAdapter,
+					limits: makeLimits(),
+				});
+				const reopenedBlobs = createReplicaBlobStore(
+					reopenedAdapter,
+					createBunBlobFileStore(root),
+				);
+				await reopenedBlobs.reopenSweep();
+				await reopenedBlobs.reopenSweep();
+				expect(reopenedReplica.attachment()).toEqual({
+					kind: 'attached',
+					attachment: ATTACHMENT,
+				});
+				expect(reopenedBlobs.inspect(ADDRESS)).toEqual({
+					kind: 'owed',
+					digest,
+				});
+				reopenedReplica.installFacts({
+					request: { afterSequence: 0 },
+					response: {
+						authorityLifetime: 'lifetime-one',
+						facts: [],
+						hasMore: false,
+					},
+				});
+				const publication = await reopenedBlobs.publication(ADDRESS);
+				expect(publication?.request.digest).toBe(digest);
+				expect(
+					publication === null
+						? null
+						: await new Response(publication.bytes).text(),
+				).toBe('bring bytes');
+			} finally {
+				reopenedRaw.close();
+			}
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test('Discard reopens attached and sweeps the unowned raw bytes', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'epicenter-blob-discard-'));
+		const databasePath = join(root, 'epicenter.sqlite3');
+		try {
+			const raw = new Database(databasePath, { create: true, strict: true });
+			const adapter = createBunSqliteAdapter(raw);
+			const replica = openReplicaStore({
+				database: adapter,
+				limits: makeLimits(),
+				initialize: { replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr' },
+			});
+			const blobs = createReplicaBlobStore(
+				adapter,
+				createBunBlobFileStore(root),
+			);
+			await blobs.captureNewRecord(ADDRESS, source('discard bytes'), (digest) =>
+				replica.admitLocalRecordWithBlob({
+					address: ADDRESS,
+					payload: { title: 'discarded' },
+					digest,
+				}),
+			);
+			expect(replica.attach(ATTACHMENT, 'discard')).toEqual({
+				attached: true,
+				discarded: true,
+			});
+			raw.close();
+
+			const reopenedRaw = new Database(databasePath, { strict: true });
+			try {
+				const reopenedAdapter = createBunSqliteAdapter(reopenedRaw);
+				const reopenedReplica = openReplicaStore({
+					database: reopenedAdapter,
+					limits: makeLimits(),
+				});
+				const reopenedBlobs = createReplicaBlobStore(
+					reopenedAdapter,
+					createBunBlobFileStore(root),
+				);
+				await reopenedBlobs.reopenSweep();
+				await reopenedBlobs.reopenSweep();
+				expect(reopenedReplica.attachment()).toEqual({
+					kind: 'attached',
+					attachment: ATTACHMENT,
+				});
+				expect(reopenedReplica.visible(ADDRESS)).toBeNull();
+				expect(reopenedBlobs.inspect(ADDRESS)).toEqual({ kind: 'absent' });
+				expect(await readdir(join(root, 'blobs', 'content'))).toEqual([]);
+			} finally {
+				reopenedRaw.close();
+			}
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test('new-record admission rolls back a crash after its SQLite insert', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'epicenter-new-blob-sql-crash-'));
 		const databasePath = join(root, 'epicenter.sqlite3');
