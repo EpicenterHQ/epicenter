@@ -134,9 +134,7 @@ function logicalState(database: Database): string {
 		JOIN records r ON r.record_id = d.record_id
 		ORDER BY r.namespace, r.collection, r.record_key, d.seq`,
 	);
-	return canonicalize(
-		JSON.parse(JSON.stringify({ meta, records, documents })),
-	);
+	return canonicalize(JSON.parse(JSON.stringify({ meta, records, documents })));
 }
 
 type StoreAction<TResult = void> = (store: ReplicaStore) => TResult;
@@ -340,6 +338,7 @@ function documentConformanceReplica(
 	return {
 		inspectDocument: (address) => fixture.store.inspectDocument(address),
 		exportDocument: (address) => fixture.store.exportDocument(address),
+		owedDocuments: (limit) => fixture.store.owedDocuments(limit),
 		snapshot: () => fixture.snapshot(),
 		prepare(action) {
 			const execute = (store: ReplicaStore) => documentAction(store, action);
@@ -352,6 +351,7 @@ function documentConformanceReplica(
 						inspectDocument: (address) =>
 							crashed.store.inspectDocument(address),
 						exportDocument: (address) => crashed.store.exportDocument(address),
+						owedDocuments: (limit) => crashed.store.owedDocuments(limit),
 						snapshot: () => crashed.snapshot(),
 						close: () => crashed.close(),
 					};

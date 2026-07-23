@@ -38,6 +38,8 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'record'; address: RecordAddress }
 	| { kind: 'sync' }
 	| { kind: 'sealed-request' }
+	| { kind: 'owed-documents'; limit: number }
+	| { kind: 'owed-blobs'; limit: number }
 	| { kind: 'local-write'; intent: Intent }
 	| { kind: 'seal' }
 	| { kind: 'reconstruct-sealed-request' }
@@ -58,7 +60,11 @@ export type BrowserReplicaOwnerOperation =
 	  }
 	| { kind: 'inspect-document'; address: RecordAddress }
 	| { kind: 'export-document'; address: RecordAddress }
-	| { kind: 'document-publication'; address: RecordAddress }
+	| {
+			kind: 'document-publication';
+			address: RecordAddress;
+			stateVector?: Uint8Array;
+	  }
 	| {
 			kind: 'settle-document-publication';
 			address: RecordAddress;
@@ -91,6 +97,7 @@ export type BrowserReplicaOwnerResult =
 	| ReplicaRecordLanes
 	| ReplicaStoreSync
 	| SealedRequest
+	| RecordAddress[]
 	| DocumentInspection
 	| DocumentPublicationState
 	| BlobInspection

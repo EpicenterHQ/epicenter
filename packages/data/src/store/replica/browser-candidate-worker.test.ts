@@ -11,6 +11,8 @@
  */
 import { expect, test } from 'bun:test';
 
+import { BLOB_PUBLICATION_VERSION } from '../../blob-v1/index.js';
+import { DOCUMENT_PUBLICATION_VERSION } from '../../document-v1/index.js';
 import type { RecordAddress } from '../../protocol/v1/index.js';
 import { makeLimits } from '../../protocol/v1/kernel.test-support.js';
 import type {
@@ -41,6 +43,60 @@ const start: BrowserReplicaCandidateStart = {
 	initialize: { replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr' },
 	coordinationId: 'candidate-liveness-test',
 };
+
+const countedMutationKinds = new Set<BrowserReplicaStoreOperation['kind']>([
+	'local-write',
+	'append-local-document',
+	'install-accepted-document',
+	'document-publication',
+	'settle-document-publication',
+	'capture-blob',
+	'settle-blob-publication',
+	'sweep-blob-debris',
+]);
+
+const w3MutationOperations = [
+	{
+		kind: 'append-local-document',
+		address,
+		update: new Uint8Array([1]),
+	},
+	{
+		kind: 'install-accepted-document',
+		address,
+		update: new Uint8Array([2]),
+	},
+	{
+		kind: 'document-publication',
+		address,
+	},
+	{
+		kind: 'settle-document-publication',
+		address,
+		proof: {
+			authorityLifetime: 'authority-lifetime',
+			address,
+			protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+			digest: 'a'.repeat(64),
+		},
+		captured: { revision: 1, digest: 'a'.repeat(64) },
+	},
+	{ kind: 'capture-blob', address, bytes: new Blob(['immutable']) },
+	{
+		kind: 'settle-blob-publication',
+		address,
+		acceptance: {
+			kind: 'accepted',
+			receipt: {
+				authorityLifetime: 'authority-lifetime',
+				address,
+				protocolVersion: BLOB_PUBLICATION_VERSION,
+				digest: 'b'.repeat(64),
+			},
+		},
+	},
+	{ kind: 'sweep-blob-debris' },
+] satisfies BrowserReplicaStoreOperation[];
 
 type LossRule = {
 	sender: string;
@@ -194,7 +250,6 @@ async function setup(options?: {
 	const followerScope = new FakeWorkerScope();
 	const followerOwnership = deferred<{
 		execute(operation: BrowserReplicaStoreOperation): BrowserReplicaOwnerResult;
-		subscribeInvalidation(listener: () => void): () => void;
 		dispose(): Promise<void>;
 	}>();
 	const values = new Map<string, string>();
@@ -206,7 +261,6 @@ async function setup(options?: {
 	};
 
 	function createOwner(label: 'owner' | 'follower') {
-		const invalidationListeners = new Set<() => void>();
 		return {
 			execute(
 				operation: BrowserReplicaStoreOperation,
@@ -215,21 +269,18 @@ async function setup(options?: {
 					executions[`${label}Reads`] += 1;
 					return values.get(operation.address.recordKey) ?? null;
 				}
-				if (operation.kind === 'local-write') {
+				if (countedMutationKinds.has(operation.kind)) {
 					executions[`${label}Mutations`] += 1;
+				}
+				if (operation.kind === 'local-write') {
 					if (operation.intent.op === 'replace') {
 						values.set(
 							operation.intent.address.recordKey,
 							String(operation.intent.value),
 						);
 					}
-					for (const listener of invalidationListeners) listener();
 				}
 				return undefined;
-			},
-			subscribeInvalidation(listener: () => void): () => void {
-				invalidationListeners.add(listener);
-				return () => invalidationListeners.delete(listener);
 			},
 			async dispose(): Promise<void> {
 				if (label === 'owner')
@@ -452,4 +503,27 @@ test('pending mutation fails owner-lost and is not replayed after handoff', asyn
 	});
 	expect(executions.ownerMutations).toBe(1);
 	expect(executions.followerMutations).toBe(0);
+});
+
+test('pending document and blob mutations are never replayed after owner handoff', async () => {
+	for (const operation of w3MutationOperations) {
+		const { hub, followerScope, ownerScope, executions } = await setup();
+		hub.dropNext('owner', 'response');
+		followerScope.send({ type: 'request', id: 1, operation });
+		await flush();
+		expect(executions.ownerMutations, operation.kind).toBe(1);
+
+		ownerScope.send({ type: 'close' });
+		await flush();
+
+		expect(
+			messagesOfType(followerScope, 'error').at(-1),
+			operation.kind,
+		).toMatchObject({
+			id: 1,
+			name: 'EpicenterBrowserOwnerLostError',
+		});
+		expect(executions.ownerMutations, operation.kind).toBe(1);
+		expect(executions.followerMutations, operation.kind).toBe(0);
+	}
 });

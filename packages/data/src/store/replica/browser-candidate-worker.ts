@@ -101,7 +101,6 @@ function isRetryable(operation: BrowserReplicaStoreOperation): boolean {
 		case 'reconstruct-sealed-request':
 		case 'inspect-document':
 		case 'export-document':
-		case 'document-publication':
 		case 'inspect-blob':
 		case 'blob-publication':
 		case 'read-blob':
@@ -114,6 +113,7 @@ function isRetryable(operation: BrowserReplicaStoreOperation): boolean {
 		case 'settle':
 		case 'append-local-document':
 		case 'install-accepted-document':
+		case 'document-publication':
 		case 'settle-document-publication':
 		case 'capture-blob':
 		case 'settle-blob-publication':

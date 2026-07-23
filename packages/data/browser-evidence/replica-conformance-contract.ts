@@ -4,13 +4,19 @@ import type {
 	SubmissionResponse,
 } from '../src/protocol/v1/index.js';
 import type {
+	DocumentAction,
+	DocumentActionResult,
+} from '../src/store/conformance/document-cases.test-support.js';
+import type {
 	FactsPage,
 	RecordLanes,
 	ReplicaSync,
 	SealWitness,
 } from '../src/store/conformance/replica-cases.test-support.js';
+import type { DocumentInspection } from '../src/store/replica/index.js';
 
 export type BrowserReplicaAction =
+	| DocumentAction
 	| { kind: 'local-write'; intent: Intent }
 	| { kind: 'seal' }
 	| { kind: 'settle'; response: SubmissionResponse }
@@ -22,7 +28,16 @@ export type BrowserReplicaObservation =
 	| { kind: 'sync' }
 	| { kind: 'sealed-request' }
 	| { kind: 'snapshot' }
-	| { kind: 'reconstruct-sealed-request' };
+	| { kind: 'reconstruct-sealed-request' }
+	| { kind: 'inspect-document'; address: RecordAddress }
+	| { kind: 'export-document'; address: RecordAddress }
+	| { kind: 'owed-documents'; limit: number }
+	| { kind: 'owed-query-plans' };
+
+export type BrowserOwedQueryPlans = {
+	document: string[];
+	blob: string[];
+};
 
 export type BrowserReplicaTestRequest =
 	| {
@@ -45,13 +60,18 @@ export type BrowserReplicaTestRequest =
 
 export type BrowserReplicaAnalysis = {
 	boundaries: number;
-	result?: SealWitness;
+	result?: SealWitness | DocumentActionResult;
+	error?: { name: string; message: string };
 };
 
 export type BrowserReplicaTestResult =
 	| undefined
 	| Uint8Array
 	| BrowserReplicaAnalysis
+	| BrowserOwedQueryPlans
+	| RecordAddress[]
+	| DocumentInspection
+	| DocumentActionResult
 	| RecordLanes
 	| ReplicaSync
 	| SealWitness
@@ -84,7 +104,7 @@ export type BrowserReplicaConformanceEvidenceDriver = {
 		observation: BrowserReplicaObservation,
 	): Promise<BrowserReplicaTestResult>;
 	analyze(action: BrowserReplicaAction): Promise<BrowserReplicaAnalysis>;
-	commit(action: BrowserReplicaAction): Promise<void>;
+	commit(action: BrowserReplicaAction): Promise<BrowserReplicaTestResult>;
 	reopen(): Promise<void>;
 	dispose(): Promise<void>;
 	openStorage(
