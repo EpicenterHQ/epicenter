@@ -17,7 +17,10 @@
  * addressing shape here does not change.
  */
 
-import { BEARER_SUBPROTOCOL_PREFIX, MAIN_SUBPROTOCOL } from '@epicenter/sync';
+import {
+	BEARER_SUBPROTOCOL_PREFIX,
+	MAIN_SUBPROTOCOL,
+} from '@epicenter/sync/auth-subprotocol';
 
 const stripTrailing = (s: string): string => s.replace(/\/+$/, '');
 

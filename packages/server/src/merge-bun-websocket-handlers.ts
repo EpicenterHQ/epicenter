@@ -4,10 +4,10 @@
  * dispatching each socket to its owner by the `surface` tag on `ws.data`.
  *
  * `Bun.serve` accepts exactly ONE `websocket` handler, but a Bun host that
- * serves rooms, record documents, and AttachRelay needs them on one port and
+ * serves record documents and AttachRelay needs them on one port and
  * one server. Each backend
- * owns a DISJOINT `ws.data` shape (`createBunRooms` tags `surface: 'rooms'`,
- * `createAttachRelayBunServer` tags `surface: 'attach'`) and its own coordinator
+ * owns a DISJOINT `ws.data` shape (`createAttachRelayBunServer` tags
+ * `surface: 'attach'`) and its own coordinator
  * state, so this merge never blends the two: it reads the tag stamped at
  * `server.upgrade` time and forwards every lifecycle callback to the one handler
  * that owns that socket. The `surface` tag is a server-side dispatch discriminant
@@ -22,11 +22,9 @@
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
 import type { AttachRelaySocketData } from './attach-relay/bun-server.js';
 import type { BunDataDocumentV1SocketData } from './epicenter-sync/document-realtime-v1-bun.js';
-import type { BunRoomSocketData } from './room/backends/bun/registry.js';
 
 /** The disjoint `ws.data` shapes this merged handler dispatches between. */
 export type MergedSocketData =
-	| BunRoomSocketData
 	| AttachRelaySocketData
 	| BunDataDocumentV1SocketData;
 
@@ -39,16 +37,12 @@ export type MergedSocketData =
  * directly.
  */
 export function mergeBunWebSocketHandlers(handlers: {
-	rooms: WebSocketHandler<BunRoomSocketData>;
 	dataDocuments?: WebSocketHandler<BunDataDocumentV1SocketData>;
 	attach?: WebSocketHandler<AttachRelaySocketData>;
 }): WebSocketHandler<MergedSocketData> {
 	const pick = (
 		ws: ServerWebSocket<MergedSocketData>,
 	): WebSocketHandler<MergedSocketData> => {
-		if (ws.data.surface === 'rooms') {
-			return handlers.rooms as WebSocketHandler<MergedSocketData>;
-		}
 		if (ws.data.surface === 'epicenter-data-document') {
 			if (handlers.dataDocuments === undefined) {
 				throw new Error('Record document WebSocket handler is not installed');

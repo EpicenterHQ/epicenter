@@ -90,7 +90,7 @@ export type AttachHostDirectoryEntry = typeof AttachHostDirectoryEntry.infer;
  * The read seam a discovery mount drives: given the server-stamped principal,
  * return that principal's host directory entries. One deployment binds one
  * backend behind it (the Bun self-host reader below; a Cloud per-principal index
- * later), exactly the `resolveRelay`/`resolveRooms` shape, so the mount stays
+ * later), exactly the `resolveRelay` shape, so the mount stays
  * backend-blind. Async so a Durable-Object-backed index can satisfy it.
  */
 export type HostDirectoryReader = {

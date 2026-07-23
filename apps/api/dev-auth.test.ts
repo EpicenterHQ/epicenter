@@ -8,7 +8,7 @@
  * that the wrapper honors the resolver it was given instead of a hardcoded one.
  *
  * Imported from `@epicenter/server/bun` (not the main barrel) so the Cloudflare
- * `Room` Durable Object module, which imports `cloudflare:workers`, never loads
+ * Cloudflare Durable Object modules, which import `cloudflare:workers`, never load
  * in this Bun test.
  */
 

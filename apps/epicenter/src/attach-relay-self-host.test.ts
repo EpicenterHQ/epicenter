@@ -36,12 +36,10 @@ import { join } from 'node:path';
 import type { AgentEngine, EngineChunk } from '@epicenter/agent';
 import {
 	createAttachRelayBunServer,
-	createBunRooms,
 	createDeviceGrantStore,
 	createEnvTokenResolver,
 	createServerApp,
 	type DeviceGrantStore,
-	mergeBunWebSocketHandlers,
 	mountAttachGrantsApp,
 	mountAttachRelayApp,
 	mountHostDirectoryApp,
@@ -85,7 +83,7 @@ function createTestHost(engine: AgentEngine) {
  * Stand up the authenticated self-host relay: `createServerApp` +
  * `mountAttachRelayApp` (attach connects gated by device grants) +
  * `mountAttachGrantsApp` (the admin surface gated by the operator token), sharing
- * one `Bun.serve` with the rooms backend. This is the exact production wiring of
+ * one `Bun.serve`. This is the exact production wiring of
  * `apps/self-host/server.ts`, minus inference/blobs. Returns the grant store so a
  * test can mint and revoke directly, plus the HTTP origin for the admin surface.
  */
@@ -95,11 +93,9 @@ function serveSelfHostRelay(operatorToken: string): {
 	httpOrigin: string;
 	grants: DeviceGrantStore;
 } {
-	const bunRooms = createBunRooms({ dir: testDataDir() });
 	const attachRelay = createAttachRelayBunServer();
 	const grants = createDeviceGrantStore();
 	const app = createServerApp({
-		resolveRooms: () => bunRooms.rooms,
 		identity: {
 			resolveOrigin: () => 'http://127.0.0.1',
 			resolveTrustedOrigins: () => [],
@@ -123,12 +119,8 @@ function serveSelfHostRelay(operatorToken: string): {
 		hostname: '127.0.0.1',
 		port: 0,
 		fetch: (req) => app.fetch(req, {} as never),
-		websocket: mergeBunWebSocketHandlers({
-			rooms: bunRooms.websocket,
-			attach: attachRelay.websocket,
-		}),
+		websocket: attachRelay.websocket,
 	});
-	bunRooms.bindServer(server);
 	attachRelay.bindServer(server);
 	return {
 		server,

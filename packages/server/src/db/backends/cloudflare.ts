@@ -2,7 +2,7 @@
  * Cloudflare backend for the db concern: a per-request `pg.Client` over the
  * Hyperdrive connection string.
  *
- * Mirrors {@link createDurableObjectRooms}: a deployment passes the
+ * A deployment passes the
  * `HYPERDRIVE` binding from its `c.env` and gets back the runtime-neutral
  * `{ db, close }` handle that `createServerApp`'s `db.connect` leg
  * expects. Only the Postgres-composing Cloudflare deployable (`apps/api`) calls

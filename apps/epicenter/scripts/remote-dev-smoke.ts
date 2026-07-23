@@ -19,10 +19,8 @@ import type { AgentEngine, EngineChunk } from '@epicenter/agent';
 import { createOpenAiAgentEngine } from '@epicenter/client';
 import {
 	createAttachRelayBunServer,
-	createBunRooms,
 	createDeviceGrantStore,
 	createServerApp,
-	mergeBunWebSocketHandlers,
 	mountAttachRelayApp,
 } from '@epicenter/server/bun';
 import { attachHostToRelay } from '../src/attach-relay-host.ts';
@@ -100,11 +98,7 @@ async function main(): Promise<void> {
 	const port = Number(process.env.REMOTE_SMOKE_PORT ?? 0);
 
 	const attachRelay = createAttachRelayBunServer();
-	const bunRooms = createBunRooms({
-		dir: mkdtempSync(join(tmpdir(), 'query-remote-dev-')),
-	});
 	const app = createServerApp({
-		resolveRooms: () => bunRooms.rooms,
 		identity: {
 			resolveOrigin: () => `http://127.0.0.1:${port}`,
 			resolveTrustedOrigins: () => [],
@@ -125,12 +119,8 @@ async function main(): Promise<void> {
 		hostname: '0.0.0.0',
 		port,
 		fetch: (req) => app.fetch(req, {} as never),
-		websocket: mergeBunWebSocketHandlers({
-			rooms: bunRooms.websocket,
-			attach: attachRelay.websocket,
-		}),
+		websocket: attachRelay.websocket,
 	});
-	bunRooms.bindServer(server);
 	attachRelay.bindServer(server);
 
 	const relayOrigin = `ws://127.0.0.1:${server.port}`;

@@ -30,8 +30,7 @@
 		"@standard-schema/spec": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"arktype": "catalog:",
-		"wellcrafted": "catalog:",
-		"yjs": "catalog:"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/field": "workspace:*",

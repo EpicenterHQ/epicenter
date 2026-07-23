@@ -13,7 +13,6 @@ import type { Result } from 'wellcrafted/result';
 import type { CloudAuthBindings, createAuth } from './auth/create-auth.js';
 import type { OAuthError } from './auth/oauth-errors.js';
 import type * as schema from './db/schema/index.js';
-import type { Rooms } from './room/contracts.js';
 import type { ServerBindings } from './server-bindings.js';
 
 /**
@@ -21,7 +20,7 @@ import type { ServerBindings } from './server-bindings.js';
  * seam.
  *
  * The surface wrappers (`requireCookieOrBearerPrincipal`, `requireBearerPrincipal`,
- * the rooms bearer with its WebSocket-reject path) own credential EXTRACTION:
+ * the WebSocket upgrade wrappers) own credential EXTRACTION:
  * each knows where its transport carries the token (`Authorization` header, or
  * the `bearer.<token>` WebSocket subprotocol for rooms) and hands the resolver
  * a bare token. The resolver only VERIFIES; it never reads request headers, so
@@ -40,7 +39,7 @@ import type { ServerBindings } from './server-bindings.js';
  *
  * Returns the same `Result<Principal, OAuthError>` every resolver returns, so a
  * different resolver slots in without touching the wrappers' error handling
- * (HTTP 401, the OAuth `WWW-Authenticate` challenge, or the rooms 4401 close).
+ * (HTTP 401, the OAuth `WWW-Authenticate` challenge, or a WebSocket close).
  *
  * Generic over the context it reads: the instance's env-token resolver needs only
  * the portable {@link Env}; the cloud's `resolveRequestOAuthPrincipal` reads
@@ -109,7 +108,7 @@ export type Connection = {
  * binding casts `env` to its own `Cloudflare.Env` at the `apps/*` edge.
  *
  * `Variables` are populated by request-scoped middleware: the resolved origin and
- * trust set, the resolved principal, and the runtime-specific rooms registry.
+ * trust set and the resolved principal.
  * The library does NOT carry `planId` (apps/api billing) or any Postgres /
  * Better Auth handle (cloud-only, {@link CloudEnv}).
  */
@@ -126,7 +125,6 @@ export type Env = {
 		trustedOrigins: string[];
 		principal: Principal;
 		documentAuthorizationExpiresAt: number;
-		rooms: Rooms;
 	};
 };
 

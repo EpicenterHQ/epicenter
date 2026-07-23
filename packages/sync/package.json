@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/sync",
 	"version": "0.3.0",
-	"description": "Sync protocol for Epicenter workspaces. Yjs-based encoding, WebSocket transport, and broadcast channel sync.",
+	"description": "Yjs 14 document wire protocol and WebSocket authentication vocabulary for Epicenter.",
 	"keywords": [
 		"local-first",
 		"Yjs",
@@ -19,7 +19,6 @@
 	},
 	"homepage": "https://epicenter.so",
 	"exports": {
-		".": "./src/index.ts",
 		"./auth-subprotocol": "./src/auth-subprotocol.ts",
 		"./document-v3": "./src/document-v3/index.ts"
 	},
@@ -27,19 +26,12 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit"
 	},
-	"dependencies": {
-		"@epicenter/identity": "workspace:*",
-		"lib0": "catalog:",
-		"wellcrafted": "catalog:"
-	},
 	"peerDependencies": {
-		"yjs": "catalog:",
 		"@y/y": "14.0.0-rc.24"
 	},
 	"devDependencies": {
 		"@y/y": "14.0.0-rc.24",
 		"@types/bun": "catalog:",
-		"typescript": "catalog:",
-		"yjs": "catalog:"
+		"typescript": "catalog:"
 	}
 }

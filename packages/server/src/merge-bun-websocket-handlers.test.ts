@@ -14,7 +14,6 @@ function socket(surface: MergedSocketData['surface']) {
 test('record document sockets dispatch only to the installed document owner', () => {
 	const messages: string[] = [];
 	const merged = mergeBunWebSocketHandlers({
-		rooms: { message() {} },
 		dataDocuments: {
 			message(_ws, message) {
 				messages.push(String(message));
@@ -28,7 +27,7 @@ test('record document sockets dispatch only to the installed document owner', ()
 });
 
 test('a mounted socket surface fails explicitly when its owner is absent', () => {
-	const merged = mergeBunWebSocketHandlers({ rooms: { message() {} } });
+	const merged = mergeBunWebSocketHandlers({});
 
 	expect(() =>
 		merged.message(socket('epicenter-data-document'), 'record update'),

@@ -41,7 +41,10 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import { asPrincipalId } from '@epicenter/identity';
-import { MAIN_SUBPROTOCOL, parseSubprotocols } from '@epicenter/sync';
+import {
+	MAIN_SUBPROTOCOL,
+	parseSubprotocols,
+} from '@epicenter/sync/auth-subprotocol';
 import { attachHostDoName } from '../principal.js';
 import {
 	type AttachRelayUpgradeHandler,
@@ -137,7 +140,7 @@ export class AttachRelay extends DurableObject {
  * {@link mountAttachRelayApp}'s `resolveRelay` returns on Cloudflare. Resolves
  * each upgrade to the DO for its `(principalId, hostId)` pair and forwards the
  * request (a 101-returning `fetch`), stamping the server-resolved principal over
- * any client-supplied value first. This mirrors `createDurableObjectRooms`: the
+ * any client-supplied value first. The
  * `idFromName` derivation and the `fetch`-as-upgrade convention live here, in the
  * Cloudflare backend, never in the backend-blind mount.
  */

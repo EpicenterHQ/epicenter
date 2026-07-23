@@ -6,8 +6,7 @@
  * and the OpenAI-compatible `/v1` inference gateways. This is not a registry of
  * every route in the repo. A route whose domain already owns a shared package
  * lives there instead, beside the protocol it belongs to: `@epicenter/sync`
- * owns the room route (`ROOM_ROUTE`, `/api/rooms/:roomId`) next to its message
- * framing, because both the sync server and the workspace client import it.
+ * owns the record-document route next to its message framing.
  * These leaves live here only because their two sides (server and the client
  * SDK) share nothing else they could hang the path on.
  *

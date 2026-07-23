@@ -35,12 +35,9 @@
 		"hono": "catalog:",
 		"hono-openapi": "catalog:",
 		"jose": "catalog:",
-		"lib0": "catalog:",
 		"nanoid": "catalog:",
 		"pg": "^8.20.0",
-		"wellcrafted": "catalog:",
-		"y-protocols": "catalog:",
-		"yjs": "catalog:"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260405.1",

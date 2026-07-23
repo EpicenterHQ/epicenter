@@ -29,7 +29,10 @@
  * token never round-trips.
  */
 
-import { MAIN_SUBPROTOCOL, parseSubprotocols } from '@epicenter/sync';
+import {
+	MAIN_SUBPROTOCOL,
+	parseSubprotocols,
+} from '@epicenter/sync/auth-subprotocol';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
@@ -138,7 +141,7 @@ function createAttachRelayApp(
  * so this surface cannot be pointed at another partition.
  *
  * `resolveRelay` binds this runtime's relay backend from the per-request env,
- * the same shape {@link createServerApp}'s `resolveRooms` takes: a Bun host
+ * the same shape as other deployment-owned resolver seams: a Bun host
  * closes over its one coordinator (`() => attachRelay`); the Cloud Worker builds
  * a Durable Object registry over its bound namespace
  * (`(env) => createDurableObjectAttachRelay((env as Cloudflare.Env).ATTACH_RELAY)`).

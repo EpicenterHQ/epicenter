@@ -56,7 +56,7 @@ export type InstanceUrlError = InferErrors<typeof InstanceUrlError>;
  * `${baseURL}/api/...`, so a prefix like `https://host/epicenter` is honored).
  *
  * `http://` is allowed on purpose so a homelabber can point at
- * `http://localhost:8788`; the room transport rewrites the ws scheme to match.
+ * `http://localhost:8788`; WebSocket transports rewrite the ws scheme to match.
  */
 export function normalizeInstanceUrl(
 	raw: string,

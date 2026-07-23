@@ -3,7 +3,7 @@ import {
 	parseFactsRequest,
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
-import { parseSubprotocols } from '@epicenter/sync';
+import { parseSubprotocols } from '@epicenter/sync/auth-subprotocol';
 import { DOCUMENT_SUBPROTOCOL } from '@epicenter/sync/document-v3';
 import type { Context } from 'hono';
 

@@ -18,7 +18,7 @@
  * ## Same shape, two sources
  *
  * The deployment binds the backend through `resolveHostDirectory`, exactly the
- * `resolveRelay`/`resolveRooms` seam: a Bun self-host returns its process
+ * `resolveRelay` seam: a Bun self-host returns its process
  * directory (`createAttachRelayBunServer().hostDirectory`), and a Cloud
  * per-principal index is a later refinement behind the same seam. The mount stays
  * backend-blind; the principal is stamped from the resolved bearer, never the

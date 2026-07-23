@@ -40,10 +40,6 @@
 	"durable_objects": {
 		"bindings": [
 			{
-				"name": "ROOM",
-				"class_name": "Room"
-			},
-			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
 			},
@@ -90,6 +86,10 @@
 		{
 			"tag": "v7",
 			"deleted_classes": ["EpicenterAuthority"]
+		},
+		{
+			"tag": "v8",
+			"deleted_classes": ["Room"]
 		}
 	],
 	// Ephemeral SQLite byte transformation for portable Backup archives. The
@@ -115,7 +115,7 @@
 	]
 
 	// No Hyperdrive binding: the instance composes no Postgres (no Better Auth or
-	// telemetry). ROOM, DATA_AUTHORITY, DATA_BACKUP, DATA_BACKUP_REGISTRY, and
+	// telemetry). DATA_AUTHORITY, DATA_BACKUP, DATA_BACKUP_REGISTRY, and
 	// DATA_BLOBS are its
 	// complete durable substrate
 	// (ADR-0075). No workspace catalog exists: the authority derives from the

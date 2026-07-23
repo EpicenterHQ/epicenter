@@ -8,7 +8,7 @@
  *
  * ## Transport-agnostic by design
  *
- * Like `room/core.ts`, the coordinator holds no transport. It takes structural
+ * The coordinator holds no transport. It takes structural
  * {@link RelaySocket}s and returns connection handles a transport drives on its
  * socket's message and close: a Bun WebSocket server (`attach-relay/bun-server`),
  * a Cloudflare Durable Object (`attach-relay/cloudflare-do`), or a test double.

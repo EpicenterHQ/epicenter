@@ -76,10 +76,10 @@ const SameOriginAuthError = defineErrors({
  * and PKCE.
  *
  * It returns a plain {@link AuthClient}, NOT a `SyncAuthClient`: a same-origin
- * cookie cannot carry the bearer subprotocol the rooms route requires, so this
- * client has no `openWebSocket`, and passing it where a bearer WebSocket is
- * needed is a compile error rather than a runtime throw. The only consumer
- * (the dashboard) is a billing surface with no realtime transport.
+ * cookie cannot carry the bearer subprotocol authenticated WebSocket routes
+ * require, so this client has no `openWebSocket`, and passing it where a bearer
+ * WebSocket is needed is a compile error rather than a runtime throw. The only
+ * consumer (the dashboard) is a billing surface with no realtime transport.
  */
 export function createSameOriginCookieAuth({
 	baseURL,

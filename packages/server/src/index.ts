@@ -109,24 +109,13 @@ export { mountCloudDb } from './mount-cloud-db.js';
 // cloud's Better Auth surface (sessions, OAuth, `c.var.auth`) is bundled into
 // `mountCloudAuth`; an instance composes none of it (ADR-0075).
 export { blobPrincipalPrefix } from './principal.js';
-// Re-export the Cloudflare Durable Object class so each deployment's
-// wrangler.jsonc can resolve `class_name: "Room"` against this entrypoint.
-export { Room } from './room/backends/cloudflare/durable-object.js';
-// The Cloudflare runtime backends a deployment wires into `createServerApp`'s
-// `resolveRooms` (the Durable Object room registry) and `mountCloudDb`'s `connect`
-// (a per-request pg client over Hyperdrive). A Bun host uses `createBunRooms` and
-// its own pool instead (the `@epicenter/server/bun` barrel omits both of these,
-// since their modules name Cloudflare bindings).
-export { createDurableObjectRooms } from './room/backends/cloudflare/registry.js';
 export { mountBlobsApp, resolveDeploymentBlobStore } from './routes/blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
-export { mountRoomsApp } from './routes/rooms.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS,
-// CSRF, the rooms registry) and returns the `Hono` every surface mounts onto. It
-// takes `resolveRooms` (the one runtime-specific portable concern) and an
-// `Identity` (who this deployment is on the web). The cloud's db + Better Auth are
+// CSRF) and returns the `Hono` every surface mounts onto. It takes an `Identity`
+// (who this deployment is on the web). The cloud's db + Better Auth are
 // NOT here; the cloud adds them via `mountCloudDb` + `mountCloudAuth`.
 export { createServerApp } from './server-app.js';
 // Binding contract: the portable env the library reads from `c.env`, as both

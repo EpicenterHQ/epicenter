@@ -16,7 +16,7 @@
 
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/identity';
-import { BEARER_SUBPROTOCOL_PREFIX } from '@epicenter/sync';
+import { BEARER_SUBPROTOCOL_PREFIX } from '@epicenter/sync/auth-subprotocol';
 import { Ok, type Result } from 'wellcrafted/result';
 // PersistedAuth and OAuthTokenGrant are intentionally not on the public root:
 // they are the credential-shaped cell and grant, internal to auth core.

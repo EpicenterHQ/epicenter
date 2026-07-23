@@ -23,7 +23,6 @@
 import { assertStrongToken } from '@epicenter/auth';
 import {
 	ContainerProxy,
-	createDurableObjectRooms,
 	createEnvTokenResolver,
 	createServerApp,
 	DataAuthority,
@@ -34,12 +33,10 @@ import {
 	mountBlobsApp,
 	mountCloudflareScalarV1App,
 	mountInferenceApp,
-	mountRoomsApp,
 	mountSessionApp,
 	mountTranscriptionApp,
 	PortableMaterializer,
 	type ResolveBearerPrincipal,
-	Room,
 	rateLimit,
 	requireBearerPrincipal,
 	withDocumentAuthorizationDeadline,
@@ -47,12 +44,6 @@ import {
 import { resolveSelfHostTrustedOrigins } from '../trusted-origins.js';
 
 const app = createServerApp({
-	// The one runtime-specific concern: bind this Worker's Durable Object room
-	// registry. The instance composes no Postgres (no Better Auth, no telemetry), so
-	// it never calls `mountCloudDb` and `createServerApp` stays on the portable `Env`
-	// (ADR-0076). This edge points it at its OWN binding (the `Cloudflare.Env` cast
-	// stays here, type-checked against this Worker's generated bindings, ADR-0066).
-	resolveRooms: (env) => createDurableObjectRooms((env as Cloudflare.Env).ROOM),
 	identity: {
 		// Self-hosters set their own public origin in wrangler.jsonc
 		// (`API_PUBLIC_ORIGIN`): their domain, not Epicenter Cloud's.
@@ -87,8 +78,6 @@ app.get('/', (c) =>
 // operator bearer (`auth` above) is the only gate, so every surface is
 // bearer-authenticated (ADR-0075).
 mountSessionApp(app, { auth });
-// Rooms resolves the bearer itself (WS-aware), so it takes the raw resolver.
-mountRoomsApp(app, { resolveBearerPrincipal });
 mountCloudflareScalarV1App(app, {
 	auth,
 	resolveDocumentPrincipal: withDocumentAuthorizationDeadline(
@@ -127,5 +116,4 @@ export {
 	DataBackup,
 	DataBackupRegistry,
 	PortableMaterializer,
-	Room,
 };

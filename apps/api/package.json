@@ -44,12 +44,9 @@
 		"drizzle-orm": "catalog:",
 		"hono": "catalog:",
 		"hono-openapi": "catalog:",
-		"lib0": "catalog:",
 		"pg": "^8.20.0",
 		"nanoid": "catalog:",
-		"wellcrafted": "catalog:",
-		"y-protocols": "catalog:",
-		"yjs": "catalog:"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260405.1",

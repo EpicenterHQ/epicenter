@@ -20,11 +20,9 @@ declare namespace Cloudflare {
 	type ServerBindings = import('@epicenter/server').ServerBindings;
 
 	interface Env extends ServerBindings {
-		// Runtime-only Cloudflare binding the library no longer names in
-		// ServerBindings (ADR-0066): this deployment reads it in its own
-		// `resolveRooms` resolver, so it declares it here. There is no Hyperdrive
-		// binding: the instance composes no Postgres (ADR-0075).
-		ROOM: DurableObjectNamespace<import('@epicenter/server').Room>;
+		// Runtime-only Cloudflare bindings the library no longer names in
+		// ServerBindings (ADR-0066). There is no Hyperdrive binding: the instance
+		// composes no Postgres (ADR-0075).
 		DATA_AUTHORITY: DurableObjectNamespace<
 			import('@epicenter/server').DataAuthority
 		>;

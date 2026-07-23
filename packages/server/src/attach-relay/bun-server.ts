@@ -2,7 +2,7 @@
  * A Bun WebSocket transport for the {@link createAttachRelay} coordinator, the
  * runtime a self-hosted instance runs (ADR-0115: the relay is a WebSocket
  * channel on the per-user rendezvous each device dials out to; a Durable Object
- * backend for Cloud is not built). Mirrors `createBunRooms`: it returns the
+ * backend for Cloud is not built). It returns the
  * `websocket` handler `Bun.serve` needs, `bindServer` to hand back the `Server`
  * once serving, and `handleUpgrade` to accept one authenticated attach.
  *

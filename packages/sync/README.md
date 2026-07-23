@@ -1,180 +1,111 @@
 # @epicenter/sync
 
-`@epicenter/sync` is becoming the Yjs 14-only wire and provider core for lazy
-row documents. Each currently open row document uses one connection; its
-structured `(table, rowId)` address belongs to the authenticated route rather
-than every protocol frame.
+`@epicenter/sync` owns two protocol boundaries shared by Epicenter clients and
+servers:
 
-> Transition status: the package still contains Yjs 13 per-room framing. That
-> code is precedent for encoding and awareness behavior only. ADRs 0145 and
-> 0146 do not preserve its peer dependency, arbitrary room ids, route shape,
-> persisted format, or wire compatibility.
+- `@epicenter/sync/document-v3`: the Yjs 14 wire format for one
+  record-addressed document
+- `@epicenter/sync/auth-subprotocol`: WebSocket authentication subprotocol
+  constants and parsing
 
-## Proposed destination
+The package has no root export. Import the boundary you need directly.
 
-The final protocol is scoped to one authenticated row document:
+## Document V3
 
-```txt
-/api/workspaces/:workspaceId/tables/:table/rows/:rowId/document
-  sync-request(stateVector)
-  sync-response(missingUpdate)
-  update(incrementalUpdate)
-  publication-response(acceptanceBytes)
-```
-
-Clients do not choose an arbitrary room id. The server authenticates the
-upgrade credential, authorizes the principal for the route workspace, and uses
-the returned canonical workspace key to select one authority. The remaining
-route segments select one row document inside it. That structured address is
-lifecycle identity, not a secret. Authority acceptance and refusal use one
-data-owned response payload shared with HTTP. The sync package carries those
-bytes opaquely and owns no second receipt, acknowledgement, or durable status.
-Close codes remain transport backstops rather than product state.
-
-The exact selected `epicenter-document-v3` WebSocket subprotocol owns the major.
-Each binary message begins with one frame-kind byte; WebSocket already preserves
-message boundaries, so the wire repeats neither a major nor a payload length.
-The protocol has no document address, subscribe, unsubscribe, presence,
-lifecycle control, or multiplex frame. Both peers send a state-vector request
-and answer the other's request, so preexisting offline content converges in both
-directions before incremental updates continue.
-
-On Cloudflare, the authority serializes the socket's one fixed address in its
-hibernation attachment together with the selected document major. A restored
-socket verifies that major before parsing a frame. The authority accepts the
-socket with one deterministic hashed address tag. Fanout queries that tag, then
-compares each complete attachment address before sending. This avoids a durable
-multiplex subscription set and makes a tag collision harmless. Reconnect
-repeats the route and state-vector exchange.
-
-The package targets only `@y/y` 14. It will expose the document wire vocabulary,
-Yjs 14 sync encoding and the provider behavior needed by
-`RowDocument`. It will not expose scalar row sync, SQLite storage, multiplexed
-subscription recovery, per-room authority ownership, or a generic user-selected
-room service.
-
-Browser and native clients share provider semantics without sharing storage:
+Each Document V3 WebSocket is already scoped by its authenticated route:
 
 ```txt
-RowDocument
-  local persistence          workspace IndexedDB log | native SQLite log
-  network                    one WebSocket while this document is open
-  durability                 invocation-time local update cut
-  connection                 reactive per-document status
+/api/sync/v1/records/:namespace/:collection/:recordKey/document
 ```
 
-Local persistence replays Yjs 14 updates, appends every observed update,
-compacts at bounded thresholds, and fails closed on corruption or eviction.
-The wire can return post-commit acceptance proof. Production runtime settlement
-remains deliberately absent until the caller migration wave; local persistence
-stays the durable offline owner.
+The socket therefore carries document-local messages, not an arbitrary room
+identifier:
 
-## Current Yjs 13 implementation
-
-### Installation
-
-Inside this monorepo:
-
-```json
-{
-  "dependencies": {
-    "@epicenter/sync": "workspace:*"
-  }
-}
+```txt
+sync-request(stateVector)
+sync-response(missingUpdate)
+update(incrementalUpdate)
+publication-response(acceptanceBytes)
 ```
 
-The current package has a peer dependency on `yjs`. The destination removes it
-in favor of the repository's pinned `@y/y` 14 line.
-
-### Quick usage
-
-The core flow is small on purpose: encode a sync message, send it over whatever transport you want, then decode or handle it on the other side.
+The selected `epicenter-document-v3` WebSocket subprotocol owns the protocol
+major. WebSocket preserves message boundaries, so each binary message contains
+one frame-kind byte followed by its payload.
 
 ```typescript
-import * as Y from "yjs";
+import * as Y from '@y/y';
 import {
-  MESSAGE_TYPE,
-  SYNC_MESSAGE_TYPE,
-  decodeMessageType,
-  decodeSyncMessage,
-  encodeSyncStep1,
-  handleSyncPayload,
-} from "@epicenter/sync";
+	decodeDocumentFrame,
+	encodeDocumentFrame,
+} from '@epicenter/sync/document-v3';
 
 const doc = new Y.Doc();
-doc.getMap("users").set("alice", { name: "Alice", age: 30 });
+const request = encodeDocumentFrame({
+	kind: 'sync-request',
+	stateVector: Y.encodeStateVector(doc),
+});
 
-const step1 = encodeSyncStep1({ doc });
-const messageType = decodeMessageType(step1);
-
-if (messageType === MESSAGE_TYPE.SYNC) {
-  const decoded = decodeSyncMessage(step1);
-
-  if (decoded.type === "step1") {
-    const response = handleSyncPayload({
-      syncType: SYNC_MESSAGE_TYPE.STEP1,
-      payload: decoded.stateVector,
-      doc,
-      origin: null,
-    });
-
-    // send response over WebSocket, HTTP, BroadcastChannel, or anything else
-  }
+const frame = decodeDocumentFrame(request);
+if (frame.kind === 'sync-request') {
+	const response = encodeDocumentFrame({
+		kind: 'sync-response',
+		update: Y.encodeStateAsUpdateV2(doc, frame.stateVector),
+	});
+	// Send `response` over the document's WebSocket.
 }
 ```
 
-That example is the same shape used in the package tests and in the API room bootstrap, where the server starts a connection with `encodeSyncStep1({ doc })`.
+The protocol exports the document resource bound and helpers that measure a
+live or encoded Yjs 14 document against it. The authority remains responsible
+for enforcing that bound and accepting publications.
 
-### Current framing boundary
+Document V3 does not own scalar record convergence, local persistence,
+arbitrary rooms, presence, multiplexing, or generic provider lifecycle.
 
-This package is strict about one boundary: it handles protocol framing, not connection management. That split is why the same message helpers work over WebSockets, BroadcastChannel, or any custom relay you want to write.
+## WebSocket authentication
 
-The design shows up in a few places:
+Bearer credentials travel in `Sec-WebSocket-Protocol`, not in the request URL.
+Clients offer the main protocol plus a `bearer.<token>` entry. Servers parse
+the list, consume the bearer entry during authentication, and echo only the
+selected application protocol.
 
-- `encodeSyncStep1`, `encodeSyncStep2`, and `encodeSyncUpdate` only deal with Yjs payloads.
-- RPC framing is separate from RPC behavior. The package defines request/response bytes and shared error variants, not the transport policy around retries or timeouts.
+```typescript
+import {
+	BEARER_SUBPROTOCOL_PREFIX,
+	MAIN_SUBPROTOCOL,
+	parseSubprotocols,
+} from '@epicenter/sync/auth-subprotocol';
 
-If you want lifecycle helpers for a WebSocket server, this package is the protocol layer under them. Not the server itself.
+const offered = parseSubprotocols(request.headers.get('Sec-WebSocket-Protocol'));
+const bearer = offered.find((value) =>
+	value.startsWith(BEARER_SUBPROTOCOL_PREFIX),
+);
 
-### Current API overview
-
-Main exports from `src/index.ts`:
-
-- Message constants: `MESSAGE_TYPE`, `SYNC_MESSAGE_TYPE`, `RPC_TYPE`
-- Sync encode/decode: `encodeSyncStep1`, `encodeSyncStep2`, `encodeSyncUpdate`, `decodeSyncMessage`, `handleSyncPayload`
-- Awareness helpers: `encodeAwareness`, `encodeAwarenessStates`, `encodeQueryAwareness`
-- RPC helpers: `encodeRpcRequest`, `encodeRpcResponse`, `decodeRpcMessage`, `decodeRpcPayload`
-- RPC types and guards: `DecodedRpcMessage`, `RpcError`, `isRpcError`
-
-The package exports pure functions. Feed them bytes and docs; they give you bytes or decoded shapes back.
-
-## Destination relationship to other packages
-
-`@epicenter/sync` sits below the rest of the sync stack.
-
-```text
-record authority        liveness, snapshots, logs, WebSocket lifecycle
-        │
-@epicenter/data         record-addressed document API and runtime persistence
-        │
-@epicenter/document-sync publication and realtime coordination
-        │
-@epicenter/sync         single-document wire and provider behavior
-        │
-@y/y 14                 CRDT state, awareness, and update encoding
+if (!offered.includes(MAIN_SUBPROTOCOL) || !bearer) {
+	throw new TypeError('Missing Epicenter WebSocket credentials');
+}
 ```
 
-In practice:
+`OpenWebSocketDenial` and `isOpenWebSocketDenial` describe client-side
+credential refusal before a socket opens.
 
-- The record authority uses it to serve each open row document through its own
-  connection while retaining one durable Epicenter owner.
-- `@epicenter/data` and `@epicenter/document-sync` use it behind the
-  record-addressed document boundary.
-- Scalar convergence lives in `@epicenter/data`; it is a separate protocol
-  plane.
-- Other packages need the wire format only when implementing a document
-  transport or provider.
+## Package relationships
+
+```text
+record authority              liveness, bounds, publications, fanout
+        │
+@epicenter/data               record-addressed document API
+        │
+@epicenter/document-sync      publication and realtime coordination
+        │
+@epicenter/sync/document-v3   single-document wire
+        │
+@y/y 14                       CRDT state and update encoding
+```
+
+`@epicenter/sync/auth-subprotocol` is also shared by authentication and relay
+routes that do not participate in document synchronization.
 
 ## License
 
-MIT. `@epicenter/sync` is wire-protocol vocabulary in the developer toolkit (code you build with), so it is MIT like the rest of the toolkit. That matches the package manifest.
+MIT. The package is protocol vocabulary in the embeddable developer toolkit.

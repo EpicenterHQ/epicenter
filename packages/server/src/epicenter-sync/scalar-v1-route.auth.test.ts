@@ -20,12 +20,12 @@ import {
 	documentPayloadDigest,
 } from '@epicenter/data/document-v1';
 import { INSTANCE_PRINCIPAL_ID, type PrincipalId } from '@epicenter/identity';
+import * as Y from '@y/y';
 import { betterAuth } from 'better-auth';
 import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
 import { jwt } from 'better-auth/plugins';
 import { Hono } from 'hono';
 import { Ok } from 'wellcrafted/result';
-import * as Y from 'yjs';
 
 import { JWT_SIGNING_ALG } from '../auth/base-config.js';
 import { createEnvTokenResolver } from '../auth/instance-token.js';

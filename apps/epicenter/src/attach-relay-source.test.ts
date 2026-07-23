@@ -41,11 +41,9 @@ import { chatLens, createAgentMessageDocumentStore } from '@epicenter/chat';
 import { openBunRecordEpicenter } from '@epicenter/data/bun';
 import {
 	createAttachRelayBunServer,
-	createBunRooms,
 	createDeviceGrantStore,
 	createServerApp,
 	type DeviceGrantStore,
-	mergeBunWebSocketHandlers,
 	mountAttachRelayApp,
 } from '@epicenter/server/bun';
 import { canAskLocalSource } from './attach-host-status.ts';
@@ -122,11 +120,9 @@ function serveSelfHostRelay(): {
 	origin: string;
 	grants: DeviceGrantStore;
 } {
-	const bunRooms = createBunRooms({ dir: testDataDir() });
 	const attachRelay = createAttachRelayBunServer();
 	const grants = createDeviceGrantStore();
 	const app = createServerApp({
-		resolveRooms: () => bunRooms.rooms,
 		identity: {
 			resolveOrigin: () => 'http://127.0.0.1',
 			resolveTrustedOrigins: () => [],
@@ -140,12 +136,8 @@ function serveSelfHostRelay(): {
 		hostname: '127.0.0.1',
 		port: 0,
 		fetch: (req) => app.fetch(req, {} as never),
-		websocket: mergeBunWebSocketHandlers({
-			rooms: bunRooms.websocket,
-			attach: attachRelay.websocket,
-		}),
+		websocket: attachRelay.websocket,
 	});
-	bunRooms.bindServer(server);
 	attachRelay.bindServer(server);
 	return { server, origin: `ws://127.0.0.1:${server.port}`, grants };
 }

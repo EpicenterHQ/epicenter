@@ -130,27 +130,27 @@ export type AuthClient = {
  * client ({@link createOAuthAppAuth}) implements it, while the same-origin
  * cookie client ({@link createSameOriginCookieAuth}) is a plain `AuthClient`
  * with no `openWebSocket`, because a same-origin cookie cannot carry the bearer
- * subprotocol the rooms route requires.
+ * subprotocol authenticated WebSocket routes require.
  *
- * Authenticated record, document, room, and relay transports require a
- * `SyncAuthClient`, so passing a cookie client where a bearer WebSocket is
- * needed is a compile error rather than a runtime throw.
+ * Authenticated document and relay WebSocket transports require a
+ * `SyncAuthClient`, so passing a cookie client where one is needed is a compile
+ * error rather than a runtime throw.
  */
 export type SyncAuthClient = AuthClient & {
 	/**
 	 * Open a WebSocket using the same bearer boundary as `fetch`.
 	 *
 	 * Browsers cannot set `Authorization` on WebSocket upgrades, so the token is
-	 * carried as an Epicenter bearer subprotocol; the rooms route extracts it at
-	 * the upgrade and the server echoes only the main subprotocol back.
+	 * carried as an Epicenter bearer subprotocol; the route extracts it at the
+	 * upgrade and the server echoes only the selected application subprotocol.
 	 *
 	 * Resolves only with a credentialed socket. When no usable bearer can be
-	 * attached it rejects with an `OpenWebSocketDenial` (`@epicenter/sync`)
-	 * instead of opening a socket doomed to a server 4401: `'permanent'`
-	 * (signed out, reauth required) means only an auth state change can help;
-	 * `'transient'` means verification was unreachable and a retry may
-	 * succeed. Waits for in-flight machine work (token refresh, `/api/session`
-	 * verification), never for a human.
+	 * attached it rejects with an `OpenWebSocketDenial`
+	 * (`@epicenter/sync/auth-subprotocol`) instead of opening a socket doomed to
+	 * a server 4401: `'permanent'` (signed out, reauth required) means only an
+	 * auth state change can help; `'transient'` means verification was
+	 * unreachable and a retry may succeed. Waits for in-flight machine work
+	 * (token refresh, `/api/session` verification), never for a human.
 	 */
 	openWebSocket(url: string | URL, protocols?: string[]): Promise<WebSocket>;
 };
