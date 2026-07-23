@@ -58,10 +58,6 @@
 				"class_name": "AttachRelay"
 			},
 			{
-				"name": "EPICENTER_SYNC",
-				"class_name": "EpicenterAuthority"
-			},
-			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
 			},
@@ -123,6 +119,10 @@
 		{
 			"tag": "v9",
 			"new_sqlite_classes": ["PortableMaterializer"]
+		},
+		{
+			"tag": "v10",
+			"deleted_classes": ["EpicenterAuthority"]
 		}
 	],
 	// Portable Backup transport is the one Cloudflare path that needs ordinary

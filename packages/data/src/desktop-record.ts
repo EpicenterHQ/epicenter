@@ -19,7 +19,6 @@ import {
 	isDesktopRecordMutation,
 	MAX_RECORD_BLOB_BYTES,
 } from './desktop-record/protocol.js';
-import type { RowDocument } from './documents.js';
 import type { LensDefinition } from './lens.js';
 import type { RecordAddress } from './protocol/v1/index.js';
 import { registerRecordDocumentConnectionTarget } from './record-document-connection.js';
@@ -29,6 +28,7 @@ import {
 	type RecordInspection,
 } from './record-epicenter.js';
 import type { RecordSyncStatus } from './record-sync-supervisor.js';
+import type { RowDocument } from './row-document.js';
 import type {
 	FirstAttachmentChoice,
 	ReplicaAttachmentState,

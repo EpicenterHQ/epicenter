@@ -10,7 +10,6 @@ import type {
 	BrowserRecordWorkerInbound,
 	BrowserRecordWorkerMessage,
 } from './browser-record/protocol.js';
-import type { RowDocument } from './documents.js';
 import type { LensDefinition } from './lens.js';
 import type { RecordAddress } from './protocol/v1/index.js';
 import { registerRecordDocumentConnectionTarget } from './record-document-connection.js';
@@ -25,6 +24,7 @@ import {
 	type RecordSyncSession,
 	type RecordSyncStatus,
 } from './record-sync-supervisor.js';
+import type { RowDocument } from './row-document.js';
 import type {
 	ReplicaAttachmentState,
 	ReplicaParkedWorkPage,

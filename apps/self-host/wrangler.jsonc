@@ -44,10 +44,6 @@
 				"class_name": "Room"
 			},
 			{
-				"name": "EPICENTER_SYNC",
-				"class_name": "EpicenterAuthority"
-			},
-			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
 			},
@@ -90,6 +86,10 @@
 		{
 			"tag": "v6",
 			"new_sqlite_classes": ["PortableMaterializer"]
+		},
+		{
+			"tag": "v7",
+			"deleted_classes": ["EpicenterAuthority"]
 		}
 	],
 	// Ephemeral SQLite byte transformation for portable Backup archives. The
@@ -115,8 +115,8 @@
 	]
 
 	// No Hyperdrive binding: the instance composes no Postgres (no Better Auth or
-	// telemetry). ROOM, EPICENTER_SYNC (legacy caller path until W4B), and
-	// DATA_AUTHORITY, DATA_BACKUP, DATA_BACKUP_REGISTRY, and DATA_BLOBS are its
+	// telemetry). ROOM, DATA_AUTHORITY, DATA_BACKUP, DATA_BACKUP_REGISTRY, and
+	// DATA_BLOBS are its
 	// complete durable substrate
 	// (ADR-0075). No workspace catalog exists: the authority derives from the
 	// principal alone (ADR-0092, ADR-0145).

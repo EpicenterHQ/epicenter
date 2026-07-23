@@ -38,7 +38,6 @@ import {
 	type CloudEnv,
 	createDataAuthorityAccountAuthorities,
 	createDataBackupRegistryAccountAuthorities,
-	createDurableObjectAccountAuthorities,
 	type DeletableDataAuthorityNamespace,
 	type DeletableDataBackupRegistryNamespace,
 	deleteStorageObservations,
@@ -131,19 +130,12 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 				)
 					.authority(principalId)
 					.deleteAccount();
-				await Promise.all([
-					createDurableObjectAccountAuthorities(
-						(c.env as Cloudflare.Env).EPICENTER_SYNC,
-					)
-						.authority(principalId)
-						.deleteAccount(),
-					createDataAuthorityAccountAuthorities(
-						(c.env as Cloudflare.Env)
-							.DATA_AUTHORITY as unknown as DeletableDataAuthorityNamespace,
-					)
-						.authority(principalId)
-						.deleteAccount(),
-				]);
+				await createDataAuthorityAccountAuthorities(
+					(c.env as Cloudflare.Env)
+						.DATA_AUTHORITY as unknown as DeletableDataAuthorityNamespace,
+				)
+					.authority(principalId)
+					.deleteAccount();
 			};
 			const sweepBlobs = async () => {
 				const store = resolveDeploymentBlobStore(c.env);

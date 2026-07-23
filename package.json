@@ -148,7 +148,6 @@
 		"dev:self-host": "bun run --cwd apps/self-host dev",
 		"dev:whispering": "bun run --filter @epicenter/api --filter @epicenter/whispering dev",
 		"dev:whispering:ui": "bun run --cwd apps/whispering dev",
-		"evidence:data:browser": "bun run --cwd packages/data evidence:browser",
 		"smoke:local": "bun run --cwd apps/api smoke:local",
 		"format": "biome check --write --linter-enabled=false",
 		"format:check": "biome ci --linter-enabled=false",

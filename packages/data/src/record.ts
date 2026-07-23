@@ -1,4 +1,3 @@
-export type { RowDocument } from './documents.js';
 export {
 	type CompiledTableDefinition,
 	type CompiledValueDefinition,
@@ -59,10 +58,11 @@ export {
 	type RecordSyncStatus,
 	type RecordSyncTransport,
 } from './record-sync-supervisor.js';
+export type { RowDocument } from './row-document.js';
 export type {
 	FirstAttachmentChoice,
 	ReplicaAttachment,
 	ReplicaParkedWorkPage,
 	ReplicaWorkSummary,
 } from './store/replica/index.js';
-export type { SyncCredentialProvider } from './sync-supervisor.js';
+export type { SyncCredentialProvider } from './sync-types.js';

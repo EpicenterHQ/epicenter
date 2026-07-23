@@ -16,7 +16,7 @@ import {
 	type RecordSyncTransport,
 } from './record-sync-supervisor.js';
 import type { FirstAttachmentChoice } from './store/replica/index.js';
-import type { SyncCredentialProvider } from './sync-supervisor.js';
+import type { SyncCredentialProvider } from './sync-types.js';
 
 const FACTS_PATH = 'api/sync/v1/facts';
 const SUBMISSIONS_PATH = 'api/sync/v1/submissions';

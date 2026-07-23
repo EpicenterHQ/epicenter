@@ -31,7 +31,6 @@ import {
 	DataBackup,
 	DataBackupRegistry,
 	type DataBackupRegistryNamespace,
-	EpicenterAuthority,
 	mountBlobsApp,
 	mountCloudflareScalarV1App,
 	mountInferenceApp,
@@ -127,7 +126,6 @@ export {
 	DataAuthority,
 	DataBackup,
 	DataBackupRegistry,
-	EpicenterAuthority,
 	PortableMaterializer,
 	Room,
 };

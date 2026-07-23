@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/document-sync",
 	"version": "0.0.1",
-	"description": "Row-document synchronization protocol and client connection.",
+	"description": "Record-addressed document synchronization client.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts"
@@ -17,12 +17,12 @@
 	},
 	"dependencies": {
 		"@epicenter/data": "workspace:*",
-		"@epicenter/sync": "workspace:*",
-		"@y/y": "14.0.0-rc.24"
+		"@epicenter/sync": "workspace:*"
 	},
 	"devDependencies": {
 		"@epicenter/field": "workspace:*",
 		"@types/bun": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"@y/y": "14.0.0-rc.24"
 	}
 }

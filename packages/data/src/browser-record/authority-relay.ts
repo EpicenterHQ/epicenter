@@ -4,7 +4,7 @@ import {
 	RecordAuthorityLifetimeMismatchError,
 	RecordSyncTransportCancelledError,
 } from '../record-sync-supervisor.js';
-import type { SyncCredentialProvider } from '../sync-supervisor.js';
+import type { SyncCredentialProvider } from '../sync-types.js';
 import type {
 	BrowserRecordAuthorityErrorCode,
 	BrowserRecordAuthorityOperation,

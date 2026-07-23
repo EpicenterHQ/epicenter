@@ -21,10 +21,7 @@ import type {
 	ReplicaWorkSummary,
 	SealedRequest,
 } from './store/replica/index.js';
-import type {
-	SyncCredentialProvider,
-	SyncSchedule,
-} from './sync-supervisor.js';
+import type { SyncCredentialProvider, SyncSchedule } from './sync-types.js';
 
 const DEFAULT_DRAIN_INTERVAL_MS = 30_000;
 const BASE_RETRY_MS = 500;

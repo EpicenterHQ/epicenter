@@ -45,12 +45,21 @@ export function mergeBunWebSocketHandlers(handlers: {
 }): WebSocketHandler<MergedSocketData> {
 	const pick = (
 		ws: ServerWebSocket<MergedSocketData>,
-	): WebSocketHandler<MergedSocketData> =>
-		(ws.data.surface === 'rooms'
-			? handlers.rooms
-			: ws.data.surface === 'epicenter-data-document'
-				? handlers.dataDocuments
-				: handlers.attach) as WebSocketHandler<MergedSocketData>;
+	): WebSocketHandler<MergedSocketData> => {
+		if (ws.data.surface === 'rooms') {
+			return handlers.rooms as WebSocketHandler<MergedSocketData>;
+		}
+		if (ws.data.surface === 'epicenter-data-document') {
+			if (handlers.dataDocuments === undefined) {
+				throw new Error('Record document WebSocket handler is not installed');
+			}
+			return handlers.dataDocuments as WebSocketHandler<MergedSocketData>;
+		}
+		if (handlers.attach === undefined) {
+			throw new Error('Attach WebSocket handler is not installed');
+		}
+		return handlers.attach as WebSocketHandler<MergedSocketData>;
+	};
 
 	return {
 		open(ws) {

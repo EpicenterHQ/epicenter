@@ -22,7 +22,6 @@
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
-		"@epicenter/document-sync": "workspace:*",
 		"@epicenter/identity": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",

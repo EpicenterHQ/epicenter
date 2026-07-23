@@ -56,11 +56,6 @@ export { connectHyperdriveDb } from './db/backends/cloudflare.js';
 export { createDb, type Db } from './db/create-db.js';
 export { deleteStorageObservations } from './db/storage-data.js';
 export {
-	createDurableObjectAccountAuthorities,
-	EpicenterAuthority,
-	mountCloudflareEpicenterSyncApp,
-} from './epicenter-sync/cloudflare.js';
-export {
 	createDataBackupRegistryAccountAuthorities,
 	DataBackupRegistry,
 	type DataBackupRegistryNamespace,

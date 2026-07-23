@@ -64,7 +64,7 @@ import {
 	openReplicaStore,
 	type ReplicaStore,
 } from './store/replica/index.js';
-import type { SyncCredentialProvider } from './sync-supervisor.js';
+import type { SyncCredentialProvider } from './sync-types.js';
 
 class MemoryBlobFiles implements BlobFileStore<Blob, Blob> {
 	readonly staged = new Map<string, Blob>();

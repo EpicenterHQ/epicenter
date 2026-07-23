@@ -82,11 +82,6 @@ export {
 export { OAuthError } from './auth/oauth-errors.js';
 export { createDb } from './db/create-db.js';
 export {
-	type BunEpicenterSyncRuntime,
-	createBunEpicenterSyncRuntime,
-	mountBunEpicenterSyncApp,
-} from './epicenter-sync/bun.js';
-export {
 	type BunScalarV1Runtime,
 	createBunScalarV1Runtime,
 	mountBunScalarV1App,

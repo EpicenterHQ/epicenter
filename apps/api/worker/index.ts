@@ -27,7 +27,6 @@ import {
 	DataBackup,
 	DataBackupRegistry,
 	type DataBackupRegistryNamespace,
-	EpicenterAuthority,
 	mountAttachRelayApp,
 	mountBlobsApp,
 	mountCloudAuth,
@@ -232,7 +231,6 @@ export {
 	DataAuthority,
 	DataBackup,
 	DataBackupRegistry,
-	EpicenterAuthority,
 	PortableMaterializer,
 	Room,
 };

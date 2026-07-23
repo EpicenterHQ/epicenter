@@ -2,8 +2,6 @@ import { customAlphabet } from 'nanoid';
 import type { TSchema } from 'typebox';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
-
-import type { RowDocument } from './documents.js';
 import {
 	type ConstrainedUpdate,
 	type CreateInputFor,
@@ -25,6 +23,7 @@ import {
 	type RecordSyncSession,
 	type RecordSyncStatus,
 } from './record-sync-supervisor.js';
+import type { RowDocument } from './row-document.js';
 import type {
 	BlobInspection,
 	DocumentInspection,

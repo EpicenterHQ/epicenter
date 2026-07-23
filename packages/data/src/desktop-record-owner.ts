@@ -1,11 +1,6 @@
 import { customAlphabet } from 'nanoid';
 
 import { openBunRecordOwner } from './bun-record-owner.js';
-import {
-	compileTableDefinition,
-	type LensDefinition,
-	parseLens,
-} from './lens.js';
 import type {
 	DesktopRecordBlobOperationSource,
 	DesktopRecordError,
@@ -24,6 +19,11 @@ import {
 	isDesktopRecordMutation,
 	MAX_RECORD_BLOB_BYTES,
 } from './desktop-record/protocol.js';
+import {
+	compileTableDefinition,
+	type LensDefinition,
+	parseLens,
+} from './lens.js';
 import {
 	isJsonObject,
 	isJsonValue,

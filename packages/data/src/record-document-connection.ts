@@ -1,5 +1,5 @@
-import type { RowDocument } from './documents.js';
 import type { RecordAddress } from './protocol/v1/index.js';
+import type { RowDocument } from './row-document.js';
 
 type UpdateListener = (update: Uint8Array, origin: unknown) => void;
 

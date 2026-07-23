@@ -1,7 +1,7 @@
 import * as Y from '@y/y';
-import type { RowDocument } from './documents.js';
 import type { RecordAddress } from './protocol/v1/index.js';
 import { registerRecordDocumentConnectionTarget } from './record-document-connection.js';
+import type { RowDocument } from './row-document.js';
 import type { ReplicaStore } from './store/replica/index.js';
 
 const hydrationOrigin = Symbol('epicenter-record-document-hydration');
