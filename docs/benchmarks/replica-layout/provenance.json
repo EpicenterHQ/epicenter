@@ -5,15 +5,15 @@
 	"files": [
 		{
 			"path": "docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-chromium.json",
-			"sha256": "a9e3adfc3358e29396fdf1d75a72d8d71bad951dc7997f7e1c2d5dab9371d6b8"
+			"sha256": "db2331c3fea4136dca164b81204abb73cc70ae0b452562b9ce03188bb3aa3368"
 		},
 		{
 			"path": "docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-webkit.json",
-			"sha256": "cebb1a7f8ad6aa13c5f7b2782b795a54ec0dfd6cce8b8340e4410a87df818867"
+			"sha256": "66087689b468bfe3029f1491996d38ffeaacdeb343ec92123af13646be285cc2"
 		},
 		{
 			"path": "docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-smoke.json",
-			"sha256": "5e76b648fb5898711f6801b9f1b389be566aadc70a03f3c67527a396d58ea017"
+			"sha256": "3f38c36196f43315b8fdb879771dd6c5ac0c01b14166e93827681472e20e149b"
 		},
 		{
 			"path": "docs/benchmarks/replica-layout/2026-07-22-bun-complete-wide-vs-split-split-first.json",
@@ -63,7 +63,7 @@
 	"aggregates": [
 		{
 			"name": "browser harness",
-			"sha256": "fce979d6e651f1f83bd42010f78d659cde98c6a95caffb361803bed29b2868ff",
+			"sha256": "b3893d022a56871bacd598ae6f9714db7215a2ebc11d18a5fe6d1165b220d4c7",
 			"entries": [
 				{
 					"logicalPath": "packages/data/package.json",
@@ -78,12 +78,12 @@
 				{
 					"logicalPath": "packages/data/browser-evidence/replica-layout-contract.test.ts",
 					"path": "packages/data/browser-evidence/replica-layout-contract.test.ts",
-					"sha256": "973b4e2db6411253de8ddb4e4182eee8dfe7a5af5cee6354b29775b016b5b201"
+					"sha256": "1c8e79c6885b70269a00f9621759bd93c851a7cd0cd749a926b361641a5c78b2"
 				},
 				{
 					"logicalPath": "packages/data/browser-evidence/replica-layout-contract.ts",
 					"path": "packages/data/browser-evidence/replica-layout-contract.ts",
-					"sha256": "e090ee0fc7056652234277c27f90af4b378d74405aaf96f5baff9afde576f077"
+					"sha256": "76b514de14cd0ed5e6d1c4279a9f0e0eb0e99bb7e8be6297c7961cd949c7bdda"
 				},
 				{
 					"logicalPath": "packages/data/browser-evidence/replica-layout-index.html",
@@ -93,7 +93,7 @@
 				{
 					"logicalPath": "packages/data/browser-evidence/replica-layout-run.ts",
 					"path": "packages/data/browser-evidence/replica-layout-run.ts",
-					"sha256": "5601c1ff1235b3acc8cfa7a14e4ac8e9256695367f326c37b15b6259a5fbe8ac"
+					"sha256": "68b0fdc46137f8a7c511fabcaf5ab57a93ca1af684c5ad51d7ddea358b1437be"
 				},
 				{
 					"logicalPath": "packages/data/browser-evidence/replica-layout-vite.config.ts",
@@ -103,7 +103,7 @@
 				{
 					"logicalPath": "packages/data/browser-evidence/replica-layout-worker.ts",
 					"path": "packages/data/browser-evidence/replica-layout-worker.ts",
-					"sha256": "b4aa9dbad75dacf87900d7611daab523fccae42adec20705f0a62ea52b7e2f58"
+					"sha256": "85cbe566851397be46b0e6005c89d86363369b6a94532e2afc330444e2193f6c"
 				}
 			]
 		}

@@ -3,10 +3,14 @@
  * overstated measurement matrices.
  */
 import { describe, expect, test } from 'bun:test';
+import { resolve } from 'node:path';
 
 import {
 	assertReplicaLayoutEvidence,
+	deriveReplicaLayoutInterpretation,
+	REPLICA_LAYOUT_CLEAN_SCOPE,
 	REPLICA_LAYOUT_PROFILES,
+	REPLICA_LAYOUT_PROVENANCE_LIMITATION,
 	type ReplicaLayoutCandidateRun,
 	type ReplicaLayoutEvidenceReport,
 } from './replica-layout-contract.js';
@@ -56,7 +60,7 @@ function report(): ReplicaLayoutEvidenceReport {
 		differencePercent: 0,
 		faster: 'wide' as const,
 	};
-	return {
+	const value: ReplicaLayoutEvidenceReport = {
 		schemaVersion: 'epicenter-browser-replica-layout-evidence/v1',
 		kind: 'epicenter-browser-replica-layout-evidence',
 		scope: 'pre-physical-browser-engine',
@@ -69,7 +73,7 @@ function report(): ReplicaLayoutEvidenceReport {
 		source: {
 			commit: 'abc',
 			clean: true,
-			cleanScope: 'fingerprinted harness, package manifest, and lockfile',
+			cleanScope: REPLICA_LAYOUT_CLEAN_SCOPE,
 			dirtyPaths: [],
 			lockfileSha256: 'lock',
 			harnessSha256: 'harness',
@@ -127,13 +131,36 @@ function report(): ReplicaLayoutEvidenceReport {
 						stopRule: 'all-hot-metrics-equivalent',
 					},
 				},
-				interpretation: ['test'],
+				interpretation: [],
 			},
 		],
-		limitations: ['test'],
+		limitations: [REPLICA_LAYOUT_PROVENANCE_LIMITATION, 'test'],
 		overall: 'provisional',
 	};
+	const engine = value.engines[0];
+	if (engine === undefined) throw new Error('Fixture engine is missing');
+	engine.interpretation = deriveReplicaLayoutInterpretation(
+		value.profile,
+		engine.result,
+	);
+	return value;
 }
+
+function refreshInterpretation(value: ReplicaLayoutEvidenceReport): void {
+	const engine = value.engines[0];
+	if (engine === undefined) throw new Error('Fixture engine is missing');
+	engine.interpretation = deriveReplicaLayoutInterpretation(
+		value.profile,
+		engine.result,
+	);
+}
+
+const repoRoot = resolve(import.meta.dirname, '../../..');
+const retainedArtifacts = [
+	'docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-smoke.json',
+	'docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-chromium.json',
+	'docs/benchmarks/replica-layout/2026-07-22-browser-wide-vs-split-full-webkit.json',
+] as const;
 
 describe('browser replica layout evidence contract', () => {
 	test('accepts a complete wide-versus-split matrix', () => {
@@ -158,6 +185,7 @@ describe('browser replica layout evidence contract', () => {
 		result.schemas = undefined;
 		result.aggregate = undefined;
 		value.overall = 'incomplete';
+		refreshInterpretation(value);
 		expect(() => assertReplicaLayoutEvidence(value)).not.toThrow();
 	});
 
@@ -172,6 +200,37 @@ describe('browser replica layout evidence contract', () => {
 		result.aggregate = undefined;
 		result.proxy = undefined;
 		value.overall = 'incomplete';
+		refreshInterpretation(value);
 		expect(() => assertReplicaLayoutEvidence(value)).not.toThrow();
+	});
+
+	test('rejects summaries that do not follow from raw samples', () => {
+		const value = report();
+		const summary = value.engines[0]?.result.runs[0]?.metrics.pointRead;
+		if (summary === undefined) throw new Error('Fixture summary is missing');
+		summary.p95Ms = 2;
+		expect(() => assertReplicaLayoutEvidence(value)).toThrow(
+			'invalid timing summary',
+		);
+	});
+
+	test('rejects aggregate findings that do not follow from raw samples', () => {
+		const value = report();
+		const aggregate = value.engines[0]?.result.aggregate;
+		if (aggregate === undefined)
+			throw new Error('Fixture aggregate is missing');
+		aggregate.stopRule = 'material-direction-found';
+		expect(() => assertReplicaLayoutEvidence(value)).toThrow(
+			'invalid aggregate',
+		);
+	});
+
+	test('retained reports reproduce all findings from their raw samples', async () => {
+		for (const artifactPath of retainedArtifacts) {
+			const artifact: unknown = await Bun.file(
+				resolve(repoRoot, artifactPath),
+			).json();
+			expect(() => assertReplicaLayoutEvidence(artifact)).not.toThrow();
+		}
 	});
 });

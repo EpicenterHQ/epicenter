@@ -134,3 +134,17 @@ snapshot proves identity rather than standalone replayability.
 
 The older four-layout report under `docs/benchmarks/scalar-facts-layout/` is
 historical evidence for a retired matrix and is not combined with this run.
+
+## 2026-07-22 browser wide-versus-split runs
+
+The three browser reports retain the smoke run plus the full Chromium and
+WebKit runs. Their contract test reads these JSON files directly and derives
+each timing summary, aggregate comparison, stop rule, interpretation, and
+overall status again from the retained raw samples.
+
+Their historical source fingerprint has a narrower boundary. It covers the
+files listed in each report, `packages/data/package.json`, and `bun.lock` at the
+recorded commit. It does not cover bundled transitive modules such as the
+production replica schema, canonical encoder, SQLite adapter, or installed
+dependency bytes. The reports state this limit explicitly; do not use their
+source fingerprint as proof that the entire browser bundle can be reproduced.
