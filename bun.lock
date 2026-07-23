@@ -22,8 +22,8 @@
         "@better-auth/drizzle-adapter": "catalog:",
         "@better-auth/oauth-provider": "catalog:",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/blobs": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "@epicenter/data": "workspace:*",
         "@epicenter/identity": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@epicenter/sync": "workspace:*",
@@ -532,21 +532,6 @@
         "@tauri-apps/plugin-opener",
       ],
     },
-    "packages/blobs": {
-      "name": "@epicenter/blobs",
-      "version": "0.0.1",
-      "dependencies": {
-        "arktype": "catalog:",
-        "nanoid": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "fake-indexeddb": "^6.2.5",
-        "playwright": "^1.61.1",
-        "typescript": "catalog:",
-      },
-    },
     "packages/chat": {
       "name": "@epicenter/chat",
       "version": "0.1.0",
@@ -569,10 +554,7 @@
       },
       "dependencies": {
         "@epicenter/auth": "workspace:*",
-        "@epicenter/blobs": "workspace:*",
-        "@epicenter/client": "workspace:*",
         "@epicenter/matter-core": "workspace:*",
-        "mime": "catalog:",
         "wellcrafted": "catalog:",
         "yargs": "catalog:",
       },
@@ -587,10 +569,6 @@
       "version": "0.1.1",
       "dependencies": {
         "@epicenter/agent-protocol": "workspace:*",
-        "@epicenter/auth": "workspace:*",
-        "@epicenter/blobs": "workspace:*",
-        "@epicenter/constants": "workspace:*",
-        "@epicenter/identity": "workspace:*",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -602,7 +580,6 @@
       "name": "@epicenter/constants",
       "version": "0.1.1",
       "dependencies": {
-        "@epicenter/blobs": "workspace:*",
         "@epicenter/identity": "workspace:*",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
@@ -722,7 +699,6 @@
         "@better-auth/passkey": "catalog:",
         "@cloudflare/containers": "catalog:",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/blobs": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/data": "workspace:*",
         "@epicenter/identity": "workspace:*",
@@ -732,7 +708,6 @@
         "@noble/hashes": "catalog:",
         "@y/y": "14.0.0-rc.24",
         "arktype": "catalog:",
-        "aws4fetch": "catalog:",
         "better-auth": "catalog:",
         "drizzle-orm": "catalog:",
         "hono": "catalog:",
@@ -1183,8 +1158,6 @@
     "@epicenter/app-shell": ["@epicenter/app-shell@workspace:packages/app-shell"],
 
     "@epicenter/auth": ["@epicenter/auth@workspace:packages/auth"],
-
-    "@epicenter/blobs": ["@epicenter/blobs@workspace:packages/blobs"],
 
     "@epicenter/chat": ["@epicenter/chat@workspace:packages/chat"],
 

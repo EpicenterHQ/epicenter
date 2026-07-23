@@ -4,11 +4,3 @@ GOOGLE_CLIENT_SECRET=
 OPENAI_API_KEY=
 AUTUMN_SECRET_KEY=
 GEMINI_API_KEY=
-# S3 credentials for the content-addressed blob store (portable: R2, MinIO,
-# Garage, S3). Leave blank to run without blob storage locally (the blob routes
-# 503). For R2, BLOBS_S3_ENDPOINT is https://<accountId>.r2.cloudflarestorage.com
-# Optional overrides: BLOBS_S3_BUCKET (default epicenter-blobs), BLOBS_S3_REGION
-# (default auto).
-BLOBS_S3_ENDPOINT=
-BLOBS_S3_ACCESS_KEY_ID=
-BLOBS_S3_SECRET_ACCESS_KEY=

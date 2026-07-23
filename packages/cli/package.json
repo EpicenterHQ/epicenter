@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/cli",
 	"version": "0.3.0",
-	"description": "CLI for Epicenter authentication, blob transfer, and Matter validation.",
+	"description": "CLI for Epicenter authentication and Matter validation.",
 	"keywords": [
 		"local-first",
 		"CLI",
@@ -29,10 +29,7 @@
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/blobs": "workspace:*",
-		"@epicenter/client": "workspace:*",
 		"@epicenter/matter-core": "workspace:*",
-		"mime": "catalog:",
 		"wellcrafted": "catalog:",
 		"yargs": "catalog:"
 	},

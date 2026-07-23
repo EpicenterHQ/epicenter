@@ -11,31 +11,22 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { generateBlobId } from '@epicenter/blobs';
 import { asPrincipalId, INSTANCE_PRINCIPAL_ID } from '@epicenter/identity';
-import { blobKey, blobPrincipalPrefix } from './principal.js';
+import { attachHostDoName } from './principal.js';
 
 const userPrincipal = asPrincipalId('abc');
 const instance = INSTANCE_PRINCIPAL_ID;
 
-describe('blobKey', () => {
-	test('per-user partitions blob objects under the user', () => {
-		const id = generateBlobId();
-		expect(blobKey(userPrincipal, id)).toBe(`principals/abc/blobs/${id}`);
+describe('attachHostDoName', () => {
+	test('per-user partitions an attach host under the user', () => {
+		expect(attachHostDoName(userPrincipal, 'desktop')).toBe(
+			'principals/abc/attach-hosts/desktop',
+		);
 	});
 
-	test('instance partitions blob objects under the literal instance principal', () => {
-		const id = generateBlobId();
-		expect(blobKey(instance, id)).toBe(`principals/instance/blobs/${id}`);
-	});
-});
-
-describe('blobPrincipalPrefix', () => {
-	test('per-user blob listings keep the principals prefix', () => {
-		expect(blobPrincipalPrefix(userPrincipal)).toBe('principals/abc/blobs/');
-	});
-
-	test('instance blob listings keep the principals prefix', () => {
-		expect(blobPrincipalPrefix(instance)).toBe('principals/instance/blobs/');
+	test('instance partitions an attach host under the literal instance principal', () => {
+		expect(attachHostDoName(instance, 'desktop')).toBe(
+			'principals/instance/attach-hosts/desktop',
+		);
 	});
 });

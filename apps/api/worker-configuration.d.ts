@@ -25,9 +25,6 @@ declare namespace Cloudflare {
 		OPENAI_API_KEY: string;
 		AUTUMN_SECRET_KEY: string;
 		GEMINI_API_KEY: string;
-		BLOBS_S3_ENDPOINT: string;
-		BLOBS_S3_ACCESS_KEY_ID: string;
-		BLOBS_S3_SECRET_ACCESS_KEY: string;
 		ATTACH_RELAY: DurableObjectNamespace<import('./worker/index').AttachRelay>;
 		DATA_AUTHORITY: DurableObjectNamespace<
 			import('./worker/index').DataAuthority
@@ -62,9 +59,6 @@ declare namespace NodeJS {
 				| 'OPENAI_API_KEY'
 				| 'AUTUMN_SECRET_KEY'
 				| 'GEMINI_API_KEY'
-				| 'BLOBS_S3_ENDPOINT'
-				| 'BLOBS_S3_ACCESS_KEY_ID'
-				| 'BLOBS_S3_SECRET_ACCESS_KEY'
 			>
 		> {}
 }

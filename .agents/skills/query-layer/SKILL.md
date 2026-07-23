@@ -63,19 +63,15 @@ For Whispering-style `$lib/queries` modules, keep source-of-truth declarations c
 
 ```typescript
 export const audioKeys = defineKeys({
-	availability: (id: string, blobId: string, uploadedAt: string | null) =>
-		['audio', 'availability', id, blobId, uploadedAt] as const,
+	availability: (recordingId: string) =>
+		['audio', 'availability', recordingId] as const,
 });
 
 export function createAudioQueries({ defineQuery }: WhisperingQueryRuntime) {
 	return {
 		availability: (recording: Accessor<Recording>) =>
 			defineQuery({
-				queryKey: audioKeys.availability(
-					recording().id,
-					recording().audioBlobId,
-					recording().uploadedAt,
-				),
+				queryKey: audioKeys.availability(recording().id),
 				queryFn: () => getRecordingAudioAvailability(recording()),
 			}),
 	};

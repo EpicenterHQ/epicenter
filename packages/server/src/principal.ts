@@ -20,7 +20,6 @@
  * One shape, one helper per resource type, no ternary.
  */
 
-import type { BlobId } from '@epicenter/blobs';
 import type { PrincipalId } from '@epicenter/identity';
 
 /**
@@ -33,32 +32,10 @@ import type { PrincipalId } from '@epicenter/identity';
  */
 export type AttachHostDoName = `principals/${string}/attach-hosts/${string}`;
 
-/**
- * R2 object key template for an opaque-id blob, single form. The BlobId is
- * used verbatim: R2 is the index, with no separate database row. See
- * ADR-0089 (presigned S3 kernel) as amended by ADR-0148 (opaque BlobId).
- */
-export type BlobR2Key = `principals/${string}/blobs/${string}`;
-
-/** Common prefix for one partition's blobs, used by the S3 client's list enumeration. */
-export type BlobPrincipalPrefix = `principals/${string}/blobs/`;
-
 /** Durable name of one AttachRelay pair's Cloudflare Durable Object. */
 export function attachHostDoName(
 	principalId: PrincipalId,
 	hostId: string,
 ): AttachHostDoName {
 	return `principals/${principalId}/attach-hosts/${hostId}`;
-}
-
-/** Durable key of an opaque-id blob's R2 object. */
-export function blobKey(principalId: PrincipalId, blobId: BlobId): BlobR2Key {
-	return `principals/${principalId}/blobs/${blobId}`;
-}
-
-/** Prefix matching every blob this partition has stored. */
-export function blobPrincipalPrefix(
-	principalId: PrincipalId,
-): BlobPrincipalPrefix {
-	return `principals/${principalId}/blobs/`;
 }

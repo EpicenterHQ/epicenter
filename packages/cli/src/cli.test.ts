@@ -1,9 +1,9 @@
 /**
  * CLI entry-point tests.
  *
- * The binary exposes account authentication, remote blob transfer, and Matter
- * validation. These tests assert registration via `--help` output so they stay
- * decoupled from command semantics and pin the retired watcher commands absent.
+ * The binary exposes account authentication and Matter validation. These tests
+ * assert registration via `--help` output so they stay decoupled from command
+ * semantics and pin retired commands absent.
  */
 import { describe, expect, spyOn, test } from 'bun:test';
 import { createCLI } from './cli.js';
@@ -49,7 +49,6 @@ describe('createCLI', () => {
 	test('help output registers supported top-level commands', async () => {
 		const help = await captureHelp();
 		expect(help).toMatch(/\bauth\b/);
-		expect(help).toMatch(/\bblobs\b/);
 		expect(help).toMatch(/\bmatter\b/);
 	});
 
@@ -65,6 +64,7 @@ describe('createCLI', () => {
 				'init',
 				'daemon',
 				'ps',
+				'blobs',
 			]) {
 				await expect(createCLI().run([command])).rejects.toThrow(
 					`Unknown argument: ${command}`,

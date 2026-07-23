@@ -17,8 +17,7 @@
  *     Boot validates them as strings; the dev path never exercises them.
  *   - The server log and data directory live under a throwaway temp dir, removed
  *     on exit.
- *   - Scenario coverage, auth header shape, and blob SKIP behavior belong to
- *     `smoke.ts`; this wrapper forwards the caller's object-storage env.
+ *   - Scenario coverage and auth header shape belong to `smoke.ts`.
  *
  * Scope mirror: like the CI gate, this proves LOGIC parity (the same Hono app
  * over injected runtime hooks), NOT transport parity. `Bun.serve` vs workerd and

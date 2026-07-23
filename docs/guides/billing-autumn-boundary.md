@@ -12,8 +12,8 @@ first.
 > permanently charge for work that did not happen, and never leak provider
 > internals to the user.
 >
-> (Storage is unmetered in v1: the opaque-ID blob store makes no Autumn
-> call. The billed era is sketched at the end of this guide.)
+> (Storage is unmetered in v1: record-addressed blob publication makes no
+> Autumn call. The billed era is constrained at the end of this guide.)
 
 Every design choice below is a consequence of that second clause. If a piece of
 code does not serve "treat the provider as fallible and untrusted," it is
@@ -137,12 +137,11 @@ confirms by design: provider tokens were consumed and cannot be refunded.
 
 ## Storage accounting: unmetered in v1
 
-Storage is **not metered today**. The old assets surface (a Postgres `asset`
-table + an `ASSETS_BUCKET` R2 binding) was retired into the opaque-ID
-blob store (`packages/server/src/routes/blobs.ts`), which makes **no Autumn
-call**: there is no upload guard and no usage sync. The asset-table-coupled
-wiring (`syncAssetStorageWithAutumn` policy, `checkAssetStorageUpload` /
-`syncAssetStorageUsageTotal` service methods) is gone.
+Storage is **not metered today**. Record-addressed blobs publish through the
+Data authority and make no Autumn call: there is no upload guard and no usage
+sync. The old asset-table-coupled wiring (`syncAssetStorageWithAutumn` policy,
+`checkAssetStorageUpload` / `syncAssetStorageUsageTotal` service methods) is
+gone.
 
 What survives is the **plan shape**, kept for the billed era: `getOverview()`
 still reports `storage: { usedBytes, includedBytes }` (the dashboard's allowance
@@ -150,17 +149,9 @@ card), the catalog still carries `storage.includedBytes` per plan, and
 `FEATURE_IDS.storageBytes` still names the Autumn feature. In v1 nothing writes
 usage, so `usedBytes` reads as the unwritten balance (effectively 0).
 
-When storage is billed (deleted blob spec `20260623T220000` decision 10,
-recoverable via git history; kernel is ADR-0089 as amended by ADR-0148), the meter
-will be a **stock sync, not event deltas**: the opaque-ID object store is its
-own index, so an occasional `ListObjectsV2` SUM over `principals/<principalId>/blobs/`
-drives one absolute `autumn.balances.update({ usage })`. That is self-correcting
-(a missed update is overwritten by the next sweep) and needs no second ledger,
-which is exactly why the retired asset path also synced an absolute total rather
-than upload/delete deltas. A `syncBlobStorageWithAutumn` policy will carry it
-(`apps/api/worker/index.ts`, beside `chargeOpenAiCreditsWithAutumn`);
-`mountBlobsApp` takes no `policies` today, so that change adds the seam and the
-policy together.
+Any future storage meter must derive membership from live record state under
+ADR-0173. It must not restore a second blob inventory, bare blob identity, or
+generic upload route.
 
 ## Errors: opaque on the wire, fat in the logs
 

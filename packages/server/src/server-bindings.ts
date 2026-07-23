@@ -17,9 +17,7 @@
  *   strings and cannot be validated from `process.env`. They live on the
  *   deployment's own `Cloudflare.Env` and are read by deployment resolvers at
  *   the `apps/*` edge, never by library code
- *   reaching for a binding shape. With the assets route retired into the
- *   portable blob store, the library now names NO Cloudflare object binding,
- *   by value or by type.
+ *   reaching for a binding shape.
  * - The relational-auth secrets (`BETTER_AUTH_SECRET` and the OAuth provider
  *   credentials) are NOT here: the relational-auth substrate is a Cloud-only
  *   layer, so its env is `CloudAuthBindings` (beside `mountCloudAuth`), supplied
@@ -40,18 +38,6 @@
 import { type } from 'arktype';
 
 export const ServerBindings = type({
-	// Content-addressed blob store (routes/blobs.ts): a portable S3 client over
-	// aws4fetch with NO Workers R2 binding, so the identical code runs on the
-	// Worker (against R2) and on a Bun host (against Garage/S3). All
-	// optional: a deployment without object storage does not mount
-	// `mountBlobsApp`, and the route 503s if reached unconfigured.
-	// `BLOBS_S3_BUCKET` defaults to `epicenter-blobs` and `BLOBS_S3_REGION` to
-	// `auto` (R2's region) when unset.
-	'BLOBS_S3_ENDPOINT?': 'string',
-	'BLOBS_S3_ACCESS_KEY_ID?': 'string',
-	'BLOBS_S3_SECRET_ACCESS_KEY?': 'string',
-	'BLOBS_S3_BUCKET?': 'string',
-	'BLOBS_S3_REGION?': 'string',
 	// AI provider house keys are optional: set one to serve that provider
 	// through the gateway (routes/inference.ts, routes/transcription.ts), or omit
 	// it and a request for that provider gets 503 ProviderNotConfigured.

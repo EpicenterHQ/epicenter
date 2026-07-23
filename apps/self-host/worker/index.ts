@@ -30,7 +30,6 @@ import {
 	DataBackup,
 	DataBackupRegistry,
 	type DataBackupRegistryNamespace,
-	mountBlobsApp,
 	mountCloudflareScalarV1App,
 	mountInferenceApp,
 	mountSessionApp,
@@ -104,11 +103,6 @@ mountTranscriptionApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 });
-// Content-addressed media store over any S3, mounted by default; it answers 503
-// until the operator sets `BLOBS_S3_*` (the same honest opt-out as inference's
-// house key). Storage is the operator's own bucket, so no house key to burn.
-mountBlobsApp(app, { auth });
-
 export default app;
 export {
 	ContainerProxy,

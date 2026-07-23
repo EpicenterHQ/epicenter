@@ -11,7 +11,7 @@ principal. The bearer selects the principal; the server derives the authority
 from that principal alone. Clients submit scalar record intents, publish
 route-bound Yjs 14 documents, and transfer record-addressed blobs through the
 versioned `/api/sync/v1` surface. There is no client-authored authority id,
-workspace catalog, room id, enrollment lookup, or legacy sync route.
+workspace catalog, or enrollment lookup.
 
 ## Why a hub exists
 
@@ -35,7 +35,7 @@ The self-host story uses that same library as a separate deployable:
 Cloudflare Worker that composes no Better Auth and no Postgres (ADR-0075,
 ADR-0076). `apps/api/server.ts` is the hosted cloud on Bun for local development
 and runtime-parity checks, backed by Postgres for hosted authentication, local
-record authority files, and any S3-compatible blob endpoint.
+record authority files, and record-owned blob files.
 
 Better Auth handles identity. Hosted Epicenter requires Google, GitHub, and Microsoft social sign-in (email/password is disabled in `base-config.ts`), plus an OAuth provider plugin that turns the hub into a standards-compliant OAuth server. Desktop and mobile clients authenticate via OAuth/PKCE flows, get a token, and use it for all subsequent API calls and WebSocket connections.
 
@@ -52,14 +52,14 @@ so self-hosting is functionally zero-knowledge against Epicenter.
 That confidentiality covers content, not the wire, and it does not erase three
 things a self-hoster should weigh. The relay operator still sees the metadata
 around the bytes (principal id, record address, attach endpoint ids, message
-timing, size, and IP); that operator is Epicenter when hosted and
-you when self-hosted, and even a future blind relay keeps seeing this envelope.
-Blobs land wherever `BLOBS_S3_ENDPOINT` points, so renting Epicenter's blob
-service puts your media in Epicenter's R2 even on a self-hosted star; point the
-store at your own S3 to keep media local. And logging in still leans on Google
-OAuth (email/password is disabled in `base-config.ts`), until the first-boot
-local bearer token that removes that dependency lands (ADR-0070). The full
-ledger, with the reasoning, is in [docs/trust-model.md](/docs/trust-model.md).
+timing, size, and IP); that operator is Epicenter when hosted and you when
+self-hosted, and even a future blind relay keeps seeing this envelope. A
+record-owned blob is stored by the same authority deployment as its record:
+Epicenter's R2 when hosted, local files for a Bun instance, or the deployer's R2
+for a Cloudflare instance. Logging in still leans on Google OAuth
+(email/password is disabled in `base-config.ts`), until the first-boot local
+bearer token that removes that dependency lands (ADR-0070). The full ledger,
+with the reasoning, is in [docs/trust-model.md](/docs/trust-model.md).
 
 ### Why not zero-knowledge?
 
@@ -139,38 +139,10 @@ bun test             # Run tests
 ```
 
 `smoke:local` is the no-Infisical verification path. It starts `server.dev.ts`,
-runs `apps/api/scripts/smoke.ts`, keeps its server log and data directory under a
-temporary directory, and skips the blob leg unless `BLOBS_S3_*` points at a
-local S3-compatible store.
-
-### Local blob storage
-
-Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer `503
-StorageNotConfigured` while everything else runs. To exercise blobs locally, run
-a real S3-compatible store alongside the server. `compose.yaml` starts
-[versitygw](https://github.com/versity/versitygw) (an S3 API over a plain folder)
-and creates the `epicenter-blobs` bucket:
-
-```bash
-docker compose up -d
-```
-
-Then set the `BLOBS_S3_*` values from `.env.example` (endpoint
-`http://localhost:7070`). Your blobs land as ordinary files under
-`.data/blobs/epicenter-blobs/`.
-
-Browser replicas upload and download through short-lived presigned object-store
-URLs. The bucket CORS policy must allow each trusted application origin to use
-`GET` and `PUT`, and must allow the `Content-Type` and `If-None-Match` request
-headers. This is deployment configuration, not Worker CORS: a missing
-`If-None-Match` allowance makes immutable browser uploads fail at preflight.
-
-The server runs the same portable S3 client against versitygw, Garage, AWS S3, or
-R2; the store is endpoint-as-config, so swapping it is a config change, never a
-code change. There is no filesystem blob backend in the codebase by design: the
-self-host story is "run the server next to an S3-compatible service," exactly as
-the hosted Worker runs next to R2. `apps/api/scripts/smoke.ts` exercises the full
-blob round-trip against whichever store the server points at.
+runs `apps/api/scripts/smoke.ts`, and keeps its server log and record authority
+directory under a temporary directory. The scenario proves a scalar record and
+its record-addressed blob through the production HTTP surface, including
+tombstone reaping.
 
 ### Database commands
 

@@ -27,7 +27,6 @@ import {
 	DataBackupRegistry,
 	type DataBackupRegistryNamespace,
 	mountAttachRelayApp,
-	mountBlobsApp,
 	mountCloudAuth,
 	mountCloudDb,
 	mountCloudflareScalarV1App,
@@ -162,12 +161,6 @@ mountAttachRelayApp(app, {
 	resolveRelay: (env) =>
 		createDurableObjectAttachRelay((env as Cloudflare.Env).ATTACH_RELAY),
 });
-// Content-addressed blob store (supersedes the retired assets surface). v1 is
-// unmetered (no Autumn policy): Autumn's check() denies by default with no plan
-// attached, so deferred quota means not calling it. When storage is billed, a
-// `syncBlobStorageWithAutumn` policy and the `policies` seam it needs land on
-// `mountBlobsApp` together.
-mountBlobsApp(app, { auth: cookieOrBearer });
 mountInferenceApp(app, {
 	auth: bearer,
 	policies: [chargeOpenAiCreditsWithAutumn],
@@ -184,8 +177,8 @@ mountTranscriptionApp(app, {
 mountBillingApi(app, { auth: cookieOrBearer });
 
 // Hosted account deletion (Wave G): one route coordinates authority storage,
-// the blob prefix, the Autumn customer, storage observations, and the auth
-// user, ordered so retries stay authenticated until deletion is complete.
+// the Autumn customer, storage observations, and the auth user, ordered so
+// retries stay authenticated until deletion is complete.
 // Auth is bundled inside the mount: a fresh cookie session only, so a leaked
 // bearer can never destroy the account.
 mountAccountDeletionApi(app);

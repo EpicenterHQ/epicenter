@@ -2,9 +2,9 @@
  * One-scenario smoke test for the runtime port. Same backend, either runtime.
  *
  * Point it at a base URL and it runs ONE end-to-end scenario against the live
- * HTTP server: read the session and exercise the
- * full opaque-id blob lifecycle (ticket -> presigned PUT -> read back).
- * Every step prints a single PASS/FAIL/SKIP line, so the same
+ * HTTP server: read the session, create one universal record, publish its
+ * immutable blob, read the bytes back, and tombstone the record. Every step
+ * prints a single PASS/FAIL line, so the same
  * invocation against the Bun process (:8788) and the wrangler process (:8787)
  * produces a diffable transcript of runtime parity.
  *
@@ -21,15 +21,11 @@
  * Requirements to run:
  *   - BASE_URL reachable, and booted WITH the dev resolver (`dev:bun:devauth`).
  *     Against a production-auth server the authed steps return 401.
- *   - For a full green blob round-trip the server must have BLOBS_S3_* set
- *     (run `docker compose up -d` in apps/api for a local versitygw store);
- *     without object storage the blob routes answer 503 and the script reports
- *     that as an expected, non-fatal outcome.
  */
 
-import { generateBlobId } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
+import { BLOB_PUBLICATION_VERSION } from '@epicenter/data/blob-v1';
 
 const BASE_URL = (
 	process.argv[2] ??
@@ -38,7 +34,7 @@ const BASE_URL = (
 ).replace(/\/+$/, '');
 
 // The dev resolver synthesizes the principal from this id. Random per run so
-// repeated smokes never collide on room or blob state.
+// repeated smokes never collide on principal-scoped record state.
 const principalId = `smoke-${randHex(4)}`;
 const authHeaders: Record<string, string> = {
 	authorization: `Bearer dev:${principalId}`,
@@ -46,7 +42,7 @@ const authHeaders: Record<string, string> = {
 
 // ── tiny step reporter ──────────────────────────────────────────────────────
 
-type Status = 'PASS' | 'FAIL' | 'SKIP';
+type Status = 'PASS' | 'FAIL';
 const rows: { status: Status; step: string; detail: string }[] = [];
 function record(status: Status, step: string, detail: string) {
 	rows.push({ status, step, detail });
@@ -56,6 +52,17 @@ function record(status: Status, step: string, detail: string) {
 function randHex(bytes: number): string {
 	return [...crypto.getRandomValues(new Uint8Array(bytes))]
 		.map((b) => b.toString(16).padStart(2, '0'))
+		.join('');
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+	const input = bytes.buffer.slice(
+		bytes.byteOffset,
+		bytes.byteOffset + bytes.byteLength,
+	) as ArrayBuffer;
+	const digest = await crypto.subtle.digest('SHA-256', input);
+	return [...new Uint8Array(digest)]
+		.map((byte) => byte.toString(16).padStart(2, '0'))
 		.join('');
 }
 
@@ -98,78 +105,126 @@ async function main() {
 		}
 	}
 
-	// 3. Blob lifecycle.
-	const payload = new TextEncoder().encode(
-		`epicenter blob smoke ${new Date().toISOString()} ${randHex(4)}\n`,
-	);
-	const blobId = generateBlobId();
-	const ticketRes = await fetch(API_ROUTES.blobs.collection.url(BASE_URL), {
-		method: 'POST',
-		headers: { ...authHeaders, 'content-type': 'application/json' },
-		body: JSON.stringify({
-			blobId,
-			sizeBytes: payload.byteLength,
-			contentType: 'text/plain',
-		}),
+	// 3. The generic opaque-ID blob product is a clean break, not an alias.
+	const retiredBlobsRes = await fetch(`${BASE_URL}/api/blobs`, {
+		headers: authHeaders,
 	});
-
-	if (ticketRes.status === 503) {
-		record(
-			'SKIP',
-			'blob ticket',
-			'503 StorageNotConfigured (no BLOBS_S3_* on this server), expected without S3',
-		);
-	} else if (!ticketRes.ok) {
+	if (retiredBlobsRes.status !== 404) {
 		record(
 			'FAIL',
-			'blob ticket',
-			`${ticketRes.status} ${await ticketRes.text()}`,
+			'generic blob route absent',
+			`${retiredBlobsRes.status}`,
 		);
-	} else {
-		const ticket = (await ticketRes.json()) as {
-			uploadUrl: string;
-			requiredHeaders: Record<string, string>;
-		};
-		record('PASS', 'blob ticket', `${ticketRes.status} blobId=${blobId}`);
-
-		const putRes = await fetch(ticket.uploadUrl, {
-			method: 'PUT',
-			headers: ticket.requiredHeaders,
-			body: payload,
-		});
-		record(
-			putRes.ok || putRes.status === 412 ? 'PASS' : 'FAIL',
-			'blob PUT (presigned)',
-			`${putRes.status}`,
-		);
-
-		// Read back: 302 -> presigned GET -> compare bytes.
-		const readRes = await fetch(API_ROUTES.blobs.byId.url(BASE_URL, blobId), {
-			headers: authHeaders,
-			redirect: 'manual',
-		});
-		const presigned = readRes.headers.get('location');
-		if (readRes.status === 302 && presigned) {
-			const objRes = await fetch(presigned);
-			const got = new Uint8Array(await objRes.arrayBuffer());
-			const match =
-				got.byteLength === payload.byteLength &&
-				got.every((byte, index) => byte === payload[index]);
-			record(
-				match ? 'PASS' : 'FAIL',
-				'blob read back',
-				`302 -> ${objRes.status}, bytes ${match ? 'match' : 'MISMATCH'}`,
-			);
-		} else {
-			record('FAIL', 'blob read back', `expected 302, got ${readRes.status}`);
-		}
-
-		// Cleanup the uploaded object (idempotent).
-		await fetch(API_ROUTES.blobs.byId.url(BASE_URL, blobId), {
-			method: 'DELETE',
-			headers: authHeaders,
-		});
+		return summarize();
 	}
+	record('PASS', 'generic blob route absent', `${retiredBlobsRes.status}`);
+
+	// 4. Bind to the principal's authority lifetime.
+	const factsRes = await fetch(
+		`${BASE_URL}/api/sync/v1/facts?afterSequence=0`,
+		{ headers: authHeaders },
+	);
+	if (!factsRes.ok) {
+		record(
+			'FAIL',
+			'read authority',
+			`${factsRes.status} ${await factsRes.text()}`,
+		);
+		return summarize();
+	}
+	const { authorityLifetime } = (await factsRes.json()) as {
+		authorityLifetime: string;
+	};
+	record('PASS', 'read authority', `${factsRes.status}`);
+
+	// 5. Create one live record, then publish bytes to its latent blob slot.
+	const address = {
+		namespace: 'so.epicenter.smoke',
+		collection: 'runtimeParity',
+		recordKey: randHex(12),
+	};
+	const replicaId = randHex(12);
+	const submit = (submissionNumber: number, op: 'replace' | 'tombstone') =>
+		fetch(`${BASE_URL}/api/sync/v1/submissions`, {
+			method: 'POST',
+			headers: { ...authHeaders, 'content-type': 'application/json' },
+			body: JSON.stringify({
+				authorityLifetime,
+				replicaId,
+				submissionNumber,
+				intents: [
+					{
+						address,
+						op,
+						...(op === 'replace'
+							? { value: { kind: 'runtime-parity-smoke' } }
+							: {}),
+					},
+				],
+			}),
+		});
+	const createRes = await submit(1, 'replace');
+	if (!createRes.ok) {
+		record(
+			'FAIL',
+			'create record',
+			`${createRes.status} ${await createRes.text()}`,
+		);
+		return summarize();
+	}
+	record('PASS', 'create record', `${createRes.status}`);
+
+	const payload = new TextEncoder().encode(
+		`epicenter record blob smoke ${new Date().toISOString()} ${randHex(4)}\n`,
+	);
+	const digest = await sha256Hex(payload);
+	const recordPath = `${BASE_URL}/api/sync/v1/records/${encodeURIComponent(address.namespace)}/${encodeURIComponent(address.collection)}/${encodeURIComponent(address.recordKey)}`;
+	const publishRes = await fetch(`${recordPath}/blob-publications`, {
+		method: 'POST',
+		headers: {
+			...authHeaders,
+			'content-type': 'application/octet-stream',
+			'x-epicenter-authority-lifetime': authorityLifetime,
+			'x-epicenter-blob-protocol': BLOB_PUBLICATION_VERSION,
+			'x-epicenter-blob-digest': digest,
+		},
+		body: payload,
+	});
+	if (!publishRes.ok) {
+		record(
+			'FAIL',
+			'publish record blob',
+			`${publishRes.status} ${await publishRes.text()}`,
+		);
+		return summarize();
+	}
+	record('PASS', 'publish record blob', `${publishRes.status}`);
+
+	const readRes = await fetch(`${recordPath}/blob`, { headers: authHeaders });
+	const got = new Uint8Array(await readRes.arrayBuffer());
+	const match =
+		readRes.ok &&
+		got.byteLength === payload.byteLength &&
+		got.every((byte, index) => byte === payload[index]);
+	record(
+		match ? 'PASS' : 'FAIL',
+		'read record blob',
+		`${readRes.status}, bytes ${match ? 'match' : 'MISMATCH'}`,
+	);
+
+	// 6. The record tombstone is the blob deletion operation.
+	const tombstoneRes = await submit(2, 'tombstone');
+	record(
+		tombstoneRes.ok ? 'PASS' : 'FAIL',
+		'tombstone record',
+		`${tombstoneRes.status}`,
+	);
+	const reapedRes = await fetch(`${recordPath}/blob`, { headers: authHeaders });
+	record(
+		reapedRes.status === 404 ? 'PASS' : 'FAIL',
+		'blob reaped',
+		`${reapedRes.status}`,
+	);
 
 	return summarize();
 }
@@ -180,7 +235,7 @@ function summarize() {
 		counts[row.status] = (counts[row.status] ?? 0) + 1;
 	}
 	console.log(
-		`\nSummary: ${counts.PASS ?? 0} pass, ${counts.FAIL ?? 0} fail, ${counts.SKIP ?? 0} skip\n`,
+		`\nSummary: ${counts.PASS ?? 0} pass, ${counts.FAIL ?? 0} fail\n`,
 	);
 	process.exit((counts.FAIL ?? 0) > 0 ? 1 : 0);
 }

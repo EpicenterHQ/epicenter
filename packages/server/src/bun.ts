@@ -24,8 +24,8 @@ export {
 // The AttachRelay (ADR-0115): the Bun WebSocket transport a desktop or
 // self-hosted instance serves, plus the wire type its adapters speak. A
 // self-hosted instance mounts it behind per-device grants (`mountAttachRelayApp`).
-// The coordinator itself (`createAttachRelay`) stays package-internal, the way
-// the room coordinator does; only its transport and mounts are public. The Cloud
+// The coordinator itself (`createAttachRelay`) stays package-internal; only its
+// transport and mounts are public. The Cloud
 // Durable Object transport (`createDurableObjectAttachRelay`, `AttachRelay`)
 // lives in the main barrel instead: its module imports `cloudflare:workers` and
 // cannot load in a Bun process.
@@ -74,8 +74,8 @@ export {
 } from './auth/instance-token.js';
 // The OAuth resource-boundary error union the bearer resolver emits. Exported
 // here too (it is not a Cloudflare module) so a Bun entry's dev bearer resolver
-// gets it without importing the main barrel, which would drag in the `Room`
-// Durable Object and its `cloudflare:workers` import.
+// gets it without importing the main barrel, which would drag in Cloudflare
+// Durable Object modules and their `cloudflare:workers` import.
 export { OAuthError } from './auth/oauth-errors.js';
 export { createDb } from './db/create-db.js';
 export {
@@ -101,7 +101,6 @@ export {
 // merged into the cloud Bun host's boot validation.
 export { CloudAuthBindings, mountCloudAuth } from './mount-cloud-auth.js';
 export { mountCloudDb } from './mount-cloud-db.js';
-export { mountBlobsApp } from './routes/blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';

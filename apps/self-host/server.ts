@@ -6,13 +6,14 @@
  * its composition rather than sharing a launcher: this one is bearer-only with no
  * relational-auth substrate (no Better Auth, no cookie sessions), so a shared
  * factory would re-introduce the mode knob ADR-0075/0076 deleted. It composes no
- * Postgres (no Better Auth, no telemetry), so its
+ * Postgres (no Better Auth and no relational sync telemetry).
  * This is the "one binary, no Cloudflare account, no database" instance artifact:
  * `bun server.ts` (or a `bun build --compile` binary) is a complete box on a
- * single node. Records are `bun:sqlite` files on local disk, so this is a single-node
- * deployment by design: it does not shard or hibernate per room the way the
- * Durable Object edge does, which is exactly right for one homelab, one family, or
- * one small team and the price of owning your own data on your own machine.
+ * single node. Records are `bun:sqlite` files on local disk, so this is a
+ * single-node deployment by design. Epicenter Cloud instead routes each
+ * principal to its own Durable Object authority. The local shape is exactly
+ * right for one homelab, one family, or one small team and the price of owning
+ * your own data on your own machine.
  *
  * There is ONE shape, not a mode (ADR-0075). Every request resolves to the pinned
  * `principals/instance` partition. Authentication is one operator-supplied static bearer
@@ -28,17 +29,11 @@
  * keeping the instance Bun-or-Cloudflare (the operator supplies the secret either
  * way).
  *
- * Surface: session + record documents + inference + blobs behind the operator bearer, zero
+ * Surface: session + record data + inference behind the operator bearer, zero
  * billing, no dashboard SPA, no auth surface. Remote Super Chat attach is the one
  * exception (ADR-0115): an attach connect carries a revocable per-device
  * grant instead of the operator token, and the operator token administers that
- * device allowlist through `/attach/grants`. The blob store is a portable
- * content-addressed media store over any S3 (your own MinIO/Garage/R2); it is
- * mounted by default and answers 503 until `BLOBS_S3_*` is set, exactly as the
- * inference gateway answers 503 until a provider house key is set. Owning your
- * own media on your own bucket is squarely the instance's purpose; configure
- * `BLOBS_S3_*` to turn it on, or leave it unconfigured to run without object
- * storage.
+ * device allowlist through `/attach/grants`.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -53,7 +48,6 @@ import {
 	mergeBunWebSocketHandlers,
 	mountAttachGrantsApp,
 	mountAttachRelayApp,
-	mountBlobsApp,
 	mountBunScalarV1App,
 	mountHostDirectoryApp,
 	mountInferenceApp,
@@ -221,12 +215,6 @@ export function startSelfHostServer(): void {
 		auth,
 		policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 	});
-	// Content-addressed media store over any S3, mounted by default; it answers 503
-	// until `BLOBS_S3_*` is set (the same honest opt-out as inference's house key).
-	// Storage is the operator's own bucket, so there is no house key to burn and no
-	// rate-limit policy here.
-	mountBlobsApp(app, { auth });
-
 	const server = Bun.serve({
 		port,
 		fetch: (req) => app.fetch(req, env),

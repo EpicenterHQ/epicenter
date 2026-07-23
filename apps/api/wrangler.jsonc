@@ -162,17 +162,7 @@
 			// usage, so a deploy without them would 503 paying users.
 			"OPENAI_API_KEY",
 			"AUTUMN_SECRET_KEY",
-			"GEMINI_API_KEY",
-			// S3 credentials for the opaque-id blob store. The store is
-			// a portable S3 client (no R2 binding): it presigns PUT/GET and signs
-			// head/list/delete against BLOBS_S3_ENDPOINT. For hosted cloud that
-			// endpoint is `https://<accountId>.r2.cloudflarestorage.com` with a
-			// bucket-scoped Object Read & Write token. The endpoint is grouped as
-			// a secret so the account id stays out of committed config; bucket
-			// (`epicenter-blobs`) and region (`auto`) default in code.
-			"BLOBS_S3_ENDPOINT",
-			"BLOBS_S3_ACCESS_KEY_ID",
-			"BLOBS_S3_SECRET_ACCESS_KEY"
+			"GEMINI_API_KEY"
 		]
 	},
 	// --- Hyperdrive: Postgres connection pool ---
@@ -185,10 +175,8 @@
 		}
 	],
 	// --- R2 ---
-	// DATA_BLOBS stores live DataAuthority blobs plus immutable Backup control
-	// and blob objects. The existing opaque-id blob store still uses the portable
-	// S3 API and its BLOBS_S3_* secrets. They can share this bucket because their
-	// key spaces are disjoint.
+	// DATA_BLOBS stores record-addressed DataAuthority blobs plus immutable
+	// Backup control and blob objects.
 	"r2_buckets": [
 		{
 			"binding": "DATA_BLOBS",

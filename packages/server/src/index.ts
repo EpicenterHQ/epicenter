@@ -22,13 +22,13 @@ export {
 // Super Chat bytes between two authenticated endpoints of one principal. The
 // wire contract (the connect route and the frame delivered to a host) is the
 // shared addressing vocabulary any transport or client speaks; the coordinator
-// itself stays package-internal, the way the room coordinator does. On Cloud the
-// transport is a Durable Object: `createDurableObjectAttachRelay` is the backend
-// a deployment wires into `mountAttachRelayApp`'s `resolveRelay`, and the
-// `AttachRelay` class is re-exported so a deployment's wrangler.jsonc can resolve
-// `class_name: "AttachRelay"` against this entrypoint (the Bun transport lives in
-// the `/bun` barrel instead). The relay forwards opaque bytes for one consumer,
-// Super Chat attach (clause 4); it is never a routing product.
+// itself stays package-internal. On Cloud the transport is a Durable Object:
+// `createDurableObjectAttachRelay` is the backend a deployment wires into
+// `mountAttachRelayApp`'s `resolveRelay`, and the `AttachRelay` class is
+// re-exported so a deployment's wrangler.jsonc can resolve
+// `class_name: "AttachRelay"` against this entrypoint (the Bun transport lives
+// in the `/bun` barrel instead). The relay forwards opaque bytes for one
+// consumer, Super Chat attach (clause 4); it is never a routing product.
 export {
 	RELAY_CLOSE,
 	type RelayToHostFrame,
@@ -108,8 +108,6 @@ export { mountCloudDb } from './mount-cloud-db.js';
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // cloud's Better Auth surface (sessions, OAuth, `c.var.auth`) is bundled into
 // `mountCloudAuth`; an instance composes none of it (ADR-0075).
-export { blobPrincipalPrefix } from './principal.js';
-export { mountBlobsApp, resolveDeploymentBlobStore } from './routes/blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';

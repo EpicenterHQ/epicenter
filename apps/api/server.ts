@@ -7,7 +7,6 @@
  *
  *   - the `db` leg   a module-scope `pg.Pool` over `DATABASE_URL`, drained
  *                    fire-and-forget in the live process (no `waitUntil`)
- *   - blobs          any S3 endpoint via the existing `BLOBS_S3_*` env
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
  * `bun --watch server.ts` boots instantly with real stack traces. It is the
@@ -17,7 +16,7 @@
  *
  * The whole hosted-cloud-on-Bun bootstrap lives here, in the app, not behind a
  * shared `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the
- * record SQLite, the cloud auth layer, the session/inference/blobs
+ * record SQLite, the cloud auth layer, the session/inference/data
  * mounts, `Bun.serve`) is this app's composition to own. The instance does NOT
  * share it (it diverges on the substrate that matters: no Better Auth, no
  * Postgres), so a shared launcher would re-introduce the mode knob ADR-0075/0076
@@ -50,7 +49,6 @@ import {
 	createBunScalarV1Runtime,
 	createDb,
 	createServerApp,
-	mountBlobsApp,
 	mountBunScalarV1App,
 	mountCloudAuth,
 	mountCloudDb,
@@ -196,7 +194,6 @@ export function startBunApiServer(
 		runtime: scalarV1,
 	});
 	mountInferenceApp(app, { auth: bearer });
-	mountBlobsApp(app, { auth: cookieOrBearer });
 
 	const server = Bun.serve({
 		port,

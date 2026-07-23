@@ -20,11 +20,9 @@ command would need to own schemas, authorization, concurrency, error mapping,
 and a long-lived process protocol without a concrete product workflow to
 justify them.
 
-Use the existing CLI only for its three independent tool families:
+Use the existing CLI only for its two independent tool families:
 
 - `epicenter auth` manages the machine session.
-- `epicenter blobs` transfers a remote blob whose address the caller already
-  holds.
 - `epicenter matter check` validates typed Markdown whose source of truth is on
   disk.
 

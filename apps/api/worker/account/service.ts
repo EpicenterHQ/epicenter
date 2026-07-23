@@ -4,11 +4,11 @@
  * order that keeps a retry authenticated:
  *
  *   1. authority      the account's Backup and DataAuthority owners (records,
- *                     documents, sockets), never refused by allowance or the wall
- *   2. blobs          the `principals/<id>/blobs/` object prefix
- *   3. billing        the Autumn customer and its Stripe counterpart
- *   4. observations   hosted storage-observation rows (no FK, never cascade)
- *   5. auth user      the Better Auth user row; sessions, provider accounts,
+ *                     documents, record blobs, sockets), never refused by
+ *                     allowance or the wall
+ *   2. billing        the Autumn customer and its Stripe counterpart
+ *   3. observations   hosted storage-observation rows (no FK, never cascade)
+ *   4. auth user      the Better Auth user row; sessions, provider accounts,
  *                     OAuth tokens, consents, and passkeys cascade from it
  *
  * The auth user goes LAST: it is the durable gate against any later
@@ -22,7 +22,6 @@ import { extractErrorMessage } from 'wellcrafted/error';
 
 const DELETION_STEPS = [
 	'authority',
-	'blobs',
 	'billing',
 	'observations',
 	'auth-user',

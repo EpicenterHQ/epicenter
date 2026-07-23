@@ -511,13 +511,14 @@ A token-verification failure (expired, bad audience/issuer/signature, unknown
 subject) is a real 401 (`OAuthError.InvalidToken`); an unreachable JWKS or DB is
 a retryable 503 (`OAuthError.ServerError`). Never flatten the latter into a 401.
 
-The deployment partition is a single unconditional path shape in
-`packages/server/src/principal.ts`: `principals/<principalId>/<type>/<id>`, with
-one helper per resource type (`doName`, `blobKey`, `blobPrincipalPrefix`). There
-is no `OwnershipRule` engine, `perUser` / `instance` discriminator, or
-`resolveOwnerPartition` switch: per-user vs instance is decided once, at the
-resolver, by which `PrincipalId` the bearer resolves to (a real user id, or the
-literal `INSTANCE_PRINCIPAL_ID`). Everything downstream is principal-blind.
+The deployment partition is a single unconditional path shape:
+`principals/<principalId>/<type>/<id>`. Server-only durable names use one helper
+per resource type (for example `attachHostDoName` in
+`packages/server/src/principal.ts`). There is no `OwnershipRule` engine,
+`perUser` / `instance` discriminator, or `resolveOwnerPartition` switch:
+per-user vs instance is decided once, at the resolver, by which `PrincipalId`
+the bearer resolves to (a real user id, or the literal
+`INSTANCE_PRINCIPAL_ID`). Everything downstream is principal-blind.
 
 Note: the same-origin dashboard SPA (`apps/api/ui`) uses
 `createSameOriginCookieAuth`, not PKCE. Served same-origin by the API, it already

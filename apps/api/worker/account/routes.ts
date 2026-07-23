@@ -12,19 +12,17 @@
  * remedy the dashboard already handles, and the cache bypass means this route
  * always observes the live session row.
  *
- * After the gated steps succeed, the Backup registry, authority, and blob
- * sweeps run once more:
+ * After the gated steps succeed, the Backup registry and authority sweep runs
+ * once more:
  * while the auth user still existed, a signed-in device could publish record
  * state or land a blob, so one post-fence pass sweeps that window.
  * Sweep failures are logged, not surfaced: the auth user is gone, no retry
  * can authenticate, and the residue is unreachable garbage, not user data.
  *
- * Known non-atomic residue, accepted and documented: a presigned blob PUT
- * issued up to five minutes earlier can land after the final sweep; other
- * cookie surfaces may honor the deleting browser's cached session for up to
- * five minutes after 204; an Autumn customer deleted out-of-band leaves any
- * Stripe counterpart to manual reconciliation (the 404 tolerance cannot see
- * Stripe).
+ * Known non-atomic residue, accepted and documented: other cookie surfaces may
+ * honor the deleting browser's cached session for up to five minutes after
+ * 204; an Autumn customer deleted out-of-band leaves any Stripe counterpart to
+ * manual reconciliation (the 404 tolerance cannot see Stripe).
  *
  * Lives in apps/api, not @epicenter/server: Better Auth, Postgres, and Autumn
  * are hosted-only deployment policy. The self-hosted instance has no per-user
@@ -34,14 +32,12 @@
 
 import { Principal } from '@epicenter/auth';
 import {
-	blobPrincipalPrefix,
 	type CloudEnv,
 	createDataAuthorityAccountAuthorities,
 	createDataBackupRegistryAccountAuthorities,
 	type DeletableDataAuthorityNamespace,
 	type DeletableDataBackupRegistryNamespace,
 	deleteStorageObservations,
-	resolveDeploymentBlobStore,
 } from '@epicenter/server';
 import {
 	deleteHostedPrincipal,
@@ -137,22 +133,11 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 					.authority(principalId)
 					.deleteAccount();
 			};
-			const sweepBlobs = async () => {
-				const store = resolveDeploymentBlobStore(c.env);
-				if (!store) {
-					// The hosted deployment always configures object storage, so an
-					// unresolved store is a misconfiguration. Failing closed keeps a
-					// 204 honest about "uploaded files are deleted".
-					throw new Error('Hosted blob storage is not configured');
-				}
-				await store.deletePrefix(blobPrincipalPrefix(principalId));
-			};
 			const result = await runAccountDeletion(
 				{
 					authority: async () => {
 						await sweepAuthorities();
 					},
-					blobs: sweepBlobs,
 					async billing() {
 						const principalEmail = await readHostedPrincipalEmail(
 							c.var.db,
@@ -186,17 +171,12 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 			// Post-fence sweeps: close the recreation window that was open while
 			// the auth user still authenticated pushes and uploads. Best-effort by
 			// design; see the module JSDoc.
-			for (const [name, sweep] of [
-				['authority-sweep', sweepAuthorities],
-				['blobs-sweep', sweepBlobs],
-			] as const) {
-				try {
-					await sweep();
-				} catch (cause) {
-					console.error(
-						`[account] post-fence ${name} for ${principalId} failed: ${extractErrorMessage(cause)}`,
-					);
-				}
+			try {
+				await sweepAuthorities();
+			} catch (cause) {
+				console.error(
+					`[account] post-fence authority sweep for ${principalId} failed: ${extractErrorMessage(cause)}`,
+				);
 			}
 			return c.body(null, 204);
 		},

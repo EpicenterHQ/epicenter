@@ -27,7 +27,6 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/blobs": "workspace:*",
 		"@epicenter/identity": "workspace:*",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
