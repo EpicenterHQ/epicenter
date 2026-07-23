@@ -42,8 +42,8 @@ function notesLens() {
 		collections: {
 			notes: defineTable({
 				title: 'Notes',
-				fields: { title: field.string() },
-				optional: [],
+				fields: { title: field.string(), done: field.boolean() },
+				optional: ['done'],
 			}),
 		},
 	});
@@ -265,6 +265,216 @@ test('Bun owner resumes a lagging Proposal watermark after restart', async () =>
 		});
 	} finally {
 		await reopened.owner[Symbol.asyncDispose]();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('Bun owner resumes every lagging Proposal Apply boundary', async () => {
+	for (const crashAt of [1, 2, 3]) {
+		const directory = await mkdtemp(
+			join(tmpdir(), `epicenter-proposal-boundary-${crashAt}-`),
+		);
+		let proposalId = '';
+		const first = await openBunRecordOwner({ directory });
+		try {
+			first.replica.localWrite({
+				address: NOTE_ADDRESS,
+				op: 'replace',
+				value: { title: 'Before' },
+			});
+			const proposal = await first.createProposal({
+				lens: notesLens(),
+				selection: existingNoteSelection(),
+			});
+			proposalId = proposal.id;
+			const editable = new Database(proposal.path, { strict: true });
+			try {
+				editable.run(`UPDATE notes SET title = 'After' WHERE id = ?`, [
+					NOTE_ADDRESS.recordKey,
+				]);
+				editable.run(`INSERT INTO notes (id, title) VALUES (?, 'Created C')`, [
+					'cccccccccccccccccccccccc',
+				]);
+				editable.run(`INSERT INTO notes (id, title) VALUES (?, 'Created D')`, [
+					'dddddddddddddddddddddddd',
+				]);
+			} finally {
+				editable.close();
+			}
+			const compiled = await first.compileProposal(proposal.id);
+			expect(compiled.changeCount).toBe(3);
+
+			const originalAdmit = first.replica.admitFencedLocalWrite;
+			let admitted = 0;
+			first.replica.admitFencedLocalWrite = (write) => {
+				originalAdmit(write);
+				admitted += 1;
+				if (admitted === crashAt) {
+					throw new Error(`simulated crash after admission ${crashAt}`);
+				}
+			};
+			await expect(first.applyProposal(proposal.id)).rejects.toThrow(
+				`simulated crash after admission ${crashAt}`,
+			);
+			first.replica.admitFencedLocalWrite = originalAdmit;
+		} finally {
+			await first.owner[Symbol.asyncDispose]();
+		}
+
+		const reopened = await openBunRecordOwner({ directory });
+		try {
+			expect(await reopened.applyProposal(proposalId)).toEqual({
+				proposalId,
+				admittedChanges: 4 - crashAt,
+			});
+			expect(reopened.replica.visible(NOTE_ADDRESS)).toEqual({
+				state: 'live',
+				payload: { title: 'After' },
+			});
+			expect(
+				reopened.replica.visible({
+					...NOTE_ADDRESS,
+					recordKey: 'cccccccccccccccccccccccc',
+				}),
+			).toEqual({ state: 'live', payload: { title: 'Created C' } });
+			expect(
+				reopened.replica.visible({
+					...NOTE_ADDRESS,
+					recordKey: 'dddddddddddddddddddddddd',
+				}),
+			).toEqual({ state: 'live', payload: { title: 'Created D' } });
+		} finally {
+			await reopened.owner[Symbol.asyncDispose]();
+			await rm(directory, { recursive: true, force: true });
+		}
+	}
+});
+
+test('Bun owner applies Proposal writes after concurrent ordinary writes', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'epicenter-proposal-race-'));
+	const opened = await openBunRecordOwner({ directory });
+	try {
+		opened.replica.localWrite({
+			address: NOTE_ADDRESS,
+			op: 'replace',
+			value: { title: 'Before' },
+		});
+		const disjoint = await opened.createProposal({
+			lens: notesLens(),
+			selection: existingNoteSelection(),
+		});
+		const disjointArtifact = new Database(disjoint.path, { strict: true });
+		try {
+			disjointArtifact.run(`UPDATE notes SET title = 'Proposal' WHERE id = ?`, [
+				NOTE_ADDRESS.recordKey,
+			]);
+		} finally {
+			disjointArtifact.close();
+		}
+		await opened.compileProposal(disjoint.id);
+		opened.replica.localWrite({
+			address: NOTE_ADDRESS,
+			op: 'patch',
+			set: { done: true },
+			unset: [],
+		});
+		await opened.applyProposal(disjoint.id);
+		expect(opened.replica.visible(NOTE_ADDRESS)).toEqual({
+			state: 'live',
+			payload: { title: 'Proposal', done: true },
+		});
+
+		const sameField = await opened.createProposal({
+			lens: notesLens(),
+			selection: existingNoteSelection(),
+		});
+		const sameFieldArtifact = new Database(sameField.path, { strict: true });
+		try {
+			sameFieldArtifact.run(
+				`UPDATE notes SET title = 'Proposal wins' WHERE id = ?`,
+				[NOTE_ADDRESS.recordKey],
+			);
+		} finally {
+			sameFieldArtifact.close();
+		}
+		await opened.compileProposal(sameField.id);
+		opened.replica.localWrite({
+			address: NOTE_ADDRESS,
+			op: 'patch',
+			set: { title: 'Concurrent' },
+			unset: [],
+		});
+		await opened.applyProposal(sameField.id);
+		expect(opened.replica.visible(NOTE_ADDRESS)).toEqual({
+			state: 'live',
+			payload: { title: 'Proposal wins', done: true },
+		});
+	} finally {
+		await opened.owner[Symbol.asyncDispose]();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('Bun owner rechecks the source fence between Proposal entries', async () => {
+	const directory = await mkdtemp(
+		join(tmpdir(), 'epicenter-proposal-mid-fence-'),
+	);
+	const opened = await openBunRecordOwner({ directory });
+	try {
+		opened.replica.localWrite({
+			address: NOTE_ADDRESS,
+			op: 'replace',
+			value: { title: 'Before' },
+		});
+		const proposal = await opened.createProposal({
+			lens: notesLens(),
+			selection: existingNoteSelection(),
+		});
+		const editable = new Database(proposal.path, { strict: true });
+		try {
+			editable.run(`UPDATE notes SET title = 'After' WHERE id = ?`, [
+				NOTE_ADDRESS.recordKey,
+			]);
+			editable.run(`INSERT INTO notes (id, title) VALUES (?, 'Created')`, [
+				'cccccccccccccccccccccccc',
+			]);
+		} finally {
+			editable.close();
+		}
+		await opened.compileProposal(proposal.id);
+
+		const originalAdmit = opened.replica.admitFencedLocalWrite;
+		let admitted = 0;
+		opened.replica.admitFencedLocalWrite = (write) => {
+			originalAdmit(write);
+			admitted += 1;
+			if (admitted !== 1) return;
+			const replica = new Database(join(directory, 'epicenter.sqlite3'), {
+				strict: true,
+			});
+			try {
+				replica.run(
+					`UPDATE meta SET replica_id = 'zzzzzzzzzzzzzzzzzzzzzzzz'
+					WHERE singleton = 1`,
+				);
+			} finally {
+				replica.close();
+			}
+		};
+		await expect(opened.applyProposal(proposal.id)).rejects.toThrow(
+			/source fence/,
+		);
+		opened.replica.admitFencedLocalWrite = originalAdmit;
+		expect(await opened.proposals()).toEqual([
+			expect.objectContaining({
+				id: proposal.id,
+				state: 'compiled',
+				appliedCount: 1,
+			}),
+		]);
+		await opened.deleteProposal(proposal.id);
+	} finally {
+		await opened.owner[Symbol.asyncDispose]();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
