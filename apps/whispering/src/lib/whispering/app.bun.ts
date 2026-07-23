@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { openBunEpicenter } from '@epicenter/data/runtime';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { consoleSink, type LogEvent } from 'wellcrafted/logger';
 import type { TranscriptionServiceId } from '../services/transcription/providers';
 import type { WhisperingAppDependencies } from './app';

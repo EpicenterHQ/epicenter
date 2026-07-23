@@ -12,13 +12,9 @@ export {
 	type ValuesDefinition,
 	type ValueTypeFor,
 } from '../lens/index.js';
-export {
-	type BrowserEpicenter,
-	type BrowserRuntimeWorker,
-	type OpenBrowserEpicenterOptions,
-	openBrowserEpicenter,
-} from './browser.js';
-export { type OpenBunEpicenterOptions, openBunEpicenter } from './bun.js';
+// Environment adapters stay on their own subpaths so no bundle pulls another
+// environment's modules: `@epicenter/data/runtime/browser` opens the elected
+// browser owner and `@epicenter/data/runtime/bun` opens the Bun replica.
 export {
 	type AttachOutcome,
 	type BoundLens,

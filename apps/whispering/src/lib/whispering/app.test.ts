@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BlobStore } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/runtime';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { Ok } from 'wellcrafted/result';
 import { openWhisperingApp, type WhisperingAppDependencies } from './app';
 

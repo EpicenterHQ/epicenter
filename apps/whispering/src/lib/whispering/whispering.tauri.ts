@@ -1,4 +1,4 @@
-import { openBrowserEpicenter } from '@epicenter/data/runtime';
+import { openBrowserEpicenter } from '@epicenter/data/runtime/browser';
 import { BlobsLive } from '#platform/blobs';
 import { log } from '$lib/report';
 import type { WhisperingAppDependencies } from './app';

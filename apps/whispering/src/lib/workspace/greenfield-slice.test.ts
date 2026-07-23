@@ -15,7 +15,7 @@ import {
 import {
 	type OpenBunEpicenterOptions,
 	openBunEpicenter,
-} from '@epicenter/data/runtime';
+} from '@epicenter/data/runtime/bun';
 import { InstantString } from '@epicenter/field';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingLens } from './definition';

@@ -9,7 +9,7 @@ import {
 	BlobStoreError,
 	generateBlobId,
 } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/runtime';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { InstantString } from '@epicenter/field';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';

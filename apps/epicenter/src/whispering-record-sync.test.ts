@@ -13,7 +13,7 @@ import {
 import {
 	type OpenBunEpicenterOptions,
 	openBunEpicenter,
-} from '@epicenter/data/runtime';
+} from '@epicenter/data/runtime/bun';
 import { InstantString } from '@epicenter/field';
 import {
 	createBunScalarV1Runtime,

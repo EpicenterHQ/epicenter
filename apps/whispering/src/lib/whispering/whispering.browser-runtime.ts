@@ -4,11 +4,11 @@ import {
 	parseSubmissionResponse,
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
-import {
-	type AuthorityCarrier,
-	type EpicenterRuntime,
-	openBrowserEpicenter,
+import type {
+	AuthorityCarrier,
+	EpicenterRuntime,
 } from '@epicenter/data/runtime';
+import { openBrowserEpicenter } from '@epicenter/data/runtime/browser';
 
 type WhisperingAuth = Pick<
 	SyncAuthClient,
