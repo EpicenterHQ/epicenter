@@ -2,7 +2,7 @@
 	"files": [
 		{
 			"path": "docs/benchmarks/document-struct-bound/2026-07-22-workerd.json",
-			"sha256": "4ba831e53d9b187614bfcef7f9a0a21aa6a6c84eb56535dcc39b7aab4aa1c4b1"
+			"sha256": "5e5392a528a383c10505194b2efdb385ea571ab3659467bb0e946421ac8703d8"
 		},
 		{
 			"path": "packages/server/src/epicenter-sync/__benchmarks__/document-struct-bound.bench.ts",
@@ -30,7 +30,7 @@
 		},
 		{
 			"path": "bun.lock",
-			"sha256": "b79b15e7c6f1030c3d87587710c789f4bd93018413e1b0e2151653338058de69"
+			"sha256": "7810c00fe24a1cf4b88aa2cb218c5e7084760aadf9a371c915dc7b17a897f008"
 		}
 	]
 }

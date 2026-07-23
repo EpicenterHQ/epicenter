@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-23T05:04:32.290Z",
+  "generatedAt": "2026-07-23T06:23:00.064Z",
   "claim": "Production DataAuthority accepts exactly 131072 decoded structs and atomically refuses 131073 without changing prior state.",
   "environment": {
     "platform": "darwin",
@@ -23,12 +23,12 @@
     "dataAuthoritySha256": "3cab799b68154f4b5ab1f4f8c3227a286981ed0452d43bc5668fbe76b55f1ae8",
     "documentProtocolSha256": "669de0d3312b27c552b4cbba5c4471de6784484b2fd29cbcb245b07fa34facab",
     "rootPackageSha256": "5ca058062fdb25f33ad9b7f83833aa365e40d0b9170538c93a879a8d9e49cad2",
-    "lockfileSha256": "b79b15e7c6f1030c3d87587710c789f4bd93018413e1b0e2151653338058de69"
+    "lockfileSha256": "7810c00fe24a1cf4b88aa2cb218c5e7084760aadf9a371c915dc7b17a897f008"
   },
   "inputs": {
     "realistic": {
       "measure": {
-        "stateBytes": 613,
+        "stateBytes": 621,
         "stateStructs": 28
       },
       "actors": [
@@ -45,7 +45,7 @@
       ],
       "permutationCount": 24,
       "distinctCanonicalDigests": [
-        "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd"
+        "c79148fa504baf15bd625c7d9d4eff99af2de446151875fcf382b0f63e714cf3"
       ],
       "actorUpdateBytes": [
         146,
@@ -53,7 +53,7 @@
         100,
         157
       ],
-      "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd"
+      "digest": "c79148fa504baf15bd625c7d9d4eff99af2de446151875fcf382b0f63e714cf3"
     },
     "below": {
       "measure": {
@@ -61,7 +61,7 @@
         "stateStructs": 131071
       },
       "densePrepends": 131057,
-      "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc"
+      "digest": "e97e8ab3414d3ad6cc884cb2333d37555af17851e86ebd1f98958d30b23d2b48"
     },
     "exact": {
       "measure": {
@@ -69,7 +69,7 @@
         "stateStructs": 131072
       },
       "densePrepends": 131058,
-      "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f"
+      "digest": "26bd1a1c3b8e7069615f533cecd43d88a15734629babbd9bb4abc9d97766cdfa"
     },
     "above": {
       "measure": {
@@ -77,7 +77,7 @@
         "stateStructs": 131073
       },
       "densePrepends": 131059,
-      "digest": "a18d3ae794ad149eac35f4fa23c7d3b6603804b330c93b4bcd7c495c5ab13b31"
+      "digest": "d290d6b9bed38e33cf755a110c3b8cf3c74431d98b34caddbd775728f2286534"
     }
   },
   "results": {
@@ -86,28 +86,28 @@
         "acceptance": {
           "kind": "accepted",
           "receipt": {
-            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
             "address": {
               "namespace": "so.epicenter.honeycrisp",
               "collection": "notes",
               "recordKey": "aaaaaaaaaaaaaaaaaaaaaaaa"
             },
             "protocolVersion": "epicenter-document-v3",
-            "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd"
+            "digest": "c79148fa504baf15bd625c7d9d4eff99af2de446151875fcf382b0f63e714cf3"
           }
         },
-        "authorityMilliseconds": 5,
-        "roundTripMilliseconds": 6.335332999999991
+        "authorityMilliseconds": 4,
+        "roundTripMilliseconds": 4.367750000000001
       },
       "state": {
-        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
         "captureRevision": 5,
         "nextCaptureRevision": 9,
         "chainEntries": 1,
-        "chainBytes": 613,
-        "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd",
+        "chainBytes": 621,
+        "digest": "c79148fa504baf15bd625c7d9d4eff99af2de446151875fcf382b0f63e714cf3",
         "measure": {
-          "stateBytes": 613,
+          "stateBytes": 621,
           "stateStructs": 28
         }
       }
@@ -117,26 +117,26 @@
         "acceptance": {
           "kind": "accepted",
           "receipt": {
-            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
             "address": {
               "namespace": "so.epicenter.honeycrisp",
               "collection": "notes",
               "recordKey": "bbbbbbbbbbbbbbbbbbbbbbbb"
             },
             "protocolVersion": "epicenter-document-v3",
-            "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc"
+            "digest": "e97e8ab3414d3ad6cc884cb2333d37555af17851e86ebd1f98958d30b23d2b48"
           }
         },
-        "authorityMilliseconds": 215,
-        "roundTripMilliseconds": 219.37766699999997
+        "authorityMilliseconds": 180,
+        "roundTripMilliseconds": 183.7621670000001
       },
       "state": {
-        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
         "captureRevision": 6,
         "nextCaptureRevision": 9,
         "chainEntries": 1,
         "chainBytes": 131371,
-        "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc",
+        "digest": "e97e8ab3414d3ad6cc884cb2333d37555af17851e86ebd1f98958d30b23d2b48",
         "measure": {
           "stateBytes": 131371,
           "stateStructs": 131071
@@ -148,26 +148,26 @@
         "acceptance": {
           "kind": "accepted",
           "receipt": {
-            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
             "address": {
               "namespace": "so.epicenter.honeycrisp",
               "collection": "notes",
               "recordKey": "cccccccccccccccccccccccc"
             },
             "protocolVersion": "epicenter-document-v3",
-            "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f"
+            "digest": "26bd1a1c3b8e7069615f533cecd43d88a15734629babbd9bb4abc9d97766cdfa"
           }
         },
-        "authorityMilliseconds": 197,
-        "roundTripMilliseconds": 201.3933750000001
+        "authorityMilliseconds": 136,
+        "roundTripMilliseconds": 140.17629199999988
       },
       "state": {
-        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
         "captureRevision": 7,
         "nextCaptureRevision": 9,
         "chainEntries": 1,
         "chainBytes": 131372,
-        "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f",
+        "digest": "26bd1a1c3b8e7069615f533cecd43d88a15734629babbd9bb4abc9d97766cdfa",
         "measure": {
           "stateBytes": 131372,
           "stateStructs": 131072
@@ -176,7 +176,7 @@
     },
     "above": {
       "priorInput": {
-        "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+        "digest": "50eb16d8109c0f4609f199d7a037a6274579dd07f3460c40c8b11e6245b16875",
         "measure": {
           "stateBytes": 261,
           "stateStructs": 14
@@ -186,26 +186,26 @@
         "acceptance": {
           "kind": "accepted",
           "receipt": {
-            "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+            "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
             "address": {
               "namespace": "so.epicenter.honeycrisp",
               "collection": "notes",
               "recordKey": "dddddddddddddddddddddddd"
             },
             "protocolVersion": "epicenter-document-v3",
-            "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81"
+            "digest": "50eb16d8109c0f4609f199d7a037a6274579dd07f3460c40c8b11e6245b16875"
           }
         },
         "authorityMilliseconds": 1,
-        "roundTripMilliseconds": 1.3529160000000502
+        "roundTripMilliseconds": 1.1907920000001013
       },
       "beforeRefusal": {
-        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
         "captureRevision": 8,
         "nextCaptureRevision": 9,
         "chainEntries": 1,
         "chainBytes": 261,
-        "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+        "digest": "50eb16d8109c0f4609f199d7a037a6274579dd07f3460c40c8b11e6245b16875",
         "measure": {
           "stateBytes": 261,
           "stateStructs": 14
@@ -213,14 +213,14 @@
       },
       "publication": {
         "acceptance": {
-          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
           "address": {
             "namespace": "so.epicenter.honeycrisp",
             "collection": "notes",
             "recordKey": "dddddddddddddddddddddddd"
           },
           "protocolVersion": "epicenter-document-v3",
-          "digest": "a18d3ae794ad149eac35f4fa23c7d3b6603804b330c93b4bcd7c495c5ab13b31",
+          "digest": "d290d6b9bed38e33cf755a110c3b8cf3c74431d98b34caddbd775728f2286534",
           "kind": "document-bound",
           "measured": {
             "stateBytes": 131373,
@@ -231,16 +231,16 @@
             "stateStructs": 131072
           }
         },
-        "authorityMilliseconds": 179,
-        "roundTripMilliseconds": 180.14258300000006
+        "authorityMilliseconds": 128,
+        "roundTripMilliseconds": 129.26737500000013
       },
       "afterRefusal": {
-        "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+        "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
         "captureRevision": 8,
         "nextCaptureRevision": 9,
         "chainEntries": 1,
         "chainBytes": 261,
-        "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+        "digest": "50eb16d8109c0f4609f199d7a037a6274579dd07f3460c40c8b11e6245b16875",
         "measure": {
           "stateBytes": 261,
           "stateStructs": 14
@@ -248,51 +248,51 @@
       }
     },
     "reopen": {
-      "processReopenMilliseconds": 101.19970899999998,
+      "processReopenMilliseconds": 95.12795799999981,
       "state": {
         "realistic": {
-          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
           "captureRevision": 5,
           "nextCaptureRevision": 9,
           "chainEntries": 1,
-          "chainBytes": 613,
-          "digest": "ff9be0eab60b3a8cd5840c9d2f5ace641a78291fe8a373c86a65187e956bb2fd",
+          "chainBytes": 621,
+          "digest": "c79148fa504baf15bd625c7d9d4eff99af2de446151875fcf382b0f63e714cf3",
           "measure": {
-            "stateBytes": 613,
+            "stateBytes": 621,
             "stateStructs": 28
           }
         },
         "below": {
-          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
           "captureRevision": 6,
           "nextCaptureRevision": 9,
           "chainEntries": 1,
           "chainBytes": 131371,
-          "digest": "549bcee5b9b3df411e514422aa26918c6aada6f33d6c7ce751dfefce3ded07fc",
+          "digest": "e97e8ab3414d3ad6cc884cb2333d37555af17851e86ebd1f98958d30b23d2b48",
           "measure": {
             "stateBytes": 131371,
             "stateStructs": 131071
           }
         },
         "exact": {
-          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
           "captureRevision": 7,
           "nextCaptureRevision": 9,
           "chainEntries": 1,
           "chainBytes": 131372,
-          "digest": "ce539088baca825d625bc063d24a30d9b663e5ed1d713fbf05a1d6040e30061f",
+          "digest": "26bd1a1c3b8e7069615f533cecd43d88a15734629babbd9bb4abc9d97766cdfa",
           "measure": {
             "stateBytes": 131372,
             "stateStructs": 131072
           }
         },
         "above": {
-          "authorityLifetime": "cc3a532c-fdca-4d82-9d7b-20fb65ea3d0d",
+          "authorityLifetime": "d3432543-74c0-49a5-9ec9-af433a626b70",
           "captureRevision": 8,
           "nextCaptureRevision": 9,
           "chainEntries": 1,
           "chainBytes": 261,
-          "digest": "3c0a99c97bdfe9a4ceb239461c27c564a827e2afc26c358edca9460be300ef81",
+          "digest": "50eb16d8109c0f4609f199d7a037a6274579dd07f3460c40c8b11e6245b16875",
           "measure": {
             "stateBytes": 261,
             "stateStructs": 14
