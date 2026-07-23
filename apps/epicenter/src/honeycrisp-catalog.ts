@@ -45,12 +45,10 @@ const DELETE_FOLDER_TOOL: AgentToolDefinition = {
 };
 
 /** Adapt Honeycrisp's async row operation to the Home host's tool boundary. */
-export function createHoneycrispCatalog(
-	workspace: HoneycrispData,
-): ToolCatalog {
+export function createHoneycrispCatalog(data: HoneycrispData): ToolCatalog {
 	async function resolve(call: AgentToolCall): Promise<AgentToolOutcome> {
 		if (call.toolName === LIST_FOLDERS_TOOL.name) {
-			const { rows, nonconforming } = await workspace.folders.scan();
+			const { rows, nonconforming } = await data.folders.scan();
 			if (nonconforming.length > 0) {
 				return {
 					content: 'Some Honeycrisp folders do not conform to this release.',
@@ -64,7 +62,7 @@ export function createHoneycrispCatalog(
 			if (name === undefined) {
 				return { content: 'A "name" string is required.', isError: true };
 			}
-			const folder = await workspace.folders.create({
+			const folder = await data.folders.create({
 				name,
 				sortOrder: 0,
 			});
@@ -85,7 +83,7 @@ export function createHoneycrispCatalog(
 			return { content: 'A "folderId" string is required.', isError: true };
 		}
 		try {
-			await deleteHoneycrispFolder(workspace, folderId);
+			await deleteHoneycrispFolder(data, folderId);
 			return { content: 'null', details: null, isError: false };
 		} catch (cause) {
 			return {

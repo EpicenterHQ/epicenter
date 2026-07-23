@@ -17,7 +17,7 @@
  * ## Read-only means a query that writes nothing
  *
  * The verb is a `query`: it runs unattended (no mutation approval, ADR-0044) and
- * writes to no workspace table. The rows it reads never become workspace rows.
+ * writes to no record table. The rows it reads never become Epicenter records.
  * They enter the transcript only as the model-facing text of one tool result,
  * exactly like any other tool's output, so the durable transcript is the only
  * place source content lands, and only as chat history, never as a source table.

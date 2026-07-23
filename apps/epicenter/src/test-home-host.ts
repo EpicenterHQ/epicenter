@@ -16,7 +16,7 @@ type OwnedTestHomeHostOptions = HomeHostInputs & {
 	dataDir: string;
 	recordRoot?: string;
 	resolveNativeCapture?: DesktopRecordNativeCaptureResolver;
-	wrapConversations?: (workspace: ConversationsData) => ConversationsData;
+	wrapConversations?: (data: ConversationsData) => ConversationsData;
 };
 
 /** A desktop authority over a no-op native port, for server tests. */
