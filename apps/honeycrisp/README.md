@@ -14,17 +14,17 @@ Single-route SvelteKit app with a three-pane layout: sidebar (folders) → note 
 
 ### Data layer
 
-Honeycrisp defines one inert workspace contract (`id: "epicenter-honeycrisp"`) and opens it through a page-owned runtime:
+Honeycrisp defines one inert Lens and binds it through a page-owned runtime:
 
 ```txt
-honeycrispDefinitions
-  shared isomorphic definition: id and release-local row lenses
+honeycrispLens
+  pure definition: namespace and release-local table interpretations
 
 openHoneycrispBrowserEpicenter()
   browser runtime: device or account SQLite ownership and sync
 ```
 
-The Svelte app chooses its authority once at boot. Signed out, it opens the device database. Signed in, it opens the account database and attaches the account transport. Row changes invalidate app-owned reactive arrays; the state layer refreshes them through the async table API.
+The browser opens one origin-owned replica at boot. Signed out, it remains local. Signing in attaches whole-replica synchronization to the existing data after any required keep-or-discard choice. Row changes invalidate app-owned reactive arrays; the state layer refreshes them through the async table API.
 
 This was a clean break from the legacy root-Yjs and IndexedDB model. Honeycrisp does not probe, import, restore, or delete legacy data. The old database is untouched and unreachable from the new app.
 
@@ -44,9 +44,9 @@ Google sign-in is optional. The app opens immediately against device storage. A 
 
 ---
 
-## Workspace schema
+## Data Lens
 
-**Workspace ID:** `epicenter-honeycrisp`
+**Namespace:** `so.epicenter.honeycrisp`
 
 ### Tables
 
@@ -73,7 +73,7 @@ Google sign-in is optional. The app opens immediately against device storage. A 
 
 Each note's body lives in a row-owned document opened by `honeycrisp.openNoteDocument(noteId)`. The editor owns the `body` root name and the handle's lifecycle.
 
-Honeycrisp currently has no workspace KV schema. View selection, sorting, and URL state live in the Svelte state layer.
+Honeycrisp has no values collection. View selection, sorting, and URL state live in the Svelte state layer.
 
 ---
 

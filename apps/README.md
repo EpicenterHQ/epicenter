@@ -1,84 +1,74 @@
 # Apps
 
-Each app under `apps/` owns its hosted UI plus, when needed, one reusable headless mount.
-
-Apps currently use one of two workspace lanes. New canonical SQLite work starts
-from an inert definition and an authority-bound runtime:
-
-```txt
-defineWorkspace({ id, tables, kv })
-  release-local table and KV lenses
-
-runtime.open(definition)
-  borrowed tables, KV, and read-only SQL handles
-```
-
-Several apps still use the transitional root-Yjs lane:
+Each app under `apps/` owns a product surface. An app that stores Epicenter data
+contributes an inert Lens and an application facade; it does not own a database,
+sync partition, identity scope, or migration runtime.
 
 ```txt
-defineWorkspace()
-  app's shared isomorphic definition
-
-open<App>Browser()
-<app>()
-open<App>Tauri()
-  runtime-specific wiring
-
-createWorkspace()
-satisfiesWorkspace()
-  lower-level primitives for internals, tests, and older app ports
+pure Lens definition
+        |
+environment-owned record Epicenter
+        |
+typed Lens binding
+        |
+application facade
+        |
+UI or host commands
 ```
 
-## Layout
+## Data composition
 
-```
-apps/<app>/
-├── mount.ts         optional `<app>()` headless mount factory
-├── workspace.ts     shared workspace definition and domain types
-├── src/             SvelteKit app
-└── package.json     "exports": { ".": "./workspace.ts", "./mount": "./mount.ts" }
+A Lens defines one durable namespace and its release-local table or values
+interpretations. Keep it pure JSON and free of storage, auth, network, and UI
+objects. The environment opens the record Epicenter, attaches synchronization
+when appropriate, and binds the Lens. The application facade turns those
+borrowed typed collections into product operations.
+
+Honeycrisp and Whispering show the maintained layout:
+
+```txt
+apps/<app>/src/lib/
+|-- data/                 Lens definitions and shared data types
+|-- application.ts       ready, UI-free product facade
+|-- application-platform.ts or #platform/*
+|                         environment-owned replica composition
+`-- state/ or queries/    UI reactivity over the ready facade
 ```
 
-Some apps keep the shared workspace contract under `src/lib/workspace.ts`
-instead of the package root. Follow the existing package shape. The important
-boundary is the same: shared model in the workspace file, runtime wiring in
-`browser.ts`, `mount.ts`, or `tauri.ts`.
+An app package may export its Lens when another trusted host composes it.
+Epicenter desktop binds Chat, Honeycrisp, and Whispering to one Bun-owned record
+replica. Browser builds open one origin-owned replica. Neither case creates an
+app-specific database.
 
 ## Boundaries
 
-The daemon workflow below describes apps still using the production root-Yjs
-record path. Its definition-owned `create/connect/mount`, `defineKv`, `.docs`,
-and `_v` APIs remain compatibility surfaces until those apps migrate.
+- Use `defineLens`, `defineTable`, and `defineValues` from
+  `@epicenter/data/record`.
+- Put independently changing bounded properties in scalar fields. Use a
+  row-owned Yjs document for collaborative interior state and the record-owned
+  blob slot for large immutable bytes.
+- Treat Lens schemas as release-local interpretation. Preserve unknown or
+  nonconforming records; do not turn a Lens into a migration chain.
+- Keep storage, attachment, credentials, document connections, and disposal in
+  the environment adapter.
+- Acquire one ready application facade at the mounted root. Components consume
+  that facade; they do not open replicas.
+- Put reusable product operations in the application layer, not in a generic
+  action registry or daemon mount.
 
-The canonical SQLite lane uses `defineTable({ fields, optional })` only for
-release-local row-field validation and projection. Every ordinary row has one
-latent document opened through `table.document.open(rowId)`; applications own
-the roots inside it. The workspace definition includes a release-local `kv`
-lens. It has no document declarations, room catalog, user-data migration API,
-schema hash, or successor database.
+Do not restore the deleted Workspace API, root-Yjs authority, per-app sync
+routes, or compatibility aliases. Historical specs and ADRs may still use the
+old noun when describing the subsystem that was removed.
 
-Do not mix the two record authorities inside one app. Compose several canonical
-workspaces by opening their imported definitions through one runtime and passing
-the borrowed handles to ordinary application services.
+## Adding a Lens-backed app
 
-For a transitional root-Yjs app, `workspace.ts` remains the sync contract. It
-defines table shapes, KV schemas, branded IDs, actions, child-document layouts,
-and the app's `defineWorkspace(...)` value. Forking that file means forking sync
-compatibility.
-
-For that same lane, `mount.ts` is the reusable mount factory. It opens the
-shared workspace with Node-only attachments: Yjs persistence, collaboration,
-SQLite and Markdown materializers, and app-owned background work.
-
-Browser and desktop code open the same definition with runtime-specific composition. Scripts usually skip Yjs entirely: they read materialized files or SQLite. Generic off-process daemon action calls are not part of the app contract.
-
-## Adding a transitional daemon mount
-
-1. Add `apps/<app>/workspace.ts` or `apps/<app>/src/lib/workspace.ts`, following the package's existing layout.
-2. Point `package.json` `exports["."]` at the workspace contract file.
-3. Add an exported `defineWorkspace({ id, tables, kv, actions })` value. Declare
-   row child documents with `table.docs(...)`. This step applies only to the
-   transitional root-Yjs lane; do not copy it into a canonical SQLite app.
-4. Add `apps/<app>/mount.ts` exporting `<app>(opts?)`, a factory that returns `defineSessionMount({ name, open })` (or `defineMount` for a mount that can run signed out).
-5. Point `package.json` `exports["./mount"]` at `./mount.ts`.
-6. Run `epicenter up -C <epicenter-root>` and confirm the watcher starts, syncs, and materializes the expected files.
+1. Define one qualified namespace and its collections under `src/lib/data/`.
+2. Add an environment opener for each supported runtime. Local boot must not
+   depend on authentication; sign-in adds whole-replica sync.
+3. Build one abortable application acquisition boundary that binds the Lens,
+   completes initial reads, and owns disposal.
+4. Mount the ready facade through typed context or host composition.
+5. If another package must compose the Lens, export one direct `./lens` entry.
+   Do not export a storage or lifecycle object.
+6. Test the Lens through a real record owner, then typecheck every supported
+   runtime condition.

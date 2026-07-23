@@ -1,6 +1,6 @@
 # Epicenter
 
-Local-first workspace platform. Monorepo with Yjs CRDTs and Svelte UI.
+Local-first record platform. Monorepo with SQLite-backed universal records, Yjs documents, immutable blobs, and Svelte UI.
 
 Structure: `apps/whispering/` (browser-hostable transcription SPA), `apps/epicenter/` (Tauri host for trusted app surfaces, including Whispering), `apps/honeycrisp/` (notes app), `apps/api/` (hosted personal Cloud Worker: `worker/` + `ui/`), `apps/self-host/` (self-hosted single-partition instance reference; Bun or Cloudflare), `packages/data/` (record protocol, replica owners, and pure Lens API), `packages/document-sync/` (row-document transport), `packages/server/` (shared Hono library that both deployables consume; deployments differ by principal resolver), `packages/cli/` (published CLI package and `epicenter` binary), `packages/ui/` (shadcn-svelte components), `specs/` (planning docs), `docs/` (reference materials).
 
