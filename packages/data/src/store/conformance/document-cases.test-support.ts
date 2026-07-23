@@ -39,6 +39,7 @@ export type DocumentObservations = {
 		address: RecordAddress,
 	): MaybePromise<DocumentInspection | null>;
 	exportDocument(address: RecordAddress): MaybePromise<Uint8Array | undefined>;
+	owedDocuments(limit: number): MaybePromise<RecordAddress[]>;
 	snapshot(): MaybePromise<string>;
 };
 
@@ -178,6 +179,7 @@ export function runDocumentConformanceCases(
 					owed: true,
 					refused: false,
 				});
+				expect(await replica.owedDocuments(16)).toEqual([ADDRESS]);
 				replica = await replica.reopen();
 				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
 					revision: 1,
@@ -187,6 +189,7 @@ export function runDocumentConformanceCases(
 				expect(documentText(await replica.exportDocument(ADDRESS))).toBe(
 					'first',
 				);
+				expect(await replica.owedDocuments(16)).toEqual([ADDRESS]);
 			} finally {
 				await replica.dispose();
 			}
@@ -209,6 +212,7 @@ export function runDocumentConformanceCases(
 				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
 					owed: true,
 				});
+				expect(await replica.owedDocuments(16)).toEqual([ADDRESS]);
 				replica = await replica.reopen();
 				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
 					owed: true,
@@ -227,6 +231,7 @@ export function runDocumentConformanceCases(
 					acceptedRevision: 1,
 					owed: false,
 				});
+				expect(await replica.owedDocuments(16)).toEqual([]);
 			} finally {
 				await replica.dispose();
 			}

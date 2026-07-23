@@ -1,4 +1,19 @@
-import { afterAll, beforeAll, setDefaultTimeout } from 'bun:test';
+/**
+ * Production Browser Replica Conformance Tests
+ *
+ * Binds the maintained replica transition cases to the browser candidate's
+ * real ownership, session, RPC, reopen, and cleanup path in Chromium and
+ * WebKit. A synchronized direct-store shadow is retained only for test-side
+ * statement-boundary analysis and crash injection, which are deliberately
+ * absent from the production protocol.
+ *
+ * Key behaviors:
+ * - Scalar, document, and blob operations cross the production candidate RPC
+ * - Document transitions stay equal to a crash-injectable OPFS shadow
+ * - Blob watermarks and raw files survive reopen and reap on tombstone
+ * - Owed scans use the production partial covering indexes in both engines
+ */
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
@@ -11,6 +26,19 @@ import {
 } from 'playwright';
 
 import type { RecordAddress } from '../src/protocol/v1/index.js';
+import { makeLimits } from '../src/protocol/v1/kernel.test-support.js';
+import {
+	type BlobConformanceBinding,
+	type BlobConformanceReplica,
+	runBlobConformanceCases,
+} from '../src/store/conformance/blob-cases.test-support.js';
+import {
+	type DocumentAction,
+	type DocumentActionResult,
+	type DocumentConformanceBinding,
+	type DocumentConformanceReplica,
+	runDocumentConformanceCases,
+} from '../src/store/conformance/document-cases.test-support.js';
 import {
 	type ConformanceReplica,
 	type CrashedReplica,
@@ -24,10 +52,24 @@ import {
 	type SealWitness,
 } from '../src/store/conformance/replica-cases.test-support.js';
 import type {
+	BrowserReplicaCandidateStart,
+	BrowserReplicaCandidateStatus,
+} from '../src/store/replica/browser-candidate-protocol.js';
+import type {
+	BrowserReplicaOwnerResult,
+	BrowserReplicaStoreOperation,
+} from '../src/store/replica/browser-owner-protocol.js';
+import type {
+	BlobInspection,
+	DocumentInspection,
+} from '../src/store/replica/index.js';
+import type {
+	BrowserOwedQueryPlans,
 	BrowserReplicaAction,
 	BrowserReplicaAnalysis,
 	BrowserReplicaObservation,
 	BrowserReplicaStorageIdentity,
+	BrowserReplicaTestResult,
 } from './replica-conformance-contract.js';
 
 const evidenceDir = import.meta.dirname;
@@ -118,6 +160,167 @@ function createDriver(readPage: () => Page | undefined) {
 	let nextCrashedId = 0;
 	const crashedPages = new Map<number, Page>();
 
+	async function openProduction(
+		page: Page,
+		fixture: { replicaId: string; authorityLifetime?: string },
+	): Promise<void> {
+		const storageId = crypto.randomUUID();
+		const options = {
+			limits: makeLimits(),
+			initialize: fixture,
+			coordinationId: `epicenter-replica-conformance-${storageId}`,
+			storage: {
+				databaseFilename: '/replica.sqlite3',
+				poolDirectory: `.epicenter-replica-conformance-production-${storageId}`,
+				poolName: `epicenter-replica-conformance-production-${storageId}`,
+			},
+		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>;
+		const status = await page.evaluate(
+			(optionsJson) =>
+				window.browserReplicaCandidateEvidence
+					.open(
+						JSON.parse(optionsJson) as Omit<
+							BrowserReplicaCandidateStart,
+							'type'
+						>,
+					)
+					.then(() => window.browserReplicaCandidateEvidence.status()),
+			JSON.stringify(options),
+		);
+		if (status.role !== 'owner' || status.ownerSession === null) {
+			throw new Error(
+				'browser conformance candidate did not own a live session',
+			);
+		}
+	}
+
+	async function productionRequest(
+		page: Page,
+		operation: BrowserReplicaStoreOperation,
+	): Promise<BrowserReplicaOwnerResult> {
+		return page.evaluate(
+			(operation: unknown) =>
+				window.browserReplicaCandidateEvidence.request(
+					operation as BrowserReplicaStoreOperation,
+				),
+			operation as never,
+		) as Promise<BrowserReplicaOwnerResult>;
+	}
+
+	function productionAction(
+		action: BrowserReplicaAction,
+	): BrowserReplicaStoreOperation {
+		switch (action.kind) {
+			case 'append-local':
+				return {
+					kind: 'append-local-document',
+					address: action.address,
+					update: action.update,
+				};
+			case 'install-accepted':
+				return {
+					kind: 'install-accepted-document',
+					address: action.address,
+					update: action.update,
+				};
+			case 'publication':
+				return {
+					kind: 'document-publication',
+					address: action.address,
+					...(action.stateVector === undefined
+						? {}
+						: { stateVector: action.stateVector }),
+				};
+			case 'settle-publication':
+				return {
+					kind: 'settle-document-publication',
+					address: action.address,
+					proof: action.proof,
+					captured: action.captured,
+				};
+			case 'local-write':
+			case 'seal':
+			case 'settle':
+			case 'install-facts':
+			case 'erase':
+				return action;
+		}
+	}
+
+	async function productionStatus(
+		page: Page,
+	): Promise<BrowserReplicaCandidateStatus> {
+		return page.evaluate(() => window.browserReplicaCandidateEvidence.status());
+	}
+
+	async function productionObservation(
+		page: Page,
+		observation: Exclude<BrowserReplicaObservation, { kind: 'snapshot' }>,
+	): Promise<BrowserReplicaOwnerResult> {
+		switch (observation.kind) {
+			case 'record':
+				return productionRequest(page, observation);
+			case 'inspect-document':
+			case 'export-document':
+			case 'owed-documents':
+				return productionRequest(page, observation);
+			case 'sync':
+			case 'sealed-request':
+			case 'reconstruct-sealed-request':
+				return productionRequest(page, observation);
+		}
+	}
+
+	async function assertShadowMatchesProduction(
+		page: Page,
+		action: BrowserReplicaAction,
+	): Promise<void> {
+		const observations: Exclude<
+			BrowserReplicaObservation,
+			{ kind: 'snapshot' }
+		>[] = [{ kind: 'sync' }, { kind: 'sealed-request' }];
+		switch (action.kind) {
+			case 'append-local':
+			case 'install-accepted':
+			case 'publication':
+			case 'settle-publication':
+				observations.push({
+					kind: 'inspect-document',
+					address: action.address,
+				});
+				observations.push({
+					kind: 'export-document',
+					address: action.address,
+				});
+				break;
+			case 'local-write':
+				observations.push({ kind: 'record', address: action.intent.address });
+				break;
+			case 'install-facts':
+			case 'settle':
+				for (const fact of action.kind === 'install-facts'
+					? action.page.response.facts
+					: action.response.facts) {
+					observations.push({ kind: 'record', address: fact.address });
+				}
+				break;
+			case 'seal':
+			case 'erase':
+				break;
+		}
+		for (const observation of observations) {
+			const [production, shadow] = await Promise.all([
+				productionObservation(page, observation),
+				observeOn(page, observation),
+			]);
+			if (JSON.stringify(production) !== JSON.stringify(shadow)) {
+				throw new Error(
+					`production browser owner and crash shadow diverged after ${action.kind}`,
+				);
+			}
+		}
+	}
+
 	async function openStorage(
 		page: Page,
 		storage: BrowserReplicaStorageIdentity,
@@ -136,41 +339,159 @@ function createDriver(readPage: () => Page | undefined) {
 
 	async function observeOn(page: Page, observation: BrowserReplicaObservation) {
 		return page.evaluate(
-			(observationJson) =>
-				window.browserReplicaConformanceEvidence.observe(
-					JSON.parse(observationJson) as BrowserReplicaObservation,
-				),
-			JSON.stringify(observation),
+			(observation) =>
+				window.browserReplicaConformanceEvidence.observe(observation),
+			observation,
 		);
 	}
 
 	return {
-		open(fixture: { replicaId: string; authorityLifetime?: string }) {
-			return requirePage(readPage).evaluate(
-				(fixture) => window.browserReplicaConformanceEvidence.open(fixture),
-				fixture,
-			);
+		async open(fixture: { replicaId: string; authorityLifetime?: string }) {
+			const page = requirePage(readPage);
+			await openProduction(page, fixture);
+			try {
+				await page.evaluate(
+					(fixture) => window.browserReplicaConformanceEvidence.open(fixture),
+					fixture,
+				);
+			} catch (cause) {
+				await page.evaluate(() =>
+					window.browserReplicaCandidateEvidence.close(),
+				);
+				throw cause;
+			}
 		},
 		observe(observation: BrowserReplicaObservation) {
-			return observeOn(requirePage(readPage), observation);
+			if (
+				observation.kind === 'snapshot' ||
+				observation.kind === 'owed-query-plans'
+			) {
+				return observeOn(requirePage(readPage), observation);
+			}
+			return productionObservation(requirePage(readPage), observation);
+		},
+		requestProduction(operation: BrowserReplicaStoreOperation) {
+			return productionRequest(requirePage(readPage), operation);
+		},
+		captureBlob(address: RecordAddress, text: string) {
+			return requirePage(readPage).evaluate(
+				({ address, text }) =>
+					window.browserReplicaCandidateEvidence.request({
+						kind: 'capture-blob',
+						address,
+						bytes: new Blob([text]),
+					}),
+				{ address, text },
+			) as Promise<string>;
+		},
+		blobPublication(address: RecordAddress) {
+			return requirePage(readPage).evaluate(async (address) => {
+				const publication =
+					await window.browserReplicaCandidateEvidence.request({
+						kind: 'blob-publication',
+						address,
+					});
+				if (publication === null) return null;
+				if (
+					typeof publication !== 'object' ||
+					!('request' in publication) ||
+					!('bytes' in publication) ||
+					!(publication.bytes instanceof Blob)
+				) {
+					throw new Error('browser blob publication has an invalid shape');
+				}
+				return {
+					digest: publication.request.digest,
+					text: await publication.bytes.text(),
+				};
+			}, address);
+		},
+		contentFileCount() {
+			return requirePage(readPage).evaluate(async () => {
+				type IterableDirectory = FileSystemDirectoryHandle & {
+					values(): AsyncIterableIterator<FileSystemHandle>;
+				};
+				const root = await navigator.storage.getDirectory();
+				const blobs = await root.getDirectoryHandle('blobs');
+				const content = (await blobs.getDirectoryHandle(
+					'content',
+				)) as IterableDirectory;
+				let count = 0;
+				for await (const owner of content.values()) {
+					if (owner.kind !== 'directory') continue;
+					const directory = (await content.getDirectoryHandle(
+						owner.name,
+					)) as IterableDirectory;
+					for await (const entry of directory.values()) {
+						if (entry.kind === 'file') count += 1;
+					}
+				}
+				return count;
+			});
 		},
 		analyze(action: BrowserReplicaAction) {
 			return requirePage(readPage).evaluate(
-				(actionJson) =>
+				(action: unknown) =>
 					window.browserReplicaConformanceEvidence.analyze(
-						JSON.parse(actionJson) as BrowserReplicaAction,
+						action as BrowserReplicaAction,
 					),
-				JSON.stringify(action),
-			);
+				action as never,
+			) as Promise<BrowserReplicaAnalysis>;
 		},
-		commit(action: BrowserReplicaAction) {
-			return requirePage(readPage).evaluate(
-				(actionJson) =>
+		async commit(action: BrowserReplicaAction) {
+			const page = requirePage(readPage);
+			let productionResult: BrowserReplicaOwnerResult;
+			try {
+				productionResult = await productionRequest(
+					page,
+					productionAction(action),
+				);
+			} catch (productionCause) {
+				let didShadowRefuse = false;
+				try {
+					await page.evaluate(
+						(action: unknown) =>
+							window.browserReplicaConformanceEvidence.commit(
+								action as BrowserReplicaAction,
+							),
+						action as never,
+					);
+				} catch {
+					didShadowRefuse = true;
+				}
+				if (didShadowRefuse) {
+					await assertShadowMatchesProduction(page, action);
+					throw productionCause;
+				}
+				throw new Error(
+					'production browser owner refused a transition accepted by the crash shadow',
+					{ cause: productionCause },
+				);
+			}
+			const shadowResult = (await page.evaluate(
+				(action: unknown) =>
 					window.browserReplicaConformanceEvidence.commit(
-						JSON.parse(actionJson) as BrowserReplicaAction,
+						action as BrowserReplicaAction,
 					),
-				JSON.stringify(action),
-			);
+				action as never,
+			)) as BrowserReplicaTestResult;
+			if (action.kind === 'seal') {
+				if (JSON.stringify(productionResult) !== JSON.stringify(shadowResult)) {
+					throw new Error(
+						'production browser owner and crash shadow produced different seal witnesses',
+					);
+				}
+			}
+			if (
+				action.kind === 'publication' &&
+				JSON.stringify(productionResult) !== JSON.stringify(shadowResult)
+			) {
+				throw new Error(
+					'production browser owner and crash shadow produced different document publications',
+				);
+			}
+			await assertShadowMatchesProduction(page, action);
+			return productionResult;
 		},
 		async crash(action: BrowserReplicaAction, boundary: number) {
 			const mainPage = requirePage(readPage);
@@ -185,12 +506,12 @@ function createDriver(readPage: () => Page | undefined) {
 			const crashingPage = await openEvidencePage(mainPage.context());
 			await openStorage(crashingPage, storage, databaseBytes);
 			await crashingPage.evaluate(
-				({ actionJson, boundary }) =>
+				({ action, boundary }: { action: unknown; boundary: number }) =>
 					window.browserReplicaConformanceEvidence.crashCurrent(
-						JSON.parse(actionJson) as BrowserReplicaAction,
+						action as BrowserReplicaAction,
 						boundary,
 					),
-				{ actionJson: JSON.stringify(action), boundary },
+				{ action, boundary } as never,
 			);
 			await crashingPage.close();
 
@@ -218,18 +539,26 @@ function createDriver(readPage: () => Page | undefined) {
 				await page.close();
 			}
 		},
-		reopen() {
-			return requirePage(readPage).evaluate(() =>
+		async reopen() {
+			const page = requirePage(readPage);
+			await productionRequest(page, { kind: 'reopen' });
+			await page.evaluate(() =>
 				window.browserReplicaConformanceEvidence.reopen(),
 			);
+			const status = await productionStatus(page);
+			if (status.role !== 'owner' || status.ownerSession === null) {
+				throw new Error('browser conformance candidate lost its owner session');
+			}
 		},
 		async dispose() {
 			for (const crashedId of [...crashedPages.keys()]) {
 				await this.closeCrashed(crashedId);
 			}
-			return requirePage(readPage).evaluate(() =>
-				window.browserReplicaConformanceEvidence.dispose(),
-			);
+			const page = requirePage(readPage);
+			await Promise.all([
+				page.evaluate(() => window.browserReplicaCandidateEvidence.close()),
+				page.evaluate(() => window.browserReplicaConformanceEvidence.dispose()),
+			]);
 		},
 	};
 }
@@ -266,7 +595,76 @@ function transition(
 				close: () => driver.closeCrashed(crashedId),
 			};
 		},
-		commit: () => driver.commit(action),
+		async commit() {
+			const result = await driver.commit(action);
+			if (
+				action.kind === 'seal' &&
+				JSON.stringify(result) !== JSON.stringify(analysis.result)
+			) {
+				throw new Error(
+					'production browser owner did not commit the analyzed seal witness',
+				);
+			}
+		},
+	};
+}
+
+function documentObservations(
+	driver: Driver,
+	crashedId?: number,
+): Pick<
+	DocumentConformanceReplica,
+	'inspectDocument' | 'exportDocument' | 'owedDocuments' | 'snapshot'
+> {
+	function observe(observation: BrowserReplicaObservation) {
+		return crashedId === undefined
+			? driver.observe(observation)
+			: driver.observeCrashed(crashedId, observation);
+	}
+	return {
+		inspectDocument: (address) =>
+			observe({
+				kind: 'inspect-document',
+				address,
+			}) as Promise<DocumentInspection | null>,
+		exportDocument: (address) =>
+			observe({ kind: 'export-document', address }) as Promise<
+				Uint8Array | undefined
+			>,
+		owedDocuments: (limit) =>
+			(crashedId === undefined
+				? driver.requestProduction({ kind: 'owed-documents', limit })
+				: observe({ kind: 'owed-documents', limit })) as Promise<
+				RecordAddress[]
+			>,
+		snapshot: () => observe({ kind: 'snapshot' }) as Promise<string>,
+	};
+}
+
+function documentConformanceReplica(
+	driver: Driver,
+): DocumentConformanceReplica {
+	return {
+		...documentObservations(driver),
+		async prepare(action: DocumentAction) {
+			const analysis = await driver.analyze(action);
+			return {
+				boundaries: analysis.boundaries,
+				async crash(boundary) {
+					const crashedId = await driver.crash(action, boundary);
+					return {
+						...documentObservations(driver, crashedId),
+						close: () => driver.closeCrashed(crashedId),
+					};
+				},
+				commit: () => driver.commit(action) as Promise<DocumentActionResult>,
+			};
+		},
+		async reopen() {
+			await driver.reopen();
+			return documentConformanceReplica(driver);
+		},
+		dispose: () => driver.dispose(),
 	};
 }
 
@@ -282,7 +680,12 @@ function conformanceReplica(driver: Driver): ConformanceReplica {
 			const action = { kind: 'seal' } as const;
 			const analysis = await driver.analyze(action);
 			const witness = analysis.result;
-			if (witness === undefined)
+			if (analysis.error !== undefined) {
+				const error = new Error(analysis.error.message);
+				error.name = analysis.error.name;
+				throw error;
+			}
+			if (witness === undefined || !('bytes' in witness))
 				throw new Error('browser seal analysis returned no witness');
 			return {
 				transition: transition(driver, action, analysis),
@@ -317,10 +720,166 @@ function createBinding(
 	};
 }
 
+function createDocumentBinding(
+	name: string,
+	readPage: () => Page | undefined,
+): DocumentConformanceBinding {
+	const driver = createDriver(readPage);
+	return {
+		name,
+		async create() {
+			await driver.open({
+				replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+				authorityLifetime: 'lifetime-one',
+			});
+			await driver.commit({
+				kind: 'local-write',
+				intent: {
+					address: {
+						namespace: 'so.epicenter.notes',
+						collection: 'records',
+						recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+					},
+					op: 'replace',
+					value: {},
+				},
+			});
+			return documentConformanceReplica(driver);
+		},
+	};
+}
+
+function createBlobBinding(
+	name: string,
+	readPage: () => Page | undefined,
+): BlobConformanceBinding {
+	const driver = createDriver(readPage);
+	function bind(): BlobConformanceReplica {
+		return {
+			capture: (address, text) => driver.captureBlob(address, text),
+			inspectBlob: (address) =>
+				driver.requestProduction({
+					kind: 'inspect-blob',
+					address,
+				}) as Promise<BlobInspection>,
+			publication: (address) => driver.blobPublication(address),
+			settle: (address, acceptance) =>
+				driver.requestProduction({
+					kind: 'settle-blob-publication',
+					address,
+					acceptance,
+				}) as Promise<void>,
+			owedBlobs: (limit) =>
+				driver.requestProduction({ kind: 'owed-blobs', limit }) as Promise<
+					RecordAddress[]
+				>,
+			appendDocument: (address, update) =>
+				driver.requestProduction({
+					kind: 'append-local-document',
+					address,
+					update,
+				}) as Promise<void>,
+			inspectDocument: (address) =>
+				driver.requestProduction({
+					kind: 'inspect-document',
+					address,
+				}) as Promise<DocumentInspection | null>,
+			async tombstone(address) {
+				await driver.requestProduction({
+					kind: 'local-write',
+					intent: { address, op: 'tombstone' },
+				});
+			},
+			sweepDebris: () =>
+				driver.requestProduction({
+					kind: 'sweep-blob-debris',
+				}) as Promise<void>,
+			contentFileCount: () => driver.contentFileCount(),
+			async reopen() {
+				await driver.reopen();
+				return bind();
+			},
+			dispose: () => driver.dispose(),
+		};
+	}
+	return {
+		name,
+		async create() {
+			await driver.open({
+				replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+				authorityLifetime: 'lifetime-one',
+			});
+			await driver.commit({
+				kind: 'local-write',
+				intent: {
+					address: {
+						namespace: 'so.epicenter.notes',
+						collection: 'records',
+						recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+					},
+					op: 'replace',
+					value: {},
+				},
+			});
+			return bind();
+		},
+	};
+}
+
 runReplicaConformanceCases(
 	createBinding(
 		'production browser replica store (Chromium)',
 		() => chromiumPage,
+	),
+);
+
+for (const [engineName, readPage] of [
+	['Chromium', () => chromiumPage],
+	['WebKit', () => webkitPage],
+] as const) {
+	test(`${engineName} OPFS owed scans use the covering watermark indexes`, async () => {
+		const driver = createDriver(readPage);
+		await driver.open({
+			replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+			authorityLifetime: 'lifetime-one',
+		});
+		try {
+			const plans = (await driver.observe({
+				kind: 'owed-query-plans',
+			})) as BrowserOwedQueryPlans;
+			expect(plans.document.join('\n')).toContain('records_document_owed');
+			expect(plans.blob.join('\n')).toContain('records_blob_owed');
+			console.log(
+				`${engineName} document owed plan: ${plans.document.join(' | ')}`,
+			);
+			console.log(`${engineName} blob owed plan: ${plans.blob.join(' | ')}`);
+		} finally {
+			await driver.dispose();
+		}
+	});
+}
+runDocumentConformanceCases(
+	createDocumentBinding(
+		'production browser OPFS replica owner (Chromium)',
+		() => chromiumPage,
+	),
+);
+runBlobConformanceCases(
+	createBlobBinding(
+		'production browser OPFS replica owner (Chromium)',
+		() => chromiumPage,
+	),
+);
+runBlobConformanceCases(
+	createBlobBinding(
+		'production browser OPFS replica owner (WebKit)',
+		() => webkitPage,
+	),
+);
+runDocumentConformanceCases(
+	createDocumentBinding(
+		'production browser OPFS replica owner (WebKit)',
+		() => webkitPage,
 	),
 );
 runReplicaConformanceCases(

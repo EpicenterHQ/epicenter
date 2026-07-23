@@ -56,6 +56,8 @@ export function startBrowserReplicaOwnerWorker(
 			case 'record':
 			case 'sync':
 			case 'sealed-request':
+			case 'owed-documents':
+			case 'owed-blobs':
 			case 'local-write':
 			case 'seal':
 			case 'reconstruct-sealed-request':

@@ -19,6 +19,10 @@ export function createBrowserReplicaOwnerOperations(
 					return owner.store.sync();
 				case 'sealed-request':
 					return owner.store.sealedRequest();
+				case 'owed-documents':
+					return owner.store.owedDocuments(operation.limit);
+				case 'owed-blobs':
+					return owner.store.owedBlobs(operation.limit);
 				case 'local-write':
 					owner.store.localWrite(operation.intent);
 					return undefined;
@@ -49,7 +53,10 @@ export function createBrowserReplicaOwnerOperations(
 				case 'export-document':
 					return owner.store.exportDocument(operation.address);
 				case 'document-publication':
-					return owner.store.documentPublication(operation.address);
+					return owner.store.documentPublication(
+						operation.address,
+						operation.stateVector,
+					);
 				case 'settle-document-publication':
 					owner.store.settleDocumentPublication(
 						operation.address,
