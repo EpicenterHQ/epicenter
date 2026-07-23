@@ -1,5 +1,6 @@
 import {
 	type DocumentAcceptance,
+	encodeDocumentAcceptance,
 	parseDocumentPublicationRequest,
 } from '@epicenter/data/document-v1';
 import type { ValidatedLimits } from '@epicenter/data/protocol/v1';
@@ -28,15 +29,21 @@ export type DocumentAuthorityV1Locator<E extends Env = Env> = (
 ) => DocumentAuthorityV1Endpoint | Promise<DocumentAuthorityV1Endpoint>;
 
 function responseFor(result: DocumentAcceptance): Response {
+	const body = encodeDocumentAcceptance(result);
+	const response = (status = 200) =>
+		new Response(body, {
+			status,
+			headers: { 'content-type': 'application/json' },
+		});
 	switch (result.kind) {
 		case 'accepted':
-			return Response.json(result);
+			return response();
 		case 'document-bound':
-			return Response.json(result, { status: 409 });
+			return response(409);
 		case 'record-not-live':
-			return Response.json(result, { status: 409 });
+			return response(409);
 		case 'lifetime-mismatch':
-			return Response.json(result, { status: 409 });
+			return response(409);
 	}
 }
 

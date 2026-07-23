@@ -1,6 +1,7 @@
 import {
 	DOCUMENT_PUBLICATION_VERSION,
 	documentPayloadDigest,
+	encodeDocumentAcceptance,
 } from '@epicenter/data/document-v1';
 import {
 	addressesEqual,
@@ -121,6 +122,14 @@ export function createDocumentRealtimeV1Server({
 			payload: update,
 			digest: documentPayloadDigest(update),
 		});
+		if (
+			!trySend(session.socket, {
+				kind: 'publication-response',
+				acceptance: encodeDocumentAcceptance(result),
+			})
+		) {
+			return;
+		}
 		switch (result.kind) {
 			case 'accepted':
 				for (const peer of sessionsAt(session.address)) {
@@ -199,6 +208,8 @@ export function createDocumentRealtimeV1Server({
 					case 'update':
 						acceptUpdate(existing, frame.update);
 						return;
+					case 'publication-response':
+						throw new TypeError('unexpected document publication response');
 				}
 			} catch {
 				close(socket, 1002, 'invalid-document-frame');

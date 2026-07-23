@@ -1,3 +1,14 @@
+/**
+ * Data V1 Document HTTP Publication Route Tests
+ *
+ * Verifies binary request admission, principal routing, and the shared
+ * authority acceptance response returned by the HTTP carrier.
+ *
+ * Key behaviors:
+ * - Accepted bytes return the digest-bound post-commit receipt
+ * - Malformed requests stop before authority lookup
+ * - Semantic lifetime and document-bound refusals retain their shared shape
+ */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import {
@@ -7,6 +18,7 @@ import {
 import { parseSubmissionRequest } from '@epicenter/data/protocol/v1';
 import { asPrincipalId, type PrincipalId } from '@epicenter/identity';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { DOCUMENT_BOUND } from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
 import { Hono } from 'hono';
 import { expectOk } from 'wellcrafted/testing';
@@ -113,11 +125,37 @@ describe('document V1 publication route', () => {
 				receipt: {
 					authorityLifetime: LIFETIME,
 					address: ADDRESS,
+					protocolVersion: DOCUMENT_PUBLICATION_VERSION,
 					digest: documentPayloadDigest(payload),
 				},
 			});
 			expect(context.principals).toEqual([asPrincipalId('alice')]);
 			expect(context.authority.exportDocument(ADDRESS)).toBeDefined();
+		} finally {
+			context.close();
+		}
+	});
+
+	test('returns the bounded authority refusal without mutating accepted state', async () => {
+		const context = setup();
+		try {
+			const before = context.authority.exportDocument(ADDRESS);
+			const payload = updateFor('x'.repeat(DOCUMENT_BOUND.stateBytes + 1));
+			const response = await context.app.request(PATH, {
+				method: 'POST',
+				headers: headers(payload),
+				body: bodyOf(payload),
+			});
+			expect(response.status).toBe(409);
+			expect((await response.json()) as unknown).toMatchObject({
+				kind: 'document-bound',
+				authorityLifetime: LIFETIME,
+				address: ADDRESS,
+				protocolVersion: DOCUMENT_PUBLICATION_VERSION,
+				digest: documentPayloadDigest(payload),
+				limit: DOCUMENT_BOUND,
+			});
+			expect(context.authority.exportDocument(ADDRESS)).toEqual(before);
 		} finally {
 			context.close();
 		}

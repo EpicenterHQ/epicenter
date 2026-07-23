@@ -19,6 +19,7 @@ import {
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import {
 	DOCUMENT_SUBPROTOCOL,
+	decodeDocumentFrame,
 	encodeDocumentFrame,
 } from '@epicenter/sync/document-v3';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -607,7 +608,10 @@ test('Durable Object hibernation restores document sessions from attachments', a
 			) as ArrayBuffer,
 		);
 		expect(second.sent).toHaveLength(1);
-		expect(first.sent).toHaveLength(0);
+		expect(first.sent).toHaveLength(1);
+		expect(decodeDocumentFrame(first.sent[0] ?? new Uint8Array()).kind).toBe(
+			'publication-response',
+		);
 		expect(first.closes).toEqual([]);
 	} finally {
 		owned.database.close();

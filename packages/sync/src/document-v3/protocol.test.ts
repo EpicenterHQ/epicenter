@@ -7,6 +7,7 @@
  * Key behaviors:
  * - the selected subprotocol is the only protocol-major fact
  * - WebSocket boundaries need only a one-byte frame kind
+ * - publication responses carry opaque data-owned acceptance bytes
  * - addresses, multiplexing, presence, and lifecycle controls are absent
  */
 import { describe, expect, test } from 'bun:test';
@@ -31,10 +32,24 @@ describe('document v3 frame codec', () => {
 			{ kind: 'sync-request', stateVector: Y.encodeStateVector(doc) },
 			{ kind: 'sync-response', update: Y.encodeStateAsUpdateV2(doc) },
 			{ kind: 'update', update: Y.encodeStateAsUpdateV2(doc) },
+			{
+				kind: 'publication-response',
+				acceptance: new TextEncoder().encode('{"kind":"accepted"}'),
+			},
 		];
 		for (const frame of frames) {
 			expect(decodeDocumentFrame(encodeDocumentFrame(frame))).toEqual(frame);
 		}
+	});
+
+	test('keeps authority acceptance opaque to the transport package', () => {
+		const acceptance = new TextEncoder().encode(
+			'{"kind":"accepted","receipt":{"digest":"abc"}}',
+		);
+		const frame = decodeDocumentFrame(
+			encodeDocumentFrame({ kind: 'publication-response', acceptance }),
+		);
+		expect(frame).toEqual({ kind: 'publication-response', acceptance });
 	});
 
 	test('carries a real Yjs 14 state-vector handshake and incremental update', () => {
