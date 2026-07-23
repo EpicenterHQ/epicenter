@@ -1,4 +1,4 @@
-import type { NonconformingRowError, TableLens } from '@epicenter/data';
+import type { NonconformingRowError, TableLens } from '@epicenter/data/runtime';
 import { BUILTIN_RECIPES } from '../state/builtin-recipes';
 import type { Recipe, recipesTable } from '../workspace';
 
@@ -17,7 +17,7 @@ export function createWhisperingRecipes({
 	table,
 	reportBackgroundError,
 }: {
-	table: TableLens<typeof recipesTable>;
+	table: TableLens<typeof recipesTable, never, unknown>;
 	reportBackgroundError(cause: unknown): void;
 }) {
 	let rows: Recipe[] = [];
@@ -92,7 +92,7 @@ export function createWhisperingRecipes({
 			const { id: sourceId, ...value } = recipe;
 			const canonicalId = canonicalIdBySourceId.get(sourceId);
 			if (canonicalId) {
-				const result = await table.update(canonicalId, value);
+				const result = await table.record(canonicalId).update(value);
 				if (result.error !== null) throw result.error;
 			} else {
 				await table.create({ sourceId, ...value });
@@ -102,7 +102,7 @@ export function createWhisperingRecipes({
 		async delete(id) {
 			const canonicalId = canonicalIdBySourceId.get(id);
 			if (!canonicalId) return;
-			await table.delete(canonicalId);
+			await table.record(canonicalId).delete();
 			await refresh();
 		},
 		refresh,

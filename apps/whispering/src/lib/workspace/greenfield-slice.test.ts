@@ -4,11 +4,23 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateBlobId } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import {
+	createAuthority,
+	parseFactsRequest,
+	parseSubmissionRequest,
+	readFacts,
+	SCALAR_SYNC_V1_LIMITS,
+	submit,
+} from '@epicenter/data/protocol/v1';
+import {
+	type OpenBunEpicenterOptions,
+	openBunEpicenter,
+} from '@epicenter/data/runtime';
 import { InstantString } from '@epicenter/field';
 import { expectOk } from 'wellcrafted/testing';
-import { createBunEpicenterSyncRuntime } from '../../../../../packages/server/src/epicenter-sync/bun';
-import { recordingsTable, whisperingSettingValues } from './definition';
+import { whisperingLens } from './definition';
+
+type BunCarrier = NonNullable<OpenBunEpicenterOptions['carrier']>;
 
 function recording(title: string, recordedAt: InstantString) {
 	return {
@@ -24,27 +36,58 @@ function recording(title: string, recordedAt: InstantString) {
 	};
 }
 
-test('settings values set, get, unset, and subscribe through a composed lens', async () => {
+/** One in-process scalar authority shared by every carrier it hands out. */
+function createTestAuthority() {
+	const created = createAuthority('slice-life', SCALAR_SYNC_V1_LIMITS);
+	if (created.error !== null) throw created.error;
+	let state = created.data;
+	function carrier(): BunCarrier {
+		return {
+			async fetchFacts(request) {
+				const admitted = parseFactsRequest(request, SCALAR_SYNC_V1_LIMITS);
+				if (admitted.error !== null) throw admitted.error;
+				const read = readFacts(state, admitted.data, SCALAR_SYNC_V1_LIMITS);
+				if (read.error !== null) throw read.error;
+				return read.data;
+			},
+			async submit(bytes) {
+				const admitted = parseSubmissionRequest(
+					JSON.parse(bytes),
+					SCALAR_SYNC_V1_LIMITS,
+				);
+				if (admitted.error !== null) throw admitted.error;
+				const accepted = submit(state, admitted.data, SCALAR_SYNC_V1_LIMITS);
+				if (accepted.error !== null) throw accepted.error;
+				state = accepted.data.state;
+				return accepted.data.response;
+			},
+			async publishDocument() {
+				throw new Error('Whispering publishes no record documents');
+			},
+			async publishBlob() {
+				throw new Error('Whispering publishes no record blobs');
+			},
+		};
+	}
+	return { carrier };
+}
+
+test('settings values set, get, unset, and subscribe through the bound lens', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-data-settings-'));
 	try {
 		await using epicenter = await openBunEpicenter({ directory: root });
-		const values = epicenter.bind({
-			tables: {},
-			values: whisperingSettingValues,
-		}).values;
+		const language = epicenter
+			.bind(whisperingLens)
+			.settings.record('transcription.language');
 		let changes = 0;
-		const stop = values['transcription.language'].subscribe(() => {
+		const stop = language.subscribe(() => {
 			changes += 1;
 		});
-		expect(
-			expectOk(await values['transcription.language'].get()),
-		).toBeUndefined();
-		await values['transcription.language'].set('en');
-		expect(expectOk(await values['transcription.language'].get())).toBe('en');
-		await values['transcription.language'].unset();
-		expect(
-			expectOk(await values['transcription.language'].get()),
-		).toBeUndefined();
+		expect(expectOk(await language.get())).toBeUndefined();
+		expectOk(await language.set('en'));
+		expect(expectOk(await language.get())).toBe('en');
+		expectOk(await language.unset());
+		expect(expectOk(await language.get())).toBeUndefined();
 		expect(changes).toBe(2);
 		stop();
 	} finally {
@@ -52,85 +95,95 @@ test('settings values set, get, unset, and subscribe through a composed lens', a
 	}
 });
 
-test('two borrowed lenses compose recordings CRUD with application ordering', async () => {
+test('the one bound lens composes recordings CRUD with settings access', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-data-composition-'));
 	try {
 		await using epicenter = await openBunEpicenter({ directory: root });
-		const recordings = epicenter.bind({
-			tables: { recordings: recordingsTable },
-			values: {},
-		}).tables.recordings;
-		const settings = epicenter.bind({
-			tables: {},
-			values: { language: whisperingSettingValues['transcription.language'] },
-		}).values;
-		const older = await recordings.create(
+		const bound = epicenter.bind(whisperingLens);
+		const older = await bound.recordings.create(
 			recording(
 				'older',
 				InstantString.fromDate(new Date('2026-07-20T01:00:00.000Z')),
 			),
 		);
-		const newer = await recordings.create(
+		const newer = await bound.recordings.create(
 			recording(
 				'newer',
 				InstantString.fromDate(new Date('2026-07-20T02:00:00.000Z')),
 			),
 		);
-		const scanned = await recordings.scan();
+		const scanned = await bound.recordings.scan();
 		expect(
 			scanned.rows.toSorted((left, right) =>
 				right.recordedAt.localeCompare(left.recordedAt),
 			)[0],
 		).toEqual(newer);
 		expect(
-			expectOk(await recordings.update(older.id, { title: 'updated' }))?.title,
+			expectOk(
+				await bound.recordings.record(older.id).update({ title: 'updated' }),
+			)?.title,
 		).toBe('updated');
-		expect(await recordings.delete(newer.id)).toBe(true);
-		expect(expectOk(await recordings.get(newer.id))).toBeUndefined();
-		await settings.language.set('fr');
-		expect(expectOk(await settings.language.get())).toBe('fr');
+		await bound.recordings.record(newer.id).delete();
+		expect(
+			expectOk(await bound.recordings.record(newer.id).get()),
+		).toBeUndefined();
+		expectOk(await bound.settings.record('transcription.language').set('fr'));
+		expect(
+			expectOk(await bound.settings.record('transcription.language').get()),
+		).toBe('fr');
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
 
-test('first sign-in freezes attachment and converges through the in-process authority', async () => {
+test('first sign-in brings local records and converges through one authority', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-data-attach-'));
-	const authority = createBunEpicenterSyncRuntime({
-		dir: join(root, 'authority'),
+	const authority = createTestAuthority();
+	const attachment = Object.freeze({
+		deploymentId: 'https://example.com/',
+		principalId: 'principal-a',
 	});
 	try {
 		await using first = await openBunEpicenter({
 			directory: join(root, 'first'),
+			carrier: authority.carrier(),
+			intervalMs: 10,
 		});
 		await using second = await openBunEpicenter({
 			directory: join(root, 'second'),
+			carrier: authority.carrier(),
+			intervalMs: 10,
 		});
-		const firstLanguage = first.bind({
-			tables: {},
-			values: { language: whisperingSettingValues['transcription.language'] },
-		}).values.language;
-		const secondLanguage = second.bind({
-			tables: {},
-			values: { language: whisperingSettingValues['transcription.language'] },
-		}).values.language;
-		await firstLanguage.set('de');
-		const attachment = Object.freeze({
-			deploymentId: 'https://example.com/',
-			principalId: 'principal-a',
-		});
-		const exchange = authority.locateAuthority('principal-a' as never);
-		expectOk(await first.attachSync({ ...attachment, exchange }));
-		expectOk(await second.attachSync({ ...attachment, exchange }));
+		const firstLanguage = first
+			.bind(whisperingLens)
+			.settings.record('transcription.language');
+		const secondLanguage = second
+			.bind(whisperingLens)
+			.settings.record('transcription.language');
+		expectOk(await firstLanguage.set('de'));
+
+		// The nonempty replica surfaces the first-attachment choice; bringing
+		// mirrors the production composition root's silent adopt.
+		const outcome = await first.attach(attachment);
+		if (outcome.kind !== 'first-attachment-choice') {
+			throw new Error('a nonempty replica must surface the choice');
+		}
+		await outcome.proceed('bring');
+		expect(first.sync.status.attachment).toEqual(attachment);
+
+		expect((await second.attach(attachment)).kind).toBe('attached');
+		const until = Date.now() + 5_000;
+		while (Date.now() < until) {
+			if (expectOk(await secondLanguage.get()) === 'de') break;
+			await Bun.sleep(10);
+		}
 		expect(expectOk(await secondLanguage.get())).toBe('de');
-		const refused = await second.attachSync({
-			deploymentId: attachment.deploymentId,
-			principalId: 'principal-b',
-			exchange: authority.locateAuthority('principal-b' as never),
-		});
-		expect(refused.error?.name).toBe('WrongAttachment');
+
+		// Attachment identity is permanent: a second principal is refused.
+		await expect(
+			second.attach({ ...attachment, principalId: 'principal-b' }),
+		).rejects.toThrow(/permanently attached/);
 	} finally {
-		authority.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });

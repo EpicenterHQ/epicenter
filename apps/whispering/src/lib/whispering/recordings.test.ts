@@ -9,15 +9,11 @@ import {
 	BlobStoreError,
 	generateBlobId,
 } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunEpicenter } from '@epicenter/data/runtime';
 import { InstantString } from '@epicenter/field';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import {
-	type Recording,
-	type RecordingId,
-	recordingsTable,
-} from '../workspace';
+import { type Recording, type RecordingId, whisperingLens } from '../workspace';
 import { createWhisperingRecordings } from './recordings';
 
 function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
@@ -79,10 +75,7 @@ async function setup({
 } = {}) {
 	const root = mkdtempSync(join(tmpdir(), 'whispering-recordings-'));
 	const epicenter = await openBunEpicenter({ directory: root });
-	const table = epicenter.bind({
-		tables: { recordings: recordingsTable },
-		values: {},
-	}).tables.recordings;
+	const table = epicenter.bind(whisperingLens).recordings;
 	for (const row of seed) await table.create(row);
 	const domain = createWhisperingRecordings({
 		table,
@@ -193,7 +186,9 @@ test('deletion removes remote, local, then row', async () => {
 		await context.recordings.refresh();
 		expectOk(await context.recordings.delete(row.id as RecordingId));
 		order.push(
-			expectOk(await context.table.get(row.id)) === undefined ? 'row' : 'live',
+			expectOk(await context.table.record(row.id).get()) === undefined
+				? 'row'
+				: 'live',
 		);
 		expect(order).toEqual(['remote', 'local', 'row']);
 	} finally {

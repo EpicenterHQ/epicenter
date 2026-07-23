@@ -1,4 +1,4 @@
-import { openBrowserEpicenter } from '@epicenter/data/browser';
+import { openBrowserEpicenter } from '@epicenter/data/runtime';
 import { BlobsLive } from '#platform/blobs';
 import { log } from '$lib/report';
 import type { WhisperingAppDependencies } from './app';
@@ -9,7 +9,7 @@ import type { WhisperingAppDependencies } from './app';
  * once `openWhisperingApp` runs inside the mounted Svelte root.
  */
 export const whisperingPlatform: WhisperingAppDependencies = {
-	openEpicenter: openBrowserEpicenter,
+	openEpicenter: () => openBrowserEpicenter(),
 	blobs: BlobsLive,
 	defaultTranscriptionService: 'local',
 	reportBackgroundError: (cause) =>

@@ -1,9 +1,14 @@
-import type { BoundData, Epicenter, ValueLens } from '@epicenter/data';
+import type {
+	BoundLens,
+	EpicenterRuntime,
+	RecordNotLiveError,
+} from '@epicenter/data/runtime';
+import type { Result } from 'wellcrafted/result';
 import type { TranscriptionServiceId } from '../services/transcription/providers';
 import {
 	createWhisperingSettingDefaults,
 	type WhisperingSettingValues,
-	whisperingDefinitions,
+	whisperingLens,
 } from '../workspace';
 import { createWhisperingRecipes, type WhisperingRecipes } from './recipes';
 import type { WhisperingBlobs } from './recording-audio';
@@ -14,14 +19,17 @@ import {
 
 export type { WhisperingBlobs } from './recording-audio';
 
-export type WhisperingData = BoundData<
-	typeof whisperingDefinitions.tables,
-	typeof whisperingDefinitions.values
->;
+/**
+ * The app-facing runtime contract. Whispering never captures record blobs, so
+ * the blob source is `never` and any environment's runtime satisfies this.
+ */
+export type WhisperingEpicenter = EpicenterRuntime<never, unknown>;
+
+export type WhisperingData = BoundLens<typeof whisperingLens, never, unknown>;
 
 /** Environment-owned inputs for one fully acquired Whispering app. */
 export type WhisperingAppDependencies = {
-	openEpicenter(): Promise<Epicenter>;
+	openEpicenter(): Promise<WhisperingEpicenter>;
 	blobs: WhisperingBlobs;
 	defaultTranscriptionService: TranscriptionServiceId;
 	reportBackgroundError(cause: unknown): void;
@@ -69,7 +77,7 @@ export async function openWhisperingApp(
 	}: WhisperingAppDependencies,
 	{ signal }: { signal?: AbortSignal } = {},
 ): Promise<WhisperingApp> {
-	let epicenter: Epicenter | undefined;
+	let epicenter: WhisperingEpicenter | undefined;
 	let disposeDomains: (() => void) | undefined;
 	let released = false;
 	let releasePromise: Promise<void> | undefined;
@@ -101,7 +109,7 @@ export async function openWhisperingApp(
 				return value;
 			}),
 		);
-		const whispering = opened.bind(whisperingDefinitions);
+		const whispering = opened.bind(whisperingLens);
 		const settingsDomain = createWhisperingSettings({
 			data: whispering,
 			defaults: createWhisperingSettingDefaults(defaultTranscriptionService),
@@ -109,12 +117,12 @@ export async function openWhisperingApp(
 			reportBackgroundError,
 		});
 		const recordingsDomain = createWhisperingRecordings({
-			table: whispering.tables.recordings,
+			table: whispering.recordings,
 			blobs,
 			reportBackgroundError,
 		});
 		const recipesDomain = createWhisperingRecipes({
-			table: whispering.tables.recipes,
+			table: whispering.recipes,
 			reportBackgroundError,
 		});
 		disposeDomains = () => {
@@ -152,6 +160,14 @@ export async function openWhisperingApp(
 
 type SettingKey = keyof WhisperingSettingValues;
 
+/** Reject when a Result-typed write reports its expected failure. */
+async function orThrow(
+	work: Promise<Result<void, RecordNotLiveError>>,
+): Promise<void> {
+	const { error } = await work;
+	if (error !== null) throw error;
+}
+
 function createWhisperingSettings({
 	data,
 	defaults,
@@ -171,11 +187,11 @@ function createWhisperingSettings({
 	const notify = () => {
 		for (const listener of listeners) listener();
 	};
-	const lens = <TKey extends SettingKey>(key: TKey) =>
-		data.values[key] as ValueLens<(typeof whisperingDefinitions.values)[TKey]>;
+	const record = <TKey extends SettingKey>(key: TKey) =>
+		data.settings.record(key);
 
 	async function read<TKey extends SettingKey>(key: TKey) {
-		const result = await lens(key).get();
+		const result = await record(key).get();
 		return clone(
 			result.error === null ? (result.data ?? defaults[key]) : defaults[key],
 		);
@@ -215,7 +231,7 @@ function createWhisperingSettings({
 	};
 
 	const stopValues = keys.map((key) =>
-		lens(key).subscribe(() => inBackground(refreshAll())),
+		record(key).subscribe(() => inBackground(refreshAll())),
 	);
 	const ready = refreshAll();
 	const settings: WhisperingSettings = {
@@ -228,7 +244,7 @@ function createWhisperingSettings({
 		) {
 			values.set(key, clone(value));
 			notify();
-			inBackground(lens(key).set(clone(value)));
+			inBackground(orThrow(record(key).set(clone(value))));
 		},
 		getDefault<TKey extends SettingKey>(key: TKey) {
 			return clone(defaults[key]);
@@ -236,7 +252,7 @@ function createWhisperingSettings({
 		reset() {
 			for (const key of keys) {
 				values.set(key, clone(defaults[key]));
-				inBackground(lens(key).unset());
+				inBackground(orThrow(record(key).unset()));
 			}
 			notify();
 		},
