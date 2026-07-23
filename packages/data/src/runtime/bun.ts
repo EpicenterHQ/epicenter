@@ -39,9 +39,21 @@ export type OpenBunEpicenterOptions =
 	  };
 
 function replicaId(): string {
-	const bytes = new Uint8Array(18);
-	crypto.getRandomValues(bytes);
-	return Array.from(bytes, (byte) => (byte % 36).toString(36)).join('');
+	// The store admits exactly 24 lowercase [a-z0-9] characters.
+	const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+	const result: string[] = [];
+	const bytes = new Uint8Array(32);
+	while (result.length < 24) {
+		crypto.getRandomValues(bytes);
+		for (const byte of bytes) {
+			if (byte >= 252) continue;
+			const character = alphabet[byte % alphabet.length];
+			if (character === undefined) throw new Error('replica id mint failed');
+			result.push(character);
+			if (result.length === 24) break;
+		}
+	}
+	return result.join('');
 }
 
 export async function openBunEpicenter(options: OpenBunEpicenterOptions) {

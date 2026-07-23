@@ -101,9 +101,8 @@ function tableKey(address: Pick<RecordAddress, 'namespace' | 'collection'>) {
 }
 
 function createReplicaId(): string {
-	const bytes = new Uint8Array(18);
-	crypto.getRandomValues(bytes);
-	return Array.from(bytes, (byte) => (byte % 36).toString(36)).join('');
+	// The store admits exactly 24 lowercase [a-z0-9] characters.
+	return randomKey();
 }
 
 function randomKey(): string {
