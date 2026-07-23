@@ -82,10 +82,6 @@ export {
 export { OAuthError } from './auth/oauth-errors.js';
 export { createDb } from './db/create-db.js';
 export {
-	listStorageObservations,
-	type StorageObservation,
-} from './db/storage-data.js';
-export {
 	type BunEpicenterSyncRuntime,
 	createBunEpicenterSyncRuntime,
 	mountBunEpicenterSyncApp,

@@ -54,13 +54,7 @@ export { connectHyperdriveDb } from './db/backends/cloudflare.js';
 // `mountCloudDb`. The Cloudflare per-request `pg.Client` over Hyperdrive comes from
 // `connectHyperdriveDb`; a Bun host builds its own `pg.Pool` inline.
 export { createDb, type Db } from './db/create-db.js';
-export {
-	deleteStorageObservations,
-	listStorageObservations,
-	type StorageObservation,
-	type StorageSourceKind,
-	upsertStorageObservation,
-} from './db/storage-data.js';
+export { deleteStorageObservations } from './db/storage-data.js';
 export {
 	createDurableObjectAccountAuthorities,
 	EpicenterAuthority,
