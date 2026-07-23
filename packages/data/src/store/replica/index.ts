@@ -18,6 +18,7 @@ export {
 	type FirstAttachmentChoice,
 	type OpenReplicaStoreOptions,
 	openReplicaStore,
+	PUBLICATION_OBLIGATION_PAGE_LIMIT,
 	type ReplicaAttachment,
 	type ReplicaAttachmentState,
 	type ReplicaFactsPage,
