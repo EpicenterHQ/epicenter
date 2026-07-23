@@ -31,7 +31,6 @@ export type RowDocument = {
 	export(): Uint8Array;
 	whenDurable(): Promise<void>;
 	observe(listener: UpdateListener): () => void;
-	subscribe(listener: UpdateListener): () => void;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
@@ -141,15 +140,6 @@ export function createRowDocumentRegistry({
 				requireUsable();
 			},
 			observe(listener: UpdateListener): () => void {
-				requireUsable();
-				listeners.add(listener);
-				entry.document.on('updateV2', listener);
-				return () => {
-					listeners.delete(listener);
-					entry.document.off('updateV2', listener);
-				};
-			},
-			subscribe(listener: UpdateListener): () => void {
 				requireUsable();
 				listeners.add(listener);
 				entry.document.on('updateV2', listener);
