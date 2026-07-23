@@ -51,8 +51,10 @@
 - One person has one live Epicenter and zero or more sealed Backups; Restore
   creates and atomically activates a fresh authority lifetime and never emits
   ordinary intents (ADR-0170).
-- Proposal is a prototype-gated product candidate. No Proposal ADR lands
-  before its nine-test prototype passes.
+- A Proposal is a sealed, source-bound, externally editable artifact whose
+  changes enter the live Epicenter only as ordinary typed writes. It disappears
+  after complete local admission while the normal pending lane keeps any
+  remaining authority obligation (ADR-0178).
 
 If any premise changes before merge, stop. Do not hide the change behind an
 alias, migration bridge, optional scope, or second runtime.
@@ -473,6 +475,17 @@ a storage correctness gap.
   activation, and reacquisition; race in-flight operations against
   activation.
 
+Implementation checkpoint (2026-07-22): Bun and Cloudflare now capture sealed
+accepted authority cuts into portable artifacts, stream records and verified
+blob bytes through bounded materializers, publish only complete registry
+entries, and stage resumable uploads. Restore validates only portable
+artifacts, constructs a fresh authority lifetime, atomically activates it, and
+refuses the superseded lifetime. Failure injection covers capture, staging,
+validation, materialization, activation, idempotent retry, cleanup, and the
+outgoing-lifetime race. Bun supports both directory and tar transport;
+Cloudflare materialization runs through the Container boundary without giving
+the application data plane an artifact protocol.
+
 ### W7: Proposal prototype, then ADR, then product
 
 - Durable decision:
@@ -497,6 +510,19 @@ a storage correctness gap.
   demands per-change receipts, a second outbox, or proposal state that
   outlives local admission, the design is falsified; stop and redesign.
 - Scheduling: after W6. Nothing in W1 through W6 depends on its outcome.
+
+Implementation checkpoint (2026-07-22): the bounded SQLite prototype passed
+its concurrency, crash-at-every-boundary, duplicate admission, parked-overlay,
+source-fence, creation-collision, consumption, and tamper cases without needing
+a Proposal replica, receipt log, or second outbox. `@epicenter/data` now owns
+sealed draft compilation, authenticated incremental admission, recovery, and
+artifact cleanup. Desktop Home publishes a closed compiled-Lens catalog and an
+explicit create, compile, review, Apply, and Delete sheet. Failed incremental
+Apply refreshes authenticated progress before another action, or invalidates
+the catalog when that refresh fails. [ADR-0178](../docs/adr/0178-proposals-are-source-bound-artifacts-that-disappear-after-local-admission.md)
+is Accepted. The sheet passes typecheck, build, UI-boundary, service, and host
+tests; visual browser inspection remains a manual presentation check in the
+current Codex environment.
 
 ## Deletion ledger
 

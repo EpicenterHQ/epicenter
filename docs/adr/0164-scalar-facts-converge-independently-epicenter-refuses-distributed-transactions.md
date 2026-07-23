@@ -1,7 +1,8 @@
 # 0164. Scalar facts converge independently; Epicenter refuses distributed transactions
 
-- **Status:** Proposed
-- **Date:** 2026-07-20 (revised 2026-07-21: the convergence unit is the record)
+- **Status:** Accepted
+- **Date:** 2026-07-20 (revised 2026-07-21: the convergence unit is the record;
+  accepted 2026-07-22 after record-level protocol and Lens cutover)
 - **Amends:** [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md) by defining the independently convergent semantic unit carried by the wire
 
 ## Context
@@ -59,6 +60,13 @@ atomic parent-and-asset creation, reference swap, cascade, or cleanup.
 Portability is a separate product promise. A portable representation may
 capture one owner's complete current logical state without making every live
 replica an exact authority snapshot or adding distributed transactions.
+
+## Implementation
+
+The scalar protocol, replica store, authority store, and Lens binding all
+admit and converge one record at a time. Transport may batch records for
+bounded work, but no public API promises atomicity across addresses and no
+retained caller depends on such a transaction.
 
 ## Consequences
 

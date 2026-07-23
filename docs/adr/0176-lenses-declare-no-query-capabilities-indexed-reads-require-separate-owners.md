@@ -42,7 +42,7 @@ arbitrary JSON predicates, field ordering, SQL, or an ORM over private storage.
   physical representation remains disposable runtime state and never enters
   canonical data or synchronization.
 - This decision leaves ad hoc relational inspection outside typed application
-  reads. The proposed ADR-0162 assigns that separate capability to Epicenter
+  reads. ADR-0162 assigns that separate capability to Epicenter
   Home.
 
 ## Considered alternatives

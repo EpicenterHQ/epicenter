@@ -1,8 +1,9 @@
 # 0168. Lenses are complete pure JSON interpretations
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-21: one `collections` map with
-  `defineTable` and `defineValues` as the two definition kinds)
+  `defineTable` and `defineValues` as the two definition kinds; accepted
+  2026-07-22 after parser, binding, and retained-caller cutover)
 - **Amends:** [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md), [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md), and [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 
 ## Context
@@ -89,6 +90,13 @@ Validators are ephemeral derived functions. Binding or reading a valid Lens may
 compile them synchronously. The platform initially stores no compiled validator
 and maintains no validator `WeakMap`. A transparent cache may be introduced
 later only if it changes neither Lens validity nor observable semantics.
+
+## Implementation
+
+`defineLens`, `defineTable`, `defineValues`, and `parseLens` share one closed
+JSON shape. Maintained tests prove round-trip behavior and reject functions,
+identity metadata, reference metadata, and unknown structure. Home consumes
+the same compiled Lens definitions used by application bindings.
 
 ## Consequences
 

@@ -1,9 +1,10 @@
 # 0167. A portable Epicenter is an identity-free export of one authority cut
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-21: one kindless `_epicenter_records`
   relation and the `_epicenter_artifact` self-declaration every inert artifact
-  carries)
+  carries; accepted 2026-07-22 after Bun and Cloudflare portable Backup and
+  Restore implementation)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
 - **Amended by:** [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (Backup lifecycle and the capture pin manifest)
 - **Relates:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0177](0177-each-store-owner-persists-records-in-one-wide-interned-crash-state-relation.md)
@@ -121,6 +122,14 @@ sealed portable Epicenter. `Back up` creates one, `Download` materializes it for
 external custody or inspection, and `Restore` initializes a fresh authority
 lifetime from a Backup or validated uploaded artifact. Restore replaces the live
 authority rather than merging into it.
+
+## Implementation
+
+The authority capture path pages one complete accepted cut into the portable
+record relation, including compact documents and verified blob bytes. Bun
+publishes directory and tar artifacts; Cloudflare publishes sealed registry
+artifacts through bounded materialization. Both validate artifact identity and
+structure before Restore constructs a successor authority.
 
 ## Consequences
 

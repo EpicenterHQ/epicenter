@@ -1,9 +1,10 @@
 # 0173. Each row owns at most one write-once immutable blob
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-21: the slot is record-wide and only
   the terminal tombstone reaps it; "row" in the title is the table
-  interpretation of the universal record slot)
+  interpretation of the universal record slot; accepted 2026-07-22 after
+  replica, browser, authority, and portable-artifact proof)
 - **Supersedes:** [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md)
 - **Amends:** [ADR-0154](0154-blob-access-is-address-only.md)
 - **Relates:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md)
@@ -65,6 +66,14 @@ and compact document update; an inspection snapshot exposes the same nullable
 digest as metadata (ADR-0162). Application fields or documents give the bytes
 their filename, media type, and meaning; those citations are not the platform's
 membership inventory.
+
+## Implementation
+
+Replica, browser, and authority owners expose one blob slot at each record
+address. Maintained tests prove equal-digest idempotency, different-digest
+refusal, streamed verification, unset preservation, terminal-tombstone
+cleanup, and portable projection. No application-visible file identity or
+second blob address exists.
 
 ## Consequences
 

@@ -23,7 +23,7 @@
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
-| 2026-07-20 | epicenter-data-clean-break.handoff | in tree | specs/20260720T002337-epicenter-data-clean-break.handoff.md |
+| 2026-07-20 | epicenter-data-clean-break.handoff | removed | specs/20260720T002337-epicenter-data-clean-break.handoff.md |
 | 2026-07-20 | epicenter-data-clean-break | in tree | specs/20260720T002337-epicenter-data-clean-break.md |
 | 2026-07-19 | one-epicenter-clean-break | removed | specs/20260719T222716-one-epicenter-clean-break.md |
 | 2026-07-19 | app-owned-workspace-lenses-clean-break | in tree | specs/20260719T180000-app-owned-workspace-lenses-clean-break.md |

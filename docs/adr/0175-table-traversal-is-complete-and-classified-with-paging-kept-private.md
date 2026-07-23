@@ -66,7 +66,7 @@ is never fabricated as a nonconforming row.
   earn an index-scoped filtering, ordering, or manual-page surface. This ADR
   leaves that design open and does not promise arbitrary field queries.
 - This application table API does not expose relational inspection. The
-  separately proposed ADR-0162 addresses Epicenter Home's trusted inspection
+  ADR-0162 addresses Epicenter Home's trusted inspection
   capability.
 
 ## Considered alternatives
@@ -87,5 +87,5 @@ is never fabricated as a nonconforming row.
   to one Lens; the stored data does not fail a global schema or admission law.
 - **Drizzle or another ORM query builder.** Rejected for application tables
   because it exposes relational expressivity over a private physical store.
-  The proposed ADR-0162 considers ad hoc inspection as a separate trusted Home
+  ADR-0162 considers ad hoc inspection as a separate trusted Home
   capability.

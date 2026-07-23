@@ -1,7 +1,7 @@
 # 0178. Proposals are source-bound artifacts that disappear after local admission
 
-- **Status:** Proposed
-- **Date:** 2026-07-22
+- **Status:** Accepted
+- **Date:** 2026-07-22 (accepted after the bounded prototype and Home product)
 - **Relates:** [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0168](0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 
 ## Context
@@ -85,6 +85,23 @@ operations do not enter the application-facing Epicenter API.
   diff UI are deferred.
 - Desktop-only orchestration avoids committing to a second browser file-custody
   product. Emitted changes remain ordinary replica writes on every adapter.
+
+## Implementation
+
+`@epicenter/data` owns exact selection parsing, sealed SQLite draft and
+manifest compilation, source-fenced ordinary admission, authenticated
+watermarks, crash recovery, and artifact cleanup. The maintained tests cover
+the prototype's concurrency, crash, duplicate, parked-overlay, source-change,
+creation-collision, and tamper cases without adding a Proposal replica,
+receipt log, or second outbox.
+
+Epicenter Home publishes a closed catalog of its compiled Lenses and owns the
+desktop artifact lifecycle through authenticated, serialized routes. The Home
+sheet exposes exact selection JSON, external artifact paths, compile counts,
+authenticated resume status, explicit Apply and Delete confirmations, and
+catalog invalidation when a failed incremental Apply cannot refresh its
+status. Completed Apply deletes the artifact while the ordinary pending lane
+keeps sole ownership of remaining synchronization work.
 
 ## Considered alternatives
 

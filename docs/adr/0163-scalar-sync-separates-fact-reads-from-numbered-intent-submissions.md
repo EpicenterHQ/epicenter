@@ -1,9 +1,10 @@
 # 0163. Scalar sync separates fact reads from numbered intent submissions
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-21: one kindless fact shape, four
   discriminated operations, named replica lanes, persisted sealed request
-  bytes, and a restricted address grammar)
+  bytes, and a restricted address grammar; accepted 2026-07-22 after shared
+  replica and authority conformance plus V1 limit qualification)
 - **Supersedes:** [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md), [ADR-0141](0141-authority-current-state-and-receipt-watermarks-drive-row-convergence.md), and [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md)
 - **Amends:** the scalar protocol in [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md)
 - **Amended by:** [ADR-0164](0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md) (the convergence unit), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md) (lifetime replacement), and [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md) (the obligation law)
@@ -335,6 +336,15 @@ independent of ADR-0161's aggregate logical-state envelope and cannot be derived
 from average bytes per address. Scale evidence reports the largest emitted
 protocol fact and its conservative encoding bound separately from aggregate
 present logical-state bytes.
+
+## Implementation
+
+The private V1 kernel and shared maintained conformance cases own the one-fact,
+four-operation law, canonical retry bytes, crash lanes, settlement witness,
+and facts paging. Bun and browser replicas plus Bun and Durable Object
+authorities run those contracts. The HTTP boundary enforces the frozen V1
+limits derived from the combined request, witness, response, and SQLite row
+bounds.
 
 ## Consequences
 

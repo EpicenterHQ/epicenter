@@ -1,8 +1,9 @@
 # 0170. One live Epicenter has sealed Backups; Restore creates a fresh authority lifetime
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20 (revised 2026-07-21: the structural artifact-kind
-  refusal and the durable capture pin manifest)
+  refusal and the durable capture pin manifest; accepted 2026-07-22 after Bun
+  and Cloudflare Backup and Restore implementation)
 - **Amends:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), and [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md)
 
 ## Context
@@ -148,6 +149,14 @@ only for equality and refusal; it is not a public generation number, history
 order, branch, or Backup ID. Old authority databases may remain temporarily
 during failure-safe activation, but they are not user-visible Backups and are
 deleted after the replacement is proven active.
+
+## Implementation
+
+Bun and Cloudflare now own sealed Backup registries, durable capture pins,
+bounded materialization, validation, successor construction, and atomic active
+lifetime replacement. Failure injection covers capture, staging, validation,
+activation, retry, and cleanup. Restore accepts only portable artifacts and
+refuses later work against the superseded lifetime.
 
 ## Consequences
 
