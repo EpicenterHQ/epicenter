@@ -196,6 +196,53 @@ describe('record Epicenter Lens runtime', () => {
 		}
 	});
 
+	test('classified table pages preserve the owner cursor and bounded results', async () => {
+		const context = setup();
+		try {
+			for (const [recordKey, value] of [
+				['a'.repeat(24), { title: 'A' }],
+				['b'.repeat(24), 'not-an-object'],
+				['c'.repeat(24), { title: 'C' }],
+			] as const) {
+				context.replica.localWrite({
+					address: {
+						namespace: notesLens.namespace,
+						collection: 'notes',
+						recordKey,
+					},
+					op: 'replace',
+					value,
+				});
+			}
+
+			const first = await context.data.notes.notes.page({ limit: 2 });
+			expect(first.nextAfter).toBe('b'.repeat(24));
+			expect(first.entries).toHaveLength(2);
+			expect(first.entries[0]).toMatchObject({
+				data: { id: 'a'.repeat(24), title: 'A' },
+				error: null,
+			});
+			expect(first.entries[1]?.error).toMatchObject({
+				name: 'NonconformingRow',
+				id: 'b'.repeat(24),
+			});
+
+			const second = await context.data.notes.notes.page({
+				after: first.nextAfter,
+				limit: 2,
+			});
+			expect(second).toMatchObject({
+				entries: [
+					{ data: { id: 'c'.repeat(24), title: 'C' }, error: null },
+				],
+			});
+			expect(second.nextAfter).toBeUndefined();
+		} finally {
+			await context.epicenter[Symbol.asyncDispose]();
+			context.database.close();
+		}
+	});
+
 	test('owns record documents and immutable blob bytes under table rows', async () => {
 		const context = setup();
 		try {

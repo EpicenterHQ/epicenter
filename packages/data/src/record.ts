@@ -44,6 +44,7 @@ export type {
 	RecordEpicenter,
 	RecordTableEntry,
 	RecordTableLens,
+	RecordTablePage,
 	RecordTableScan,
 	RecordValueLens,
 } from './record-epicenter.js';

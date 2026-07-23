@@ -48,6 +48,11 @@ export type RecordTableScan<TDefinition extends TableDefinition> = {
 	nonconforming: NonconformingRowError[];
 };
 
+export type RecordTablePage<TDefinition extends TableDefinition> = {
+	entries: RecordTableEntry<TDefinition>[];
+	nextAfter?: string;
+};
+
 export type RecordTableEntry<TDefinition extends TableDefinition> = Result<
 	RowFor<TDefinition>,
 	NonconformingRowError
@@ -79,6 +84,10 @@ export type RecordTableLens<
 	): Promise<Result<RowFor<TDefinition> | undefined, NonconformingRowError>>;
 	delete(id: string): Promise<boolean>;
 	scan(): Promise<RecordTableScan<TDefinition>>;
+	page(options?: {
+		after?: string;
+		limit?: number;
+	}): Promise<RecordTablePage<TDefinition>>;
 	entries(): AsyncIterable<RecordTableEntry<TDefinition>>;
 	subscribe(listener: (changedIds: string[]) => void): () => void;
 	openDocument(recordId: string): Promise<RowDocument>;
@@ -354,6 +363,36 @@ export function createRecordLensRuntime<
 			} while (after !== undefined);
 		}
 
+		async function page({
+			after,
+			limit = ENTRIES_PAGE_SIZE,
+		}: { after?: string; limit?: number } = {}): Promise<
+			RecordTablePage<TDefinition>
+		> {
+			const stored = await access.readPage(
+				namespace,
+				collection,
+				after,
+				limit,
+			);
+			const projected: RecordTableEntry<TDefinition>[] = [];
+			for (const entry of stored.entries) {
+				if (entry.record.state !== 'live') continue;
+				projected.push(
+					compiled.project(
+						entry.address.recordKey,
+						entry.record.payload,
+					) as RecordTableEntry<TDefinition>,
+				);
+			}
+			return {
+				entries: projected,
+				...(stored.nextAfter === undefined
+					? {}
+					: { nextAfter: stored.nextAfter }),
+			};
+		}
+
 		const blob: RecordBlobLens<TSource, TRead> = Object.freeze({
 			async put(recordId, source) {
 				requireOpen();
@@ -433,6 +472,7 @@ export function createRecordLensRuntime<
 				}
 				return { rows, nonconforming };
 			},
+			page,
 			entries,
 			subscribe(listener: (changedIds: string[]) => void) {
 				requireOpen();
