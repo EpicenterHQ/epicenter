@@ -112,21 +112,24 @@ const ecosystem = [
 ];
 
 const quickstartCodeHtml = `<span class="text-violet-400">import</span> { field } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/field'</span>
-<span class="text-violet-400">import</span> { createWorkspace, defineTable } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/workspace'</span>
+<span class="text-violet-400">import</span> { defineLens, defineTable } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/data/runtime'</span>
+<span class="text-violet-400">import</span> { openBunEpicenter } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/data/runtime/bun'</span>
 
-<span class="text-violet-400">const</span> posts = <span class="text-amber-300">defineTable</span>({
-  id: field.<span class="text-amber-300">string</span>(),
-  title: field.<span class="text-amber-300">string</span>(),
-  published: field.<span class="text-amber-300">boolean</span>(),
+<span class="text-violet-400">const</span> blog = <span class="text-amber-300">defineLens</span>({
+  namespace: <span class="text-emerald-400">'com.example.blog'</span>,
+  title: <span class="text-emerald-400">'Blog'</span>,
+  description: <span class="text-emerald-400">'Posts you own locally.'</span>,
+  collections: {
+    posts: <span class="text-amber-300">defineTable</span>({
+      title: <span class="text-emerald-400">'Posts'</span>,
+      fields: { title: field.<span class="text-amber-300">string</span>(), published: field.<span class="text-amber-300">boolean</span>() },
+    }),
+  },
 })
 
-<span class="text-violet-400">const</span> workspace = <span class="text-amber-300">createWorkspace</span>({
-  id: <span class="text-emerald-400">'my-app'</span>,
-  tables: { posts },
-  kv: {},
-})
-
-workspace.tables.posts.<span class="text-amber-300">set</span>({ id: <span class="text-emerald-400">'hello'</span>, title: <span class="text-emerald-400">'Hello World'</span>, published: <span class="text-amber-300">true</span> })`;
+<span class="text-violet-400">await using</span> epicenter = <span class="text-violet-400">await</span> <span class="text-amber-300">openBunEpicenter</span>({ directory: <span class="text-emerald-400">'.data'</span>, owner: <span class="text-amber-300">null</span> })
+<span class="text-violet-400">const</span> data = epicenter.<span class="text-amber-300">bind</span>(blog)
+<span class="text-violet-400">await</span> data.posts.<span class="text-amber-300">create</span>({ title: <span class="text-emerald-400">'Hello World'</span>, published: <span class="text-amber-300">true</span> })`;
 ---
 
 <BaseLayout
@@ -318,7 +321,7 @@ workspace.tables.posts.<span class="text-amber-300">set</span>({ id: <span class
 						</div>
 						<pre
 							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/workspace @epicenter/field</code></pre>
+						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/data @epicenter/field</code></pre>
 					</div>
 
 					<div
