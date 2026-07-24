@@ -1,14 +1,14 @@
 import { join } from 'node:path';
-import { createDesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
+import { honeycrispLens } from '@epicenter/honeycrisp';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.ts';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import type { ConversationsData } from './workspace.ts';
-import { homeDefinitions } from './workspace.ts';
+import { homeLens } from './workspace.ts';
 
 type OwnedTestHomeHostOptions = HomeHostInputs & {
 	/** Fixture root only. Production has no separate Home data directory. */
 	dataDir: string;
-	workspacesRoot?: string;
 	wrapConversations?: (workspace: ConversationsData) => ConversationsData;
 };
 
@@ -30,39 +30,36 @@ export function createTestDesktopAuth() {
 	});
 }
 
-/** Test composition for the production rule that one owner opens Honeycrisp. */
+/** Test composition for the production rule that one runtime binds both lenses. */
 export async function createOwnedTestHomeHost(
 	options: OwnedTestHomeHostOptions,
 ): Promise<HomeHost> {
-	const { host, dataOwner } = await createOwnedTestHomeHostBundle(options);
-	return Object.freeze({
-		...host,
-		async [Symbol.asyncDispose]() {
-			await host[Symbol.asyncDispose]();
-			await dataOwner[Symbol.asyncDispose]();
-		},
-	});
-}
-
-export async function createOwnedTestHomeHostBundle(
-	options: OwnedTestHomeHostOptions,
-) {
-	const { dataDir, workspacesRoot, wrapConversations, ...hostOptions } =
-		options;
-	const dataOwner = await createDesktopEpicenterOwner({
-		directory: workspacesRoot ?? join(dataDir, 'data'),
+	const { dataDir, wrapConversations, ...hostOptions } = options;
+	const runtime = await openBunEpicenter({
+		directory: join(dataDir, 'data'),
+		owner: null,
 	});
 	try {
-		const home = dataOwner.epicenter.bind(homeDefinitions).tables;
+		const home = runtime.bind(homeLens);
+		const honeycrisp = runtime.bind(honeycrispLens);
 		const conversations = { conversations: home.conversations };
 		const host = await createHomeHost({
 			...hostOptions,
-			honeycrisp: { folders: home.folders, notes: home.notes },
+			honeycrisp: {
+				folders: honeycrisp.folders,
+				notes: honeycrisp.notes,
+			},
 			conversations: wrapConversations?.(conversations) ?? conversations,
 		});
-		return { host, dataOwner };
+		return Object.freeze({
+			...host,
+			async [Symbol.asyncDispose]() {
+				await host[Symbol.asyncDispose]();
+				await runtime[Symbol.asyncDispose]();
+			},
+		});
 	} catch (cause) {
-		await dataOwner[Symbol.asyncDispose]();
+		await runtime[Symbol.asyncDispose]();
 		throw cause;
 	}
 }

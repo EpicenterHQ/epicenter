@@ -10,14 +10,6 @@ import type { AgentToolDefinition } from '@epicenter/agent';
 import { getProfileVia } from '@epicenter/auth';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
-import {
-	DESKTOP_EPICENTER_ROUTE,
-	type DesktopResponse,
-} from '@epicenter/data/desktop';
-import {
-	type DesktopEpicenterOwner,
-	EPICENTER_STORAGE_MOVED_ERROR_NAME,
-} from '@epicenter/data/desktop-owner';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
@@ -64,7 +56,6 @@ export type HomeServerOptions = {
 	staticAssets: EpicenterStaticAssets;
 	/** Derived trusted app catalog (ADR-0153); absent means no members. */
 	appCatalog?: AppCatalog;
-	dataOwner?: DesktopEpicenterOwner;
 	/** Canonical device-local bytes shared by every trusted app surface. */
 	blobs: BunBlobStore;
 	/** One credential owner for every compiled desktop surface. */
@@ -88,7 +79,6 @@ export function createHomeServer({
 	launchToken,
 	staticAssets,
 	appCatalog = { apps: [] },
-	dataOwner,
 	blobs,
 	desktopAuth,
 	blobRemote,
@@ -270,7 +260,6 @@ export function createHomeServer({
 
 	app.use('/api/apps', requireBrowserSession);
 	app.use('/api/home/*', requireBrowserSession);
-	app.use(DESKTOP_EPICENTER_ROUTE, requireBrowserSession);
 	app.use('/api/local-blobs/*', requireBrowserSession);
 	app.use(SESSION_STREAM_ROUTE.pattern, async (c, next) => {
 		if (c.req.header('origin') !== origin) return c.text('Forbidden', 403);
@@ -437,36 +426,6 @@ export function createHomeServer({
 		LOCAL_BLOB_REMOTE_ROUTES.purge.pattern,
 		requireBlobRemote((remote, id) => remote.purge(id)),
 	);
-
-	app.post(DESKTOP_EPICENTER_ROUTE, async (c) => {
-		if (!dataOwner) {
-			return c.json(
-				{
-					data: null,
-					error: {
-						name: 'DesktopEpicenterUnavailable',
-						message: 'The desktop Epicenter owner is unavailable.',
-					},
-				} satisfies DesktopResponse,
-				404,
-			);
-		}
-		try {
-			return c.json({
-				data: (await dataOwner.execute(await c.req.json())) ?? null,
-				error: null,
-			} satisfies DesktopResponse);
-		} catch (cause) {
-			const error = {
-				name: cause instanceof Error ? cause.name : 'Error',
-				message: cause instanceof Error ? cause.message : String(cause),
-			};
-			return c.json(
-				{ data: null, error } satisfies DesktopResponse,
-				error.name === EPICENTER_STORAGE_MOVED_ERROR_NAME ? 409 : 400,
-			);
-		}
-	});
 
 	app.get(
 		SESSION_STREAM_ROUTE.pattern,

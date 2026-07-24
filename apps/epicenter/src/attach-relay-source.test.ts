@@ -37,7 +37,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEngine, AgentMessage, EngineChunk } from '@epicenter/agent';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import {
 	createAttachRelayBunServer,
 	createBunRooms,
@@ -58,7 +58,7 @@ import type { HomeHost } from './host.ts';
 import type { LocalSourceMessage } from './local-source-catalog.ts';
 import type { HomeServerEvent } from './server.ts';
 import { createOwnedTestHomeHost } from './test-home-host.ts';
-import { conversationsTable } from './workspace.ts';
+import { homeLens } from './workspace.ts';
 
 const HOST_ID = 'host-mac';
 /**
@@ -241,11 +241,9 @@ async function readTranscript(dataDir: string): Promise<{
 }> {
 	await using epicenter = await openBunEpicenter({
 		directory: join(dataDir, 'data'),
+		owner: null,
 	});
-	const conversations = epicenter.bind({
-		tables: { conversations: conversationsTable },
-		values: {},
-	}).tables.conversations;
+	const conversations = epicenter.bind(homeLens).conversations;
 	const tableNames = ['conversations'];
 	const rows = (await conversations.scan()).rows;
 	let latest = rows[0];
@@ -253,9 +251,11 @@ async function readTranscript(dataDir: string): Promise<{
 		if (!latest || row.updatedAt > latest.updatedAt) latest = row;
 	}
 	if (!latest) return { tableNames, messages: [] };
-	using store = createAgentMessageDocumentStore(
-		await conversations.openDocument(latest.id),
-	);
+	const { data: document, error } = await conversations
+		.record(latest.id)
+		.document.open();
+	if (error !== null) throw error;
+	using store = createAgentMessageDocumentStore(document);
 	return {
 		tableNames,
 		messages: [...store.entries()].map((entry) => entry.val),

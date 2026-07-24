@@ -16,10 +16,22 @@ import {
 	createEpicenterClient,
 	createOpenAiAgentEngine,
 } from '@epicenter/client';
-import type { SyncCredentialProvider } from '@epicenter/data';
-import { createDesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
-import { connectRowDocument } from '@epicenter/document-sync';
+import {
+	DOCUMENT_PUBLICATION_VERSION,
+	type DocumentAcceptance,
+	parseDocumentAcceptance,
+} from '@epicenter/data/document-v1';
+import {
+	parseFactsResponse,
+	parseSubmissionResponse,
+	SCALAR_SYNC_V1_LIMITS,
+} from '@epicenter/data/protocol/v1';
+import type { DocumentRealtimeSocket } from '@epicenter/data/runtime';
+import {
+	type OpenBunEpicenterOptions,
+	openBunEpicenter,
+} from '@epicenter/data/runtime/bun';
+import { honeycrispLens } from '@epicenter/honeycrisp';
 import { loadActiveAppCatalog } from './app-catalog.ts';
 import {
 	createDesktopAuthAuthority,
@@ -38,14 +50,12 @@ import {
 	watchParentPipe,
 } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
-import { homeDefinitions } from './workspace.ts';
+import { homeLens } from './workspace.ts';
 
 async function main(): Promise<void> {
 	const parentPipe = watchParentPipe(Bun.stdin.stream());
 	let host: HomeHost | undefined;
-	let dataOwner:
-		| Awaited<ReturnType<typeof createDesktopEpicenterOwner>>
-		| undefined;
+	let runtime: Awaited<ReturnType<typeof openBunEpicenter>> | undefined;
 	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
@@ -69,53 +79,29 @@ async function main(): Promise<void> {
 			);
 		}
 		const authorityFetch = createDesktopAuthorityFetch(auth);
-		const documentCredentials = createDesktopSyncCredentials();
-		if (auth.bootSnapshot.state.status === 'signed-in') {
-			await documentCredentials.refresh(auth);
-		}
-		const nodeId = crypto.randomUUID();
-		dataOwner = await createDesktopEpicenterOwner({
-			directory: join(epicenterDataDir, 'data'),
-			...(auth.bootSnapshot.state.status === 'signed-in'
+		const owner =
+			auth.bootSnapshot.state.status === 'signed-in'
 				? {
-						connectDocument: (document) =>
-							connectRowDocument({
-								document,
-								baseUrl: auth.baseURL,
-								credentials: documentCredentials,
-								nodeId,
-							}),
+						deploymentId: new URL(auth.baseURL).href,
+						principalId: auth.bootSnapshot.state.principalId,
 					}
-				: {}),
+				: null;
+		runtime = await openBunEpicenter({
+			directory: join(epicenterDataDir, 'data'),
+			owner,
+			...(owner === null
+				? {}
+				: { carrier: createDesktopCarrier(auth, authorityFetch) }),
 		});
-		if (auth.bootSnapshot.state.status === 'signed-in') {
-			const syncUrl = new URL('/api/sync/v1', auth.baseURL);
-			const attached = await dataOwner.epicenter.attachSync({
-				deploymentId: new URL(auth.baseURL).href,
-				principalId: auth.bootSnapshot.state.principalId,
-				credentials: documentCredentials,
-				exchange: async (request) => {
-					await documentCredentials.refresh(auth);
-					const response = await authorityFetch(syncUrl, {
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify(request),
-					});
-					if (!response.ok) {
-						throw new Error(`Epicenter sync failed (${response.status})`);
-					}
-					const parsed = parseExchangeResponse(await response.json());
-					if (parsed.error !== null) throw parsed.error;
-					return parsed.data;
-				},
-			});
-			if (attached.error !== null) throw attached.error;
-		}
-		const home = dataOwner.epicenter.bind(homeDefinitions).tables;
+		const home = runtime.bind(homeLens);
+		const honeycrisp = runtime.bind(honeycrispLens);
 		host = await createHomeHost({
 			engine,
 			model,
-			honeycrisp: { folders: home.folders, notes: home.notes },
+			honeycrisp: {
+				folders: honeycrisp.folders,
+				notes: honeycrisp.notes,
+			},
 			conversations: { conversations: home.conversations },
 		});
 		const blobs = createBunBlobStore({
@@ -158,7 +144,6 @@ async function main(): Promise<void> {
 			launchToken: boot.token,
 			staticAssets,
 			appCatalog,
-			dataOwner,
 			blobs,
 			desktopAuth: auth,
 			blobRemote,
@@ -174,7 +159,7 @@ async function main(): Promise<void> {
 		process.stdout.write(`${JSON.stringify(createReadyFrame(boot.port))}\n`);
 		lifecycleOwnsResources = true;
 		const ownedHost = host;
-		const ownedData = dataOwner;
+		const ownedRuntime = runtime;
 		const ownedDesktopAuth = auth;
 		await superviseSidecar({
 			server,
@@ -182,7 +167,7 @@ async function main(): Promise<void> {
 				async [Symbol.asyncDispose]() {
 					ownedDesktopAuth[Symbol.dispose]();
 					await ownedHost[Symbol.asyncDispose]();
-					await ownedData[Symbol.asyncDispose]();
+					await ownedRuntime[Symbol.asyncDispose]();
 				},
 			},
 			parentPipe,
@@ -193,32 +178,113 @@ async function main(): Promise<void> {
 			if (server) await server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
 			if (host) await host[Symbol.asyncDispose]();
-			if (dataOwner) await dataOwner[Symbol.asyncDispose]();
+			if (runtime) await runtime[Symbol.asyncDispose]();
 			await parentPipe.cancel();
 		}
 	}
 }
 
-function createDesktopSyncCredentials(): SyncCredentialProvider & {
-	refresh(authority: DesktopAuthAuthority): Promise<void>;
-} {
-	let bearer: string | undefined;
-	const listeners = new Set<() => void>();
+function deploymentUrl(baseUrl: string): URL {
+	const url = new URL(baseUrl);
+	if (!url.pathname.endsWith('/')) url.pathname += '/';
+	return url;
+}
+
+function syncUrl(auth: DesktopAuthAuthority, path: string): URL {
+	return new URL(`api/sync/v1/${path}`, deploymentUrl(auth.baseURL));
+}
+
+function recordPath(address: {
+	namespace: string;
+	collection: string;
+	recordKey: string;
+}): string {
+	return `records/${address.namespace}/${address.collection}/${address.recordKey}`;
+}
+
+function createDesktopCarrier(
+	auth: DesktopAuthAuthority,
+	authorityFetch: ReturnType<typeof createDesktopAuthorityFetch>,
+): NonNullable<OpenBunEpicenterOptions['carrier']> {
 	return {
-		get: () => bearer,
-		subscribe(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
+		async fetchFacts(request) {
+			const url = syncUrl(auth, 'facts');
+			url.searchParams.set('afterSequence', String(request.afterSequence));
+			if (request.authorityLifetime !== undefined) {
+				url.searchParams.set('authorityLifetime', request.authorityLifetime);
+			}
+			const response = await authorityFetch(url);
+			if (!response.ok) {
+				throw new Error(`Epicenter facts read failed (${response.status})`);
+			}
+			const { data, error } = parseFactsResponse(
+				await response.json(),
+				SCALAR_SYNC_V1_LIMITS,
+			);
+			if (error !== null) throw error;
+			return data;
 		},
-		async refresh(authority) {
-			const authorization = await authority.authorize();
-			const next =
-				authorization.status === 'authorized'
-					? authorization.accessToken
-					: undefined;
-			if (next === bearer) return;
-			bearer = next;
-			for (const listener of listeners) listener();
+		async submit(sealedRequestBytes) {
+			const response = await authorityFetch(syncUrl(auth, 'submissions'), {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: sealedRequestBytes,
+			});
+			if (!response.ok) {
+				throw new Error(`Epicenter submission failed (${response.status})`);
+			}
+			const { data, error } = parseSubmissionResponse(
+				await response.json(),
+				SCALAR_SYNC_V1_LIMITS,
+			);
+			if (error !== null) throw error;
+			return data;
+		},
+		async publishDocument(address, publication): Promise<DocumentAcceptance> {
+			const response = await authorityFetch(
+				syncUrl(auth, `${recordPath(address)}/document-publications`),
+				{
+					method: 'POST',
+					headers: {
+						'content-type': 'application/octet-stream',
+						'x-epicenter-authority-lifetime': publication.authorityLifetime,
+						'x-epicenter-document-protocol': publication.protocolVersion,
+						'x-epicenter-document-digest': publication.digest,
+					},
+					body: publication.payload.slice().buffer as ArrayBuffer,
+				},
+			);
+			if (!response.ok) {
+				throw new Error(
+					`Epicenter document publication failed (${response.status})`,
+				);
+			}
+			const acceptance = parseDocumentAcceptance(
+				await response.json(),
+				SCALAR_SYNC_V1_LIMITS,
+			);
+			if (acceptance === undefined) {
+				throw new Error('Epicenter document publication response was invalid');
+			}
+			return acceptance;
+		},
+		async publishBlob() {
+			throw new Error('Home captures no record blobs');
+		},
+		documentRealtime: {
+			async open(address, authorityLifetime) {
+				const authorization = await auth.authorize();
+				if (authorization.status !== 'authorized') {
+					throw new Error('Epicenter document authorization unavailable');
+				}
+				const url = syncUrl(auth, `${recordPath(address)}/document`);
+				url.searchParams.set('authorityLifetime', authorityLifetime);
+				url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+				return new WebSocket(url, [
+					DOCUMENT_PUBLICATION_VERSION,
+					`bearer.${authorization.accessToken}`,
+				]) as unknown as DocumentRealtimeSocket;
+			},
 		},
 	};
 }

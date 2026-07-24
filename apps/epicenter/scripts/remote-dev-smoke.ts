@@ -15,6 +15,7 @@
 import { mkdtempSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AgentEngine, EngineChunk } from '@epicenter/agent';
 import { createOpenAiAgentEngine } from '@epicenter/client';
 import {
 	createAttachRelayBunServer,
@@ -24,7 +25,6 @@ import {
 	mergeBunWebSocketHandlers,
 	mountAttachRelayApp,
 } from '@epicenter/server/bun';
-import type { AgentEngine, EngineChunk } from '@epicenter/workspace/agent';
 import { attachHostToRelay } from '../src/attach-relay-host.ts';
 import type { HomeHost } from '../src/host.ts';
 import { createOwnedTestHomeHost } from '../src/test-home-host.ts';

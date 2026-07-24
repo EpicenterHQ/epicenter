@@ -5,8 +5,7 @@
  * may join as local stdio MCP subprocesses (arm B, Local Books today). One
  * agent loop consumes the composed catalog and never learns where a verb lives.
  *
- * Home and its built-in apps use device-owned SQLite workspaces opened by one
- * desktop owner. Sign-in remains an enhancement.
+ * Home and its built-in apps use lenses bound to one Bun-owned W4 runtime.
  */
 
 import {
@@ -71,9 +70,9 @@ export type HomeHostInputs = {
 };
 
 export type HomeHostOptions = HomeHostInputs & {
-	/** Canonical Honeycrisp handle opened by the one desktop workspace owner. */
+	/** Canonical Honeycrisp handle bound from the sidecar's one W4 runtime. */
 	honeycrisp: HoneycrispData;
-	/** Home conversation workspace opened by the same desktop owner. */
+	/** Home conversation handle bound from the same W4 runtime. */
 	conversations: ConversationsData;
 };
 
@@ -281,9 +280,12 @@ export async function createHomeHost(
 	// The row's document is the loop's message store (ADR-0152):
 	// finished messages land there and survive restarts. Loaded before the
 	// loop starts so a first send never races the replayed history.
-	let activeStore = createAgentMessageDocumentStore(
-		await conversations.openDocument(activeConversation.id),
-	);
+	const openConversationStore = async (id: string) => {
+		const { data, error } = await conversations.record(id).document.open();
+		if (error !== null) throw error;
+		return createAgentMessageDocumentStore(data);
+	};
+	let activeStore = await openConversationStore(activeConversation.id);
 	let conversation = buildConversation(activeStore);
 	// One relay subscription that survives `clear` swapping the conversation;
 	// host listeners subscribe to the host, never to a conversation instance.
@@ -296,7 +298,7 @@ export async function createHomeHost(
 	 */
 	const touchConversationRow = async (content: string) => {
 		const now = InstantString.now();
-		const result = await conversations.update(activeConversation.id, {
+		const result = await conversations.record(activeConversation.id).update({
 			title:
 				activeConversation.title === 'New Chat'
 					? content.slice(0, 50)
@@ -382,11 +384,9 @@ export async function createHomeHost(
 				const nextConversationRow = await createConversationRow();
 				let nextStore: AgentMessageDocumentStore;
 				try {
-					nextStore = createAgentMessageDocumentStore(
-						await conversations.openDocument(nextConversationRow.id),
-					);
+					nextStore = await openConversationStore(nextConversationRow.id);
 				} catch (cause) {
-					await conversations.delete(nextConversationRow.id);
+					await conversations.record(nextConversationRow.id).delete();
 					throw cause;
 				}
 				const nextConversation = buildConversation(nextStore);

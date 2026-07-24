@@ -1,5 +1,5 @@
 import type { AgentMessage, AgentMessageStore } from '@epicenter/agent';
-import type { RowDocument } from '@epicenter/data';
+import type { RowDocument } from '@epicenter/data/runtime';
 
 export type AgentMessageDocumentStore = AgentMessageStore & {
 	whenDurable(): Promise<void>;
