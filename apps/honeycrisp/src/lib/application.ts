@@ -1,57 +1,32 @@
-import type { Epicenter, RowDocument, SyncStatus } from '@epicenter/data';
-import type { connectRowDocument } from '@epicenter/document-sync';
-import {
-	type HoneycrispData,
-	honeycrispDefinitions,
-} from '@epicenter/honeycrisp';
+import type {
+	EpicenterRuntime,
+	RowDocument,
+	SyncStatus,
+} from '@epicenter/data/runtime';
+import { honeycrispLens, type NoteId } from '@epicenter/honeycrisp';
 import { createHoneycrispState } from '../routes/state/index.js';
 
-type ApplicationRuntime = {
-	epicenter: Epicenter;
-	connectDocument(document: RowDocument): ReturnType<typeof connectRowDocument>;
-	[Symbol.asyncDispose](): Promise<void>;
-};
-
 export type HoneycrispDependencies = {
-	openEpicenter(): Promise<ApplicationRuntime>;
+	openEpicenter(): Promise<EpicenterRuntime<Blob, Blob>>;
 	reportBackgroundError(cause: unknown): void;
 };
 
-export type HoneycrispNoteDocument = {
-	document: RowDocument;
-	connection: ReturnType<typeof connectRowDocument>;
-	[Symbol.asyncDispose](): Promise<void>;
-};
-
-export type HoneycrispApplication = HoneycrispData & {
-	state: ReturnType<typeof createHoneycrispState>;
-	readonly syncStatus: SyncStatus;
-	subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void;
-	openNoteDocument(noteId: string): Promise<HoneycrispNoteDocument>;
-	[Symbol.asyncDispose](): Promise<void>;
-};
+export type HoneycrispApplication = Awaited<
+	ReturnType<typeof openHoneycrispApplication>
+>;
 
 /** Open one fully acquired and hydrated Honeycrisp application. */
 export async function openHoneycrispApplication(
 	{ openEpicenter, reportBackgroundError }: HoneycrispDependencies,
 	{ signal }: { signal?: AbortSignal } = {},
-): Promise<HoneycrispApplication> {
-	let runtime: ApplicationRuntime | undefined;
+) {
+	let runtime: EpicenterRuntime<Blob, Blob> | undefined;
 	let state: ReturnType<typeof createHoneycrispState> | undefined;
-	const documents = new Set<HoneycrispNoteDocument>();
 	let releasePromise: Promise<void> | undefined;
 	const release = (): Promise<void> => {
 		releasePromise ??= (async () => {
 			signal?.removeEventListener('abort', onAbort);
 			const failures: unknown[] = [];
-			for (const document of documents) {
-				try {
-					await document[Symbol.asyncDispose]();
-				} catch (cause) {
-					failures.push(cause);
-				}
-			}
-			documents.clear();
 			try {
 				state?.[Symbol.dispose]();
 			} catch (cause) {
@@ -85,7 +60,7 @@ export async function openHoneycrispApplication(
 		runtime = await untilAbort(openEpicenter());
 		signal?.throwIfAborted();
 		const activeRuntime = runtime;
-		const data = activeRuntime.epicenter.bind(honeycrispDefinitions);
+		const data = activeRuntime.bind(honeycrispLens);
 		state = createHoneycrispState({
 			honeycrisp: data,
 			reportBackgroundError,
@@ -95,35 +70,23 @@ export async function openHoneycrispApplication(
 		return Object.freeze({
 			...data,
 			state,
-			get syncStatus() {
-				return activeRuntime.epicenter.syncStatus;
+			get syncStatus(): SyncStatus {
+				return activeRuntime.sync.status;
 			},
 			subscribeSyncStatus(listener: (status: SyncStatus) => void) {
-				return activeRuntime.epicenter.subscribeSyncStatus(listener);
+				return activeRuntime.sync.subscribe(listener);
 			},
-			async openNoteDocument(noteId: string) {
-				const document = await data.tables.notes.openDocument(noteId);
-				let connection: ReturnType<typeof connectRowDocument>;
-				try {
-					connection = activeRuntime.connectDocument(document);
-				} catch (cause) {
-					await document[Symbol.asyncDispose]();
-					throw cause;
-				}
-				let disposed = false;
-				const opened: HoneycrispNoteDocument = {
-					document,
-					connection,
-					async [Symbol.asyncDispose]() {
-						if (disposed) return;
-						disposed = true;
-						documents.delete(opened);
-						connection.dispose();
-						await document[Symbol.asyncDispose]();
-					},
-				};
-				documents.add(opened);
-				return opened;
+			/**
+			 * Open one note's runtime-owned document. The runtime owns hydration,
+			 * durability, realtime synchronization, reconnection, and revocation;
+			 * the caller owns only this handle's disposal.
+			 */
+			async openNoteDocument(noteId: NoteId): Promise<RowDocument> {
+				const { data: document, error } = await data.notes
+					.record(noteId)
+					.document.open();
+				if (error !== null) throw error;
+				return document;
 			},
 			[Symbol.asyncDispose]: release,
 		});

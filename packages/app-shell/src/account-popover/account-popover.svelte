@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AuthClient, InstanceSetting } from '@epicenter/auth';
-	import type { Epicenter, SyncStatus } from '@epicenter/data';
+	import type { SyncStatus } from '@epicenter/data/runtime';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Popover from '@epicenter/ui/popover';
@@ -48,7 +48,10 @@
 		/**
 		 * Scalar Data sync surface. Omit it when the app has no replicated data.
 		 */
-		dataSync?: Pick<Epicenter, 'syncStatus' | 'subscribeSyncStatus'>;
+		dataSync?: {
+			readonly syncStatus: SyncStatus;
+			subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void;
+		};
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**
@@ -208,13 +211,7 @@
 					dot: 'bg-muted-foreground',
 					tooltip: 'Offline. Sync will retry automatically',
 				};
-			case 'authentication-required':
-				return {
-					label: 'Sign in required',
-					dot: 'bg-destructive',
-					tooltip: 'Sign in to resume syncing',
-				};
-			case 'local':
+			case 'local-only':
 				return {
 					label: 'Local only',
 					dot: 'bg-muted-foreground',
