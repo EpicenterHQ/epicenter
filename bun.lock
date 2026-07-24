@@ -1031,6 +1031,7 @@
         "lib0": "catalog:",
         "nanoid": "catalog:",
         "pg": "^8.20.0",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "y-protocols": "catalog:",
         "yjs": "catalog:",
