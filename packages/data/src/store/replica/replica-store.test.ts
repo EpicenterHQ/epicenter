@@ -224,7 +224,7 @@ describe('replica identity', () => {
 				acceptedRevision: 0,
 				owed: true,
 			});
-			expect(reopened.owedBlobs(1)).toEqual([target]);
+			expect(reopened.owedBlobs(null, 1)).toEqual([target]);
 		} finally {
 			database.close();
 		}
@@ -277,14 +277,14 @@ describe('production replica store format', () => {
 					limits: LIMITS,
 					initialize: { replicaId: REPLICA_ID },
 				}),
-			).toThrow(/does not match format 4/);
+			).toThrow(/does not match format 5/);
 			expect(userSchemaObjects(database)).toEqual(['table:legacy_workspace']);
 		} finally {
 			database.close();
 		}
 	});
 
-	test('refuses an incomplete format-four schema', () => {
+	test('refuses an incomplete format-five schema', () => {
 		const database = new Database(':memory:', { strict: true });
 		try {
 			const adapter = createBunSqliteAdapter(database);
@@ -297,7 +297,7 @@ describe('production replica store format', () => {
 			database.exec('DROP INDEX records_pending');
 			expect(() =>
 				openReplicaStore({ database: adapter, limits: LIMITS, owner: null }),
-			).toThrow(/does not match format 4/);
+			).toThrow(/does not match format 5/);
 		} finally {
 			database.close();
 		}
@@ -358,12 +358,10 @@ describe('production replica store format', () => {
 					[recordId],
 				),
 			).toThrow(/constraint failed/);
-			// Refusal evidence binds the current revision with full measurements.
+			// A refused revision can only ever name the current owed revision.
 			expect(() =>
 				database.run(
-					`UPDATE records SET document_refused_revision = 0,
-						document_refused_code = 'document-bound',
-						document_refused_bytes = NULL, document_refused_structs = NULL
+					`UPDATE records SET document_refused_revision = 0
 					WHERE record_id = ?`,
 					[recordId],
 				),
@@ -397,26 +395,15 @@ describe('production replica store format', () => {
 				`UPDATE records SET
 					document_revision = 1,
 					document_refused_revision = CASE WHEN record_key = ? THEN 1 END,
-					document_refused_code =
-						CASE WHEN record_key = ? THEN 'document-bound' END,
-					document_refused_bytes = CASE WHEN record_key = ? THEN 1048577 END,
-					document_refused_structs = CASE WHEN record_key = ? THEN 1 END,
 					blob_sha256 = ?,
 					blob_parked_code = CASE WHEN record_key = ? THEN 'blob-conflict' END`,
-				[
-					blocked.recordKey,
-					blocked.recordKey,
-					blocked.recordKey,
-					blocked.recordKey,
-					'a'.repeat(64),
-					blocked.recordKey,
-				],
+				[blocked.recordKey, 'a'.repeat(64), blocked.recordKey],
 			);
 
-			expect(store.owedDocuments(1)).toEqual([ready]);
-			expect(store.owedBlobs(1)).toEqual([ready]);
+			expect(store.owedDocuments(null, 1)).toEqual([ready]);
+			expect(store.owedBlobs(null, 1)).toEqual([ready]);
 			expect(() =>
-				store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT + 1),
+				store.owedDocuments(null, PUBLICATION_OBLIGATION_PAGE_LIMIT + 1),
 			).toThrow(/between 1 and 64/);
 		} finally {
 			database.close();
@@ -448,12 +435,62 @@ describe('production replica store format', () => {
 				['a'.repeat(64)],
 			);
 
-			expect(store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT)).toEqual([
+			expect(
+				store.owedDocuments(null, PUBLICATION_OBLIGATION_PAGE_LIMIT),
+			).toEqual([ready]);
+			expect(store.owedBlobs(null, PUBLICATION_OBLIGATION_PAGE_LIMIT)).toEqual([
 				ready,
 			]);
-			expect(store.owedBlobs(PUBLICATION_OBLIGATION_PAGE_LIMIT)).toEqual([
-				ready,
-			]);
+		} finally {
+			database.close();
+		}
+	});
+
+	test('owed scans advance past a cursor so one stuck page cannot repeat', () => {
+		const { database, store } = setup();
+		try {
+			const addresses = Array.from({ length: 3 }, (_unused, index) => ({
+				namespace: 'so.epicenter.notes',
+				collection: 'records',
+				recordKey: `a${index.toString(36).padStart(23, '0')}`,
+			}));
+			for (const address of addresses) {
+				store.localWrite({ address, op: 'replace', value: {} });
+			}
+			database.run(
+				`UPDATE records SET document_revision = 1, blob_sha256 = ?`,
+				['a'.repeat(64)],
+			);
+
+			// A drain that discharges nothing still terminates, because each page
+			// is taken strictly after the previous page's last address.
+			const documentPages: string[][] = [];
+			let documentCursor = null as (typeof addresses)[number] | null;
+			for (;;) {
+				const page = store.owedDocuments(documentCursor, 1);
+				if (page.length === 0) break;
+				documentPages.push(page.map((address) => address.recordKey));
+				documentCursor = page.at(-1) ?? null;
+			}
+			expect(documentPages).toEqual(
+				addresses.map((address) => [address.recordKey]),
+			);
+
+			const blobPages: string[][] = [];
+			let blobCursor = null as (typeof addresses)[number] | null;
+			for (;;) {
+				const page = store.owedBlobs(blobCursor, 1);
+				if (page.length === 0) break;
+				blobPages.push(page.map((address) => address.recordKey));
+				blobCursor = page.at(-1) ?? null;
+			}
+			expect(blobPages).toEqual(
+				addresses.map((address) => [address.recordKey]),
+			);
+
+			// The cursor is exclusive: the last address never reappears.
+			expect(store.owedDocuments(addresses.at(-1) ?? null, 64)).toEqual([]);
+			expect(store.owedBlobs(addresses.at(-1) ?? null, 64)).toEqual([]);
 		} finally {
 			database.close();
 		}

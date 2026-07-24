@@ -112,14 +112,13 @@ function executeAction(target: ReplicaStore, action: BrowserReplicaAction) {
 		case 'local-write':
 			target.localWrite(action.intent);
 			return undefined;
-		case 'seal':
-			{
-				const outcome = target.seal();
-				if (outcome.kind !== 'sealed') {
-					throw new Error('browser conformance seal had no pending work');
-				}
-				return outcome.request;
+		case 'seal': {
+			const outcome = target.seal();
+			if (outcome.kind !== 'sealed') {
+				throw new Error('browser conformance seal had no pending work');
 			}
+			return outcome.request;
+		}
 		case 'settle':
 			target.settle(action.response);
 			return undefined;
@@ -152,7 +151,7 @@ function observe(
 		case 'export-document':
 			return target.exportDocument(observation.address);
 		case 'owed-documents':
-			return target.owedDocuments(observation.limit);
+			return target.owedDocuments(observation.after, observation.limit);
 		case 'owed-query-plans': {
 			const database = adapterFor(requireDatabase());
 			const explain = (sql: string) =>
@@ -192,7 +191,11 @@ function analyze(action: BrowserReplicaAction) {
 			}
 		},
 	};
-	const analysisStore = openReplicaStore({ database: analysisAdapter, limits, owner: null });
+	const analysisStore = openReplicaStore({
+		database: analysisAdapter,
+		limits,
+		owner: null,
+	});
 	try {
 		const result = executeAction(analysisStore, action);
 		return { boundaries: writes, ...(result === undefined ? {} : { result }) };
@@ -240,7 +243,11 @@ function crash(
 			}
 		},
 	};
-	const crashStore = openReplicaStore({ database: crashAdapter, limits, owner: null });
+	const crashStore = openReplicaStore({
+		database: crashAdapter,
+		limits,
+		owner: null,
+	});
 	executeAction(crashStore, action);
 	throw new Error(`fault boundary ${boundary} was not reached`);
 }
@@ -317,7 +324,11 @@ async function execute(
 			database?.close();
 			database = new pool.OpfsSAHPoolDb(databaseFilename);
 			configure(database);
-			store = openReplicaStore({ database: adapterFor(database), limits, owner: null });
+			store = openReplicaStore({
+				database: adapterFor(database),
+				limits,
+				owner: null,
+			});
 			return undefined;
 		}
 		case 'close': {

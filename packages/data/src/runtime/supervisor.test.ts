@@ -50,6 +50,7 @@ import { makeLimits } from '../protocol/v1/kernel.test-support.js';
 import {
 	createReplicaBlobStore,
 	openReplicaStore,
+	PUBLICATION_OBLIGATION_PAGE_LIMIT,
 	type ReplicaStore,
 } from '../store/replica/index.js';
 import {
@@ -588,11 +589,13 @@ test('refused work does not block later ready scalar and document obligations', 
 		expect(seeded.facts.get(addressKey(ADDRESS_C))).toMatchObject({
 			payload: { drained: true },
 		});
-		expect(context.store.inspectDocument(ADDRESS_B)?.refusal?.kind).toBe(
-			'record-not-live',
-		);
+		// The authority not knowing B yet is not a durable refusal: B stays owed
+		// for a later pass, and it does not stop C from draining in this one.
+		expect(
+			context.store.inspectDocument(ADDRESS_B)?.refusedRevision,
+		).toBeNull();
 		expect(carrier.documents.has(addressKey(ADDRESS_C))).toBe(true);
-		expect(context.store.owedDocuments(64)).toEqual([]);
+		expect(context.store.owedDocuments(null, 64)).toEqual([ADDRESS_B]);
 	} finally {
 		await context.supervisor.dispose();
 		context.database.close();
@@ -905,4 +908,99 @@ test('dispose cancels scheduled work and makes mutating entry points terminal', 
 	expect(() => context.supervisor.drainOnce()).toThrow(/disposed/);
 	expect(context.supervisor.status().state).toBe('idle');
 	context.database.close();
+});
+
+/**
+ * The authority refusing a record it has not learned of yet is ordinary
+ * ordering, not a verdict about the document. Recording it durably used to
+ * remove the address from every later owed scan, so the document stayed
+ * unpublished forever even after the record became live everywhere.
+ */
+test('a document the authority does not know yet publishes once the record lands', async () => {
+	const carrier = createCarrier();
+	carrier.fail.add('scalar');
+	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
+	try {
+		makeLive(context.store, ADDRESS_A, { title: 'local' });
+		context.store.appendLocalDocumentUpdate(ADDRESS_A, documentUpdate('body'));
+
+		// The scalar plane cannot land, so the authority refuses the document
+		// for a record it has never seen.
+		await context.supervisor.drainOnce();
+		expect(carrier.documents.has(addressKey(ADDRESS_A))).toBe(false);
+		expect(
+			context.store.inspectDocument(ADDRESS_A)?.refusedRevision,
+		).toBeNull();
+		expect(context.store.inspectDocument(ADDRESS_A)?.owed).toBe(true);
+		expect(context.store.owedDocuments(null, 64)).toEqual([ADDRESS_A]);
+
+		// Once the record exists at the authority, the still-owed document
+		// drains without any local edit or re-arm command.
+		carrier.fail.clear();
+		context.timing.advance(10);
+		await context.supervisor.drainOnce();
+
+		expect(carrier.state.facts.get(addressKey(ADDRESS_A))?.state).toBe('live');
+		expect(carrier.documents.has(addressKey(ADDRESS_A))).toBe(true);
+		expect(context.store.inspectDocument(ADDRESS_A)?.owed).toBe(false);
+		expect(context.store.owedDocuments(null, 64)).toEqual([]);
+	} finally {
+		await context.supervisor.dispose();
+		context.database.close();
+	}
+});
+
+test('a full page of undischargeable documents cannot spin or starve later work', async () => {
+	const carrier = createCarrier();
+	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
+	try {
+		// Fill an entire owed page with addresses the authority always refuses,
+		// then place ready work strictly after them in address order.
+		const stuck = Array.from(
+			{ length: PUBLICATION_OBLIGATION_PAGE_LIMIT },
+			(_unused, index) => ({
+				namespace: 'so.epicenter.notes',
+				collection: 'records',
+				recordKey: `a${index.toString(36).padStart(23, '0')}`,
+			}),
+		);
+		for (const address of stuck) {
+			makeLive(context.store, address, { title: 'stuck' });
+			context.store.appendLocalDocumentUpdate(address, documentUpdate('stuck'));
+			carrier.forceDocumentNotLive.add(addressKey(address));
+		}
+		const ready = {
+			namespace: 'so.epicenter.notes',
+			collection: 'records',
+			recordKey: 'zzzzzzzzzzzzzzzzzzzzzzzz',
+		};
+		makeLive(context.store, ready, { title: 'ready' });
+		context.store.appendLocalDocumentUpdate(ready, documentUpdate('ready'));
+
+		const attempts = new Map<string, number>();
+		carrier.beforeDocumentAcceptance = (target) => {
+			const key = addressKey(target);
+			attempts.set(key, (attempts.get(key) ?? 0) + 1);
+		};
+
+		// A bounded forward scan terminates and reaches the work behind the
+		// stuck page instead of re-serving that page forever.
+		await context.supervisor.drainOnce();
+
+		expect(carrier.documents.has(addressKey(ready))).toBe(true);
+		for (const address of stuck) {
+			expect(carrier.documents.has(addressKey(address))).toBe(false);
+		}
+		// The scan visited every owed address exactly once: a page that
+		// discharges nothing still advances instead of being re-served.
+		expect([...attempts.values()]).toEqual(
+			Array.from({ length: stuck.length + 1 }, () => 1),
+		);
+		// The stuck work stays owed for a later pass rather than being
+		// suppressed, and the drained address is gone.
+		expect(context.store.owedDocuments(null, 64)).toEqual(stuck);
+	} finally {
+		await context.supervisor.dispose();
+		context.database.close();
+	}
 });

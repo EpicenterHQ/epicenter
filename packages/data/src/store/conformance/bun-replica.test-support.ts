@@ -339,7 +339,7 @@ function documentConformanceReplica(
 	return {
 		inspectDocument: (address) => fixture.store.inspectDocument(address),
 		exportDocument: (address) => fixture.store.exportDocument(address),
-		owedDocuments: (limit) => fixture.store.owedDocuments(limit),
+		owedDocuments: (limit) => fixture.store.owedDocuments(null, limit),
 		snapshot: () => fixture.snapshot(),
 		prepare(action) {
 			const execute = (store: ReplicaStore) => documentAction(store, action);
@@ -352,7 +352,7 @@ function documentConformanceReplica(
 						inspectDocument: (address) =>
 							crashed.store.inspectDocument(address),
 						exportDocument: (address) => crashed.store.exportDocument(address),
-						owedDocuments: (limit) => crashed.store.owedDocuments(limit),
+						owedDocuments: (limit) => crashed.store.owedDocuments(null, limit),
 						snapshot: () => crashed.snapshot(),
 						close: () => crashed.close(),
 					};

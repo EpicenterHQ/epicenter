@@ -664,8 +664,12 @@ function documentObservations(
 			>,
 		owedDocuments: (limit) =>
 			(crashedId === undefined
-				? driver.requestProduction({ kind: 'owed-documents', limit })
-				: observe({ kind: 'owed-documents', limit })) as Promise<
+				? driver.requestProduction({
+						kind: 'owed-documents',
+						after: null,
+						limit,
+					})
+				: observe({ kind: 'owed-documents', after: null, limit })) as Promise<
 				RecordAddress[]
 			>,
 		snapshot: () => observe({ kind: 'snapshot' }) as Promise<string>,
@@ -801,9 +805,11 @@ function createBlobBinding(
 					acceptance,
 				}) as Promise<void>,
 			owedBlobs: (limit) =>
-				driver.requestProduction({ kind: 'owed-blobs', limit }) as Promise<
-					RecordAddress[]
-				>,
+				driver.requestProduction({
+					kind: 'owed-blobs',
+					after: null,
+					limit,
+				}) as Promise<RecordAddress[]>,
 			appendDocument: (address, update) =>
 				driver.requestProduction({
 					kind: 'append-local-document',

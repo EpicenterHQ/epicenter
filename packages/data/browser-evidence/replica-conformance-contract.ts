@@ -31,7 +31,7 @@ export type BrowserReplicaObservation =
 	| { kind: 'reconstruct-sealed-request' }
 	| { kind: 'inspect-document'; address: RecordAddress }
 	| { kind: 'export-document'; address: RecordAddress }
-	| { kind: 'owed-documents'; limit: number }
+	| { kind: 'owed-documents'; after: RecordAddress | null; limit: number }
 	| { kind: 'owed-query-plans' };
 
 export type BrowserOwedQueryPlans = {

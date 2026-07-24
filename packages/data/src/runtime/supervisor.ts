@@ -273,8 +273,13 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 		}
 		try {
 			let addresses: RecordAddress[];
+			let after: RecordAddress | null = null;
 			do {
-				addresses = store.owedDocuments(PUBLICATION_OBLIGATION_PAGE_LIMIT);
+				addresses = store.owedDocuments(
+					after,
+					PUBLICATION_OBLIGATION_PAGE_LIMIT,
+				);
+				after = addresses.at(-1) ?? null;
 				for (const address of addresses) {
 					if (isDisposed) return 'ok';
 					const state = store.documentPublication(address);
@@ -297,6 +302,12 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 						replaceAuthority();
 						return 'replaced';
 					}
+					// The authority does not know this record yet: the scalar plane
+					// that creates it has not landed. Nothing durable is recorded,
+					// because the obligation is still owed and the next pass retries
+					// once the record exists. Suppressing it here is what silently
+					// abandoned the document forever.
+					if (acceptance.kind === 'record-not-live') continue;
 					const proof =
 						acceptance.kind === 'accepted' ? acceptance.receipt : acceptance;
 					const settlement = store.settleDocumentPublication(address, proof, {
@@ -342,8 +353,10 @@ export function createRuntimeSupervisor<TBlobSource, TBlobBytes>({
 		}
 		try {
 			let addresses: RecordAddress[];
+			let after: RecordAddress | null = null;
 			do {
-				addresses = store.owedBlobs(PUBLICATION_OBLIGATION_PAGE_LIMIT);
+				addresses = store.owedBlobs(after, PUBLICATION_OBLIGATION_PAGE_LIMIT);
+				after = addresses.at(-1) ?? null;
 				for (const address of addresses) {
 					if (isDisposed) return 'ok';
 					const state = await blobs.publication(address);

@@ -41,11 +41,21 @@ const VISIBLE_LIVE_RECORD_SQL = `(
 	OR (pending_op IS NULL AND sealed_op IS NULL AND confirmed_state = 'live')
 )`;
 
+// Owed-work enumeration is keyset-paged on the address triple. A cursor makes
+// one drain a forward scan that visits each owed address at most once, so an
+// address the authority cannot admit right now (it has not yet learned of the
+// record) delays only itself until the next pass instead of re-serving the same
+// page forever.
+const OWED_AFTER_SQL = `(namespace > ?
+		OR (namespace = ? AND collection > ?)
+		OR (namespace = ? AND collection = ? AND record_key > ?))`;
+
 export const OWED_DOCUMENTS_SQL = `SELECT namespace, collection, record_key
 	FROM records
 	WHERE document_revision > document_accepted_revision
 		AND document_refused_revision IS NULL
 		AND ${VISIBLE_LIVE_RECORD_SQL}
+		AND ${OWED_AFTER_SQL}
 	ORDER BY namespace, collection, record_key
 	LIMIT ?`;
 
@@ -55,6 +65,7 @@ export const OWED_BLOBS_SQL = `SELECT namespace, collection, record_key
 		(blob_accepted_sha256 IS NULL OR blob_accepted_sha256 != blob_sha256)
 		AND blob_parked_code IS NULL
 		AND ${VISIBLE_LIVE_RECORD_SQL}
+		AND ${OWED_AFTER_SQL}
 	ORDER BY namespace, collection, record_key
 	LIMIT ?`;
 
@@ -167,6 +178,7 @@ function tripleParams(address: RecordAddress): [string, string, string] {
 function owedAddresses(
 	database: SqliteDatabase,
 	sql: string,
+	after: RecordAddress | null,
 	limit: number,
 ): RecordAddress[] {
 	if (
@@ -178,6 +190,8 @@ function owedAddresses(
 			`publication obligation limit must be between 1 and ${PUBLICATION_OBLIGATION_PAGE_LIMIT}`,
 		);
 	}
+	// Empty-string cursor coordinates sort before every admitted address.
+	const cursor = after ?? { namespace: '', collection: '', recordKey: '' };
 	return database
 		.all<
 			SqliteRow & {
@@ -185,7 +199,15 @@ function owedAddresses(
 				collection: string;
 				record_key: string;
 			}
-		>(sql, [limit])
+		>(sql, [
+			cursor.namespace,
+			cursor.namespace,
+			cursor.collection,
+			cursor.namespace,
+			cursor.collection,
+			cursor.recordKey,
+			limit,
+		])
 		.map((row) => ({
 			namespace: row.namespace,
 			collection: row.collection,
@@ -405,10 +427,7 @@ function installFact(database: SqliteDatabase, fact: Fact): void {
 				blob_parked_code = NULL,
 				document_revision = 0,
 				document_accepted_revision = 0,
-				document_refused_revision = NULL,
-				document_refused_code = NULL,
-				document_refused_bytes = NULL,
-				document_refused_structs = NULL
+				document_refused_revision = NULL
 			WHERE ${TRIPLE_WHERE}`,
 			[fact.sequence, ...tripleParams(fact.address)],
 		);
@@ -687,12 +706,18 @@ export function openReplicaStore({
 		return { bytes: meta.sealed_request, hash: meta.sealed_request_hash };
 	}
 
-	function owedDocuments(limit: number): RecordAddress[] {
-		return owedAddresses(database, OWED_DOCUMENTS_SQL, limit);
+	function owedDocuments(
+		after: RecordAddress | null,
+		limit: number,
+	): RecordAddress[] {
+		return owedAddresses(database, OWED_DOCUMENTS_SQL, after, limit);
 	}
 
-	function owedBlobs(limit: number): RecordAddress[] {
-		return owedAddresses(database, OWED_BLOBS_SQL, limit);
+	function owedBlobs(
+		after: RecordAddress | null,
+		limit: number,
+	): RecordAddress[] {
+		return owedAddresses(database, OWED_BLOBS_SQL, after, limit);
 	}
 
 	function localWrite(rawIntent: Intent): void {
@@ -754,10 +779,7 @@ export function openReplicaStore({
 					`UPDATE records SET blob_sha256 = NULL,
 						blob_accepted_sha256 = NULL, blob_parked_code = NULL,
 						document_revision = 0, document_accepted_revision = 0,
-						document_refused_revision = NULL,
-						document_refused_code = NULL,
-						document_refused_bytes = NULL,
-						document_refused_structs = NULL
+						document_refused_revision = NULL
 					WHERE ${TRIPLE_WHERE}`,
 					tripleParams(intent.address),
 				);
