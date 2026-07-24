@@ -1,7 +1,7 @@
 /** Pure serialization for the agentskills.io SKILL.md representation. */
 
 import { stringify as stringifyYaml } from 'yaml';
-import type { Skill } from './tables.js';
+import type { Skill } from './lens.js';
 
 /** Serialize one conforming skill and its collaborative instruction body. */
 export function serializeSkillMd(skill: Skill, instructions: string): string {

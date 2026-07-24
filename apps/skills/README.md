@@ -1,10 +1,8 @@
 # Skills Editor
 
-A local browser editor for Epicenter agent skills. Records live in the Browser
-workspace runtime's canonical OPFS store. Instructions and reference bodies are
-row-owned Yjs documents in the workspace contract. The browser row-document
-channel is still a deliberate runtime stub, so metadata works but the text
-editors remain blocked until that channel lands.
+A local browser editor for Epicenter agent skills. Records live in the W4
+Browser runtime's canonical OPFS store. Instructions and reference bodies are
+row-owned Yjs documents in the Skills Lens.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
 AGPL-3.0 licensed.
@@ -18,16 +16,16 @@ storage. Record lenses validate canonical JSON when it is read. Rows that do not
 conform stay stored and appear in the UI's invalid-record count rather than
 being silently deleted or migrated.
 
-The app uses runtime-owned structural record IDs. Each valid skill and reference
-also carries a stable `sourceId` in its JSON payload for domain-level references.
+The app uses runtime-owned structural record IDs. Each valid skill also carries
+a stable `sourceId` in its JSON payload for domain-level references.
 Deleting a skill explicitly deletes its currently conforming reference records.
 Deleting a row also deletes its owned document state.
 
 Instructions and reference bodies open through their owning rows:
 
 ```ts
-await skills.tables.skills.document.open(skillId);
-await skills.tables.references.document.open(referenceId);
+await skills.skills.record(skillId).document.open();
+await skills.references.record(referenceId).document.open();
 ```
 
 Application code never constructs document addresses, authority identities, or
@@ -37,8 +35,7 @@ providers. The runtime derives them from the table and structural row id.
 
 The single route renders a resizable split view with a searchable skill list,
 metadata editor, Markdown instructions editor, references panel, and command
-palette. CodeMirror writes document content through the row document handle once
-the browser channel is available.
+palette. CodeMirror synchronizes edits through the open row document handle.
 
 ## Development
 

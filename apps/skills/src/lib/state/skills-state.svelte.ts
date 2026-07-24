@@ -1,32 +1,21 @@
+import type { NonconformingRowError } from '@epicenter/data/runtime';
 import { InstantString } from '@epicenter/field';
 import {
 	type Reference,
 	type Skill,
+	type SkillsData,
 	scanReferences,
 	scanSkills,
-	type skillsWorkspace,
 } from '@epicenter/skills';
-import type {
-	RowLensError,
-	Workspace,
-} from '@epicenter/workspace/sqlite';
-
-type SkillsWorkspace = Workspace<typeof skillsWorkspace>;
 
 export type SkillMetadataUpdate = Partial<
 	Pick<Skill, 'name' | 'description' | 'license' | 'compatibility'>
 >;
 
-export function createSkillsState({
-	skills,
-	onRecordsChanged,
-}: {
-	skills: SkillsWorkspace;
-	onRecordsChanged(listener: () => void): () => void;
-}) {
+export function createSkillsState({ skills }: { skills: SkillsData }) {
 	let skillRows = $state.raw<Skill[]>([]);
 	let referenceRows = $state.raw<Reference[]>([]);
-	let nonconforming = $state.raw<RowLensError[]>([]);
+	let nonconforming = $state.raw<NonconformingRowError[]>([]);
 	let loadError = $state.raw<unknown>(null);
 	let selectedSkillId = $state<string | null>(null);
 	let refreshGeneration = 0;
@@ -68,15 +57,11 @@ export function createSkillsState({
 		}
 	}
 
-	let isDisposed = false;
-	let unsubscribe = () => {};
-	const whenReady = refresh({ throwOnError: true }).then(() => {
-		if (isDisposed) return;
-		unsubscribe = onRecordsChanged(() => void refresh());
-	});
+	const whenReady = refresh({ throwOnError: true });
 
 	return {
 		whenReady,
+		refresh,
 		get skills() {
 			return sortedSkills;
 		},
@@ -99,7 +84,7 @@ export function createSkillsState({
 			selectedSkillId = id;
 		},
 		async createSkill(name: string): Promise<string> {
-			const skill = await skills.tables.skills.create({
+			const skill = await skills.skills.create({
 				sourceId: crypto.randomUUID(),
 				name,
 				description: 'TODO: describe when and why to use this skill.',
@@ -110,7 +95,7 @@ export function createSkillsState({
 			return skill.id;
 		},
 		async updateSkill(id: string, updates: SkillMetadataUpdate): Promise<void> {
-			const result = await skills.tables.skills.update(id, {
+			const result = await skills.skills.record(id).update({
 				...updates,
 				updatedAt: InstantString.now(),
 			});
@@ -120,10 +105,10 @@ export function createSkillsState({
 		async deleteSkill(id: string): Promise<void> {
 			for (const reference of referenceRows) {
 				if (reference.skillId === id) {
-					await skills.tables.references.delete(reference.id);
+					await skills.references.record(reference.id).delete();
 				}
 			}
-			await skills.tables.skills.delete(id);
+			await skills.skills.record(id).delete();
 			if (selectedSkillId === id) {
 				selectedSkillId =
 					sortedSkills.find((skill) => skill.id !== id)?.id ?? null;
@@ -131,7 +116,7 @@ export function createSkillsState({
 			await refresh();
 		},
 		async createReference(skillId: string, path: string): Promise<string> {
-			const reference = await skills.tables.references.create({
+			const reference = await skills.references.create({
 				skillId,
 				path,
 				updatedAt: InstantString.now(),
@@ -140,13 +125,11 @@ export function createSkillsState({
 			return reference.id;
 		},
 		async deleteReference(id: string): Promise<void> {
-			await skills.tables.references.delete(id);
+			await skills.references.record(id).delete();
 			await refresh();
 		},
 		[Symbol.dispose]() {
-			isDisposed = true;
 			refreshGeneration += 1;
-			unsubscribe();
 		},
 	};
 }

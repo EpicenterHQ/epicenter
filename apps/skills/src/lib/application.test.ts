@@ -1,3 +1,14 @@
+/**
+ * Skills Application Lifecycle Tests
+ *
+ * Verifies that acquisition failures and aborts release every runtime the
+ * application composition root actually acquires.
+ *
+ * Key behaviors:
+ * - a bind failure releases the opened Epicenter runtime
+ * - aborting a pending runtime open rejects without inventing cleanup work
+ */
+
 import { expect, test } from 'bun:test';
 import { openSkillsApplication } from './application.js';
 
@@ -7,8 +18,8 @@ test('a failed Skills open releases its runtime', async () => {
 
 	await expect(
 		openSkillsApplication({
-			createRuntime: () => ({
-				async open() {
+			openEpicenter: async () => ({
+				bind() {
 					throw cause;
 				},
 				async [Symbol.asyncDispose]() {
@@ -22,17 +33,12 @@ test('a failed Skills open releases its runtime', async () => {
 	expect(releases).toBe(1);
 });
 
-test('aborting a pending Skills open rejects and releases its runtime', async () => {
+test('aborting a pending runtime open rejects without a runtime release', async () => {
 	const abort = new AbortController();
 	let releases = 0;
 	const opening = openSkillsApplication(
 		{
-			createRuntime: () => ({
-				open: () => new Promise<never>(() => {}),
-				async [Symbol.asyncDispose]() {
-					releases += 1;
-				},
-			}),
+			openEpicenter: () => new Promise<never>(() => {}),
 			reportBackgroundError() {},
 		},
 		{ signal: abort.signal },
@@ -40,5 +46,5 @@ test('aborting a pending Skills open rejects and releases its runtime', async ()
 
 	abort.abort();
 	await expect(opening).rejects.toHaveProperty('name', 'AbortError');
-	expect(releases).toBe(1);
+	expect(releases).toBe(0);
 });

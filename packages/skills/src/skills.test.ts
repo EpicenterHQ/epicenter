@@ -21,20 +21,31 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defineTable, type RowDocument } from '@epicenter/data';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import {
+	defineLens,
+	defineTable,
+	type RowDocument,
+} from '@epicenter/data/runtime';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { field, InstantString } from '@epicenter/field';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { skillsLens } from './lens.js';
 import { exportSkillsToDisk, importSkillsFromDisk } from './node.js';
 import { getSkill, listSkills, scanSkills } from './services.js';
-import { skillsDefinitions } from './workspace.js';
 
-const historicalSkillsTable = defineTable({
-	key: 'so.epicenter.skills.skills',
-	fields: {
-		name: field.string(),
-		description: field.string(),
-		updatedAt: field.instant(),
+const historicalSkillsLens = defineLens({
+	namespace: 'so.epicenter.skills',
+	title: 'Historical Skills',
+	description: 'Represents Skills rows before source ids became required.',
+	collections: {
+		skills: defineTable({
+			title: 'Skills',
+			fields: {
+				name: field.string(),
+				description: field.string(),
+				updatedAt: field.instant(),
+			},
+		}),
 	},
 });
 
@@ -42,26 +53,29 @@ test('a stricter Skills lens exposes nonconformance until typed update repairs i
 	const storageRoot = mkdtempSync(join(tmpdir(), 'epicenter-skills-'));
 	const path = join(storageRoot, 'epicenter.sqlite3');
 	try {
-		const historicalEpicenter = await openBunEpicenter({ path });
-		const historical = historicalEpicenter.bind({
-			tables: { skills: historicalSkillsTable },
-			values: {},
+		const historicalEpicenter = await openBunEpicenter({
+			database: path,
+			owner: null,
 		});
-		const oldSkill = await historical.tables.skills.create({
+		const historical = historicalEpicenter.bind(historicalSkillsLens);
+		const oldSkill = await historical.skills.create({
 			name: 'writing-voice',
 			description: 'Write directly',
 			updatedAt: InstantString.now(),
 		});
 		await historicalEpicenter[Symbol.asyncDispose]();
 
-		await using epicenter = await openBunEpicenter({ path });
-		const skills = epicenter.bind(skillsDefinitions);
+		await using epicenter = await openBunEpicenter({
+			database: path,
+			owner: null,
+		});
+		const skills = epicenter.bind(skillsLens);
 		expect(await getSkill(skills, 'aaaaaaaaaaaaaaaaaaaaaaaa')).toEqual({
 			skill: undefined,
 			instructions: undefined,
 			nonconforming: [],
 		});
-		const error = expectErr(await skills.tables.skills.get(oldSkill.id));
+		const error = expectErr(await skills.skills.record(oldSkill.id).get());
 		expect(error.name).toBe('NonconformingRow');
 		if (error.name !== 'NonconformingRow') throw new Error(error.message);
 		expect(error.issues).toContainEqual({
@@ -76,25 +90,31 @@ test('a stricter Skills lens exposes nonconformance until typed update repairs i
 		]);
 
 		const repaired = expectOk(
-			await skills.tables.skills.update(oldSkill.id, {
+			await skills.skills.record(oldSkill.id).update({
 				sourceId: 'agentskills-writing-voice',
 			}),
 		);
 		expect(repaired?.id).toBe(oldSkill.id);
 		expect((await scanSkills(skills)).nonconforming).toEqual([]);
-		await using instructions = await skills.tables.skills.openDocument(
-			oldSkill.id,
-		);
+		const instructionsResult = await skills.skills
+			.record(oldSkill.id)
+			.document.open();
+		if (instructionsResult.error !== null) throw instructionsResult.error;
+		await using instructions = instructionsResult.data;
 		writeDocumentText(instructions, 'Keep the answer concise.');
-		const another = await skills.tables.skills.create({
+		const another = await skills.skills.create({
 			sourceId: 'agentskills-other',
 			name: 'other',
 			description: 'Another skill',
 			updatedAt: InstantString.now(),
 		});
-		await using otherInstructions = await skills.tables.skills.openDocument(
-			another.id,
-		);
+		const otherInstructionsResult = await skills.skills
+			.record(another.id)
+			.document.open();
+		if (otherInstructionsResult.error !== null) {
+			throw otherInstructionsResult.error;
+		}
+		await using otherInstructions = otherInstructionsResult.data;
 		expect(otherInstructions.get('content').toString()).toBe('');
 		expect(instructions.get('content').toString()).toBe(
 			'Keep the answer concise.',
@@ -127,9 +147,10 @@ test('filesystem import stores metadata id as sourceId instead of structural id'
 		);
 		writeFileSync(join(skillRoot, 'references', 'examples.md'), '# Examples\n');
 		await using epicenter = await openBunEpicenter({
-			path: join(storageRoot, 'epicenter.sqlite3'),
+			database: join(storageRoot, 'epicenter.sqlite3'),
+			owner: null,
 		});
-		const skills = epicenter.bind(skillsDefinitions);
+		const skills = epicenter.bind(skillsLens);
 		const imported = await importSkillsFromDisk({
 			data: skills,
 			dir: inputRoot,
