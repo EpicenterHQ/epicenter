@@ -58,10 +58,6 @@
 				"class_name": "AttachRelay"
 			},
 			{
-				"name": "EPICENTER_SYNC",
-				"class_name": "EpicenterAuthority"
-			},
-			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
 			}
@@ -103,6 +99,13 @@
 			"tag": "v7",
 			"new_sqlite_classes": ["DataAuthority"],
 			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
+		},
+		{
+			// W4C clean break: the legacy exchange authority is gone. Deploying
+			// this migration permanently deletes every legacy authority object
+			// and its storage (the zero-legacy-data premise, ADR-0166).
+			"tag": "v8",
+			"deleted_classes": ["EpicenterAuthority"]
 		}
 	],
 	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---

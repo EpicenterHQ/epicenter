@@ -454,7 +454,6 @@ test('an empty scalar seal outcome leaves the plane healthy', async () => {
 	const carrier = createCarrier();
 	const context = setup({ authorityLifetime: 'lifetime-one', carrier });
 	try {
-
 		await context.supervisor.drainOnce();
 
 		expect(carrier.submittedBytes).toEqual([]);
@@ -761,14 +760,8 @@ test('blob tombstone race is isolated and later blobs still settle', async () =>
 				hasMore: false,
 			},
 		});
-		await context.blobs.capture(
-			ADDRESS_A,
-			new TextEncoder().encode('reaped'),
-		);
-		await context.blobs.capture(
-			ADDRESS_B,
-			new TextEncoder().encode('settled'),
-		);
+		await context.blobs.capture(ADDRESS_A, new TextEncoder().encode('reaped'));
+		await context.blobs.capture(ADDRESS_B, new TextEncoder().encode('settled'));
 		carrier.beforeBlobAcceptance = (target) => {
 			if (addressKey(target) !== addressKey(ADDRESS_A)) return;
 			context.store.localWrite({ address: ADDRESS_A, op: 'tombstone' });
@@ -801,10 +794,7 @@ test('unexpected store failure enters ordinary plane backoff and later recovers'
 				hasMore: false,
 			},
 		});
-		context.store.appendLocalDocumentUpdate(
-			ADDRESS_A,
-			documentUpdate('owed'),
-		);
+		context.store.appendLocalDocumentUpdate(ADDRESS_A, documentUpdate('owed'));
 		const publication = context.store.documentPublication;
 		context.store.documentPublication = () => {
 			throw new TypeError('unexpected store failure');

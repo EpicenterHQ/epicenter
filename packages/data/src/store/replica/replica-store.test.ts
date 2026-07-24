@@ -47,7 +47,7 @@ function address(recordKey: string): RecordAddress {
 function setup() {
 	const database = new Database(':memory:', { strict: true });
 	const store = openReplicaStore({
-				database: createBunSqliteAdapter(database),
+		database: createBunSqliteAdapter(database),
 		limits: LIMITS,
 		owner: null,
 		initialize: {
@@ -101,7 +101,7 @@ describe('replica identity', () => {
 		try {
 			const adapter = createBunSqliteAdapter(database);
 			openReplicaStore({
-								database: adapter,
+				database: adapter,
 				limits: LIMITS,
 				owner: OWNER,
 				initialize: { replicaId: REPLICA_ID },
@@ -120,7 +120,7 @@ describe('replica identity', () => {
 		try {
 			const adapter = createBunSqliteAdapter(database);
 			const store = openReplicaStore({
-								database: adapter,
+				database: adapter,
 				limits: LIMITS,
 				owner: OWNER,
 				initialize: { replicaId: REPLICA_ID },
@@ -130,7 +130,7 @@ describe('replica identity', () => {
 
 			expect(() =>
 				openReplicaStore({
-										database: adapter,
+					database: adapter,
 					limits: LIMITS,
 					owner: { deploymentId: OWNER.deploymentId, principalId: 'other' },
 				}),
@@ -140,7 +140,7 @@ describe('replica identity', () => {
 			).toThrow(/identity does not match/);
 
 			const reopened = openReplicaStore({
-								database: adapter,
+				database: adapter,
 				limits: LIMITS,
 				owner: OWNER,
 			});
@@ -158,7 +158,7 @@ describe('replica identity', () => {
 		try {
 			const adapter = createBunSqliteAdapter(database);
 			openReplicaStore({
-								database: adapter,
+				database: adapter,
 				limits: LIMITS,
 				owner: null,
 				initialize: { replicaId: REPLICA_ID },
@@ -180,7 +180,7 @@ describe('replica identity', () => {
 		try {
 			expect(() =>
 				openReplicaStore({
-										database: createBunSqliteAdapter(database),
+					database: createBunSqliteAdapter(database),
 					limits: LIMITS,
 					owner: { deploymentId: '', principalId: 'principal-a' },
 					initialize: { replicaId: REPLICA_ID },
@@ -196,7 +196,7 @@ describe('replica identity', () => {
 		try {
 			const adapter = createBunSqliteAdapter(database);
 			const store = openReplicaStore({
-								database: adapter,
+				database: adapter,
 				limits: LIMITS,
 				owner: null,
 				initialize: { replicaId: REPLICA_ID },
@@ -211,7 +211,7 @@ describe('replica identity', () => {
 			]);
 
 			const reopened = openReplicaStore({
-								database: adapter,
+				database: adapter,
 				limits: LIMITS,
 				owner: null,
 			});
@@ -253,7 +253,11 @@ describe('production replica store format', () => {
 				].sort(),
 			);
 			expect(
-				openReplicaStore({ database: adapter, limits: LIMITS, owner: null }).sync(),
+				openReplicaStore({
+					database: adapter,
+					limits: LIMITS,
+					owner: null,
+				}).sync(),
 			).toEqual(created.sync());
 		} finally {
 			database.close();
@@ -529,7 +533,8 @@ describe('production replica store format', () => {
 				});
 			}
 			const outcome = store.seal();
-			if (outcome.kind !== 'sealed') throw new Error('submission was not sealed');
+			if (outcome.kind !== 'sealed')
+				throw new Error('submission was not sealed');
 			const sealed = JSON.parse(outcome.request.bytes) as {
 				intents: { address: (typeof addresses)[number] }[];
 			};

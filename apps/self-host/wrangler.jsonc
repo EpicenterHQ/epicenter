@@ -44,10 +44,6 @@
 				"class_name": "Room"
 			},
 			{
-				"name": "EPICENTER_SYNC",
-				"class_name": "EpicenterAuthority"
-			},
-			{
 				"name": "DATA_AUTHORITY",
 				"class_name": "DataAuthority"
 			}
@@ -70,6 +66,13 @@
 			"tag": "v4",
 			"new_sqlite_classes": ["DataAuthority"],
 			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
+		},
+		{
+			// W4C clean break: the legacy exchange authority is gone. Deploying
+			// this migration permanently deletes every legacy authority object
+			// and its storage (the zero-legacy-data premise, ADR-0166).
+			"tag": "v5",
+			"deleted_classes": ["EpicenterAuthority"]
 		}
 	],
 
@@ -83,8 +86,8 @@
 	]
 
 	// No Hyperdrive binding: the instance composes no Postgres (no Better Auth or
-	// telemetry). ROOM, EPICENTER_SYNC (legacy caller path until W4B), and
-	// DATA_AUTHORITY and DATA_BLOBS are its complete durable substrate
+	// telemetry). ROOM, DATA_AUTHORITY, and DATA_BLOBS are its complete
+	// durable substrate
 	// (ADR-0075). No workspace catalog exists: the authority derives from the
 	// principal alone (ADR-0092, ADR-0145).
 }

@@ -143,7 +143,6 @@ function serveSelfHostRelay(): {
 		fetch: (req) => app.fetch(req, {} as never),
 		websocket: mergeBunWebSocketHandlers({
 			rooms: bunRooms.websocket,
-			documents: { message() {} },
 			attach: attachRelay.websocket,
 		}),
 	});

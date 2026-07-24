@@ -265,7 +265,12 @@ test('realtime target installs durably before live and publishes only durable lo
 	remote.destroy();
 	await target.installAccepted(update);
 	expect(installs).toHaveLength(1);
-	expect(document.getText('body').toString()).toBe('remote-local');
+	// Concurrent same-position inserts merge in client-id order; the semantic
+	// claim is that both sides survive the merge exactly once.
+	const merged = document.getText('body').toString();
+	expect(merged).toHaveLength('remote-local'.length);
+	expect(merged).toContain('remote-');
+	expect(merged).toContain('local');
 	expect(appends).toHaveLength(1);
 	await Promise.resolve();
 	expect(published).toHaveLength(1);

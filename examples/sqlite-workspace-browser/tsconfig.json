@@ -1,9 +1,0 @@
-{
-	"extends": "../../tsconfig.dom.json",
-	"compilerOptions": {
-		"noUnusedLocals": true,
-		"noUnusedParameters": true,
-		"types": ["vite/client"]
-	},
-	"include": ["src"]
-}

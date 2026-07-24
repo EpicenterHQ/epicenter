@@ -26,8 +26,8 @@ export {
 	type ReplicaRecordLanes,
 	type ReplicaStore,
 	type ReplicaStoreSync,
-	type SealOutcome,
 	type SealedRequest,
+	type SealOutcome,
 	type VisibleRecordState,
 	type VisibleRecordsPage,
 } from './replica-store.js';

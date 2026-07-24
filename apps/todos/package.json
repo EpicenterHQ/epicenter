@@ -20,7 +20,6 @@
 		"@epicenter/field": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@epicenter/workspace": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",

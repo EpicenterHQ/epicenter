@@ -23,7 +23,6 @@ import {
 	createServerApp,
 	DataAuthority,
 	type DataAuthorityNamespace,
-	EpicenterAuthority,
 	mountAttachRelayApp,
 	mountBlobsApp,
 	mountCloudAuth,
@@ -218,4 +217,4 @@ app.get('/billing', (c) => c.redirect('/dashboard'));
 export default {
 	fetch: app.fetch,
 };
-export { AttachRelay, DataAuthority, EpicenterAuthority, Room };
+export { AttachRelay, DataAuthority, Room };

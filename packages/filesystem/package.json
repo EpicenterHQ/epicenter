@@ -25,7 +25,6 @@
 	},
 	"dependencies": {
 		"@epicenter/field": "workspace:*",
-		"@epicenter/workspace": "workspace:*",
 		"@libsql/client": "^0.14.0",
 		"@libsql/client-wasm": "^0.14.0",
 		"just-bash": "^2.9.7",

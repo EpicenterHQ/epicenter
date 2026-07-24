@@ -1,8 +1,7 @@
 import { compile, recognize } from '@epicenter/field';
 import { Ok, type Result } from 'wellcrafted/result';
-
-import { isJsonValue } from '../protocol/index.js';
 import type { JsonObject, JsonValue } from '../protocol/v1/index.js';
+import { isJsonValue, SCALAR_SYNC_V1_LIMITS } from '../protocol/v1/index.js';
 import type {
 	LensDefinition,
 	RowFor,
@@ -194,6 +193,11 @@ function assertPlainObject(
 }
 
 function cloneJsonValue(value: unknown): JsonValue {
-	if (!isJsonValue(value)) throw new TypeError('Value must be finite JSON');
+	// Lens-carried values must already be admissible V1 JSON; the wire limits
+	// are the one canonical bound, so compile shares them instead of keeping a
+	// second structural grammar.
+	if (!isJsonValue(value, SCALAR_SYNC_V1_LIMITS)) {
+		throw new TypeError('Value must be finite JSON');
+	}
 	return structuredClone(value);
 }

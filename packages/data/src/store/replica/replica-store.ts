@@ -501,7 +501,10 @@ function openSchema(
 	const storedOwner =
 		meta.owner_deployment === null || meta.owner_principal === null
 			? null
-			: { deploymentId: meta.owner_deployment, principalId: meta.owner_principal };
+			: {
+					deploymentId: meta.owner_deployment,
+					principalId: meta.owner_principal,
+				};
 	const matches =
 		owner === null
 			? storedOwner === null

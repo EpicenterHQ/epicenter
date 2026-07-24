@@ -61,13 +61,6 @@ export {
 	type StorageSourceKind,
 	upsertStorageObservation,
 } from './db/storage-data.js';
-// The legacy exchange routes are unmounted (W4B). The dormant authority class
-// and its account-deletion sweep stay exported until the W4C delete-migration
-// removes the Durable Object class itself.
-export {
-	createDurableObjectAccountAuthorities,
-	EpicenterAuthority,
-} from './epicenter-sync/cloudflare.js';
 export {
 	createDataAuthorityAccountAuthorities,
 	DataAuthority,

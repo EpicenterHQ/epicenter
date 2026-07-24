@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Shared Epicenter app chrome: account popover, workspace gate, and agent chat. Branded, full-stack-aware UI mounted in each app's layout. Private (not published).",
+	"description": "Shared Epicenter app chrome: account popover and inference picker. Branded, full-stack-aware UI mounted in each app's layout. Private (not published).",
 	"keywords": [
 		"svelte",
 		"epicenter",
@@ -11,7 +11,6 @@
 	],
 	"exports": {
 		"./account-popover": "./src/account-popover/index.ts",
-		"./agent-chat": "./src/agent-chat/index.ts",
 		"./inference-picker": "./src/inference-picker/index.ts"
 	},
 	"scripts": {
@@ -19,9 +18,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@epicenter/agent": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/chat": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/data": "workspace:*",
 		"@epicenter/svelte": "workspace:*",

@@ -22,13 +22,11 @@
 	"dependencies": {
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/chat": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/field": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@epicenter/workspace": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@wxt-dev/storage": "^1.2.6",
 		"arktype": "catalog:",

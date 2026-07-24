@@ -161,7 +161,9 @@ describe('record blob store', () => {
 		const context = setup();
 		try {
 			const bytes = new TextEncoder().encode('publication');
-			const digest = capturedDigest(await context.blobs.capture(ADDRESS, bytes));
+			const digest = capturedDigest(
+				await context.blobs.capture(ADDRESS, bytes),
+			);
 			const state = await context.blobs.publication(ADDRESS);
 			expect(state.kind).toBe('ready');
 			if (state.kind !== 'ready') throw new Error('publication was not ready');
@@ -194,10 +196,7 @@ describe('record blob store', () => {
 		const context = setup();
 		try {
 			const digest = capturedDigest(
-				await context.blobs.capture(
-					ADDRESS,
-					new TextEncoder().encode('local'),
-				),
+				await context.blobs.capture(ADDRESS, new TextEncoder().encode('local')),
 			);
 			await context.blobs.settle(ADDRESS, {
 				kind: 'blob-conflict',
@@ -226,10 +225,7 @@ describe('record blob store', () => {
 		const context = setup();
 		try {
 			const digest = capturedDigest(
-				await context.blobs.capture(
-					ADDRESS,
-					new TextEncoder().encode('local'),
-				),
+				await context.blobs.capture(ADDRESS, new TextEncoder().encode('local')),
 			);
 			await context.blobs.settle(ADDRESS, {
 				kind: 'record-not-live',
@@ -268,10 +264,7 @@ describe('record blob store', () => {
 				recordKey: 'cccccccccccccccccccccccc',
 			};
 			expect(
-				await context.blobs.capture(
-					absent,
-					new TextEncoder().encode('absent'),
-				),
+				await context.blobs.capture(absent, new TextEncoder().encode('absent')),
 			).toEqual({ kind: 'record-not-live', state: 'absent' });
 			expect(context.files.staging.size).toBe(0);
 

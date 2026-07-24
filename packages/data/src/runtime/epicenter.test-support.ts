@@ -126,9 +126,7 @@ export function createTestCarrier(): AuthorityCarrier<Uint8Array> & {
 				return unwrap(
 					readFacts(
 						state,
-						unwrap(
-							parseFactsRequest({ afterSequence: 0 }, TEST_LIMITS),
-						),
+						unwrap(parseFactsRequest({ afterSequence: 0 }, TEST_LIMITS)),
 						TEST_LIMITS,
 					),
 				);

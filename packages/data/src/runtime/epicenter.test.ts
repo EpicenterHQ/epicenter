@@ -278,20 +278,24 @@ describe('record-handle runtime', () => {
 			first.transact(() => first.getText('content').insert(0, 'a'));
 			expect(second.getText('content').toString()).toBe('a');
 			expect(second.export()).toEqual(first.export());
-			expect(fixture.store.inspectDocument({
-				namespace: lens.namespace,
-				collection: 'notes',
-				recordKey: firstRow.id,
-			})).toMatchObject({ revision: 1 });
+			expect(
+				fixture.store.inspectDocument({
+					namespace: lens.namespace,
+					collection: 'notes',
+					recordKey: firstRow.id,
+				}),
+			).toMatchObject({ revision: 1 });
 
 			await first[Symbol.asyncDispose]();
 			second.transact(() => second.getText('content').insert(1, 'b'));
 			expect(second.getText('content').toString()).toBe('ab');
-			expect(fixture.store.inspectDocument({
-				namespace: lens.namespace,
-				collection: 'notes',
-				recordKey: firstRow.id,
-			})).toMatchObject({ revision: 2 });
+			expect(
+				fixture.store.inspectDocument({
+					namespace: lens.namespace,
+					collection: 'notes',
+					recordKey: firstRow.id,
+				}),
+			).toMatchObject({ revision: 2 });
 			await second[Symbol.asyncDispose]();
 
 			const address = {

@@ -6,11 +6,6 @@ import sqlite3InitModule, {
 	type Database,
 	type SAHPoolUtil,
 } from '@sqlite.org/sqlite-wasm';
-
-import {
-	acquireBrowserStorageLease,
-	type BrowserStorageLease,
-} from '../../browser/storage-lease.js';
 import type { ValidatedLimits } from '../../protocol/v1/index.js';
 import { createReplicaBlobStore } from './blob-store.js';
 import {
@@ -19,6 +14,10 @@ import {
 } from './browser-opfs-blob-files.js';
 import { createBrowserReplicaOwnerLifetime } from './browser-owner-lifetime.js';
 import { openReplicaStore, type ReplicaOwner } from './replica-store.js';
+import {
+	acquireBrowserStorageLease,
+	type BrowserStorageLease,
+} from './storage-lease.js';
 
 const DEFAULT_DATABASE_FILENAME = '/epicenter-data-v1.sqlite3';
 const DEFAULT_POOL_DIRECTORY = '.epicenter-data-v1-sahpool';

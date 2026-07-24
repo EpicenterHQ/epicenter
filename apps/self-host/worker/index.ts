@@ -27,7 +27,6 @@ import {
 	createServerApp,
 	DataAuthority,
 	type DataAuthorityNamespace,
-	EpicenterAuthority,
 	mountBlobsApp,
 	mountCloudflareScalarV1App,
 	mountInferenceApp,
@@ -114,4 +113,4 @@ mountTranscriptionApp(app, {
 mountBlobsApp(app, { auth });
 
 export default app;
-export { DataAuthority, EpicenterAuthority, Room };
+export { DataAuthority, Room };
