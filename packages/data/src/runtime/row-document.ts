@@ -2,10 +2,12 @@ import * as Y from '@y/y';
 
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { ReplicaStore } from '../store/replica/index.js';
+import type { DocumentRealtimeTarget } from './document-realtime.js';
 import { RuntimeError } from './errors.js';
 
 type UpdateListener = (update: Uint8Array, origin: unknown) => void;
 const hydrationOrigin = Symbol('epicenter-runtime-document-hydration');
+const acceptedOrigin = Symbol('epicenter-runtime-document-accepted');
 
 type LiveDocumentEntry = {
 	addressKey: string;
@@ -14,6 +16,7 @@ type LiveDocumentEntry = {
 	isRevoked: boolean;
 	isDestroyed: boolean;
 	persist: UpdateListener;
+	detachRealtime: (() => void) | undefined;
 };
 
 /**
@@ -45,9 +48,17 @@ function key(address: RecordAddress): string {
 export function createRowDocumentRegistry({
 	store,
 	onLocalUpdate,
+	realtime,
 }: {
 	store: ReplicaStore;
 	onLocalUpdate(address: RecordAddress): void;
+	/**
+	 * Optional realtime overlay. Each live document entry attaches exactly one
+	 * channel for its lifetime; destroying the entry detaches it.
+	 */
+	realtime?: {
+		attach(address: RecordAddress, target: DocumentRealtimeTarget): () => void;
+	};
 }) {
 	const entries = new Map<string, LiveDocumentEntry>();
 	let disposed = false;
@@ -55,6 +66,8 @@ export function createRowDocumentRegistry({
 	function destroy(entry: LiveDocumentEntry): void {
 		if (entry.isDestroyed) return;
 		entry.isDestroyed = true;
+		entry.detachRealtime?.();
+		entry.detachRealtime = undefined;
 		entry.document.off('updateV2', entry.persist);
 		if (entries.get(entry.addressKey) === entry) {
 			entries.delete(entry.addressKey);
@@ -72,7 +85,10 @@ export function createRowDocumentRegistry({
 		for (const entry of [...entries.values()]) revoke(entry);
 	}
 
-	function hydrate(address: RecordAddress, addressKey: string): LiveDocumentEntry {
+	function hydrate(
+		address: RecordAddress,
+		addressKey: string,
+	): LiveDocumentEntry {
 		const document = new Y.Doc({ gc: true });
 		try {
 			const initial = store.exportDocument(address);
@@ -89,8 +105,9 @@ export function createRowDocumentRegistry({
 			references: 0,
 			isRevoked: false,
 			isDestroyed: false,
+			detachRealtime: undefined,
 			persist(update: Uint8Array, origin: unknown): void {
-				if (origin === hydrationOrigin) return;
+				if (origin === hydrationOrigin || origin === acceptedOrigin) return;
 				if (entry.isRevoked) {
 					throw RuntimeError.RevokedDocument({ address: addressKey }).error;
 				}
@@ -100,6 +117,31 @@ export function createRowDocumentRegistry({
 		};
 		document.on('updateV2', entry.persist);
 		entries.set(addressKey, entry);
+		entry.detachRealtime = realtime?.attach(structuredClone(address), {
+			stateVector() {
+				return new Uint8Array(Y.encodeStateVector(entry.document));
+			},
+			encodeStateAsUpdate(stateVector?: Uint8Array) {
+				return new Uint8Array(
+					Y.encodeStateAsUpdateV2(entry.document, stateVector),
+				);
+			},
+			async installAccepted(update: Uint8Array) {
+				if (entry.isRevoked || entry.isDestroyed) {
+					throw RuntimeError.RevokedDocument({ address: addressKey }).error;
+				}
+				store.installAcceptedDocumentUpdate(address, new Uint8Array(update));
+				Y.applyUpdateV2(entry.document, update, acceptedOrigin);
+			},
+			observeLocal(listener: (update: Uint8Array) => void) {
+				const forward: UpdateListener = (update, origin) => {
+					if (origin === hydrationOrigin || origin === acceptedOrigin) return;
+					listener(new Uint8Array(update));
+				};
+				entry.document.on('updateV2', forward);
+				return () => entry.document.off('updateV2', forward);
+			},
+		});
 		return entry;
 	}
 

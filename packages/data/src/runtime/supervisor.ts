@@ -11,6 +11,7 @@ import {
 	type ReplicaBlobStore,
 	type ReplicaStore,
 } from '../store/replica/index.js';
+import type { DocumentRealtimeOpener } from './document-realtime.js';
 
 const DEFAULT_INTERVAL_MS = 30_000;
 const DEFAULT_BACKOFF_MS = 500;
@@ -36,6 +37,12 @@ export type AuthorityCarrier<TBlobBytes = unknown> = {
 		>['publication']['request'],
 		bytes: TBlobBytes,
 	): Promise<BlobAcceptance>;
+	/**
+	 * Optional realtime document transport. A carrier without it synchronizes
+	 * documents through publication and facts only; a carrier with it lets the
+	 * runtime keep every open record document converging live.
+	 */
+	documentRealtime?: DocumentRealtimeOpener;
 };
 
 export type RuntimeSchedule = (task: () => void, delayMs: number) => () => void;

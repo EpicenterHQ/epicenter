@@ -12,6 +12,10 @@ export {
 	type ValuesDefinition,
 	type ValueTypeFor,
 } from '../lens/index.js';
+export type {
+	DocumentRealtimeOpener,
+	DocumentRealtimeSocket,
+} from './document-realtime.js';
 // Environment adapters stay on their own subpaths so no bundle pulls another
 // environment's modules: `@epicenter/data/runtime/browser` opens the elected
 // browser owner and `@epicenter/data/runtime/bun` opens the Bun replica.

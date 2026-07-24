@@ -16,10 +16,12 @@ import {
 	type ValuesDefinition,
 } from '../lens/index.js';
 import type { JsonObject, RecordAddress } from '../protocol/v1/index.js';
-import type {
-	ReplicaBlobStore,
-	ReplicaStore,
-} from '../store/replica/index.js';
+import type { ReplicaBlobStore, ReplicaStore } from '../store/replica/index.js';
+import {
+	connectDocumentRealtime,
+	type DocumentRealtimeChannel,
+	type DocumentRealtimeSchedule,
+} from './document-realtime.js';
 import {
 	type BlobAlreadyCapturedError,
 	type BlobSourceReadError,
@@ -173,6 +175,8 @@ export type CreateEpicenterRuntimeOptions<TBlobSource, TBlobRead> = {
 	carrier?: AuthorityCarrier<TBlobRead> | null;
 	intervalMs?: number;
 	backoff?: RuntimeBackoff;
+	/** Test seam for realtime reconnect timing. */
+	realtimeSchedule?: DocumentRealtimeSchedule;
 	disposeOwned?: () => void | Promise<void>;
 };
 
@@ -182,6 +186,7 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 	carrier = null,
 	intervalMs,
 	backoff,
+	realtimeSchedule,
 	disposeOwned,
 }: CreateEpicenterRuntimeOptions<TBlobSource, TBlobRead>) {
 	let disposed = false;
@@ -222,12 +227,39 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 		}
 	}
 
+	const realtimeOpener = carrier?.documentRealtime;
 	const documents = createRowDocumentRegistry({
 		store,
 		onLocalUpdate(address) {
 			notify([address]);
 			supervisor.nudge();
 		},
+		...(realtimeOpener === undefined
+			? {}
+			: {
+					realtime: {
+						attach(address, target) {
+							const channel: DocumentRealtimeChannel = connectDocumentRealtime({
+								address,
+								target,
+								opener: realtimeOpener,
+								async authorityLifetime() {
+									return store.sync().authorityLifetime;
+								},
+								onRecordNotLive() {
+									if (!disposed) supervisor.nudge();
+								},
+								onLifetimeMismatch() {
+									if (!disposed) supervisor.nudge();
+								},
+								...(realtimeSchedule === undefined
+									? {}
+									: { schedule: realtimeSchedule }),
+							});
+							return () => channel.dispose();
+						},
+					},
+				}),
 	});
 	const supervisor = createRuntimeSupervisor({
 		store,
