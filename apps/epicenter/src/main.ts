@@ -19,7 +19,7 @@ import {
 import {
 	DOCUMENT_PUBLICATION_VERSION,
 	type DocumentAcceptance,
-	parseDocumentAcceptance,
+	readDocumentAcceptance,
 } from '@epicenter/data/document-v1';
 import {
 	parseFactsResponse,
@@ -254,19 +254,7 @@ function createDesktopCarrier(
 					body: publication.payload.slice().buffer as ArrayBuffer,
 				},
 			);
-			if (!response.ok) {
-				throw new Error(
-					`Epicenter document publication failed (${response.status})`,
-				);
-			}
-			const acceptance = parseDocumentAcceptance(
-				await response.json(),
-				SCALAR_SYNC_V1_LIMITS,
-			);
-			if (acceptance === undefined) {
-				throw new Error('Epicenter document publication response was invalid');
-			}
-			return acceptance;
+			return await readDocumentAcceptance(response, SCALAR_SYNC_V1_LIMITS);
 		},
 		async publishBlob() {
 			throw new Error('Home captures no record blobs');

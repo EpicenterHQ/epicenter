@@ -19,6 +19,7 @@ import {
 	type DocumentPublicationRequest,
 	decodeDocumentAcceptance,
 	documentPayloadDigest,
+	readDocumentAcceptance,
 } from '@epicenter/data/document-v1';
 import {
 	parseSubmissionRequest,
@@ -227,11 +228,13 @@ async function publishHttp(
 		},
 		body: bodyOf(request.payload),
 	});
-	const bytes = new Uint8Array(await response.arrayBuffer());
-	const acceptance = decodeDocumentAcceptance(bytes, SCALAR_SYNC_V1_LIMITS);
-	if (acceptance === undefined) {
-		throw new Error('HTTP carrier returned invalid authority acceptance');
-	}
+	// Decode exactly the way shipped carriers do, so a carrier that discards a
+	// valid conflict response cannot pass through this harness unnoticed.
+	const bytes = new Uint8Array(await response.clone().arrayBuffer());
+	const acceptance = await readDocumentAcceptance(
+		response,
+		SCALAR_SYNC_V1_LIMITS,
+	);
 	return { acceptance, bytes, status: response.status };
 }
 

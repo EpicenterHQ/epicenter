@@ -1,4 +1,5 @@
 import {
+	DOCUMENT_ACCEPTANCE_CONFLICT_STATUS,
 	type DocumentAcceptance,
 	encodeDocumentAcceptance,
 	parseDocumentPublicationRequest,
@@ -28,23 +29,17 @@ export type DocumentAuthorityV1Locator<E extends Env = Env> = (
 	env: E['Bindings'],
 ) => DocumentAuthorityV1Endpoint | Promise<DocumentAuthorityV1Endpoint>;
 
+/**
+ * Accepted publications answer 200; every typed refusal answers the one
+ * conflict status carriers decode (`readDocumentAcceptance`). Refusals are
+ * conflicts with authority state, so they carry a body, not a transport fault.
+ */
 function responseFor(result: DocumentAcceptance): Response {
-	const body = encodeDocumentAcceptance(result);
-	const response = (status = 200) =>
-		new Response(body, {
-			status,
-			headers: { 'content-type': 'application/json' },
-		});
-	switch (result.kind) {
-		case 'accepted':
-			return response();
-		case 'document-bound':
-			return response(409);
-		case 'record-not-live':
-			return response(409);
-		case 'lifetime-mismatch':
-			return response(409);
-	}
+	return new Response(encodeDocumentAcceptance(result), {
+		status:
+			result.kind === 'accepted' ? 200 : DOCUMENT_ACCEPTANCE_CONFLICT_STATUS,
+		headers: { 'content-type': 'application/json' },
+	});
 }
 
 /** Create the bounded binary document-publication route without auth. */

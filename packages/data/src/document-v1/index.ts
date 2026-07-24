@@ -235,6 +235,43 @@ export function parseDocumentAcceptance(
 	}
 }
 
+/**
+ * The one non-2xx status that carries a typed authority outcome.
+ *
+ * Every semantic refusal (`document-bound`, `record-not-live`,
+ * `lifetime-mismatch`) is a conflict with authority state, not a transport
+ * fault, so the route answers all three with this status and one encoded
+ * acceptance body.
+ */
+export const DOCUMENT_ACCEPTANCE_CONFLICT_STATUS = 409;
+
+/**
+ * Read one publication response from an HTTP carrier.
+ *
+ * This is the whole status boundary: 200 and 409 carry a decision the replica
+ * must act on, and every other status is operational (proxy, auth, or bug).
+ * Carriers must not throw before decoding, because discarding a valid 409
+ * turns a settled refusal into an unbounded retry.
+ */
+export async function readDocumentAcceptance(
+	response: Response,
+	limits: ValidatedLimits,
+): Promise<DocumentAcceptance> {
+	if (
+		response.status !== 200 &&
+		response.status !== DOCUMENT_ACCEPTANCE_CONFLICT_STATUS
+	) {
+		throw new Error(
+			`Epicenter document publication failed (${response.status})`,
+		);
+	}
+	const acceptance = parseDocumentAcceptance(await response.json(), limits);
+	if (acceptance === undefined) {
+		throw new Error('Epicenter document publication response was invalid');
+	}
+	return acceptance;
+}
+
 /** Encode the one semantic acceptance shape for HTTP or WebSocket carriage. */
 export function encodeDocumentAcceptance(
 	acceptance: DocumentAcceptance,
