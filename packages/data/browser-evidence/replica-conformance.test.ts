@@ -73,7 +73,10 @@ import type {
 } from './replica-conformance-contract.js';
 
 const evidenceDir = import.meta.dirname;
-setDefaultTimeout(30_000);
+// Crash-heavy WebKit cases late in the file legitimately exceed 30 seconds:
+// every injected crash boots two fresh evidence pages over accumulated OPFS
+// pools. The budget is per test; semantic waits keep their own timing.
+setDefaultTimeout(120_000);
 const distDir = resolve(evidenceDir, 'dist');
 const profileDirectory = mkdtempSync(
 	resolve(tmpdir(), 'epicenter-browser-conformance-'),
@@ -126,7 +129,10 @@ async function openEngine(
 
 async function openEvidencePage(context: BrowserContext): Promise<Page> {
 	const page = await context.newPage();
-	page.setDefaultTimeout(15_000);
+	// Late-suite WebKit reopens can take tens of seconds to boot a page under
+	// accumulated OPFS and worker churn. The budget covers page boot only;
+	// every semantic assertion keeps its own timing.
+	page.setDefaultTimeout(60_000);
 	await page.goto(`http://127.0.0.1:${server.port}`);
 	await page.waitForFunction(
 		() => window.browserReplicaConformanceEvidence !== undefined,
@@ -372,23 +378,25 @@ function createDriver(readPage: () => Page | undefined) {
 			return productionRequest(requirePage(readPage), operation);
 		},
 		captureBlob(address: RecordAddress, text: string) {
-			return requirePage(readPage).evaluate(async ({ address, text }) => {
-				const outcome =
-					await window.browserReplicaCandidateEvidence.request({
+			return requirePage(readPage).evaluate(
+				async ({ address, text }) => {
+					const outcome = await window.browserReplicaCandidateEvidence.request({
 						kind: 'capture-blob',
 						address,
 						bytes: new Blob([text]),
 					});
-				if (
-					outcome === null ||
-					typeof outcome !== 'object' ||
-					!('kind' in outcome) ||
-					outcome.kind !== 'captured'
-				) {
-					throw new Error('browser blob capture did not capture bytes');
-				}
-				return outcome.digest;
-			}, { address, text }) as Promise<string>;
+					if (
+						outcome === null ||
+						typeof outcome !== 'object' ||
+						!('kind' in outcome) ||
+						outcome.kind !== 'captured'
+					) {
+						throw new Error('browser blob capture did not capture bytes');
+					}
+					return outcome.digest;
+				},
+				{ address, text },
+			) as Promise<string>;
 		},
 		blobPublication(address: RecordAddress) {
 			return requirePage(readPage).evaluate(async (address) => {

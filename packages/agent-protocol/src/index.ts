@@ -2,7 +2,7 @@
  * `@epicenter/agent-protocol`: the contract the client agent loop (ADR-0047) and
  * an inference engine (ADR-0049/0050) agree on, and the only thing they share.
  *
- * The loop core lives in `@epicenter/workspace/agent`; an OpenAI-compatible
+ * The loop core lives in `@epicenter/agent`; an OpenAI-compatible
  * engine is built in `@epicenter/client`. Neither package depends on the other,
  * so these types live in this leaf (its only dependency is `wellcrafted/json`)
  * and both import them. That replaces the hand-synced "structural twin"
