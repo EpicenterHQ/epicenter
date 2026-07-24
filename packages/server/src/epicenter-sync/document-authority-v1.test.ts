@@ -181,6 +181,46 @@ for (const [name, adapt] of [
 			}
 		});
 
+		/**
+		 * Local premeasurement keeps over-bound payloads off the wire, but it
+		 * cannot be the decision: the authority measures the state after joining
+		 * every other replica's accumulation, which can cross the bound while
+		 * each contributing replica's own document stays comfortably under it.
+		 */
+		test('refuses an under-bound publication whose post-join state is over-bound', () => {
+			const { raw, authority } = setup();
+			try {
+				const half = 'x'.repeat(Math.floor(DOCUMENT_BOUND.stateBytes * 0.6));
+				const [fromA, fromB] = [1, 2].map((clientId) => {
+					const document = new Y.Doc({ gc: true });
+					document.clientID = clientId;
+					document.get('content').insert(0, half);
+					const state = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+					document.destroy();
+					return state;
+				});
+				if (fromA === undefined || fromB === undefined) {
+					throw new Error('missing replica states');
+				}
+				// Each replica alone is legally publishable.
+				for (const state of [fromA, fromB]) {
+					expect(state.byteLength).toBeLessThan(DOCUMENT_BOUND.stateBytes);
+				}
+
+				expect(
+					authority.acceptDocument(publication('lifetime-one', fromA)).kind,
+				).toBe('accepted');
+				const joined = authority.acceptDocument(
+					publication('lifetime-one', fromB),
+				);
+				expect(joined.kind).toBe('document-bound');
+				// The refusal leaves the previously accepted state untouched.
+				expect(textOf(authority.exportDocument(ADDRESS))).toBe(half);
+			} finally {
+				raw.close();
+			}
+		});
+
 		test('joins dependency-reordered updates and compacts a bounded tail', () => {
 			const { raw, authority } = setup();
 			try {

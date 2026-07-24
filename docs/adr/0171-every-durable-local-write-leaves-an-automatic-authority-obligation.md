@@ -84,19 +84,21 @@ active authority has accepted.
 ```txt
 document_revision
 document_accepted_revision
-document_sync_issue = null | too-large
-document_publication_suppression = null | not-live
+document_refused_revision = null | N
 ```
 
 A document is owed exactly when its local revision is greater than its accepted
-revision, it has no terminal issue, and publication is not suppressed pending
-scalar liveness. No dirty boolean or durable per-attempt payload duplicates
-that state.
+revision, no refused revision is recorded, and the record is visibly live. No
+dirty boolean, refusal code, stored measurement, or durable per-attempt payload
+duplicates that state.
 
-The supervisor briefly coalesces local edit wakeups, scans a bounded page of
-owed addresses, and publishes each document through an ordinary per-document
-HTTP request with bounded concurrency. Scheduling is workspace-wide; the wire
-protocol is not one atomic multi-document batch.
+The supervisor briefly coalesces local edit wakeups and drains owed addresses
+through a keyset-paged forward scan, publishing each document through an
+ordinary per-document HTTP request. Each page is taken strictly after the
+previous page's last address, so one address that cannot be discharged this
+pass delays only itself instead of re-serving the same page forever.
+Scheduling is workspace-wide; the wire protocol is not one atomic
+multi-document batch.
 
 Publication captures the current local revision and reconstructs a complete
 compact Yjs state from durable SQLite. The authority rechecks row liveness,
@@ -119,25 +121,35 @@ N+1. If the response is lost, the next attempt may reconstruct and send newer
 complete state. Yjs update idempotency makes repeated application safe; exact
 byte retention and digest-bound receipts are unnecessary.
 
-`not-live` is governed by the scalar record lifecycle. The replica records a
-durable internal publication suppression so an authority-absent record cannot
-spin through the document drain. A later accepted live scalar fact or authority
-replacement clears that suppression; a terminal scalar tombstone reaps the
-document and all publication state. The suppression is diagnostic protocol
-evidence, not a second public liveness truth or a `DocumentSyncIssue`.
+`not-live` is governed entirely by the scalar record lifecycle and leaves no
+durable document state. Owed-document enumeration already requires a visibly
+live record, and the supervisor drains the scalar and facts planes before the
+document plane, so the ordinary cause of an authority-absent record is that
+this pass's scalar work has not landed yet. The replica records nothing and
+retries on a later pass; the keyset scan is what keeps that from spinning.
 
-`too-large` records one durable address-scoped
-`{ kind: 'too-large' }` issue for that document lineage. The document remains
-locally durable and usable, but automatic publication stops. One terminal
-document never blocks other addresses. Epicenter does not repeatedly retry,
-automatically re-arm after later edits, or claim ordinary editing can repair
-accumulated CRDT structure. The application may offer export, copying visible
-content into a fresh row, or another domain-specific recovery. Raising a server
-limit does not silently clear a previously recorded terminal issue.
+Recording it durably would be wrong, not merely redundant: nothing clears such
+a suppression when a scalar fact later confirms the record live, so the
+document would stay owed forever while being permanently excluded from every
+owed scan. A terminal scalar tombstone still reaps the document and all
+publication state.
+
+`too-large` records one nullable `document_refused_revision` naming exactly the
+revision that exceeded the bound. The document remains locally durable and
+usable, and automatic publication stops for that revision only. A later local
+edit creates the next revision and clears the refusal in the same transaction,
+so republication is automatic without a re-arm command. One refused document
+never blocks other addresses. Epicenter does not retry the same refused
+revision, and it does not promise that editing repairs accumulated CRDT
+structure; it only stops pretending the lineage is dead, because deleting
+over-bound content demonstrably repairs the common byte case.
 
 Storage, adapter, decoding, compaction, authentication, and transport failures
 are operational failures. They remain retryable and must not be converted into
-permanent document refusals.
+permanent document refusals. Carriers must therefore decode the typed authority
+outcome on the conflict status the route uses for refusals: discarding a valid
+refusal response as a transport error turns a settled decision back into an
+unbounded retry.
 
 ### Document pull
 
@@ -222,10 +234,14 @@ Before this ADR becomes Accepted, maintained tests must prove:
 - a lost acknowledgement retries safely without exact-byte retention;
 - repeated Yjs application is semantically idempotent;
 - storage failure is not reported as a document refusal;
-- one transient or terminal address does not block later addresses;
-- a durable not-live suppression prevents drain spinning and clears only when
-  scalar liveness or authority lifetime changes;
-- too-large is durable, terminal for that lineage, and observable;
+- one undischargeable address does not block or starve later addresses, and a
+  full page of them cannot spin the drain;
+- an authority not-live answer leaves no durable state, and the document
+  publishes once the scalar record lands, with no local edit or re-arm;
+- a refused revision is durable, observable, and superseded by the next local
+  edit, so deleting over-bound content republishes the same lineage;
+- a carrier that receives a typed refusal on the conflict status decodes it
+  instead of raising a transport error;
 - a tombstone racing publication cannot resurrect record-owned state;
 - accepted pulled state creates no outbound obligation;
 - unchanged pull avoids transferring document bytes when the chosen validator

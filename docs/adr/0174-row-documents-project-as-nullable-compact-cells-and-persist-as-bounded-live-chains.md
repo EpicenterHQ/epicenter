@@ -93,20 +93,38 @@ Both endpoints measure the same canonical `encodeStateAsUpdateV2` state and
 decoded struct count. The exact constants remain Proposed until maintained
 rich-text and workerd evidence proves their operational envelope.
 
-Exceeding either limit is exceptional terminal state for that Yjs lineage.
-Local persistence and export remain available, but Epicenter stops automatic
-publication and reports:
+Exceeding either limit refuses one revision. It is not terminal state for the
+lineage. The durable record of that refusal is one nullable column:
 
-```ts
-type DocumentSyncIssue = { kind: 'too-large' } | null;
+```txt
+document_refused_revision  INTEGER   -- NULL = eligible; N = revision N was over-bound
 ```
 
-Epicenter does not distinguish recoverable byte fullness from non-recoverable
-struct fullness in its durable product state. It does not retry on every edit
-or promise that deleting content repairs accumulated CRDT structure. The
-application owns recovery: export, copy visible content into a fresh row, split
-the content, or flatten it. A later authority-limit change does not silently
-resume a lineage already recorded as terminal.
+`document_refused_revision = N` means exactly one thing: revision N exceeded
+the authority document bound. It always names the current unpublished
+revision, so a later local edit creates revision N+1 and clears the refusal in
+the same transaction that increments the revision. There is no refusal code,
+no stored measurement, no `DocumentSyncIssue`, no re-arm command, and no
+terminal lineage flag.
+
+Automatic republication after an edit is correct rather than optimistic,
+because byte fullness is commonly repairable in the same lineage: measured
+against this repository's Yjs, inserting 1.2 MB produced a 1,200,035-byte
+canonical state, and deleting that content reduced the same lineage to 44
+bytes. Format-dense structural history is stickier and may keep failing; the
+replica does not need to predict which case it is in, because one retry per
+edit is the same cost as any other owed revision.
+
+Local premeasurement stays load-bearing: it keeps an over-bound payload off
+the wire and away from the transport backstop. It is not the decision. The
+authority measures the state after joining every other replica's
+accumulation, so a publication that is legally sized on its own can still be
+refused, and the authority's answer is final.
+
+The application still owns escape hatches (export, copy visible content into a
+fresh row, split or flatten the content) for a document that cannot be
+repaired in place. That is an application choice, not a synchronization
+migration protocol.
 
 ### Transport
 
@@ -137,9 +155,12 @@ closed documents.
   state-vector-scoped HTTP diffs remain a measured future optimization.
 - Document publication continues after every UI handle closes.
 - Remote freshness is application-controlled and applies only to open handles.
-- An oversized lineage becomes locally usable but unsynchronized until the
-  application creates a fresh lineage.
-- One oversized document does not block publication of other records.
+- An over-bound revision stays locally usable and unsynchronized until an edit
+  supersedes it; deleting the content that crossed the bound is enough to
+  publish the same lineage again.
+- One refused document does not block publication of other records: owed-work
+  enumeration is a keyset-paged forward scan, so an address that cannot be
+  discharged delays only itself.
 - The authority can emit one compact accepted document for Backup without
   opening a long-lived document session.
 
@@ -156,9 +177,14 @@ Before this ADR becomes Accepted, maintained tests must prove:
 - terminal deletion reaps state and revokes handles while unset preserves it;
 - authority acceptance checks liveness and bounds in the committing operation;
 - authority storage failure is not converted into `too-large`;
-- not-live publication records internal durable suppression and cannot spin;
+- an authority not-live answer records nothing durable, cannot spin a full owed
+  page, and still publishes once the scalar record lands;
 - a too-large result mutates no accepted authority state;
-- too-large remains durable and terminal for that lineage;
+- a refused revision is durable, is superseded by the next local edit, and
+  cannot suppress revision N+1;
+- an under-bound publication is still refused when the post-join authority
+  state exceeds the bound;
+- deleting over-bound content republishes the same lineage;
 - conditional pull transfers no body when authority state is unchanged;
 - pull after handle disposal cannot install state;
 - pull from a replaced authority lifetime cannot install state; and
