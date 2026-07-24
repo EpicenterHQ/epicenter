@@ -34,11 +34,12 @@ record relation, but replica and authority rows have role-specific columns,
 constraints, indexes, and transactions.
 
 The replica wide row owns the address triple, confirmed scalar fact, sealed and
-pending scalar work, parked refusal, document publication watermarks, blob
-publication watermarks, and compact refusal evidence. Bounded document-chain
-bytes remain in their sibling relation keyed by the interned record ID. Raw blob
-bytes remain outside SQLite. Covering partial indexes make owed document and
-blob drains sparse without splitting the record state machine across relations.
+pending scalar work, parked scalar refusal, document publication revisions,
+internal not-live publication suppression, the terminal document sync issue,
+and blob publication watermarks. Bounded document-chain bytes remain in their
+sibling relation keyed by the interned record ID. Raw blob bytes remain outside
+SQLite. Covering partial indexes make owed document and blob drains sparse
+without splitting the record state machine across relations.
 
 The authority wide row owns the address triple, current accepted fact, and
 accepted blob digest. Authority retry witnesses and document chains remain in

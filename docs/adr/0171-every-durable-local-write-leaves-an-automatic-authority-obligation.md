@@ -1,19 +1,23 @@
 # 0171. Every durable local write leaves an automatic authority obligation
 
 - **Status:** Proposed
-- **Date:** 2026-07-20 (revised 2026-07-22: document and blob obligations
-  derive from local truth versus authority-accepted watermarks)
+- **Date:** 2026-07-20 (revised 2026-07-24: HTTP-only document publication and explicit pull)
 - **Supersedes:** [ADR-0144](0144-scalar-rows-and-row-documents-synchronize-through-independent-client-planes.md), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md)
 - **Amends:** [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md), [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
 
 ## Context
 
-Scalar writes already become locally durable with a pending intent and clear
-that intent only after the authority returns current settlement facts. Row-document updates are durable
-in SQLite, but their publication currently depends on an open document
-connection. Blob replication is an explicit application action. These three
-rules make identical user intent produce different durability outcomes and
-force applications to know synchronization machinery.
+Local durability and remote convergence are different guarantees. A transport
+connection can reduce latency, but it cannot prove that locally accepted work
+will survive handle closure, process exit, network loss, or a lost response.
+That proof must begin in local SQLite and end at committed authority state.
+
+Earlier document designs mixed the two concerns. A background publisher owed
+durable work while an open-document WebSocket also produced and delivered
+updates. Exact digest receipts then tried to make both carriers settle the same
+obligation. The socket did not strengthen local durability; it introduced a
+second candidate-production path, connection lifecycle, reconnect protocol,
+fanout path, and settlement vocabulary.
 
 ## Decision
 
@@ -22,12 +26,11 @@ Epicenter owns one convergence law:
 > Every write that Epicenter accepts durably records, in the same local
 > transaction, durable evidence of what the authority is still owed. One
 > Epicenter runtime owner drains those obligations automatically. It clears an
-> obligation only after post-commit proof from the active authority lifetime.
+> obligation only after the active authority commits the corresponding work.
 
-Applications read and write through typed scalar lenses, row-document handles,
-and row-owned blob operations. They do not call `sync`, `publish`, `upload`,
-`download`, `purge`, or a remote-settlement barrier. Synchronization status is
-observation, never an action.
+Applications read and write through typed scalar Lenses, row-document handles,
+and row-owned blob operations. They never publish, drain, settle, or retry
+outbound work. Synchronization status is observation, never an action.
 
 ```txt
 application write
@@ -37,189 +40,219 @@ local SQLite transaction
   durable state + authority obligation
       |
       v
-one runtime-owned drain
+runtime-owned supervisor
+  scalar submission
+  document HTTP publication
+  blob publication
       |
-      +--> scalar acceptance
-      +--> document acceptance  <--- optional low-latency WebSocket
-      `--> blob acceptance
-                  |
-                  v
-          authority commit
-                  |
-                  v
-        plane-specific proof
-                  |
-                  v
-       conditional local clear
+      v
+authority commit
+      |
+      v
+plane-specific acknowledgement
+      |
+      v
+conditional local settlement
 ```
 
-The proof establishes committed authority state. The transport that carried the
-request or response has no durable meaning.
+The three planes remain independent convergence units:
 
-The law has three independent protocol realizations:
+| Plane | Durable local work | Authority acknowledgement |
+| --- | --- | --- |
+| Scalar | compacted pending operation in the record's numbered lane | current authority facts for every submitted address |
+| Document | bounded Yjs chain plus local and accepted revisions | accepted captured revision, or an address-scoped refusal |
+| Blob | one immutable byte stream plus its SHA-256 | accepted matching SHA-256 for the live record |
 
-| Plane    | Durable local work                                                               | Authority proof                                        |
-| -------- | -------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Scalar   | compacted pending operation in the record's pending lane                         | current authority fact for every touched address       |
-| Document | bounded Yjs baseline-plus-tail chain plus local and authority-accepted revisions | post-commit receipt binding the accepted update digest |
-| Blob     | one immutable local byte stream plus its SHA-256                                 | accepted SHA-256 for the live record's blob slot       |
+They share one supervisor lifecycle, immutable replica identity, fixed
+open-time carrier, wakeups, retry, backoff, authority-lifetime replacement,
+status, and disposal. They do not share a generic outbox, payload encoding,
+transaction, or giant whole-Epicenter request.
 
-The scalar plane alone freezes exact retry bytes. Scalar folding is numbered,
-order-sensitive, and fork-detected; document joining is commutative and
-idempotent. Different acceptance laws deliberately keep different retry
-disciplines.
+Scalar synchronization retains its exact canonical retry bytes and numbered
+fork detection. Reconstructing a scalar submission after an application
+upgrade is not proven byte-stable, and the authority correctly refuses a
+same-number, different-hash retry. Document simplification does not weaken that
+scalar rule or the blob plane's digest identity.
 
-These are independent convergence units, not one transaction. They share one
-runtime lifecycle owner for an immutable replica identity, a fixed open-time
-carrier, wakeups, retry, backoff, authority-lifetime changes, status, and
-disposal. They retain separate payload stores, admission rules, bounds,
-acknowledgements, and wire versions. There is no generic
-`outbox(kind, payload)` and no whole-Epicenter transport batch.
+### Document publication
 
-An account replica opened without a carrier records the same plane-specific
-durable work: pending scalar intents, document revisions ahead of their
-accepted watermark, and finalized blob digests ahead of their accepted digest.
-That work survives crashes and becomes eligible for the ordinary drains on the
-next carrier-bearing open of the same replica. No drain reconstructs an
-obligation from visible state.
-
-An unclaimed replica records durable local work but never synchronizes and
-never drains its obligations. Its data leaves only through ADR-0178's explicit,
-user-confirmed Lens import, which preserves record keys and writes through
-ordinary destination record operations. The destination therefore records new
-ordinary obligations; there is no import outbox, migration receipt, or second
-acceptance path. After verified import, explicit adapter-owned retirement
-destroys the unclaimed replica and its obligations.
-
-A local document update appends its Yjs V2 bytes and advances a lightweight
-row-local `document_revision` in one SQLite transaction. The document chain
-remains the one durable source from which publication bytes derive. The same
-record stores `document_accepted_revision`, the greatest locally authored
-revision proven committed by the active authority lifetime. Publication is
-owed exactly when `document_revision > document_accepted_revision`; no dirty
-boolean duplicates that comparison.
-
-The durable document publication state contains:
+A local document update appends its Yjs V2 bytes and advances
+`document_revision` in the same SQLite transaction. The same record stores
+`document_accepted_revision`, the greatest locally authored revision that the
+active authority has accepted.
 
 ```txt
-document_revision           monotonic row-local revision advanced by each local update
-document_accepted_revision  greatest local revision proven committed by this authority lifetime
-refusal evidence            optional measured bytes and structs for the current refused revision
+document_revision
+document_accepted_revision
+document_sync_issue = null | too-large
+document_publication_suppression = null | not-live
 ```
 
-When a document is owed, one SQLite snapshot reads its chain and revision
-together. The owner hydrates the current document and encodes the authority's
-missing V2 update. An authority state vector may reduce transfer bytes, but it
-never suppresses an owed attempt: delete-only Yjs changes can alter meaning
-without advancing state-vector clocks. Sending the complete compact state is
-the bounded correctness fallback.
+A document is owed exactly when its local revision is greater than its accepted
+revision, it has no terminal issue, and publication is not suppressed pending
+scalar liveness. No dirty boolean or durable per-attempt payload duplicates
+that state.
 
-The attempt holds only its captured local revision and payload digest in
-memory. After the authority applies, bounds, and commits the update, HTTP and
-WebSocket carriers return the same receipt binding authority lifetime, record
-address, protocol version, and digest. A matching receipt advances
-`document_accepted_revision` monotonically to the captured revision. A racing
-edit leaves a greater local revision owed. A lost receipt advances nothing;
-the next attempt regenerates the newest missing update. Yjs idempotency makes
-that retry safe without durable per-attempt bytes or an authority-side
-per-replica document ledger.
+The supervisor briefly coalesces local edit wakeups, scans a bounded page of
+owed addresses, and publishes each document through an ordinary per-document
+HTTP request with bounded concurrency. Scheduling is workspace-wide; the wire
+protocol is not one atomic multi-document batch.
 
-State vectors remain transfer hints, never authority-durability proof. Closing
-the last live handle destroys the in-memory `Y.Doc` but leaves the chain and
-both revisions intact. A background drain therefore publishes owed documents
-without depending on open handles.
+Publication captures the current local revision and reconstructs a complete
+compact Yjs state from durable SQLite. The authority rechecks row liveness,
+applies the submitted state idempotently, enforces the document bound, commits,
+and returns one outcome. Every response includes the active authority lifetime;
+an accepted response also includes the authority's opaque document version:
 
-A record's blob publication is also write-once. The authority accepts an
-absent slot with digest A, treats a retry of A as idempotent, and refuses or
-parks a different digest B while that record remains live. The record stores
-the locally finalized SHA-256 and the SHA-256 accepted by the active authority
-lifetime. Publication is owed when those nullable digests differ and clears
-only after the authority acknowledges matching bytes at the active
-lifetime and record address. New bytes require a new record rather than
-another blob member or mutable replacement protocol.
+```txt
+accepted(activeAuthorityLifetime, documentVersion)
+not-live(activeAuthorityLifetime)
+too-large(activeAuthorityLifetime)
+lifetime-mismatch(activeAuthorityLifetime)
+```
 
-Document publication is outbound and automatic. Remote document state remains
-lazy and arrives when the row document is next opened. A realtime connection
-for an open document may reduce edit latency, but it is an overlay, not the only
-durability path. The first document protocol carries no awareness or presence.
-Closing an application surface must never strand accepted document work.
+Local settlement first verifies that the response lifetime still matches the
+replica's active authority lifetime. An accepted response then advances
+`document_accepted_revision` through the captured revision. It never clears a
+newer revision. A response for revision N therefore cannot settle revision
+N+1. If the response is lost, the next attempt may reconstruct and send newer
+complete state. Yjs update idempotency makes repeated application safe; exact
+byte retention and digest-bound receipts are unnecessary.
 
-Every exchange is bound to one opaque authority-lifetime identity. Restore
-creates a new lifetime, refuses old replicas, and invalidates prior authority
-proof. Superseded replicas discard scalar intents, document chains and
-publication records, and blob obligations from the old lifetime before they
-reacquire the restored Epicenter. Unpublished work is intentionally abandoned;
-Restore never reinterprets an old obligation against the successor.
-Backups contain accepted authority state only; pending work on an offline
-device is not part of a Backup.
+`not-live` is governed by the scalar record lifecycle. The replica records a
+durable internal publication suppression so an authority-absent record cannot
+spin through the document drain. A later accepted live scalar fact or authority
+replacement clears that suppression; a terminal scalar tombstone reaps the
+document and all publication state. The suppression is diagnostic protocol
+evidence, not a second public liveness truth or a `DocumentSyncIssue`.
+
+`too-large` records one durable address-scoped
+`{ kind: 'too-large' }` issue for that document lineage. The document remains
+locally durable and usable, but automatic publication stops. One terminal
+document never blocks other addresses. Epicenter does not repeatedly retry,
+automatically re-arm after later edits, or claim ordinary editing can repair
+accumulated CRDT structure. The application may offer export, copying visible
+content into a fresh row, or another domain-specific recovery. Raising a server
+limit does not silently clear a previously recorded terminal issue.
+
+Storage, adapter, decoding, compaction, authentication, and transport failures
+are operational failures. They remain retryable and must not be converted into
+permanent document refusals.
+
+### Document pull
+
+Outbound publication is automatic. Inbound document refresh is explicit and
+open-handle scoped:
+
+```ts
+document.pull(): Promise<Result<void, DocumentPullError>>;
+```
+
+Opening a document waits only for local SQLite hydration and returns a fully
+usable handle. It does not wait for the network. The application may call
+`pull()` immediately after rendering, on focus, on a timer, from a Refresh
+action, or not at all.
+
+`pull()` conditionally requests the authority's accepted state. Every response
+is bound to the active authority lifetime and an opaque document version.
+Before installing bytes, the runtime rechecks the handle generation, disposal
+state, and authority lifetime. It applies newer state durably before updating
+the live handle. Accepted inbound bytes never create an outbound publication
+obligation. Repeated or overlapping pulls are safe. A failed pull leaves the
+local document open and usable.
+
+Opening means local readiness, not remote freshness. A document with no local
+bytes may initially render empty until the application performs its first
+pull. Maintained first-party applications issue an immediate pull after local
+rendering, then apply their chosen visible polling policy.
+
+Closed documents receive no document-body downloads. Scalar synchronization
+continues independently and remains the owner of row creation, metadata,
+unset, and terminal deletion.
+
+There is no document WebSocket, presence protocol, fanout connection, socket
+settlement, or wakeup channel. Applications that want roughly one-second
+collaboration can poll open documents at that cadence. Lower latency can be
+reconsidered only when a measured product requirement earns another transport.
+
+### Carrier-free and replaced replicas
+
+An account replica opened without a carrier records the same durable
+plane-specific work. A later carrier-bearing open of that immutable replica
+drains it normally.
+
+An unclaimed replica records local work but never contacts an authority. Its
+data leaves only through ADR-0178's explicit, user-confirmed Lens import. The
+destination writes through ordinary operations and creates ordinary
+obligations; there is no import outbox or alternate settlement path.
+
+Every exchange is bound to one opaque authority lifetime. Restore creates a new
+lifetime, refuses the superseded replica, and invalidates prior settlement.
+Restore never reinterprets an old obligation against the successor. Backups
+contain accepted authority state only.
 
 ## Consequences
 
-- Local durability has one meaning across scalars, documents, and blobs:
-  accepted work survives process and handle closure and remains owed to the
-  authority.
-- Ordinary applications contain no networking policy, retry loop, upload
-  bookkeeping, or settlement choreography.
-- A scalar submission never becomes a semantic commit. Documents and blobs do
-  not enter it merely to make the implementation look unified.
-- Closed documents can converge without eager inbound hydration or permanent
-  live `Y.Doc` instances.
-- A realtime document socket may report connection and low-latency convergence,
-  but those observations do not prove authority durability.
-- Oversized or otherwise refused work remains visibly owed or blocked at its
-  address. Epicenter never reports it as settled and never spins one
-  failing address through a global retry loop.
-- The record tombstone remains terminal. Its local transaction installs the
-  tombstone and removes document state and pending publication evidence; later
-  byte cleanup cannot resurrect the record. Reversible unset reaps neither the
-  document nor the blob slot.
-- A device that never reconnects can still lose its unpublished work during a
-  user-authorized Restore. This is the accepted limit of an authority Backup,
-  not a hidden synchronization mode.
-- Explicit retirement abandons any unpublished work in an unclaimed replica
-  after verified import. It is whole-replica destruction owned by the adapter,
-  not authority replacement or an alternate settlement path.
+- Local durability means the same thing across scalars, documents, and blobs:
+  accepted local work survives handle and process closure and remains owed.
+- Document collaboration may appear after an application-chosen polling delay
+  rather than immediately.
+- Complete-state publication is proportional to the encoded document size.
+  State-vector-scoped HTTP diffs may be added only when measurements earn the
+  extra request or validator machinery; they do not change settlement.
+- Applications own inbound refresh timing but never outbound durability.
+- A socket connection can no longer become a second synchronization engine.
+- Closed documents consume no document-body download traffic.
+- One oversized lineage becomes truthfully local-only without blocking the
+  workspace publisher.
+- A terminal record tombstone removes document state, publication state, and
+  sync issue atomically. Reversible unset preserves them.
+- Restore and explicit unclaimed-replica retirement may abandon unpublished
+  local work under their existing user-authorized rules.
 
 ## Acceptance evidence
 
-Before this ADR becomes Accepted, one shared protocol suite must prove the
-following laws across the three planes:
+Before this ADR becomes Accepted, maintained tests must prove:
 
-- a crash after the local write cannot erase the authority obligation;
-- a crash or lost response after authority commit cannot create a false
-  settled state, and regenerated document or blob retry is idempotent;
-- scalar or document work created while an earlier attempt is in flight remains
-  owed after the earlier authority proof arrives;
-- no connection, state vector, sequence watermark, or fanout observation can clear an
-  obligation without its plane-specific post-commit proof;
-- a record tombstone racing document or blob publication cannot resurrect
-  record-owned state;
-- an account replica opened without a carrier retains every obligation through
-  crashes until its ordinary plane-specific proof after a later carrier-bearing
-  open of that same replica;
-- an unclaimed replica never seals or sends obligations, while repeated or
-  crash-resumed Lens import preserves record keys, creates ordinary destination
-  obligations, and cannot resurrect a destination terminal tombstone;
-- retirement refuses while any runtime holds the unclaimed replica, is
-  offered by the application only after verified import, and then removes the
-  whole unclaimed replica through the adapter without authority-replacement
-  machinery; and
-- a Restore linearization either accepts work in the outgoing lifetime or
-  refuses it, while every later retry from that lifetime is rejected.
-
-Each storage adapter runs the same state-machine fixtures. Transport tests then
-prove that background exchange and realtime document delivery enter the same
-authority acceptance operation rather than two semantic paths.
+- local state and its obligation commit atomically;
+- restart resumes automatic publication;
+- several edits inside the debounce window coalesce;
+- publication is bounded and independent per address;
+- acceptance for revision N cannot clear N+1;
+- a lost acknowledgement retries safely without exact-byte retention;
+- repeated Yjs application is semantically idempotent;
+- storage failure is not reported as a document refusal;
+- one transient or terminal address does not block later addresses;
+- a durable not-live suppression prevents drain spinning and clears only when
+  scalar liveness or authority lifetime changes;
+- too-large is durable, terminal for that lineage, and observable;
+- a tombstone racing publication cannot resurrect record-owned state;
+- accepted pulled state creates no outbound obligation;
+- unchanged pull avoids transferring document bytes when the chosen validator
+  says authority state is unchanged;
+- overlapping pulls are safe;
+- pull after disposal cannot mutate the handle;
+- a pull response from a replaced authority lifetime cannot install state;
+- closed documents make no pull requests;
+- a carrier-free account replica retains obligations for a later
+  carrier-bearing open;
+- an unclaimed replica never contacts an authority; and
+- authority replacement cannot accept settlement from the previous lifetime.
 
 ## Considered alternatives
 
-- **Require applications to publish explicitly.** Rejected because it makes
-  authority durability depend on application policy and leaves closed
-  documents and forgotten blobs stranded.
-- **Publish documents only while their handles are open.** Rejected because
-  handle lifetime is a UI resource boundary, not a durable-data boundary.
-- **Use one generic outbox or one whole-Epicenter exchange.** Rejected because
-  it duplicates document bytes, cannot carry large blobs efficiently, couples
-  unrelated bounds, and suggests cross-plane commit semantics.
-- **Eagerly mirror every remote document and blob.** Rejected because outbound
-  durability does not require hydrating or downloading unopened row content.
+- **Retain a document WebSocket as a low-latency overlay.** Rejected because it
+  creates another candidate, reconnect, fanout, and lifecycle path without
+  strengthening durable publication.
+- **Require applications to publish explicitly.** Rejected because local
+  durability would depend on application scheduling.
+- **Publish only while a document is open.** Rejected because handle lifetime
+  is a UI resource boundary, not a durable-data boundary.
+- **Poll every closed document.** Rejected because scalar metadata already
+  owns discovery and closed document bodies have no active consumer.
+- **Retain exact retry bytes and digest receipts.** Rejected because complete
+  Yjs state can be reconstructed from durable truth and applied idempotently.
+- **Use one multi-document atomic request.** Rejected because independent
+  documents have independent bounds and failure outcomes.
+- **Use one generic outbox.** Rejected because the three planes have different
+  payloads, admission laws, and settlement proofs.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-17
 - **Amends:** [ADR-0135](0135-row-documents-have-application-owned-roots.md)
-- **Amended by:** [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the per-runtime `DocumentStore` implementations collapse to one owner-side SQLite update log plus one shared attachment over a load/append seam; capture and deletion move to the owner), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (every live owner stores a bounded baseline-plus-tail chain while logical artifacts project one compact document cell). The Yjs-14-only rule, bounds, and `document-full` semantics stand.
+- **Amended by:** [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the per-runtime `DocumentStore` implementations collapse to one owner-side SQLite update log plus one shared attachment over a load/append seam; capture and deletion move to the owner), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (every live owner stores a bounded baseline-plus-tail chain, logical artifacts project one compact document cell, and exceeding the authority bound becomes one terminal `too-large` issue for that lineage)
 
 ## Context
 
@@ -77,14 +77,13 @@ and several offline clients; the product refusal is bounded accepted structure,
 not loyalty to an unverified constant.
 
 If a locally valid document grows beyond the bound, local persistence and
-logical export remain available while the connection reports one non-terminal
-`document-full` status and suppresses sending; downstream synchronization
-continues. Byte fullness recovers automatically once deletions shrink the
-canonical state. Structural fullness does not recover by deletion (garbage
-collection shears content bytes but does not coalesce struct count), and the
-status reports it non-recoverable: the honest exit is moving content to a
-fresh row document. Epicenter never reports unsynchronized content as
-synchronized and never silently drops an oversized update.
+logical export remain available. ADR-0174 records one terminal `too-large`
+issue for that Yjs lineage and stops automatic publication. Epicenter does not
+promise that ordinary editing can repair accumulated CRDT structure or retry
+after every edit. The application owns the honest exits: export, copy visible
+content into a fresh row document, or another domain-specific split. Epicenter
+never reports unsynchronized content as synchronized and never silently drops
+an oversized update.
 
 The application still receives the restricted native-shaped `RowDocument` from
 ADR-0144. It owns root names and interpretations. Epicenter owns Yjs document

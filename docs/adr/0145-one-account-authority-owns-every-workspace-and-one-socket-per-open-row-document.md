@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-07-18
-- **Amended by:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md) (workspaces leave the principal authority), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (supersedes this ADR's document-plane exact-byte retention, no-cache, compaction, and presence mechanics; the authority is instead the trusted Yjs joiner and compactor over a bounded live chain)
+- **Amended by:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md) (workspaces leave the principal authority), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (supersedes this ADR's complete document-socket plane, exact-byte retention, no-cache, compaction, presence, and multi-socket acceptance gate; the authority is instead an HTTP-addressed trusted Yjs joiner and compactor over a bounded live chain)
 - **Amends:** server document ownership from
   [ADR-0133](0133-row-authority-stores-documents-as-sequence-addressed-update-logs.md);
   the generic room-address consequences of
