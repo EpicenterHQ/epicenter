@@ -113,6 +113,7 @@ function setup() {
 	const replica = openReplicaStore({
 		database: createBunSqliteAdapter(replicaRaw),
 		limits: SCALAR_SYNC_V1_LIMITS,
+		owner: null,
 		initialize: {
 			replicaId: 'llllllllllllllllllllllll',
 			authorityLifetime: LIFETIME,

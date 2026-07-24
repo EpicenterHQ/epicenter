@@ -62,6 +62,7 @@ function openReplica(path: string, replicaId?: string): OpenedReplica {
 			store: openReplicaStore({
 				database: createBunSqliteAdapter(raw),
 				limits: SCALAR_SYNC_V1_LIMITS,
+				owner: null,
 				...(replicaId === undefined ? {} : { initialize: { replicaId } }),
 			}),
 		};
@@ -108,6 +109,12 @@ async function readFacts(app: Hono<Env>, store: ReplicaStore) {
 	return body;
 }
 
+function sealRequest(store: ReplicaStore): string {
+	const outcome = store.seal();
+	if (outcome.kind !== 'sealed') throw new Error('nothing to seal');
+	return outcome.request.bytes;
+}
+
 async function submitExact(app: Hono<Env>, bytes: string) {
 	const response = await app.request(SCALAR_V1_SUBMISSIONS_PATH, {
 		method: 'POST',
@@ -138,7 +145,7 @@ test('two replicas converge through HTTP and retain tombstone dominance after re
 			op: 'replace',
 			value: { title: 'Replacement path' },
 		});
-		const createBytes = first.store.seal().bytes;
+		const createBytes = sealRequest(first.store);
 		const createAccepted = await submitExact(authority.app, createBytes);
 		expect(await submitExact(authority.app, createBytes)).toEqual(
 			createAccepted,
@@ -158,7 +165,7 @@ test('two replicas converge through HTTP and retain tombstone dominance after re
 		});
 
 		first.store.localWrite({ address: ADDRESS, op: 'tombstone' });
-		const tombstoneBytes = first.store.seal().bytes;
+		const tombstoneBytes = sealRequest(first.store);
 		const tombstoneAccepted = await submitExact(authority.app, tombstoneBytes);
 		expect(await submitExact(authority.app, tombstoneBytes)).toEqual(
 			tombstoneAccepted,

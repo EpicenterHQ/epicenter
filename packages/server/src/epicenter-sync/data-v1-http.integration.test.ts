@@ -91,6 +91,7 @@ function openReplica(root: string, replicaId?: string): OpenedReplica {
 			store: openReplicaStore({
 				database,
 				limits: SCALAR_SYNC_V1_LIMITS,
+				owner: null,
 				...(replicaId === undefined ? {} : { initialize: { replicaId } }),
 			}),
 			blobs: createReplicaBlobStore(database, createBunBlobFileStore(root)),
@@ -141,10 +142,11 @@ async function readFacts(app: Hono<Env>, store: ReplicaStore): Promise<void> {
 
 async function submit(app: Hono<Env>, store: ReplicaStore) {
 	const sealed = store.seal();
+	if (sealed.kind !== 'sealed') throw new Error('nothing to seal');
 	const response = await app.request(SCALAR_V1_SUBMISSIONS_PATH, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: sealed.bytes,
+		body: sealed.request.bytes,
 	});
 	expect(response.status).toBe(200);
 	const accepted = (await response.json()) as SubmissionResponse;
@@ -242,13 +244,15 @@ test('scalar, document, and blob state converge through one authority and tombst
 		expect(first.store.inspectDocument(ADDRESS)?.owed).toBe(false);
 
 		const blob = await first.blobs.publication(ADDRESS);
-		if (blob === null) throw new Error('blob publication was not ready');
-		const blobBytes = await new Response(blob.bytes).arrayBuffer();
+		if (blob.kind !== 'ready') {
+			throw new Error('blob publication was not ready');
+		}
+		const blobBytes = await new Response(blob.publication.bytes).arrayBuffer();
 		const blobHeaders = {
 			'content-type': 'application/octet-stream',
-			[BLOB_LIFETIME_HEADER]: blob.request.authorityLifetime,
+			[BLOB_LIFETIME_HEADER]: blob.publication.request.authorityLifetime,
 			[BLOB_PROTOCOL_HEADER]: BLOB_PUBLICATION_VERSION,
-			[BLOB_DIGEST_HEADER]: blob.request.digest,
+			[BLOB_DIGEST_HEADER]: blob.publication.request.digest,
 		};
 		const blobResponse = await authority.app.request(BLOB_PUBLICATION_PATH, {
 			method: 'POST',
