@@ -492,6 +492,26 @@ verification, and deletion into one commit.
   path, then sweep stale exports, tests, examples, docs, and manifest
   dependencies.
 
+Implementation checkpoint (2026-07-23): W4 is complete through all three
+rollback boundaries. W4A finished with the runtime-owned realtime
+record-document channel (an optional `documentRealtime` opener on the
+authority carrier; per-open-record channels through the one authority
+acceptance; realtime acknowledgements never advance the accepted-revision
+watermark) and migrated Honeycrisp, Skills, and the desktop host, which now
+binds `homeLens` and `honeycrispLens` over one Bun replica. The CLI's
+workspace watcher verbs retired with the model. W4B stopped every retained
+production import and unmounted the legacy exchange from all four deployment
+roots with the full retained proof green. W4C deleted `packages/workspace`,
+`packages/row-sync`, `packages/document-sync`, `packages/chat`, the
+`packages/data` pre-W4 stack, the server's legacy exchange, and the
+only-deferred UI surfaces, and added the Cloudflare delete-migrations for
+`EpicenterAuthority`. The deferred workspace applications (opensidian,
+tab-manager, todos, vocab, wiki) and `packages/filesystem` remain on disk,
+uncompilable by design under ADR-0166's deferred-application clause; each
+one's migrate-or-retire call is a separate product decision. Open realtime
+question 3 below is now answered in code: a fixed-address socket per open
+record document.
+
 ### W5: snapshot capture and the Home query artifact
 
 - Ship snapshot capture in the first Home release. The release includes

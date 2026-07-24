@@ -16,7 +16,7 @@
 		"markdown",
 		"open-source",
 		"self-hosted",
-		"workspace"
+		"local-first-sync"
 	],
 	"repository": {
 		"type": "git",

@@ -15,7 +15,7 @@ than every protocol frame.
 The final protocol is scoped to one authenticated row document:
 
 ```txt
-/api/workspaces/:workspaceId/tables/:table/rows/:rowId/document
+/api/sync/v1/records/:namespace/:collection/:recordKey/document
   sync-request(stateVector)
   sync-response(missingUpdate)
   update(incrementalUpdate)
@@ -23,9 +23,8 @@ The final protocol is scoped to one authenticated row document:
 ```
 
 Clients do not choose an arbitrary room id. The server authenticates the
-upgrade credential, authorizes the principal for the route workspace, and uses
-the returned canonical workspace key to select one authority. The remaining
-route segments select one row document inside it. That structured address is
+upgrade credential, authorizes the principal, and selects that principal's one
+authority. The remaining route segments select one record document inside it. That structured address is
 lifecycle identity, not a secret. Authority acceptance and refusal use one
 data-owned response payload shared with HTTP. The sync package carries those
 bytes opaquely and owns no second receipt, acknowledgement, or durable status.
@@ -57,7 +56,7 @@ Browser and native clients share provider semantics without sharing storage:
 
 ```txt
 RowDocument
-  local persistence          workspace IndexedDB log | native SQLite log
+  local persistence          replica SQLite document chains
   network                    one WebSocket while this document is open
   durability                 invocation-time local update cut
   connection                 reactive per-document status
@@ -153,9 +152,9 @@ The package exports pure functions. Feed them bytes and docs; they give you byte
 `@epicenter/sync` sits below the rest of the sync stack.
 
 ```text
-workspace authority     liveness, snapshots, logs, WebSocket lifecycle
+@epicenter/server       authority acceptance, realtime fanout, WebSocket lifecycle
         │
-@epicenter/workspace    restricted lazy RowDocument API and runtime persistence
+@epicenter/data         runtime-owned RowDocument handles and realtime channels
         │
 @epicenter/sync         single-document wire and provider behavior
         │
@@ -164,11 +163,11 @@ workspace authority     liveness, snapshots, logs, WebSocket lifecycle
 
 In practice:
 
-- The workspace authority uses it to serve each open row document through its
-  own connection while retaining one durable workspace owner.
-- `@epicenter/workspace` uses it behind the restricted `RowDocument` handle.
-- `@epicenter/row-sync` never imports it; scalar convergence is a separate
-  protocol plane.
+- The server authority uses it to bound and frame each open record document
+  connection through one acceptance function.
+- `@epicenter/data` uses it behind the runtime-owned `RowDocument` handle and
+  its realtime channel.
+- Scalar convergence never imports it; it is a separate protocol plane.
 - Other packages need the wire format only when implementing a document
   transport or provider.
 
