@@ -2,11 +2,13 @@ import * as Y from '@y/y';
 
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { BrowserReplicaCandidateOperation } from '../store/replica/browser-owner-protocol.js';
+import type { DocumentRealtimeTarget } from './document-realtime.js';
 import { RuntimeError } from './errors.js';
 import type { RowDocument } from './row-document.js';
 
 type UpdateListener = (update: Uint8Array, origin: unknown) => void;
 const hydrationOrigin = Symbol('epicenter-browser-document-hydration');
+const acceptedOrigin = Symbol('epicenter-browser-document-accepted');
 
 type BrowserDocumentEntry = {
 	address: RecordAddress;
@@ -17,6 +19,7 @@ type BrowserDocumentEntry = {
 	revocation: Error | undefined;
 	persist: UpdateListener;
 	persistenceTail: Promise<void>;
+	detachRealtime: (() => void) | undefined;
 };
 
 function key(address: RecordAddress): string {
@@ -37,10 +40,18 @@ function revokedError(addressKey: string): Error {
  */
 export function createBrowserRowDocumentRegistry({
 	request,
+	realtime,
 }: {
 	request<TResult>(
 		operation: BrowserReplicaCandidateOperation,
 	): Promise<TResult>;
+	/**
+	 * Optional realtime overlay. Each live document entry attaches exactly one
+	 * channel for its lifetime; destroying the entry detaches it.
+	 */
+	realtime?: {
+		attach(address: RecordAddress, target: DocumentRealtimeTarget): () => void;
+	};
 }) {
 	const entries = new Map<string, BrowserDocumentEntry>();
 	const opening = new Map<string, Promise<BrowserDocumentEntry | null>>();
@@ -51,6 +62,8 @@ export function createBrowserRowDocumentRegistry({
 	function destroy(entry: BrowserDocumentEntry): void {
 		if (entry.isDestroyed) return;
 		entry.isDestroyed = true;
+		entry.detachRealtime?.();
+		entry.detachRealtime = undefined;
 		entry.document.off('updateV2', entry.persist);
 		if (entries.get(entry.addressKey) === entry) {
 			entries.delete(entry.addressKey);
@@ -89,8 +102,9 @@ export function createBrowserRowDocumentRegistry({
 			isDestroyed: false,
 			revocation: undefined,
 			persistenceTail: Promise.resolve(),
+			detachRealtime: undefined,
 			persist(update: Uint8Array, origin: unknown): void {
-				if (origin === hydrationOrigin) return;
+				if (origin === hydrationOrigin || origin === acceptedOrigin) return;
 				if (entry.revocation !== undefined) throw entry.revocation;
 				const copied = new Uint8Array(update);
 				const append = async () => {
@@ -122,6 +136,47 @@ export function createBrowserRowDocumentRegistry({
 			throw cause;
 		}
 		entries.set(addressKey, entry);
+		entry.detachRealtime = realtime?.attach(structuredClone(address), {
+			stateVector() {
+				return new Uint8Array(Y.encodeStateVector(entry.document));
+			},
+			encodeStateAsUpdate(stateVector?: Uint8Array) {
+				return new Uint8Array(
+					Y.encodeStateAsUpdateV2(entry.document, stateVector),
+				);
+			},
+			async installAccepted(update: Uint8Array) {
+				if (entry.revocation !== undefined) throw entry.revocation;
+				if (entry.isDestroyed) throw revokedError(entry.addressKey);
+				// Durability first: the elected owner persists the accepted bytes
+				// before they become live in this page's mirror.
+				await request<void>({
+					kind: 'install-accepted-document',
+					address: entry.address,
+					update: new Uint8Array(update),
+				});
+				if (entry.revocation !== undefined || entry.isDestroyed) return;
+				Y.applyUpdateV2(entry.document, update, acceptedOrigin);
+			},
+			observeLocal(listener: (update: Uint8Array) => void) {
+				const forward: UpdateListener = (update, origin) => {
+					if (origin === hydrationOrigin || origin === acceptedOrigin) return;
+					// The persist listener registered first, so the owner append for
+					// this update is already queued; publish only after it is durable.
+					const copied = new Uint8Array(update);
+					void entry.persistenceTail.then(
+						() => {
+							if (entry.revocation === undefined && !entry.isDestroyed) {
+								listener(copied);
+							}
+						},
+						() => undefined,
+					);
+				};
+				entry.document.on('updateV2', forward);
+				return () => entry.document.off('updateV2', forward);
+			},
+		});
 		return entry;
 	}
 

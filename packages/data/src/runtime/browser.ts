@@ -42,6 +42,10 @@ import type {
 	BrowserAuthorityResult,
 } from './browser-protocol.js';
 import { createBrowserRowDocumentRegistry } from './browser-row-document.js';
+import {
+	connectDocumentRealtime,
+	type DocumentRealtimeTarget,
+} from './document-realtime.js';
 import type {
 	BoundLens,
 	CaptureError,
@@ -353,7 +357,57 @@ export async function openBrowserEpicenter({
 		}
 	}
 
-	const documents = createBrowserRowDocumentRegistry({ request });
+	const realtimeOpener = carrier?.documentRealtime;
+	const documents = createBrowserRowDocumentRegistry({
+		request,
+		...(realtimeOpener === undefined
+			? {}
+			: {
+					realtime: {
+						attach(
+							address: RecordAddress,
+							target: DocumentRealtimeTarget,
+						): () => void {
+							const channel = connectDocumentRealtime({
+								address,
+								target,
+								opener: realtimeOpener,
+								async authorityLifetime() {
+									const sync = await request<{
+										authorityLifetime: string | null;
+									}>({ kind: 'sync' });
+									return sync.authorityLifetime;
+								},
+								onRecordNotLive() {
+									if (isDisposing || isDisposed) return;
+									void request<void>({ kind: 'runtime-nudge' }).catch(
+										(cause: unknown) => {
+											if (!isDisposing && !isDisposed) {
+												log.error(
+													new Error('Realtime facts nudge failed', { cause }),
+												);
+											}
+										},
+									);
+								},
+								onLifetimeMismatch() {
+									if (isDisposing || isDisposed) return;
+									void request<void>({ kind: 'runtime-nudge' }).catch(
+										(cause: unknown) => {
+											if (!isDisposing && !isDisposed) {
+												log.error(
+													new Error('Realtime facts nudge failed', { cause }),
+												);
+											}
+										},
+									);
+								},
+							});
+							return () => channel.dispose();
+						},
+					},
+				}),
+	});
 
 	worker.addEventListener('message', ({ data: message }) => {
 		switch (message.type) {
@@ -422,8 +476,7 @@ export async function openBrowserEpicenter({
 			...(authorityLifetime === undefined ? {} : { authorityLifetime }),
 		},
 		hasCarrier: carrier !== null,
-		coordinationId:
-			coordinationId ?? `epicenter-data-replica-owner-v3-${slot}`,
+		coordinationId: coordinationId ?? `epicenter-data-replica-owner-v3-${slot}`,
 		storage: storage ?? defaultStorage(slot),
 	};
 	worker.postMessage(start);

@@ -11,6 +11,7 @@
  * - Unset preserves handles while tombstone and disposal revoke them
  */
 import { expect, test } from 'bun:test';
+import * as Y from '@y/y';
 
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { BrowserReplicaCandidateOperation } from '../store/replica/browser-owner-protocol.js';
@@ -196,6 +197,83 @@ test('registry disposal waits for pending durability and revokes handles', async
 	fixture.acknowledgements[0]?.resolve();
 	await disposal;
 	expect(() => document.getText('body')).toThrow(/disposed/);
+});
+
+test('realtime target installs durably before live and publishes only durable local updates', async () => {
+	const appends: Uint8Array[] = [];
+	const installs: Uint8Array[] = [];
+	const acknowledgements: ReturnType<typeof deferred<void>>[] = [];
+	let target:
+		| Parameters<
+				NonNullable<
+					Parameters<typeof createBrowserRowDocumentRegistry>[0]['realtime']
+				>['attach']
+		  >[1]
+		| undefined;
+	let detached = 0;
+	const registry = createBrowserRowDocumentRegistry({
+		async request<TResult>(operation: BrowserReplicaCandidateOperation) {
+			switch (operation.kind) {
+				case 'open-runtime-document':
+					return { kind: 'ready' } as TResult;
+				case 'append-local-document': {
+					appends.push(new Uint8Array(operation.update));
+					const acknowledgement = deferred<void>();
+					acknowledgements.push(acknowledgement);
+					await acknowledgement.promise;
+					return undefined as TResult;
+				}
+				case 'install-accepted-document':
+					installs.push(new Uint8Array(operation.update));
+					return undefined as TResult;
+				default:
+					throw new Error(`Unexpected operation '${operation.kind}'`);
+			}
+		},
+		realtime: {
+			attach(attachedAddress, attachedTarget) {
+				expect(attachedAddress).toEqual(address);
+				target = attachedTarget;
+				return () => {
+					detached += 1;
+				};
+			},
+		},
+	});
+
+	const document = await registry.open(address);
+	if (document === null) throw new Error('document did not open');
+	if (target === undefined) throw new Error('realtime target did not attach');
+
+	// A local edit publishes only after the owner acknowledges durability.
+	const published: Uint8Array[] = [];
+	const stopObserving = target.observeLocal((update) => published.push(update));
+	document.getText('body').insert(0, 'local');
+	await Promise.resolve();
+	expect(appends).toHaveLength(1);
+	expect(published).toHaveLength(0);
+	acknowledgements[0]?.resolve();
+	await document.whenDurable();
+	await Promise.resolve();
+	expect(published).toHaveLength(1);
+
+	// A remote accepted update installs through the owner before going live,
+	// and neither persists as local work nor publishes back out.
+	const remote = new Y.Doc({ gc: true });
+	remote.get('body').insert(0, 'remote-');
+	const update = new Uint8Array(Y.encodeStateAsUpdateV2(remote));
+	remote.destroy();
+	await target.installAccepted(update);
+	expect(installs).toHaveLength(1);
+	expect(document.getText('body').toString()).toBe('remote-local');
+	expect(appends).toHaveLength(1);
+	await Promise.resolve();
+	expect(published).toHaveLength(1);
+
+	stopObserving();
+	await document[Symbol.asyncDispose]();
+	expect(detached).toBe(1);
+	await registry.dispose();
 });
 
 test('authority replacement fences an in-flight old-lineage hydration', async () => {
