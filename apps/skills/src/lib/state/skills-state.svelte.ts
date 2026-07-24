@@ -6,10 +6,7 @@ import {
 	scanSkills,
 	type skillsWorkspace,
 } from '@epicenter/skills';
-import type {
-	RowLensError,
-	Workspace,
-} from '@epicenter/workspace/sqlite';
+import type { RowLensError, Workspace } from '@epicenter/workspace/sqlite';
 
 type SkillsWorkspace = Workspace<typeof skillsWorkspace>;
 

@@ -1,0 +1,250 @@
+/*
+ * The Ark's one reading theme. Every generated projection page references
+ * this stylesheet at its stable URL (/assets/theark.css); changing the theme
+ * is a redeploy of this Worker, never a rewrite of published HTML.
+ *
+ * The grammar is bradenwong.com's: warm stone paper, a single brick accent,
+ * Georgia for reading type, a Franklin-style sans for metadata and subheads,
+ * one prose-width column, and light/dark from the system preference alone.
+ * No JavaScript, no web fonts, no per-artifact styling.
+ */
+:root {
+	color-scheme: light dark;
+	--paper: oklch(0.993 0.003 75);
+	--ink: oklch(0.22 0.005 60);
+	--muted: oklch(0.45 0.01 75);
+	--brick: oklch(0.55 0.106 40);
+	--border: oklch(0.905 0.007 75);
+	--code-bg: oklch(0.955 0.007 75);
+	--sans:
+		"Libre Franklin", -apple-system, "Segoe UI", "Helvetica Neue", Arial,
+		sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--paper: oklch(0.18 0.005 60);
+		--ink: oklch(0.93 0.005 75);
+		--muted: oklch(0.71 0.01 75);
+		--brick: oklch(0.67 0.117 40);
+		--border: oklch(0.28 0.005 60);
+		--code-bg: oklch(0.26 0.005 60);
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: Georgia, "Times New Roman", serif;
+	font-size: 1.125rem;
+	line-height: 1.7;
+	text-rendering: optimizeLegibility;
+}
+
+main {
+	max-width: 42rem;
+	margin: 0 auto;
+	padding: 4rem 1.25rem 6rem;
+}
+
+:focus-visible {
+	outline: 2px solid var(--brick);
+	outline-offset: 2px;
+}
+
+/* ── Article header: uppercase tracked date, Georgia title, muted subtitle ── */
+
+article > header {
+	border-bottom: 1px solid var(--border);
+	padding-bottom: 1.75rem;
+	margin-bottom: 2rem;
+}
+
+article > header time {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-family: var(--sans);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
+/* Resonant artifacts carry the brick diamond beside their date. */
+.resonance {
+	width: 0.375rem;
+	height: 0.375rem;
+	transform: rotate(45deg);
+	background: var(--brick);
+	flex: none;
+}
+
+h1 {
+	margin: 1.25rem 0 0;
+	font-size: 2rem;
+	font-weight: 700;
+	line-height: 1.15;
+	text-wrap: pretty;
+}
+
+@media (min-width: 40rem) {
+	h1 {
+		font-size: 2.75rem;
+	}
+}
+
+.subtitle {
+	margin: 1.25rem 0 0;
+	font-family: var(--sans);
+	font-size: 1.125rem;
+	line-height: 1.6;
+	color: var(--muted);
+}
+
+/* ── Prose ── */
+
+p {
+	margin: 1.1em 0;
+	text-wrap: pretty;
+}
+
+h2,
+h3 {
+	font-family: var(--sans);
+	font-weight: 650;
+	line-height: 1.3;
+	text-wrap: balance;
+}
+
+h2 {
+	margin: 2.4em 0 0.7em;
+	font-size: 1.45rem;
+}
+
+h3 {
+	margin: 2em 0 0.65em;
+	font-size: 1.15rem;
+}
+
+a {
+	color: var(--brick);
+	font-weight: 400;
+	text-decoration-color: transparent;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+	transition: text-decoration-color 150ms ease;
+}
+
+a:hover {
+	text-decoration-color: var(--brick);
+}
+
+ul,
+ol {
+	margin: 1.1em 0;
+	padding-left: 1.5rem;
+}
+
+li {
+	margin: 0.3em 0;
+	text-wrap: pretty;
+}
+
+blockquote {
+	margin: 1.5rem 0;
+	padding-left: 1rem;
+	border-left: 2px solid var(--brick);
+	font-size: 1.25rem;
+	line-height: 1.6;
+}
+
+hr {
+	margin: 3em 0;
+	border: 0;
+	border-top: 1px solid var(--border);
+}
+
+/* ── Code: warm inline pill, dark evidence block in both modes ── */
+
+code {
+	font-family:
+		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	font-size: 0.8em;
+	background: var(--code-bg);
+	border: 1px solid var(--border);
+	border-radius: 0.35rem;
+	padding: 0.12em 0.4em;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+
+pre {
+	margin: 1.8em 0;
+	padding: 1rem 1.15rem;
+	border-radius: 0.6rem;
+	background: oklch(0.245 0.008 60);
+	color: oklch(0.985 0 0);
+	font-size: 0.85em;
+	line-height: 1.6;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+pre code {
+	background: none;
+	border: 0;
+	padding: 0;
+	font-size: inherit;
+	color: inherit;
+}
+
+/* ── Media ── */
+
+img {
+	max-width: 100%;
+	height: auto;
+	margin: 2.25rem 0;
+	border-radius: 0.5rem;
+	border: 1px solid var(--border);
+}
+
+.artifact-video {
+	margin: 2rem 0;
+}
+
+video {
+	display: block;
+	max-width: 100%;
+	max-height: 80vh;
+	margin: 0 auto;
+	border-radius: 0.5rem;
+	background: black;
+}
+
+/* ── Footer ── */
+
+footer {
+	margin-top: 4rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--border);
+	font-family: var(--sans);
+	font-size: 0.875rem;
+	color: var(--muted);
+}
+
+footer a {
+	color: var(--muted);
+}
+
+footer a:hover {
+	color: var(--brick);
+	text-decoration-color: var(--brick);
+}

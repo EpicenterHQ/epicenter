@@ -1,8 +1,5 @@
 import { skillsWorkspace } from '@epicenter/skills';
-import type {
-	WorkspaceLens,
-	Workspace,
-} from '@epicenter/workspace/sqlite';
+import type { Workspace, WorkspaceLens } from '@epicenter/workspace/sqlite';
 import { createDeviceBrowserWorkspaceRuntime } from '@epicenter/workspace/sqlite/browser';
 import { createSkillsState } from './state/skills-state.svelte.js';
 

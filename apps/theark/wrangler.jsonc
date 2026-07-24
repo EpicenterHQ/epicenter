@@ -1,0 +1,63 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "theark",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-19",
+	"compatibility_flags": ["nodejs_compat"],
+	//
+	// --- Static assets: fixed deploy-time design only ---
+	// `public/` holds the constrained creator theme (ADR: theark public plane):
+	// the shared stylesheet, favicon, and the home/not-found shells. It is never
+	// the artifact corpus; publications land in R2 so publishing never redeploys
+	// this Worker, and short-video files can exceed the per-file asset limit.
+	// The asset layer serves literal paths (/assets/theark.css, /favicon.svg)
+	// before the Worker runs; every pretty URL falls through to the Worker.
+	// `html_handling: none` keeps /home.html and /not-found.html reachable to the
+	// Worker's Assets binding at their literal paths; the default
+	// auto-trailing-slash mode 307-redirects them, which breaks that internal
+	// handoff (same trap apps/api documents for its fallback shell).
+	// `run_worker_first` refuses those two implementation paths as public 200
+	// aliases while CSS and favicon remain asset-first. The Worker owns canonical
+	// pretty URLs, so extension magic buys nothing here.
+	"assets": {
+		"directory": "public",
+		"binding": "ASSETS",
+		"html_handling": "none",
+		"run_worker_first": ["/home.html", "/not-found.html"]
+	},
+	// The Worker is the cache origin. Cloudflare serves Range requests from a
+	// cached full response, so the Worker only streams complete R2 objects and
+	// owns freshness through its response Cache-Control headers.
+	"cache": {
+		"enabled": true
+	},
+	// --- R2: generated public projections, EU jurisdiction ---
+	// The publishing side writes one mirrored public subtree per expression:
+	// `<identity>/<slug>/index.html` plus any generated files beside it. This
+	// Worker only resolves and streams them. Jurisdiction is a bucket property,
+	// not Worker placement: create the bucket with
+	//   bunx wrangler r2 bucket create theark-projections --jurisdiction eu
+	// (jurisdiction is permanent once created). The binding has write
+	// capability the code never uses; see the ADR for why v1 accepts that
+	// residual instead of a second origin.
+	"r2_buckets": [
+		{
+			"binding": "PROJECTIONS",
+			"bucket_name": "theark-projections",
+			"jurisdiction": "eu"
+		}
+	],
+	// --- Custom domain: theark.so ---
+	// The Worker is the origin for every path on the canonical hostname.
+	// Deploying this source-of-truth route lets Cloudflare own the DNS record and
+	// certificate lifecycle; there is no parallel dashboard-owned route.
+	"routes": [
+		{
+			"pattern": "theark.so",
+			"custom_domain": true
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

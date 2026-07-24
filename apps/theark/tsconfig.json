@@ -1,0 +1,9 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"types": ["bun", "./worker-configuration.d.ts"],
+		"noUnusedLocals": true,
+		"noUnusedParameters": true
+	},
+	"include": ["src"]
+}

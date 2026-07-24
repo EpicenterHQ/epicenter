@@ -1,0 +1,21 @@
+{
+	"name": "@epicenter/theark",
+	"description": "The Ark public delivery plane: a Worker that streams frozen artifact projections from R2",
+	"private": true,
+	"type": "module",
+	"version": "0.0.1",
+	"scripts": {
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy",
+		"typegen": "wrangler types",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"wrangler": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}
