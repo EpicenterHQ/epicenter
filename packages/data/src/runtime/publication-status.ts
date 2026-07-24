@@ -1,5 +1,3 @@
-import type { DocumentMeasure } from '@epicenter/sync/document-v3';
-
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { ReplicaBlobStore, ReplicaStore } from '../store/replica/index.js';
 
@@ -11,13 +9,12 @@ export type BlockedWork =
 			limitBytes: number;
 	  }
 	| { plane: 'scalar'; reason: 'patch-base-not-object' }
-	| {
-			plane: 'document';
-			reason: 'document-bound';
-			measured: DocumentMeasure;
-			limit: DocumentMeasure;
-	  }
-	| { plane: 'document'; reason: 'record-not-live' }
+	/**
+	 * The named revision exceeded the authority document bound. No measurement
+	 * is carried: the authority measures the merged post-join state, which this
+	 * replica cannot reproduce from its own document alone.
+	 */
+	| { plane: 'document'; reason: 'document-bound'; revision: number }
 	| { plane: 'blob'; reason: 'blob-conflict' | 'record-not-live' };
 
 export type PublicationStatus =
@@ -59,15 +56,12 @@ export function publicationStatus(
 	}
 
 	const document = store.inspectDocument(address);
-	if (document?.refusal?.kind === 'document-bound') {
+	if (document !== null && document.refusedRevision !== null) {
 		blocked.push({
 			plane: 'document',
 			reason: 'document-bound',
-			measured: document.refusal.measured,
-			limit: document.refusal.limit,
+			revision: document.refusedRevision,
 		});
-	} else if (document?.refusal?.kind === 'record-not-live') {
-		blocked.push({ plane: 'document', reason: 'record-not-live' });
 	} else if (document?.owed) {
 		owed = true;
 	}

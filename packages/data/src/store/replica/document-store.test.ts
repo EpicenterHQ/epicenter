@@ -1,14 +1,10 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { DOCUMENT_BOUND } from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
 
 import type {
-	DocumentAcceptance,
 	DocumentBoundRefusal,
 	DocumentPublicationReceipt,
 } from '../../document-v1/index.js';
@@ -77,18 +73,6 @@ function capturedOf(publication: CapturedDocumentPublication): {
 	return { revision: publication.capturedRevision, digest: publication.digest };
 }
 
-function recordNotLiveRefusal(): Extract<
-	DocumentAcceptance,
-	{ kind: 'record-not-live' }
-> {
-	return {
-		kind: 'record-not-live',
-		activeAuthorityLifetime: 'lifetime-one',
-		address: ADDRESS,
-		state: 'tombstone',
-	};
-}
-
 describe('record document store', () => {
 	test('persists local updates, watermarks, and self-contained export', () => {
 		const context = setup();
@@ -101,7 +85,7 @@ describe('record document store', () => {
 				revision: 1,
 				acceptedRevision: 0,
 				owed: true,
-				refused: false,
+				refusedRevision: null,
 			});
 			const exported = context.store.exportDocument(ADDRESS);
 			if (exported === undefined) throw new Error('document was not exported');
@@ -289,7 +273,9 @@ describe('record document store', () => {
 				refusal,
 				capturedOf(attempt.publication),
 			);
-			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(true);
+			expect(
+				context.store.inspectDocument(ADDRESS)?.refusedRevision,
+			).not.toBeNull();
 			const retry = context.store.documentPublication(ADDRESS);
 			if (retry.kind !== 'ready')
 				throw new Error('refused revision cannot retry');
@@ -300,170 +286,14 @@ describe('record document store', () => {
 				database: createBunSqliteAdapter(context.database),
 				limits: makeLimits(),
 			});
-			expect(reopened.inspectDocument(ADDRESS)?.refused).toBe(true);
+			expect(reopened.inspectDocument(ADDRESS)?.refusedRevision).not.toBeNull();
 			expect(reopened.documentPublication(ADDRESS).kind).toBe('ready');
 
 			context.store.appendLocalDocumentUpdate(ADDRESS, second);
-			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(false);
-			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
-		} finally {
-			context.database.close();
-		}
-	});
-
-	test('record-not-live refusal is inspectable and excluded from owed scans across reopen', () => {
-		const directory = mkdtempSync(
-			join(tmpdir(), 'epicenter-document-refusal-'),
-		);
-		const path = join(directory, 'replica.sqlite');
-		let database = new Database(path, { strict: true });
-		try {
-			let store = openReplicaStore({
-				owner: null,
-				database: createBunSqliteAdapter(database),
-				limits: makeLimits(),
-				initialize: {
-					replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
-					authorityLifetime: 'lifetime-one',
-				},
-			});
-			store.localWrite({
-				address: ADDRESS,
-				op: 'replace',
-				value: { title: 'x' },
-			});
-			const [update] = sourceUpdates('refused');
-			if (update === undefined) throw new Error('missing source update');
-			store.appendLocalDocumentUpdate(ADDRESS, update);
-			const attempt = store.documentPublication(ADDRESS);
-			if (attempt.kind !== 'ready') throw new Error('publication not ready');
-
-			store.settleDocumentPublication(
-				ADDRESS,
-				recordNotLiveRefusal(),
-				capturedOf(attempt.publication),
-			);
-			expect(store.inspectDocument(ADDRESS)).toMatchObject({
-				revision: 1,
-				owed: true,
-				refused: true,
-				refusal: { kind: 'record-not-live', revision: 1 },
-			});
-			expect(store.owedDocuments(64)).toEqual([]);
-
-			database.close();
-			database = new Database(path, { strict: true });
-			store = openReplicaStore({
-				owner: null,
-				database: createBunSqliteAdapter(database),
-				limits: makeLimits(),
-			});
-			expect(store.inspectDocument(ADDRESS)?.refusal).toEqual({
-				kind: 'record-not-live',
-				revision: 1,
-			});
-			expect(store.owedDocuments(64)).toEqual([]);
-		} finally {
-			database.close();
-			rmSync(directory, { recursive: true });
-		}
-	});
-
-	test('record-not-live refusal for a racing older revision leaves newer work owed', () => {
-		const context = setup();
-		try {
-			const [first, second] = sourceUpdates('a', 'b');
-			if (first === undefined || second === undefined) {
-				throw new Error('missing source updates');
-			}
-			context.store.appendLocalDocumentUpdate(ADDRESS, first);
-			const attempt = context.store.documentPublication(ADDRESS);
-			if (attempt.kind !== 'ready') throw new Error('publication not ready');
-			context.store.appendLocalDocumentUpdate(ADDRESS, second);
-
-			context.store.settleDocumentPublication(
-				ADDRESS,
-				recordNotLiveRefusal(),
-				capturedOf(attempt.publication),
-			);
-
-			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
-				revision: 2,
-				owed: true,
-				refused: false,
-				refusal: null,
-			});
-			expect(context.store.owedDocuments(64)).toEqual([ADDRESS]);
-		} finally {
-			context.database.close();
-		}
-	});
-
-	test('a local edit clears record-not-live refusal and restores automatic eligibility', () => {
-		const context = setup();
-		try {
-			const [first, second] = sourceUpdates('a', 'b');
-			if (first === undefined || second === undefined) {
-				throw new Error('missing source updates');
-			}
-			context.store.appendLocalDocumentUpdate(ADDRESS, first);
-			const attempt = context.store.documentPublication(ADDRESS);
-			if (attempt.kind !== 'ready') throw new Error('publication not ready');
-			context.store.settleDocumentPublication(
-				ADDRESS,
-				recordNotLiveRefusal(),
-				capturedOf(attempt.publication),
-			);
-			expect(context.store.owedDocuments(64)).toEqual([]);
-
-			context.store.appendLocalDocumentUpdate(ADDRESS, second);
-
-			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
-				revision: 2,
-				owed: true,
-				refused: false,
-				refusal: null,
-			});
-			expect(context.store.owedDocuments(64)).toEqual([ADDRESS]);
-		} finally {
-			context.database.close();
-		}
-	});
-
-	test('an authoritative tombstone reaps record-not-live refusal with document state', () => {
-		const context = setup();
-		try {
-			const [update] = sourceUpdates('a');
-			if (update === undefined) throw new Error('missing source update');
-			context.store.appendLocalDocumentUpdate(ADDRESS, update);
-			const attempt = context.store.documentPublication(ADDRESS);
-			if (attempt.kind !== 'ready') throw new Error('publication not ready');
-			context.store.settleDocumentPublication(
-				ADDRESS,
-				recordNotLiveRefusal(),
-				capturedOf(attempt.publication),
-			);
-
-			context.store.installFacts({
-				request: { authorityLifetime: 'lifetime-one', afterSequence: 0 },
-				response: {
-					authorityLifetime: 'lifetime-one',
-					facts: [{ address: ADDRESS, sequence: 1, state: 'tombstone' }],
-					hasMore: false,
-				},
-			});
-
-			expect(context.store.inspectDocument(ADDRESS)).toBeNull();
-			expect(context.store.exportDocument(ADDRESS)).toBeUndefined();
 			expect(
-				context.database
-					.query<
-						{ code: string | null; revision: number | null },
-						[]
-					>(`SELECT document_refused_code AS code,
-							document_refused_revision AS revision FROM records`)
-					.get(),
-			).toEqual({ code: null, revision: null });
+				context.store.inspectDocument(ADDRESS)?.refusedRevision,
+			).toBeNull();
+			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
 		} finally {
 			context.database.close();
 		}
@@ -498,7 +328,7 @@ describe('record document store', () => {
 			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
 				revision: 1,
 				owed: true,
-				refused: false,
+				refusedRevision: null,
 			});
 			expect(context.store.documentPublication(ADDRESS).kind).toBe('ready');
 		} finally {
@@ -533,41 +363,75 @@ describe('record document store', () => {
 			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
 				revision: 2,
 				owed: true,
-				refused: false,
+				refusedRevision: null,
 			});
 		} finally {
 			context.database.close();
 		}
 	});
 
-	test('blocks an over-bound local state durably with measurements', () => {
+	test('blocks an over-bound local state by naming only the refused revision', () => {
 		const context = setup();
 		try {
 			const [update] = sourceUpdates('x'.repeat(DOCUMENT_BOUND.stateBytes + 1));
 			if (update === undefined) throw new Error('missing source update');
 			context.store.appendLocalDocumentUpdate(ADDRESS, update);
 			const publication = context.store.documentPublication(ADDRESS);
-			expect(publication.kind).toBe('refused');
 			if (publication.kind !== 'refused') {
 				throw new Error('over-bound document was not refused');
 			}
-			expect(publication.refusal.measured.stateBytes).toBeGreaterThan(
-				DOCUMENT_BOUND.stateBytes,
-			);
-			expect(context.store.inspectDocument(ADDRESS)?.refused).toBe(true);
-			// The refusal stores compact measurements, never the oversized payload.
+			expect(publication.revision).toBe(1);
+			// The whole durable refusal is one revision number: no code, no
+			// measurement, and never the oversized payload.
 			expect(
 				context.database
-					.query<
-						{ measured: number; revision: number },
-						[]
-					>(`SELECT document_refused_bytes AS measured,
-							document_refused_revision AS revision FROM records`)
+					.query<{ revision: number }, []>(
+						'SELECT document_refused_revision AS revision FROM records',
+					)
 					.get(),
-			).toEqual({
-				revision: 1,
-				measured: publication.refusal.measured.stateBytes,
+			).toEqual({ revision: 1 });
+			expect(context.store.inspectDocument(ADDRESS)?.refusedRevision).toBe(1);
+			expect(context.store.owedDocuments(null, 64)).toEqual([]);
+		} finally {
+			context.database.close();
+		}
+	});
+
+	test('deleting over-bound content republishes the same lineage', () => {
+		const context = setup();
+		try {
+			// Oversize is not terminal: the same document repairs in place once
+			// the content that crossed the bound is deleted.
+			const document = new Y.Doc({ gc: true });
+			const updates: Uint8Array[] = [];
+			document.on('updateV2', (update: Uint8Array) => {
+				updates.push(new Uint8Array(update));
 			});
+			const filler = 'x'.repeat(DOCUMENT_BOUND.stateBytes + 1);
+			const text = document.get('content');
+			text.insert(0, filler);
+			text.delete(0, filler.length);
+			document.destroy();
+			const [oversize, deletion] = updates;
+			if (oversize === undefined || deletion === undefined) {
+				throw new Error('missing source updates');
+			}
+
+			context.store.appendLocalDocumentUpdate(ADDRESS, oversize);
+			expect(context.store.documentPublication(ADDRESS).kind).toBe('refused');
+			expect(context.store.owedDocuments(null, 64)).toEqual([]);
+
+			context.store.appendLocalDocumentUpdate(ADDRESS, deletion);
+			expect(
+				context.store.inspectDocument(ADDRESS)?.refusedRevision,
+			).toBeNull();
+			expect(context.store.owedDocuments(null, 64)).toEqual([ADDRESS]);
+			const retry = context.store.documentPublication(ADDRESS);
+			if (retry.kind !== 'ready')
+				throw new Error('repaired document not ready');
+			expect(retry.publication.payload.byteLength).toBeLessThan(
+				DOCUMENT_BOUND.stateBytes,
+			);
 		} finally {
 			context.database.close();
 		}

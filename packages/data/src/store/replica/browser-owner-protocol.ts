@@ -1,6 +1,5 @@
 import type { BlobAcceptance } from '../../blob-v1/index.js';
 import type {
-	DocumentAcceptance,
 	DocumentBoundRefusal,
 	DocumentPublicationReceipt,
 } from '../../document-v1/index.js';
@@ -91,8 +90,8 @@ export type BrowserReplicaOwnerOperation =
 	| { kind: 'runtime-read-blob'; address: RecordAddress }
 	| { kind: 'sync' }
 	| { kind: 'sealed-request' }
-	| { kind: 'owed-documents'; limit: number }
-	| { kind: 'owed-blobs'; limit: number }
+	| { kind: 'owed-documents'; after: RecordAddress | null; limit: number }
+	| { kind: 'owed-blobs'; after: RecordAddress | null; limit: number }
 	| { kind: 'local-write'; intent: Intent }
 	| { kind: 'seal' }
 	| { kind: 'reconstruct-sealed-request' }
@@ -119,10 +118,7 @@ export type BrowserReplicaOwnerOperation =
 	| {
 			kind: 'settle-document-publication';
 			address: RecordAddress;
-			proof:
-				| DocumentPublicationReceipt
-				| DocumentBoundRefusal
-				| Extract<DocumentAcceptance, { kind: 'record-not-live' }>;
+			proof: DocumentPublicationReceipt | DocumentBoundRefusal;
 			captured: { revision: number; digest: string };
 	  }
 	| { kind: 'capture-blob'; address: RecordAddress; bytes: Blob }

@@ -13,8 +13,6 @@ export {
 	type DocumentInspection,
 	type DocumentPublicationState,
 	type DocumentRecordNotLiveState,
-	type DocumentRefusalEvidence,
-	type DocumentRefusalInspection,
 	type DocumentSettlementOutcome,
 } from './document-store.js';
 export {

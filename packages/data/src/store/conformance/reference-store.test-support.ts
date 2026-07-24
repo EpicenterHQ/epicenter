@@ -90,8 +90,6 @@ CREATE TABLE records (
   document_accepted_revision  INTEGER NOT NULL DEFAULT 0
     CHECK (document_accepted_revision >= 0),
   document_refused_revision   INTEGER,
-  document_refused_bytes      INTEGER,
-  document_refused_structs    INTEGER,
   blob_sha256                 TEXT,
   blob_accepted_sha256        TEXT,
 
@@ -126,12 +124,11 @@ CREATE TABLE records (
   CHECK (parked_op IS NULL
       OR (pending_op IS NULL AND sealed_op IS NULL)),
   CHECK (document_accepted_revision <= document_revision),
-  CHECK ((document_refused_revision IS NULL AND document_refused_bytes IS NULL
-            AND document_refused_structs IS NULL)
+  -- The one durable document refusal: revision N exceeded the authority
+  -- document bound. It always names the current owed revision.
+  CHECK (document_refused_revision IS NULL
       OR (document_refused_revision = document_revision
-            AND document_revision > document_accepted_revision
-            AND document_refused_bytes IS NOT NULL
-            AND document_refused_structs IS NOT NULL)),
+            AND document_revision > document_accepted_revision)),
   CHECK (blob_sha256 IS NULL OR length(blob_sha256) = 64),
   CHECK (blob_accepted_sha256 IS NULL OR
     (blob_sha256 IS NOT NULL AND blob_accepted_sha256 = blob_sha256)),

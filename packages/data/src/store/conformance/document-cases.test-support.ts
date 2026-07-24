@@ -177,7 +177,7 @@ export function runDocumentConformanceCases(
 					revision: 1,
 					acceptedRevision: 0,
 					owed: true,
-					refused: false,
+					refusedRevision: null,
 				});
 				expect(await replica.owedDocuments(16)).toEqual([ADDRESS]);
 				replica = await replica.reopen();
@@ -401,7 +401,7 @@ export function runDocumentConformanceCases(
 					address: ADDRESS,
 					update: oversized,
 				});
-				// Recording the refusal evidence is itself a crash-safe transition.
+				// Recording the refused revision is itself a crash-safe transition.
 				const refused = await applyWithCrashes(replica, {
 					kind: 'publication',
 					address: ADDRESS,
@@ -409,13 +409,11 @@ export function runDocumentConformanceCases(
 				if (refused?.kind !== 'refused') {
 					throw new Error('over-bound document was not refused');
 				}
-				expect(refused.refusal.measured.stateBytes).toBeGreaterThan(
-					DOCUMENT_BOUND.stateBytes,
-				);
+				expect(refused.revision).toBe(1);
 				replica = await replica.reopen();
 				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
 					owed: true,
-					refused: true,
+					refusedRevision: 1,
 				});
 				const still = await apply(replica, {
 					kind: 'publication',
@@ -423,7 +421,7 @@ export function runDocumentConformanceCases(
 				});
 				expect(still?.kind).toBe('refused');
 
-				// A later edit supersedes the refusal evidence in the same
+				// A later edit supersedes the refused revision in the same
 				// transaction that increments the revision.
 				const [edit] = sourceUpdates('y');
 				if (edit === undefined) throw new Error('missing source update');
@@ -433,7 +431,7 @@ export function runDocumentConformanceCases(
 					update: edit,
 				});
 				expect(await replica.inspectDocument(ADDRESS)).toMatchObject({
-					refused: false,
+					refusedRevision: null,
 					owed: true,
 				});
 			} finally {

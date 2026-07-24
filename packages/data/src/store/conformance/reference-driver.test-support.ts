@@ -377,9 +377,7 @@ export class ReplicaRef {
 					        parked_measured = NULL, parked_limit = NULL,
 					        blob_sha256 = NULL, blob_accepted_sha256 = NULL,
 					        document_revision = 0, document_accepted_revision = 0,
-					        document_refused_revision = NULL,
-					        document_refused_bytes = NULL,
-					        document_refused_structs = NULL
+					        document_refused_revision = NULL
 					      WHERE ${TRIPLE_WHERE}`,
 					params: [fact.sequence, ...tripleParams(fact.address)],
 				},

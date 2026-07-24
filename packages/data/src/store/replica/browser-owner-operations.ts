@@ -86,9 +86,9 @@ export function createBrowserReplicaOwnerOperations(
 				case 'sealed-request':
 					return owner.store.sealedRequest();
 				case 'owed-documents':
-					return owner.store.owedDocuments(operation.limit);
+					return owner.store.owedDocuments(operation.after, operation.limit);
 				case 'owed-blobs':
-					return owner.store.owedBlobs(operation.limit);
+					return owner.store.owedBlobs(operation.after, operation.limit);
 				case 'local-write':
 					owner.store.localWrite(operation.intent);
 					return undefined;

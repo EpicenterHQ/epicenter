@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from '@epicenter/sqlite';
 
-export const REPLICA_STORE_FORMAT_VERSION = 4;
+export const REPLICA_STORE_FORMAT_VERSION = 5;
 
 export const REPLICA_STORE_TABLES = [
 	'meta',
@@ -70,9 +70,6 @@ const SCHEMA = [
 		document_accepted_revision  INTEGER NOT NULL DEFAULT 0
 			CHECK (document_accepted_revision BETWEEN 0 AND 9007199254740991),
 		document_refused_revision   INTEGER,
-		document_refused_code       TEXT,
-		document_refused_bytes      INTEGER,
-		document_refused_structs    INTEGER,
 		blob_sha256                 TEXT,
 		blob_accepted_sha256        TEXT,
 		blob_parked_code            TEXT,
@@ -104,18 +101,13 @@ const SCHEMA = [
 						AND parked_measured IS NULL AND parked_limit IS NULL)))),
 		CHECK (parked_op IS NULL OR (pending_op IS NULL AND sealed_op IS NULL)),
 		CHECK (document_accepted_revision <= document_revision),
-		CHECK ((document_refused_revision IS NULL AND document_refused_code IS NULL
-				AND document_refused_bytes IS NULL AND document_refused_structs IS NULL)
+		-- document_refused_revision = N means exactly one thing: revision N
+		-- exceeded the authority document bound. It always names the current
+		-- unpublished revision, so a later local edit supersedes it by
+		-- construction rather than through a re-arm command.
+		CHECK (document_refused_revision IS NULL
 			OR (document_refused_revision = document_revision
-				AND document_revision > document_accepted_revision
-				AND ((document_refused_code = 'document-bound'
-						AND document_refused_bytes IS NOT NULL
-						AND document_refused_bytes >= 0
-						AND document_refused_structs IS NOT NULL
-						AND document_refused_structs >= 0)
-					OR (document_refused_code = 'record-not-live'
-						AND document_refused_bytes IS NULL
-						AND document_refused_structs IS NULL)))),
+				AND document_revision > document_accepted_revision)),
 		CHECK (blob_sha256 IS NULL OR
 			(length(blob_sha256) = 64 AND blob_sha256 NOT GLOB '*[^a-f0-9]*')),
 		CHECK (blob_accepted_sha256 IS NULL OR
