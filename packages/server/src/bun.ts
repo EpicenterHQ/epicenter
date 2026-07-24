@@ -86,11 +86,6 @@ export {
 	type StorageObservation,
 } from './db/storage-data.js';
 export {
-	type BunEpicenterSyncRuntime,
-	createBunEpicenterSyncRuntime,
-	mountBunEpicenterSyncApp,
-} from './epicenter-sync/bun.js';
-export {
 	type BunScalarV1Runtime,
 	createBunScalarV1Runtime,
 	mountBunScalarV1App,

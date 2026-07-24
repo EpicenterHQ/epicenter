@@ -44,7 +44,7 @@ export type MergedSocketData =
  */
 export function mergeBunWebSocketHandlers(handlers: {
 	rooms: WebSocketHandler<BunRoomSocketData>;
-	documents: WebSocketHandler<BunEpicenterDocumentSocketData>;
+	documents?: WebSocketHandler<BunEpicenterDocumentSocketData>;
 	dataDocuments?: WebSocketHandler<BunDataDocumentV1SocketData>;
 	attach?: WebSocketHandler<AttachRelaySocketData>;
 }): WebSocketHandler<MergedSocketData> {

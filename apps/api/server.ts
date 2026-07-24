@@ -51,14 +51,12 @@ import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 import {
 	CloudAuthBindings,
 	type CloudEnv,
-	createBunEpicenterSyncRuntime,
 	createBunRooms,
 	createBunScalarV1Runtime,
 	createDb,
 	createServerApp,
 	mergeBunWebSocketHandlers,
 	mountBlobsApp,
-	mountBunEpicenterSyncApp,
 	mountBunScalarV1App,
 	mountCloudAuth,
 	mountCloudDb,
@@ -144,9 +142,6 @@ export function startBunApiServer(
 	// Keep the operator-selected directory stable, but the replacement authority
 	// deliberately drops the legacy table family on first open. There is no
 	// compatibility reader or receipt migration across this protocol reset.
-	const epicenterSync = createBunEpicenterSyncRuntime({
-		dir: join(dataDir, 'records'),
-	});
 	const scalarV1 = createBunScalarV1Runtime({
 		dir: join(dataDir, 'records'),
 	});
@@ -209,11 +204,6 @@ export function startBunApiServer(
 	mountSessionApp(app, { auth: cookieOrBearer });
 	// Rooms resolves the bearer itself (WS-aware), so it takes the raw resolver.
 	mountRoomsApp(app, { resolveBearerPrincipal });
-	mountBunEpicenterSyncApp(app, {
-		auth: bearer,
-		resolveDocumentPrincipal,
-		runtime: epicenterSync,
-	});
 	mountBunScalarV1App(app, {
 		auth: bearer,
 		resolveDocumentPrincipal,
@@ -231,21 +221,18 @@ export function startBunApiServer(
 		fetch: (req) => app.fetch(req, env),
 		websocket: mergeBunWebSocketHandlers({
 			rooms: bunRooms.websocket,
-			documents: epicenterSync.websocket,
 			dataDocuments: scalarV1.websocket,
 		}),
 	});
 	// `server` only exists once `Bun.serve` returns; hand it to the room registry
 	// so `handleUpgrade` can call `server.upgrade`.
 	bunRooms.bindServer(server);
-	epicenterSync.bindServer(server);
 	scalarV1.bindServer(server);
 
 	// Close authority databases and their sockets before the process dies so WAL
 	// checkpoints land and clients see a clean 1001 instead of a dropped TCP.
 	const shutdown = async () => {
 		await scalarV1.close();
-		epicenterSync.close();
 		await server.stop(true);
 		process.exit(0);
 	};
