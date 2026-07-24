@@ -1,16 +1,16 @@
 import type { SyncAuthClient } from '@epicenter/auth';
+import {
+	parseFactsResponse,
+	parseSubmissionResponse,
+	SCALAR_SYNC_V1_LIMITS,
+} from '@epicenter/data/protocol/v1';
 import type {
-	Epicenter,
-	Exchange,
-	SyncCredentialProvider,
-} from '@epicenter/data';
-import { openBrowserEpicenter } from '@epicenter/data/browser';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
+	AuthorityCarrier,
+	EpicenterRuntime,
+} from '@epicenter/data/runtime';
+import { openBrowserEpicenter } from '@epicenter/data/runtime/browser';
 
-type WhisperingAuth = Pick<
-	SyncAuthClient,
-	'state' | 'deployment' | 'fetch' | 'onStateChange'
->;
+type WhisperingAuth = Pick<SyncAuthClient, 'state' | 'deployment' | 'fetch'>;
 
 function deploymentUrl(baseUrl: string): URL {
 	const url = new URL(baseUrl);
@@ -18,76 +18,106 @@ function deploymentUrl(baseUrl: string): URL {
 	return url;
 }
 
-function syncUrl(baseUrl: string): URL {
-	return new URL('api/sync/v1', deploymentUrl(baseUrl));
+function syncUrl(auth: WhisperingAuth, path: string): URL {
+	return new URL(`api/sync/v1/${path}`, deploymentUrl(auth.deployment.baseURL));
 }
 
-function createExchange(auth: WhisperingAuth): Exchange {
-	return async (request) => {
-		const response = await auth.fetch(syncUrl(auth.deployment.baseURL), {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(request),
-		});
-		if (!response.ok) {
-			throw new Error(`Epicenter sync failed (${response.status})`);
+/**
+ * The HTTP authority carrier over the signed-in deployment. Whispering's Lens
+ * uses no record documents or record blobs, so those planes honestly refuse:
+ * the supervisor never owes work it cannot create.
+ *
+ * The carrier is bound to the identity it was opened for: if the signed-in
+ * account changes while the old runtime is still draining or disposing, every
+ * request refuses instead of borrowing the next account's credentials.
+ */
+function createCarrier(
+	auth: WhisperingAuth,
+	opened: { deploymentId: string; principalId: string },
+): AuthorityCarrier<Blob> {
+	function requireOpenedOwner(): void {
+		const current = whisperingReplicaOwner(auth);
+		if (
+			current === null ||
+			current.deploymentId !== opened.deploymentId ||
+			current.principalId !== opened.principalId
+		) {
+			throw new Error('authority carrier outlived its sign-in');
 		}
-		const parsed = parseExchangeResponse(await response.json());
-		if (parsed.error !== null) throw parsed.error;
-		return parsed.data;
+	}
+	return {
+		async fetchFacts(request) {
+			requireOpenedOwner();
+			const url = syncUrl(auth, 'facts');
+			url.searchParams.set('afterSequence', String(request.afterSequence));
+			if (request.authorityLifetime !== undefined) {
+				url.searchParams.set('authorityLifetime', request.authorityLifetime);
+			}
+			const response = await auth.fetch(url);
+			if (!response.ok) {
+				throw new Error(`Epicenter facts read failed (${response.status})`);
+			}
+			const { data, error } = parseFactsResponse(
+				await response.json(),
+				SCALAR_SYNC_V1_LIMITS,
+			);
+			if (error !== null) throw error;
+			return data;
+		},
+		async submit(sealedRequestBytes) {
+			requireOpenedOwner();
+			const response = await auth.fetch(syncUrl(auth, 'submissions'), {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: sealedRequestBytes,
+			});
+			if (!response.ok) {
+				throw new Error(`Epicenter submission failed (${response.status})`);
+			}
+			const { data, error } = parseSubmissionResponse(
+				await response.json(),
+				SCALAR_SYNC_V1_LIMITS,
+			);
+			if (error !== null) throw error;
+			return data;
+		},
+		async publishDocument() {
+			throw new Error('Whispering publishes no record documents');
+		},
+		async publishBlob() {
+			throw new Error('Whispering publishes no record blobs');
+		},
 	};
 }
 
-/** Open this browser origin's replica and attach it on signed-in auth states. */
+/** The signed-in account's immutable replica identity on this deployment. */
+export function whisperingReplicaOwner(
+	auth: WhisperingAuth,
+): { deploymentId: string; principalId: string } | null {
+	const state = auth.state;
+	if (state.status !== 'signed-in') return null;
+	return {
+		deploymentId: deploymentUrl(auth.deployment.baseURL).href,
+		principalId: state.principalId,
+	};
+}
+
+/**
+ * Open the replica the current authentication state selects (ADR-0178):
+ * the signed-in account's replica with synchronization authority, or this
+ * origin's unclaimed local-only replica when signed out. Authentication
+ * changes are session boundaries; the caller reopens instead of mutating a
+ * live runtime.
+ */
 export async function openWhisperingBrowserEpicenter({
 	auth,
-	reportBackgroundError,
 }: {
 	auth: WhisperingAuth;
-	reportBackgroundError(cause: unknown): void;
-}): Promise<Epicenter> {
-	const browser = await openBrowserEpicenter();
-	const credentials: SyncCredentialProvider = {
-		get: () => (auth.state.status === 'signed-in' ? 'available' : undefined),
-		subscribe: (listener) => auth.onStateChange(listener),
-	};
-	const exchange = createExchange(auth);
-
-	const attachSignedIn = async () => {
-		const state = auth.state;
-		if (state.status !== 'signed-in') return;
-		const attachment = Object.freeze({
-			deploymentId: deploymentUrl(auth.deployment.baseURL).href,
-			principalId: state.principalId,
-		});
-		const result = await browser.attachSync({
-			...attachment,
-			exchange,
-			credentials,
-		});
-		if (result.error !== null) throw result.error;
-	};
-
-	try {
-		await attachSignedIn();
-	} catch (cause) {
-		await browser[Symbol.asyncDispose]();
-		throw cause;
-	}
-	const stopAuth = auth.onStateChange(() => {
-		void attachSignedIn().catch(reportBackgroundError);
-	});
-
-	return Object.freeze({
-		bind: browser.bind,
-		attachSync: browser.attachSync,
-		get syncStatus() {
-			return browser.syncStatus;
-		},
-		subscribeSyncStatus: browser.subscribeSyncStatus,
-		async [Symbol.asyncDispose]() {
-			stopAuth();
-			await browser[Symbol.asyncDispose]();
-		},
+}): Promise<EpicenterRuntime<Blob, Blob>> {
+	const owner = whisperingReplicaOwner(auth);
+	if (owner === null) return await openBrowserEpicenter({ owner: null });
+	return await openBrowserEpicenter({
+		owner,
+		carrier: createCarrier(auth, owner),
 	});
 }

@@ -24,10 +24,10 @@ mock.module('$app/state', () => ({
 
 const { openHoneycrispApplication } = await import('./application.js');
 
-function createRuntime(listFolders: () => Promise<never>) {
+function createRuntime(scanFolders: () => Promise<never>) {
 	let releases = 0;
-	const table = {
-		list: listFolders,
+	const collection = {
+		scan: scanFolders,
 		subscribe: () => () => {},
 	};
 	return {
@@ -35,13 +35,10 @@ function createRuntime(listFolders: () => Promise<never>) {
 			return releases;
 		},
 		value: {
-			epicenter: {
-				bind: () => ({ tables: { folders: table, notes: table }, values: {} }),
-				syncStatus: { state: 'local', lastError: undefined },
-				subscribeSyncStatus: () => () => {},
-			},
-			connectDocument: () => {
-				throw new Error('unreachable');
+			bind: () => ({ folders: collection, notes: collection }),
+			sync: {
+				status: { state: 'local-only' },
+				subscribe: () => () => {},
 			},
 			async [Symbol.asyncDispose]() {
 				releases += 1;

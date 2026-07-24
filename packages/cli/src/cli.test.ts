@@ -1,7 +1,7 @@
 /**
  * CLI entry-point tests.
  *
- * The binary surfaces daily workspace commands plus namespaced supporting
+ * The binary surfaces namespaced supporting
  * systems. These tests assert registration via `--help` output so they stay
  * decoupled from command semantics.
  */
@@ -48,13 +48,9 @@ describe('createCLI', () => {
 
 	test('help output registers supported top-level commands', async () => {
 		const help = await captureHelp();
-		expect(help).toMatch(/\bepicenter up\b/);
-		expect(help).toMatch(/\bepicenter down\b/);
-		expect(help).toMatch(/\bepicenter status\b/);
-		expect(help).toMatch(/\bepicenter logs\b/);
+
 		expect(help).toMatch(/\bauth\b/);
 		expect(help).toMatch(/\bblobs\b/);
-		expect(help).toMatch(/\binit\b/);
 		expect(help).toMatch(/\bmatter\b/);
 		expect(help).not.toMatch(/\bdaemon\b/);
 		expect(help).not.toMatch(/\bepicenter ps\b/);

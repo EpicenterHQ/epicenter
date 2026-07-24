@@ -4,26 +4,41 @@
 	"description": "Local-first scalar data protocol and SQLite replica.",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./browser": "./src/browser.ts",
-		"./browser-worker": "./src/browser-worker.ts",
-		"./bun": "./src/bun.ts",
-		"./desktop": "./src/desktop.ts",
-		"./desktop-owner": "./src/desktop-owner.ts",
-		"./protocol": "./src/protocol/index.ts"
+		"./browser-replica-candidate-worker": "./src/browser-replica-candidate-worker.ts",
+		"./browser-replica-worker": "./src/browser-replica-worker.ts",
+		"./blob-v1": "./src/blob-v1/index.ts",
+		"./document-v1": "./src/document-v1/index.ts",
+		"./protocol/v1": "./src/protocol/v1/index.ts",
+		"./runtime": "./src/runtime/index.ts",
+		"./runtime/browser": "./src/runtime/browser.ts",
+		"./runtime/bun": "./src/runtime/bun.ts",
+		"./bun": "./src/bun.ts"
 	},
 	"files": [
 		"src",
-		"!src/**/*.test.ts"
+		"!src/**/*.test.ts",
+		"!src/**/*.test-support.ts",
+		"!src/**/*.bench.ts"
 	],
 	"license": "MIT",
 	"scripts": {
-		"typecheck": "tsc --noEmit",
-		"test": "bun test"
+		"evidence:browser": "bun browser-evidence/run.ts --profile smoke",
+		"evidence:browser-replica-layout": "bun browser-evidence/replica-layout-run.ts --profile smoke",
+		"evidence:browser-replica-layout:full": "bun browser-evidence/replica-layout-run.ts --profile full",
+		"evidence:browser-replica": "bun browser-evidence/replica-owner-run.ts",
+		"evidence:browser-owner-topology": "bun browser-evidence/replica-candidate-run.ts",
+		"test:browser-replica": "bun test --timeout 120000 browser-evidence/replica-conformance.test.ts",
+		"test:browser-runtime": "bun test --timeout 120000 browser-evidence/runtime.test.ts",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p browser-evidence/tsconfig.json",
+		"test:unit": "bun test src",
+		"test:browser": "for file in browser-evidence/*.test.ts; do bun test --timeout 120000 \"$file\" || exit 1; done",
+		"test": "bun run test:unit && bun run test:browser"
 	},
 	"dependencies": {
 		"@epicenter/field": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
+		"@epicenter/sync": "workspace:*",
+		"@noble/hashes": "catalog:",
 		"@sqlite.org/sqlite-wasm": "catalog:",
 		"@y/y": "14.0.0-rc.24",
 		"nanoid": "catalog:",
@@ -32,6 +47,8 @@
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"typescript": "catalog:"
+		"playwright": "^1.61.1",
+		"typescript": "catalog:",
+		"vite": "catalog:"
 	}
 }

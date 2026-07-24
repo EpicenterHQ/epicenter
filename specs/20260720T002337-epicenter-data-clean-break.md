@@ -1,84 +1,84 @@
 # Epicenter data clean break
 
 - **Status:** In Progress
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (rewritten 2026-07-21 from the frozen record
+  architecture)
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-latest-scalar-state-synchronizes-through-one-epicenter-exchange.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), and [ADR-0173](../docs/adr/0173-finalized-row-owned-blobs-use-content-digests-as-identity.md)
+- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md), [ADR-0177](../docs/adr/0177-replica-and-authority-owners-use-role-specific-wide-record-relations.md), and [ADR-0178](../docs/adr/0178-replica-identity-is-immutable-and-sign-in-selects-a-replica.md)
 
 ## Product sentence
 
-Epicenter persists and synchronizes one person's rows, values, and row-owned
-documents; applications bind pure JSON Lenses over durable namespaces in that
-shared data.
+> Epicenter durably synchronizes records addressed by namespace, collection,
+> and record key; Lenses present those records as rows or values, Home captures
+> point-in-time SQL artifacts, and only ordinary typed writes or Restore can
+> change the live Epicenter.
 
 ## Accepted premises
 
-- There is no legacy user data to preserve.
-- This is intentionally a breaking change.
-- Epicenter is a curated personal universe, not an ingestion lake or a
-  projection store, with an expected ceiling around one million rows.
-  Ingested mirrors (mail, accounting, photos, tabs) and derived projections
-  keep their own disposable app-local stores outside the synchronized plane;
-  admission limits, paging, and indexes are sized for curated personal scale,
-  never for bulk ingestion throughput.
-- Every attached replica synchronizes the person's whole Epicenter.
-- One person has one logical Epicenter and one server authority.
-- Each adapter isolation boundary has one complete local replica.
-- Namespaces structure durable addresses only. They never create storage,
-  ownership, lifecycle, transaction, export, or synchronization scopes.
-- Applications receive no SQL. Epicenter Home owns human and agent relational
-  inspection over the logical Epicenter.
-- Scalar facts converge independently. Epicenter exposes no public
-  multi-address transaction and promises no atomic remote visibility across
-  scalar addresses.
-- Row IDs are globally unique, runtime-minted, and never reused.
-- Compact row tombstones are permanent synchronization facts within one
-  authority lifetime.
-- One person has one live Epicenter and zero or more sealed Backups. A Backup is
-  inert, immutable, byte-complete, downloadable, and never synchronizable.
-- Restore creates and atomically activates a fresh authority lifetime. It never
-  reactivates a superseded authority lifetime or merges into the live Epicenter.
-- Every locally durable scalar, document, or blob write leaves durable evidence
-  of what the authority is owed. One Epicenter runtime owner drains those
-  obligations automatically and applications expose no sync or publish action.
-- SQLite stores scalar state, Yjs update logs, and publication evidence. Raw
-  files store row-owned immutable blob bytes. Browser SQLite itself lives in
-  OPFS.
-- A finalized blob is addressed by its row address and SHA-256 digest. An
-  incomplete capture has no permanent blob identity.
+- There is no legacy user data to preserve. This is intentionally a breaking
+  change. No wave adds a compatibility reader, migration bridge, dual writer,
+  fallback representation, or staged product mode. Rollback checkpoints may
+  retain old code on disk temporarily, but callers never use both paths
+  concurrently.
+- The durable platform noun is the record: one address
+  `(namespace, collection, record key)` with scalar state that latently owns
+  zero or one document and zero or one blob slot. No durable address or wire
+  type contains a row/value kind; the table-versus-values distinction appears
+  exactly once, in Lens collection definitions (ADR-0160).
+- The wire has one fact shape and four operations (`patch`, `replace`,
+  `tombstone`, `unset`), with tombstone absorption evaluated first
+  (ADR-0163). Records converge independently; Epicenter exposes no
+  multi-record transaction (ADR-0164).
+- A replica record has three crash lanes (`confirmed`, `sealed`, `pending`)
+  plus the `parked` overlay retaining a refused operation. Sealing persists
+  the exact canonical request bytes for retry (ADR-0163).
+- ADR-0177 selects role-specific wide interned record rows for authorities and
+  replicas. The roles do not share identical DDL. Every adapter within one role
+  shares that role's schema; no caller-facing surface depends on it.
+- Epicenter is a curated personal universe, not an ingestion lake. The
+  representative normal stress target remains 1,000,000 final-present
+  addresses at the 512 MiB versioned proxy (ADR-0161), with the mobile floors.
+- Applications receive no SQL. Home inspection means owner-mediated
+  point-in-time snapshot capture; ad hoc SQL runs only against inert artifacts
+  (ADR-0162).
+- Every inert artifact self-declares its kind through `_epicenter_artifact`,
+  and its lossless raw relation is `_epicenter_records` (ADR-0167). Snapshots
+  have no apply meaning; Restore accepts only `kind='portable'` (ADR-0170).
+- Every locally durable write leaves an automatic authority obligation drained
+  by one runtime owner (ADR-0171). Only terminal tombstone reaps a record's
+  document and blob capabilities (ADR-0173, ADR-0174).
+- One person has one live Epicenter and zero or more sealed Backups; Restore
+  creates and atomically activates a fresh authority lifetime and never emits
+  ordinary intents (ADR-0170).
+- Proposal is a prototype-gated product candidate. No Proposal ADR lands
+  before its nine-test prototype passes.
 
 If any premise changes before merge, stop. Do not hide the change behind an
 alias, migration bridge, optional scope, or second runtime.
 
-## The asymmetric refusal
+## The asymmetric refusals
 
-Product promise:
+**Replica identity never changes.** Creation writes one permanent identity:
+unclaimed or owned by one deployment and principal pair. Authentication
+selects the matching account replica and supplies its fixed runtime carrier; it
+never adopts the unclaimed replica. An unclaimed replica never synchronizes.
+Its data leaves only through explicit, user-confirmed Lens import, which
+preserves record keys and writes through ordinary destination operations so
+retries rewrite identical records. Ordinary plane laws decide conflicts, and
+destination terminal tombstones remain final. Verified import may be followed
+by explicit adapter-owned retirement of the whole unclaimed replica
+(ADR-0178).
 
-> A person's data works locally and converges across their signed-in devices.
+**Permanent tombstones within one lifetime.** A small durable record per
+terminal deletion deletes acknowledgment catalogs, retention floors, baseline
+acquisition, and resurrection by stale replicas. Unset stays reversible.
+Restore is the one deliberate escape that clears tombstones by starting a
+fresh lifetime (ADR-0170).
 
-Refused promise:
-
-> One physical replica can switch among several principals while preserving a
-> separate anonymous dataset and offering automatic merge choices.
-
-The first sign-in permanently attaches the current local replica to one
-principal and converges its existing content. Signing out pauses sync without
-changing ownership. Another principal requires a fresh replica or explicit
-destructive clearing.
-
-This refusal deletes Device-versus-Account owners, profile catalogs, adoption
-modes, per-owner directories, rekeying, aliases, parallel data handles, merge
-choice UI, and account-switch recovery. The user loss is that switching people
-inside one installation is not a seamless toggle.
-
-Permanent row tombstones within one authority lifetime are the companion
-asymmetric trade. A small durable record per row deletion deletes acknowledgment
-catalogs, deletion-retention floors, baseline acquisition, stale-replica
-recovery, and the possibility that an old offline replica resurrects a deleted
-row. Value unset remains nonterminal: a later set may replace it. A deliberate
-Restore starts a fresh lifetime from complete logical state and invalidates
-every old replica; it is the only operation that leaves the old tombstones
-behind.
+**No live SQL for anyone.** Deleting the live inspection session, its TEMP
+views, its exclusivity rule, and its busy refusals buys one capture command
+and an inert artifact. The accepted loss is freshness: a snapshot is stale the
+moment it is captured, and refresh is recapture (ADR-0162).
 
 ## Public destination
 
@@ -87,7 +87,7 @@ export const whisperingLens = defineLens({
   namespace: "so.epicenter.whispering",
   title: "Whispering",
   description: "Recordings and transcription settings.",
-  tables: {
+  collections: {
     recordings: defineTable({
       title: "Recordings",
       fields: {
@@ -97,751 +97,549 @@ export const whisperingLens = defineLens({
       },
       optional: ["note"],
     }),
-  },
-  values: {
-    language: defineValue({
-      title: "Language",
-      value: field.string(),
+    settings: defineValues({
+      title: "Settings",
+      values: {
+        language: field.string(),
+        theme: field.select(["light", "dark"]),
+      },
     }),
   },
 });
 
-export const homeLens = defineLens({
-  namespace: "so.epicenter.home",
-  title: "Epicenter Home",
-  description: "Conversations and Home-owned data.",
-  tables: {
-    conversations: defineTable({
-      title: "Conversations",
-      fields: { title: field.string() },
-      optional: [],
-    }),
-  },
-  values: {},
+await using epicenter = await openBunEpicenter({
+  owner: { deploymentId, principalId },
+  carrier: session,
 });
+// openBrowserEpicenter / openDesktopEpicenter per runtime
 
-await using epicenter = await openEpicenter(options);
+const whispering = epicenter.bind(whisperingLens); // one Lens per bind
 
-const data = epicenter.bind({
-  whispering: whisperingLens,
-  home: homeLens,
-});
-
-const recording = await data.whispering.tables.recordings.create({
+// A collection owns the collection.
+const created = await whispering.recordings.create({
   createdAt: Temporal.Now.instant(),
   transcript: "Hello",
-});
-
-const found = await data.whispering.tables.recordings.get(recording.id);
-const { rows, nonconforming } =
-  await data.whispering.tables.recordings.scan();
-for await (const entry of data.whispering.tables.recordings.entries()) {
+}); // lowers to patch over {}
+const { rows, nonconforming } = await whispering.recordings.scan();
+for await (const entry of whispering.recordings.entries()) {
   // entry is Result<Recording, NonconformingRowError>
 }
-await data.whispering.tables.recordings.update(recording.id, {
-  note: undefined,
-});
+const stop = whispering.recordings.subscribe((changedIds) => {});
 
-const stopRecordings = data.whispering.tables.recordings.subscribe((changedIds) => {
-  // fires after committed local or synchronized changes
-});
-const stopLanguage = data.whispering.values.language.subscribe(() => {});
+// A record handle owns one durable record. record(...) is the only
+// point-access selector; the handle is a pure address view and exists
+// independently of scalar conformance.
+const recording = whispering.recordings.record(created.id);
+const row = await recording.get(); // Result<Row | undefined, NonconformingRowError>
+await recording.update({ note: undefined }); // field unset; cannot resurrect
+const { data: doc, error } = await recording.document.open();
+// doc is a revocable RowDocument (typed shared-type access, transact,
+// whenDurable, async disposal); error is RecordNotLiveError
+await recording.blob.capture(audioSource); // Result<void, ...>; no digest
+const audio = await recording.blob.read(); // local bytes or undefined
+const status = await recording.publication.get(); // settled | ready | blocked
+await recording.delete(); // terminal tombstone; reaps document + blob
 
-await using document = await data.home.tables.conversations.openDocument(
-  conversationId,
-);
-await data.whispering.values.language.set("en");
-await data.whispering.values.language.unset();
+// Values use the same selector law with a values-flavored handle.
+const language = whispering.settings.record("transcription.language");
+await language.set("en"); // lowers to replace
+await language.unset(); // lowers to unset (reversible)
+const stopLanguage = language.subscribe(() => {});
+await language.publication.get();
 
-await epicenter.attachSync(session);
 ```
 
-The exact environment factory may be `openEpicenter`, `openBrowserEpicenter`,
-or `openBunEpicenter` depending on adapter packaging. There is one returned
-runtime shape. There are no Device and Account runtime types.
-
-`attachSync` is allowed only when the replica is unattached or already attached
-to the same stable principal identity. Credentials may rotate; the attachment
-does not. The call starts or resumes background synchronization and returns no
-second Epicenter.
-
-The attachment record is exactly `{ deploymentId, principalId }`, persisted in
-the local replica's metadata inside the same durable transaction that enables
-synchronization. `deploymentId` is the canonical deployment base URL (the full
-`new URL(...).href`, never the bare host). `principalId` comes only from the
-authenticated session endpoint: Better Auth's stable `user.id` on hosted Cloud,
-the literal `instance` principal on self-host. Tokens, email, and provider
-account IDs never enter the record. Enforcement is the local replica boundary:
-compare before installing credentials into sync; refuse a differing pair before
-any push. Sign-out clears credentials only, never the attachment. A self-host
-deployment that moves to a new URL is a different deployment identity; the
-replica refuses it rather than silently rebinding. Server-side replica
-enrollment is not built: a modified client uploading its own data into a
-different principal it holds valid credentials for is self-harm confined to
-that principal's data, matching the existing non-conforming-client stance.
-
-### Lenses and definitions
-
-`defineLens`, `defineTable`, and `defineValue` return canonical pure JSON. A
-Lens interprets one durable namespace; its `namespace`, `title`, and
-`description` are required. The property names under `tables` and `values` are
-the durable local keys. There is no redundant definition `key`, independent
-Lens ID, database ID, workspace ID, schema registry, or complete model.
-
-The property names under a table's `fields` object are likewise the exact
-permanent field keys. The nested field value is only its JSON Schema and
-semantic annotations; a `field.*` schema alone is not an identified field and
-has no redundant `id` or `key`. This key comes from the Lens definition even
-when an optional row does not contain a value for it. Changing `title` is a
-display rename. Changing the object key addresses a new field and any data copy
-or removal is explicit application work. Row ID remains separate runtime-minted
-structural identity and cannot be declared in `fields`.
-
-One identity rule holds throughout: the containing owner supplies identity. A
-Lens supplies its namespace, definition maps supply durable table, value, and
-field keys, and the runtime supplies row IDs. A Lens interprets these names; it
-does not rename them. Only the outer multi-Lens binding uses ergonomic member
-aliases because those names identify no durable data.
-
-One application may bind several Lenses. Property names in that outer binding
-are ergonomic aliases only. Multiple partial Lenses may interpret the same
-namespace or address; none becomes canonical. Binding validates each Lens,
-performs no I/O, creates no durable state, and returns synchronous borrowed
-typed access.
-
-The authoring helpers constrain `optional` entries to the table's field keys.
-`parseLens(unknown)` validates the same closed JSON shape, supported field
-vocabulary, and semantic cross-field rules for artifacts read from disk. It
-rejects a nested field `id` or `key` rather than accepting a second identity
-namespace. A runtime validator is derived and ephemeral, never persisted as
-Lens state.
-
-Namespace keys use collision-resistant reverse-domain naming. Table and value
-keys are short local identifiers. Freeze their bounded grammar once at the
-shared protocol boundary without concatenating them into one prefixed string.
-
-### Tables and values
-
-Rows have `id` plus definition fields. The runtime mints a 24-character NanoID
-or another collision-equivalent ID. Callers cannot supply `id` to `create`.
-Optional field `undefined` means remove the field and is lowered before JSON
-serialization. `null` remains an ordinary accepted value.
-
-Expose one complete classified traversal through two terminal shapes. `scan()`
-materializes `{ rows, nonconforming }`. `entries()` streams
-`Result<Row, NonconformingRowError>` values in stable row ID order. The runtime
-uses bounded internal pages, but callers neither construct nor donate cursors.
-Traversal observes continuing live state rather than a snapshot.
-
-There is no public filter, arbitrary field order, limit, cursor, or page shape.
-Every current production read is exhaustive, and application-specific sorting
-and substring search stay client-side. A future Lens may declare pure JSON
-indexes and earn an index-scoped query surface, but this decision does not
-freeze that syntax or promise unindexed predicates.
-
-Tables and values expose committed-change observation: `subscribe` on a bound
-table receives the changed row IDs after a committed local write or an
-installed synchronized change, and `subscribe` on a value fires on committed
-set or unset. Both return an unsubscribe function. This is the only data
-observation primitive; there are no live query objects, projections, or cache
-runtimes. Evidence: Whispering bridges three observable domains into Svelte
-through `createSubscriber` today; a replicated store without invalidation
-cannot support any live UI.
-
-A value is a typed singleton at one structured value address. Its surface is `get`, `set`,
-`unset`, and `subscribe`. Do not call it KV: the public object does not expose
-an arbitrary key-value collection.
-
-Row-owned Yjs documents are universal: every live row latently owns exactly
-one document at the row's own address, and every table lens exposes
-`openDocument(rowId)`, which checks liveness, returns a revocable handle, and
-lazily attaches the realtime collaboration overlay when synchronization is
-attached. Durable outbound publication does not depend on that handle or
-connection remaining open. Row deletion,
-through any lens or through synchronization, revokes open handles and removes
-document bytes in the same transaction. The document is schema-free Yjs
-infrastructure with no document IDs and no layout or touch policy. There is no
-per-definition `document` declaration: definitions are borrowed release-local
-lenses, and both storage authorities already enforce the document lifecycle
-purely by row address and liveness, so a definition flag could only gate
-client-side API visibility while letting independently authored definitions
-sharing one structured row address disagree about a capability neither owns. Opening a
-document on a table that never uses one is inert: no bytes exist until the
-first update is persisted, and the row tombstone deletes whatever exists.
-
-### Status and errors
-
-Expose only states a maintained UI actually distinguishes. A starting candidate
-is `local`, `syncing`, `idle`, `offline`, and `authentication-required`, plus a
-generic last error, pending counts, and address-scoped parked work for
-diagnostics. Status is observation, not settlement. Do not expose `settle`,
-`synchronizeThrough`, protocol floors, lineage recovery, database transitions,
-or storage migration errors.
-
-The protocol and persistence path may land before the polished status surface.
-During that interval, the durable dirty or in-flight obligation remains the
-source of truth and the runtime must not report the address as synchronized.
-Structured parked details and Home presentation complete the wave; they do not
-justify a second publication path, a thrown editor mutation, or a manual retry
-button.
-
-Ordinary `get` absence is `undefined`; ordinary delete reports whether a row
-was deleted. Use typed Results at unsafe storage, validation, auth, and network
-boundaries, not around every expected collection operation by reflex.
-
-## One logical address space
-
-```txt
-table row  (namespace key, table key, row ID)
-value      (namespace key, value key)
-document   (namespace key, table key, row ID)
-```
-
-Address kind distinguishes rows from values, so their local keys need not share
-one flat key space. Two applications compose by declaring or installing Lenses
-that name the same structured address. Different Lenses may interpret that
-stored state differently across releases. Lens validation never rewrites
-canonical state.
-
-## Minimal physical model
-
-Relation names below describe responsibilities, not a public SQL contract. The
-implementation should collapse relations further when constraints and adapter
-support permit it.
-
-Authority responsibilities:
-
-```txt
-metadata
-  physical format version, active authority lifetime, next authority sequence
-
-replicas
-  replica ID, last accepted local batch, request digest, receipt
-
-state
-  address kind, namespace key, table-or-value key, optional row ID,
-  live-or-deleted state, JSON payload when live, changed sequence
-
-document updates
-  row address, ordered baseline-or-update bytes
-
-blob bytes
-  row address and SHA-256 digest, stored outside SQLite
-```
-
-Local responsibilities:
-
-```txt
-metadata
-  physical format version, replica ID, optional attached principal,
-  attached authority lifetime, last fully applied authority sequence
-
-state
-  the same latest live-or-deleted scalar shape
-
-outbox
-  bounded ordered local scalar changes awaiting authority receipt
-
-document updates
-  row address, ordered baseline-or-update bytes
-
-document publication
-  row address, local state vector, last proven authority state vector,
-  optional parked reason
-
-blob publication
-  row address and digest for immutable bytes awaiting authority acceptance
-
-blob bytes
-  row-scoped immutable files outside SQLite
-```
-
-Do not create `__epicenter_databases`, database aliases, retired-row tables,
-catalog generations, protocol floors, transition tables, capture sessions, or
-migration registries. The one metadata responsibility exists because adapters
-must reject unknown physical formats and a local replica must remember its
-principal attachment. It is not an application-facing catalog and does not
-make the store portable SQL.
-
-Rows and values share one physical state relation, settled by schema analysis:
-the dominant sync query is one global `changed_sequence` range scan, which one
-relation serves with one unique index while also enforcing global sequence
-uniqueness directly. Values use an empty row-ID sentinel guarded by CHECK
-constraints on an address-kind discriminator (`row` requires a nonempty row ID
-and `live`/`deleted`; `value` requires the empty sentinel and `live`/`unset`;
-payload is non-null exactly when live). The 24-character lowercase row-ID
-grammar is thereby a permanent storage invariant, and the sentinel never
-appears in protocol or public types. The fold distinguishes terminal row
-deletion from nonterminal value unset through the discriminator.
-
-Each store's metadata is one explicit single-row table with named columns, not
-`PRAGMA user_version` (unsupported on Durable Object SQLite) and not key-value
-rows. The structured representation must be measured at the one-million-address
-conformance envelope. Do not carry forward the earlier byte estimate for a flat
-qualified key. The proof must include both namespace repetition and any compact
-dictionary encoding chosen by a private live store.
-
-Row deletion changes the latest state to a terminal tombstone and removes the
-payload and row-document bytes. Later create and update operations for that row
-address are no-ops. It does not append to a separate retired-row family. Value
-unset stores payload-free latest state that a later set may replace.
-
-## Scalar synchronization
-
-The semantic contract is fixed at independently convergent addresses and one
-whole-Epicenter synchronization scope. The transport mechanism below is the
-current protocol candidate, not a reason to assume that batches, checkpoints,
-receipts, cursors, or authority sequences have earned permanent product status.
-ADR-0163 remains Proposed until an adversarial protocol review either proves
-this candidate or replaces it with a smaller mechanism.
-
-One endpoint synchronizes the complete scalar Epicenter:
-
-```txt
-POST /api/sync/v1
-```
-
-The wire owns one bounded bidirectional exchange. Request and response names
-should describe cursors, batches, records, and receipts, not push, pull, or
-acquire product operations.
-
-The authority assigns every accepted latest-state change a unique increasing
-`changed_sequence`. A response fixes `through` before paging and returns latest
-records in `(after, through]`. Updating a record while a response is paged moves
-that record above `through`; the next exchange returns it. The client persists
-`through` only after every page is installed.
-
-The pagination and retry invariants are model-checked and proven. A bounded
-executable model (`tmp/pagination-model/`, 9 tests, 240 assertions, all
-passing; Wave 2 moves it into the owning package as protocol model tests)
-verified all of:
-
-1. Concurrent changes to an unreturned address do not cause it to be skipped.
-2. Concurrent changes to an already returned address are seen next exchange.
-3. Retrying the same local batch returns the same receipt and applies it once.
-4. A fresh replica at sequence zero receives all current live states and
-   tombstones through bounded pages.
-5. An offline replica's stale live row loses to the authority tombstone.
-6. A failed page install cannot advance the durable cursor.
-7. Continuous concurrent replacement cannot livelock the reader: `through` is
-   fixed at exchange start, so the cursor makes strict progress each exchange.
-
-The receipt contract is minimal: the authority stores one row per replica with
-the last accepted batch sequence, request digest, and receipt. The client
-assigns each sealed batch a per-replica monotonically increasing sequence and
-never sends batch N+1 before holding batch N's receipt. An exact retry returns
-the stored receipt without reapplying; a skipped sequence is refused. The model
-proved a full receipt table adds nothing under this discipline.
-
-A forked replica (a restored file copy submitting the same batch sequence with
-a different digest) receives a batch-conflict refusal and mutates nothing. Its
-recovery is local and tiny: mint a fresh replica ID, keep the applied cursor
-(pull cursors are client-held), and resubmit pending outbox changes as new
-batches; unique row IDs and idempotent folding make the resubmission safe.
-There is no lineage-recovery protocol, acquisition mode, or recovery-required
-verdict. The only other refusal is a retryable storage-limit at the physical
-wall, unchanged from ADR-0145.
-
-The endpoint route carries scalar protocol version `v1`. Document publication
-and any row-document realtime connection negotiate their own versions.
-Physical SQLite format versions remain adapter-local. Do not persist a
-cross-product of protocol floors.
-
-## Row-document synchronization
-
-Local document durability and authority publication are separate facts. Every
-local Yjs update appends its V2 bytes and advances the document's local state
-vector in one SQLite transaction. A runtime-owned background drain enumerates
-dirty addresses without requiring an application handle, hydrates one dirty
-document at a time, sends only state missing at the authority, and receives the
-authority's post-commit state vector. The local obligation clears only when
-that vector covers the current local vector. Closing a document destroys its
-live `Y.Doc` and any realtime connection but never deletes the obligation.
-
-Inbound document state stays lazy. An unopened document is not eagerly
-hydrated merely because another device changed it. Opening the document
-performs state-vector exchange and may attach a realtime collaboration overlay
-for low-latency peer edits and ephemeral presence. That overlay cannot be the
-only authority-publication path, and connection or initial-sync status cannot
-stand in for a durable authority acknowledgement.
-
-The exact realtime topology remains open for the live-collaboration dialectic.
-One fixed-address socket per open row is the leading candidate; multiplexing
-must replace it rather than coexist if measured browser socket limits earn the
-extra subscription machinery. The authority stores no permanently live
-`Y.Doc`. It may hydrate compact state for admission, publication, and
-state-vector exchange. Compaction preserves convergence but shares no scalar
-cursor or transport-batch semantics.
-
-## Blob synchronization
-
-Finalized immutable bytes live as raw row-scoped files. SQLite records only
-the row address and SHA-256 digest still owed to the authority. The runtime
-publishes those bytes automatically, retries idempotently, and clears the
-record only after the active authority accepts matching bytes at the live row
-address. Other replicas fetch cited bytes on demand; they do not mirror every
-authority blob eagerly.
-
-There is no blob metadata store, application upload state, explicit remote
-copy API, or generic outbox payload. Row deletion installs terminal scalar
-deletion state, removes document and publication records transactionally, and
-then reclaims the row's blob directory idempotently.
-
-## SQL, inspection, and export
-
-Applications have no SQL surface. Remove application-facing raw connections,
-CTE injection, guarded SQL, projection DTOs, and dependencies on private
-physical relation names.
-
-Epicenter Home owns trusted human and agent relational inspection. It reaches a
-live Epicenter through the storage owner, or opens an inert portable artifact,
-and presents the stable logical relations:
-
-```sql
-rows(namespace_key, table_key, row_id, fields_json)
-values(namespace_key, value_key, value_json)
-```
-
-Installed Lenses provide typed interpretations for Home's table browser. The
-naming, collision behavior, and lifetime of optional Lens-generated friendly
-SQL views remain open and are not implementation prerequisites for raw logical
-inspection.
-
-ADR-0167 defines portability as an identity-free artifact containing one
-selected owner's complete accepted current logical state. It represents the
-same logical Epicenter but is not the live replica file. Do not implement
-export or initialization in this wave. When implementation is authorized, it
-must not resurrect database scope, generic merge, or synchronization lineage.
-
-## Backups and authority replacement
-
-ADR-0170 turns the portable representation into one recovery model:
-
-```txt
-One principal
-├── one live Epicenter
-│   └── one active authority lifetime
-└── zero or more sealed Backups
-```
-
-Backups are host-visible, immutable portable Epicenters. They are complete
-through the selected authority cut, including every blob byte that authority
-owns. They may be listed through metadata, downloaded, restored, and deleted.
-They are never live databases, synchronization targets, browsable host-side
-application stores, partial exports, or merge inputs.
-
-The host control plane owns active-lifetime selection and Backup lifecycle
-outside the replaceable authority. Hosted, self-hosted, and local-only hosts
-provide the same conceptual owner without sharing a physical schema.
-
-Restore accepts one Backup or validated uploaded portable Epicenter, builds a
-fresh authority, and atomically replaces the active pointer only after complete
-validation and construction. Every old replica is refused and must erase and
-reacquire. Restore does not automatically preserve the outgoing authority; the
-person chooses Back up first when that state should survive.
-
-Work backward in these dependency-ordered waves. Container encoding, registry
-schema, object-store layout, physical deduplication, quotas, and UI texture stay
-open until their owning wave proves them:
-
-1. **Prove the portable substrate.** Specify and round-trip one complete logical
-   artifact across scalar rows, values, compact documents, and authority-owned
-   blobs. Validate integrity and stream the 512 MiB conformance envelope without
-   exposing a live private SQLite schema.
-2. **Bind synchronization to one authority lifetime.** Introduce one opaque,
-   equality-only lifetime identity and refuse every scalar, document, and blob
-   operation from a superseded lifetime. Do not expose lifetime order or history
-   as product API.
-3. **Build sealed Backups.** Capture a stable authority cut, publish registry
-   metadata only after the artifact is complete, and implement list, download,
-   and independent deletion. A deleted Backup must affect neither the live
-   Epicenter nor another Backup.
-4. **Build Restore beside the active path.** Validate a Backup or uploaded
-   portable artifact, construct the successor without mutating the current
-   authority, then atomically close acceptance against the outgoing lifetime and
-   activate the successor under a fresh lifetime identity. Every in-flight
-   scalar, document, or blob operation is either durably accepted before this
-   linearization point or refused; none may acknowledge success afterward.
-5. **Stop the old lifetime before deletion.** After activation, route all new
-   work to the successor and prove old replicas receive the lifetime-mismatch
-   refusal. Keep the superseded private authority only as a temporary cleanup
-   hold during verification. It can never become active again and is never a
-   user-visible Backup.
-6. **Verify before physical deletion.** Inject failures during capture,
-   validation, blob streaming, successor construction, pointer activation,
-   replica reset, and full reacquisition. Race in-flight scalar writes, document
-   updates, and blob operations against activation. Only then delete the
-   superseded private authority and prove that an explicitly retained Backup
-   still restores.
-
-The user-visible product needs only `Back up`, `Download`, `Restore`, and
-`Delete`. Clearing tombstones, destructive rollback, edited-artifact
-replacement, and synchronization reset are consequences of Restore, not
-separate protocols.
-
-## Target package graph
-
-```txt
-field -----> data <----- document-sync -----> sync
-                \
-                 +-----> sqlite
-
-agent -----> small data interface
-
-portable scalar/document protocols -----> server -----> api, self-host
-```
-
-Candidate packages:
-
-```txt
-@epicenter/data
-  defineLens, parseLens, defineTable, defineValue, bind, local replica, sync attachment
-
-@epicenter/document-sync
-  row-document protocol, persistence, connection, presence
-
-@epicenter/agent
-  agent loop over an explicit table/value capability
-
-@epicenter/sqlite
-  domain-free adapters only
-```
-
-Do not create packages for database address, database control, database
-migration, inventory, capture, or lifecycle. `row-sync` does not earn a
-package: the caller map found 17 server files and zero client files importing
-it outside the legacy Workspace tree. The portable scalar wire schemas, fold,
-admission limits, and digest live in `@epicenter/data` under a protocol subpath
-export that `@epicenter/server` consumes; the MIT leaf direction is already how
-server consumes `@epicenter/sqlite` and `@epicenter/identity`. Delete
-`packages/row-sync` after both sides import the new protocol leaf.
-
-`@epicenter/server` owns the authority schema and transactions. It must not
-import application definitions or the local Data runtime. MIT code may not be
-copied from AGPL owners without an explicit relicensing decision.
-
-`@epicenter/workspace` is obsolete. Migrate retained callers to Data, Document
-Sync, or Agent. Stop all imports while Workspace remains on disk, verify the
-required graph, then delete it and sweep stale exports, tests, examples, docs,
-and manifest dependencies. Do not leave a compatibility barrel.
+Values record keys are Lens-declared and admit dotted segments
+(ADR-0163); computed keys range over the declared closed set. Document and
+blob capabilities are exposed on table record handles only in V1 (ADR-0173,
+ADR-0174); values handles expose no terminal delete. Wire verbs, lanes,
+sequences, submissions, digests, and retry state never appear in the
+application API. Reads classify nonconforming data and preserve unknown
+fields. Status is observation, never settlement:
+`settled | ready | blocked` with a non-empty blocked-work evidence list, and
+`epicenter.blockedRecords()` is the Home enumeration of blocked addresses.
+
+Replica identity is written once at creation. An account replica is permanently
+owned by one `{ deploymentId, principalId }` pair; an unclaimed replica is
+permanently unclaimed. The adapter selects a separate physical identity slot
+for each. A carrier is fixed for one account-replica runtime lifetime. Signing
+out disposes that runtime and opens the unclaimed replica without a carrier;
+switching principals opens another account replica. There is no attach
+operation. Lens import and whole-replica retirement follow ADR-0178.
+
+## Physical model
+
+ADR-0177 owns physical layout by semantic role. Durable Object and Bun
+authorities share one wide authority schema; Browser OPFS and Bun replicas share
+one wide replica schema. Their columns and invariants differ because they own
+different state machines. The selected replica row includes scalar lanes,
+document and blob watermarks, and compact refusal evidence. Covering partial
+indexes keep publication drains sparse. Every role owns one explicit single-row
+state relation. No adapter invents another schema and no caller-facing surface
+depends on relation shape.
+
+The four-combination relation-and-coordinate benchmark matrix that this spec
+previously carried is retired. The retained 2026-07-21 Bun/native run and its
+schema-v3 report remain honest historical evidence about their own fixture
+under `docs/benchmarks/scalar-facts-layout/`; that run selects nothing, its
+latency estimator was established to be inadequate, and its storage
+observation (normalized coordinates saved about 12% on that fixture, roughly
+two prefix copies) is an input the wide-versus-split charter supersedes. Do
+not rerun the historical matrix; run the ADR-0177 charters.
+
+The 24-character lowercase record-key grammar for table collections is a
+permanent storage invariant. The restricted address grammar and bytewise
+canonical ordering are enforced at every admission boundary (ADR-0163).
+
+## Protocol kernel status
+
+The executable protocol kernel lives under `packages/data/src/protocol/v1/`
+behind a private barrel, with defensive RFC 8785 canonical encoding,
+deep-frozen admitted requests, a pure storage-free reference authority, and
+runtime-free proofs. W1A (2026-07-21) rewrote its address and shape layer to
+the kindless record triple, one fact shape, and the four operations with the
+absorption-first algebra (`foldIntent` plus `composeOperations`), deleting the
+kinded row/value addresses and their eight shapes without aliases or a
+compatibility decoder; the canonicalization, admission hardening, and
+authority-fold architecture carried over unchanged. W1A also landed the
+maintained lane-machine conformance suite under
+`packages/data/src/store/conformance/`: the probe's reference transitions as
+owner-partitioned cases over ADR-0177-shaped fixtures, with file-backed
+statement-boundary crash injection, owning fixture disposal, and the
+persisted first-seal request-bytes-and-hash assertions. The replica subset is
+stated once, adapter-agnostically, in a parameterized case runner behind a
+small binding contract (semantic lane observations plus prepared crash-probed
+transitions), with the pure protocol authority as its settlement oracle; the
+unexported SQLite reference driver binds to it now, and W1B/W1C bind
+production replica adapters to the same cases without copying them. The
+authority and document/blob subsets stay reference-bound until W2 and W3 bind
+their production owners; the terminal-tombstone case proves installation,
+blob-evidence clearing, and child-row deletion as one crash-injected
+transaction. No production consumer imports the kernel.
 
 ## Execution waves
 
-### Wave 1: freeze proof contracts
+Work backward from the recognition tests at the end of this spec. Every
+executable wave follows one rollback order:
 
-- Replace the database ADR/spec vocabulary with the decisions above. Done in
-  this spec revision.
-- Add protocol model tests for latest-state pagination, idempotency, deletion,
-  and first attachment. Done as `tmp/pagination-model/`; Wave 2 adopts them
-  into the owning package.
-- Inventory exact retained Workspace callers and classify each as migrate,
-  delete, or temporarily break. Done; the caller map, schema inventory, API
-  evidence, and identity trace live in `tmp/architecture-evidence/`.
-- Freeze the structured namespace/local-key grammar and local
-  principal-attachment invariant.
+```txt
+build the new path
+stop importing the old path
+verify the new path
+delete the old path
+```
 
-Rollback point: docs and tests only.
+This is a rollback checkpoint, not a compatibility mode: while the old path
+remains on disk, no retained caller imports both.
 
-### Wave 2: build the new scalar core
+### W0: durable contracts
 
-- Implement the minimal latest-state and tombstone fold independently of the
-  old Workspace runtime.
-- Implement one sync exchange and authority conformance suite.
-- Implement the local replica schema, outbox, cursor installation, and sync
-  attachment.
-- Prove that one local store reopens identically and refuses another principal.
-- Bind every exchange and receipt to one authority-lifetime identity and prove
-  restored authorities refuse stale cursors and batches.
+- Amend and replace the owning ADRs so the record model, lanes, artifacts,
+  and physical selection each have one durable owner (done in this revision:
+  ADR-0160 through ADR-0177).
+- Align `docs/CONTEXT.md`, the architecture guide, and this spec (this
+  revision).
+- Preserve the disposable lane probe as evidence only. It proved transaction
+  rollback and logical-state equivalence in memory; it did not prove
+  file-backed crash and reopen behavior. W0 is documentation only; W1 begins
+  by promoting and strengthening its transition proofs in the maintained
+  repository suite. The maintained harness, not the probe, is the shipping
+  gate.
 
-Rollback point: the old path still exists and no caller imports the new core.
+Rollback point: docs only.
 
-### Wave 3: build typed Data
+### W1: replica records and lanes
 
-- Implement pure JSON `defineLens`, `parseLens`, nested table/value definitions,
-  structured addresses, and one multi-Lens `bind` convention.
-- Implement table CRUD, classified `scan` and `entries`, value operations,
-  observation, and
-  nonconforming read behavior.
-- Prove compact Yjs baseline-plus-tail equivalence in a runtime-independent
-  model, then persist the bounded chain in each SQLite adapter.
-- Implement atomic count-and-byte compaction and the direct-to-baseline path for
-  transient updates too large for one physical tail row.
-- Add the local dirty revision and immutable in-flight publication image. Prove
-  its crash and racing-edit transitions against a fake authority before adding
-  networking.
-- Implement one authority document-acceptance transaction: check row liveness,
-  apply the candidate, enforce post-candidate bounds, compact when required,
-  commit, and return the exact payload receipt.
-- Attach the runtime-owned background drain to that operation without depending
-  on open handles. Then route the realtime overlay through the same operation;
-  it earns no second acknowledgement or persistence path.
-- Preserve structured parked refusal details and expose them through Data and
-  Epicenter Home. This presentation may follow the core protocol, but no
-  intermediate implementation may report refused work as synchronized.
-- Replace browser IndexedDB blobs with row-scoped OPFS files, content-digest
-  identity, and durable automatic publication records.
-- Bind open row documents through the separately owned realtime collaboration
-  overlay.
-- Add browser and native adapter conformance tests.
+W1 is deliberately serial at its foundation. Do not fan out into the replica,
+authority, browser, and Cloudflare stacks before the shared semantics and
+maintained proof surface exist.
 
-Rollback point: production callers still use Workspace.
+#### W1A: shared semantics and maintained harness
 
-### Wave 4: migrate retained callers
+- Rewrite the private protocol kernel's address and shape layer to the record
+  triple, one fact shape, and four operations; keep the hardened canonical
+  encoder and admission architecture.
+- Land the four-operation composition tests, including randomized sequential
+  equivalence and tombstone absorption evaluated before any payload logic.
+- Promote the disposable probe's transition cases into a permanent conformance
+  suite: preserve all eleven transition scenarios as reference fixtures,
+  partition them by replica, authority, and document/blob owner, and retain
+  statement-boundary fault injection. One unexported test-only SQLite driver
+  may execute the reference cases; it is an oracle, not a second product
+  store. Strengthen the old in-memory rollback probe to file-backed close and
+  reopen coverage, and add the new assertion that persisted first-seal
+  canonical request bytes and their hash survive every retry. Shape the
+  replica subset so adapters can run it without copying the cases; W2 and W3
+  bind the authority and document/blob subsets to their production owners.
+- Stop for an independent review before implementing a production replica
+  store. Blob staging write-order cases join the same maintained suite in W3,
+  when the blob foundation gives them a real adapter to exercise; do not add
+  skipped or stubbed tests in W1A.
 
-The maintained migration surface from the caller map: apps/epicenter (3
-runtime files SQLite family, 8 agent files), apps/whispering (7 runtime
-files), packages/skills (5 runtime files), apps/honeycrisp, packages/chat
-(delete `legacy-root-yjs.ts`), packages/app-shell (delete the sign-in
-migration and workspace-gate adoption surfaces outright; migrate agent-chat),
-packages/svelte-utils (`from-table`/`from-kv` become Data-backed), packages/ui
-(relocate the natural-language date-input's Workspace utility imports),
-packages/server (`room/core.ts` presence import moves to Document Sync), and
-packages/cli (daemon/mount: six runtime files; decide migrate-to-data-backed
-mounts versus explicit retirement before this wave ends; it migrates last
-either way).
+#### W1B: Bun replica store
 
-- Migrate Epicenter, Whispering, and other maintained applications from their
-  composition roots inward.
-- Migrate Server to the one scalar route and new document addresses.
-- Migrate Agent through its explicit data interface.
-- Remove imports of database-address, database-control, database-migration, and
-  provisional database inventory/scheduler code.
-- Remove application SQL callers and examples. Route Home's trusted inspection
-  through the live storage owner instead of a public application API.
+- Implement the replica store on the ADR-0177 schema: lane transitions,
+  composition and compaction under the one algebra, seal with persisted
+  request bytes, settle, monotonic fact installation, tombstone dominance,
+  parked retention and consumption, erase and reacquire.
+- Run the maintained harness against the Bun adapter and complete the
+  wide-versus-split hot-path evidence that can be measured on Bun.
 
-At the end of this wave, no retained manifest or source file imports Workspace.
-Workspace remains on disk but unreachable.
+Implementation checkpoint (2026-07-22): the private production store now owns
+the ADR-0177 wide relation and passes the shared replica conformance cases
+through a Bun binding whose crash injection stays entirely test-side. The Bun
+store recognizes only its exact dedicated schema, and facts-feed pages are
+admitted against the exact durable request inside the installation transaction;
+the cursor is derived rather than supplied independently. Sealing takes the
+largest admissible canonical-address prefix while leaving overflow pending,
+and erase retains a lifetime fence so the same authority ledger cannot be
+rebound behind a reset submission number. The full
+Bun charter slice then exercised exactly 1,000,000 final-present records at the
+536,870,912-byte V1 proxy. Its stop rule fired with mixed material directions:
+wide won point-read and median feed-install work, while split won traversal,
+lane-write, and feed-install tail latency; reopen was equivalent under the
+stop rule. The report lives under
+`docs/benchmarks/replica-layout/`; W1C and W2 still own the browser and Durable
+Object slices before ADR-0177's Proposed selection can be accepted or reversed.
 
-### Wave 5: verify before deletion
+#### W1C: browser replica adapter
 
-- Run targeted package tests and typechecks after each migrated owner.
-- Run the complete monorepo tests, typechecks, lint/format, licenses, package
-  graph, docs hygiene, and API path checks.
-- Reuse one document state-machine suite across Bun SQLite, browser OPFS SQLite,
-  the Cloudflare Durable Object authority, and the self-host authority. Add
-  adapter-specific tests only for storage and lifecycle behavior the shared
-  suite cannot express.
-- Cover the document protocol with the following canonical narratives. Do not
-  multiply every data shape, crash point, topology, and adapter into a full
-  Cartesian product: use property tests for update shapes, deterministic fault
-  injection for transaction boundaries, and pairwise adapter coverage around
-  these end-to-end stories.
+- First pass W1C0, the browser-owner topology admission checkpoint. Each live
+  page starts one dedicated-worker candidate; one exclusive origin Web Lock
+  elects the only worker allowed to open the OPFS SAH pool and SQLite replica;
+  waiting candidates own no store or semantic cache. A versioned
+  BroadcastChannel carries addressed RPC, replies, and invalidations only.
+  Prove in maintained Chromium and WebKit evidence that the actual owner
+  context admits the SAH pool, two tabs observe at most one SQLite owner,
+  owner-page close and forced worker termination promote a waiting candidate,
+  reopen passes integrity and accepts another write, profile relaunch preserves
+  the semantic witness, and a mutating request pending across owner loss fails
+  explicitly rather than replaying. Do not begin the browser layout charter
+  until W1C0 passes.
+- Implement the browser OPFS adapter behind the same store boundary and run
+  the maintained harness unchanged.
+- Complete the browser slice of the wide-versus-split hot-path charter.
+- Complete the physical OPFS capacity and reopen charter on physical iOS
+  Safari and Android Chrome. Keep honest quota refusal outside the semantic
+  store API.
 
-  | Narrative | Required proof |
-  | --- | --- |
-  | Ordinary edit | Local commit survives closure; authority commit precedes receipt and fanout |
-  | Delete-only edit | Exact receipt proves the submitted delete set even when the state vector does not advance |
-  | Racing local edit | Receipt clears only its captured revision; later work remains dirty |
-  | Lost acknowledgement | Exact bytes retry idempotently without permanent request history |
-  | Concurrent clients | Reordered valid updates converge through the authority join |
-  | Compaction failure | Reopen sees the old chain or new baseline, never a partial state |
-  | Oversized tail entry | Valid bounded state stores directly as a compact baseline |
-  | Product-bound refusal | Below, at, and above byte and struct limits are deterministic and visibly parked |
-  | Row deletion race | Neither publication nor fanout resurrects the document |
-  | Hibernation and reopen | SQLite alone reconstructs state and outstanding publication work |
-  | Restore race | Work commits before activation or receives lifetime mismatch; it never crosses lifetimes |
-  | Backup cut | The nullable compact cell decodes to exactly the accepted authority document |
+Implementation checkpoint (2026-07-22, physical qualification open): W1C
+starts from the verified W1B base
+`888eb23efb6efab298c6a1972c3dc8e89cc81e88`. The production browser owner runs
+the ADR-0177 `openReplicaStore` behind sqlite-wasm's OPFS SAH-pool
+VFS in one dedicated Worker holding the exclusive origin Web Lock. Waiting
+page candidates open no database. Chromium 149.0.7827.55 and Playwright WebKit
+26.5, both headless on arm64 macOS through Playwright 1.61.1, passed the shared
+replica conformance cases, dedicated-owner reopen and integrity checks, elected
+single-owner topology, page-close takeover, forced-worker takeover, explicit
+pending-mutation refusal on owner loss, and persistent-profile relaunch. The
+lossy coordination suite additionally proves bounded recovery from lost owner
+discovery, read requests, read replies, and invalidations. Read-only work may
+retry across an owner-session change; mutations never replay and fail with an
+explicit owner-lost result. The integrated package suite reported 424 passing
+tests and no failures. These are simulated engine results, not physical Safari
+or Chrome evidence.
 
-- Prove the whole-replica trade at 1,000,000 live scalar addresses and 512 MiB
-  of canonical encoded logical state. Measure authority scan, transfer,
-  browser and native installation, reopen, and peak memory. Inject crashes
-  between pages and prove durable progress resumes without reinstalling prior
-  pages. Treat this as a conformance envelope, not a hard product limit or a
-  protocol constant.
-- Smoke first sign-in with local data, sign-out/reopen, same-principal sign-in,
-  wrong-principal refusal, two-device convergence, offline deletion, and browser
-  multi-tab writes.
-- After the realtime topology dialectic freezes, verify its chosen shape on
-  iPhone Safari and an installed PWA at realistic simultaneous document counts.
+The maintained browser layout harness and raw reports are under
+`packages/data/browser-evidence/replica-layout-*` and
+`docs/benchmarks/replica-layout/`. Clean-source Chromium 149.0.7827.55 and
+Playwright WebKit 26.5 runs each completed all six wide-versus-split repetitions
+at 1,000,000 records and exactly 536,870,912 proxy bytes, passed integrity and
+reopen checks, and retained raw hot-path timings, query plans, schema hashes,
+storage measurements, and runtime provenance. Both engines fired ADR-0177's
+material-direction stop rule: split traversal and pending-lane writes were
+materially faster, while point reads, feed installs, reopen, and the 3.11%
+storage difference were closer. These desktop results selected split only for
+their scalar-shaped fixture. The later complete Bun and watermark charters
+reversed that recommendation: split's material traversal and local-write wins
+did not survive the document and blob foundations, while wide materially won
+point reads and retained simpler invariant ownership. Physical mobile
+qualification of the selected wide owner remains open.
 
-Rollback point: restore imports to the old on-disk path if proof fails.
+The subsequent complete Bun charter bound a production-shaped split store to
+the unchanged conformance suite, included scalar lanes plus document and blob
+state, and ran both candidate orders at the one-million-record envelope. Wide
+won point reads by 2.3 to 2.5 times and fact installation by about 1.2 times;
+complete traversal favored wide slightly and lane writes were at parity. Split
+used 588 MB versus wide's 759 MB, but introduced eight cross-relation
+invariants. A controlled index probe attributed the apparent wide drain losses
+to partial indexes covering only `record_id`. A final clean-source watermark
+probe gave both candidates covering owed indexes and the target revision/digest
+comparisons: document drains were equal at about 0.3 ms, wide blob drain was
+2.0 ms versus split's 7.4 ms, and split's 64-receipt settlement advantage was
+only 0.04 to 0.07 ms. ADR-0177 therefore selects role-specific wide rows for
+both replicas and authorities. The split implementation remains unexported
+evidence and is not integrated into production.
 
-### Wave 6: delete the old graph
+W1C's automatable owner, conformance, liveness, and desktop layout work is
+complete. Physical iOS Safari and Android Chrome still owe the 250,000-address
+and 128 MiB floor, conditional full-envelope run, quota-refusal prefix and
+progress proof, and hidden-owner suspension and eviction qualification. The
+older SharedWorker smoke harness is not W1C evidence: Chromium refuses its
+SAH-pool execution context, and its WebKit worker-termination cell failed in
+this run. W1 is therefore not complete, and no physical result is inferred from
+Playwright.
 
-- Delete `packages/workspace` and its compatibility exports.
-- Delete provisional database packages, inventory, control, migration,
-  scheduler, floors, aliases, rekeying, capture, SQL projection, and per-database
-  lifecycle code.
-- Delete or explicitly retire deferred apps that have not migrated.
-- Re-run stale-name searches for Workspace and Database platform nouns, allowing
-  only unrelated SQL/database terminology and historical superseded ADRs.
-- Delete this spec after the implementation lands and mark its ADRs Accepted.
+W1 does not migrate retained callers or delete Workspace. W4 owns the point at
+which every replacement capability exists, callers stop importing the old
+path, verification passes, and `packages/workspace` can be deleted.
+
+### W2: authority records and retry witness
+
+- Implement the authority on the ADR-0177 schema: one current-fact lane,
+  `next_sequence`, the per-replica witness (number, canonical hash, bounded
+  parked results), the one-transaction submission fold, and the facts feed
+  with same-snapshot `hasMore`.
+- Mount `GET /api/sync/v1/facts` and `POST /api/sync/v1/submissions` after
+  in-process conformance passes; Bun and Durable Object adapters share one
+  suite.
+- Derive and freeze the inclusive V1 constants from the settlement-response
+  inequality plus measured browser, Bun, and Cloudflare evidence, including
+  the DO 2 MB row ceiling and the combined-replica-row bound.
+- Complete the Durable Object slices of ADR-0177's wide-versus-split hot-path
+  and billing/write-amplification charters.
+
+Implementation checkpoint (2026-07-22, limits evidence open): the production
+scalar V1 authority now owns the wide relation, monotonic sequence allocator,
+per-replica retry witness, atomic submission fold, and same-snapshot facts
+paging. Bun SQLite and
+the Durable Object SQLite adapter run the same maintained authority cases. A
+real Miniflare/workerd `DataAuthority` additionally proves the platform KV
+table, exact retry, refusals, tombstones, process reopen, account deletion, and
+successor lifetime. Strict bounded HTTP routes are mounted beside the legacy
+caller path in the hosted, self-hosted Cloudflare, and self-hosted Bun
+deployments. An automated two-file-replica HTTP proof covers create, seal,
+submit, exact retry, second-replica convergence, deletion, reopen, and tombstone
+dominance. Hosted OAuth and self-host `instance` principal resolution are
+covered at both routes. The legacy path remains live until W4B migrates its
+callers and unmounts it; no caller uses both.
+
+The current V1 values are a validated provisional interoperability profile,
+not frozen product evidence. They were inherited from the conformance fixture.
+The settlement formulas derive only a 4,531-byte facts-response floor and a
+288,429-byte submission-response floor for that profile; they do not derive
+the selected 256 KiB and 1 MiB ceilings. Layout evidence proves feasibility,
+not the 4 KiB fact, 256 KiB request, or 64-address choices. Authority and retry
+witness rows are below Durable Object SQLite's 2 MB row ceiling, but the whole
+replica proof remains open because immutable deployment and principal identity
+text are not yet bounded. W2 cannot claim its inclusive constants frozen until
+one maintained boundary-vector charter runs the exact maximum shapes through
+Bun, browser OPFS, real workerd, the HTTP boundary, reopen, and row-size checks.
+
+The full Durable Object charter used two opposite candidate orders, each with
+1,000,000 records at the exact 536,870,912-byte proxy and 128 measured
+64-address batches. Wide used 6.52% less storage, kept write amplification
+identical, and materially won the authority feed, fact write, and settlement
+paths; split won only the isolated accepted-blob write. Wide paid
+one extra low-priced row read per touched address for its secondary address
+index. Current Cloudflare allowances and rates make shared row writes the
+governing billing term, so that read delta does not reverse the selection.
+Both layouts reopened with complete row counts. The raw reports, pricing
+calculation, and limitations live under `docs/benchmarks/authority-layout/`.
+This evidence accepts wide for the authority role. Later complete replica
+evidence also selects a role-specific wide row. ADR-0177 remains Proposed until
+the target watermark schema, covering drain indexes, and physical mobile
+browser charter land together.
+
+W2 may begin after W1A passes independent review while W1B and W1C continue
+against the frozen shared kernel and conformance contracts.
+
+### W3: document and blob foundations
+
+- Persist bounded baseline-plus-tail chains keyed by `record_id`, local and
+  authority-accepted document revisions, compact bound-refusal evidence, and
+  acceptance receipts (ADR-0174, ADR-0171). Do not persist a frozen publication
+  payload: regenerate the authority update after an interrupted attempt.
+- Implement the record-wide latent capabilities with the only-tombstone-reaps
+  law and the typed per-record `exportDocument` operation.
+- Implement the blob staging write-order law and both idempotent sweeps
+  (ADR-0172, ADR-0173); replace browser IndexedDB blobs with OPFS raw files.
+- Enable the maintained blob staging write-order fault cases now that they
+  exercise real storage owners.
+- Route the realtime overlay through the same authority acceptance operation;
+  it earns no second acknowledgement path.
+
+### W4: Lens API, complete caller migration, and Workspace deletion
+
+W4 has three standalone rollback checkpoints. Do not combine import cut,
+verification, and deletion into one commit.
+
+#### W4A: build the complete replacement and migrate callers
+
+- Implement `defineLens`, `defineTable`, `defineValues`, `parseLens`, `bind`,
+  classified reads, value property access, subscriptions, and the status and
+  parked observation surface, including the W3 document and blob operations.
+- Build the runtime supervisor: one immutable identity slot, one fixed
+  open-time carrier for an account replica, wakeups, independent fact and
+  submission drains, backoff, status, and disposal. Implement account and
+  unclaimed opens, explicit Lens import, verified-import retirement, and
+  runtime replacement on authentication changes.
+- Migrate retained callers from their composition roots inward: apps/epicenter,
+  apps/whispering, packages/skills, apps/honeycrisp, packages/chat,
+  packages/app-shell, packages/svelte-utils, packages/ui, packages/server,
+  packages/cli (decide data-backed mounts versus retirement before this wave
+  ends).
+
+#### W4B: stop imports and prove the replacement
+
+- Stop every import of `@epicenter/workspace` and the old exchange path while
+  leaving the old code on disk. Verify typechecks, maintained suites, and the
+  retained application smoke paths against only the replacement.
+
+#### W4C: remove the old path
+
+- After verification passes, delete `packages/workspace` and the old exchange
+  path, then sweep stale exports, tests, examples, docs, and manifest
+  dependencies.
+
+Implementation checkpoint (2026-07-23): W4 is complete through all three
+rollback boundaries. W4A finished with the runtime-owned realtime
+record-document channel (an optional `documentRealtime` opener on the
+authority carrier; per-open-record channels through the one authority
+acceptance; realtime acknowledgements never advance the accepted-revision
+watermark) and migrated Honeycrisp, Skills, and the desktop host, which now
+binds `homeLens` and `honeycrispLens` over one Bun replica. The CLI's
+workspace watcher verbs retired with the model. W4B stopped every retained
+production import and unmounted the legacy exchange from all four deployment
+roots with the full retained proof green. W4C deleted `packages/workspace`,
+`packages/row-sync`, `packages/document-sync`, `packages/chat`, the
+`packages/data` pre-W4 stack, the server's legacy exchange, and the
+only-deferred UI surfaces, and added the Cloudflare delete-migrations for
+`EpicenterAuthority`. The deferred workspace applications (opensidian,
+tab-manager, todos, vocab, wiki) and `packages/filesystem` remain on disk,
+uncompilable by design under ADR-0166's deferred-application clause; each
+one's migrate-or-retire call is a separate product decision. Open realtime
+question 3 below is now answered in code: a fixed-address socket per open
+record document.
+
+### W5: snapshot capture and the Home query artifact
+
+- Ship snapshot capture in the first Home release. The release includes
+  `captureSnapshot` plus a minimal way to open or query the artifact; a
+  polished SQL console is explicitly deferred.
+- Implement `captureSnapshot` on the store owner: one read transaction, the
+  visible-state fold in owner code, `_epicenter_records`, document and blob
+  metadata columns, `_epicenter_artifact(kind='snapshot')`, and selected-Lens
+  views with the capture-time collision refusal.
+- Desktop Home queries the artifact through a separate read-only handle;
+  browser Home receives transferred bytes and never opens a second OPFS
+  connection.
+- Home live surfaces (table browser, status, parked work) use typed
+  operations only. Delete every live-session, TEMP-view, and busy-refusal
+  surface from Home plans.
+- The snapshot capture probe (capture time and one-transaction consistency at
+  the 100k envelope) gates this wave; it is a product charter, not a physical
+  layout selector.
+
+### W6: portable Backup and Restore
+
+- Implement the authority-side capture: bounded catch-up then brief quiesce,
+  the durable pin manifest with explicit success/cancel/crash transitions,
+  authority-side document composition, pin/copy/verify/seal for blobs, and
+  publish-only-when-complete (ADR-0167, ADR-0170).
+- Implement Restore: validate only `kind='portable'`, construct the successor
+  authority, atomically activate, refuse the superseded lifetime, and prove
+  replicas erase and reacquire. Restore never emits ordinary intents.
+- Inject failures during capture, validation, streaming, construction,
+  activation, and reacquisition; race in-flight operations against
+  activation.
+
+### W7: Proposal prototype, then ADR, then product
+
+- Run the bounded nine-test prototype (scratch code, bun:sqlite, no UI): a
+  ~20-address proposal over one table and one values collection with
+  creations, deletions, unknown fields, and a filtered base ledger;
+  disjoint-versus-same-field concurrency; crash-at-every-k Apply resume from
+  the lagging watermark; the parked-overlay trap that kills any
+  skip-if-matches optimization; duplicate Apply convergence; consumption
+  while the pending lane still owes; source-fence refusal (Restore and
+  replica remint) before and during Apply; creation idempotency under
+  interleaved deletion plus collision refusal; tamper refusal via schema and
+  HMAC verification.
+- Record keys for proposal-created records are minted at draft time (the
+  friendly table's key column defaults to a 24-character lowercase hex mint),
+  so drafts self-reference and Apply re-emits stable keys idempotently.
+  Apply re-emits every manifest change unconditionally as ordinary typed
+  writes; review classification never changes Apply semantics.
+- If the prototype passes, write the Proposal ADR (artifact kind, lifecycle,
+  compiler boundary, fences, refusals), then build the product. If any test
+  demands per-change receipts, a second outbox, or proposal state that
+  outlives local admission, the design is falsified; stop and redesign.
+- Scheduling: after W6. Nothing in W1 through W6 depends on its outcome.
 
 ## Deletion ledger
 
 ```txt
-defineWorkspace, WorkspaceId, workspace prefixes
-defineDatabase, defineDatabaseModel, DatabaseId, DatabaseModel
-epicenter.database(...), per-database sync/status/lifecycle
-Device and Account parallel local stores
-database catalogs, inventory, aliases, grants, generations
-rekeying, bridge layouts, protocol floors, offline migrators
-push, pull, acquire as separate public/network operations
-retention floors, acquisition scratch, lineage recovery
-per-database clear, capture, merge, reset, export state machines
-permanent retired-row relation separate from latest state
-application SQL escape hatches, private-schema dependencies, projection DTOs
-flat qualified data keys, redundant table/value/field key properties
-generic authority scheduler
-workspace compatibility barrel
+row/value address kinds, two-address wire unions, eight kinded shapes
+flat qualified keys + prefix parsers, redundant key properties
+reserved __epicenter_kv giant row, installed_guards relation
+outbox append log, negative-row witness, in-memory sealBatch
+hasPendingAddress discard branch, fork-recovery renumbering
+document_updates unbounded log, separate facts/intents/parked relations
+coordinate-normalization dictionary + joins, 4-layout benchmark matrix
+defineValue-per-singleton + anonymous values bag
+the live SQL inspection session and its owner-side executor
+TEMP friendly views + create/drop lifecycle + owner-side identifier quoting
+one-active-session exclusivity + typed busy refusal
+_epicenter_rows / _epicenter_values (collapsed into _epicenter_records)
+document composition duty on ordinary inspection
+the materialized visible-state column (refused with a recorded reason)
+ambiguous applyable-snapshot semantics (artifact kinds are structural)
+the Workspace/SQLite experiment stack and its inspection hooks
+defineWorkspace, WorkspaceId, defineDatabase, database catalogs and aliases
+mutable attachment, adoption modes, rekeying, protocol floors
+push/pull/acquire as public operations, retention floors, lineage recovery
+application SQL escape hatches, projection DTOs, workspace compatibility barrel
 ```
 
 ## Recognition criteria
 
-The destination is recognizable when a new reader can answer these questions
-without learning historical vocabulary:
+The destination exists when:
 
-- What data do I define? A pure JSON Lens for one namespace, with tables and
-  values whose property names complete durable addresses.
-- Where does field identity live? In each member name of a table's `fields`
-  object, never in a nested `id` or `key`.
-- Does a Lens rename durable data? No. Application-local projection owns private
-  code-facing names.
-- How do I use several namespaces? Bind several borrowed Lenses.
-- Who owns the data? One person through one Epicenter.
-- Where is it stored? One complete replica per adapter isolation boundary.
-- What happens on first sign-in? The current replica permanently attaches and
-  converges.
-- How does deletion survive an offline device? The latest state is a permanent
-  compact tombstone within the active authority lifetime.
-- How is state preserved over time? As sealed, byte-complete Backups, never as
-  additional live Epicenters.
-- What does Restore do? It creates a fresh authority lifetime from one complete
-  Backup or uploaded portable Epicenter and invalidates every old replica.
-- How does scalar sync work? One whole-Epicenter latest-state exchange.
-- How do documents sync? Local updates publish automatically after handles
-  close; remote state hydrates lazily when a document opens.
-- What are document WebSockets for? Optional low-latency collaboration and
-  ephemeral presence, never the sole durability path.
-- How do blobs sync? Row-scoped immutable bytes publish automatically and
-  download on demand.
-- Can applications run SQL on the live store? No.
-- Who can inspect relationally? Epicenter Home, for people and agents, over one
-  stable logical model.
-- What replaces Workspace? Data, Document Sync, and Agent.
+- Each replica adapter exposes the selected wide replica schema, and each
+  authority adapter exposes the selected wide authority schema. Both implement
+  the same semantic store contract. A record lookup answers accepted scalar
+  truth, sealed and pending scalar work, document and blob publication
+  obligations, and compact refusal evidence without scanning visible state.
+- Killing any process at any statement boundary and reopening never scans
+  visible state to rebuild an obligation, never re-adjudicates, and never
+  mints a new replica ID.
+- A new write during an in-flight submission provably cannot change that
+  submission's retry bytes.
+- The wire carries one fact shape and four operations; no kind, no flat key,
+  no sentinel.
+- Home renders live tables and parked work with zero SQL; ad hoc SQL happens
+  only against a file whose `_epicenter_artifact.kind` says what it is; no
+  artifact is ever accepted as a different kind.
+- An agent bulk edit reaches the live store only as ordinary typed writes
+  admitted from a sealed, source-bound, reviewed manifest, and the proposal
+  file is gone afterward while the pending lane still owes the authority.
+- Restore is the only operation that replaces the Epicenter, and it never
+  emits an intent.
 
-If an answer needs database IDs, workspace IDs, prefixes, catalogs, acquisition,
-protocol floors, migration, or two local owners, the clean break is incomplete.
+Violations proving drift:
 
-## Open decisions after the destination freeze
+- A guard, receipt, checkpoint, or batch relation reappears; any relation
+  repeats the triple that `records` owns; an authority branch on collection
+  kind.
+- A TEMP view, inspection session, or second live SQL surface reappears.
+- A materialized visible-state column appears without a non-inspection buyer.
+- A snapshot gains apply semantics, or a Proposal survives its consumption.
+- A compatibility reader for any pre-destination schema outlives its wave.
 
-These questions must be resolved before their implementation wave. They do not
-weaken the ADR destination above:
+## Open decisions after the freeze
 
-1. **Friendly Lens SQL views.** Decide whether Home needs generated SQL names in
-   addition to the raw `rows` and `values` relations, and if so how installation
-   aliases, collisions, quoting, and ephemeral lifetime work.
-2. **Lens discovery and activation.** Decide whether app-bundled Lenses live only
-   in the active app catalog, whether standalone Lens artifacts have a separate
-   folder, and what uninstall removes. Discovery provenance must not enter data
-   addresses or make a Lens authoritative.
-3. **Structured row references.** ADR-0169 fixes references as non-enforcing
-   table interpretations and removes them from the destination field
-   vocabulary. Decide the exact pure JSON table metadata shape, typed query
-   ergonomics, and Matter replacement before deleting the current shared
-   `field.reference()` implementation.
-4. **Realtime row-document topology.** Decide whether the live overlay uses
-   one fixed-address WebSocket per open row, one multiplexed connection, or no
-   dedicated overlay until a concrete collaborative surface ships. Preserve
-   automatic background publication, lazy inbound hydration, post-commit
-   authority proof, and ephemeral presence under every option.
+1. **Lens discovery and activation.** Where app-bundled and standalone Lens
+   artifacts live, and what uninstall removes. Provenance never enters data
+   addresses.
+2. **Structured record references.** The exact pure JSON table metadata shape
+   and typed navigation ergonomics for ADR-0169's non-enforcing references,
+   plus the Matter replacement, before deleting `field.reference()`.
+3. **Realtime row-document topology.** Fixed-address socket per open record,
+   multiplexed connection, or no dedicated overlay until a collaborative
+   surface ships.
+4. **Selected wide browser-owner qualification (ADR-0177).** Land the target
+   document and blob watermark schema plus covering drain indexes, then qualify
+   capacity, reopen, quota refusal, suspension, and eviction on physical iOS
+   Safari and Android Chrome. This does not reopen split without contradictory
+   production-shaped evidence.

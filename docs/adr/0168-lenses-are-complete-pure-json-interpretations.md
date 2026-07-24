@@ -1,7 +1,9 @@
 # 0168. Lenses are complete pure JSON interpretations
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-21: one `collections` map with
+  `defineTable` and `defineValues` as the two definition kinds; revised
+  2026-07-22: dotted values record keys and single-Lens `bind`)
 - **Amends:** [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md), [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md), and [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 
 ## Context
@@ -15,14 +17,15 @@ contract.
 
 ## Decision
 
-A Lens and every nested table, value, field schema, and metadata value are pure
-JSON data. `JSON.stringify` followed by `JSON.parse` preserves the complete Lens
-semantics. No custom serialization step, source module, function, compiled
-validator, or hidden side table is required to recover it.
+A Lens and every nested collection definition, field schema, and metadata
+value are pure JSON data. `JSON.stringify` followed by `JSON.parse` preserves
+the complete Lens semantics. No custom serialization step, source module,
+function, compiled validator, or hidden side table is required to recover it.
 
-`defineLens`, `defineTable`, and `defineValue` are TypeScript authoring helpers.
-They preserve literal keys and derive ergonomic static types, but return the
-same canonical JSON shape accepted from disk. TypeBox field builders are
+A Lens has one `collections` map with two definition kinds. `defineLens`,
+`defineTable`, and `defineValues` are TypeScript authoring helpers. They
+preserve literal keys and derive ergonomic static types, but return the same
+canonical JSON shape accepted from disk. TypeBox field builders are
 canonicalized into their JSON Schema representation at this boundary.
 
 Member names in the Lens's definition maps carry durable identity. In this
@@ -45,31 +48,38 @@ does not define an identified field; the containing `fields` entry does. It
 does not repeat that key in an `id` or `key` property. This does not require
 every stored row to contain `transcript`: the table's `optional` list decides
 whether that key may be absent when the Lens interprets a row. The
-runtime-owned row ID is separate structural identity and cannot appear in
-`fields`.
+runtime-owned record key, latent document, and zero-or-one blob slot are
+separate platform-owned record structure and cannot appear in `fields`.
+Collections declare neither a document nor blob capability; both exist
+universally and inertly until the record stores corresponding content.
 
 This follows one identity rule across the model: the containing owner supplies
-identity. The Lens supplies its namespace, the `tables` and `values` objects
-supply their durable local keys, the `fields` object supplies field keys, and
-the runtime supplies row IDs. A Lens contains no name mapping at any level. The
-outer object passed to a multi-Lens bind may use ergonomic aliases only because
-those member names identify no durable data.
+identity. The Lens supplies its namespace, the `collections` object supplies
+the durable collection keys, a values collection's `values` object supplies its
+durable record keys, the `fields` object supplies field keys, and the runtime
+supplies table record keys. A Lens contains no name mapping at any level.
+`bind` accepts exactly one Lens; an application that needs several namespaces
+binds several Lenses, and the variables it binds them to identify no durable
+data.
 
 `parseLens(unknown)` is the single legitimacy law for arbitrary Lens JSON. It:
 
-1. validates the closed outer Lens, table, and value structures;
+1. validates the closed outer Lens and both collection definition structures;
 2. recognizes every nested field schema as supported Epicenter field
    vocabulary; and
 3. checks semantic relationships that JSON Schema alone cannot express.
 
-Those semantic checks include namespace and local-key grammar, unknown or
-duplicate optional field names, and any future cross-field constraints. Invalid
-installed Lenses remain visible as broken artifacts with a concrete parse error.
-The closed field vocabulary rejects a nested `id` or `key`; Home does not
-silently discard either property.
+Those semantic checks include the namespace and collection-key grammar, the
+dotted values-key grammar (one or more dot-separated local-key segments, per
+ADR-0163's address grammar) for a values collection's declared record keys,
+unknown or duplicate optional field names, and any future cross-field
+constraints.
+Invalid installed Lenses remain visible as broken artifacts with a concrete
+parse error. The closed field vocabulary rejects a nested `id` or `key`; Home
+does not silently discard either property.
 
-Every Lens requires `namespace`, `title`, and `description`. Every table and
-value requires `title`; their descriptions and field-level title and description
+Every Lens requires `namespace`, `title`, and `description`. Every collection
+requires `title`; their descriptions and field-level title and description
 annotations are optional semantic metadata. Presentation policy such as icons,
 column width, default sorting, or a `preview` field list is not part of a Lens.
 

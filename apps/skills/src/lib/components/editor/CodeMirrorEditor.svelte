@@ -17,7 +17,7 @@
 		keymap,
 		placeholder,
 	} from '@codemirror/view';
-	import type { RowDocument } from '@epicenter/workspace/sqlite';
+	import type { RowDocument } from '@epicenter/data/runtime';
 
 	let { document }: { document: RowDocument } = $props();
 	let container: HTMLDivElement | undefined = $state();
@@ -75,9 +75,9 @@
 				applyingDocumentUpdate = false;
 			}
 		};
-		content.observe(onDocumentUpdate);
+		const unobserve = document.observe(onDocumentUpdate);
 		return () => {
-			content.unobserve(onDocumentUpdate);
+			unobserve();
 			view.destroy();
 		};
 	});

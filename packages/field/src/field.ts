@@ -42,7 +42,7 @@
  *                   add it here, not before.
  *
  * There is NO `nullable` / optional axis: optionality is not part of the vocabulary, so
- * a substrate that wants emptiness layers a nullable wrapper on top (the workspace's
+ * a substrate that wants emptiness layers a nullable wrapper on top (a store's
  * `nullable`), and a nullable `anyOf`-with-null shape matches no meta here. Emptiness
  * stays SUBSTRATE POLICY, applied at each substrate's own edge.
  *
@@ -95,7 +95,7 @@ export const JSON_SCHEMA_KEYWORD = 'x-json-schema';
  * which is what keeps `reference` mutually exclusive with the bare `string` kind: a plain
  * string carries no marker (so it is never a reference) and a reference always carries one
  * (so it is never a bare string). The target resolves WITHIN one substrate (a sibling
- * Matter folder / a workspace table key); cross-mount links are the `epicenter://` scheme,
+ * Matter folder / a table key); cross-mount links are the `epicenter://` scheme,
  * not this keyword.
  */
 export const REFERENCE_KEYWORD = 'x-ref';
@@ -343,7 +343,7 @@ export type Field = { [K in Kind]: FieldOf<K> }[Kind];
  * indexing the marker by hand. The `kind === 'reference'` guard narrows `schema` to the
  * reference meta, whose `[REFERENCE_KEYWORD]` is a required string, so no cast is needed.
  *
- * This reads a field AFTER recognition. The schema-level floor in `@epicenter/workspace`
+ * This reads a field AFTER recognition. The schema-level floor in the store
  * reads the marker off a raw `TSchema` BEFORE recognition (and sees through `nullable`),
  * a genuinely different input, so the two readers stay separate.
  */

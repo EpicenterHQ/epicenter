@@ -15,21 +15,20 @@ than every protocol frame.
 The final protocol is scoped to one authenticated row document:
 
 ```txt
-/api/workspaces/:workspaceId/tables/:table/rows/:rowId/document
+/api/sync/v1/records/:namespace/:collection/:recordKey/document
   sync-request(stateVector)
   sync-response(missingUpdate)
   update(incrementalUpdate)
+  publication-response(acceptanceBytes)
 ```
 
 Clients do not choose an arbitrary room id. The server authenticates the
-upgrade credential, authorizes the principal for the route workspace, and uses
-the returned canonical workspace key to select one authority. The remaining
-route segments select one row document inside it. That structured address is
-lifecycle identity, not a secret. Connection lifecycle uses reserved WebSocket
-close codes rather than binary control frames. An unknown row may be accepted
-only transiently so a browser can observe its retryable close code; it is never
-attached to the authority or retained. Tombstoned and oversized documents close
-terminally while the client keeps its durable local content.
+upgrade credential, authorizes the principal, and selects that principal's one
+authority. The remaining route segments select one record document inside it. That structured address is
+lifecycle identity, not a secret. Authority acceptance and refusal use one
+data-owned response payload shared with HTTP. The sync package carries those
+bytes opaquely and owns no second receipt, acknowledgement, or durable status.
+Close codes remain transport backstops rather than product state.
 
 The exact selected `epicenter-document-v3` WebSocket subprotocol owns the major.
 Each binary message begins with one frame-kind byte; WebSocket already preserves
@@ -57,7 +56,7 @@ Browser and native clients share provider semantics without sharing storage:
 
 ```txt
 RowDocument
-  local persistence          workspace IndexedDB log | native SQLite log
+  local persistence          replica SQLite document chains
   network                    one WebSocket while this document is open
   durability                 invocation-time local update cut
   connection                 reactive per-document status
@@ -65,7 +64,9 @@ RowDocument
 
 Local persistence replays Yjs 14 updates, appends every observed update,
 compacts at bounded thresholds, and fails closed on corruption or eviction.
-Remote settlement is deliberately absent until a concrete workflow earns it.
+The wire can return post-commit acceptance proof. Production runtime settlement
+remains deliberately absent until the caller migration wave; local persistence
+stays the durable offline owner.
 
 ## Current Yjs 13 implementation
 
@@ -151,9 +152,9 @@ The package exports pure functions. Feed them bytes and docs; they give you byte
 `@epicenter/sync` sits below the rest of the sync stack.
 
 ```text
-workspace authority     liveness, snapshots, logs, WebSocket lifecycle
+@epicenter/server       authority acceptance, realtime fanout, WebSocket lifecycle
         │
-@epicenter/workspace    restricted lazy RowDocument API and runtime persistence
+@epicenter/data         runtime-owned RowDocument handles and realtime channels
         │
 @epicenter/sync         single-document wire and provider behavior
         │
@@ -162,11 +163,11 @@ workspace authority     liveness, snapshots, logs, WebSocket lifecycle
 
 In practice:
 
-- The workspace authority uses it to serve each open row document through its
-  own connection while retaining one durable workspace owner.
-- `@epicenter/workspace` uses it behind the restricted `RowDocument` handle.
-- `@epicenter/row-sync` never imports it; scalar convergence is a separate
-  protocol plane.
+- The server authority uses it to bound and frame each open record document
+  connection through one acceptance function.
+- `@epicenter/data` uses it behind the runtime-owned `RowDocument` handle and
+  its realtime channel.
+- Scalar convergence never imports it; it is a separate protocol plane.
 - Other packages need the wire format only when implementing a document
   transport or provider.
 

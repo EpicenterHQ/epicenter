@@ -1,8 +1,8 @@
 # 0169. Row references are non-enforcing table interpretations
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
-- **Relates:** [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md)
+- **Date:** 2026-07-20 (revised 2026-07-21: record vocabulary)
+- **Relates:** [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md), [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md)
 
 ## Context
 
@@ -16,10 +16,10 @@ diagnostic depend on the substrate interpreting the table.
 ## Decision
 
 A row reference is non-enforcing table interpretation metadata. It says that a
-declared string field intends to contain the row ID of a named target table. It
-never guarantees that the target exists, remains present, is unique, arrives in
-the same synchronization step, or participates in ownership, cascading
-deletion, a transaction, or referential integrity.
+declared string field intends to contain the record key of a record in a named
+target table collection. It never guarantees that the target exists, remains
+present, is unique, arrives in the same synchronization step, or participates
+in ownership, cascading deletion, a transaction, or referential integrity.
 
 The shared field vocabulary describes scalar values only. The clean-break
 destination has no `field.reference()` kind and no reference marker inside a
@@ -34,6 +34,13 @@ uniqueness rule, reference array, foreign key, or generic relationship record.
 Applications that need independently convergent many-to-many membership use
 ordinary relationship rows or own an application-specific representation.
 
+The same rule applies when several binary assets belong conceptually to one
+parent. Each asset is an ordinary row with its own zero-or-one blob slot and may
+store or receive a non-enforcing parent reference. Deleting the parent never
+cascades. Reference changes and asset-row deletion are independent operations,
+so valid orphan asset rows may temporarily or permanently remain until the
+application or person deletes them.
+
 Epicenter references may name a table in another namespace. Namespace
 proximity grants no ownership or lifecycle semantics. Missing or unavailable
 target Lenses do not invalidate canonical data; raw addresses and stored IDs
@@ -47,7 +54,7 @@ boundary:
   enforcement.
 - Epicenter Home may provide navigation, local resolution status, SQL join
   assistance, and agent context over the currently visible Epicenter.
-- Typed application code may use branded IDs and direct table queries. This
+- Typed application code may use branded IDs and direct table point reads. This
   decision does not introduce an ORM traversal API or promise that a target
   Lens is statically available.
 
@@ -60,7 +67,7 @@ boundary belongs in another vault and repository, and generic references do not
 cross that boundary.
 
 The exact Matter namespace layout remains open. A Matter vault currently
-supplies the enclosing address scope for its tables, while an Epicenter row
+supplies the enclosing address scope for its tables, while an Epicenter record
 address includes an explicit namespace coordinate.
 
 ## Transition
@@ -89,8 +96,8 @@ earns no compatibility reader after that clean break.
   Epicenter gains no new dependency on the legacy field kind.
 - The shared reference kind disappears when Matter moves to the table-level
   contract, not in a separate behavior-deleting change.
-- The eventual table metadata shape, typed query ergonomics, and Matter
-  namespace model remain open implementation and product decisions.
+- The eventual table metadata shape, typed reference-navigation ergonomics,
+  and Matter namespace model remain open implementation and product decisions.
 
 ## Considered alternatives
 

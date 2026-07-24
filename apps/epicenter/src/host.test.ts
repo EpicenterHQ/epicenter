@@ -22,10 +22,10 @@ import type {
 	Approval,
 	EngineChunk,
 } from '@epicenter/agent';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { type HomeHostInputs, parseHomeCommand } from './host.ts';
 import { createOwnedTestHomeHost } from './test-home-host.ts';
-import { conversationsTable } from './workspace.ts';
+import { homeLens } from './workspace.ts';
 
 const FIXTURE = new URL('../test-fixtures/mini-mcp-server.ts', import.meta.url)
 	.pathname;
@@ -95,11 +95,9 @@ function toolResults(parts: AgentMessagePart[]) {
 async function readConversationRows(dataDir: string) {
 	await using epicenter = await openBunEpicenter({
 		directory: join(dataDir, 'data'),
+		owner: null,
 	});
-	const conversations = epicenter.bind({
-		tables: { conversations: conversationsTable },
-		values: {},
-	}).tables.conversations;
+	const conversations = epicenter.bind(homeLens).conversations;
 	return (await conversations.scan()).rows;
 }
 

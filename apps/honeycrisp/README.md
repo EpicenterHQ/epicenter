@@ -110,8 +110,7 @@ This starts the desktop app on port 5175 alongside the local API on `localhost:8
 - `@y/y` 14: row-owned note body documents
 - [Tailwind CSS](https://tailwindcss.com): styling
 - [Better Auth](https://better-auth.com): authentication
-- `@epicenter/data`: canonical SQLite rows, values, and local row documents
-- `@epicenter/document-sync`: network synchronization for open row documents
+- `@epicenter/data`: canonical SQLite records, row documents, and their runtime-owned realtime synchronization
 - `@epicenter/svelte`: auth and browser lifecycle helpers
 - `@epicenter/ui`: shadcn-svelte component library
 

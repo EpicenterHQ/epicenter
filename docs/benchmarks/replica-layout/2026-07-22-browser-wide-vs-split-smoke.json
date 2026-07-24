@@ -1,0 +1,714 @@
+{
+  "schemaVersion": "epicenter-browser-replica-layout-evidence/v1",
+  "kind": "epicenter-browser-replica-layout-evidence",
+  "scope": "pre-physical-browser-engine",
+  "decisionEligible": false,
+  "startedAt": "2026-07-22T17:01:30.801Z",
+  "finishedAt": "2026-07-22T17:01:33.050Z",
+  "durationMs": 2249,
+  "charter": "ADR-0177 wide-versus-split hot paths: browser OPFS slice",
+  "profile": "smoke",
+  "source": {
+    "commit": "cc5963637c1ad57a1ddcf759f104ef42a16803ff",
+    "clean": true,
+    "cleanScope": "listed harness files, package manifest, and lockfile; bundled transitive modules excluded",
+    "dirtyPaths": [],
+    "lockfileSha256": "59c943a425d100da48577147bb2e8ad388c81820c286bd260deb91731b8cf165",
+    "harnessSha256": "fce979d6e651f1f83bd42010f78d659cde98c6a95caffb361803bed29b2868ff",
+    "files": [
+      {
+        "path": "packages/data/package.json",
+        "sha256": "53ee661493ff8bab39431d66140e38eb9f6f961eca1e89c6441fb010db444cfe"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-client.ts",
+        "sha256": "cc07037aab5478c49b1b1819628ad1c23406c654c36251de0edaa1a0c9cc0233"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-contract.test.ts",
+        "sha256": "973b4e2db6411253de8ddb4e4182eee8dfe7a5af5cee6354b29775b016b5b201"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-contract.ts",
+        "sha256": "e090ee0fc7056652234277c27f90af4b378d74405aaf96f5baff9afde576f077"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-index.html",
+        "sha256": "ec26d36171f85d466a8471b60a786bed7dd912138130e2bf1bc6a35baf849638"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-run.ts",
+        "sha256": "5601c1ff1235b3acc8cfa7a14e4ac8e9256695367f326c37b15b6259a5fbe8ac"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-vite.config.ts",
+        "sha256": "11f6cfb9e0f8175f9d15cc8984a83f35aac85ecc228bdafe17cbbfe9979d9a4f"
+      },
+      {
+        "path": "packages/data/browser-evidence/replica-layout-worker.ts",
+        "sha256": "b4aa9dbad75dacf87900d7611daab523fccae42adec20705f0a62ea52b7e2f58"
+      }
+    ]
+  },
+  "playwrightVersion": "1.61.1",
+  "engines": [
+    {
+      "engine": "chromium",
+      "browserVersion": "149.0.7827.55",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+      "platform": "MacIntel",
+      "headless": true,
+      "persistentProfile": true,
+      "origin": "http://127.0.0.1:63541",
+      "result": {
+        "outcome": "passed",
+        "startedAt": "2026-07-22T17:01:31.814Z",
+        "finishedAt": "2026-07-22T17:01:32.203Z",
+        "durationMs": 389,
+        "profile": "smoke",
+        "parameters": {
+          "records": 5000,
+          "proxyBytes": 1048576,
+          "repetitions": 1,
+          "pointBatches": 8,
+          "traversals": 3,
+          "laneBatches": 4,
+          "feedBatches": 4,
+          "reopenSamples": 3,
+          "batchSize": 64
+        },
+        "storageEstimate": {
+          "usageBytes": 0,
+          "quotaBytes": 10737418240,
+          "availableBytes": 10737418240,
+          "requiredAvailableBytes": 1310720
+        },
+        "runtime": {
+          "sqliteVersion": "3.53.0",
+          "opfsBackend": "sqlite.org OPFS SAH Pool VFS",
+          "journalMode": "delete",
+          "synchronous": "extra"
+        },
+        "proxy": {
+          "version": 1,
+          "encoding": "UTF-8 bytes of RFC 8785 canonical {address,payload}",
+          "records": 5000,
+          "targetBytes": 1048576,
+          "emptyProxyBytes": 678738,
+          "baseFillerBytes": 73,
+          "extraFillerRecords": 4838
+        },
+        "schemas": {
+          "installedSchemaEncoding": "JSON array of non-internal sqlite_schema tables and indexes ordered by type and name",
+          "wideDdlOwner": "packages/data/src/store/replica/schema.ts",
+          "wideSchemaSha256": "76e86c4c7c4dcc8f2a90aceae2c5a0ea296894ccaa35ba0dbf11dfd7bf965473",
+          "splitSchemaSha256": "9f3bd1eb8da64c6c533ec416da1e9264be3245de787507f8f8dbd6bba387c8f4",
+          "splitDdlSha256": "a0947eebec6db05aeff0bc7229892349ce264b7d249f47ca5e501383778e0046"
+        },
+        "runs": [
+          {
+            "candidate": "wide",
+            "repetition": 0,
+            "metrics": {
+              "pointRead": {
+                "rawMs": [
+                  0.015625,
+                  0.015625,
+                  0.01406250149011612,
+                  0.01874999888241291,
+                  0.015625,
+                  0.01406249962747097,
+                  0.01406250149011612,
+                  0.01406249962747097
+                ],
+                "p50Ms": 0.015625,
+                "p95Ms": 0.01874999888241291,
+                "minimumMs": 0.01406249962747097,
+                "maximumMs": 0.01874999888241291
+              },
+              "traversal": {
+                "rawMs": [
+                  0,
+                  0,
+                  0
+                ],
+                "p50Ms": 0,
+                "p95Ms": 0,
+                "minimumMs": 0,
+                "maximumMs": 0
+              },
+              "laneWrite": {
+                "rawMs": [
+                  0.10781249962747097,
+                  0.11875000037252903,
+                  0.09375,
+                  0.07656249962747097
+                ],
+                "p50Ms": 0.10781249962747097,
+                "p95Ms": 0.11875000037252903,
+                "minimumMs": 0.07656249962747097,
+                "maximumMs": 0.11875000037252903
+              },
+              "feedInstall": {
+                "rawMs": [
+                  0.05781249888241291,
+                  0.05625000037252903,
+                  0.0546875,
+                  0.05312499962747097
+                ],
+                "p50Ms": 0.05625000037252903,
+                "p95Ms": 0.05781249888241291,
+                "minimumMs": 0.05312499962747097,
+                "maximumMs": 0.05781249888241291
+              },
+              "reopen": {
+                "rawMs": [
+                  0.3999999761581421,
+                  0.20000004768371582,
+                  0.19999992847442627
+                ],
+                "p50Ms": 0.20000004768371582,
+                "p95Ms": 0.3999999761581421,
+                "minimumMs": 0.19999992847442627,
+                "maximumMs": 0.3999999761581421
+              }
+            },
+            "storage": {
+              "pageSize": 8192,
+              "pageCount": 192,
+              "freelistCount": 0,
+              "liveBytes": 1572864,
+              "fileBytes": 1572864
+            },
+            "integrityCheck": "ok",
+            "recordCount": 5000,
+            "observedProxyBytes": 1048576,
+            "queryPlans": {
+              "pointRead": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+              ],
+              "traversal": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=?)"
+              ],
+              "laneWrite": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+              ],
+              "feedInstall": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+              ]
+            }
+          },
+          {
+            "candidate": "split",
+            "repetition": 0,
+            "metrics": {
+              "pointRead": {
+                "rawMs": [
+                  0.01718750037252903,
+                  0.01406249962747097,
+                  0.01718750037252903,
+                  0.015625,
+                  0.01406249962747097,
+                  0.015625,
+                  0.01406249962747097,
+                  0.01406250149011612
+                ],
+                "p50Ms": 0.015625,
+                "p95Ms": 0.01718750037252903,
+                "minimumMs": 0.01406249962747097,
+                "maximumMs": 0.01718750037252903
+              },
+              "traversal": {
+                "rawMs": [
+                  0,
+                  0,
+                  0
+                ],
+                "p50Ms": 0,
+                "p95Ms": 0,
+                "minimumMs": 0,
+                "maximumMs": 0
+              },
+              "laneWrite": {
+                "rawMs": [
+                  0.06562500074505806,
+                  0.06562500074505806,
+                  0.08437499962747097,
+                  0.06093749962747097
+                ],
+                "p50Ms": 0.06562500074505806,
+                "p95Ms": 0.08437499962747097,
+                "minimumMs": 0.06093749962747097,
+                "maximumMs": 0.08437499962747097
+              },
+              "feedInstall": {
+                "rawMs": [
+                  0.09062499925494194,
+                  0.08437500149011612,
+                  0.08437499962747097,
+                  0.08437499962747097
+                ],
+                "p50Ms": 0.08437500149011612,
+                "p95Ms": 0.09062499925494194,
+                "minimumMs": 0.08437499962747097,
+                "maximumMs": 0.09062499925494194
+              },
+              "reopen": {
+                "rawMs": [
+                  0.2999999523162842,
+                  0.20000004768371582,
+                  0.10000002384185791
+                ],
+                "p50Ms": 0.20000004768371582,
+                "p95Ms": 0.2999999523162842,
+                "minimumMs": 0.10000002384185791,
+                "maximumMs": 0.2999999523162842
+              }
+            },
+            "storage": {
+              "pageSize": 8192,
+              "pageCount": 120,
+              "freelistCount": 0,
+              "liveBytes": 983040,
+              "fileBytes": 983040
+            },
+            "integrityCheck": "ok",
+            "recordCount": 5000,
+            "observedProxyBytes": 1048576,
+            "queryPlans": {
+              "pointRead": [
+                "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+                "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+              ],
+              "traversal": [
+                "SEARCH c USING PRIMARY KEY (namespace=? AND collection=?)",
+                "SEARCH l USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+              ],
+              "laneWrite": [],
+              "feedInstall": [
+                "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+              ]
+            }
+          }
+        ],
+        "aggregate": {
+          "metrics": {
+            "pointRead": {
+              "p50": {
+                "wideMs": 0.015625,
+                "splitMs": 0.015625,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0.01874999888241291,
+                "splitMs": 0.01718750037252903,
+                "differencePercent": 9.090900224102622,
+                "faster": "split"
+              }
+            },
+            "traversal": {
+              "p50": {
+                "wideMs": 0,
+                "splitMs": 0,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0,
+                "splitMs": 0,
+                "differencePercent": 0,
+                "faster": "wide"
+              }
+            },
+            "laneWrite": {
+              "p50": {
+                "wideMs": 0.10781249962747097,
+                "splitMs": 0.06562500074505806,
+                "differencePercent": 64.28571185287167,
+                "faster": "split"
+              },
+              "p95": {
+                "wideMs": 0.11875000037252903,
+                "splitMs": 0.08437499962747097,
+                "differencePercent": 40.740741803649364,
+                "faster": "split"
+              }
+            },
+            "feedInstall": {
+              "p50": {
+                "wideMs": 0.05625000037252903,
+                "splitMs": 0.08437500149011612,
+                "differencePercent": 50.00000165568457,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0.05781249888241291,
+                "splitMs": 0.09062499925494194,
+                "differencePercent": 56.7567584983096,
+                "faster": "wide"
+              }
+            },
+            "reopen": {
+              "p50": {
+                "wideMs": 0.20000004768371582,
+                "splitMs": 0.20000004768371582,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0.3999999761581421,
+                "splitMs": 0.2999999523162842,
+                "differencePercent": 33.333346578812055,
+                "faster": "split"
+              }
+            }
+          },
+          "stopRule": "material-direction-found"
+        }
+      },
+      "interpretation": [
+        "Smoke validates the measurement method only; it is not decision eligible.",
+        "ADR-0177 stop rule: material-direction-found.",
+        "pointRead: wide p50 difference is 0.00%; split p95 difference is 9.09%.",
+        "traversal: wide p50 difference is 0.00%; wide p95 difference is 0.00%.",
+        "laneWrite: split p50 difference is 64.29%; split p95 difference is 40.74%.",
+        "feedInstall: wide p50 difference is 50.00%; wide p95 difference is 56.76%.",
+        "reopen: wide p50 difference is 0.00%; split p95 difference is 33.33%."
+      ]
+    },
+    {
+      "engine": "webkit",
+      "browserVersion": "26.5",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+      "platform": "MacIntel",
+      "headless": true,
+      "persistentProfile": true,
+      "origin": "http://127.0.0.1:63541",
+      "result": {
+        "outcome": "passed",
+        "startedAt": "2026-07-22T17:01:32.817Z",
+        "finishedAt": "2026-07-22T17:01:33.040Z",
+        "durationMs": 223,
+        "profile": "smoke",
+        "parameters": {
+          "records": 5000,
+          "proxyBytes": 1048576,
+          "repetitions": 1,
+          "pointBatches": 8,
+          "traversals": 3,
+          "laneBatches": 4,
+          "feedBatches": 4,
+          "reopenSamples": 3,
+          "batchSize": 64
+        },
+        "storageEstimate": {
+          "usageBytes": 0,
+          "quotaBytes": 20615843021,
+          "availableBytes": 20615843021,
+          "requiredAvailableBytes": 1310720
+        },
+        "runtime": {
+          "sqliteVersion": "3.53.0",
+          "opfsBackend": "sqlite.org OPFS SAH Pool VFS",
+          "journalMode": "delete",
+          "synchronous": "extra"
+        },
+        "proxy": {
+          "version": 1,
+          "encoding": "UTF-8 bytes of RFC 8785 canonical {address,payload}",
+          "records": 5000,
+          "targetBytes": 1048576,
+          "emptyProxyBytes": 678738,
+          "baseFillerBytes": 73,
+          "extraFillerRecords": 4838
+        },
+        "schemas": {
+          "installedSchemaEncoding": "JSON array of non-internal sqlite_schema tables and indexes ordered by type and name",
+          "wideDdlOwner": "packages/data/src/store/replica/schema.ts",
+          "wideSchemaSha256": "76e86c4c7c4dcc8f2a90aceae2c5a0ea296894ccaa35ba0dbf11dfd7bf965473",
+          "splitSchemaSha256": "9f3bd1eb8da64c6c533ec416da1e9264be3245de787507f8f8dbd6bba387c8f4",
+          "splitDdlSha256": "a0947eebec6db05aeff0bc7229892349ce264b7d249f47ca5e501383778e0046"
+        },
+        "runs": [
+          {
+            "candidate": "wide",
+            "repetition": 0,
+            "metrics": {
+              "pointRead": {
+                "rawMs": [
+                  0,
+                  0.015625,
+                  0.015625,
+                  0,
+                  0.015625,
+                  0,
+                  0.015625,
+                  0
+                ],
+                "p50Ms": 0.015625,
+                "p95Ms": 0.015625,
+                "minimumMs": 0,
+                "maximumMs": 0.015625
+              },
+              "traversal": {
+                "rawMs": [
+                  0,
+                  0,
+                  0
+                ],
+                "p50Ms": 0,
+                "p95Ms": 0,
+                "minimumMs": 0,
+                "maximumMs": 0
+              },
+              "laneWrite": {
+                "rawMs": [
+                  0.046875,
+                  0.046875,
+                  0.03125,
+                  0.046875
+                ],
+                "p50Ms": 0.046875,
+                "p95Ms": 0.046875,
+                "minimumMs": 0.03125,
+                "maximumMs": 0.046875
+              },
+              "feedInstall": {
+                "rawMs": [
+                  0.015625,
+                  0.03125,
+                  0.03125,
+                  0.015625
+                ],
+                "p50Ms": 0.03125,
+                "p95Ms": 0.03125,
+                "minimumMs": 0.015625,
+                "maximumMs": 0.03125
+              },
+              "reopen": {
+                "rawMs": [
+                  0,
+                  1,
+                  0
+                ],
+                "p50Ms": 0,
+                "p95Ms": 1,
+                "minimumMs": 0,
+                "maximumMs": 1
+              }
+            },
+            "storage": {
+              "pageSize": 8192,
+              "pageCount": 192,
+              "freelistCount": 0,
+              "liveBytes": 1572864,
+              "fileBytes": 1572864
+            },
+            "integrityCheck": "ok",
+            "recordCount": 5000,
+            "observedProxyBytes": 1048576,
+            "queryPlans": {
+              "pointRead": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+              ],
+              "traversal": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=?)"
+              ],
+              "laneWrite": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+              ],
+              "feedInstall": [
+                "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+              ]
+            }
+          },
+          {
+            "candidate": "split",
+            "repetition": 0,
+            "metrics": {
+              "pointRead": {
+                "rawMs": [
+                  0.015625,
+                  0,
+                  0.015625,
+                  0.015625,
+                  0.015625,
+                  0.015625,
+                  0.015625,
+                  0.015625
+                ],
+                "p50Ms": 0.015625,
+                "p95Ms": 0.015625,
+                "minimumMs": 0,
+                "maximumMs": 0.015625
+              },
+              "traversal": {
+                "rawMs": [
+                  0,
+                  0,
+                  0
+                ],
+                "p50Ms": 0,
+                "p95Ms": 0,
+                "minimumMs": 0,
+                "maximumMs": 0
+              },
+              "laneWrite": {
+                "rawMs": [
+                  0.015625,
+                  0,
+                  0.015625,
+                  0.015625
+                ],
+                "p50Ms": 0.015625,
+                "p95Ms": 0.015625,
+                "minimumMs": 0,
+                "maximumMs": 0.015625
+              },
+              "feedInstall": {
+                "rawMs": [
+                  0.03125,
+                  0.03125,
+                  0.046875,
+                  0.03125
+                ],
+                "p50Ms": 0.03125,
+                "p95Ms": 0.046875,
+                "minimumMs": 0.03125,
+                "maximumMs": 0.046875
+              },
+              "reopen": {
+                "rawMs": [
+                  0,
+                  0,
+                  1
+                ],
+                "p50Ms": 0,
+                "p95Ms": 1,
+                "minimumMs": 0,
+                "maximumMs": 1
+              }
+            },
+            "storage": {
+              "pageSize": 8192,
+              "pageCount": 120,
+              "freelistCount": 0,
+              "liveBytes": 983040,
+              "fileBytes": 983040
+            },
+            "integrityCheck": "ok",
+            "recordCount": 5000,
+            "observedProxyBytes": 1048576,
+            "queryPlans": {
+              "pointRead": [
+                "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+                "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+              ],
+              "traversal": [
+                "SEARCH c USING PRIMARY KEY (namespace=? AND collection=?)",
+                "SEARCH l USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+              ],
+              "laneWrite": [],
+              "feedInstall": [
+                "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+              ]
+            }
+          }
+        ],
+        "aggregate": {
+          "metrics": {
+            "pointRead": {
+              "p50": {
+                "wideMs": 0.015625,
+                "splitMs": 0.015625,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0.015625,
+                "splitMs": 0.015625,
+                "differencePercent": 0,
+                "faster": "wide"
+              }
+            },
+            "traversal": {
+              "p50": {
+                "wideMs": 0,
+                "splitMs": 0,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0,
+                "splitMs": 0,
+                "differencePercent": 0,
+                "faster": "wide"
+              }
+            },
+            "laneWrite": {
+              "p50": {
+                "wideMs": 0.046875,
+                "splitMs": 0.015625,
+                "differencePercent": 200,
+                "faster": "split"
+              },
+              "p95": {
+                "wideMs": 0.046875,
+                "splitMs": 0.015625,
+                "differencePercent": 200,
+                "faster": "split"
+              }
+            },
+            "feedInstall": {
+              "p50": {
+                "wideMs": 0.03125,
+                "splitMs": 0.03125,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 0.03125,
+                "splitMs": 0.046875,
+                "differencePercent": 50,
+                "faster": "wide"
+              }
+            },
+            "reopen": {
+              "p50": {
+                "wideMs": 0,
+                "splitMs": 0,
+                "differencePercent": 0,
+                "faster": "wide"
+              },
+              "p95": {
+                "wideMs": 1,
+                "splitMs": 1,
+                "differencePercent": 0,
+                "faster": "wide"
+              }
+            }
+          },
+          "stopRule": "material-direction-found"
+        }
+      },
+      "interpretation": [
+        "Smoke validates the measurement method only; it is not decision eligible.",
+        "ADR-0177 stop rule: material-direction-found.",
+        "pointRead: wide p50 difference is 0.00%; wide p95 difference is 0.00%.",
+        "traversal: wide p50 difference is 0.00%; wide p95 difference is 0.00%.",
+        "laneWrite: split p50 difference is 200.00%; split p95 difference is 200.00%.",
+        "feedInstall: wide p50 difference is 0.00%; wide p95 difference is 50.00%.",
+        "reopen: wide p50 difference is 0.00%; wide p95 difference is 0.00%."
+      ]
+    }
+  ],
+  "limitations": [
+    "The source fingerprint covers only source.files plus bun.lock. It does not cover bundled transitive modules such as the production schema, canonical encoder, SQLite adapter, or installed dependency bytes.",
+    "Headless Playwright Chromium and WebKit are desktop browser-engine evidence, not physical iOS Safari or Android Chrome evidence.",
+    "Playwright WebKit is not a substitute for Safari on iOS hardware.",
+    "Browser capacity and close/reopen timing vary with device storage, operating system, and browser quota policy.",
+    "Smoke scale validates the harness and cannot freeze inclusive V1 constants."
+  ],
+  "overall": "provisional"
+}

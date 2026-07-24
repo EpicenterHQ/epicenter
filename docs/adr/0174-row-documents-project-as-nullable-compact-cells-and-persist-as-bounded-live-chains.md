@@ -1,9 +1,12 @@
 # 0174. Row documents project as nullable compact cells and persist as bounded live chains
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-22: publication uses local and
+  authority-accepted revision watermarks; documents remain record-wide, the
+  composed cell projects only into portable artifacts, snapshots carry
+  metadata, and a typed export operation serves single-document jobs)
 - **Supersedes:** the document-plane persistence, exact-byte retention, no-cache, and presence mechanics of [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md), plus [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md)'s statement that remote authority mechanics remain unchanged. ADR-0161 already removes the workspace ownership axis; the principal authority and fixed-address-socket proposals remain independent.
-- **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) (the authority is the trusted document joiner and compactor), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (every live owner uses the same bounded baseline-plus-tail law), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the update log is a private physical representation of one logical row cell), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md) (document publication stores exact retry evidence rather than authority vectors)
+- **Amends:** [ADR-0145](0145-one-account-authority-owns-every-workspace-and-one-socket-per-open-row-document.md) (the authority is the trusted document joiner and compactor), [ADR-0146](0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md) (every live owner uses the same bounded baseline-plus-tail law), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) (the update log is a private physical representation of one logical row cell), [ADR-0172](0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md) (document publication derives obligations from revision watermarks)
 - **Relates:** [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 
 ## Context
@@ -18,40 +21,43 @@ accepted.
 
 ## Decision
 
-Every Epicenter row logically contains scalar fields and zero or one persisted
-Yjs document. The document has no identity or lifecycle outside its row. Blob
-membership remains independently owned by the blob ADRs.
+Every Epicenter record logically contains scalar state and zero or one
+persisted Yjs document, whatever collection it lives in; typed APIs expose
+`openDocument` where the Lens makes it meaningful (table collections in V1).
+The document has no identity or lifecycle outside its record. Only the
+terminal tombstone reaps it; reversible unset does not. Blob membership
+remains independently owned by the blob ADRs.
 
 ```txt
-one logical row
-├── scalar fields
+one logical record
+├── scalar state
 └── nullable Yjs document
         |
-        +--> live private form: compact baseline + bounded update tail
-        `--> artifact form:     one self-contained compact V2 update
+        +--> live private form:    compact baseline + bounded update tail
+        +--> portable Backup form: one self-contained compact V2 update
+        `--> snapshot form:        metadata only (revision, bytes, status)
 ```
 
-Inspection, Backup, and every portable Epicenter project the document directly
-on the logical row:
+The portable Backup projects the document directly on the record: the
+`document_update_v2` column of `_epicenter_records` (ADR-0167) carries one
+self-contained compact Yjs V2 update for the complete accepted document.
+`NULL` means that no document state has ever been persisted for the record.
+Visually empty application content may still encode causal deletion state or
+unresolved dependencies and therefore need a non-null cell.
 
-```sql
-rows(
-  namespace_key,
-  table_key,
-  row_id,
-  fields_json,
-  document_update_v2 BLOB NULL
-)
-```
+An inspection snapshot (ADR-0162) never carries a composed cell. It exposes
+document metadata only: the record's local and authority-accepted revisions,
+encoded chain size, and derived status. The rare "give me this one document
+now" job is served by an explicit
+typed per-record `exportDocument` operation that produces one self-contained
+V2 update. Yjs composition therefore happens in exactly two places: on the
+authority at Backup capture, and in that typed export. It never happens
+per-record inside an inspection query, and live document storage is never
+reshaped to make inspection easier.
 
-`document_update_v2` is one self-contained compact Yjs V2 update for the
-complete accepted document. `NULL` means that no document state has ever been
-persisted for the row. Visually empty application content may still encode
-causal deletion state or unresolved dependencies and therefore need a non-null
-cell.
-
-Every live owner stores that logical document privately in the same SQLite
-database as its scalar row, using a sparse one-to-one document relation with:
+Every live owner stores the logical document privately in the same SQLite
+database as its scalar record, using a sparse document relation keyed by the
+private interned record ID (ADR-0177) with:
 
 ```txt
 zero or one compact gc:true baseline
@@ -60,9 +66,9 @@ plus a short ordered tail of accepted V2 updates
 
 The chain is a physical write optimization, not document history, an
 acquisition floor, a portable representation, or a checkpoint exposed to
-replicas. The row-liveness transaction owns its deletion. Scalar fields remain
-small in their scalar relation; storing the document separately does not create
-a second logical aggregate or weaken atomic local deletion.
+replicas. The record tombstone transaction owns its deletion. Scalar state
+remains small in the records relation; storing the document separately does
+not create a second logical aggregate or weaken atomic local deletion.
 
 Each owner bounds the tail by both entry count and total encoded bytes. Crossing
 either threshold hydrates the covered baseline and tail into a fresh `gc: true`
@@ -81,6 +87,22 @@ candidate, enforces the canonical post-candidate byte and struct bounds from
 ADR-0146, commits the bounded representation, and only then acknowledges and
 best-effort fans out the update.
 
+ADR-0178 Lens import preserves the source record key and writes each document's
+exact Yjs V2 state through the ordinary destination record operation. The
+destination publication drain submits that state to the same authority
+acceptance operation. Shared history deduplicates, genuine concurrent branches
+join, and stale common history cannot replace newer accepted state. Import
+never flattens a document to visible JSON or text and reauthors it as new
+operations.
+
+Runtime-minted globally unique row IDs make independently created rows a union.
+A shared row ID therefore denotes one causal row lineage under ordinary
+Epicenter operation. Lens import adds no document-lineage identifier, collision
+inventory, replacement choice, or special document mode. A destination
+terminal row tombstone still refuses document admission. After verified
+import, explicit adapter-owned retirement removes the unclaimed replica's
+local chain and publication obligation with the rest of that replica.
+
 A wire-valid candidate may be too large for one adapter's tail-entry limit even
 when the resulting canonical document is within its product bounds. In that
 case the owner hydrates and validates the candidate, then atomically stores the
@@ -95,8 +117,9 @@ receipt semantics.
 
 ## Consequences
 
-- One logical row shape serves typed access, inspection, Backup, download, and
-  restore without exposing live update logs or a document inventory.
+- One logical record shape serves typed access, Backup, download, and restore
+  without exposing live update logs or a document inventory, while snapshots
+  stay cheap because they carry metadata instead of composed cells.
 - Small edits append small records on the live path, while count and byte
   thresholds bound storage fragmentation and rehydration work.
 - Compaction reduces retained encodings and deleted content. It does not
@@ -104,7 +127,7 @@ receipt semantics.
   independent refusal even when encoded bytes are below 1 MiB.
 - Bound state is durably observable. Local editing and persistence continue
   while publication is parked, and Epicenter never claims the parked document
-  is synchronized. Byte fullness may recover after edits shrink the compact
+  is settled. Byte fullness may recover after edits shrink the compact
   state; structural fullness requires moving the content to a fresh row.
 - Data owns one address-scoped synchronization-status surface. A document-bound
   observation distinguishes encoded bytes from decoded structs and reports the
@@ -116,14 +139,18 @@ receipt semantics.
   state only; it never captures unpublished work from a replica.
 - The authority can produce one compact accepted document for Backup without
   trusting a client checkpoint or waiting for every replica to reconnect.
-- Realtime fanout lowers latency but never proves durability. ADR-0171's exact
+- Realtime fanout lowers latency but never proves durability. ADR-0171's
   post-commit publication receipt owns that proof.
 - A single principal authority remains the lifecycle and transaction owner.
   Per-document Durable Objects are not introduced merely to host live sockets.
+- Lens import reuses the normal Yjs join and publication proof. It does not
+  create a second document merge path or ask the person to adjudicate causal
+  history.
 
 The durable publication obligation is the first implementation requirement for
-bound refusal: a refused document remains dirty or in flight and can never make
-Epicenter report the address as synchronized. The structured address-scoped
+bound refusal: a refused document remains owed and can never make Epicenter
+report the address as settled. Compact refusal measurements persist on the
+record for the refused local revision; no payload is frozen. The structured address-scoped
 observation and its Home presentation may land later in the implementation
 wave. Until they do, this ADR remains Proposed; applications do not receive a
 temporary mutation error or a manual settlement action.
@@ -135,8 +162,11 @@ Before this ADR becomes Accepted, maintained tests must prove:
 - applying the compact baseline and tail is state-equivalent to the logical
   document before and after compaction, including deletion-only state and
   unresolved dependencies;
-- duplicate and reordered valid updates converge, while a local edit racing an
-  exact frozen publication payload cannot be cleared by that payload's receipt;
+- duplicate and reordered valid updates converge, while a local edit racing a
+  publication attempt cannot be cleared by the earlier attempt's receipt;
+- stale common-history state cannot roll back newer accepted content or
+  resurrect deleted Yjs structs, repeated exact Lens import is idempotent, and
+  concurrent shared-lineage branches converge;
 - failures at every SQLite compaction boundary leave either the old complete
   chain or the new complete baseline, never a partial replacement;
 - a transport update larger than the physical tail-entry limit is admitted as
@@ -144,10 +174,15 @@ Before this ADR becomes Accepted, maintained tests must prove:
 - byte and struct fixtures immediately below, at, and above each proposed
   product bound return deterministic acceptance or a structured parked
   observation without mutating committed authority state on refusal;
-- row deletion, handle closure, process restart, hibernation, and Restore obey
-  the same document lifecycle; and
-- Backup and portable projection produce one nullable compact V2 cell whose
-  decoded state equals the authority's accepted document at the selected cut.
+- record tombstone, handle closure, process restart, hibernation, and Restore
+  obey the same document lifecycle, while reversible unset leaves the chain
+  intact;
+- the typed `exportDocument` operation produces a self-contained V2 update
+  equal to the live document; and
+- Backup projection produces one nullable compact V2 cell in
+  `_epicenter_records` whose decoded state equals the authority's accepted
+  document at the selected cut, while a snapshot's metadata columns match the
+  live chain they describe.
 
 The exact struct ceiling requires a maintained rich-text workload covering
 typing, formatting, undo, deletion, and multiple offline clients, plus maximal
@@ -167,6 +202,10 @@ constant without reopening the bounded-structure product refusal.
   client cannot prove its replacement covers concurrent authority branches.
   Verifying that claim requires the same trusted Yjs join the authority already
   performs.
+- **Add document-specific choices during Lens import.** Rejected because exact
+  Yjs joining already preserves shared history and concurrent branches.
+  Replacement loses valid offline work, while a keep/replace/merge inventory
+  turns importer provenance into a user-facing conflict system.
 - **Make the authority an opaque update mailbox.** Rejected because it gives up
   bounded accepted state, canonical bounds enforcement, and one complete
   authority document for Backup.

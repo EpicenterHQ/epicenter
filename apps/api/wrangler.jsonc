@@ -57,16 +57,9 @@
 				"name": "ATTACH_RELAY",
 				"class_name": "AttachRelay"
 			},
-			// One SQLite-backed account authority per authenticated principal; named
-			// workspaces are rows inside it. The Worker derives the DO name from the
-			// principal alone after authentication.
 			{
-				"name": "RECORDS",
-				"class_name": "CurrentStateRowAuthorityDurableObject"
-			},
-			{
-				"name": "EPICENTER_SYNC",
-				"class_name": "EpicenterAuthority"
+				"name": "DATA_AUTHORITY",
+				"class_name": "DataAuthority"
 			}
 		]
 	},
@@ -101,6 +94,18 @@
 		{
 			"tag": "v6",
 			"new_sqlite_classes": ["EpicenterAuthority"]
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": ["DataAuthority"],
+			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
+		},
+		{
+			// W4C clean break: the legacy exchange authority is gone. Deploying
+			// this migration permanently deletes every legacy authority object
+			// and its storage (the zero-legacy-data premise, ADR-0166).
+			"tag": "v8",
+			"deleted_classes": ["EpicenterAuthority"]
 		}
 	],
 	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---
@@ -149,15 +154,16 @@
 			"localConnectionString": "postgres://postgres:postgres@localhost:5432/epicenter"
 		}
 	],
-	// --- R2: NO bindings ---
-	// This Worker names no `r2_buckets` binding. The opaque-id blob store
-	// (large media: video archive, files routinely >100 MB, sometimes multi-GB)
-	// talks plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
-	// same code runs on this Worker against R2 and in a self-hosted Node binary
-	// against Garage/S3 with no Workers-only R2 binding. Create its bucket
-	// with: bunx wrangler r2 bucket create epicenter-blobs
-	// See packages/server/src/s3-blob-store.ts. (The legacy asset route and its
-	// `epicenter-assets` bucket binding were retired into this store.)
+	// --- R2 ---
+	// DATA_BLOBS stores record-owned blobs for the DataAuthority. The existing
+	// opaque-id blob store still uses the portable S3 API and its BLOBS_S3_*
+	// secrets. Both can share this bucket because their key spaces are disjoint.
+	"r2_buckets": [
+		{
+			"binding": "DATA_BLOBS",
+			"bucket_name": "epicenter-blobs"
+		}
+	],
 	//
 	// Smart Placement: Run your Worker close to your database for lower latency
 	"placement": {

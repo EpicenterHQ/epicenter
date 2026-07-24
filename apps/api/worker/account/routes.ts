@@ -35,7 +35,8 @@ import { Principal } from '@epicenter/auth';
 import {
 	blobPrincipalPrefix,
 	type CloudEnv,
-	createDurableObjectAccountAuthorities,
+	createDataAuthorityAccountAuthorities,
+	type DeletableDataAuthorityNamespace,
 	deleteStorageObservations,
 	resolveDeploymentBlobStore,
 } from '@epicenter/server';
@@ -117,10 +118,13 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 		requireFreshCookieSession,
 		async (c) => {
 			const principalId = c.var.principal.id;
-			const authority = () =>
-				createDurableObjectAccountAuthorities(
-					(c.env as Cloudflare.Env).RECORDS,
-				).authority(principalId);
+			const sweepAuthorities = () =>
+				createDataAuthorityAccountAuthorities(
+					(c.env as Cloudflare.Env)
+						.DATA_AUTHORITY as unknown as DeletableDataAuthorityNamespace,
+				)
+					.authority(principalId)
+					.deleteAccount();
 			const sweepBlobs = async () => {
 				const store = resolveDeploymentBlobStore(c.env);
 				if (!store) {
@@ -133,7 +137,9 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 			};
 			const result = await runAccountDeletion(
 				{
-					authority: () => authority().deleteAccount(),
+					authority: async () => {
+						await sweepAuthorities();
+					},
 					blobs: sweepBlobs,
 					async billing() {
 						const principalEmail = await readHostedPrincipalEmail(
@@ -169,7 +175,7 @@ export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
 			// the auth user still authenticated pushes and uploads. Best-effort by
 			// design; see the module JSDoc.
 			for (const [name, sweep] of [
-				['authority-sweep', () => authority().deleteAccount()],
+				['authority-sweep', sweepAuthorities],
 				['blobs-sweep', sweepBlobs],
 			] as const) {
 				try {

@@ -15,7 +15,7 @@ of content:
 The artifact and projection semantics (frozen expressions, truthful
 permalinks, one constrained theme, insert identity) are owned by the Vault's
 publishing ADRs, notably ADR-0059 and ADR-0064 in that repo. This app owns
-only hosted delivery; see `docs/adr/0176-the-ark-public-plane-is-a-plain-worker-streaming-eu-r2-projections.md`.
+only hosted delivery; see `docs/adr/0179-the-ark-public-plane-is-a-plain-worker-streaming-eu-r2-projections.md`.
 
 ## URL and key contract
 
@@ -63,7 +63,7 @@ Epicenter blob-store access, write routes, or renderer plugins.
 
 The trusted publishing code lives beside the delivery Worker as library
 modules the Worker entry never imports, so the deployed public plane keeps
-zero write paths (see the ADR-0176 amendment):
+zero write paths (see the ADR-0179 amendment):
 
 - `src/render.ts` is the constrained renderer: one pure function from a
   frozen-artifact-shaped input to one complete semantic HTML document. It

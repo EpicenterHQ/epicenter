@@ -47,11 +47,6 @@ import {
 	handleSyncPayload,
 	type SyncMessageType,
 } from '@epicenter/sync';
-import {
-	checkPresencePublishFrame,
-	type Peer,
-	type PresenceFrame,
-} from '@epicenter/workspace/document/presence';
 import * as decoding from 'lib0/decoding';
 import { createLogger } from 'wellcrafted/logger';
 import { trySync } from 'wellcrafted/result';
@@ -59,6 +54,11 @@ import * as Y from 'yjs';
 import { MAX_PAYLOAD_BYTES } from '../constants.js';
 import type { Connection } from '../types.js';
 import { RoomError, type RoomSocket, type RoomUpdateLog } from './contracts.js';
+import {
+	checkPresencePublishFrame,
+	type Peer,
+	type PresenceFrame,
+} from './presence-protocol.js';
 
 const log = createLogger('server/room/core');
 

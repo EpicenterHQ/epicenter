@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-07-18
-- **Superseded by:** [ADR-0173](0173-finalized-row-owned-blobs-use-content-digests-as-identity.md)
+- **Superseded by:** [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md), [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md), and [ADR-0092](0092-identity-is-the-partition.md)
 
 ## Context

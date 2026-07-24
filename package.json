@@ -16,7 +16,7 @@
 		"markdown",
 		"open-source",
 		"self-hosted",
-		"workspace"
+		"local-first-sync"
 	],
 	"repository": {
 		"type": "git",
@@ -36,6 +36,7 @@
 			"examples/*"
 		],
 		"catalog": {
+			"@noble/hashes": "^2.0.1",
 			"@sqlite.org/sqlite-wasm": "^3.53.0-build1",
 			"@types/node": "^24.0.0",
 			"@types/bun": "^1.3.14",
@@ -71,6 +72,7 @@
 			"@ricky0123/vad-web": "^0.0.30",
 			"date-fns": "^4.1.0",
 			"@biomejs/biome": "^2.4.10",
+			"miniflare": "4.20260401.0",
 			"wrangler": "^4.112.0",
 			"yargs": "^18.0.0",
 			"@standard-schema/spec": "^1.1.0",
@@ -155,6 +157,7 @@
 		"dev:vocab:ui": "bun run --cwd apps/vocab dev",
 		"dev:whispering": "bun run --filter @epicenter/api --filter @epicenter/whispering dev",
 		"dev:whispering:ui": "bun run --cwd apps/whispering dev",
+		"evidence:data:browser": "bun run --cwd packages/data evidence:browser",
 		"smoke:local": "bun run --cwd apps/api smoke:local",
 		"format": "biome check --write --linter-enabled=false",
 		"format:check": "biome ci --linter-enabled=false",
@@ -190,6 +193,7 @@
 		"@changesets/cli": "^2.31.0",
 		"@types/bun": "catalog:",
 		"jsrepo": "^3.6.2",
+		"miniflare": "catalog:",
 		"wrangler": "catalog:"
 	},
 	"dependencies": {

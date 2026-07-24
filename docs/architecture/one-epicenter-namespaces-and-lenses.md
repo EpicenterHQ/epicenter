@@ -1,64 +1,70 @@
 # One Epicenter, namespaces, and Lenses
 
 This is the explanatory map for the greenfield One-Epicenter destination. The
-durable decisions live in ADR-0160 through ADR-0169 and remain Proposed until
+durable decisions live in ADR-0160 through ADR-0177 and remain Proposed until
 their implementation lands. The active replacement plan lives in
 [`specs/20260720T002337-epicenter-data-clean-break.md`](../../specs/20260720T002337-epicenter-data-clean-break.md).
 
+The whole system in one sentence:
+
+> Epicenter durably synchronizes records addressed by namespace, collection,
+> and record key; Lenses present those records as rows or values, Home captures
+> point-in-time SQL artifacts, and only ordinary typed writes or Restore can
+> change the live Epicenter.
+
 ## The system
 
-One principal owns one Epicenter:
-
 ```txt
-One principal
-└── one Epicenter
-    ├── scalar facts
-    │   ├── typed rows
-    │   └── typed values
-    ├── lazy row documents
-    │   └── Yjs state for merge-sensitive content
-    └── blobs
-        └── explicitly addressed binary data
+typed applications ──► Lenses ──► live replica owner ──► authority
+                                        │ ├── documents (bounded Yjs chains)
+                                        │ └── blobs (raw immutable files)
+                                        │
+Home typed live surfaces ───────────────┤   (table browser, status, parked work)
+Home capture ───────────────────────────┴─► inspection snapshot ──► ad hoc SQL
+Backup capture (authority) ───────────────► portable Backup ──────► Restore
+future Proposal (prototype-gated) ────────► reviewed semantic writes ──► live replica
 ```
 
-Applications bring Lenses over portions of this body of data. Whispering,
-Honeycrisp, Skills, Chat, and Home do not each own a database or synchronization
-stream. A Lens can disappear while the data it interpreted remains.
+One principal owns one Epicenter: one logical body of records, replicated
+whole on every adapter boundary. Applications bring Lenses over portions of
+it. Whispering, Honeycrisp, Skills, Chat, and Home do not each own a database
+or synchronization stream. A Lens can disappear while the data it interpreted
+remains.
 
-## Structured scalar addresses
+## Records and addresses
 
-A namespace is the first coordinate of a durable address:
+The durable platform noun is the record: one durable address with scalar state
+that latently owns zero or one Yjs document and zero or one immutable blob
+slot.
 
 ```ts
-type RowAddress = {
-  kind: "row";
+type RecordAddress = {
   namespace: string;
-  table: string;
-  rowId: string;
-};
-
-type ValueAddress = {
-  kind: "value";
-  namespace: string;
-  value: string;
+  collection: string;
+  recordKey: string;
 };
 ```
 
-The address kind distinguishes a row from a value. A row-owned document uses
-the same row address and gains no independent document ID.
+There is no address kind. `notes/abc123` and `settings/theme` are both records
+durably; the Lens determines how applications interpret and operate on them. A
+table collection presents records as rows with runtime-minted keys; a values
+collection presents records as named values with declared keys. Rows and
+values are application vocabulary, not address species, wire shapes, or
+storage families.
 
 The logical hierarchy is honest and inspectable:
 
 ```txt
 one Epicenter
 ├── namespace: so.epicenter.whispering
-│   ├── table: recordings
-│   │   ├── row: abc
-│   │   └── row: def
-│   └── value: language
+│   ├── collection: recordings   (a Lens interprets this as a table)
+│   │   ├── record: mfyq...x2 (24-char minted key)
+│   │   └── record: k3nd...9a
+│   └── collection: settings     (a Lens interprets this as values)
+│       ├── record: language
+│       └── record: theme
 └── namespace: so.epicenter.honeycrisp
-    ├── table: notes
-    └── value: appearance
+    └── collection: notes
 ```
 
 ## A Lens is pure JSON
@@ -68,7 +74,7 @@ const whispering = defineLens({
   namespace: "so.epicenter.whispering",
   title: "Whispering",
   description: "Recordings and transcription settings.",
-  tables: {
+  collections: {
     recordings: defineTable({
       title: "Recordings",
       fields: {
@@ -77,19 +83,20 @@ const whispering = defineLens({
       },
       optional: [],
     }),
-  },
-  values: {
-    language: defineValue({
-      title: "Language",
-      value: field.string(),
+    settings: defineValues({
+      title: "Settings",
+      values: {
+        language: field.string(),
+      },
     }),
   },
 });
 ```
 
-`namespace` is a durable address coordinate. `tables.recordings` and
-`values.language` are the durable local keys. They are not aliases. Renaming a
-property or moving it to another namespace addresses different data.
+`namespace` is a durable address coordinate. `collections.recordings` and
+`settings.values.language` are durable local keys, and one namespace has one
+collection keyspace. They are not aliases: renaming a property or moving it to
+another namespace addresses different data.
 
 A Lens interprets exactly one namespace but may describe only part of it.
 Multiple Lenses may overlap on the same namespace and address, and none is
@@ -98,13 +105,21 @@ Lenses when it needs multiple namespaces; only the outer binding names are
 ergonomic aliases.
 
 The complete Lens is ordinary JSON. Authoring helpers preserve TypeScript
-inference while returning that canonical JSON shape. `parseLens(unknown)` is the
-one runtime validity boundary for downloaded artifacts. Validators are derived
-ephemeral functions, not persisted Lens state.
+inference while returning that canonical JSON shape. `parseLens(unknown)` is
+the one runtime validity boundary for downloaded artifacts. Validators are
+derived ephemeral functions, not persisted Lens state.
 
-Table fields are required by default. The `optional` array names field keys
-that may be absent. Missing and `null` remain different facts. Semantic titles
-and descriptions belong in the Lens; viewer layout and preview policy do not.
+Application verbs stay ergonomic and never leak the wire:
+
+```txt
+tables:  create / get / update / delete / scan / entries / subscribe
+         openDocument / blob
+values:  get / set / unset / subscribe
+```
+
+Reads are classified: conforming records return typed values, nonconforming
+records return diagnostics with their preserved raw JSON, and unknown fields
+ride along untouched through any Lens's writes.
 
 ## The namespace refusal
 
@@ -118,52 +133,94 @@ A namespace is not a database, workspace, synchronization scope, deletion
 scope, transaction scope, permission boundary, encryption key, retention rule,
 backup unit, quota, or physical file. Namespace-filtered reads and inspection
 are useful and allowed. An application-specific clear action is a series of
-ordinary per-address deletes, not an atomic namespace lifecycle.
+ordinary per-record deletes, not an atomic namespace lifecycle.
 
-## Independent convergence, documents, and portability
+## One wire, four operations, three lanes
 
-Each scalar address converges independently. A local write becomes durable and
-available offline before synchronization. Transport may aggregate operations
-for efficiency, but that aggregation is not an application commit and creates
-no atomic remote visibility across addresses.
+Each record converges independently. A local write becomes durable and
+available offline before synchronization, and Epicenter refuses to become a
+distributed transactional database: facts that must change together belong in
+one record, merge-sensitive content belongs in that record's document, and a
+true cross-record invariant belongs in an application-specific authority.
 
-Epicenter refuses to become a distributed transactional database. Facts that
-must change as one conceptual scalar object belong in one row. Merge-sensitive
-collaborative content belongs in that row's Yjs document. A true cross-row
-business invariant belongs in an application-specific semantic authority.
+The wire (ADR-0163) has one fact shape, `{ address, sequence, state,
+payload? }`, and four discriminated operations:
 
-A portable Epicenter is the same logical body of data represented as an inert,
-identity-free export of one selected authority's complete accepted state. It is
-not the live replica file and it never exports one namespace independently.
-
-## Relational inspection
-
-Applications use the type-safe Data API and receive no SQL escape hatch.
-Epicenter Home owns relational inspection for people and agents over live and
-portable Epicenters. The stable logical scalar relations are:
-
-```sql
-rows(namespace_key, table_key, row_id, fields_json)
-values(namespace_key, value_key, value_json)
+```txt
+patch       make or keep present by folding set/unset fields
+replace     make or keep present by replacing the complete value
+tombstone   terminal absence within one authority lifetime
+unset       reversible absence
 ```
 
-These are logical relations, not a promise about a live adapter's private
-physical schema. Installed Lenses let Home render the same rows and values as
-typed tables.
+Tombstone absorption is evaluated first, so a deleted record cannot be
+resurrected, even by independently installed Lenses that disagree about a
+collection.
+
+A replica record carries three crash lanes plus one overlay: `confirmed` (the
+latest authority truth learned locally), `sealed` (the immutable in-flight
+desire, with its exact canonical request bytes persisted for retry), and
+`pending` (the mutable compacted current desire), plus `parked`, which retains
+a refused operation as a visible, non-retrying overlay until a later write
+consumes it. ADR-0177 gives both semantic roles a wide interned record row,
+with role-specific columns and invariants. Relation shape remains private to
+the store owner.
+
+## Inspection is capture
+
+Applications receive no SQL, ever. Epicenter Home owns relational inspection
+for people and agents, and inspection means capture (ADR-0162): the store
+owner produces a point-in-time inspection snapshot, an inert SQLite artifact,
+and Home queries that file in its own context. Nothing runs SQL on the live
+connection; there is no inspection session, TEMP view, or busy refusal. Live
+jobs (table browsing, sync status, parked work) use typed owner surfaces.
+
+Every inert artifact self-identifies through its `_epicenter_artifact`
+metadata row, and its lossless raw relation is `_epicenter_records`, one
+kindless relation, because storage does not know which records are rows and
+which are values. Three artifact kinds have distinct promises, and none is
+ever accepted as another:
+
+```txt
+inspection snapshot   point-in-time query artifact; scalar visible state plus
+                      document/blob metadata; never applyable
+
+Proposal              source-bound editable artifact; compiles reviewed
+                      semantic changes into ordinary local typed writes; ends
+                      after local admission (prototype-gated, no ADR yet)
+
+portable Backup       complete custody artifact: records, self-contained
+                      composed V2 documents, and every owned blob byte at one
+                      authority cut; Restore creates a fresh authority lifetime
+```
+
+Selected Lens views inside a snapshot are persisted SQL views over
+`_epicenter_records`, so `recordings` or `notes` can be queried without JSON
+extraction while the raw relation stays the one truth in the file.
+
+## Documents, blobs, Backup, and Restore
+
+Every record latently owns zero or one document and zero or one blob slot;
+typed APIs expose them where the Lens makes them meaningful. Only terminal
+tombstone reaps those capabilities; reversible unset does not. Live documents
+are bounded Yjs baseline-plus-tail chains in SQLite (ADR-0174); blob bytes are
+raw immutable files published through a staged write order with idempotent
+debris sweeps (ADR-0172, ADR-0173).
+
+A portable Backup owns a consistent authority cut with a durable pin manifest
+and the pin/copy/verify/seal blob sequence (ADR-0167, ADR-0170). Restore
+validates only a portable artifact, constructs a successor authority with a
+fresh lifetime, and never emits ordinary intents; superseded replicas erase
+and reacquire.
 
 ## Still open
 
-Three presentation and composition choices remain deliberately unfrozen:
-
-1. Whether Home should generate friendly Lens SQL views, and how their aliases,
-   collisions, quoting, and ephemeral lifetime work.
-2. Whether app-bundled Lenses live only with the active app catalog or whether
+1. Whether app-bundled Lenses live only with the active app catalog or whether
    standalone installed Lenses have a separate discovery folder and lifecycle.
-3. The exact pure JSON table metadata shape and typed query ergonomics for the
-   non-enforcing row references settled by ADR-0169. References are not field
-   kinds or integrity constraints.
-
-The scalar transport also remains under adversarial review. Independent
-per-address convergence and whole-Epicenter scope are fixed; batches,
-checkpoints, receipts, cursors, and authority sequences must still earn their
-place as mechanisms.
+2. The exact pure JSON table metadata shape and typed reference-navigation
+   ergonomics for the non-enforcing record references settled by ADR-0169.
+3. The realtime row-document topology for the live-collaboration overlay.
+4. Physical iOS Safari and Android Chrome qualification of the selected wide
+   browser owner: capacity, reopen, quota, suspension, and eviction.
+5. The Proposal prototype (nine bounded tests); its ADR and product build wait
+   for that proof.

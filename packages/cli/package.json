@@ -36,11 +36,9 @@
 		"@epicenter/client": "workspace:*",
 		"@epicenter/identity": "workspace:*",
 		"@epicenter/matter-core": "workspace:*",
-		"@epicenter/workspace": "workspace:*",
 		"mime": "catalog:",
 		"wellcrafted": "catalog:",
-		"yargs": "catalog:",
-		"yjs": "catalog:"
+		"yargs": "catalog:"
 	},
 	"devDependencies": {
 		"typebox": "catalog:",

@@ -4,7 +4,6 @@
 	import HoneycripEditor from '$lib/editor/Editor.svelte';
 	import { getHoneycrispApp } from '$lib/context.js';
 	import { runHoneycrispMutation } from '$lib/mutation.js';
-	import DocumentSyncStatus from './DocumentSyncStatus.svelte';
 
 	const honeycrisp = getHoneycrispApp();
 
@@ -24,11 +23,11 @@
 
 {#await lease}
 	<Loading class="h-full" />
-{:then opened}
+{:then document}
 	<div class="flex h-full flex-col">
 		<div class="min-h-0 flex-1">
 			<HoneycripEditor
-				yxmlfragment={opened.document.get('body')}
+				yxmlfragment={document.get('body')}
 				{focusRequest}
 				onContentChange={(change) =>
 					runHoneycrispMutation(
@@ -37,6 +36,5 @@
 					)}
 			/>
 		</div>
-		<DocumentSyncStatus connection={opened.connection} />
 	</div>
 {/await}

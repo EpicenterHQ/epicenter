@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { consoleSink, type LogEvent } from 'wellcrafted/logger';
 import type { TranscriptionServiceId } from '../services/transcription/providers';
 import type { WhisperingAppDependencies } from './app';
@@ -27,7 +27,7 @@ export function createWhisperingBunDependencies({
 	defaultTranscriptionService = 'local',
 }: CreateWhisperingBunDependenciesOptions): WhisperingAppDependencies {
 	return {
-		openEpicenter: () => openBunEpicenter({ directory: dataDir }),
+		openEpicenter: () => openBunEpicenter({ directory: dataDir, owner: null }),
 		blobs: {
 			local: createBunBlobStore({ directory: join(dataDir, 'blobs') }),
 			remote: null,

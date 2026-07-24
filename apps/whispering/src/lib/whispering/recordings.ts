@@ -7,7 +7,7 @@ import {
 	generateBlobId,
 	type RemoteBlobNotFound,
 } from '@epicenter/blobs';
-import type { NonconformingRowError, TableLens } from '@epicenter/data';
+import type { NonconformingRowError, TableLens } from '@epicenter/data/runtime';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -71,7 +71,7 @@ export type WhisperingRecordings = {
 	update(
 		id: Recording['id'],
 		partial: Partial<Omit<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
-	): ReturnType<TableLens<typeof recordingsTable>['update']>;
+	): Promise<Result<Recording | undefined, NonconformingRowError>>;
 	delete(
 		toDelete: Recording['id'] | Recording['id'][],
 	): Promise<Result<void, RecordingAudioError | RecordingDeletionError>>;
@@ -140,7 +140,7 @@ export function createWhisperingRecordings({
 	const audio = createRecordingAudio({
 		blobs,
 		updateUploadedAt: async (id, uploadedAt) => {
-			const result = await table.update(id, {
+			const result = await table.record(id).update({
 				uploadedAt,
 			});
 			// Write the marker through to the cache before this workflow resolves,
@@ -192,7 +192,7 @@ export function createWhisperingRecordings({
 		);
 	}
 
-	/** Reflect one committed write in the cache before the re-list lands. */
+	/** Reflect one committed write in the cache before the refresh lands. */
 	function applyRowToCache(row: Recording) {
 		rows = rows.some((existing) => existing.id === row.id)
 			? rows.map((existing) => (existing.id === row.id ? row : existing))
@@ -201,7 +201,7 @@ export function createWhisperingRecordings({
 		notify();
 	}
 
-	/** Reflect one committed deletion in the cache before the re-list lands. */
+	/** Reflect one committed deletion in the cache before the refresh lands. */
 	function removeRowFromCache(id: Recording['id']) {
 		rows = rows.filter((row) => row.id !== id);
 		sorted = sortRows(rows);
@@ -265,12 +265,9 @@ export function createWhisperingRecordings({
 					cause: blobError,
 				});
 			}
+			// Record deletion is idempotent: an already-absent row deletes cleanly.
 			const { error: rowError } = await tryAsync({
-				try: async () => {
-					if (!(await table.delete(recording.id))) {
-						throw new Error(`Recording row ${recording.id} was already absent`);
-					}
-				},
+				try: () => table.record(recording.id).delete(),
 				catch: (cause) => RecordingDeletionError.RowDeleteFailed({ cause }),
 			});
 			if (rowError !== null) {
@@ -336,7 +333,7 @@ export function createWhisperingRecordings({
 				throw cause;
 			}
 			// Insert optimistically so follow-up workflows (auto-upload, delete)
-			// resolve the new row before the background re-list lands.
+			// resolve the new row before the background refresh lands.
 			applyRowToCache(created);
 			void refresh();
 			return created;
@@ -351,12 +348,13 @@ export function createWhisperingRecordings({
 				uploadedAt: _uploadedAt,
 				...changes
 			} = partial as Partial<Recording>;
-			const result = await table.update(id, changes);
+			const result = await table.record(id).update(changes);
 			if (result.error === null && result.data !== undefined) {
 				applyRowToCache(result.data as Recording);
 			}
 			void refresh();
-			return result;
+			// The projected row carries the structural id; the app brands it.
+			return result as Awaited<ReturnType<WhisperingRecordings['update']>>;
 		},
 		async delete(toDelete) {
 			const ids = Array.isArray(toDelete) ? toDelete : [toDelete];

@@ -1,24 +1,21 @@
 # @epicenter/cli
 
-> Run Epicenter headlessly for one folder so it stays synchronized and materialized.
-
-Each verb is a shell shortcut for one workspace or lifecycle job:
+> Shell access to Epicenter's supporting systems: machine auth, remote blobs, and typed markdown linting.
 
 ```txt
                  +--------+---------------------------------------------+
                  | Verb   | Job                                         |
                  +--------+---------------------------------------------+
-   Watch         | up     | open mount, sync, materialize, stay alive   |
-   Stop          | down   | signal the recorded watcher pid             |
-   Inspect       | status | list watcher metadata and pid liveness      |
-   Logs          | logs   | read the watcher log file                   |
+   Auth          | auth   | manage the local machine auth session       |
+   Blobs         | blobs  | upload and retrieve remote blob bytes       |
+   Matter        | matter | lint a folder of typed markdown             |
                  +--------+---------------------------------------------+
-
- Supporting systems: auth (machine session), init (root creation), blobs, matter
 ```
 
-The resident process is not a callable action server. Workspace actions remain
-in-process for apps and local tools.
+The old Workspace watcher verbs (`up`, `down`, `status`, `logs`, `init`) and
+their mount/daemon machinery retired with the Workspace model. A Data-native
+filesystem projection would be a new product with its own owner, not a revival
+of the watcher.
 
 ## Targeting an environment
 
@@ -37,102 +34,19 @@ Tokens are stored per API target so prod and local sessions coexist. Each target
 writes one file at `<dataDir>/auth/<host>.json`, where `<dataDir>` is the
 platform user-data directory from `env-paths('epicenter')` and `<host>` is the
 API host with `:` replaced by `_`. A fresh `cli:local auth login` will not
-overwrite your prod session. The watcher freezes its target at boot; to retarget,
-`epicenter down` then `epicenter up` again.
+overwrite your prod session.
 
 `EPICENTER_DATA_DIR=<path>` overrides `<dataDir>` itself. Today the only
 global user state stored there is cached credentials. This is the escape hatch
 for Nix, snap, ephemeral homes, and the test suite.
 
-The same env var and scripts apply to every command that talks to the API,
-including `up`, not just `auth`.
-
-## Commands
-
-`epicenter up` opens the mount declared by the Epicenter root's
-`epicenter.config.ts`. It runs in the foreground, owns the root's lease, joins
-sync when signed in, and keeps materializers alive until it receives SIGINT or
-SIGTERM.
-
-```bash
-epicenter auth login
-
-epicenter up -C ~/workspace
-epicenter status
-epicenter logs -C ~/workspace
-epicenter down -C ~/workspace
-```
-
-`-C` is a start directory for Epicenter-root discovery. Discovery walks upward
-until it finds `epicenter.config.ts`, then the watcher opens the mount that config
-declares. Discovery is upward-only and never scans down, so run from inside your
-Epicenter folder (or any directory under it) or pass `-C <epicenter-root>`. From
-a repo whose Epicenter folder lives at `repo/apps`, that is
-`epicenter up -C apps`.
-
-## Exit codes
-
-`up` exits `1` on startup failure (already running, bad config, auth) and
-`0` on clean shutdown. `down`, `status`, and `logs` exit `0`: a missing watcher
-or an empty log is reported, not treated as an error.
-
-Error text goes to stderr. Human-readable command output goes to stdout.
-
-## Epicenter roots and mounts
-
-`epicenter.config.ts` marks the Epicenter root and declares its mount. One folder
-is one app is one mount: the default export is a single `Mount`. The folder that
-holds `epicenter.config.ts` is your Epicenter folder. Epicenter owns its direct
-children, so the mount's visible markdown projection is a direct child folder.
-
-```ts
-import notes from './workspaces/notes/mount';
-
-export default notes;
-```
-
-The folder that holds `epicenter.config.ts` is your Epicenter folder.
-`.epicenter/` and the generated projection are direct children:
-
-```txt
-repo/                        unreserved repo root
-└── my-notes/                 Epicenter root (folder name is your choice)
-    ├── epicenter.config.ts   tracked, marks the Epicenter root
-    ├── .epicenter/           ignored, machine state for this root
-    └── notes/                generated Markdown projection (one folder per table)
-```
-
-Put `epicenter.config.ts` in a folder dedicated to one app. The marker is the
-config file, not the folder name. Run several apps by giving each its own folder,
-each its own root.
-
-Writing a custom mount inline uses `defineMount` from
-`@epicenter/workspace/daemon`:
-
-```ts
-import { defineMount } from '@epicenter/workspace/daemon';
-
-export default defineMount({
-  name: 'notes',
-  async open({ epicenterRoot, mount, session }) {
-    // Open the long-lived runtime.
-    // `mount` is the canonical mount name carried on the Mount object.
-    // Return { actions, [Symbol.asyncDispose] }, or `inactive(reason)`.
-  },
-});
-```
-
-`.epicenter/` holds the Epicenter root's generated machine state such as SQLite
-materializers, Yjs update logs, markdown materializers, and its generated
-`.gitignore`. It is not a registry. Runtime metadata uses the OS runtime
-directory, while watcher logs use the platform log directory from `env-paths`.
+The same env var and scripts apply to every command that talks to the API.
 
 ## Scripting
 
-Scripts should read materialized files or SQLite directly. Generic off-process
-action invocation is deliberately not part of the CLI surface. When a real write
-workflow needs shell access, add an explicit app command for that workflow rather
-than a generic action bus.
+Generic off-process action invocation is deliberately not part of the CLI
+surface. When a real write workflow needs shell access, add an explicit app
+command for that workflow rather than a generic action bus.
 
 ## Public API
 

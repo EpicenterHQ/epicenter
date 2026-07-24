@@ -1,6 +1,0 @@
-# Epicenter folder. Only epicenter.config.ts is tracked; the generated mount
-# projections and the machine state under .epicenter/ are derived from the Yjs
-# log and rebuilt on demand, so git ignores them.
-/*
-!/.gitignore
-!/epicenter.config.ts

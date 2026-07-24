@@ -5,12 +5,20 @@
 	let { id }: { id: string } = $props();
 	const skills = getSkillsApp();
 
-	const lease = $derived(skills.tables.references.document.open(id));
+	async function openReference() {
+		const { data, error } = await skills.references
+			.record(id)
+			.document.open();
+		if (error !== null) throw error;
+		return data;
+	}
+
+	const lease = $derived(openReference());
 	$effect(() => {
 		const openedLease = lease;
 		return () =>
 			void openedLease.then(
-				(opened) => opened[Symbol.dispose](),
+				(opened) => opened[Symbol.asyncDispose](),
 				() => undefined,
 			);
 	});

@@ -1,0 +1,65 @@
+{
+	"schemaVersion": 1,
+	"kind": "historical-benchmark-evidence-provenance",
+	"binding": "attested",
+	"historicalSource": {
+		"commit": "670309550e63e5c2f3a5fd8c69bf3137f3580fe3",
+		"pathAtCommit": "scripts/benchmarks/scalar-facts-layout.ts",
+		"archivedPath": "2026-07-21-bun-native-full-schema-v3.source.ts",
+		"gitMode": "100644",
+		"bytes": 85213,
+		"lines": 2632,
+		"gitBlobSha1": "ad90328f8fe607d243047a5da3cf5ef0e1640bae",
+		"sha256": "e35f4e35b2ab5d3ab7a1a826fee7617ed880b68af97717a49a0aec036aa169ed",
+		"runtimeInputs": [
+			"bun:sqlite",
+			"node:fs",
+			"node:os",
+			"node:path",
+			"Bun and process globals"
+		],
+		"repositoryRuntimeInputs": []
+	},
+	"reportArtifact": {
+		"path": "2026-07-21-bun-native-full-schema-v3.json.gz",
+		"compressedBytes": 978825,
+		"compressedGitBlobSha1": "275d5373214c1c3b4f6aaa3b721e3ca7bdb2dc94",
+		"compressedSha256": "9b6f7ee1822d158303ad9409d1987e292cf50e61a512c4e581bbc96c0b1b213f",
+		"uncompressedBytes": 5748590,
+		"uncompressedSha256": "a97bf03f8f4d659dc88bed21d076c215e81d3ea65e5b65989c1449ceabd102c5"
+	},
+	"reportedInvocation": [
+		"bun",
+		"scripts/benchmarks/scalar-facts-layout.ts",
+		"--profile",
+		"full",
+		"--output",
+		"<temporary-directory>/report.json"
+	],
+	"observedRun": {
+		"startedAt": "2026-07-21T11:54:54.153Z",
+		"finishedAt": "2026-07-21T12:41:54.968Z",
+		"bunVersion": "1.3.1",
+		"sqliteVersion": "3.51.0",
+		"platform": "darwin",
+		"osRelease": "25.5.0",
+		"arch": "arm64",
+		"cpu": "Apple M4 Max",
+		"cpuCount": 16,
+		"compileOptionsJsonPointer": "/environment/compileOptions",
+		"resolvedConfigurationJsonPointer": "/configuration"
+	},
+	"license": {
+		"spdx": "AGPL-3.0-or-later",
+		"dispatchPath": "../../../LICENSE",
+		"dispatchSha256": "c5856f20286624d818410c9bc2303461da01563290d105953b3c1c16b9e44413",
+		"textPath": "../../../licenses/LICENSE-AGPL-3.0",
+		"textSha256": "0b4eb79f55f8cb810c9b17fffa2c7823aed78b85d6d290e939e4c53511414c9d"
+	},
+	"limitations": [
+		"The schema-v3 report does not embed a source commit, source path, or source hash; its association with the archived source is attested by the run record.",
+		"The executed Bun binary hash and revision were not captured.",
+		"The source worktree cleanliness was not captured.",
+		"Captured stdout was not retained as an independent artifact."
+	]
+}

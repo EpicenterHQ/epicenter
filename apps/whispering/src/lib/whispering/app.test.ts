@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BlobStore } from '@epicenter/blobs';
-import { openBunEpicenter } from '@epicenter/data/bun';
+import { openBunEpicenter } from '@epicenter/data/runtime/bun';
 import { Ok } from 'wellcrafted/result';
 import { openWhisperingApp, type WhisperingAppDependencies } from './app';
 
@@ -28,7 +28,7 @@ function dependencies(
 	overrides: Partial<WhisperingAppDependencies> = {},
 ): WhisperingAppDependencies {
 	return {
-		openEpicenter: () => openBunEpicenter({ directory: root }),
+		openEpicenter: () => openBunEpicenter({ directory: root, owner: null }),
 		blobs: { local, remote: null },
 		defaultTranscriptionService: 'OpenAI',
 		reportBackgroundError: () => undefined,
@@ -97,7 +97,7 @@ test('abort wins an in-flight Epicenter acquisition and late open is released', 
 			dependencies(root, {
 				openEpicenter: async () => {
 					await gate.promise;
-					const epicenter = await openBunEpicenter({ directory: root });
+					const epicenter = await openBunEpicenter({ directory: root, owner: null });
 					return {
 						...epicenter,
 						async [Symbol.asyncDispose]() {

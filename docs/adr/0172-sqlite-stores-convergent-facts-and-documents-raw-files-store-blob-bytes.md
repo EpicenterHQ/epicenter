@@ -1,7 +1,9 @@
 # 0172. SQLite stores convergent facts and documents; raw files store blob bytes
 
 - **Status:** Proposed
-- **Date:** 2026-07-20
+- **Date:** 2026-07-20 (revised 2026-07-22: publication obligations derive
+  from local truth versus authority-accepted watermarks)
+- **Amended by:** [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (document logs become bounded baseline-plus-tail chains and publication uses revision watermarks rather than frozen retry images)
 - **Amends:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md)
 - **Relates:** [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 
@@ -19,12 +21,14 @@ One local Epicenter owner uses the same conceptual layout in every runtime:
 ```txt
 Epicenter storage root
 ├── epicenter.sqlite3
-│   ├── scalar state and pending intents
-│   ├── Yjs document update logs
-│   ├── document publication vectors
-│   └── blob publication records
+│   ├── per-record scalar lane state and obligations
+│   ├── bounded Yjs document baseline-plus-tail chains
+│   ├── locally authored and authority-accepted document revisions
+│   ├── local nullable blob digests
+│   └── authority-accepted blob digests
 └── blobs/
-    └── row-scoped immutable byte files
+    ├── staging/   in-flight capture bytes with no permanent identity
+    └── at most one immutable content-addressed byte file per live record
 ```
 
 The browser stores this layout in OPFS and keeps one Worker-owned SQLite
@@ -33,22 +37,58 @@ native filesystem with the same ownership law. OPFS is the filesystem; it is
 not an alternative database engine.
 
 SQLite owns small mutable records that require crash-safe framing, indexing,
-compaction, schema versioning, row-liveness admission, or coordination with
+compaction, schema versioning, record-liveness admission, or coordination with
 scalar deletion. Yjs document updates therefore remain in the SQLite update
-log. Epicenter does not invent raw per-document files, record framing,
-truncation recovery, compaction swaps, or cross-medium row-liveness checks.
+log. Epicenter does not invent raw per-document files, custom byte framing,
+truncation recovery, compaction swaps, or cross-medium record-liveness checks.
 
 Raw files own blob bytes because blobs are immutable, potentially large, and
-streamed. SQLite stores only the small row-addressed obligation needed to
-publish those bytes. Filename, media type, application meaning, and other blob
+streamed. SQLite records the local nullable SHA-256 and authority-accepted
+SHA-256 for each record's universal zero-or-one blob slot. Their inequality
+derives the publication obligation. Filename, media type, application meaning, and other
 interpretation belong to application citations, not sidecar metadata in the
 blob store.
 
-The SQLite row-deletion transaction ends the logical life of the row and
-removes its document log and pending publication records. The owner then
-deletes the row's blob directory idempotently. Raw bytes without a live row and
-application citation are unreachable storage debris, never resurrectable
-product state.
+Blob publication follows one named write order:
+
+```txt
+stream bytes to blobs/staging/<digest>.tmp and fsync
+  -> rename to the content-addressed blobs/<digest> (idempotent)
+  -> one SQLite transaction records ownership evidence
+     (local digest; the accepted digest remains behind until its receipt)
+```
+
+Because the SQLite commit is ordered strictly after the rename,
+evidence-without-bytes cannot occur; bytes-without-evidence is always reapable
+debris. Two idempotent sweeps own every crash residue: the **reopen sweep**
+clears `staging/` wholesale when the owner starts, and the **debris sweep**
+deletes content-addressed files that no record references, after a tombstone
+or a whole-replica erase. Nothing else deletes blob bytes.
+
+The record tombstone transaction ends the logical life of the record and
+removes its document chain and pending publication evidence; reversible unset
+removes neither. The debris sweep then deletes the record's blob file
+idempotently. Raw bytes without a live owning record are storage debris, never
+resurrectable product state. The runtime does not inspect schema-opaque
+application citations and cannot use them as a garbage-collection oracle while
+the record remains live.
+
+ADR-0178 retirement applies the same boundary to one whole unclaimed replica
+after verified Lens import. The adapter refuses retirement while a runtime
+holds the identity slot, then removes the replica's SQLite store and blob root
+as one explicit destructive lifecycle operation. A crash may leave files with
+no live SQLite owner, but those bytes are debris and cannot reappear as product
+state. Retirement never opens an account replica, hydrates authority state, or
+replaces an authority lifetime.
+
+A raw blob file is usable only when its bytes verify against the digest
+currently owned by its replica's SQLite store. Delayed retirement cleanup
+targets the retired identity slot or an equivalent immutable physical
+generation. It can neither satisfy nor delete a blob owner in another identity
+slot. A private blob-root generation is one valid implementation.
+Digest-qualified immutable paths are valid only when cleanup rechecks or leases
+current SQLite ownership so it cannot delete a presently owned equal-digest
+file.
 
 ## Consequences
 
@@ -60,8 +100,39 @@ product state.
   SQLite or across WebView JSON IPC.
 - Browser and native runtimes share one storage law without pretending their
   filesystem adapters are one implementation.
-- Blob-file cleanup may lag the logical deletion transaction. That lag costs
-  storage only and cannot restore a deleted row.
+- Blob-file cleanup may lag the logical tombstone transaction. That lag costs
+  storage only and cannot restore a deleted record.
+- Whole-replica retirement is explicit adapter-owned destruction without
+  pretending SQLite can atomically delete external files. Verified import is
+  established before retirement; interrupted physical reclamation follows the
+  same debris rule as a record tombstone.
+
+## Acceptance evidence
+
+Before this ADR becomes Accepted, each storage adapter must prove that bounded
+document chains remain transactional SQLite state, blob bytes remain streamable
+raw files, and a record tombstone cannot resurrect either medium. Failure
+injection must leave a complete committed SQLite state plus either valid
+record-owned blob bytes or removable debris, never live bytes for a deleted
+record. It must also kill the process between the staging fsync, the rename,
+and the ownership commit, and prove both sweeps are idempotent.
+
+The same failure injection covers retirement: an open runtime refuses
+destruction, the application withholds it until import is verified, an
+interrupted retirement is resumable, and a
+completed retirement exposes no live local record or obligation even when
+raw-file reclamation was interrupted. Equal- and different-digest files in
+another immutable identity slot must prove that retired-slot cleanup cannot
+satisfy or delete the other owner before or after a crash.
+
+Physical measurements are adapter-specific. Evidence from native SQLite and
+browser OPFS reports the database and the file-level measurements that the
+adapter can observe. Cloudflare Durable Object evidence reports its exposed
+database size, SQL row counts, execution cost, and platform-limit refusals; it
+does not invent WAL, temporary-file, or storage-root measurements that the
+managed runtime does not expose. ADR-0161's scalar-only layout evidence remains
+separate and does not cap document chains, raw blob bytes, or choose a scalar
+layout.
 
 ## Considered alternatives
 

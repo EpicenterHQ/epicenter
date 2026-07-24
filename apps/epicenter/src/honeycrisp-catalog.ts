@@ -4,6 +4,7 @@ import type {
 	AgentToolOutcome,
 	ToolCatalog,
 } from '@epicenter/agent';
+import { deleteHoneycrispFolder } from '@epicenter/honeycrisp';
 import type { HoneycrispData } from './workspace.ts';
 
 const LIST_FOLDERS_TOOL: AgentToolDefinition = {
@@ -100,22 +101,6 @@ export function createHoneycrispCatalog(
 		],
 		resolve,
 	};
-}
-
-async function deleteHoneycrispFolder(
-	workspace: HoneycrispData,
-	folderId: string,
-): Promise<void> {
-	for await (const entry of workspace.notes.entries()) {
-		if (entry.error !== null) continue;
-		const note = entry.data;
-		if (note.folderId !== folderId) continue;
-		const result = await workspace.notes.update(note.id, {
-			folderId: undefined,
-		});
-		if (result.error !== null) throw result.error;
-	}
-	await workspace.folders.delete(folderId);
 }
 
 function readFolderId(input: AgentToolCall['input']): string | undefined {

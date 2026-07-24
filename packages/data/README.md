@@ -75,7 +75,7 @@ classified; applications sort or filter the returned rows locally.
 
 ## Read complete tables
 
-Use `scan()` when the complete table belongs in memory:
+Use `scan()` when the classified traversal belongs in memory:
 
 ```ts
 const { rows, nonconforming } = await tasks.scan();
@@ -94,9 +94,11 @@ for await (const entry of tasks.entries()) {
 ```
 
 Both traverse live rows in stable row ID order. `entries()` fetches bounded
-pages internally, so callers can stop early or keep memory bounded without
+batches internally, so callers can stop early or keep memory bounded without
 constructing cursors. `scan()` consumes that traversal to completion and groups
 the same `Result` values. Traversal observes live state, not a snapshot.
+Per-row Lens projection failures use those `Result` values. Storage or transport
+failures throw from iteration or reject `scan()` instead.
 
 Use one JSON field when the complete bounded object is the honest replacement
 unit:
@@ -193,10 +195,12 @@ an ordinary idempotent update writes the current value
 ```
 
 Reads remain pure. Repair belongs in one explicit application-owned pass or
-registry, not in feature reads and not in the Lens. After the repair has run
-against every relevant authority, prove that no old values remain and delete
-the recognizer. This keeps repair history bounded instead of rebuilding a
-permanent `.migrate()` chain.
+registry, not in feature reads and not in the Lens. Keep the recognizer
+rerunnable while a supported writer may reintroduce the old shape. Delete it
+only after the application has ended that writer compatibility and separately
+established that the old shape cannot reappear; live traversal alone does not
+prove absence. This keeps repair history bounded without pretending every
+repair needs a permanent `.migrate()` chain.
 
 ## Self-description and UI
 

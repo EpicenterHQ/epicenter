@@ -44,12 +44,8 @@
 				"class_name": "Room"
 			},
 			{
-				"name": "RECORDS",
-				"class_name": "CurrentStateRowAuthorityDurableObject"
-			},
-			{
-				"name": "EPICENTER_SYNC",
-				"class_name": "EpicenterAuthority"
+				"name": "DATA_AUTHORITY",
+				"class_name": "DataAuthority"
 			}
 		]
 	},
@@ -65,11 +61,33 @@
 		{
 			"tag": "v3",
 			"new_sqlite_classes": ["EpicenterAuthority"]
+		},
+		{
+			"tag": "v4",
+			"new_sqlite_classes": ["DataAuthority"],
+			"deleted_classes": ["CurrentStateRowAuthorityDurableObject"]
+		},
+		{
+			// W4C clean break: the legacy exchange authority is gone. Deploying
+			// this migration permanently deletes every legacy authority object
+			// and its storage (the zero-legacy-data premise, ADR-0166).
+			"tag": "v5",
+			"deleted_classes": ["EpicenterAuthority"]
+		}
+	],
+
+	// Record-owned blobs live beside the principal DataAuthority. This binding
+	// is only for the Cloudflare deployment; the Bun deployment uses native files.
+	"r2_buckets": [
+		{
+			"binding": "DATA_BLOBS",
+			"bucket_name": "epicenter-blobs"
 		}
 	]
 
 	// No Hyperdrive binding: the instance composes no Postgres (no Better Auth or
-	// telemetry). ROOM and RECORDS are its complete durable substrate
+	// telemetry). ROOM, DATA_AUTHORITY, and DATA_BLOBS are its complete
+	// durable substrate
 	// (ADR-0075). No workspace catalog exists: the authority derives from the
 	// principal alone (ADR-0092, ADR-0145).
 }

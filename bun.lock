@@ -12,6 +12,7 @@
         "@changesets/cli": "^2.31.0",
         "@types/bun": "catalog:",
         "jsrepo": "^3.6.2",
+        "miniflare": "catalog:",
         "wrangler": "catalog:",
       },
     },
@@ -27,7 +28,6 @@
         "@epicenter/identity": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@epicenter/sync": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
         "autumn-js": "^1.2.34",
@@ -97,8 +97,8 @@
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/data": "workspace:*",
-        "@epicenter/document-sync": "workspace:*",
         "@epicenter/field": "workspace:*",
+        "@epicenter/honeycrisp": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@epicenter/skills": "workspace:*",
         "@epicenter/sync": "workspace:*",
@@ -133,14 +133,12 @@
         "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/data": "workspace:*",
-        "@epicenter/document-sync": "workspace:*",
         "@epicenter/field": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "@tauri-apps/plugin-deep-link": "catalog:",
         "@tauri-apps/plugin-opener": "catalog:",
         "@y/prosemirror": "2.0.0-6",
-        "@y/protocols": "1.0.6-rc.1",
         "@y/y": "14.0.0-rc.24",
         "arktype": "catalog:",
         "better-auth": "catalog:",
@@ -343,7 +341,6 @@
         "@codemirror/autocomplete": "^6.20.1",
         "@epicenter/app-shell": "workspace:*",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/chat": "workspace:*",
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/skills": "workspace:*",
@@ -366,10 +363,8 @@
         "@codemirror/state": "^6.6.0",
         "@codemirror/theme-one-dark": "^6.1.3",
         "@codemirror/view": "^6.41.0",
-        "@epicenter/filesystem": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@epicenter/vite-config": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@lezer/highlight": "^1.2.3",
         "@lucide/svelte": "catalog:",
         "@replit/codemirror-vim": "^6.3.0",
@@ -442,10 +437,10 @@
         "@codemirror/language": "^6.12.2",
         "@codemirror/state": "^6.6.0",
         "@codemirror/view": "^6.41.0",
+        "@epicenter/data": "workspace:*",
         "@epicenter/field": "workspace:*",
         "@epicenter/skills": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@sveltejs/adapter-auto": "catalog:",
         "@sveltejs/kit": "catalog:",
@@ -467,13 +462,11 @@
       "dependencies": {
         "@epicenter/app-shell": "workspace:*",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/chat": "workspace:*",
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/field": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@wxt-dev/storage": "^1.2.6",
         "arktype": "catalog:",
@@ -520,7 +513,6 @@
         "@epicenter/field": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@lucide/svelte": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
@@ -549,14 +541,12 @@
       "dependencies": {
         "@epicenter/app-shell": "workspace:*",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/chat": "workspace:*",
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/field": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@lucide/svelte": "catalog:",
         "arktype": "catalog:",
         "mode-watcher": "^1.1.0",
@@ -659,7 +649,6 @@
       "version": "0.0.2",
       "dependencies": {
         "@epicenter/field": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yjs": "catalog:",
@@ -667,26 +656,6 @@
       "devDependencies": {
         "@types/bun": "catalog:",
         "typescript": "catalog:",
-      },
-    },
-    "examples/sqlite-workspace-browser": {
-      "name": "@examples/sqlite-workspace-browser",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/field": "workspace:*",
-        "@epicenter/identity": "workspace:*",
-        "@epicenter/server": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
-        "hono": "catalog:",
-        "typebox": "catalog:",
-        "yjs": "catalog:",
-      },
-      "devDependencies": {
-        "@noble/hashes": "^2.0.1",
-        "@types/node": "catalog:",
-        "playwright": "^1.61.1",
-        "typescript": "catalog:",
-        "vite": "catalog:",
       },
     },
     "examples/yjs-size-benchmark": {
@@ -739,9 +708,7 @@
       "name": "@epicenter/app-shell",
       "version": "0.3.0",
       "dependencies": {
-        "@epicenter/agent": "workspace:*",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/chat": "workspace:*",
         "@epicenter/client": "workspace:*",
         "@epicenter/data": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -809,20 +776,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/chat": {
-      "name": "@epicenter/chat",
-      "version": "0.1.0",
-      "dependencies": {
-        "@epicenter/agent": "workspace:*",
-        "@epicenter/data": "workspace:*",
-        "@epicenter/field": "workspace:*",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/cli": {
       "name": "@epicenter/cli",
       "version": "0.3.0",
@@ -835,11 +788,9 @@
         "@epicenter/client": "workspace:*",
         "@epicenter/identity": "workspace:*",
         "@epicenter/matter-core": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "mime": "catalog:",
         "wellcrafted": "catalog:",
         "yargs": "catalog:",
-        "yjs": "catalog:",
       },
       "devDependencies": {
         "@epicenter/api": "workspace:*",
@@ -890,6 +841,8 @@
       "dependencies": {
         "@epicenter/field": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
+        "@epicenter/sync": "workspace:*",
+        "@noble/hashes": "catalog:",
         "@sqlite.org/sqlite-wasm": "catalog:",
         "@y/y": "14.0.0-rc.24",
         "nanoid": "catalog:",
@@ -898,19 +851,9 @@
       },
       "devDependencies": {
         "@types/bun": "catalog:",
+        "playwright": "^1.61.1",
         "typescript": "catalog:",
-      },
-    },
-    "packages/document-sync": {
-      "name": "@epicenter/document-sync",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/data": "workspace:*",
-        "@y/y": "14.0.0-rc.24",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
+        "vite": "catalog:",
       },
     },
     "packages/encryption": {
@@ -944,7 +887,6 @@
       "version": "0.3.0",
       "dependencies": {
         "@epicenter/field": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@libsql/client": "^0.14.0",
         "@libsql/client-wasm": "^0.14.0",
         "just-bash": "^2.9.7",
@@ -998,17 +940,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/row-sync": {
-      "name": "@epicenter/row-sync",
-      "version": "0.0.1",
-      "dependencies": {
-        "typebox": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/server": {
       "name": "@epicenter/server",
       "version": "0.1.1",
@@ -1020,12 +951,11 @@
         "@epicenter/blobs": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/data": "workspace:*",
-        "@epicenter/document-sync": "workspace:*",
         "@epicenter/identity": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
         "@epicenter/sync": "workspace:*",
-        "@epicenter/workspace": "workspace:*",
         "@hono/standard-validator": "catalog:",
+        "@noble/hashes": "catalog:",
         "@y/y": "14.0.0-rc.24",
         "arktype": "catalog:",
         "aws4fetch": "catalog:",
@@ -1037,6 +967,7 @@
         "lib0": "catalog:",
         "nanoid": "catalog:",
         "pg": "^8.20.0",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "y-protocols": "catalog:",
         "yjs": "catalog:",
@@ -1180,45 +1111,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/workspace": {
-      "name": "@epicenter/workspace",
-      "version": "0.3.0",
-      "dependencies": {
-        "@epicenter/agent-protocol": "workspace:*",
-        "@epicenter/encryption": "workspace:*",
-        "@epicenter/field": "workspace:*",
-        "@epicenter/identity": "workspace:*",
-        "@epicenter/row-sync": "workspace:*",
-        "@epicenter/sqlite": "workspace:*",
-        "@epicenter/sync": "workspace:*",
-        "@sindresorhus/slugify": "catalog:",
-        "@sqlite.org/sqlite-wasm": "catalog:",
-        "@types/bun": "catalog:",
-        "@y/y": "14.0.0-rc.24",
-        "arkregex": "catalog:",
-        "diff": "^8.0.3",
-        "env-paths": "^3.0.0",
-        "fflate": "catalog:",
-        "lib0": "catalog:",
-        "nanoid": "catalog:",
-        "temporal-polyfill": "^0.3.0",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-        "y-indexeddb": "catalog:",
-      },
-      "devDependencies": {
-        "@noble/ciphers": "^2.1.1",
-        "@types/diff": "^8.0.0",
-        "@types/node": "catalog:",
-        "fake-indexeddb": "^6.2.5",
-        "filenamify": "^7.0.1",
-        "typescript": "catalog:",
-        "yjs": "catalog:",
-      },
-      "peerDependencies": {
-        "yjs": "catalog:",
-      },
-    },
   },
   "patchedDependencies": {
     "@y/prosemirror@2.0.0-6": "patches/@y%2Fprosemirror@2.0.0-6.patch",
@@ -1255,6 +1147,7 @@
     "@hono/standard-validator": "^0.2.2",
     "@lucide/svelte": "^0.561.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@noble/hashes": "^2.0.1",
     "@ricky0123/vad-web": "^0.0.30",
     "@sindresorhus/slugify": "^3.0.0",
     "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
@@ -1295,6 +1188,7 @@
     "lib0": "^0.2.117",
     "marked": "^17.0.3",
     "mime": "^4.0.6",
+    "miniflare": "4.20260401.0",
     "mode-watcher": "^1.1.0",
     "ms": "^2.1.3",
     "nanoid": "^5.1.14",
@@ -1550,8 +1444,6 @@
 
     "@epicenter/blobs": ["@epicenter/blobs@workspace:packages/blobs"],
 
-    "@epicenter/chat": ["@epicenter/chat@workspace:packages/chat"],
-
     "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
 
     "@epicenter/client": ["@epicenter/client@workspace:packages/client"],
@@ -1559,8 +1451,6 @@
     "@epicenter/constants": ["@epicenter/constants@workspace:packages/constants"],
 
     "@epicenter/data": ["@epicenter/data@workspace:packages/data"],
-
-    "@epicenter/document-sync": ["@epicenter/document-sync@workspace:packages/document-sync"],
 
     "@epicenter/encryption": ["@epicenter/encryption@workspace:packages/encryption"],
 
@@ -1596,8 +1486,6 @@
 
     "@epicenter/reddit": ["@epicenter/reddit@workspace:apps/reddit"],
 
-    "@epicenter/row-sync": ["@epicenter/row-sync@workspace:packages/row-sync"],
-
     "@epicenter/self-host": ["@epicenter/self-host@workspace:apps/self-host"],
 
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
@@ -1625,8 +1513,6 @@
     "@epicenter/whispering": ["@epicenter/whispering@workspace:apps/whispering"],
 
     "@epicenter/wiki": ["@epicenter/wiki@workspace:apps/wiki"],
-
-    "@epicenter/workspace": ["@epicenter/workspace@workspace:packages/workspace"],
 
     "@esbuild-kit/core-utils": ["@esbuild-kit/core-utils@3.3.2", "", { "dependencies": { "esbuild": "~0.18.20", "source-map-support": "^0.5.21" } }, "sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ=="],
 
@@ -1683,8 +1569,6 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.28.1", "", { "os": "win32", "cpu": "ia32" }, "sha512-zvb/mB2bSCoJOpoCBgYKKpX6YM6mJBlBUVUtVj41DlZJVEB6/0CKlRYxP5wWl1C1ILiCoAU5wZZ4q1P3qeS6Eg=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.1", "", { "os": "win32", "cpu": "x64" }, "sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A=="],
-
-    "@examples/sqlite-workspace-browser": ["@examples/sqlite-workspace-browser@workspace:examples/sqlite-workspace-browser"],
 
     "@examples/yjs-size-benchmark": ["@examples/yjs-size-benchmark@workspace:examples/yjs-size-benchmark"],
 
@@ -2237,8 +2121,6 @@
     "@types/d3-contour": ["@types/d3-contour@3.0.6", "", { "dependencies": { "@types/d3-array": "*", "@types/geojson": "*" } }, "sha512-BjzLgXGnCWjUSYGfH1cpdo41/hgdWETu4YxpezoztawmqsvCeep+8QGfiY6YbDvfgHz/DkjeIkkZVJavB4a3rg=="],
 
     "@types/debug": ["@types/debug@4.1.13", "", { "dependencies": { "@types/ms": "*" } }, "sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw=="],
-
-    "@types/diff": ["@types/diff@8.0.0", "", { "dependencies": { "diff": "*" } }, "sha512-o7jqJM04gfaYrdCecCVMbZhNdG6T1MHg/oQoRFdERLV+4d+V7FijhiEAbFu0Usww84Yijk9yH58U4Jk4HbtzZw=="],
 
     "@types/estree": ["@types/estree@1.0.8", "", {}, "sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w=="],
 
@@ -2895,10 +2777,6 @@
     "figures": ["figures@6.1.0", "", { "dependencies": { "is-unicode-supported": "^2.0.0" } }, "sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg=="],
 
     "file-type": ["file-type@21.3.4", "", { "dependencies": { "@tokenizer/inflate": "^0.4.1", "strtok3": "^10.3.4", "token-types": "^6.1.1", "uint8array-extras": "^1.4.0" } }, "sha512-Ievi/yy8DS3ygGvT47PjSfdFoX+2isQueoYP1cntFW1JLYAuS4GD7NUPGg4zv2iZfV52uDyk5w5Z0TdpRS6Q1g=="],
-
-    "filename-reserved-regex": ["filename-reserved-regex@4.0.0", "", {}, "sha512-9ZT504KxEQDamsOogZImAWGEN24R1uFAxU3ZS4AZqn2ooidmN68Olh7n4/RcA4lLatZztjA0ZSuxeLHVoCc8JA=="],
-
-    "filenamify": ["filenamify@7.0.1", "", { "dependencies": { "filename-reserved-regex": "^4.0.0" } }, "sha512-9b4rfnaX2MkJCgp27wypV6DAMvj4WMOSgJ+TdcpJIO84Dql+Cv6iJjdG4XDTLubOWkfNiBv3joO59sau/TXw+Q=="],
 
     "filesize": ["filesize@11.0.15", "", {}, "sha512-30TpbYxQxCpi4XdVjkwXYQ37CzZltV38+P7MYroQ+4NK/Dmx9mxixFNrolzcmEIBsjT/uowC9T7kiy2+C12r1A=="],
 
@@ -4087,10 +3965,6 @@
     "tar-fs": ["tar-fs@2.1.4", "", { "dependencies": { "chownr": "^1.1.1", "mkdirp-classic": "^0.5.2", "pump": "^3.0.0", "tar-stream": "^2.1.4" } }, "sha512-mDAjwmZdh7LTT6pNleZ05Yt65HC3E+NiQzl672vQG38jIrehtJk/J3mNwIg+vShQPcLF/LV7CMnDW6vjj6sfYQ=="],
 
     "tar-stream": ["tar-stream@2.2.0", "", { "dependencies": { "bl": "^4.0.3", "end-of-stream": "^1.4.1", "fs-constants": "^1.0.0", "inherits": "^2.0.3", "readable-stream": "^3.1.1" } }, "sha512-ujeqbceABgwMZxEJnk2HDY2DlnUZ+9oEcb1KzTVfYHio0UE6dG71n60d8D2I4qNvleWrrXpmjpt7vZeF1LnMZQ=="],
-
-    "temporal-polyfill": ["temporal-polyfill@0.3.2", "", { "dependencies": { "temporal-spec": "0.3.1" } }, "sha512-TzHthD/heRK947GNiSu3Y5gSPpeUDH34+LESnfsq8bqpFhsB79HFBX8+Z834IVX68P3EUyRPZK5bL/1fh437Eg=="],
-
-    "temporal-spec": ["temporal-spec@0.3.1", "", {}, "sha512-B4TUhezh9knfSIMwt7RVggApDRJZo73uZdj8AacL2mZ8RP5KtLianh2MXxL06GN9ESYiIsiuoLQhgVfwe55Yhw=="],
 
     "term-size": ["term-size@2.2.1", "", {}, "sha512-wK0Ri4fOGjv/XPy8SBHZChl8CM7uMc5VML7SqiQ0zG7+J5Vr+RMQDoHa2CNT6KHUnTGIXH34UDMkPzAUyapBZg=="],
 

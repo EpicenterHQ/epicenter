@@ -19,10 +19,10 @@ export function createHoneycrispState({
 	const view = createView({ folders, notes });
 
 	const refresh = () => Promise.all([folders.refresh(), notes.refresh()]);
-	const stopFolders = honeycrisp.tables.folders.subscribe(() => {
+	const stopFolders = honeycrisp.folders.subscribe(() => {
 		void folders.refresh().catch(reportBackgroundError);
 	});
-	const stopNotes = honeycrisp.tables.notes.subscribe(() => {
+	const stopNotes = honeycrisp.notes.subscribe(() => {
 		void notes.refresh().catch(reportBackgroundError);
 	});
 	const whenReady = refresh();
