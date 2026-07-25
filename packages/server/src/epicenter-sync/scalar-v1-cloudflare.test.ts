@@ -11,10 +11,6 @@ import {
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
-import {
-	decodeDocumentFrame,
-	encodeDocumentFrame,
-} from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
 import { expectOk } from 'wellcrafted/testing';
 

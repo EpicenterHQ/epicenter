@@ -15,7 +15,7 @@ import {
 	type ValidatedLimits,
 } from '@epicenter/data/protocol/v1';
 import type { PrincipalId } from '@epicenter/identity';
-import { DOCUMENT_FRAME_LIMITS } from '@epicenter/sync/document-v3';
+import { DOCUMENT_PAYLOAD_BYTES } from '@epicenter/sync/document-v3';
 import { Hono, type MiddlewareHandler } from 'hono';
 
 import type { Env } from '../types.js';
@@ -73,10 +73,7 @@ export function createDocumentV1App<E extends Env = Env>({
 		if (c.req.header('content-type') !== 'application/octet-stream') {
 			return c.json({ error: 'invalid-request' } as const, 400);
 		}
-		const body = await readBoundedBody(
-			c.req.raw,
-			DOCUMENT_FRAME_LIMITS.payloadBytes,
-		);
+		const body = await readBoundedBody(c.req.raw, DOCUMENT_PAYLOAD_BYTES);
 		if (!body.ok) {
 			return body.reason === 'too-large'
 				? c.json({ error: 'request-too-large' } as const, 413)

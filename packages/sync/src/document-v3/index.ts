@@ -1,12 +1,7 @@
 export {
-	DOCUMENT_BACKSTOP_CLOSE_CODE,
 	DOCUMENT_BOUND,
-	DOCUMENT_FRAME_LIMITS,
-	DOCUMENT_SUBPROTOCOL,
-	type DocumentFrame,
+	DOCUMENT_PAYLOAD_BYTES,
 	type DocumentMeasure,
-	decodeDocumentFrame,
-	encodeDocumentFrame,
 	exceedsDocumentBound,
 	measureDocument,
 	measureDocumentState,

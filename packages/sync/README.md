@@ -1,9 +1,8 @@
 # @epicenter/sync
 
-`@epicenter/sync` is becoming the Yjs 14-only wire and provider core for lazy
-row documents. Each currently open row document uses one connection; its
-structured `(table, rowId)` address belongs to the authenticated route rather
-than every protocol frame.
+`@epicenter/sync` holds the Yjs 14 facts both endpoints of a row document must
+agree on. Row documents converge over HTTP (ADR-0171), so what this package
+still owns for them is the shared admission bound, not a wire protocol.
 
 > Transition status: the package still contains Yjs 13 per-room framing. That
 > code is precedent for encoding and awareness behavior only. ADRs 0145 and
@@ -22,29 +21,14 @@ The final protocol is scoped to one authenticated row document:
   publication-response(acceptanceBytes)
 ```
 
-Clients do not choose an arbitrary room id. The server authenticates the
-upgrade credential, authorizes the principal, and selects that principal's one
-authority. The remaining route segments select one record document inside it. That structured address is
-lifecycle identity, not a secret. Authority acceptance and refusal use one
-data-owned response payload shared with HTTP. The sync package carries those
-bytes opaquely and owns no second receipt, acknowledgement, or durable status.
-Close codes remain transport backstops rather than product state.
+Row documents have no WebSocket (ADR-0171). `document-v3` is therefore not a
+wire protocol at all: it is the one shared measurement both endpoints use to
+decide whether a document may be admitted. The replica premeasures it to keep
+an over-bound payload off the wire, and the authority enforces it exactly on
+the state produced by joining a submission, so the authority's answer is final.
 
-The exact selected `epicenter-document-v3` WebSocket subprotocol owns the major.
-Each binary message begins with one frame-kind byte; WebSocket already preserves
-message boundaries, so the wire repeats neither a major nor a payload length.
-The protocol has no document address, subscribe, unsubscribe, presence,
-lifecycle control, or multiplex frame. Both peers send a state-vector request
-and answer the other's request, so preexisting offline content converges in both
-directions before incremental updates continue.
-
-On Cloudflare, the authority serializes the socket's one fixed address in its
-hibernation attachment together with the selected document major. A restored
-socket verifies that major before parsing a frame. The authority accepts the
-socket with one deterministic hashed address tag. Fanout queries that tag, then
-compares each complete attachment address before sending. This avoids a durable
-multiplex subscription set and makes a tag collision harmless. Reconnect
-repeats the route and state-vector exchange.
+`DOCUMENT_PAYLOAD_BYTES` derives from that bound rather than sitting beside it,
+so a route and a carrier cannot disagree about what body size is admissible.
 
 The package targets only `@y/y` 14. It will expose the document wire vocabulary,
 Yjs 14 sync encoding and the provider behavior needed by
@@ -152,24 +136,22 @@ The package exports pure functions. Feed them bytes and docs; they give you byte
 `@epicenter/sync` sits below the rest of the sync stack.
 
 ```text
-@epicenter/server       authority acceptance, realtime fanout, WebSocket lifecycle
+@epicenter/server       authority acceptance and HTTP document routes
         │
-@epicenter/data         runtime-owned RowDocument handles and realtime channels
+@epicenter/data         runtime-owned RowDocument handles, publication, and pull
         │
-@epicenter/sync         single-document wire and provider behavior
+@epicenter/sync         the shared document bound and its measurement
         │
 @y/y 14                 CRDT state, awareness, and update encoding
 ```
 
 In practice:
 
-- The server authority uses it to bound and frame each open record document
-  connection through one acceptance function.
-- `@epicenter/data` uses it behind the runtime-owned `RowDocument` handle and
-  its realtime channel.
+- The server authority measures the post-join state against it inside the one
+  acceptance function.
+- `@epicenter/data` measures the same bound locally, behind the runtime-owned
+  `RowDocument` handle and its HTTP publication.
 - Scalar convergence never imports it; it is a separate protocol plane.
-- Other packages need the wire format only when implementing a document
-  transport or provider.
 
 ## License
 

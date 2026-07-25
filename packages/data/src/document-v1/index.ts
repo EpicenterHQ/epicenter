@@ -1,7 +1,6 @@
 import {
 	DOCUMENT_BOUND,
-	DOCUMENT_FRAME_LIMITS,
-	DOCUMENT_SUBPROTOCOL,
+	DOCUMENT_PAYLOAD_BYTES,
 	type DocumentMeasure,
 	exceedsDocumentBound,
 } from '@epicenter/sync/document-v3';
@@ -17,7 +16,7 @@ import {
 import type { ValidatedLimits } from '../protocol/v1/limits.js';
 
 /** Exact-byte document publication protocol carried beside scalar V1. */
-export const DOCUMENT_PUBLICATION_VERSION = DOCUMENT_SUBPROTOCOL;
+export const DOCUMENT_PUBLICATION_VERSION = 'epicenter-document-v3';
 
 /**
  * The document plane's HTTP header vocabulary.
@@ -399,7 +398,7 @@ export async function readDocumentPull(
 			if (
 				documentVersion === undefined ||
 				update.byteLength === 0 ||
-				update.byteLength > DOCUMENT_FRAME_LIMITS.payloadBytes ||
+				update.byteLength > DOCUMENT_PAYLOAD_BYTES ||
 				documentVersionOf(update) !== documentVersion
 			) {
 				throw new Error('Epicenter document pull response was invalid');
@@ -443,7 +442,7 @@ export function decodeDocumentAcceptance(
 		if (
 			!(encoded instanceof Uint8Array) ||
 			encoded.byteLength === 0 ||
-			encoded.byteLength > DOCUMENT_FRAME_LIMITS.payloadBytes
+			encoded.byteLength > DOCUMENT_PAYLOAD_BYTES
 		) {
 			return undefined;
 		}
@@ -501,7 +500,7 @@ function parseDocumentPublicationRequestUnsafe(
 		candidate.protocolVersion !== DOCUMENT_PUBLICATION_VERSION ||
 		!(candidate.payload instanceof Uint8Array) ||
 		candidate.payload.byteLength === 0 ||
-		candidate.payload.byteLength > DOCUMENT_FRAME_LIMITS.payloadBytes ||
+		candidate.payload.byteLength > DOCUMENT_PAYLOAD_BYTES ||
 		typeof candidate.digest !== 'string' ||
 		!/^[a-f0-9]{64}$/.test(candidate.digest) ||
 		documentPayloadDigest(candidate.payload) !== candidate.digest
