@@ -7,7 +7,7 @@
  * Key behaviors:
  * - Concurrent handles share one Y.Doc and one persistence observer
  * - whenDurable waits for the invocation-time owner acknowledgement
- * - Owner loss rejects the tail instead of replaying the mutation
+ * - A failed owner append rejects the tail instead of replaying the mutation
  * - Unset preserves handles while tombstone and disposal revoke them
  * - Pull installs durably before live, is conditional, and is fenced by
  *   disposal, revocation, and the generation it opened under
@@ -133,7 +133,7 @@ test('whenDurable snapshots the updates preceding its invocation', async () => {
 	await fixture.registry.dispose();
 });
 
-test('owner loss rejects durability and revokes every shared handle', async () => {
+test('a failed owner append rejects durability and revokes every shared handle', async () => {
 	const fixture = setup();
 	const first = await fixture.registry.open(address);
 	const second = await fixture.registry.open(address);
@@ -147,19 +147,17 @@ test('owner loss rejects durability and revokes every shared handle', async () =
 		(cause: unknown) => cause,
 	);
 	while (fixture.acknowledgements.length === 0) await Promise.resolve();
-	const ownerLost = new Error('owner changed');
-	ownerLost.name = 'EpicenterBrowserOwnerLostError';
-	fixture.acknowledgements[0]?.reject(ownerLost);
+	// The owner worker answers a failed operation with a serialized error; the
+	// page cannot know whether the append committed, so the handle is revoked
+	// rather than replaying the mutation.
+	const appendFailed = new Error('owner worker is closed');
+	fixture.acknowledgements[0]?.reject(appendFailed);
 
-	expect(await observed).toMatchObject({
-		name: 'EpicenterBrowserOwnerLostError',
-	});
-	expect(() => first.getText('body')).toThrow(/owner changed/);
-	expect(() => second.getText('body')).toThrow(/owner changed/);
+	expect(await observed).toBe(appendFailed);
+	expect(() => first.getText('body')).toThrow(/owner worker is closed/);
+	expect(() => second.getText('body')).toThrow(/owner worker is closed/);
 	await first[Symbol.asyncDispose]();
-	await expect(second[Symbol.asyncDispose]()).rejects.toMatchObject({
-		name: 'EpicenterBrowserOwnerLostError',
-	});
+	await expect(second[Symbol.asyncDispose]()).rejects.toBe(appendFailed);
 	await fixture.registry.dispose();
 });
 

@@ -301,7 +301,7 @@ export type DocumentPull =
 	  };
 
 /** Admit one typed pull refusal decoded at an untrusted process boundary. */
-export function parseDocumentPullRefusal(
+function parseDocumentPullRefusal(
 	value: unknown,
 	limits: ValidatedLimits,
 ):

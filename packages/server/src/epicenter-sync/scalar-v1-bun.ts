@@ -13,7 +13,6 @@ import {
 } from '@epicenter/data/protocol/v1';
 import type { PrincipalId } from '@epicenter/identity';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
-import type { Server } from 'bun';
 import type { Hono, MiddlewareHandler } from 'hono';
 
 import type { Env } from '../types.js';

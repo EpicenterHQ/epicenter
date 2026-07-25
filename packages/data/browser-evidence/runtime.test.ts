@@ -131,7 +131,6 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 	function slotOptions(prefix: string) {
 		const name = `epicenter-runtime-${prefix}-${storageId}`;
 		return {
-			coordinationId: name,
 			storage: {
 				databaseFilename: '/replica.sqlite3',
 				poolDirectory: `.${name}`,

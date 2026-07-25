@@ -115,23 +115,6 @@ function setupState() {
 	return { database, state, sockets, ready: () => ready };
 }
 
-function fakeSocket(attachment: unknown) {
-	const sent: Uint8Array[] = [];
-	const closes: { code?: number; reason?: string }[] = [];
-	const socket = {
-		readyState: WebSocket.OPEN,
-		deserializeAttachment: () => attachment,
-		serializeAttachment() {},
-		send(data: ArrayBuffer | Uint8Array) {
-			sent.push(new Uint8Array(data));
-		},
-		close(code?: number, reason?: string) {
-			closes.push({ code, reason });
-		},
-	} as unknown as WebSocket;
-	return { socket, sent, closes };
-}
-
 test('Durable Object authority persists acceptance and retry state across restart', async () => {
 	const owned = setupState();
 	try {
