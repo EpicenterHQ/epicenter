@@ -35,7 +35,6 @@ import {
 	Room,
 	requireBearerPrincipal,
 	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthDocumentAuthorization,
 	resolveRequestOAuthPrincipal,
 	type ServerBindings,
 } from '@epicenter/server';
@@ -141,7 +140,6 @@ mountCloudAuth(app, {
 mountSessionApp(app, { auth: cookieOrBearer });
 mountCloudflareScalarV1App(app, {
 	auth: bearer,
-	resolveDocumentPrincipal: resolveRequestOAuthDocumentAuthorization,
 	// Cloudflare's generated RPC stub recursively maps the protocol's JSON union
 	// deeply enough to exceed TypeScript's instantiation limit. The deployment
 	// still proves the concrete class through its generated binding; narrow it to

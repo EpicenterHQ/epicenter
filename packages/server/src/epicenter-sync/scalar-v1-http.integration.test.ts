@@ -81,9 +81,6 @@ function openHttpAuthority(dir: string) {
 	};
 	mountBunScalarV1App(app, {
 		auth,
-		resolveDocumentPrincipal: async () => {
-			throw new Error('document upgrade is outside the scalar HTTP proof');
-		},
 		runtime,
 	});
 	return { app, runtime };

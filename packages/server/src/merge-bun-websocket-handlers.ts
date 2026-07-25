@@ -23,14 +23,10 @@
 
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
 import type { AttachRelaySocketData } from './attach-relay/bun-server.js';
-import type { BunDataDocumentV1SocketData } from './epicenter-sync/document-realtime-v1-bun.js';
 import type { BunRoomSocketData } from './room/backends/bun/registry.js';
 
 /** The disjoint `ws.data` shapes this merged handler dispatches between. */
-export type MergedSocketData =
-	| BunRoomSocketData
-	| AttachRelaySocketData
-	| BunDataDocumentV1SocketData;
+export type MergedSocketData = BunRoomSocketData | AttachRelaySocketData;
 
 /**
  * Build the one `WebSocketHandler` that routes each socket to its owning backend
@@ -42,7 +38,6 @@ export type MergedSocketData =
  */
 export function mergeBunWebSocketHandlers(handlers: {
 	rooms: WebSocketHandler<BunRoomSocketData>;
-	dataDocuments?: WebSocketHandler<BunDataDocumentV1SocketData>;
 	attach?: WebSocketHandler<AttachRelaySocketData>;
 }): WebSocketHandler<MergedSocketData> {
 	const pick = (
@@ -50,9 +45,7 @@ export function mergeBunWebSocketHandlers(handlers: {
 	): WebSocketHandler<MergedSocketData> =>
 		(ws.data.surface === 'rooms'
 			? handlers.rooms
-			: ws.data.surface === 'epicenter-data-document'
-				? handlers.dataDocuments
-				: handlers.attach) as WebSocketHandler<MergedSocketData>;
+			: handlers.attach) as WebSocketHandler<MergedSocketData>;
 
 	return {
 		open(ws) {

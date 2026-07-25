@@ -71,10 +71,7 @@ export { ATTACH_RELAY_ROUTE } from './attach-relay/route.js';
 // `ResolveBearerPrincipal` a Bun instance injects (`createEnvTokenResolver(token)`).
 // The pure generator + boot entropy gate (`generateInstanceToken` /
 // `assertStrongToken`) live in `@epicenter/auth`.
-export {
-	createEnvTokenResolver,
-	withDocumentAuthorizationDeadline,
-} from './auth/instance-token.js';
+export { createEnvTokenResolver } from './auth/instance-token.js';
 // The OAuth resource-boundary error union the bearer resolver emits. Exported
 // here too (it is not a Cloudflare module) so a Bun entry's dev bearer resolver
 // gets it without importing the main barrel, which would drag in the `Room`
@@ -98,7 +95,6 @@ export { rateLimit } from './middleware/rate-limit.js';
 export {
 	requireBearerPrincipal,
 	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthDocumentAuthorization,
 	resolveRequestOAuthPrincipal,
 } from './middleware/require-auth.js';
 // The cloud-only relational layer (Better Auth on `c.var.auth` + the auth surface,
@@ -128,5 +124,4 @@ export type {
 	CloudEnv,
 	Env,
 	ResolveBearerPrincipal,
-	ResolveDocumentPrincipal,
 } from './types.js';

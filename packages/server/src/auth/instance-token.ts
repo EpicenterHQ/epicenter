@@ -36,11 +36,7 @@
 import { Principal } from '@epicenter/auth';
 import { INSTANCE_PRINCIPAL_ID } from '@epicenter/identity';
 import { Ok } from 'wellcrafted/result';
-import type {
-	Env,
-	ResolveBearerPrincipal,
-	ResolveDocumentPrincipal,
-} from '../types.js';
+import type { Env, ResolveBearerPrincipal } from '../types.js';
 import { OAuthError } from './oauth-errors.js';
 
 /**
@@ -83,17 +79,4 @@ export function createEnvTokenResolver(secret: string): ResolveBearerPrincipal {
 		(await constantTimeEqual(presented, secret))
 			? Ok(Principal.assert({ id: INSTANCE_PRINCIPAL_ID }))
 			: OAuthError.InvalidToken();
-}
-
-/** Force static-token sockets to periodically repeat the normal auth gate. */
-export function withDocumentAuthorizationDeadline<E extends Env>(
-	resolve: ResolveBearerPrincipal<E>,
-	maxAgeMs = 10 * 60_000,
-): ResolveDocumentPrincipal<E> {
-	return async (c, bearer) => {
-		const { data: principal, error } = await resolve(c, bearer);
-		return error
-			? { data: null, error }
-			: Ok({ principal, authorizationExpiresAt: Date.now() + maxAgeMs });
-	};
 }

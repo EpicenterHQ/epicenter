@@ -16,19 +16,10 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Server } from 'bun';
 import type { Hono, MiddlewareHandler } from 'hono';
 
-import type { Env, ResolveDocumentPrincipal } from '../types.js';
+import type { Env } from '../types.js';
 import { type DataAuthorityV1, openScalarAuthorityV1 } from './authority-v1.js';
 import { createAuthorityBlobV1 } from './blob-authority-v1.js';
 import { mountBlobV1App } from './blob-v1-route.js';
-import {
-	type BunDataDocumentV1SocketData,
-	type BunDocumentRealtimeV1Binding,
-	createBunDocumentRealtimeV1Binding,
-} from './document-realtime-v1-bun.js';
-import {
-	DOCUMENT_V1_REALTIME_PATH,
-	resolveDocumentRealtimeV1Upgrade,
-} from './document-realtime-v1-route.js';
 import { mountDocumentV1App } from './document-v1-route.js';
 import { mountScalarV1App } from './scalar-v1-route.js';
 
@@ -65,8 +56,6 @@ type OpenedAuthority = {
 export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 	mkdirSync(dir, { recursive: true });
 	const authorities = new Map<PrincipalId, OpenedAuthority>();
-	let documentBinding: BunDocumentRealtimeV1Binding | undefined;
-	let server: Server<BunDataDocumentV1SocketData> | undefined;
 	let closed = false;
 	let closing: Promise<void> | undefined;
 
@@ -106,10 +95,7 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 					const result = stored.submit(request);
 					if (result.error === null) {
 						for (const fact of result.data.facts) {
-							if (fact.state === 'tombstone') {
-								documentBinding?.closeAddress(principalId, fact.address);
-								scheduleBlobSweep();
-							}
+							if (fact.state === 'tombstone') scheduleBlobSweep();
 						}
 					}
 					return result;
@@ -133,11 +119,6 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 		return loadEntry(principalId).authority;
 	}
 
-	const documents = createBunDocumentRealtimeV1Binding({
-		locateAuthority: load,
-	});
-	documentBinding = documents;
-
 	return {
 		locateAuthority: load,
 		async locateBlobAuthority(principalId: PrincipalId) {
@@ -145,28 +126,9 @@ export function createBunScalarV1Runtime({ dir }: { dir: string }) {
 			await opened.waitForBlobs();
 			return opened.blobs;
 		},
-		websocket: documents.websocket,
-		bindServer(bound: Server<BunDataDocumentV1SocketData>): void {
-			server = bound;
-		},
-		acceptDocumentUpgrade(
-			request: Request,
-			verified: {
-				principalId: PrincipalId;
-				address: Parameters<typeof documents.closeAddress>[1];
-				authorityLifetime: string;
-				authorizationExpiresAt: number;
-			},
-		): Response {
-			if (server === undefined) {
-				return new Response('Data document server not bound', { status: 500 });
-			}
-			return documents.handleAuthorizedUpgrade(request, server, verified);
-		},
 		close(): Promise<void> {
 			if (closing !== undefined) return closing;
 			closed = true;
-			documents.closeAll();
 			closing = (async () => {
 				const openedAuthorities = [...authorities.values()];
 				const settled = await Promise.allSettled(
@@ -196,11 +158,9 @@ export function mountBunScalarV1App<E extends Env = Env>(
 	app: Hono<E>,
 	{
 		auth,
-		resolveDocumentPrincipal,
 		runtime,
 	}: {
 		auth: MiddlewareHandler<E>;
-		resolveDocumentPrincipal: ResolveDocumentPrincipal<E>;
 		runtime: BunScalarV1Runtime;
 	},
 ): void {
@@ -219,15 +179,5 @@ export function mountBunScalarV1App<E extends Env = Env>(
 		auth,
 		limits: SCALAR_SYNC_V1_LIMITS,
 		locateAuthority: runtime.locateBlobAuthority,
-	});
-	app.get(DOCUMENT_V1_REALTIME_PATH, async (c) => {
-		const verified = await resolveDocumentRealtimeV1Upgrade(
-			c,
-			resolveDocumentPrincipal,
-		);
-		if (verified === undefined) {
-			return new Response('WebSocket upgrade refused', { status: 401 });
-		}
-		return runtime.acceptDocumentUpgrade(c.req.raw, verified);
 	});
 }

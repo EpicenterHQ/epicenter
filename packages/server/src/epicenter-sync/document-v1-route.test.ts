@@ -248,9 +248,9 @@ describe('document V1 pull route', () => {
 			expect(first.status).toBe(200);
 			const version = first.headers.get('etag') ?? '';
 			expect(version).toMatch(/^"[a-f0-9]{64}"$/);
-			expect(new Uint8Array(await first.arrayBuffer())).toEqual(
-				context.authority.exportDocument(ADDRESS) ?? new Uint8Array(),
-			);
+			expect([...new Uint8Array(await first.arrayBuffer())]).toEqual([
+				...(context.authority.exportDocument(ADDRESS) ?? new Uint8Array()),
+			]);
 
 			const conditional = await context.app.request(PULL_PATH, {
 				headers: {

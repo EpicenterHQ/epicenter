@@ -64,13 +64,10 @@ import {
 	mountRoomsApp,
 	mountSessionApp,
 	type ResolveBearerPrincipal,
-	type ResolveDocumentPrincipal,
 	requireBearerPrincipal,
 	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthDocumentAuthorization,
 	resolveRequestOAuthPrincipal,
 	ServerBindings,
-	withDocumentAuthorizationDeadline,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
 import pg from 'pg';
@@ -114,10 +111,7 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
  * identical across the two, so they cannot drift.
  */
 export function startBunApiServer(
-	opts: {
-		resolveBearerPrincipal?: ResolveBearerPrincipal<CloudEnv>;
-		resolveDocumentPrincipal?: ResolveDocumentPrincipal<CloudEnv>;
-	} = {},
+	opts: { resolveBearerPrincipal?: ResolveBearerPrincipal<CloudEnv> } = {},
 ): void {
 	// Validate this Bun host's environment once, at boot. The validated result IS
 	// the typed env handed to the Hono app: no `as`-cast over `process.env`, no
@@ -164,11 +158,6 @@ export function startBunApiServer(
 	// keeps the real OAuth bearer resolver. Each protected wrapper closes over it.
 	const resolveBearerPrincipal =
 		opts.resolveBearerPrincipal ?? resolveRequestOAuthPrincipal;
-	const resolveDocumentPrincipal =
-		opts.resolveDocumentPrincipal ??
-		(opts.resolveBearerPrincipal
-			? withDocumentAuthorizationDeadline(opts.resolveBearerPrincipal)
-			: resolveRequestOAuthDocumentAuthorization);
 	const cookieOrBearer = requireCookieOrBearerPrincipal(resolveBearerPrincipal);
 	const bearer = requireBearerPrincipal(resolveBearerPrincipal);
 	const serveAuthUiShell = () =>
@@ -204,11 +193,7 @@ export function startBunApiServer(
 	mountSessionApp(app, { auth: cookieOrBearer });
 	// Rooms resolves the bearer itself (WS-aware), so it takes the raw resolver.
 	mountRoomsApp(app, { resolveBearerPrincipal });
-	mountBunScalarV1App(app, {
-		auth: bearer,
-		resolveDocumentPrincipal,
-		runtime: scalarV1,
-	});
+	mountBunScalarV1App(app, { auth: bearer, runtime: scalarV1 });
 	mountInferenceApp(app, { auth: bearer });
 	mountBlobsApp(app, { auth: cookieOrBearer });
 
@@ -219,15 +204,11 @@ export function startBunApiServer(
 		// route via the bound server (see createBunRooms), after auth runs, so they
 		// are never intercepted ahead of the auth pipeline here.
 		fetch: (req) => app.fetch(req, env),
-		websocket: mergeBunWebSocketHandlers({
-			rooms: bunRooms.websocket,
-			dataDocuments: scalarV1.websocket,
-		}),
+		websocket: mergeBunWebSocketHandlers({ rooms: bunRooms.websocket }),
 	});
 	// `server` only exists once `Bun.serve` returns; hand it to the room registry
 	// so `handleUpgrade` can call `server.upgrade`.
 	bunRooms.bindServer(server);
-	scalarV1.bindServer(server);
 
 	// Close authority databases and their sockets before the process dies so WAL
 	// checkpoints land and clients see a clean 1001 instead of a dropped TCP.

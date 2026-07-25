@@ -31,12 +31,7 @@ import { createOAuthIssuerURL } from '../auth/oauth-metadata.js';
 import { createOAuthUnauthorizedResourceResponse } from '../auth/oauth-resource.js';
 import { parseBearer } from '../auth/parse-bearer.js';
 import * as schema from '../db/schema/index.js';
-import type {
-	CloudEnv,
-	DocumentAuthorization,
-	Env,
-	ResolveBearerPrincipal,
-} from '../types.js';
+import type { CloudEnv, Env, ResolveBearerPrincipal } from '../types.js';
 
 /**
  * Resolve an OAuth bearer token to the calling principal.
@@ -75,18 +70,6 @@ export async function resolveRequestOAuthPrincipal(
 	c: Context<CloudEnv>,
 	accessToken: string,
 ): Promise<Result<Principal, OAuthError>> {
-	const { data, error } = await resolveRequestOAuthDocumentAuthorization(
-		c,
-		accessToken,
-	);
-	return error ? { data: null, error } : Ok(data.principal);
-}
-
-/** Verify one OAuth bearer and preserve its JWT expiry for WebSocket leases. */
-export async function resolveRequestOAuthDocumentAuthorization(
-	c: Context<CloudEnv>,
-	accessToken: string,
-): Promise<Result<DocumentAuthorization, OAuthError>> {
 	const audience = c.var.authBaseURL;
 	let keysUnreadable = false;
 	let payload: Awaited<ReturnType<typeof verifyJwsAccessToken>>;
@@ -109,11 +92,7 @@ export async function resolveRequestOAuthDocumentAuthorization(
 	}
 
 	const userId = typeof payload?.sub === 'string' ? payload.sub : null;
-	const authorizationExpiresAt =
-		typeof payload?.exp === 'number' ? payload.exp * 1000 : null;
-	if (!userId || authorizationExpiresAt === null) {
-		return OAuthError.InvalidToken();
-	}
+	if (!userId) return OAuthError.InvalidToken();
 
 	let user: Awaited<ReturnType<typeof c.var.db.query.user.findFirst>>;
 	try {
@@ -125,10 +104,7 @@ export async function resolveRequestOAuthDocumentAuthorization(
 	}
 	if (!user) return OAuthError.InvalidToken();
 
-	return Ok({
-		principal: Principal.assert(user),
-		authorizationExpiresAt,
-	});
+	return Ok(Principal.assert(user));
 }
 
 /**

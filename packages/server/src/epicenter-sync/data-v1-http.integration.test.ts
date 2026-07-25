@@ -111,9 +111,6 @@ function openHttpAuthority(root: string) {
 	};
 	mountBunScalarV1App(app, {
 		auth,
-		resolveDocumentPrincipal: async () => {
-			throw new Error('WebSocket upgrade is outside the HTTP proof');
-		},
 		runtime,
 	});
 	return { app, runtime };

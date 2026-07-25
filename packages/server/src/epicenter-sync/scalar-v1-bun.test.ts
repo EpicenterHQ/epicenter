@@ -18,11 +18,8 @@ import {
 	sha256Hex,
 } from '@epicenter/data/protocol/v1';
 import { asPrincipalId } from '@epicenter/identity';
-import { encodeDocumentFrame } from '@epicenter/sync/document-v3';
 import * as Y from '@y/y';
-import type { ServerWebSocket } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
-import type { BunDataDocumentV1SocketData } from './document-realtime-v1-bun.js';
 import { createBunScalarV1Runtime } from './scalar-v1-bun.js';
 
 test('Bun scalar V1 runtime reopens one durable authority per principal', async () => {
@@ -89,32 +86,14 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', async 
 		});
 		expect(authority.acceptDocument(publication).kind).toBe('accepted');
 
-		const sent: Uint8Array[] = [];
-		const closed: { code?: number; reason?: string }[] = [];
-		const socket = {
-			data: {
-				surface: 'epicenter-data-document',
-				principalId: principal,
-				address: publication.address,
-				authorityLifetime: lifetime,
-				authorizationExpiresAt: Date.now() + 60_000,
-			},
-			send(data: Uint8Array) {
-				sent.push(new Uint8Array(data));
-			},
-			close(code?: number, reason?: string) {
-				closed.push({ code, reason });
-			},
-		} as unknown as ServerWebSocket<BunDataDocumentV1SocketData>;
-		runtime.websocket.open?.(socket);
-		const empty = new Y.Doc({ gc: true });
-		const stateVector = Y.encodeStateVector(empty);
-		empty.destroy();
-		runtime.websocket.message?.(
-			socket,
-			Buffer.from(encodeDocumentFrame({ kind: 'sync-request', stateVector })),
-		);
-		expect(sent).toHaveLength(2);
+		// A pull answers the same durable state the reopened authority holds.
+		const pulled = authority.pullDocument({
+			authorityLifetime: lifetime,
+			address: publication.address,
+			knownDocumentVersion: null,
+		});
+		expect(pulled.kind).toBe('state');
+
 		const blobDigest = sha256Hex('recorded audio');
 		const blobs = await runtime.locateBlobAuthority(principal);
 		expect(
@@ -154,7 +133,14 @@ test('Bun scalar V1 runtime reopens one durable authority per principal', async 
 				),
 			),
 		);
-		expect(closed).toEqual([{ code: 1000, reason: 'record-not-live' }]);
+		// The tombstone reaps the document too, so a later pull refuses.
+		expect(
+			authority.pullDocument({
+				authorityLifetime: lifetime,
+				address: publication.address,
+				knownDocumentVersion: null,
+			}),
+		).toMatchObject({ kind: 'record-not-live', state: 'tombstone' });
 		await runtime.locateBlobAuthority(principal);
 		expect(existsSync(blobPath)).toBe(false);
 	} finally {

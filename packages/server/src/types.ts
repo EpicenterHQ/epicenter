@@ -53,17 +53,6 @@ export type ResolveBearerPrincipal<E extends Env = Env> = (
 	bearer: string,
 ) => Promise<Result<Principal, OAuthError>>;
 
-export type DocumentAuthorization = {
-	principal: Principal;
-	authorizationExpiresAt: number;
-};
-
-/** Bearer verification plus the deadline at which a socket must reauthorize. */
-export type ResolveDocumentPrincipal<E extends Env = Env> = (
-	c: Context<E>,
-	bearer: string,
-) => Promise<Result<DocumentAuthorization, OAuthError>>;
-
 /**
  * Per-connection identity and runtime state, stamped onto the Cloudflare
  * Durable Object WebSocket attachment so presence survives hibernation.
