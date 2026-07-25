@@ -58,6 +58,7 @@ const ADDRESS = {
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 } as const;
 const DOCUMENT_PATH = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/${ADDRESS.recordKey}/document-publications`;
+const DOCUMENT_PULL_PATH = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/${ADDRESS.recordKey}/document`;
 const DOCUMENT_PAYLOAD = new Uint8Array(Y.encodeStateAsUpdateV2(new Y.Doc()));
 
 function createCaptureAuthority(principals: PrincipalId[]) {
@@ -78,6 +79,10 @@ function createCaptureAuthority(principals: PrincipalId[]) {
 				protocolVersion: request.protocolVersion,
 				digest: request.digest,
 			},
+		}),
+		pullDocument: (request) => ({
+			kind: 'absent',
+			activeAuthorityLifetime: request.authorityLifetime,
 		}),
 	};
 	return {
@@ -118,7 +123,10 @@ async function requestAll<E extends Env>(app: Hono<E>, bearer: string) {
 		},
 		body: DOCUMENT_PAYLOAD,
 	});
-	return { facts, submission, document };
+	const documentPull = await app.request(DOCUMENT_PULL_PATH, {
+		headers: { ...headers, [DOCUMENT_LIFETIME_HEADER]: LIFETIME },
+	});
+	return { facts, submission, document, documentPull };
 }
 
 function expectInvalidBearer(response: Response): void {
@@ -198,13 +206,15 @@ test('hosted OAuth selects one principal for scalar and document publication', a
 	expect(accepted.facts.status).toBe(200);
 	expect(accepted.submission.status).toBe(200);
 	expect(accepted.document.status).toBe(200);
-	expect(setup.principals).toEqual([userId, userId, userId]);
+	expect(accepted.documentPull.status).toBe(204);
+	expect(setup.principals).toEqual([userId, userId, userId, userId]);
 
 	const rejected = await requestAll(setup.app, 'not-a-real-jwt');
 	expectInvalidBearer(rejected.facts);
 	expectInvalidBearer(rejected.submission);
 	expectInvalidBearer(rejected.document);
-	expect(setup.principals).toEqual([userId, userId, userId]);
+	expectInvalidBearer(rejected.documentPull);
+	expect(setup.principals).toEqual([userId, userId, userId, userId]);
 });
 
 test('self-host bearer selects only the instance principal for every data route', async () => {
@@ -226,7 +236,9 @@ test('self-host bearer selects only the instance principal for every data route'
 	expect(accepted.facts.status).toBe(200);
 	expect(accepted.submission.status).toBe(200);
 	expect(accepted.document.status).toBe(200);
+	expect(accepted.documentPull.status).toBe(204);
 	expect(principals).toEqual([
+		INSTANCE_PRINCIPAL_ID,
 		INSTANCE_PRINCIPAL_ID,
 		INSTANCE_PRINCIPAL_ID,
 		INSTANCE_PRINCIPAL_ID,
@@ -236,7 +248,9 @@ test('self-host bearer selects only the instance principal for every data route'
 	expectInvalidBearer(rejected.facts);
 	expectInvalidBearer(rejected.submission);
 	expectInvalidBearer(rejected.document);
+	expectInvalidBearer(rejected.documentPull);
 	expect(principals).toEqual([
+		INSTANCE_PRINCIPAL_ID,
 		INSTANCE_PRINCIPAL_ID,
 		INSTANCE_PRINCIPAL_ID,
 		INSTANCE_PRINCIPAL_ID,

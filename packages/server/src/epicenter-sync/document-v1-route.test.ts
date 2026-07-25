@@ -40,6 +40,7 @@ const ADDRESS = {
 	recordKey: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 } as const;
 const PATH = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/${ADDRESS.recordKey}/document-publications`;
+const PULL_PATH = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/${ADDRESS.recordKey}/document`;
 
 function setup() {
 	const raw = new Database(':memory:', { strict: true });
@@ -100,6 +101,17 @@ function headers(payload: Uint8Array) {
 		[DOCUMENT_PROTOCOL_HEADER]: DOCUMENT_PUBLICATION_VERSION,
 		[DOCUMENT_DIGEST_HEADER]: documentPayloadDigest(payload),
 	};
+}
+
+async function publish(app: Hono<Env>, payload: Uint8Array): Promise<void> {
+	const response = await app.request(PATH, {
+		method: 'POST',
+		headers: headers(payload),
+		body: bodyOf(payload),
+	});
+	if (response.status !== 200) {
+		throw new Error(`publication failed (${response.status})`);
+	}
 }
 
 function bodyOf(payload: Uint8Array): ArrayBuffer {
@@ -204,6 +216,119 @@ describe('document V1 publication route', () => {
 				kind: 'lifetime-mismatch',
 				activeAuthorityLifetime: LIFETIME,
 			});
+		} finally {
+			context.close();
+		}
+	});
+});
+
+describe('document V1 pull route', () => {
+	test('answers no content until the live record has committed state', async () => {
+		const context = setup();
+		try {
+			const response = await context.app.request(PULL_PATH, {
+				headers: { [DOCUMENT_LIFETIME_HEADER]: LIFETIME },
+			});
+			expect(response.status).toBe(204);
+			expect(response.headers.get(DOCUMENT_LIFETIME_HEADER)).toBe(LIFETIME);
+			expect(response.headers.get('etag')).toBeNull();
+		} finally {
+			context.close();
+		}
+	});
+
+	test('serves committed state under its version and transfers no body when unchanged', async () => {
+		const context = setup();
+		try {
+			await publish(context.app, updateFor('published'));
+
+			const first = await context.app.request(PULL_PATH, {
+				headers: { [DOCUMENT_LIFETIME_HEADER]: LIFETIME },
+			});
+			expect(first.status).toBe(200);
+			const version = first.headers.get('etag') ?? '';
+			expect(version).toMatch(/^"[a-f0-9]{64}"$/);
+			expect(new Uint8Array(await first.arrayBuffer())).toEqual(
+				context.authority.exportDocument(ADDRESS) ?? new Uint8Array(),
+			);
+
+			const conditional = await context.app.request(PULL_PATH, {
+				headers: {
+					[DOCUMENT_LIFETIME_HEADER]: LIFETIME,
+					'if-none-match': version,
+				},
+			});
+			expect(conditional.status).toBe(304);
+			expect(conditional.headers.get('etag')).toBe(version);
+			expect((await conditional.arrayBuffer()).byteLength).toBe(0);
+		} finally {
+			context.close();
+		}
+	});
+
+	test('advances the version when accepted state changes', async () => {
+		const context = setup();
+		try {
+			await publish(context.app, updateFor('first'));
+			const before = await context.app.request(PULL_PATH, {
+				headers: { [DOCUMENT_LIFETIME_HEADER]: LIFETIME },
+			});
+			const stale = before.headers.get('etag') ?? '';
+
+			await publish(context.app, updateFor('first and second'));
+			const after = await context.app.request(PULL_PATH, {
+				headers: {
+					[DOCUMENT_LIFETIME_HEADER]: LIFETIME,
+					'if-none-match': stale,
+				},
+			});
+			expect(after.status).toBe(200);
+			expect(after.headers.get('etag')).not.toBe(stale);
+		} finally {
+			context.close();
+		}
+	});
+
+	test('refuses a superseded authority lifetime with the typed conflict body', async () => {
+		const context = setup();
+		try {
+			const response = await context.app.request(PULL_PATH, {
+				headers: { [DOCUMENT_LIFETIME_HEADER]: 'old' },
+			});
+			expect(response.status).toBe(409);
+			expect((await response.json()) as unknown).toEqual({
+				kind: 'lifetime-mismatch',
+				activeAuthorityLifetime: LIFETIME,
+			});
+		} finally {
+			context.close();
+		}
+	});
+
+	test('refuses a record the authority does not hold live', async () => {
+		const context = setup();
+		try {
+			const missing = `/api/sync/v1/records/${ADDRESS.namespace}/${ADDRESS.collection}/bbbbbbbbbbbbbbbbbbbbbbbb/document`;
+			const response = await context.app.request(missing, {
+				headers: { [DOCUMENT_LIFETIME_HEADER]: LIFETIME },
+			});
+			expect(response.status).toBe(409);
+			expect((await response.json()) as unknown).toMatchObject({
+				kind: 'record-not-live',
+				activeAuthorityLifetime: LIFETIME,
+				state: 'absent',
+			});
+		} finally {
+			context.close();
+		}
+	});
+
+	test('rejects a pull that names no authority lifetime before locating authority', async () => {
+		const context = setup();
+		try {
+			const response = await context.app.request(PULL_PATH);
+			expect(response.status).toBe(400);
+			expect(context.principals).toEqual([]);
 		} finally {
 			context.close();
 		}

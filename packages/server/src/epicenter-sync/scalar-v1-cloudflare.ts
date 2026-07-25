@@ -447,6 +447,7 @@ function stubFor(
 		readFacts: (request) => stub.readFacts(request),
 		submit: (request) => stub.submit(request),
 		acceptDocument: (request) => stub.acceptDocument(request),
+		pullDocument: (request) => stub.pullDocument(request),
 	};
 }
 

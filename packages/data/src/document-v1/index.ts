@@ -19,6 +19,17 @@ import type { ValidatedLimits } from '../protocol/v1/limits.js';
 /** Exact-byte document publication protocol carried beside scalar V1. */
 export const DOCUMENT_PUBLICATION_VERSION = DOCUMENT_SUBPROTOCOL;
 
+/**
+ * The document plane's HTTP header vocabulary.
+ *
+ * Both endpoints read these names from here, so a route and a carrier cannot
+ * drift apart on a spelling. `ETAG`/`IF_NONE_MATCH` are the ordinary HTTP
+ * validators carrying the opaque document version on pull.
+ */
+export const DOCUMENT_LIFETIME_HEADER = 'x-epicenter-authority-lifetime';
+export const DOCUMENT_PROTOCOL_HEADER = 'x-epicenter-document-protocol';
+export const DOCUMENT_DIGEST_HEADER = 'x-epicenter-document-digest';
+
 /** Post-commit proof for one exact frozen document payload. */
 export type DocumentPublicationReceipt = {
 	authorityLifetime: string;
@@ -246,6 +257,65 @@ export function parseDocumentAcceptance(
 export const DOCUMENT_ACCEPTANCE_CONFLICT_STATUS = 409;
 
 /**
+ * The authority's opaque version of one document's committed state.
+ *
+ * It is the digest of the canonical `encodeStateAsUpdateV2` state the
+ * authority would serve, so it is derived rather than stored: nothing has to
+ * advance a counter in step with the chain, and a compaction that preserves
+ * semantic state preserves the version. Replicas treat it as opaque and only
+ * ever compare it for equality.
+ */
+export function documentVersionOf(state: Uint8Array): string {
+	return sha256HexBytes(state);
+}
+
+/**
+ * The answer to one explicit `pull()` (ADR-0171).
+ *
+ * `unchanged` and `absent` carry no bytes: the first means the replica already
+ * holds the authority's version, the second that a live record has no
+ * committed document state at all. Both refusals name the active authority
+ * lifetime so the replica can fence installation.
+ */
+export type DocumentPull =
+	| {
+			kind: 'state';
+			activeAuthorityLifetime: string;
+			documentVersion: string;
+			update: Uint8Array;
+	  }
+	| {
+			kind: 'unchanged';
+			activeAuthorityLifetime: string;
+			documentVersion: string;
+	  }
+	| { kind: 'absent'; activeAuthorityLifetime: string }
+	| {
+			kind: 'record-not-live';
+			activeAuthorityLifetime: string;
+			address: RecordAddress;
+			state: 'absent' | 'tombstone' | 'unset';
+	  }
+	| {
+			kind: 'lifetime-mismatch';
+			activeAuthorityLifetime: string;
+	  };
+
+/** Admit one typed pull refusal decoded at an untrusted process boundary. */
+export function parseDocumentPullRefusal(
+	value: unknown,
+	limits: ValidatedLimits,
+):
+	| Extract<DocumentPull, { kind: 'record-not-live' | 'lifetime-mismatch' }>
+	| undefined {
+	const acceptance = parseDocumentAcceptance(value, limits);
+	return acceptance?.kind === 'record-not-live' ||
+		acceptance?.kind === 'lifetime-mismatch'
+		? acceptance
+		: undefined;
+}
+
+/**
  * Read one publication response from an HTTP carrier.
  *
  * This is the whole status boundary: 200 and 409 carry a decision the replica
@@ -270,6 +340,91 @@ export async function readDocumentAcceptance(
 		throw new Error('Epicenter document publication response was invalid');
 	}
 	return acceptance;
+}
+
+/** The statuses one pull response may carry, each meaning exactly one thing. */
+export const DOCUMENT_PULL_STATUS = {
+	/** Committed state follows, tagged with its opaque version. */
+	state: 200,
+	/** The live record has never committed document state. */
+	absent: 204,
+	/** The replica's known version is still the authority's version. */
+	unchanged: 304,
+	/** A typed refusal body follows. */
+	refused: DOCUMENT_ACCEPTANCE_CONFLICT_STATUS,
+} as const;
+
+/**
+ * Read one pull response from an HTTP carrier.
+ *
+ * Like publication, a refusal is a conflict with authority state rather than a
+ * transport fault, so it decodes instead of throwing. Every other status is
+ * operational and stays retryable.
+ */
+export async function readDocumentPull(
+	response: Response,
+	limits: ValidatedLimits,
+): Promise<DocumentPull> {
+	const activeAuthorityLifetime = parseAuthorityLifetime(
+		response.headers.get(DOCUMENT_LIFETIME_HEADER),
+		limits,
+	);
+	if (response.status === DOCUMENT_PULL_STATUS.refused) {
+		const refusal = parseDocumentPullRefusal(await response.json(), limits);
+		if (refusal === undefined) {
+			throw new Error('Epicenter document pull response was invalid');
+		}
+		return refusal;
+	}
+	if (activeAuthorityLifetime === undefined) {
+		throw new Error('Epicenter document pull response named no authority');
+	}
+	switch (response.status) {
+		case DOCUMENT_PULL_STATUS.absent:
+			return { kind: 'absent', activeAuthorityLifetime };
+		case DOCUMENT_PULL_STATUS.unchanged: {
+			const documentVersion = parseDocumentVersion(
+				response.headers.get('etag'),
+			);
+			if (documentVersion === undefined) {
+				throw new Error('Epicenter document pull named no version');
+			}
+			return { kind: 'unchanged', activeAuthorityLifetime, documentVersion };
+		}
+		case DOCUMENT_PULL_STATUS.state: {
+			const documentVersion = parseDocumentVersion(
+				response.headers.get('etag'),
+			);
+			const update = new Uint8Array(await response.arrayBuffer());
+			if (
+				documentVersion === undefined ||
+				update.byteLength === 0 ||
+				update.byteLength > DOCUMENT_FRAME_LIMITS.payloadBytes ||
+				documentVersionOf(update) !== documentVersion
+			) {
+				throw new Error('Epicenter document pull response was invalid');
+			}
+			return {
+				kind: 'state',
+				activeAuthorityLifetime,
+				documentVersion,
+				update,
+			};
+		}
+		default:
+			throw new Error(`Epicenter document pull failed (${response.status})`);
+	}
+}
+
+/** Read one strong ETag back into the opaque version it carries. */
+function parseDocumentVersion(value: string | null): string | undefined {
+	const inner = value?.match(/^"([a-f0-9]{64})"$/)?.[1];
+	return inner ?? undefined;
+}
+
+/** Render one opaque document version as a strong HTTP validator. */
+export function documentVersionTag(documentVersion: string): string {
+	return `"${documentVersion}"`;
 }
 
 /** Encode the one semantic acceptance shape for HTTP or WebSocket carriage. */

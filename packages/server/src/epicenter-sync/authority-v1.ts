@@ -1,6 +1,7 @@
 import type {
 	DocumentAcceptance,
 	DocumentPublicationRequest,
+	DocumentPull,
 } from '@epicenter/data/document-v1';
 import {
 	type AdmittedFactsRequest,
@@ -66,6 +67,11 @@ export type ScalarAuthorityV1 = {
 export type DataAuthorityV1 = ScalarAuthorityV1 & {
 	authorityLifetime(): string;
 	acceptDocument(request: DocumentPublicationRequest): DocumentAcceptance;
+	pullDocument(request: {
+		authorityLifetime: string;
+		address: RecordAddress;
+		knownDocumentVersion: string | null;
+	}): DocumentPull;
 	exportDocument(address: RecordAddress): Uint8Array | undefined;
 	readDocument(address: RecordAddress): AuthorityDocumentRead;
 };
@@ -282,6 +288,7 @@ export function openScalarAuthorityV1({
 	return {
 		authorityLifetime: () => readMeta(database).authority_lifetime,
 		acceptDocument: documents.accept,
+		pullDocument: documents.pull,
 		exportDocument: documents.exportDocument,
 		readDocument: documents.readDocument,
 		readFacts(request) {

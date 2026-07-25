@@ -3,7 +3,9 @@ import {
 	type DocumentAcceptance,
 	type DocumentPublicationReceipt,
 	type DocumentPublicationRequest,
+	type DocumentPull,
 	documentPayloadDigest,
+	documentVersionOf,
 } from '@epicenter/data/document-v1';
 import type { RecordAddress } from '@epicenter/data/protocol/v1';
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
@@ -189,6 +191,60 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 		});
 	}
 
+	/**
+	 * Answer one explicit replica pull (ADR-0171).
+	 *
+	 * The read is one committing operation like acceptance: it rechecks the
+	 * authority lifetime and record liveness, then serves the canonical state
+	 * with its derived opaque version. A replica that already holds that
+	 * version receives no bytes.
+	 */
+	function pull(request: {
+		authorityLifetime: string;
+		address: RecordAddress;
+		knownDocumentVersion: string | null;
+	}): DocumentPull {
+		return database.transaction((): DocumentPull => {
+			const meta = one<SqliteRow & { authority_lifetime: string }>(
+				database,
+				'SELECT authority_lifetime FROM meta WHERE singleton = 1',
+			);
+			if (meta === null) throw new Error('authority metadata is missing');
+			const activeAuthorityLifetime = meta.authority_lifetime;
+			if (request.authorityLifetime !== activeAuthorityLifetime) {
+				return { kind: 'lifetime-mismatch', activeAuthorityLifetime };
+			}
+			const row = one<RecordRow>(
+				database,
+				`SELECT record_id, state FROM records WHERE ${TRIPLE_WHERE}`,
+				tripleParams(request.address),
+			);
+			const notLive = (
+				state: 'absent' | 'tombstone' | 'unset',
+			): DocumentPull => ({
+				kind: 'record-not-live',
+				activeAuthorityLifetime,
+				address: structuredClone(request.address),
+				state,
+			});
+			if (row === null) return notLive('absent');
+			if (row.state !== 'live') return notLive(row.state);
+			const chain = chainFor(database, row.record_id);
+			if (chain.length === 0)
+				return { kind: 'absent', activeAuthorityLifetime };
+			const document = hydrate(chain);
+			try {
+				const update = new Uint8Array(Y.encodeStateAsUpdateV2(document));
+				const documentVersion = documentVersionOf(update);
+				return documentVersion === request.knownDocumentVersion
+					? { kind: 'unchanged', activeAuthorityLifetime, documentVersion }
+					: { kind: 'state', activeAuthorityLifetime, documentVersion, update };
+			} finally {
+				document.destroy();
+			}
+		});
+	}
+
 	function exportDocument(address: RecordAddress): Uint8Array | undefined {
 		return database.transaction(() => {
 			const row = one<RecordRow>(
@@ -230,7 +286,7 @@ export function createAuthorityDocumentV1(database: SqliteDatabase) {
 		});
 	}
 
-	return { accept, exportDocument, readDocument };
+	return { accept, pull, exportDocument, readDocument };
 }
 
 export type AuthorityDocumentV1 = ReturnType<typeof createAuthorityDocumentV1>;
