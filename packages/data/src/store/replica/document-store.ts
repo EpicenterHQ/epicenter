@@ -260,20 +260,19 @@ export function createReplicaDocumentStore(
 				) {
 					throw new Error('document revision space is exhausted');
 				}
-				// Either append changes the merged state, so any recorded refusal
-				// describes a superseded state and is cleared. Only a local edit
-				// creates a new obligation: a remote accepted install never
-				// increments the locally authored revision.
-				database.run(
-					kind === 'local'
-						? `UPDATE records SET
-								document_revision = document_revision + 1,
-								document_refused_revision = NULL
-							WHERE record_id = ?`
-						: `UPDATE records SET document_refused_revision = NULL
-							WHERE record_id = ?`,
-					[row.record_id],
-				);
+				// Only a local edit creates a new obligation and supersedes refusal
+				// evidence for the previous revision. An accepted inbound install
+				// changes neither the locally authored revision nor its publication
+				// obligation, so it must not re-arm a refused revision.
+				if (kind === 'local') {
+					database.run(
+						`UPDATE records SET
+							document_revision = document_revision + 1,
+							document_refused_revision = NULL
+						WHERE record_id = ?`,
+						[row.record_id],
+					);
+				}
 			} finally {
 				document.destroy();
 			}

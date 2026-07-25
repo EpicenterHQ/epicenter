@@ -336,6 +336,43 @@ describe('record document store', () => {
 		}
 	});
 
+	test('an accepted inbound install does not re-arm a refused local revision', () => {
+		const context = setup();
+		try {
+			const [local, remote] = sourceUpdates('local', 'remote');
+			if (local === undefined || remote === undefined) {
+				throw new Error('missing source updates');
+			}
+			context.store.appendLocalDocumentUpdate(ADDRESS, local);
+			const attempt = context.store.documentPublication(ADDRESS);
+			if (attempt.kind !== 'ready') throw new Error('publication not ready');
+			context.store.settleDocumentPublication(
+				ADDRESS,
+				{
+					...receipt(attempt.publication),
+					kind: 'document-bound',
+					measured: {
+						stateBytes: DOCUMENT_BOUND.stateBytes + 1,
+						stateStructs: DOCUMENT_BOUND.stateStructs,
+					},
+					limit: DOCUMENT_BOUND,
+				},
+				capturedOf(attempt.publication),
+			);
+
+			context.store.installAcceptedDocumentUpdate(ADDRESS, remote);
+
+			expect(context.store.inspectDocument(ADDRESS)).toMatchObject({
+				revision: 1,
+				owed: true,
+				refusedRevision: 1,
+			});
+			expect(context.store.owedDocuments(null, 64)).toEqual([]);
+		} finally {
+			context.database.close();
+		}
+	});
+
 	test('an obsolete refusal for a superseded revision is dropped, not recorded', () => {
 		const context = setup();
 		try {
