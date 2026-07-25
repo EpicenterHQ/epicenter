@@ -141,10 +141,10 @@ export async function openBrowserReplicaOwner({
 		},
 	});
 	try {
-		lease = await acquireBrowserStorageLease(navigator.locks, {
-			...(lockName === undefined ? {} : { name: lockName }),
-			onStolen: lifetime.ownerLost,
-		});
+		lease = await acquireBrowserStorageLease(
+			navigator.locks,
+			lockName === undefined ? {} : { name: lockName },
+		);
 		lifetime.requireOpening();
 		const sqlite = await sqlite3InitModule();
 		lifetime.requireOpening();

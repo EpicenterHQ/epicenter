@@ -23,12 +23,6 @@ import {
 	webkit,
 } from 'playwright';
 
-import type { RecordAddress } from '../src/protocol/v1/index.js';
-import { makeLimits } from '../src/protocol/v1/kernel.test-support.js';
-import type { BrowserReplicaCandidateStart } from '../src/store/replica/browser-candidate-protocol.js';
-import type { BrowserReplicaStoreOperation } from '../src/store/replica/browser-owner-protocol.js';
-import type { DocumentInspection } from '../src/store/replica/index.js';
-
 setDefaultTimeout(60_000);
 const evidenceDir = import.meta.dirname;
 const distDir = resolve(evidenceDir, 'dist');
@@ -81,11 +75,7 @@ async function openEngine(
 	const page = await context.newPage();
 	page.setDefaultTimeout(20_000);
 	await page.goto(`http://127.0.0.1:${server.port}`);
-	await page.waitForFunction(
-		() =>
-			window.browserRuntimeEvidence !== undefined &&
-			window.browserReplicaCandidateEvidence !== undefined,
-	);
+	await page.waitForFunction(() => window.browserRuntimeEvidence !== undefined);
 	return { context, page };
 }
 
@@ -185,10 +175,10 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 	// Opening the same physical replica under another identity fails without
 	// mutating it.
 	await expect(
-		page.evaluate(
-			(value) => window.browserRuntimeEvidence.open(value),
-			{ ...unclaimedOptions, owner: OWNER },
-		),
+		page.evaluate((value) => window.browserRuntimeEvidence.open(value), {
+			...unclaimedOptions,
+			owner: OWNER,
+		}),
 	).rejects.toThrow(/identity does not match/);
 
 	// Same-identity reopen finds the data intact.
@@ -203,60 +193,15 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		),
 	).toMatchObject({ id: unclaimedId, title: 'unclaimed local data' });
 
-	// A second candidate on the same slot takes over after the first owner
-	// leaves and reconstructs the same local-only posture: no worker-local
-	// sign-in memory exists to lose.
-	await page.evaluate(
-		(candidateOptions) =>
-			window.browserReplicaCandidateEvidence.open(candidateOptions),
-		{
-			limits: makeLimits(),
-			owner: null,
-			initialize: { replicaId: 'dddddddddddddddddddddddd' },
-			hasCarrier: false,
-			coordinationId: unclaimedOptions.coordinationId,
-			storage: unclaimedOptions.storage,
-		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>,
-	);
-	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
-	{
-		const deadline = Date.now() + 20_000;
-		for (;;) {
-			const role = await page.evaluate(
-				() => window.browserReplicaCandidateEvidence.status().role,
-			);
-			if (role === 'owner') break;
-			if (Date.now() >= deadline) {
-				throw new Error('takeover candidate never became the elected owner');
-			}
-			await Bun.sleep(50);
-		}
-	}
+	// A second owner on the same slot is refused immediately (ADR-0165): an
+	// origin admits one live replica owner, so the refused page is told to
+	// close the first rather than queueing behind it.
 	expect(
-		(await page.evaluate(
-			(operation) =>
-				window.browserReplicaCandidateEvidence.request(
-					operation as BrowserReplicaStoreOperation,
-				),
-			{ kind: 'runtime-status' },
-		)) as { state: string },
-	).toMatchObject({ state: 'local-only' });
-	expect(
-		(await page.evaluate(
-			(operation) =>
-				window.browserReplicaCandidateEvidence.request(
-					operation as BrowserReplicaStoreOperation,
-				),
-			{
-				kind: 'visible-record',
-				address: {
-					namespace: 'so.epicenter.browser-runtime',
-					collection: 'notes',
-					recordKey: unclaimedId,
-				},
-			},
-		)) as { state: string },
-	).toMatchObject({ state: 'live' });
+		await page.evaluate(
+			(options) => window.browserRuntimeEvidence.openRefused(options),
+			unclaimedOptions,
+		),
+	).toBe('BrowserReplicaAlreadyOpen');
 
 	// Retirement refuses while the elected owner still holds the slot, and
 	// removes the whole store once released; a later open finds a fresh
@@ -272,7 +217,7 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 			retireStorage,
 		),
 	).toBe('held');
-	await page.evaluate(() => window.browserReplicaCandidateEvidence.close());
+	await page.evaluate(() => window.browserRuntimeEvidence.dispose());
 	{
 		const deadline = Date.now() + 20_000;
 		for (;;) {
@@ -400,35 +345,15 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		firstId,
 	);
 
-	await page.evaluate(
-		(candidateOptions) =>
-			window.browserReplicaCandidateEvidence.open(candidateOptions),
-		{
-			limits: makeLimits(),
-			owner: OWNER,
-			initialize: {
-				replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
-				authorityLifetime: 'runtime-life',
-			},
-			hasCarrier: false,
-			coordinationId: mainSlot.coordinationId,
-			storage: mainSlot.storage,
-		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>,
-	);
-	const address: RecordAddress = {
-		namespace: 'so.epicenter.browser-runtime',
-		collection: 'notes',
-		recordKey: firstId,
-	};
-	const inspection = (await page.evaluate(
-		(operation) =>
-			window.browserReplicaCandidateEvidence.request(
-				operation as BrowserReplicaStoreOperation,
-			),
-		{ kind: 'inspect-document', address },
-	)) as DocumentInspection;
-	expect(inspection.revision).toBe(1);
-	await page.evaluate(() => window.browserReplicaCandidateEvidence.close());
+	// One local edit is one owed revision. There is no second owner to read the
+	// chain out of band, so the runtime's own publication view is the witness:
+	// the document is ready to publish and has not been accepted yet.
+	expect(
+		await page.evaluate(
+			(id) => window.browserRuntimeEvidence.publication(id),
+			firstId,
+		),
+	).toMatchObject({ state: 'ready' });
 
 	await page.evaluate(async () => {
 		await window.browserRuntimeEvidence.closeDocument('first');
@@ -583,60 +508,25 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		),
 	).toBe('offline edit one two');
 
+	// The other writer is the authority, not a second local owner. A reversible
+	// unset preserves the live document; only a terminal tombstone revokes it.
 	await page.evaluate(
-		(candidateOptions) =>
-			window.browserReplicaCandidateEvidence.open(candidateOptions),
-		{
-			limits: makeLimits(),
-			owner: OWNER,
-			initialize: {
-				replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
-				authorityLifetime: 'runtime-life',
-			},
-			hasCarrier: false,
-			coordinationId: mainSlot.coordinationId,
-			storage: mainSlot.storage,
-		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>,
+		(recordKey) =>
+			window.browserRuntimeEvidence.authorityWrite(recordKey, 'unset'),
+		offlineIds.document,
 	);
-	await page.evaluate(
-		(operation) =>
-			window.browserReplicaCandidateEvidence.request(
-				operation as BrowserReplicaStoreOperation,
-			),
-		{
-			kind: 'local-write',
-			intent: {
-				address: {
-					namespace: 'so.epicenter.browser-runtime',
-					collection: 'notes',
-					recordKey: offlineIds.document,
-				},
-				op: 'unset',
-			},
-		},
-	);
+	await page.evaluate(() => window.browserRuntimeEvidence.nudgeOnline());
 	await page.waitForFunction(
 		() =>
 			window.browserRuntimeEvidence.documentText('racing') ===
 			'offline edit one two',
 	);
 	await page.evaluate(
-		(operation) =>
-			window.browserReplicaCandidateEvidence.request(
-				operation as BrowserReplicaStoreOperation,
-			),
-		{
-			kind: 'local-write',
-			intent: {
-				address: {
-					namespace: 'so.epicenter.browser-runtime',
-					collection: 'notes',
-					recordKey: offlineIds.document,
-				},
-				op: 'tombstone',
-			},
-		},
+		(recordKey) =>
+			window.browserRuntimeEvidence.authorityWrite(recordKey, 'tombstone'),
+		offlineIds.document,
 	);
+	await page.evaluate(() => window.browserRuntimeEvidence.nudgeOnline());
 	await page.waitForFunction(() => {
 		try {
 			window.browserRuntimeEvidence.documentText('racing');
@@ -646,7 +536,6 @@ async function runRuntimeCheckpoint(page: Page, engineName: string) {
 		}
 	});
 
-	await page.evaluate(() => window.browserReplicaCandidateEvidence.close());
 	await page.evaluate(async () => {
 		const runtime = window.browserRuntimeEvidence;
 		const id = await runtime.create('authority replacement');

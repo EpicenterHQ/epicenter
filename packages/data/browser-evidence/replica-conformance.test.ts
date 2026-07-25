@@ -1,14 +1,13 @@
 /**
  * Production Browser Replica Conformance Tests
  *
- * Binds the maintained replica transition cases to the browser candidate's
- * real ownership, session, RPC, reopen, and cleanup path in Chromium and
- * WebKit. A synchronized direct-store shadow is retained only for test-side
+ * Binds the maintained replica transition cases to the one browser owner's
+ * real lock, RPC, reopen, and cleanup path in Chromium and WebKit. A synchronized direct-store shadow is retained only for test-side
  * statement-boundary analysis and crash injection, which are deliberately
  * absent from the production protocol.
  *
  * Key behaviors:
- * - Scalar, document, and blob operations cross the production candidate RPC
+ * - Scalar, document, and blob operations cross the production owner RPC
  * - Document transitions stay equal to a crash-injectable OPFS shadow
  * - Blob watermarks and raw files survive reopen and reap on tombstone
  * - Owed scans use the production partial covering indexes in both engines
@@ -26,7 +25,6 @@ import {
 } from 'playwright';
 
 import type { RecordAddress } from '../src/protocol/v1/index.js';
-import { makeLimits } from '../src/protocol/v1/kernel.test-support.js';
 import {
 	type BlobConformanceBinding,
 	type BlobConformanceReplica,
@@ -51,10 +49,6 @@ import {
 	runReplicaConformanceCases,
 	type SealWitness,
 } from '../src/store/conformance/replica-cases.test-support.js';
-import type {
-	BrowserReplicaCandidateStart,
-	BrowserReplicaCandidateStatus,
-} from '../src/store/replica/browser-candidate-protocol.js';
 import type {
 	BrowserReplicaOwnerResult,
 	BrowserReplicaStoreOperation,
@@ -171,34 +165,17 @@ function createDriver(readPage: () => Page | undefined) {
 		fixture: { replicaId: string; authorityLifetime?: string },
 	): Promise<void> {
 		const storageId = crypto.randomUUID();
-		const options = {
-			limits: makeLimits(),
-			owner: null,
-			initialize: fixture,
-			coordinationId: `epicenter-replica-conformance-${storageId}`,
-			storage: {
-				databaseFilename: '/replica.sqlite3',
-				poolDirectory: `.epicenter-replica-conformance-production-${storageId}`,
-				poolName: `epicenter-replica-conformance-production-${storageId}`,
-			},
-		} satisfies Omit<BrowserReplicaCandidateStart, 'type'>;
-		const status = await page.evaluate(
-			(optionsJson) =>
-				window.browserReplicaCandidateEvidence
-					.open(
-						JSON.parse(optionsJson) as Omit<
-							BrowserReplicaCandidateStart,
-							'type'
-						>,
-					)
-					.then(() => window.browserReplicaCandidateEvidence.status()),
-			JSON.stringify(options),
+		await page.evaluate(
+			([id, fixtureJson]) =>
+				window.browserReplicaOwnerEvidence.open(
+					id,
+					JSON.parse(fixtureJson) as {
+						replicaId: string;
+						authorityLifetime?: string;
+					},
+				),
+			[storageId, JSON.stringify(fixture)] as [string, string],
 		);
-		if (status.role !== 'owner' || status.ownerSession === null) {
-			throw new Error(
-				'browser conformance candidate did not own a live session',
-			);
-		}
 	}
 
 	async function productionRequest(
@@ -207,7 +184,7 @@ function createDriver(readPage: () => Page | undefined) {
 	): Promise<BrowserReplicaOwnerResult> {
 		return page.evaluate(
 			(operation: unknown) =>
-				window.browserReplicaCandidateEvidence.request(
+				window.browserReplicaOwnerEvidence.request(
 					operation as BrowserReplicaStoreOperation,
 				),
 			operation as never,
@@ -249,12 +226,6 @@ function createDriver(readPage: () => Page | undefined) {
 			case 'erase':
 				return action;
 		}
-	}
-
-	async function productionStatus(
-		page: Page,
-	): Promise<BrowserReplicaCandidateStatus> {
-		return page.evaluate(() => window.browserReplicaCandidateEvidence.status());
 	}
 
 	async function productionObservation(
@@ -359,9 +330,7 @@ function createDriver(readPage: () => Page | undefined) {
 					fixture,
 				);
 			} catch (cause) {
-				await page.evaluate(() =>
-					window.browserReplicaCandidateEvidence.close(),
-				);
+				await page.evaluate(() => window.browserReplicaOwnerEvidence.dispose());
 				throw cause;
 			}
 		},
@@ -380,7 +349,7 @@ function createDriver(readPage: () => Page | undefined) {
 		captureBlob(address: RecordAddress, text: string) {
 			return requirePage(readPage).evaluate(
 				async ({ address, text }) => {
-					const outcome = await window.browserReplicaCandidateEvidence.request({
+					const outcome = await window.browserReplicaOwnerEvidence.request({
 						kind: 'capture-blob',
 						address,
 						bytes: new Blob([text]),
@@ -400,11 +369,10 @@ function createDriver(readPage: () => Page | undefined) {
 		},
 		blobPublication(address: RecordAddress) {
 			return requirePage(readPage).evaluate(async (address) => {
-				const publication =
-					await window.browserReplicaCandidateEvidence.request({
-						kind: 'blob-publication',
-						address,
-					});
+				const publication = await window.browserReplicaOwnerEvidence.request({
+					kind: 'blob-publication',
+					address,
+				});
 				if (
 					publication === null ||
 					typeof publication !== 'object' ||
@@ -576,10 +544,6 @@ function createDriver(readPage: () => Page | undefined) {
 			await page.evaluate(() =>
 				window.browserReplicaConformanceEvidence.reopen(),
 			);
-			const status = await productionStatus(page);
-			if (status.role !== 'owner' || status.ownerSession === null) {
-				throw new Error('browser conformance candidate lost its owner session');
-			}
 		},
 		async dispose() {
 			for (const crashedId of [...crashedPages.keys()]) {
@@ -587,7 +551,7 @@ function createDriver(readPage: () => Page | undefined) {
 			}
 			const page = requirePage(readPage);
 			await Promise.all([
-				page.evaluate(() => window.browserReplicaCandidateEvidence.close()),
+				page.evaluate(() => window.browserReplicaOwnerEvidence.dispose()),
 				page.evaluate(() => window.browserReplicaConformanceEvidence.dispose()),
 			]);
 		},

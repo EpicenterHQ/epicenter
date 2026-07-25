@@ -1,27 +1,13 @@
-const OWNER_LOST_ERROR_NAME = 'EpicenterBrowserOwnerLostError';
+type BrowserReplicaOwnerState = 'opening' | 'active' | 'disposed';
 
-type BrowserReplicaOwnerState =
-	| 'opening'
-	| 'active'
-	| 'owner-lost'
-	| 'disposed';
-
-function ownerLostError(failures: readonly unknown[]): Error {
-	const error = new Error('Browser replica storage moved to a newer owner', {
-		...(failures.length === 0
-			? {}
-			: {
-					cause: new AggregateError(
-						failures,
-						'Browser replica physical-owner cleanup failed',
-					),
-				}),
-	});
-	error.name = OWNER_LOST_ERROR_NAME;
-	return error;
-}
-
-/** Own the terminal transition between one Web Lock and its SQLite resources. */
+/**
+ * Own the terminal transition between one Web Lock and its SQLite resources.
+ *
+ * There is no lost-ownership state (ADR-0165). The lock is taken with
+ * `ifAvailable`, nothing steals it, and terminating the worker is what ends
+ * live ownership, so the only exits from `active` are disposal and worker
+ * death.
+ */
 export function createBrowserReplicaOwnerLifetime({
 	closeDatabase,
 	pauseVfs,
@@ -46,7 +32,6 @@ export function createBrowserReplicaOwnerLifetime({
 	}
 
 	function requireOpening(): void {
-		if (state === 'owner-lost') throw ownerLostError(physicalCleanupFailures);
 		if (state !== 'opening') {
 			throw new Error(
 				`browser replica owner cannot open from state '${state}'`,
@@ -58,8 +43,6 @@ export function createBrowserReplicaOwnerLifetime({
 		switch (state) {
 			case 'active':
 				return;
-			case 'owner-lost':
-				throw ownerLostError(physicalCleanupFailures);
 			case 'opening':
 				throw new Error('browser replica owner is still opening');
 			case 'disposed':
@@ -74,17 +57,11 @@ export function createBrowserReplicaOwnerLifetime({
 			requireOpening();
 			state = 'active';
 		},
-		ownerLost(): void {
-			if (state === 'owner-lost' || state === 'disposed') return;
-			state = 'owner-lost';
-			// A thief may already hold the logical Web Lock. SQLite close and
-			// SAH-pool pause synchronously release the OPFS access handles that
-			// remain the physical no-overlap fence until this callback returns.
-			closePhysicalOwner();
-		},
 		async dispose(): Promise<void> {
 			disposal ??= (async () => {
-				if (state !== 'owner-lost') state = 'disposed';
+				state = 'disposed';
+				// SQLite close and SAH-pool pause synchronously release the OPFS
+				// access handles, so they land before the lock a successor needs.
 				closePhysicalOwner();
 				try {
 					await releaseLease();

@@ -4,8 +4,8 @@
 	"description": "Local-first scalar data protocol and SQLite replica.",
 	"type": "module",
 	"exports": {
-		"./browser-replica-candidate-worker": "./src/browser-replica-candidate-worker.ts",
 		"./browser-replica-worker": "./src/browser-replica-worker.ts",
+		"./browser-replica-store-worker": "./src/browser-replica-store-worker.ts",
 		"./blob-v1": "./src/blob-v1/index.ts",
 		"./document-v1": "./src/document-v1/index.ts",
 		"./protocol/v1": "./src/protocol/v1/index.ts",
@@ -26,7 +26,6 @@
 		"evidence:browser-replica-layout": "bun browser-evidence/replica-layout-run.ts --profile smoke",
 		"evidence:browser-replica-layout:full": "bun browser-evidence/replica-layout-run.ts --profile full",
 		"evidence:browser-replica": "bun browser-evidence/replica-owner-run.ts",
-		"evidence:browser-owner-topology": "bun browser-evidence/replica-candidate-run.ts",
 		"test:browser-replica": "bun test --timeout 120000 browser-evidence/replica-conformance.test.ts",
 		"test:browser-runtime": "bun test --timeout 120000 browser-evidence/runtime.test.ts",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p browser-evidence/tsconfig.json",

@@ -2,7 +2,7 @@ import * as Y from '@y/y';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
 
 import type { RecordAddress } from '../protocol/v1/index.js';
-import type { BrowserReplicaCandidateOperation } from '../store/replica/browser-owner-protocol.js';
+import type { BrowserReplicaOwnerRuntimeOperation } from '../store/replica/browser-owner-protocol.js';
 import { type DocumentPullError, RuntimeError } from './errors.js';
 import type { DocumentPuller, RowDocument } from './row-document.js';
 
@@ -48,7 +48,7 @@ export function createBrowserRowDocumentRegistry({
 	pullFrom,
 }: {
 	request<TResult>(
-		operation: BrowserReplicaCandidateOperation,
+		operation: BrowserReplicaOwnerRuntimeOperation,
 	): Promise<TResult>;
 	/** Absent on a runtime with no authority, which makes `pull()` decline. */
 	pullFrom?: DocumentPuller;

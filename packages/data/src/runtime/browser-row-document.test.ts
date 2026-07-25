@@ -16,7 +16,7 @@ import { expect, test } from 'bun:test';
 import * as Y from '@y/y';
 
 import type { RecordAddress } from '../protocol/v1/index.js';
-import type { BrowserReplicaCandidateOperation } from '../store/replica/browser-owner-protocol.js';
+import type { BrowserReplicaOwnerRuntimeOperation } from '../store/replica/browser-owner-protocol.js';
 import { createBrowserRowDocumentRegistry } from './browser-row-document.js';
 import type { DocumentPuller } from './row-document.js';
 
@@ -47,7 +47,7 @@ function setup({ holdFirstOpen = false } = {}) {
 	const firstOpen = deferred<void>();
 	let openRequests = 0;
 	const registry = createBrowserRowDocumentRegistry({
-		async request<TResult>(operation: BrowserReplicaCandidateOperation) {
+		async request<TResult>(operation: BrowserReplicaOwnerRuntimeOperation) {
 			switch (operation.kind) {
 				case 'open-runtime-document':
 					openRequests += 1;
@@ -223,7 +223,7 @@ function pullSetup({
 	const installs: Uint8Array[] = [];
 	const pulls: (string | null)[] = [];
 	const registry = createBrowserRowDocumentRegistry({
-		async request<TResult>(operation: BrowserReplicaCandidateOperation) {
+		async request<TResult>(operation: BrowserReplicaOwnerRuntimeOperation) {
 			switch (operation.kind) {
 				case 'open-runtime-document':
 					return { kind: 'ready' } as TResult;
@@ -352,7 +352,7 @@ test('a pull whose durable install races revocation cannot go live', async () =>
 
 test('a runtime with no authority declines to pull', async () => {
 	const registry = createBrowserRowDocumentRegistry({
-		async request<TResult>(operation: BrowserReplicaCandidateOperation) {
+		async request<TResult>(operation: BrowserReplicaOwnerRuntimeOperation) {
 			if (operation.kind === 'open-runtime-document') {
 				return { kind: 'ready' } as TResult;
 			}

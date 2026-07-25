@@ -16,7 +16,6 @@ export type BrowserRuntimeReplicaOwner = {
 
 export type BrowserRuntimeEvidenceDriver = {
 	open(options: {
-		coordinationId: string;
 		storage: BrowserRuntimeStorageIdentity;
 		replicaId?: string;
 		/** Immutable identity of the replica this open targets (ADR-0178). */
@@ -24,6 +23,12 @@ export type BrowserRuntimeEvidenceDriver = {
 		/** Supply the page's authority carrier for this runtime lifetime. */
 		withCarrier?: boolean;
 	}): Promise<void>;
+	/** Attempt a second live owner on the same slot; resolves its refusal name. */
+	openRefused(
+		options: Parameters<BrowserRuntimeEvidenceDriver['open']>[0],
+	): Promise<string>;
+	/** Submit one lifecycle intent as the authority, not as this replica. */
+	authorityWrite(recordKey: string, op: 'unset' | 'tombstone'): void;
 	create(title: string): Promise<string>;
 	get(id: string): Promise<{ id: string; title: string; body?: string } | null>;
 	update(id: string, title: string): Promise<void>;
@@ -54,6 +59,7 @@ export type BrowserRuntimeEvidenceDriver = {
 		facts: number;
 		submissions: number;
 		documents: number;
+		documentPulls: number;
 		blobs: number;
 	};
 	disposeRuntimeKeepingDocuments(): Promise<void>;

@@ -1,9 +1,13 @@
 import { makeLimits } from '../src/protocol/v1/kernel.test-support.js';
 import type {
-	BrowserReplicaOwnerMessage,
 	BrowserReplicaOwnerOperation,
 	BrowserReplicaOwnerResult,
 } from '../src/store/replica/browser-owner-protocol.js';
+
+type BrowserReplicaStoreMessage =
+	| { type: 'result'; id: number; value: BrowserReplicaOwnerResult }
+	| { type: 'error'; id: number; name: string; message: string };
+
 import type { BrowserReplicaOwnerEvidenceDriver } from './replica-owner-contract.js';
 
 declare global {
@@ -44,12 +48,12 @@ async function open(
 ): Promise<void> {
 	if (worker !== undefined) await dispose();
 	worker = new Worker(
-		new URL('../src/browser-replica-worker.ts', import.meta.url),
+		new URL('../src/browser-replica-store-worker.ts', import.meta.url),
 		{ type: 'module', name: `epicenter-replica-${storageId}` },
 	);
 	worker.addEventListener(
 		'message',
-		({ data: message }: MessageEvent<BrowserReplicaOwnerMessage>) => {
+		({ data: message }: MessageEvent<BrowserReplicaStoreMessage>) => {
 			const target = pending.get(message.id);
 			if (target === undefined) return;
 			pending.delete(message.id);

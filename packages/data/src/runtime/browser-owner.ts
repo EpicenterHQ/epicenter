@@ -1,13 +1,13 @@
 import type { RecordAddress } from '../protocol/v1/index.js';
-import type { BrowserReplicaCandidateStart } from '../store/replica/browser-candidate-protocol.js';
 import {
 	type BrowserReplicaOwner,
 	openBrowserReplicaOwner,
 } from '../store/replica/browser-owner.js';
 import { createBrowserReplicaOwnerOperations } from '../store/replica/browser-owner-operations.js';
 import type {
-	BrowserReplicaCandidateOperation,
-	BrowserReplicaCandidateResult,
+	BrowserReplicaOwnerRuntimeOperation,
+	BrowserReplicaOwnerRuntimeResult,
+	BrowserReplicaOwnerStart,
 	BrowserReplicaStoreOperation,
 } from '../store/replica/browser-owner-protocol.js';
 import {
@@ -23,7 +23,7 @@ type BrowserRuntimeOwnerEvents = {
 };
 
 export type OpenBrowserRuntimeOwnerOptions = {
-	start: BrowserReplicaCandidateStart;
+	start: BrowserReplicaOwnerStart;
 	carrier: AuthorityCarrier<Blob> | null;
 	events: BrowserRuntimeOwnerEvents;
 	openPhysicalOwner?: typeof openBrowserReplicaOwner;
@@ -45,11 +45,11 @@ function nudgesSupervisor(operation: BrowserReplicaStoreOperation): boolean {
 }
 
 /**
- * Bind one W4 supervisor to the elected physical browser replica owner.
+ * Bind one W4 supervisor to the physical browser replica owner.
  *
- * Page candidates may come and go, but only the Web Lock holder constructs this
- * object. Durable state and every automatic publication drain therefore share
- * the same owner lifetime.
+ * Only the holder of the origin's exclusive Web Lock constructs this object
+ * (ADR-0165), so durable state and every automatic publication drain share one
+ * owner lifetime that ends when this worker does.
  */
 export async function openBrowserRuntimeOwner({
 	start,
@@ -82,8 +82,8 @@ export async function openBrowserRuntimeOwner({
 				return supervisor.status();
 			},
 			async execute(
-				operation: BrowserReplicaCandidateOperation,
-			): Promise<BrowserReplicaCandidateResult> {
+				operation: BrowserReplicaOwnerRuntimeOperation,
+			): Promise<BrowserReplicaOwnerRuntimeResult> {
 				switch (operation.kind) {
 					case 'runtime-status':
 						return supervisor.status();

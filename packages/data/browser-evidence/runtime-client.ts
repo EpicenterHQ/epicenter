@@ -19,7 +19,10 @@ import {
 	retireUnclaimedBrowserReplica,
 } from '../src/runtime/browser.js';
 import type { RowDocument } from '../src/runtime/row-document.js';
-import type { AuthorityCarrier } from '../src/runtime/supervisor.js';
+import type {
+	AuthorityCarrier,
+	DocumentPullCarrier,
+} from '../src/runtime/supervisor.js';
 import type { BrowserRuntimeEvidenceDriver } from './runtime-contract.js';
 
 declare global {
@@ -58,7 +61,13 @@ let isOnline = true;
 let forceLifetimeMismatch = false;
 let holdDocuments = false;
 let heldDocumentResolvers: (() => void)[] = [];
-const counts = { facts: 0, submissions: 0, documents: 0, blobs: 0 };
+const counts = {
+	facts: 0,
+	submissions: 0,
+	documents: 0,
+	documentPulls: 0,
+	blobs: 0,
+};
 let runtime: BrowserEpicenter | undefined;
 let bound: ReturnType<typeof bindRuntime> | undefined;
 let openedWorker: BrowserRuntimeWorker | undefined;
@@ -105,7 +114,7 @@ function requireCurrentLifetime(): void {
 	throw mismatch;
 }
 
-const carrier: AuthorityCarrier<Blob> = {
+const carrier: AuthorityCarrier<Blob> & DocumentPullCarrier = {
 	async fetchFacts(request) {
 		requireOnline();
 		requireCurrentLifetime();
@@ -144,6 +153,15 @@ const carrier: AuthorityCarrier<Blob> = {
 			},
 		};
 	},
+	async pullDocument() {
+		requireOnline();
+		requireCurrentLifetime();
+		counts.documentPulls += 1;
+		// This fake authority keeps no joined document state, so it truthfully
+		// answers that it holds none. Pull installation itself is proven by the
+		// focused registry and runtime tests.
+		return { kind: 'absent', activeAuthorityLifetime: authority.lifetime };
+	},
 	async publishBlob(address, publication) {
 		requireOnline();
 		requireCurrentLifetime();
@@ -160,8 +178,67 @@ const carrier: AuthorityCarrier<Blob> = {
 	},
 };
 
+/**
+ * Try to open a second live owner on the same storage slot (ADR-0165).
+ *
+ * The refusal is the product answer, so this returns its error name rather
+ * than throwing: an origin admits one owner, and a second page is told to
+ * close the first instead of queueing behind it.
+ */
+async function openRefused(
+	options: Parameters<BrowserRuntimeEvidenceDriver['open']>[0],
+): Promise<string> {
+	try {
+		const second = await openBrowserEpicenter({
+			owner: options.owner,
+			carrier: null,
+			limits,
+			replicaId: options.replicaId ?? 'ssssssssssssssssssssssss',
+			authorityLifetime: 'runtime-life',
+			storage: options.storage,
+		});
+		await second[Symbol.asyncDispose]();
+		return 'opened';
+	} catch (cause) {
+		return cause instanceof Error ? cause.name : String(cause);
+	}
+}
+
+/**
+ * Write one lifecycle intent as the authority rather than as this replica.
+ *
+ * With one owner per origin there is no second local writer, so the honest
+ * source of an out-of-band unset or tombstone is the authority itself; the
+ * runtime observes it through the ordinary facts plane.
+ */
+function authorityWrite(recordKey: string, op: 'unset' | 'tombstone'): void {
+	const request = parseSubmissionRequest(
+		{
+			authorityLifetime: authority.lifetime,
+			replicaId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+			submissionNumber:
+				(authority.replicas.get('aaaaaaaaaaaaaaaaaaaaaaaa')
+					?.lastSubmissionNumber ?? 0) + 1,
+			intents: [
+				{
+					address: {
+						namespace: 'so.epicenter.browser-runtime',
+						collection: 'notes',
+						recordKey,
+					},
+					op,
+				},
+			],
+		},
+		limits,
+	);
+	if (request.error !== null) throw request.error;
+	const result = submit(authority, request.data, limits);
+	if (result.error !== null) throw result.error;
+	authority = result.data.state;
+}
+
 async function open({
-	coordinationId,
 	storage,
 	replicaId = 'rrrrrrrrrrrrrrrrrrrrrrrr',
 	owner,
@@ -174,11 +251,10 @@ async function open({
 		limits,
 		replicaId,
 		authorityLifetime: 'runtime-life',
-		coordinationId,
 		storage,
 		createWorker() {
 			const raw = new Worker(
-				new URL('../src/browser-replica-candidate-worker.ts', import.meta.url),
+				new URL('../src/browser-replica-worker.ts', import.meta.url),
 				{ type: 'module' },
 			);
 			const delayedIds = new Set<number>();
@@ -460,6 +536,8 @@ window.browserRuntimeEvidence = Object.freeze({
 	nudgeOnline,
 	holdDocumentReceipts,
 	releaseDocumentReceipts,
+	openRefused,
+	authorityWrite,
 	replaceAuthority,
 	authorityCounts,
 	disposeRuntimeKeepingDocuments,

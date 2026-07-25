@@ -12,8 +12,10 @@ import type {
 	ValidatedLimits,
 } from '../../protocol/v1/index.js';
 import type {
+	BrowserAuthorityResponse,
 	BrowserRuntimeControlOperation,
 	BrowserRuntimeControlResult,
+	BrowserRuntimeEvent,
 } from '../../runtime/browser-protocol.js';
 import type { PublicationStatus } from '../../runtime/publication-status.js';
 import type {
@@ -145,7 +147,8 @@ export type BrowserReplicaStoreOperation = Exclude<
 	{ kind: 'open' | 'dispose' }
 >;
 
-export type BrowserReplicaCandidateOperation =
+/** Everything the page may ask its owner worker to do. */
+export type BrowserReplicaOwnerRuntimeOperation =
 	| BrowserReplicaStoreOperation
 	| BrowserRuntimeControlOperation;
 
@@ -176,19 +179,49 @@ export type BrowserReplicaOwnerResult =
 	| boolean
 	| null;
 
-export type BrowserReplicaCandidateResult =
+export type BrowserReplicaOwnerRuntimeResult =
 	| BrowserReplicaOwnerResult
 	| BrowserRuntimeControlResult;
 
-export type BrowserReplicaOwnerRequest = {
-	type: 'request';
-	id: number;
-	operation: BrowserReplicaOwnerOperation;
+/**
+ * The page's opening frame. One owner worker serves exactly one of these; a
+ * second `start` is a programming error, not an election.
+ */
+export type BrowserReplicaOwnerStart = {
+	type: 'start';
+	limits: ValidatedLimits;
+	/** Immutable identity of the replica this worker opens (ADR-0178). */
+	owner: { deploymentId: string; principalId: string } | null;
+	initialize: { replicaId: string; authorityLifetime?: string };
+	/**
+	 * Whether the page supplied an authority carrier at open. Fixed for the
+	 * worker's whole lifetime, so its authorization posture is decided once.
+	 */
+	hasCarrier?: boolean;
+	storage?: {
+		databaseFilename: string;
+		poolDirectory: string;
+		poolName: string;
+		lockName?: string;
+		blobDirectory?: string;
+	};
 };
 
-export type BrowserReplicaOwnerMessage<TResult = BrowserReplicaOwnerResult> =
-	| { type: 'result'; id: number; value: TResult }
-	| { type: 'error'; id: number; name: string; message: string };
+export type BrowserReplicaOwnerInbound =
+	| BrowserReplicaOwnerStart
+	| {
+			type: 'request';
+			id: number;
+			operation: BrowserReplicaOwnerRuntimeOperation;
+	  }
+	| { type: 'close' }
+	| BrowserAuthorityResponse;
 
-export type BrowserReplicaCandidateMessage =
-	BrowserReplicaOwnerMessage<BrowserReplicaCandidateResult>;
+export type BrowserReplicaOwnerOutbound =
+	| { type: 'result'; id: number; value: BrowserReplicaOwnerRuntimeResult }
+	| { type: 'error'; id: number; name: string; message: string }
+	| BrowserRuntimeEvent
+	| { type: 'ready' }
+	| { type: 'invalidation'; addresses: RecordAddress[]; all: boolean }
+	| { type: 'closed' }
+	| { type: 'fatal'; name: string; message: string };

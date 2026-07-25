@@ -2,5 +2,4 @@
 // window global for its Playwright suite.
 import './replica-owner-client.js';
 import './replica-conformance-client.js';
-import './replica-candidate-client.js';
 import './runtime-client.js';

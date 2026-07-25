@@ -5,24 +5,41 @@ export type BrowserStorageLease = {
 type LockManagerPort = {
 	request(
 		name: string,
-		options: { mode: 'exclusive'; signal?: AbortSignal },
-		callback: () => Promise<void>,
+		options: { mode: 'exclusive'; ifAvailable: true },
+		callback: (lock: unknown | null) => Promise<void>,
 	): Promise<void>;
 };
 
-/** Retain one exclusive Web Lock for the OPFS SQLite owner. */
+/**
+ * The named refusal a second same-origin owner receives (ADR-0165).
+ *
+ * An origin admits one live replica owner. A refused page does not queue,
+ * poll, retry on focus, or become a follower, so this is a product answer the
+ * application presents, not a transient error to swallow.
+ */
+export class BrowserReplicaAlreadyOpenError extends Error {
+	override readonly name = 'BrowserReplicaAlreadyOpen';
+	constructor(lockName: string) {
+		super(
+			`This Epicenter replica is already open in another tab or window (${lockName}). Close it, then reload.`,
+		);
+	}
+}
+
+/**
+ * Take the one exclusive Web Lock that admits an OPFS SQLite owner.
+ *
+ * `ifAvailable` is what makes the refusal immediate: the lock manager answers
+ * with `null` rather than queueing, so a second owner fails at startup instead
+ * of appearing hung for the lifetime of the page that holds it. Nothing steals
+ * this lock, so a granted lease is held until its owner releases it.
+ */
 export async function acquireBrowserStorageLease(
 	locks: LockManagerPort,
-	{
-		name = 'epicenter-data-sqlite',
-		onStolen,
-		signal,
-	}: { name?: string; onStolen: () => void; signal?: AbortSignal },
+	{ name = 'epicenter-data-sqlite' }: { name?: string } = {},
 ): Promise<BrowserStorageLease> {
-	signal?.throwIfAborted();
 	const acquired = Promise.withResolvers<BrowserStorageLease>();
 	const released = Promise.withResolvers<void>();
-	let isAcquired = false;
 	let isReleased = false;
 
 	function finishRelease(): void {
@@ -33,9 +50,12 @@ export async function acquireBrowserStorageLease(
 
 	const completion = locks.request(
 		name,
-		{ mode: 'exclusive', ...(signal === undefined ? {} : { signal }) },
-		async () => {
-			isAcquired = true;
+		{ mode: 'exclusive', ifAvailable: true },
+		async (lock) => {
+			if (lock === null) {
+				acquired.reject(new BrowserReplicaAlreadyOpenError(name));
+				return;
+			}
 			acquired.resolve(
 				Object.freeze({
 					async release() {
@@ -48,14 +68,9 @@ export async function acquireBrowserStorageLease(
 		},
 	);
 
-	void completion.catch((cause) => {
-		if (!isAcquired) {
-			acquired.reject(cause);
-			return;
-		}
-		const wasReleased = isReleased;
+	void completion.catch((cause: unknown) => {
 		finishRelease();
-		if (!wasReleased) onStolen();
+		acquired.reject(cause);
 	});
 	return acquired.promise;
 }

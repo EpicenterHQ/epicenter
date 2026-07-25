@@ -1,13 +1,13 @@
 /**
  * Browser Replica Owner Lifetime Tests
  *
- * Verifies that loss of the origin Web Lock is a terminal SQLite-owner
- * transition rather than a recoverable coordination event.
+ * Verifies that disposal is the one ordered transition between the origin Web
+ * Lock and the SQLite resources it admits.
  *
  * Key behaviors:
- * - owner loss synchronously closes SQLite and pauses the SAH-pool
- * - operations fail with the stable owner-lost error after loss
- * - disposal releases the lease once without reviving the owner
+ * - disposal closes SQLite and pauses the SAH-pool before releasing the lease
+ * - a successor cannot open physical storage until that cleanup has landed
+ * - disposal is idempotent and never revives the owner
  */
 import { expect, test } from 'bun:test';
 
@@ -39,74 +39,62 @@ function setup({ activate = true }: { activate?: boolean } = {}) {
 	return {
 		events,
 		lifetime,
-		enterReplacementOwner() {
+		enterSuccessorOwner() {
 			if (isDatabaseOpen || !isVfsPaused) {
 				throw new Error('Previous physical owner is still active');
 			}
-			events.push('replacement-entered');
+			events.push('successor-entered');
 		},
 	};
 }
 
-test('owner loss closes SQLite and pauses the VFS before returning', () => {
+test('disposal closes SQLite and pauses the VFS before releasing the lease', async () => {
 	const { events, lifetime } = setup();
 
-	lifetime.ownerLost();
+	await lifetime.dispose();
 
-	expect(events).toEqual(['database-closed', 'vfs-paused']);
+	expect(events).toEqual(['database-closed', 'vfs-paused', 'lease-released']);
 	expect(() => lifetime.requireActive()).toThrow(
-		'Browser replica storage moved to a newer owner',
+		'browser replica owner is disposed',
 	);
-	try {
-		lifetime.requireActive();
-	} catch (cause) {
-		expect(cause).toMatchObject({ name: 'EpicenterBrowserOwnerLostError' });
-	}
 });
 
-test('replacement physical storage stays blocked until loss cleanup pauses the VFS', () => {
-	const { enterReplacementOwner, events, lifetime } = setup();
+test('a successor cannot open physical storage until cleanup pauses the VFS', async () => {
+	const { enterSuccessorOwner, events, lifetime } = setup();
 
-	expect(enterReplacementOwner).toThrow(
+	expect(enterSuccessorOwner).toThrow(
 		'Previous physical owner is still active',
 	);
-	lifetime.ownerLost();
-	enterReplacementOwner();
+	await lifetime.dispose();
+	enterSuccessorOwner();
 
 	expect(events).toEqual([
 		'database-closed',
 		'vfs-paused',
-		'replacement-entered',
+		'lease-released',
+		'successor-entered',
 	]);
-	expect(() => lifetime.requireActive()).toThrow(
-		'Browser replica storage moved to a newer owner',
-	);
 });
 
-test('disposal releases a lost lease once and preserves terminal loss', async () => {
+test('disposal releases the lease once and stays terminal', async () => {
 	const { events, lifetime } = setup();
-	lifetime.ownerLost();
 
 	await lifetime.dispose();
 	await lifetime.dispose();
 
 	expect(events).toEqual(['database-closed', 'vfs-paused', 'lease-released']);
-	expect(() => lifetime.requireActive()).toThrow(
-		'Browser replica storage moved to a newer owner',
+	expect(() => lifetime.activate()).toThrow(
+		"browser replica owner cannot open from state 'disposed'",
 	);
 });
 
-test('loss during opening prevents activation and retains the loss error', async () => {
+test('disposal during opening prevents later activation', async () => {
 	const { events, lifetime } = setup({ activate: false });
 
-	lifetime.ownerLost();
-	expect(() => lifetime.activate()).toThrow(
-		'Browser replica storage moved to a newer owner',
-	);
 	await lifetime.dispose();
 
-	expect(events.at(-1)).toBe('lease-released');
-	expect(() => lifetime.requireActive()).toThrow(
-		'Browser replica storage moved to a newer owner',
+	expect(() => lifetime.activate()).toThrow(
+		"browser replica owner cannot open from state 'disposed'",
 	);
+	expect(events.at(-1)).toBe('lease-released');
 });

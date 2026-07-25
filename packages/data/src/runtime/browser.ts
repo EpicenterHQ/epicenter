@@ -23,13 +23,11 @@ import {
 	type ValidatedLimits,
 } from '../protocol/v1/index.js';
 import type {
-	BrowserReplicaCandidateInbound,
-	BrowserReplicaCandidateOutbound,
-	BrowserReplicaCandidateStart,
-} from '../store/replica/browser-candidate-protocol.js';
-import type {
-	BrowserReplicaCandidateOperation,
-	BrowserReplicaCandidateResult,
+	BrowserReplicaOwnerInbound,
+	BrowserReplicaOwnerOutbound,
+	BrowserReplicaOwnerRuntimeOperation,
+	BrowserReplicaOwnerRuntimeResult,
+	BrowserReplicaOwnerStart,
 } from '../store/replica/browser-owner-protocol.js';
 import type {
 	BlobCaptureOutcome,
@@ -62,15 +60,15 @@ import type {
 const PAGE_SIZE = 128;
 
 type PendingRequest = {
-	resolve(value: BrowserReplicaCandidateResult): void;
+	resolve(value: BrowserReplicaOwnerRuntimeResult): void;
 	reject(cause: unknown): void;
 };
 
 export type BrowserRuntimeWorker = {
-	postMessage(message: BrowserReplicaCandidateInbound): void;
+	postMessage(message: BrowserReplicaOwnerInbound): void;
 	addEventListener(
 		type: 'message',
-		listener: (event: { data: BrowserReplicaCandidateOutbound }) => void,
+		listener: (event: { data: BrowserReplicaOwnerOutbound }) => void,
 	): void;
 	addEventListener(
 		type: 'error',
@@ -92,7 +90,6 @@ export type OpenBrowserEpicenterOptions = {
 	limits?: ValidatedLimits;
 	replicaId?: string;
 	authorityLifetime?: string;
-	coordinationId?: string;
 	storage?: {
 		databaseFilename: string;
 		poolDirectory: string;
@@ -161,11 +158,16 @@ function randomKey(): string {
 }
 
 /**
- * Open the W4 page runtime over this origin's elected dedicated-worker owner.
+ * Open the W4 page runtime over this origin's one dedicated-worker owner.
  *
  * The page owns typed projections, subscriptions, and live Y.Docs. The worker
- * elected under the origin Web Lock owns SQLite, OPFS blobs, and the sole
- * automatic publication supervisor.
+ * that holds the origin's exclusive Web Lock owns SQLite, OPFS blobs, and the
+ * sole automatic publication supervisor.
+ *
+ * An origin admits one live owner (ADR-0165). If another page already holds
+ * the lock, opening rejects immediately with a named
+ * `BrowserReplicaAlreadyOpen` error: there is no queueing, focus retry, or
+ * follower mode, and presenting that refusal is the application's job.
  */
 export async function openBrowserEpicenter({
 	owner,
@@ -173,7 +175,6 @@ export async function openBrowserEpicenter({
 	limits = SCALAR_SYNC_V1_LIMITS,
 	replicaId = createReplicaId(),
 	authorityLifetime,
-	coordinationId,
 	storage,
 	createWorker = defaultWorker,
 	log = createLogger('data/runtime/browser'),
@@ -223,7 +224,7 @@ export async function openBrowserEpicenter({
 	}
 
 	function sendRequest<TResult>(
-		operation: BrowserReplicaCandidateOperation,
+		operation: BrowserReplicaOwnerRuntimeOperation,
 	): Promise<TResult> {
 		const id = nextRequestId++;
 		const result = new Promise<TResult>((resolve, reject) => {
@@ -253,7 +254,7 @@ export async function openBrowserEpicenter({
 	}
 
 	function request<TResult>(
-		operation: BrowserReplicaCandidateOperation,
+		operation: BrowserReplicaOwnerRuntimeOperation,
 	): Promise<TResult> {
 		requireOpen();
 		return sendRequest(operation);
@@ -414,12 +415,8 @@ export async function openBrowserEpicenter({
 
 	worker.addEventListener('message', ({ data: message }) => {
 		switch (message.type) {
-			case 'status':
-				if (
-					!isReady &&
-					message.role !== 'waiting' &&
-					message.ownerSession !== null
-				) {
+			case 'ready':
+				if (!isReady) {
 					isReady = true;
 					readyResolve?.();
 				}
@@ -434,6 +431,9 @@ export async function openBrowserEpicenter({
 				return;
 			}
 			case 'invalidation':
+				// An authority replacement arrives as a full invalidation; the page's
+				// live documents belong to the superseded lifetime.
+				if (message.all) documents.revokeAll();
 				notify(message.addresses, message.all);
 				return;
 			case 'runtime-sync-status':
@@ -441,9 +441,6 @@ export async function openBrowserEpicenter({
 				for (const listener of syncListeners) {
 					listener(structuredClone(message.status));
 				}
-				return;
-			case 'runtime-authority-replacement':
-				documents.revokeAll();
 				return;
 			case 'authority-request':
 				{
@@ -470,7 +467,7 @@ export async function openBrowserEpicenter({
 		failWorker(new Error(message || 'Browser Epicenter worker failed'));
 	});
 
-	const start: BrowserReplicaCandidateStart = {
+	const start: BrowserReplicaOwnerStart = {
 		type: 'start',
 		limits,
 		owner,
@@ -479,7 +476,6 @@ export async function openBrowserEpicenter({
 			...(authorityLifetime === undefined ? {} : { authorityLifetime }),
 		},
 		hasCarrier: carrier !== null,
-		coordinationId: coordinationId ?? `epicenter-data-replica-owner-v3-${slot}`,
 		storage: storage ?? defaultStorage(slot),
 	};
 	worker.postMessage(start);
@@ -980,10 +976,10 @@ export async function retireUnclaimedBrowserReplica({
 }
 
 function defaultWorker(): BrowserRuntimeWorker {
-	return new Worker(
-		new URL('../browser-replica-candidate-worker.ts', import.meta.url),
-		{ type: 'module', name: 'epicenter-data-runtime' },
-	);
+	return new Worker(new URL('../browser-replica-worker.ts', import.meta.url), {
+		type: 'module',
+		name: 'epicenter-data-runtime',
+	});
 }
 
 export type {

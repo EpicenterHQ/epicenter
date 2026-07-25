@@ -40,16 +40,7 @@ export type BrowserRuntimeControlOperation =
 export type BrowserRuntimeControlResult = undefined | SyncStatus;
 
 export type BrowserRuntimeEvent =
-	| {
-			type: 'runtime-sync-status';
-			ownerSession: string;
-			status: SyncStatus;
-	  }
-	| {
-			type: 'runtime-authority-replacement';
-			ownerSession: string;
-			token: string;
-	  }
+	| { type: 'runtime-sync-status'; status: SyncStatus }
 	| {
 			type: 'authority-request';
 			id: number;
