@@ -19,10 +19,11 @@ type LockManagerPort = {
  */
 export class BrowserReplicaAlreadyOpenError extends Error {
 	override readonly name = 'BrowserReplicaAlreadyOpen';
+	/** The origin-scoped lock that is already held. Diagnostic, not for display. */
+	readonly lockName: string;
 	constructor(lockName: string) {
-		super(
-			`This Epicenter replica is already open in another tab or window (${lockName}). Close it, then reload.`,
-		);
+		super('This data is already open in another tab or window.');
+		this.lockName = lockName;
 	}
 }
 

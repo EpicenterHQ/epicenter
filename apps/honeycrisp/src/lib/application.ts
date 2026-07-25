@@ -77,9 +77,12 @@ export async function openHoneycrispApplication(
 				return activeRuntime.sync.subscribe(listener);
 			},
 			/**
-			 * Open one note's runtime-owned document. The runtime owns hydration,
-			 * durability, realtime synchronization, reconnection, and revocation;
-			 * the caller owns only this handle's disposal.
+			 * Open one note's runtime-owned document.
+			 *
+			 * The runtime owns hydration, durability, automatic publication, and
+			 * revocation. Opening means local readiness, not remote freshness
+			 * (ADR-0171): the caller owns this handle's disposal and decides when
+			 * to `pull()` newer accepted state.
 			 */
 			async openNoteDocument(noteId: NoteId): Promise<RowDocument> {
 				const { data: document, error } = await data.notes

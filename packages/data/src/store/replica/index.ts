@@ -35,3 +35,4 @@ export {
 	REPLICA_STORE_INDEXES,
 	REPLICA_STORE_TABLES,
 } from './schema.js';
+export { BrowserReplicaAlreadyOpenError } from './storage-lease.js';

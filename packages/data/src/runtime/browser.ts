@@ -29,11 +29,12 @@ import type {
 	BrowserReplicaOwnerRuntimeResult,
 	BrowserReplicaOwnerStart,
 } from '../store/replica/browser-owner-protocol.js';
-import type {
-	BlobCaptureOutcome,
-	ReplicaOwner,
-	VisibleRecordState,
-	VisibleRecordsPage,
+import {
+	type BlobCaptureOutcome,
+	BrowserReplicaAlreadyOpenError,
+	type ReplicaOwner,
+	type VisibleRecordState,
+	type VisibleRecordsPage,
 } from '../store/replica/index.js';
 import type {
 	BrowserAuthorityRequest,
@@ -76,6 +77,8 @@ export type BrowserRuntimeWorker = {
 	): void;
 	terminate(): void;
 };
+
+export { BrowserReplicaAlreadyOpenError };
 
 export type OpenBrowserEpicenterOptions = {
 	/**
