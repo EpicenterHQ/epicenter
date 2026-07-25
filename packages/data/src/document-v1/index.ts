@@ -63,7 +63,6 @@ export type DocumentAcceptance =
 	  };
 
 const acceptanceEncoder = new TextEncoder();
-const acceptanceDecoder = new TextDecoder('utf-8', { fatal: true });
 
 function hasExactKeys(
 	value: Record<string, unknown>,
@@ -431,28 +430,6 @@ export function encodeDocumentAcceptance(
 	acceptance: DocumentAcceptance,
 ): Uint8Array<ArrayBuffer> {
 	return acceptanceEncoder.encode(JSON.stringify(acceptance));
-}
-
-/** Decode and admit one bounded WebSocket acceptance payload. */
-export function decodeDocumentAcceptance(
-	encoded: Uint8Array,
-	limits: ValidatedLimits,
-): DocumentAcceptance | undefined {
-	try {
-		if (
-			!(encoded instanceof Uint8Array) ||
-			encoded.byteLength === 0 ||
-			encoded.byteLength > DOCUMENT_PAYLOAD_BYTES
-		) {
-			return undefined;
-		}
-		return parseDocumentAcceptance(
-			JSON.parse(acceptanceDecoder.decode(encoded)),
-			limits,
-		);
-	} catch {
-		return undefined;
-	}
 }
 
 /** SHA-256 integrity identity for one frozen publication image. */

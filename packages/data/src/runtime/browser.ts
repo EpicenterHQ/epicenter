@@ -377,7 +377,12 @@ export async function openBrowserEpicenter({
 					const before = await request<{ authorityLifetime: string | null }>({
 						kind: 'sync',
 					});
-					if (before.authorityLifetime === null) return { kind: 'none' };
+					// Facts have not bound a lifetime yet, so there is nothing to pull
+					// against. Nudge so the bootstrap that unblocks it runs now.
+					if (before.authorityLifetime === null) {
+						nudgeOwner();
+						return { kind: 'none' };
+					}
 					const pulled = await carrier.pullDocument(address, {
 						authorityLifetime: before.authorityLifetime,
 						knownDocumentVersion,

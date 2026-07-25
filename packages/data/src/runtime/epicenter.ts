@@ -239,7 +239,12 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 			? undefined
 			: async (address, { knownDocumentVersion }) => {
 					const authorityLifetime = store.sync().authorityLifetime;
-					if (authorityLifetime === null) return { kind: 'none' };
+					// Facts have not bound a lifetime yet, so there is nothing to pull
+					// against. Nudge so the bootstrap that unblocks it runs now.
+					if (authorityLifetime === null) {
+						if (!disposed) supervisor.nudge();
+						return { kind: 'none' };
+					}
 					const pulled = await carrier.pullDocument(address, {
 						authorityLifetime,
 						knownDocumentVersion,

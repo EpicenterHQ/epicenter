@@ -1,5 +1,5 @@
 import * as Y from '@y/y';
-import { type Err, Ok, type Result } from 'wellcrafted/result';
+import { type Err, Ok, type Result, trySync } from 'wellcrafted/result';
 
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { BrowserReplicaOwnerRuntimeOperation } from '../store/replica/browser-owner-protocol.js';
@@ -183,9 +183,16 @@ export function createBrowserRowDocumentRegistry({
 		if (!isUsable(entry, openedGeneration)) {
 			return RuntimeError.RevokedDocument({ address: entry.addressKey });
 		}
-		Y.applyUpdateV2(entry.document, pulled.update, acceptedOrigin);
+		// The owner has already committed these bytes, so the version advances
+		// either way: a listener that throws while the update goes live must not
+		// make the next pull re-download and re-throw on the same state forever.
 		entry.knownDocumentVersion = pulled.documentVersion;
-		return Ok(undefined);
+		const { error } = trySync({
+			try: () => Y.applyUpdateV2(entry.document, pulled.update, acceptedOrigin),
+			catch: (cause) =>
+				RuntimeError.DocumentPullFailed({ address: entry.addressKey, cause }),
+		});
+		return error === null ? Ok(undefined) : { data: null, error };
 	}
 
 	function isUsable(

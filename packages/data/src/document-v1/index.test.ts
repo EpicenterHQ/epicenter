@@ -20,7 +20,6 @@ import {
 	DOCUMENT_PUBLICATION_VERSION,
 	type DocumentAcceptance,
 	type DocumentPublicationRequest,
-	decodeDocumentAcceptance,
 	documentPayloadDigest,
 	encodeDocumentAcceptance,
 	parseDocumentAcceptance,
@@ -120,7 +119,6 @@ test('one acceptance encoding round trips every HTTP and WebSocket result', () =
 
 	for (const acceptance of acceptances) {
 		const encoded = encodeDocumentAcceptance(acceptance);
-		expect(decodeDocumentAcceptance(encoded, limits)).toEqual(acceptance);
 		expect(
 			parseDocumentAcceptance(
 				JSON.parse(new TextDecoder().decode(encoded)),
@@ -180,9 +178,6 @@ test('acceptance admission refuses wrong proofs, bounds, and hostile shapes', ()
 			}),
 			limits,
 		),
-	).toBeUndefined();
-	expect(
-		decodeDocumentAcceptance(new TextEncoder().encode('{'), limits),
 	).toBeUndefined();
 });
 
