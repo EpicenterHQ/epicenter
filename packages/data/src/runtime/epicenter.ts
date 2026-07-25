@@ -18,11 +18,6 @@ import {
 import type { JsonObject, RecordAddress } from '../protocol/v1/index.js';
 import type { ReplicaBlobStore, ReplicaStore } from '../store/replica/index.js';
 import {
-	connectDocumentRealtime,
-	type DocumentRealtimeChannel,
-	type DocumentRealtimeSchedule,
-} from './document-realtime.js';
-import {
 	type BlobAlreadyCapturedError,
 	type BlobSourceReadError,
 	type RecordNotLiveError,
@@ -33,10 +28,15 @@ import {
 	type PublicationStatus,
 	publicationStatus,
 } from './publication-status.js';
-import { createRowDocumentRegistry, type RowDocument } from './row-document.js';
+import {
+	createRowDocumentRegistry,
+	type DocumentPuller,
+	type RowDocument,
+} from './row-document.js';
 import {
 	type AuthorityCarrier,
 	createRuntimeSupervisor,
+	type DocumentPullCarrier,
 	type RuntimeBackoff,
 	type SyncStatus,
 } from './supervisor.js';
@@ -172,11 +172,9 @@ export type CreateEpicenterRuntimeOptions<TBlobSource, TBlobRead> = {
 	 * ADR-0178 pairing rule (an unclaimed replica never receives a carrier);
 	 * this core factory composes whatever the opener resolved.
 	 */
-	carrier?: AuthorityCarrier<TBlobRead> | null;
+	carrier?: (AuthorityCarrier<TBlobRead> & DocumentPullCarrier) | null;
 	intervalMs?: number;
 	backoff?: RuntimeBackoff;
-	/** Test seam for realtime reconnect timing. */
-	realtimeSchedule?: DocumentRealtimeSchedule;
 	disposeOwned?: () => void | Promise<void>;
 };
 
@@ -186,7 +184,6 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 	carrier = null,
 	intervalMs,
 	backoff,
-	realtimeSchedule,
 	disposeOwned,
 }: CreateEpicenterRuntimeOptions<TBlobSource, TBlobRead>) {
 	let disposed = false;
@@ -227,39 +224,51 @@ export function createEpicenterRuntime<TBlobSource, TBlobRead>({
 		}
 	}
 
-	const realtimeOpener = carrier?.documentRealtime;
+	/**
+	 * Bind one pull to the authority lifetime it was issued against.
+	 *
+	 * The lifetime is read at send time and rechecked against the answer, so a
+	 * replacement that lands mid-flight can never install the previous
+	 * lifetime's bytes. A refusal is not an error the application must handle:
+	 * the scalar planes own record liveness and authority replacement, so the
+	 * runtime nudges the supervisor and reports that there was nothing to
+	 * install.
+	 */
+	const pullFrom: DocumentPuller | undefined =
+		carrier === null
+			? undefined
+			: async (address, { knownDocumentVersion }) => {
+					const authorityLifetime = store.sync().authorityLifetime;
+					if (authorityLifetime === null) return { kind: 'none' };
+					const pulled = await carrier.pullDocument(address, {
+						authorityLifetime,
+						knownDocumentVersion,
+					});
+					if (
+						pulled.activeAuthorityLifetime !== store.sync().authorityLifetime
+					) {
+						if (!disposed) supervisor.nudge();
+						return { kind: 'none' };
+					}
+					switch (pulled.kind) {
+						case 'state':
+						case 'unchanged':
+							return pulled;
+						case 'absent':
+							return { kind: 'none' };
+						case 'record-not-live':
+						case 'lifetime-mismatch':
+							if (!disposed) supervisor.nudge();
+							return { kind: 'none' };
+					}
+				};
 	const documents = createRowDocumentRegistry({
 		store,
 		onLocalUpdate(address) {
 			notify([address]);
 			supervisor.nudge();
 		},
-		...(realtimeOpener === undefined
-			? {}
-			: {
-					realtime: {
-						attach(address, target) {
-							const channel: DocumentRealtimeChannel = connectDocumentRealtime({
-								address,
-								target,
-								opener: realtimeOpener,
-								async authorityLifetime() {
-									return store.sync().authorityLifetime;
-								},
-								onRecordNotLive() {
-									if (!disposed) supervisor.nudge();
-								},
-								onLifetimeMismatch() {
-									if (!disposed) supervisor.nudge();
-								},
-								...(realtimeSchedule === undefined
-									? {}
-									: { schedule: realtimeSchedule }),
-							});
-							return () => channel.dispose();
-						},
-					},
-				}),
+		...(pullFrom === undefined ? {} : { pullFrom }),
 	});
 	const supervisor = createRuntimeSupervisor({
 		store,

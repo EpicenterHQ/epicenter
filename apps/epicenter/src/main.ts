@@ -17,16 +17,20 @@ import {
 	createOpenAiAgentEngine,
 } from '@epicenter/client';
 import {
-	DOCUMENT_PUBLICATION_VERSION,
+	DOCUMENT_DIGEST_HEADER,
+	DOCUMENT_LIFETIME_HEADER,
+	DOCUMENT_PROTOCOL_HEADER,
 	type DocumentAcceptance,
+	type DocumentPull,
+	documentVersionTag,
 	readDocumentAcceptance,
+	readDocumentPull,
 } from '@epicenter/data/document-v1';
 import {
 	parseFactsResponse,
 	parseSubmissionResponse,
 	SCALAR_SYNC_V1_LIMITS,
 } from '@epicenter/data/protocol/v1';
-import type { DocumentRealtimeSocket } from '@epicenter/data/runtime';
 import {
 	type OpenBunEpicenterOptions,
 	openBunEpicenter,
@@ -247,32 +251,35 @@ function createDesktopCarrier(
 					method: 'POST',
 					headers: {
 						'content-type': 'application/octet-stream',
-						'x-epicenter-authority-lifetime': publication.authorityLifetime,
-						'x-epicenter-document-protocol': publication.protocolVersion,
-						'x-epicenter-document-digest': publication.digest,
+						[DOCUMENT_LIFETIME_HEADER]: publication.authorityLifetime,
+						[DOCUMENT_PROTOCOL_HEADER]: publication.protocolVersion,
+						[DOCUMENT_DIGEST_HEADER]: publication.digest,
 					},
 					body: publication.payload.slice().buffer as ArrayBuffer,
 				},
 			);
 			return await readDocumentAcceptance(response, SCALAR_SYNC_V1_LIMITS);
 		},
+		async pullDocument(address, request): Promise<DocumentPull> {
+			const response = await authorityFetch(
+				syncUrl(auth, `${recordPath(address)}/document`),
+				{
+					headers: {
+						[DOCUMENT_LIFETIME_HEADER]: request.authorityLifetime,
+						...(request.knownDocumentVersion === null
+							? {}
+							: {
+									'if-none-match': documentVersionTag(
+										request.knownDocumentVersion,
+									),
+								}),
+					},
+				},
+			);
+			return await readDocumentPull(response, SCALAR_SYNC_V1_LIMITS);
+		},
 		async publishBlob() {
 			throw new Error('Home captures no record blobs');
-		},
-		documentRealtime: {
-			async open(address, authorityLifetime) {
-				const authorization = await auth.authorize();
-				if (authorization.status !== 'authorized') {
-					throw new Error('Epicenter document authorization unavailable');
-				}
-				const url = syncUrl(auth, `${recordPath(address)}/document`);
-				url.searchParams.set('authorityLifetime', authorityLifetime);
-				url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-				return new WebSocket(url, [
-					DOCUMENT_PUBLICATION_VERSION,
-					`bearer.${authorization.accessToken}`,
-				]) as unknown as DocumentRealtimeSocket;
-			},
 		},
 	};
 }

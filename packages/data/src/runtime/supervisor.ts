@@ -1,5 +1,5 @@
 import type { BlobAcceptance } from '../blob-v1/index.js';
-import type { DocumentAcceptance } from '../document-v1/index.js';
+import type { DocumentAcceptance, DocumentPull } from '../document-v1/index.js';
 import type {
 	FactsRequest,
 	FactsResponse,
@@ -11,7 +11,6 @@ import {
 	type ReplicaBlobStore,
 	type ReplicaStore,
 } from '../store/replica/index.js';
-import type { DocumentRealtimeOpener } from './document-realtime.js';
 
 const DEFAULT_INTERVAL_MS = 30_000;
 const DEFAULT_BACKOFF_MS = 500;
@@ -37,12 +36,25 @@ export type AuthorityCarrier<TBlobBytes = unknown> = {
 		>['publication']['request'],
 		bytes: TBlobBytes,
 	): Promise<BlobAcceptance>;
-	/**
-	 * Optional realtime document transport. A carrier without it synchronizes
-	 * documents through publication and facts only; a carrier with it lets the
-	 * runtime keep every open record document converging live.
-	 */
-	documentRealtime?: DocumentRealtimeOpener;
+};
+
+/**
+ * The authority's inbound half, which is not an obligation (ADR-0171).
+ *
+ * The supervisor drains outbound work automatically and never calls this.
+ * Pull is an application-timed read on an open handle, so only whoever owns
+ * live documents needs it: the browser worker reconstructs an
+ * `AuthorityCarrier` for its supervisor and deliberately does not gain a pull
+ * path, while the page that holds the Y.Docs supplies both halves.
+ */
+export type DocumentPullCarrier = {
+	pullDocument(
+		address: RecordAddress,
+		request: {
+			authorityLifetime: string;
+			knownDocumentVersion: string | null;
+		},
+	): Promise<DocumentPull>;
 };
 
 export type RuntimeSchedule = (task: () => void, delayMs: number) => () => void;

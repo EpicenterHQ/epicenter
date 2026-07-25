@@ -12,10 +12,6 @@ export {
 	type ValuesDefinition,
 	type ValueTypeFor,
 } from '../lens/index.js';
-export type {
-	DocumentRealtimeOpener,
-	DocumentRealtimeSocket,
-} from './document-realtime.js';
 // Environment adapters stay on their own subpaths so no bundle pulls another
 // environment's modules: `@epicenter/data/runtime/browser` opens the elected
 // browser owner and `@epicenter/data/runtime/bun` opens the Bun replica.
@@ -34,6 +30,7 @@ export {
 export {
 	type BlobAlreadyCapturedError,
 	type BlobSourceReadError,
+	type DocumentPullError,
 	type RecordNotLiveError,
 	type RevokedDocumentError,
 	RuntimeError,
@@ -43,11 +40,12 @@ export {
 	type PublicationStatus,
 	publicationStatus,
 } from './publication-status.js';
-export type { RowDocument } from './row-document.js';
+export type { DocumentPuller, RowDocument } from './row-document.js';
 export {
 	type AuthorityCarrier,
 	type CreateRuntimeSupervisorOptions,
 	createRuntimeSupervisor,
+	type DocumentPullCarrier,
 	type RuntimeBackoff,
 	type RuntimeSchedule,
 	type RuntimeSupervisor,

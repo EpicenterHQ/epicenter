@@ -9,6 +9,8 @@
  * - whenDurable waits for the invocation-time owner acknowledgement
  * - Owner loss rejects the tail instead of replaying the mutation
  * - Unset preserves handles while tombstone and disposal revoke them
+ * - Pull installs durably before live, is conditional, and is fenced by
+ *   disposal, revocation, and the generation it opened under
  */
 import { expect, test } from 'bun:test';
 import * as Y from '@y/y';
@@ -16,6 +18,7 @@ import * as Y from '@y/y';
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { BrowserReplicaCandidateOperation } from '../store/replica/browser-owner-protocol.js';
 import { createBrowserRowDocumentRegistry } from './browser-row-document.js';
+import type { DocumentPuller } from './row-document.js';
 
 const address: RecordAddress = {
 	namespace: 'so.epicenter.runtime',
@@ -199,86 +202,190 @@ test('registry disposal waits for pending durability and revokes handles', async
 	expect(() => document.getText('body')).toThrow(/disposed/);
 });
 
-test('realtime target installs durably before live and publishes only durable local updates', async () => {
+function stateFor(value: string): Uint8Array {
+	const remote = new Y.Doc({ gc: true });
+	remote.get('body').insert(0, value);
+	const update = new Uint8Array(Y.encodeStateAsUpdateV2(remote));
+	remote.destroy();
+	return update;
+}
+
+function pullSetup({
+	answer,
+	onInstall,
+}: {
+	answer(request: {
+		knownDocumentVersion: string | null;
+	}): Awaited<ReturnType<DocumentPuller>> | Promise<never>;
+	onInstall?(): Promise<void>;
+}) {
 	const appends: Uint8Array[] = [];
 	const installs: Uint8Array[] = [];
-	const acknowledgements: ReturnType<typeof deferred<void>>[] = [];
-	let target:
-		| Parameters<
-				NonNullable<
-					Parameters<typeof createBrowserRowDocumentRegistry>[0]['realtime']
-				>['attach']
-		  >[1]
-		| undefined;
-	let detached = 0;
+	const pulls: (string | null)[] = [];
 	const registry = createBrowserRowDocumentRegistry({
 		async request<TResult>(operation: BrowserReplicaCandidateOperation) {
 			switch (operation.kind) {
 				case 'open-runtime-document':
 					return { kind: 'ready' } as TResult;
-				case 'append-local-document': {
+				case 'append-local-document':
 					appends.push(new Uint8Array(operation.update));
-					const acknowledgement = deferred<void>();
-					acknowledgements.push(acknowledgement);
-					await acknowledgement.promise;
 					return undefined as TResult;
-				}
 				case 'install-accepted-document':
+					await onInstall?.();
 					installs.push(new Uint8Array(operation.update));
 					return undefined as TResult;
 				default:
 					throw new Error(`Unexpected operation '${operation.kind}'`);
 			}
 		},
-		realtime: {
-			attach(attachedAddress, attachedTarget) {
-				expect(attachedAddress).toEqual(address);
-				target = attachedTarget;
-				return () => {
-					detached += 1;
-				};
-			},
+		async pullFrom(pulledAddress, request) {
+			expect(pulledAddress).toEqual(address);
+			pulls.push(request.knownDocumentVersion);
+			return await answer(request);
 		},
 	});
+	return { registry, appends, installs, pulls };
+}
 
+test('pull installs through the owner before going live and creates no local work', async () => {
+	const fixture = pullSetup({
+		answer: () => ({
+			kind: 'state',
+			documentVersion: 'v1',
+			update: stateFor('remote'),
+		}),
+	});
+	const document = await fixture.registry.open(address);
+	if (document === null) throw new Error('document did not open');
+
+	const { error } = await document.pull();
+	expect(error).toBeNull();
+	expect(fixture.installs).toHaveLength(1);
+	expect(document.getText('body').toString()).toBe('remote');
+	// The accepted origin keeps installed bytes out of the local persist path,
+	// so nothing became newly owed work.
+	expect(fixture.appends).toHaveLength(0);
+
+	await document[Symbol.asyncDispose]();
+	await fixture.registry.dispose();
+});
+
+test('a second pull carries the installed version and installs nothing when unchanged', async () => {
+	const fixture = pullSetup({
+		answer: ({ knownDocumentVersion }) =>
+			knownDocumentVersion === 'v1'
+				? { kind: 'unchanged', documentVersion: 'v1' }
+				: { kind: 'state', documentVersion: 'v1', update: stateFor('remote') },
+	});
+	const document = await fixture.registry.open(address);
+	if (document === null) throw new Error('document did not open');
+
+	expect((await document.pull()).error).toBeNull();
+	expect((await document.pull()).error).toBeNull();
+	expect(fixture.pulls).toEqual([null, 'v1']);
+	expect(fixture.installs).toHaveLength(1);
+
+	await document[Symbol.asyncDispose]();
+	await fixture.registry.dispose();
+});
+
+test('a failed pull leaves the document open and usable', async () => {
+	const fixture = pullSetup({
+		answer: () => Promise.reject(new Error('offline')),
+	});
+	const document = await fixture.registry.open(address);
+	if (document === null) throw new Error('document did not open');
+
+	const { error } = await document.pull();
+	expect(error).toMatchObject({ name: 'DocumentPullFailed' });
+	document.getText('body').insert(0, 'still editable');
+	expect(document.getText('body').toString()).toBe('still editable');
+
+	await document[Symbol.asyncDispose]();
+	await fixture.registry.dispose();
+});
+
+test('a pull answered after revocation cannot install', async () => {
+	let revoke: (() => void) | undefined;
+	const fixture = pullSetup({
+		answer: () => {
+			revoke?.();
+			return {
+				kind: 'state',
+				documentVersion: 'v1',
+				update: stateFor('too late'),
+			};
+		},
+	});
+	revoke = () => fixture.registry.revokeAll();
+	const document = await fixture.registry.open(address);
+	if (document === null) throw new Error('document did not open');
+
+	const { error } = await document.pull();
+	expect(error).toMatchObject({ name: 'RevokedDocument' });
+	expect(fixture.installs).toHaveLength(0);
+	await fixture.registry.dispose();
+});
+
+test('a pull whose durable install races revocation cannot go live', async () => {
+	let revoke: (() => void) | undefined;
+	const fixture = pullSetup({
+		answer: () => ({
+			kind: 'state',
+			documentVersion: 'v1',
+			update: stateFor('too late'),
+		}),
+		async onInstall() {
+			revoke?.();
+		},
+	});
+	revoke = () => fixture.registry.revokeAll();
+	const document = await fixture.registry.open(address);
+	if (document === null) throw new Error('document did not open');
+
+	const { error } = await document.pull();
+	expect(error).toMatchObject({ name: 'RevokedDocument' });
+	// The owner still committed the bytes; only the page mirror is fenced.
+	expect(fixture.installs).toHaveLength(1);
+	await fixture.registry.dispose();
+});
+
+test('a runtime with no authority declines to pull', async () => {
+	const registry = createBrowserRowDocumentRegistry({
+		async request<TResult>(operation: BrowserReplicaCandidateOperation) {
+			if (operation.kind === 'open-runtime-document') {
+				return { kind: 'ready' } as TResult;
+			}
+			throw new Error(`Unexpected operation '${operation.kind}'`);
+		},
+	});
 	const document = await registry.open(address);
 	if (document === null) throw new Error('document did not open');
-	if (target === undefined) throw new Error('realtime target did not attach');
 
-	// A local edit publishes only after the owner acknowledges durability.
-	const published: Uint8Array[] = [];
-	const stopObserving = target.observeLocal((update) => published.push(update));
-	document.getText('body').insert(0, 'local');
-	await Promise.resolve();
-	expect(appends).toHaveLength(1);
-	expect(published).toHaveLength(0);
-	acknowledgements[0]?.resolve();
-	await document.whenDurable();
-	await Promise.resolve();
-	expect(published).toHaveLength(1);
-
-	// A remote accepted update installs through the owner before going live,
-	// and neither persists as local work nor publishes back out.
-	const remote = new Y.Doc({ gc: true });
-	remote.get('body').insert(0, 'remote-');
-	const update = new Uint8Array(Y.encodeStateAsUpdateV2(remote));
-	remote.destroy();
-	await target.installAccepted(update);
-	expect(installs).toHaveLength(1);
-	// Concurrent same-position inserts merge in client-id order; the semantic
-	// claim is that both sides survive the merge exactly once.
-	const merged = document.getText('body').toString();
-	expect(merged).toHaveLength('remote-local'.length);
-	expect(merged).toContain('remote-');
-	expect(merged).toContain('local');
-	expect(appends).toHaveLength(1);
-	await Promise.resolve();
-	expect(published).toHaveLength(1);
-
-	stopObserving();
+	expect((await document.pull()).error).toMatchObject({
+		name: 'DocumentPullUnavailable',
+	});
 	await document[Symbol.asyncDispose]();
-	expect(detached).toBe(1);
 	await registry.dispose();
+});
+
+test('pull after handle disposal cannot mutate the handle', async () => {
+	const fixture = pullSetup({
+		answer: () => ({
+			kind: 'state',
+			documentVersion: 'v1',
+			update: stateFor('remote'),
+		}),
+	});
+	const document = await fixture.registry.open(address);
+	if (document === null) throw new Error('document did not open');
+	await document[Symbol.asyncDispose]();
+
+	expect((await document.pull()).error).toMatchObject({
+		name: 'RevokedDocument',
+	});
+	expect(fixture.installs).toHaveLength(0);
+	await fixture.registry.dispose();
 });
 
 test('authority replacement fences an in-flight old-lineage hydration', async () => {

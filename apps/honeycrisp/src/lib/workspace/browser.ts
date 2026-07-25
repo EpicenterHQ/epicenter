@@ -1,8 +1,13 @@
 import type { SyncAuthClient } from '@epicenter/auth';
 import {
-	DOCUMENT_PUBLICATION_VERSION,
+	DOCUMENT_DIGEST_HEADER,
+	DOCUMENT_LIFETIME_HEADER,
+	DOCUMENT_PROTOCOL_HEADER,
 	type DocumentAcceptance,
+	type DocumentPull,
+	documentVersionTag,
 	readDocumentAcceptance,
+	readDocumentPull,
 } from '@epicenter/data/document-v1';
 import {
 	parseFactsResponse,
@@ -11,15 +16,12 @@ import {
 } from '@epicenter/data/protocol/v1';
 import type {
 	AuthorityCarrier,
-	DocumentRealtimeSocket,
+	DocumentPullCarrier,
 	EpicenterRuntime,
 } from '@epicenter/data/runtime';
 import { openBrowserEpicenter } from '@epicenter/data/runtime/browser';
 
-type HoneycrispAuth = Pick<
-	SyncAuthClient,
-	'state' | 'deployment' | 'fetch' | 'openWebSocket'
->;
+type HoneycrispAuth = Pick<SyncAuthClient, 'state' | 'deployment' | 'fetch'>;
 
 function deploymentUrl(baseUrl: string): URL {
 	const url = new URL(baseUrl);
@@ -54,9 +56,9 @@ export function honeycrispReplicaOwner(
 /**
  * The authority carrier over the signed-in deployment. Honeycrisp notes own
  * record documents, so the document planes are real: complete-state
- * publication settles obligations over HTTP and the realtime opener keeps
- * open note documents converging live. The Lens captures no record blobs, so
- * that plane honestly refuses.
+ * publication settles obligations over HTTP automatically, and the
+ * application decides when an open note pulls accepted authority state. The
+ * Lens captures no record blobs, so that plane honestly refuses.
  *
  * The carrier is bound to the identity it was opened for: if the signed-in
  * account changes while the old runtime is still draining or disposing, every
@@ -65,7 +67,7 @@ export function honeycrispReplicaOwner(
 function createCarrier(
 	auth: HoneycrispAuth,
 	opened: { deploymentId: string; principalId: string },
-): AuthorityCarrier<Blob> {
+): AuthorityCarrier<Blob> & DocumentPullCarrier {
 	function requireOpenedOwner(): void {
 		const current = honeycrispReplicaOwner(auth);
 		if (
@@ -120,29 +122,36 @@ function createCarrier(
 					method: 'POST',
 					headers: {
 						'content-type': 'application/octet-stream',
-						'x-epicenter-authority-lifetime': publication.authorityLifetime,
-						'x-epicenter-document-protocol': publication.protocolVersion,
-						'x-epicenter-document-digest': publication.digest,
+						[DOCUMENT_LIFETIME_HEADER]: publication.authorityLifetime,
+						[DOCUMENT_PROTOCOL_HEADER]: publication.protocolVersion,
+						[DOCUMENT_DIGEST_HEADER]: publication.digest,
 					},
 					body: publication.payload.slice().buffer as ArrayBuffer,
 				},
 			);
 			return await readDocumentAcceptance(response, SCALAR_SYNC_V1_LIMITS);
 		},
+		async pullDocument(address, request): Promise<DocumentPull> {
+			requireOpenedOwner();
+			const response = await auth.fetch(
+				syncUrl(auth, `${recordPath(address)}/document`),
+				{
+					headers: {
+						[DOCUMENT_LIFETIME_HEADER]: request.authorityLifetime,
+						...(request.knownDocumentVersion === null
+							? {}
+							: {
+									'if-none-match': documentVersionTag(
+										request.knownDocumentVersion,
+									),
+								}),
+					},
+				},
+			);
+			return await readDocumentPull(response, SCALAR_SYNC_V1_LIMITS);
+		},
 		async publishBlob() {
 			throw new Error('Honeycrisp captures no record blobs');
-		},
-		documentRealtime: {
-			async open(address, authorityLifetime) {
-				requireOpenedOwner();
-				const url = syncUrl(auth, `${recordPath(address)}/document`);
-				url.searchParams.set('authorityLifetime', authorityLifetime);
-				// The publication protocol version is the document subprotocol.
-				const socket = await auth.openWebSocket(url, [
-					DOCUMENT_PUBLICATION_VERSION,
-				]);
-				return socket as unknown as DocumentRealtimeSocket;
-			},
 		},
 	};
 }

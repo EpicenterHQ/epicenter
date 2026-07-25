@@ -1,9 +1,10 @@
 import * as Y from '@y/y';
 
+import { type Err, Ok, type Result, trySync } from 'wellcrafted/result';
+
 import type { RecordAddress } from '../protocol/v1/index.js';
 import type { ReplicaStore } from '../store/replica/index.js';
-import type { DocumentRealtimeTarget } from './document-realtime.js';
-import { RuntimeError } from './errors.js';
+import { type DocumentPullError, RuntimeError } from './errors.js';
 
 type UpdateListener = (update: Uint8Array, origin: unknown) => void;
 const hydrationOrigin = Symbol('epicenter-runtime-document-hydration');
@@ -16,8 +17,28 @@ type LiveDocumentEntry = {
 	isRevoked: boolean;
 	isDestroyed: boolean;
 	persist: UpdateListener;
-	detachRealtime: (() => void) | undefined;
+	/**
+	 * The authority version this entry last installed, or `null` before its
+	 * first successful pull. It is a live conditional-request hint, not durable
+	 * state: a fresh entry simply spends one full body.
+	 */
+	knownDocumentVersion: string | null;
 };
+
+/**
+ * Read the authority's accepted state for one address (ADR-0171).
+ *
+ * The runtime supplies it from the carrier it was opened with. A runtime
+ * without an authority supplies nothing, and `pull()` declines.
+ */
+export type DocumentPuller = (
+	address: RecordAddress,
+	request: { knownDocumentVersion: string | null },
+) => Promise<
+	| { kind: 'state'; documentVersion: string; update: Uint8Array }
+	| { kind: 'unchanged'; documentVersion: string }
+	| { kind: 'none' }
+>;
 
 /**
  * A revocable borrower of one runtime-shared document.
@@ -34,6 +55,17 @@ export type RowDocument = {
 	export(): Uint8Array;
 	whenDurable(): Promise<void>;
 	observe(listener: UpdateListener): () => void;
+	/**
+	 * Ask the authority for newer accepted state (ADR-0171).
+	 *
+	 * Opening means local readiness, not remote freshness, so an application
+	 * decides when to refresh: immediately after first render, on focus, on a
+	 * timer, or never. Overlapping and repeated pulls are safe, accepted bytes
+	 * install durably before they become live, and they create no outbound
+	 * publication obligation. Every failure leaves the document open and
+	 * usable.
+	 */
+	pull(): Promise<Result<void, DocumentPullError>>;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
@@ -48,17 +80,12 @@ function key(address: RecordAddress): string {
 export function createRowDocumentRegistry({
 	store,
 	onLocalUpdate,
-	realtime,
+	pullFrom,
 }: {
 	store: ReplicaStore;
 	onLocalUpdate(address: RecordAddress): void;
-	/**
-	 * Optional realtime overlay. Each live document entry attaches exactly one
-	 * channel for its lifetime; destroying the entry detaches it.
-	 */
-	realtime?: {
-		attach(address: RecordAddress, target: DocumentRealtimeTarget): () => void;
-	};
+	/** Absent on a runtime with no authority, which makes `pull()` decline. */
+	pullFrom?: DocumentPuller;
 }) {
 	const entries = new Map<string, LiveDocumentEntry>();
 	let disposed = false;
@@ -66,8 +93,6 @@ export function createRowDocumentRegistry({
 	function destroy(entry: LiveDocumentEntry): void {
 		if (entry.isDestroyed) return;
 		entry.isDestroyed = true;
-		entry.detachRealtime?.();
-		entry.detachRealtime = undefined;
 		entry.document.off('updateV2', entry.persist);
 		if (entries.get(entry.addressKey) === entry) {
 			entries.delete(entry.addressKey);
@@ -105,7 +130,7 @@ export function createRowDocumentRegistry({
 			references: 0,
 			isRevoked: false,
 			isDestroyed: false,
-			detachRealtime: undefined,
+			knownDocumentVersion: null,
 			persist(update: Uint8Array, origin: unknown): void {
 				if (origin === hydrationOrigin || origin === acceptedOrigin) return;
 				if (entry.isRevoked) {
@@ -117,32 +142,69 @@ export function createRowDocumentRegistry({
 		};
 		document.on('updateV2', entry.persist);
 		entries.set(addressKey, entry);
-		entry.detachRealtime = realtime?.attach(structuredClone(address), {
-			stateVector() {
-				return new Uint8Array(Y.encodeStateVector(entry.document));
-			},
-			encodeStateAsUpdate(stateVector?: Uint8Array) {
-				return new Uint8Array(
-					Y.encodeStateAsUpdateV2(entry.document, stateVector),
-				);
-			},
-			async installAccepted(update: Uint8Array) {
-				if (entry.isRevoked || entry.isDestroyed) {
-					throw RuntimeError.RevokedDocument({ address: addressKey }).error;
-				}
-				store.installAcceptedDocumentUpdate(address, new Uint8Array(update));
-				Y.applyUpdateV2(entry.document, update, acceptedOrigin);
-			},
-			observeLocal(listener: (update: Uint8Array) => void) {
-				const forward: UpdateListener = (update, origin) => {
-					if (origin === hydrationOrigin || origin === acceptedOrigin) return;
-					listener(new Uint8Array(update));
-				};
-				entry.document.on('updateV2', forward);
-				return () => entry.document.off('updateV2', forward);
-			},
-		});
 		return entry;
+	}
+
+	/**
+	 * Install one pulled authority state, or explain why it could not be.
+	 *
+	 * Every fence is rechecked after the request resolves rather than before it
+	 * is sent, because that is the only ordering a concurrent disposal,
+	 * revocation, or authority replacement cannot slip through. The install
+	 * itself is durable first and live second, and it uses the accepted origin
+	 * so it never re-enters the local persist path as new owed work.
+	 */
+	async function pull(
+		address: RecordAddress,
+		entry: LiveDocumentEntry,
+	): Promise<Result<void, DocumentPullError>> {
+		if (pullFrom === undefined) {
+			return RuntimeError.DocumentPullUnavailable({
+				address: entry.addressKey,
+			});
+		}
+		const answered = await tryPull(address, entry, pullFrom);
+		if (answered.error !== null) return answered as Err<DocumentPullError>;
+		const pulled = answered.data;
+		if (pulled.kind !== 'state') {
+			if (pulled.kind === 'unchanged') {
+				entry.knownDocumentVersion = pulled.documentVersion;
+			}
+			return Ok(undefined);
+		}
+		if (disposed || entry.isRevoked || entry.isDestroyed) {
+			return RuntimeError.RevokedDocument({ address: entry.addressKey });
+		}
+		const { error } = trySync({
+			try: () => {
+				store.installAcceptedDocumentUpdate(address, pulled.update);
+				Y.applyUpdateV2(entry.document, pulled.update, acceptedOrigin);
+			},
+			catch: (cause) =>
+				RuntimeError.DocumentPullFailed({ address: entry.addressKey, cause }),
+		});
+		if (error !== null) return { data: null, error };
+		entry.knownDocumentVersion = pulled.documentVersion;
+		return Ok(undefined);
+	}
+
+	async function tryPull(
+		address: RecordAddress,
+		entry: LiveDocumentEntry,
+		puller: DocumentPuller,
+	): Promise<Result<Awaited<ReturnType<DocumentPuller>>, DocumentPullError>> {
+		try {
+			return Ok(
+				await puller(address, {
+					knownDocumentVersion: entry.knownDocumentVersion,
+				}),
+			);
+		} catch (cause) {
+			return RuntimeError.DocumentPullFailed({
+				address: entry.addressKey,
+				cause,
+			});
+		}
 	}
 
 	function open(address: RecordAddress): RowDocument {
@@ -189,6 +251,12 @@ export function createRowDocumentRegistry({
 					listeners.delete(listener);
 					entry.document.off('updateV2', listener);
 				};
+			},
+			async pull(): Promise<Result<void, DocumentPullError>> {
+				if (handleDisposed || entry.isRevoked || entry.isDestroyed) {
+					return RuntimeError.RevokedDocument({ address: addressKey });
+				}
+				return await pull(address, entry);
 			},
 			async [Symbol.asyncDispose](): Promise<void> {
 				if (handleDisposed) return;

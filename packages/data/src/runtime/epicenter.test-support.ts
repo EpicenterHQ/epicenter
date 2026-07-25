@@ -1,4 +1,6 @@
+import * as Y from '@y/y';
 import type { Result } from 'wellcrafted/result';
+
 import type {
 	BlobFileStore,
 	OwnedBlobFile,
@@ -11,6 +13,8 @@ import {
 import {
 	DOCUMENT_PUBLICATION_VERSION,
 	type DocumentAcceptance,
+	type DocumentPull,
+	documentVersionOf,
 } from '../document-v1/index.js';
 import { sha256HexBytes } from '../protocol/v1/canonical.js';
 import {
@@ -27,7 +31,7 @@ import {
 	submit,
 } from '../protocol/v1/index.js';
 import { makeLimits } from '../protocol/v1/kernel.test-support.js';
-import type { AuthorityCarrier } from './supervisor.js';
+import type { AuthorityCarrier, DocumentPullCarrier } from './supervisor.js';
 
 export const TEST_LIMITS = makeLimits();
 
@@ -75,23 +79,88 @@ export class MemoryBlobFiles implements BlobFileStore<Uint8Array, Uint8Array> {
 	}
 }
 
-export function createTestCarrier(): AuthorityCarrier<Uint8Array> & {
-	install(
-		fact:
-			| {
-					address: RecordAddress;
-					state: 'live';
-					payload: Extract<Fact, { state: 'live' }>['payload'];
-			  }
-			| { address: RecordAddress; state: 'tombstone' | 'unset' },
-	): void;
-	reset(lifetime: string): void;
-} {
+export function createTestCarrier(): AuthorityCarrier<Uint8Array> &
+	DocumentPullCarrier & {
+		install(
+			fact:
+				| {
+						address: RecordAddress;
+						state: 'live';
+						payload: Extract<Fact, { state: 'live' }>['payload'];
+				  }
+				| { address: RecordAddress; state: 'tombstone' | 'unset' },
+		): void;
+		reset(lifetime: string): void;
+		/** Join state into the authority's document without a replica round trip. */
+		seedDocument(address: RecordAddress, update: Uint8Array): void;
+		pullCount: number;
+		bodiedPullCount: number;
+	} {
 	let state: AuthorityState = unwrap(
 		createAuthority('runtime-life', TEST_LIMITS),
 	);
+	// The authority's committed document per address, as joined complete state.
+	const documents = new Map<string, Uint8Array>();
+
+	function join(address: RecordAddress, update: Uint8Array): void {
+		const key = JSON.stringify([
+			address.namespace,
+			address.collection,
+			address.recordKey,
+		]);
+		const document = new Y.Doc({ gc: true });
+		try {
+			const existing = documents.get(key);
+			if (existing !== undefined) Y.applyUpdateV2(document, existing);
+			Y.applyUpdateV2(document, update);
+			documents.set(key, new Uint8Array(Y.encodeStateAsUpdateV2(document)));
+		} finally {
+			document.destroy();
+		}
+	}
+
 	return {
+		pullCount: 0,
+		bodiedPullCount: 0,
+		seedDocument(address, update) {
+			join(address, update);
+		},
+		async pullDocument(address, request): Promise<DocumentPull> {
+			this.pullCount += 1;
+			if (request.authorityLifetime !== state.lifetime) {
+				return {
+					kind: 'lifetime-mismatch',
+					activeAuthorityLifetime: state.lifetime,
+				};
+			}
+			const committed = documents.get(
+				JSON.stringify([
+					address.namespace,
+					address.collection,
+					address.recordKey,
+				]),
+			);
+			if (committed === undefined) {
+				return { kind: 'absent', activeAuthorityLifetime: state.lifetime };
+			}
+			const documentVersion = documentVersionOf(committed);
+			if (documentVersion === request.knownDocumentVersion) {
+				return {
+					kind: 'unchanged',
+					activeAuthorityLifetime: state.lifetime,
+					documentVersion,
+				};
+			}
+			this.bodiedPullCount += 1;
+			return {
+				kind: 'state',
+				activeAuthorityLifetime: state.lifetime,
+				documentVersion,
+				update: new Uint8Array(committed),
+			};
+		},
 		reset(lifetime) {
+			documents.clear();
 			state = unwrap(createAuthority(lifetime, TEST_LIMITS));
 		},
 		install(fact) {
@@ -145,6 +214,7 @@ export function createTestCarrier(): AuthorityCarrier<Uint8Array> & {
 			return result.response;
 		},
 		async publishDocument(address, publication): Promise<DocumentAcceptance> {
+			join(address, publication.payload);
 			return {
 				kind: 'accepted',
 				receipt: {

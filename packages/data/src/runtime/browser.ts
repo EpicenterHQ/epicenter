@@ -42,10 +42,6 @@ import type {
 	BrowserAuthorityResult,
 } from './browser-protocol.js';
 import { createBrowserRowDocumentRegistry } from './browser-row-document.js';
-import {
-	connectDocumentRealtime,
-	type DocumentRealtimeTarget,
-} from './document-realtime.js';
 import type {
 	BoundLens,
 	CaptureError,
@@ -56,7 +52,12 @@ import type {
 } from './epicenter.js';
 import { RuntimeError } from './errors.js';
 import type { BlockedWork, PublicationStatus } from './publication-status.js';
-import type { AuthorityCarrier, SyncStatus } from './supervisor.js';
+import type { DocumentPuller } from './row-document.js';
+import type {
+	AuthorityCarrier,
+	DocumentPullCarrier,
+	SyncStatus,
+} from './supervisor.js';
 
 const PAGE_SIZE = 128;
 
@@ -87,7 +88,7 @@ export type OpenBrowserEpicenterOptions = {
 	 * (ADR-0178).
 	 */
 	owner: ReplicaOwner | null;
-	carrier?: AuthorityCarrier<Blob> | null;
+	carrier?: (AuthorityCarrier<Blob> & DocumentPullCarrier) | null;
 	limits?: ValidatedLimits;
 	replicaId?: string;
 	authorityLifetime?: string;
@@ -357,56 +358,58 @@ export async function openBrowserEpicenter({
 		}
 	}
 
-	const realtimeOpener = carrier?.documentRealtime;
+	/**
+	 * Bind one pull to the authority lifetime the owner holds right now.
+	 *
+	 * The page reads the lifetime from the owner before sending and rechecks it
+	 * against the answer, so a replacement that lands mid-flight can never
+	 * install the previous lifetime's bytes. Liveness and replacement belong to
+	 * the scalar planes, so a refusal only nudges the owner's supervisor.
+	 */
+	const pullFrom: DocumentPuller | undefined =
+		carrier === undefined || carrier === null
+			? undefined
+			: async (address, { knownDocumentVersion }) => {
+					const before = await request<{ authorityLifetime: string | null }>({
+						kind: 'sync',
+					});
+					if (before.authorityLifetime === null) return { kind: 'none' };
+					const pulled = await carrier.pullDocument(address, {
+						authorityLifetime: before.authorityLifetime,
+						knownDocumentVersion,
+					});
+					const after = await request<{ authorityLifetime: string | null }>({
+						kind: 'sync',
+					});
+					if (pulled.activeAuthorityLifetime !== after.authorityLifetime) {
+						nudgeOwner();
+						return { kind: 'none' };
+					}
+					switch (pulled.kind) {
+						case 'state':
+						case 'unchanged':
+							return pulled;
+						case 'absent':
+							return { kind: 'none' };
+						case 'record-not-live':
+						case 'lifetime-mismatch':
+							nudgeOwner();
+							return { kind: 'none' };
+					}
+				};
+
+	function nudgeOwner(): void {
+		if (isDisposing || isDisposed) return;
+		void request<void>({ kind: 'runtime-nudge' }).catch((cause: unknown) => {
+			if (!isDisposing && !isDisposed) {
+				log.error(new Error('Document pull facts nudge failed', { cause }));
+			}
+		});
+	}
+
 	const documents = createBrowserRowDocumentRegistry({
 		request,
-		...(realtimeOpener === undefined
-			? {}
-			: {
-					realtime: {
-						attach(
-							address: RecordAddress,
-							target: DocumentRealtimeTarget,
-						): () => void {
-							const channel = connectDocumentRealtime({
-								address,
-								target,
-								opener: realtimeOpener,
-								async authorityLifetime() {
-									const sync = await request<{
-										authorityLifetime: string | null;
-									}>({ kind: 'sync' });
-									return sync.authorityLifetime;
-								},
-								onRecordNotLive() {
-									if (isDisposing || isDisposed) return;
-									void request<void>({ kind: 'runtime-nudge' }).catch(
-										(cause: unknown) => {
-											if (!isDisposing && !isDisposed) {
-												log.error(
-													new Error('Realtime facts nudge failed', { cause }),
-												);
-											}
-										},
-									);
-								},
-								onLifetimeMismatch() {
-									if (isDisposing || isDisposed) return;
-									void request<void>({ kind: 'runtime-nudge' }).catch(
-										(cause: unknown) => {
-											if (!isDisposing && !isDisposed) {
-												log.error(
-													new Error('Realtime facts nudge failed', { cause }),
-												);
-											}
-										},
-									);
-								},
-							});
-							return () => channel.dispose();
-						},
-					},
-				}),
+		...(pullFrom === undefined ? {} : { pullFrom }),
 	});
 
 	worker.addEventListener('message', ({ data: message }) => {

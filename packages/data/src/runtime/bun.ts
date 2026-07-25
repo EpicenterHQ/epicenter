@@ -19,7 +19,11 @@ import {
 	type ReplicaOwner,
 } from '../store/replica/index.js';
 import { createEpicenterRuntime } from './epicenter.js';
-import type { AuthorityCarrier, RuntimeBackoff } from './supervisor.js';
+import type {
+	AuthorityCarrier,
+	DocumentPullCarrier,
+	RuntimeBackoff,
+} from './supervisor.js';
 
 export type OpenBunEpicenterOptions =
 	| {
@@ -32,7 +36,7 @@ export type OpenBunEpicenterOptions =
 			 */
 			owner: ReplicaOwner | null;
 			limits?: ValidatedLimits;
-			carrier?: AuthorityCarrier<BunBlobRead> | null;
+			carrier?: (AuthorityCarrier<BunBlobRead> & DocumentPullCarrier) | null;
 			intervalMs?: number;
 			backoff?: RuntimeBackoff;
 	  }
@@ -41,7 +45,7 @@ export type OpenBunEpicenterOptions =
 			directory?: never;
 			owner: ReplicaOwner | null;
 			limits?: ValidatedLimits;
-			carrier?: AuthorityCarrier<BunBlobRead> | null;
+			carrier?: (AuthorityCarrier<BunBlobRead> & DocumentPullCarrier) | null;
 			intervalMs?: number;
 			backoff?: RuntimeBackoff;
 	  };

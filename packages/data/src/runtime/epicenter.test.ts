@@ -325,6 +325,152 @@ describe('record-handle runtime', () => {
 		}
 	});
 
+	test('pull installs accepted state durably and owes the authority nothing', async () => {
+		const fixture = setup();
+		const carrier = fixture.carrier;
+		if (carrier === null) throw new Error('fixture carrier is required');
+		try {
+			const row = await fixture.bound.notes.create({ title: 'pulled' });
+			const address = {
+				namespace: lens.namespace,
+				collection: 'notes',
+				recordKey: row.id,
+			};
+			carrier.seedDocument(address, documentUpdate('remote'));
+
+			const document = expectOk(
+				await fixture.bound.notes.record(row.id).document.open(),
+			);
+			expect(document.getText('content').toString()).toBe('');
+
+			expect((await document.pull()).error).toBeNull();
+			expect(document.getText('content').toString()).toBe('remote');
+			// Installed state is durable, so a reopen reproduces it.
+			await document[Symbol.asyncDispose]();
+			const reopened = expectOk(
+				await fixture.bound.notes.record(row.id).document.open(),
+			);
+			expect(reopened.getText('content').toString()).toBe('remote');
+			// Accepted inbound bytes are not local authorship: nothing is owed.
+			expect(fixture.store.inspectDocument(address)).toMatchObject({
+				owed: false,
+			});
+			await reopened[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('an unchanged pull transfers no document body', async () => {
+		const fixture = setup();
+		const carrier = fixture.carrier;
+		if (carrier === null) throw new Error('fixture carrier is required');
+		try {
+			const row = await fixture.bound.notes.create({ title: 'conditional' });
+			carrier.seedDocument(
+				{
+					namespace: lens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				},
+				documentUpdate('remote'),
+			);
+			const document = expectOk(
+				await fixture.bound.notes.record(row.id).document.open(),
+			);
+
+			expect((await document.pull()).error).toBeNull();
+			expect((await document.pull()).error).toBeNull();
+			expect((await document.pull()).error).toBeNull();
+			expect(carrier.pullCount).toBe(3);
+			expect(carrier.bodiedPullCount).toBe(1);
+
+			await document[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('overlapping pulls are safe and converge on one state', async () => {
+		const fixture = setup();
+		const carrier = fixture.carrier;
+		if (carrier === null) throw new Error('fixture carrier is required');
+		try {
+			const row = await fixture.bound.notes.create({ title: 'overlapping' });
+			carrier.seedDocument(
+				{
+					namespace: lens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				},
+				documentUpdate('remote'),
+			);
+			const document = expectOk(
+				await fixture.bound.notes.record(row.id).document.open(),
+			);
+
+			const outcomes = await Promise.all([
+				document.pull(),
+				document.pull(),
+				document.pull(),
+			]);
+			for (const outcome of outcomes) expect(outcome.error).toBeNull();
+			expect(document.getText('content').toString()).toBe('remote');
+
+			await document[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('a runtime opened without a carrier declines to pull', async () => {
+		const fixture = setup(new MemoryBlobFiles(), null);
+		try {
+			const row = await fixture.bound.notes.create({ title: 'local only' });
+			const document = expectOk(
+				await fixture.bound.notes.record(row.id).document.open(),
+			);
+			expect((await document.pull()).error).toMatchObject({
+				name: 'DocumentPullUnavailable',
+			});
+			document.transact(() => document.getText('content').insert(0, 'still'));
+			expect(document.getText('content').toString()).toBe('still');
+			await document[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
+	test('a pull answered from a replaced authority lifetime installs nothing', async () => {
+		const fixture = setup();
+		const carrier = fixture.carrier;
+		if (carrier === null) throw new Error('fixture carrier is required');
+		try {
+			const row = await fixture.bound.notes.create({ title: 'replaced' });
+			carrier.seedDocument(
+				{
+					namespace: lens.namespace,
+					collection: 'notes',
+					recordKey: row.id,
+				},
+				documentUpdate('remote'),
+			);
+			const document = expectOk(
+				await fixture.bound.notes.record(row.id).document.open(),
+			);
+			// The authority is replaced under the replica, so its answer names a
+			// lifetime this replica is no longer bound to.
+			carrier.reset('runtime-life-two');
+
+			expect((await document.pull()).error).toBeNull();
+			expect(document.getText('content').toString()).toBe('');
+
+			await document[Symbol.asyncDispose]();
+		} finally {
+			await close(fixture);
+		}
+	});
+
 	test('terminal deletion revokes every concurrent document handle', async () => {
 		const fixture = setup();
 		try {

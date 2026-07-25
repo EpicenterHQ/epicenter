@@ -64,6 +64,9 @@ function createRouteCarrier(
 		async publishDocument() {
 			throw new Error('Whispering publishes no record documents');
 		},
+		async pullDocument() {
+			throw new Error('Whispering pulls no record documents');
+		},
 		async publishBlob() {
 			throw new Error('Whispering publishes no record blobs');
 		},
