@@ -4,13 +4,13 @@ import type {
 } from '../documents.js';
 import type {
 	Address,
-	ExchangeRequest,
-	ExchangeResponse,
 	JsonValue,
 	RowAddress,
 	ValueAddress,
 } from '../protocol/index.js';
-import type { SyncState } from '../sync-supervisor.js';
+import type { FactsRequest, SubmissionRequest } from '../protocol/v1/index.js';
+import type { TransportOutcome } from '../replica/v1-replica.js';
+import type { SyncState } from '../v1-sync-supervisor.js';
 
 /**
  * One network call the worker asks the sync-attached page to perform on its
@@ -18,7 +18,8 @@ import type { SyncState } from '../sync-supervisor.js';
  * the documents, and every synchronization decision.
  */
 export type SessionTransportRequest =
-	| { kind: 'exchange'; request: ExchangeRequest }
+	| { kind: 'facts'; request: FactsRequest }
+	| { kind: 'submission'; request: SubmissionRequest }
 	| { kind: 'document-publish'; address: RowAddress; update: Uint8Array }
 	| {
 			kind: 'document-pull';
@@ -26,8 +27,17 @@ export type SessionTransportRequest =
 			sinceVersion: string | undefined;
 	  };
 
+/**
+ * The scalar outcomes cross the port as values, not exceptions.
+ *
+ * An authority refusal and a network failure need different recoveries, and a
+ * structured-clone boundary cannot carry an error subclass, so a thrown refusal
+ * would arrive on the worker side as an anonymous message and be retried like a
+ * dropped connection.
+ */
 export type SessionTransportResponse =
-	| { kind: 'exchange'; response: ExchangeResponse }
+	| { kind: 'facts'; outcome: TransportOutcome }
+	| { kind: 'submission'; outcome: TransportOutcome }
 	| { kind: 'document-publish'; outcome: DocumentPublishOutcome }
 	| { kind: 'document-pull'; response: DocumentPullResponse };
 

@@ -1,4 +1,4 @@
-import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
+import type { SqliteDatabase } from '@epicenter/sqlite';
 import { customAlphabet } from 'nanoid';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
@@ -26,22 +26,22 @@ import {
 } from './documents.js';
 import {
 	canonicalJson,
-	type JsonObject,
 	type RowAddress,
 	type ValueAddress,
 } from './protocol/index.js';
-import type { Replica, ReplicaError } from './replica/index.js';
+import type { ReplicaV1, ReplicaV1Error } from './replica/v1-replica.js';
+import { readVisibleRowPage } from './replica/v1-store.js';
 import {
-	createSyncSupervisor,
+	createSyncSupervisorV1,
 	type SyncSchedule,
 	type SyncStatus,
 	type SyncSupervisorSession,
-} from './sync-supervisor.js';
+} from './v1-sync-supervisor.js';
 
 const mintRowId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 24);
 const ENTRIES_PAGE_SIZE = 100;
 
-type ReadError = DataReadError | ReplicaError;
+type ReadError = DataReadError | ReplicaV1Error;
 
 export type TableScan<TDefinition extends TableDefinition> = {
 	rows: RowFor<TDefinition>[];
@@ -128,7 +128,7 @@ export type EpicenterSyncSession = SyncSupervisorSession & {
 };
 
 export type CreateEpicenterOptions = {
-	replica: Replica;
+	replica: ReplicaV1;
 	database: SqliteDatabase;
 	dispose?: () => void | Promise<void>;
 	log?: Logger;
@@ -142,11 +142,6 @@ const DataRuntimeError = defineErrors({
 		cause,
 	}),
 });
-
-type StoredRowFact = SqliteRow & {
-	row_id: string;
-	fields: string;
-};
 
 /**
  * Internal map keys for the per-table and per-value listener registries.
@@ -225,12 +220,12 @@ export function createEpicenter({
 				// A pull that finds the row dead converges through the scalar
 				// row-liveness owner: the next exchange installs the deletion
 				// and revokes the document.
-				if (response.kind === 'not-live') void sync.requestExchange();
+				if (response.kind === 'not-live') void sync.requestFacts();
 				return response;
 			};
 		},
 	});
-	const sync = createSyncSupervisor({
+	const sync = createSyncSupervisorV1({
 		replica,
 		// Documents drain under the supervisor's one scheduler, retry policy,
 		// and status surface: after the scalar exchange in a full cycle, and
@@ -243,13 +238,13 @@ export function createEpicenter({
 				// A dead row converges through the scalar row-liveness owner; ask
 				// for the exchange that installs the deletion promptly instead of
 				// waiting for the periodic cycle.
-				if (outcome === 'not-live') void sync.requestExchange();
+				if (outcome === 'not-live') void sync.requestFacts();
 				return outcome;
 			});
 		},
 		...(syncIntervalMs === undefined
 			? {}
-			: { exchangeIntervalMs: syncIntervalMs }),
+			: { factsIntervalMs: syncIntervalMs }),
 		...(scheduleSync === undefined ? {} : { schedule: scheduleSync }),
 		log,
 	});
@@ -372,8 +367,8 @@ export function createEpicenter({
 				const fields = compiled.validateCreate(input);
 				const address = addressOf(mintRowId());
 				const written = replica.write({
-					verb: 'patch',
 					address,
+					presence: 'present',
 					set: fields,
 					unset: [],
 				});
@@ -410,8 +405,8 @@ export function createEpicenter({
 					return compiled.project(address, before.data);
 				}
 				const written = replica.write({
-					verb: 'patch',
 					address,
+					presence: 'present',
 					set: patch.set,
 					unset: patch.unset,
 				});
@@ -428,7 +423,7 @@ export function createEpicenter({
 				const before = replica.readRow(address);
 				if (before.error !== null) throw before.error;
 				if (before.data === undefined) return false;
-				const written = replica.write({ verb: 'delete', address });
+				const written = replica.write({ address, presence: 'absent' });
 				if (written.error !== null) throw written.error;
 				return written.data.applied;
 			},
@@ -472,15 +467,15 @@ export function createEpicenter({
 			async set(content: unknown) {
 				requireOpen();
 				const written = replica.write({
-					verb: 'set',
 					address,
+					presence: 'present',
 					content: compiled.validate(content),
 				});
 				if (written.error !== null) throw written.error;
 			},
 			async unset() {
 				requireOpen();
-				const written = replica.write({ verb: 'unset', address });
+				const written = replica.write({ address, presence: 'absent' });
 				if (written.error !== null) throw written.error;
 			},
 			subscribe(listener: () => void) {
@@ -498,7 +493,7 @@ export function createEpicenter({
 
 	async function attachSync(
 		session: EpicenterSyncSession,
-	): Promise<Result<void, ReplicaError>> {
+	): Promise<Result<void, ReplicaV1Error>> {
 		requireOpen();
 		const attached = replica.attach(session);
 		if (attached.error !== null) return attached;
@@ -536,31 +531,23 @@ export function createEpicenter({
 		compiled: ReturnType<typeof compileTableDefinition>,
 		after?: string,
 	): TableEntriesPage<TableDefinition> {
-		const where = ['namespace = ?', 'table_name = ?', "presence = 'present'"];
-		const parameters: (string | number)[] = [namespace, tableName];
-		if (after !== undefined) {
-			where.push('row_id > ?');
-			parameters.push(after);
-		}
-		parameters.push(ENTRIES_PAGE_SIZE + 1);
-		const stored = database.all<StoredRowFact>(
-			`SELECT row_id, fields
-			 FROM main._replica_row_facts
-			 WHERE ${where.join(' AND ')}
-			 ORDER BY row_id ASC
-			 LIMIT ?`,
-			parameters,
+		const page = readVisibleRowPage(
+			database,
+			namespace,
+			tableName,
+			ENTRIES_PAGE_SIZE,
+			after,
 		);
-		const hasNext = stored.length > ENTRIES_PAGE_SIZE;
-		const pageRows = hasNext ? stored.slice(0, ENTRIES_PAGE_SIZE) : stored;
+		const hasNext = page.hasNext;
+		const pageRows = page.rows;
 		const entries: TableEntry<TableDefinition>[] = [];
 		for (const row of pageRows) {
-			const payload = JSON.parse(row.fields) as JsonObject;
+			const payload = row.fields;
 			const address: RowAddress = {
 				kind: 'row',
 				namespace,
 				tableName,
-				rowId: row.row_id,
+				rowId: row.rowId,
 			};
 			entries.push(
 				compiled.project(address, payload) as TableEntry<TableDefinition>,
@@ -569,7 +556,7 @@ export function createEpicenter({
 		const last = pageRows.at(-1);
 		return {
 			entries,
-			...(hasNext && last !== undefined ? { nextAfter: last.row_id } : {}),
+			...(hasNext && last !== undefined ? { nextAfter: last.rowId } : {}),
 		};
 	}
 }

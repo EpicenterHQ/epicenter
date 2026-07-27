@@ -32,11 +32,13 @@ import {
 import {
 	type Address,
 	addressesEqual,
-	type ExchangeRequest,
-	type ExchangeResponse,
 	type RowAddress,
 } from '../protocol/index.js';
-import { openReplica, type Replica } from '../replica/index.js';
+import {
+	openReplicaV1,
+	type ReplicaV1,
+	type ScalarTransport,
+} from '../replica/v1-replica.js';
 import type {
 	BrowserOperation,
 	BrowserTransportResult,
@@ -65,7 +67,7 @@ type MessagePortLike = {
 
 export type BrowserWorkerStore = {
 	epicenter: Epicenter;
-	replica: Replica;
+	replica: ReplicaV1;
 	dispose(): Promise<void>;
 };
 
@@ -325,15 +327,30 @@ export function serveBrowserEpicenter(
 		return response;
 	}
 
-	async function exchangeThroughPage(
-		request: ExchangeRequest,
-	): Promise<ExchangeResponse> {
-		const response = await callSyncTransport({ kind: 'exchange', request });
-		if (response.kind !== 'exchange') {
-			throw new Error('Browser sync transport answered the wrong request');
-		}
-		return response.response;
-	}
+	/**
+	 * The two scalar operations, proxied to the page that owns credentials.
+	 *
+	 * The worker owns the replica and every synchronization decision; it just
+	 * cannot make an authorized request. Outcomes cross back as values, so an
+	 * authority refusal keeps its meaning instead of arriving as an anonymous
+	 * port error the replica would retry like a dropped connection.
+	 */
+	const transportThroughPage: ScalarTransport = {
+		async readFacts(request) {
+			const response = await callSyncTransport({ kind: 'facts', request });
+			if (response.kind !== 'facts') {
+				throw new Error('Browser sync transport answered the wrong request');
+			}
+			return response.outcome;
+		},
+		async submit(request) {
+			const response = await callSyncTransport({ kind: 'submission', request });
+			if (response.kind !== 'submission') {
+				throw new Error('Browser sync transport answered the wrong request');
+			}
+			return response.outcome;
+		},
+	};
 
 	async function openedStore(): Promise<BrowserWorkerStore> {
 		requireConnected();
@@ -712,7 +729,7 @@ export function serveBrowserEpicenter(
 			const attached = await store.opened.epicenter.attachSync({
 				deploymentId: operation.deploymentId,
 				principalId: operation.principalId,
-				exchange: exchangeThroughPage,
+				transport: transportThroughPage,
 				publishDocument: async ({ address, update }) => {
 					const response = await callSyncTransport({
 						kind: 'document-publish',
@@ -983,7 +1000,7 @@ async function openBrowserWorkerStore({
 		const database = createBrowserSqliteAdapter(
 			rawDatabase as unknown as BrowserSqliteDatabase,
 		);
-		const opened = openReplica({ database });
+		const opened = openReplicaV1({ database });
 		if (opened.error !== null) throw opened.error;
 		signal.throwIfAborted();
 		const epicenter = createEpicenter({

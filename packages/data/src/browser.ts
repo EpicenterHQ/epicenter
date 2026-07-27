@@ -45,7 +45,7 @@ import {
 	type RowAddress,
 	type ValueAddress,
 } from './protocol/index.js';
-import type { SyncStatus } from './sync-supervisor.js';
+import type { SyncStatus } from './v1-sync-supervisor.js';
 
 type PendingRequest = {
 	resolve(value: unknown): void;
@@ -75,7 +75,7 @@ type PageTransport = {
 
 type SessionTransports = Pick<
 	EpicenterSyncSession,
-	'exchange' | 'publishDocument' | 'pullDocument'
+	'transport' | 'publishDocument' | 'pullDocument'
 >;
 
 export type OpenBrowserEpicenterOptions = {
@@ -229,10 +229,15 @@ export async function openBrowserEpicenter({
 		request: SessionTransportRequest,
 	): Promise<SessionTransportResponse> {
 		switch (request.kind) {
-			case 'exchange':
+			case 'facts':
 				return {
-					kind: 'exchange',
-					response: await session.exchange(request.request),
+					kind: 'facts',
+					outcome: await session.transport.readFacts(request.request),
+				};
+			case 'submission':
+				return {
+					kind: 'submission',
+					outcome: await session.transport.submit(request.request),
 				};
 			case 'document-publish': {
 				if (session.publishDocument === undefined)

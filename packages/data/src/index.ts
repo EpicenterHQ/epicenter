@@ -49,17 +49,24 @@ export type {
 	ValueAddress,
 } from './protocol/index.js';
 export {
-	type Exchange,
-	type OpenReplicaOptions,
-	openReplica,
-	REPLICA_FORMAT_VERSION,
-	type Replica,
-	ReplicaError,
-	type ReplicaMetadata,
-} from './replica/index.js';
+	type AuthorityRefusal,
+	type OpenReplicaV1Options,
+	openReplicaV1,
+	REPLICA_V1_FORMAT_VERSION,
+	type ReplicaV1,
+	ReplicaV1Error,
+	type ReplicaV1Metadata,
+	type ScalarTransport,
+	type TransportOutcome,
+} from './replica/v1-replica.js';
+export {
+	createHttpScalarTransport,
+	type HttpScalarTransportOptions,
+	type SyncFetch,
+} from './v1-http-transport.js';
 export type {
 	SyncCredentialProvider,
 	SyncSchedule,
 	SyncState,
 	SyncStatus,
-} from './sync-supervisor.js';
+} from './v1-sync-supervisor.js';

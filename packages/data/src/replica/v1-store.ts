@@ -694,3 +694,70 @@ export {
 	insertIntent,
 	writeConfirmedFact,
 };
+
+/** One page of visible rows in a table, ordered by row id. */
+export type VisibleRowPage = {
+	rows: { rowId: string; fields: JsonObject }[];
+	hasNext: boolean;
+};
+
+/**
+ * Page the visible rows of one logical table.
+ *
+ * A table scan has to show what the application can see, which is the fold of
+ * confirmed facts with local intents, not the confirmed facts alone. Reading
+ * only the fact relation would hide a row the user just created until it
+ * settled with the authority, and would keep showing a row they just deleted:
+ * local-first reads would lag the network, which is the opposite of the promise.
+ *
+ * So candidates come from both relations and each is folded through
+ * `readVisibleFact`. Candidates that fold to absent are skipped without
+ * consuming page capacity, and the scan keeps walking in bounded steps until
+ * the page is full or the table is exhausted, so a run of locally deleted rows
+ * cannot end a page early and strand the rest behind a cursor.
+ */
+export function readVisibleRowPage(
+	database: SqliteDatabase,
+	namespace: string,
+	tableName: string,
+	limit: number,
+	after: string | undefined,
+): VisibleRowPage {
+	const rows: { rowId: string; fields: JsonObject }[] = [];
+	let cursor = after;
+
+	while (rows.length <= limit) {
+		const candidates = database.all<SqliteRow & { row_id: string }>(
+			`SELECT row_id FROM (
+				SELECT row_id FROM main._replica_v1_row_facts
+				WHERE namespace = ? AND table_name = ?
+				UNION
+				SELECT row_id FROM main._replica_v1_row_intents
+				WHERE namespace = ? AND table_name = ?
+			)
+			${cursor === undefined ? '' : 'WHERE row_id > ?'}
+			ORDER BY row_id ASC LIMIT ?`,
+			cursor === undefined
+				? [namespace, tableName, namespace, tableName, limit + 1]
+				: [namespace, tableName, namespace, tableName, cursor, limit + 1],
+		);
+		if (candidates.length === 0) break;
+
+		for (const candidate of candidates) {
+			cursor = candidate.row_id;
+			const visible = readVisibleFact(database, {
+				kind: 'row',
+				namespace,
+				tableName,
+				rowId: candidate.row_id,
+			});
+			if (visible === undefined || !('fields' in visible)) continue;
+			rows.push({ rowId: candidate.row_id, fields: visible.fields });
+			if (rows.length > limit) break;
+		}
+		if (candidates.length <= limit) break;
+	}
+
+	const hasNext = rows.length > limit;
+	return { rows: hasNext ? rows.slice(0, limit) : rows, hasNext };
+}

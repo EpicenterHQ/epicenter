@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import { createEpicenter } from './epicenter.js';
-import { openReplica } from './replica/index.js';
+import { openReplicaV1 } from './replica/v1-replica.js';
 
 export type OpenBunEpicenterOptions =
 	| { path: string; directory?: never }
@@ -36,7 +36,7 @@ export async function openBunEpicenter(
 	const rawDatabase = new Database(path, { create: true });
 	try {
 		const database = createBunSqliteAdapter(rawDatabase);
-		const opened = openReplica({ database });
+		const opened = openReplicaV1({ database });
 		if (opened.error !== null) throw opened.error;
 		return createEpicenter({
 			replica: opened.data,

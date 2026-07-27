@@ -9,7 +9,7 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 
 import { addressKey, type RowAddress } from './protocol/index.js';
-import { type Replica, ReplicaError } from './replica/index.js';
+import { type ReplicaV1, ReplicaV1Error } from './replica/v1-replica.js';
 
 const COMPACTION_THRESHOLD = 64;
 const PUBLISH_CONCURRENCY = 4;
@@ -20,11 +20,11 @@ const hydrationOrigin = Object.freeze({ kind: 'epicenter-document-hydration' });
  * same reason and reports the same way, which is what keeps the drain's other
  * boundary, the carrier, visibly separate.
  */
-function drainStorage<T>(run: () => T): Result<T, ReplicaError> {
+function drainStorage<T>(run: () => T): Result<T, ReplicaV1Error> {
 	return trySync({
 		try: run,
 		catch: (cause) =>
-			ReplicaError.StorageFailed({ operation: 'document-drain', cause }),
+			ReplicaV1Error.StorageFailed({ operation: 'document-drain', cause }),
 	});
 }
 
@@ -193,7 +193,7 @@ export function createDocumentRuntime({
 	log = createLogger('data/documents'),
 }: {
 	database: SqliteDatabase;
-	replica: Replica;
+	replica: ReplicaV1;
 	/**
 	 * Resolve the currently attached session's pull transport at call time, or
 	 * undefined when no session can pull. Owned by the composing runtime so
@@ -220,7 +220,7 @@ export function createDocumentRuntime({
 			try {
 				listener();
 			} catch (cause) {
-				log.error(ReplicaError.SubscriberThrew({ cause }).error);
+				log.error(ReplicaV1Error.SubscriberThrew({ cause }).error);
 			}
 		}
 	}
@@ -580,7 +580,7 @@ export function createDocumentRuntime({
 		 */
 		async drainPublications(
 			publish: PublishDocument,
-		): Promise<Result<void, ReplicaError>> {
+		): Promise<Result<void, ReplicaV1Error>> {
 			const { data: queue, error: listError } = drainStorage(() =>
 				runtime.publication.listDirty(),
 			);
@@ -588,8 +588,8 @@ export function createDocumentRuntime({
 			// One pass returns one failure, so each kind keeps its first. They
 			// stay separate because only a transport failure earns network
 			// backoff from the supervisor.
-			let transportFailure: ReplicaError | undefined;
-			let storageFailure: ReplicaError | undefined;
+			let transportFailure: ReplicaV1Error | undefined;
+			let storageFailure: ReplicaV1Error | undefined;
 			const workers = Array.from(
 				{ length: Math.min(PUBLISH_CONCURRENCY, queue.length) },
 				async () => {
@@ -608,7 +608,7 @@ export function createDocumentRuntime({
 						if (captured === undefined) continue;
 						const { data: outcome, error: publishError } = await tryAsync({
 							try: async () => publish({ address, update: captured.update }),
-							catch: (cause) => ReplicaError.TransportFailed({ cause }),
+							catch: (cause) => ReplicaV1Error.TransportFailed({ cause }),
 						});
 						if (publishError !== null) {
 							transportFailure ??= publishError;

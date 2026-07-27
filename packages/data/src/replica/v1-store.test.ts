@@ -30,6 +30,7 @@ import {
 	readIntentsAt,
 	readParked,
 	readVisibleFact,
+	readVisibleRowPage,
 } from './v1-store.js';
 
 const REPLICA_ID = 'abc123def456ghi789jkl012';
@@ -305,5 +306,81 @@ describe('composeIntents preserves the effect of applying both', () => {
 
 	test('a patch after a local delete is superseded, never a resurrection', () => {
 		expect(composeIntents(rowDelete, rowPatch({ a: 1 }))).toEqual(rowDelete);
+	});
+});
+
+describe('a table scan shows visible state, not just confirmed facts', () => {
+	const otherRow = { ...ROW, rowId: 'row999def456ghi789jkl012' } as const;
+	const scan = (database: ReturnType<typeof openStore>) =>
+		readVisibleRowPage(database, ROW.namespace, ROW.tableName, 100, undefined);
+
+	/**
+	 * Local-first means a row the user just created is in the table immediately.
+	 * Scanning the fact relation alone would hide it until the authority settled
+	 * it, so a freshly created row would briefly vanish from its own list.
+	 */
+	test('a locally created row appears before it settles', () => {
+		const database = openStore();
+		applyLocalWrite(database, rowPatch({ title: 'fresh' }), 1);
+
+		expect(scan(database).rows).toEqual([
+			{ rowId: ROW.rowId, fields: { title: 'fresh' } },
+		]);
+	});
+
+	test('a locally deleted row disappears before it settles', () => {
+		const database = openStore();
+		installConfirmedFact(database, rowFact(3, { title: 'remote' }));
+		expect(scan(database).rows).toHaveLength(1);
+
+		applyLocalWrite(database, rowDelete, 1);
+
+		expect(scan(database).rows).toHaveLength(0);
+	});
+
+	test('a local patch overlays the confirmed row in the scan', () => {
+		const database = openStore();
+		installConfirmedFact(database, rowFact(3, { title: 'remote', keep: 1 }));
+		applyLocalWrite(database, rowPatch({ title: 'local' }), 1);
+
+		expect(scan(database).rows).toEqual([
+			{ rowId: ROW.rowId, fields: { title: 'local', keep: 1 } },
+		]);
+	});
+
+	test('a confirmed tombstone keeps the row out of the scan', () => {
+		const database = openStore();
+		installConfirmedFact(database, rowTombstone(4));
+
+		expect(scan(database).rows).toHaveLength(0);
+	});
+
+	/**
+	 * Skipped candidates must not consume page capacity, or a run of locally
+	 * deleted rows would end a page early and strand the rest behind a cursor
+	 * that never advances past them.
+	 */
+	test('rows that fold to absent do not shorten the page', () => {
+		const database = openStore();
+		installConfirmedFact(database, rowFact(1, { title: 'gone' }));
+		installConfirmedFact(database, {
+			address: otherRow,
+			sequence: 2,
+			presence: 'present',
+			fields: { title: 'kept' },
+		} as Fact);
+		applyLocalWrite(database, rowDelete, 1);
+
+		const page = readVisibleRowPage(
+			database,
+			ROW.namespace,
+			ROW.tableName,
+			1,
+			undefined,
+		);
+		expect(page.rows).toEqual([
+			{ rowId: otherRow.rowId, fields: { title: 'kept' } },
+		]);
+		expect(page.hasNext).toBe(false);
 	});
 });

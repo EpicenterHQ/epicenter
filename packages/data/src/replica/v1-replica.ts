@@ -800,6 +800,12 @@ function createReplicaV1(
 
 export type ReplicaV1 = ReturnType<typeof createReplicaV1>;
 
+// Re-exported so `v1-replica.js` is the one module a consumer needs to import
+// for the replica: its format version and metadata shape are part of that
+// surface even though they are declared beside the schema and the store.
+export { REPLICA_V1_FORMAT_VERSION } from './v1-schema.js';
+export type { ReplicaV1Metadata } from './v1-store.js';
+
 /**
  * Recover the typed failure a transaction rolled back on.
  *
