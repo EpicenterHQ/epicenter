@@ -20,17 +20,17 @@ import { describe, expect, test } from 'bun:test';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
 import type { Fact, Intent } from '../protocol/v1/index.js';
+import { createReplicaV1Schema } from './v1-schema.js';
 import {
 	applyLocalWrite,
 	composeIntents,
-	installConfirmedFact,
 	insertIntent,
+	installConfirmedFact,
 	readConfirmedFact,
 	readIntentsAt,
 	readParked,
 	readVisibleFact,
 } from './v1-store.js';
-import { createReplicaV1Schema } from './v1-schema.js';
 
 const REPLICA_ID = 'abc123def456ghi789jkl012';
 const ROW_ID = 'row123def456ghi789jkl012';
@@ -76,11 +76,14 @@ describe('confirmed facts live beneath local work', () => {
 	 */
 	test('a learned fact installs even when the address has pending work', () => {
 		const database = openStore();
-		expect(applyLocalWrite(database, rowPatch({ title: 'local' }), 1).applied).toBe(
-			true,
-		);
+		expect(
+			applyLocalWrite(database, rowPatch({ title: 'local' }), 1).applied,
+		).toBe(true);
 
-		const result = installConfirmedFact(database, rowFact(7, { title: 'remote' }));
+		const result = installConfirmedFact(
+			database,
+			rowFact(7, { title: 'remote' }),
+		);
 
 		expect(result.installed).toBe(true);
 		expect(readConfirmedFact(database, ROW)).toMatchObject({
@@ -128,14 +131,14 @@ describe('installation is monotonic per address', () => {
 		const database = openStore();
 		installConfirmedFact(database, rowFact(5, { v: 'five' }));
 
-		expect(installConfirmedFact(database, rowFact(4, { v: 'four' })).installed).toBe(
-			false,
-		);
+		expect(
+			installConfirmedFact(database, rowFact(4, { v: 'four' })).installed,
+		).toBe(false);
 		expect(readConfirmedFact(database, ROW)).toMatchObject({ sequence: 5 });
 
-		expect(installConfirmedFact(database, rowFact(6, { v: 'six' })).installed).toBe(
-			true,
-		);
+		expect(
+			installConfirmedFact(database, rowFact(6, { v: 'six' })).installed,
+		).toBe(true);
 		expect(readConfirmedFact(database, ROW)).toMatchObject({ sequence: 6 });
 	});
 
@@ -161,9 +164,9 @@ describe('installation is monotonic per address', () => {
 		const database = openStore();
 		installConfirmedFact(database, rowTombstone(9));
 
-		expect(installConfirmedFact(database, rowFact(4, { v: 'stale' })).installed).toBe(
-			false,
-		);
+		expect(
+			installConfirmedFact(database, rowFact(4, { v: 'stale' })).installed,
+		).toBe(false);
 		expect(readConfirmedFact(database, ROW)?.presence).toBe('absent');
 	});
 });
@@ -267,7 +270,10 @@ describe('local writes compact to one intent per address', () => {
 		applyLocalWrite(database, rowPatch({ b: 2 }), 2);
 
 		const intents = readIntentsAt(database, ROW);
-		expect(intents.map((stored) => stored.state)).toEqual(['sealed', 'pending']);
+		expect(intents.map((stored) => stored.state)).toEqual([
+			'sealed',
+			'pending',
+		]);
 		// Both fold, oldest first, so visible state reflects the sealed work too.
 		expect(readVisibleFact(database, ROW)).toMatchObject({
 			fields: { a: 1, b: 2 },

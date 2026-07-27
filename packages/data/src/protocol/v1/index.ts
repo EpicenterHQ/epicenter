@@ -80,7 +80,6 @@ export {
 	type ValidatedLimits,
 	validateLimits,
 } from './limits.js';
-export { SCALAR_V1_LIMITS } from './product-limits.js';
 export {
 	type AdmittedFactsRequest,
 	type AdmittedSubmissionRequest,
@@ -101,3 +100,4 @@ export {
 	type SubmissionResponse,
 	SubmissionResponseSchema,
 } from './operations.js';
+export { SCALAR_V1_LIMITS } from './product-limits.js';

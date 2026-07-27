@@ -42,8 +42,9 @@
  * set that proof starts from, not its conclusion. They may widen in a later
  * compatible protocol revision but cannot silently shrink.
  */
-import { validateLimits } from './limits.js';
+
 import type { ScalarSyncLimits, ValidatedLimits } from './limits.js';
+import { validateLimits } from './limits.js';
 
 const PRODUCT_LIMITS: ScalarSyncLimits = {
 	jsonDepth: 16,
