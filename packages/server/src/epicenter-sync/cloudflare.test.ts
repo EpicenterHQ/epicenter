@@ -5,13 +5,23 @@
  * fake SQLite-backed Durable Object storage implementation.
  *
  * Key behaviors:
- * - Scalar exchange executes through the authority RPC method
- * - Accepted state and replica receipts survive actor restart
+ * - Scalar submissions and fact reads execute through separate RPC methods
+ * - Accepted state, retry state, and the lifetime survive actor restart
  */
 import { Database } from 'bun:sqlite';
 import { expect, mock, test } from 'bun:test';
 
-import { batchDigest } from '@epicenter/data/protocol';
+import { Principal } from '@epicenter/auth';
+import {
+	parseFactsResponse,
+	parseSubmissionResponse,
+	SCALAR_V1_LIMITS,
+} from '@epicenter/data/protocol/v1';
+import { asPrincipalId } from '@epicenter/identity';
+import { Hono } from 'hono';
+import { expectOk } from 'wellcrafted/testing';
+
+import type { Env } from '../types.js';
 
 mock.module('cloudflare:workers', () => ({
 	DurableObject: class {
@@ -70,28 +80,29 @@ function setupStorage() {
 	return { database, storage };
 }
 
-function requestBody() {
+function requestBody(authorityLifetime: string) {
 	const intents = [
 		{
-			verb: 'patch' as const,
 			address: {
 				kind: 'row' as const,
 				namespace: 'so.epicenter.tests',
 				tableName: 'rows',
 				rowId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 			},
+			presence: 'present' as const,
 			set: { title: 'Persisted' },
 			unset: [],
 		},
 	];
 	return {
+		authorityLifetime,
 		replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
-		after: 0,
-		batch: { seq: 1, digest: batchDigest(intents), intents },
+		submissionNumber: 1,
+		intents,
 	};
 }
 
-test('exchange state and receipt survive Durable Object restart', async () => {
+test('lifetime, settled facts, and exact retries survive Durable Object restart', async () => {
 	const { EpicenterAuthority } = await import('./cloudflare.js');
 	const owned = setupStorage();
 	const state = {
@@ -99,22 +110,76 @@ test('exchange state and receipt survive Durable Object restart', async () => {
 	} as unknown as DurableObjectState;
 	try {
 		let authority = new EpicenterAuthority(state, {} as Cloudflare.Env);
-		expect(authority.exchange(requestBody())).toMatchObject({
-			receipt: { seq: 1, appliedThrough: 1 },
-			through: 1,
+		const initialPage = expectOk(authority.readFacts({ afterSequence: 0 }));
+		expectOk(parseFactsResponse(initialPage, SCALAR_V1_LIMITS));
+		const request = requestBody(initialPage.authorityLifetime);
+		const settled = expectOk(authority.submit(request));
+		expectOk(parseSubmissionResponse(settled, SCALAR_V1_LIMITS));
+		expect(settled).toMatchObject({
+			authorityLifetime: initialPage.authorityLifetime,
+			facts: [{ sequence: 1, fields: { title: 'Persisted' } }],
+			parked: [],
 		});
 
 		authority = new EpicenterAuthority(state, {} as Cloudflare.Env);
-		expect(authority.exchange(requestBody())).toMatchObject({
-			receipt: { seq: 1, appliedThrough: 1 },
-			through: 1,
+		const reopenedPage = expectOk(authority.readFacts({ afterSequence: 0 }));
+		expectOk(parseFactsResponse(reopenedPage, SCALAR_V1_LIMITS));
+		expect(reopenedPage).toMatchObject({
+			authorityLifetime: initialPage.authorityLifetime,
+			hasMore: false,
 			facts: [
 				{
+					sequence: 1,
 					presence: 'present',
 					fields: { title: 'Persisted' },
 				},
 			],
 		});
+		const retry = expectOk(authority.submit(request));
+		expectOk(parseSubmissionResponse(retry, SCALAR_V1_LIMITS));
+		expect(retry).toEqual(settled);
+	} finally {
+		owned.database.close();
+	}
+});
+
+test('mounted routes await the two Durable Object RPC methods', async () => {
+	const { EpicenterAuthority, mountCloudflareEpicenterSyncApp } = await import(
+		'./cloudflare.js'
+	);
+	const owned = setupStorage();
+	const state = {
+		storage: owned.storage,
+	} as unknown as DurableObjectState;
+	try {
+		const authority = new EpicenterAuthority(state, {} as Cloudflare.Env);
+		const app = new Hono<Env>();
+		mountCloudflareEpicenterSyncApp(app, {
+			auth: async (c, next) => {
+				c.set('principal', Principal.assert({ id: asPrincipalId('alice') }));
+				await next();
+			},
+			resolveNamespace: () => ({
+				getByName: () => ({
+					readFacts: async (request: unknown) => authority.readFacts(request),
+					submit: async (request: unknown) => authority.submit(request),
+				}),
+			}),
+		});
+
+		const initial = await app.request('/api/sync/v1/facts?afterSequence=0');
+		expect(initial.status).toBe(200);
+		const page = expectOk(
+			parseFactsResponse(await initial.json(), SCALAR_V1_LIMITS),
+		);
+
+		const settled = await app.request('/api/sync/v1/submissions', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(requestBody(page.authorityLifetime)),
+		});
+		expect(settled.status).toBe(200);
+		expectOk(parseSubmissionResponse(await settled.json(), SCALAR_V1_LIMITS));
 	} finally {
 		owned.database.close();
 	}

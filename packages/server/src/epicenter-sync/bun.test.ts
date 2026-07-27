@@ -1,12 +1,13 @@
 /**
  * Bun Epicenter Sync Composition Tests
  *
- * Verifies the mounted Bun runtime across authentication, scalar exchange, and
- * document publish/pull boundaries with one principal-owned SQLite authority.
+ * Verifies the mounted Bun runtime across authentication, scalar V1 operations,
+ * and document publish/pull boundaries with one principal-owned SQLite authority.
  *
  * Key behaviors:
  * - Missing bearer credentials never reach the scalar or document authority
- * - A scalar batch round-trips through the mounted POST route
+ * - A scalar submission settles and appears in the facts feed
+ * - Reopening a principal store preserves its authority lifetime
  * - Document publish and conditional pull share one bearer-authenticated route
  */
 import { expect, test } from 'bun:test';
@@ -15,10 +16,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Principal } from '@epicenter/auth';
-import { batchDigest } from '@epicenter/data/protocol';
+import type { Intent } from '@epicenter/data/protocol/v1';
+import {
+	parseFactsResponse,
+	parseSubmissionResponse,
+	SCALAR_V1_LIMITS,
+} from '@epicenter/data/protocol/v1';
 import { asPrincipalId } from '@epicenter/identity';
 import * as Y from '@y/y';
 import { Hono } from 'hono';
+import { expectOk } from 'wellcrafted/testing';
 
 import type { Env } from '../types.js';
 import {
@@ -63,8 +70,14 @@ function setup() {
 	};
 }
 
-function exchange(app: Hono<Env>, body: unknown, authenticated = true) {
-	return app.request('/api/sync/v1', {
+function readFacts(app: Hono<Env>, authenticated = true) {
+	return app.request('/api/sync/v1/facts?afterSequence=0', {
+		headers: authenticated ? { authorization: 'Bearer token' } : {},
+	});
+}
+
+function submit(app: Hono<Env>, body: unknown, authenticated = true) {
+	return app.request('/api/sync/v1/submissions', {
 		method: 'POST',
 		headers: {
 			'content-type': 'application/json',
@@ -74,20 +87,36 @@ function exchange(app: Hono<Env>, body: unknown, authenticated = true) {
 	});
 }
 
-function createRequest() {
-	const intents = [
+async function submitSuccessfully(app: Hono<Env>, body: unknown) {
+	const response = await submit(app, body);
+	expect(response.status).toBe(200);
+	return expectOk(
+		parseSubmissionResponse(await response.json(), SCALAR_V1_LIMITS),
+	);
+}
+
+function createRequest(authorityLifetime: string, submissionNumber = 1) {
+	const intents: Intent[] = [
 		{
-			verb: 'patch' as const,
 			address: ROW_ADDRESS,
+			presence: 'present',
 			set: { title: 'Hello' },
 			unset: [],
 		},
 	];
 	return {
+		authorityLifetime,
 		replicaId: REPLICA_ID,
-		after: 0,
-		batch: { seq: 1, digest: batchDigest(intents), intents },
+		submissionNumber,
+		intents,
 	};
+}
+
+async function readLifetime(app: Hono<Env>): Promise<string> {
+	const response = await readFacts(app);
+	expect(response.status).toBe(200);
+	return expectOk(parseFactsResponse(await response.json(), SCALAR_V1_LIMITS))
+		.authorityLifetime;
 }
 
 function documentPath(): string {
@@ -104,11 +133,11 @@ function encodeContent(text: string): Uint8Array {
 	}
 }
 
-test('missing bearer refuses the scalar exchange and document routes', async () => {
+test('missing bearer refuses the scalar operations and document routes', async () => {
 	const context = setup();
 	try {
-		const scalar = await exchange(context.app, createRequest(), false);
-		expect(scalar.status).toBe(401);
+		expect((await readFacts(context.app, false)).status).toBe(401);
+		expect((await submit(context.app, {}, false)).status).toBe(401);
 		const publish = await context.app.request(documentPath(), {
 			method: 'POST',
 			body: encodeContent('nope').slice().buffer as ArrayBuffer,
@@ -121,32 +150,69 @@ test('missing bearer refuses the scalar exchange and document routes', async () 
 	}
 });
 
-test('mounted exchange stores and returns one principal row', async () => {
+test('mounted submission stores one principal row returned by facts', async () => {
 	const context = setup();
 	try {
-		const response = await exchange(context.app, createRequest());
-		expect(response.status).toBe(200);
-		expect((await response.json()) as unknown).toMatchObject({
-			receipt: { seq: 1, appliedThrough: 1 },
-			through: 1,
+		const lifetime = await readLifetime(context.app);
+		const submissionResponse = await submitSuccessfully(
+			context.app,
+			createRequest(lifetime),
+		);
+		expect(submissionResponse).toMatchObject({
+			authorityLifetime: lifetime,
 			facts: [
 				{
+					sequence: 1,
 					presence: 'present',
 					address: ROW_ADDRESS,
 					fields: { title: 'Hello' },
 				},
 			],
-			next: null,
+			parked: [],
+		});
+
+		const page = expectOk(
+			parseFactsResponse(
+				await (await readFacts(context.app)).json(),
+				SCALAR_V1_LIMITS,
+			),
+		);
+		expect(page).toMatchObject({
+			authorityLifetime: lifetime,
+			facts: submissionResponse.facts,
+			hasMore: false,
 		});
 	} finally {
 		context.cleanup();
 	}
 });
 
+test('reopening the same principal file preserves its authority lifetime', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'epicenter-sync-bun-lifetime-'));
+	let runtime = createBunEpicenterSyncRuntime({ dir });
+	try {
+		const first = expectOk(
+			runtime.locateAuthority(PRINCIPAL_ID).readFacts({ afterSequence: 0 }),
+		).authorityLifetime;
+		runtime.close();
+
+		runtime = createBunEpicenterSyncRuntime({ dir });
+		const reopened = expectOk(
+			runtime.locateAuthority(PRINCIPAL_ID).readFacts({ afterSequence: 0 }),
+		).authorityLifetime;
+		runtime.close();
+		expect(reopened).toBe(first);
+	} finally {
+		runtime.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test('publish then conditional pull round-trips through the mounted routes', async () => {
 	const context = setup();
 	try {
-		await exchange(context.app, createRequest());
+		const lifetime = await readLifetime(context.app);
+		await submitSuccessfully(context.app, createRequest(lifetime));
 		const published = await context.app.request(documentPath(), {
 			method: 'POST',
 			headers: { authorization: 'Bearer token' },
@@ -188,12 +254,13 @@ test('publish then conditional pull round-trips through the mounted routes', asy
 test('pulling a deleted row reports not-live', async () => {
 	const context = setup();
 	try {
-		await exchange(context.app, createRequest());
-		const intents = [{ verb: 'delete' as const, address: ROW_ADDRESS }];
-		await exchange(context.app, {
+		const lifetime = await readLifetime(context.app);
+		await submitSuccessfully(context.app, createRequest(lifetime));
+		await submitSuccessfully(context.app, {
+			authorityLifetime: lifetime,
 			replicaId: REPLICA_ID,
-			after: 1,
-			batch: { seq: 2, digest: batchDigest(intents), intents },
+			submissionNumber: 2,
+			intents: [{ address: ROW_ADDRESS, presence: 'absent' }],
 		});
 		const pulled = await context.app.request(documentPath(), {
 			headers: { authorization: 'Bearer token' },

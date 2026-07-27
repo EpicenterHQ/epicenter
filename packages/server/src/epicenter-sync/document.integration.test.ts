@@ -15,11 +15,11 @@ import { join } from 'node:path';
 import { Principal } from '@epicenter/auth';
 import {
 	createEpicenter,
+	createHttpScalarTransport,
 	defineLens,
 	defineTable,
-	openReplica,
+	openReplicaV1,
 } from '@epicenter/data';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
 import { createHttpDocumentTransports } from '@epicenter/document-sync';
 import { field } from '@epicenter/field';
 import { asPrincipalId } from '@epicenter/identity';
@@ -84,22 +84,20 @@ function openServer() {
 		session: {
 			deploymentId: 'https://authority.test/',
 			principalId: PRINCIPAL_ID as string,
-			exchange: async (request: unknown) => {
-				const response = await app.request('/api/sync/v1', {
-					method: 'POST',
-					headers: {
-						'content-type': 'application/json',
-						authorization: 'Bearer token',
-					},
-					body: JSON.stringify(request),
-				});
-				if (!response.ok) {
-					throw new Error(`Epicenter sync failed (${response.status})`);
-				}
-				const parsed = parseExchangeResponse(await response.json());
-				if (parsed.error !== null) throw parsed.error;
-				return parsed.data;
-			},
+			// The real production carrier against the real mounted routes, so this
+			// proves document sync still works over the scalar cutover rather than
+			// over a test-only shortcut.
+			transport: createHttpScalarTransport({
+				baseUrl: 'https://authority.test/',
+				fetch: async (url, init) =>
+					app.request(url, {
+						...init,
+						headers: {
+							...(init?.headers ?? {}),
+							authorization: 'Bearer token',
+						},
+					}),
+			}),
 			...createHttpDocumentTransports({
 				baseUrl: 'https://authority.test/',
 				fetch: authorizedFetch,
@@ -115,7 +113,7 @@ function openServer() {
 function openClient(path = ':memory:') {
 	const raw = new Database(path, { strict: true });
 	const database = createBunSqliteAdapter(raw);
-	const replica = expectOk(openReplica({ database }));
+	const replica = expectOk(openReplicaV1({ database }));
 	const epicenter = createEpicenter({ replica, database });
 	return {
 		raw,

@@ -28,10 +28,30 @@ import type { EpicenterSyncV1Authority } from './v1-authority.js';
  */
 const MAX_SUBMISSION_REQUEST_BYTES = 2 * 1024 * 1024;
 
+/**
+ * The authority as this route calls it.
+ *
+ * Both operations may answer asynchronously, because one real carrier does: the
+ * Cloudflare authority lives behind a Durable Object stub, so every RPC returns
+ * a promise even though the underlying implementation is synchronous. Typing
+ * these as synchronous would compile against the in-process Bun authority and
+ * then silently destructure a pending promise into `undefined` on Workers.
+ */
+export type V1AuthorityCalls = {
+	readFacts(
+		request: unknown,
+	): Awaitable<ReturnType<EpicenterSyncV1Authority['readFacts']>>;
+	submit(
+		request: unknown,
+	): Awaitable<ReturnType<EpicenterSyncV1Authority['submit']>>;
+};
+
+type Awaitable<T> = T | Promise<T>;
+
 export type V1AuthorityLocator<E extends Env = Env> = (
 	principalId: PrincipalId,
 	env: E['Bindings'],
-) => EpicenterSyncV1Authority | Promise<EpicenterSyncV1Authority>;
+) => Awaitable<V1AuthorityCalls>;
 
 /**
  * Map an authority refusal onto a status and a stable machine-readable code.
@@ -98,7 +118,7 @@ export function createEpicenterSyncV1App<E extends Env = Env>(
 		}
 		const authorityLifetime = c.req.query('authorityLifetime');
 		const authority = await locateAuthority(c.var.principal.id, c.env);
-		const { data, error } = authority.readFacts({
+		const { data, error } = await authority.readFacts({
 			...(authorityLifetime === undefined ? {} : { authorityLifetime }),
 			afterSequence,
 		});
@@ -138,7 +158,7 @@ export function createEpicenterSyncV1App<E extends Env = Env>(
 			throw cause;
 		}
 		const authority = await locateAuthority(c.var.principal.id, c.env);
-		const { data, error } = authority.submit(payload);
+		const { data, error } = await authority.submit(payload);
 		if (error !== null) {
 			const { status, body } = refusalResponse(error);
 			return c.json(body, status);

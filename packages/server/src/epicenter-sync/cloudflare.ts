@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { ExchangeResponse, RowAddress } from '@epicenter/data/protocol';
+import type { RowAddress } from '@epicenter/data/protocol';
 import type { PrincipalId } from '@epicenter/identity';
 import {
 	createDurableObjectSqliteAdapter,
@@ -8,13 +8,17 @@ import {
 import type { Hono, MiddlewareHandler } from 'hono';
 
 import type { Env } from '../types.js';
-import { openEpicenterSyncAuthority } from './authority.js';
 import {
 	createEpicenterDocumentStore,
 	type DocumentAppendOutcome,
 	type DocumentReadOutcome,
 } from './document-store.js';
-import { mountDocumentSyncRoute, mountEpicenterSyncRoute } from './route.js';
+import { mountDocumentSyncRoute } from './route.js';
+import {
+	type EpicenterSyncV1Authority,
+	openEpicenterSyncV1Authority,
+} from './v1-authority.js';
+import { mountEpicenterSyncV1Route } from './v1-route.js';
 
 function principalName(principalId: PrincipalId): string {
 	return encodeURIComponent(principalId).replaceAll('.', '%2E');
@@ -37,14 +41,28 @@ export class EpicenterAuthority extends DurableObject {
 		const readDatabaseSize = () =>
 			(ctx.storage as unknown as { sql: { databaseSize: number } }).sql
 				.databaseSize;
-		this.scalar = openEpicenterSyncAuthority({ database, readDatabaseSize });
+		this.scalar = openEpicenterSyncV1Authority({
+			database,
+			mintLifetime: () => crypto.randomUUID(),
+		});
+		// Document sync keeps its existing liveness query while scalar storage
+		// moves to the V1 relation. A view preserves that read-only boundary.
+		database.run(
+			`CREATE VIEW IF NOT EXISTS main._authority_row_facts AS
+			SELECT namespace, table_name, row_id, presence
+			FROM main._authority_v1_row_facts`,
+		);
 		this.documents = createEpicenterDocumentStore(database, {
 			readDatabaseSize,
 		});
 	}
 
-	exchange(request: unknown): ExchangeResponse {
-		return this.scalar.exchange(request);
+	readFacts(request: unknown) {
+		return this.scalar.readFacts(request);
+	}
+
+	submit(request: unknown) {
+		return this.scalar.submit(request);
 	}
 
 	publishDocument(
@@ -70,11 +88,20 @@ export class EpicenterAuthority extends DurableObject {
 /**
  * The authority's RPC contract as seen through a stub. Declared structurally
  * because the generated `DurableObjectStub<EpicenterAuthority>` mapped type
- * recurses past the compiler's instantiation depth on the exchange union; the
+ * recurses past the compiler's instantiation depth on the result unions; the
  * class methods above are the one source of these signatures.
  */
 type EpicenterAuthorityCalls = {
-	exchange(request: unknown): ExchangeResponse | Promise<ExchangeResponse>;
+	readFacts(
+		request: unknown,
+	):
+		| ReturnType<EpicenterSyncV1Authority['readFacts']>
+		| Promise<ReturnType<EpicenterSyncV1Authority['readFacts']>>;
+	submit(
+		request: unknown,
+	):
+		| ReturnType<EpicenterSyncV1Authority['submit']>
+		| Promise<ReturnType<EpicenterSyncV1Authority['submit']>>;
 	publishDocument(
 		address: RowAddress,
 		update: Uint8Array,
@@ -122,7 +149,7 @@ export function createDurableObjectAccountAuthorities(
 	};
 }
 
-/** Mount the Cloudflare scalar exchange and row-document HTTP sync routes. */
+/** Mount the Cloudflare scalar V1 operations and row-document HTTP sync routes. */
 export function mountCloudflareEpicenterSyncApp<E extends Env = Env>(
 	app: Hono<E>,
 	{
@@ -133,10 +160,15 @@ export function mountCloudflareEpicenterSyncApp<E extends Env = Env>(
 		resolveNamespace(env: E['Bindings']): EpicenterAuthorityNamespace;
 	},
 ): void {
-	mountEpicenterSyncRoute(app, {
+	mountEpicenterSyncV1Route(app, {
 		auth,
-		locateAuthority: (principalId, env) => (request) =>
-			stubFor(resolveNamespace(env), principalId).exchange(request),
+		locateAuthority: (principalId, env) => {
+			const stub = stubFor(resolveNamespace(env), principalId);
+			return {
+				readFacts: (request) => stub.readFacts(request),
+				submit: (request) => stub.submit(request),
+			};
+		},
 	});
 	mountDocumentSyncRoute(app, {
 		auth,

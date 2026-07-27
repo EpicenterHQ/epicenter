@@ -1,344 +1,247 @@
 /**
- * Epicenter Sync Authority and Replica Conformance Tests
+ * Epicenter Sync Runtime Adapter Conformance Tests
  *
- * Runs the real Data SQLite replica engine against the real server authority
- * in-process to prove convergence across retries, forks, pages, and tombstones.
+ * Drives the Bun runtime and Cloudflare Durable Object through the same scalar
+ * V1 scenario and compares their protocol-visible outcomes.
  *
  * Key behaviors:
- * - Rows, values, unsets, and permanent deletions converge across replicas
- * - Dropped responses, fork recovery, and page-install crashes are retry safe
- * - Fresh replicas drain the authority through bounded fixed-through pages
+ * - Submissions settle and facts read from sequence zero
+ * - Exact retries are idempotent while forks and gaps are typed refusals
+ * - Lifetime mismatches are typed refusals for both operations
+ * - Product-limit responses are valid and unpaged for this small scenario
+ *
+ * Neither adapter exposes authority limits, so byte paging remains covered by
+ * `v1-authority.test.ts` rather than adding an adapter-only limits option.
  */
 import { Database } from 'bun:sqlite';
-import { expect, test } from 'bun:test';
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { openReplica } from '@epicenter/data';
-import type { ExchangeRequest } from '@epicenter/data/protocol';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import {
+	type Intent,
+	parseFactsResponse,
+	parseSubmissionResponse,
+	SCALAR_V1_LIMITS,
+	type SubmissionRequest,
+} from '@epicenter/data/protocol/v1';
+import { asPrincipalId } from '@epicenter/identity';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { createBunEpicenterSyncRuntime } from './bun.js';
+import type { EpicenterSyncV1Authority } from './v1-authority.js';
 
-import { openEpicenterSyncAuthority } from './authority.js';
+mock.module('cloudflare:workers', () => ({
+	DurableObject: class {
+		protected ctx: DurableObjectState;
 
-const DEPLOYMENT = 'https://example.com/';
-const PRINCIPAL = 'principal-a';
+		constructor(ctx: DurableObjectState, _env: Cloudflare.Env) {
+			this.ctx = ctx;
+		}
+	},
+}));
+
+type SqlValue = ArrayBuffer | string | number | null;
+
+const PRINCIPAL_ID = asPrincipalId('principal-a');
+const REPLICA_ID = 'rrrrrrrrrrrrrrrrrrrrrrrr';
 const NAMESPACE = 'so.epicenter.tests';
-const ROW_A = 'aaaaaaaaaaaaaaaaaaaaaaaa';
-const ROW_B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
 
-function rowAddress(rowId: string) {
-	return {
-		kind: 'row',
+const valueIntent = (content: string): Intent => ({
+	address: {
+		kind: 'value',
 		namespace: NAMESPACE,
-		tableName: 'rows',
-		rowId,
-	} as const;
-}
-
-function valueAddress(valueName: string) {
-	return { kind: 'value', namespace: NAMESPACE, valueName } as const;
-}
-
-function openAttachedReplica(raw: Database, replicaId: string) {
-	const replica = expectOk(
-		openReplica({
-			database: createBunSqliteAdapter(raw),
-			mintReplicaId: () => replicaId,
-		}),
-	);
-	expectOk(
-		replica.attach({ deploymentId: DEPLOYMENT, principalId: PRINCIPAL }),
-	);
-	return replica;
-}
-
-test('two replicas converge across row changes, deletion, value unset, and later set', async () => {
-	const authorityDatabase = new Database(':memory:');
-	const authority = openEpicenterSyncAuthority({
-		database: createBunSqliteAdapter(authorityDatabase),
-		pageSize: 1,
-	});
-	const firstDatabase = new Database(':memory:');
-	const secondDatabase = new Database(':memory:');
-	const first = openAttachedReplica(firstDatabase, 'aaaaaaaaaaaaaaaaaaaaaaa1');
-	const second = openAttachedReplica(
-		secondDatabase,
-		'bbbbbbbbbbbbbbbbbbbbbbb2',
-	);
-
-	expectOk(
-		first.write({
-			verb: 'patch',
-			address: rowAddress(ROW_A),
-			set: { title: 'keep', note: 'remove' },
-			unset: [],
-		}),
-	);
-	expectOk(
-		first.write({
-			verb: 'patch',
-			address: rowAddress(ROW_B),
-			set: { title: 'offline' },
-			unset: [],
-		}),
-	);
-	expectOk(
-		first.write({
-			verb: 'set',
-			address: valueAddress('value'),
-			content: 'first',
-		}),
-	);
-	expectOk(await first.synchronize(authority.exchange));
-	expectOk(await second.synchronize(authority.exchange));
-
-	expectOk(
-		second.write({
-			verb: 'patch',
-			address: rowAddress(ROW_A),
-			set: { title: 'updated' },
-			unset: ['note'],
-		}),
-	);
-	expectOk(second.write({ verb: 'delete', address: rowAddress(ROW_B) }));
-	expectOk(second.write({ verb: 'unset', address: valueAddress('value') }));
-	expectOk(await second.synchronize(authority.exchange));
-
-	expectOk(
-		first.write({
-			verb: 'patch',
-			address: rowAddress(ROW_B),
-			set: { title: 'stale-live' },
-			unset: [],
-		}),
-	);
-	expectOk(await first.synchronize(authority.exchange));
-	expect(expectOk(first.readRow(rowAddress(ROW_A)))).toEqual({
-		title: 'updated',
-	});
-	expect(expectOk(first.readRow(rowAddress(ROW_B)))).toBeUndefined();
-	expect(expectOk(first.readValue(valueAddress('value')))).toBeUndefined();
-
-	expectOk(
-		first.write({
-			verb: 'set',
-			address: valueAddress('value'),
-			content: 'second',
-		}),
-	);
-	expectOk(await first.synchronize(authority.exchange));
-	expectOk(await second.synchronize(authority.exchange));
-	expect(expectOk(second.readRow(rowAddress(ROW_A)))).toEqual({
-		title: 'updated',
-	});
-	expect(expectOk(second.readRow(rowAddress(ROW_B)))).toBeUndefined();
-	expect(expectOk(second.readValue(valueAddress('value')))).toBe('second');
-
-	firstDatabase.close();
-	secondDatabase.close();
-	authorityDatabase.close();
+		valueName: 'theme',
+	},
+	presence: 'present',
+	content,
 });
 
-test('fresh sequence-zero replica drains full state through bounded pages', async () => {
-	const authorityDatabase = new Database(':memory:');
-	const authority = openEpicenterSyncAuthority({
-		database: createBunSqliteAdapter(authorityDatabase),
-		pageSize: 1,
-	});
-	const writerDatabase = new Database(':memory:');
-	const writer = openAttachedReplica(
-		writerDatabase,
-		'wwwwwwwwwwwwwwwwwwwwwww1',
-	);
-	expectOk(
-		writer.write({ verb: 'set', address: valueAddress('a'), content: 1 }),
-	);
-	expectOk(
-		writer.write({ verb: 'set', address: valueAddress('b'), content: 2 }),
-	);
-	expectOk(
-		writer.write({ verb: 'set', address: valueAddress('c'), content: 3 }),
-	);
-	expectOk(await writer.synchronize(authority.exchange));
-
-	const freshDatabase = new Database(':memory:');
-	const fresh = openAttachedReplica(freshDatabase, 'fffffffffffffffffffffff2');
-	let calls = 0;
-	expectOk(
-		await fresh.synchronize((request) => {
-			calls += 1;
-			return authority.exchange(request);
-		}),
-	);
-	expect(calls).toBe(3);
-	expect(expectOk(fresh.readValue(valueAddress('a')))).toBe(1);
-	expect(expectOk(fresh.readValue(valueAddress('b')))).toBe(2);
-	expect(expectOk(fresh.readValue(valueAddress('c')))).toBe(3);
-
-	freshDatabase.close();
-	writerDatabase.close();
-	authorityDatabase.close();
-});
-
-test('dropped response retries the exact multi-change batch and applies it once', async () => {
-	const authorityDatabase = new Database(':memory:');
-	const authority = openEpicenterSyncAuthority({
-		database: createBunSqliteAdapter(authorityDatabase),
-	});
-	const replicaDatabase = new Database(':memory:');
-	const replica = openAttachedReplica(
-		replicaDatabase,
-		'rrrrrrrrrrrrrrrrrrrrrrr1',
-	);
-	expectOk(
-		replica.write({ verb: 'set', address: valueAddress('a'), content: 1 }),
-	);
-	expectOk(
-		replica.write({ verb: 'set', address: valueAddress('b'), content: 2 }),
-	);
-	let firstRequest: ExchangeRequest | undefined;
-	const lost = await replica.synchronize((request) => {
-		firstRequest = structuredClone(request);
-		authority.exchange(request);
-		throw new Error('dropped response');
-	});
-	expect(expectErr(lost).name).toBe('TransportFailed');
-	let retryRequest: ExchangeRequest | undefined;
-	expectOk(
-		await replica.synchronize((request) => {
-			retryRequest = structuredClone(request);
-			return authority.exchange(request);
-		}),
-	);
-	expect(retryRequest).toEqual(firstRequest);
-	expect(
-		authorityDatabase
-			.query<{ next_sequence: number }, []>(
-				'SELECT next_sequence FROM main._authority_metadata',
-			)
-			.get()?.next_sequence,
-	).toBe(3);
-
-	replicaDatabase.close();
-	authorityDatabase.close();
-});
-
-test('forked replica remints its identity, resubmits, and converges', async () => {
-	const directory = mkdtempSync(join(tmpdir(), 'epicenter-sync-fork-'));
-	const originalPath = join(directory, 'original.sqlite');
-	const copyPath = join(directory, 'copy.sqlite');
-	const authorityDatabase = new Database(':memory:');
-	try {
-		const authority = openEpicenterSyncAuthority({
-			database: createBunSqliteAdapter(authorityDatabase),
-		});
-		const originalDatabase = new Database(originalPath);
-		const original = openAttachedReplica(
-			originalDatabase,
-			'ooooooooooooooooooooooo1',
-		);
-		expectOk(
-			original.write({
-				verb: 'set',
-				address: valueAddress('value'),
-				content: 'base',
-			}),
-		);
-		expectOk(await original.synchronize(authority.exchange));
-		copyFileSync(originalPath, copyPath);
-		expectOk(
-			original.write({
-				verb: 'set',
-				address: valueAddress('value'),
-				content: 'original',
-			}),
-		);
-		expectOk(await original.synchronize(authority.exchange));
-
-		const copyDatabase = new Database(copyPath);
-		const copied = expectOk(
-			openReplica({
-				database: createBunSqliteAdapter(copyDatabase),
-				mintReplicaId: () => 'ccccccccccccccccccccccc2',
-			}),
-		);
-		const before = expectOk(copied.metadata()).replicaId;
-		expectOk(
-			copied.write({
-				verb: 'set',
-				address: valueAddress('value'),
-				content: 'copy',
-			}),
-		);
-		expectOk(await copied.synchronize(authority.exchange));
-		expect(expectOk(copied.metadata()).replicaId).not.toBe(before);
-		expect(expectOk(copied.readValue(valueAddress('value')))).toBe('copy');
-		expectOk(await original.synchronize(authority.exchange));
-		expect(expectOk(original.readValue(valueAddress('value')))).toBe('copy');
-		copyDatabase.close();
-		originalDatabase.close();
-	} finally {
-		authorityDatabase.close();
-		rmSync(directory, { recursive: true, force: true });
-	}
-});
-
-test('crash between page install and cursor advance converges on retry', async () => {
-	const authorityDatabase = new Database(':memory:');
-	const authority = openEpicenterSyncAuthority({
-		database: createBunSqliteAdapter(authorityDatabase),
-		pageSize: 1,
-	});
-	const writerDatabase = new Database(':memory:');
-	const writer = openAttachedReplica(
-		writerDatabase,
-		'wwwwwwwwwwwwwwwwwwwwwww2',
-	);
-	expectOk(
-		writer.write({ verb: 'set', address: valueAddress('a'), content: 1 }),
-	);
-	expectOk(
-		writer.write({ verb: 'set', address: valueAddress('b'), content: 2 }),
-	);
-	expectOk(await writer.synchronize(authority.exchange));
-
-	const replicaDatabase = new Database(':memory:');
-	const base = createBunSqliteAdapter(replicaDatabase);
-	let failCursorAdvance = true;
-	const crashing = {
-		...base,
-		run(sql: string, parameters?: Parameters<typeof base.run>[1]) {
-			if (
-				failCursorAdvance &&
-				sql.includes('last_applied_authority_sequence = ?')
+function setupCloudflareStorage() {
+	const database = new Database(':memory:', { strict: true });
+	let alarm: number | null = null;
+	const storage = {
+		sql: {
+			get databaseSize() {
+				return 0;
+			},
+			exec<TRow extends Record<string, SqlValue>>(
+				sql: string,
+				...bindings: SqlValue[]
 			) {
-				failCursorAdvance = false;
-				throw new Error('simulated cursor crash');
-			}
-			base.run(sql, parameters);
+				const statements = sql.split(';').filter((part) => part.trim());
+				if (statements.length > 1) {
+					database.exec(sql);
+					return { toArray: () => [] as TRow[] };
+				}
+				const values = bindings.map((value) =>
+					value instanceof ArrayBuffer ? new Uint8Array(value) : value,
+				);
+				const query = database.query<
+					TRow,
+					(string | number | null | Uint8Array)[]
+				>(sql);
+				if (/^\s*(SELECT|WITH|PRAGMA)\b/i.test(sql)) {
+					return { toArray: () => query.all(...values) };
+				}
+				query.run(...values);
+				return { toArray: () => [] as TRow[] };
+			},
+		},
+		transactionSync<TResult>(run: () => TResult): TResult {
+			return database.transaction(run).immediate();
+		},
+		getAlarm: async () => alarm,
+		setAlarm: async (value: number) => {
+			alarm = value;
+		},
+		deleteAlarm: async () => {
+			alarm = null;
+		},
+	} as unknown as DurableObjectStorage;
+	return { database, storage };
+}
+
+type AdapterContext = {
+	authority: EpicenterSyncV1Authority;
+	cleanup(): void;
+};
+
+function setupBun(): AdapterContext {
+	const dir = mkdtempSync(join(tmpdir(), 'epicenter-sync-conformance-bun-'));
+	const runtime = createBunEpicenterSyncRuntime({ dir });
+	return {
+		authority: runtime.locateAuthority(PRINCIPAL_ID),
+		cleanup() {
+			runtime.close();
+			rmSync(dir, { recursive: true, force: true });
 		},
 	};
-	const replica = expectOk(
-		openReplica({
-			database: crashing,
-			mintReplicaId: () => 'xxxxxxxxxxxxxxxxxxxxxxx3',
+}
+
+async function setupCloudflare(): Promise<AdapterContext> {
+	const { EpicenterAuthority } = await import('./cloudflare.js');
+	const owned = setupCloudflareStorage();
+	const state = {
+		storage: owned.storage,
+	} as unknown as DurableObjectState;
+	return {
+		authority: new EpicenterAuthority(state, {} as Cloudflare.Env),
+		cleanup() {
+			owned.database.close();
+		},
+	};
+}
+
+async function exerciseAdapter(authority: EpicenterSyncV1Authority) {
+	const initial = expectOk(authority.readFacts({ afterSequence: 0 }));
+	expectOk(parseFactsResponse(initial, SCALAR_V1_LIMITS));
+	expect(initial).toMatchObject({ facts: [], hasMore: false });
+
+	const request: SubmissionRequest = {
+		authorityLifetime: initial.authorityLifetime,
+		replicaId: REPLICA_ID,
+		submissionNumber: 1,
+		intents: [valueIntent('dark')],
+	};
+	const settled = expectOk(authority.submit(request));
+	expectOk(parseSubmissionResponse(settled, SCALAR_V1_LIMITS));
+	expect(settled).toMatchObject({
+		authorityLifetime: initial.authorityLifetime,
+		facts: [
+			{
+				sequence: 1,
+				presence: 'present',
+				content: 'dark',
+			},
+		],
+		parked: [],
+	});
+
+	const facts = expectOk(
+		authority.readFacts({
+			authorityLifetime: initial.authorityLifetime,
+			afterSequence: 0,
 		}),
 	);
-	expectOk(
-		replica.attach({ deploymentId: DEPLOYMENT, principalId: PRINCIPAL }),
-	);
-	expect(expectErr(await replica.synchronize(authority.exchange)).name).toBe(
-		'StorageFailed',
-	);
-	expect(expectOk(replica.metadata()).lastAppliedAuthoritySequence).toBe(0);
-	expectOk(await replica.synchronize(authority.exchange));
-	expect(expectOk(replica.metadata()).lastAppliedAuthoritySequence).toBe(2);
-	expect(expectOk(replica.readValue(valueAddress('a')))).toBe(1);
-	expect(expectOk(replica.readValue(valueAddress('b')))).toBe(2);
+	expectOk(parseFactsResponse(facts, SCALAR_V1_LIMITS));
+	expect(facts).toMatchObject({
+		authorityLifetime: initial.authorityLifetime,
+		facts: settled.facts,
+		hasMore: false,
+	});
 
-	replicaDatabase.close();
-	writerDatabase.close();
-	authorityDatabase.close();
+	const retry = expectOk(authority.submit(request));
+	expectOk(parseSubmissionResponse(retry, SCALAR_V1_LIMITS));
+	expect(retry).toEqual(settled);
+
+	const fork = expectErr(
+		authority.submit({
+			...request,
+			intents: [valueIntent('forked')],
+		}),
+	);
+	expect(fork.name).toBe('SubmissionFork');
+
+	const gap = expectErr(
+		authority.submit({
+			...request,
+			submissionNumber: 3,
+			intents: [valueIntent('gapped')],
+		}),
+	);
+	expect(gap.name).toBe('SubmissionGap');
+
+	const mismatchedFacts = expectErr(
+		authority.readFacts({
+			authorityLifetime: 'different-lifetime',
+			afterSequence: 0,
+		}),
+	);
+	expect(mismatchedFacts.name).toBe('LifetimeMismatch');
+	const mismatchedSubmission = expectErr(
+		authority.submit({
+			...request,
+			authorityLifetime: 'different-lifetime',
+			submissionNumber: 2,
+		}),
+	);
+	expect(mismatchedSubmission.name).toBe('LifetimeMismatch');
+
+	return {
+		initial: { ...initial, authorityLifetime: '<lifetime>' },
+		settled: { ...settled, authorityLifetime: '<lifetime>' },
+		facts: { ...facts, authorityLifetime: '<lifetime>' },
+		retry: { ...retry, authorityLifetime: '<lifetime>' },
+		refusals: [
+			fork.name,
+			gap.name,
+			mismatchedFacts.name,
+			mismatchedSubmission.name,
+		],
+	};
+}
+
+test('Bun and Cloudflare expose identical scalar V1 behavior', async () => {
+	const adapters = [
+		{ name: 'Bun', setup: setupBun },
+		{ name: 'Cloudflare', setup: setupCloudflare },
+	] as const;
+	let reference: Awaited<ReturnType<typeof exerciseAdapter>> | undefined;
+
+	for (const adapter of adapters) {
+		const context = await adapter.setup();
+		try {
+			const observed = await exerciseAdapter(context.authority);
+			if (reference === undefined) {
+				reference = observed;
+			} else {
+				expect(observed, `${adapter.name} diverged from Bun`).toEqual(
+					reference,
+				);
+			}
+		} finally {
+			context.cleanup();
+		}
+	}
 });

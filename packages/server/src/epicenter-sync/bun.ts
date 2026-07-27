@@ -1,28 +1,28 @@
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type {
-	ExchangeRequest,
-	ExchangeResponse,
-	RowAddress,
-} from '@epicenter/data/protocol';
+import type { RowAddress } from '@epicenter/data/protocol';
 import type { PrincipalId } from '@epicenter/identity';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Hono, MiddlewareHandler } from 'hono';
 
 import type { Env } from '../types.js';
-import { openEpicenterSyncAuthority } from './authority.js';
 import {
 	createEpicenterDocumentStore,
 	type DocumentAppendOutcome,
 	type DocumentReadOutcome,
 	type EpicenterDocumentStore,
 } from './document-store.js';
-import { mountDocumentSyncRoute, mountEpicenterSyncRoute } from './route.js';
+import { mountDocumentSyncRoute } from './route.js';
+import {
+	type EpicenterSyncV1Authority,
+	openEpicenterSyncV1Authority,
+} from './v1-authority.js';
+import { mountEpicenterSyncV1Route } from './v1-route.js';
 
 type OpenPrincipalAuthority = {
 	raw: Database;
-	exchange(request: ExchangeRequest): ExchangeResponse;
+	scalar: EpicenterSyncV1Authority;
 	documents: EpicenterDocumentStore;
 };
 
@@ -71,13 +71,20 @@ export function createBunEpicenterSyncRuntime({ dir }: { dir: string }) {
 		try {
 			raw.run('PRAGMA journal_mode = WAL');
 			const database = createBunSqliteAdapter(raw);
-			const authority = openEpicenterSyncAuthority({
+			const scalar = openEpicenterSyncV1Authority({
 				database,
-				readDatabaseSize: () => readDatabaseSize(raw),
+				mintLifetime: () => crypto.randomUUID(),
 			});
+			// Document sync keeps its existing liveness query while scalar storage
+			// moves to the V1 relation. A view preserves that read-only boundary.
+			database.run(
+				`CREATE VIEW IF NOT EXISTS main._authority_row_facts AS
+				SELECT namespace, table_name, row_id, presence
+				FROM main._authority_v1_row_facts`,
+			);
 			const opened = {
 				raw,
-				exchange: authority.exchange,
+				scalar,
 				documents: createEpicenterDocumentStore(database, {
 					readDatabaseSize: () => readDatabaseSize(raw),
 				}),
@@ -91,8 +98,8 @@ export function createBunEpicenterSyncRuntime({ dir }: { dir: string }) {
 	}
 
 	return {
-		locateAuthority: (principalId: PrincipalId) => (request: ExchangeRequest) =>
-			load(principalId).exchange(request),
+		locateAuthority: (principalId: PrincipalId): EpicenterSyncV1Authority =>
+			load(principalId).scalar,
 		publishDocument: (
 			principalId: PrincipalId,
 			address: RowAddress,
@@ -118,7 +125,7 @@ export type BunEpicenterSyncRuntime = ReturnType<
 	typeof createBunEpicenterSyncRuntime
 >;
 
-/** Mount the Bun scalar exchange and row-document HTTP sync routes. */
+/** Mount the Bun scalar V1 operations and row-document HTTP sync routes. */
 export function mountBunEpicenterSyncApp<E extends Env = Env>(
 	app: Hono<E>,
 	{
@@ -129,7 +136,7 @@ export function mountBunEpicenterSyncApp<E extends Env = Env>(
 		runtime: BunEpicenterSyncRuntime;
 	},
 ): void {
-	mountEpicenterSyncRoute(app, {
+	mountEpicenterSyncV1Route(app, {
 		auth,
 		locateAuthority: runtime.locateAuthority,
 	});

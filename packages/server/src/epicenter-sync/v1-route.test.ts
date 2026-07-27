@@ -260,3 +260,59 @@ test('a structurally invalid submission is invalid input', async () => {
 	});
 	raw.close();
 });
+
+/**
+ * The Cloudflare authority lives behind a Durable Object stub, so every call
+ * returns a promise even though the implementation underneath is synchronous.
+ * The route was written against the in-process Bun authority and destructured
+ * the result directly, which turned every Workers response into `undefined`
+ * data and `undefined` error, and then a 500 while formatting the refusal.
+ *
+ * Nothing in the Bun path can catch that, so this drives the same authority
+ * through a promise-returning facade, exactly as a stub presents it.
+ */
+test('an authority that answers asynchronously works through both routes', async () => {
+	const raw = new Database(':memory:', { strict: true });
+	const database = createBunSqliteAdapter(raw);
+	const authority = openEpicenterSyncV1Authority({
+		database,
+		limits,
+		mintLifetime: () => LIFETIME,
+	});
+	const app = new Hono<Env>();
+	app.use('*', async (c, next) => {
+		c.set('principal', { id: asPrincipalId('alice') });
+		await next();
+	});
+	app.route(
+		'/',
+		createEpicenterSyncV1App(() => ({
+			// A stub hands back promises, never the value itself.
+			readFacts: async (request: unknown) => authority.readFacts(request),
+			submit: async (request: unknown) => authority.submit(request),
+		})),
+	);
+
+	const settled = await app.request('/api/sync/v1/submissions', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(submission(1, [setValue('theme', 'dark')])),
+	});
+	expect(settled.status).toBe(200);
+	expectOk(parseSubmissionResponse((await settled.json()) as unknown, limits));
+
+	const facts = await app.request('/api/sync/v1/facts?afterSequence=0');
+	expect(facts.status).toBe(200);
+	expectOk(parseFactsResponse((await facts.json()) as unknown, limits));
+
+	// A refusal must survive the same asynchrony rather than becoming a 500.
+	const mismatch = await app.request(
+		'/api/sync/v1/facts?afterSequence=0&authorityLifetime=someone-else',
+	);
+	expect(mismatch.status).toBe(409);
+	expect((await mismatch.json()) as unknown).toEqual({
+		error: 'lifetime-mismatch',
+		activeLifetime: LIFETIME,
+	});
+	raw.close();
+});
