@@ -1,11 +1,10 @@
 import type { SyncAuthClient } from '@epicenter/auth';
-import type {
-	Epicenter,
-	Exchange,
-	SyncCredentialProvider,
+import {
+	createHttpScalarTransport,
+	type Epicenter,
+	type SyncCredentialProvider,
 } from '@epicenter/data';
 import { openBrowserEpicenter } from '@epicenter/data/browser';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
 
 type WhisperingAuth = Pick<
 	SyncAuthClient,
@@ -16,26 +15,6 @@ function deploymentUrl(baseUrl: string): URL {
 	const url = new URL(baseUrl);
 	if (!url.pathname.endsWith('/')) url.pathname += '/';
 	return url;
-}
-
-function syncUrl(baseUrl: string): URL {
-	return new URL('api/sync/v1', deploymentUrl(baseUrl));
-}
-
-function createExchange(auth: WhisperingAuth): Exchange {
-	return async (request) => {
-		const response = await auth.fetch(syncUrl(auth.deployment.baseURL), {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(request),
-		});
-		if (!response.ok) {
-			throw new Error(`Epicenter sync failed (${response.status})`);
-		}
-		const parsed = parseExchangeResponse(await response.json());
-		if (parsed.error !== null) throw parsed.error;
-		return parsed.data;
-	};
 }
 
 /** Open this browser origin's replica and attach it on signed-in auth states. */
@@ -51,7 +30,12 @@ export async function openWhisperingBrowserEpicenter({
 		get: () => (auth.state.status === 'signed-in' ? 'available' : undefined),
 		subscribe: (listener) => auth.onStateChange(listener),
 	};
-	const exchange = createExchange(auth);
+	// One shared carrier owns the URL shape and the refusal versus
+	// transport-failure split, so every app reads an authority answer the same way.
+	const transport = createHttpScalarTransport({
+		baseUrl: deploymentUrl(auth.deployment.baseURL).href,
+		fetch: (url, init) => auth.fetch(new URL(url), init),
+	});
 
 	const attachSignedIn = async () => {
 		const state = auth.state;
@@ -62,7 +46,7 @@ export async function openWhisperingBrowserEpicenter({
 		});
 		const result = await browser.attachSync({
 			...attachment,
-			exchange,
+			transport,
 			credentials,
 		});
 		if (result.error !== null) throw result.error;

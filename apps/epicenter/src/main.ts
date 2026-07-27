@@ -16,9 +16,11 @@ import {
 	createEpicenterClient,
 	createOpenAiAgentEngine,
 } from '@epicenter/client';
-import type { SyncCredentialProvider } from '@epicenter/data';
+import {
+	createHttpScalarTransport,
+	type SyncCredentialProvider,
+} from '@epicenter/data';
 import { createDesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
 import { createHttpDocumentTransports } from '@epicenter/document-sync';
 import { loadActiveAppCatalog } from './app-catalog.ts';
 import {
@@ -77,25 +79,17 @@ async function main(): Promise<void> {
 			directory: join(epicenterDataDir, 'data'),
 		});
 		if (auth.bootSnapshot.state.status === 'signed-in') {
-			const syncUrl = new URL('/api/sync/v1', auth.baseURL);
 			const attached = await dataOwner.epicenter.attachSync({
 				deploymentId: new URL(auth.baseURL).href,
 				principalId: auth.bootSnapshot.state.principalId,
 				credentials: documentCredentials,
-				exchange: async (request) => {
-					await documentCredentials.refresh(auth);
-					const response = await authorityFetch(syncUrl, {
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify(request),
-					});
-					if (!response.ok) {
-						throw new Error(`Epicenter sync failed (${response.status})`);
-					}
-					const parsed = parseExchangeResponse(await response.json());
-					if (parsed.error !== null) throw parsed.error;
-					return parsed.data;
-				},
+				transport: createHttpScalarTransport({
+					baseUrl: auth.baseURL,
+					fetch: async (url, init) => {
+						await documentCredentials.refresh(auth);
+						return authorityFetch(new URL(url), init);
+					},
+				}),
 				...createHttpDocumentTransports({
 					baseUrl: auth.baseURL,
 					fetch: async (url, init) => {

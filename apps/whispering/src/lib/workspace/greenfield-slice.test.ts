@@ -4,12 +4,70 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateBlobId } from '@epicenter/blobs';
-import { defineLens } from '@epicenter/data';
+import { defineLens, type ScalarTransport } from '@epicenter/data';
 import { openBunEpicenter } from '@epicenter/data/bun';
 import { InstantString } from '@epicenter/field';
 import { expectOk } from 'wellcrafted/testing';
 import { createBunEpicenterSyncRuntime } from '../../../../../packages/server/src/epicenter-sync/bun';
+import type { EpicenterSyncV1Authority } from '../../../../../packages/server/src/epicenter-sync/v1-authority';
 import { recordingsTable, whisperingSettingValues } from './definition';
+
+/**
+ * Call one in-process authority as a scalar transport.
+ *
+ * The replica only ever talks to a `ScalarTransport`, so a same-process test
+ * needs the authority's typed Result restated as a transport outcome: a refusal
+ * is a value the replica turns into a terminal or corruption error, while
+ * anything else is a response body for the kernel to admit. Skipping this and
+ * throwing on refusal would make a lifetime mismatch look like a network fault.
+ */
+function inProcessTransport(
+	authority: EpicenterSyncV1Authority,
+): ScalarTransport {
+	const outcome = (result: {
+		data: unknown;
+		error: { name: string; [key: string]: unknown } | null;
+	}) => {
+		if (result.error === null) {
+			return { kind: 'response', body: result.data } as const;
+		}
+		switch (result.error.name) {
+			case 'LifetimeMismatch':
+				return {
+					kind: 'refused',
+					refusal: {
+						code: 'lifetime-mismatch',
+						activeLifetime: String(result.error.active),
+					},
+				} as const;
+			case 'SequenceAhead':
+				return {
+					kind: 'refused',
+					refusal: { code: 'sequence-ahead' },
+				} as const;
+			case 'SubmissionFork':
+				return {
+					kind: 'refused',
+					refusal: { code: 'submission-fork' },
+				} as const;
+			case 'SubmissionGap':
+				return {
+					kind: 'refused',
+					refusal: { code: 'submission-gap' },
+				} as const;
+			default:
+				throw new Error(result.error.name);
+		}
+	};
+	return {
+		async readFacts(request) {
+			return outcome(authority.readFacts(request));
+		},
+		async submit(request) {
+			return outcome(authority.submit(request));
+		},
+	};
+}
 
 function recording(title: string, recordedAt: InstantString) {
 	return {
@@ -148,14 +206,18 @@ test('first sign-in freezes attachment and converges through the in-process auth
 			deploymentId: 'https://example.com/',
 			principalId: 'principal-a',
 		});
-		const exchange = authority.locateAuthority('principal-a' as never);
-		expectOk(await first.attachSync({ ...attachment, exchange }));
-		expectOk(await second.attachSync({ ...attachment, exchange }));
+		const transport = inProcessTransport(
+			authority.locateAuthority('principal-a' as never),
+		);
+		expectOk(await first.attachSync({ ...attachment, transport }));
+		expectOk(await second.attachSync({ ...attachment, transport }));
 		expect(expectOk(await secondLanguage.get())).toBe('de');
 		const refused = await second.attachSync({
 			deploymentId: attachment.deploymentId,
 			principalId: 'principal-b',
-			exchange: authority.locateAuthority('principal-b' as never),
+			transport: inProcessTransport(
+				authority.locateAuthority('principal-b' as never),
+			),
 		});
 		expect(refused.error?.name).toBe('WrongAttachment');
 	} finally {
