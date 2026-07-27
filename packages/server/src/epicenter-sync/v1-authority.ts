@@ -52,6 +52,15 @@ export type EpicenterSyncV1Authority = {
 	submit(request: unknown): V1AuthorityResult<SubmissionResponse>;
 };
 
+/**
+ * One bounded step of the sequence-ordered feed over both fact relations.
+ *
+ * The `LIMIT` is what keeps a fresh acquisition from materializing the whole
+ * authority: the scan re-issues this with an advancing cursor instead of
+ * selecting every qualifying fact at once. Both relations index
+ * `authority_sequence`, so each step is an ordered index walk rather than a
+ * sort of everything above the cursor.
+ */
 const FACTS_AFTER_SEQUENCE = `
 	SELECT authority_sequence, 'row' AS fact_kind, namespace,
 		table_name AS local_key, row_id, presence, fields AS payload
@@ -60,7 +69,17 @@ const FACTS_AFTER_SEQUENCE = `
 	SELECT authority_sequence, 'value' AS fact_kind, namespace,
 		value_name AS local_key, NULL AS row_id, presence, content AS payload
 	FROM main._authority_v1_value_facts WHERE authority_sequence > ?
-	ORDER BY authority_sequence`;
+	ORDER BY authority_sequence LIMIT ?`;
+
+/** Whether the snapshot holds any qualifying fact after a cursor. */
+const FACTS_EXIST_AFTER = `
+	SELECT 1 AS present FROM (
+		SELECT authority_sequence FROM main._authority_v1_row_facts
+		WHERE authority_sequence > ?
+		UNION ALL
+		SELECT authority_sequence FROM main._authority_v1_value_facts
+		WHERE authority_sequence > ?
+	) LIMIT 1`;
 
 function readMetadata(database: SqliteDatabase): MetadataRow {
 	const metadata = database.all<MetadataRow>(
@@ -243,42 +262,97 @@ function parseStoredArray<T>(value: string | null, name: string): T[] {
 	return parsed as T[];
 }
 
-function factsResponseEnvelopeBytes(
-	authorityLifetime: string,
-	hasMore: boolean,
-): number {
+/**
+ * Rows fetched per scan step.
+ *
+ * The scan walks forward in bounded steps instead of selecting every qualifying
+ * fact, so one query never materializes more than this many rows however large
+ * the authority has grown. A fresh replica acquiring from zero against a million
+ * facts costs the same peak memory as one against ten.
+ */
+const FACTS_SCAN_CHUNK = 64;
+
+/**
+ * A private ceiling on facts per response.
+ *
+ * ADR-0163 permits this explicitly: "A private count guard may protect one
+ * implementation, but a small fixed fact count is not wire semantics." The byte
+ * budget is the real limit and usually binds first; this only stops a page of
+ * pathologically tiny facts from building an unbounded array. `hasMore` is
+ * probed independently, so stopping here is indistinguishable to a client from
+ * stopping on bytes.
+ */
+const MAX_FACTS_PER_RESPONSE = 4096;
+
+/**
+ * Canonical bytes of the response envelope around an empty fact array.
+ *
+ * Measured with the terminal `hasMore:false`, whose spelling is one byte longer
+ * than `true`. Using the larger of the two for every fit check is conservative
+ * in the only direction that matters: a prefix admitted here can never overflow
+ * once the real flag is known, and it matches how `validateLimits` derives the
+ * minimum response ceiling.
+ */
+function factsResponseEnvelopeBytes(authorityLifetime: string): number {
 	return utf8ByteLength(
-		canonicalize({ authorityLifetime, facts: [], hasMore }),
+		canonicalize({ authorityLifetime, facts: [], hasMore: false }),
 	);
 }
 
-function packFactsResponse(
+/**
+ * Read the largest sequence-ordered prefix of qualifying facts that fits the
+ * response budget, in bounded steps.
+ *
+ * Runs inside the caller's transaction, so every step and the trailing
+ * `hasMore` probe observe one snapshot: `hasMore` reports whether that same
+ * snapshot held another qualifying fact after the returned prefix, which is
+ * exactly what ADR-0163 requires of it.
+ *
+ * Because `validateLimits` guarantees one maximum-size fact always fits, a
+ * non-empty qualifying set always yields a non-empty prefix, so an empty
+ * response can never claim more.
+ */
+function readFactsPage(
+	database: SqliteDatabase,
 	authorityLifetime: string,
-	qualifying: readonly Fact[],
+	afterSequence: number,
 	limits: ValidatedLimits,
 ): FactsResponse {
-	let factBytes = 0;
-	let prefixCount = 0;
-	for (let index = 0; index < qualifying.length; index += 1) {
-		const fact = qualifying[index];
-		if (fact === undefined) break;
-		factBytes += encodedFactBytes(fact);
-		const hasMore = index + 1 < qualifying.length;
-		const candidateBytes =
-			factsResponseEnvelopeBytes(authorityLifetime, hasMore) +
-			factBytes +
-			index;
-		if (candidateBytes > limits.maxFactsResponseBytes) break;
-		prefixCount = index + 1;
+	const budget = limits.maxFactsResponseBytes;
+	let usedBytes = factsResponseEnvelopeBytes(authorityLifetime);
+	const facts: Fact[] = [];
+	let cursor = afterSequence;
+	let exhausted = false;
+
+	scan: while (facts.length < MAX_FACTS_PER_RESPONSE && !exhausted) {
+		const rows = database.all<FactRow>(FACTS_AFTER_SEQUENCE, [
+			cursor,
+			cursor,
+			FACTS_SCAN_CHUNK,
+		]);
+		if (rows.length < FACTS_SCAN_CHUNK) exhausted = true;
+		for (const row of rows) {
+			const fact = factRowToFact(row);
+			// One comma joins this fact to the previous one.
+			const addedBytes = encodedFactBytes(fact) + (facts.length === 0 ? 0 : 1);
+			if (usedBytes + addedBytes > budget) break scan;
+			facts.push(fact);
+			usedBytes += addedBytes;
+			cursor = fact.sequence;
+			if (facts.length >= MAX_FACTS_PER_RESPONSE) break scan;
+		}
 	}
-	if (qualifying.length > 0 && prefixCount === 0) {
-		throw new Error('Validated V1 limits could not carry one stored fact');
-	}
-	return {
-		authorityLifetime,
-		facts: qualifying.slice(0, prefixCount),
-		hasMore: prefixCount < qualifying.length,
-	};
+
+	// Probed rather than inferred from the scan: the loop can stop on bytes, on
+	// the count guard, or on exhaustion, and only a lookup answers whether the
+	// snapshot really holds more after what is being returned.
+	const hasMore =
+		database.all<SqliteRow & { present: number }>(FACTS_EXIST_AFTER, [
+			cursor,
+			cursor,
+		]).length > 0;
+
+	return { authorityLifetime, facts, hasMore };
 }
 
 /**
@@ -327,14 +401,13 @@ export function openEpicenterSyncV1Authority({
 						activeSequence,
 					});
 				}
-				const qualifying = database
-					.all<FactRow>(FACTS_AFTER_SEQUENCE, [
-						request.afterSequence,
-						request.afterSequence,
-					])
-					.map(factRowToFact);
 				return Ok(
-					packFactsResponse(metadata.authority_lifetime, qualifying, limits),
+					readFactsPage(
+						database,
+						metadata.authority_lifetime,
+						request.afterSequence,
+						limits,
+					),
 				);
 			});
 		},

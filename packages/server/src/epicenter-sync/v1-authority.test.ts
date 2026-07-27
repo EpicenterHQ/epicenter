@@ -23,9 +23,13 @@ import {
 	type ValueAddress,
 	validateLimits,
 } from '@epicenter/data/protocol/v1';
+import type { SqliteDatabase, SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openEpicenterSyncV1Authority } from './v1-authority.js';
+import {
+	type EpicenterSyncV1Authority,
+	openEpicenterSyncV1Authority,
+} from './v1-authority.js';
 
 /**
  * Test ceilings, built through the real mandatory validator.
@@ -461,5 +465,143 @@ test('sequence exhaustion rolls back every staged fact', () => {
 			)
 			.get()?.count,
 	).toBe(0);
+	raw.close();
+});
+
+/**
+ * A counting adapter that records how many rows each query materialized.
+ *
+ * Acquisition cost is the thing under test, and it is invisible to a response
+ * assertion: a `readFacts` that selects every qualifying fact and then slices a
+ * byte prefix returns exactly the same bytes as one that walks in bounded
+ * steps. Only the work done to produce them differs, so the test has to watch
+ * the queries.
+ */
+function countingAdapter(database: SqliteDatabase) {
+	let maxRowsInOneQuery = 0;
+	let totalRowsRead = 0;
+	const counting: SqliteDatabase = {
+		run: (sql, parameters) => database.run(sql, parameters),
+		transaction: (run) => database.transaction(run),
+		all: <TRow extends SqliteRow>(
+			sql: string,
+			parameters?: readonly SqliteValue[],
+		): TRow[] => {
+			const rows = database.all<TRow>(sql, parameters);
+			// Only the fact feed matters here; metadata and replica lookups are O(1).
+			if (sql.includes('_authority_v1_row_facts')) {
+				maxRowsInOneQuery = Math.max(maxRowsInOneQuery, rows.length);
+				totalRowsRead += rows.length;
+			}
+			return rows;
+		},
+	};
+	return {
+		counting,
+		get maxRowsInOneQuery() {
+			return maxRowsInOneQuery;
+		},
+		get totalRowsRead() {
+			return totalRowsRead;
+		},
+	};
+}
+
+/** Fill an authority with `count` small value facts, in bounded submissions. */
+function seedValueFacts(authority: EpicenterSyncV1Authority, count: number) {
+	let submissionNumber = 1;
+	for (let start = 0; start < count; start += 32) {
+		const intents: Intent[] = [];
+		for (let index = start; index < Math.min(start + 32, count); index += 1) {
+			intents.push(setValue(valueAt(`v${index}`), 'x'));
+		}
+		expectOk(authority.submit(submission(submissionNumber, intents)));
+		submissionNumber += 1;
+	}
+}
+
+test('acquisition work is bounded independently of total authority size', () => {
+	// One page holds only a handful of facts, so every authority below needs
+	// many pages to drain. What must not grow is the work for a single page.
+	const limits = makeLimits({ maxFactsResponseBytes: 6_000 });
+
+	function measureFirstPage(factCount: number) {
+		const raw = new Database(':memory:', { strict: true });
+		const database = createBunSqliteAdapter(raw);
+		const seeding = openEpicenterSyncV1Authority({
+			database,
+			limits,
+			mintLifetime: () => LIFETIME,
+		});
+		seedValueFacts(seeding, factCount);
+
+		const meter = countingAdapter(database);
+		const authority = openEpicenterSyncV1Authority({
+			database: meter.counting,
+			limits,
+			mintLifetime: () => LIFETIME,
+		});
+		const page = expectOk(authority.readFacts({ afterSequence: 0 }));
+		expectOk(parseFactsResponse(page, limits));
+		raw.close();
+		return {
+			returned: page.facts.length,
+			hasMore: page.hasMore,
+			maxRowsInOneQuery: meter.maxRowsInOneQuery,
+			totalRowsRead: meter.totalRowsRead,
+		};
+	}
+
+	const small = measureFirstPage(100);
+	const large = measureFirstPage(2_000);
+
+	// The page itself is identical: same facts, same continuation.
+	expect(large.returned).toBe(small.returned);
+	expect(small.hasMore).toBe(true);
+	expect(large.hasMore).toBe(true);
+
+	// And so is the work. A twentyfold larger authority reads no more rows for
+	// the same page. The implementation this replaces read every qualifying
+	// fact first, so `totalRowsRead` was 100 and then 2000.
+	expect(large.totalRowsRead).toBe(small.totalRowsRead);
+	expect(large.maxRowsInOneQuery).toBe(small.maxRowsInOneQuery);
+	expect(large.totalRowsRead).toBeLessThan(200);
+});
+
+test('a bounded scan still drains a large authority with no skips or repeats', () => {
+	const limits = makeLimits({ maxFactsResponseBytes: 6_000 });
+	const raw = new Database(':memory:', { strict: true });
+	const database = createBunSqliteAdapter(raw);
+	const authority = openEpicenterSyncV1Authority({
+		database,
+		limits,
+		mintLifetime: () => LIFETIME,
+	});
+	const total = 500;
+	seedValueFacts(authority, total);
+
+	const seen: number[] = [];
+	let afterSequence = 0;
+	for (;;) {
+		const page = expectOk(
+			authority.readFacts({
+				afterSequence,
+				...(afterSequence === 0 ? {} : { authorityLifetime: LIFETIME }),
+			}),
+		);
+		expectOk(parseFactsResponse(page, limits));
+		if (page.facts.length === 0) {
+			expect(page.hasMore).toBe(false);
+			break;
+		}
+		seen.push(...page.facts.map((fact) => fact.sequence));
+		afterSequence = page.facts.at(-1)?.sequence ?? afterSequence;
+		if (!page.hasMore) break;
+	}
+
+	expect(seen).toHaveLength(total);
+	expect(new Set(seen).size).toBe(total);
+	// Strictly increasing across page boundaries: nothing skipped, nothing repeated.
+	expect(seen).toEqual([...seen].sort((left, right) => left - right));
 	raw.close();
 });
