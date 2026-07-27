@@ -480,6 +480,75 @@ export function readVisibleFact(
 	return current;
 }
 
+/**
+ * Recompute the materialized visible projection at one address.
+ *
+ * Called after every mutation of a fact or an intent, and only ever from
+ * inside the caller's transaction, so the projection commits with the change
+ * that caused it and can never be observed disagreeing with the fold.
+ *
+ * Deliberately recomputed from `readVisibleFact` rather than patched
+ * incrementally: the projection is derived state, and deriving it the one way
+ * it is defined means a new fold rule cannot leave a stale incremental update
+ * path behind that quietly disagrees.
+ */
+export function refreshVisible(
+	database: SqliteDatabase,
+	address: Address,
+): void {
+	const visible = readVisibleFact(database, address);
+	if (address.kind === 'row') {
+		const { namespace, tableName, rowId } = address;
+		if (visible === undefined) {
+			database.run(
+				`DELETE FROM main._replica_v1_visible_rows
+				WHERE namespace = ? AND table_name = ? AND row_id = ?`,
+				[namespace, tableName, rowId],
+			);
+			return;
+		}
+		database.run(
+			`INSERT INTO main._replica_v1_visible_rows (
+				namespace, table_name, row_id, presence, fields
+			) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (namespace, table_name, row_id) DO UPDATE SET
+				presence = excluded.presence,
+				fields = excluded.fields`,
+			[
+				namespace,
+				tableName,
+				rowId,
+				visible.presence,
+				'fields' in visible ? JSON.stringify(visible.fields) : null,
+			],
+		);
+		return;
+	}
+	const { namespace, valueName } = address;
+	if (visible === undefined) {
+		database.run(
+			`DELETE FROM main._replica_v1_visible_values
+			WHERE namespace = ? AND value_name = ?`,
+			[namespace, valueName],
+		);
+		return;
+	}
+	database.run(
+		`INSERT INTO main._replica_v1_visible_values (
+			namespace, value_name, presence, content
+		) VALUES (?, ?, ?, ?)
+		ON CONFLICT (namespace, value_name) DO UPDATE SET
+			presence = excluded.presence,
+			content = excluded.content`,
+		[
+			namespace,
+			valueName,
+			visible.presence,
+			'content' in visible ? JSON.stringify(visible.content) : null,
+		],
+	);
+}
+
 // ---------------------------------------------------------------------------
 // Parked diagnostics
 // ---------------------------------------------------------------------------
@@ -573,6 +642,7 @@ export function applyLocalWrite(
 
 	if (compactable === undefined) {
 		insertIntent(database, nextLocalSequence, 'pending', intent);
+		refreshVisible(database, intent.address);
 		return { applied: true };
 	}
 
@@ -582,6 +652,7 @@ export function applyLocalWrite(
 	deleteIntentAt(database, intent.address, compactable.state);
 	clearParked(database, intent.address);
 	insertIntent(database, nextLocalSequence, 'pending', composed);
+	refreshVisible(database, intent.address);
 	return { applied: true };
 }
 
@@ -641,6 +712,7 @@ export function installConfirmedFact(
 		clearParked(database, fact.address);
 	}
 
+	refreshVisible(database, fact.address);
 	return { installed: true, identical: true };
 }
 
@@ -680,11 +752,13 @@ export function parkIntent(
 		deleteIntentAt(database, address, 'pending');
 		insertIntent(database, nextLocalSequence, 'pending', composed);
 		clearParked(database, address);
+		refreshVisible(database, address);
 		return;
 	}
 
 	insertIntent(database, nextLocalSequence, 'parked', sealedIntent);
 	writeParked(database, parked);
+	refreshVisible(database, address);
 }
 
 export type { Address, Fact, Intent, ParkedIntent };
@@ -723,41 +797,21 @@ export function readVisibleRowPage(
 	limit: number,
 	after: string | undefined,
 ): VisibleRowPage {
-	const rows: { rowId: string; fields: JsonObject }[] = [];
-	let cursor = after;
-
-	while (rows.length <= limit) {
-		const candidates = database.all<SqliteRow & { row_id: string }>(
-			`SELECT row_id FROM (
-				SELECT row_id FROM main._replica_v1_row_facts
-				WHERE namespace = ? AND table_name = ?
-				UNION
-				SELECT row_id FROM main._replica_v1_row_intents
-				WHERE namespace = ? AND table_name = ?
-			)
-			${cursor === undefined ? '' : 'WHERE row_id > ?'}
-			ORDER BY row_id ASC LIMIT ?`,
-			cursor === undefined
-				? [namespace, tableName, namespace, tableName, limit + 1]
-				: [namespace, tableName, namespace, tableName, cursor, limit + 1],
-		);
-		if (candidates.length === 0) break;
-
-		for (const candidate of candidates) {
-			cursor = candidate.row_id;
-			const visible = readVisibleFact(database, {
-				kind: 'row',
-				namespace,
-				tableName,
-				rowId: candidate.row_id,
-			});
-			if (visible === undefined || !('fields' in visible)) continue;
-			rows.push({ rowId: candidate.row_id, fields: visible.fields });
-			if (rows.length > limit) break;
-		}
-		if (candidates.length <= limit) break;
-	}
-
+	const rows = database.all<SqliteRow & { row_id: string; fields: string }>(
+		`SELECT row_id, fields FROM main._replica_v1_visible_rows
+		WHERE namespace = ? AND table_name = ? AND presence = 'present'
+		${after === undefined ? '' : 'AND row_id > ?'}
+		ORDER BY row_id ASC LIMIT ?`,
+		after === undefined
+			? [namespace, tableName, limit + 1]
+			: [namespace, tableName, after, limit + 1],
+	);
 	const hasNext = rows.length > limit;
-	return { rows: hasNext ? rows.slice(0, limit) : rows, hasNext };
+	return {
+		rows: (hasNext ? rows.slice(0, limit) : rows).map((row) => ({
+			rowId: row.row_id,
+			fields: JSON.parse(row.fields) as JsonObject,
+		})),
+		hasNext,
+	};
 }

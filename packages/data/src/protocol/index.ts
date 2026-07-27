@@ -1,3 +1,16 @@
+/**
+ * The shared address vocabulary and its byte ceilings.
+ *
+ * The scalar wire protocol itself lives in `./v1/`, which is the one place a
+ * fact, an intent, or an operation is defined. This barrel is what survives of
+ * the combined exchange it replaced: the structured address grammar, its
+ * ceilings, and the canonical JSON encoder, all of which outlived that protocol
+ * because they were never part of it.
+ *
+ * Address shape has exactly one owner (`./addresses.ts`), shared by the kernel,
+ * the replica, the authority, and the inspection host, so a coordinate rename
+ * is one edit rather than four that can drift.
+ */
 export {
 	type Address,
 	type AddressByteCeilings,
@@ -20,52 +33,13 @@ export {
 } from './addresses.js';
 export {
 	DATA_ADDRESS_CEILINGS,
-	DATA_ADMISSION_LIMITS,
 	encodedBytes,
 	encodedJsonBytes,
-	isAdmissibleFact,
-	isAdmissibleIntent,
-	isJsonObject,
-	isJsonValue,
 } from './admission.js';
 export { canonicalJson, sha256Hex } from './canonical.js';
-export { type FoldResult, foldIntent } from './fold.js';
 export {
-	type Batch,
-	BatchSchema,
-	type Cursor,
-	CursorSchema,
-	type ExchangeRequest,
-	ExchangeRequestSchema,
-	type ExchangeResponse,
-	ExchangeResponseSchema,
-	type ExchangeSuccess,
-	type Fact,
-	FactSchema,
-	type Intent,
-	IntentSchema,
+	isJsonObject,
+	isJsonValue,
 	type JsonObject,
 	type JsonValue,
-	type LocalFact,
-	ProtocolValidationError,
-	parseExchangeRequest,
-	parseExchangeResponse,
-	parseFact,
-	parseIntent,
-	parseJsonValue,
-	parseReplicaId,
-	parseRowId,
-	type Receipt,
-	ReceiptSchema,
-	type ReplicaId,
-	ReplicaIdSchema,
-	type RowId,
-	RowIdSchema,
-} from './schemas.js';
-
-import { canonicalJson, sha256Hex } from './canonical.js';
-import type { Intent } from './schemas.js';
-
-export function batchDigest(intents: readonly Intent[]): string {
-	return sha256Hex(canonicalJson(intents));
-}
+} from './v1/json.js';

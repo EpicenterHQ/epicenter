@@ -15,7 +15,7 @@
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 
-import { REPLICA_TABLES } from '../replica/schema.js';
+import { REPLICA_V1_TABLES } from '../replica/v1-schema.js';
 import {
 	DATA_ADDRESS_CEILINGS,
 	isTableName,
@@ -103,7 +103,7 @@ test('every admitted table name mounts and selects without quoting', () => {
 test('no relation the replica owns can be named by a Lens', () => {
 	// The reserved-name theorem. Every private relation is either underscore
 	// prefixed, which the grammar cannot express, or explicitly reserved.
-	for (const relation of REPLICA_TABLES) {
+	for (const relation of REPLICA_V1_TABLES) {
 		expect(isTableName(relation, DATA_ADDRESS_CEILINGS)).toBe(false);
 	}
 	for (const relation of ['_epicenter_rows', '_epicenter_values']) {

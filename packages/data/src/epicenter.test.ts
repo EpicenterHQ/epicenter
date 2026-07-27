@@ -9,8 +9,8 @@
  *   fail when the Lens is declared, before any storage work
  * - Conforming rows and values round-trip while invalid stored data is classified
  * - Local and synchronized commits notify borrowed lenses
- * - Row documents persist locally and are revoked by row deletion through any
- *   lens, including one that never opened the document
+ * - Row documents persist locally and are revoked by settled row deletion
+ *   through any lens, including one that never opened the document
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
@@ -29,11 +29,28 @@ import {
 	optional,
 } from './definitions.js';
 import { createEpicenter, createTableReadMethods } from './epicenter.js';
-import { openReplica } from './replica/index.js';
+import {
+	type AuthorityState,
+	createAuthority,
+	type Intent,
+	parseFactsRequest,
+	parseSubmissionRequest,
+	readFacts,
+	SCALAR_V1_LIMITS,
+	type SubmissionRequest,
+	submit,
+} from './protocol/v1/index.js';
+import {
+	openReplicaV1,
+	type ScalarTransport,
+	type TransportOutcome,
+} from './replica/v1-replica.js';
 
 const TEST_NAMESPACE = 'so.epicenter.tests';
 const REMOTE_ROW_A = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const REMOTE_ROW_B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+const AUTHORITY_LIFETIME = 'epicenter-test-lifetime';
+const REMOTE_REPLICA_ID = 'remoterrrrrrrrrrrrrrrrrr';
 const THEME_ADDRESS = {
 	kind: 'value',
 	namespace: TEST_NAMESPACE,
@@ -65,9 +82,80 @@ const themeDefinition = defineValue({
 function setup(log?: Logger) {
 	const rawDatabase = new Database(':memory:');
 	const database = createBunSqliteAdapter(rawDatabase);
-	const replica = expectOk(openReplica({ database }));
+	const replica = expectOk(openReplicaV1({ database }));
 	const epicenter = createEpicenter({ replica, database, log });
 	return { rawDatabase, database, replica, epicenter };
+}
+
+function createScriptedAuthority(lifetime = AUTHORITY_LIFETIME) {
+	let state: AuthorityState = expectOk(
+		createAuthority(lifetime, SCALAR_V1_LIMITS),
+	);
+
+	const transport: ScalarTransport = {
+		async readFacts(request): Promise<TransportOutcome> {
+			const admitted = parseFactsRequest(request, SCALAR_V1_LIMITS);
+			if (admitted.error !== null) throw new Error(admitted.error.message);
+			const result = readFacts(state, admitted.data, SCALAR_V1_LIMITS);
+			if (result.error !== null) {
+				return result.error.name === 'LifetimeMismatch'
+					? {
+							kind: 'refused',
+							refusal: {
+								code: 'lifetime-mismatch',
+								activeLifetime: state.lifetime,
+							},
+						}
+					: { kind: 'refused', refusal: { code: 'sequence-ahead' } };
+			}
+			return { kind: 'response', body: result.data };
+		},
+		async submit(request): Promise<TransportOutcome> {
+			const admitted = parseSubmissionRequest(request, SCALAR_V1_LIMITS);
+			if (admitted.error !== null) throw new Error(admitted.error.message);
+			const result = submit(state, admitted.data, SCALAR_V1_LIMITS);
+			if (result.error !== null) {
+				const refusal =
+					result.error.name === 'LifetimeMismatch'
+						? ({
+								code: 'lifetime-mismatch',
+								activeLifetime: state.lifetime,
+							} as const)
+						: result.error.name === 'SubmissionFork'
+							? ({ code: 'submission-fork' } as const)
+							: ({ code: 'submission-gap' } as const);
+				return { kind: 'refused', refusal };
+			}
+			state = result.data.state;
+			return { kind: 'response', body: result.data.response };
+		},
+	};
+
+	return {
+		transport,
+		applyRemote(intents: Intent[], submissionNumber: number) {
+			const request: SubmissionRequest = {
+				authorityLifetime: state.lifetime,
+				replicaId: REMOTE_REPLICA_ID,
+				submissionNumber,
+				intents,
+			};
+			const admitted = expectOk(
+				parseSubmissionRequest(request, SCALAR_V1_LIMITS),
+			);
+			state = expectOk(submit(state, admitted, SCALAR_V1_LIMITS)).state;
+		},
+	};
+}
+
+async function waitFor(
+	predicate: () => boolean | Promise<boolean>,
+): Promise<void> {
+	const deadline = Date.now() + 2_000;
+	while (!(await predicate())) {
+		if (Date.now() > deadline) throw new Error('Timed out waiting for sync');
+		await Bun.sleep(5);
+	}
 }
 
 test('definitions reject invalid lens coordinates and structural field names', () => {
@@ -232,13 +320,19 @@ test('stored nonconforming rows and values are reported without repair', async (
 	const { rawDatabase, replica, epicenter } = setup();
 	expectOk(
 		replica.write({
-			verb: 'patch',
 			address: rowAddress(REMOTE_ROW_A),
+			presence: 'present',
 			set: { title: 42, rank: 1 },
 			unset: [],
 		}),
 	);
-	expectOk(replica.write({ verb: 'set', address: THEME_ADDRESS, content: 42 }));
+	expectOk(
+		replica.write({
+			address: THEME_ADDRESS,
+			presence: 'present',
+			content: 42,
+		}),
+	);
 	const bound = epicenter.bind(
 		defineLens({
 			namespace: TEST_NAMESPACE,
@@ -289,8 +383,8 @@ test('entries streams every classified row across internal batches', async () =>
 	for (const [rank, id] of ids.entries()) {
 		expectOk(
 			replica.write({
-				verb: 'patch',
 				address: rowAddress(id),
+				presence: 'present',
 				set: { title: `Note ${rank}`, rank },
 				unset: [],
 			}),
@@ -346,8 +440,8 @@ test('the current keyset batcher observes inserts ahead of its row-ID boundary, 
 	for (const [rank, id] of initialIds.entries()) {
 		expectOk(
 			replica.write({
-				verb: 'patch',
 				address: rowAddress(id),
+				presence: 'present',
 				set: { title: `Initial ${rank}`, rank },
 				unset: [],
 			}),
@@ -370,8 +464,8 @@ test('the current keyset batcher observes inserts ahead of its row-ID boundary, 
 	] as const) {
 		expectOk(
 			replica.write({
-				verb: 'patch',
 				address: rowAddress(rowId),
+				presence: 'present',
 				set: { title, rank: 300 },
 				unset: [],
 			}),
@@ -458,6 +552,29 @@ test('throwing subscribers are logged without changing committed write results',
 
 test('subscriptions fire once per installed synchronized transaction', async () => {
 	const { rawDatabase, epicenter } = setup();
+	const authority = createScriptedAuthority();
+	authority.applyRemote(
+		[
+			{
+				presence: 'present',
+				address: rowAddress(REMOTE_ROW_A),
+				set: { title: 'A', rank: 1 },
+				unset: [],
+			},
+			{
+				presence: 'present',
+				address: rowAddress(REMOTE_ROW_B),
+				set: { title: 'B', rank: 2 },
+				unset: [],
+			},
+			{
+				presence: 'present',
+				address: THEME_ADDRESS,
+				content: 'remote',
+			},
+		],
+		1,
+	);
 	const bound = epicenter.bind(
 		defineLens({
 			namespace: TEST_NAMESPACE,
@@ -476,32 +593,10 @@ test('subscriptions fire once per installed synchronized transaction', async () 
 		await epicenter.attachSync({
 			deploymentId: 'https://example.com/',
 			principalId: 'principal-a',
-			exchange: () => ({
-				through: 3,
-				facts: [
-					{
-						presence: 'present',
-						address: rowAddress(REMOTE_ROW_A),
-						authoritySequence: 1,
-						fields: { title: 'A', rank: 1 },
-					},
-					{
-						presence: 'present',
-						address: rowAddress(REMOTE_ROW_B),
-						authoritySequence: 2,
-						fields: { title: 'B', rank: 2 },
-					},
-					{
-						presence: 'present',
-						address: THEME_ADDRESS,
-						authoritySequence: 3,
-						content: 'remote',
-					},
-				],
-				next: null,
-			}),
+			transport: authority.transport,
 		}),
 	);
+	await waitFor(() => valueNotifications === 1);
 	expect(rowNotifications).toEqual([[REMOTE_ROW_A, REMOTE_ROW_B]]);
 	expect(valueNotifications).toBe(1);
 	expect(expectOk(await bound.values.theme.get())).toBe('remote');
@@ -510,8 +605,16 @@ test('subscriptions fire once per installed synchronized transaction', async () 
 	rawDatabase.close();
 });
 
-test('row documents persist across opens and deletion revokes live handles', async () => {
-	const { rawDatabase, database, epicenter } = setup();
+test('row documents persist across opens and settled deletion revokes live handles', async () => {
+	const { rawDatabase, database, replica, epicenter } = setup();
+	const authority = createScriptedAuthority();
+	expectOk(
+		replica.attach({
+			deploymentId: 'https://example.com/',
+			principalId: 'principal-a',
+		}),
+	);
+	expectOk(await replica.pullFacts(authority.transport));
 	const notes = epicenter.bind(
 		defineLens({
 			namespace: TEST_NAMESPACE,
@@ -520,6 +623,7 @@ test('row documents persist across opens and deletion revokes live handles', asy
 		}),
 	).tables.notes;
 	const row = await notes.create({ title: 'document', rank: 1 });
+	expectOk(await replica.pushSubmissions(authority.transport));
 	const first = await notes.openDocument(row.id);
 	first.get('content').insert(0, 'persisted');
 	await first.whenDurable();
@@ -535,6 +639,7 @@ test('row documents persist across opens and deletion revokes live handles', asy
 		)[0]?.count,
 	).toBe(1);
 	expect(await notes.delete(row.id)).toBe(true);
+	expectOk(await replica.pushSubmissions(authority.transport));
 	expect(() => reopened.get('content')).toThrow('no longer live');
 	expect(
 		database.all<{ count: number }>(
@@ -550,8 +655,16 @@ test('row documents persist across opens and deletion revokes live handles', asy
 	rawDatabase.close();
 });
 
-test('deletion through an independently authored lens removes document bytes and revokes the other lens', async () => {
-	const { rawDatabase, database, epicenter } = setup();
+test('settled deletion through an independently authored lens removes document bytes and revokes the other lens', async () => {
+	const { rawDatabase, database, replica, epicenter } = setup();
+	const authority = createScriptedAuthority();
+	expectOk(
+		replica.attach({
+			deploymentId: 'https://example.com/',
+			principalId: 'principal-a',
+		}),
+	);
+	expectOk(await replica.pullFacts(authority.transport));
 	const authorA = defineTable({
 		fields: { title: field.string(), rank: field.integer() },
 	});
@@ -574,11 +687,13 @@ test('deletion through an independently authored lens removes document bytes and
 	).tables.notes;
 
 	const row = await lensA.create({ title: 'shared', rank: 1 });
+	expectOk(await replica.pushSubmissions(authority.transport));
 	const document = await lensA.openDocument(row.id);
 	document.get('content').insert(0, 'cross-lens');
 	await document.whenDurable();
 
 	expect(await lensB.delete(row.id)).toBe(true);
+	expectOk(await replica.pushSubmissions(authority.transport));
 	expect(() => document.get('content')).toThrow('no longer live');
 	expect(
 		database.all<{ count: number }>(
@@ -595,6 +710,18 @@ test('deletion through an independently authored lens removes document bytes and
 
 test('installed synchronized deletion removes document bytes and revokes handles', async () => {
 	const { rawDatabase, database, epicenter } = setup();
+	const authority = createScriptedAuthority();
+	authority.applyRemote(
+		[
+			{
+				address: rowAddress(REMOTE_ROW_A),
+				presence: 'present',
+				set: { title: 'remote document', rank: 1 },
+				unset: [],
+			},
+		],
+		1,
+	);
 	const notes = epicenter.bind(
 		defineLens({
 			namespace: TEST_NAMESPACE,
@@ -609,47 +736,37 @@ test('installed synchronized deletion removes document bytes and revokes handles
 	expectOk(
 		await epicenter.attachSync({
 			...session,
-			// The local document edit below wakes an extra exchange cycle, so
-			// the fixture honors the contract: it never re-serves a page the
-			// replica already applied.
-			exchange: (request) => ({
-				through: 1,
-				facts:
-					request.after >= 1
-						? []
-						: [
-								{
-									presence: 'present',
-									address: rowAddress(REMOTE_ROW_A),
-									authoritySequence: 1,
-									fields: { title: 'remote document', rank: 1 },
-								},
-							],
-				next: null,
-			}),
+			transport: authority.transport,
 		}),
+	);
+	await waitFor(
+		async () => expectOk(await notes.get(REMOTE_ROW_A)) !== undefined,
 	);
 	const document = await notes.openDocument(REMOTE_ROW_A);
 	document.get('content').insert(0, 'remove me');
+	authority.applyRemote(
+		[
+			{
+				address: rowAddress(REMOTE_ROW_A),
+				presence: 'absent',
+			},
+		],
+		2,
+	);
 	expectOk(
 		await epicenter.attachSync({
 			...session,
-			exchange: (request) => ({
-				through: 2,
-				facts:
-					request.after >= 2
-						? []
-						: [
-								{
-									presence: 'absent',
-									address: rowAddress(REMOTE_ROW_A),
-									authoritySequence: 2,
-								},
-							],
-				next: null,
-			}),
+			transport: authority.transport,
 		}),
 	);
+	await waitFor(() => {
+		try {
+			document.get('content');
+			return false;
+		} catch {
+			return true;
+		}
+	});
 
 	expect(() => document.get('content')).toThrow('no longer live');
 	expect(

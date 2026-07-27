@@ -6,8 +6,8 @@
  * the append transaction, authority-accepted installs never mint one, capture
  * reconstructs current state so retries are semantically idempotent, settling
  * revision N never clears N+1, `too-large` records a terminal address-scoped
- * issue, row deletion removes chain and obligation together, and explicit
- * pulls deliver accepted state without creating outbound work.
+ * issue, settled row deletion removes chain and obligation together, and
+ * explicit pulls deliver accepted state without creating outbound work.
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
@@ -24,7 +24,22 @@ import {
 	type PullDocument,
 } from './documents.js';
 import type { RowAddress } from './protocol/index.js';
-import { openReplica } from './replica/index.js';
+import {
+	type AuthorityState,
+	createAuthority,
+	parseFactsRequest,
+	parseSubmissionRequest,
+	readFacts,
+	SCALAR_V1_LIMITS,
+	submit,
+} from './protocol/v1/index.js';
+import {
+	openReplicaV1,
+	type ScalarTransport,
+	type TransportOutcome,
+} from './replica/v1-replica.js';
+
+const AUTHORITY_LIFETIME = 'documents-test-lifetime';
 
 function rowId(seed: string): string {
 	return seed
@@ -45,7 +60,7 @@ function address(seed: string): RowAddress {
 function setup({ pull }: { pull?: PullDocument } = {}) {
 	const rawDatabase = new Database(':memory:', { strict: true });
 	const database = createBunSqliteAdapter(rawDatabase);
-	const replica = expectOk(openReplica({ database }));
+	const replica = expectOk(openReplicaV1({ database }));
 	const documents = createDocumentRuntime({
 		database,
 		replica,
@@ -54,8 +69,8 @@ function setup({ pull }: { pull?: PullDocument } = {}) {
 	function createRow(target: RowAddress): void {
 		expectOk(
 			replica.write({
-				verb: 'patch',
 				address: target,
+				presence: 'present',
 				set: { title: 'owned' },
 				unset: [],
 			}),
@@ -71,6 +86,53 @@ function setup({ pull }: { pull?: PullDocument } = {}) {
 		);
 	}
 	return { rawDatabase, database, replica, documents, createRow, chainLength };
+}
+
+function createScriptedAuthority() {
+	let state: AuthorityState = expectOk(
+		createAuthority(AUTHORITY_LIFETIME, SCALAR_V1_LIMITS),
+	);
+
+	const transport: ScalarTransport = {
+		async readFacts(request): Promise<TransportOutcome> {
+			const admitted = parseFactsRequest(request, SCALAR_V1_LIMITS);
+			if (admitted.error !== null) throw new Error(admitted.error.message);
+			const result = readFacts(state, admitted.data, SCALAR_V1_LIMITS);
+			if (result.error !== null) {
+				return result.error.name === 'LifetimeMismatch'
+					? {
+							kind: 'refused',
+							refusal: {
+								code: 'lifetime-mismatch',
+								activeLifetime: state.lifetime,
+							},
+						}
+					: { kind: 'refused', refusal: { code: 'sequence-ahead' } };
+			}
+			return { kind: 'response', body: result.data };
+		},
+		async submit(request): Promise<TransportOutcome> {
+			const admitted = parseSubmissionRequest(request, SCALAR_V1_LIMITS);
+			if (admitted.error !== null) throw new Error(admitted.error.message);
+			const result = submit(state, admitted.data, SCALAR_V1_LIMITS);
+			if (result.error !== null) {
+				const refusal =
+					result.error.name === 'LifetimeMismatch'
+						? ({
+								code: 'lifetime-mismatch',
+								activeLifetime: state.lifetime,
+							} as const)
+						: result.error.name === 'SubmissionFork'
+							? ({ code: 'submission-fork' } as const)
+							: ({ code: 'submission-gap' } as const);
+				return { kind: 'refused', refusal };
+			}
+			state = result.data.state;
+			return { kind: 'response', body: result.data.response };
+		},
+	};
+
+	return { transport };
 }
 
 function encodeText(text: string): Uint8Array {
@@ -227,13 +289,22 @@ test('too-large records a terminal issue that later edits do not resume', async 
 	}
 });
 
-test('row deletion removes the obligation in the same transaction as the chain', async () => {
+test('settled row deletion removes the obligation in the same transaction as the chain', async () => {
 	const context = setup();
 	try {
+		const authority = createScriptedAuthority();
+		expectOk(
+			context.replica.attach({
+				deploymentId: 'https://example.com/',
+				principalId: 'principal-a',
+			}),
+		);
+		expectOk(await context.replica.pullFacts(authority.transport));
 		const doomed = address('doomed');
 		const kept = address('kept');
 		context.createRow(doomed);
 		context.createRow(kept);
+		expectOk(await context.replica.pushSubmissions(authority.transport));
 		for (const target of [doomed, kept]) {
 			const document = await context.documents.open(target);
 			document.transact(() => document.get('content').insert(0, 'owed'));
@@ -242,10 +313,11 @@ test('row deletion removes the obligation in the same transaction as the chain',
 
 		expectOk(
 			context.replica.write({
-				verb: 'delete',
 				address: doomed,
+				presence: 'absent',
 			}),
 		);
+		expectOk(await context.replica.pushSubmissions(authority.transport));
 		expect(context.chainLength(doomed)).toBe(0);
 		expect(context.documents.publication.status(doomed)).toBeUndefined();
 		expect(context.documents.publication.listDirty()).toEqual([kept]);

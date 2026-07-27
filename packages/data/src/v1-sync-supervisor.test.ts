@@ -250,21 +250,22 @@ describe('attach settles the first cycle of both lanes', () => {
 	 * pending work expects it sent. Returning before either lane ran turned both
 	 * into races that only showed up as flaky reads.
 	 */
-	test('both lanes have run once by the time attach resolves', async () => {
+	test('both lanes have run by the time attach resolves', async () => {
 		const { stub, supervisor } = setup();
 
 		await supervisor.attach({ transport });
 
-		expect(stub.factsCalls).toBe(1);
+		// Facts, then submissions, then facts again: the second fact cycle is
+		// where documents drain, and publication needs rows the submissions cycle
+		// has just created at the authority.
+		expect(stub.factsCalls).toBe(2);
 		expect(stub.submissionCalls).toBe(1);
 	});
 
 	test('a transport that never answers leaves attach pending', async () => {
 		const { stub, supervisor } = setup();
-		let resolveFacts: (() => void) | undefined;
-		stub.hangFacts(
-			() => new Promise<void>((resolve) => (resolveFacts = resolve)),
-		);
+		const gates: (() => void)[] = [];
+		stub.hangFacts(() => new Promise<void>((resolve) => gates.push(resolve)));
 
 		let settled = false;
 		const attaching = supervisor.attach({ transport }).then(() => {
@@ -273,7 +274,13 @@ describe('attach settles the first cycle of both lanes', () => {
 		await settle();
 
 		expect(settled).toBe(false);
-		resolveFacts?.();
+		// Release each fact cycle attach waits on, in order.
+		while (!settled) {
+			const gate = gates.shift();
+			if (gate === undefined) break;
+			gate();
+			await settle();
+		}
 		await attaching;
 		expect(settled).toBe(true);
 	});
@@ -366,8 +373,9 @@ describe('documents ride the facts lane', () => {
 		await supervisor.attach({ transport });
 		await settle();
 
-		expect(stub.factsCalls).toBe(1);
-		expect(documentDrains).toHaveLength(1);
+		// Two fact cycles on attach, and documents drain at the tail of each.
+		expect(stub.factsCalls).toBe(2);
+		expect(documentDrains).toHaveLength(2);
 	});
 });
 

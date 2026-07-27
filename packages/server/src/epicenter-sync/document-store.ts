@@ -6,7 +6,15 @@ import {
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import * as Y from '@y/y';
 
-import { AUTHORITY_STORAGE_BYTE_CEILING } from './authority.js';
+/**
+ * The per-principal storage ceiling, in bytes.
+ *
+ * It moved here when the combined-exchange authority was deleted. The scalar V1
+ * authority has no storage refusal of its own, so this relation is the only
+ * remaining owner of the ceiling, and the constant belongs beside the one
+ * operation that still enforces it.
+ */
+export const AUTHORITY_STORAGE_BYTE_CEILING = 10 * 1024 ** 3 - 64 * 1024 ** 2;
 
 type StoredUpdate = SqliteRow & {
 	update_sequence: number;

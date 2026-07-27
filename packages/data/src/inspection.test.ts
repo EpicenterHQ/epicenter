@@ -101,11 +101,11 @@ test('a read-only connection refuses every write but still installs TEMP views',
 		expectOk(inspection.query('SELECT * FROM _epicenter_rows'));
 
 		for (const sql of [
-			`INSERT INTO main._replica_value_facts VALUES ('a.b','c','present','1',1)`,
-			`UPDATE main._replica_row_facts SET presence = 'absent'`,
-			'DELETE FROM main._replica_row_facts',
+			`INSERT INTO main._replica_v1_value_facts VALUES ('a.b','c','present','1',1)`,
+			`UPDATE main._replica_v1_row_facts SET presence = 'absent'`,
+			'DELETE FROM main._replica_v1_row_facts',
 			'CREATE TABLE main.evil (a INTEGER)',
-			'DROP TABLE main._replica_row_facts',
+			'DROP TABLE main._replica_v1_row_facts',
 			// A connection cannot even promote itself to a mode with looser rules.
 			'PRAGMA journal_mode = WAL',
 		]) {
@@ -223,8 +223,17 @@ describe('friendly Lens tables', () => {
 		const { data, first } = await seed();
 		// Write a number where the Lens declares text, behind the typed API.
 		const writer = new Database(path);
+		// Planted in both the local intent and the visible projection, because the
+		// typed read folds intents while inspection reads the projection. A raw
+		// writer cannot call the store's refresh, so it mirrors what that refresh
+		// would have derived.
 		writer.run(
-			`UPDATE main._replica_row_facts
+			`UPDATE main._replica_v1_row_intents
+			 SET set_fields = json_set(set_fields, '$.title', 42)
+			 WHERE json_extract(set_fields, '$.title') = 'First'`,
+		);
+		writer.run(
+			`UPDATE main._replica_v1_visible_rows
 			 SET fields = json_set(fields, '$.title', 42)
 			 WHERE json_extract(fields, '$.title') = 'First'`,
 		);
@@ -286,7 +295,7 @@ describe('friendly Lens tables', () => {
 		await seed();
 		const writer = new Database(path);
 		writer.run(
-			`UPDATE main._replica_row_facts
+			`UPDATE main._replica_v1_visible_rows
 			 SET fields = json_set(fields, '$.wordCount', NULL)
 			 WHERE json_extract(fields, '$.title') = 'Second'`,
 		);
@@ -411,7 +420,7 @@ test('one submitted statement never runs a trailing statement', async () => {
 		// on two independent grounds; this pins the first one.
 		const result = expectOk(
 			inspection.query(
-				"SELECT 1 AS a; INSERT INTO main._replica_value_facts VALUES ('a.b','c','present','1',1)",
+				"SELECT 1 AS a; INSERT INTO main._replica_v1_value_facts VALUES ('a.b','c','present','1',1)",
 			),
 		);
 		expect(result.rows).toEqual([{ a: 1 }]);
@@ -419,15 +428,17 @@ test('one submitted statement never runs a trailing statement', async () => {
 		inspection.close();
 	}
 
-	// Nothing was written by the ignored trailing statement.
+	// Nothing was written by the ignored trailing statement. The seeded value is
+	// unsettled local work, so it lives in the intent relations and the visible
+	// projection; the fact relation holds authority truth and is still empty.
 	const reader = new Database(path, { readonly: true });
 	expect(
 		reader
 			.query<{ n: number }, []>(
-				'SELECT COUNT(*) AS n FROM main._replica_value_facts',
+				'SELECT COUNT(*) AS n FROM main._replica_v1_value_facts',
 			)
 			.get()?.n,
-	).toBe(1);
+	).toBe(0);
 	reader.close();
 });
 

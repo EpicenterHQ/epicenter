@@ -457,14 +457,23 @@ export function createSyncSupervisorV1({
 				publishStatus();
 				return Ok(undefined);
 			}
-			// Facts first so a fresh replica binds the authority lifetime before the
-			// submissions lane has anything it is allowed to send (ADR-0163), then
-			// settle local work. Awaited because `attach` promises the first cycle
-			// was attempted: a caller that attaches and immediately reads expects to
-			// see what the authority already had, and a transport that hangs must
-			// leave attach pending rather than reporting success it cannot support.
+			// Three ordered steps, because each needs the one before it.
+			//
+			// Facts first, so a fresh replica binds the authority lifetime before
+			// the submissions lane has anything it is allowed to send (ADR-0163).
+			// Then submissions, so rows this replica created offline exist at the
+			// authority. Then facts again, whose tail is where documents drain:
+			// publication is refused for a row the authority has never seen, so
+			// draining before the rows are submitted would owe work that cannot
+			// succeed until the next periodic wake.
+			//
+			// Awaited because `attach` promises the first cycle was attempted: a
+			// caller that attaches and immediately reads expects to see what the
+			// authority already had, and a transport that hangs must leave attach
+			// pending rather than report success it cannot support.
 			await requestFactsCycle();
 			await submissions.request();
+			await requestFactsCycle();
 			return Ok(undefined);
 		},
 

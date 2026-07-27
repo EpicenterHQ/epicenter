@@ -21,6 +21,7 @@ import {
 	type RowAddress,
 	type ValueAddress,
 } from './protocol/index.js';
+import { SCALAR_V1_LIMITS } from './protocol/v1/index.js';
 
 type FieldSchemas = Record<string, TSchema>;
 
@@ -485,6 +486,11 @@ function freezeJson<TValue>(value: TValue): TValue {
 }
 
 function cloneJsonValue(value: unknown): JsonValue {
-	if (!isJsonValue(value)) throw new TypeError('Value must be finite JSON');
+	// Checked against the shipped wire ceilings rather than a shape-only guard:
+	// a Lens value that cannot be encoded as a fact is worth refusing where it is
+	// authored, not one round trip later when the authority declines it.
+	if (!isJsonValue(value, SCALAR_V1_LIMITS)) {
+		throw new TypeError('Value must be finite JSON');
+	}
 	return structuredClone(value);
 }

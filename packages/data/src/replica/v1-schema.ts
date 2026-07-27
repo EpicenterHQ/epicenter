@@ -150,6 +150,45 @@ const SCHEMA = [
 			(presence = 'absent' AND content IS NULL)
 		)
 	) STRICT`,
+	// The materialized visible projection: the fold of confirmed facts with local
+	// intents, kept current on every mutation.
+	//
+	// ADR-0163 permits exactly this and bounds it precisely: "A private
+	// materialized visible table or pending-address shadow is permitted only as an
+	// optimization of these invariants, never as the sole copy of authority
+	// truth." It is derived state. The fact relations remain authority truth and
+	// the intent relations remain local truth; nothing is read from here that
+	// could not be recomputed by folding those two.
+	//
+	// It exists because two readers need visible state without folding: a table
+	// scan, which would otherwise fold every candidate row, and the read-only
+	// inspection host, which mounts SQL views and cannot call the kernel fold at
+	// all. Without it, `SELECT * FROM notes` would show authority truth rather
+	// than what the application sees, and a row the user just created would be
+	// missing from its own table.
+	`CREATE TABLE main._replica_v1_visible_rows (
+		namespace TEXT NOT NULL,
+		table_name TEXT NOT NULL,
+		row_id TEXT NOT NULL,
+		presence TEXT NOT NULL CHECK (presence IN ('present', 'absent')),
+		fields TEXT,
+		PRIMARY KEY (namespace, table_name, row_id),
+		CHECK (
+			(presence = 'present' AND fields IS NOT NULL AND json_valid(fields)) OR
+			(presence = 'absent' AND fields IS NULL)
+		)
+	) WITHOUT ROWID, STRICT`,
+	`CREATE TABLE main._replica_v1_visible_values (
+		namespace TEXT NOT NULL,
+		value_name TEXT NOT NULL,
+		presence TEXT NOT NULL CHECK (presence IN ('present', 'absent')),
+		content TEXT,
+		PRIMARY KEY (namespace, value_name),
+		CHECK (
+			(presence = 'present' AND content IS NOT NULL AND json_valid(content)) OR
+			(presence = 'absent' AND content IS NULL)
+		)
+	) WITHOUT ROWID, STRICT`,
 	// The diagnostic beside a `parked` row intent. Only a row-present patch whose
 	// fold over a different live base overflows the encoded-fact ceiling can be
 	// parked (ADR-0163), so this relation is row-addressed and single-coded.
@@ -207,6 +246,8 @@ export const REPLICA_V1_TABLES = [
 	'_replica_v1_value_facts',
 	'_replica_v1_row_intents',
 	'_replica_v1_value_intents',
+	'_replica_v1_visible_rows',
+	'_replica_v1_visible_values',
 	'_replica_v1_parked',
 	'document_updates',
 	'document_publication',

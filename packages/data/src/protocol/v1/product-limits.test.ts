@@ -12,7 +12,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 
-import { DATA_ADMISSION_LIMITS } from '../admission.js';
+import { DATA_ADDRESS_CEILINGS } from '../admission.js';
 import {
 	minimumFactsResponseBytes,
 	minimumSubmissionResponseBytes,
@@ -47,35 +47,40 @@ describe('the product ceilings are self-consistent', () => {
 	});
 });
 
-describe('carried-over product promises did not move', () => {
-	test('a row may still hold the same encoded scalar payload', () => {
-		expect(SCALAR_V1_LIMITS.maxEncodedFactBytes).toBe(
-			DATA_ADMISSION_LIMITS.encodedFactBytes,
-		);
+describe('the shipped V1 ceilings are pinned', () => {
+	/**
+	 * Spelled out rather than compared against another constant, because there is
+	 * no longer another constant to compare against: these numbers are the V1
+	 * contract recorded in ADR-0163. A change here is a protocol change and has
+	 * to be a deliberate edit to this list, not a side effect somewhere else.
+	 */
+	test('the exact ceilings ADR-0163 records', () => {
+		expect(SCALAR_V1_LIMITS).toMatchObject({
+			jsonDepth: 16,
+			propertiesPerObject: 1024,
+			maxNamespaceBytes: 128,
+			maxTableKeyBytes: 64,
+			maxValueKeyBytes: 128,
+			maxLifetimeBytes: 64,
+			maxFieldKeyBytes: 512,
+			maxUnsetKeysPerIntent: 128,
+			maxEncodedFactBytes: 508 * 1024,
+			maxFactsResponseBytes: 8 * 1024 * 1024,
+			maxSubmissionBytes: 768 * 1024,
+			maxSubmissionAddresses: 8,
+			maxSubmissionResponseBytes: 5 * 1024 * 1024,
+		});
 	});
 
-	test('the address coordinate ceilings are unchanged', () => {
+	test('the address ceilings agree with the shared address grammar', () => {
 		expect(SCALAR_V1_LIMITS.maxNamespaceBytes).toBe(
-			DATA_ADMISSION_LIMITS.namespaceBytes,
+			DATA_ADDRESS_CEILINGS.namespaceBytes,
 		);
 		expect(SCALAR_V1_LIMITS.maxTableKeyBytes).toBe(
-			DATA_ADMISSION_LIMITS.tableNameBytes,
+			DATA_ADDRESS_CEILINGS.tableNameBytes,
 		);
 		expect(SCALAR_V1_LIMITS.maxValueKeyBytes).toBe(
-			DATA_ADMISSION_LIMITS.valueNameBytes,
-		);
-	});
-
-	test('the row payload shape ceilings are unchanged', () => {
-		expect(SCALAR_V1_LIMITS.maxFieldKeyBytes).toBe(
-			DATA_ADMISSION_LIMITS.fieldKeyBytes,
-		);
-		expect(SCALAR_V1_LIMITS.maxUnsetKeysPerIntent).toBe(
-			DATA_ADMISSION_LIMITS.unsetKeysPerIntent,
-		);
-		expect(SCALAR_V1_LIMITS.jsonDepth).toBe(DATA_ADMISSION_LIMITS.jsonDepth);
-		expect(SCALAR_V1_LIMITS.propertiesPerObject).toBe(
-			DATA_ADMISSION_LIMITS.propertiesPerObject,
+			DATA_ADDRESS_CEILINGS.valueNameBytes,
 		);
 	});
 });

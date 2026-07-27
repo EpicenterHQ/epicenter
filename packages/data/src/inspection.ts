@@ -138,14 +138,20 @@ function fieldColumnSql(fieldName: string): string {
  * absence is real state. A row tombstone and an unset value are both visible
  * here, which is what makes this the honest fallback when a Lens interpretation
  * cannot represent what is stored.
+ *
+ * They read the materialized visible projection rather than the fact relations,
+ * so inspection shows what the application sees: a row created locally is in the
+ * table before it settles, and one deleted locally is gone. Reading the fact
+ * relations would show authority truth instead, which is a different and much
+ * less useful question for someone querying their own data.
  */
 const RAW_VIEWS = [
 	`CREATE TEMP VIEW _epicenter_rows AS
 		SELECT namespace, table_name, row_id, presence, fields AS fields_json
-		FROM main._replica_row_facts`,
+		FROM main._replica_v1_visible_rows`,
 	`CREATE TEMP VIEW _epicenter_values AS
 		SELECT namespace, value_name, presence, content AS content_json
-		FROM main._replica_value_facts`,
+		FROM main._replica_v1_visible_values`,
 ] as const;
 
 const textEncoder = new TextEncoder();
@@ -301,7 +307,7 @@ function createInspection(database: Database, bounds: InspectionBounds) {
 							database.run(
 								`CREATE TEMP VIEW ${quoteIdentifier(tableName)} AS
 									SELECT ${columns.join(', ')}
-									FROM main._replica_row_facts AS f
+									FROM main._replica_v1_visible_rows AS f
 									WHERE f.namespace = ${namespace}
 										AND f.table_name = ${quoteLiteral(tableName)}
 										AND f.presence = 'present'`,

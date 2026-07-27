@@ -234,12 +234,12 @@ export function createEpicenter({
 			const publish = session.publishDocument;
 			if (publish === undefined) return Promise.resolve(Ok(undefined));
 			return documents.drainPublications(async (request) => {
-				const outcome = await publish(request);
-				// A dead row converges through the scalar row-liveness owner; ask
-				// for the exchange that installs the deletion promptly instead of
-				// waiting for the periodic cycle.
-				if (outcome === 'not-live') void sync.requestFacts();
-				return outcome;
+				// A `not-live` outcome deliberately does not ask for another fact
+				// read. This drain already runs at the tail of a facts cycle, so the
+				// feed was just read and re-requesting from inside the lane would
+				// re-enter it immediately. When the row is not live because it has
+				// not been submitted yet, that loop never terminates.
+				return publish(request);
 			});
 		},
 		...(syncIntervalMs === undefined

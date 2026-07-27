@@ -39,9 +39,7 @@ export { ATTACH_RELAY_ROUTE } from './attach-relay/route.js';
 // deployment injects `createEnvTokenResolver(secret)` as its `ResolveBearerPrincipal`.
 // The pure generator + boot entropy gate (`generateInstanceToken`
 // / `assertStrongToken`) live in `@epicenter/auth`.
-export {
-	createEnvTokenResolver,
-} from './auth/instance-token.js';
+export { createEnvTokenResolver } from './auth/instance-token.js';
 // The OAuth resource-boundary error union the bearer resolver emits (401
 // `InvalidToken` / 503 `ServerError`). Re-exported so a deployment's own bearer
 // resolver (e.g. `apps/api`'s dev auth) returns the same variants the request

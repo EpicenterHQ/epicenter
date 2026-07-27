@@ -10,7 +10,10 @@ import { field } from '@epicenter/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { BrowserRequest } from './browser/protocol.js';
+import type {
+	BrowserRequest,
+	SessionTransportRequest,
+} from './browser/protocol.js';
 import {
 	type BrowserWorkerStore,
 	type MessagePortLike,
@@ -24,8 +27,21 @@ import {
 } from './browser.js';
 import { createEpicenter } from './epicenter.js';
 import { defineLens, defineTable, defineValue, optional } from './index.js';
-import type { ExchangeRequest, ExchangeResponse } from './protocol/index.js';
-import { openReplica } from './replica/index.js';
+import {
+	type AuthorityState,
+	createAuthority,
+	parseFactsRequest,
+	parseSubmissionRequest,
+	readFacts,
+	SCALAR_V1_LIMITS,
+	type SubmissionRequest,
+	submit,
+} from './protocol/v1/index.js';
+import {
+	openReplicaV1,
+	type ScalarTransport,
+	type TransportOutcome,
+} from './replica/v1-replica.js';
 
 type MessageListener = (event: { data: never }) => void;
 
@@ -92,7 +108,7 @@ function createStoreOwner({ disposeFailure }: { disposeFailure?: Error } = {}) {
 		openCount += 1;
 		const rawDatabase = new Database(':memory:');
 		const database = createBunSqliteAdapter(rawDatabase);
-		const opened = openReplica({ database });
+		const opened = openReplicaV1({ database });
 		if (opened.error !== null) throw opened.error;
 		const epicenter = createEpicenter({
 			replica: opened.data,
@@ -172,6 +188,55 @@ const theme = defineValue({
 	value: field.string(),
 });
 
+function createScriptedAuthority(lifetime = 'browser-test-lifetime') {
+	let state: AuthorityState = expectOk(
+		createAuthority(lifetime, SCALAR_V1_LIMITS),
+	);
+	const submissions: SubmissionRequest[] = [];
+
+	const transport: ScalarTransport = {
+		async readFacts(request): Promise<TransportOutcome> {
+			const admitted = parseFactsRequest(request, SCALAR_V1_LIMITS);
+			if (admitted.error !== null) throw new Error(admitted.error.message);
+			const result = readFacts(state, admitted.data, SCALAR_V1_LIMITS);
+			if (result.error !== null) {
+				return result.error.name === 'LifetimeMismatch'
+					? {
+							kind: 'refused',
+							refusal: {
+								code: 'lifetime-mismatch',
+								activeLifetime: state.lifetime,
+							},
+						}
+					: { kind: 'refused', refusal: { code: 'sequence-ahead' } };
+			}
+			return { kind: 'response', body: result.data };
+		},
+		async submit(request): Promise<TransportOutcome> {
+			submissions.push(structuredClone(request));
+			const admitted = parseSubmissionRequest(request, SCALAR_V1_LIMITS);
+			if (admitted.error !== null) throw new Error(admitted.error.message);
+			const result = submit(state, admitted.data, SCALAR_V1_LIMITS);
+			if (result.error !== null) {
+				const refusal =
+					result.error.name === 'LifetimeMismatch'
+						? ({
+								code: 'lifetime-mismatch',
+								activeLifetime: state.lifetime,
+							} as const)
+						: result.error.name === 'SubmissionFork'
+							? ({ code: 'submission-fork' } as const)
+							: ({ code: 'submission-gap' } as const);
+				return { kind: 'refused', refusal };
+			}
+			state = result.data.state;
+			return { kind: 'response', body: result.data.response };
+		},
+	};
+
+	return { transport, submissions };
+}
+
 function bindTestData(epicenter: BrowserEpicenter) {
 	return epicenter.bind(
 		defineLens({
@@ -240,27 +305,42 @@ test('two document handles in one page persist updates and revoke together', asy
 test('a different principal is refused without replacing the active transport', async () => {
 	const { openPage } = await setup();
 	await using epicenter = await openPage();
-	let activeExchanges = 0;
-	let refusedExchanges = 0;
+	const activeAuthority = createScriptedAuthority();
+	const refusedAuthority = createScriptedAuthority();
+	let activeRequests = 0;
+	let refusedRequests = 0;
 
 	expectOk(
 		await epicenter.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
-			exchange(request) {
-				activeExchanges += 1;
-				return acknowledge(request);
+			transport: {
+				readFacts(request) {
+					activeRequests += 1;
+					return activeAuthority.transport.readFacts(request);
+				},
+				submit(request) {
+					activeRequests += 1;
+					return activeAuthority.transport.submit(request);
+				},
 			},
 		}),
 	);
-	const beforeRefusal = activeExchanges;
+	await waitFor(() => activeRequests > 0);
+	const beforeRefusal = activeRequests;
 	const refusal = expectErr(
 		await epicenter.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'bob',
-			exchange(request) {
-				refusedExchanges += 1;
-				return acknowledge(request);
+			transport: {
+				readFacts(request) {
+					refusedRequests += 1;
+					return refusedAuthority.transport.readFacts(request);
+				},
+				submit(request) {
+					refusedRequests += 1;
+					return refusedAuthority.transport.submit(request);
+				},
 			},
 		}),
 	);
@@ -268,28 +348,46 @@ test('a different principal is refused without replacing the active transport', 
 	await bindTestData(epicenter).tables.notes.create({
 		title: 'Still attached',
 	});
-	await waitFor(() => activeExchanges > beforeRefusal);
-	expect(refusedExchanges).toBe(0);
+	await waitFor(() => activeRequests > beforeRefusal);
+	expect(refusedRequests).toBe(0);
 });
 
 test('a stalled network attachment does not block local RPC or disposal', async () => {
-	const { openPage } = await setup({ exchangeTimeoutMs: 60_000 });
-	const epicenter = await openPage();
-	let exchangeStarted = false;
+	const { openControlledPage } = await setup({ exchangeTimeoutMs: 60_000 });
+	const page = await openControlledPage();
+	const epicenter = page.epicenter;
+	const authority = createScriptedAuthority();
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			transport: authority.transport,
+		}),
+	);
+	await bindTestData(epicenter).tables.notes.create({
+		title: 'Bind authority lifetime',
+	});
+	await waitFor(() => authority.submissions.length === 1);
+	let requestStarted = false;
 	const attachment = epicenter
 		.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
-			exchange() {
-				exchangeStarted = true;
-				return new Promise<ExchangeResponse>(() => undefined);
+			transport: {
+				readFacts() {
+					requestStarted = true;
+					return new Promise<TransportOutcome>(() => undefined);
+				},
+				submit(request) {
+					return authority.transport.submit(request);
+				},
 			},
 		})
 		.then(
 			() => undefined,
 			(cause: unknown) => cause,
 		);
-	await waitFor(() => exchangeStarted);
+	await waitFor(() => requestStarted);
 	const row = await settleWithin(
 		bindTestData(epicenter).tables.notes.create({
 			title: 'Local remains live',
@@ -299,78 +397,127 @@ test('a stalled network attachment does not block local RPC or disposal', async 
 	expect(row.title).toBe('Local remains live');
 	await settleWithin(epicenter[Symbol.asyncDispose](), 1_000);
 	expect(await attachment).toBeInstanceOf(Error);
+	expect(
+		lastMessageOfType(page.workerMessages, 'transport-cancel'),
+	).toBeDefined();
 });
 
 test('a newer attachment generation cancels a stalled predecessor', async () => {
-	const { openPage } = await setup({ exchangeTimeoutMs: 60_000 });
-	const epicenter = await openPage();
-	let stalledExchangeStarted = false;
+	const { openControlledPage } = await setup({ exchangeTimeoutMs: 60_000 });
+	const page = await openControlledPage();
+	const epicenter = page.epicenter;
+	const authority = createScriptedAuthority();
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.test/',
+			principalId: 'alice',
+			transport: authority.transport,
+		}),
+	);
+	await bindTestData(epicenter).tables.notes.create({
+		title: 'Bind authority lifetime',
+	});
+	await waitFor(() => authority.submissions.length === 1);
+	let stalledRequestStarted = false;
 	const stalled = epicenter.attachSync({
 		deploymentId: 'https://example.test/',
 		principalId: 'alice',
-		exchange() {
-			stalledExchangeStarted = true;
-			return new Promise<ExchangeResponse>(() => undefined);
+		transport: {
+			readFacts() {
+				stalledRequestStarted = true;
+				return new Promise<TransportOutcome>(() => undefined);
+			},
+			submit(request) {
+				return authority.transport.submit(request);
+			},
 		},
 	});
-	await waitFor(() => stalledExchangeStarted);
-	let replacementExchanges = 0;
+	await waitFor(() => stalledRequestStarted);
+	let replacementRequests = 0;
 
 	expectOk(
 		await settleWithin(
 			epicenter.attachSync({
 				deploymentId: 'https://example.test/',
 				principalId: 'alice',
-				exchange(request) {
-					replacementExchanges += 1;
-					return acknowledge(request);
+				transport: {
+					readFacts(request) {
+						replacementRequests += 1;
+						return authority.transport.readFacts(request);
+					},
+					submit(request) {
+						replacementRequests += 1;
+						return authority.transport.submit(request);
+					},
 				},
 			}),
 			1_000,
 		),
 	);
-	expect(expectErr(await stalled).name).toBe('TransportFailed');
-	const beforeWrite = replacementExchanges;
+	expect(
+		lastMessageOfType(page.workerMessages, 'transport-cancel'),
+	).toBeDefined();
+	// Attachment registration is independent of either scalar lane completing;
+	// the correlated cancel above proves the stalled predecessor was retired.
+	expectOk(await stalled);
+	const beforeWrite = replacementRequests;
 	await bindTestData(epicenter).tables.notes.create({
 		title: 'New generation',
 	});
-	await waitFor(() => replacementExchanges > beforeWrite);
+	await waitFor(() => replacementRequests > beforeWrite);
 	await epicenter[Symbol.asyncDispose]();
 });
 
-test('timed-out exchanges stay serialized within their attachment generation', async () => {
+test('timed-out transport operations stay serialized within their attachment generation', async () => {
 	const { openPage } = await setup({ exchangeTimeoutMs: 10 });
 	await using epicenter = await openPage();
-	const requests: ExchangeRequest[] = [];
-	let activeExchanges = 0;
-	let maximumActiveExchanges = 0;
+	const authority = createScriptedAuthority();
+	const requests: SessionTransportRequest[] = [];
+	let activeRequests = 0;
+	let maximumActiveRequests = 0;
 	let releaseStall: (() => void) | undefined;
 	let stallNext = false;
+
+	async function runRequest<TOutcome>(
+		request: SessionTransportRequest,
+		run: () => Promise<TOutcome>,
+	): Promise<TOutcome> {
+		requests.push(request);
+		activeRequests += 1;
+		maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+		try {
+			if (stallNext) {
+				stallNext = false;
+				await new Promise<void>((resolve) => {
+					releaseStall = resolve;
+				});
+			}
+			return await run();
+		} finally {
+			activeRequests -= 1;
+		}
+	}
 
 	expectOk(
 		await epicenter.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
-			async exchange(request) {
-				requests.push(request);
-				activeExchanges += 1;
-				maximumActiveExchanges = Math.max(
-					maximumActiveExchanges,
-					activeExchanges,
-				);
-				try {
-					if (stallNext) {
-						stallNext = false;
-						await new Promise<void>((resolve) => {
-							releaseStall = resolve;
-						});
-					}
-					return acknowledge(request);
-				} finally {
-					activeExchanges -= 1;
-				}
+			transport: {
+				readFacts(request) {
+					return runRequest({ kind: 'facts', request }, () =>
+						authority.transport.readFacts(request),
+					);
+				},
+				submit(request) {
+					return runRequest({ kind: 'submission', request }, () =>
+						authority.transport.submit(request),
+					);
+				},
 			},
 		}),
+	);
+	await waitFor(
+		() => requests.length > 0 && epicenter.syncStatus.state === 'idle',
 	);
 	const beforeWrite = requests.length;
 	stallNext = true;
@@ -379,7 +526,7 @@ test('timed-out exchanges stay serialized within their attachment generation', a
 	});
 	await waitFor(() => releaseStall !== undefined);
 	await Bun.sleep(30);
-	expect(maximumActiveExchanges).toBe(1);
+	expect(maximumActiveRequests).toBe(1);
 	expect(requests).toHaveLength(beforeWrite + 1);
 	releaseStall?.();
 	await waitFor(
@@ -388,33 +535,40 @@ test('timed-out exchanges stay serialized within their attachment generation', a
 			epicenter.syncStatus.state === 'idle',
 	);
 	expect(requests.at(-1)).toEqual(requests.at(-2));
-	expect(maximumActiveExchanges).toBe(1);
+	expect(maximumActiveRequests).toBe(1);
 });
 
 test('transport cancellation correlates request id and attachment generation', async () => {
 	const { openControlledPage } = await setup({ exchangeTimeoutMs: 1_000 });
 	const page = await openControlledPage();
 	await using epicenter = page.epicenter;
-	let releaseExchange: (() => void) | undefined;
+	const authority = createScriptedAuthority();
+	let releaseRequest: (() => void) | undefined;
 	let stallNext = false;
 	expectOk(
 		await epicenter.attachSync({
 			deploymentId: 'https://example.test/',
 			principalId: 'alice',
-			async exchange(request) {
-				if (stallNext) {
-					stallNext = false;
-					await new Promise<void>((resolve) => {
-						releaseExchange = resolve;
-					});
-				}
-				return acknowledge(request);
+			transport: {
+				readFacts(request) {
+					return authority.transport.readFacts(request);
+				},
+				async submit(request) {
+					if (stallNext) {
+						stallNext = false;
+						await new Promise<void>((resolve) => {
+							releaseRequest = resolve;
+						});
+					}
+					return authority.transport.submit(request);
+				},
 			},
 		}),
 	);
+	await waitFor(() => epicenter.syncStatus.state === 'idle');
 	stallNext = true;
 	await bindTestData(epicenter).tables.notes.create({ title: 'Correlate' });
-	await waitFor(() => releaseExchange !== undefined);
+	await waitFor(() => releaseRequest !== undefined);
 	const request = lastMessageOfType(page.workerMessages, 'transport-request');
 	if (
 		request === undefined ||
@@ -432,7 +586,7 @@ test('transport cancellation correlates request id and attachment generation', a
 		transportId: request.transportId,
 		transportKey: request.transportKey + 1,
 	});
-	releaseExchange?.();
+	releaseRequest?.();
 	await waitFor(
 		() =>
 			lastMessageOfType(page.pageMessages, 'transport-result')?.transportId ===
@@ -653,23 +807,6 @@ async function settleWithin<TValue>(
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
 	}
-}
-
-function acknowledge(request: ExchangeRequest): ExchangeResponse {
-	return {
-		...(request.batch === undefined
-			? {}
-			: {
-					receipt: {
-						seq: request.batch.seq,
-						digest: request.batch.digest,
-						appliedThrough: request.after,
-					},
-				}),
-		through: request.after,
-		facts: [],
-		next: null,
-	};
 }
 
 function hasResult(messages: unknown[], id: number): boolean {
