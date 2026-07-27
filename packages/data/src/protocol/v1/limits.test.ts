@@ -17,9 +17,12 @@ import { describe, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 import {
+	canonicalize,
 	minimumFactsResponseBytes,
 	minimumSubmissionResponseBytes,
+	type ParkedIntent,
 	type ScalarSyncLimits,
+	utf8ByteLength,
 	validateLimits,
 } from './index.js';
 import { BASE_LIMITS } from './kernel.test-support.js';
@@ -66,6 +69,48 @@ describe('submission-response settlement inequality is inclusive', () => {
 		const minimum = minimumSubmissionResponseBytes(raw());
 		expectOk(validateLimits(raw({ maxSubmissionResponseBytes: minimum })));
 		expectErr(validateLimits(raw({ maxSubmissionResponseBytes: minimum - 1 })));
+	});
+});
+
+describe('the derived parked allowance covers a real encoded parked entry', () => {
+	/**
+	 * The inclusive-minimum tests above only prove the derivation agrees with
+	 * itself: they compare `minimumSubmissionResponseBytes` against the ceiling it
+	 * just derived, so a skeleton measured from the wrong key spelling stays
+	 * self-consistent and invisible. That is how the parked skeleton kept
+	 * ADR-0163's original `table` coordinate after ADR-0178 renamed it to
+	 * `tableName`, understating every parked entry by four bytes and letting
+	 * `validateLimits` admit a ceiling the real worst case overflows.
+	 *
+	 * This measures a genuinely maximal parked entry through the same canonical
+	 * encoder the wire uses and pins the derivation against it, so the next
+	 * coordinate rename fails here even if the `satisfies` check in `limits.ts`
+	 * were ever loosened.
+	 */
+	test('one more submission address buys at least one real fact and parked entry', () => {
+		const base = raw();
+		const worstParkedEntry = utf8ByteLength(
+			canonicalize({
+				address: {
+					kind: 'row',
+					namespace: 'n'.repeat(base.maxNamespaceBytes),
+					rowId: 'a'.repeat(24),
+					tableName: 't'.repeat(base.maxTableKeyBytes),
+				},
+				code: 'fact-too-large',
+				limitBytes: Number.MAX_SAFE_INTEGER,
+				measuredBytes: Number.MAX_SAFE_INTEGER,
+			} satisfies ParkedIntent),
+		);
+		const marginal =
+			minimumSubmissionResponseBytes(
+				raw({ maxSubmissionAddresses: base.maxSubmissionAddresses + 1 }),
+			) - minimumSubmissionResponseBytes(base);
+		// One more address adds one maximum fact, one maximum parked entry, and the
+		// separating comma in each of the two arrays.
+		expect(marginal).toBeGreaterThanOrEqual(
+			base.maxEncodedFactBytes + worstParkedEntry + 2,
+		);
 	});
 });
 

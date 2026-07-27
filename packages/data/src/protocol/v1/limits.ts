@@ -32,6 +32,13 @@ import {
 } from './canonical.js';
 import { catchAsInvalid, ScalarProtocolError } from './errors.js';
 import type { JsonLimits } from './json.js';
+// Type-only, so the skeleton measurements below are checked against the wire
+// types without creating a runtime cycle with `operations.ts`.
+import type {
+	FactsResponse,
+	ParkedIntent,
+	SubmissionResponse,
+} from './operations.js';
 
 export type ScalarSyncLimits = JsonLimits & {
 	/** Maximum UTF-8 bytes of a namespace key. */
@@ -92,19 +99,39 @@ function checkedMul(left: number, right: number): number {
 // values, so no string is ever allocated proportional to a raw byte ceiling.
 // The facts envelope uses the terminal `hasMore:false`, whose spelling is one
 // byte longer than `true`, so a terminal maximum-size fact still fits.
+//
+// Every skeleton is written `satisfies` its wire type. These are byte
+// measurements of key spellings, so a renamed field silently shrinks a derived
+// minimum and lets `validateLimits` admit a ceiling the real worst case
+// overflows. `satisfies` turns that into a compile error instead: it is what
+// catches the next ADR-0178-style coordinate rename at the point that measures
+// it.
 const FACTS_ENVELOPE_SKELETON = utf8ByteLength(
-	canonicalize({ authorityLifetime: '', facts: [], hasMore: false }),
+	canonicalize({
+		authorityLifetime: '',
+		facts: [],
+		hasMore: false,
+	} satisfies FactsResponse),
 );
 const SUBMISSION_ENVELOPE_SKELETON = utf8ByteLength(
-	canonicalize({ authorityLifetime: '', facts: [], parked: [] }),
+	canonicalize({
+		authorityLifetime: '',
+		facts: [],
+		parked: [],
+	} satisfies SubmissionResponse),
 );
 const PARKED_SKELETON = utf8ByteLength(
 	canonicalize({
-		address: { kind: 'row', namespace: '', rowId: 'a'.repeat(24), table: '' },
+		address: {
+			kind: 'row',
+			namespace: '',
+			rowId: 'a'.repeat(24),
+			tableName: '',
+		},
 		code: 'fact-too-large',
 		limitBytes: Number.MAX_SAFE_INTEGER,
 		measuredBytes: Number.MAX_SAFE_INTEGER,
-	}),
+	} satisfies ParkedIntent),
 );
 // A NUL is one UTF-8 byte but escapes to six canonical bytes, the largest
 // per-byte expansion of a well-formed string, so the opaque lifetime content
