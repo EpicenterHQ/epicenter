@@ -67,6 +67,7 @@ import {
 	readMetadata,
 	readParked,
 	readVisibleFact,
+	refreshVisible,
 	type StoredIntent,
 } from './v1-store.js';
 
@@ -165,7 +166,6 @@ export const ReplicaV1Error = defineErrors({
 		message: `Scalar transport failed: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
-	StorageLimit: () => ({ message: 'The authority storage limit was reached' }),
 	SubscriberThrew: ({ cause }: { cause: unknown }) => ({
 		message: `Replica change subscriber threw: ${extractErrorMessage(cause)}`,
 		cause,
@@ -196,8 +196,7 @@ export type AuthorityRefusal =
 	| { code: 'lifetime-mismatch'; activeLifetime: string }
 	| { code: 'sequence-ahead' }
 	| { code: 'submission-fork' }
-	| { code: 'submission-gap' }
-	| { code: 'storage-limit' };
+	| { code: 'submission-gap' };
 
 export type TransportOutcome =
 	| { kind: 'response'; body: unknown }
@@ -435,8 +434,6 @@ function createReplicaV1(
 				return ReplicaV1Error.Corrupted({
 					detail: 'the submission number skipped the authority next number',
 				}).error;
-			case 'storage-limit':
-				return ReplicaV1Error.StorageLimit().error;
 			default:
 				return refusal satisfies never;
 		}
@@ -524,8 +521,8 @@ function createReplicaV1(
 
 					const changes = new Map<string, Address>();
 					for (const fact of page.facts) {
-						const result = installConfirmedFact(database, fact);
-						if (!result.identical) {
+						const outcome = installConfirmedFact(database, fact);
+						if (outcome === 'conflict') {
 							throw new LoopFailure(
 								ReplicaV1Error.Corrupted({
 									detail:
@@ -533,7 +530,7 @@ function createReplicaV1(
 								}).error,
 							);
 						}
-						if (result.installed) {
+						if (outcome === 'installed') {
 							changes.set(addressKey(fact.address), fact.address);
 						}
 					}
@@ -733,15 +730,18 @@ function createReplicaV1(
 
 				const changes = new Map<string, Address>();
 				for (const fact of response.facts) {
-					const result = installConfirmedFact(database, fact);
-					if (!result.identical) {
+					// A `stale` outcome is expected here and must stay silent: a
+					// delayed settlement routinely carries a fact the facts feed has
+					// already moved past, which ADR-0163 says is safe to ignore.
+					const outcome = installConfirmedFact(database, fact);
+					if (outcome === 'conflict') {
 						throw new LoopFailure(
 							ReplicaV1Error.Corrupted({
 								detail: 'an equal authority sequence carried different content',
 							}).error,
 						);
 					}
-					if (result.installed) {
+					if (outcome === 'installed') {
 						changes.set(addressKey(fact.address), fact.address);
 					}
 				}
@@ -753,7 +753,14 @@ function createReplicaV1(
 					const key = addressKey(stored.intent.address);
 					deleteIntentBySequence(database, stored.localSequence);
 					const parked = parkedByAddress.get(key);
-					if (parked === undefined) continue;
+					if (parked === undefined) {
+						// Retiring the overlay changes visible state at this address:
+						// the settled fact now stands alone. `parkIntent` refreshes on
+						// the other branch, so this is the one retirement path that
+						// still owes it.
+						refreshVisible(database, stored.intent.address);
+						continue;
+					}
 					// ADR-0163: after monotonic installation, inspect the stored fact,
 					// not the returned one. A terminal tombstone underneath supersedes
 					// the parked overlay and its diagnostic entirely.

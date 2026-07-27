@@ -81,12 +81,10 @@ describe('confirmed facts live beneath local work', () => {
 			applyLocalWrite(database, rowPatch({ title: 'local' }), 1).applied,
 		).toBe(true);
 
-		const result = installConfirmedFact(
-			database,
-			rowFact(7, { title: 'remote' }),
-		);
+		expect(
+			installConfirmedFact(database, rowFact(7, { title: 'remote' })),
+		).toBe('installed');
 
-		expect(result.installed).toBe(true);
 		expect(readConfirmedFact(database, ROW)).toMatchObject({
 			sequence: 7,
 			presence: 'present',
@@ -132,29 +130,31 @@ describe('installation is monotonic per address', () => {
 		const database = openStore();
 		installConfirmedFact(database, rowFact(5, { v: 'five' }));
 
-		expect(
-			installConfirmedFact(database, rowFact(4, { v: 'four' })).installed,
-		).toBe(false);
+		expect(installConfirmedFact(database, rowFact(4, { v: 'four' }))).toBe(
+			'stale',
+		);
 		expect(readConfirmedFact(database, ROW)).toMatchObject({ sequence: 5 });
 
-		expect(
-			installConfirmedFact(database, rowFact(6, { v: 'six' })).installed,
-		).toBe(true);
+		expect(installConfirmedFact(database, rowFact(6, { v: 'six' }))).toBe(
+			'installed',
+		);
 		expect(readConfirmedFact(database, ROW)).toMatchObject({ sequence: 6 });
 	});
 
 	test('an equal sequence with identical content is a no-op, not corruption', () => {
 		const database = openStore();
 		installConfirmedFact(database, rowFact(5, { v: 'five' }));
-		const result = installConfirmedFact(database, rowFact(5, { v: 'five' }));
-		expect(result).toEqual({ installed: false, identical: true });
+		expect(installConfirmedFact(database, rowFact(5, { v: 'five' }))).toBe(
+			'unchanged',
+		);
 	});
 
 	test('an equal sequence with different content is reported as corruption', () => {
 		const database = openStore();
 		installConfirmedFact(database, rowFact(5, { v: 'five' }));
-		const result = installConfirmedFact(database, rowFact(5, { v: 'other' }));
-		expect(result).toEqual({ installed: false, identical: false });
+		expect(installConfirmedFact(database, rowFact(5, { v: 'other' }))).toBe(
+			'conflict',
+		);
 	});
 
 	/**
@@ -165,9 +165,11 @@ describe('installation is monotonic per address', () => {
 		const database = openStore();
 		installConfirmedFact(database, rowTombstone(9));
 
-		expect(
-			installConfirmedFact(database, rowFact(4, { v: 'stale' })).installed,
-		).toBe(false);
+		// Stale, not a conflict: an older fact arriving late is ordinary, and
+		// reporting it as corruption would erase a healthy replica.
+		expect(installConfirmedFact(database, rowFact(4, { v: 'stale' }))).toBe(
+			'stale',
+		);
 		expect(readConfirmedFact(database, ROW)?.presence).toBe('absent');
 	});
 });

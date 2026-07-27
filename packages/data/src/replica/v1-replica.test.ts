@@ -37,7 +37,7 @@ import {
 	type ScalarTransport,
 	type TransportOutcome,
 } from './v1-replica.js';
-import { readMetadata } from './v1-store.js';
+import { readMetadata, readVisibleFact } from './v1-store.js';
 
 const LIFETIME = '01JQZX000000000000000000AB';
 const DEPLOYMENT = 'https://example.com/';
@@ -380,6 +380,131 @@ describe('the two loops progress independently', () => {
 
 		expect(expectOk(replica.readRow(ROW_A))).toEqual({ local: true });
 		expect(expectOk(replica.readRow(ROW_B))).toEqual({ remote: true });
+	});
+});
+
+describe('the visible projection never disagrees with the fold', () => {
+	/**
+	 * The projection is derived state, so the only thing that makes it safe is
+	 * that every mutation refreshes it. Settlement was the path that did not:
+	 * retiring a sealed intent removed the overlay from the fold while leaving
+	 * the projection showing it, so a table scan and a typed read disagreed
+	 * about the same row.
+	 *
+	 * Checked by recomputing the fold and comparing, rather than by asserting a
+	 * specific value, so this catches any future mutation path that forgets.
+	 */
+	function expectProjectionMatchesFold(
+		database: ReturnType<typeof createBunSqliteAdapter>,
+		address: typeof ROW_A | typeof VALUE,
+	) {
+		const folded = readVisibleFact(database, address);
+		const projected =
+			address.kind === 'row'
+				? database.all<{ presence: string; fields: string | null }>(
+						`SELECT presence, fields FROM main._replica_v1_visible_rows
+						WHERE namespace = ? AND table_name = ? AND row_id = ?`,
+						[address.namespace, address.tableName, address.rowId],
+					)[0]
+				: database.all<{ presence: string; content: string | null }>(
+						`SELECT presence, content FROM main._replica_v1_visible_values
+						WHERE namespace = ? AND value_name = ?`,
+						[address.namespace, address.valueName],
+					)[0];
+
+		if (folded === undefined) {
+			expect(projected).toBeUndefined();
+			return;
+		}
+		expect(projected?.presence).toBe(folded.presence);
+		if ('fields' in folded) {
+			expect(JSON.parse((projected as { fields: string }).fields)).toEqual(
+				folded.fields,
+			);
+		}
+		if ('content' in folded) {
+			expect(JSON.parse((projected as { content: string }).content)).toEqual(
+				folded.content,
+			);
+		}
+	}
+
+	test('it stays in step across a full write and settle cycle', async () => {
+		const authority = createScriptedAuthority();
+		const { database, replica } = openAttachedReplica();
+		await replica.pullFacts(authority.transport);
+
+		replica.write(patch(ROW_A, { title: 'mine' }));
+		expectProjectionMatchesFold(database, ROW_A);
+
+		expectOk(await replica.pushSubmissions(authority.transport));
+		// The overlay is retired here and the settled fact stands alone.
+		expectProjectionMatchesFold(database, ROW_A);
+
+		expectOk(await replica.pullFacts(authority.transport));
+		expectProjectionMatchesFold(database, ROW_A);
+	});
+
+	/**
+	 * The interleaving ADR-0163 names: a delayed submission response carrying an
+	 * older fact than the facts feed already installed. The response fact is
+	 * ignored as stale, but the sealed intent still retires, and the overlay it
+	 * was contributing has to come off the projection with it.
+	 *
+	 * This is the only shape where retirement changes visible state, because
+	 * ordinarily a settled fact already contains its own intent's effect.
+	 */
+	test('it stays in step when settlement is overtaken by a newer fact', async () => {
+		const authority = createScriptedAuthority();
+		const { database, replica } = openAttachedReplica();
+		await replica.pullFacts(authority.transport);
+		replica.write(patch(ROW_A, { title: 'mine' }));
+
+		// While this submission is in flight, another replica rewrites the same
+		// address and this replica learns it, so the response arrives stale.
+		const overtaking: ScalarTransport = {
+			readFacts: authority.transport.readFacts,
+			async submit(request) {
+				const outcome = await authority.transport.submit(request);
+				// The same field, so the retired overlay and the newer fact actually
+				// disagree. A remote write to a different field would fold to the
+				// same result either way and prove nothing.
+				authority.applyRemote(
+					[patch(ROW_A, { title: 'theirs' })],
+					remoteReplicaId,
+					1,
+				);
+				await replica.pullFacts(authority.transport);
+				return outcome;
+			},
+		};
+		expectOk(await replica.pushSubmissions(overtaking));
+
+		expectProjectionMatchesFold(database, ROW_A);
+	});
+
+	test('it stays in step for values and for a learned tombstone', async () => {
+		const authority = createScriptedAuthority();
+		const { database, replica } = openAttachedReplica();
+		await replica.pullFacts(authority.transport);
+
+		replica.write({
+			address: VALUE,
+			presence: 'present',
+			content: 'dark',
+		} as Intent);
+		expectOk(await replica.pushSubmissions(authority.transport));
+		expectProjectionMatchesFold(database, VALUE);
+
+		replica.write(patch(ROW_A, { title: 'doomed' }));
+		expectOk(await replica.pushSubmissions(authority.transport));
+		authority.applyRemote(
+			[{ address: ROW_A, presence: 'absent' }],
+			remoteReplicaId,
+			1,
+		);
+		expectOk(await replica.pullFacts(authority.transport));
+		expectProjectionMatchesFold(database, ROW_A);
 	});
 });
 

@@ -657,6 +657,19 @@ export function applyLocalWrite(
 }
 
 /**
+ * What installing one learned fact did.
+ *
+ * Three outcomes, not two booleans, because the two "did not install" cases
+ * need opposite handling and a shared flag made them look alike. `stale` is an
+ * older fact arriving after a newer one, which ADR-0163 requires be ignored
+ * silently: a delayed submission response routinely carries a fact the facts
+ * feed has already moved past. `conflict` is the same sequence carrying
+ * different content, which is corruption and must be reported. Reporting a
+ * delayed response as corruption would erase a healthy replica.
+ */
+export type InstallOutcome = 'installed' | 'unchanged' | 'stale' | 'conflict';
+
+/**
  * Install one learned authority fact beneath whatever local work exists.
  *
  * Monotonic per address: a higher sequence replaces the confirmed fact, a lower
@@ -678,17 +691,12 @@ export function applyLocalWrite(
 export function installConfirmedFact(
 	database: SqliteDatabase,
 	fact: Fact,
-): { installed: boolean; identical: boolean } {
+): InstallOutcome {
 	const existing = readConfirmedFact(database, fact.address);
 	if (existing !== undefined) {
-		if (existing.sequence > fact.sequence) {
-			return { installed: false, identical: false };
-		}
+		if (existing.sequence > fact.sequence) return 'stale';
 		if (existing.sequence === fact.sequence) {
-			return {
-				installed: false,
-				identical: factsAreIdentical(existing, fact),
-			};
+			return factsAreIdentical(existing, fact) ? 'unchanged' : 'conflict';
 		}
 	}
 
@@ -713,7 +721,7 @@ export function installConfirmedFact(
 	}
 
 	refreshVisible(database, fact.address);
-	return { installed: true, identical: true };
+	return 'installed';
 }
 
 function factsAreIdentical(left: Fact, right: Fact): boolean {

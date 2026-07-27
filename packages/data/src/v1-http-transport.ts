@@ -60,7 +60,6 @@ const REFUSAL_CODES = new Set([
 	'sequence-ahead',
 	'submission-fork',
 	'submission-gap',
-	'storage-limit',
 ]);
 
 function toRefusal(body: unknown): AuthorityRefusal | undefined {
@@ -79,10 +78,14 @@ function toRefusal(body: unknown): AuthorityRefusal | undefined {
 /**
  * Turn one HTTP response into a transport outcome.
  *
- * A 2xx is a response body. A refusal status carrying a code this client knows
- * is a refusal value. Everything else throws, including a refusal status whose
- * body is unrecognizable, so the replica retries rather than acting on a
- * recovery it inferred from a stranger's error page.
+ * A 2xx is a response body. A 409 carrying a code this client knows is a
+ * refusal value. Everything else throws, including a 409 whose body is
+ * unrecognizable, so the replica retries rather than acting on a recovery it
+ * inferred from a stranger's error page.
+ *
+ * 409 is the only refusal status because it is the only one the route emits for
+ * an outcome a replica can act on. A 503 sequence exhaustion is real but leaves
+ * the replica nothing to do differently, so it takes the transport retry path.
  */
 async function readOutcome(
 	response: Response,
@@ -91,7 +94,7 @@ async function readOutcome(
 	if (response.ok) {
 		return { kind: 'response', body: (await response.json()) as unknown };
 	}
-	if (response.status === 409 || response.status === 503) {
+	if (response.status === 409) {
 		const body = await response.json().catch(() => undefined);
 		const refusal = toRefusal(body);
 		if (refusal !== undefined) return { kind: 'refused', refusal };
