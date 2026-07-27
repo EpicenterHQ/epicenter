@@ -63,14 +63,6 @@ const VALUE = {
 
 const limits = SCALAR_V1_LIMITS;
 
-function unwrap<T>(result: {
-	data: T | null;
-	error: { message: string } | null;
-}): T {
-	if (result.error !== null) throw new Error(result.error.message);
-	return result.data as T;
-}
-
 /**
  * An authority driven by the kernel's pure reference model.
  *
@@ -79,7 +71,7 @@ function unwrap<T>(result: {
  * than assumed.
  */
 function createScriptedAuthority(lifetime = LIFETIME) {
-	let state: AuthorityState = unwrap(createAuthority(lifetime, limits));
+	let state: AuthorityState = expectOk(createAuthority(lifetime, limits));
 	const factsRequests: FactsRequest[] = [];
 	const submissions: SubmissionRequest[] = [];
 	let failNextFacts = false;
@@ -148,8 +140,8 @@ function createScriptedAuthority(lifetime = LIFETIME) {
 				submissionNumber,
 				intents,
 			};
-			const admitted = unwrap(parseSubmissionRequest(request, limits));
-			state = unwrap(submit(state, admitted, limits)).state;
+			const admitted = expectOk(parseSubmissionRequest(request, limits));
+			state = expectOk(submit(state, admitted, limits)).state;
 		},
 		breakNextFactsRequest() {
 			failNextFacts = true;
@@ -159,7 +151,7 @@ function createScriptedAuthority(lifetime = LIFETIME) {
 
 function openAttachedReplica() {
 	const database = createBunSqliteAdapter(new Database(':memory:'));
-	const replica = unwrap(openReplicaV1({ database }));
+	const replica = expectOk(openReplicaV1({ database }));
 	expectOk(
 		replica.attach({ deploymentId: DEPLOYMENT, principalId: PRINCIPAL }),
 	);
@@ -185,7 +177,7 @@ describe('the facts loop learns current authority state', () => {
 
 		expectOk(await replica.pullFacts(authority.transport));
 
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ title: 'remote' });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ title: 'remote' });
 		const meta = readMetadata(database);
 		expect(meta.authorityLifetime).toBe(LIFETIME);
 		expect(meta.afterSequence).toBe(1);
@@ -211,7 +203,7 @@ describe('the facts loop learns current authority state', () => {
 		authority.applyRemote([patch(ROW_A, { title: 'x' })], remoteReplicaId, 1);
 		const { replica } = openAttachedReplica();
 		await replica.pullFacts(authority.transport);
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ title: 'x' });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ title: 'x' });
 
 		authority.applyRemote(
 			[{ address: ROW_A, presence: 'absent' }],
@@ -220,7 +212,7 @@ describe('the facts loop learns current authority state', () => {
 		);
 		await replica.pullFacts(authority.transport);
 
-		expect(unwrap(replica.readRow(ROW_A))).toBeUndefined();
+		expect(expectOk(replica.readRow(ROW_A))).toBeUndefined();
 	});
 
 	/**
@@ -240,7 +232,7 @@ describe('the facts loop learns current authority state', () => {
 
 		expectOk(await replica.pullFacts(authority.transport));
 		expect(readMetadata(database).afterSequence).toBe(1);
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ a: 1 });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ a: 1 });
 	});
 
 	test('an authority on a different lifetime is a terminal mismatch', async () => {
@@ -265,13 +257,13 @@ describe('the submissions loop settles local work', () => {
 
 		expectOk(replica.write(patch(ROW_A, { title: 'mine' })));
 		// Local-first: visible immediately, before any network round trip.
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ title: 'mine' });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ title: 'mine' });
 
 		expectOk(await replica.pushSubmissions(authority.transport));
 
 		expect(authority.submissions).toHaveLength(1);
 		expect(authority.submissions[0]?.submissionNumber).toBe(1);
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ title: 'mine' });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ title: 'mine' });
 		// Settlement retires the work and leaves a confirmed fact behind.
 		expect(readMetadata(database).lastSubmissionNumber).toBe(1);
 		expect(readMetadata(database).sealedSubmissionNumber).toBeUndefined();
@@ -310,7 +302,7 @@ describe('the submissions loop settles local work', () => {
 		// The facts feed still discovers the same fact afterwards, idempotently.
 		expectOk(await replica.pullFacts(authority.transport));
 		expect(readMetadata(database).afterSequence).toBe(1);
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ a: 1 });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ a: 1 });
 	});
 
 	test('nothing pending sends no submission', async () => {
@@ -386,8 +378,8 @@ describe('the two loops progress independently', () => {
 		expectOk(await replica.pushSubmissions(authority.transport));
 		expectOk(await replica.pullFacts(authority.transport));
 
-		expect(unwrap(replica.readRow(ROW_A))).toEqual({ local: true });
-		expect(unwrap(replica.readRow(ROW_B))).toEqual({ remote: true });
+		expect(expectOk(replica.readRow(ROW_A))).toEqual({ local: true });
+		expect(expectOk(replica.readRow(ROW_B))).toEqual({ remote: true });
 	});
 });
 
@@ -408,8 +400,8 @@ describe('two replicas converge through the same authority', () => {
 		expectOk(await second.replica.pullFacts(authority.transport));
 
 		for (const { replica } of [first, second]) {
-			expect(unwrap(replica.readRow(ROW_A))).toEqual({ from: 'first' });
-			expect(unwrap(replica.readRow(ROW_B))).toEqual({ from: 'second' });
+			expect(expectOk(replica.readRow(ROW_A))).toEqual({ from: 'first' });
+			expect(expectOk(replica.readRow(ROW_B))).toEqual({ from: 'second' });
 		}
 	});
 
@@ -428,6 +420,6 @@ describe('two replicas converge through the same authority', () => {
 		expectOk(await first.replica.pushSubmissions(authority.transport));
 		expectOk(await second.replica.pullFacts(authority.transport));
 
-		expect(unwrap(second.replica.readValue(VALUE))).toBe('dark');
+		expect(expectOk(second.replica.readValue(VALUE))).toBe('dark');
 	});
 });
