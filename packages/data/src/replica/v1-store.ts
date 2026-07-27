@@ -91,7 +91,8 @@ export function readMetadata(database: SqliteDatabase): ReplicaV1Metadata {
 			sealed_submission_number
 		FROM main._replica_v1_metadata WHERE singleton = 1`,
 	)[0];
-	if (row === undefined) throw new Error('Replica metadata singleton is missing');
+	if (row === undefined)
+		throw new Error('Replica metadata singleton is missing');
 	return {
 		formatVersion: row.format_version,
 		replicaId: row.replica_id,
@@ -328,6 +329,27 @@ function deleteIntentAt(
 		`DELETE FROM main._replica_v1_value_intents
 		WHERE namespace = ? AND value_name = ? AND state = ?`,
 		[address.namespace, address.valueName, state],
+	);
+}
+
+/**
+ * Remove one intent by its local sequence.
+ *
+ * The sequence space is shared across both relations and unique within it, so a
+ * delete from each is one row total. That is what lets the sealer and the
+ * settlement path move an intent between states without knowing its kind.
+ */
+export function deleteIntentBySequence(
+	database: SqliteDatabase,
+	localSequence: number,
+): void {
+	database.run(
+		'DELETE FROM main._replica_v1_row_intents WHERE local_sequence = ?',
+		[localSequence],
+	);
+	database.run(
+		'DELETE FROM main._replica_v1_value_intents WHERE local_sequence = ?',
+		[localSequence],
 	);
 }
 
@@ -665,10 +687,10 @@ export function parkIntent(
 	writeParked(database, parked);
 }
 
+export type { Address, Fact, Intent, ParkedIntent };
 export {
 	addressKey,
 	deleteIntentAt as deleteIntent,
 	insertIntent,
 	writeConfirmedFact,
 };
-export type { Address, Fact, Intent, ParkedIntent };
