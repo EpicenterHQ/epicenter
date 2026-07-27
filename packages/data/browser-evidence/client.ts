@@ -3,7 +3,6 @@ import {
 	type BrowserEpicenter,
 	openBrowserEpicenter,
 } from '@epicenter/data/browser';
-import type { ExchangeResponse } from '@epicenter/data/protocol';
 import { field } from '@epicenter/field';
 
 import type {
@@ -230,9 +229,19 @@ function startHungSync(): void {
 		.attachSync({
 			deploymentId: 'https://evidence.invalid/',
 			principalId: 'evidence-principal',
-			exchange() {
-				hungStarted = true;
-				return new Promise<ExchangeResponse>(() => undefined);
+			// A transport that never answers, to prove attaching does not block on
+			// the network. Both operations hang: the supervisor wakes each lane
+			// independently, so leaving either one answering would let the other
+			// lane's progress mask a stall.
+			transport: {
+				readFacts() {
+					hungStarted = true;
+					return new Promise(() => undefined);
+				},
+				submit() {
+					hungStarted = true;
+					return new Promise(() => undefined);
+				},
 			},
 		})
 		.then((result) => {

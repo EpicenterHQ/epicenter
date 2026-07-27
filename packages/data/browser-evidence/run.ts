@@ -534,7 +534,7 @@ async function runEngine({
 					await waitFor(
 						() => page.evaluate(() => window.browserEvidence.hungSyncStatus()),
 						(status) => status.started,
-						'hung sync exchange',
+						'hung sync transport',
 					);
 					const sameTabRow = await page.evaluate(
 						({ title, writer }) => window.browserEvidence.create(title, writer),
@@ -548,7 +548,7 @@ async function runEngine({
 					);
 					assert(
 						hungStatus.started && hungStatus.hungOutcome === undefined,
-						'Hung sync exchange settled before the continuity witness',
+						'Hung sync transport settled before the continuity witness',
 					);
 					const sameTabRowOccurrences = snapshot.rows.filter(
 						({ id }) => id === sameTabRow.id,
@@ -560,8 +560,8 @@ async function runEngine({
 					await page.evaluate(() => window.browserEvidence.dispose());
 					return {
 						parameters: [
-							{ name: 'exchangeStarted', value: true },
-							{ name: 'exchangePending', value: true },
+							{ name: 'syncStarted', value: true },
+							{ name: 'syncPending', value: true },
 							{ name: 'sameTabRowId', value: sameTabRow.id },
 							{
 								name: 'sameTabRowOccurrences',

@@ -316,7 +316,7 @@ function passedCellWitnessIssues(cell: EvidenceCell): string[] {
 		case 'hung-sync-continuity':
 			if (!hasHungSyncContinuityWitness(cell)) {
 				issues.push(
-					`passed cell '${cell.id}' requires a pending exchange and one same-owner write witnessed exactly once`,
+					`passed cell '${cell.id}' requires a pending sync transport and one same-owner write witnessed exactly once`,
 				);
 			}
 			break;
@@ -340,8 +340,8 @@ function passedCellWitnessIssues(cell: EvidenceCell): string[] {
 function hasHungSyncContinuityWitness(cell: EvidenceCell): boolean {
 	const sameTabRowId = parameter(cell, 'sameTabRowId');
 	return (
-		parameter(cell, 'exchangeStarted') === true &&
-		parameter(cell, 'exchangePending') === true &&
+		parameter(cell, 'syncStarted') === true &&
+		parameter(cell, 'syncPending') === true &&
 		isRowId(sameTabRowId) &&
 		parameter(cell, 'sameTabRowOccurrences') === 1 &&
 		parameter(cell, 'claim') === 'same-owner-local-rpc-continuity-only'

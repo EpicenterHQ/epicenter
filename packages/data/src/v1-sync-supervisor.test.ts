@@ -74,6 +74,7 @@ type ReplicaStub = {
 	submissionCalls: number;
 	wakeOutbox(): void;
 	failFacts(error?: ReplicaV1Error): void;
+	hangFacts(gate: () => Promise<void>): void;
 	failSubmissions(error?: ReplicaV1Error): void;
 	succeed(): void;
 };
@@ -84,6 +85,7 @@ const transportFailure = (): ReplicaV1Error =>
 function createReplicaStub(): ReplicaStub {
 	let outboxListener: (() => void) | undefined;
 	let factsError: ReplicaV1Error | undefined;
+	let factsGate: (() => Promise<void>) | undefined;
 	let submissionsError: ReplicaV1Error | undefined;
 	const state = {
 		factsCalls: 0,
@@ -102,6 +104,7 @@ function createReplicaStub(): ReplicaStub {
 		},
 		async pullFacts(): Promise<Result<void, ReplicaV1Error>> {
 			state.factsCalls += 1;
+			if (factsGate !== undefined) await factsGate();
 			return factsError === undefined
 				? Ok(undefined)
 				: { data: null, error: factsError };
@@ -129,6 +132,9 @@ function createReplicaStub(): ReplicaStub {
 		},
 		failFacts(error = transportFailure()) {
 			factsError = error;
+		},
+		hangFacts(gate: () => Promise<void>) {
+			factsGate = gate;
 		},
 		failSubmissions(error = transportFailure()) {
 			submissionsError = error;
@@ -233,6 +239,43 @@ describe('the lanes progress independently', () => {
 
 		expect(stub.factsCalls).toBeGreaterThan(1);
 		expect(stub.submissionCalls).toBe(submissionsBefore);
+	});
+});
+
+describe('attach settles the first cycle of both lanes', () => {
+	/**
+	 * `attach` promises the first cycle was attempted, not that a timer was set.
+	 * A caller that attaches and immediately reads expects to see what the
+	 * authority already had, and a replica coming back online with durable
+	 * pending work expects it sent. Returning before either lane ran turned both
+	 * into races that only showed up as flaky reads.
+	 */
+	test('both lanes have run once by the time attach resolves', async () => {
+		const { stub, supervisor } = setup();
+
+		await supervisor.attach({ transport });
+
+		expect(stub.factsCalls).toBe(1);
+		expect(stub.submissionCalls).toBe(1);
+	});
+
+	test('a transport that never answers leaves attach pending', async () => {
+		const { stub, supervisor } = setup();
+		let resolveFacts: (() => void) | undefined;
+		stub.hangFacts(
+			() => new Promise<void>((resolve) => (resolveFacts = resolve)),
+		);
+
+		let settled = false;
+		const attaching = supervisor.attach({ transport }).then(() => {
+			settled = true;
+		});
+		await settle();
+
+		expect(settled).toBe(false);
+		resolveFacts?.();
+		await attaching;
+		expect(settled).toBe(true);
 	});
 });
 

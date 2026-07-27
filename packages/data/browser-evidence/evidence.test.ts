@@ -138,8 +138,8 @@ function completeEvidence(): BrowserEngineEvidence {
 				},
 			]),
 			cell('hung-sync-continuity', [
-				{ name: 'exchangeStarted', value: true },
-				{ name: 'exchangePending', value: true },
+				{ name: 'syncStarted', value: true },
+				{ name: 'syncPending', value: true },
 				{ name: 'sameTabRowId', value: 'a'.repeat(24) },
 				{ name: 'sameTabRowOccurrences', value: 1 },
 				{ name: 'claim', value: 'same-owner-local-rpc-continuity-only' },
@@ -240,9 +240,9 @@ test('hung sync continuity requires one same-owner write witnessed exactly once'
 			),
 		},
 		{
-			name: 'exchange settled before snapshot',
+			name: 'sync transport settled before snapshot',
 			parameters: hung.parameters.map((parameter) =>
-				parameter.name === 'exchangePending'
+				parameter.name === 'syncPending'
 					? { ...parameter, value: false }
 					: parameter,
 			),
@@ -268,7 +268,7 @@ test('browser evidence rejects duplicate parameter names', () => {
 					...cell,
 					parameters: [
 						...cell.parameters,
-						{ name: 'exchangePending', value: false },
+						{ name: 'syncPending', value: false },
 					],
 				}
 			: cell,
@@ -278,7 +278,7 @@ test('browser evidence rejects duplicate parameter names', () => {
 	expect(() =>
 		assertBrowserEngineEvidence({ ...evidence, cells, overall: 'invalid' }),
 	).toThrow(
-		"cell 'hung-sync-continuity' has duplicate parameters: exchangePending",
+		"cell 'hung-sync-continuity' has duplicate parameters: syncPending",
 	);
 });
 

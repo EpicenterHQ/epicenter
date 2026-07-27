@@ -249,9 +249,9 @@ export function createSyncSupervisorV1({
 			}
 		}
 
-		function start(): void {
-			if (isDisposed || session === undefined) return;
-			if (running !== undefined) return;
+		function start(): Promise<void> {
+			if (isDisposed || session === undefined) return Promise.resolve();
+			if (running !== undefined) return running;
 			const activeGeneration = generation;
 			running = runCycle(activeGeneration).finally(() => {
 				running = undefined;
@@ -265,13 +265,21 @@ export function createSyncSupervisorV1({
 				// leave the supervisor stuck there with no later event to correct it.
 				publishStatus();
 			});
+			return running;
 		}
 
-		function request(): void {
-			if (isDisposed || session === undefined) return;
+		/**
+		 * Wake this lane and hand back the cycle it will run in.
+		 *
+		 * The promise is what lets `attach` mean "the first cycle was attempted"
+		 * rather than "a timer was set". Callers that only want a nudge may ignore
+		 * it; it never rejects, so discarding it is safe.
+		 */
+		function request(): Promise<void> {
+			if (isDisposed || session === undefined) return Promise.resolve();
 			cancelWake();
 			requested = true;
-			start();
+			return start();
 		}
 
 		return {
@@ -326,9 +334,9 @@ export function createSyncSupervisorV1({
 	);
 
 	/** Wake the facts lane for a real fact read, not just a document drain. */
-	function requestFactsCycle(): void {
+	function requestFactsCycle(): Promise<void> {
 		factsRequested = true;
-		facts.request();
+		return facts.request();
 	}
 
 	const submissions = createLane(
@@ -450,9 +458,13 @@ export function createSyncSupervisorV1({
 				return Ok(undefined);
 			}
 			// Facts first so a fresh replica binds the authority lifetime before the
-			// submissions lane has anything it is allowed to send (ADR-0163).
-			requestFactsCycle();
-			submissions.request();
+			// submissions lane has anything it is allowed to send (ADR-0163), then
+			// settle local work. Awaited because `attach` promises the first cycle
+			// was attempted: a caller that attaches and immediately reads expects to
+			// see what the authority already had, and a transport that hangs must
+			// leave attach pending rather than reporting success it cannot support.
+			await requestFactsCycle();
+			await submissions.request();
 			return Ok(undefined);
 		},
 

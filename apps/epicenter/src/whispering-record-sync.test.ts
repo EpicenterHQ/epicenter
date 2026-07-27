@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Principal } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
+import { createHttpScalarTransport } from '@epicenter/data';
 import { openBunEpicenter } from '@epicenter/data/bun';
-import { parseExchangeResponse } from '@epicenter/data/protocol';
 import { InstantString } from '@epicenter/field';
 import {
 	createBunEpicenterSyncRuntime,
@@ -31,22 +31,20 @@ test('offline Whispering scalar edits converge in both directions', async () => 
 			await next();
 		},
 	});
-	const exchange = async (request: unknown) => {
-		if (!online) throw new Error('Simulated offline transport');
-		const response = await app.request('/api/sync/v1', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(request),
-		});
-		if (!response.ok) throw new Error(`Record HTTP ${response.status}`);
-		const parsed = parseExchangeResponse(await response.json());
-		if (parsed.error !== null) throw parsed.error;
-		return parsed.data;
-	};
+	// The production carrier over the real mounted routes, with an offline
+	// switch in the fetch so the test can prove local-first behaviour survives
+	// a transport that is simply unreachable.
+	const transport = createHttpScalarTransport({
+		baseUrl: 'https://example.test/',
+		fetch: async (url, init) => {
+			if (!online) throw new Error('Simulated offline transport');
+			return app.request(url, init);
+		},
+	});
 	const attachment = {
 		deploymentId: 'https://example.test/',
 		principalId: PRINCIPAL_ID,
-		exchange,
+		transport,
 	};
 
 	try {
