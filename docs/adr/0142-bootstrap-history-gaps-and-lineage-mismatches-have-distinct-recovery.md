@@ -1,6 +1,6 @@
 # 0142. Bootstrap, history gaps, and lineage mismatches have distinct recovery
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0163](0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md)
 - **Date:** 2026-07-17
 - **Supersedes:** [ADR-0136](0136-replica-baseline-acquisition-uses-a-disposable-anchored-live-scan.md)
 

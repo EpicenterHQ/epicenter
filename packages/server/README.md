@@ -1,8 +1,8 @@
 # `@epicenter/server`
 
 `@epicenter/server` is the AGPL server engine shared by the hosted and
-self-hosted deployments. It owns the Epicenter authority: the one scalar
-sync exchange, row-document sockets, and the complete server-side SQLite
+self-hosted deployments. It owns the Epicenter authority: the two scalar
+sync operations, the row-document plane, and the complete server-side SQLite
 transaction domain.
 
 Portable wire parsing and latest-state folding live in MIT

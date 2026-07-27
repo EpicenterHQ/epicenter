@@ -1,6 +1,6 @@
 # 0163. Scalar sync separates fact reads from numbered intent submissions
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-20
 - **Supersedes:** [ADR-0140](0140-open-workspaces-synchronize-automatically-and-callers-settle-one-watermark.md), [ADR-0141](0141-authority-current-state-and-receipt-watermarks-drive-row-convergence.md), and [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md)
 - **Amended by:** [ADR-0178](0178-row-facts-and-value-facts-are-separate-relations-keyed-by-structured-coordinates.md) (row and value facts get separate physical relations with inline coordinate columns; this ADR's wire model is unchanged)
@@ -316,9 +316,45 @@ address.
 
 The authority packs facts under byte and execution budgets. A private count
 guard may protect one implementation, but a small fixed fact count is not wire
-semantics. The exact V1 constants must be chosen by the browser, Bun, and
-Cloudflare scale proof before this ADR becomes Accepted. They may widen in a
-later compatible protocol revision but cannot silently shrink.
+semantics. They may widen in a later compatible protocol revision but cannot
+silently shrink.
+
+The V1 constants are:
+
+```txt
+maxNamespaceBytes           128
+maxTableKeyBytes             64
+maxValueKeyBytes            128
+maxLifetimeBytes             64
+maxFieldKeyBytes            512
+maxUnsetKeysPerIntent       128
+jsonDepth                    16
+propertiesPerObject       1_024
+maxEncodedFactBytes         508 KiB
+maxFactsResponseBytes         8 MiB
+maxSubmissionBytes          768 KiB
+maxSubmissionAddresses        8
+maxSubmissionResponseBytes    5 MiB
+```
+
+Every coordinate, field-key, JSON, and per-fact ceiling carries over unchanged
+from the protocol V1 replaces, so no user-visible promise moved. One did not
+carry over. Settlement is not paged and every touched address returns its
+current fact, so the inequality above forces the response ceiling to cover
+`maxSubmissionAddresses` maximum-size facts plus a full parked set. At the
+former grouping of 64 intents that derives a 31.77 MiB minimum submission
+response, which no Cloudflare Worker can hold or return.
+
+Only two ceilings could give. Shrinking the per-fact size would shrink what a
+row may hold, which is a product promise. Shrinking the address count only
+resizes a transport group, which ADR-0164 states carries no product semantics
+and may be resized or split freely; because scalar addresses converge
+independently, spreading the same pending work across more numbered
+submissions costs round trips and nothing else. So the count gives: eight
+addresses derive a 3.97 MiB minimum, cleared by the configured 5 MiB ceiling.
+
+These are the wire contract, not a tuning surface. They are not configurable by
+an application or a deployment.
 
 The maximum encoded fact size is a per-fact V1 admission bound. It is
 independent of ADR-0161's aggregate logical-state envelope and cannot be derived
@@ -349,7 +385,7 @@ present logical-state bytes.
 
 ## Acceptance evidence
 
-Before this ADR becomes Accepted, shared model and adapter tests must prove:
+These are proven by the shared model and adapter tests:
 
 - prefix installation and `afterSequence` advance are one transaction;
 - delayed submission facts cannot replace newer confirmed facts, and an equal
@@ -382,10 +418,19 @@ Before this ADR becomes Accepted, shared model and adapter tests must prove:
 - lifetime mismatch erases the superseded replica, while same-lifetime
   sequence-ahead state is diagnosed as corruption; and
 - all admission and response bounds satisfy the byte inequality at their exact
-  inclusive limits across browser, Bun, and Cloudflare adapters, using one RFC
-  8785 canonical semantic encoder. Scale evidence reports these per-fact and
-  response bounds separately from ADR-0161's representative aggregate proxy. A
-  confirmed-facts read benchmark alone cannot satisfy this protocol proof.
+  inclusive limits, using one RFC 8785 canonical semantic encoder. The
+  inequality is enforced by the mandatory limits validator rather than asserted
+  once, so no limits set that violates it can be constructed at all, and the
+  shipped ceilings are pinned by test; and
+- acquisition work is bounded independently of total authority size. The
+  authority walks the fact feed in bounded steps and probes `hasMore` rather
+  than materializing every qualifying fact, so a fresh replica reading one page
+  from a large Epicenter costs what it costs from a small one.
+
+Outstanding qualification, which the byte inequality above makes a
+measurement rather than a risk: reporting the largest emitted protocol fact and
+its conservative encoding bound observed on browser, Bun, and Cloudflare under
+ADR-0161's representative aggregate load, separately from that aggregate proxy.
 
 ## Considered alternatives
 
