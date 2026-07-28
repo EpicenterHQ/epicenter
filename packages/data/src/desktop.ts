@@ -350,7 +350,13 @@ export async function openDesktopEpicenter({
 			throw new Error('Desktop synchronization is owned by the Bun host');
 		},
 		get syncStatus() {
-			return { state: 'local' as const, lastError: undefined };
+			// The Bun host owns synchronization for this surface, so it owns the
+			// parked diagnostics too; nothing is ever parked on this side.
+			return {
+				state: 'local' as const,
+				lastError: undefined,
+				parked: [] as const,
+			};
 		},
 		subscribeSyncStatus() {
 			return () => undefined;

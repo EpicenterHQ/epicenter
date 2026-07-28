@@ -158,6 +158,30 @@ async function waitFor(
 	}
 }
 
+/**
+ * ADR-0163 keeps a parked intent visible with an explicit diagnostic. The
+ * runtime's status surface is where a caller can reach it, so this pins that the
+ * field is part of that surface and not something only the internals can see.
+ * The replica and supervisor tests own the behaviour; this owns the reachability.
+ */
+test('the runtime status surface carries the parked diagnostic', async () => {
+	const { epicenter, rawDatabase } = setup();
+	try {
+		expect(epicenter.syncStatus.parked).toEqual([]);
+		const seen: unknown[] = [];
+		const stop = epicenter.subscribeSyncStatus((status) => {
+			seen.push(status.parked);
+		});
+		stop();
+		// Reachable before any attachment, which is the point: a parked address is
+		// local state a caller must be able to see without a live session.
+		expect(epicenter.syncStatus).toHaveProperty('parked');
+	} finally {
+		await epicenter[Symbol.asyncDispose]();
+		rawDatabase.close();
+	}
+});
+
 test('definitions reject invalid lens coordinates and structural field names', () => {
 	expect(() =>
 		defineLens({

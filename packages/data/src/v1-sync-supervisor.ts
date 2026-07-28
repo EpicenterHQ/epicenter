@@ -32,6 +32,7 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
 
 import type { PublishDocument } from './documents.js';
+import type { ParkedIntent } from './protocol/v1/index.js';
 import {
 	type ReplicaV1,
 	ReplicaV1Error,
@@ -53,6 +54,22 @@ export type SyncState =
 export type SyncStatus = {
 	state: SyncState;
 	lastError: Error | undefined;
+	/**
+	 * Addresses the authority refused for themselves, with the measurement that
+	 * explains why.
+	 *
+	 * ADR-0163 keeps a parked intent as a visible local overlay "with an explicit
+	 * diagnostic" that "does not retry automatically". Explicit means reachable:
+	 * the work stays visible and stops converging, and nothing else in the status
+	 * says so, because a parked address is not an error and leaves the lane
+	 * healthy. Without this a user would see local state that silently never
+	 * settles.
+	 *
+	 * Empty in the ordinary case. An entry clears when a later local write at that
+	 * address makes the work pending again, or when a terminal tombstone
+	 * supersedes it.
+	 */
+	parked: readonly ParkedIntent[];
 };
 
 export type SyncCredentialProvider = {
@@ -99,7 +116,12 @@ export function createSyncSupervisorV1({
 	log?: Logger;
 }) {
 	const listeners = new Set<(status: SyncStatus) => void>();
-	let status: SyncStatus = { state: 'local', lastError: undefined };
+	let status: SyncStatus = {
+		state: 'local',
+		lastError: undefined,
+		parked: [],
+	};
+	let parked: readonly ParkedIntent[] = [];
 	let session: SyncSupervisorSession | undefined;
 	let stopCredentials: (() => void) | undefined;
 	let cancelDocumentCoalesce: (() => void) | undefined;
@@ -213,6 +235,7 @@ export function createSyncSupervisorV1({
 				}
 				retryAttempt = 0;
 				lastError = undefined;
+				refreshParked();
 			}
 			if (!isDisposed && activeGeneration === generation && hasCredentials()) {
 				// A lane with no idle cadence sleeps until something wakes it. The
@@ -299,6 +322,28 @@ export function createSyncSupervisorV1({
 		};
 	}
 
+	/**
+	 * Re-read the parked diagnostics after a lane made progress.
+	 *
+	 * Only two things change them: a settlement parks an address, and a learned
+	 * terminal tombstone supersedes one. Both are the tail of a successful lane
+	 * cycle, so this is read there rather than on every status computation, which
+	 * would put a storage read behind an ordinary property access.
+	 */
+	function refreshParked(): void {
+		const result = replica.parkedDiagnostics();
+		if (result.error !== null) {
+			// A storage failure here loses a diagnostic, not data. Keep the previous
+			// list rather than reporting an empty one, which would read as "nothing
+			// is parked" and is the more misleading of the two.
+			contain('read parked diagnostics', () => {
+				log.error(new Error(result.error.message, { cause: result.error }));
+			});
+			return;
+		}
+		parked = result.data;
+	}
+
 	function hasCredentials(): boolean {
 		return (
 			session?.credentials?.get() !== undefined ||
@@ -370,7 +415,8 @@ export function createSyncSupervisorV1({
 		const next = computeStatus();
 		if (
 			status.state === next.state &&
-			status.lastError?.message === next.lastError?.message
+			status.lastError?.message === next.lastError?.message &&
+			status.parked === next.parked
 		) {
 			return;
 		}
@@ -394,16 +440,24 @@ export function createSyncSupervisorV1({
 	 * while submissions are still failing to settle.
 	 */
 	function computeStatus(): SyncStatus {
-		if (session === undefined) return { state: 'local', lastError: undefined };
+		if (session === undefined) {
+			return { state: 'local', lastError: undefined, parked };
+		}
 		if (!hasCredentials()) {
-			return { state: 'authentication-required', lastError: undefined };
+			return {
+				state: 'authentication-required',
+				lastError: undefined,
+				parked,
+			};
 		}
 		const lastError = submissions.lastError ?? facts.lastError;
-		if (lastError !== undefined) return { state: 'offline', lastError };
+		if (lastError !== undefined) return { state: 'offline', lastError, parked };
 		if (facts.isBusy || submissions.isBusy) {
-			return { state: 'syncing', lastError: undefined };
+			return { state: 'syncing', lastError: undefined, parked };
 		}
-		return { state: 'idle', lastError: undefined };
+		// `idle` with a non-empty `parked` is the honest combination: both lanes are
+		// healthy and some addresses have stopped converging anyway.
+		return { state: 'idle', lastError: undefined, parked };
 	}
 
 	function cancelDocumentWake(): void {

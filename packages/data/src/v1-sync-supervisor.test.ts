@@ -17,6 +17,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { Ok, type Result } from 'wellcrafted/result';
 
+import type { ParkedIntent } from './protocol/v1/index.js';
 import type {
 	ReplicaV1,
 	ReplicaV1Error,
@@ -80,6 +81,7 @@ type ReplicaStub = {
 	failFacts(error?: ReplicaV1Error): void;
 	hangFacts(gate: () => Promise<void>): void;
 	reportPass(pass: SubmissionPass): void;
+	reportParked(entries: readonly ParkedIntent[]): void;
 	reportPassOnce(first: SubmissionPass, rest: SubmissionPass): void;
 	failSubmissions(error?: ReplicaV1Error): void;
 	succeed(): void;
@@ -94,6 +96,7 @@ function createReplicaStub(): ReplicaStub {
 	let factsGate: (() => Promise<void>) | undefined;
 	let submissionPass: SubmissionPass = { kind: 'idle' };
 	let submissionPassAfter: SubmissionPass | undefined;
+	let parkedList: readonly ParkedIntent[] = [];
 	let submissionsError: ReplicaV1Error | undefined;
 	const state = {
 		factsCalls: 0,
@@ -116,6 +119,9 @@ function createReplicaStub(): ReplicaStub {
 			return factsError === undefined
 				? Ok(undefined)
 				: { data: null, error: factsError };
+		},
+		parkedDiagnostics(): Result<readonly ParkedIntent[], ReplicaV1Error> {
+			return Ok(parkedList);
 		},
 		async pushSubmissions(): Promise<Result<SubmissionPass, ReplicaV1Error>> {
 			state.submissionCalls += 1;
@@ -150,6 +156,9 @@ function createReplicaStub(): ReplicaStub {
 		},
 		reportPass(pass: SubmissionPass) {
 			submissionPass = pass;
+		},
+		reportParked(entries: readonly ParkedIntent[]) {
+			parkedList = entries;
 		},
 		/** Report `first` on the next pass, then `rest` from then on. */
 		reportPassOnce(first: SubmissionPass, rest: SubmissionPass) {
@@ -513,6 +522,68 @@ describe('one status surface spans both lanes', () => {
 		expect(supervisor.status.state).toBe('authentication-required');
 		expect(stub.factsCalls).toBe(0);
 		expect(stub.submissionCalls).toBe(0);
+	});
+});
+
+describe('the parked diagnostic is reachable through status', () => {
+	const parkedEntry: ParkedIntent = {
+		address: {
+			kind: 'row',
+			namespace: 'so.epicenter.notes',
+			tableName: 'rows',
+			rowId: 'row1aaaaaaaaaaaaaaaaaaaa',
+		},
+		code: 'fact-too-large',
+		measuredBytes: 600_000,
+		limitBytes: 520_192,
+	};
+
+	/**
+	 * ADR-0163 keeps a parked intent visible "with an explicit diagnostic" that
+	 * "does not retry automatically". Explicit has to mean reachable, or a user
+	 * sees local state that silently never settles. Nothing else in the status
+	 * conveys it: the lanes are healthy, so the state is `idle` and `lastError` is
+	 * undefined, which is exactly why the diagnostic needs its own field.
+	 */
+	test('a parked address is reported while both lanes stay healthy', async () => {
+		const { stub, supervisor } = setup();
+		stub.reportParked([parkedEntry]);
+
+		await supervisor.attach({ transport });
+		await settle();
+
+		expect(supervisor.status.state).toBe('idle');
+		expect(supervisor.status.lastError).toBeUndefined();
+		expect(supervisor.status.parked).toEqual([parkedEntry]);
+	});
+
+	test('subscribers are notified when an address becomes parked', async () => {
+		const { stub, supervisor } = setup();
+		const seen: (readonly ParkedIntent[])[] = [];
+		supervisor.subscribe((status) => seen.push(status.parked));
+		await supervisor.attach({ transport });
+		await settle();
+		expect(seen.at(-1)).toEqual([]);
+
+		stub.reportParked([parkedEntry]);
+		stub.wakeOutbox();
+		await settle();
+
+		expect(seen.at(-1)).toEqual([parkedEntry]);
+	});
+
+	test('it clears once the address stops being parked', async () => {
+		const { stub, supervisor } = setup();
+		stub.reportParked([parkedEntry]);
+		await supervisor.attach({ transport });
+		await settle();
+		expect(supervisor.status.parked).toHaveLength(1);
+
+		stub.reportParked([]);
+		stub.wakeOutbox();
+		await settle();
+
+		expect(supervisor.status.parked).toEqual([]);
 	});
 });
 

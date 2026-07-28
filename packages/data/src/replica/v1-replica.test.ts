@@ -31,6 +31,8 @@ import {
 	SCALAR_V1_LIMITS,
 	type SubmissionRequest,
 	submit,
+	type ValidatedLimits,
+	validateLimits,
 } from '../protocol/v1/index.js';
 import {
 	openReplicaV1,
@@ -61,8 +63,6 @@ const VALUE = {
 	valueName: 'theme',
 } as const;
 
-const limits = SCALAR_V1_LIMITS;
-
 /**
  * An authority driven by the kernel's pure reference model.
  *
@@ -70,7 +70,10 @@ const limits = SCALAR_V1_LIMITS;
  * which is how exact-retry and independent-progress claims are checked rather
  * than assumed.
  */
-function createScriptedAuthority(lifetime = LIFETIME) {
+function createScriptedAuthority(
+	lifetime = LIFETIME,
+	limits: ValidatedLimits = SCALAR_V1_LIMITS,
+) {
 	let state: AuthorityState = expectOk(createAuthority(lifetime, limits));
 	const factsRequests: FactsRequest[] = [];
 	const submissions: SubmissionRequest[] = [];
@@ -524,6 +527,62 @@ describe('the visible projection never disagrees with the fold', () => {
 		);
 		expectOk(await replica.pullFacts(authority.transport));
 		expectProjectionMatchesFold(database, ROW_A);
+	});
+});
+
+describe('an address the authority refuses is parked and reported', () => {
+	/**
+	 * The only address-scoped refusal ADR-0163 defines: a row patch that fits on
+	 * its own but overflows the encoded-fact ceiling once folded over a larger
+	 * live row. Built with tight ceilings so the payloads stay small.
+	 *
+	 * This is the end-to-end half of the diagnostic. The supervisor tests prove
+	 * status carries it; this proves something real gets in there, through the
+	 * kernel's own fold rather than a hand-set flag.
+	 */
+	const tightLimits = expectOk(
+		validateLimits({
+			...SCALAR_V1_LIMITS,
+			maxEncodedFactBytes: 4096,
+			maxFactsResponseBytes: 262_144,
+			maxSubmissionBytes: 262_144,
+			maxSubmissionAddresses: 8,
+			maxSubmissionResponseBytes: 1_048_576,
+		}),
+	);
+
+	test('a patch that overflows over the live row parks with its measurement', async () => {
+		const authority = createScriptedAuthority(LIFETIME, tightLimits);
+		const database = createBunSqliteAdapter(new Database(':memory:'));
+		const replica = expectOk(openReplicaV1({ database, limits: tightLimits }));
+		expectOk(
+			replica.attach({ deploymentId: DEPLOYMENT, principalId: PRINCIPAL }),
+		);
+
+		// A live row close to the ceiling, written by someone else.
+		authority.applyRemote(
+			[patch(ROW_A, { bulk: 'x'.repeat(3_600) })],
+			remoteReplicaId,
+			1,
+		);
+		expectOk(await replica.pullFacts(authority.transport));
+
+		// A small patch: admissible alone, over the ceiling once folded.
+		expectOk(replica.write(patch(ROW_A, { extra: 'y'.repeat(1_000) })));
+		expectOk(await replica.pushSubmissions(authority.transport));
+
+		const parked = expectOk(replica.parkedDiagnostics());
+		expect(parked).toHaveLength(1);
+		expect(parked[0]).toMatchObject({
+			code: 'fact-too-large',
+			limitBytes: 4096,
+		});
+		expect(parked[0]?.measuredBytes).toBeGreaterThan(4096);
+		// The live row is untouched: parking refuses one address, it does not
+		// damage what is already there.
+		expect(expectOk(replica.readRow(ROW_A))).toMatchObject({
+			bulk: 'x'.repeat(3_600),
+		});
 	});
 });
 

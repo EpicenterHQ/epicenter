@@ -396,6 +396,7 @@ export function serveBrowserEpicenter(
 						send({
 							type: 'sync-status',
 							state: status.state,
+							parked: status.parked,
 							...(status.lastError === undefined
 								? {}
 								: { lastError: status.lastError.message }),

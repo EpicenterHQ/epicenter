@@ -110,7 +110,11 @@ export async function openBrowserEpicenter({
 	const transportTails = new Map<number, Promise<void>>();
 	const pendingTransports = new Map<number, PageTransport>();
 	const syncStatusListeners = new Set<(status: SyncStatus) => void>();
-	let syncStatus: SyncStatus = { state: 'local', lastError: undefined };
+	let syncStatus: SyncStatus = {
+		state: 'local',
+		lastError: undefined,
+		parked: [],
+	};
 	let stopCredentials: (() => void) | undefined;
 	let activeTransportKey: number | undefined;
 	let requestId = 0;
@@ -353,6 +357,7 @@ export async function openBrowserEpicenter({
 						message.lastError === undefined
 							? undefined
 							: new Error(message.lastError),
+					parked: message.parked,
 				};
 				for (const listener of syncStatusListeners) listener(syncStatus);
 				return;

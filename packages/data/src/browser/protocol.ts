@@ -8,7 +8,11 @@ import type {
 	RowAddress,
 	ValueAddress,
 } from '../protocol/index.js';
-import type { FactsRequest, SubmissionRequest } from '../protocol/v1/index.js';
+import type {
+	FactsRequest,
+	ParkedIntent,
+	SubmissionRequest,
+} from '../protocol/v1/index.js';
 import type { TransportOutcome } from '../replica/v1-replica.js';
 import type { SyncState } from '../v1-sync-supervisor.js';
 
@@ -164,6 +168,12 @@ export type BrowserWorkerMessage =
 			type: 'sync-status';
 			state: SyncState;
 			lastError?: string;
+			/**
+			 * Parked diagnostics travel with the status rather than being fetched.
+			 * The worker owns the replica, so a page-side read would need a second
+			 * request whose answer could disagree with the status it arrived beside.
+			 */
+			parked: readonly ParkedIntent[];
 	  }
 	| {
 			type: 'transport-request';
