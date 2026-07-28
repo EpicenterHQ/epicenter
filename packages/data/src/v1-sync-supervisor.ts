@@ -320,6 +320,14 @@ export function createSyncSupervisorV1({
 			if (wantsFacts) {
 				const pulled = await replica.pullFacts(active.transport);
 				if (pulled.error !== null) return pulled;
+				// Learning facts is the only thing that can bind the authority
+				// lifetime, and a replica may not submit before it is bound. So a
+				// successful fact read is what releases work the submissions lane was
+				// unable to touch; without this nudge, intents written before the
+				// first successful read would wait for an unrelated local write.
+				// Cheap when there is nothing to do: no lifetime, no pending work, and
+				// no sealed submission all return without a round trip.
+				void submissions.request();
 			}
 			// Documents drain at the tail so publication sees freshly installed
 			// deletions (ADR-0166). A document-only wake skips the fact read it has
@@ -344,9 +352,13 @@ export function createSyncSupervisorV1({
 		async (active) => {
 			const pushed = await replica.pushSubmissions(active.transport);
 			if (pushed.error !== null) return pushed;
-			// More pending work than one submission could carry: keep going now
-			// rather than waiting for another local write to wake the lane.
-			if (pushed.data.hasMorePending) submissions.request();
+			// Only a pass that actually settled may ask for another. More pending
+			// work than one submission could carry is real progress, so repeating
+			// terminates. The other outcomes consumed nothing, and re-requesting on
+			// them is a loop with no exit.
+			if (pushed.data.kind === 'settled' && pushed.data.hasMorePending) {
+				void submissions.request();
+			}
 			return pushed;
 		},
 		// No idle cadence: only a local write creates submission work, so a timer

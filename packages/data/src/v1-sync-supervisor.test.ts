@@ -17,7 +17,11 @@ import { describe, expect, test } from 'bun:test';
 
 import { Ok, type Result } from 'wellcrafted/result';
 
-import type { ReplicaV1, ReplicaV1Error } from './replica/v1-replica.js';
+import type {
+	ReplicaV1,
+	ReplicaV1Error,
+	SubmissionPass,
+} from './replica/v1-replica.js';
 import { ReplicaV1Error as Errors } from './replica/v1-replica.js';
 import {
 	createSyncSupervisorV1,
@@ -75,6 +79,8 @@ type ReplicaStub = {
 	wakeOutbox(): void;
 	failFacts(error?: ReplicaV1Error): void;
 	hangFacts(gate: () => Promise<void>): void;
+	reportPass(pass: SubmissionPass): void;
+	reportPassOnce(first: SubmissionPass, rest: SubmissionPass): void;
 	failSubmissions(error?: ReplicaV1Error): void;
 	succeed(): void;
 };
@@ -86,6 +92,8 @@ function createReplicaStub(): ReplicaStub {
 	let outboxListener: (() => void) | undefined;
 	let factsError: ReplicaV1Error | undefined;
 	let factsGate: (() => Promise<void>) | undefined;
+	let submissionPass: SubmissionPass = { kind: 'idle' };
+	let submissionPassAfter: SubmissionPass | undefined;
 	let submissionsError: ReplicaV1Error | undefined;
 	const state = {
 		factsCalls: 0,
@@ -109,13 +117,17 @@ function createReplicaStub(): ReplicaStub {
 				? Ok(undefined)
 				: { data: null, error: factsError };
 		},
-		async pushSubmissions(): Promise<
-			Result<{ hasMorePending: boolean }, ReplicaV1Error>
-		> {
+		async pushSubmissions(): Promise<Result<SubmissionPass, ReplicaV1Error>> {
 			state.submissionCalls += 1;
-			return submissionsError === undefined
-				? Ok({ hasMorePending: false })
-				: { data: null, error: submissionsError };
+			if (submissionsError !== undefined) {
+				return { data: null, error: submissionsError };
+			}
+			const pass = submissionPass;
+			if (submissionPassAfter !== undefined) {
+				submissionPass = submissionPassAfter;
+				submissionPassAfter = undefined;
+			}
+			return Ok(pass);
 		},
 	} as unknown as ReplicaV1;
 
@@ -135,6 +147,14 @@ function createReplicaStub(): ReplicaStub {
 		},
 		hangFacts(gate: () => Promise<void>) {
 			factsGate = gate;
+		},
+		reportPass(pass: SubmissionPass) {
+			submissionPass = pass;
+		},
+		/** Report `first` on the next pass, then `rest` from then on. */
+		reportPassOnce(first: SubmissionPass, rest: SubmissionPass) {
+			submissionPass = first;
+			submissionPassAfter = rest;
 		},
 		failSubmissions(error = transportFailure()) {
 			submissionsError = error;
@@ -225,20 +245,26 @@ describe('the lanes progress independently', () => {
 	});
 
 	/**
-	 * Only a local write creates submission work, so a periodic submissions timer
-	 * would be a guaranteed-empty round trip on every quiet interval.
+	 * Only a local write or a fact read creates submission work, so the lane never
+	 * schedules a wake of its own: a periodic submissions timer would be a
+	 * guaranteed-empty round trip on every quiet interval.
+	 *
+	 * Asserted on scheduled wakes rather than call counts, because the facts lane
+	 * legitimately nudges submissions after learning facts. A nudge is not a
+	 * cadence; what must not exist is a timer this lane set for itself.
 	 */
-	test('the submissions lane has no idle cadence of its own', async () => {
+	test('the submissions lane schedules no wake of its own', async () => {
 		const { clock, stub, supervisor } = setup();
 		await supervisor.attach({ transport });
 		await settle();
-		const submissionsBefore = stub.submissionCalls;
+		// Only the facts lane's periodic wake should be outstanding.
+		expect(clock.pendingCount).toBe(1);
 
-		clock.fireAll();
+		stub.wakeOutbox();
 		await settle();
 
-		expect(stub.factsCalls).toBeGreaterThan(1);
-		expect(stub.submissionCalls).toBe(submissionsBefore);
+		expect(stub.submissionCalls).toBeGreaterThan(0);
+		expect(clock.pendingCount).toBe(1);
 	});
 });
 
@@ -259,7 +285,9 @@ describe('attach settles the first cycle of both lanes', () => {
 		// where documents drain, and publication needs rows the submissions cycle
 		// has just created at the authority.
 		expect(stub.factsCalls).toBe(2);
-		expect(stub.submissionCalls).toBe(1);
+		// At least once; a successful fact read also nudges this lane, because
+		// learning facts is what binds the lifetime submissions need.
+		expect(stub.submissionCalls).toBeGreaterThanOrEqual(1);
 	});
 
 	test('a transport that never answers leaves attach pending', async () => {
@@ -283,6 +311,74 @@ describe('attach settles the first cycle of both lanes', () => {
 		}
 		await attaching;
 		expect(settled).toBe(true);
+	});
+});
+
+describe('a lane that made no progress does not re-request itself', () => {
+	/**
+	 * The regression this exists for. A replica may not submit before the facts
+	 * feed binds the authority lifetime, and that pass used to be reported as
+	 * "pending work remains", so the lane re-requested itself immediately and the
+	 * loop had no exit: nothing in that pass consumes work.
+	 *
+	 * In Bun it burned CPU. In a browser it was worse, because the loop stayed on
+	 * the microtask queue and starved the worker's message loop, so no read could
+	 * be served at all while the facts feed was unreachable. That is what broke
+	 * the `hung-sync-continuity` browser evidence cell.
+	 */
+	test('an awaiting-lifetime pass runs once, not forever', async () => {
+		const { stub, supervisor } = setup();
+		stub.reportPass({ kind: 'awaiting-lifetime' });
+		// A hung facts feed is what leaves the lifetime unbound in practice.
+		stub.hangFacts(() => new Promise<void>(() => undefined));
+
+		void supervisor.attach({ transport });
+		await settle();
+		const afterAttach = stub.submissionCalls;
+
+		stub.wakeOutbox();
+		await settle();
+
+		// One pass per wake. A spin shows up here as an unbounded count.
+		expect(afterAttach).toBeLessThanOrEqual(1);
+		expect(stub.submissionCalls).toBeLessThanOrEqual(afterAttach + 1);
+	});
+
+	test('an idle pass runs once per wake', async () => {
+		const { stub, supervisor } = setup();
+		stub.reportPass({ kind: 'idle' });
+		await supervisor.attach({ transport });
+		await settle();
+		const afterAttach = stub.submissionCalls;
+
+		stub.wakeOutbox();
+		await settle();
+
+		expect(stub.submissionCalls).toBe(afterAttach + 1);
+	});
+
+	/**
+	 * The one outcome that may ask for another pass, because it consumed work and
+	 * therefore terminates. The stub retires its own work to model that: a real
+	 * settlement drains the outbox, which is exactly why repeating is safe here
+	 * and unsafe for the two outcomes above.
+	 */
+	test('a settled pass with more pending work runs again, then stops', async () => {
+		const { stub, supervisor } = setup();
+		stub.reportPassOnce(
+			{ kind: 'settled', hasMorePending: true },
+			{
+				kind: 'idle',
+			},
+		);
+		await supervisor.attach({ transport });
+		await settle();
+
+		// It ran again after settling, and it stopped. The exact count also
+		// includes the nudge each successful fact read gives this lane, so the
+		// bound is generous on purpose: what matters is that it is a bound at all.
+		expect(stub.submissionCalls).toBeGreaterThanOrEqual(2);
+		expect(stub.submissionCalls).toBeLessThan(10);
 	});
 });
 

@@ -216,6 +216,20 @@ export type ScalarTransport = {
 	submit(request: SubmissionRequest): Promise<TransportOutcome>;
 };
 
+/**
+ * Why one submissions pass stopped.
+ *
+ * Three outcomes rather than one boolean, because "more work is waiting" and
+ * "I cannot act yet" look identical to a boolean and need opposite handling.
+ * `awaiting-lifetime` and `idle` both mean this lane has nothing to do until
+ * something external changes; only `settled` consumed work and may therefore
+ * ask to run again without risking a loop that never ends.
+ */
+export type SubmissionPass =
+	| { kind: 'awaiting-lifetime' }
+	| { kind: 'idle' }
+	| { kind: 'settled'; hasMorePending: boolean };
+
 export type OpenReplicaV1Options = {
 	database: SqliteDatabase;
 	limits?: ValidatedLimits;
@@ -643,15 +657,17 @@ function createReplicaV1(
 	/**
 	 * Submit one sealed numbered submission and install its settlement.
 	 *
-	 * Returns whether pending work remains, so the caller can decide to run again
-	 * without this loop owning a schedule. The settlement facts install under the
+	 * Reports why the pass stopped, so a caller can tell "run me again, I made
+	 * progress and more work is waiting" from "there is nothing I am able to do".
+	 * Only `settled` may ask to run again; it is the one outcome that consumed
+	 * work, so repeating on it terminates. The settlement facts install under the
 	 * same monotonic rule as the facts feed, which is what stops a delayed
 	 * response carrying an older fact than the feed already learned. Settlement
 	 * never advances `afterSequence`.
 	 */
 	async function pushSubmissions(
 		transport: ScalarTransport,
-	): Promise<Result<{ hasMorePending: boolean }, ReplicaV1Error>> {
+	): Promise<Result<SubmissionPass, ReplicaV1Error>> {
 		const current = metadata();
 		if (current.error !== null) return current;
 		if (current.data.attachment === undefined) {
@@ -660,8 +676,13 @@ function createReplicaV1(
 		const authorityLifetime = current.data.authorityLifetime;
 		if (authorityLifetime === undefined) {
 			// ADR-0163: a replica binds to the authority lifetime through the facts
-			// feed before it may submit. This is ordinary ordering, not a failure.
-			return Ok({ hasMorePending: true });
+			// feed before it may submit. This is ordinary ordering, not a failure,
+			// and crucially it is not progress either. Reporting it as pending work
+			// invited the caller to run this again immediately, which spun forever
+			// whenever the facts feed was slow or unreachable: nothing here consumes
+			// work, so nothing would ever end the loop. Only the facts feed can
+			// change this answer.
+			return Ok({ kind: 'awaiting-lifetime' });
 		}
 
 		const sealed = storageResult('seal submission', () =>
@@ -670,7 +691,7 @@ function createReplicaV1(
 			),
 		);
 		if (sealed.error !== null) return sealed;
-		if (sealed.data === undefined) return Ok({ hasMorePending: false });
+		if (sealed.data === undefined) return Ok({ kind: 'idle' });
 		const request = sealed.data;
 
 		const { data: admittedRequest, error: requestError } =
@@ -784,7 +805,7 @@ function createReplicaV1(
 		);
 		if (settled.error !== null) return unwrapLoopFailure(settled.error);
 		notify(settled.data.changes);
-		return Ok({ hasMorePending: settled.data.hasMorePending });
+		return Ok({ kind: 'settled', hasMorePending: settled.data.hasMorePending });
 	}
 
 	function parkedDiagnostics() {

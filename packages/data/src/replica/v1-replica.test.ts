@@ -312,7 +312,26 @@ describe('the submissions loop settles local work', () => {
 
 		const result = expectOk(await replica.pushSubmissions(authority.transport));
 
-		expect(result.hasMorePending).toBe(false);
+		expect(result.kind).toBe('idle');
+		expect(authority.submissions).toHaveLength(0);
+	});
+
+	/**
+	 * The pass that used to spin. With the lifetime unbound a replica may not
+	 * submit, but reporting that as pending work told the caller to run again
+	 * immediately, and nothing here consumes work, so the loop had no exit. In a
+	 * browser that starved the worker's message queue on microtasks and no read
+	 * could be served while the facts feed was unreachable.
+	 */
+	test('an unbound authority lifetime is reported as no work, not pending work', async () => {
+		const authority = createScriptedAuthority();
+		const { replica } = openAttachedReplica();
+		replica.write(patch(ROW_A, { title: 'offline' }));
+
+		// No facts read yet, so the lifetime is unbound.
+		const result = expectOk(await replica.pushSubmissions(authority.transport));
+
+		expect(result.kind).toBe('awaiting-lifetime');
 		expect(authority.submissions).toHaveLength(0);
 	});
 
