@@ -26,18 +26,6 @@ export class StorageUpgradeRequiredError extends Error {
 	}
 }
 
-/** Narrow an unknown opener failure without depending on `instanceof`. */
-export function isStorageUpgradeRequiredError(
-	cause: unknown,
-): cause is StorageUpgradeRequiredError {
-	return (
-		typeof cause === 'object' &&
-		cause !== null &&
-		'name' in cause &&
-		cause.name === 'StorageUpgradeRequired'
-	);
-}
-
 /**
  * The complete runtime-specific embedded SQLite boundary.
  *
