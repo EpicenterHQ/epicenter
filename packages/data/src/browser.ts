@@ -39,6 +39,7 @@ import {
 } from './epicenter.js';
 import type { JsonValue, RowAddress, ValueAddress } from './protocol/index.js';
 import type { SyncStatus } from './sync-supervisor.js';
+import { describeThrownError } from './thrown-error.js';
 
 type PendingRequest = {
 	resolve(value: unknown): void;
@@ -264,8 +265,7 @@ export async function openBrowserEpicenter({
 							type: 'transport-error',
 							transportId: message.transportId,
 							transportKey: message.transportKey,
-							name: cause instanceof Error ? cause.name : 'Error',
-							message: cause instanceof Error ? cause.message : String(cause),
+							...describeThrownError(cause),
 						});
 					}
 				}

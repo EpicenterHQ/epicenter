@@ -5,6 +5,7 @@ import type {
 	SerializedValueDefinition,
 } from './browser/protocol.js';
 import type { RowAddress } from './protocol/index.js';
+import type { ThrownErrorDescription } from './thrown-error.js';
 
 export const DESKTOP_EPICENTER_ROUTE = '/api/data';
 
@@ -77,10 +78,14 @@ export type DesktopRequest = {
 
 export type DesktopResponse =
 	| { data: unknown; error: null }
-	| { data: null; error: { name: string; message: string } };
+	| { data: null; error: ThrownErrorDescription };
 
 export function desktopEpicenterUrl(baseUrl: string): string {
 	return new URL(DESKTOP_EPICENTER_ROUTE, baseUrl).toString();
 }
 
+export {
+	describeThrownError,
+	type ThrownErrorDescription,
+} from './thrown-error.js';
 export type { SerializedTableDefinition, SerializedValueDefinition };
