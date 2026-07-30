@@ -16,6 +16,18 @@ const PUBLISH_CONCURRENCY = 4;
 const hydrationOrigin = Object.freeze({ kind: 'epicenter-document-hydration' });
 
 /**
+ * One row address, spelled for a person reading a diagnostic.
+ *
+ * Deliberately not {@link addressKey}, which is canonical JSON for map keying.
+ * Written once because the alternative is four hand-rolled interpolations of
+ * the same three coordinates, and three of them had already silently lost every
+ * coordinate to a rename, leaving operators an error that read `'//'`.
+ */
+function label(address: RowAddress): string {
+	return `${address.namespace}/${address.tableName}/${address.rowId}`;
+}
+
+/**
  * Adapt one SQLite operation the drain owns. Every one of them fails for the
  * same reason and reports the same way, which is what keeps the drain's other
  * boundary, the carrier, visibly separate.
@@ -237,9 +249,7 @@ export function createDocumentRuntime({
 
 	function requireRowLive(address: RowAddress): void {
 		if (isRowLive(address)) return;
-		throw new Error(
-			`Cannot open document for absent row '${address.namespace}/${address.tableName}/${address.rowId}'`,
-		);
+		throw new Error(`Cannot open document for absent row '${label(address)}'`);
 	}
 
 	function readUpdates(address: RowAddress): StoredUpdate[] {
@@ -287,7 +297,9 @@ export function createDocumentRuntime({
 	): void {
 		database.transaction(() => {
 			if (!isRowLive(address)) {
-				throw new Error(`Cannot persist document update for absent row '//'`);
+				throw new Error(
+					`Cannot persist document update for absent row '${label(address)}'`,
+				);
 			}
 			const nextSequence =
 				database.all<SqliteRow & { sequence: number }>(
@@ -361,7 +373,9 @@ export function createDocumentRuntime({
 				queueMicrotask(() =>
 					revokeWith(
 						address,
-						new Error(`Row document storage failed for '//'`, { cause }),
+						new Error(`Row document storage failed for '${label(address)}'`, {
+							cause,
+						}),
 					),
 				);
 				throw cause;
@@ -744,7 +758,9 @@ export function createDocumentRuntime({
 		revoke(address: RowAddress): void {
 			revokeWith(
 				address,
-				new Error(`Row document was revoked because '//' is no longer live`),
+				new Error(
+					`Row document was revoked because '${label(address)}' is no longer live`,
+				),
 			);
 		},
 		async [Symbol.asyncDispose](): Promise<void> {
