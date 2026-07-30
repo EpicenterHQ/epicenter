@@ -43,16 +43,6 @@ type FactRow = SqliteRow & {
 	authority_sequence: number;
 };
 
-export type EpicenterSyncAuthority = {
-	exchange(request: unknown): ExchangeResponse;
-};
-
-export type OpenAuthorityOptions = {
-	database: SqliteDatabase;
-	pageSize?: number;
-	readDatabaseSize?: () => number;
-};
-
 function readMetadata(database: SqliteDatabase): MetadataRow {
 	const metadata = database.all<MetadataRow>(
 		'SELECT next_sequence FROM main._authority_metadata WHERE singleton = 1',
@@ -304,7 +294,15 @@ export function openEpicenterSyncAuthority({
 	database,
 	pageSize = DATA_ADMISSION_LIMITS.factsPerPage,
 	readDatabaseSize,
-}: OpenAuthorityOptions): EpicenterSyncAuthority {
+}: {
+	database: SqliteDatabase;
+	pageSize?: number;
+	/**
+	 * Current size of the caller's database in bytes. When provided, a batch
+	 * that would grow the store past the ceiling is refused rather than applied.
+	 */
+	readDatabaseSize?: () => number;
+}) {
 	if (
 		!Number.isInteger(pageSize) ||
 		pageSize < 1 ||
@@ -315,7 +313,15 @@ export function openEpicenterSyncAuthority({
 	initializeAuthoritySchema(database);
 
 	return {
-		exchange(rawRequest): ExchangeResponse {
+		/**
+		 * Settle one replica's batch, if it carried one, and answer the next page
+		 * of the sequence-ordered fact stream.
+		 *
+		 * Takes `unknown` because a Durable Object RPC entry point re-enters this
+		 * from a serialized boundary, so the request is parsed here rather than
+		 * trusted from a type.
+		 */
+		exchange(rawRequest: unknown): ExchangeResponse {
 			return database.transaction(() => {
 				const parsed = parseExchangeRequest(rawRequest);
 				if (parsed.error !== null) throw new TypeError(parsed.error.message);
