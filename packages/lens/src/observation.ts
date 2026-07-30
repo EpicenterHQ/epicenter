@@ -82,20 +82,6 @@ function tableKey(namespace: string, tableName: string): string {
 }
 
 /**
- * The one place a batch of committed addresses becomes per-handle
- * invalidations.
- *
- * Every client owns one of these: the in-process runtime, the browser page
- * proxy, and the desktop surface proxy. They differ in where the addresses come
- * from (a replica subscription, a worker message, a host socket frame) and in
- * nothing else, so the grouping law, the delivery law, and gap recovery are
- * written once here rather than three times with three chances to drift.
- *
- * It holds listeners and nothing else. It reads no data, performs no I/O, and
- * cannot answer what a row now contains: a consumer that wants to know re-reads
- * through the handle it already has.
- */
-/**
  * Where a contained subscriber failure goes.
  *
  * Structurally the one method this needs rather than `wellcrafted/logger`'s
@@ -111,6 +97,20 @@ export type InvalidationErrorReporter = {
 	error(error: unknown): void;
 };
 
+/**
+ * The one place a batch of committed addresses becomes per-handle
+ * invalidations.
+ *
+ * Every client owns one of these: the in-process runtime, the browser page
+ * proxy, and the desktop surface proxy. They differ in where the addresses come
+ * from (a replica subscription, a worker message, a host socket frame) and in
+ * nothing else, so the grouping law, the delivery law, and gap recovery are
+ * written once here rather than three times with three chances to drift.
+ *
+ * It holds listeners and nothing else. It reads no data, performs no I/O, and
+ * cannot answer what a row now contains: a consumer that wants to know re-reads
+ * through the handle it already has.
+ */
 export function createInvalidationDispatcher({
 	log = { error: () => undefined },
 }: {
