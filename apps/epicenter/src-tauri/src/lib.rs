@@ -80,6 +80,11 @@ pub mod overlay;
 #[cfg(target_os = "macos")]
 pub mod clipboard;
 
+/// PROTOTYPE, THROWAWAY: macOS native tabs over the existing windows. Off
+/// unless `EPICENTER_PROTOTYPE_TABS` is set. Delete with its call sites.
+#[cfg(target_os = "macos")]
+mod prototype_macos_tabs;
+
 /// Reserved label prefix for derived-catalog app windows (ADR-0153). One
 /// capability glob (`app-*`) grants every such window the first trusted-app
 /// authority slice, so no host-internal window label may ever start with it.
@@ -594,24 +599,40 @@ fn app_window_label(id: &str) -> String {
 fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -> Result<()> {
     let label = app_window_label(id);
     if let Some(window) = app.get_webview_window(&label) {
+        #[cfg(target_os = "macos")]
+        prototype_macos_tabs::adopt_into_group(app, &window);
         focus(window);
+        #[cfg(target_os = "macos")]
+        prototype_macos_tabs::describe(app, &format!("revealed existing {label}"));
         return Ok(());
     }
 
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}/apps/{id}/").parse()?;
     let initialization_script = initialization_script(&origin, token)?;
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    #[cfg(target_os = "macos")]
+    prototype_macos_tabs::allow_automatic_tabbing();
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(format!("Epicenter: {id}"))
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
         .initialization_script(initialization_script)
         .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(|_, _| NewWindowResponse::Deny);
+    #[cfg(target_os = "macos")]
+    let builder = match prototype_macos_tabs::identifier() {
+        Some(identifier) => builder.tabbing_identifier(identifier),
+        None => builder,
+    };
+    let window = builder
         .build()
         .with_context(|| format!("create the {id} app WebView"))?;
     release_host_resources_on_destroy(&window);
+    #[cfg(target_os = "macos")]
+    prototype_macos_tabs::adopt_into_group(app, &window);
     focus(window);
+    #[cfg(target_os = "macos")]
+    prototype_macos_tabs::describe(app, &format!("created {label}"));
     Ok(())
 }
 
@@ -1375,7 +1396,11 @@ fn ensure_surface(
 ) -> Result<()> {
     if let Some(window) = app.get_webview_window(surface.id()) {
         if reveal {
+            #[cfg(target_os = "macos")]
+            prototype_macos_tabs::adopt_into_group(app, &window);
             focus(window);
+            #[cfg(target_os = "macos")]
+            prototype_macos_tabs::describe(app, &format!("revealed existing {}", surface.id()));
         }
         return Ok(());
     }
@@ -1383,14 +1408,22 @@ fn ensure_surface(
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}{}", surface.path()).parse()?;
     let initialization_script = initialization_script(&origin, token)?;
-    let window = WebviewWindowBuilder::new(app, surface.id(), WebviewUrl::External(url))
+    #[cfg(target_os = "macos")]
+    prototype_macos_tabs::allow_automatic_tabbing();
+    let builder = WebviewWindowBuilder::new(app, surface.id(), WebviewUrl::External(url))
         .title(surface.title())
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
         .visible(reveal)
         .initialization_script(initialization_script)
         .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(|_, _| NewWindowResponse::Deny);
+    #[cfg(target_os = "macos")]
+    let builder = match prototype_macos_tabs::identifier() {
+        Some(identifier) => builder.tabbing_identifier(identifier),
+        None => builder,
+    };
+    let window = builder
         .build()
         .with_context(|| format!("create the {} WebView", surface.title()))?;
 
@@ -1403,8 +1436,12 @@ fn ensure_surface(
     });
     release_host_resources_on_destroy(&window);
     if reveal {
+        #[cfg(target_os = "macos")]
+        prototype_macos_tabs::adopt_into_group(app, &window);
         focus(window);
     }
+    #[cfg(target_os = "macos")]
+    prototype_macos_tabs::describe(app, &format!("created {} (reveal={reveal})", surface.id()));
     Ok(())
 }
 
