@@ -287,7 +287,9 @@ export function createDocumentRuntime({
 	): void {
 		database.transaction(() => {
 			if (!isRowLive(address)) {
-				throw new Error(`Cannot persist document update for absent row '//'`);
+				throw new Error(
+					`Cannot persist document update for absent row '${address.namespace}/${address.tableName}/${address.rowId}'`,
+				);
 			}
 			const nextSequence =
 				database.all<SqliteRow & { sequence: number }>(
@@ -361,7 +363,10 @@ export function createDocumentRuntime({
 				queueMicrotask(() =>
 					revokeWith(
 						address,
-						new Error(`Row document storage failed for '//'`, { cause }),
+						new Error(
+							`Row document storage failed for '${address.namespace}/${address.tableName}/${address.rowId}'`,
+							{ cause },
+						),
 					),
 				);
 				throw cause;
@@ -744,7 +749,9 @@ export function createDocumentRuntime({
 		revoke(address: RowAddress): void {
 			revokeWith(
 				address,
-				new Error(`Row document was revoked because '//' is no longer live`),
+				new Error(
+					`Row document was revoked because '${address.namespace}/${address.tableName}/${address.rowId}' is no longer live`,
+				),
 			);
 		},
 		async [Symbol.asyncDispose](): Promise<void> {
