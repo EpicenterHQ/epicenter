@@ -1,28 +1,12 @@
-import {
-	defineLens,
-	defineTable,
-	defineValue,
-	optional,
-	type TableDefinition,
-	type ValueDefinition,
-} from '@epicenter/lens';
-import type { TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import { epicenterPath, openBunEpicenter } from './bun.js';
-import type {
-	DesktopOperation,
-	DesktopRequest,
-	SerializedTableDefinition,
-	SerializedValueDefinition,
-} from './desktop-protocol.js';
+import type { DesktopOperation, DesktopRequest } from './desktop-protocol.js';
 import {
 	applyRowDocumentUpdate,
 	encodeRowDocumentState,
 	type RowDocument,
 } from './documents.js';
 import {
-	type Epicenter,
-	type InternalTableLens,
 	readTableEntriesPage,
 	subscribeCommittedAddresses,
 } from './epicenter.js';
@@ -33,21 +17,7 @@ import {
 	openInspection,
 } from './inspection.js';
 import type { Address } from './protocol/index.js';
-
-type UntypedTableLens = {
-	create(fields: Record<string, unknown>): Promise<unknown>;
-	get(rowId: string): Promise<unknown>;
-	update(rowId: string, patch: Record<string, unknown>): Promise<unknown>;
-	delete(rowId: string): Promise<boolean>;
-	[readTableEntriesPage](after?: string): Promise<unknown>;
-	openDocument(rowId: string): Promise<RowDocument>;
-};
-
-type UntypedValueLens = {
-	get(): Promise<unknown>;
-	set(value: unknown): Promise<void>;
-	unset(): Promise<void>;
-};
+import { tableLens, valueLens } from './serialized-lens.js';
 
 type OpenDocument = {
 	surfaceId: string;
@@ -272,54 +242,6 @@ export async function createDesktopEpicenterOwner({
 export type DesktopEpicenterOwner = Awaited<
 	ReturnType<typeof createDesktopEpicenterOwner>
 >;
-
-function tableLens(
-	epicenter: Epicenter,
-	definition: SerializedTableDefinition,
-): UntypedTableLens {
-	// The serialized table name is the durable local key, so the reconstructed
-	// Lens must declare it under that exact property name. Binding under a fixed
-	// placeholder would address every proxied table identically.
-	return epicenter.bind(
-		defineLens({
-			namespace: definition.namespace,
-			tables: { [definition.table]: deserializeTable(definition) },
-			values: {},
-		}),
-	).tables[definition.table] as InternalTableLens<TableDefinition>;
-}
-
-function valueLens(
-	epicenter: Epicenter,
-	definition: SerializedValueDefinition,
-): UntypedValueLens {
-	const valueDefinition = defineValue({
-		value: definition.value as TSchema,
-	}) as ValueDefinition;
-	return epicenter.bind(
-		defineLens({
-			namespace: definition.address.namespace,
-			tables: {},
-			values: {
-				[definition.address.valueName]: valueDefinition,
-			},
-		}),
-	).values[definition.address.valueName] as UntypedValueLens;
-}
-
-function deserializeTable(
-	definition: SerializedTableDefinition,
-): TableDefinition {
-	const fields: Record<string, TSchema> = {};
-	const optionalFields = new Set(definition.optionalFields);
-	for (const [name, schema] of Object.entries(definition.fields)) {
-		const typedSchema = schema as TSchema;
-		fields[name] = optionalFields.has(name)
-			? optional(typedSchema)
-			: typedSchema;
-	}
-	return defineTable({ fields });
-}
 
 function parseDesktopRequest(input: unknown): DesktopRequest {
 	if (

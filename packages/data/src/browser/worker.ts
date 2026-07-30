@@ -1,12 +1,4 @@
 import {
-	defineLens,
-	defineTable,
-	defineValue,
-	optional,
-	type TableDefinition,
-	type ValueDefinition,
-} from '@epicenter/lens';
-import {
 	type BrowserSqliteDatabase,
 	createBrowserSqliteAdapter,
 } from '@epicenter/sqlite/browser';
@@ -14,7 +6,6 @@ import sqlite3InitModule, {
 	type Database,
 	type SAHPoolUtil,
 } from '@sqlite.org/sqlite-wasm';
-import type { TSchema } from 'typebox';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import {
 	applyRowDocumentUpdate,
@@ -25,7 +16,6 @@ import {
 import {
 	createEpicenter,
 	type Epicenter,
-	type InternalTableLens,
 	readTableEntriesPage,
 } from '../epicenter.js';
 import {
@@ -36,13 +26,12 @@ import {
 	type RowAddress,
 } from '../protocol/index.js';
 import { openReplica, type Replica } from '../replica/index.js';
+import { tableLens, valueLens } from '../serialized-lens.js';
 import type {
 	BrowserOperation,
 	BrowserTransportResult,
 	BrowserWorkerInbound,
 	BrowserWorkerMessage,
-	SerializedTableDefinition,
-	SerializedValueDefinition,
 	SessionTransportRequest,
 	SessionTransportResponse,
 } from './protocol.js';
@@ -97,21 +86,6 @@ type StoreLifecycle = {
 	disposal: Promise<unknown[]> | undefined;
 	stopReplicaSubscription: (() => void) | undefined;
 	stopSyncStatusSubscription: (() => void) | undefined;
-};
-
-type UntypedTableLens = {
-	create(fields: Record<string, unknown>): Promise<unknown>;
-	get(rowId: string): Promise<unknown>;
-	update(rowId: string, patch: Record<string, unknown>): Promise<unknown>;
-	delete(rowId: string): Promise<boolean>;
-	[readTableEntriesPage](after?: string): Promise<unknown>;
-	openDocument(rowId: string): Promise<RowDocument>;
-};
-
-type UntypedValueLens = {
-	get(): Promise<unknown>;
-	set(value: unknown): Promise<void>;
-	unset(): Promise<void>;
 };
 
 const documentRpcOrigin = Object.freeze({ kind: 'browser-document-rpc' });
@@ -897,52 +871,6 @@ export function serveBrowserEpicenter(
 		void serializeLocal(respond);
 	});
 	port.start?.();
-}
-
-function deserializeTable(
-	definition: SerializedTableDefinition,
-): TableDefinition {
-	const fields: Record<string, TSchema> = {};
-	const optionalFields = new Set(definition.optionalFields);
-	for (const [name, schema] of Object.entries(definition.fields)) {
-		const typedSchema = schema as TSchema;
-		fields[name] = optionalFields.has(name)
-			? optional(typedSchema)
-			: typedSchema;
-	}
-	return defineTable({ fields });
-}
-
-function tableLens(
-	epicenter: Epicenter,
-	definition: SerializedTableDefinition,
-): UntypedTableLens {
-	// The serialized table name is the durable local key, so the reconstructed
-	// Lens must declare it under that exact property name. Binding under a fixed
-	// placeholder would address every proxied table identically.
-	return epicenter.bind(
-		defineLens({
-			namespace: definition.namespace,
-			tables: { [definition.table]: deserializeTable(definition) },
-			values: {},
-		}),
-	).tables[definition.table] as InternalTableLens<TableDefinition>;
-}
-
-function valueLens(
-	epicenter: Epicenter,
-	definition: SerializedValueDefinition,
-): UntypedValueLens {
-	const valueDefinition = defineValue({
-		value: definition.value as TSchema,
-	}) as ValueDefinition;
-	return epicenter.bind(
-		defineLens({
-			namespace: definition.address.namespace,
-			tables: {},
-			values: { [definition.address.valueName]: valueDefinition },
-		}),
-	).values[definition.address.valueName] as UntypedValueLens;
 }
 
 function storeClosingError(cause?: unknown): Error {
