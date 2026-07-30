@@ -443,4 +443,5 @@ export type {
 export {
 	DESKTOP_EPICENTER_OBSERVE_ROUTE,
 	DESKTOP_EPICENTER_ROUTE,
+	describeThrownError,
 } from './desktop-protocol.js';

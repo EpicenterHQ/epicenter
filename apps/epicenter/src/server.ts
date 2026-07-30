@@ -16,6 +16,7 @@ import {
 	DESKTOP_EPICENTER_ROUTE,
 	type DesktopInvalidationFrame,
 	type DesktopResponse,
+	describeThrownError,
 } from '@epicenter/data/desktop';
 import {
 	type DesktopEpicenterOwner,
@@ -499,10 +500,11 @@ export function createHomeServer({
 				error: null,
 			} satisfies DesktopResponse);
 		} catch (cause) {
-			const error = {
-				name: cause instanceof Error ? cause.name : 'Error',
-				message: cause instanceof Error ? cause.message : String(cause),
-			};
+			// A bound Lens reports its refusals by throwing what a `defineErrors`
+			// factory produced, and those are plain objects rather than `Error`
+			// instances. Describing them is what keeps the variant name, which is
+			// the only thing either client classifies on.
+			const error = describeThrownError(cause);
 			return c.json(
 				{ data: null, error } satisfies DesktopResponse,
 				error.name === EPICENTER_SURFACE_NOT_OPEN_ERROR_NAME ? 409 : 400,

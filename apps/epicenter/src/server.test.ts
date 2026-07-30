@@ -36,7 +36,13 @@ import {
 } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { desktopBlobUrl } from '@epicenter/blobs/webview';
-import { DESKTOP_EPICENTER_OBSERVE_ROUTE } from '@epicenter/data/desktop';
+import {
+	DESKTOP_EPICENTER_OBSERVE_ROUTE,
+	DESKTOP_EPICENTER_ROUTE,
+	type DesktopResponse,
+} from '@epicenter/data/desktop';
+import type { DesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
+import { defineErrors } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import type { HomeHost, HomeHostInputs } from './host.ts';
 import {
@@ -183,6 +189,7 @@ async function serveHost(
 	host: HomeHost,
 	page: string = PAGE,
 	blobRemote: BlobRemote | null = null,
+	dataOwner: DesktopEpicenterOwner | undefined = undefined,
 ) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
@@ -200,6 +207,7 @@ async function serveHost(
 		blobs: createTestBlobs(),
 		desktopAuth: createTestDesktopAuth(),
 		blobRemote,
+		dataOwner,
 	});
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
@@ -1755,4 +1763,75 @@ describe('sidecar end-to-end smoke', () => {
 			sidecar.kill();
 		}
 	}, 60_000);
+});
+
+describe('the desktop Epicenter route', () => {
+	/**
+	 * The refusal a bound Lens actually throws.
+	 *
+	 * `@epicenter/data` reports storage and projection failures by throwing what
+	 * a `defineErrors` factory produced, and wellcrafted returns those as frozen
+	 * plain objects rather than `Error` instances. This route is the last place
+	 * that shape exists before it becomes two strings on the wire, so describing
+	 * it with an `instanceof Error` test erased both of them.
+	 */
+	const StubReplicaError = defineErrors({
+		InvalidInput: ({ boundary }: { boundary: string }) => ({
+			message: `Replica refused invalid input at ${boundary}`,
+			boundary,
+		}),
+	});
+
+	function ownerThrowing(thrown: unknown): DesktopEpicenterOwner {
+		return {
+			execute: () => Promise.reject(thrown),
+		} as unknown as DesktopEpicenterOwner;
+	}
+
+	async function operate(server: TestServer) {
+		const { origin, cookie } = authenticationFor(server);
+		const response = await fetch(new URL(DESKTOP_EPICENTER_ROUTE, origin), {
+			method: 'POST',
+			headers: { cookie, origin, 'content-type': 'application/json' },
+			body: JSON.stringify({
+				surfaceId: 'test-surface',
+				operation: { kind: 'table-get' },
+			}),
+		});
+		return {
+			status: response.status,
+			envelope: (await response.json()) as DesktopResponse,
+		};
+	}
+
+	test('a thrown Lens refusal crosses named, not as [object Object]', async () => {
+		const { error } = StubReplicaError.InvalidInput({ boundary: 'intent' });
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const server = await serveHost(host, PAGE, null, ownerThrowing(error));
+		try {
+			expect((await operate(server)).envelope.error).toEqual({
+				name: 'InvalidInput',
+				message: 'Replica refused invalid input at intent',
+			});
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test('a thrown Error keeps its own name and picks the status', async () => {
+		const sentinel = new Error('Desktop Epicenter holds no open surface');
+		sentinel.name = 'EpicenterSurfaceNotOpenError';
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const server = await serveHost(host, PAGE, null, ownerThrowing(sentinel));
+		try {
+			const { status, envelope } = await operate(server);
+			expect(status).toBe(409);
+			expect(envelope.error).toEqual({
+				name: 'EpicenterSurfaceNotOpenError',
+				message: 'Desktop Epicenter holds no open surface',
+			});
+		} finally {
+			await server.stop(true);
+		}
+	});
 });

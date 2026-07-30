@@ -20,6 +20,7 @@ import type { SyncCredentialProvider } from '@epicenter/data';
 import { createDesktopEpicenterOwner } from '@epicenter/data/desktop-owner';
 import { parseExchangeResponse } from '@epicenter/data/protocol';
 import { createHttpDocumentTransports } from '@epicenter/document-sync';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { loadActiveAppCatalog } from './app-catalog.ts';
 import {
 	createDesktopAuthAuthority,
@@ -264,6 +265,10 @@ export function homeEngineFromEnvironment(
 try {
 	await main();
 } catch (error) {
-	console.error(error instanceof Error ? error.message : String(error));
+	// Opening the store is part of boot, and it reports its refusals by throwing
+	// what a `defineErrors` factory produced. Those are plain objects, so an
+	// `instanceof Error` test would print `[object Object]` for exactly the
+	// failure an operator most needs spelled out.
+	console.error(extractErrorMessage(error));
 	process.exitCode = 1;
 }
