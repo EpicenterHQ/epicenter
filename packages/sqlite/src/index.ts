@@ -14,6 +14,13 @@ export type SqliteRow = Record<string, SqliteValue | ArrayBuffer>;
  * Openers throw this before running schema DDL or persistent pragmas. The
  * storage owner decides whether to migrate, export, or ask the user to upgrade;
  * a generic SQLite adapter never repairs or recreates the file implicitly.
+ *
+ * Nothing catches it, and that is the contract rather than an omission: an
+ * opener that cannot recognize the bytes it was handed has no correct way to
+ * continue, so the throw is what stops a store from being opened twice under
+ * two layouts. It stays a class for what a caught one reads like in a log: a
+ * stable `name`, and the storage and reason that a bare message would leave the
+ * reader to parse back out.
  */
 export class StorageUpgradeRequiredError extends Error {
 	override readonly name = 'StorageUpgradeRequired';
@@ -24,18 +31,6 @@ export class StorageUpgradeRequiredError extends Error {
 	) {
 		super(`${storage} requires an explicit storage upgrade: ${reason}`);
 	}
-}
-
-/** Narrow an unknown opener failure without depending on `instanceof`. */
-export function isStorageUpgradeRequiredError(
-	cause: unknown,
-): cause is StorageUpgradeRequiredError {
-	return (
-		typeof cause === 'object' &&
-		cause !== null &&
-		'name' in cause &&
-		cause.name === 'StorageUpgradeRequired'
-	);
 }
 
 /**
