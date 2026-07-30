@@ -69,9 +69,19 @@ export function isHostRejection(
 /**
  * Whether an Epicenter host is reachable from here.
  *
+ * `__TAURI_INTERNALS__` is present exactly when this document was served by an
+ * Epicenter host, so this one read answers two questions: whether an `invoke`
+ * would reach a command, and whether the same-origin data route exists at all.
+ * `data.ts` asks the second and reaches this file for the answer, because a
+ * second copy of the read is a second place to change if the host ever
+ * announces itself differently.
+ *
+ * The read is lazy, so a module imported before the host finishes injecting the
+ * global is not permanently poisoned.
+ *
  * @internal
  */
-function hostIsReachable(): boolean {
+export function hostIsReachable(): boolean {
 	if (typeof window === 'undefined') return false;
 	const internals = Reflect.get(window, '__TAURI_INTERNALS__');
 	return typeof internals === 'object' && internals !== null;

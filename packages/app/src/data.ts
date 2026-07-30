@@ -84,6 +84,7 @@ import {
 	type DataReadError,
 	HostErrors,
 } from './errors.js';
+import { hostIsReachable } from './host.js';
 
 /** One classified traversal, grouped. */
 export type TableScan<TDefinition extends TableDefinition> = {
@@ -193,20 +194,6 @@ export type DataNamespace = {
 		lens: Lens<TTables, TValues>,
 	): Promise<Result<BoundData<TTables, TValues>, BindDataError>>;
 };
-
-/**
- * Whether an Epicenter host is reachable from here.
- *
- * The same question `host.ts` asks, and the same answer: `__TAURI_INTERNALS__`
- * is present exactly when this document was served by an Epicenter host, so it
- * decides whether the same-origin data route exists at all. Asking it first
- * turns a browser tab's confusing 404 into a typed `HostUnavailable`.
- */
-function hostIsReachable(): boolean {
-	if (typeof window === 'undefined') return false;
-	const internals = Reflect.get(window, '__TAURI_INTERNALS__');
-	return typeof internals === 'object' && internals !== null;
-}
 
 function originOf(): string {
 	const origin = (globalThis as { location?: { origin?: unknown } }).location
