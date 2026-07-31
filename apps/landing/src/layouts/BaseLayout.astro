@@ -1,6 +1,16 @@
 ---
+/**
+ * The product-surface layout, still carrying the whole `@epicenter/ui` system.
+ * Only the Whispering page uses it now; every public page uses `PageLayout`,
+ * which owns its own small stylesheet.
+ *
+ * Canonical and `og:url` are derived per page. They used to be hardcoded to the
+ * site root, which told search engines that every page here was a duplicate of
+ * the home page.
+ */
 import '@epicenter/ui/app.css';
 import PostHog from '../components/posthog.astro';
+import { absoluteUrl } from '../lib/site';
 
 export type Props = {
 	title: string;
@@ -9,6 +19,8 @@ export type Props = {
 
 const { title, description = 'Epicenter - Building tools that matter' } =
 	Astro.props;
+
+const here = absoluteUrl(Astro.url.pathname);
 ---
 
 <!doctype html>
@@ -20,7 +32,7 @@ const { title, description = 'Epicenter - Building tools that matter' } =
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 		<meta name="generator" content={Astro.generator}>
 		<meta property="og:type" content="website">
-		<meta property="og:url" content="https://epicenter.so/">
+		<meta property="og:url" content={here}>
 		<meta property="og:title" content={title}>
 		<meta property="og:description" content={description}>
 		<meta property="og:image" content="https://epicenter.so/og-image.png">
@@ -29,7 +41,7 @@ const { title, description = 'Epicenter - Building tools that matter' } =
 		<meta name="twitter:card" content="summary_large_image">
 		<meta name="twitter:title" content={title}>
 		<meta name="twitter:description" content={description}>
-		<link rel="canonical" href="https://epicenter.so/">
+		<link rel="canonical" href={here}>
 		<meta name="theme-color" content="#000000">
 		<meta name="robots" content="index, follow">
 		<title>{title}</title>
