@@ -1,0 +1,21 @@
+# Retired URLs, kept honest.
+#
+# Cloudflare Workers static assets parses this file automatically; no wrangler
+# configuration is involved. Every rule below is a real 301, not a meta refresh,
+# so a link that has been shared or indexed keeps working and search engines
+# learn the new address rather than seeing the old one disappear.
+#
+# The site's earlier blog described an architecture Epicenter no longer has:
+# one folder of plain text, apps automatically sharing memory, a quickstart for
+# a package that has since been replaced. Leaving those posts up would mean
+# publishing claims we know to be wrong, so the articles are gone and their
+# addresses point at the writing that replaced them.
+
+/blog                             /writing/   301
+/blog/*                           /writing/   301
+
+# A prototype landing page and a scratch wordmark page, neither of which was
+# ever linked from the site.
+/archive/index-v1                 /           301
+/archive/*                        /           301
+/logo                             /           301
