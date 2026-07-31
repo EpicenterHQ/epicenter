@@ -37,7 +37,9 @@ export async function runStatus(args: ParsedArgs): Promise<number> {
 
 	// The cursor is one high-water mark for the whole company (CDC's contract), so
 	// it is shown once at the realm level, not repeated per entity.
-	console.log(`Schema:        v${status.schemaVersion}`);
+	console.log(
+		`Mirror shape:  ${status.mirrorStale ? 'stale' : (status.mirrorFingerprint?.slice(0, 12) ?? 'missing')}`,
+	);
 	console.log(
 		`Synced through:${status.cdcCursor ? ` ${status.cdcCursor}` : ' -'}`,
 	);

@@ -304,6 +304,39 @@ export function entityDef(name: string): EntityDef {
 	return { name, table: sqlIdent(source.table), columns: source.columns };
 }
 
+/**
+ * The rebuild-relevant declaration for the Books mirror. Indexes, cursors,
+ * paths, and the configured entity subset are runtime concerns and stay out of
+ * this value. The same entity definitions feed both this declaration and the
+ * SQL that creates each table.
+ */
+export const MIRROR_DECLARATION = {
+	format: 1,
+	row: {
+		id: 'TEXT PRIMARY KEY',
+		raw: 'TEXT NOT NULL',
+		updatedAt: 'TEXT',
+		syncedAt: 'TEXT NOT NULL',
+		deleted: 'INTEGER NOT NULL DEFAULT 0',
+	},
+	entities: Object.fromEntries(
+		[...DEFAULT_ENTITIES].sort().map((name) => {
+			const def = entityDef(name);
+			return [
+				name,
+				{
+					table: def.table,
+					columns: def.columns.map((column) => ({
+						name: column.name,
+						type: column.type,
+						path: column.path,
+					})),
+				},
+			];
+		}),
+	),
+} as const;
+
 /** A deleted CDC record carries `status: "Deleted"`; everything else is live. */
 export function isDeleted(raw: QbObject): boolean {
 	return (

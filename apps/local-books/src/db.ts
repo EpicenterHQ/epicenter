@@ -6,13 +6,15 @@ import {
 	isDeleted,
 	type JsonPathSegment,
 	lastUpdatedTime,
+	MIRROR_DECLARATION,
 	type QbObject,
 	sqlIdent,
 } from './entities.ts';
+import { fingerprintDeclaration } from './fingerprint.ts';
 
 /**
  * The local mirror: one SQLite file per company. Holds an entity table per QB
- * type plus `_meta`, a key/value store that carries the schema version and the
+ * type plus `_meta`, a key/value store that carries the mirror fingerprint and
  * realm's sync state.
  *
  * CDC is a high-water-mark protocol: `changedSince` is a single timestamp for a
@@ -28,7 +30,10 @@ import {
  * not a stored column, so the db need not know which company it holds.
  */
 
-export const SCHEMA_VERSION = '2';
+export const MIRROR_FINGERPRINT = fingerprintDeclaration(
+	'epicenter.local-books.mirror/v1',
+	MIRROR_DECLARATION,
+);
 
 /** The `_meta` keys that hold the realm's one sync cursor. */
 const CURSOR_KEYS = [
@@ -36,6 +41,8 @@ const CURSOR_KEYS = [
 	'last_full_pull_at',
 	'last_synced_at',
 ] as const;
+
+const RETIRED_META_KEYS = ['schema_version'] as const;
 
 /**
  * The whole company's CDC position, the single high-water mark. `cdcCursor` is
@@ -95,7 +102,7 @@ export function openBooksDb(
 	{ readonly = false }: { readonly?: boolean } = {},
 ) {
 	// A read-only handle (status, diagnostics) opens the existing file and touches
-	// nothing: no journal-mode change, no `_meta` creation, no schema-version
+	// nothing: no journal-mode change, no `_meta` creation, no fingerprint
 	// write, and crucially no drop-migration. A reader must never mutate the mirror
 	// or, worse, drop its tables, and must not fail with SQLITE_BUSY just to bump a
 	// bookkeeping row while a sync holds the write lock. The connection rejects any
@@ -132,15 +139,16 @@ export function openBooksDb(
 		`SELECT value FROM _meta WHERE key = ?`,
 	);
 
-	// Schema-version gate (writers only). The mirror is a re-pullable cache
+	// Fingerprint gate (writers only). The mirror is a re-pullable cache
 	// QuickBooks owns the truth for, so a format change carries no migration
 	// reader: on a mismatch we drop the derived tables and clear the cursor, and
 	// the next sync rebuilds with one `sync --full`. That asymmetric win is what
 	// lets the schema change for free. A read-only handle never runs this: it
 	// cannot write, and a reader has no business dropping tables.
 	if (!readonly) {
-		const storedVersion = getMetaStmt.get('schema_version')?.value ?? null;
-		if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
+		const storedFingerprint =
+			getMetaStmt.get('mirror_fingerprint')?.value ?? null;
+		if (storedFingerprint !== MIRROR_FINGERPRINT) {
 			for (const { name } of db
 				.query<{ name: string }, []>(
 					`SELECT name FROM sqlite_master
@@ -149,13 +157,18 @@ export function openBooksDb(
 				.all()) {
 				db.exec(`DROP TABLE IF EXISTS ${sqlIdent(name)};`);
 			}
-			// CURSOR_KEYS are compile-time constants, so interpolating them as quoted
+			// These are compile-time constants, so interpolating them as quoted
 			// literals is safe (no user input reaches this string).
 			db.exec(
-				`DELETE FROM _meta WHERE key IN (${CURSOR_KEYS.map((k) => `'${k}'`).join(', ')});`,
+				`DELETE FROM _meta WHERE key IN (${[
+					...CURSOR_KEYS,
+					...RETIRED_META_KEYS,
+				]
+					.map((k) => `'${k}'`)
+					.join(', ')});`,
 			);
 		}
-		setMetaStmt.run('schema_version', SCHEMA_VERSION);
+		setMetaStmt.run('mirror_fingerprint', MIRROR_FINGERPRINT);
 	}
 
 	// `db.query()` caches the compiled statement by SQL text, so the per-table
@@ -179,7 +192,7 @@ export function openBooksDb(
 				raw         TEXT NOT NULL,
 				updated_at  TEXT,
 				synced_at   TEXT NOT NULL,
-				deleted     INTEGER NOT NULL DEFAULT 0${extra ? ',\n\t\t\t\t' + extra : ''}
+			deleted     INTEGER NOT NULL DEFAULT 0${extra ? `,\n\t\t\t\t${extra}` : ''}
 			);
 			CREATE INDEX IF NOT EXISTS idx_${table}_updated_at ON ${table}(updated_at);
 		`);

@@ -13,7 +13,7 @@
 
 import { existsSync } from 'node:fs';
 import type { AppConfig, QbEnvironment } from '../config.ts';
-import { type EntityStatus, openBooksDb } from '../db.ts';
+import { type EntityStatus, MIRROR_FINGERPRINT, openBooksDb } from '../db.ts';
 import { entityDef } from '../entities.ts';
 import { dbPath } from '../paths.ts';
 import type { TokenStore } from '../token-store.ts';
@@ -38,7 +38,8 @@ export type BooksStatus = {
 	/** Whether the local mirror file exists yet (a `sync --full` builds it). */
 	mirrorBuilt: boolean;
 	/** The remaining fields are null/empty until the mirror is built. */
-	schemaVersion: string | null;
+	mirrorFingerprint: string | null;
+	mirrorStale: boolean;
 	cdcCursor: string | null;
 	lastFullPullAt: string | null;
 	lastSyncedAt: string | null;
@@ -82,7 +83,8 @@ export async function readBooksStatus({
 		return {
 			...base,
 			mirrorBuilt: false,
-			schemaVersion: null,
+			mirrorFingerprint: null,
+			mirrorStale: false,
 			cdcCursor: null,
 			lastFullPullAt: null,
 			lastSyncedAt: null,
@@ -90,15 +92,17 @@ export async function readBooksStatus({
 		};
 	}
 
-	// Read-only: a status read must not bump schema_version or block on a
+	// Read-only: a status read must not bump the mirror fingerprint or block on a
 	// concurrent sync's write lock (and a reader must never drop tables).
 	const db = openBooksDb(path, { readonly: true });
 	try {
 		const realm = db.readRealmState();
+		const mirrorFingerprint = db.getMeta('mirror_fingerprint');
 		return {
 			...base,
 			mirrorBuilt: true,
-			schemaVersion: db.getMeta('schema_version'),
+			mirrorFingerprint,
+			mirrorStale: mirrorFingerprint !== MIRROR_FINGERPRINT,
 			cdcCursor: realm.cdcCursor,
 			lastFullPullAt: realm.lastFullPullAt,
 			lastSyncedAt: realm.lastSyncedAt,
