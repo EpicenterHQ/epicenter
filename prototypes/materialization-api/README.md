@@ -275,15 +275,20 @@ entity subset from the declaration, stamping *after* dropping so a crash
 mid-rebuild self-heals on the next open, and the read-only connection as the
 enforcement floor rather than a string check.
 
-## Assumptions that need user judgment
+## Open questions, logged for the adversarial reviewer
 
-These are the places where the design has a defensible answer and the *product*
-question is not mine to settle.
+Nothing below blocks the recommendation; each has a stated default the prototype
+already implements. They are recorded rather than asked because they are the
+places where a reviewer disagreeing with me would change the design, and the
+disagreement should land on a written position rather than on a blank.
 
 1. **Is a materialization allowed to disappear on machine restore?** Moving to
    cache-class storage is what makes backup exclusion free, and it means a
-   decade of mail re-pulls after a restore. That is a product statement, and it
-   should be said out loud rather than inferred from a directory choice.
+   decade of mail re-pulls after a restore. **Default taken: yes, cache-class**
+   (`plan/runtime.ts`), on the grounds that ADR-0192 clause A already says
+   nothing human-meaningful lives there. The residual is that "the upstream is
+   your backup" becomes a product statement someone should say out loud rather
+   than a consequence of a directory choice.
 2. **Should a foreign store refuse, or rebuild loudly?** Prototype B refuses,
    on the grounds that discarding another principal's data is recoverable but
    wrong to do silently. A defensible alternative is to rebuild after an
@@ -294,14 +299,26 @@ question is not mine to settle.
    projection changes. Whether that trade is worth taking depends on how often
    the declaration moves and how expensive a full pull is against QuickBooks and
    Gmail rate limits, which is measurable and I have not measured it.
-4. **Does the four-verb split survive contact with the two real apps?** The
-   conformance suite says it is expressible; it does not say it reads well
-   across 56 files of QuickBooks domain code. A one-app spike would settle it.
+4. **Does the four-verb split survive contact with the two real apps?**
+   **Unproven, and I claim no more than that.** The conformance suite shows it
+   is expressible; it does not show it reads well across 56 files of QuickBooks
+   domain code, and a four-call preamble in front of every read is exactly the
+   kind of tax that gets wrapped back into one function by the second consumer.
+   A one-app spike is the only thing that settles it.
 5. **Does any of this move before the third provider?** ADR-0192 defers
    `@epicenter/mirror` on purpose and nothing here changes that arithmetic. The
    path-ownership change (row 9 through 11) is the one piece that is worth doing
    per-app *now*, because it is small, mechanical, and closes clause G and the
    backup question at the same time.
+6. **Is "lifecycle generalizes, data model does not" a real seam, or the same
+   two-plane merge ADR-0192 refused, entering through a side door?** This is the
+   load-bearing assumption of the whole pass and the first thing an adversarial
+   reviewer should attack. My position: ADR-0192's refusal is about convergence
+   semantics on single-authority data, and none of `locate` / `inspect` /
+   `openReader` / `lease` touches convergence, peers, watermarks, or canonical
+   addresses. The counter worth taking seriously is that a shared lifecycle
+   vocabulary is how the data models get quietly aligned two refactors later,
+   which is precisely how ADR-0192's own divergence story ran in reverse.
 
 ## What is not built, and would need to be
 
