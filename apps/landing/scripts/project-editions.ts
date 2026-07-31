@@ -568,9 +568,11 @@ async function main(): Promise<void> {
 			)
 		: [];
 	if (orphans.length > 0) {
-		console.warn(
-			`\n  ${orphans.length} file(s) in src/content/writing/ are no longer in syndication.json: ${orphans.join(', ')}\n  Delete them deliberately, and redirect their routes.`,
-		);
+		const message =
+			`\n${orphans.length} file(s) in src/content/writing/ are no longer in syndication.json: ${orphans.join(', ')}\n` +
+			'Delete them deliberately, and redirect their routes.';
+		if (CHECK_ONLY) fail(message);
+		console.warn(`\n  ${message}`);
 	}
 
 	if (CHECK_ONLY) {
