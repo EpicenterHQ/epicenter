@@ -11,6 +11,7 @@
 		"astro": "astro",
 		"deploy": "wrangler deploy",
 		"project:editions": "bun run scripts/project-editions.ts",
+		"test": "bun test",
 		"typecheck": "astro check && svelte-check --tsconfig ./tsconfig.json && tsc --noEmit -p scripts/tsconfig.json"
 	},
 	"dependencies": {
