@@ -1,0 +1,10 @@
+{
+	"name": "@prototype/materialization-api",
+	"private": true,
+	"type": "module",
+	"description": "Adversarial API prototypes for Epicenter materializations. Deliberately outside the root `workspaces` globs: it is a throwaway design artifact, not a package, and it must not enter the repo's CI gates. TypeScript and @types/bun resolve from the hoisted root node_modules, so `bun install` at the repo root is the only setup step. Verify with `bun test` and `bun run typecheck` from this directory.",
+	"scripts": {
+		"typecheck": "bun x tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}
