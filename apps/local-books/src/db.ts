@@ -6,14 +6,16 @@ import {
 	isDeleted,
 	type JsonPathSegment,
 	lastUpdatedTime,
+	MIRROR_FINGERPRINT,
+	MIRROR_ROW_COLUMNS,
 	type QbObject,
 	sqlIdent,
 } from './entities.ts';
 
 /**
  * The local mirror: one SQLite file per company. Holds an entity table per QB
- * type plus `_meta`, a key/value store that carries the schema version and the
- * realm's sync state.
+ * type plus `_meta`, a key/value store that carries the shape fingerprint the
+ * mirror was built under and the realm's sync state.
  *
  * CDC is a high-water-mark protocol: `changedSince` is a single timestamp for a
  * multi-entity call. So the mirror keeps ONE cursor for the whole company, not
@@ -26,9 +28,15 @@ import {
  *
  * The realm owns its identity through the path (`<dataDir>/<realmId>/books.db`),
  * not a stored column, so the db need not know which company it holds.
+ *
+ * Everything here is regenerable from QuickBooks, which is what lets the file be
+ * gated on `MIRROR_FINGERPRINT` and thrown away whenever that changes. Adding
+ * anything a person authored, and that a re-pull could not reproduce, would
+ * break that and is the one thing the mirror must never hold.
  */
 
-export const SCHEMA_VERSION = '2';
+/** The `_meta` key holding the declaration fingerprint the mirror was built under. */
+export const MIRROR_FINGERPRINT_KEY = 'mirror_fingerprint';
 
 /** The `_meta` keys that hold the realm's one sync cursor. */
 const CURSOR_KEYS = [
@@ -36,6 +44,13 @@ const CURSOR_KEYS = [
 	'last_full_pull_at',
 	'last_synced_at',
 ] as const;
+
+/**
+ * `_meta` keys retired by the fingerprint gate. A pre-fingerprint mirror carries
+ * `schema_version`; its stamp is absent, so it rebuilds on first open under this
+ * engine, and that rebuild is where the stale key is dropped. Nothing reads it.
+ */
+const RETIRED_META_KEYS = ['schema_version'] as const;
 
 /**
  * The whole company's CDC position, the single high-water mark. `cdcCursor` is
@@ -132,15 +147,26 @@ export function openBooksDb(
 		`SELECT value FROM _meta WHERE key = ?`,
 	);
 
-	// Schema-version gate (writers only). The mirror is a re-pullable cache
-	// QuickBooks owns the truth for, so a format change carries no migration
+	// The rebuild gate (writers only). The mirror is a re-pullable cache
+	// QuickBooks owns the truth for, so a shape change carries no migration
 	// reader: on a mismatch we drop the derived tables and clear the cursor, and
 	// the next sync rebuilds with one `sync --full`. That asymmetric win is what
-	// lets the schema change for free. A read-only handle never runs this: it
-	// cannot write, and a reader has no business dropping tables.
+	// lets the shape change for free.
+	//
+	// The gate is the declaration's fingerprint, not a hand-bumped version, so
+	// "did the shape change?" is answered by the declaration itself and cannot be
+	// forgotten in review. An absent stamp is a mismatch on purpose, which covers
+	// both a fresh file (rebuilding nothing) and a pre-fingerprint one (rebuilding
+	// once). The stamp is written only by a rebuild, so it always describes the
+	// tables that actually exist.
+	//
+	// A read-only handle never runs this: it cannot write, and a reader has no
+	// business dropping tables. So a stale mirror stays readable and stale until
+	// a writer opens it; `readBooksStatus` reports that state rather than fixing
+	// it.
 	if (!readonly) {
-		const storedVersion = getMetaStmt.get('schema_version')?.value ?? null;
-		if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
+		const stamped = getMetaStmt.get(MIRROR_FINGERPRINT_KEY)?.value ?? null;
+		if (stamped !== MIRROR_FINGERPRINT) {
 			for (const { name } of db
 				.query<{ name: string }, []>(
 					`SELECT name FROM sqlite_master
@@ -149,13 +175,14 @@ export function openBooksDb(
 				.all()) {
 				db.exec(`DROP TABLE IF EXISTS ${sqlIdent(name)};`);
 			}
-			// CURSOR_KEYS are compile-time constants, so interpolating them as quoted
-			// literals is safe (no user input reaches this string).
+			// These key lists are compile-time constants, so interpolating them as
+			// quoted literals is safe (no user input reaches this string).
+			const cleared = [...CURSOR_KEYS, ...RETIRED_META_KEYS];
 			db.exec(
-				`DELETE FROM _meta WHERE key IN (${CURSOR_KEYS.map((k) => `'${k}'`).join(', ')});`,
+				`DELETE FROM _meta WHERE key IN (${cleared.map((k) => `'${k}'`).join(', ')});`,
 			);
+			setMetaStmt.run(MIRROR_FINGERPRINT_KEY, MIRROR_FINGERPRINT);
 		}
-		setMetaStmt.run('schema_version', SCHEMA_VERSION);
 	}
 
 	// `db.query()` caches the compiled statement by SQL text, so the per-table
@@ -164,22 +191,28 @@ export function openBooksDb(
 
 	function ensureEntityTable(def: EntityDef): void {
 		const table = def.table;
+		// The shared row shape, then this entity's projections: exactly the two
+		// halves of the declaration the fingerprint covers, so the table a mirror
+		// carries and the stamp it carries can never disagree.
+		//
 		// Each extracted column is a VIRTUAL generated projection of `raw`, so the
 		// blob stays the single source of truth: no write-path extraction, and a
 		// missing field is `json_extract`'s null for free.
-		const extra = def.columns
-			.map(
+		const columns = [
+			...MIRROR_ROW_COLUMNS.map((c) =>
+				[c.name, c.type, c.constraint].filter(Boolean).join(' '),
+			),
+			...def.columns.map(
 				(c) =>
 					`${c.name} ${c.type} GENERATED ALWAYS AS (json_extract(raw, '${jsonExtractPath(c.path)}')) VIRTUAL`,
-			)
-			.join(',\n\t\t\t\t');
+			),
+		].join(',\n\t\t\t\t');
+		// The index is outside the fingerprint: it holds no data, is re-applied
+		// idempotently here on every open, and would otherwise make a pure query
+		// optimization cost a full re-pull.
 		db.exec(`
 			CREATE TABLE IF NOT EXISTS ${table} (
-				id          TEXT PRIMARY KEY,
-				raw         TEXT NOT NULL,
-				updated_at  TEXT,
-				synced_at   TEXT NOT NULL,
-				deleted     INTEGER NOT NULL DEFAULT 0${extra ? ',\n\t\t\t\t' + extra : ''}
+				${columns}
 			);
 			CREATE INDEX IF NOT EXISTS idx_${table}_updated_at ON ${table}(updated_at);
 		`);

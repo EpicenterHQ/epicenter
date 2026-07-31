@@ -9,8 +9,16 @@
 
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { type BooksDb, openBooksDb } from '../src/db.ts';
-import { entityDef, type QbObject } from '../src/entities.ts';
+import {
+	type BooksDb,
+	MIRROR_FINGERPRINT_KEY,
+	openBooksDb,
+} from '../src/db.ts';
+import {
+	entityDef,
+	MIRROR_FINGERPRINT,
+	type QbObject,
+} from '../src/entities.ts';
 import { tempDir } from './helpers.ts';
 
 const PURCHASE = entityDef('Purchase');
@@ -121,11 +129,11 @@ describe('the realm cursor', () => {
 		cleanup();
 	});
 
-	test('a schema-version mismatch drops the data tables and clears the cursor', () => {
+	test('a fingerprint mismatch drops the data tables and clears the cursor', () => {
 		const tmp = tempDir();
 		const path = join(tmp.dir, 'books.db');
-		// Seed a mirror, then forge an older schema version + a legacy _sync_state
-		// table to simulate a v1 db opened by this engine.
+		// Seed a mirror, then forge a stale stamp + a legacy table, simulating a db
+		// built under an older declaration and opened by this engine.
 		let db = openBooksDb(path);
 		ingPurchase(db, purchase('60'), 's1');
 		db.ingest([], {
@@ -136,14 +144,16 @@ describe('the realm cursor', () => {
 				lastSyncedAt: '2026-02-01T00:00:00.000Z',
 			},
 		});
-		db.raw.exec(`UPDATE _meta SET value = '1' WHERE key = 'schema_version'`);
+		db.raw.exec(
+			`UPDATE _meta SET value = 'stale' WHERE key = '${MIRROR_FINGERPRINT_KEY}'`,
+		);
 		db.raw.exec(`CREATE TABLE _sync_state (entity TEXT PRIMARY KEY)`);
 		db.close();
 
 		// Reopening drops the derived tables (purchases, the legacy _sync_state) and
 		// clears the realm cursor, so the next sync is a clean FULL.
 		db = openBooksDb(path);
-		expect(db.getMeta('schema_version')).toBe('2');
+		expect(db.getMeta(MIRROR_FINGERPRINT_KEY)).toBe(MIRROR_FINGERPRINT);
 		expect(db.readRealmState().cdcCursor).toBeNull();
 		expect(db.isInitialized(PURCHASE)).toBe(false);
 		const legacy = db.raw
@@ -155,29 +165,92 @@ describe('the realm cursor', () => {
 		db.close();
 		tmp.cleanup();
 	});
-});
 
-describe('a read-only handle', () => {
-	test('reads, refuses writes, and never runs the drop-migration', () => {
+	test('an unchanged declaration keeps the rows, the cursor, and any added index', () => {
 		const tmp = tempDir();
 		const path = join(tmp.dir, 'books.db');
-		// Writer seeds a mirror, then we forge an OLD schema version: the next WRITER
-		// open would drop everything; the next READER open must not.
 		let db = openBooksDb(path);
 		ingPurchase(db, purchase('60'), 's1');
 		db.ingest([], {
 			syncedAt: 's1',
 			realmState: { cdcCursor: 'c1', lastFullPullAt: 'c1', lastSyncedAt: 'c1' },
 		});
-		db.raw.exec(`UPDATE _meta SET value = '1' WHERE key = 'schema_version'`);
+		// An index is not part of the declaration: it holds no data of its own, so
+		// adding one must not cost a re-pull of the whole company.
+		db.raw.exec(`CREATE INDEX idx_purchases_total ON purchases(total_amt)`);
 		db.close();
 
-		// A read-only handle reads the forged-v1 db untouched: the row survives, the
-		// version is NOT bumped, the migration does NOT fire, and a write is refused.
+		db = openBooksDb(path);
+		expect(db.entityStatus(PURCHASE).rows).toBe(1);
+		expect(db.readRealmState().cdcCursor).toBe('c1');
+		const index = db.raw
+			.query<{ n: number }, []>(
+				`SELECT count(*) AS n FROM sqlite_master WHERE name='idx_purchases_total'`,
+			)
+			.get();
+		expect(index?.n).toBe(1);
+		db.close();
+		tmp.cleanup();
+	});
+
+	test('a pre-fingerprint mirror rebuilds once and drops the retired key', () => {
+		const tmp = tempDir();
+		const path = join(tmp.dir, 'books.db');
+		// The shape a mirror built by the hand-versioned engine has: rows, a cursor,
+		// a `schema_version`, and no stamp at all.
+		let db = openBooksDb(path);
+		ingPurchase(db, purchase('60'), 's1');
+		db.ingest([], {
+			syncedAt: 's1',
+			realmState: { cdcCursor: 'c1', lastFullPullAt: 'c1', lastSyncedAt: 'c1' },
+		});
+		db.raw.exec(`DELETE FROM _meta WHERE key = '${MIRROR_FINGERPRINT_KEY}'`);
+		db.raw.exec(
+			`INSERT INTO _meta (key, value) VALUES ('schema_version', '2')`,
+		);
+		db.close();
+
+		db = openBooksDb(path);
+		expect(db.isInitialized(PURCHASE)).toBe(false);
+		expect(db.readRealmState().cdcCursor).toBeNull();
+		expect(db.getMeta('schema_version')).toBeNull();
+		expect(db.getMeta(MIRROR_FINGERPRINT_KEY)).toBe(MIRROR_FINGERPRINT);
+		db.close();
+
+		// And only once: the second open finds a matching stamp and rebuilds nothing.
+		db = openBooksDb(path);
+		ingPurchase(db, purchase('60'), 's2');
+		db.close();
+		db = openBooksDb(path);
+		expect(db.entityStatus(PURCHASE).rows).toBe(1);
+		db.close();
+		tmp.cleanup();
+	});
+});
+
+describe('a read-only handle', () => {
+	test('reads, refuses writes, and never rebuilds', () => {
+		const tmp = tempDir();
+		const path = join(tmp.dir, 'books.db');
+		// Writer seeds a mirror, then we forge a stale stamp: the next WRITER open
+		// would drop everything; the next READER open must not.
+		let db = openBooksDb(path);
+		ingPurchase(db, purchase('60'), 's1');
+		db.ingest([], {
+			syncedAt: 's1',
+			realmState: { cdcCursor: 'c1', lastFullPullAt: 'c1', lastSyncedAt: 'c1' },
+		});
+		db.raw.exec(
+			`UPDATE _meta SET value = 'stale' WHERE key = '${MIRROR_FINGERPRINT_KEY}'`,
+		);
+		db.close();
+
+		// A read-only handle reads the stale db untouched: the row survives, the
+		// stamp is NOT refreshed, the rebuild does NOT fire, and a write is refused.
 		const ro = openBooksDb(path, { readonly: true });
 		expect(ro.entityStatus(PURCHASE).rows).toBe(1);
 		expect(ro.readRealmState().cdcCursor).toBe('c1');
-		expect(ro.getMeta('schema_version')).toBe('1');
+		expect(ro.getMeta(MIRROR_FINGERPRINT_KEY)).toBe('stale');
 		expect(() =>
 			ro.ingest([{ def: PURCHASE, objects: [purchase('61')] }], {
 				syncedAt: 's2',
@@ -186,9 +259,9 @@ describe('a read-only handle', () => {
 		expect(ro.entityStatus(PURCHASE).rows).toBe(1); // the refused write changed nothing
 		ro.close();
 
-		// A WRITER open, by contrast, fires the migration (v1 -> v2): tables dropped.
+		// A WRITER open, by contrast, rebuilds: tables dropped, stamp refreshed.
 		db = openBooksDb(path);
-		expect(db.getMeta('schema_version')).toBe('2');
+		expect(db.getMeta(MIRROR_FINGERPRINT_KEY)).toBe(MIRROR_FINGERPRINT);
 		expect(db.isInitialized(PURCHASE)).toBe(false);
 		db.close();
 		tmp.cleanup();

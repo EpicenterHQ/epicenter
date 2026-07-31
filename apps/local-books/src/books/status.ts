@@ -13,8 +13,12 @@
 
 import { existsSync } from 'node:fs';
 import type { AppConfig, QbEnvironment } from '../config.ts';
-import { type EntityStatus, openBooksDb } from '../db.ts';
-import { entityDef } from '../entities.ts';
+import {
+	type EntityStatus,
+	MIRROR_FINGERPRINT_KEY,
+	openBooksDb,
+} from '../db.ts';
+import { entityDef, MIRROR_FINGERPRINT } from '../entities.ts';
 import { dbPath } from '../paths.ts';
 import type { TokenStore } from '../token-store.ts';
 import { isAccessTokenExpired, isRefreshTokenExpired } from '../tokens.ts';
@@ -37,8 +41,17 @@ export type BooksStatus = {
 	refreshToken: TokenStatus | null;
 	/** Whether the local mirror file exists yet (a `sync --full` builds it). */
 	mirrorBuilt: boolean;
-	/** The remaining fields are null/empty until the mirror is built. */
-	schemaVersion: string | null;
+	/**
+	 * The remaining fields are null/empty until the mirror is built. This one is
+	 * the declaration fingerprint the mirror was last built under.
+	 */
+	mirrorFingerprint: string | null;
+	/**
+	 * Whether that stamp differs from this build's declaration. A status read is
+	 * read-only, so it reports a stale mirror rather than rebuilding it: the next
+	 * writer open (`sync`) drops the tables and re-pulls.
+	 */
+	rebuildPending: boolean;
 	cdcCursor: string | null;
 	lastFullPullAt: string | null;
 	lastSyncedAt: string | null;
@@ -82,7 +95,8 @@ export async function readBooksStatus({
 		return {
 			...base,
 			mirrorBuilt: false,
-			schemaVersion: null,
+			mirrorFingerprint: null,
+			rebuildPending: false,
 			cdcCursor: null,
 			lastFullPullAt: null,
 			lastSyncedAt: null,
@@ -90,15 +104,17 @@ export async function readBooksStatus({
 		};
 	}
 
-	// Read-only: a status read must not bump schema_version or block on a
-	// concurrent sync's write lock (and a reader must never drop tables).
+	// Read-only: a status read must not stamp the mirror or block on a concurrent
+	// sync's write lock (and a reader must never drop tables).
 	const db = openBooksDb(path, { readonly: true });
 	try {
 		const realm = db.readRealmState();
+		const stamped = db.getMeta(MIRROR_FINGERPRINT_KEY);
 		return {
 			...base,
 			mirrorBuilt: true,
-			schemaVersion: db.getMeta('schema_version'),
+			mirrorFingerprint: stamped,
+			rebuildPending: stamped !== MIRROR_FINGERPRINT,
 			cdcCursor: realm.cdcCursor,
 			lastFullPullAt: realm.lastFullPullAt,
 			lastSyncedAt: realm.lastSyncedAt,

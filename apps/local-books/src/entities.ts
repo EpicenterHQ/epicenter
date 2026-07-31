@@ -10,8 +10,9 @@
  * stay out. The point is completeness. The mirror is the agent's relational,
  * offline view of the books, so a *subset* would silently under-report against
  * the live statements `books_report` runs: forget BillPayment and "what did I
- * pay this vendor" is quietly wrong. Adding an entity is one entry here with no
- * migration, so there is no reason to curate below the full posting set.
+ * pay this vendor" is quietly wrong. Adding an entity is one entry here and no
+ * migration to write (it costs one re-pull, see below), so there is no reason to
+ * curate below the full posting set.
  *
  * The raw blob is canonical; extracted columns are pure projections of it, each
  * a SQLite GENERATED column over `json_extract(raw, ...)` (see `db.ts`). So the
@@ -22,7 +23,16 @@
  * queryable through `json_extract`; lift a scalar out only where a query pays for
  * the index or join. Date and amount are the ledger spine, so the money
  * movements carry those.
+ *
+ * Because this file is pure data, it is also the mirror's rebuild contract:
+ * `MIRROR_DECLARATION` at the bottom is exactly the part of it that decides what
+ * a mirror file physically holds, and `MIRROR_FINGERPRINT` is its digest. Change
+ * a table, a column, a path, or the shared row shape and the next writer open
+ * drops the mirror and re-pulls it from QuickBooks. Nobody bumps a version by
+ * hand.
  */
+
+import { fingerprint } from './fingerprint.ts';
 
 export type ColumnType = 'TEXT' | 'INTEGER' | 'REAL';
 
@@ -84,6 +94,37 @@ export type EntityDef = {
 	table: SqlIdent;
 	columns: GeneratedColumn[];
 };
+
+/**
+ * A column every mirror table carries, ahead of that entity's projections.
+ * `constraint` is a SQL fragment, so the values are a closed set authored right
+ * below and `db.ts` interpolates them the same way it interpolates a branded
+ * identifier.
+ */
+export type RowColumn = {
+	name: SqlIdent;
+	type: ColumnType;
+	constraint: string;
+};
+
+/**
+ * The row every mirrored QuickBooks object lands in: its id, the verbatim blob,
+ * the timestamp writes are ordered by, when we last saw it, and the soft-delete
+ * flag. Declared here rather than inlined in `db.ts`'s DDL so the row shape is
+ * part of the fingerprinted declaration: change a column, a type, or a
+ * constraint and every mirror rebuilds itself on the next writer open.
+ */
+export const MIRROR_ROW_COLUMNS: RowColumn[] = [
+	{ name: sqlIdent('id'), type: 'TEXT', constraint: 'PRIMARY KEY' },
+	{ name: sqlIdent('raw'), type: 'TEXT', constraint: 'NOT NULL' },
+	{ name: sqlIdent('updated_at'), type: 'TEXT', constraint: '' },
+	{ name: sqlIdent('synced_at'), type: 'TEXT', constraint: 'NOT NULL' },
+	{
+		name: sqlIdent('deleted'),
+		type: 'INTEGER',
+		constraint: 'NOT NULL DEFAULT 0',
+	},
+];
 
 export type QbObject = Record<string, unknown> & {
 	Id?: string | number;
@@ -289,6 +330,45 @@ export const ENTITY_DEFS: Record<string, EntitySource> = {
 
 /** The default entities mirrored when config does not narrow the set. */
 export const DEFAULT_ENTITIES: string[] = Object.keys(ENTITY_DEFS);
+
+/**
+ * Everything about this file that decides what a mirror file physically
+ * contains: the shared row shape and, per entity, the table it lands in and the
+ * columns projected out of `raw`. This value IS the rebuild contract, so it is
+ * built from the registry rather than restated beside it, and the entities are
+ * sorted by name because the registry is a record whose key order carries no
+ * meaning. Column order is kept as authored: it is the physical order of the
+ * table and the order the browse surface shows.
+ *
+ * Deliberately absent: indexes (they are re-applied idempotently on every open
+ * and hold no data of their own), the configured entity subset, the data
+ * directory, the realm, the cursor, credentials, and anything else about the
+ * running process. A mirror rebuilds when its declared shape changes, not when
+ * its surroundings do.
+ */
+export const MIRROR_DECLARATION = {
+	row: MIRROR_ROW_COLUMNS,
+	tables: Object.entries(ENTITY_DEFS)
+		.map(([entity, source]) => ({
+			entity,
+			table: source.table,
+			columns: source.columns,
+		}))
+		.sort((left, right) =>
+			left.entity < right.entity ? -1 : left.entity > right.entity ? 1 : 0,
+		),
+};
+
+/**
+ * The digest of `MIRROR_DECLARATION`: the one value a mirror file is stamped
+ * with and gated on (`db.ts`). It replaces a hand-maintained schema version, so
+ * a shape change can no longer ship without the rebuild it needs, and a change
+ * that touches no shape can no longer cost one.
+ */
+export const MIRROR_FINGERPRINT: string = fingerprint(
+	'epicenter.local-books.mirror-declaration.v1',
+	MIRROR_DECLARATION,
+);
 
 export function isKnownEntity(name: string): boolean {
 	return name in ENTITY_DEFS;
