@@ -30,13 +30,6 @@ import {
 
 export const SCHEMA_VERSION = '2';
 
-/** The `_meta` keys that hold the realm's one sync cursor. */
-const CURSOR_KEYS = [
-	'cdc_cursor',
-	'last_full_pull_at',
-	'last_synced_at',
-] as const;
-
 /**
  * The whole company's CDC position, the single high-water mark. `cdcCursor` is
  * the `changedSince` the next incremental pass passes; `lastFullPullAt` drives
@@ -134,10 +127,17 @@ export function openBooksDb(
 
 	// Schema-version gate (writers only). The mirror is a re-pullable cache
 	// QuickBooks owns the truth for, so a format change carries no migration
-	// reader: on a mismatch we drop the derived tables and clear the cursor, and
-	// the next sync rebuilds with one `sync --full`. That asymmetric win is what
-	// lets the schema change for free. A read-only handle never runs this: it
-	// cannot write, and a reader has no business dropping tables.
+	// reader: on a mismatch we discard everything the old version wrote and the
+	// next sync rebuilds with one `sync --full`. That asymmetric win is what lets
+	// the schema change for free. A read-only handle never runs this: it cannot
+	// write, and a reader has no business dropping tables.
+	//
+	// The discard is total, not enumerated. Emptying `_meta` outright rather than
+	// naming the cursor keys to delete is what keeps that true as the mirror
+	// grows: a later derived key that nobody remembered to add to a delete list
+	// would survive the rebuild and describe a corpus that no longer exists. The
+	// version stamp written immediately below is the only thing that crosses the
+	// boundary, and it is written fresh rather than preserved.
 	if (!readonly) {
 		const storedVersion = getMetaStmt.get('schema_version')?.value ?? null;
 		if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
@@ -149,11 +149,7 @@ export function openBooksDb(
 				.all()) {
 				db.exec(`DROP TABLE IF EXISTS ${sqlIdent(name)};`);
 			}
-			// CURSOR_KEYS are compile-time constants, so interpolating them as quoted
-			// literals is safe (no user input reaches this string).
-			db.exec(
-				`DELETE FROM _meta WHERE key IN (${CURSOR_KEYS.map((k) => `'${k}'`).join(', ')});`,
-			);
+			db.exec(`DELETE FROM _meta;`);
 		}
 		setMetaStmt.run('schema_version', SCHEMA_VERSION);
 	}

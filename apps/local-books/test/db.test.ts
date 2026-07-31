@@ -121,11 +121,13 @@ describe('the realm cursor', () => {
 		cleanup();
 	});
 
-	test('a schema-version mismatch drops the data tables and clears the cursor', () => {
+	test('a schema-version mismatch discards everything the old version wrote', () => {
 		const tmp = tempDir();
 		const path = join(tmp.dir, 'books.db');
 		// Seed a mirror, then forge an older schema version + a legacy _sync_state
-		// table to simulate a v1 db opened by this engine.
+		// table to simulate a v1 db opened by this engine. `legacy_derived` stands
+		// in for a `_meta` key some future version writes: the rebuild must not
+		// depend on anyone remembering to list it.
 		let db = openBooksDb(path);
 		ingPurchase(db, purchase('60'), 's1');
 		db.ingest([], {
@@ -137,6 +139,9 @@ describe('the realm cursor', () => {
 			},
 		});
 		db.raw.exec(`UPDATE _meta SET value = '1' WHERE key = 'schema_version'`);
+		db.raw.exec(
+			`INSERT INTO _meta (key, value) VALUES ('legacy_derived', 'stale')`,
+		);
 		db.raw.exec(`CREATE TABLE _sync_state (entity TEXT PRIMARY KEY)`);
 		db.close();
 
@@ -152,6 +157,13 @@ describe('the realm cursor', () => {
 			)
 			.get();
 		expect(legacy?.n).toBe(0);
+		// The version stamp is the only thing that crosses the rebuild, so an
+		// unlisted derived key cannot survive to describe a corpus that is gone.
+		expect(
+			db.raw
+				.query<{ key: string }, []>(`SELECT key FROM _meta ORDER BY key`)
+				.all(),
+		).toEqual([{ key: 'schema_version' }]);
 		db.close();
 		tmp.cleanup();
 	});
