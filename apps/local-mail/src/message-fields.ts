@@ -15,6 +15,37 @@ import type { GmailMessage } from './schema.ts';
  * SQLite lifecycle, so it has one home of its own.
  */
 
+/**
+ * The rebuild tokens for the three columns this file's projections fill.
+ *
+ * `MIRROR_DECLARATION` describes the mirror's stored shape structurally, so a
+ * changed column, type, or `json_extract` path moves the mirror fingerprint on
+ * its own. These three columns are different: their values come from the
+ * imperative code below, and no structural declaration can see a change in what
+ * that code RETURNS. These tokens are that signal, and they are the only
+ * hand-maintained input to the fingerprint. Hashing this file's source instead
+ * was rejected: reformatting or bundling is not a stored-shape change, and
+ * paying a full mailbox re-download for one would be absurd.
+ *
+ * Bump the entry for every stored column whose value would change for the same
+ * Gmail message: a different header behind `sender`, different part preference
+ * or tag stripping in `bodyText`, a different case rule in `headerValue`. The
+ * bump drops the mirror and re-pulls the mailbox on the next sync, which is the
+ * point: the column would otherwise keep values today's code would never have
+ * produced.
+ *
+ * `bodyHtml` has no token on purpose. It is derived from `raw` at read time and
+ * never stored, so changing it changes the next read, not the file.
+ */
+export const STORED_PROJECTIONS = {
+	/** `headerValue(message, 'Subject')` */
+	subject: 1,
+	/** `headerValue(message, 'From')` */
+	sender: 1,
+	/** `bodyText(message)` */
+	bodyText: 1,
+} as const;
+
 /** Pull a header value by name (case-insensitive, per RFC 5322). Gmail nests
  * headers as an array, not a dotted path, so this can't be a SQL generated
  * column and is computed once at ingest instead. */
