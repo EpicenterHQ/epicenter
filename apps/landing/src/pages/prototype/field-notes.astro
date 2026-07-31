@@ -1,0 +1,1039 @@
+---
+/*
+ * PROTOTYPE. Disposable. Not linked from anywhere, `noindex`, absent from the
+ * sitemap, and safe to delete in one `rm`.
+ *
+ * ## The question it answers
+ *
+ * The live home page argues for Epicenter in bands: problem, idea, shape,
+ * trust, writing, status, close. Each band is a self-contained essay section,
+ * and the effect is a well-written brochure. This prototype asks a different
+ * question: what if the home page were the *working notes* instead, a dated
+ * notebook a stranger reads over the shoulder of the person keeping it?
+ *
+ * ## What changes structurally
+ *
+ * One continuous notebook grid replaces the bands. A ruled margin runs the
+ * whole page: everything mono and factual (note numbers, dates, record ids,
+ * status, state) hangs to the left of the rule, right-aligned against it, and
+ * every word of argument sits to the right. No text crosses the rule; only the
+ * hairlines that close each dated row do. That is where the strict alignment
+ * comes from, and why no section needs a background of its own to say where it
+ * begins.
+ *
+ * The centre of the page is seven real decisions with their real dates, pulled
+ * from `docs/adr/` in this repository. A brochure states conclusions; a
+ * notebook shows a decision, when it was made, what it cost, and whether it has
+ * already been amended. That is the entire thesis: the dates are the argument.
+ *
+ * ## The one motion
+ *
+ * The margin rule inks in as you scroll, driven by `animation-timeline:
+ * scroll(root block)`. It is the reader's own position, drawn down the margin
+ * like a pen. There is no other animation: nothing fades in on arrival, because
+ * content that appears when you reach it is content that was missing when you
+ * got there. Where scroll timelines are unsupported, or the reader asked for
+ * reduced motion, the margin is simply a hairline and nothing is lost.
+ *
+ * ## Facts on this page
+ *
+ * Every date, record number, and status below was read out of the repository on
+ * 2026-07-30 and is repeated here as a literal rather than imported, because a
+ * prototype should not grow shared exports that outlive it. The scatter figure
+ * is invented and says so. The article at the end is the real `hello-world`
+ * edition, rendered complete rather than excerpted.
+ */
+import { getEntry, render } from 'astro:content';
+import Renditions from '../../components/Renditions.astro';
+import PageLayout from '../../layouts/PageLayout.astro';
+import {
+	CANONICAL_HOME,
+	DISCORD,
+	formatDay,
+	GITHUB_REPO,
+	LATEST_RELEASE,
+	LEDGER_CHECKED_ON,
+	WHISPERING_APP,
+} from '../../lib/site';
+
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
+
+/** How many numbered records sit in `docs/adr/`, counted on {@link LEDGER_CHECKED_ON}. */
+const RECORD_COUNT = 190;
+
+/** The contents strip under the masthead. Dense on purpose: it is the index. */
+const contents = [
+	{ n: '01', title: 'The problem', anchor: '#problem', note: 'illustration' },
+	{ n: '02', title: 'What we refuse to build', anchor: '#refusal', note: 'three claims' },
+	{
+		n: '03',
+		title: 'Seven decisions, with dates',
+		anchor: '#decisions',
+		note: '2026-06-15 to 2026-07-28',
+	},
+	{
+		n: '04',
+		title: 'What actually runs today',
+		anchor: '#running',
+		note: `checked ${LEDGER_CHECKED_ON}`,
+	},
+	{ n: '05', title: 'The trail', anchor: '#trail', note: `${RECORD_COUNT} records` },
+	{
+		n: '06',
+		title: 'Evidence: one complete article',
+		anchor: '#evidence',
+		note: '2026-07-12',
+	},
+] as const;
+
+/**
+ * Where one thought currently lives. Invented, and labelled as such on the
+ * page: the point is recognition, and a fabricated screenshot of a real product
+ * would be the exact dishonesty this site exists to avoid.
+ */
+const scatter = [
+	['Notes.app', '2024-03-11', 'the paragraph you liked, never found again'],
+	['Google Docs', '2024-08-02', 'the same paragraph, edited by someone else'],
+	['a DM', '2025-01-19', 'the sentence you actually got right'],
+	['a draft', '2025-06-30', '900 words, unpublished'],
+	['NOTES.md', '2026-02-14', 'three bullets and a TODO'],
+] as const;
+
+/**
+ * The decisions, as they are actually recorded. `date`, `status`, and `file`
+ * are transcribed from the record's own front matter; `claim` restates the
+ * decision in the plainest sentence it survives being reduced to, and `cost`
+ * says what it gave up, because a decision with no cost is a slogan.
+ */
+type Decision = {
+	readonly id: string;
+	readonly date: string;
+	readonly status: 'Accepted' | 'Proposed';
+	readonly file: string;
+	readonly claim: string;
+	readonly cost: string;
+	/** The one line of history worth carrying: what it replaced, or what already amended it. */
+	readonly trail?: string;
+};
+
+const decisions: readonly Decision[] = [
+	{
+		id: 'ADR-0004',
+		date: '2026-06-15',
+		status: 'Accepted',
+		file: '0004-trust-the-relay-reject-zero-knowledge',
+		claim: 'The sync server reads your data. Zero knowledge was drafted, and then rejected.',
+		cost: 'The encrypted design was drafted in detail: a per-user and per-workspace key hierarchy, an encrypted key-value wrapper, a keyring threaded through auth and session. Keeping it meant no server-side search, no compaction, and no assistant that could see anything. Shipping a promise we would have quietly broken later was worse than saying this plainly now.',
+	},
+	{
+		id: 'ADR-0068',
+		date: '2026-06-24',
+		status: 'Accepted',
+		file: '0068-privacy-is-a-deployment-not-a-product-feature',
+		claim: 'Privacy is a deployment, not a switch in a settings pane.',
+		cost: 'So the hosted app carries no privacy configuration at all. Never turn on sync and we receive no copy of anything. Run the server yourself and the readable copy lives on infrastructure you control. Use ours and you are trusting us the way you already trust everyone you sync with, except that you can read the code and leave with your data.',
+	},
+	{
+		id: 'ADR-0161',
+		date: '2026-07-20',
+		status: 'Proposed',
+		file: '0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary',
+		claim: 'One Epicenter per person. Not one per app, and not one per device.',
+		cost: 'A SQLite file, a browser origin, and a server actor are places data is physically isolated. None of them is a second owner of your work, and treating them as owners is what makes the same note exist four times.',
+		trail: 'Supersedes ADR-0151 and ADR-0143, which drew the boundary around directories and accounts instead of around a person.',
+	},
+	{
+		id: 'ADR-0160',
+		date: '2026-07-20',
+		status: 'Proposed',
+		file: '0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes',
+		claim: 'An app reads through a Lens, and a Lens is never the schema of record.',
+		cost: 'A Lens is plain JSON naming the tables and values one app claims to understand. Keeping it an interpretation rather than a definition is the whole trick: two apps can disagree about the same row, and neither one corrupts it.',
+	},
+	{
+		id: 'ADR-0173',
+		date: '2026-07-20',
+		status: 'Proposed',
+		file: '0173-each-row-owns-at-most-one-write-once-immutable-blob',
+		claim: 'A row owns at most one file, written once and never edited.',
+		cost: 'The audio you recorded, the image you dropped in. Immutable bytes at a durable address, sitting beside the row fields and the one optional collaborative document. One file per row is a real limit, and it buys an address that can never mean two things.',
+	},
+	{
+		id: 'ADR-0162',
+		date: '2026-07-20',
+		status: 'Accepted',
+		file: '0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql',
+		claim: "Epicenter's own shell gets a SQL console. Applications get none.",
+		cost: 'You can ask your data a question no app thought to offer. An application never receives that connection, which is precisely what keeps the private storage layout free to change without breaking something you came to rely on.',
+		trail: 'Revised 2026-07-25, five days after it was accepted, down to a native-only first version.',
+	},
+	{
+		id: 'ADR-0186',
+		date: '2026-07-28',
+		status: 'Accepted',
+		file: '0186-an-app-reaches-epicenter-through-one-bundled-mit-client-it-installs-itself',
+		claim: 'An outside app reaches Epicenter through one MIT client it bundles itself.',
+		cost: 'MIT, so building on Epicenter does not drag a licence into your project. It is written and tested and not yet published to npm, which is the kind of thing a status page should say out loud rather than imply.',
+		trail: 'Amended the same day by ADR-0187, which settled the half this record deferred.',
+	},
+];
+
+/**
+ * What a stranger is allowed to believe. The state is spelled out in words
+ * wherever it appears; the mark beside it is a second cue, never the only one,
+ * so this survives greyscale and being read aloud.
+ */
+type LedgerEntry = {
+	/** A second cue beside the words, never the only one. */
+	readonly mark: '●' | '◐' | '○';
+	readonly state: 'Ships today' | 'In the repository' | 'Decided, not built';
+	readonly name: string;
+	readonly detail: string;
+	readonly href?: string;
+	readonly hrefLabel?: string;
+};
+
+const ledger: readonly LedgerEntry[] = [
+	{
+		mark: '●',
+		state: 'Ships today',
+		name: 'Whispering',
+		detail: `Transcription for the desktop and the browser, using your own API key or a model running on your own machine. ${LATEST_RELEASE.version}, released ${formatDay(LATEST_RELEASE.releasedOn)}.`,
+		href: WHISPERING_APP,
+		hrefLabel: 'whispering.epicenter.so',
+	},
+	{
+		mark: '●',
+		state: 'Ships today',
+		name: 'Sync for Whispering',
+		detail:
+			'The hosted server that keeps Whispering in step across your devices. It reads your data in plaintext, by the decision dated 2026-06-15 above.',
+	},
+	{
+		mark: '◐',
+		state: 'In the repository',
+		name: 'Epicenter desktop',
+		detail:
+			'The host that runs trusted apps in one window and owns recording, transcription, and the SQL console. Buildable from source, not released.',
+	},
+	{
+		mark: '◐',
+		state: 'In the repository',
+		name: '@epicenter/app',
+		detail:
+			'The MIT client an outside app installs to reach the host. Written and tested, not yet published to npm.',
+	},
+	{
+		mark: '○',
+		state: 'Decided, not built',
+		name: 'One Epicenter per person',
+		detail:
+			'Rows, documents, blobs, and Lenses: the storage model these notes describe. Written down as proposals and being built against.',
+	},
+];
+
+const article = await getEntry('writing', 'hello-world');
+const rendered = article ? await render(article) : undefined;
+const Article = rendered?.Content;
+---
+
+<PageLayout
+	title="Field notes from building Epicenter"
+	description="Working notes: the problem Epicenter starts from, seven dated decisions with what each one cost, what actually runs today, and one complete article as evidence."
+	noindex
+>
+	<p class="flag">
+		Prototype. A different shape for epicenter.so, not the live page.
+	</p>
+
+	<div class="notebook">
+		<div class="spine" aria-hidden="true"><span class="ink"></span></div>
+
+		<!-- ── Masthead ─────────────────────────────────────────────────── -->
+		<div class="row masthead">
+			<div class="meta">
+				<span>Epicenter</span>
+				<span>Field notes</span>
+				<span class="meta-quiet">N&ordm; 1 &middot; {LEDGER_CHECKED_ON}</span>
+			</div>
+			<div class="body">
+				<h1 class="title-xl">You have already written this down four times.</h1>
+				<p class="read-lead lede">
+					Once in a note, once in a doc somebody else edited, once in a message
+					you can't find, once in a draft you never posted. Every copy is a
+					little different and none of them is the one you would point at.
+				</p>
+				<p class="read lede-under">
+					Epicenter is an attempt to give one person's work a single place to
+					live. What follows is the working version of that attempt: the problem
+					it starts from, the decisions with dates on them, the one thing that
+					ships today, and a complete article at the end as evidence that any of
+					it is worth doing. It is open source, and it is early.
+				</p>
+
+				<ol class="contents">
+					{contents.map(({ n, title, anchor, note }) => (
+						<li>
+							<span class="contents-n">{n}</span>
+							<a class="contents-title" href={anchor}>{title}</a>
+							<span class="contents-note">{note}</span>
+						</li>
+					))}
+				</ol>
+			</div>
+		</div>
+
+		<!-- ── 01 The problem ───────────────────────────────────────────── -->
+		<div class="row" id="problem">
+			<div class="meta">
+				<span class="meta-n">01</span>
+				<span>The problem</span>
+			</div>
+			<div class="body">
+				<h2 class="title-lg">
+					Nothing is lost, exactly. It is just in five places, and no place is
+					in charge.
+				</h2>
+				<p class="read after-head">
+					Each of those apps is fine. The trouble is that every one of them
+					wants to be the place your work lives, so your work ends up living in
+					all of them and belonging to none. Search doesn't cross the gaps.
+					Neither does anything you would want to build on top.
+				</p>
+
+				<figure class="figure">
+					<figcaption class="figure-cap">One idea, as currently stored</figcaption>
+					<ul class="scatter">
+						{scatter.map(([where, when, what]) => (
+							<li>
+								<span class="scatter-where">{where}</span>
+								<span class="scatter-when">{when}</span>
+								<span class="scatter-what">{what}</span>
+							</li>
+						))}
+					</ul>
+					<p class="figure-note">Illustration, not a screenshot.</p>
+				</figure>
+			</div>
+		</div>
+
+		<!-- ── 02 The refusal ───────────────────────────────────────────── -->
+		<div class="row" id="refusal">
+			<div class="meta">
+				<span class="meta-n">02</span>
+				<span>The refusal</span>
+			</div>
+			<div class="body">
+				<h2 class="title-lg">The wrong fix is a sixth app to move into.</h2>
+				<p class="read after-head">
+					So Epicenter inverts which part is permanent. Your data is the thing
+					that persists. Apps are views onto it, and you should be able to throw
+					one away without losing a sentence.
+				</p>
+
+				<dl class="claims">
+					<div>
+						<dt>One Epicenter per person.</dt>
+						<dd class="read">
+							The same body of work on every machine you sign into, and it works
+							offline before it works anywhere else.
+						</dd>
+					</div>
+					<div>
+						<dt>Apps are replaceable.</dt>
+						<dd class="read">
+							An app reaches your data through a small typed contract and gets
+							no private storage of its own. Two apps can read the same things
+							and neither one owns them.
+						</dd>
+					</div>
+					<div>
+						<dt>You can take the whole thing.</dt>
+						<dd class="read">
+							Not an export button that produces a zip of JSON you will never
+							open. One database file plus your original media, with no account
+							and no server identity inside it.
+						</dd>
+					</div>
+				</dl>
+			</div>
+		</div>
+
+		<!-- ── 03 The decisions ─────────────────────────────────────────── -->
+		<div class="row" id="decisions">
+			<div class="meta">
+				<span class="meta-n">03</span>
+				<span>Decisions</span>
+			</div>
+			<div class="body">
+				<h2 class="title-lg">Seven decisions, and what each one cost.</h2>
+				<p class="read after-head">
+					Epicenter writes its durable decisions down, keeps the arguments that
+					produced them, and dates them. Below is the sequence in the order it
+					happened. Every one links to the record it came from, including the
+					proposals, which are marked as proposals because rounding a proposal
+					up to a guarantee is the one lie this project cannot afford.
+				</p>
+			</div>
+		</div>
+
+		{decisions.map((decision) => (
+			<div class="row entry">
+				<div class="meta">
+					<time class="meta-date" datetime={decision.date}>{decision.date}</time>
+					<span class="meta-id">{decision.id}</span>
+					<span class="meta-quiet">{decision.status}</span>
+				</div>
+				<div class="body">
+					<h3 class="title-md">{decision.claim}</h3>
+					<p class="read entry-cost">{decision.cost}</p>
+					{decision.trail && <p class="entry-trail">{decision.trail}</p>}
+					<p class="entry-link">
+						<a
+							class="link"
+							href={`${GITHUB_REPO}/blob/main/docs/adr/${decision.file}.md`}
+							rel="noreferrer"
+						>Read the record</a>
+					</p>
+				</div>
+			</div>
+		))}
+
+		<div class="row">
+			<div class="meta"></div>
+			<div class="body">
+				<p class="read closing-note">
+					There are {RECORD_COUNT} of these in the repository as of {formatDay(LEDGER_CHECKED_ON)},
+					including the ones that were reversed and the alternatives that lost.
+					Three of the seven above are still proposals, and say so beside their
+					own dates. A page that blurred that line would have nothing left
+					worth trusting.
+				</p>
+			</div>
+		</div>
+
+		<!-- ── 04 What runs today ───────────────────────────────────────── -->
+		<div class="row" id="running">
+			<div class="meta">
+				<span class="meta-n">04</span>
+				<span>Status</span>
+			</div>
+			<div class="body">
+				<h2 class="title-lg">What actually runs today.</h2>
+				<p class="read after-head">
+					Most of these notes describe a system being built. Here is the part
+					that would survive an audit. There is no Epicenter to download yet;
+					Whispering, the first app on the way there, ships now.
+				</p>
+			</div>
+		</div>
+
+		{ledger.map((item) => (
+			<div class="row entry">
+				<div class="meta">
+					<span class="meta-state">
+						<span class="meta-mark" aria-hidden="true">{item.mark}</span>
+						{item.state}
+					</span>
+				</div>
+				<div class="body">
+					<h3 class="title-md">{item.name}</h3>
+					<p class="read entry-cost">
+						{item.detail}
+						{item.href && (
+							<>
+								{' '}
+								<a class="link" href={item.href} rel="noreferrer">{item.hrefLabel}</a>
+							</>
+						)}
+					</p>
+				</div>
+			</div>
+		))}
+
+		<div class="row">
+			<div class="meta"></div>
+			<div class="body">
+				<p class="read closing-note">
+					Checked against the repository on {formatDay(LEDGER_CHECKED_ON)}.
+					Public releases are
+					<a class="link" href={LATEST_RELEASE.url} rel="noreferrer">on GitHub</a>,
+					and they are Whispering releases.
+				</p>
+			</div>
+		</div>
+
+		<!-- ── 05 The trail ─────────────────────────────────────────────── -->
+		<div class="row" id="trail">
+			<div class="meta">
+				<span class="meta-n">05</span>
+				<span>The trail</span>
+			</div>
+			<div class="body">
+				<h2 class="title-lg">A promise you can't check isn't a promise.</h2>
+				<p class="read after-head">
+					Every claim in these notes is the kind you can go verify. The
+					applications and the sync server are AGPL. The packages an outside app
+					installs are MIT. The decisions are dated files in the same repository
+					as the code that implements them, which is the only reason a page like
+					this can send a skeptical reader somewhere better than itself.
+				</p>
+				<p class="read">
+					This is not open source as a pricing tier. If Epicenter stops being
+					worth using, both the code and your data outlive it, and that is the
+					only version of this worth building.
+				</p>
+				<p class="actions">
+					<a class="action" href={GITHUB_REPO} rel="noreferrer">Follow on GitHub</a>
+					<a class="action action-quiet" href={DISCORD} rel="noreferrer">Discord</a>
+					<a class="action action-quiet" href="/whispering/">Try Whispering</a>
+				</p>
+			</div>
+		</div>
+
+		<!-- ── 06 The evidence ──────────────────────────────────────────── -->
+		<div class="row" id="evidence">
+			<div class="meta">
+				<span class="meta-n">06</span>
+				<span>Evidence</span>
+			</div>
+			<div class="body">
+				<h2 class="title-lg">
+					The reason any of this exists, printed in full.
+				</h2>
+				<p class="read after-head">
+					The workflow the software is meant to make ordinary: a piece is
+					written once and stays one work, then goes out as prose, as a
+					recording, and as a short video, with the original staying canonical
+					wherever it changes. Today it runs on a pile of scripts and a lot of
+					stubbornness, because the general software does not exist yet. That
+					gap is the project.
+				</p>
+				<p class="read">
+					So here is the whole article rather than a card that links to one. It
+					is a complete copy, not an excerpt.
+				</p>
+			</div>
+		</div>
+
+		{article && Article && (
+			<div class="row entry">
+				<div class="meta">
+					<time class="meta-date" datetime={article.data.writtenOn}>
+						{article.data.writtenOn}
+					</time>
+					<span class="meta-quiet">Written</span>
+					<time class="meta-date meta-second" datetime={article.data.approvedOn}>
+						{article.data.approvedOn}
+					</time>
+					<span class="meta-quiet">Published</span>
+				</div>
+				<div class="body">
+					<p class="source">
+						Republished from
+						<a class="link" href={article.data.canonicalUrl}>{home}</a>, where
+						this work lives and stays current.
+					</p>
+					<h3 class="title-lg article-title">{article.data.title}</h3>
+					{article.data.subtitle && (
+						<p class="read-lead article-sub">{article.data.subtitle}</p>
+					)}
+					<Renditions
+						title={article.data.title}
+						narrationUrl={article.data.narrationUrl}
+						video={article.data.video}
+					>
+						<Article />
+					</Renditions>
+					<p class="read article-end">
+						The original is at
+						<a
+							class="link"
+							href={article.data.canonicalUrl}
+						>{article.data.canonicalUrl.replace(/^https:\/\//, '')}</a>, and
+						<a class="link" href={article.data.editionUrl}>this release round</a>
+						keeps its own permanent address there. Four more are on
+						<a class="link" href="/writing/">the writing page</a>.
+					</p>
+				</div>
+			</div>
+		)}
+
+		<!-- ── Colophon ─────────────────────────────────────────────────── -->
+		<div class="row colophon">
+			<div class="meta">
+				<span class="meta-quiet">End of notes</span>
+				<span class="meta-quiet">{LEDGER_CHECKED_ON}</span>
+			</div>
+			<div class="body">
+				<p class="read">
+					Nothing on this page is a roadmap. It is where the work is, on the day
+					it was written down.
+				</p>
+			</div>
+		</div>
+	</div>
+</PageLayout>
+
+<style>
+	/* ── The notebook ──
+	   One ruled margin down the whole page. Mono facts hang to the left of the
+	   rule, right-aligned against it; every word of argument sits to the right.
+	   No text crosses the rule, which is the only alignment device this page
+	   has and the reason no section needs a background to announce itself. */
+	.notebook {
+		--gutter: 10rem;
+		--gap: 1.6rem;
+		--pad: 1.5rem;
+		position: relative;
+		max-width: 58rem;
+		margin-inline: auto;
+		padding-inline: var(--pad);
+		padding-block: 3.5rem 0;
+	}
+
+	.spine {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: calc(var(--pad) + var(--gutter) + var(--gap));
+		width: 1px;
+		background: var(--rule);
+	}
+
+	/* ── The one motion ──
+	   The reader's own position, drawn down the margin like a pen. Nothing else
+	   on this page moves; in particular nothing fades in on arrival, because
+	   content that appears when you reach it was missing when you got there. */
+	.ink {
+		display: block;
+		height: 100%;
+		background: var(--ink-muted);
+		transform-origin: top center;
+		scale: 1 0;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		@supports (animation-timeline: scroll()) {
+			.ink {
+				animation: ink-down linear both;
+				animation-timeline: scroll(root block);
+			}
+		}
+	}
+
+	@keyframes ink-down {
+		from {
+			scale: 1 0;
+		}
+		to {
+			scale: 1 1;
+		}
+	}
+
+	.row {
+		display: grid;
+		grid-template-columns: var(--gutter) minmax(0, 1fr);
+		column-gap: calc(var(--gap) * 2 + 1px);
+		align-items: start;
+	}
+
+	.body {
+		max-width: 36rem;
+		padding-block: 1.75rem;
+	}
+
+	/* ── The margin ──
+	   Every line of it is mono, small, and right-aligned to the rule, so the
+	   dates form a single hard edge down the page. */
+	.meta {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.3rem;
+		padding-block: 1.75rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		line-height: 1.4;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		text-align: right;
+		color: var(--ink-muted);
+	}
+
+	.meta-quiet {
+		color: var(--ink-faint);
+	}
+
+	.meta-n {
+		font-size: 1.375rem;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		color: var(--ink);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.meta-date {
+		letter-spacing: 0.04em;
+		color: var(--ink);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.meta-second {
+		margin-top: 0.35rem;
+	}
+
+	.meta-id {
+		color: var(--ink-muted);
+	}
+
+	.meta-state {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		color: var(--ink-faint);
+	}
+
+	.meta-mark {
+		font-size: 0.75rem;
+		line-height: 1;
+		color: var(--ink-muted);
+	}
+
+	/* ── Prototype flag ──
+	   Says what this is before the page starts pretending to be a home page. */
+	.flag {
+		border-bottom: 1px solid var(--rule);
+		padding: 0.65rem 1.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		background: var(--paper-sunk);
+	}
+
+	/* ── Masthead ── */
+	.masthead .body {
+		padding-block: 0 2.5rem;
+	}
+
+	.masthead .meta {
+		padding-top: 0.6rem;
+	}
+
+	.masthead .meta span:first-child {
+		color: var(--ink);
+	}
+
+	.lede {
+		margin-top: 1.5rem;
+	}
+
+	.lede-under {
+		margin-top: 1.05rem;
+	}
+
+	/* The index. Three aligned columns of small type: number, title, and the
+	   one fact that tells you whether the note is worth your time. */
+	.contents {
+		margin: 2.5rem 0 0;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--rule);
+	}
+
+	.contents li {
+		display: grid;
+		grid-template-columns: 2rem minmax(0, 1fr) auto;
+		gap: 0.9rem;
+		align-items: baseline;
+		padding-block: 0.6rem;
+		border-bottom: 1px solid color-mix(in oklch, var(--rule) 60%, transparent);
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+	}
+
+	.contents-n {
+		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.contents-title {
+		color: var(--ink);
+		text-decoration: none;
+		font-family: var(--font-ui);
+		font-size: 0.875rem;
+	}
+
+	.contents-title:hover {
+		text-decoration: underline;
+		text-decoration-thickness: 1px;
+		text-underline-offset: 0.16em;
+	}
+
+	.contents-note {
+		color: var(--ink-faint);
+		letter-spacing: 0.03em;
+		text-align: right;
+	}
+
+	/* ── Prose blocks ── */
+	.after-head {
+		margin-top: 1.15rem;
+	}
+
+	.read + .read {
+		margin-top: 1.05rem;
+	}
+
+	/* ── The scatter figure ── */
+	.figure {
+		margin-top: 2rem;
+		border: 1px solid var(--rule);
+		border-radius: 3px;
+		background: var(--paper-sunk);
+		overflow: hidden;
+	}
+
+	.figure-cap {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding: 0.65rem 1rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.scatter {
+		list-style: none;
+		margin: 0;
+		padding: 0.35rem 0;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		line-height: 1.5;
+	}
+
+	.scatter li {
+		display: grid;
+		grid-template-columns: 7.5rem 6rem minmax(0, 1fr);
+		gap: 0.6rem;
+		padding: 0.5rem 1rem;
+	}
+
+	.scatter li + li {
+		border-top: 1px solid color-mix(in oklch, var(--rule) 60%, transparent);
+	}
+
+	.scatter-where {
+		color: var(--ink);
+	}
+
+	.scatter-when {
+		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.scatter-what {
+		color: var(--ink-muted);
+	}
+
+	.figure-note {
+		padding: 0.65rem 1rem;
+		border-top: 1px solid var(--rule);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		color: var(--ink-faint);
+	}
+
+	/* ── Run-in claims ──
+	   The term runs into its own sentence rather than sitting on a card. Denser
+	   to read, and it keeps three related claims looking like one argument. */
+	.claims {
+		margin: 2rem 0 0;
+	}
+
+	.claims > div + div {
+		margin-top: 1.1rem;
+	}
+
+	.claims dt {
+		float: left;
+		margin-inline-end: 0.45rem;
+		font-family: var(--font-ui);
+		font-size: 1rem;
+		font-weight: 620;
+		letter-spacing: -0.008em;
+		color: var(--ink);
+	}
+
+	.claims dd {
+		margin: 0;
+	}
+
+	/* ── A dated entry ──
+	   The rhythm of the whole page: one fact in the margin, one claim beside
+	   it, a hairline underneath. */
+	.entry .body,
+	.entry .meta {
+		padding-block: 1.5rem;
+	}
+
+	.entry {
+		border-bottom: 1px solid var(--rule);
+	}
+
+	/* The hairline closes a run of entries at both ends, so a group of dated
+	   rows reads as one ruled table rather than as a list that lost its top. */
+	.row:not(.entry) + .entry {
+		border-top: 1px solid var(--rule);
+	}
+
+	.entry-cost {
+		margin-top: 0.5rem;
+	}
+
+	.entry-trail {
+		margin-top: 0.75rem;
+		padding-inline-start: 0.85rem;
+		border-inline-start: 1px solid var(--rule-strong);
+		font-size: 0.8125rem;
+		line-height: 1.55;
+		color: var(--ink-faint);
+	}
+
+	.entry-link {
+		margin-top: 0.85rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+	}
+
+	.closing-note {
+		font-size: 0.9375rem;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 1rem 2rem;
+		margin-top: 2rem;
+	}
+
+	/* ── The article ── */
+	.source {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		line-height: 1.55;
+		letter-spacing: 0.02em;
+		color: var(--ink-faint);
+		padding-bottom: 1.25rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.article-title {
+		margin-top: 1.75rem;
+	}
+
+	.article-sub {
+		margin-top: 0.8rem;
+	}
+
+	.article-end {
+		margin-top: 2.5rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--rule);
+		font-size: 0.9375rem;
+	}
+
+	.colophon .body {
+		padding-block: 2.5rem 4rem;
+	}
+
+	.colophon .meta {
+		padding-block: 2.5rem 4rem;
+	}
+
+	/* ── Narrow ──
+	   The margin cannot survive a phone, so it stops being a margin. Each fact
+	   becomes a dateline above the thing it dates, and the rule goes with it. */
+	@media (max-width: 52rem) {
+		.notebook {
+			padding-block: 2.25rem 0;
+		}
+
+		.spine {
+			display: none;
+		}
+
+		.row {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.meta {
+			flex-direction: row;
+			flex-wrap: wrap;
+			align-items: baseline;
+			justify-content: flex-start;
+			gap: 0.3rem 0.85rem;
+			text-align: left;
+			padding-block: 1.5rem 0;
+		}
+
+		.masthead .meta {
+			padding-top: 0;
+		}
+
+		.meta-n {
+			font-size: 0.875rem;
+			letter-spacing: 0.08em;
+		}
+
+		.meta-second {
+			margin-top: 0;
+		}
+
+		.body,
+		.entry .body {
+			padding-block: 0.75rem 1.5rem;
+		}
+
+		.entry .meta {
+			padding-block: 1.5rem 0;
+		}
+
+		.colophon .meta {
+			padding-block: 2.25rem 0;
+		}
+
+		.colophon .body {
+			padding-block: 0.75rem 3rem;
+		}
+
+		.contents li {
+			grid-template-columns: 1.75rem minmax(0, 1fr);
+			row-gap: 0.15rem;
+		}
+
+		.contents-note {
+			grid-column: 2;
+			text-align: left;
+		}
+
+		.scatter li {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.1rem;
+		}
+
+		.claims dt {
+			float: none;
+			display: block;
+			margin-inline-end: 0;
+		}
+	}
+</style>
