@@ -1,0 +1,879 @@
+---
+/**
+ * PROTOTYPE, not a shipping page. Throwaway.
+ *
+ * Question it answers: can the landing page lead with the *human* problem
+ * (a body of work dispersed across rented accounts) and carry a manifesto's
+ * confidence, without spending a single unearned claim?
+ *
+ * Direction: local-first manifesto. Fragmentation first, then four
+ * commitments about ownership, continuity, and tools adapting around a
+ * person's work, then the honest proof, then the evidence.
+ *
+ * Two rules held the whole way down:
+ *
+ *   1. The article is evidence, not a card. The complete text of "Hello,
+ *      World" is rendered inline in its three renditions, because a manifesto
+ *      about work that stays whole should not hand the reader a teaser.
+ *   2. Every factual sentence comes from `lib/site.ts` or from the honest
+ *      copy already audited on the live index page. The compromise section
+ *      (a server we run reads your data in plaintext) is stated before the
+ *      status ledger, not after, because a local-first argument that buries
+ *      its server has already lost the argument.
+ *
+ * `noindex` is deliberate and load-bearing. This page reproduces an article
+ * that canonicalizes to bradenwong.com; a prototype route asking to be
+ * indexed for someone else's work would be the exact dishonesty the page is
+ * arguing against. It also keeps the route out of `sitemap.xml.ts`, which
+ * hand-lists its pages.
+ *
+ * Run: `bun dev:landing`, then open http://localhost:4321/prototype/manifesto/
+ * Verdict and cleanup: see `_NOTES.md` beside this file.
+ */
+import { getEntry, render } from 'astro:content';
+import Renditions from '../../components/Renditions.astro';
+import PageLayout from '../../layouts/PageLayout.astro';
+import {
+	ADRS,
+	adrUrl,
+	CANONICAL_HOME,
+	DISCORD,
+	formatDay,
+	GITHUB_REPO,
+	LATEST_RELEASE,
+	LEDGER_CHECKED_ON,
+	WHISPERING_APP,
+} from '../../lib/site';
+
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
+
+/** The evidence. A build without it should fail loudly rather than quietly. */
+const article = await getEntry('writing', 'hello-world');
+if (!article) throw new Error('prototype/manifesto: hello-world is missing');
+const { Content } = await render(article);
+
+/**
+ * The opening diagram: one idea, as currently stored.
+ *
+ * The first four rows are invented and labelled as such, because the point is
+ * recognition rather than evidence. `drift` is the horizontal offset each row
+ * keeps at rest, so dispersal is drawn rather than described, and the last row
+ * sits flush because it is the one that actually got written properly.
+ */
+const stored = [
+	{
+		drift: '5.5rem',
+		weight: 0,
+		where: 'Notes.app',
+		when: 'Mar 2021',
+		what: 'one line about owning your own data',
+	},
+	{
+		drift: '4rem',
+		weight: 0.34,
+		where: 'a shared doc',
+		when: 'Aug 2022',
+		what: 'the same line, edited by someone else',
+	},
+	{
+		drift: '2.5rem',
+		weight: 0.67,
+		where: 'a DM',
+		when: 'Jan 2024',
+		what: 'the version you actually got right',
+	},
+	{
+		drift: '1.25rem',
+		weight: 1,
+		where: 'NOTES.md',
+		when: 'Feb 2026',
+		what: 'three bullets and a TODO',
+	},
+	{
+		drift: '0rem',
+		weight: 1,
+		where: 'Hello, World',
+		when: 'Jul 2026',
+		what: 'written once, published in three forms',
+	},
+] as const;
+
+/** The commitments. Numbered, because a manifesto should be countable. */
+const theses = [
+	{
+		head: 'The work is permanent. The tools are not.',
+		body: 'Assume every application on your machine today is gone, acquired, or unaffordable in ten years. Assume the writing survives all of it. Software that cannot outlive its own obsolescence has no business holding a decade of your thinking, and most of it is holding yours right now.',
+	},
+	{
+		head: 'One home per person. Not one per app, not one per device.',
+		body: 'Your notes, your recordings, your drafts: one body of work, on your machine, working with the network off before it works anywhere else. Signing into a second machine should extend that body of work rather than fork it.',
+	},
+	{
+		head: 'Tools adapt to the work, not the work to the tools.',
+		body: 'An application declares what it understands and reads through that declaration. It gets no private storage of its own. Two applications can read the same recording, disagree about what it means, and neither one owns it. Delete either and nothing you kept goes missing.',
+	},
+	{
+		head: 'Leaving is not a feature. It is the shape of the thing.',
+		body: 'Not an export button that hands you a zip of JSON you will never open. One database file plus your original media, with no account and no server identity inside it. If you cannot walk out with the whole thing, you never had it.',
+	},
+] as const;
+
+/**
+ * What a stranger is allowed to believe, checked against the repository on
+ * `LEDGER_CHECKED_ON`. `state` is spelled out in words, so the ledger survives
+ * being read aloud or read in greyscale.
+ */
+type LedgerEntry = {
+	readonly state: 'Ships today' | 'In the repository' | 'Decided, not built';
+	readonly name: string;
+	readonly detail: string;
+	readonly href?: string;
+	readonly hrefLabel?: string;
+};
+
+const ledger: readonly LedgerEntry[] = [
+	{
+		state: 'Ships today',
+		name: 'Whispering',
+		detail: `Transcription for the desktop and the browser, using your own API key or a model on your own machine. ${LATEST_RELEASE.version}, released ${formatDay(LATEST_RELEASE.releasedOn)}.`,
+		href: WHISPERING_APP,
+		hrefLabel: 'whispering.epicenter.so',
+	},
+	{
+		state: 'Ships today',
+		name: 'Sync for Whispering',
+		detail:
+			'The hosted server that keeps Whispering in step across your devices. It reads your data in plaintext, as described above.',
+	},
+	{
+		state: 'In the repository',
+		name: 'Epicenter desktop',
+		detail:
+			'The host that runs trusted apps in one window and owns recording, transcription, and the SQL console. Buildable from source, not released.',
+	},
+	{
+		state: 'In the repository',
+		name: '@epicenter/app',
+		detail:
+			'The MIT client an outside app installs to reach the host. Written and tested, not yet published to npm.',
+	},
+	{
+		state: 'Decided, not built',
+		name: 'The storage model',
+		detail:
+			'One Epicenter per person, rows with at most one document and one write-once file, Lenses that interpret rather than own. Written down as proposals and being built against.',
+	},
+];
+---
+
+<PageLayout
+	title="Prototype: a local-first manifesto"
+	description="Throwaway landing prototype: the fragmentation problem first, four commitments, and the honest proof underneath."
+	noindex
+>
+	{import.meta.env.DEV && (
+		<p class="proto-badge">Prototype · local-first manifesto</p>
+	)}
+
+	<!-- ── 1. The fragmentation ────────────────────────────────────────── -->
+	<section class="band opening">
+		<div class="spread">
+			<div class="full">
+				<h1 class="display">
+					You do not have a body of work. You have a dozen accounts.
+				</h1>
+				<div class="lede">
+					<p class="read-lead">
+						Ten years of notes, recordings, drafts, and half-finished thinking,
+						split across services you rent by the month. Every one of them was
+						good at its job. Together they became a filing system nobody
+						designed and nobody owns.
+					</p>
+					<p class="read">
+						This page is an argument about which part of that arrangement should
+						be permanent. Epicenter is the attempt to build the answer. It is
+						open source, it is early, and what ships today is a transcription
+						app and the server that keeps it in step.
+					</p>
+				</div>
+
+				<figure class="drift">
+					<figcaption class="drift-cap">
+						One idea, as currently stored
+					</figcaption>
+					<ul class="drift-rows">
+						{stored.map((row, index) => (
+							<li
+								class="drift-row"
+								style={`--drift:${row.drift};--weight:${row.weight};--i:${index}`}
+							>
+								<span>{row.where}</span>
+								<span>{row.when}</span>
+								<span>{row.what}</span>
+							</li>
+						))}
+					</ul>
+					<p class="drift-note">
+						The first four are invented, and you know the shape of them. The
+						last one is
+						<a class="link" href="#evidence">printed in full further down</a>.
+					</p>
+				</figure>
+
+				<p class="read after-figure">
+					Nothing in that list is lost. It is dispersed, which is harder to
+					notice, because loss is legible and dispersal is not. Nobody sees a
+					body of work failing to accumulate.
+				</p>
+
+				<div class="actions">
+					<a class="action" href={GITHUB_REPO} rel="noreferrer">
+						Follow on GitHub
+					</a>
+					<a class="action action-quiet" href="#evidence">Read the evidence</a>
+				</div>
+
+				<p class="caveat">
+					There is no Epicenter to download yet.
+					<a class="link" href="/whispering/">Whispering</a>, the first app on
+					the way there, ships today.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 2. The commitments ──────────────────────────────────────────── -->
+	<section class="band sunk">
+		<div class="spread">
+			<p class="rail-label">The argument</p>
+			<div class="column">
+				<h2 class="title-lg">The fix is not a thirteenth app to move into.</h2>
+				<p class="read after-head">
+					It is to change which part is permanent. Your work is the thing that
+					lasts. Applications are views onto it, and you should be able to throw
+					one away without losing a sentence. Four commitments follow from that,
+					and Epicenter is being built against them rather than around them.
+				</p>
+			</div>
+
+			<ol class="theses">
+				{theses.map((thesis, index) => (
+					<li class="thesis">
+						<p class="thesis-no" aria-hidden="true">
+							{String(index + 1).padStart(2, '0')}
+						</p>
+						<div class="column">
+							<h3 class="thesis-head">{thesis.head}</h3>
+							<p class="read thesis-body">{thesis.body}</p>
+						</div>
+					</li>
+				))}
+			</ol>
+
+			<div class="column">
+				<p class="records">
+					The long versions, with the arguments and the alternatives that lost,
+					are dated records in the repository. Most of them are still proposals,
+					and they say so:
+					<a class="link" href={adrUrl(ADRS.oneEpicenter)} rel="noreferrer">
+						one Epicenter per person
+					</a>
+					<span class="stamp">{ADRS.oneEpicenter.status}</span>,
+					<a class="link" href={adrUrl(ADRS.lenses)} rel="noreferrer">Lenses</a>
+					<span class="stamp">{ADRS.lenses.status}</span>,
+					<a class="link" href={adrUrl(ADRS.blobs)} rel="noreferrer">
+						one write-once file per row
+					</a>
+					<span class="stamp">{ADRS.blobs.status}</span>,
+					<a class="link" href={adrUrl(ADRS.portable)} rel="noreferrer">
+						taking it with you
+					</a>
+					<span class="stamp">{ADRS.portable.status}</span>,
+					<a class="link" href={adrUrl(ADRS.inspection)} rel="noreferrer">
+						the read-only SQL console
+					</a>
+					<span class="stamp">{ADRS.inspection.status}</span>.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 3. The compromise, before the ledger ────────────────────────── -->
+	<section class="band">
+		<div class="spread">
+			<p class="rail-label">The compromise</p>
+			<div class="column">
+				<h2 class="title-lg">
+					A manifesto that hides its server is an advertisement.
+				</h2>
+				<p class="read after-head">
+					Everything starts on your machine and works with the network off. Sign
+					in and a server we run holds a copy too, so a phone that was asleep
+					can catch up. That server reads your data in plaintext. We are not
+					going to pretend otherwise.
+				</p>
+				<p class="read">
+					Epicenter had an encryption layer and removed it. Encrypting
+					everything end to end also meant no server-side search and no
+					assistant that could see anything, and shipping a promise we would
+					have quietly broken later seemed worse than saying this plainly now.
+				</p>
+				<p class="read">
+					So privacy here is a question of whose machine is holding your work,
+					not which switch is flipped in a settings pane. Leave Epicenter sync
+					off and Epicenter receives no copy. Individual tools may still send
+					only what you deliberately give them to a service you choose, such as
+					audio sent to a cloud transcription provider. Run the sync server
+					yourself and its readable copy stays on infrastructure you control.
+					Use ours and you are trusting us the way you already trust every other
+					company you sync with, except that you can read the code and leave
+					with your data.
+				</p>
+
+				<p class="records">
+					<a class="link" href={adrUrl(ADRS.plaintextRelay)} rel="noreferrer">
+						Why zero-knowledge was rejected
+					</a>
+					<span class="stamp">{ADRS.plaintextRelay.status}</span>,
+					<a
+						class="link"
+						href={adrUrl(ADRS.privacyIsDeployment)}
+						rel="noreferrer"
+					>
+						privacy is a deployment, not a feature
+					</a>
+					<span class="stamp">{ADRS.privacyIsDeployment.status}</span>.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 4. What runs today ──────────────────────────────────────────── -->
+	<section class="band sunk">
+		<div class="spread">
+			<p class="rail-label">Status</p>
+			<div class="column">
+				<h2 class="title-lg">What actually runs today</h2>
+				<p class="read after-head">
+					Most of this page describes a system being built. This is the part
+					that would survive an audit.
+				</p>
+			</div>
+
+			<ul class="ledger">
+				{ledger.map((item) => (
+					<li class="ledger-row">
+						<p class="ledger-state">{item.state}</p>
+						<div class="column">
+							<h3 class="title-md">{item.name}</h3>
+							<p class="read ledger-detail">
+								{item.detail}
+								{item.href && (
+									<>
+										{' '}
+										<a class="link" href={item.href} rel="noreferrer">
+											{item.hrefLabel}
+										</a>
+									</>
+								)}
+							</p>
+						</div>
+					</li>
+				))}
+			</ul>
+
+			<div class="column">
+				<p class="records">
+					Checked against the repository on {formatDay(LEDGER_CHECKED_ON)}.
+					Public releases are
+					<a class="link" href={LATEST_RELEASE.url} rel="noreferrer">
+						on GitHub</a
+					>, and they are Whispering releases.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 5. The evidence, in full ────────────────────────────────────── -->
+	<section class="band" id="evidence">
+		<div class="spread">
+			<p class="rail-label">Evidence</p>
+			<div class="column">
+				<h2 class="title-lg">
+					One piece of writing, kept once, published in three complete forms.
+				</h2>
+				<p class="read after-head">
+					This is the workflow the software is meant to make ordinary, and
+					Braden already lives it: a piece is written once and stays one work,
+					then goes out as prose, as a recording, and as a short video, with the
+					original staying canonical wherever it changes.
+				</p>
+				<p class="read">
+					It does not run <em>on</em> Epicenter. It runs on a pile of scripts
+					and a lot of stubbornness, because the general software does not exist
+					yet. That gap is the project. Here is the piece, whole, in whichever
+					form you want it.
+				</p>
+			</div>
+
+			<div class="column evidence">
+				<p class="source">
+					Republished from
+					<a class="link" href={article.data.canonicalUrl}>{home}</a>, where
+					this work lives and stays current. Written
+					{formatDay(article.data.writtenOn)}, published
+					{formatDay(article.data.approvedOn)}.
+				</p>
+
+				<h3 class="evidence-title">{article.data.title}</h3>
+				{article.data.subtitle && (
+					<p class="read-lead evidence-sub">{article.data.subtitle}</p>
+				)}
+
+				<Renditions
+					title={article.data.title}
+					narrationUrl={article.data.narrationUrl}
+					video={article.data.video}
+				>
+					<Content />
+				</Renditions>
+
+				<p class="records">
+					That is the complete piece, not an excerpt. The original is at
+					<a class="link" href={article.data.canonicalUrl}>
+						{article.data.canonicalUrl.replace(/^https:\/\//, '')}</a
+					>,
+					<a class="link" href={article.data.editionUrl}> this release round</a>
+					keeps its own permanent address there, and the rest of the writing is
+					<a class="link" href="/writing/">here</a>.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 6. Why it is open ───────────────────────────────────────────── -->
+	<section class="band sunk closing">
+		<div class="spread">
+			<p class="rail-label">Why it is open</p>
+			<div class="column">
+				<h2 class="title-lg">A promise you cannot check is not a promise.</h2>
+				<p class="read after-head">
+					Every claim on this page is the kind you can go verify. The
+					applications and the sync server are AGPL. The packages an outside app
+					installs are MIT, so building on Epicenter does not drag a licence
+					into your project. The decisions are dated records in the repository,
+					including the ones that were reversed and the alternatives that lost.
+				</p>
+				<p class="read">
+					This is not open source as a pricing tier. If Epicenter stops being
+					worth using, both the code and your data outlive it, and that is the
+					only version of this worth building.
+				</p>
+
+				<div class="actions closing-actions">
+					<a class="action" href={GITHUB_REPO} rel="noreferrer">
+						Follow on GitHub
+					</a>
+					<a class="action action-quiet" href="/whispering/">Try Whispering</a>
+					<a class="action action-quiet" href={DISCORD} rel="noreferrer">
+						Discord
+					</a>
+				</div>
+			</div>
+		</div>
+	</section>
+</PageLayout>
+
+<style>
+	/* ── The prototype marker ──
+	   Deliberately ugly and fixed, so it never reads as part of the design being
+	   judged. Dev only; a stray build cannot ship it. */
+	.proto-badge {
+		position: fixed;
+		left: 0.75rem;
+		bottom: 0.75rem;
+		z-index: 20;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		padding: 0.35rem 0.6rem;
+		border-radius: 999px;
+		background: var(--ink);
+		color: var(--paper);
+	}
+
+	/* ── The spine ──
+	   One asymmetric grid runs the whole page: a narrow right-aligned rail for
+	   the numerals and status words, and a reading column beside it. Everything
+	   after the opening hangs off the same left edge, which is the only
+	   structural device on the page besides the hairline. */
+	.band {
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.band.sunk {
+		background: var(--paper-sunk);
+	}
+
+	.spread {
+		max-width: 66rem;
+		margin-inline: auto;
+		padding: 5.5rem 1.5rem;
+		display: grid;
+		grid-template-columns: 7rem minmax(0, 1fr);
+		column-gap: 3rem;
+	}
+
+	.column {
+		grid-column: 2;
+		max-width: 38rem;
+	}
+
+	/* The opening breaks the spine on purpose: the manifesto starts at the
+	   page's true left margin, and the rail only takes over once it is arguing. */
+	.full {
+		grid-column: 1 / -1;
+		max-width: 46rem;
+	}
+
+	.rail-label {
+		grid-column: 1;
+		text-align: right;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		line-height: 1.4;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding-top: 0.5rem;
+	}
+
+	/* ── Opening ── */
+	.opening .spread {
+		padding-block: 7rem 6rem;
+	}
+
+	.display {
+		font-family: var(--font-ui);
+		font-size: clamp(2.4rem, 1.5rem + 3.9vw, 4.15rem);
+		line-height: 1.02;
+		letter-spacing: -0.032em;
+		font-weight: 660;
+		text-wrap: balance;
+		max-width: 17ch;
+	}
+
+	.lede {
+		margin-top: 2.25rem;
+		max-width: 34rem;
+	}
+
+	.lede .read {
+		margin-top: 1.15rem;
+	}
+
+	.after-figure {
+		margin-top: 2rem;
+		max-width: 34rem;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 1rem 2rem;
+		margin-top: 2.75rem;
+	}
+
+	.caveat {
+		margin-top: 2.5rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		max-width: 34rem;
+		font-size: 0.875rem;
+		line-height: 1.55;
+		color: var(--ink-faint);
+	}
+
+	/* ── The one gesture ──
+	   Dispersal drawn as horizontal drift. Each row keeps its offset at rest, so
+	   the diagram is complete and readable with no motion at all; the animation
+	   only delivers it, once, on load. There is no scroll trigger anywhere: a row
+	   that arrives when you reach it is a row that was missing when you got here. */
+	.drift {
+		margin-top: 3rem;
+		max-width: 42rem;
+		border-block: 1px solid var(--rule);
+	}
+
+	.drift-cap {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding-block: 0.85rem;
+	}
+
+	.drift-rows {
+		list-style: none;
+		margin: 0;
+		padding: 0 0 0.9rem;
+		/* Contains the pre-settle offset, so nothing widens the page. */
+		overflow: hidden;
+	}
+
+	.drift-row {
+		display: grid;
+		grid-template-columns: 8.5rem 5.5rem minmax(0, 1fr);
+		gap: 0.75rem;
+		padding-block: 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.5;
+		transform: translateX(calc(var(--drift) * var(--drift-scale, 1)));
+		/* The gradient runs between two tokens the site already trusts at body
+		   sizes, so the faintest row is still an ordinary caption rather than a
+		   contrast failure. Alpha would have been easier and unreadable. */
+		color: color-mix(
+			in oklch,
+			var(--ink-muted) calc(var(--weight) * 100%),
+			var(--ink-faint)
+		);
+	}
+
+	/* The row that resolved is the only one drawn in full ink. */
+	.drift-row:last-child {
+		border-top: 1px solid var(--rule);
+		margin-top: 0.4rem;
+		padding-top: 0.9rem;
+		color: var(--ink);
+	}
+
+	.drift-note {
+		padding-block: 0.85rem;
+		border-top: 1px solid var(--rule);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		line-height: 1.6;
+		letter-spacing: 0.04em;
+		color: var(--ink-faint);
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.drift-row {
+			animation: settle 560ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+			animation-delay: calc(var(--i) * 70ms);
+		}
+
+		@keyframes settle {
+			from {
+				transform: translateX(
+					calc(var(--drift) * var(--drift-scale, 1) + 3rem)
+				);
+			}
+		}
+	}
+
+	/* ── Section heads ── */
+	.after-head {
+		margin-top: 1.4rem;
+	}
+
+	.read + .read {
+		margin-top: 1.05rem;
+	}
+
+	/* ── The commitments ── */
+	.theses {
+		grid-column: 1 / -1;
+		display: grid;
+		list-style: none;
+		margin: 3.5rem 0 0;
+		padding: 0;
+		border-top: 1px solid var(--rule);
+	}
+
+	.thesis {
+		display: grid;
+		grid-template-columns: 7rem minmax(0, 1fr);
+		column-gap: 3rem;
+		padding-block: 2.25rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.thesis-no {
+		grid-column: 1;
+		text-align: right;
+		font-family: var(--font-mono);
+		font-size: 1.5rem;
+		line-height: 1.1;
+		letter-spacing: -0.02em;
+		color: var(--rule-strong);
+	}
+
+	.thesis-head {
+		font-family: var(--font-ui);
+		font-size: 1.3125rem;
+		line-height: 1.24;
+		letter-spacing: -0.014em;
+		font-weight: 640;
+		text-wrap: balance;
+	}
+
+	.thesis-body {
+		margin-top: 0.75rem;
+	}
+
+	/* ── Records ── */
+	.records {
+		margin-top: 2.25rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		font-size: 0.875rem;
+		line-height: 1.8;
+		color: var(--ink-muted);
+	}
+
+	.stamp {
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		border: 1px solid var(--rule-strong);
+		border-radius: 2px;
+		padding: 0.05rem 0.3rem;
+		white-space: nowrap;
+	}
+
+	/* ── Ledger ── */
+	.ledger {
+		grid-column: 1 / -1;
+		margin: 3rem 0 0;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--rule);
+	}
+
+	.ledger-row {
+		display: grid;
+		grid-template-columns: 7rem minmax(0, 1fr);
+		column-gap: 3rem;
+		padding-block: 1.6rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.ledger-state {
+		grid-column: 1;
+		text-align: right;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		line-height: 1.5;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding-top: 0.2rem;
+	}
+
+	.ledger-detail {
+		margin-top: 0.4rem;
+	}
+
+	/* ── Evidence ──
+	   The article is set at the site's reading width and given the same
+	   attribution slug an article page uses. It is the payload of the section,
+	   not an illustration of one. */
+	.evidence {
+		margin-top: 3.5rem;
+	}
+
+	.source {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		line-height: 1.6;
+		letter-spacing: 0.02em;
+		color: var(--ink-faint);
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.evidence-title {
+		margin-top: 2rem;
+		font-family: var(--font-ui);
+		font-size: clamp(1.75rem, 1.4rem + 1.4vw, 2.35rem);
+		line-height: 1.1;
+		letter-spacing: -0.024em;
+		font-weight: 640;
+		text-wrap: balance;
+	}
+
+	.evidence-sub {
+		margin-top: 0.9rem;
+	}
+
+	/* ── Closing ── */
+	.closing {
+		border-bottom: 0;
+	}
+
+	.closing-actions {
+		margin-top: 2.5rem;
+	}
+
+	/* ── Narrow ──
+	   The rail stops being a margin and becomes a line above the thing it names,
+	   which is the only honest way to keep a 7rem gutter on a 375px screen. */
+	@media (max-width: 52rem) {
+		.spread,
+		.thesis,
+		.ledger-row {
+			grid-template-columns: minmax(0, 1fr);
+			column-gap: 0;
+		}
+
+		.spread {
+			padding: 3.5rem 1.15rem;
+		}
+
+		.opening .spread {
+			padding-block: 4.25rem 3.5rem;
+		}
+
+		.column,
+		.full,
+		.rail-label,
+		.thesis-no,
+		.ledger-state,
+		.theses,
+		.ledger {
+			grid-column: 1;
+		}
+
+		.rail-label,
+		.thesis-no,
+		.ledger-state {
+			text-align: left;
+			padding-top: 0;
+			margin-bottom: 0.65rem;
+		}
+
+		.rail-label {
+			margin-bottom: 0.9rem;
+		}
+
+		.thesis-no {
+			font-size: 0.9375rem;
+		}
+
+		.drift-row {
+			--drift-scale: 0.3;
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.1rem;
+		}
+
+		.display {
+			max-width: none;
+		}
+	}
+</style>
