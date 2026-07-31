@@ -1,22 +1,12 @@
 ---
-/**
- * Migrated to the public layout. The wording below is preserved exactly as it
- * was written, because it is a published promise rather than page furniture.
- *
- * It needs a substantive review it is not getting here: this page says files
- * never reach a server the project runs, while the home page states plainly
- * that signing in puts a readable copy on Epicenter's sync server (ADR-0004,
- * ADR-0035). Both cannot be true. The home page matches the architecture; this
- * page predates hosted sync and describes the local-only tools.
- */
 import PageLayout from '../layouts/PageLayout.astro';
 
-const lastUpdated = 'June 21, 2026';
+const lastUpdated = 'July 30, 2026';
 ---
 
 <PageLayout
 	title="Privacy — Epicenter"
-	description="The short version: your data is yours, and it stays on your machine."
+	description="Where Epicenter stores your data, and when a service receives it."
 	contained
 >
 	<div class="legal">
@@ -26,35 +16,38 @@ const lastUpdated = 'June 21, 2026';
 
 		<div class="body read">
 			<p>
-				The short version: your data is yours, and it stays on your machine.
+				The short version: your work starts on your device. A copy leaves it
+				only when you choose a service that needs one.
 			</p>
 
 			<p>
-				Epicenter is local-first software, and I build it in the open. Your
-				files live on your own computer, not on a server I run. I don't collect
-				them, I don't store them, and I couldn't sell them if I tried, because I
-				never have them in the first place.
+				Epicenter is local-first software, and I build it in the open. Its tools
+				keep working from data stored on your device. If you do not enable
+				Epicenter's hosted sync, Epicenter does not receive a synchronized copy
+				of that data.
 			</p>
 
 			<p>
-				Some of these tools are personal experiments I run for myself.
-				local-books is one of them: I made it to keep a local copy of my own
-				QuickBooks books in a plain SQLite file on my own machine. It reads my
-				data onto my computer and sends nothing back to me or to anyone else. If
-				you run it, the same holds for you: your machine, your data.
+				If you enable hosted sync, a server Epicenter runs stores a readable
+				copy so your other devices can catch up. It is not end-to-end encrypted:
+				operators of that server can read the synchronized data. If you run the
+				sync server yourself, the readable server copy stays on infrastructure
+				you control.
 			</p>
 
 			<p>
-				When a tool connects to a service you sign into (like QuickBooks), it
-				reads your data onto your device and keeps the access token in your
-				operating system's keyring, never on a server. You can disconnect it
-				from that service anytime.
+				Some tools can send data to a service you choose. For example,
+				Whispering can send audio to a cloud transcription provider. That
+				service receives only the data needed for the request and handles it
+				under its own privacy terms. You can instead choose a local provider
+				when one is available.
 			</p>
 
 			<p>
-				This website uses light, anonymous analytics so I can see which pages
-				get visited. That is the whole extent of it, and it only touches the
-				website, never anything inside the tools.
+				This website records page views through PostHog so I can see which pages
+				get visited. Interaction capture, session recording, user profiles, and
+				persistent browser storage are disabled, and Do Not Track is respected.
+				These analytics touch the public website, never data inside the tools.
 			</p>
 
 			<p>
