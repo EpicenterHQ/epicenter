@@ -25,9 +25,9 @@
  *
  * - `outlets/` and `facets/` frontmatter, to learn which facets carry this
  *   outlet and which origin is canonical. Both are already public contracts.
- * - `editions/*​/article.md` frontmatter, to find the pages this outlet carries
- *   and to resolve links between published articles. Every body parsed for that
- *   purpose is discarded.
+ * - Every edition's own `article.md` frontmatter, to find the pages this outlet
+ *   carries and to resolve links between published articles. Every body parsed
+ *   for that purpose is discarded.
  * - The body of a selected edition's `article.md`, and nothing else. There is no
  *   walk over `pages/`, `journal/`, `productions/`, or anything outside these
  *   three directories, and every edition id is checked against a UUIDv7 pattern
@@ -48,8 +48,16 @@
  * `VAULT_ROOT` locates the Vault (default `../vault` beside the repository).
  * `--check` regenerates into memory and fails if the committed output is stale,
  * missing, or carries an article the outlet no longer selects, which is how you
- * find out that a reapproval has moved on without the site. `--offline` trusts
- * local Vault files instead of asking the public site what it currently serves.
+ * find out that a reapproval has moved on without the site.
+ *
+ * `--offline` answers from the Vault's own files instead of asking the public
+ * site what it currently serves. It reads the same bytes rather than settling
+ * for less: an image is measured out of the edition folder, so an offline run
+ * writes exactly what an online run writes, and a `--check` in either mode
+ * validates the other's output. What offline cannot know is deployment, so it
+ * assumes an approved round is live. Against a deployed and current canonical
+ * site the two modes agree completely; against a stale one, offline is the
+ * optimistic answer.
  */
 
 import { existsSync } from 'node:fs';
@@ -445,15 +453,11 @@ const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#)/i;
 /**
  * The intrinsic size of an image, read from its header.
  *
- * An `<img>` with no `width`/`height` occupies no height until its bytes
- * arrive, so every paragraph below it jumps down when they do. Markdown's
- * `![alt](src)` cannot carry dimensions, so the projection emits real HTML with
- * them instead, and the browser reserves the right box from first paint.
- *
- * Only the formats an approved article has actually used are supported. An
- * unrecognized one fails the run rather than silently reintroducing the shift.
+ * Only the formats an approved article has actually used are supported, and an
+ * unrecognized one returns null so the caller can fail loudly rather than
+ * publish an image with no dimensions.
  */
-function readImageSize(
+export function readImageSize(
 	bytes: Uint8Array,
 ): { width: number; height: number } | null {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -534,19 +538,34 @@ const measured = new Map<
 	Promise<{ width: number; height: number } | null>
 >();
 
+/**
+ * The intrinsic size of the image at a public asset address.
+ *
+ * Offline reads the Vault's own copy instead of the canonical site's, which is
+ * the same file: the canonical site serves an edition's `assets/` straight out
+ * of the Vault folder. Measuring it rather than giving up is what keeps the two
+ * modes producing identical bytes, so an offline projection and the `--check`
+ * that follows cannot disagree with an online one.
+ */
 function measure(
 	url: string,
+	localPath: string,
 ): Promise<{ width: number; height: number } | null> {
-	const cached = measured.get(url);
+	const key = OFFLINE ? localPath : url;
+	const cached = measured.get(key);
 	if (cached) return cached;
-	const probe = fetch(url)
-		.then(async (response) =>
-			response.ok
-				? readImageSize(new Uint8Array(await response.arrayBuffer()))
-				: null,
-		)
-		.catch(() => null);
-	measured.set(url, probe);
+	const probe = OFFLINE
+		? readFile(localPath)
+				.then((bytes) => readImageSize(bytes))
+				.catch(() => null)
+		: fetch(url)
+				.then(async (response) =>
+					response.ok
+						? readImageSize(new Uint8Array(await response.arrayBuffer()))
+						: null,
+				)
+				.catch(() => null);
+	measured.set(key, probe);
 	return probe;
 }
 
@@ -598,8 +617,9 @@ async function rewriteReferences(
 			continue;
 		}
 
+		const assetPath = join(editionDir, 'assets', relative);
 		const assetUrl = `${origin}/editions/${editionId}/assets/${relative}`;
-		if (!(await serves(assetUrl, join(editionDir, 'assets', relative)))) {
+		if (!(await serves(assetUrl, assetPath))) {
 			fail(
 				`edition ${editionId} references ${relative}, but ${assetUrl} does not answer.\n` +
 					'Deploy the canonical site before projecting, or drop this edition from the outlet.',
@@ -611,19 +631,24 @@ async function rewriteReferences(
 			continue;
 		}
 
-		// An image becomes real HTML so it can carry its intrinsic size.
-		const size = OFFLINE ? null : await measure(assetUrl);
-		if (!size && !OFFLINE) {
+		/**
+		 * An `<img>` with no `width`/`height` occupies no height until its bytes
+		 * arrive, so every paragraph below it jumps down when they do. Markdown's
+		 * `![alt](src)` cannot carry dimensions, so an image becomes real HTML and
+		 * the browser reserves the right box from first paint. An image whose
+		 * dimensions cannot be read fails the run rather than silently
+		 * reintroducing the shift.
+		 */
+		const size = await measure(assetUrl, assetPath);
+		if (!size) {
 			fail(
-				`could not read the dimensions of ${assetUrl}.\n` +
+				`could not read the dimensions of ${OFFLINE ? assetPath : assetUrl}.\n` +
 					'Every projected image needs width and height, or the article reflows when it loads.',
 			);
 		}
 		const alt = text.replace(/"/g, '&quot;');
 		replacements.push(
-			size
-				? `<img src="${assetUrl}" alt="${alt}" width="${size.width}" height="${size.height}" loading="lazy" decoding="async">`
-				: `![${text}](${assetUrl})`,
+			`<img src="${assetUrl}" alt="${alt}" width="${size.width}" height="${size.height}" loading="lazy" decoding="async">`,
 		);
 	}
 

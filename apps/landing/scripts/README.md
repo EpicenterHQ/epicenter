@@ -16,9 +16,14 @@ bun run --cwd apps/landing project:editions
 # carries, or still holding one it no longer does.
 bun run --cwd apps/landing project:editions -- --check
 
-# Trust local Vault files instead of asking bradenwong.com what it serves.
+# Answer from local Vault files instead of asking bradenwong.com what it serves.
 bun run --cwd apps/landing project:editions -- --offline
 ```
+
+`--offline` writes the same bytes an online run writes, images and their
+intrinsic dimensions included, so its output is committable and a `--check` in
+either mode validates the other's. The one thing it cannot know is deployment,
+so it assumes an approved round is live at its canonical address.
 
 ### What gets published
 
