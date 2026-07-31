@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				width: 1200px;
+				height: 900px;
+				overflow: hidden;
+			}
+			body {
+				display: flex;
+				align-items: center;
+			}
+			.card {
+				width: 1200px;
+				height: 630px;
+			}
+			body {
+				background: oklch(0.155 0.005 75);
+			}
+			.card {
+				background: oklch(0.155 0.005 75);
+				color: oklch(0.96 0.004 90);
+				font-family:
+					-apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+				display: grid;
+				grid-template-rows: 56px 1fr 62px;
+				row-gap: 44px;
+				padding: 68px 84px 60px;
+			}
+			.top {
+				display: flex;
+				align-items: center;
+				gap: 22px;
+			}
+			.word {
+				font-size: 33px;
+				font-weight: 600;
+				letter-spacing: -0.02em;
+			}
+			.mid {
+				display: flex;
+				align-items: center;
+			}
+			h1 {
+				font-size: 62px;
+				line-height: 1.13;
+				letter-spacing: -0.03em;
+				font-weight: 620;
+				max-width: 20ch;
+			}
+			.foot {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				font-family: ui-monospace, "SF Mono", Menlo, monospace;
+				font-size: 18px;
+				letter-spacing: 0.09em;
+				text-transform: uppercase;
+				color: oklch(0.66 0.005 90);
+				border-top: 1px solid oklch(0.34 0.005 80);
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<div class="top">
+				<svg width="46" height="46" viewBox="0 0 32 32" role="img">
+					<title>Epicenter</title>
+					<circle cx="12.5" cy="12.5" r="9" fill="#ffffff" opacity="0.42" />
+					<circle cx="19.5" cy="19.5" r="9" fill="#ffffff" />
+				</svg>
+				<span class="word">Epicenter</span>
+			</div>
+
+			<div class="mid">
+				<h1>One place your work lives, that you can take with you.</h1>
+			</div>
+
+			<div class="foot">
+				<span>Open source, local first</span>
+				<span>epicenter.so</span>
+			</div>
+		</div>
+	</body>
+</html>

@@ -1,763 +1,767 @@
 ---
-import { Badge } from '@epicenter/ui/badge';
-import { Button } from '@epicenter/ui/button';
-import * as Card from '@epicenter/ui/card';
+import { getCollection } from 'astro:content';
+import PageLayout from '../layouts/PageLayout.astro';
 import {
-	ArrowRight as ArrowRightIcon,
-	Check as CheckIcon,
-	Code as CodeIcon,
-	FolderOpen as FolderOpenIcon,
-	GitFork as GitForkIcon,
-	HardDrive as HardDriveIcon,
-	Link2 as Link2Icon,
-	Rocket as RocketIcon,
-	Sparkles as SparklesIcon,
-	Zap as ZapIcon,
-} from '@lucide/astro';
-import PrinciplesRotatingHeadline from '../components/PrinciplesRotatingHeadline.svelte';
-import BaseLayout from '../layouts/BaseLayout.astro';
+	ADRS,
+	adrUrl,
+	CANONICAL_HOME,
+	DISCORD,
+	formatDay,
+	GITHUB_REPO,
+	LATEST_RELEASE,
+	LEDGER_CHECKED_ON,
+	WHISPERING_APP,
+} from '../lib/site';
 
-const userPrinciples = [
-	{
-		icon: HardDriveIcon,
-		title: 'Own your data',
-		description:
-			'Everything lives as files on your disk. Delete the app, keep your work.',
-	},
-	{
-		icon: SparklesIcon,
-		title: 'Use any model',
-		description: 'OpenAI, Anthropic, local LLMs. Your choice, your API key.',
-	},
-	{
-		icon: Link2Icon,
-		title: 'Preserve authenticity',
-		description: 'No middleman. Direct connection to your tools and models.',
-	},
-];
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
 
-const developerPrinciples = [
-	{
-		icon: CodeIcon,
-		title: 'Free and open source',
-		description: 'Audit the code. Fork it. Make it yours.',
-	},
-	{
-		icon: ZapIcon,
-		title: 'Blazing fast',
-		description:
-			'Built with Rust, Svelte 5, and obsessive performance optimization.',
-	},
-	{
-		icon: RocketIcon,
-		title: "Built on tomorrow's stack",
-		description:
-			'CRDTs, local-first architecture, and the bleeding edge of web tech.',
-	},
-];
+const articles = (await getCollection('writing')).sort((a, b) =>
+	b.data.writtenOn.localeCompare(a.data.writtenOn),
+);
+/** The piece that states the principle the whole project is built on. */
+const featured =
+	articles.find((article) => article.id === 'hello-world') ?? articles[0];
+const rest = articles.filter((article) => article.id !== featured?.id);
 
-const tools = [
+/**
+ * Where one thought currently lives. Invented, and labelled as such, because
+ * the point is recognition rather than evidence: a reader who has done this
+ * knows the shape of it, and a fabricated screenshot of a real product would be
+ * the exact dishonesty this site is trying to avoid.
+ */
+const scatter = [
+	['Notes.app', '2024-03-11', 'the paragraph you liked, never found again'],
+	['Google Docs', '2024-08-02', 'the same paragraph, edited by someone else'],
+	['a DM', '2025-01-19', 'the sentence you actually got right'],
+	['a draft', '2025-06-30', '900 words, unpublished'],
+	['NOTES.md', '2026-02-14', 'three bullets and a TODO'],
+] as const;
+
+/**
+ * What a stranger is allowed to believe. `state` is spelled out in words
+ * everywhere it appears; the mark beside it is a second cue, never the only
+ * one, so the ledger survives being read in greyscale or read aloud.
+ */
+type LedgerEntry = {
+	/** A second cue beside the words, never the only one. */
+	readonly mark: '●' | '◐' | '○';
+	readonly state: 'Ships today' | 'In the repository' | 'Decided, not built';
+	readonly name: string;
+	readonly detail: string;
+	readonly href?: string;
+	readonly hrefLabel?: string;
+};
+
+const ledger: readonly LedgerEntry[] = [
 	{
-		emoji: '🎙️',
+		mark: '●',
+		state: 'Ships today',
 		name: 'Whispering',
-		description:
-			'Fast, minimal transcription that works with local and cloud models',
-		features: ['Choose your model', 'No subscriptions', 'Plain text output'],
-		githubUrl:
-			'https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering',
-		tryNowUrl: 'https://whispering.epicenter.so',
+		detail: `Transcription for the desktop and the browser, using your own API key or a model on your own machine. ${LATEST_RELEASE.version}, released ${formatDay(LATEST_RELEASE.releasedOn)}.`,
+		href: WHISPERING_APP,
+		hrefLabel: 'whispering.epicenter.so',
 	},
 	{
-		emoji: '💻',
-		name: 'epicenter.sh',
-		description: 'Talk to your codebase from anywhere using your own hardware',
-		features: [
-			'Local OpenCode instance',
-			'Secure tunneling',
-			'Query from any device',
-		],
-		githubUrl:
-			'https://github.com/EpicenterHQ/epicenter/tree/rebuild-assistant',
-		tryNowUrl: 'https://epicenter.sh',
+		mark: '●',
+		state: 'Ships today',
+		name: 'Sync for Whispering',
+		detail:
+			'The hosted server that keeps Whispering in step across your devices. It reads your data in plaintext; see below.',
+	},
+	{
+		mark: '◐',
+		state: 'In the repository',
+		name: 'Epicenter desktop',
+		detail:
+			'The host that runs trusted apps in one window and owns recording, transcription, and the SQL console. Buildable from source, not released.',
+	},
+	{
+		mark: '◐',
+		state: 'In the repository',
+		name: '@epicenter/app',
+		detail:
+			'The MIT client an outside app installs to reach the host. Written and tested, not yet published to npm.',
+	},
+	{
+		mark: '○',
+		state: 'Decided, not built',
+		name: 'One Epicenter per person',
+		detail:
+			'Rows, documents, blobs, and Lenses: the storage model this page describes. Written down as proposals and being built against.',
 	},
 ];
-
-const ecosystem = [
-	{
-		name: 'Obsidian',
-		icon: '📝',
-		description: 'Edit your notes in your favorite knowledge management tool',
-	},
-	{
-		name: 'grep & ripgrep',
-		icon: '🔍',
-		description: 'Search your entire workspace with blazing fast Unix tools',
-	},
-	{
-		name: 'Git',
-		icon: '🔀',
-		description: 'Version control your ideas, notes, and transcriptions',
-	},
-	{
-		name: 'VS Code',
-		icon: '💻',
-		description: 'Open any file in your preferred code editor',
-	},
-	{
-		name: 'Claude & OpenCode',
-		icon: '🤖',
-		description:
-			'Supercharge your workflow with AI that understands your context',
-	},
-];
-
-const quickstartCodeHtml = `<span class="text-violet-400">import</span> { field } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/field'</span>
-<span class="text-violet-400">import</span> { createWorkspace, defineTable } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/workspace'</span>
-
-<span class="text-violet-400">const</span> posts = <span class="text-amber-300">defineTable</span>({
-  id: field.<span class="text-amber-300">string</span>(),
-  title: field.<span class="text-amber-300">string</span>(),
-  published: field.<span class="text-amber-300">boolean</span>(),
-})
-
-<span class="text-violet-400">const</span> workspace = <span class="text-amber-300">createWorkspace</span>({
-  id: <span class="text-emerald-400">'my-app'</span>,
-  tables: { posts },
-  kv: {},
-})
-
-workspace.tables.posts.<span class="text-amber-300">set</span>({ id: <span class="text-emerald-400">'hello'</span>, title: <span class="text-emerald-400">'Hello World'</span>, published: <span class="text-amber-300">true</span> })`;
 ---
 
-<BaseLayout
-	title="Epicenter: Local-First, Open-Source Apps"
-	description="One folder of plain text and SQLite. Every tool shares this memory. Open source, local-first, self-hostable."
+<PageLayout
+	title="Epicenter — one place your work lives, that you can take with you"
+	description="An open-source attempt at giving one person's notes, recordings, and writing a single home they can carry away whole. Built in public, honest about what runs today."
 >
-	<main class="bg-background">
-		<!-- Hero Section -->
-		<header class="relative h-screen flex items-center justify-center">
-			<!-- Subtle gradient background -->
-			<div
-				class="absolute inset-0 bg-gradient-to-b from-primary/5 via-background to-background -z-10"
-			></div>
-
-			<div class="w-full max-w-6xl mx-auto px-6 sm:px-8 md:px-12 text-center">
-				<div>
-					<!-- Main headline -->
-					<h1
-						class="text-4xl md:text-5xl font-bold text-foreground tracking-tight leading-snug md:leading-snug mb-8"
-					>
-						Local-First, Open-Source Apps
-					</h1>
-
-					<!-- Subheadline -->
-					<p
-						class="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-12"
-					>
-						One folder of plain text and SQLite on your machine. Every tool we
-						build shares this memory. It's open, tweakable, and yours.
-					</p>
-
-					<!-- CTAs -->
-					<div class="flex flex-col sm:flex-row gap-4 justify-center mb-16">
-						<Button
-							href="https://github.com/EpicenterHQ/epicenter"
-							size="lg"
-							class="font-medium"
-						>
-							Star on GitHub
-							<ArrowRightIcon class="w-4 h-4" />
-						</Button>
-						<Button
-							href="https://go.epicenter.so/discord"
-							variant="outline"
-							size="lg"
-							class="font-medium"
-						>
-							Join the Discord
-						</Button>
-					</div>
-
-					<!-- Quick value props -->
-					<div class="flex flex-wrap gap-x-8 gap-y-4 justify-center text-sm">
-						<div class="flex items-center gap-2 text-muted-foreground">
-							<CheckIcon class="w-4 h-4 text-success shrink-0" />
-							<span>100% open source</span>
-						</div>
-						<div class="flex items-center gap-2 text-muted-foreground">
-							<CheckIcon class="w-4 h-4 text-success shrink-0" />
-							<span>Local-first</span>
-						</div>
-						<div class="flex items-center gap-2 text-muted-foreground">
-							<CheckIcon class="w-4 h-4 text-success shrink-0" />
-							<span>Plain text & SQLite</span>
-						</div>
-					</div>
-				</div>
+	<!-- ── 1. The recognition ─────────────────────────────────────────── -->
+	<section class="band opening" id="top">
+		<div class="inner">
+			<h1 class="title-xl">You have already written this down four times.</h1>
+			<div class="measure lede">
+				<p class="read-lead">
+					Once in a note, once in a doc somebody else edited, once in a message
+					you can't find, once in a draft you never posted. Every copy is a
+					little different and none of them is the one you would point at.
+				</p>
+				<p class="read">
+					Epicenter is an attempt to give one person's work a single place to
+					live: private by default, readable by whatever app you like, and yours
+					to carry away whole. It is open source, it is early, and this page is
+					careful about the difference between what runs and what is still being
+					built.
+				</p>
 			</div>
-		</header>
 
-		<!-- Product Showcase -->
-		<section
-			class="py-24 md:py-32 bg-gradient-to-b from-muted/10 via-muted/20 to-muted/10"
-		>
-			<div class="max-w-7xl mx-auto px-6">
-				<div class="text-center mb-20">
-					<Badge variant="secondary" class="mb-6 px-4 py-1 text-sm"
-						>Available now</Badge
-					>
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Tools that share your memory
-					</h2>
-					<p
-						class="text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed"
-					>
-						Record a meeting in Whispering. Edit the transcript in Obsidian.
-						Query it with your AI. No copy-pasting, no exports. Your tools share
-						one memory.
-					</p>
-				</div>
-
-				<div class="grid lg:grid-cols-2 gap-8">
-					{tools.map((tool) => (
-							<Card.Root class="group overflow-hidden border-muted/50 shadow-sm transition-all duration-300 hover:border-primary/20 hover:shadow-xl">
-								<Card.Header class="pb-4">
-									<div class="flex items-start justify-between">
-										<div class="flex items-start gap-4">
-											<div class="text-5xl transition-transform duration-300 group-hover:scale-110">
-												{tool.emoji}
-											</div>
-											<div>
-												<Card.Title class="mb-2 text-2xl">
-													{tool.name}
-												</Card.Title>
-												<Card.Description class="text-base">
-													{tool.description}
-												</Card.Description>
-											</div>
-										</div>
-									</div>
-								</Card.Header>
-								<Card.Content class="py-6">
-									<ul class="space-y-3">
-										{tool.features.map((feature) => (
-											<li class="flex items-center gap-3 text-sm">
-												<div class="shrink-0 rounded-full bg-success/10 p-1">
-													<CheckIcon class="h-3 w-3 text-success" />
-												</div>
-												<span class="text-muted-foreground transition-colors group-hover:text-foreground">
-													{feature}
-												</span>
-											</li>
-										))}
-									</ul>
-								</Card.Content>
-								<Card.Footer class="border-muted/50 border-t pt-4">
-									<div class="flex gap-2">
-										<Button
-											href={tool.tryNowUrl}
-											variant="secondary"
-											class="flex-1 transition-all hover:border-primary hover:bg-primary hover:text-primary-foreground group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground"
-										>
-											Try Now
-											<ArrowRightIcon class="h-4 w-4 transition-transform group-hover:translate-x-1" />
-										</Button>
-										<Button
-											href={tool.githubUrl}
-											variant="outline"
-											class="flex-1"
-										>
-											View on GitHub
-										</Button>
-									</div>
-								</Card.Footer>
-							</Card.Root>
-						))}
-				</div>
-
-				<div class="mt-16 text-center">
-					<p class="text-muted-foreground mb-6 text-lg">
-						More tools coming soon
-					</p>
-					<Button
-						href="https://go.epicenter.so/discord"
-						variant="secondary"
-						size="lg"
-						class="shadow-sm hover:shadow-md transition-all"
-					>
-						Get early access
-						<ArrowRightIcon class="w-4 h-4" />
-					</Button>
-				</div>
-			</div>
-		</section>
-
-		<!-- Quick Start -->
-		<section class="py-24 md:py-32">
-			<div class="max-w-4xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<Badge variant="secondary" class="mb-6 px-4 py-1 text-sm"
-						>Quick Start</Badge
-					>
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						From zero to workspace in 30 seconds
-					</h2>
-				</div>
-
-				<div class="space-y-4">
-					<div
-						class="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden"
-					>
-						<div
-							class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800"
-						>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<span class="ml-2 text-xs text-zinc-500 font-mono">terminal</span>
-						</div>
-						<pre
-							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/workspace @epicenter/field</code></pre>
-					</div>
-
-					<div
-						class="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden"
-					>
-						<div
-							class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800"
-						>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<span class="ml-2 text-xs text-zinc-500 font-mono">app.ts</span>
-						</div>
-						<pre
-							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100" set:html={quickstartCodeHtml} /></pre>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Core Principles -->
-		<section class="py-24 md:py-32">
-			<div class="max-w-5xl mx-auto px-6">
-				<div class="text-center mb-20">
-					<Badge variant="outline" class="mb-6">Core Philosophy</Badge>
-					<PrinciplesRotatingHeadline client:load />
-					<p class="text-xl text-muted-foreground max-w-2xl mx-auto">
-						We believe your tools should amplify your thinking, not fragment it.
-					</p>
-				</div>
-
-				<div class="grid lg:grid-cols-2 gap-12">
-					<!-- User Principles -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<h3
-							class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-8"
-						>
-							For you
-						</h3>
-						<div class="space-y-6">
-							{userPrinciples.map((principle) => (
-									<div class="flex items-start gap-4">
-									<div class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15">
-										<principle.icon class="h-5 w-5" />
-									</div>
-										<div>
-											<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
-												{principle.title}
-											</h4>
-											<p class="text-muted-foreground text-sm leading-relaxed">
-												{principle.description}
-											</p>
-										</div>
-									</div>
-								))}
-						</div>
-					</div>
-
-					<!-- Developer Principles -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<h3
-							class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-8"
-						>
-							For developers
-						</h3>
-						<div class="space-y-6">
-							{developerPrinciples.map((principle) => (
-									<div class="flex items-start gap-4">
-									<div class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15">
-										<principle.icon class="h-5 w-5" />
-									</div>
-										<div>
-											<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
-												{principle.title}
-											</h4>
-											<p class="text-muted-foreground text-sm leading-relaxed">
-												{principle.description}
-											</p>
-										</div>
-									</div>
-								))}
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Architecture -->
-		<section class="py-24 relative">
-			<div class="max-w-7xl mx-auto px-6">
-				<div class="text-center mb-12">
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Built different from the ground up
-					</h2>
-					<p class="text-xl text-muted-foreground max-w-2xl mx-auto">
-						One architecture, endless possibilities
-					</p>
-				</div>
-
-				<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-					<!-- One Folder Card -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15"
-							>
-								<FolderOpenIcon class="h-6 w-6" />
-							</div>
-							<div>
-								<h3 class="text-xl font-bold text-foreground mb-3">
-									One folder. All your data.
-								</h3>
-								<p class="text-muted-foreground leading-relaxed">
-									Everything lives in a single directory on your machine. Plain
-									text files and SQLite databases you actually own.
-								</p>
-							</div>
-						</div>
-					</div>
-
-					<!-- Local-first Card -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="p-3 rounded-xl bg-primary/10 text-primary group-hover:bg-primary/15 transition-colors shrink-0"
-							>
-								<HardDriveIcon class="w-6 h-6" />
-							</div>
-							<div>
-								<h3 class="text-xl font-bold text-foreground mb-3">
-									Local-first by default
-								</h3>
-								<p class="text-muted-foreground leading-relaxed">
-									Your transcripts, notes, and ideas never leave your machine
-									unless you want them to. No cloud lock-in.
-								</p>
-							</div>
-						</div>
-					</div>
-
-					<!-- Works with Everything Card -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300 md:col-span-2 lg:col-span-1"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="p-3 rounded-xl bg-primary/10 text-primary group-hover:bg-primary/15 transition-colors shrink-0"
-							>
-								<GitForkIcon class="w-6 h-6" />
-							</div>
-							<div>
-								<h3 class="text-xl font-bold text-foreground mb-3">
-									Works with tools you already use
-								</h3>
-								<p class="text-muted-foreground leading-relaxed">
-									Because everything is plain text and SQLite, your entire
-									workspace is compatible with the tools you already love.
-								</p>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Ecosystem Section -->
-		<section
-			class="py-24 bg-gradient-to-b from-muted/5 via-background to-muted/5"
-		>
-			<div class="max-w-7xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<Badge variant="outline" class="mb-6">Ecosystem</Badge>
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Infinite workflows, zero lock-in
-					</h2>
-					<p class="text-xl text-muted-foreground max-w-3xl mx-auto">
-						Your workspace plays nicely with the tools you already love. Edit in
-						VS Code, search with grep, version control with Git.
-					</p>
-				</div>
-
-				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-					{ecosystem.map((tool) => (
-							<div class="group cursor-default rounded-xl border border-muted/50 bg-card p-6 transition-all duration-300 hover:shadow-lg">
-								<div class="flex items-start gap-4">
-									<div class="shrink-0 text-4xl transition-transform duration-300 group-hover:scale-110">
-										{tool.icon}
-									</div>
-									<div>
-										<h3 class="mb-2 font-semibold text-foreground text-lg transition-colors group-hover:text-primary">
-											{tool.name}
-										</h3>
-										<p class="text-muted-foreground text-sm leading-relaxed">
-											{tool.description}
-										</p>
-									</div>
-								</div>
-							</div>
-						))}
-
-					<!-- Custom Tool Card -->
-					<div
-						class="group p-6 rounded-xl bg-card border border-muted/50 hover:shadow-lg transition-all duration-300 cursor-default"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="text-4xl group-hover:scale-110 transition-transform duration-300 shrink-0"
-							>
-								✨
-							</div>
-							<div>
-								<h3
-									class="text-lg font-semibold text-foreground mb-2 group-hover:text-primary transition-colors"
-								>
-									Your favorite tool
-								</h3>
-								<p class="text-sm text-muted-foreground leading-relaxed">
-									Plain text and SQLite mean your tools work too. No proprietary
-									formats.
-								</p>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- FAQ -->
-		<section class="py-24 md:py-32">
-			<div class="max-w-4xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Frequently asked questions
-					</h2>
-				</div>
-
-				<div class="space-y-6">
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							How is this different from Obsidian?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Obsidian is a Markdown editor with sync. Epicenter is a
-							local-first storage substrate: multiple apps share the same
-							CRDT-backed data folder. Your notes, transcripts, and chat
-							histories all live together and sync conflict-free.
-						</p>
-					</div>
-
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							Is my data encrypted?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Epicenter Cloud doesn't encrypt your workspace data. The sync
-							server is a trusted relay that reads plaintext, which is what
-							makes server-side search and AI work. If you want a server that
-							can't read your data, self-host it: then the only machine holding
-							it is yours. You can also run entirely offline.
-						</p>
-					</div>
-
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							Can I self-host?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Yes. The sync server is open source and runs on Cloudflare Workers
-							or any WebSocket-compatible host. You can also run entirely
-							offline; sync is optional.
-						</p>
-					</div>
-
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							What happens if I stop using Epicenter?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Your data is plain text and SQLite files on your disk. Open them
-							with any text editor, query them with any SQLite tool. No export
-							needed; the files are the product.
-						</p>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Vision -->
-		<section
-			class="py-24 md:py-32 bg-gradient-to-b from-background via-muted/10 to-background"
-		>
-			<div class="max-w-4xl mx-auto px-6 text-center">
-				<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-12">
-					Software for people who think
-				</h2>
-				<div class="space-y-6 text-lg text-muted-foreground leading-relaxed">
-					<p>
-						We're building an alternative to apps that fragment your thinking
-						across a dozen cloud services. Epicenter is for people who read
-						deeply, write to think, and build to understand.
-					</p>
-					<p>
-						Every tool is open source. Your data stays in plain files you
-						control. Choose your own models, host your own services, or run
-						everything locally.
-					</p>
-					<p class="text-xl text-foreground font-semibold mt-12">
-						Join us in building tools that amplify human agency.
-					</p>
-				</div>
-
-				<div class="mt-16 flex flex-col sm:flex-row gap-4 justify-center">
-					<Button
-						href="https://github.com/EpicenterHQ/epicenter"
-						size="lg"
-						class="shadow-sm hover:shadow-md transition-all"
-					>
-						Contribute on GitHub
-						<ArrowRightIcon class="w-4 h-4" />
-					</Button>
-					<Button
-						href="https://go.epicenter.so/discord"
-						variant="outline"
-						size="lg"
-						class="hover:bg-muted/50 transition-all"
-					>
-						Join our Discord
-					</Button>
-				</div>
-			</div>
-		</section>
-
-		<!-- Footer -->
-		<footer class="py-16 border-t border-muted/50">
-			<div class="max-w-7xl mx-auto px-6">
-				<div
-					class="flex flex-col md:flex-row justify-between items-center gap-6"
+			<div class="actions">
+				<a class="action" href={GITHUB_REPO} rel="noreferrer"
+					>Follow on GitHub</a
 				>
-					<div class="text-sm text-muted-foreground">
-						© {new Date().getFullYear()} Epicenter. Open source under AGPL-3.0
-						license.
-					</div>
-					<div class="flex gap-8 text-sm">
-						<a
-							href="https://github.com/EpicenterHQ/epicenter"
-							class="text-muted-foreground hover:text-foreground transition-colors font-medium"
-						>
-							GitHub
-						</a>
-						<a
-							href="https://go.epicenter.so/discord"
-							class="text-muted-foreground hover:text-foreground transition-colors font-medium"
-						>
-							Discord
-						</a>
-						<a
-							href="/blog"
-							class="text-muted-foreground hover:text-foreground transition-colors font-medium"
-						>
-							Blog
-						</a>
-					</div>
-				</div>
+				<a class="action action-quiet" href="/writing/">Read the writing</a>
 			</div>
-		</footer>
-	</main>
-</BaseLayout>
+
+			<p class="caveat">
+				There is no Epicenter to download yet.
+				<a class="link" href="/whispering/">Whispering</a>, the first app on the
+				way there, ships today.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 2. The scene ────────────────────────────────────────────────── -->
+	<section class="band sunk" id="situation">
+		<div class="inner">
+			<p class="eyebrow">The situation</p>
+			<h2 class="title-lg measure-wide">
+				Nothing is lost, exactly. It is just in five places, and no place is in
+				charge.
+			</h2>
+
+			<figure class="figure">
+				<figcaption class="figure-cap">
+					One idea, as currently stored
+				</figcaption>
+				<ul class="scatter">
+					{scatter.map(([where, when, what]) => (
+							<li>
+								<span class="scatter-where">{where}</span>
+								<span class="scatter-when">{when}</span>
+								<span class="scatter-what">{what}</span>
+							</li>
+						))}
+				</ul>
+				<p class="figure-note">Illustration, not a screenshot.</p>
+			</figure>
+
+			<div class="measure after-figure">
+				<p class="read">
+					Each of those apps is fine. The problem is that each one wants to be
+					the place your work lives, so your work ends up living in all of them
+					and belonging to none. Search doesn't cross the gaps. Neither does
+					anything you'd want to build on top.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 3. The refusal ──────────────────────────────────────────────── -->
+	<section class="band" id="idea">
+		<div class="inner">
+			<p class="eyebrow">The idea</p>
+			<h2 class="title-lg measure-wide">
+				The wrong fix is a sixth app to move into.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					So Epicenter inverts which part is permanent. Your data is the thing
+					that persists. Apps are views onto it, and you should be able to throw
+					one away without losing a sentence.
+				</p>
+			</div>
+
+			<dl class="claims measure-wide">
+				<div>
+					<dt class="title-md">One Epicenter per person</dt>
+					<dd class="read">
+						Not one per app and not one per device. The same body of work on
+						every machine you sign into, and it works offline before it works
+						anywhere else.
+					</dd>
+				</div>
+				<div>
+					<dt class="title-md">Apps are replaceable</dt>
+					<dd class="read">
+						An app reaches your data through a small typed contract and gets no
+						private storage of its own. Two apps can read the same things and
+						neither one owns them.
+					</dd>
+				</div>
+				<div>
+					<dt class="title-md">You can take the whole thing</dt>
+					<dd class="read">
+						Not an export button that produces a zip of JSON you'll never open.
+						One database file plus your original media, with no account and no
+						server identity inside it.
+					</dd>
+				</div>
+			</dl>
+		</div>
+	</section>
+
+	<!-- ── 4. The shape ────────────────────────────────────────────────── -->
+	<section class="band sunk" id="how-it-works">
+		<div class="inner">
+			<p class="eyebrow">How it works</p>
+			<h2 class="title-lg measure-wide">
+				Underneath, it is a boring thing you can open with ordinary tools.
+			</h2>
+
+			<figure class="figure">
+				<figcaption class="figure-cap">One row</figcaption>
+				<pre class="artifact">{`so.epicenter.whispering / recordings / 019f96c1…
+
+  fields     what the app defined      { title, transcript, createdAt }
+  document   a live collaborative doc  optional, at most one
+  blob       the original bytes        optional, at most one, write-once`}</pre>
+			</figure>
+
+			<div class="measure after-figure">
+				<p class="read">
+					Everything you keep is a row at a durable address. A row owns its
+					plain fields, at most one collaborative document, and at most one
+					immutable file: the audio you recorded, the image you dropped in. An
+					app declares a <em>Lens</em>, a plain-JSON description of the tables
+					and values it understands, and reads through that. The Lens is an
+					interpretation, never the schema of record, which is what lets two
+					apps disagree about the same row without corrupting it.
+				</p>
+				<p class="read">
+					The store itself is SQLite plus ordinary files on disk. Epicenter's
+					own shell can open a read-only SQL console over it, so you can ask
+					your data a question no app thought to offer. Applications never get
+					that connection, which is how the private layout stays free to change
+					without breaking anything you rely on.
+				</p>
+				<p class="read">
+					Deleting is real. A deleted row leaves a permanent tombstone rather
+					than simply going missing, so a laptop that was offline for a month
+					can't quietly bring it back when it wakes up.
+				</p>
+			</div>
+
+			<p class="records measure-wide">
+				The long versions, with the arguments and the rejected alternatives:
+				<a class="link" href={adrUrl(ADRS.oneEpicenter)} rel="noreferrer"
+					>one Epicenter per person</a
+				> <span class="stamp">{ADRS.oneEpicenter.status}</span>,
+				<a class="link" href={adrUrl(ADRS.lenses)} rel="noreferrer">Lenses</a>
+				<span class="stamp">{ADRS.lenses.status}</span>,
+				<a class="link" href={adrUrl(ADRS.blobs)} rel="noreferrer"
+					>one write-once file per row</a
+				> <span class="stamp">{ADRS.blobs.status}</span>,
+				<a class="link" href={adrUrl(ADRS.portable)} rel="noreferrer"
+					>taking it with you</a
+				> <span class="stamp">{ADRS.portable.status}</span>,
+				<a class="link" href={adrUrl(ADRS.inspection)} rel="noreferrer"
+					>the SQL console</a
+				> <span class="stamp">{ADRS.inspection.status}</span>.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 5. The trust boundary ───────────────────────────────────────── -->
+	<section class="band" id="where-your-data-is">
+		<div class="inner">
+			<p class="eyebrow">Where your data actually is</p>
+			<h2 class="title-lg measure-wide">
+				If you sign in, a server we run holds a readable copy. We are not going
+				to pretend otherwise.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Everything starts on your machine and works with the network off. Sign
+					in and a server holds a copy too, so a phone that was asleep can catch
+					up. That server reads your data in plaintext.
+				</p>
+				<p class="read">
+					Epicenter had an encryption layer and removed it. Encrypting
+					everything end to end also meant no server-side search and no
+					assistant that could see anything, and shipping a promise we would
+					have quietly broken later seemed worse than saying this plainly now.
+				</p>
+				<p class="read">
+					So privacy here is a question of whose machine is holding your work,
+					not which switch is flipped in a settings pane. Don't sign in and
+					nothing leaves your device. Run the server yourself and the only
+					machine holding a readable copy is one you control. Use ours and you
+					are trusting us the way you already trust every other company you sync
+					with, except that you can read the code and leave with your data.
+				</p>
+			</div>
+
+			<p class="records measure-wide">
+				<a class="link" href={adrUrl(ADRS.plaintextRelay)} rel="noreferrer"
+					>Why zero-knowledge was rejected</a
+				> <span class="stamp">{ADRS.plaintextRelay.status}</span>,
+				<a class="link" href={adrUrl(ADRS.privacyIsDeployment)} rel="noreferrer"
+					>privacy is a deployment, not a feature</a
+				> <span class="stamp">{ADRS.privacyIsDeployment.status}</span>.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 6. The demonstration ────────────────────────────────────────── -->
+	<section class="band sunk" id="writing">
+		<div class="inner">
+			<p class="eyebrow">The reason any of this exists</p>
+			<h2 class="title-lg measure-wide">
+				One piece of writing, kept once, sent out in several complete forms.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					This is the workflow the software is meant to make ordinary, and
+					Braden already lives it: a piece is written once and stays one work,
+					then goes out as prose, as a recording, and as a short video, with the
+					original staying canonical wherever it changes.
+				</p>
+				<p class="read">
+					It does not run <em>on</em> Epicenter. It runs on a pile of scripts
+					and a lot of stubbornness, because the general software does not exist
+					yet. That gap is the project. The articles are the real output.
+				</p>
+			</div>
+
+			{featured && (
+					<div class="featured">
+						<a class="featured-link" href={`/writing/${featured.id}/`}>
+							<p class="eyebrow">Start here</p>
+							<h3 class="title-lg featured-title">{featured.data.title}</h3>
+							{featured.data.subtitle && (
+								<p class="read featured-sub">{featured.data.subtitle}</p>
+							)}
+						</a>
+						<p class="featured-meta">
+							<time datetime={featured.data.writtenOn}>
+								{formatDay(featured.data.writtenOn)}
+							</time>
+							<span aria-hidden="true"> · </span>
+							<span>
+								{[
+									'Read',
+									featured.data.narrationUrl && 'Listen',
+									featured.data.video && 'Watch',
+								]
+									.filter(Boolean)
+									.join(' / ')}
+							</span>
+						</p>
+					</div>
+				)}
+
+			{rest.length > 0 && (
+					<ul class="also">
+						{rest.map((article) => (
+							<li>
+								<a class="link" href={`/writing/${article.id}/`}>
+									{article.data.title}
+								</a>
+							</li>
+						))}
+					</ul>
+				)}
+
+			<p class="records measure-wide">
+				Every one of these is republished in full from
+				<a class="link" href={CANONICAL_HOME}>{home}</a>, which stays the
+				canonical home.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 7. What runs today ──────────────────────────────────────────── -->
+	<section class="band" id="status">
+		<div class="inner">
+			<p class="eyebrow">Status</p>
+			<h2 class="title-lg measure-wide">What actually runs today</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Most of this page describes a system being built. Here is the part
+					that would survive an audit.
+				</p>
+			</div>
+
+			<ul class="ledger measure-wide">
+				{ledger.map((item) => (
+						<li class="ledger-row">
+							<p class="ledger-state">
+								<span class="ledger-mark" aria-hidden="true">
+									{item.mark}
+								</span>
+								{item.state}
+							</p>
+							<div class="ledger-body">
+								<h3 class="title-md">{item.name}</h3>
+								<p class="read ledger-detail">
+									{item.detail}
+									{item.href && (
+										<>
+											{' '}
+											<a class="link" href={item.href} rel="noreferrer">
+												{item.hrefLabel}
+											</a>
+										</>
+									)}
+								</p>
+							</div>
+						</li>
+					))}
+			</ul>
+
+			<p class="records measure-wide">
+				Checked against the repository on {formatDay(LEDGER_CHECKED_ON)}. Public
+				releases are
+				<a class="link" href={LATEST_RELEASE.url} rel="noreferrer"
+					>on GitHub</a
+				>, and they are Whispering releases.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 8. Why open source, and the close ───────────────────────────── -->
+	<section class="band sunk closing" id="open-source">
+		<div class="inner">
+			<p class="eyebrow">Why it is open</p>
+			<h2 class="title-lg measure-wide">
+				A promise you can't check isn't a promise.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Every claim on this page is the kind you can go verify. The
+					applications and the sync server are AGPL. The packages an outside app
+					installs are MIT, so building on Epicenter doesn't drag a licence into
+					your project. The decisions are dated records in the repository,
+					including the ones that were reversed and the alternatives that lost.
+				</p>
+				<p class="read">
+					This is not open source as a pricing tier. If Epicenter stops being
+					worth using, both the code and your data outlive it, and that is the
+					only version of this worth building.
+				</p>
+			</div>
+
+			<div class="actions closing-actions">
+				<a class="action" href={GITHUB_REPO} rel="noreferrer"
+					>Follow on GitHub</a
+				>
+				<a class="action action-quiet" href={DISCORD} rel="noreferrer"
+					>Discord</a
+				>
+				<a class="action action-quiet" href="/whispering/">Try Whispering</a>
+			</div>
+		</div>
+	</section>
+</PageLayout>
 
 <style>
-	/* Smooth animations */
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(20px);
+	.band {
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.band.sunk {
+		background: var(--paper-sunk);
+	}
+
+	.inner {
+		max-width: 62rem;
+		margin-inline: auto;
+		padding: 4.5rem 1.5rem;
+	}
+
+	/* ── Opening ── */
+	.opening .inner {
+		padding-block: 6rem 5rem;
+	}
+
+	.opening .title-xl {
+		max-width: 20ch;
+	}
+
+	.lede {
+		margin-top: 1.75rem;
+	}
+
+	.lede .read {
+		margin-top: 1.15rem;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 1rem 2rem;
+		margin-top: 2.5rem;
+	}
+
+	.caveat {
+		margin-top: 2.25rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		max-width: 34rem;
+		font-size: 0.875rem;
+		line-height: 1.55;
+		color: var(--ink-faint);
+	}
+
+	/* ── Section heads ── */
+	.eyebrow + .title-lg {
+		margin-top: 0.9rem;
+	}
+
+	.after-head {
+		margin-top: 1.5rem;
+	}
+
+	.after-head .read + .read,
+	.measure .read + .read {
+		margin-top: 1.05rem;
+	}
+
+	/* ── Figures ── */
+	.figure {
+		margin-top: 2.25rem;
+		max-width: 46rem;
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		background: var(--paper);
+		overflow: hidden;
+	}
+
+	.figure-cap {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding: 0.7rem 1.1rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.scatter {
+		list-style: none;
+		margin: 0;
+		padding: 0.4rem 0;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.5;
+	}
+
+	.scatter li {
+		display: grid;
+		grid-template-columns: 8.5rem 6.5rem 1fr;
+		gap: 0.75rem;
+		padding: 0.55rem 1.1rem;
+	}
+
+	.scatter li + li {
+		border-top: 1px solid color-mix(in oklch, var(--rule) 60%, transparent);
+	}
+
+	.scatter-where {
+		color: var(--ink);
+	}
+
+	.scatter-when {
+		color: var(--ink-faint);
+	}
+
+	.scatter-what {
+		color: var(--ink-muted);
+	}
+
+	.figure-note {
+		padding: 0.7rem 1.1rem;
+		border-top: 1px solid var(--rule);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		color: var(--ink-faint);
+	}
+
+	.artifact {
+		margin: 0;
+		padding: 1.1rem;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.75;
+		color: var(--ink-muted);
+		white-space: pre;
+		scrollbar-width: thin;
+	}
+
+	.after-figure {
+		margin-top: 2rem;
+	}
+
+	/* ── Claims ── */
+	.claims {
+		margin-top: 2.5rem;
+		display: grid;
+		gap: 2rem;
+	}
+
+	.claims dd {
+		margin: 0.5rem 0 0;
+		max-width: 34rem;
+	}
+
+	/* ── Record links ── */
+	.records {
+		margin-top: 2.25rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		font-size: 0.875rem;
+		line-height: 1.8;
+		color: var(--ink-muted);
+	}
+
+	.stamp {
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		border: 1px solid var(--rule-strong);
+		border-radius: 2px;
+		padding: 0.05rem 0.3rem;
+		white-space: nowrap;
+	}
+
+	/* ── Featured article ── */
+	.featured {
+		margin-top: 2.5rem;
+		max-width: 40rem;
+		padding: 1.75rem;
+		border: 1px solid var(--rule-strong);
+		border-radius: 4px;
+		background: var(--paper);
+	}
+
+	.featured-link {
+		display: block;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.featured-title {
+		margin-top: 0.6rem;
+	}
+
+	.featured-link:hover .featured-title {
+		text-decoration: underline;
+		text-decoration-thickness: 1px;
+		text-underline-offset: 0.16em;
+	}
+
+	.featured-sub {
+		margin-top: 0.6rem;
+	}
+
+	.featured-meta {
+		margin-top: 1.1rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.also {
+		margin-top: 1.5rem;
+		padding: 0;
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem 1.5rem;
+		font-size: 0.9375rem;
+		color: var(--ink-muted);
+	}
+
+	/* ── Ledger ── */
+	.ledger {
+		margin-top: 2.25rem;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--rule);
+	}
+
+	.ledger-row {
+		display: grid;
+		grid-template-columns: 12rem 1fr;
+		gap: 1.5rem;
+		padding-block: 1.5rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.ledger-state {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.ledger-mark {
+		font-size: 0.75rem;
+		line-height: 1;
+		color: var(--ink-muted);
+	}
+
+	.ledger-detail {
+		margin-top: 0.4rem;
+		max-width: 34rem;
+	}
+
+	/* ── Closing ── */
+	.closing {
+		border-bottom: 0;
+	}
+
+	.closing-actions {
+		margin-top: 2.25rem;
+	}
+
+	@media (max-width: 46rem) {
+		.inner {
+			padding: 3.25rem 1.15rem;
 		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
+
+		.opening .inner {
+			padding-block: 4rem 3.25rem;
 		}
-	}
 
-	@keyframes fade-in-scale {
-		from {
-			opacity: 0;
-			transform: scale(0.95);
+		.scatter li {
+			grid-template-columns: 1fr;
+			gap: 0.15rem;
 		}
-		to {
-			opacity: 1;
-			transform: scale(1);
+
+		.ledger-row {
+			grid-template-columns: 1fr;
+			gap: 0.65rem;
 		}
-	}
 
-	header > div > div > * {
-		animation: fade-in 0.8s ease-out forwards;
-		opacity: 0;
-	}
-
-	header h1 {
-		animation-delay: 0ms;
-	}
-	header p {
-		animation-delay: 100ms;
-	}
-	header > div > div > div:nth-of-type(1) {
-		animation-delay: 200ms;
-	}
-	header > div > div > div:nth-of-type(2) {
-		animation-delay: 300ms;
-	}
-
-	/* Smooth scroll behavior */
-	@media (prefers-reduced-motion: no-preference) {
-		html {
-			scroll-behavior: smooth;
+		.featured {
+			padding: 1.25rem;
 		}
-	}
-
-	/* Success color for checkmarks */
-	.text-success {
-		color: hsl(142, 71%, 45%);
-	}
-
-	/* Better focus states */
-	:focus-visible {
-		outline: 2px solid hsl(var(--primary));
-		outline-offset: 2px;
-	}
-
-	/* Animate sections on scroll */
-	section {
-		animation: fade-in-scale 0.6s ease-out;
 	}
 </style>

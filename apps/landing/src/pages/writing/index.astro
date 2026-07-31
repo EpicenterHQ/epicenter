@@ -1,0 +1,187 @@
+---
+import { getCollection } from 'astro:content';
+import syndication from '../../../syndication.json';
+import PageLayout from '../../layouts/PageLayout.astro';
+import { CANONICAL_HOME, formatDay } from '../../lib/site';
+
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
+
+/** The editorial note recorded beside each entry in the allowlist. */
+const why = new Map(
+	syndication.editions.map((entry) => [entry.slug, entry.why]),
+);
+
+/**
+ * Written order, newest first. These pieces were released together over a few
+ * weeks but written across several years, so release order would flatten them
+ * into one date and hide the thing the collection is actually showing: a pile
+ * of notes kept long enough to be worth finishing.
+ */
+const articles = (await getCollection('writing')).sort((a, b) =>
+	b.data.writtenOn.localeCompare(a.data.writtenOn),
+);
+
+const years = [...new Set(articles.map((a) => a.data.writtenOn.slice(0, 4)))];
+---
+
+<PageLayout
+	title="Writing — Epicenter"
+	description={`A small set of Braden's essays, republished in full from ${home} with their recordings and short videos.`}
+	contained
+>
+	<div class="wrap">
+		<header class="head">
+			<p class="eyebrow">Writing</p>
+			<h1 class="title-xl">A few things worth keeping</h1>
+			<div class="measure intro">
+				<p class="read-lead">
+					Braden writes at <a class="link" href={CANONICAL_HOME}>{home}</a>. A
+					handful of those pieces are republished here in full, with their
+					recordings and, where one exists, the short video made from the same
+					words.
+				</p>
+				<p class="read">
+					They are here because they explain the thinking behind Epicenter
+					better than a features page can, and because putting one work on a
+					page in several complete forms is the workflow the software is meant
+					to make ordinary. Right now that workflow runs on scripts and
+					stubbornness. Each piece keeps its canonical address at {home}; this
+					is a copy that points home.
+				</p>
+			</div>
+		</header>
+
+		{years.map((year) => (
+				<section class="year">
+					<h2 class="year-label">{year}</h2>
+					<ul class="list">
+						{articles
+							.filter((article) => article.data.writtenOn.startsWith(year))
+							.map((article) => {
+								const { title, subtitle, writtenOn, narrationUrl, video } =
+									article.data;
+								const forms = [
+									'Read',
+									narrationUrl && 'Listen',
+									video && 'Watch',
+								].filter(Boolean);
+								return (
+									<li class="entry">
+										<a class="entry-link" href={`/writing/${article.id}/`}>
+											<h3 class="title-md">{title}</h3>
+											{subtitle && <p class="read entry-sub">{subtitle}</p>}
+										</a>
+										<p class="entry-why">{why.get(article.id)}</p>
+										<p class="entry-meta">
+											<time datetime={writtenOn}>{formatDay(writtenOn)}</time>
+											<span aria-hidden="true"> · </span>
+											<span>{forms.join(' / ')}</span>
+										</p>
+									</li>
+								);
+							})}
+					</ul>
+				</section>
+			))}
+
+		<p class="more read">
+			Everything Braden publishes, including the pieces that have nothing to do
+			with this project, is at
+			<a class="link" href={`${CANONICAL_HOME}/writing/`}>{home}/writing</a>.
+		</p>
+	</div>
+</PageLayout>
+
+<style>
+	.wrap {
+		max-width: 44rem;
+		margin-inline: auto;
+		padding-block: 3.25rem 0;
+	}
+
+	.head .title-xl {
+		margin-top: 0.85rem;
+	}
+
+	.intro {
+		margin-top: 1.5rem;
+	}
+
+	.intro .read {
+		margin-top: 1rem;
+	}
+
+	.year {
+		margin-top: 3.5rem;
+	}
+
+	.year-label {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		letter-spacing: 0.11em;
+		color: var(--ink-faint);
+		padding-bottom: 0.85rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.entry {
+		padding-block: 1.75rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.entry-link {
+		display: block;
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.entry-link:hover .title-md {
+		text-decoration: underline;
+		text-decoration-thickness: 1px;
+		text-underline-offset: 0.16em;
+	}
+
+	.entry-sub {
+		margin-top: 0.4rem;
+		max-width: 34rem;
+	}
+
+	/* Why this piece is on an Epicenter page rather than only on a personal one.
+	   Set apart from the article's own subtitle, because it is the site talking,
+	   not the work. */
+	.entry-why {
+		margin-top: 0.85rem;
+		padding-inline-start: 0.9rem;
+		border-inline-start: 1px solid var(--rule-strong);
+		font-size: 0.875rem;
+		line-height: 1.55;
+		color: var(--ink-faint);
+		max-width: 32rem;
+	}
+
+	.entry-meta {
+		margin-top: 0.9rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.more {
+		margin-top: 2.75rem;
+		font-size: 0.9375rem;
+	}
+
+	@media (max-width: 34rem) {
+		.wrap {
+			padding-block: 2.25rem 0;
+		}
+	}
+</style>

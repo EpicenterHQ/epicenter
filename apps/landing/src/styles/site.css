@@ -1,0 +1,408 @@
+/*
+ * epicenter.so — the public site's own stylesheet.
+ *
+ * Deliberately not `@epicenter/ui/app.css`. That sheet exists to make product
+ * surfaces consistent: a shadcn component system, a Vega preset, two web fonts,
+ * an animation library, and hundreds of tokens a marketing page never names.
+ * A public page has one job — put words in front of a stranger — and it should
+ * pay for that job and nothing else. So this file owns the whole visual
+ * language, and the site ships no web font at all.
+ *
+ * It is also plain CSS, with no Tailwind. Every class on these pages is a
+ * semantic one defined below, so the framework was generating zero utilities
+ * anyone used — while still emitting its preflight, its `--tw-*` custom
+ * property registrations, and, because it scans the whole project, the
+ * utilities belonging to the Whispering page. Importing it cost about 30 KB on
+ * every public page to buy nothing. The Whispering page keeps its own
+ * `BaseLayout`, which still imports the full product stylesheet.
+ *
+ * ## The three registers
+ *
+ * Every piece of type on this site is doing one of three jobs, and each has its
+ * own family:
+ *
+ *   ui     the site talking about itself — headings, navigation, controls
+ *   read   the argument — landing prose and the full text of an article
+ *   mono   evidence — dates, versions, addresses, status, artifact figures
+ *
+ * All three are system stacks, so the first paint is the final paint. The
+ * reading serif is Charter (macOS/iOS) falling back to Sitka Text (Windows) and
+ * Cambria; it is deliberately not Georgia, which belongs to Braden's personal
+ * site and would import that identity along with the shapes.
+ *
+ * ## Colour
+ *
+ * The Epicenter mark is two overlapping discs, grey and white, on black. It has
+ * no brand colour, so neither does this site: warm paper, near-black ink, and a
+ * hairline rule as the only structural device. The one chromatic thing on the
+ * page is the focus ring, which is exactly the thing that should never be
+ * missed. Status is carried by shape (filled, half, hollow) and by its label,
+ * never by hue alone.
+ */
+
+/* ── Reset ─────────────────────────────────────────────────────────────────
+   Only the parts this site actually depends on. */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+	color: inherit;
+}
+
+/* ── Palette ───────────────────────────────────────────────────────────────
+   Ink on paper, both warm. Dark mode follows the reader's system and offers no
+   toggle: a toggle needs a script, a stored preference, and an inline
+   anti-flash shim, which is three moving parts to restate something the
+   operating system already knows. */
+
+:root {
+	--paper: oklch(0.988 0.002 95);
+	--paper-sunk: oklch(0.958 0.003 95);
+	--ink: oklch(0.205 0.006 75);
+	--ink-muted: oklch(0.468 0.006 75);
+	--ink-faint: oklch(0.605 0.005 75);
+	--rule: oklch(0.885 0.004 85);
+	--rule-strong: oklch(0.775 0.005 85);
+	--focus: oklch(0.53 0.16 255);
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--paper: oklch(0.178 0.005 75);
+		--paper-sunk: oklch(0.142 0.005 75);
+		--ink: oklch(0.932 0.004 90);
+		--ink-muted: oklch(0.712 0.005 90);
+		--ink-faint: oklch(0.565 0.005 90);
+		--rule: oklch(0.298 0.005 80);
+		--rule-strong: oklch(0.412 0.005 80);
+		--focus: oklch(0.74 0.14 255);
+		color-scheme: dark;
+	}
+}
+
+/* ── Type ──────────────────────────────────────────────────────────────────
+   Three registers, three system stacks, no web font. */
+
+:root {
+	--font-ui:
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+		"Helvetica Neue", Arial, sans-serif;
+	--font-read:
+		Charter, "Bitstream Charter", "Sitka Text", Cambria, "Iowan Old Style",
+		Georgia, serif;
+	--font-mono:
+		ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+		monospace;
+}
+
+@layer base {
+	html {
+		/* One owner of the page background, so the view-transition snapshot
+		   canvas and overscroll never flash a different colour than the page. */
+		background: var(--paper);
+		color: var(--ink);
+		font-family: var(--font-ui);
+		/* Reserve the gutter so a short page and a long one do not shift the
+		   centred column sideways between navigations. */
+		scrollbar-gutter: stable;
+		-webkit-text-size-adjust: 100%;
+	}
+
+	body {
+		margin: 0;
+		text-rendering: optimizeLegibility;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	::selection {
+		background: color-mix(in oklch, var(--ink) 14%, transparent);
+	}
+
+	/* The one keyboard-focus language on the site. Native complex controls
+	   (audio, video) keep their own. */
+	:where(a, button, summary, input, [tabindex]):focus-visible {
+		outline: 2px solid var(--focus);
+		outline-offset: 3px;
+		border-radius: 2px;
+	}
+
+	img,
+	video {
+		max-width: 100%;
+		height: auto;
+	}
+
+	/* Every heading on this site sets its own size at the call site. Clearing
+	   the UA defaults keeps a bare `<h2>` from arriving pre-styled. */
+	:where(h1, h2, h3, h4, p, figure, blockquote, ul, ol) {
+		margin: 0;
+	}
+}
+
+/* ── Structure ─────────────────────────────────────────────────────────── */
+
+/* The reading measure. Long enough for an argument, short enough that the eye
+   finds the next line without hunting. */
+.measure {
+	max-width: 34rem;
+}
+
+/* A wider column for material that is scanned rather than read: the status
+   ledger, the article list, the artifact figure. */
+.measure-wide {
+	max-width: 46rem;
+}
+
+/* The small mono label that names what a block is. It sits above the thing it
+   names and never becomes a heading in the outline. */
+.eyebrow {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	line-height: 1.4;
+	letter-spacing: 0.11em;
+	text-transform: uppercase;
+	color: var(--ink-faint);
+}
+
+/* Section headings: the site's own voice, tight and unemphatic. */
+.title-xl {
+	font-family: var(--font-ui);
+	font-size: clamp(2rem, 1.4rem + 2.6vw, 3.15rem);
+	line-height: 1.08;
+	letter-spacing: -0.026em;
+	font-weight: 640;
+	text-wrap: balance;
+}
+
+.title-lg {
+	font-family: var(--font-ui);
+	font-size: clamp(1.5rem, 1.25rem + 1.05vw, 1.95rem);
+	line-height: 1.16;
+	letter-spacing: -0.02em;
+	font-weight: 640;
+	text-wrap: balance;
+}
+
+.title-md {
+	font-family: var(--font-ui);
+	font-size: 1.0625rem;
+	line-height: 1.35;
+	letter-spacing: -0.008em;
+	font-weight: 620;
+	text-wrap: balance;
+}
+
+/* ── Reading ───────────────────────────────────────────────────────────── */
+
+/* The argument voice: landing body copy and the standfirst under a title. */
+.read {
+	font-family: var(--font-read);
+	font-size: 1.0625rem;
+	line-height: 1.66;
+	color: var(--ink-muted);
+	text-wrap: pretty;
+}
+
+.read-lead {
+	font-family: var(--font-read);
+	font-size: clamp(1.125rem, 1.05rem + 0.35vw, 1.3125rem);
+	line-height: 1.55;
+	color: var(--ink-muted);
+	text-wrap: pretty;
+}
+
+/* An article body. The Markdown here is narrow by construction — paragraphs,
+   one image, the occasional fenced block, links, emphasis — so this styles
+   what actually arrives rather than importing a general-purpose prose plugin. */
+.prose {
+	font-family: var(--font-read);
+	font-size: 1.125rem;
+	line-height: 1.72;
+	color: var(--ink);
+}
+
+.prose > * + * {
+	margin-top: 1.15em;
+}
+
+.prose :where(p, li) {
+	text-wrap: pretty;
+}
+
+.prose :where(h2) {
+	font-family: var(--font-ui);
+	font-size: 1.375rem;
+	line-height: 1.28;
+	letter-spacing: -0.014em;
+	font-weight: 640;
+	margin-top: 2.1em;
+	margin-bottom: -0.35em;
+	text-wrap: balance;
+}
+
+.prose :where(h3) {
+	font-family: var(--font-ui);
+	font-size: 1.125rem;
+	line-height: 1.32;
+	font-weight: 640;
+	margin-top: 1.8em;
+	margin-bottom: -0.4em;
+	text-wrap: balance;
+}
+
+.prose :where(ul, ol) {
+	padding-inline-start: 1.4em;
+}
+
+.prose :where(li) + :where(li) {
+	margin-top: 0.4em;
+}
+
+.prose :where(blockquote) {
+	border-inline-start: 2px solid var(--rule-strong);
+	padding-inline-start: 1.1em;
+	color: var(--ink-muted);
+}
+
+.prose :where(img) {
+	display: block;
+	width: 100%;
+	margin-block: 2rem;
+	border: 1px solid var(--rule);
+	border-radius: 3px;
+	background: var(--paper-sunk);
+}
+
+/* The italic line that follows a figure in Braden's articles is a caption, and
+   reads as one when it is quieter and closer than an ordinary paragraph. */
+.prose :where(p > em:only-child) {
+	display: block;
+	margin-top: -1.35rem;
+	font-family: var(--font-ui);
+	font-size: 0.8125rem;
+	font-style: normal;
+	line-height: 1.5;
+	color: var(--ink-faint);
+}
+
+.prose :where(code) {
+	font-family: var(--font-mono);
+	font-size: 0.84em;
+}
+
+.prose :where(:not(pre) > code) {
+	padding: 0.1em 0.35em;
+	border: 1px solid var(--rule);
+	border-radius: 3px;
+	background: var(--paper-sunk);
+}
+
+.prose :where(pre) {
+	overflow-x: auto;
+	padding: 0.95rem 1.1rem;
+	border: 1px solid var(--rule);
+	border-radius: 4px;
+	background: var(--paper-sunk);
+	font-size: 0.8125rem;
+	line-height: 1.62;
+	scrollbar-width: thin;
+}
+
+.prose :where(pre) code {
+	font-size: inherit;
+}
+
+.prose :where(hr) {
+	margin-block: 2.4em;
+	border: 0;
+	border-top: 1px solid var(--rule);
+}
+
+/* ── Links ─────────────────────────────────────────────────────────────── */
+
+/* With no brand colour, a link is an underline. It is drawn faintly until the
+   pointer arrives, which keeps a paragraph legible without hiding the link. */
+.link,
+.prose a {
+	color: inherit;
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.18em;
+	text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+	transition: text-decoration-color 140ms ease;
+}
+
+.link:hover,
+.prose a:hover {
+	text-decoration-color: currentColor;
+}
+
+/* A standalone action: no button chrome, just a word with a rule under it and
+   room to click. */
+.action {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	font-family: var(--font-ui);
+	font-size: 0.9375rem;
+	font-weight: 560;
+	color: var(--ink);
+	text-decoration: none;
+	padding-block: 0.15rem;
+	border-bottom: 2px solid var(--ink);
+	transition:
+		border-color 140ms ease,
+		color 140ms ease;
+}
+
+.action:hover {
+	border-bottom-color: var(--rule-strong);
+}
+
+.action-quiet {
+	color: var(--ink-muted);
+	font-weight: 500;
+	border-bottom-color: var(--rule);
+}
+
+.action-quiet:hover {
+	color: var(--ink);
+	border-bottom-color: var(--ink);
+}
+
+/* ── Motion ────────────────────────────────────────────────────────────── */
+
+/* A short cross-fade between real navigations, and nothing else. There is no
+   scroll-triggered animation anywhere on this site: content that fades in as
+   you reach it is content that is missing when you arrive. */
+@media (prefers-reduced-motion: no-preference) {
+	@view-transition {
+		navigation: auto;
+	}
+
+	::view-transition-old(root),
+	::view-transition-new(root) {
+		animation-duration: 0.18s;
+	}
+}
+
+/* There is deliberately no `@media (scripting: none)` hook here. Nothing on
+   this site is a control that only works with a script: the rendition switch is
+   two radios and `:has()`, and everything else is a link. If a surface ever does
+   need one, it should arrive with the surface that needs it. */
+
+@media print {
+	:root {
+		--paper: white;
+		--ink: black;
+	}
+}

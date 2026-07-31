@@ -1,17 +1,47 @@
 ---
-import BaseLayout from '../layouts/BaseLayout.astro';
+import PageLayout from '../layouts/PageLayout.astro';
 ---
 
-<BaseLayout title="Page Not Found">
-	<main
-		class="flex min-h-screen flex-col items-center justify-center px-4 text-center"
-	>
-		<h1 class="text-4xl font-bold">404</h1>
-		<p class="text-muted-foreground mt-2 text-lg">Page not found.</p>
-		<a
-			href="/"
-			class="mt-6 text-sm underline underline-offset-4 hover:opacity-80"
-			>Back to home</a
-		>
-	</main>
-</BaseLayout>
+<PageLayout
+	title="Not found — Epicenter"
+	description="That page isn't here."
+	contained
+	noindex
+>
+	<div class="missing">
+		<p class="eyebrow">404</p>
+		<h1 class="title-xl">That page isn't here.</h1>
+		<p class="read-lead">
+			It may have moved, or it may have been one of the old posts describing an
+			architecture Epicenter no longer has. Those were retired rather than left
+			up to mislead.
+		</p>
+		<p class="links">
+			<a class="action" href="/">Home</a>
+			<a class="action action-quiet" href="/writing/">Writing</a>
+		</p>
+	</div>
+</PageLayout>
+
+<style>
+	.missing {
+		max-width: 34rem;
+		margin-inline: auto;
+		padding-block: 6rem 0;
+	}
+
+	.missing .title-xl {
+		margin-top: 0.85rem;
+	}
+
+	.read-lead {
+		margin-top: 1.35rem;
+	}
+
+	.links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem 2rem;
+		margin-top: 2.25rem;
+	}
+</style>
