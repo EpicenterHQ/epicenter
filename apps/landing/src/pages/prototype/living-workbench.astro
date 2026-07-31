@@ -1,0 +1,638 @@
+---
+/**
+ * PROTOTYPE: a throwaway homepage, not the homepage. Read
+ * `../../components/prototype/NOTES.md` before doing anything with it.
+ *
+ * Direction: LIVING WORKBENCH. The question it exists to answer is whether the
+ * front page can *demonstrate* the thesis instead of asserting it: whether a
+ * stranger who has never heard of Epicenter can be shown one real body of work
+ * being read four faithful ways, and take the point from the demonstration
+ * rather than from a paragraph telling them to.
+ *
+ * The page is one argument in five moves:
+ *
+ *   1. the recognition, one idea in five places with no two agreeing
+ *   2. the demonstration, one record and four views with the identity fixed
+ *   3. why it can work, the row and the Lens that reads it
+ *   4. where the data actually is, the part that would fail an audit
+ *   5. what runs today, the ledger, unchanged
+ *
+ * Everything in move 2 is real and checkable: it reads Braden's published
+ * "Hello, World" out of the content collection, and the piece it describes is
+ * two clicks away on this same site. The one thing this page must never do is
+ * imply the workbench is shipping software, because it is not; move 2 says so
+ * in plain words directly underneath the device.
+ *
+ * `noindex` because a prototype route is not a destination, and `sitemap.xml.ts`
+ * lists its pages by hand, so nothing needs to change there.
+ */
+import { getCollection } from 'astro:content';
+import Workbench from '../../components/prototype/Workbench.astro';
+import PageLayout from '../../layouts/PageLayout.astro';
+import {
+	ADRS,
+	adrUrl,
+	CANONICAL_HOME,
+	DISCORD,
+	formatDay,
+	GITHUB_REPO,
+	LATEST_RELEASE,
+	LEDGER_CHECKED_ON,
+	WHISPERING_APP,
+} from '../../lib/site';
+
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
+
+const articles = await getCollection('writing');
+/** The piece that states the principle the whole project is built on. */
+const record = articles.find((article) => article.id === 'hello-world');
+if (!record) throw new Error('The workbench needs hello-world to demonstrate.');
+
+/**
+ * One idea, before it is one thing. Invented, and labelled as such on the page:
+ * the point is recognition, and a screenshot of real software pretending to be
+ * somebody's actual mess would be the exact dishonesty this site exists to
+ * avoid.
+ */
+const scattered = [
+	['Notes.app', '2024-03-11', 'you should be able to leave with your stuff'],
+	['Google Docs', '2024-08-02', 'users may export their data at any time'],
+	['a DM', '2025-01-19', "apps are disposable, the life inside them isn't"],
+	['a draft', '2025-06-30', '900 words, never posted'],
+	['NOTES.md', '2026-02-14', 'TODO: write the data ownership one'],
+] as const;
+
+/**
+ * What a stranger is allowed to believe. `state` is spelled out in words
+ * everywhere it appears; the mark beside it is a second cue, never the only
+ * one, so the ledger survives being read in greyscale or read aloud.
+ */
+type LedgerEntry = {
+	readonly mark: '●' | '◐' | '○';
+	readonly state: 'Ships today' | 'In the repository' | 'Decided, not built';
+	readonly name: string;
+	readonly detail: string;
+	readonly href?: string;
+	readonly hrefLabel?: string;
+};
+
+const ledger: readonly LedgerEntry[] = [
+	{
+		mark: '●',
+		state: 'Ships today',
+		name: 'Whispering',
+		detail: `Transcription for the desktop and the browser, using your own API key or a model on your own machine. ${LATEST_RELEASE.version}, released ${formatDay(LATEST_RELEASE.releasedOn)}.`,
+		href: WHISPERING_APP,
+		hrefLabel: 'whispering.epicenter.so',
+	},
+	{
+		mark: '●',
+		state: 'Ships today',
+		name: 'Sync for Whispering',
+		detail:
+			'The hosted server that keeps Whispering in step across your devices. It reads your data in plaintext; see above.',
+	},
+	{
+		mark: '◐',
+		state: 'In the repository',
+		name: 'Epicenter desktop',
+		detail:
+			'The host that runs trusted apps in one window and owns recording, transcription, and the SQL console. Buildable from source, not released.',
+	},
+	{
+		mark: '◐',
+		state: 'In the repository',
+		name: '@epicenter/app',
+		detail:
+			'The MIT client an outside app installs to reach the host. Written and tested, not yet published to npm.',
+	},
+	{
+		mark: '○',
+		state: 'Decided, not built',
+		name: 'One Epicenter per person',
+		detail:
+			'Rows, documents, blobs, and Lenses: the storage model the workbench above is drawn against. Written down as proposals and being built toward.',
+	},
+];
+---
+
+<PageLayout
+	title="Epicenter — one body of work, however you want to look at it"
+	description="An open-source attempt at giving one person's writing, recordings, and notes a single home they can carry away whole. Built in public, honest about what runs today."
+	noindex
+>
+	<!-- ── 1. The recognition ─────────────────────────────────────────── -->
+	<section class="band opening" id="top">
+		<div class="inner">
+			<h1 class="title-xl">
+				You wrote it best the first time, in an app you no longer open.
+			</h1>
+			<div class="measure lede">
+				<p class="read-lead">
+					A thought arrives once and then gets retyped. Into a note, into a doc
+					somebody else edits, into a message, into a draft you never post.
+					Every copy drifts a little, and the good one is usually the one you
+					can't find.
+				</p>
+				<p class="read">
+					Epicenter starts from the opposite arrangement: one body of work, kept
+					once, that any number of apps can show you without any of them owning
+					it. It is open source, and it is early.
+				</p>
+			</div>
+
+			<figure class="figure scatter-figure">
+				<figcaption class="figure-cap">
+					One idea, before it is one thing
+				</figcaption>
+				<ul class="scatter">
+					{scattered.map(([where, when, what]) => (
+							<li>
+								<span class="scatter-where">{where}</span>
+								<span class="scatter-when">{when}</span>
+								<span class="scatter-what">{what}</span>
+							</li>
+						))}
+				</ul>
+				<p class="figure-note">Illustration, not a screenshot.</p>
+			</figure>
+
+			<div class="measure after-figure">
+				<p class="read">
+					Nothing there is lost, exactly. It is in five places and none of them
+					is in charge, so search doesn't cross the gaps and neither does
+					anything you would want to build on top. Each of those apps is fine.
+					The trouble is that each one wants to be the place your work lives, so
+					your work ends up living in all of them and belonging to none.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 2. The demonstration ───────────────────────────────────────── -->
+	<section class="band sunk" id="record">
+		<div class="inner">
+			<p class="eyebrow">The other arrangement</p>
+			<h2 class="title-lg measure-wide">
+				One record. Four ways to look at it. None of them owns it.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Below is a real article, published by Braden and republished here in
+					full. The four views are reading the same file: the words, the fields
+					it carries, the forms it went out in, and the dates it collected. Move
+					between them and watch the top of the frame, which does not change,
+					because none of these views is the thing itself.
+				</p>
+			</div>
+
+			<Workbench article={record} />
+
+			<div class="measure after-figure">
+				<p class="read">
+					That record is a Markdown file in this repository, written there by a
+					script that reads Braden's own archive. Nothing is picked for this
+					site by a list kept over here: a piece arrives because he approved a
+					round of it and filed it under a facet whose outlets include this
+					blog, and it leaves the same way, which is why the shelf is sometimes
+					very short. It works, and it does not generalise. The archive is his,
+					the script is one person's, and nobody else can point their writing at
+					either. The distance between that rig and something an ordinary person
+					could use is the whole project.
+				</p>
+				<p class="read">
+					The article itself keeps its
+					<a class="link" href={`/writing/${record.id}/`}>own page</a>, where
+					the recording and the short video are things you can actually play.
+					This frame is not that page. It is what the page is standing on.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- ── 3. Why it can work ─────────────────────────────────────────── -->
+	<section class="band" id="how-it-works">
+		<div class="inner">
+			<p class="eyebrow">Underneath</p>
+			<h2 class="title-lg measure-wide">
+				A row at a durable address, and four honest readings of it.
+			</h2>
+
+			<figure class="figure">
+				<figcaption class="figure-cap">One row</figcaption>
+				<pre class="artifact">{`so.epicenter.whispering / recordings / 019f96c1…
+
+  fields     what the app defined      { title, transcript, createdAt }
+  document   a live collaborative doc  optional, at most one
+  blob       the original bytes        optional, at most one, write-once`}</pre>
+			</figure>
+
+			<div class="measure after-figure">
+				<p class="read">
+					Everything you keep is a row at a durable address. A row owns its
+					plain fields, at most one collaborative document, and at most one
+					immutable file: the audio you recorded, the image you dropped in. An
+					app declares a <em>Lens</em>, a plain-JSON description of the tables
+					and values it understands, and reads through that and nothing else.
+				</p>
+				<p class="read">
+					The four views above stand in for that. Each one is an interpretation,
+					never the schema of record, which is exactly what lets two apps
+					disagree about the same row without either of them corrupting it. An
+					app that has never heard of narration audio can still hold this
+					article without damaging the part it cannot read.
+				</p>
+				<p class="read">
+					The store itself is SQLite plus ordinary files on disk. Epicenter's
+					own shell can open a read-only SQL console over it, so you can ask
+					your data a question no app thought to offer, and applications never
+					get that connection. Deleting is real: a deleted row leaves a
+					permanent tombstone rather than simply going missing, so a laptop that
+					was offline for a month can't quietly bring it back when it wakes up.
+				</p>
+			</div>
+
+			<p class="records measure-wide">
+				The long versions, with the arguments and the rejected alternatives:
+				<a class="link" href={adrUrl(ADRS.oneEpicenter)} rel="noreferrer"
+					>one Epicenter per person</a
+				> <span class="stamp">{ADRS.oneEpicenter.status}</span>,
+				<a class="link" href={adrUrl(ADRS.lenses)} rel="noreferrer">Lenses</a>
+				<span class="stamp">{ADRS.lenses.status}</span>,
+				<a class="link" href={adrUrl(ADRS.blobs)} rel="noreferrer"
+					>one write-once file per row</a
+				> <span class="stamp">{ADRS.blobs.status}</span>,
+				<a class="link" href={adrUrl(ADRS.portable)} rel="noreferrer"
+					>taking it with you</a
+				> <span class="stamp">{ADRS.portable.status}</span>,
+				<a class="link" href={adrUrl(ADRS.inspection)} rel="noreferrer"
+					>the SQL console</a
+				> <span class="stamp">{ADRS.inspection.status}</span>.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 4. The trust boundary ──────────────────────────────────────── -->
+	<section class="band sunk" id="where-your-data-is">
+		<div class="inner">
+			<p class="eyebrow">Where your data actually is</p>
+			<h2 class="title-lg measure-wide">
+				If you sign in, a server we run holds a readable copy. We are not going
+				to pretend otherwise.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Everything starts on your machine and works with the network off. Sign
+					in and a server holds a copy too, so a phone that was asleep can catch
+					up. That server reads your data in plaintext. Epicenter had an
+					encryption layer and removed it, because encrypting everything end to
+					end also meant no server-side search and no assistant that could see
+					anything, and shipping a promise we would have quietly broken later
+					seemed worse than saying this plainly now.
+				</p>
+				<p class="read">
+					So privacy here is a question of whose machine is holding your work,
+					not which switch is flipped in a settings pane. Don't enable Epicenter
+					sync and Epicenter receives no copy. Run the sync server yourself and
+					its readable copy stays on infrastructure you control. Use ours and
+					you are trusting us the way you already trust every other company you
+					sync with, except that you can read the code and leave with your data.
+				</p>
+			</div>
+
+			<p class="records measure-wide">
+				<a class="link" href={adrUrl(ADRS.plaintextRelay)} rel="noreferrer"
+					>Why zero-knowledge was rejected</a
+				> <span class="stamp">{ADRS.plaintextRelay.status}</span>,
+				<a class="link" href={adrUrl(ADRS.privacyIsDeployment)} rel="noreferrer"
+					>privacy is a deployment, not a feature</a
+				> <span class="stamp">{ADRS.privacyIsDeployment.status}</span>.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── 5. What runs today ─────────────────────────────────────────── -->
+	<section class="band" id="status">
+		<div class="inner">
+			<p class="eyebrow">Status</p>
+			<h2 class="title-lg measure-wide">What actually runs today</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Most of this page describes a system being built. Here is the part
+					that would survive an audit.
+				</p>
+			</div>
+
+			<ul class="ledger measure-wide">
+				{ledger.map((item) => (
+						<li class="ledger-row">
+							<p class="ledger-state">
+								<span class="ledger-mark" aria-hidden="true">{item.mark}</span>
+								{item.state}
+							</p>
+							<div class="ledger-body">
+								<h3 class="title-md">{item.name}</h3>
+								<p class="read ledger-detail">
+									{item.detail}
+									{item.href && (
+										<>
+											{' '}
+											<a class="link" href={item.href} rel="noreferrer">
+												{item.hrefLabel}
+											</a>
+										</>
+									)}
+								</p>
+							</div>
+						</li>
+					))}
+			</ul>
+
+			<p class="records measure-wide">
+				Checked against the repository on {formatDay(LEDGER_CHECKED_ON)}. Public
+				releases are
+				<a class="link" href={LATEST_RELEASE.url} rel="noreferrer"
+					>on GitHub</a
+				>, and they are Whispering releases.
+			</p>
+		</div>
+	</section>
+
+	<!-- ── Close ──────────────────────────────────────────────────────── -->
+	<section class="band sunk closing" id="open-source">
+		<div class="inner">
+			<p class="eyebrow">Why it is open</p>
+			<h2 class="title-lg measure-wide">
+				A promise you can't check isn't a promise.
+			</h2>
+
+			<div class="measure after-head">
+				<p class="read">
+					Every claim on this page is the kind you can go verify. The
+					applications and the sync server are AGPL. The packages an outside app
+					installs are MIT, so building on Epicenter doesn't drag a licence into
+					your project. The decisions are dated records in the repository,
+					including the ones that were reversed and the alternatives that lost.
+				</p>
+				<p class="read">
+					If Epicenter stops being worth using, both the code and your data
+					outlive it. That is the only version of this worth building, and the
+					reason the frame above shows you the record rather than a picture of
+					one.
+				</p>
+			</div>
+
+			<div class="actions closing-actions">
+				<a class="action" href={GITHUB_REPO} rel="noreferrer"
+					>Follow on GitHub</a
+				>
+				<a class="action action-quiet" href={DISCORD} rel="noreferrer"
+					>Discord</a
+				>
+				<a class="action action-quiet" href="/whispering/">Try Whispering</a>
+			</div>
+
+			<p class="caveat">
+				There is no Epicenter to download yet.
+				<a class="link" href="/whispering/">Whispering</a>, the first app on the
+				way there, ships today. Everything Braden publishes is at
+				<a class="link" href={CANONICAL_HOME}>{home}</a>.
+			</p>
+		</div>
+	</section>
+</PageLayout>
+
+<style>
+	.band {
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.band.sunk {
+		background: var(--paper-sunk);
+	}
+
+	.inner {
+		max-width: 62rem;
+		margin-inline: auto;
+		padding: 4.5rem 1.5rem;
+	}
+
+	.opening .inner {
+		padding-block: 6rem 5rem;
+	}
+
+	.opening .title-xl {
+		max-width: 21ch;
+	}
+
+	.lede {
+		margin-top: 1.75rem;
+	}
+
+	.lede .read {
+		margin-top: 1.15rem;
+	}
+
+	.eyebrow + .title-lg {
+		margin-top: 0.9rem;
+	}
+
+	.after-head {
+		margin-top: 1.5rem;
+	}
+
+	.after-head .read + .read,
+	.measure .read + .read {
+		margin-top: 1.05rem;
+	}
+
+	/* ── Figures ── */
+	.figure {
+		margin-top: 2.25rem;
+		max-width: 46rem;
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		background: var(--paper);
+		overflow: hidden;
+	}
+
+	.scatter-figure {
+		margin-top: 2.75rem;
+	}
+
+	.figure-cap {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding: 0.7rem 1.1rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.scatter {
+		list-style: none;
+		margin: 0;
+		padding: 0.4rem 0;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.5;
+	}
+
+	.scatter li {
+		display: grid;
+		grid-template-columns: 8.5rem 6.5rem 1fr;
+		gap: 0.75rem;
+		padding: 0.55rem 1.1rem;
+	}
+
+	.scatter li + li {
+		border-top: 1px solid color-mix(in oklch, var(--rule) 60%, transparent);
+	}
+
+	.scatter-where {
+		color: var(--ink);
+	}
+
+	.scatter-when {
+		color: var(--ink-faint);
+	}
+
+	.scatter-what {
+		color: var(--ink-muted);
+	}
+
+	.figure-note {
+		padding: 0.7rem 1.1rem;
+		border-top: 1px solid var(--rule);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		color: var(--ink-faint);
+	}
+
+	.artifact {
+		margin: 0;
+		padding: 1.1rem;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.75;
+		color: var(--ink-muted);
+		white-space: pre;
+		scrollbar-width: thin;
+	}
+
+	.after-figure {
+		margin-top: 2rem;
+	}
+
+	/* ── Record links ── */
+	.records {
+		margin-top: 2.25rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		font-size: 0.875rem;
+		line-height: 1.8;
+		color: var(--ink-muted);
+	}
+
+	.stamp {
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		border: 1px solid var(--rule-strong);
+		border-radius: 2px;
+		padding: 0.05rem 0.3rem;
+		white-space: nowrap;
+	}
+
+	/* ── Ledger ── */
+	.ledger {
+		margin-top: 2.25rem;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--rule);
+	}
+
+	.ledger-row {
+		display: grid;
+		grid-template-columns: 12rem 1fr;
+		gap: 1.5rem;
+		padding-block: 1.5rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.ledger-state {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.ledger-mark {
+		font-size: 0.75rem;
+		line-height: 1;
+		color: var(--ink-muted);
+	}
+
+	.ledger-detail {
+		margin-top: 0.4rem;
+		max-width: 34rem;
+	}
+
+	/* ── Close ── */
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 1rem 2rem;
+	}
+
+	.closing-actions {
+		margin-top: 2.25rem;
+	}
+
+	.caveat {
+		margin-top: 2.5rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		max-width: 36rem;
+		font-size: 0.875rem;
+		line-height: 1.6;
+		color: var(--ink-faint);
+	}
+
+	.closing {
+		border-bottom: 0;
+	}
+
+	@media (max-width: 46rem) {
+		.inner {
+			padding: 3.25rem 1.15rem;
+		}
+
+		.opening .inner {
+			padding-block: 4rem 3.25rem;
+		}
+
+		.scatter li {
+			grid-template-columns: 1fr;
+			gap: 0.15rem;
+		}
+
+		.ledger-row {
+			grid-template-columns: 1fr;
+			gap: 0.65rem;
+		}
+	}
+</style>

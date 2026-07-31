@@ -1,0 +1,769 @@
+---
+/**
+ * PROTOTYPE — not shipped. Mounted only at /prototype/living-workbench/.
+ *
+ * One record, four faithful views of it.
+ *
+ * The article page already has a rendition switch: Read, Listen, Watch. Those
+ * are *output forms*, three ways to take in the same work. This is deliberately
+ * the other axis. These four views look at the same stored record and each
+ * shows a different truth about it: the words, the fields it carries, the forms
+ * it went out in, and the dates it collected. None of them is the record, and
+ * none of them can change what the others see.
+ *
+ * The argument the device makes is a physical one. The identity sits in the
+ * header and is outside every panel, so switching views cannot move it: it is
+ * the same node before and after, not a re-render that happens to agree. If the
+ * page is doing its job, that stillness is the thing a reader notices.
+ *
+ * ## Why this is CSS
+ *
+ * Four native radios and `:has()` decide what is on screen, following
+ * `Renditions.astro`. So all four views are in the served HTML, the three that
+ * are off screen leave the accessibility tree entirely, and a reader with no
+ * JavaScript gets a working switch rather than a dead control. Read is the
+ * state every fresh parse lands in, and `autocomplete="off"` keeps it that way
+ * through history traversal.
+ *
+ * Every value below is read from the Markdown file at build time, with one
+ * labelled exception noted at `SELECTION` further down. Nothing here is a
+ * second copy that could drift from the article it claims to describe, which is
+ * the whole point and would be embarrassing to get wrong.
+ */
+import type { CollectionEntry } from 'astro:content';
+import { CANONICAL_HOME, formatDay, SITE_ORIGIN } from '../../lib/site';
+
+type Props = {
+	article: CollectionEntry<'writing'>;
+};
+
+const { article } = Astro.props;
+const {
+	title,
+	subtitle,
+	writtenOn,
+	approvedOn,
+	editionId,
+	canonicalUrl,
+	editionUrl,
+	tags,
+	narrationUrl,
+	video,
+} = article.data;
+
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
+const here = SITE_ORIGIN.replace(/^https:\/\//, '');
+const articlePath = `/writing/${article.id}/`;
+/** Enough of the identifier to recognise it in an address, never as the only copy. */
+const shortEdition = `${editionId.slice(0, 8)}…`;
+
+/**
+ * The opening of the piece, sliced out of the file itself so this view cannot
+ * drift from the article it claims to be showing. Prototype-grade on purpose:
+ * it keeps paragraphs and inline links and drops the image and its caption,
+ * which is everything the opening of this particular piece contains. Real
+ * Markdown would go through the renderer.
+ */
+const opening = (article.body ?? '')
+	.split(/\n{2,}/)
+	.map((block) => block.trim())
+	.filter(
+		(block) =>
+			block.length > 0 && !/^[<_#>|-]/.test(block) && !block.startsWith('!['),
+	)
+	.slice(0, 4)
+	.map((block) =>
+		block
+			.replaceAll('\n', ' ')
+			.replaceAll(
+				/\[([^\]]+)\]\(([^)]+)\)/g,
+				'<a class="link" href="$2" rel="noreferrer">$1</a>',
+			),
+	);
+
+/** The plain fields, in the order a person would want to read them. */
+const fields = [
+	['title', title],
+	...(subtitle ? [['subtitle', subtitle] as const] : []),
+	['written', writtenOn],
+	['approved', approvedOn],
+	['tags', tags.join(', ')],
+	['canonical', canonicalUrl.replace(/^https:\/\//, '')],
+	['edition', editionId],
+] as const;
+
+/**
+ * The complete forms this one work went out as. Two of these three addresses
+ * carry the edition identifier, which is the point being made: the forms stay
+ * attached to the work because they are filed under it.
+ */
+const forms = [
+	{
+		name: 'Read',
+		what: "The words, republished here in full and canonical at Braden's site.",
+		href: articlePath,
+		address: `${here}${articlePath}`,
+	},
+	...(narrationUrl
+		? [
+				{
+					name: 'Listen',
+					what: 'An approved recording of the same words, in his voice.',
+					href: narrationUrl,
+					address: `${home}/editions/${shortEdition}/narration.mp3`,
+				},
+			]
+		: []),
+	...(video
+		? [
+				{
+					name: 'Watch',
+					what: 'A short video cut from the same words, approved in the same round.',
+					href: video.src,
+					address: `${home}/editions/${shortEdition}/video.mp4`,
+				},
+			]
+		: []),
+];
+
+/**
+ * Why this article is on this site, and the one thing in the frame that the
+ * Markdown file does not contain.
+ *
+ * The projection drops facet membership on purpose: which facets an edition
+ * names is operational metadata about the archive, not a property of the
+ * article, so it never reaches the committed frontmatter. That makes these two
+ * names the honest exception to everything else here, and the History panel
+ * says so out loud rather than letting them pass as fields.
+ *
+ * They are spelled the way the publishing contract spells them. If the facet
+ * that carries this outlet ever changes, this goes stale, and the panel would
+ * be stating something false: one more reason a prototype gets deleted rather
+ * than promoted as-is.
+ */
+const SELECTION = {
+	outlet: 'blog/epicenter.so',
+	facet: 'builds-epicenter',
+} as const;
+
+/** Stated rather than asserted, so the sentence cannot outlive the two dates. */
+const draftedForDays = Math.round(
+	(Date.parse(`${approvedOn}T12:00:00Z`) -
+		Date.parse(`${writtenOn}T12:00:00Z`)) /
+		86_400_000,
+);
+
+/** Dates the record collected. Not a feed, and it should not be able to become one. */
+const trail = [
+	{
+		when: formatDay(writtenOn),
+		what: `Written, and then held for ${draftedForDays} days before it went out.`,
+	},
+	{
+		when: formatDay(approvedOn),
+		what: 'The release round was approved, and the recording and the video were approved with it. That round keeps its own permanent address.',
+		href: editionUrl,
+		hrefLabel: `${home}/editions/${shortEdition}/`,
+	},
+	{
+		// No date because there is no event to date: the selection is a standing
+		// fact about a contract, true for as long as the contract says it is.
+		when: 'Not recorded',
+		what: `Selected by contract rather than by hand. This is the newest approved round of the page, it carries the facet <span class="term">${SELECTION.facet}</span>, and that facet's live outlets include <span class="term">${SELECTION.outlet}</span>, which is this site. The file itself records none of that, which is why these two names are the only thing in this frame not read from it. Publication is a fact about the archive, not a property of the article, and ${home} stays canonical either way.`,
+	},
+	{
+		// The builder's calendar day, not the UTC one. `formatDay` reads a bare
+		// `YYYY-MM-DD` as noon UTC, which is the whole reason the collection keeps
+		// its dates as strings, and a build stamped tomorrow is exactly the small
+		// lie this site keeps refusing to tell.
+		when: formatDay(new Date().toLocaleDateString('en-CA')),
+		what: `Read out of src/content/writing/${article.id}.md when this page was built, to draw all four of these views.`,
+	},
+];
+
+const VIEWS = [
+	{ value: 'read', label: 'Read' },
+	{ value: 'fields', label: 'Fields' },
+	{ value: 'forms', label: 'Renditions' },
+	{ value: 'trail', label: 'History' },
+] as const;
+
+/** The view the served HTML is in, and the one a reload returns to. */
+const DEFAULT = 'read';
+---
+
+<figure class="bench" data-bench>
+	<figcaption class="bench-cap">One record</figcaption>
+
+	<!--
+		The fixed part. It sits outside every panel, so choosing a view below
+		cannot redraw it: the title and the identifier are the same two nodes
+		before and after. That is the claim the whole page is making, and here it
+		is cheap enough to simply be true.
+	-->
+	<header class="held">
+		<h3 class="title-md held-title">{title}</h3>
+		<p class="held-id">
+			<span class="held-key">edition</span>
+			<span class="held-value">{editionId}</span>
+		</p>
+	</header>
+
+	<div class="bench-body">
+		<div class="rail" role="radiogroup" aria-label={`Views of “${title}”`}>
+			{VIEWS.map(({ value, label }) => (
+					<label class="rail-item">
+						{/* A radio group with no form owner is scoped to the document, so
+						    this name must be unique across the page. It is: the page
+						    carries one record, and therefore one workbench. */}
+						<input
+							type="radio"
+							name="workbench-view"
+							value={value}
+							checked={value === DEFAULT}
+							autocomplete="off"
+						/>
+						<span class="rail-word">{label}</span>
+						{value === DEFAULT && (
+							<span class="ink" data-ink aria-hidden="true" />
+						)}
+					</label>
+				))}
+		</div>
+
+		<div class="panels">
+			<section class="panel" data-panel="read">
+				<p class="read panel-lead">
+					The opening, as written. The complete piece is one link away, and it
+					is the same file this panel is reading.
+				</p>
+				<div class="opening">
+					{opening.map((block) => (
+							<p class="read opening-p" set:html={block} />
+						))}
+				</div>
+				<p class="panel-foot">
+					<a class="action action-quiet" href={articlePath}
+						>Read the whole piece</a
+					>
+				</p>
+			</section>
+
+			<section class="panel" data-panel="fields">
+				<p class="read panel-lead">
+					The plain fields the record carries. An app that understands writing
+					knows what these names mean. An app that doesn't can still hold them
+					without pretending to.
+				</p>
+				<dl class="fields">
+					{fields.map(([key, value]) => (
+							<div class="field">
+								<dt>{key}</dt>
+								<dd>{value}</dd>
+							</div>
+						))}
+				</dl>
+			</section>
+
+			<section class="panel" data-panel="forms">
+				<p class="read panel-lead">
+					The same work, sent out in three complete forms. Not three products:
+					one piece of writing you can read, hear, or watch.
+				</p>
+				<ul class="forms">
+					{forms.map((form) => (
+							<li>
+								<p class="form-name">{form.name}</p>
+								<p class="read form-what">{form.what}</p>
+								<p class="form-address">
+									<a class="link" href={form.href} rel="noreferrer">
+										{form.address}
+									</a>
+								</p>
+							</li>
+						))}
+				</ul>
+				<p class="read panel-note">
+					Two of those addresses contain the identifier at the top of this
+					frame. That is not decoration. It is why a recording cannot come loose
+					from the words it is a recording of.
+				</p>
+			</section>
+
+			<section class="panel" data-panel="trail">
+				<p class="read panel-lead">
+					What the record picked up on the way here. Dates, not activity:
+					nothing on this page is a feed, and it should not be able to become
+					one.
+				</p>
+				<ol class="trail">
+					{trail.map((step) => (
+							<li>
+								<p class="trail-when">{step.when}</p>
+								<p class="read trail-what">
+									{/* Authored in this file, never user content, so the only
+									    markup that can arrive is the mono `.term` spans the
+									    selection row wraps two contract names in. */}
+									<Fragment set:html={step.what} />
+									{step.href && (
+										<>
+											{' '}
+											<a class="link" href={step.href} rel="noreferrer">
+												{step.hrefLabel}
+											</a>
+										</>
+									)}
+								</p>
+							</li>
+						))}
+				</ol>
+			</section>
+		</div>
+	</div>
+
+	<p class="bench-foot">
+		Every value in this frame is read from one Markdown file at build time. The
+		only exception is named in History, and named as an exception.
+	</p>
+</figure>
+
+<style>
+	/* ── The frame ──
+	   The same hairline treatment as every other figure on the site. A workbench
+	   should look like the evidence blocks around it, not like an application
+	   that wandered onto a landing page. */
+	.bench {
+		margin-top: 2.5rem;
+		border: 1px solid var(--rule-strong);
+		border-radius: 4px;
+		background: var(--paper);
+		overflow: hidden;
+	}
+
+	.bench-cap,
+	.bench-foot {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding: 0.7rem 1.25rem;
+	}
+
+	.bench-cap {
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.bench-foot {
+		border-top: 1px solid var(--rule);
+		letter-spacing: 0.04em;
+		text-transform: none;
+		line-height: 1.55;
+	}
+
+	/* ── The part that never moves ── */
+	.held {
+		padding: 1.35rem 1.25rem 1.25rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.held-id {
+		margin-top: 0.5rem;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.15rem 0.6rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		line-height: 1.5;
+	}
+
+	.held-key {
+		color: var(--ink-faint);
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		font-size: 0.6875rem;
+		align-self: center;
+	}
+
+	.held-value {
+		color: var(--ink-muted);
+		overflow-wrap: anywhere;
+	}
+
+	/* ── Rail and panels ── */
+	.bench-body {
+		display: grid;
+		grid-template-columns: 10rem minmax(0, 1fr);
+	}
+
+	.rail {
+		display: flex;
+		flex-direction: column;
+		padding-block: 1.1rem;
+		border-inline-end: 1px solid var(--rule);
+		background: var(--paper-sunk);
+	}
+
+	.rail-item {
+		position: relative;
+		padding: 0.5rem 1.25rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		letter-spacing: 0.09em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		cursor: pointer;
+	}
+
+	.rail-item input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		margin: 0;
+		pointer-events: none;
+	}
+
+	.rail-word {
+		transition: color 140ms ease;
+	}
+
+	.rail-item:not(:has(:checked)):hover .rail-word {
+		color: var(--ink);
+	}
+
+	.rail-item:has(:checked) {
+		cursor: default;
+	}
+
+	.rail-item:has(:checked) .rail-word {
+		color: var(--ink);
+	}
+
+	.rail-item:has(:focus-visible) .rail-word {
+		outline: 2px solid var(--focus);
+		outline-offset: 4px;
+		border-radius: 2px;
+	}
+
+	/* The mark for the view on screen. `::before` is the static fallback the CSS
+	   can guarantee on its own; `.ink` is the single node the script hands from
+	   one item to the next, and only that one gets to travel. */
+	.rail-item::before,
+	.ink {
+		content: "";
+		position: absolute;
+		inset-block: 0.3rem;
+		/* Held off the frame's own border, or the mark reads as an edge artifact
+		   rather than as something pointing at a word. */
+		inset-inline-start: 0.8rem;
+		width: 2px;
+	}
+
+	.rail-item:has(:checked)::before {
+		background: var(--ink);
+	}
+
+	.ink {
+		display: none;
+		background: var(--ink);
+		view-transition-name: workbench-ink;
+	}
+
+	[data-live] .rail-item:has(:checked)::before {
+		background: transparent;
+	}
+
+	[data-live] .ink {
+		display: block;
+	}
+
+	/* Only one view is on screen. Read is the served state, so the other three
+	   are the ones that have to be asked for. */
+	.panel {
+		display: none;
+		padding: 1.5rem 1.35rem 1.75rem;
+	}
+
+	.bench:has(input[value="read"]:checked) [data-panel="read"],
+	.bench:has(input[value="fields"]:checked) [data-panel="fields"],
+	.bench:has(input[value="forms"]:checked) [data-panel="forms"],
+	.bench:has(input[value="trail"]:checked) [data-panel="trail"] {
+		display: block;
+	}
+
+	/* Switching views should not make the page jump under the reader's hand. */
+	.panels {
+		min-height: 24rem;
+	}
+
+	/* A panel is hidden until it is asked for, and an animation on a
+	   `display: none` element has not started yet. So it runs once, on arrival,
+	   with no script and nothing to reset. */
+	@media (prefers-reduced-motion: no-preference) {
+		.panel {
+			animation: panel-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+		}
+	}
+
+	@keyframes panel-in {
+		from {
+			opacity: 0;
+			transform: translateY(5px);
+		}
+	}
+
+	/* ── Inside the panels ── */
+	.panel-lead {
+		max-width: 34rem;
+		color: var(--ink-faint);
+		font-size: 1rem;
+	}
+
+	.opening {
+		margin-top: 1.4rem;
+		padding-top: 1.4rem;
+		border-top: 1px solid var(--rule);
+		max-width: 34rem;
+	}
+
+	.opening-p {
+		color: var(--ink);
+	}
+
+	.opening-p + .opening-p {
+		margin-top: 1.05rem;
+	}
+
+	.panel-foot {
+		margin-top: 1.6rem;
+	}
+
+	.panel-note {
+		margin-top: 1.5rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--rule);
+		max-width: 34rem;
+		font-size: 0.9375rem;
+		color: var(--ink-faint);
+	}
+
+	/* Fields */
+	.fields {
+		margin: 1.4rem 0 0;
+		border-top: 1px solid var(--rule);
+	}
+
+	.field {
+		display: grid;
+		grid-template-columns: 7rem minmax(0, 1fr);
+		gap: 1rem;
+		padding-block: 0.7rem;
+		border-bottom: 1px solid color-mix(in oklch, var(--rule) 65%, transparent);
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.6;
+	}
+
+	.field dt {
+		color: var(--ink-faint);
+	}
+
+	.field dd {
+		margin: 0;
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+
+	/* Renditions */
+	.forms {
+		margin: 1.4rem 0 0;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--rule);
+	}
+
+	.forms li {
+		padding-block: 1.1rem;
+		border-bottom: 1px solid color-mix(in oklch, var(--rule) 65%, transparent);
+	}
+
+	.form-name {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.11em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.form-what {
+		margin-top: 0.35rem;
+		max-width: 32rem;
+		color: var(--ink);
+	}
+
+	.form-address {
+		margin-top: 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--ink-muted);
+		overflow-wrap: anywhere;
+	}
+
+	/* History */
+	.trail {
+		margin: 1.4rem 0 0;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--rule);
+	}
+
+	.trail li {
+		display: grid;
+		grid-template-columns: 9.5rem minmax(0, 1fr);
+		gap: 1rem;
+		padding-block: 1rem;
+		border-bottom: 1px solid color-mix(in oklch, var(--rule) 65%, transparent);
+	}
+
+	.trail-when {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		padding-top: 0.2rem;
+	}
+
+	.trail-what {
+		max-width: 32rem;
+		font-size: 1rem;
+	}
+
+	/* A name out of the publishing contract, set in the evidence register like
+	   every other identifier on this site. `:global` because these spans arrive
+	   through `set:html` and never carry the scoping attribute. */
+	.trail-what :global(.term) {
+		font-family: var(--font-mono);
+		font-size: 0.84em;
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+
+	/* A list ends where its last row ends. The rule under it would either float
+	   above the frame's own foot or double up with the note that follows. */
+	.field:last-child,
+	.forms li:last-child,
+	.trail li:last-child {
+		border-bottom: 0;
+	}
+
+	/* ── Narrow ──
+	   The rail lies down and the mark turns with it: same node, same job, drawn
+	   along the edge the words now share. */
+	@media (max-width: 46rem) {
+		.bench-body {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.rail {
+			flex-direction: row;
+			flex-wrap: wrap;
+			gap: 0.25rem 0.35rem;
+			padding: 0.85rem 0.85rem 0.75rem;
+			border-inline-end: 0;
+			border-bottom: 1px solid var(--rule);
+		}
+
+		.rail-item {
+			padding: 0.35rem 0.4rem 0.55rem;
+		}
+
+		.rail-item::before,
+		.ink {
+			inset-block: auto 0;
+			inset-inline: 0.4rem;
+			width: auto;
+			height: 2px;
+		}
+
+		.panel {
+			padding: 1.25rem 1.15rem 1.5rem;
+		}
+
+		.panels {
+			min-height: 0;
+		}
+
+		.field,
+		.trail li {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.2rem;
+		}
+	}
+
+	/* Paper has one view, and it is the words. Nobody can press a printed radio,
+	   so the control goes too.
+
+	   The words come on first and the other three go off second, in that order.
+	   Reversed, the `:has()` rule that turns Read *on* on screen has enough
+	   specificity to turn it off again here, and a page printed from Read would
+	   come out blank. */
+	@media print {
+		.rail {
+			display: none;
+		}
+
+		/* biome-ignore lint/style/noDescendingSpecificity: the heavier `:has()`
+		   rule this sits under also says `block`, so the two agree wherever they
+		   both match and there is nothing for the cascade to get wrong. Raising
+		   this to match would mean naming a checked view, which is the one thing
+		   it must not do. */
+		.bench [data-panel="read"] {
+			display: block;
+		}
+
+		.bench:has(input[value="fields"]:checked) [data-panel="fields"],
+		.bench:has(input[value="forms"]:checked) [data-panel="forms"],
+		.bench:has(input[value="trail"]:checked) [data-panel="trail"] {
+			display: none;
+		}
+	}
+</style>
+
+<script>
+	/**
+	 * One job: hand the travelling mark to whichever view was chosen.
+	 *
+	 * The CSS above already decides what is on screen and already marks the
+	 * chosen view, so this is decoration and is written to be skippable. Without
+	 * a script, without view transitions, or for a reader who asked for less
+	 * motion, the chosen item keeps the static bar the CSS gives it and the
+	 * device works exactly the same.
+	 */
+	const bench = document.querySelector<HTMLElement>('[data-bench]');
+	const ink = bench?.querySelector<HTMLElement>('[data-ink]');
+
+	if (bench && ink) {
+		// Only claim the mark when there is one to move; until then the CSS keeps
+		// its static fallback.
+		bench.dataset.live = '';
+
+		// `change` bubbles from whichever radio was chosen, so one listener serves
+		// the group.
+		bench.addEventListener('change', (event) => {
+			const chosen = event.target;
+			if (!(chosen instanceof HTMLInputElement) || !chosen.checked) return;
+
+			const move = () => chosen.closest('label')?.append(ink);
+			if (
+				matchMedia('(prefers-reduced-motion: reduce)').matches ||
+				typeof document.startViewTransition !== 'function'
+			) {
+				move();
+				return;
+			}
+			document.startViewTransition(move);
+		});
+	}
+</script>
