@@ -258,9 +258,15 @@ const isCurrent = (href: string) =>
 		.chrome-inner {
 			padding-inline: 1.15rem;
 			gap: 1rem;
+			flex-wrap: wrap;
+		}
+
+		.chrome nav {
+			width: 100%;
 		}
 
 		nav ul {
+			justify-content: space-between;
 			gap: 0.95rem;
 		}
 
