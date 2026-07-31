@@ -1,0 +1,271 @@
+---
+/**
+ * The public site's page shell: head metadata, the chrome above and below the
+ * content, and nothing else.
+ *
+ * Legacy surfaces (the Whispering page) still use `BaseLayout`, which pulls in
+ * the whole product component system. This layout is deliberately separate
+ * rather than a refactor of that one, because the two want opposite things: a
+ * product surface wants every shared token, and a public page wants to ship as
+ * little as it can get away with.
+ *
+ * ## Canonical
+ *
+ * `canonical` defaults to this page's own address, which is right for every
+ * page the site originates. An article republished from bradenwong.com passes
+ * the canonical URL of the original instead, and `og:url` follows it: Open
+ * Graph asks for the object's permanent address, and for a syndicated copy that
+ * is the original, not this copy of it. A page whose canonical points elsewhere
+ * also stays out of the sitemap (see `sitemap.xml.ts`), so the site never asks
+ * to be indexed for someone else's work.
+ */
+import Mark from '../components/Mark.astro';
+import PostHog from '../components/posthog.astro';
+import { absoluteUrl, GITHUB_REPO, SITE_ORIGIN } from '../lib/site';
+import '../styles/site.css';
+
+type Props = {
+	title: string;
+	description: string;
+	/** Where this work permanently lives. Defaults to this page's own address. */
+	canonical?: string;
+	ogType?: 'website' | 'article';
+	/** A narrower column for reading; the default suits a full-width page. */
+	contained?: boolean;
+	/**
+	 * For a page that exists only as a response, never as a destination. It gets
+	 * no canonical link, because a canonical URL is a claim that this address is
+	 * the right one for some piece of content, and an error page has none.
+	 */
+	noindex?: boolean;
+};
+
+const {
+	title,
+	description,
+	canonical,
+	ogType = 'website',
+	contained = false,
+	noindex = false,
+} = Astro.props;
+
+const here = absoluteUrl(Astro.url.pathname);
+const canonicalUrl = canonical ?? here;
+const ogImage = `${SITE_ORIGIN}/og-image.png`;
+const year = new Date().getFullYear();
+
+const nav = [
+	{ href: '/writing/', label: 'Writing' },
+	{ href: '/whispering/', label: 'Whispering' },
+	{ href: GITHUB_REPO, label: 'GitHub', external: true },
+];
+
+/**
+ * Marks the current section without claiming the home page is a section. The
+ * trailing slash is part of the test, so a future `/whispering-guide` does not
+ * light up the Whispering link.
+ */
+const path = Astro.url.pathname.replace(/\/?$/, '/');
+const isCurrent = (href: string) =>
+	href.startsWith('/') && href !== '/' && path.startsWith(href);
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>{title}</title>
+		<meta name="description" content={description}>
+		{noindex ? (
+			<meta name="robots" content="noindex, follow" />
+		) : (
+			<link rel="canonical" href={canonicalUrl} />
+		)}
+
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+		<meta name="generator" content={Astro.generator}>
+
+		<meta property="og:site_name" content="Epicenter">
+		<meta property="og:type" content={ogType}>
+		<meta property="og:url" content={canonicalUrl}>
+		<meta property="og:title" content={title}>
+		<meta property="og:description" content={description}>
+		<meta property="og:image" content={ogImage}>
+		<meta name="twitter:card" content="summary_large_image">
+		<meta name="twitter:title" content={title}>
+		<meta name="twitter:description" content={description}>
+		<meta name="twitter:image" content={ogImage}>
+
+		<PostHog />
+	</head>
+
+	<body>
+		<a href="#main" class="skip">Skip to content</a>
+
+		<header class="chrome">
+			<div class="chrome-inner">
+				<a href="/" class="brand" aria-label="Epicenter, home">
+					<Mark size={18} />
+					<span>Epicenter</span>
+				</a>
+				<nav aria-label="Primary">
+					<ul>
+						{nav.map((item) => (
+								<li>
+									<a
+										href={item.href}
+										class="nav-link"
+										aria-current={isCurrent(item.href) ? 'page' : undefined}
+										{...(item.external
+											? { rel: 'noreferrer', target: '_blank' }
+											: {})}
+									>
+										{item.label}
+									</a>
+								</li>
+							))}
+					</ul>
+				</nav>
+			</div>
+		</header>
+
+		<main id="main" class={contained ? 'page page-contained' : 'page'}>
+			<slot />
+		</main>
+
+		<footer class="chrome-foot">
+			<div class="chrome-inner foot-inner">
+				<p class="foot-note">
+					&copy; {year} Epicenter. The applications and sync server are
+					AGPL-3.0; the packages an outside app installs are MIT.
+				</p>
+				<ul class="foot-links">
+					<li>
+						<a class="link" href={GITHUB_REPO} rel="noreferrer">GitHub</a>
+					</li>
+					<li><a class="link" href="/writing/">Writing</a></li>
+					<li><a class="link" href="/privacy/">Privacy</a></li>
+					<li><a class="link" href="/terms/">Terms</a></li>
+				</ul>
+			</div>
+		</footer>
+	</body>
+</html>
+
+<style>
+	.skip {
+		position: absolute;
+		left: -9999px;
+		top: 0;
+		z-index: 10;
+		background: var(--paper);
+		color: var(--ink);
+		padding: 0.6rem 0.9rem;
+		border: 1px solid var(--rule-strong);
+		border-radius: 3px;
+		font-size: 0.875rem;
+	}
+
+	.skip:focus {
+		left: 0.75rem;
+		top: 0.75rem;
+	}
+
+	.chrome {
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.chrome-inner {
+		max-width: 62rem;
+		margin-inline: auto;
+		padding: 0.9rem 1.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1.5rem;
+	}
+
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		color: var(--ink);
+		text-decoration: none;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		letter-spacing: -0.012em;
+	}
+
+	nav ul,
+	.foot-links {
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.nav-link {
+		color: var(--ink-muted);
+		text-decoration: none;
+		font-size: 0.875rem;
+		transition: color 140ms ease;
+	}
+
+	.nav-link:hover,
+	.nav-link[aria-current="page"] {
+		color: var(--ink);
+	}
+
+	.page {
+		display: block;
+	}
+
+	.page-contained {
+		max-width: 62rem;
+		margin-inline: auto;
+		padding-inline: 1.5rem;
+	}
+
+	.chrome-foot {
+		margin-top: 5rem;
+		border-top: 1px solid var(--rule);
+	}
+
+	.foot-inner {
+		flex-wrap: wrap;
+		align-items: baseline;
+		padding-block: 1.75rem 2.5rem;
+	}
+
+	.foot-note {
+		font-size: 0.8125rem;
+		line-height: 1.5;
+		color: var(--ink-faint);
+		max-width: 34rem;
+	}
+
+	.foot-links {
+		flex-wrap: wrap;
+		gap: 1rem;
+		font-size: 0.8125rem;
+		color: var(--ink-muted);
+	}
+
+	@media (max-width: 34rem) {
+		.chrome-inner {
+			padding-inline: 1.15rem;
+			gap: 1rem;
+		}
+
+		nav ul {
+			gap: 0.95rem;
+		}
+
+		.page-contained {
+			padding-inline: 1.15rem;
+		}
+	}
+</style>

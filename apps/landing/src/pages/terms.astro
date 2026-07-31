@@ -1,26 +1,27 @@
 ---
-import BaseLayout from '../layouts/BaseLayout.astro';
+/**
+ * Migrated to the public layout. The wording below is preserved exactly as it
+ * was written, because it is a published promise rather than page furniture.
+ */
+import PageLayout from '../layouts/PageLayout.astro';
 
 const lastUpdated = 'June 21, 2026';
 ---
 
-<BaseLayout
-	title="Terms - Epicenter"
+<PageLayout
+	title="Terms — Epicenter"
 	description="Epicenter is free, open-source, local-first software, built in the open and provided as-is."
+	contained
 >
-	<main class="mx-auto max-w-2xl px-6 py-16 leading-relaxed">
-		<a href="/" class="text-sm text-muted-foreground hover:underline"
-			>&larr; epicenter</a
-		>
-		<h1 class="mt-6 text-3xl font-bold tracking-tight">Terms</h1>
-		<p class="mt-2 text-sm text-muted-foreground">
-			Last updated: {lastUpdated}
-		</p>
+	<div class="legal">
+		<p class="eyebrow">Legal</p>
+		<h1 class="title-xl">Terms</h1>
+		<p class="stamp-line">Last updated {lastUpdated}</p>
 
-		<section class="mt-8 space-y-5">
+		<div class="body read">
 			<p>
 				Epicenter is free and open source, under AGPL-3.0. The code is on
-				<a class="underline" href="https://github.com/EpicenterHQ/epicenter"
+				<a class="link" href="https://github.com/EpicenterHQ/epicenter"
 					>GitHub</a
 				>, and you are welcome to read it, run it, and change it.
 			</p>
@@ -46,13 +47,40 @@ const lastUpdated = 'June 21, 2026';
 
 			<p>
 				Questions are welcome:
-				<a class="underline" href="mailto:hello@epicenter.so"
-					>hello@epicenter.so</a
-				>, or open an issue on
-				<a class="underline" href="https://github.com/EpicenterHQ/epicenter"
+				<a class="link" href="mailto:hello@epicenter.so">hello@epicenter.so</a>,
+				or open an issue on
+				<a class="link" href="https://github.com/EpicenterHQ/epicenter"
 					>GitHub</a
 				>.
 			</p>
-		</section>
-	</main>
-</BaseLayout>
+		</div>
+	</div>
+</PageLayout>
+
+<style>
+	.legal {
+		max-width: 36rem;
+		margin-inline: auto;
+		padding-block: 3.25rem 0;
+	}
+
+	.legal .title-xl {
+		margin-top: 0.85rem;
+	}
+
+	.stamp-line {
+		margin-top: 0.9rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		letter-spacing: 0.04em;
+		color: var(--ink-faint);
+	}
+
+	.body {
+		margin-top: 2.25rem;
+	}
+
+	.body p + p {
+		margin-top: 1.1rem;
+	}
+</style>

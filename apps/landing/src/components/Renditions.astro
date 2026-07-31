@@ -1,0 +1,327 @@
+---
+/**
+ * One work, in whichever rendition the reader asked for.
+ *
+ * A published article here can exist in three forms, and they are not three
+ * modes. Read is the prose. When the edition owns an approved recording, the
+ * player sits *inside* Read, above the words, because listening is how you take
+ * in the written rendition without looking at it — audio and prose share a
+ * screen happily. Watch is the short video, and it replaces the prose and the
+ * player together, because video and prose both want the eye and one of them
+ * has to lose.
+ *
+ * Nothing carries across the switch. Neither rendition is a view onto the
+ * other, so there is no playback position worth handing over: choosing the
+ * other rendition stops whatever was playing and hands the reader a player they
+ * start themselves.
+ *
+ * ## Why this is CSS
+ *
+ * Two native radios, `:has()`, and `display: none` decide what is on screen. So
+ * the served HTML *is* the readable article, the rendition that is off screen
+ * leaves the accessibility tree completely, and a reader with no JavaScript
+ * gets the complete work rather than a dead control. Read is therefore the
+ * state every fresh parse lands in, and `autocomplete="off"` keeps it that way:
+ * a browser restores form state when it re-parses a document during history
+ * traversal, which would tick Watch back on while the server-rendered prose
+ * below stayed put, leaving the control disagreeing with the screen.
+ *
+ * An edition with no approved video gets no switch and no player. A control
+ * that does nothing is worse than no control.
+ */
+type Props = {
+	/** Names the media controls for assistive technology; never shown. */
+	title: string;
+	narrationUrl?: string;
+	video?: { src: string; poster: string };
+};
+
+const { title, narrationUrl, video } = Astro.props;
+
+const OPTIONS = [
+	{ value: 'read', label: 'Read' },
+	{ value: 'watch', label: 'Watch' },
+] as const;
+
+/** The rendition the served HTML is in, and the one a reload returns to. */
+const DEFAULT = 'read';
+---
+
+<div class="renditions" data-renditions>
+	{video && (
+			<div class="switch" role="radiogroup" aria-label={`Read or watch “${title}”`}>
+				{OPTIONS.map(({ value, label }) => (
+					<label class="option">
+						{/* A radio group with no form owner is scoped to the document, so
+						    this name must be unique across the page. It is: an article
+						    page carries one article, and therefore one switch. */}
+						<input
+							type="radio"
+							name="rendition"
+							value={value}
+							checked={value === DEFAULT}
+							autocomplete="off"
+						/>
+						<span class="word">{label}</span>
+						{value === DEFAULT && <span class="ink" data-ink aria-hidden="true" />}
+					</label>
+				))}
+			</div>
+		)}
+
+	<div data-rendition="read">
+		{narrationUrl && (
+				<div class="listen">
+					{/* Whatever sits directly beneath the header has to say what it is.
+					    With a switch present, the switch is that thing and names itself,
+					    and a third word above the player would read as a third mode —
+					    which is exactly what the narration is not. */}
+					{!video && <p class="eyebrow listen-label">Listen</p>}
+					<audio
+						controls
+						preload="none"
+						src={narrationUrl}
+						aria-label={`Listen to ${title}`}
+					/>
+				</div>
+			)}
+		<div class="prose"><slot /></div>
+	</div>
+
+	{video && (
+			<div data-rendition="watch" class="watch">
+				{/* An ordinary video element with everything a video element comes
+				    with: its own sound, controls, timeline, fullscreen, and
+				    picture-in-picture. Watch is not an illustration of something
+				    happening elsewhere; it is the rendition the reader chose.
+
+				    The intrinsic dimensions give a `preload="none"` video a real
+				    aspect ratio, so it reserves its space instead of collapsing to
+				    zero height until metadata arrives. `preload="none"` is what keeps
+				    a reader who only ever reads from paying for the render at all. */}
+				<video
+					width="1080"
+					height="1920"
+					controls
+					playsinline
+					preload="none"
+					poster={video.poster}
+					src={video.src}
+					aria-label={`Watch ${title}`}
+				/>
+			</div>
+		)}
+</div>
+
+<style>
+	/* ── Which rendition is on screen ──
+	   Read is the served state, so Watch is the one that must be asked for. */
+	[data-rendition="watch"] {
+		display: none;
+	}
+
+	.renditions:has(input[value="watch"]:checked) [data-rendition="watch"] {
+		display: block;
+	}
+
+	.renditions:has(input[value="watch"]:checked) [data-rendition="read"] {
+		display: none;
+	}
+
+	/* Paper has one rendition, so a page printed from Watch still prints the
+	   words. These repeat the selectors above rather than reaching for
+	   `!important`: same specificity, later in the source, so they win. The
+	   control itself goes, since nobody can press a printed radio. */
+	@media print {
+		.switch {
+			display: none;
+		}
+
+		.renditions:has(input[value="watch"]:checked) [data-rendition="watch"] {
+			display: none;
+		}
+
+		.renditions:has(input[value="watch"]:checked) [data-rendition="read"] {
+			display: block;
+		}
+	}
+
+	/* ── The choice ──
+	   Two bare words on a hairline. The faint rule under both says either is
+	   available; the heavier piece of ink marks the one on screen. */
+	.switch {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.25rem 1.35rem;
+		margin-top: 2rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		letter-spacing: 0.09em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.option {
+		position: relative;
+		display: inline-flex;
+		align-items: baseline;
+		cursor: pointer;
+	}
+
+	.option input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		margin: 0;
+		pointer-events: none;
+	}
+
+	.word {
+		position: relative;
+		display: inline-block;
+		padding-bottom: 0.35rem;
+		transition: color 140ms ease;
+	}
+
+	.word::after {
+		content: "";
+		position: absolute;
+		inset-inline: 0;
+		bottom: 0;
+		height: 1px;
+		background: var(--rule-strong);
+		transition: background-color 140ms ease;
+	}
+
+	.option:not(:has(:checked)):hover .word {
+		color: var(--ink);
+	}
+
+	.option:not(:has(:checked)):hover .word::after {
+		background: var(--ink);
+	}
+
+	.option:has(:checked) {
+		cursor: default;
+	}
+
+	.option:has(:checked) .word {
+		color: var(--ink);
+	}
+
+	/* Until the script claims the travelling rule, the native selection stays
+	   legible on its own. */
+	.option:has(:checked) .word::after {
+		height: 2px;
+		background: var(--ink);
+	}
+
+	[data-live] .option:has(:checked) .word::after {
+		height: 1px;
+		background: var(--rule-strong);
+	}
+
+	.ink {
+		display: none;
+		position: absolute;
+		inset-inline: 0;
+		bottom: 0;
+		height: 2px;
+		background: var(--ink);
+		view-transition-name: rendition-ink;
+	}
+
+	[data-live] .ink {
+		display: block;
+	}
+
+	.option:has(:focus-visible) .word {
+		outline: 2px solid var(--focus);
+		outline-offset: 4px;
+		border-radius: 2px;
+	}
+
+	/* ── The renditions themselves ── */
+	.listen {
+		margin-top: 2rem;
+	}
+
+	.listen-label {
+		margin-bottom: 0.5rem;
+	}
+
+	.listen audio {
+		width: 100%;
+		display: block;
+	}
+
+	.renditions .prose {
+		margin-top: 2.25rem;
+	}
+
+	.watch {
+		margin-top: 2rem;
+	}
+
+	.watch video {
+		display: block;
+		width: 100%;
+		max-width: 22rem;
+		border-radius: 4px;
+		background: var(--paper-sunk);
+		border: 1px solid var(--rule);
+	}
+</style>
+
+<script>
+	/**
+	 * The two things the CSS above genuinely cannot do.
+	 *
+	 * A hidden `<audio>` keeps playing, and nothing in HTML or CSS stops it:
+	 * `display: none`, `hidden`, `inert`, and a closed `<details>` all leave
+	 * playback running. Removing the node does pause it, but no selector can
+	 * remove a node, and handing a script ownership of which rendition is
+	 * mounted would mean a reader without one gets no switch at all. So the CSS
+	 * goes on deciding what is on screen, and this stops what was left behind.
+	 *
+	 * The rest is decoration: the heavy rule marks the rendition on screen, so
+	 * it should travel rather than be redrawn somewhere else. Without a script,
+	 * without view transitions, or for a reader who asked for less motion, the
+	 * checked word simply keeps the heavier underline the CSS already gives it.
+	 */
+	const control = document.querySelector<HTMLElement>('[data-renditions]');
+	const ink = control?.querySelector<HTMLElement>('[data-ink]');
+
+	if (control) {
+		// Only claim the rule when there is one to move. Without ink the CSS keeps
+		// its static fallback, and the pause below still runs.
+		if (ink) control.dataset.live = '';
+
+		// `change` bubbles from whichever radio was chosen, so one listener serves
+		// the group.
+		control.addEventListener('change', (event) => {
+			const chosen = event.target;
+			if (!(chosen instanceof HTMLInputElement) || !chosen.checked) return;
+
+			for (const medium of Array.from(
+				control.querySelectorAll<HTMLMediaElement>('audio, video'),
+			)) {
+				medium.pause();
+			}
+
+			if (!ink) return;
+
+			const move = () => chosen.closest('label')?.append(ink);
+			if (
+				matchMedia('(prefers-reduced-motion: reduce)').matches ||
+				typeof document.startViewTransition !== 'function'
+			) {
+				move();
+				return;
+			}
+			document.startViewTransition(move);
+		});
+	}
+</script>

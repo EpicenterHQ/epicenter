@@ -1,0 +1,27 @@
+---
+/**
+ * The Epicenter mark: two discs of the same size, offset, the front one
+ * opaque and the one behind it showing through.
+ *
+ * It is the product's argument in one shape. Two copies of the same thing, in
+ * different places, that are nonetheless one thing where they meet.
+ */
+type Props = {
+	/** Rendered size in pixels. The mark is drawn on a 32-unit grid. */
+	size?: number;
+};
+
+const { size = 20 } = Astro.props;
+---
+
+<svg
+	width={size}
+	height={size}
+	viewBox="0 0 32 32"
+	fill="none"
+	aria-hidden="true"
+	focusable="false"
+>
+	<circle cx="12.5" cy="12.5" r="9" fill="currentColor" opacity="0.42"></circle>
+	<circle cx="19.5" cy="19.5" r="9" fill="currentColor"></circle>
+</svg>

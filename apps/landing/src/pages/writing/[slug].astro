@@ -1,0 +1,140 @@
+---
+import { type CollectionEntry, getCollection, render } from 'astro:content';
+import Renditions from '../../components/Renditions.astro';
+import PageLayout from '../../layouts/PageLayout.astro';
+import { CANONICAL_HOME, formatDay } from '../../lib/site';
+
+export async function getStaticPaths() {
+	const articles = await getCollection('writing');
+	return articles.map((article) => ({
+		params: { slug: article.id },
+		props: { article },
+	}));
+}
+
+type Props = { article: CollectionEntry<'writing'> };
+
+const { article } = Astro.props;
+const { Content } = await render(article);
+const {
+	title,
+	subtitle,
+	writtenOn,
+	approvedOn,
+	canonicalUrl,
+	editionUrl,
+	narrationUrl,
+	video,
+} = article.data;
+
+const home = CANONICAL_HOME.replace(/^https:\/\//, '');
+const description = subtitle ?? `${title}, republished from ${home}.`;
+/** A release round that carries work written earlier is worth saying out loud. */
+const releasedLater = approvedOn.slice(0, 4) !== writtenOn.slice(0, 4);
+---
+
+<PageLayout
+	title={`${title} — Epicenter`}
+	description={description}
+	canonical={canonicalUrl}
+	ogType="article"
+	contained
+>
+	<article class="article">
+		<!--
+			Attribution sits above the title, not in a footnote. A stranger who
+			lands here from a search result should learn whose work this is before
+			they read a word of it, and the `<link rel="canonical">` in the head
+			says the same thing to a machine.
+		-->
+		<p class="source">
+			Republished from <a class="link" href={canonicalUrl}>{home}</a>, where
+			this work lives and stays current.
+		</p>
+
+		<header class="head">
+			<h1 class="title-xl">{title}</h1>
+			{subtitle && <p class="read-lead standfirst">{subtitle}</p>}
+			<p class="dates">
+				<time datetime={writtenOn}>{formatDay(writtenOn)}</time>
+				{releasedLater && (
+						<>
+							<span aria-hidden="true"> · </span>
+							<span>published {formatDay(approvedOn)}</span>
+						</>
+					)}
+			</p>
+		</header>
+
+		<Renditions title={title} narrationUrl={narrationUrl} video={video}>
+			<Content />
+		</Renditions>
+
+		<footer class="end">
+			<p class="read">
+				This is a complete copy, not an excerpt. The original is at
+				<a class="link" href={canonicalUrl}
+					>{canonicalUrl.replace(/^https:\/\//, '')}</a
+				>, and <a class="link" href={editionUrl}>this release round</a> keeps
+				its own permanent address there.
+			</p>
+			<p class="back">
+				<a class="action action-quiet" href="/writing/">All writing</a>
+			</p>
+		</footer>
+	</article>
+</PageLayout>
+
+<style>
+	.article {
+		max-width: 38rem;
+		margin-inline: auto;
+		padding-block: 3.25rem 0;
+	}
+
+	.source {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		line-height: 1.55;
+		letter-spacing: 0.02em;
+		color: var(--ink-faint);
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.head {
+		padding-top: 2rem;
+	}
+
+	.standfirst {
+		margin-top: 0.9rem;
+	}
+
+	.dates {
+		margin-top: 1.15rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		letter-spacing: 0.04em;
+		color: var(--ink-faint);
+	}
+
+	.end {
+		margin-top: 3.5rem;
+		padding-top: 1.75rem;
+		border-top: 1px solid var(--rule);
+	}
+
+	.end .read {
+		font-size: 0.9375rem;
+	}
+
+	.back {
+		margin-top: 1.75rem;
+	}
+
+	@media (max-width: 34rem) {
+		.article {
+			padding-block: 2.25rem 0;
+		}
+	}
+</style>
