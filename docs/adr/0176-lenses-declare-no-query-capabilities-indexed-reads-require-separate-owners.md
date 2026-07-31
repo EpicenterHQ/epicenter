@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-21
 - **Amends:** [ADR-0175](0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md) by withdrawing its unowned Lens-declared-index possibility
+- **Amended by:** [ADR-0193](0193-durable-authorities-preserve-truth-disposable-materializations-can-always-be-rebuilt.md), which names a disposable materialization as the separate runtime owner this record requires and scopes the query refusal to reads of the shared authority. A materialization may expose SQL, indexes, predicates, and paging over its own store; Lenses, tables, and the shared Epicenter still declare and receive none of those.
 - **Relates:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md), [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md), [ADR-0160](0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0162](0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md)
 
 ## Context

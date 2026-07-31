@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-30
+- **Amended by:** [ADR-0193](0193-durable-authorities-preserve-truth-disposable-materializations-can-always-be-rebuilt.md) at one consequence: the declared condition fixes which Epicenter owns the build's authority data, and it makes no claim that the build keeps no other store. A build may own a disposable materialization beside its declared Epicenter. The conditions, their independence, and the build-time fixing of the answer are unchanged.
 - **Relates:** [ADR-0189](0189-home-launches-applications-into-their-own-windows-and-stays-open-behind-them.md) (Home lists and launches compiled applications; this record decides how one is built and where its data lives), [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0177](0177-a-browser-replica-is-owned-by-a-storage-partition-and-origin-pair.md), [ADR-0168](0168-lenses-are-complete-pure-json-interpretations.md)
 
 ## Context
