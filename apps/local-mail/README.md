@@ -24,6 +24,16 @@ table.
   `mail.db-shm`, and `credentials.json` are `0600`.
 - Tables: `messages`, `labels`, and `_meta`. Thread facts are derived from live
   messages instead of stored in a separate `threads` table.
+- The stored shape is declared once in `src/mirror-schema.ts` and stamped into
+  `_meta` as a `mirror_fingerprint`. The `CREATE TABLE` statements are generated
+  from that same declaration, so changing the shape moves the fingerprint, and a
+  writer that finds a different one deletes the file and re-pulls the mailbox.
+  Readers report staleness and never rebuild. Indexes stay outside the
+  fingerprint, so a new one costs nothing. Columns filled by imperative
+  TypeScript (`subject`, `sender`, `body_text`) carry a `STORED_PROJECTIONS`
+  token in `src/message-fields.ts`; bump it when what those projections return
+  changes. This is safe only because every mirrored value is re-pullable from
+  Gmail; nothing user-owned lives here.
 - `messages.body_text` is decoded at ingest from `text/plain` MIME parts, with
   stripped `text/html` as a fallback. That makes SQL and MCP useful for body
   questions without adding FTS yet.

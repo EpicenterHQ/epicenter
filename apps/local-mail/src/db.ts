@@ -2,6 +2,11 @@ import { Database } from 'bun:sqlite';
 import { chmodSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { bodyHtml, bodyText, headerValue } from './message-fields.ts';
+import {
+	CREATE_INDEXES_SQL,
+	CREATE_TABLES_SQL,
+	MIRROR_FINGERPRINT,
+} from './mirror-schema.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
 /**
@@ -22,17 +27,17 @@ import type { GmailLabel, GmailMessage } from './schema.ts';
  *   whole mailbox in memory before one transaction; the cursor only advances
  *   once, in `finishFullPull`, after every page has committed.
  *
- * Migration is intentionally two-speed, not one blunt `SCHEMA_VERSION` bump
- * for everything: adding an index alone (a query got slow, no row or derived
- * shape change) needs nothing but a new `CREATE INDEX IF NOT EXISTS` line
- * below. Index creation runs unconditionally on every open, with no version
- * bump, no data loss, and no Gmail re-download. A row shape or derivation
- * change needs `SCHEMA_VERSION` bumped, including changes to `bodyText` or
- * header extraction. A version mismatch deletes and rebuilds the whole mirror
- * file because the corpus is disposable and Gmail owns the truth.
+ * Migration is intentionally two-speed, and neither speed is a hand-stamped
+ * version any more. Adding an index alone (a query got slow, no row or derived
+ * shape change) needs nothing but a new line in `CREATE_INDEXES_SQL`: index
+ * creation runs unconditionally on every open, with no fingerprint change, no
+ * data loss, and no Gmail re-download. A row shape or derivation change moves
+ * `MIRROR_FINGERPRINT` instead, either on its own (the tables are generated
+ * from the same declaration that is fingerprinted) or through a
+ * `STORED_PROJECTIONS` token for the columns imperative code fills. A
+ * fingerprint mismatch deletes and rebuilds the whole mirror file, because the
+ * corpus is disposable and Gmail owns the truth.
  */
-
-export const SCHEMA_VERSION = '4';
 
 export type RealmState = {
 	historyId: string | null;
@@ -177,13 +182,19 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 	secureDir(join(dataDir, accountEmail));
 	let db = openWritableHandle(path);
 
-	const storedVersion =
+	// The rebuild gate, writers only. Anything but an exact fingerprint match is
+	// a rebuild, including a missing one: a file this code did not stamp (a
+	// pre-fingerprint mirror carrying the retired `schema_version`, or a
+	// hand-made one) holds columns today's reads would misinterpret. A brand-new
+	// file takes this branch too, discarding the empty `_meta` the open above
+	// created, so after this point the on-disk fingerprint is always current.
+	const storedFingerprint =
 		db
 			.query<{ value: string | null }, [string]>(
 				`SELECT value FROM _meta WHERE key = ?`,
 			)
-			.get('schema_version')?.value ?? null;
-	if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
+			.get('mirror_fingerprint')?.value ?? null;
+	if (storedFingerprint !== MIRROR_FINGERPRINT) {
 		db.close();
 		unlinkDbFiles(path);
 		db = openWritableHandle(path);
@@ -197,31 +208,10 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 		`SELECT value FROM _meta WHERE key = ?`,
 	);
 
-	db.exec(`
-		CREATE TABLE IF NOT EXISTS messages (
-			id            TEXT PRIMARY KEY,
-			raw           TEXT NOT NULL,
-			thread_id     TEXT GENERATED ALWAYS AS (json_extract(raw, '$.threadId')) VIRTUAL,
-			snippet       TEXT GENERATED ALWAYS AS (json_extract(raw, '$.snippet')) STORED,
-			label_ids     TEXT GENERATED ALWAYS AS (json_extract(raw, '$.labelIds')) VIRTUAL,
-			internal_date INTEGER GENERATED ALWAYS AS (CAST(json_extract(raw, '$.internalDate') AS INTEGER)) STORED,
-			subject       TEXT,
-			sender        TEXT,
-			body_text     TEXT,
-			synced_at     TEXT NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, internal_date);
-		CREATE INDEX IF NOT EXISTS idx_messages_internal_date ON messages(internal_date);
-
-		CREATE TABLE IF NOT EXISTS labels (
-			id         TEXT PRIMARY KEY,
-			raw        TEXT NOT NULL,
-			name       TEXT GENERATED ALWAYS AS (json_extract(raw, '$.name')) VIRTUAL,
-			type       TEXT GENERATED ALWAYS AS (json_extract(raw, '$.type')) VIRTUAL,
-			synced_at  TEXT NOT NULL
-		);
-	`);
-	setMetaStmt.run('schema_version', SCHEMA_VERSION);
+	db.exec(CREATE_TABLES_SQL);
+	// Outside the fingerprint on purpose: re-applied every open, never a rebuild.
+	db.exec(CREATE_INDEXES_SQL);
+	setMetaStmt.run('mirror_fingerprint', MIRROR_FINGERPRINT);
 
 	const upsertMessageStmt = db.query(
 		`INSERT INTO messages (id, raw, subject, sender, body_text, synced_at)
@@ -280,6 +270,13 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 		};
 	}
 
+	/**
+	 * The only site that writes the imperatively projected columns. `subject`,
+	 * `sender`, and `body_text` each carry a `STORED_PROJECTIONS` token: change
+	 * what these three calls produce for the same message (including which
+	 * header feeds which column) and bump the matching token, or mirrors written
+	 * by older code keep values this code would never have produced.
+	 */
 	function upsertMessage(message: GmailMessage, syncedAt: string): void {
 		upsertMessageStmt.run(
 			message.id,
@@ -630,8 +627,14 @@ export function openMailDbReadonly({ dataDir, accountEmail }: MailDbLocation) {
 			};
 		},
 
-		schemaVersion(): string | null {
-			return meta('schema_version');
+		/**
+		 * The shape fingerprint the last writer stamped, reported verbatim. A
+		 * reader never compares, rebuilds, or stamps: judging staleness against
+		 * `MIRROR_FINGERPRINT` is the caller's job (`status.ts`), and acting on it
+		 * is the next writer's.
+		 */
+		mirrorFingerprint(): string | null {
+			return meta('mirror_fingerprint');
 		},
 
 		counts(): { messages: number; labels: number } {

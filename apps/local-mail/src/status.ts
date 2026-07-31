@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mailDbPath, openMailDbReadonly } from './db.ts';
+import { MIRROR_FINGERPRINT } from './mirror-schema.ts';
 import type { LocalMailRuntime } from './runtime.ts';
 import { isAccessTokenExpired } from './tokens.ts';
 
@@ -10,7 +11,13 @@ export type MailStatus = {
 	connected: boolean;
 	accessToken: { valid: boolean; expiresAt: string } | null;
 	mirror: 'empty' | 'building' | 'ready';
-	schemaVersion: string | null;
+	/** The shape fingerprint stamped on the file, or null before one is built. */
+	mirrorFingerprint: string | null;
+	/**
+	 * The file's shape no longer matches this build's declaration, so the next
+	 * sync drops it and re-pulls. Reporting it is all a reader may do.
+	 */
+	mirrorStale: boolean;
 	historyId: string | null;
 	lastFullPullAt: string | null;
 	lastSyncedAt: string | null;
@@ -41,7 +48,8 @@ export async function readMailStatus({
 		return {
 			...base,
 			mirror: 'empty',
-			schemaVersion: null,
+			mirrorFingerprint: null,
+			mirrorStale: false,
 			historyId: null,
 			lastFullPullAt: null,
 			lastSyncedAt: null,
@@ -52,10 +60,12 @@ export async function readMailStatus({
 	const db = openMailDbReadonly({ dataDir: config.dataDir, accountEmail });
 	try {
 		const realm = db.realmState();
+		const mirrorFingerprint = db.mirrorFingerprint();
 		return {
 			...base,
 			mirror: realm.historyId === null ? 'building' : 'ready',
-			schemaVersion: db.schemaVersion(),
+			mirrorFingerprint,
+			mirrorStale: mirrorFingerprint !== MIRROR_FINGERPRINT,
 			historyId: realm.historyId,
 			lastFullPullAt: realm.lastFullPullAt,
 			lastSyncedAt: realm.lastSyncedAt,

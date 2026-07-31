@@ -20,8 +20,8 @@ import {
 	mailDbPath,
 	openMailDb,
 	openMailDbReadonly,
-	SCHEMA_VERSION,
 } from './db.ts';
+import { MIRROR_FINGERPRINT } from './mirror-schema.ts';
 import type { GmailMessage } from './schema.ts';
 
 function tempDir() {
@@ -494,11 +494,12 @@ describe('labels', () => {
 });
 
 describe('readonly open', () => {
-	test('a stale-schema mirror opens readonly without touching the current column set', () => {
-		// Hand-build a v1-shaped mirror: no body_text column, a threads table,
-		// TEXT internal_date. A readonly consumer (`status` before the first
-		// post-upgrade sync) must read it without throwing; only the next
-		// writer open migrates.
+	test('a stale mirror opens readonly and is left exactly as found', () => {
+		// Hand-build a pre-fingerprint mirror: no body_text column, a threads
+		// table, TEXT internal_date, and the retired `schema_version` stamp. A
+		// readonly consumer (`status` before the first post-upgrade sync) must
+		// read it without throwing and must change nothing; only the next writer
+		// open rebuilds.
 		const tmp = tempDir();
 		const accountDir = join(tmp.dir, 'you@example.com');
 		mkdirSync(accountDir, { recursive: true });
@@ -525,10 +526,35 @@ describe('readonly open', () => {
 			dataDir: tmp.dir,
 			accountEmail: 'you@example.com',
 		});
-		expect(reader.schemaVersion()).toBe('1');
+		// No fingerprint has ever been stamped on this file, which is exactly the
+		// state `status` renders as stale. The reader reports it and stops there.
+		expect(reader.mirrorFingerprint()).toBeNull();
 		expect(reader.realmState().historyId).toBe('42');
 		expect(reader.counts()).toEqual({ messages: 1, labels: 0 });
 		reader.close();
+
+		// A reader never rebuilds: the legacy table, the row, and the retired
+		// stamp all survive the read untouched, and no fingerprint was written.
+		const after = new Database(path, { readonly: true });
+		expect(
+			after
+				.query<{ name: string }, []>(
+					`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`,
+				)
+				.all()
+				.map((row) => row.name),
+		).toEqual(['_meta', 'labels', 'messages', 'threads']);
+		expect(
+			after
+				.query<{ key: string; value: string | null }, []>(
+					`SELECT key, value FROM _meta ORDER BY key`,
+				)
+				.all(),
+		).toEqual([
+			{ key: 'history_id', value: '42' },
+			{ key: 'schema_version', value: '1' },
+		]);
+		after.close();
 		tmp.cleanup();
 	});
 
@@ -562,8 +588,8 @@ describe('mirror layout', () => {
 	});
 });
 
-describe('schema-version migration', () => {
-	test('a stale schema_version rebuilds a fresh file in the same open', () => {
+describe('the fingerprint rebuild gate', () => {
+	test('a mirror missing the current fingerprint rebuilds in the same open', () => {
 		const tmp = tempDir();
 		const location = { dataDir: tmp.dir, accountEmail: 'you@example.com' };
 		const accountDir = join(tmp.dir, 'you@example.com');
@@ -611,8 +637,16 @@ describe('schema-version migration', () => {
 				.query<{ value: string | null }, [string]>(
 					`SELECT value FROM _meta WHERE key = ?`,
 				)
-				.get('schema_version')?.value,
-		).toBe(SCHEMA_VERSION);
+				.get('mirror_fingerprint')?.value,
+		).toBe(MIRROR_FINGERPRINT);
+		// The rebuild recreated the file, so the retired stamp is gone with it.
+		expect(
+			second.raw
+				.query<{ value: string | null }, [string]>(
+					`SELECT value FROM _meta WHERE key = ?`,
+				)
+				.get('schema_version'),
+		).toBeNull();
 		expect(
 			second.raw
 				.query<{ value: string | null }, [string]>(
@@ -626,6 +660,61 @@ describe('schema-version migration', () => {
 			.map((row) => row.name);
 		expect(columns).not.toContain('deleted');
 		second.close();
+		tmp.cleanup();
+	});
+
+	test('a matching fingerprint reopens the same file, cursor and rows intact', () => {
+		// The counterpart to the rebuild: the gate must be a match test, not a
+		// clean-every-open. Losing the mailbox on an ordinary reopen would be the
+		// same bug with the opposite sign.
+		const tmp = tempDir();
+		const location = { dataDir: tmp.dir, accountEmail: 'you@example.com' };
+		const db = openMailDb(location);
+		db.ingestFullPullPage([message({ id: 'm1' })], 's1');
+		db.finishFullPull('500', 's1');
+		db.close();
+
+		const reopened = openMailDb(location);
+		expect(reopened.counts().messages).toBe(1);
+		expect(reopened.readRealmState().historyId).toBe('500');
+		reopened.close();
+		tmp.cleanup();
+	});
+
+	test('a foreign fingerprint rebuilds, a dropped index alone does not', () => {
+		const tmp = tempDir();
+		const location = { dataDir: tmp.dir, accountEmail: 'you@example.com' };
+		const db = openMailDb(location);
+		db.ingestFullPullPage([message({ id: 'm1' })], 's1');
+		db.finishFullPull('500', 's1');
+
+		// Indexes are outside the fingerprint, so dropping one is not a shape
+		// change: the reopen re-creates it and keeps every row and the cursor.
+		db.raw.exec(`DROP INDEX idx_messages_thread`);
+		db.close();
+
+		let reopened = openMailDb(location);
+		expect(
+			reopened.raw
+				.query<{ name: string }, []>(
+					`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_messages_thread'`,
+				)
+				.get()?.name,
+		).toBe('idx_messages_thread');
+		expect(reopened.counts().messages).toBe(1);
+		expect(reopened.readRealmState().historyId).toBe('500');
+
+		// A different fingerprint is a shape change: the file goes, the cursor
+		// with it, and the next sync re-pulls from scratch.
+		reopened.raw.exec(
+			`UPDATE _meta SET value = 'someone-elses-shape' WHERE key = 'mirror_fingerprint'`,
+		);
+		reopened.close();
+
+		reopened = openMailDb(location);
+		expect(reopened.counts().messages).toBe(0);
+		expect(reopened.readRealmState().historyId).toBeNull();
+		reopened.close();
 		tmp.cleanup();
 	});
 });

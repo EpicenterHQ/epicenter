@@ -456,7 +456,12 @@ function renderStatus(status: MailStatus): string {
 		['connected', status.connected ? 'yes' : 'no'],
 		['access token', accessToken],
 		['mirror', status.mirror],
-		['schema version', status.schemaVersion ?? 'none'],
+		[
+			'mirror shape',
+			status.mirrorStale
+				? 'stale (next sync rebuilds)'
+				: (status.mirrorFingerprint?.slice(0, 12) ?? 'none'),
+		],
 		['history cursor', status.historyId ?? 'none'],
 		['last full pull', status.lastFullPullAt ?? 'never'],
 		['last synced', status.lastSyncedAt ?? 'never'],
