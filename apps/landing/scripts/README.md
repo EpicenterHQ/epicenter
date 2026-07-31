@@ -12,18 +12,21 @@ committed Markdown under `../src/content/writing/`.
 # Regenerate. VAULT_ROOT defaults to ~/Code/vault.
 bun run --cwd apps/landing project:editions
 
-# Fail if the committed projection has drifted from the Vault.
+# Fail if the committed projection has drifted from the Vault or still contains
+# an article removed from the allowlist.
 bun run --cwd apps/landing project:editions -- --check
 
 # Trust local Vault files instead of asking bradenwong.com what it serves.
 bun run --cwd apps/landing project:editions -- --offline
 ```
 
-The allowlist is the whole safety mechanism: the script reads exactly the
-edition folders it names and refuses every other path, so no private page,
-production, or unapproved draft can reach a public build. Media is never
-copied. Audio, video, and images are referenced by their public bradenwong.com
-URL, and the script verifies each one answers before writing it down.
+The allowlist is the publication boundary: article bodies are read only from
+the edition folders it names. To resolve links between published articles, the
+script also reads the frontmatter of every approved Vault edition, but discards
+those bodies. It never reads private pages, productions, or review artifacts.
+Media is never copied. Audio, video, and images are referenced by their public
+bradenwong.com URL, and the script verifies each one answers before writing it
+down.
 
 Re-run it after Braden reapproves an edition, then commit the diff. `--check`
 is how you notice that you should have.
