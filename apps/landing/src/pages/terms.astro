@@ -1,11 +1,7 @@
 ---
-/**
- * Migrated to the public layout. The wording below is preserved exactly as it
- * was written, because it is a published promise rather than page furniture.
- */
 import PageLayout from '../layouts/PageLayout.astro';
 
-const lastUpdated = 'June 21, 2026';
+const lastUpdated = 'July 30, 2026';
 ---
 
 <PageLayout
@@ -20,10 +16,13 @@ const lastUpdated = 'June 21, 2026';
 
 		<div class="body read">
 			<p>
-				Epicenter is free and open source, under AGPL-3.0. The code is on
+				Epicenter is free and open source. Its applications and server are
+				licensed under AGPL-3.0, while its embeddable toolkit packages use the
+				MIT license. The code is on
 				<a class="link" href="https://github.com/EpicenterHQ/epicenter"
 					>GitHub</a
-				>, and you are welcome to read it, run it, and change it.
+				>, and you are welcome to read it, run it, and change it under those
+				licenses.
 			</p>
 
 			<p>
@@ -34,9 +33,9 @@ const lastUpdated = 'June 21, 2026';
 
 			<p>
 				Some of these are experiments, and they might change or go away. That is
-				part of the point of local-first: even if a tool disappears, your files
-				don't. They are plain SQLite and Markdown on your own disk, and they
-				stay yours.
+				part of the point of local-first: the working copy remains on your
+				device. Its storage format depends on the tool and platform, and may
+				include browser storage, databases, or exported files.
 			</p>
 
 			<p>

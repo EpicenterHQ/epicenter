@@ -47,5 +47,13 @@
 		// See: apps/posthog-reverse-proxy/ for our Cloudflare Worker setup
 		api_host: 'https://proxy.epicenter.so',
 		defaults: '2025-05-24',
+		autocapture: false,
+		capture_pageview: true,
+		capture_pageleave: false,
+		capture_exceptions: false,
+		disable_session_recording: true,
+		persistence: 'memory',
+		person_profiles: 'never',
+		respect_dnt: true,
 	});
 </script>
