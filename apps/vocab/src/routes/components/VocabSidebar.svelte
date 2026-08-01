@@ -14,6 +14,20 @@
 
 	const vocab = getVocabApp();
 
+	/** Which conversation is open for renaming, if any. The list is the only way
+	 * back to a topic (ADR-0195), and a seed or a practice selection titles a
+	 * conversation the learner never named, so correcting a title has to be
+	 * reachable from the list itself. */
+	let renamingId = $state<ConversationId | null>(null);
+
+	/** Take the edit unless it is empty: a blank title would leave a nameless row
+	 * that the first-message auto-title no longer reclaims. */
+	function commitRename(conversation: ConversationHandle, draft: string) {
+		const title = draft.trim();
+		if (title && title !== conversation.title) conversation.title = title;
+		renamingId = null;
+	}
+
 	let {
 		conversations,
 		activeConversationId,
@@ -67,21 +81,40 @@
 				<Sidebar.Menu>
 					{#each conversations as conv (conv.id)}
 						<Sidebar.MenuItem>
-							<Sidebar.MenuButton
-								isActive={conv.id === activeConversationId}
-								onclick={() => onSwitch(conv.id)}
-								tooltipContent={conv.title}
-							>
-								<MessageSquareTextIcon class="size-4" />
-								<span>{conv.title}</span>
-							</Sidebar.MenuButton>
-							<Sidebar.MenuAction
-								showOnHover
-								aria-label="Delete conversation"
-								onclick={() => conv.delete()}
-							>
-								<TrashIcon class="size-3.5" />
-							</Sidebar.MenuAction>
+							{#if renamingId === conv.id}
+								<input
+									{@attach (node) => node.select()}
+									class="w-full rounded-sm border bg-background px-2 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									aria-label="Rename conversation"
+									value={conv.title}
+									onblur={(event) => commitRename(conv, event.currentTarget.value)}
+									onkeydown={(event) => {
+										// Escape restores the title before blurring, so the commit
+										// on the way out is a no-op whether or not the browser
+										// fires blur for an element being removed.
+										if (event.key === 'Escape') event.currentTarget.value = conv.title;
+										if (event.key === 'Enter' || event.key === 'Escape')
+											event.currentTarget.blur();
+									}}
+								/>
+							{:else}
+								<Sidebar.MenuButton
+									isActive={conv.id === activeConversationId}
+									onclick={() => onSwitch(conv.id)}
+									ondblclick={() => (renamingId = conv.id)}
+									tooltipContent="{conv.title} (double-click to rename)"
+								>
+									<MessageSquareTextIcon class="size-4" />
+									<span>{conv.title}</span>
+								</Sidebar.MenuButton>
+								<Sidebar.MenuAction
+									showOnHover
+									aria-label="Delete conversation"
+									onclick={() => conv.delete()}
+								>
+									<TrashIcon class="size-3.5" />
+								</Sidebar.MenuAction>
+							{/if}
 						</Sidebar.MenuItem>
 					{/each}
 				</Sidebar.Menu>
