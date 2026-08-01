@@ -1,0 +1,18 @@
+{
+	"name": "@examples/chinese-tutor",
+	"description": "Throwaway prototype: one conversation engine, four session-intent openings, derived pinyin",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"pinyin-pro": "^3.28.0"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	}
+}

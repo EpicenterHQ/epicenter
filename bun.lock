@@ -557,6 +557,17 @@
         "wrangler": "catalog:",
       },
     },
+    "examples/chinese-tutor": {
+      "name": "@examples/chinese-tutor",
+      "version": "0.0.1",
+      "dependencies": {
+        "pinyin-pro": "^3.28.0",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "examples/yjs-size-benchmark": {
       "name": "@examples/yjs-size-benchmark",
       "version": "0.0.1",
@@ -1436,6 +1447,8 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.28.1", "", { "os": "win32", "cpu": "ia32" }, "sha512-zvb/mB2bSCoJOpoCBgYKKpX6YM6mJBlBUVUtVj41DlZJVEB6/0CKlRYxP5wWl1C1ILiCoAU5wZZ4q1P3qeS6Eg=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.1", "", { "os": "win32", "cpu": "x64" }, "sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A=="],
+
+    "@examples/chinese-tutor": ["@examples/chinese-tutor@workspace:examples/chinese-tutor"],
 
     "@examples/yjs-size-benchmark": ["@examples/yjs-size-benchmark@workspace:examples/yjs-size-benchmark"],
 
