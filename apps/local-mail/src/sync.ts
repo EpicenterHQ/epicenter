@@ -258,7 +258,21 @@ async function incrementalPoll(
 	const { db, client } = deps;
 	const log = deps.log ?? (() => {});
 	const records: HistoryRecord[] = [];
-	let newHistoryId = cursorBefore;
+	/**
+	 * The cursor this pass commits: the FIRST page's `historyId`, read before
+	 * pagination, not the last page's.
+	 *
+	 * Every page reports the mailbox's CURRENT history id, so a change landing
+	 * mid-pagination can raise a later page's number without its records
+	 * appearing in the window this pass walks. Committing that higher number
+	 * steps over those records for good, because the next pass starts after them
+	 * and only the FULL backstop (days away) would notice. Committing the first
+	 * page's number can at worst replay a window, and replay is free here:
+	 * upserts, deletes, and label patches are all idempotent. This is the same
+	 * pre-read baseline rule `syncMailbox`'s FULL pull already follows with
+	 * `getProfile`.
+	 */
+	let baselineHistoryId: string | null = null;
 	let pageToken: string | undefined;
 
 	while (true) {
@@ -270,12 +284,15 @@ async function incrementalPoll(
 					: 'history.list failed';
 			return failedOutcome('INCREMENTAL', reason, cursorBefore, page.error);
 		}
-		newHistoryId = page.data.historyId;
+		baselineHistoryId ??= page.data.historyId;
 		// A no-change response has no `history` key at all (not `.length === 0`).
 		if (page.data.history) records.push(...page.data.history);
 		if (!page.data.nextPageToken) break;
 		pageToken = page.data.nextPageToken;
 	}
+	// The loop either returns or completes at least one page, so the fallback is
+	// unreachable; it exists so the cursor can never be typed as null.
+	const newHistoryId = baselineHistoryId ?? cursorBefore;
 
 	const actions = foldHistoryRecords(records);
 	const messagesToUpsert: GmailMessage[] = [];

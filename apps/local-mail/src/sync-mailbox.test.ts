@@ -803,6 +803,46 @@ describe('syncMailbox: INCREMENTAL', () => {
 		cleanup();
 	});
 
+	test('a paginated pass commits the first page cursor, so a mid-pagination change is replayed rather than skipped', async () => {
+		// Gmail reports the mailbox's CURRENT history id on every page. Mail
+		// arriving while we walk page 2 raises that number without its records
+		// necessarily being in this pass's window, so committing the last page's
+		// id would step over them permanently. The first page's id at worst
+		// replays records already applied, and every apply here is idempotent.
+		const { db, cleanup } = seededDb();
+		const mailbox = new Map([['added', message('added')]]);
+		const client = createFakeGmailClient({
+			mailbox,
+			historyPages: [
+				{
+					historyId: '501',
+					history: [
+						{
+							id: 'h1',
+							messagesAdded: [{ message: { id: 'added', threadId: 't-added' } }],
+						},
+					],
+					nextPageToken: 'page-2',
+				},
+				// Mail landed while page 1 was in flight: the mailbox is at 507 now,
+				// and this pass never saw whatever produced 502..507.
+				{ historyId: '507', history: undefined },
+			],
+			profileHistoryId: '999',
+		});
+
+		const outcome = await syncMailbox(
+			{ db, client, config, now: () => Date.parse('2026-06-30T01:00:00.000Z') },
+			{ forceFull: false },
+		);
+
+		expect(outcome.failure).toBeNull();
+		expect(outcome.messagesUpserted).toBe(1);
+		expect(outcome.cursorAfter).toBe('501');
+		expect(db.readRealmState().historyId).toBe('501');
+		cleanup();
+	});
+
 	test('an expired cursor (404) mid-pass falls back to FULL within the same call', async () => {
 		const { db, cleanup } = seededDb();
 		const mailbox = new Map([['fresh', message('fresh')]]);
