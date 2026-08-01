@@ -6,7 +6,7 @@ One app, one learning goal. There is no language setting, no learner profile, an
 
 ## How it works
 
-**Three ways in, one mechanism**: every intentional session opens a new conversation. You type the first turn; or you accept a proactive seed, a topic opener the app ships as plain text; or you pick saved phrases and start Practice over them. The second and third compose a real title plus one opening user turn and hand both to `chat.createConversation()`, so a composed session never steers whatever thread happened to be open. Returning to a topic is the conversation list, sorted by recency. There is no mode, no route, and no stored session state.
+**Three ways in, one mechanism**: every intentional session opens a new conversation. You type the first turn; or you accept a proactive seed, a topic opener the app ships as plain text; or you pick saved phrases and start Practice over them. The second and third compose a real title plus one opening user turn and hand both to `chat.createConversation()`, so a composed session never steers whatever thread happened to be open. Returning to a topic is the conversation list, sorted by recency; double-click a row to rename it, since a composed session titles a conversation you never named. There is no mode, no route, and no stored session state.
 
 **Steering is the persona, never the pool**: the saved entries never enter a system prompt. Ordinary conversation follows you, and the tutor may offer useful Chinese the way a conversation partner does. Deliberate steering exists only where you asked for it, and then it is visible in the transcript as the turn that asked. Nothing a session does writes back: no entry is marked practiced, no counter moves, no due date is set.
 

@@ -270,3 +270,22 @@ test('a composed conversation carries the model forward like a blank one', async
 
 	expect(creates.at(-1)?.model).toBe(DEFAULT_MODEL);
 });
+
+// A composed opener names a conversation the user never typed, and the titled
+// list is the only way back to a topic, so the title has to be correctable.
+// That a real title then survives the next turn is the auto-title guard, already
+// covered above; the runes here are shimmed to a single evaluation, so a handle
+// cannot observe its own row change mid-test.
+test('renaming a conversation writes the new title to its row', async () => {
+	const { chat, rows } = await bootWithActiveTopic();
+
+	const id = await chat.createConversation({ title: 'Practice: 你好, 再见' });
+	await settle();
+	const conversation = chat.active;
+	if (!conversation) throw new Error('The new conversation has no handle');
+
+	conversation.title = 'Tea vocabulary';
+	await settle();
+
+	expect(rows.get(id)?.title).toBe('Tea vocabulary');
+});

@@ -277,6 +277,15 @@ export function createAgentChatState({
 			get title() {
 				return metadata?.title ?? UNTITLED;
 			},
+			/** Rename the conversation, mirroring {@link model}. The titled list is
+			 * how a surface returns to a topic, and a title a composed opener wrote
+			 * (see {@link ConversationOpener}) is one the user never typed, so
+			 * correcting it has to be reachable. Writing any real title also settles
+			 * the auto-title, which only ever replaces the placeholder. A blank
+			 * title is the caller's to prevent: this writes what it is given. */
+			set title(value: string) {
+				updateConversation(conversationId, { title: value });
+			},
 
 			/** Recency for the conversation list, as the row's ISO instant. */
 			get updatedAt() {
