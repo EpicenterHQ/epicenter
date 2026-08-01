@@ -36,6 +36,7 @@ defineLens()
 src/
   lib/
     application.ts         # openVocabApplication(): replica + bound Lens + entry pool
+    VocabAppProvider.svelte  # opens the application for the tree and provides it
     context.ts             # the app handle's Svelte context
     instance.ts            # self-hosted instance connection setting
     session.ts             # SessionOpening; practiceOpening(): title + opening turn for a practice session
