@@ -13,6 +13,15 @@ device-only credential boundary). The mirror is Gmail-owned cache data.
 Human-meaningful mail state must round-trip through Gmail, not a local-only
 table.
 
+**This section describes what the code does today, and the storage model has
+been decided to change.** `docs/adr/0198-*.md`, `docs/adr/0199-*.md`, and
+`docs/adr/0200-*.md` accept a mailbox database (Gmail facts plus durable local
+overlays plus derived indexes, in one stable file per account), one writer
+(`sync()`), and offline draft editing. None of it is implemented yet; the plan
+is `specs/20260801T164500-local-mail-pending-overlays.md`. Read those before
+adding to the shape below, because several of its properties (the versioned
+filename, the write-through fold, the disposability claim) are on the way out.
+
 ## Shape
 
 - Runtime: Bun. `bun:sqlite` stores the mirror, built-in `fetch` calls Gmail,
