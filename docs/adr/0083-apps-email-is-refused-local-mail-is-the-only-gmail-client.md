@@ -15,7 +15,7 @@
 ## Consequences
 
 <!-- doc-path-check: ignore-next-line -->
-- `specs/20260606T114052-email-client-architecture.md` is deleted. It was never committed, so nothing in git history recovers it; its "UI Shape" layout and Gmail-scope/CASA research are preserved in `specs/20260630T150000-local-mail-tauri-cdc-mirror.md`'s Appendix for Local Mail's Phase 4 UI work.
+- `specs/20260606T114052-email-client-architecture.md` is deleted. It was never committed, so nothing in git history recovers it; its "UI Shape" layout and Gmail-scope/CASA research were carried into the Local Mail parent spec's Appendix, which has itself since been deleted (its work landed). Recover that body with `git show 68eb619e1f:specs/20260630T150000-local-mail-tauri-cdc-mirror.md`.
 - The Google Cloud OAuth Web-app client behind `GOOGLE_MAIL_CLIENT_ID`/`GOOGLE_MAIL_CLIENT_SECRET` has no remaining purpose; it should be revoked in Google Cloud Console and the two secrets removed from Infisical `/api`, pending confirmation (a live external credential and a shared secret store, not a local git-reversible change).
 - Local Mail's own Gmail OAuth client (spec open question 5) is a separate, new Desktop-app-type client in the same "Epicenter Mail" Cloud project (same consent-screen posture and scope sensitivity), not a reuse of the Web-app client this ADR retires.
 - Local Mail's spec and handoff no longer need to justify their existence against a sibling app; the "Relation to `apps/email`" framing and the corresponding handoff open question are removed.
