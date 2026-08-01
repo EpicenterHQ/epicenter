@@ -2,10 +2,19 @@
  * Scalar Sync V1 protocol kernel (ADR-0163, ADR-0164, ADR-0160).
  *
  * This is a deliberately private barrel. It is NOT listed in the package
- * `exports` map, so no production consumer can import it: the kernel stands
- * beside the current combined-exchange protocol without replacing or composing
- * with it. Tests import from here; the local replica (Wave 2b) and the server
- * authority (Wave 2c) will consume the kernel once those waves land.
+ * `exports` map, so no consumer outside this directory can import it: the
+ * kernel stands beside the live combined-exchange protocol in `../` without
+ * replacing or composing with it, and only this directory's own tests import
+ * from here.
+ *
+ * That privacy is the whole safety story, so keep it. A SQL realization of this
+ * kernel once lived in `@epicenter/server` and reached it through an `exports`
+ * entry added for that one consumer. It initialized the *live* authority schema
+ * and then reinterpreted the production `_authority_replicas` columns under V1
+ * meanings, which put two protocols on one storage owner and made every
+ * production schema change answerable to an unlanded wire. Both the entry and
+ * that realization are gone. A future wave that wants to run this kernel over
+ * storage owns its own schema; it does not borrow the live authority's.
  *
  * The kernel is a complete executable contract:
  * - structured row and value addresses;

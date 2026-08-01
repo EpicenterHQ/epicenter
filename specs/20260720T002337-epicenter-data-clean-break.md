@@ -940,6 +940,26 @@ biome lint/format are clean.
   submission transaction owns admission, folds, sequences, retry metadata,
   parked results, and result-fact reads.
 
+Not done. A first attempt landed in `packages/server` as an `authority-v1.ts`
+beside the live authority, and was removed (2026-08-01) without a replacement,
+because it took the one shortcut this wave cannot take: it reused the *live*
+authority's schema rather than persisting its own. It called
+`initializeAuthoritySchema`,
+wrote `_authority_replicas.accepted_batch` as a submission number, forced the
+production `receipt_sequence` column to zero, and had nowhere to put bounded
+parked results at all. That put two protocols on one storage owner, so every
+change to the shipped authority format became answerable to an unlanded wire,
+and it broke Wave 2's own rollback promise from the other direction: the new
+core is supposed to be reachable by no production path, not to share production
+storage. Reaching it also required adding a `./protocol/v1` entry to the
+`@epicenter/data` `exports` map, contradicting the privacy Wave 2a records
+above; that entry is gone too.
+
+This wave stays open, and its first bullet is the reason: the authority lifetime
+identity has no owner anywhere in the tree yet. Persisting structured current
+facts, submission numbers, request hashes, and parked results is a schema this
+wave must define, not one it can borrow.
+
 #### Wave 2d: in-process conformance
 
 - Connect the replica capability directly to authority operations before adding

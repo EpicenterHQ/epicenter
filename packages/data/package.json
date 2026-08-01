@@ -5,7 +5,6 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./protocol/v1": "./src/protocol/v1/index.ts",
 		"./browser": "./src/browser.ts",
 		"./browser-dedicated-worker": "./src/browser-dedicated-worker.ts",
 		"./bun": "./src/bun.ts",
