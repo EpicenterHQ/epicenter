@@ -142,8 +142,11 @@ is the safety witness that stops a restored or copied private database from
 silently retiring different content under the same round.
 
 For protocol details and executable coverage, read
-[`packages/data/src/protocol/v1`](../packages/data/src/protocol/v1) and
+[`packages/data/src/protocol`](../packages/data/src/protocol) and
 [`packages/data/src/protocol/protocol.test.ts`](../packages/data/src/protocol/protocol.test.ts).
+The sibling `protocol/v1` directory is not this protocol: it is the inert
+kernel for the wire Proposed ADR-0163 selects, private to its own tests and
+served by no route.
 
 ## Documents are a lazy Yjs 14 plane
 

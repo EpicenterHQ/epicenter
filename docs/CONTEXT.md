@@ -211,20 +211,25 @@ shapes, see `docs/adr/`.
 - **Document publication receipt**: post-commit authority proof for one exact
   frozen document update, bound to its authority lifetime, row address, protocol
   version, and payload digest. State vectors are transfer hints, never receipts.
-- **Proposed scalar V1 vocabulary**: the fact, intent, facts-feed, and numbered
-  submission terms below describe the destination selected by Proposed
-  ADR-0163. They are not the current production protocol. The transitional
-  runtime still uses the accepted ADR-0141 combined exchange, receipts,
-  checkpoints, and settlement watermarks until the V1 migration lands.
+- **Scalar vocabulary, landed and proposed**: the four terms below did not land
+  together. Scalar fact and scalar intent are the current production protocol:
+  `@epicenter/data/protocol` ships them, and the authority stores facts in the
+  split row and value relations ADR-0178 defines. Facts feed and scalar
+  submission are still the destination Proposed ADR-0163 selects and nothing
+  serves them. Production carries both over ADR-0141's combined exchange at
+  `POST /api/sync/v1`, which keeps a public receipt and cursor that ADR-0163
+  would remove. So the semantics moved and the transport did not.
 - **Scalar fact**: the authority's current state at one structured row or value
   address. A fact carries one global authority sequence and explicit presence.
   Present rows carry fields, present values carry content, absent rows are
   terminal tombstones for the authority lifetime, and absent values are
   reversible unsets.
-- **Scalar intent**: one compacted desired transition at a structured address.
-  Typed row create and update both lower to row-present field patches; row
-  delete lowers to row-absent. Value set and unset lower to value-present and
-  value-absent.
+- **Scalar intent**: one compacted desired transition at a structured address,
+  named by a verb because it is a command and the action is its whole content.
+  Typed row create and update both lower to one `patch`: whether a row is new is
+  something the authority knows and the replica only believes, so `patch` folds
+  over the live row or over an empty object and is refused outright once the
+  address holds a tombstone. `delete` ends a row. Values take `set` and `unset`.
 - **Facts feed**: the whole-Epicenter HTTP read of current authority facts after
   one `afterSequence`. Each installed bounded prefix advances that one durable
   watermark. `hasMore` only reports whether the same read snapshot contained
