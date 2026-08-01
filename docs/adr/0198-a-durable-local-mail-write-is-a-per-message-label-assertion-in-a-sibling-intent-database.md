@@ -69,7 +69,7 @@ or query-shaped intent is needed to express bulk triage.
 
 ### The stored shape
 
-One table, one row per opinion:
+One table, one row per opinion, and five columns:
 
 | column        | meaning                                                     |
 | ------------- | ----------------------------------------------------------- |
@@ -78,8 +78,6 @@ One table, one row per opinion:
 | `want`        | `1` the label is wanted, `0` it is not                       |
 | `seq`         | per-account monotonic integer, allocated on every assertion  |
 | `asserted_at` | when the user acted                                          |
-| `attempts`    | delivery attempts so far                                     |
-| `last_error`  | the last delivery failure, or null                           |
 
 `PRIMARY KEY (message_id, label_id)` is what makes this a map rather than a
 queue. Asserting the same pair again overwrites `want` and allocates a new `seq`,
@@ -87,7 +85,17 @@ so archive then unarchive then archive collapses to one row saying archive. Ther
 is no history of how the user got here, because nothing needs one.
 
 `seq` exists for exactly one job: it lets a delivery retire the opinion it
-actually carried and no other. ADR-0199 owns that rule.
+actually carried and no other. ADR-0199 owns that rule. `asserted_at` exists for
+exactly one job: the age of the oldest undelivered assertion is the one thing
+besides the count that the product shows.
+
+**A row records what the user wants, never what happened when we tried.** There
+is no attempt counter, no last-error column, no failure state, and no per-row
+delivery history. A row exists or it does not, and while it exists it means
+exactly one thing: this has not reached Gmail yet. Keeping a row's vocabulary
+that small is what stops the map from accreting into the queue it is not, because
+an attempt count and an error string are the two columns a dead-letter table is
+built from.
 
 ### Where it lives, and why not the two obvious alternatives
 
@@ -131,6 +139,15 @@ was shown. One projection, shared by the SPA, the CLI, and MCP.
 - **A generic payload, change, or operation table.** A row is a label opinion.
   There is no untyped blob column that a future feature can smuggle a different
   kind of write into.
+- **Durable per-row failure state.** No attempt counter, no error column, no
+  retry schedule, no backoff stored on the row, and therefore no dead-letter
+  tier, because a dead-letter tier is what a failure column eventually needs. An
+  assertion that cannot be delivered is either rejected before it is created or
+  discarded and reported in the pass that discovered it (ADR-0199). What survives
+  a failed pass is the user's unchanged intent, nothing else.
+- **Automatic expiry.** No assertion ages out, and nothing prunes the map on a
+  timer or a threshold. An undelivered write leaves only two ways: Gmail accepts
+  it, or a human discards it.
 - **A standing policy over a thread, query, or label.** Intent never refers to a
   set that can grow after the user acted.
 - **Local-only mail state.** Every assertion names a Gmail label id and exists in
@@ -164,7 +181,14 @@ was shown. One projection, shared by the SPA, the CLI, and MCP.
   product change the whole record exists to make possible.
 - **Undelivered work is countable, showable, and discardable.** Because pending
   writes are rows rather than in-flight promises, the app can state how many
-  there are and how old the oldest is. ADR-0199 owns that surface.
+  there are and how old the oldest is. Both come from the five columns above; no
+  status field is added to support them. ADR-0199 owns that surface.
+- **"Why is this stuck" is answered once, not per row.** Without a per-row error
+  the app cannot say which assertion failed and why, only that delivery is not
+  succeeding and what the current failure is. That is the honest shape anyway:
+  the failures that block delivery are systemic (no network, a rejected token, a
+  throttle), so they are properties of the pass and not of any one row. A failure
+  that really is about one message is not retried at all.
 - **Every reader agrees.** The CLI, MCP, and the SPA all read the same projection
   from the same two files, so an agent and a human see the same mailbox.
 - **Archive, read, star, trash, and custom labels stop being five verbs.** They
@@ -174,9 +198,12 @@ was shown. One projection, shared by the SPA, the CLI, and MCP.
   handling now cover two files instead of one, and they are not covered by the
   same rules: the mirror is disposable, `intent.db` is not. A corrupt `intent.db`
   is a real loss of pending work, bounded by how long delivery was blocked.
-- **A message deleted in Gmail can strand an assertion.** The delivery attempt
-  fails with a per-id 404 and the reconciler must retire it as unachievable
-  rather than retrying forever. ADR-0199 owns that.
+- **A message deleted in Gmail cannot strand an assertion.** The delivery fails
+  with a per-id 404, and because there is nowhere to record a failure, the only
+  available move is the correct one: discard the assertion and report it in that
+  pass. Most of this case never reaches delivery, because an assertion is refused
+  at act time when its message or label is not in the mirror. ADR-0199 owns both
+  halves.
 - **The refusal list is the point.** Each item is something a queue would have
   made expressible. Writing them down is what stops "we already have a durable
   write plane" from becoming the answer to send-later.

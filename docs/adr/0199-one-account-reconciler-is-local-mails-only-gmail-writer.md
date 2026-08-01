@@ -93,13 +93,30 @@ one a reviewer can confirm is correct.
 
 ### When an assertion cannot be achieved
 
-A per-id `400` or `404` means this assertion is about a message Gmail will not
-accept a change for, usually because it was permanently deleted elsewhere.
-Retrying cannot fix it. The row is retired as unachievable and reported once, and
-the pass continues to the next message. Everything else, a token failure, a
-throttle, a network error, is systemic: the pass stops delivering, the affected
-rows keep their opinions, `attempts` and `last_error` are updated, and the next
-wake tries again.
+**Refuse it before it exists, where that is possible.** An assertion is created
+only against a message and a label the mirror already holds. A label name that
+does not resolve, a label id that is not in `labels`, and a message id that is
+not in `messages` are all refused at the moment the user acts, to the user's
+face, and no row is written. That is where the great majority of impossible
+assertions are caught, and it is the cheap place to catch them.
+
+What survives that check is the race: a message deleted or purged in Gmail
+between the act and the drain. Gmail answers with a per-id `400` or `404`, and
+retrying cannot fix it. **The assertion is discarded and the discard is reported
+in that pass's result**, then the drain continues to the next message. There is
+no failure row, no unachievable state, and nothing to clean up later, because a
+row that cannot ever be delivered has no reason to outlive the pass that learned
+so.
+
+Everything else, a rejected token, a throttle, a network error, is systemic. The
+pass stops delivering, every affected row keeps its opinion **exactly as it was**,
+and the next wake tries again. Nothing is written to the assertions: a systemic
+failure is a fact about the pass, not about any row in it, and the reconciler
+reports it as the pass's failure.
+
+Retries are therefore unbounded and unpaced by anything stored. What bounds them
+is a human: the count and age are visible, and discard is one action away. That
+is the entire retry policy, and it is deliberately not a schedule.
 
 ### What wakes it
 
@@ -130,17 +147,26 @@ own `intent.db`, and their passes overlap freely.
 ### The product surface
 
 Local Mail's writes are a **visible, bounded retry ledger**, not a silent sync.
+Bounded by the user, not by a counter.
 
-- The status surface reports the number of undelivered assertions and the age of
-  the oldest. Zero is the normal reading and it is stated, not implied by an
-  absent warning.
-- Undelivered work can be discarded, per assertion or wholesale. Discarding is
-  complete: the row is removed, Gmail never sees it, and the read projection
-  returns to the mirror's own labels.
-- Each row carries its `attempts` and its last error, so "stuck" is a thing the
-  user can read rather than infer.
-- Disconnecting an account reports its undelivered count first and discards it on
-  confirmation. A reauthorization is not a disconnect and retains everything.
+Status reports exactly three things, and adding a fourth is a decision, not a
+detail:
+
+- **The undelivered count.** Zero is the normal reading and it is stated, not
+  implied by an absent warning.
+- **The age of the oldest undelivered assertion**, from `asserted_at`. This is
+  what turns "some pending work" into "something is wrong".
+- **The current or most recent reconcile failure**, as one message. It is the
+  running reconciler's last pass outcome, held in memory like every other pass
+  result, never a stored column and never per assertion.
+
+Undelivered work can be discarded, per assertion or wholesale. Discarding is
+complete: the row is removed, Gmail never sees it, and the read projection
+returns to the mirror's own labels. Discarding is the only way an undelivered
+assertion leaves without reaching Gmail.
+
+Disconnecting an account reports its undelivered count first and discards it on
+confirmation. A reauthorization is not a disconnect and retains everything.
 
 ### What this refuses
 
@@ -157,6 +183,13 @@ Local Mail's writes are a **visible, bounded retry ledger**, not a silent sync.
   `history.list` window rather than from the call, applied only to assertions
   whose retirement can be deferred that long. That takes a new ADR, because it
   changes what "confirmed" means.
+- **A retry schedule, backoff state, or dead-letter tier.** Nothing about
+  delivery is stored, so there is nothing to schedule from and nowhere for a
+  permanently-failing row to be filed. A failure is either about the pass, in
+  which case the next wake retries, or about one message, in which case the
+  assertion is discarded immediately.
+- **Automatic expiry of undelivered work.** No age threshold, no attempt ceiling,
+  no quiet cleanup. Delivery and discard are the only exits.
 - **Background delivery after the app closes.** No daemon, no wake-on-timer, no
   handoff to another process (ADR-0116).
 - **A second Gmail writer of any kind.** Not a retry worker, not a fast path for
@@ -178,8 +211,14 @@ Local Mail's writes are a **visible, bounded retry ledger**, not a silent sync.
   just after a pass waits for the next wake. Coalesced write-wakes make the
   common case immediate; the guarantee is the interval.
 - **Two failure surfaces collapse into one.** A failed write used to be a toast
-  the user might miss. It is now a row in a ledger with a count, an age, and a
-  discard, which is the same shape as a failed sync.
+  the user might miss. It is now a count, an age, and one current failure
+  message, which is the same shape as a failed sync and is read the same way.
+- **The app cannot say which pending assertion is the problem.** With no per-row
+  error there is no "this one failed" answer, only "delivery is not succeeding,
+  here is why". Accepted, because the failures that persist are systemic and
+  belong to the pass; the per-message ones do not persist at all. If a real case
+  ever needs per-row attribution, it takes a new record, because the column it
+  would add is the first half of a dead-letter table.
 - **The `MessageWriteOutcome` vocabulary goes away.** `folded`, `aborted`, and
   per-id error summaries described a request that talked to Gmail. An assert
   returns what it stored. Delivery outcomes are read from the ledger.
@@ -206,6 +245,21 @@ Local Mail's writes are a **visible, bounded retry ledger**, not a silent sync.
   correctly-projected list would flicker on every pass until delivery.
 - **Retire by `(message_id, label_id)` alone.** Rejected. It discards an opinion
   asserted while a delivery was in flight, which is exactly the fast-undo case.
+- **Keep an `attempts` counter and a `last_error` per assertion.** Rejected, and
+  this was the shape an earlier draft of this record carried. Those two columns
+  are what a dead-letter table is made of: once a row can hold a failure, it
+  needs a threshold, the threshold needs a terminal state, the terminal state
+  needs a place to sit and a policy to clear it, and the partial map has become
+  the queue ADR-0198 refused. They also answer a question nobody can act on: a
+  persistent failure is systemic and identical for every row, so N copies of one
+  error string is noise, and a per-message failure is discarded rather than
+  retried and so never accumulates a count. One pass-level failure message
+  carries the same information.
+- **Expire undelivered assertions after an age or an attempt ceiling.**
+  Rejected. It silently drops a write the user made, which is the one thing a
+  durable ledger exists to prevent, and it converts a visible problem into an
+  invisible one at precisely the moment the problem has lasted long enough to
+  matter.
 - **Use `batchModify` and confirm from the next `history.list`.** Not rejected on
   merit, deferred with a named condition above. It is a different definition of
   confirmed and deserves its own record rather than a footnote in this one.

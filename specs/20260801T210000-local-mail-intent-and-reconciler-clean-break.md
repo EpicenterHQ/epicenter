@@ -56,15 +56,20 @@ CREATE TABLE IF NOT EXISTS label_intents (
   want        INTEGER NOT NULL,          -- 1 wanted, 0 not wanted
   seq         INTEGER NOT NULL,          -- per-account monotonic, new on every assert
   asserted_at TEXT    NOT NULL,
-  attempts    INTEGER NOT NULL DEFAULT 0,
-  last_error  TEXT,
   PRIMARY KEY (message_id, label_id)
 );
 ```
 
-The primary key is the design. Re-asserting a pair overwrites `want` and
-allocates a new `seq`; archive then unarchive then archive is one row. There is
-no queue, no event log, and no payload column.
+Five columns, and that is the whole schema. The primary key is the design:
+re-asserting a pair overwrites `want` and allocates a new `seq`, so archive then
+unarchive then archive is one row. There is no queue, no event log, and no
+payload column.
+
+There is also **no `attempts` and no `last_error`**. A row says what the user
+wants, never what happened when we tried. Those two columns are the first half of
+a dead-letter table, and adding either one reopens ADR-0198. A failure is
+systemic and belongs to the pass, or it is about one message and the assertion is
+discarded on the spot.
 
 One reconciler per account, holding the account lock, runs:
 
@@ -122,8 +127,12 @@ Each wave is a reviewable, revertible unit that leaves the app working.
 ### W0. The intent store, unused
 
 `src/intent.ts`: open `<accountDir>/intent.db` at `0600` inside the existing
-`0700` account directory, create `label_intents`, and expose `assert`,
-`pending`, `retire`, `discard`, and `recordAttempt`. Nothing calls it yet.
+`0700` account directory, create `label_intents`, and expose exactly four
+operations: `assert`, `pending`, `retire`, and `discard`. Nothing calls it yet.
+
+Four is the whole surface. There is no `recordAttempt`, no `markFailed`, and no
+way to write anything to a row except the user's opinion, so the shape ADR-0198
+refuses is not reachable from this module's API.
 
 The opener is deliberately its own thing, not `mirrorAt`. `intent.db` is durable
 and unversioned; naming it through the mirror grammar would put it inside
@@ -137,6 +146,8 @@ reclaimable.
 - A test asserting `mailMirror(...).reclaimPredecessors()` leaves `intent.db`
   present. This is a claim ADR-0198 makes about mechanical safety, so it gets a
   test rather than a comment.
+- The `label_intents` DDL has five columns. If a sixth appears, it is a decision
+  against ADR-0198 and needs a record, not a review comment.
 - `bun run --filter local-mail test` green. No behaviour change anywhere.
 
 ### W1. The one-writer cut (clean break)
@@ -146,12 +157,14 @@ The indivisible middle. In one wave:
 1. `src/reconcile.ts` appears and owns every Gmail write. One
    `messages.modify` per message from its grouped assertions; `TRASH` routed to
    `messages.trash`/`untrash`; labels delivered before trash for a message that
-   has both; retire on the returned `Message`; per-id 400/404 retires as
-   unachievable; anything else stops delivery and records `attempts` and
-   `last_error`. Then it calls `syncMailbox` for the pull.
+   has both; retire on the returned `Message`; a per-id 400/404 discards that
+   assertion and names it in the pass result; anything else stops delivery,
+   leaves every row untouched, and becomes the pass's failure. Then it calls
+   `syncMailbox` for the pull.
 2. `src/modify.ts` is **deleted**. Label-name resolution moves to the act path
-   (it needs the mirror's `labels` table, not Gmail). `setMessagesTrashed`
-   becomes an assertion of `TRASH`.
+   (it needs the mirror's `labels` table, not Gmail), which is also where an
+   assertion against an unknown message id or label id is refused before a row
+   exists. `setMessagesTrashed` becomes an assertion of `TRASH`.
 3. `src/db.ts` read models attach `intent.db` and project effective labels, so
    `listMessages` filtering, ordering, `LIMIT`/`OFFSET`, and counts are all
    computed post-overlay.
@@ -165,8 +178,9 @@ The indivisible middle. In one wave:
    invalidates and re-reads; the server projection is the pending state.
 
 W1 deliberately ships **without** the ledger UI, discard, thread and bulk
-enumeration, read-on-open, and retry pacing. Those are product surface. W1 is
-about the invariant.
+enumeration, and read-on-open. Those are product surface. W1 is about the
+invariant. It ships without retry pacing permanently, not temporarily: there is
+no schedule to build (ADR-0199).
 
 **Gate**
 - `rg -l 'modifyMessage|trashMessage|untrashMessage' apps/local-mail/src` returns
@@ -174,8 +188,11 @@ about the invariant.
   it belongs in review notes and ideally in `scripts/`.
 - Unit: drain groups a message's opinions into one modify; a `TRASH` assertion
   produces a trash call and no `TRASH` in `addLabelIds`; a mid-flight re-assert
-  survives retirement; a per-id 404 retires and the loop continues; a token
-  failure leaves every row and still runs the pull.
+  survives retirement; a per-id 404 discards that assertion, names it in the pass
+  result, and the loop continues; a token failure leaves **every row byte-for-byte
+  unchanged** and still runs the pull.
+- Unit: asserting against a message id or label id the mirror does not hold
+  writes no row and returns the refusal to the caller.
 - Unit: `listMessages` with a pending `want=0` on `INBOX` omits the row from the
   inbox view **and** returns a full page, proving the overlay is pushed down.
 - Live smoke against a real account: archive with the network off, quit the
@@ -186,10 +203,17 @@ about the invariant.
 
 ### W2. The ledger surface
 
-`GET /pending` returns the account's assertions with `attempts`, `last_error`,
-and `asserted_at`. `POST /pending/discard` takes ids or clears all. The SPA
-status bar reports the undelivered count and the age of the oldest, and states
-zero rather than implying it. A pending panel lists rows with per-row discard.
+Status gains three readings and no more: the undelivered count, the age of the
+oldest from `asserted_at`, and the current or most recent reconcile failure as
+one message taken from the running reconciler's last pass outcome. Zero
+undelivered is stated, not implied by an absent warning.
+
+`GET /pending` returns the account's assertions as they are stored: message id,
+label id, want, and `asserted_at`. There is nothing else to return.
+`POST /pending/discard` takes ids or clears all, and discard is the only exit
+that is not delivery. A pending list shows the assertions with per-row discard;
+it does not show a per-row status, because there is not one.
+
 Disconnect reports the undelivered count and discards on confirmation;
 reauthorization retains. CLI gains `pending` and `discard`; MCP gains a
 `pending` tool so an agent can see undelivered work rather than assuming its
@@ -200,15 +224,18 @@ write landed.
   age climb, reconnect, watch it fall to 0.
 - Live smoke: disconnect with pending work and confirm the count is reported
   before anything is discarded.
+- Live smoke: revoke the token, run a pass, and confirm the failure appears once
+  as the pass's failure and not once per pending assertion.
 - Unit: discard removes the row and the read projection reverts to mirror labels.
+- Unit: the pending payload carries no status, attempt, or error field.
 
 ### W3. Enumeration surfaces
 
 Thread and bulk acts enumerate concrete ids from the mirror at act time and
-assert one row per id. A bounded per-act cap, refused with a count rather than
-silently truncated. Read-on-open asserts `(id, UNREAD, want=0)`, and only when
-the message's effective labels still contain `UNREAD`, so reopening a read
-message creates nothing.
+assert one row per id. The per-act cap defaults to 500 ids, refused with a count
+rather than silently truncated. Read-on-open asserts `(id, UNREAD, want=0)`, and
+only when the message's effective labels still contain `UNREAD`, so reopening a
+read message creates nothing.
 
 **Gate**
 - Unit: a thread act over a 3-message thread creates exactly 3 assertions.
@@ -272,30 +299,54 @@ the facts the design leans on; re-verify before changing any of them.
 | A `historyId` is "typically valid for at least a week"          | Unchanged; the pull phase keeps its 404 full-resync   |
 | Quota: `modify` 5, `trash` 20, `untrash` 5, `batchModify` 50, `get` 20, `history.list` 2, ceiling 6,000/user/minute | Delivery is cheap next to the pull; bulk archive at 5 units per message is the accepted cost |
 
-## Open implementation decisions
+## The remaining decision surface
 
-These are real forks the waves have to resolve. None blocks starting W0.
+Nothing below is an open architectural question. The model is settled by ADR-0198
+and ADR-0199. What is left sorts into three kinds, and confusing them is how a
+tuning knob turns into a redesign discussion.
 
-1. **How the overlay is joined.** Recommended: `ATTACH` `intent.db` onto the
-   mirror connection and compute effective labels in SQL, because paging and
-   counts have to be post-overlay. The unknown is the read-only handle:
-   `openMailDbReadonly` must attach read-only too, and `busy_timeout` behaviour
-   across two attached files needs a test. W1 proves it or falls back to reading
-   the (small) pending set into a temp table.
-2. **Coalescing window for write-triggered wakes.** A burst of keyboard triage
-   should be one wake. Proposed 750 ms trailing; needs a number, not a feeling.
-3. **Per-act enumeration cap.** Proposed 500 message ids per act, refused above
-   with the count, replacing `modify.ts`'s current 100-id guard. The old guard
-   existed because Gmail ran each id as a request; the new one exists because a
-   user should not silently queue an unbounded drain.
-4. **Retirement predicate.** ADR-0199 chose `seq` equality for reviewability,
-   which redelivers a pair re-asserted to the same value mid-flight. If that
-   turns out to be common in practice, comparing `want` as well is a bounded
-   follow-up, not a redesign.
-5. **`intent.db` corruption.** The mirror's answer is "re-pull". This file has no
-   such answer. Proposed: report it, do not auto-delete, and require an explicit
-   discard, because the file's whole purpose is to not lose the user's work
-   silently.
-6. **Where the invariant grep lives.** A review note is weaker than a check.
-   `scripts/` already hosts structural checks; a Local Mail writer check would
-   fit, and the cost is one more entry in `check:structure`.
+### Evidence gates: prove it in the wave, do not debate it
+
+**The overlay join.** `ATTACH` `intent.db` onto the mirror connection and compute
+effective labels in SQL. This is not a taste fork; it follows from the
+requirement that filtering, ordering, paging, and counts be post-overlay, which
+in-memory projection cannot deliver. What is unproven is mechanical:
+`openMailDbReadonly` must attach read-only, and `busy_timeout` behaviour across
+two attached files is untested here. **W1 prototypes it first.** If SQLite will
+not do it, the fallback is loading the (small, bounded) pending set into a temp
+table in the same connection, which preserves push-down. Reverting to a
+post-query overlay in TypeScript is not a fallback; it is the defect.
+
+### Product parameters: ship the default, tune from use
+
+Each has a default. None blocks any wave, and changing one later is a one-line
+edit, not a decision record.
+
+| Parameter                 | Default   | Why this number                                                                     |
+| ------------------------- | --------- | ------------------------------------------------------------------------------------ |
+| Per-act enumeration cap   | 500 ids   | Replaces `modify.ts`'s 100-id guard, which existed because Gmail ran each id as a request. The new cap exists so a user cannot silently queue an unbounded drain. Refuse above it with the count. |
+| Write-wake debounce       | 750 ms trailing | A burst of keyboard triage should be one wake. Pure tuning; the correctness path does not depend on it, because the poll interval catches anything the debounce misses. |
+| Status age display        | Oldest `asserted_at` | One number is what makes "some pending work" read as "something is wrong". |
+
+### Standing constraints: already decided, listed so they are not re-litigated
+
+- **Retirement is `seq` equality.** ADR-0199 chose it for reviewability. It
+  redelivers a pair re-asserted to the same value mid-flight, at 5 quota units
+  and no user-visible effect. Comparing `want` as well is a bounded optimization
+  if that ever proves common, not a fork.
+- **`intent.db` corruption is reported, never auto-deleted.** The mirror's answer
+  is "re-pull"; this file has no such answer, so the only safe move is to say so
+  and require an explicit discard. Automatic deletion here would destroy the one
+  thing in the app Gmail cannot give back.
+- **Nothing expires.** No age threshold, no attempt ceiling, no quiet cleanup.
+  Delivery and explicit discard are the only exits (ADR-0198, ADR-0199).
+- **No per-row failure state, ever.** If `attempts`, `last_error`, a status
+  column, or a dead-letter table is proposed, that is a change to ADR-0198 and
+  needs a record, not a pull request.
+
+### One thing genuinely worth deciding
+
+**Where the invariant grep lives.** The one-writer rule is currently enforced by
+review. `scripts/` already hosts structural checks that `check:structure` runs; a
+Local Mail writer check would fit there, and the cost is one entry. A check that
+runs is worth more than a gate that a reviewer has to remember.
