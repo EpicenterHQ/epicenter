@@ -269,6 +269,23 @@ shapes, see `docs/adr/`.
 - **`attach*` vs `create*`**: `attach*` are side-effectful primitives that register
   listeners at call time; `create*` are pure construction.
 
+## External-authority apps (Local Mail, Local Books)
+
+- **Provider fact**: what the upstream authority returned, materialized locally.
+  Local Mail's mirror holds Gmail's `messages.get(format=full)` resource and
+  nothing else (ADR-0196); a provider fact is never imported into Epicenter.
+- **Mirror artifact**: the disposable local SQLite copy, named by its corpus
+  version (`mail.v5.db`, ADR-0197). Deleting it costs a re-pull, never data.
+- **Request**: durable desired provider state a human authored, settled by
+  re-asserting it and deleted the moment the provider fact agrees. Deliberately
+  not called an _intent_: ADR-0163 owns that word for the scalar sync wire.
+- **Settle**: apply unresolved requests to the upstream authority and fold the
+  responses into the mirror. In Local Mail it is the first half of one `sync()`
+  pass; no caller controls the order (ADR-0198).
+- **Generative action**: an upstream effect that is not idempotent and has no
+  desired-state form, such as `drafts.send`. It runs once in the foreground, is
+  never made durable, and is never retried automatically.
+
 ## App composition
 
 - **`create<App>`**: the isomorphic doc factory for an app.
