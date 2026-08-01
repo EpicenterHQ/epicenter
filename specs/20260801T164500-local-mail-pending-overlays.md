@@ -32,12 +32,13 @@ Three concrete problems, all live:
 1. **Two writers to the fact tables.** `sync.ts` writes under the per-account
    gate and the `lock.ts` sync-owner lock; `modify.ts`'s `patchMessageLabels`
    writes the same `messages` table from the HTTP route, the CLI, and MCP under
-   neither. `MirrorWriteError.MirrorBusy` exists because of this.
+   neither. `MirrorWriteError.MirrorBusy` was written for two sync processes;
+   the fold widened it to a triage click in the same process.
 2. **The fold has a fact-tier side effect nobody asked for.** It stamps
    `synced_at` without moving the cursor, and `finishFullPull` sweeps
    `WHERE synced_at < ?`, so a fold shields a row from a sweep.
 3. **Nothing survives the app.** Optimism lives in
-   `ui/src/lib/optimistic.ts` reading TanStack's mutation cache. There is no
+   `apps/local-mail/ui/src/lib/optimistic.ts` reading TanStack's mutation cache. There is no
    offline triage and there are no drafts at all.
 
 And the storage lifecycle is wrong for what is coming: ADR-0197's version bump
@@ -94,14 +95,14 @@ triage cutover; W5 and W6 are drafts.
   `<accountDir>/mail.db` directly, applying the same concurrency pragmas the
   primitive applied (WAL, `busy_timeout`, `synchronous = NORMAL`,
   `foreign_keys = ON`) and the same `0600` / `0700` permissions.
-- Delete `mailMirror`; move `MIRROR_VERSION` into `_meta` as the fact-tier
+- Delete `mailMirror`; move `MIRROR_VERSION` (`apps/local-mail/src/db.ts`) into `_meta` as the fact-tier
   corpus version.
 - On open: if the stored corpus version differs from this build's, rebuild tier
   1 in place inside one transaction (drop fact tables, recreate from
   `MIRROR_TABLES`, clear `history_id` / `last_full_pull_at` / `last_synced_at`),
   then write the new version.
 - Drop `predecessors` from `MailStatus` and from the status route.
-- **Proof:** `db.test.ts` and `status.test.ts` green; `mirror: empty | building
+- **Proof:** `apps/local-mail/src/db.test.ts` and `apps/local-mail/src/status.test.ts` green; `mirror: empty | building
   | ready` behaves unchanged; a test that writes a row, bumps the version, and
   asserts the fact table is empty and `_meta` carries the new version.
 - **Note:** an existing install has `mail.v5.db` beside a pre-grammar `mail.db`.
@@ -116,7 +117,7 @@ triage cutover; W5 and W6 are drafts.
   `getMessageDetail` onto them. `MessageSummary` and `MessageDetail` gain
   `pending: boolean`.
 - Port the composition rule that currently lives in
-  `ui/src/lib/optimistic.ts`'s `applyLabelDelta` and `rowMatchesLabelFilter`
+  `apps/local-mail/ui/src/lib/optimistic.ts`'s `applyLabelDelta` and `rowMatchesLabelFilter`
   into the view.
 - No writers yet, so with zero overlay rows the views are identity over the fact
   tables.
@@ -129,7 +130,7 @@ triage cutover; W5 and W6 are drafts.
 - Introduce `openMailbox({ dataDir, accountEmail })`: a read surface, an intent
   surface (empty until W3), and `sync()`.
 - Unexport `openMailDb`; stop `MailDb` crossing a module boundary; remove
-  `syncDeps.db` from `AccountApi` so `http/api.ts` cannot reach the database.
+  `syncDeps.db` from `AccountApi` so `apps/local-mail/src/http/api.ts` cannot reach the database.
 - Keep the read-only handle the `query` verb needs, now pointed at the composed
   views so ad-hoc SQL agrees with the UI.
 - **Proof:** `rg 'MailDb|openMailDb'` returns hits only in `db.ts` and its
@@ -147,7 +148,7 @@ triage cutover; W5 and W6 are drafts.
 - Delete `patchMessageLabels`, `patchMessageLabelsRow`, and
   `tryFoldMessageLabels`. `foldMessageMutations` moves inside sync as the replay
   loop.
-- **Proof:** `modify.test.ts` rewritten against overlay rows; a sync test that
+- **Proof:** `apps/local-mail/src/modify.test.ts` rewritten against overlay rows; a sync test that
   replays an override, confirms it in the same pass, and retires it; a test with
   a Gmail client that always fails, asserting the overlay survives and the
   cursor does not move; a test asserting a 404 marks failed rather than
@@ -160,7 +161,7 @@ triage cutover; W5 and W6 are drafts.
   `pending` marker instead.
 - Surface the two honest states the design creates: "not yet in Gmail" and
   "could not be applied, discard?".
-- **Proof:** `optimistic.test.ts` shrinks to whatever composition rule did not
+- **Proof:** `apps/local-mail/ui/src/lib/optimistic.test.ts` shrinks to whatever composition rule did not
   move server-side (expected: nothing, so the file deletes). Live desktop smoke:
   archive with the network off, quit, relaunch, the row is still archived and
   still marked pending; restore the network, one pass clears the marker.

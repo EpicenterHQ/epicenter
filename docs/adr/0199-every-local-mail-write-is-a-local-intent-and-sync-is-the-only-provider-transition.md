@@ -16,8 +16,10 @@ Read against the code, that arrangement has two writers to the same fact tables.
 `modify.ts`'s `patchMessageLabels` writes the same `messages` table from the
 HTTP route, the CLI, and MCP, under neither. Three costs are live today:
 
-- `MirrorWriteError.MirrorBusy` exists because of it. A sync pass can lose the
-  file to an unserialized fold.
+- `MirrorWriteError.MirrorBusy` was written for the genuine two-process case
+  (a watch loop and an MCP host syncing one account). The fold quietly widened
+  it: a sync pass can now lose the file to a triage click in the same process,
+  through a path no lock covers.
 - The fold stamps `synced_at` on a fact row without moving the cursor, and
   `finishFullPull` sweeps `WHERE synced_at < ?`. A fold therefore shields a row
   from a sweep, which is a fact-tier effect authored outside sync.
@@ -93,9 +95,8 @@ agrees with the UI by construction rather than by discipline.
 ## Consequences
 
 - **One writer, so the sync-owner lock finally covers every write.**
-  `MirrorBusy` originating from a triage action becomes structurally impossible;
-  the error survives only for the genuine second-process case the lock already
-  names.
+  `MirrorBusy` originating from a triage action becomes structurally impossible,
+  and the error narrows back to the second-process case it was written for.
 - **Offline triage works and survives quitting the app.** This is new
   capability, not a tidier version of what exists.
 - **The UI's ephemeral optimism deletes.** `readPendingWrites`,
