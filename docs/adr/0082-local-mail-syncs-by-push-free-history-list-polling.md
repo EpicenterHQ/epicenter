@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-30
+- **Amended by:** [ADR-0199](0199-every-local-mail-write-is-a-local-intent-and-sync-is-the-only-provider-transition.md) at the write-through clause only: a Local Mail write no longer hits Gmail first and folds the response into the mirror after, it records a durable local intent that `sync()` replays. Push-free `history.list` polling, the single-cursor CDC discipline, and the refusal of Pub/Sub are untouched, and so is Local Books' write-through (ADR-0061).
 - **Relates:** [ADR-0081](0081-per-upstream-oauth-concurrency-decides-mirror-topology.md) (establishes Gmail permits per-device grants, unlike Local Books), [ADR-0064](0064-the-local-books-mirror-keeps-one-realm-cdc-cursor-table-existence-is-the-per-entity-init-latch.md) (the single-cursor CDC discipline this borrows), [ADR-0061](0061-local-books-reads-facts-from-the-mirror-reports-live-and-writes-through-one-approved-verb.md) (write-through discipline this borrows), [ADR-0116](0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md) (which process owns the poll loop), [ADR-0188](0188-gmail-app-identity-belongs-to-the-distribution-and-no-epicenter-server-enters-the-gmail-path.md) (the Gmail application identity, split out of this record on acceptance)
 
 ## Context
