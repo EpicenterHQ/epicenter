@@ -51,18 +51,17 @@ Four independent guarantees keep this from touching anything real:
    returns a non-retryable 403**, which the sync engine treats as a hard failure
    rather than a signal to run a FULL pull. So the mock can never wipe even the
    copy.
-4. **A fingerprint proof.** `fingerprint.sh` hashes the real mirror's durable
-   files (`credentials.json` + every `mail.v<version>.db`, predecessors
-   included); capture it before and after and
-   diff to confirm nothing real changed.
+4. **A fingerprint proof.** `fingerprint.sh` hashes the real data dir's durable
+   files (`credentials.json` + every account's `mail.db`); capture it before and
+   after and diff to confirm nothing real changed.
 
 ## Files
 
 | file               | what it is |
 |--------------------|------------|
 | `mock-gmail.ts`    | Mock Gmail REST server. Reads the copy's SQLite to know current labels, applies the modify, logs it, 403s everything else. |
-| `setup-copy.sh`    | Copies the real mirror to `LM_TEST_DIR` and forges dummy credentials. |
-| `fingerprint.sh`   | Hashes the real mirror's durable state, for the before/after safety proof. |
+| `setup-copy.sh`    | Copies the real data dir to `LM_TEST_DIR` and forges dummy credentials. |
+| `fingerprint.sh`   | Hashes the real data dir's durable state, for the before/after safety proof. |
 | `boot.ts`          | Shared boot used by `smoke.ts` (and any manual session): stands up copy + mock + `up` on ephemeral ports and hands back the launch coordinates. The one owner of the safety-critical wiring. |
 | `smoke.ts`         | Headless one-shot: fires one real write through `/api/messages/modify`, asserts it hit the mock, asserts the real mirror is unchanged. |
 | `check-gmail-discovery.ts` | Gmail API drift check: fetches the live Discovery doc and asserts the methods (hand-listed) + schema fields (walked from `schema.ts`) the client relies on are still present and correctly typed. |

@@ -15,24 +15,30 @@ table.
 
 ## Shape
 
-- Runtime: Bun. `bun:sqlite` stores the mirror, built-in `fetch` calls Gmail,
+- Runtime: Bun. `bun:sqlite` stores the mailbox, built-in `fetch` calls Gmail,
   `oauth4webapi` handles OAuth.
-- One SQLite artifact per connected account, under `<data-dir>/<accountEmail>/`,
-  named `mail.v<version>.db` after `MIRROR_VERSION` in `src/db.ts`: the version
-  of the corpus contract this build stores, not the app's release version.
-  `mirrorAt` from `@epicenter/sqlite/bun-mirror` owns the naming, the two opening
-  modes, artifact inventory, and grammar-scoped `reclaimPredecessors`; the app
-  owns the version constant, DDL, ingestion, cursors, locking, file permissions,
-  readiness, and reclamation timing. Opening is non-destructive and never falls
-  back to a lower version: a bump is a new filename, not a migration, so nothing
-  is dropped or unlinked on open and the predecessor is retained until something
-  reclaims it. There is no schema version stamped in the file. See ADR-0197.
-  Bumping `MIRROR_VERSION` costs one full re-pull of the mailbox, and until that
-  re-pull finishes `status` reports the artifact as `building`, never `ready`.
-  The refresh token lives in a separate `0600 credentials.json` at the data-dir
-  root, never inside the mirror db.
-- Data and account directories are `0700`. The artifact, its `-wal` and `-shm`
-  sidecars, and `credentials.json` are `0600`.
+- One SQLite file per connected account, at `<data-dir>/<accountEmail>/mail.db`.
+  The name is stable: nothing versions it, there is no predecessor, and no caller
+  can select a different one. That is deliberate, because this file is on its way
+  to holding durable local state Gmail cannot supply again, so it can never be
+  replaced by an empty successor. See ADR-0198.
+- What the file's shape is stamped with is `FACT_CORPUS_VERSION` in `src/db.ts`,
+  stored in `_meta` and governing the Gmail-fact tables alone: the version of the
+  corpus contract this build stores, not the app's release version. When an open
+  finds a different one, it rebuilds the fact tier in place inside one
+  transaction (drop the declared fact tables, recreate them, clear the cursor) and
+  leaves everything else in the file exactly as it was. Bumping it costs one full
+  re-pull of the mailbox, and until that re-pull finishes `status` reports
+  `building`, never `ready`.
+- The refresh token lives in a separate `0600 credentials.json` at the data-dir
+  root, never inside the mailbox db.
+- Data and account directories are `0700`. The mailbox file, its `-wal` and
+  `-shm` sidecars, and `credentials.json` are `0600`.
+- An install that predates the stable name has a `mail.v<version>.db` beside
+  `mail.db`. Nothing reads it and nothing will; it is an inert file to delete by
+  hand. A `mail.db` from before the version was stamped is not inert: it is the
+  mailbox, and the first open rebuilds its fact tier to the current shape and
+  re-pulls.
 - Tables: `messages`, `labels`, and `_meta`. Thread facts are derived from live
   messages instead of stored in a separate `threads` table.
 - `messages.resource` holds the parsed `messages.get(format=full)` payload

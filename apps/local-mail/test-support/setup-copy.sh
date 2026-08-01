@@ -16,7 +16,7 @@
 # Prints machine-readable lines the other scripts parse:
 #   ACCOUNT <email>
 #   COPY_READY <dir>
-#   MOCK_DB <path to the copied current mirror artifact>
+#   MOCK_DB <path to the copied mailbox>
 set -euo pipefail
 
 REAL="${LOCAL_MAIL_REAL_DIR:-$HOME/Library/Application Support/local-mail}"
@@ -28,28 +28,25 @@ if [ ! -d "$REAL" ]; then
 	exit 1
 fi
 
-# The mirror artifact is named by its corpus version (`mail.v<version>.db`,
-# ADR-0197), and a bump leaves the predecessor on disk. Versions only ever
-# increase, so the highest one is the current one; a lower one is a predecessor
-# by definition. This reads the grammar rather than mtime, which a stray `touch`
-# or a copy would get wrong.
-newest_artifact() {
-	find "$1" -maxdepth 1 -name 'mail.v*.db' 2>/dev/null |
-		sed -E 's|.*/mail\.v([0-9]+)\.db$|\1 &|' | sort -rn | head -1 | cut -d' ' -f2-
+# One account, one mailbox, one name: `<accountDir>/mail.db` (ADR-0198). There is
+# no version to pick and no predecessor to skip past, so "does this directory hold
+# a mailbox" is a single existence check.
+mailbox_of() {
+	[ -f "$1/mail.db" ] && echo "$1/mail.db"
 }
 
-# Resolve the account: an explicit override, else the sole subdir holding an artifact.
+# Resolve the account: an explicit override, else the sole subdir holding a mailbox.
 if [ -n "${LOCAL_MAIL_ACCOUNT:-}" ]; then
 	ACCT="$LOCAL_MAIL_ACCOUNT"
 else
 	ACCTS=()
 	while IFS= read -r dir; do
-		if [ -n "$(newest_artifact "$dir")" ]; then
+		if [ -n "$(mailbox_of "$dir")" ]; then
 			ACCTS+=("$dir")
 		fi
 	done < <(find "$REAL" -maxdepth 1 -mindepth 1 -type d)
 	if [ "${#ACCTS[@]}" -eq 0 ]; then
-		echo "error: no mail.v<version>.db found under $REAL" >&2
+		echo "error: no mail.db found under $REAL" >&2
 		exit 1
 	fi
 	if [ "${#ACCTS[@]}" -gt 1 ]; then
@@ -60,9 +57,9 @@ else
 	ACCT="$(basename "${ACCTS[0]}")"
 fi
 
-ARTIFACT="$(newest_artifact "$REAL/$ACCT")"
-if [ -z "$ARTIFACT" ]; then
-	echo "error: no mirror artifact for account '$ACCT' under $REAL" >&2
+MAILBOX="$(mailbox_of "$REAL/$ACCT")"
+if [ -z "$MAILBOX" ]; then
+	echo "error: no mailbox for account '$ACCT' under $REAL" >&2
 	exit 1
 fi
 
@@ -82,4 +79,4 @@ chmod 600 "$COPY/credentials.json"
 
 echo "ACCOUNT $ACCT"
 echo "COPY_READY $COPY"
-echo "MOCK_DB $COPY/$ACCT/$(basename "$ARTIFACT")"
+echo "MOCK_DB $COPY/$ACCT/$(basename "$MAILBOX")"

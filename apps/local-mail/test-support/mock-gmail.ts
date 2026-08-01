@@ -2,15 +2,15 @@
  * Mock Gmail REST server for driving the Local Mail write path WITHOUT touching
  * real Gmail. Point the engine at it with `LOCAL_MAIL_GMAIL_API_BASE`.
  *
- * It reads the *copied* mirror's SQLite (read-only) to know a message's current
+ * It reads the *copied* mailbox's SQLite (read-only) to know a message's current
  * `labelIds`, then applies the requested add/remove and returns the resulting
  * Gmail message JSON, exactly as real Gmail would. Every modify is appended to
  * a JSONL log so a reviewer can prove which writes happened.
  *
  * Env:
  *   MOCK_PORT   port to bind on 127.0.0.1 (0 => an ephemeral port, printed below)
- *   MOCK_DB     absolute path to the copied mirror artifact,
- *               `mail.v<version>.db` (opened read-only)
+ *   MOCK_DB     absolute path to the copied mailbox, `mail.db`
+ *               (opened read-only)
  *   MOCK_LOG    absolute path for the modify JSONL log (optional)
  *   MOCK_FOLD   "false" => every modify omits `labelIds` (exercises the
  *               `folded:false`, still-catching-up UI path); anything else folds
@@ -18,7 +18,7 @@
  * Every route other than history-echo and modify returns a NON-retryable 403,
  * which the engine treats as a hard, non-destructive failure. That guarantees
  * the sync loop can never run a FULL pull (which would delete unseen rows) and
- * never wipes labels, so even a copied mirror is safe from this mock.
+ * never wipes labels, so even a copied mailbox is safe from this mock.
  *
  * On startup it prints `MOCK_READY <port>` to stdout; harness scripts wait for
  * that line before booting the app.
@@ -32,7 +32,7 @@ const LOG_PATH = process.env.MOCK_LOG;
 const FOLD = process.env.MOCK_FOLD !== 'false';
 
 if (!DB_PATH) {
-	console.error('MOCK_DB is required (path to the copied mail.v<version>.db).');
+	console.error('MOCK_DB is required (path to the copied mail.db).');
 	process.exit(1);
 }
 
