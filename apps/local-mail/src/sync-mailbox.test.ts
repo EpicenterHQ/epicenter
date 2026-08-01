@@ -819,7 +819,9 @@ describe('syncMailbox: INCREMENTAL', () => {
 					history: [
 						{
 							id: 'h1',
-							messagesAdded: [{ message: { id: 'added', threadId: 't-added' } }],
+							messagesAdded: [
+								{ message: { id: 'added', threadId: 't-added' } },
+							],
 						},
 					],
 					nextPageToken: 'page-2',

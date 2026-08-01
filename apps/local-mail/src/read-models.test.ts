@@ -4,8 +4,8 @@
  * serves to the triage SPA; the point of the tests is that they project Gmail's
  * own mirrored bytes (label ids, epoch dates, headers, extracted body) without
  * inventing state: label filtering is a `json_each` over the stored `labelIds`,
- * search is a plain `LIKE`, and the detail pulls `To`/`Date` from the stored
- * resource.
+ * search is a `LIKE` over the characters the user typed, and the detail pulls
+ * `To`/`Date` from the stored resource.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -167,11 +167,15 @@ describe('listMessages', () => {
 					}),
 					message({
 						id: 'underscored',
-						payload: { headers: [{ name: 'Subject', value: 'build_id ready' }] },
+						payload: {
+							headers: [{ name: 'Subject', value: 'build_id ready' }],
+						},
 					}),
 					message({
 						id: 'any-char',
-						payload: { headers: [{ name: 'Subject', value: 'buildxid ready' }] },
+						payload: {
+							headers: [{ name: 'Subject', value: 'buildxid ready' }],
+						},
 					}),
 				],
 				'2026-07-02T00:00:00.000Z',
@@ -179,7 +183,9 @@ describe('listMessages', () => {
 
 			// A bare `%` would match every row; a bare `_` would match any character.
 			expect(
-				db.listMessages({ search: '50%', limit: 100, offset: 0 }).map((r) => r.id),
+				db
+					.listMessages({ search: '50%', limit: 100, offset: 0 })
+					.map((r) => r.id),
 			).toEqual(['discount']);
 			expect(
 				db

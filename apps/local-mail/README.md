@@ -1,8 +1,9 @@
 # local-mail
 
-Headless Gmail mirror for local tools and agents. It syncs a Gmail account into
-a private SQLite database with full pulls plus incremental `history.list`
-polling, then exposes the mirror through CLI queries and a stdio MCP server.
+A private Gmail mirror for local tools, agents, and a triage UI. It syncs a
+Gmail account into a local SQLite database with full pulls plus incremental
+`history.list` polling, then reads that mirror four ways: CLI verbs, a stdio MCP
+server, a loopback HTTP API, and the triage SPA the desktop shell opens.
 
 Design authority lives in ADRs first, then the current code:
 `docs/adr/0081-*.md` (a per-device grant and mirror), `docs/adr/0082-*.md`
@@ -48,11 +49,18 @@ table.
 - The mirror is a disposable offline reader, not an archive. One
   `messages.get(format=full)` is the entire per-message budget: no `format=raw`,
   no `messages.attachments.get`, no attachment or media bytes on disk in any
-  form. Attachments are metadata only, enough to say "this message has a 42 KB
-  PDF" and not enough to open it; opening it is Gmail's job. When Gmail returns a
+  form. An attachment reaches the mirror only as the part metadata Gmail already
+  put in the resource (filename, MIME type, size), which SQL can read and no
+  reader surface shows yet; opening the file is Gmail's job. When Gmail returns a
   body part as an `attachmentId` instead of inline data, the reader says it has
   no offline body for that message rather than spending a second call. See
   ADR-0196.
+- A full pull covers what `messages.list` covers, which excludes SPAM and TRASH,
+  and it sweeps every row it did not touch. So trashed messages leave the mirror
+  on the next full pull even if an incremental pass had folded them in. Trash is
+  reachable over the API (`?label=TRASH`) and holds only what has been trashed
+  since the last full pull; the SPA offers no Trash view, because a partial trash
+  list would read as a whole one.
 - The app detail pane can render formatted email from the stored Gmail payload,
   but only behind the SPA sanitizer boundary. DOMPurify strips executable markup
   and remote assets before the single `{@html}` sink renders the body on a light
@@ -91,10 +99,11 @@ run and every other git worktree on this machine reads the override from there,
 so no per-worktree config is needed. See [`.env.example`](.env.example) for the
 canonical override names.
 
-Local Mail requests `gmail.modify` so write-through label changes can round-trip
-through Gmail. Although Google grants send at the same OAuth layer, Local Mail
-does not expose send, reply, compose, drafts, trash, untrash, or delete in this
-phase.
+Local Mail requests `gmail.modify` so write-through label changes and
+trash/untrash can round-trip through Gmail. Although Google grants send at the
+same OAuth layer, Local Mail does not expose send, reply, compose, or drafts in
+this phase, and never calls the permanent `messages.delete` (which needs the
+wider `https://mail.google.com/` scope).
 
 Headless bootstrap is still available. The refresh token is redeemed
 immediately (one refresh grant plus a profile read), so a dead token fails
@@ -251,7 +260,15 @@ stdio subprocess for the agent-facing protocol surface.
   identity is provisioned in this repository. Signing, notarization, and the
   official Google client still need release configuration, as described in
   `src-tauri/README.md`.
-- Send, reply, compose, drafts, trash, untrash, and permanent delete.
+- Send, reply, compose, drafts, and permanent delete. Trash and untrash are
+  built: `POST /api/accounts/:account/messages/trash` carries the direction, and
+  the SPA's "Move to trash" and its Undo ride it.
+- An attachment indicator. The part metadata is in the stored resource, so SQL
+  can answer "which messages have a PDF"; no CLI, MCP, or SPA surface reads it.
+- Reclaiming a predecessor artifact. A `MIRROR_VERSION` bump leaves the previous
+  `mail.v<n>.db` on disk and nothing deletes it: `status` lists it under
+  `predecessors`, and removing it is a human decision (`mirrorAt` exposes
+  `reclaimPredecessors`, and nothing here calls it).
 - Thread-level modify and `messages.batchModify`. Triage is message-level.
 - FTS5. `LIKE` over `body_text` is enough for the current mirror size.
 - Push/Pub/Sub and any LAN or remote exposure (the server binds `127.0.0.1`).

@@ -421,6 +421,10 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 			// mail, any label) except Trash itself. A trashed row is folded, not
 			// deleted, so this read-model filter is what makes it leave the current
 			// view the instant `messages.trash` returns, before sync sweeps it.
+			// `labelId: 'TRASH'` reads whatever trash the mirror currently holds,
+			// which is only what a write or a history record put there since the last
+			// full pull (see `finishFullPull`): the SPA rail deliberately offers no
+			// Trash entry, because a partial trash list would read as a whole one.
 			if (labelId !== 'TRASH') {
 				where.push(
 					`NOT EXISTS (SELECT 1 FROM json_each(messages.label_ids) WHERE value = 'TRASH')`,
@@ -558,9 +562,17 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 		},
 
 		/**
-		 * Closes out a FULL pull: records the `historyId` baseline read before
-		 * page 1, so changes during the pull replay idempotently instead of
-		 * disappearing behind a post-pull cursor.
+		 * Closes out a FULL pull: sweep every row this pass did not touch, then
+		 * record the `historyId` baseline read before page 1, so changes during the
+		 * pull replay idempotently instead of disappearing behind a post-pull
+		 * cursor. Returns how many rows the sweep removed.
+		 *
+		 * The sweep is scoped by what a full pull covers, and `messages.list`
+		 * excludes SPAM and TRASH. So a full pull evicts every trashed and spam row,
+		 * including ones an incremental pass had folded in, and the Trash view is
+		 * empty until the next trash write or history record refills it. That is the
+		 * reader's scope, not a bug: this mirror is the mail you triage, and Gmail
+		 * keeps the trash.
 		 */
 		finishFullPull(historyId: string, syncedAt: string): number {
 			const tx = db.transaction(() => {
