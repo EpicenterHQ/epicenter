@@ -12,7 +12,7 @@ One app, one learning goal. There is no language setting, no learner profile, an
 
 **Live answer in state, finished messages in the doc**: Vocab is capability-free, so the open browser tab runs the agent loop itself and the live answer needs nothing durable, since re-asking is free (ADR-0047). `src/routes/+page.svelte` builds the shared `createAgentChatState()` controller with Vocab's system prompt and default model, and `ConversationView.svelte` renders the active `AgentChatThread`. Only finished messages persist: the user turn the moment it is sent, the assistant turn on a clean finish, each written once as one JSON blob into the conversation's row document, a last-write-wins store keyed by message id. A stopped or failed turn writes nothing; the durable user turn stays, ready to retry. On open, the controller hydrates from the store and observes it, so a message finished on another device shows up here.
 
-**Markdown + readings**: settled assistant messages render through `@epicenter/ui/markdown` via `ReadingMarkdown.svelte`, which resolves the deterministic per-script romanizers whose script appears in the passage (`src/lib/readings/`, ADR-0105) and composes them behind the shared Markdown component. Readings are a client-side derived view over clean text: pure, offline, lazily loaded per script, with no model call and no network, so a reading can only be missing, never wrong. The shared Markdown component owns sanitization, markdown rendering, and `<ruby>` output. Chinese (`pinyin-pro`), Japanese kana (`wanakana`), and Cyrillic (`transliteration`) ship today.
+**Markdown + readings**: settled assistant messages render through `@epicenter/ui/markdown` via `ReadingMarkdown.svelte`, which resolves the pinyin romanizer for a passage that has Chinese to read (`src/lib/readings.ts`, ADR-0105) and hands it to the shared Markdown component. Readings are a client-side derived view over clean text: pure, offline, one lazily loaded dictionary (`pinyin-pro`), with no model call and no network, so a reading can only be missing, never wrong. Pinyin abstains on a passage carrying kana or hangul, where shared Han takes a non-Mandarin reading. The shared Markdown component owns sanitization, markdown rendering, and `<ruby>` output.
 
 **Entries**: `entries` is one flat pool of verbatim spans, human-curated end to end (ADR-0102). A span reaches it by an explicit save: drag a selection in the transcript and press Save entry, ask a settled message for entry candidates and tap the ones you want, or type one into the sidebar. `stage` is the one acquisition dial, an ordered ladder of `new`, `understood`, `usable`, and `note` is yours: no code path machine-writes either. There is no gloss, no dictionary, no provenance, and no scheduler.
 
@@ -41,17 +41,12 @@ src/
     session.ts             # SessionOpening; practiceOpening(): title + opening turn for a practice session
     seeds.ts               # the hand-written topic openers a blank thread offers
     entry-candidates.ts    # the extraction prompt and its output parser
+    readings.ts            # resolveRomanizer(): the lazy per-character pinyin overlay
     platform/auth.ts       # OAuth auth client
     state/
       entries.svelte.ts                # the one entry pool: save / setStage / setNote / remove
       dictation.svelte.ts              # dictation state and interruption handling
       inference-connections.svelte.ts  # hosted/custom inference connection registry
-    readings/
-      registry.ts        # resolveRomanizer(): loads + composes the per-script providers
-      pinyin.ts          # Chinese: per-character pinyin over Han (pinyin-pro)
-      romaji.ts          # Japanese: romaji over kana (wanakana)
-      cyrillic.ts        # Cyrillic: Latin transliteration (transliteration)
-      runs.ts            # shared whole-run walker for run-based providers
   routes/
     +layout.svelte         # Root layout with Toaster
     +layout.ts             # SSR disabled (CSR only)
@@ -76,6 +71,7 @@ vocab.browser.ts            # openVocabBrowserEpicenter runtime wiring
 - The cloud never writes the document: it is a blind relay plus a stateless metered inference stream (ADR-0033).
 - SSR is disabled; the app is CSR-only.
 - The system prompt forbids readings (pinyin, romaji, transliteration) in AI responses so the client controls annotation rendering and toggle visibility, and the stored message stays clean for reuse as conversation memory and verbatim entries (ADR-0102, ADR-0105).
+- One language, one romanizer. The provider registry, its script dispatch, and the Japanese and Cyrillic providers are gone with the multilingual tutor that needed them; a second language costs a second app, not a provider file (ADR-0195). The abstain guard stays: a missing reading beats a wrong one.
 - Saved entries are human-curated end to end: no machine writes a phrase, a note, or a comfort mark, and there is no SRS, no due date, and no stored gloss (ADR-0102).
 
 ## Scripts
