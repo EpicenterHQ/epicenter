@@ -84,7 +84,8 @@ export const VOCAB_STT_MODEL = 'whisper-1';
 /**
  * A complete chat message: the unit Vocab persists. Each finished message is
  * written once, whole, as one JSON blob in the conversation's LWW store keyed by
- * its message id (ADR-0046/0047), the moment a turn finishes.
+ * its message id (ADR-0047, which generalized ADR-0046's finished-message record
+ * from one text field to a parts array), the moment a turn finishes.
  *
  * It is the shared {@link AgentMessage} so Vocab rides the one client agent loop
  * (`@epicenter/agent`). Vocab is capability-free, so every message is
@@ -129,9 +130,9 @@ export type Entry = RowFor<typeof entriesTable>;
  * application owns.
  *
  * Conversation transcripts are not rows: each conversation row owns a document
- * holding one {@link VocabMessage} per key (ADR-0046). The open client tab
- * answers in-process (ADR-0043): it streams the live turn in component state
- * and writes each finished message into that document.
+ * holding one {@link VocabMessage} per key (ADR-0047). The open client tab runs
+ * the agent loop itself (ADR-0047, superseding ADR-0043): it streams the live
+ * turn in component state and writes each finished message into that document.
  */
 export const vocabLens = defineLens({
 	namespace: 'so.epicenter.vocab',
