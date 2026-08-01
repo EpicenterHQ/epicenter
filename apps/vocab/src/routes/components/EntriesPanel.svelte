@@ -17,12 +17,10 @@
 		onPractice: (entryTexts: string[]) => void;
 	} = $props();
 
-	/** The one-way cycle a stage button steps through on each click. */
-	const NEXT_STAGE: Record<Entry['stage'], Entry['stage']> = {
-		new: 'understood',
-		understood: 'usable',
-		usable: 'new',
-	};
+	/** The acquisition ladder, in order (ADR-0102). A learner picks the rung they
+	 * mean, in either direction: a cycling button turned an ordered ladder into a
+	 * ring, where demoting `understood` meant stepping forward through `usable`. */
+	const STAGES = ['new', 'understood', 'usable'] as const satisfies readonly Entry['stage'][];
 
 	/** Stage filter values: `all` plus the three acquisition stages. Drives both
 	 * the visible list and the set "Practice these" compiles. Focus is a filter
@@ -48,10 +46,6 @@
 		if (entries.save(newEntry)) {
 			newEntry = '';
 		}
-	}
-
-	function cycleStage(id: string, stage: Entry['stage']) {
-		entries.setStage(id, NEXT_STAGE[stage]);
 	}
 
 	function commitNote(entry: Entry, note: string) {
@@ -132,14 +126,21 @@
 								placeholder="Note"
 								onblur={(event) => commitNote(entry, event.currentTarget.value)}
 							/>
-							<button
-								type="button"
-								class="shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase hover:bg-accent"
-								title="Cycle stage: new, understood, usable"
-								onclick={() => cycleStage(entry.id, entry.stage)}
+							<select
+								class="shrink-0 rounded-sm border bg-transparent px-1 py-0.5 text-[10px] text-muted-foreground uppercase hover:bg-accent"
+								title="Stage: new, understood, usable"
+								aria-label="Stage for {entry.text}"
+								value={entry.stage}
+								onchange={(event) =>
+									entries.setStage(
+										entry.id,
+										event.currentTarget.value as Entry['stage'],
+									)}
 							>
-								{entry.stage}
-							</button>
+								{#each STAGES as stage (stage)}
+									<option value={stage}>{stage}</option>
+								{/each}
+							</select>
 						</div>
 						<Sidebar.MenuAction
 							showOnHover
