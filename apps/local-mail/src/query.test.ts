@@ -1,15 +1,16 @@
 /**
  * The read-only SQL surface. What matters beyond "does a SELECT work" is that a
- * read never writes: `queryMail` opens the current artifact read-only and, when
- * that artifact does not exist, reports it rather than conjuring an empty file
- * on disk (ADR-0197).
+ * read never writes: `queryMail` opens the mailbox read-only and, when that file
+ * does not exist, reports it rather than conjuring an empty one on disk
+ * (ADR-0198).
  */
 
 import { expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mailMirror, openMailDb } from './db.ts';
+import { openMailDb } from './db.ts';
+import { mailDbPath } from './paths.ts';
 import { queryMail } from './query.ts';
 import type { GmailMessage } from './schema.ts';
 
@@ -31,7 +32,7 @@ function message(id: string): GmailMessage {
 	};
 }
 
-test('querying an absent mirror reports it and creates nothing', () => {
+test('querying an absent mailbox reports it and creates nothing', () => {
 	const tmp = tempDir();
 
 	const { data, error } = queryMail({
@@ -42,13 +43,13 @@ test('querying an absent mirror reports it and creates nothing', () => {
 
 	expect(data).toBeNull();
 	expect(error?.name).toBe('NoMirror');
-	expect(error?.message).toContain(mailMirror(tmp.dir, ACCOUNT).path);
-	expect(existsSync(mailMirror(tmp.dir, ACCOUNT).path)).toBe(false);
+	expect(error?.message).toContain(mailDbPath(tmp.dir, ACCOUNT));
+	expect(existsSync(mailDbPath(tmp.dir, ACCOUNT))).toBe(false);
 	expect(existsSync(join(tmp.dir, ACCOUNT))).toBe(false);
 	tmp.cleanup();
 });
 
-test('reads rows from the current artifact', () => {
+test('reads rows from the mailbox', () => {
 	const tmp = tempDir();
 	const db = openMailDb({ dataDir: tmp.dir, accountEmail: ACCOUNT });
 	db.ingestFullPullPage([message('m1')], 's1');

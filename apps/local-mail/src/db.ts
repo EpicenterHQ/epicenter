@@ -1,25 +1,26 @@
-import { chmodSync, mkdirSync } from 'node:fs';
-import { type Mirror, mirrorAt } from '@epicenter/sqlite/bun-mirror';
+import { Database } from 'bun:sqlite';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import {
 	bodyHtml,
 	bodyText,
 	hasExternalizedBody,
 	headerValue,
 } from './message-fields.ts';
-import { accountDir } from './paths.ts';
+import { accountDir, mailDbPath } from './paths.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
 /**
- * The local mirror: one SQLite artifact per connected Gmail account. Ports
- * `apps/local-books`' CDC-cursor and transaction discipline (see that file's
- * top comment) onto Gmail's `history.list` shape, which differs from
- * QuickBooks' `/cdc` in ways that shaped the design below:
+ * The mailbox database: one stable SQLite file per connected Gmail account, at
+ * `<dataDir>/<accountEmail>/mail.db` (ADR-0198). Ports `apps/local-books`'
+ * CDC-cursor and transaction discipline (see that file's top comment) onto
+ * Gmail's `history.list` shape, which differs from QuickBooks' `/cdc` in ways
+ * that shaped the design below:
  *
  * - Gmail's cursor is an opaque, increasing `historyId`, not a timestamp, so
  *   staleness is judged from our own `last_synced_at` wall-clock record, not
  *   from parsing the cursor itself (see `sync.ts`'s `decideMode`).
  * - `history.list`'s `labelsAdded`/`labelsRemoved` records carry a full
- *   current `labelIds` snapshot for a message that may already be mirrored,
+ *   current `labelIds` snapshot for a message that may already be stored,
  *   not a full object replacement. `patchMessageLabels` handles this as a
  *   targeted field patch, distinct from the generic upsert.
  * - Full backfill is paginated (`messages.list` + per-id `messages.get`), so
@@ -28,12 +29,13 @@ import type { GmailLabel, GmailMessage } from './schema.ts';
  *   once, in `finishFullPull`, after every page has committed.
  *
  * The account owns its identity through the directory (`<dataDir>/<email>/`),
- * not a stored column. Inside that directory the artifact is named by
- * `MIRROR_VERSION` (ADR-0197): nothing about the stored shape is stamped inside
- * the file, and nothing is ever dropped, unlinked, or migrated on open. A shape
- * change is a version bump, which is a different filename, and the predecessor
- * is retained until something reclaims it. Indexes are outside that promise and
- * applied idempotently on every open, so a query optimization costs no re-pull.
+ * not a stored column, and the file inside it is always called `mail.db`. This
+ * file is NOT a mirror: it is on its way to holding durable local state that
+ * Gmail cannot supply again, so nothing here may be named by a version,
+ * replaced by an empty successor, or reclaimed (ADR-0198). What that costs is
+ * one mechanism this file owns: the fact tier's shape is stamped in `_meta`, and
+ * a build whose contract moved on rebuilds that tier in place. See
+ * `FACT_CORPUS_VERSION`.
  */
 
 export type RealmState = {
@@ -124,7 +126,7 @@ type ColumnDeclaration = {
 type TableDeclaration = { table: string; columns: ColumnDeclaration[] };
 
 /** A column this app writes at ingest: an id, the resource, a timestamp, or one
- * of the three values SQL cannot reach (see `MIRROR_TABLES`). */
+ * of the three values SQL cannot reach (see `FACT_TABLES`). */
 function stored(
 	name: string,
 	type: ColumnDeclaration['type'],
@@ -144,17 +146,29 @@ function projected(
 }
 
 /**
- * The mirror's declared stored shape, as plain data, and the single source the
- * DDL below is generated from.
+ * `_meta`: the key/value shelf that outlives every rebuild, because it is where
+ * the version that decides a rebuild is stored. It is not a fact table and is
+ * never dropped.
+ */
+const META_TABLE: TableDeclaration = {
+	table: '_meta',
+	columns: [stored('key', 'TEXT', 'PRIMARY KEY'), stored('value', 'TEXT')],
+};
+
+/**
+ * The fact tier's declared stored shape, as plain data, and the single source
+ * the DDL below is generated from. Gmail owns every value here and nothing in it
+ * is authored locally, which is exactly what makes these the tables a corpus
+ * change may drop and rebuild (ADR-0198).
  *
- * Three tiers, per ADR-0196, and no fourth:
+ * Three tiers of column, per ADR-0196, and no fourth:
  *
  * 1. `resource`: the parsed `messages.get(format=full)` payload, verbatim. Not
  *    `raw`: `format=raw` is Gmail's own name for the base64url RFC 5322 blob
  *    this app never fetches, so a column named `raw` holding a parsed resource
  *    was a false statement in the schema. `labels.resource` follows the same
  *    word for the same reason (`labels.list` returns a Label resource); one
- *    mirror should not have two names for "verbatim provider JSON".
+ *    file should not have two names for "verbatim provider JSON".
  * 2. Every column SQLite can project from it, as a generated column.
  * 3. Exactly the columns SQL cannot project that pushed-down search and sort
  *    need: `subject`, `sender`, `body_text`, and nothing else. `To`, `Date`, and
@@ -163,16 +177,12 @@ function projected(
  * The test for a proposed column is not "is it useful" but "can SQLite project
  * it, and if not, does a pushed-down filter or sort require it?" A column that
  * fails both belongs in a read-time derivation, and adding one is not free
- * either way: it is a `MIRROR_VERSION` bump, so it costs a full re-pull of the
- * mailbox at 20 quota units per message (ADR-0197).
+ * either way: it is a `FACT_CORPUS_VERSION` bump, so it costs a full re-pull of
+ * the mailbox at 20 quota units per message (ADR-0196).
  *
- * Indexes are deliberately absent: an index holds no mirror facts.
+ * Indexes are deliberately absent: an index holds no Gmail facts.
  */
-const MIRROR_TABLES: TableDeclaration[] = [
-	{
-		table: '_meta',
-		columns: [stored('key', 'TEXT', 'PRIMARY KEY'), stored('value', 'TEXT')],
-	},
+const FACT_TABLES: TableDeclaration[] = [
 	{
 		table: 'labels',
 		columns: [
@@ -214,7 +224,7 @@ const MIRROR_TABLES: TableDeclaration[] = [
 			),
 			// The three columns SQL cannot project, written by this app at ingest.
 			// What each one means is part of the corpus contract, so changing any of
-			// these promises is a `MIRROR_VERSION` bump: `subject` is the `Subject`
+			// these promises is a `FACT_CORPUS_VERSION` bump: `subject` is the `Subject`
 			// header, `sender` is the `From` header, and `body_text` is the decoded
 			// `text/plain` part, else tags stripped from `text/html`. Changing
 			// `headerValue` or `bodyText` without bumping the version is the mistake
@@ -228,34 +238,41 @@ const MIRROR_TABLES: TableDeclaration[] = [
 ];
 
 /**
- * The version of the corpus contract this build stores, and the whole of the
- * artifact's identity on disk: `mail.v<MIRROR_VERSION>.db` (ADR-0197). It is not
- * the app's release version and it is not a migration target. Nothing reads a
- * lower version, and nothing rewrites one.
+ * The version of the corpus contract this build stores for the FACT tier, and
+ * the only thing a rebuild is decided by. It is stored in `_meta` rather than in
+ * the filename, because the file also holds local state Gmail cannot supply
+ * again and so can never be replaced by an empty successor (ADR-0198). It is not
+ * the app's release version and it is not a migration target: nothing reads a
+ * lower version and nothing rewrites one.
  *
- * The reader-mirror rewrite that renamed `raw` to `resource` is version `5`.
+ * The reader rewrite that renamed `raw` to `resource` is version `5`, and the
+ * count continues from there: the corpus contract did not change when the file
+ * stopped being named after it.
  *
  * Bump it when this build would store something a previous build did not: an
- * added, removed, or retyped column; a changed promise for what `subject`,
+ * added, removed, or retyped fact column; a changed promise for what `subject`,
  * `sender`, or `body_text` holds; or a change to which messages a full pull
  * covers. Do not bump it for an index, a read-time derivation such as the HTML
- * body, a comment, or an app release. A bump costs a full re-pull of the mailbox
- * at 20 quota units per message, so it is not a free edit.
+ * body, a comment, or an app release. A bump drops and re-creates the fact
+ * tables in place and costs a full re-pull of the mailbox at 20 quota units per
+ * message, so it is not a free edit.
  */
-const MIRROR_VERSION = 5;
+const FACT_CORPUS_VERSION = 5;
+
+/** Where `FACT_CORPUS_VERSION` is stamped inside the file. */
+const FACT_CORPUS_VERSION_KEY = 'fact_corpus_version';
 
 /**
- * The mirror as materialized for one account: `<dataDir>/<accountEmail>/`. Every
- * surface that needs the artifact's path or its inventory goes through here;
- * nothing outside this file names a mirror file.
+ * The `_meta` keys that describe how far the fact tier has been pulled. They
+ * belong to the corpus a rebuild throws away, so a rebuild clears them and the
+ * next pass starts from a full pull. Every other key survives, including keys
+ * this build has never heard of.
  */
-export function mailMirror(dataDir: string, accountEmail: string): Mirror {
-	return mirrorAt({
-		name: 'mail',
-		version: MIRROR_VERSION,
-		directory: accountDir(dataDir, accountEmail),
-	});
-}
+const CURSOR_KEYS = [
+	'history_id',
+	'last_full_pull_at',
+	'last_synced_at',
+] as const;
 
 /** `CREATE TABLE IF NOT EXISTS` for one declared table. Every identifier and
  * expression here is authored in this file and the set is closed, so the
@@ -271,17 +288,40 @@ function createTableSql({ table, columns }: TableDeclaration): string {
 	return `CREATE TABLE IF NOT EXISTS ${table} (${defs.join(', ')});`;
 }
 
-const CREATE_TABLES = MIRROR_TABLES.map(createTableSql).join('\n');
+const CREATE_META_TABLE = createTableSql(META_TABLE);
+const CREATE_FACT_TABLES = FACT_TABLES.map(createTableSql).join('\n');
 
 /**
- * Indexes, outside the corpus contract: they hold no mirror facts, so adding one
- * is a query optimization applied on every open, not a shape change that costs a
- * re-pull (ADR-0197).
+ * Indexes over the fact tier, outside the corpus contract: they hold no Gmail
+ * facts, so adding one is a query optimization applied on every open, not a
+ * shape change that costs a re-pull. That is why this runs unconditionally while
+ * the tables above run only under a rebuild.
  */
-const CREATE_INDEXES = `
+const CREATE_FACT_INDEXES = `
 	CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, internal_date);
 	CREATE INDEX IF NOT EXISTS idx_messages_internal_date ON messages(internal_date);
 `;
+
+const BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * Apply a connection's pragmas, closing the handle if one of them fails.
+ *
+ * `new Database(...)` opens lazily, so a pragma is the first statement that
+ * actually reaches the file and therefore the first that can fail on a missing
+ * permission or a path that is not a database. Without the close, every such
+ * failure would leak the descriptor it had already opened, which a long-running
+ * daemon retrying a broken mailbox would accumulate.
+ */
+function applyPragmas(db: Database, pragmas: readonly string[]): Database {
+	try {
+		for (const pragma of pragmas) db.run(pragma);
+	} catch (cause) {
+		db.close();
+		throw cause;
+	}
+	return db;
+}
 
 function secureDir(path: string): void {
 	mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -298,10 +338,8 @@ function chmodIfExists(path: string, mode: number): void {
 }
 
 /**
- * The mirror holds a copy of someone's mail, so the artifact and both SQLite
- * sidecars are `0600` and the directories are `0700`. The mirror primitive does
- * not know a mirror's sensitivity and deliberately does not decide this; the app
- * applies it to the handle it receives (ADR-0197).
+ * The mailbox holds someone's mail, so the file and both SQLite sidecars are
+ * `0600` and the directories are `0700`.
  */
 function secureDbFiles(path: string): void {
 	chmodIfExists(path, 0o600);
@@ -312,23 +350,34 @@ function secureDbFiles(path: string): void {
 type MailDbLocation = { dataDir: string; accountEmail: string };
 
 /**
- * Open the current artifact for writing, creating it if absent. Opening is
- * non-destructive: there is no stored version to compare, nothing is unlinked,
- * and a `MIRROR_VERSION` bump simply means a different filename with an empty
- * successor to backfill. The DDL runs every open because `IF NOT EXISTS` is
- * idempotent against a file that already has the declared shape, which by
- * construction is the only shape this filename ever holds.
+ * Open the mailbox for writing, creating it if absent.
+ *
+ * The one thing an open decides is whether this build's fact-tier contract
+ * matches the one stamped in the file. When it does not, the fact tier is
+ * rebuilt in place; everything else in the file is left exactly as it was. A
+ * first open is that same rebuild against an empty file, so there is one path,
+ * not two.
  */
 export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
-	// Resolve the mirror first: an account email that cannot name one path segment
+	// Resolve the path first: an account email that cannot name one path segment
 	// must be refused before anything is created on disk.
-	const mirror = mailMirror(dataDir, accountEmail);
+	const path = mailDbPath(dataDir, accountEmail);
 	secureDir(dataDir);
 	secureDir(accountDir(dataDir, accountEmail));
-	const db = mirror.open();
-	secureDbFiles(mirror.path);
-	db.run(CREATE_TABLES);
-	db.run(CREATE_INDEXES);
+	// WAL so readers never block the writer; a busy_timeout so a second writer
+	// waits for the lock instead of failing instantly with SQLITE_BUSY;
+	// synchronous NORMAL because the fact tier is re-pullable, so a lost last
+	// commit on power loss costs a re-pull and nothing more.
+	const db = applyPragmas(new Database(path, { create: true }), [
+		`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`,
+		'PRAGMA journal_mode = WAL;',
+		'PRAGMA synchronous = NORMAL;',
+		'PRAGMA foreign_keys = ON;',
+	]);
+	secureDbFiles(path);
+
+	// `_meta` before anything else: it is what the rebuild decision is read from.
+	db.run(CREATE_META_TABLE);
 
 	const setMetaStmt = db.query(
 		`INSERT INTO _meta (key, value) VALUES (?, ?)
@@ -337,6 +386,37 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 	const getMetaStmt = db.query<{ value: string | null }, [string]>(
 		`SELECT value FROM _meta WHERE key = ?`,
 	);
+	const deleteMetaStmt = db.query(`DELETE FROM _meta WHERE key = ?`);
+
+	/**
+	 * Bring the fact tier to this build's contract by rebuilding it where it
+	 * stands: drop the declared fact tables, recreate them, clear the cursor so
+	 * the next pass is a full pull, and stamp the version. One transaction, so a
+	 * crash leaves either the previous corpus or an empty current one, never a
+	 * half-shaped file.
+	 *
+	 * The scope is exactly the names declared above, and that is the point.
+	 * Anything else in this file survives a rebuild: the durable local overlays
+	 * ADR-0198 puts here are not re-pullable, so a sweep of tables this build does
+	 * not recognize would delete the only copy of a user's pending work. Dropping
+	 * a table takes its indexes with it, which is why `CREATE_FACT_INDEXES` below
+	 * is a create list and there is no drop list beside it.
+	 */
+	function rebuildFactTier(): void {
+		const tx = db.transaction(() => {
+			for (const { table } of FACT_TABLES) {
+				db.run(`DROP TABLE IF EXISTS ${table};`);
+			}
+			db.run(CREATE_FACT_TABLES);
+			for (const key of CURSOR_KEYS) deleteMetaStmt.run(key);
+			setMetaStmt.run(FACT_CORPUS_VERSION_KEY, String(FACT_CORPUS_VERSION));
+		});
+		tx.immediate();
+	}
+
+	const storedVersion = getMetaStmt.get(FACT_CORPUS_VERSION_KEY)?.value ?? null;
+	if (storedVersion !== String(FACT_CORPUS_VERSION)) rebuildFactTier();
+	db.run(CREATE_FACT_INDEXES);
 
 	const upsertMessageStmt = db.query(
 		`INSERT INTO messages (id, resource, subject, sender, body_text, synced_at)
@@ -581,7 +661,7 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 			let date: string | null = null;
 			// Derived at read time from the stored resource, never stored: an HTML
 			// body column would only mirror `body_text` for symmetry's sake and
-			// rename the artifact. `bodyHtml` is defensive on its own, but the parse
+			// cost a corpus bump. `bodyHtml` is defensive on its own, but the parse
 			// shares this try so a corrupt resource yields nulls rather than throwing.
 			let unsafeBodyHtml: string | null = null;
 			// Likewise read-time: whether Gmail put the body behind an `attachmentId`
@@ -718,24 +798,25 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 }
 
 /**
- * The read-only view of the current artifact, for surfaces that must never
- * write and must never conjure a file (`status`, `query`). Returns `null` when
- * the current artifact does not exist, which is the honest answer to "is there a
- * mirror to read": the caller reports it rather than creating one, and a
- * predecessor is never opened here (the moment `MIRROR_VERSION` moved past it,
- * it stopped being authoritative and reading it would be a compatibility layer;
- * `mailMirror(...).artifacts()` is where a deliberate inspector gets its path).
+ * The read-only view of the mailbox, for surfaces that must never write and must
+ * never conjure a file (`status`, `query`). Returns `null` when `mail.db` does
+ * not exist, which is the honest answer to "is there a mailbox to read": the
+ * caller reports it rather than creating one.
  *
- * The filename is the shape guarantee, so there is no stored version to check.
- * Reads still compile at call time and tolerate absent tables, because a
- * writable open that died between creating the file and running its DDL leaves
- * a current artifact with nothing in it; that reports as empty, not as a crash.
- * The handle rejects writes at the SQLite level, and `busy_timeout` keeps reads
- * from failing against a lock a concurrent sync briefly holds.
+ * A reader sets no persistent pragma and never rebuilds, so it does not check
+ * the stored corpus version: a rebuild is a writer's job, and a reader that
+ * triggered one would be a write. Reads compile at call time and tolerate absent
+ * tables, because a writable open that died between creating the file and its
+ * first transaction leaves a file with nothing in it; that reports as empty, not
+ * as a crash. The handle rejects writes at the SQLite level, and `busy_timeout`
+ * keeps reads from failing against a lock a concurrent sync briefly holds.
  */
 export function openMailDbReadonly({ dataDir, accountEmail }: MailDbLocation) {
-	const db = mailMirror(dataDir, accountEmail).openReadonly();
-	if (db === null) return null;
+	const path = mailDbPath(dataDir, accountEmail);
+	if (!existsSync(path)) return null;
+	const db = applyPragmas(new Database(path, { readonly: true }), [
+		`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`,
+	]);
 
 	const hasTable = (name: string): boolean =>
 		db

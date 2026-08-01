@@ -1,15 +1,21 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 import { Value } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { AppConfig } from './config.ts';
-import { mailMirror } from './db.ts';
+import { mailDbPath } from './paths.ts';
 import { type TokenSet, TokenSetSchema } from './tokens.ts';
 
 /**
  * Where an account's OAuth `TokenSet` lives, keyed by `accountEmail`: the
  * connect flow (Phase 2) writes it, `sync` reads it. The set never lives inside
- * an account's mirror db, so the mirror's read-only SQL surface can never read
+ * an account's mailbox db, so the mailbox's read-only SQL surface can never read
  * it. `get` returns `null` when nothing is stored; `set` throws if the write
  * fails (disk, permissions), which bubbles to the caller rather than threading a
  * Result through every call site. Same shape as `apps/local-books`'
@@ -27,22 +33,17 @@ export async function resolveAccount(
 ): Promise<Result<string, { message: string }>> {
 	const accounts = await store.listAccounts();
 	if (config.account) {
-		// An override is valid when we hold credentials for it, or when a mirror
-		// artifact already exists on disk: the read verbs (query, status) work
-		// without a token, and a disconnected account's mirror stays readable. Any
-		// artifact counts, not just the current one: an account whose corpus version
-		// moved on still has a real mirror here, and `status` reporting an empty
-		// current artifact beside a retained predecessor is far more useful than
-		// "not a connected account".
+		// An override is valid when we hold credentials for it, or when the account
+		// has a mailbox on disk: the read verbs (query, status) work without a
+		// token, and a disconnected account's mailbox stays readable.
 		if (accounts.includes(config.account)) return Ok(config.account);
-		let hasMirror = false;
+		let hasMailbox = false;
 		try {
-			hasMirror =
-				mailMirror(config.dataDir, config.account).artifacts().length > 0;
+			hasMailbox = existsSync(mailDbPath(config.dataDir, config.account));
 		} catch {
 			// Not even one path segment; the error below names the real accounts.
 		}
-		if (hasMirror) return Ok(config.account);
+		if (hasMailbox) return Ok(config.account);
 		return Err({
 			message:
 				accounts.length === 0

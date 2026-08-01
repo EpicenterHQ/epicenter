@@ -441,10 +441,10 @@ describe('modifyMessageLabels', () => {
 			lastFullPullAt: 's1',
 			lastSyncedAt: 's1',
 		});
-		// Nothing stamps a shape version inside the file: the filename carries the
-		// corpus version, so `_meta` holds cursor state and nothing else
-		// (ADR-0197).
+		// `_meta` holds the fact tier's corpus version and how far it has been
+		// pulled, and nothing else. A fold adds to neither (ADR-0198).
 		expect(metaRows(db).map((row) => row.key)).toEqual([
+			'fact_corpus_version',
 			'history_id',
 			'last_full_pull_at',
 			'last_synced_at',

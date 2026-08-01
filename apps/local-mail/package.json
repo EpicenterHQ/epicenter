@@ -31,7 +31,6 @@
 	},
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/sqlite": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"@modelcontextprotocol/sdk": "catalog:",
 		"arktype": "catalog:",

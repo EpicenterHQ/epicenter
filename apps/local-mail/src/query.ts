@@ -4,7 +4,8 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { mailMirror, openMailDbReadonly } from './db.ts';
+import { openMailDbReadonly } from './db.ts';
+import { mailDbPath } from './paths.ts';
 
 export const MailQueryError = defineErrors({
 	NoMirror: ({ path }: { path: string }) => ({
@@ -34,13 +35,14 @@ export function queryMail({
 	accountEmail: string;
 	sql: string;
 }): Result<MailQueryResult, MailQueryError> {
-	// The reader never creates a file, so an absent mirror is reported rather
+	// The reader never creates a file, so an absent mailbox is reported rather
 	// than conjured: querying an account that has never synced leaves the
 	// directory exactly as it was.
 	const db = openMailDbReadonly({ dataDir, accountEmail });
 	if (db === null) {
-		const { path } = mailMirror(dataDir, accountEmail);
-		return MailQueryError.NoMirror({ path });
+		return MailQueryError.NoMirror({
+			path: mailDbPath(dataDir, accountEmail),
+		});
 	}
 	try {
 		const rows: Record<string, unknown>[] = [];

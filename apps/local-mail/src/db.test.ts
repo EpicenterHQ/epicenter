@@ -1,13 +1,14 @@
 /**
- * The mirror's write contract. Unlike `apps/local-books`' monotonic-timestamp
+ * The mailbox's write contract. Unlike `apps/local-books`' monotonic-timestamp
  * guard (QuickBooks CDC deletes are stubs, so a stale write must not regress a
  * newer row), Gmail's history stream is applied strictly in the order it is
  * received within one process, so `upsertMessage`/`applyHistoryBatch` are
  * plain last-write-wins: what these tests actually cover is the FULL-pull vs
  * INCREMENTAL-patch split (a `labelPatch` must edit the stored resource's
  * `labelIds` in place and leave the rest of the payload alone), the atomic-cursor
- * discipline ported from `db.ts`, and the version-named artifact lifecycle
- * (ADR-0197): opening never destroys, a changed shape is a new filename.
+ * discipline ported from `db.ts`, and the one stable file's open contract
+ * (ADR-0198): reopening keeps every row, and a corpus bump rebuilds the fact
+ * tier in place without touching anything else in the file.
  */
 
 import { Database } from 'bun:sqlite';
@@ -21,16 +22,11 @@ import {
 	readdirSync,
 	rmSync,
 	statSync,
-	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-	type MailDb,
-	mailMirror,
-	openMailDb,
-	openMailDbReadonly,
-} from './db.ts';
+import { type MailDb, openMailDb, openMailDbReadonly } from './db.ts';
+import { mailDbPath } from './paths.ts';
 import type { GmailMessage } from './schema.ts';
 
 function tempDir() {
@@ -334,14 +330,13 @@ describe('full pull page ingestion', () => {
 		cleanup();
 	});
 
-	test('creates data and account dirs as 0700 and artifact files as 0600', () => {
+	test('creates data and account dirs as 0700 and mailbox files as 0600', () => {
 		const tmp = tempDir();
 		chmodSync(tmp.dir, 0o755);
 		const accountDir = join(tmp.dir, 'you@example.com');
-		// The mirror primitive does not know the artifact holds someone's mail, so
-		// the app is what applies the permissions to the handle it receives, to the
-		// versioned filename and both SQLite sidecars.
-		const { path } = mailMirror(tmp.dir, 'you@example.com');
+		// The file holds someone's mail, so the mode covers `mail.db` and both
+		// SQLite sidecars, not just the directory around them.
+		const path = mailDbPath(tmp.dir, 'you@example.com');
 		const db = openMailDb({
 			dataDir: tmp.dir,
 			accountEmail: 'you@example.com',
@@ -506,7 +501,7 @@ describe('labels', () => {
 });
 
 describe('the read-only handle', () => {
-	test('reports an absent artifact instead of creating one', () => {
+	test('reports an absent mailbox instead of creating one', () => {
 		const tmp = tempDir();
 
 		expect(
@@ -531,15 +526,15 @@ describe('the read-only handle', () => {
 		cleanup();
 	});
 
-	test('reads an artifact whose DDL never ran as empty rather than throwing', () => {
-		// The one window a current artifact can exist without the declared tables:
-		// a writable open that died between creating the file and running its DDL.
-		// ADR-0197 says the worst a mistaken writable open can do is leave an empty
-		// file, so a reader must report it, not crash on it.
+	test('reads a mailbox whose DDL never ran as empty rather than throwing', () => {
+		// The one window `mail.db` can exist without the declared tables: a writable
+		// open that died between creating the file and its first transaction. The
+		// worst a mistaken writable open can do is leave an empty file, so a reader
+		// must report it, not crash on it.
 		const tmp = tempDir();
 		const accountDir = join(tmp.dir, 'you@example.com');
 		mkdirSync(accountDir, { recursive: true });
-		const { path } = mailMirror(tmp.dir, 'you@example.com');
+		const path = mailDbPath(tmp.dir, 'you@example.com');
 		new Database(path, { create: true }).close();
 
 		const reader = openMailDbReadonly({
@@ -553,140 +548,183 @@ describe('the read-only handle', () => {
 	});
 });
 
-describe('the mirror', () => {
-	test('an account email that is not one path segment cannot name a mirror directory', () => {
-		expect(() => mailMirror('/data', '../evil')).toThrow(
-			'cannot name a mirror directory',
+describe('the mailbox file', () => {
+	test('an account email that is not one path segment cannot name a directory', () => {
+		expect(() => mailDbPath('/data', '../evil')).toThrow(
+			'cannot name an account directory',
 		);
-		expect(() => mailMirror('/data', 'a/b@example.com')).toThrow(
-			'cannot name a mirror directory',
+		expect(() => mailDbPath('/data', 'a/b@example.com')).toThrow(
+			'cannot name an account directory',
 		);
-		expect(() => mailMirror('/data', '')).toThrow(
-			'cannot name a mirror directory',
+		expect(() => mailDbPath('/data', '')).toThrow(
+			'cannot name an account directory',
 		);
 	});
 
-	test('names the artifact by its corpus version, under the account dir', () => {
-		const { path, version } = mailMirror('/data', 'you@example.com');
-		expect(path).toBe(join('/data', 'you@example.com', `mail.v${version}.db`));
-	});
-
-	test('uses the post-reader corpus version, so v4 is never reopened', () => {
-		// The reader-mirror rewrite that renamed `raw` to `resource` is version 5.
-		// Restarting the count would name a fresh artifact after a corpus that
-		// already existed.
-		expect(mailMirror('/data', 'you@example.com').version).toBeGreaterThan(4);
+	test('is one stable name under the account dir, with no version in it', () => {
+		expect(mailDbPath('/data', 'you@example.com')).toBe(
+			join('/data', 'you@example.com', 'mail.db'),
+		);
 	});
 });
 
-describe('the artifact lifecycle', () => {
-	test('reopening keeps every row: opening is never destructive', () => {
+/** What the current build stamped in the file, read without opening the app's
+ * writer (which would rebuild whatever it disagreed with). */
+function factCorpusVersion(dataDir: string): string | null {
+	const db = new Database(mailDbPath(dataDir, 'you@example.com'), {
+		readonly: true,
+	});
+	const row = db
+		.query<{ value: string | null }, [string]>(
+			`SELECT value FROM _meta WHERE key = ?`,
+		)
+		.get('fact_corpus_version');
+	db.close();
+	return row?.value ?? null;
+}
+
+/** Rewind the stamped contract, so the next open sees a fact tier built by a
+ * corpus this build no longer promises. Standing in for a real bump keeps the
+ * test from having to be edited every time the constant moves. */
+function stampStaleCorpusVersion(dataDir: string): void {
+	const db = new Database(mailDbPath(dataDir, 'you@example.com'));
+	db.run(`UPDATE _meta SET value = '0' WHERE key = 'fact_corpus_version'`);
+	db.close();
+}
+
+function dbFilesIn(dir: string): string[] {
+	return readdirSync(dir).filter((name) => name.endsWith('.db'));
+}
+
+describe('opening the mailbox', () => {
+	const location = (dataDir: string) => ({
+		dataDir,
+		accountEmail: 'you@example.com',
+	});
+
+	test('a first open creates one file and stamps the fact-tier corpus version', () => {
 		const tmp = tempDir();
-		const location = { dataDir: tmp.dir, accountEmail: 'you@example.com' };
-		const first = openMailDb(location);
+		const db = openMailDb(location(tmp.dir));
+		db.close();
+
+		expect(existsSync(mailDbPath(tmp.dir, 'you@example.com'))).toBe(true);
+		expect(dbFilesIn(join(tmp.dir, 'you@example.com'))).toEqual(['mail.db']);
+		// The count continues from the reader rewrite that renamed `raw` to
+		// `resource`; restarting it would claim a corpus that already existed.
+		expect(Number(factCorpusVersion(tmp.dir))).toBeGreaterThan(4);
+		tmp.cleanup();
+	});
+
+	test('reopening at the same corpus version keeps every row and the cursor', () => {
+		const tmp = tempDir();
+		const first = openMailDb(location(tmp.dir));
 		first.ingestFullPullPage([message()], 's1');
 		first.finishFullPull('42', 's1');
 		first.close();
 
-		const second = openMailDb(location);
+		const second = openMailDb(location(tmp.dir));
 		expect(second.counts().messages).toBe(1);
 		expect(second.readRealmState().historyId).toBe('42');
 		second.close();
 
-		// One version, one filename: reopening at the same version must not have
-		// produced a second artifact.
-		expect(
-			readdirSync(join(tmp.dir, 'you@example.com')).filter((name) =>
-				name.endsWith('.db'),
-			),
-		).toEqual([`mail.v${mailMirror(tmp.dir, 'you@example.com').version}.db`]);
+		expect(dbFilesIn(join(tmp.dir, 'you@example.com'))).toEqual(['mail.db']);
 		tmp.cleanup();
 	});
 
-	test('a predecessor artifact is retained, never opened, and never swept', () => {
-		// A predecessor is what a version bump leaves behind. Opening the current
-		// artifact must not consult it, migrate it, or unlink it: it is the only
-		// complete local copy while the successor backfills, and a reader compiled
-		// against it may still be running.
+	test('a corpus change rebuilds the fact tier in place and clears the cursor', () => {
+		const tmp = tempDir();
+		const first = openMailDb(location(tmp.dir));
+		first.ingestFullPullPage([message()], 's1');
+		first.ingestLabels([{ id: 'INBOX', name: 'INBOX', type: 'system' }], 's1');
+		first.finishFullPull('42', 's1');
+		first.close();
+		const version = factCorpusVersion(tmp.dir);
+
+		stampStaleCorpusVersion(tmp.dir);
+		const rebuilt = openMailDb(location(tmp.dir));
+
+		// The facts go, and the cursor goes with them: an incremental pass against
+		// a history id that describes a corpus we dropped would never converge.
+		expect(rebuilt.counts()).toEqual({ messages: 0, labels: 0 });
+		expect(rebuilt.readRealmState()).toEqual({
+			historyId: null,
+			lastFullPullAt: null,
+			lastSyncedAt: null,
+		});
+		rebuilt.close();
+
+		expect(factCorpusVersion(tmp.dir)).toBe(version);
+		// In place: no successor file, and nothing left behind to reclaim.
+		expect(dbFilesIn(join(tmp.dir, 'you@example.com'))).toEqual(['mail.db']);
+		tmp.cleanup();
+	});
+
+	test('a rebuild leaves state this build does not declare untouched', () => {
+		// Standing in for the durable local overlays ADR-0198 puts in this file.
+		// Nothing here is re-pullable, so a rebuild that swept tables or `_meta`
+		// keys it did not recognize would destroy the only copy of a user's pending
+		// work. The fact tier is the whole of a rebuild's reach.
+		const tmp = tempDir();
+		const first = openMailDb(location(tmp.dir));
+		first.ingestFullPullPage([message()], 's1');
+		first.raw.run(
+			`CREATE TABLE pending_label_overrides (message_id TEXT PRIMARY KEY, label_id TEXT);`,
+		);
+		first.raw.run(
+			`INSERT INTO pending_label_overrides VALUES ('m1', 'STARRED');`,
+		);
+		first.raw.run(
+			`INSERT INTO _meta (key, value) VALUES ('overlay_note', 'x');`,
+		);
+		first.close();
+
+		stampStaleCorpusVersion(tmp.dir);
+		const rebuilt = openMailDb(location(tmp.dir));
+
+		expect(rebuilt.counts().messages).toBe(0);
+		expect(
+			rebuilt.raw
+				.query<{ label_id: string }, []>(
+					`SELECT label_id FROM pending_label_overrides WHERE message_id = 'm1'`,
+				)
+				.get(),
+		).toEqual({ label_id: 'STARRED' });
+		expect(
+			rebuilt.raw
+				.query<{ value: string }, []>(
+					`SELECT value FROM _meta WHERE key = 'overlay_note'`,
+				)
+				.get(),
+		).toEqual({ value: 'x' });
+		rebuilt.close();
+		tmp.cleanup();
+	});
+
+	test('a file from before the version was stamped rebuilds to the declared shape', () => {
+		// What an install carried over from a pre-corpus-version `mail.db`: a fact
+		// table shaped by a contract nothing records, which reads as a mismatch
+		// because no version is stamped at all.
 		const tmp = tempDir();
 		const accountDir = join(tmp.dir, 'you@example.com');
 		mkdirSync(accountDir, { recursive: true, mode: 0o700 });
-		const previousVersion = mailMirror(tmp.dir, 'you@example.com').version - 1;
-		const predecessorPath = join(accountDir, `mail.v${previousVersion}.db`);
-		const predecessor = new Database(predecessorPath, { create: true });
-		predecessor.run(`CREATE TABLE messages (id TEXT PRIMARY KEY);`);
-		predecessor.run(`INSERT INTO messages (id) VALUES ('old');`);
-		predecessor.close();
-
-		const db = openMailDb({
-			dataDir: tmp.dir,
-			accountEmail: 'you@example.com',
+		const legacy = new Database(mailDbPath(tmp.dir, 'you@example.com'), {
+			create: true,
 		});
-		// The successor starts empty. It does not inherit, re-project, or delete.
+		legacy.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, raw TEXT);`);
+		legacy.run(`INSERT INTO messages (id, raw) VALUES ('old', '{}');`);
+		legacy.close();
+
+		const db = openMailDb(location(tmp.dir));
+		const columns = db.raw
+			.query<{ name: string }, []>(`PRAGMA table_info(messages)`)
+			.all()
+			.map((row) => row.name);
+
+		expect(columns).toContain('resource');
+		expect(columns).not.toContain('raw');
 		expect(db.counts().messages).toBe(0);
 		db.close();
-
-		expect(existsSync(predecessorPath)).toBe(true);
-		const kept = new Database(predecessorPath, { readonly: true });
-		expect(kept.query(`SELECT count(*) AS n FROM messages`).get()).toEqual({
-			n: 1,
-		});
-		kept.close();
-
-		const mirror = mailMirror(tmp.dir, 'you@example.com');
-		const artifacts = mirror.artifacts();
-		expect(artifacts.length).toBe(2);
-		expect(artifacts.filter((a) => a.current).map((a) => a.version)).toEqual([
-			mirror.version,
-		]);
-		expect(artifacts.filter((a) => !a.current).map((a) => a.version)).toEqual([
-			previousVersion,
-		]);
-		tmp.cleanup();
-	});
-
-	test('reclaim drops predecessors and cannot reach the siblings beside them', () => {
-		const tmp = tempDir();
-		const accountDir = join(tmp.dir, 'you@example.com');
-		const db = openMailDb({
-			dataDir: tmp.dir,
-			accountEmail: 'you@example.com',
-		});
-		db.close();
-		const mirror = mailMirror(tmp.dir, 'you@example.com');
-		const predecessorPath = join(accountDir, `mail.v${mirror.version - 1}.db`);
-		writeFileSync(predecessorPath, '');
-		writeFileSync(`${predecessorPath}-wal`, '');
-		// Local Mail's siblings: the sync-owner lock and the OAuth material. The
-		// filename grammar is what puts them out of reclaim's reach (ADR-0197).
-		writeFileSync(join(accountDir, 'lock.db'), '');
-		writeFileSync(join(accountDir, 'credentials.json'), '{}');
-		writeFileSync(join(accountDir, 'provider.json'), '{}');
-
-		expect(mirror.reclaimPredecessors().map((a) => a.version)).toEqual([
-			mirror.version - 1,
-		]);
-
-		expect(existsSync(predecessorPath)).toBe(false);
-		expect(existsSync(`${predecessorPath}-wal`)).toBe(false);
-		// Sidecars of the live artifact are noise here; what matters is that every
-		// non-artifact file the app keeps beside the mirror survived untouched.
-		expect(
-			readdirSync(accountDir)
-				.filter((name) => !name.endsWith('-wal') && !name.endsWith('-shm'))
-				.sort(),
-		).toEqual(
-			[
-				'credentials.json',
-				'lock.db',
-				'provider.json',
-				`mail.v${mirror.version}.db`,
-			].sort(),
-		);
-		// The current artifact is not a predecessor, so a second call is a no-op
-		// rather than the thing that deletes the mailbox.
-		expect(mirror.reclaimPredecessors()).toEqual([]);
-		expect(existsSync(mirror.path)).toBe(true);
+		expect(Number(factCorpusVersion(tmp.dir))).toBeGreaterThan(4);
 		tmp.cleanup();
 	});
 });

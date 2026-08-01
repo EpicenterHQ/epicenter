@@ -457,12 +457,6 @@ function renderStatus(status: MailStatus): string {
 		['access token', accessToken],
 		['mirror', status.mirror],
 		['mirror file', status.mirrorPath],
-		[
-			'predecessors',
-			status.predecessors.length === 0
-				? 'none'
-				: status.predecessors.map((version) => `v${version}`).join(', '),
-		],
 		['history cursor', status.historyId ?? 'none'],
 		['last full pull', status.lastFullPullAt ?? 'never'],
 		['last synced', status.lastSyncedAt ?? 'never'],

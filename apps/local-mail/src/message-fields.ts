@@ -14,10 +14,11 @@ import type { GmailMessage } from './schema.ts';
  * its prepared statements): this is email-format decoding, not wire validation
  * and not SQLite lifecycle, so it has one home of its own.
  *
- * What these functions promise is part of the mirror's corpus contract: `subject`,
- * `sender`, and `body_text` are stored columns filled from here, so changing what
- * one of them extracts means bumping `MIRROR_VERSION` in `db.ts`, which names a
- * new artifact and buys a full rebuild (ADR-0197).
+ * What these functions promise is part of the fact tier's corpus contract:
+ * `subject`, `sender`, and `body_text` are stored columns filled from here, so
+ * changing what one of them extracts means bumping `FACT_CORPUS_VERSION` in
+ * `db.ts`, which rebuilds the fact tables in place and buys a full re-pull
+ * (ADR-0198).
  */
 
 /** Pull a header value by name (case-insensitive, per RFC 5322). Gmail nests
