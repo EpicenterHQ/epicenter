@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/vocab",
-	"description": "Multilingual chat tutor with a deterministic client-side reading overlay",
+	"description": "Chat-first Chinese conversation companion with a deterministic client-side pinyin overlay",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",

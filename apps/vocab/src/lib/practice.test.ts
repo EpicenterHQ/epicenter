@@ -12,13 +12,6 @@ describe('buildPracticeOpening: the opening turn', () => {
 		expect(opening).toContain('-   spaced  phrase  ');
 	});
 
-	test('names no target or source language: the tutor persona owns that', () => {
-		const lowered = buildPracticeOpening(['你好']).opening.toLowerCase();
-		for (const leak of ['chinese', 'mandarin', 'english', 'pinyin', '简体']) {
-			expect(lowered).not.toContain(leak);
-		}
-	});
-
 	test('handles a single entry', () => {
 		expect(buildPracticeOpening(['你好']).opening).toContain('- 你好');
 	});

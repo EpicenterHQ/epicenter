@@ -13,11 +13,10 @@
  * through the one entry writer (`entriesState.save`). No gloss, no meaning, no
  * provenance, no language, and no candidate metadata is ever stored (ADR-0102).
  *
- * Deliberately language-neutral, like {@link buildPracticeOpening}: it names no
- * target or source language and lets the tutor persona own which language is
- * being taught. In a bilingual passage that means "extract the studied-language
- * spans, not the explanatory glue", which the model resolves from the passage
- * itself, so this path holds no language-specific strings.
+ * It names Chinese directly, like {@link buildPracticeOpening} (ADR-0195). A
+ * Vocab answer is deliberately bilingual, so "the spans worth saving" and "the
+ * Chinese spans" are the same set, and saying so is more precise than asking the
+ * model to infer which half of its own answer was the lesson.
  */
 
 /**
@@ -33,12 +32,12 @@
  */
 export function buildEntryCandidatePrompt(): string {
 	return [
-		'You extract vocabulary spans a language learner might want to save from a passage they just read.',
-		'A span is a verbatim stretch worth learning on its own: a single word, a phrase, or an idiom.',
+		'You extract Chinese vocabulary spans a learner might want to save from a passage they just read.',
+		'A span is a verbatim stretch worth learning on its own: a single word, a phrase, or a chengyu.',
 		'',
 		'Rules:',
 		'- Output one span per line, copied verbatim from the passage.',
-		'- Extract only spans in the language the learner is studying, not the language used to explain them.',
+		'- Extract only the Chinese spans, not the English used to explain them.',
 		'- Do not number the lines, do not add bullets, and do not wrap spans in quotes.',
 		'- Do not add a meaning, translation, or reading. Output the spans and nothing else.',
 		'- Skip trivial filler and anything not worth saving as its own entry.',
