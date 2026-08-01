@@ -3,7 +3,11 @@
 **Date**: 2026-07-31
 **Status**: In Progress
 **Owner**: Braden (product direction), whoever executes the waves
-**Branch**: planning only; implementation branch to be chosen after review
+**Branch**: `claude/vocab-chinese-waves-2-5`; all five waves are implemented and
+committed locally. What is left is the manual verification this environment
+cannot run and the open questions at the bottom, which need the user. Once those
+are settled the spec is spent and should be deleted, since ADR-0195 already
+holds the durable decision.
 **Records**: [ADR-0195](../docs/adr/0195-vocab-is-a-chinese-conversation-companion-and-every-intentional-session-is-a-new-conversation.md), which amends [ADR-0105](../docs/adr/0105-vocab-is-a-multilingual-tutor-and-readings-are-a-client-side-derived-view.md)
 
 ## One Sentence
@@ -30,9 +34,10 @@ Read if changing the architecture:
   Open questions
 ```
 
-The product destination is settled and recorded in ADR-0195. This spec is the
-path from the code that exists to that destination. It changes no production
-code itself.
+The product destination is settled and recorded in ADR-0195. This spec was the
+path from the code that existed to that destination. Every wave has now landed;
+each wave below records what was built and, where it differs, why the built
+shape is not the planned one.
 
 ## Recognition sentence
 
@@ -42,59 +47,54 @@ code itself.
 Everything below is judged against that sentence. A change that does not serve
 it is out of scope.
 
-## Current state
+## State after the waves
 
 ```txt
 apps/vocab/
-  vocab.ts                              # Lens, VOCAB_MODEL, VOCAB_SYSTEM_PROMPT, entriesTable
+  vocab.ts                              # Lens, VOCAB_MODEL, VOCAB_SYSTEM_PROMPT (Chinese), entriesTable
   src/lib/
     application.ts                      # openVocabApplication: replica + bound Lens + entries state
-    practice.ts                         # buildPracticeOpening(entryTexts) -> title + one user turn
-    entry-candidates.ts                 # extract savable spans from a settled message
+    session.ts     (73)                 # SessionOpening; practiceOpening(entryTexts)
+    seeds.ts       (86)                 # CONVERSATION_SEEDS: SessionOpening[]; sampleSeeds(count)
+    entry-candidates.ts                 # extract savable Chinese spans from a settled message
+    readings.ts    (98)                 # createPinyinRomanizer + resolveRomanizer, one lazy import
     state/entries.svelte.ts             # the one entry pool: save / setStage / setNote / remove
-    readings/
-      registry.ts   (103)               # ReadingProvider, readingProviders[], loadOnce, composeRomanizers, resolveRomanizer
-      pinyin.ts     (74)                # Chinese, abstains on kana/hangul
-      romaji.ts     (34)                # Japanese kana
-      cyrillic.ts   (34)                # Cyrillic
-      runs.ts       (39)                # shared run walker; callers are romaji + cyrillic only
   src/routes/
-    +page.svelte                        # createAgentChatState, readings toggle, practice()
+    +page.svelte                        # createAgentChatState, readings toggle, openSession()
     components/
-      ConversationView.svelte           # thread, selection capture, candidate extraction
-      EntriesPanel.svelte               # pool list, stage filter, "Practice these"
-      VocabSidebar.svelte               # conversation list + EntriesPanel
-      ReadingMarkdown.svelte            # settled message + reading overlay
+      ConversationView.svelte           # thread, selection capture, candidates, seed chips
+      EntriesPanel.svelte               # pool list, stage filter, stage ladder, "Practice these"
+      VocabSidebar.svelte               # conversation list with rename + EntriesPanel
+      ReadingMarkdown.svelte            # settled message + pinyin overlay
 ```
 
-What is right today and stays: the entry pool and its shape (ADR-0102), the
-reading overlay as a derived view over clean text (ADR-0105), selection capture,
-candidate extraction, the canonical conversations table, and the client agent
-loop.
+What was right before this work and is untouched: the entry pool and its shape
+(ADR-0102), the reading overlay as a derived view over clean text (ADR-0105),
+selection capture, candidate extraction, the canonical conversations table, and
+the client agent loop.
 
-Before Wave 1, four things were wrong, and they were the reason for this
-spec. Wave 1 has now closed the session-boundary defect; the remaining work is
-the Chinese declaration, proactive seeds, and the later reading-path cleanup.
+Four things were wrong, and they were the reason for this spec. All four are
+now closed.
 
-**1. The tutor cannot name the language it teaches.** `VOCAB_SYSTEM_PROMPT`
-(`apps/vocab/vocab.ts:47-56`) tells the model to infer the studied language and
-follow language switches. `buildPracticePrompt` and
-`buildEntryCandidatePrompt` are both written to hold no language-specific
-string, which makes each of them vaguer than it needs to be. The package
-`description` still reads "Multilingual chat tutor".
+**1. The tutor could not name the language it teaches.** Closed by Wave 2.
+`VOCAB_SYSTEM_PROMPT` is a Chinese-and-English conversation persona,
+`practicePrompt` asks for a Chinese passage and an English explanation, and
+`buildEntryCandidatePrompt` asks for the Chinese spans. The package
+`description` and the README say Chinese.
 
-**2. Wave 1 gave Practice a session boundary.** Practice now awaits
-`chat.createConversation(buildPracticeOpening(phrases))`, creating a separate
-titled conversation and leaving the active topic untouched. The implementation
-landed in `27920a0993` (shared chat seam) and `3d91ab7f41` (Vocab caller).
+**2. Practice had no session boundary.** Closed by Wave 1. Practice awaits
+`chat.createConversation(practiceOpening(phrases))`, creating a separate titled
+conversation and leaving the active topic untouched. The implementation landed
+in `27920a0993` (shared chat seam) and `3d91ab7f41` (Vocab caller).
 
-**3. Wave 1 fixed the async creation defect.** The opening is sent only after
-the new handle is selected, and the caller reports failures rather than
-discarding the promise. Tests cover the awaited creation path and the composed
-title/opening contract.
+**3. An async creation defect on that same path.** Closed by Wave 1. The
+opening is sent only after the new handle is selected, and the caller reports
+failures rather than discarding the promise. Tests cover the awaited creation
+path and the composed title/opening contract.
 
-**4. Nothing offers the learner a way in.** There is no proactive seed. A blank
-thread is the whole invitation.
+**4. Nothing offered the learner a way in.** Closed by Wave 3. An empty thread
+offers three topic chips drawn from a hand-written seed list; accepting one
+opens its own titled conversation.
 
 ## Target shape
 
@@ -129,11 +129,11 @@ stored intent. The thread view is the same component in all three cases.
 | Concern | Owner | Note |
 | --- | --- | --- |
 | Conversation creation, titling, the loop | `packages/app-shell/src/agent-chat/agent-chat.svelte.ts` | Gains one optional argument; no other shape change |
-| What each session entry's opening turn says | `apps/vocab/src/lib/practice.ts` for the landed practice path; seed composition remains future work | Pure functions, no I/O, no state |
-| The curated conversation seeds | `apps/vocab/src/lib/seeds.ts` (new) | A list of Chinese conversation openers, app-owned |
+| What each session entry's opening turn says | `apps/vocab/src/lib/session.ts` | Pure functions, no I/O, no state |
+| The curated conversation seeds | `apps/vocab/src/lib/seeds.ts` | A list of Chinese conversation openers, app-owned |
 | The Chinese tutor persona | `apps/vocab/vocab.ts` | App constant, alongside `VOCAB_MODEL` |
 | The saved pool and its writes | `apps/vocab/src/lib/state/entries.svelte.ts` | Unchanged; ADR-0102 shape |
-| The single pinyin overlay | `apps/vocab/src/lib/readings/pinyin.ts` | Keeps its kana/hangul abstain guard |
+| The single pinyin overlay | `apps/vocab/src/lib/readings.ts` | Keeps its kana/hangul abstain guard |
 | Wiring the three entries to the chat | `apps/vocab/src/routes/+page.svelte` | Calls the composers, awaits the create |
 
 ## Session-entry contracts
@@ -157,16 +157,27 @@ async function createConversation(options?: {
 Vocab's side is pure and testable:
 
 ```ts
-// apps/vocab/src/lib/practice.ts (the composition module may be renamed when seeds land)
+// apps/vocab/src/lib/session.ts
 /** What a composed session entry hands the chat registry. */
 export type SessionOpening = { title: string; opening: string };
 
-/** The learner accepted a proactive topic. Reads nothing from the saved pool. */
-export function seedOpening(seed: ConversationSeed): SessionOpening;
-
 /** The learner picked phrases to work on. The only path that reads the pool. */
 export function practiceOpening(phrases: string[]): SessionOpening;
+
+// apps/vocab/src/lib/seeds.ts
+/** The hand-written topic openers. A seed IS a SessionOpening. */
+export const CONVERSATION_SEEDS: readonly SessionOpening[];
+
+/** Draw distinct seeds to offer on a blank thread. */
+export function sampleSeeds(count: number): SessionOpening[];
 ```
+
+**Built differently from the plan:** there is no `seedOpening(seed)`. A seed is
+written as a title and an opening line already, so a composer for it would have
+been the identity function; accepting a seed is `createConversation(seed)`. That
+leaves `session.ts` owning the shared type and the one entry that genuinely has
+to compose, which is why the module took the general name rather than staying
+`practice.ts`.
 
 A blank session is `createConversation()` with no argument, exactly as today.
 
@@ -214,155 +225,169 @@ Refused, with the trigger that would reopen each:
 
 ## Implementation waves
 
-Each wave follows the same order: build the new path, stop the old imports,
-verify, then delete. No wave leaves the app broken between commits.
+Each wave followed the same order: build the new path, stop the old imports,
+verify, then delete. No wave left the app broken between commits.
 
-### Wave 1: the session boundary
+### Wave 1: the session boundary (landed)
 
-The only wave that is independently valuable on its own. It closes all three
-consequences in Current State item 2 plus the defect in item 3.
+`27920a0993` (shared chat seam) and `3d91ab7f41` (Vocab caller).
 
-1. **Build.** Add the optional `{ title?, opening? }` to `createConversation`
-   in `packages/app-shell/src/agent-chat/agent-chat.svelte.ts:484`. Write the
-   title into the `table.create` call instead of the literal `'New Chat'` when
-   supplied; after `reconcileHandles()` and `selection.select(id)`, send
-   `opening` through the new handle's `sendMessage` when supplied. The existing
-   auto-title guard at `:394-396` needs no change: it only overwrites
-   `'New Chat'`.
-2. **Landed.** The implementation kept `apps/vocab/src/lib/practice.ts` and
-   exported `buildPracticeOpening`, which returns the Chinese-aware title and
-   opening. The function remains pure and is covered by the existing practice
-   tests.
-3. **Switch.** Rewrite `practice()` in `apps/vocab/src/routes/+page.svelte:51-55`
-   to `await chat.createConversation(practiceOpening(phrases))`, catching into
-   `reportBackgroundError`. It never touches `chat.active`.
-4. **Switch.** Retitle the `EntriesPanel` button so it says a session starts
-   ("Practice in a new chat").
-5. **Verify.** Typecheck both packages; run `apps/tab-manager` tests, since the
-   shared seam moved.
-6. **Landed.** The implementation kept the practice module rather than
-   introducing a one-function `session.ts`; the shared seam landed in
-   `27920a0993` and the Vocab caller in `3d91ab7f41`.
+`createConversation` took an optional `ConversationOpener` (`{ title?, opening? }`):
+the title is written into `table.create` in place of the `'New Chat'` literal,
+and the opening is sent through the new conversation's own handle after
+`reconcileHandles()` and `selection.select(id)`. The auto-title guard needed no
+change, since it only overwrites the placeholder. `practice()` awaits the create
+and reports failures rather than discarding the promise, and never touches
+`chat.active`. The `EntriesPanel` button says "Practice in a new chat".
 
-### Wave 2: declare Chinese
+**Built differently:** the composer stayed in `practice.ts` rather than moving
+to a one-function `session.ts`, which was correct at the time; Wave 3 renamed it
+once seeds gave the module a second reason to exist.
 
-Depends on Wave 1 landing first, so a behavior fix and a product repositioning
-are not fused into one reviewable diff.
+### Wave 2: declare Chinese (landed)
 
-1. **Build.** Rewrite `VOCAB_SYSTEM_PROMPT` (`apps/vocab/vocab.ts:47-56`) as an
-   explicitly Chinese-and-English tutor persona. It must keep the plain-text
-   rule (no pinyin, romaji, or transliteration in the answer) verbatim: that
-   rule is what keeps the message clean enough to be conversation memory and to
-   yield verbatim entries. Add the light-steering sentence: the tutor follows
-   the learner and may introduce useful language the way a conversation partner
-   does, without turning the thread into a lesson.
-2. **Build.** Let the composition module and `entry-candidates.ts` name Chinese
-   directly. Keep the module naming decision local to the seed wave rather than
-   creating a speculative `session.ts` now.
-   In `buildEntryCandidatePrompt`, "extract only spans in the language the
-   learner is studying" becomes "extract only the Chinese spans, not the English
-   used to explain them".
-3. **Switch.** Update the `description` field in `apps/vocab/package.json` and
-   the opening paragraph of `apps/vocab/README.md`.
-4. **Verify.** Run `bun dev:vocab` and read three answers. This is a prompt
-   change; no test asserts its content, and that is correct.
+`8912aa5c97`.
 
-### Wave 3: proactive seeds
+`VOCAB_SYSTEM_PROMPT` is a Chinese-and-English conversation persona carrying the
+light-steering rule, with the plain-text rule kept verbatim. The practice opening
+asks for a Chinese passage and an English explanation; `buildEntryCandidatePrompt`
+asks for the Chinese spans, not the English used to explain them. The package
+`description` and the README say Chinese.
 
-1. **Build.** Add `apps/vocab/src/lib/seeds.ts`: a small hand-written list of
-   Chinese conversation openers, each a short topic name plus a first-person
-   opening line. App-owned data, not a table, not a model call.
-2. **Build.** Add `seedOpening` beside `buildPracticeOpening` in the existing
-   composition module, or rename that module if the combined responsibility is
-   clearer once seeds exist.
-3. **Build.** Surface two or three seeds where an empty or new thread is
-   visible, as accept-to-start chips.
-4. **Verify.** Accepting a seed opens a new conversation with that title and
-   that first turn, and the saved pool is not consulted.
+**Built differently:** the two tests asserting the prompts name no language were
+deleted rather than inverted. They encoded the withdrawn decision, and the
+replacement claim would have been prompt prose rather than a contract. The README
+was rewritten rather than patched at the opening paragraph: it still described a
+`vocabWorkspace`, a `conversation.svelte.ts`, and a `recorder.svelte.ts` that no
+longer exist, and half-correcting it would have been worse than either extreme.
 
-### Wave 4: collapse the reading path
+**Not verified here:** the manual read of three answers. See Verification.
 
-Licensed by Wave 2's declaration.
+### Wave 3: proactive seeds (landed)
 
-1. **Build.** Rewrite `resolveRomanizer` in
-   `apps/vocab/src/lib/readings/registry.ts` as a direct function: if the
-   passage has Han and no kana or hangul, load `pinyin-pro` and return the
-   pinyin romanizer; otherwise return the identity romanizer. Keep the lazy
-   dynamic import and the one-load cache for the single provider. Keep the
-   abstain guard: ADR-0105's "a missing reading beats a wrong one" invariant is
-   preserved by ADR-0195, and dropping the guard would contradict it.
-2. **Switch.** `ReadingMarkdown.svelte:19` is the only consumer of
-   `resolveRomanizer` outside the folder and its call is unchanged.
-3. **Verify.** `registry.test.ts` keeps its `resolveRomanizer` cases and drops
-   its `composeRomanizers` block; `pinyin.test.ts` is untouched.
-4. **Delete.** The files and dependencies listed below.
+`36d59c2eed`.
 
-### Wave 5: stragglers
+`seeds.ts` holds eight hand-written topic openers, each a short English title and
+a first-person opening line that starts in Chinese and names the level in
+English. `sampleSeeds(3)` draws distinct seeds, unrecorded, and
+`ConversationView`'s empty state offers them as chips. Accepting one calls the
+same `openSession()` that Practice calls.
 
-Cheap, independent, do whenever after Wave 1.
+**Built differently:** there is no `seedOpening()`; see Session-entry contracts
+above. `practice.ts` became `session.ts` and `buildPracticeOpening` became
+`practiceOpening`, since the module now owns the shared `SessionOpening` type
+rather than practice alone.
 
-1. The stage control in `EntriesPanel.svelte:23-27` cycles `usable -> new`,
-   turning ADR-0102's ordered ladder into a ring: demoting `understood` requires
-   stepping forward through `usable`. Make the affordance match the data model.
-2. `agent-chat.svelte.ts` exposes `get title()` with no setter while `model` has
-   both (`:255`, `:281`). Title is the topic-return handle and the one a learner
-   most wants to correct. Add the mirroring setter.
-3. `apps/vocab/vocab.ts:76` and `:124` cite ADR-0046 as live authority for
-   message storage. ADR-0046 is Superseded by ADR-0047. Walk the chain, confirm
-   the current authority for finished-message storage, and re-cite it. Do not
-   guess a number.
+### Wave 4: collapse the reading path (landed)
+
+`0a2e060e25`.
+
+`resolveRomanizer` is a direct function: a passage with Han and no kana or
+hangul resolves the lazily imported pinyin romanizer, everything else resolves
+`identityRomanizer`. One module-level promise is the load cache. The abstain
+guard is preserved at both altitudes, and `ReadingMarkdown`'s call is unchanged
+apart from its import path.
+
+**Built differently:** the whole `readings/` folder collapsed into one
+`readings.ts` rather than keeping a `registry.ts` that no longer holds a
+registry. `registry.test.ts` and `pinyin.test.ts` merged into `readings.test.ts`,
+which gained two cases the split files could not state: that a kana-bearing
+passage resolves to identity end to end, and that the resolved romanizer is
+shared rather than rebuilt per message.
+
+### Wave 5: stragglers (landed)
+
+`732e6298c0`, `3d5c2727f4`, `df8315ae9e`.
+
+1. The stage control is a `select` over the three rungs in order, replacing the
+   button that cycled `usable -> new` and turned ADR-0102's ladder into a ring.
+2. `agent-chat.svelte.ts` gained `set title`, mirroring `model`. It landed with
+   a consumer rather than alone: double-click a conversation row in the Vocab
+   sidebar to rename it, commit on Enter or blur, restore on Escape, empty
+   refused at the call site.
+3. `vocab.ts` cites ADR-0047 for finished-message storage and for answering in
+   the client. The chain is ADR-0043 and ADR-0046, both Superseded by ADR-0047,
+   which is Accepted and carries both decisions forward; no later ADR supersedes
+   it. The older numbers are kept only where they say what changed.
+
+### Post-wave sweep (landed)
+
+`be80b20e67`. Two JSDoc links the rename broke, the stage list restated beside
+the stage filter, a seed draw whose bound was computed before the pool shrank,
+and a missing file-map entry.
 
 ## Deletion prizes
 
-Verified to have no consumer outside the deleted set:
+Verified by repo-wide search to have no consumer outside the deleted set:
 
-| Path | Lines | Why it goes |
+| Path | Lines | Why it went |
 | --- | --- | --- |
+| `apps/vocab/src/lib/readings/registry.ts` | 103 | The registry had one permanent entry |
+| `apps/vocab/src/lib/readings/registry.test.ts` | 53 | |
+| `apps/vocab/src/lib/readings/pinyin.ts` | 74 | Folded into `readings.ts` |
 | `apps/vocab/src/lib/readings/romaji.ts` | 34 | Japanese has no audience in a Chinese app |
 | `apps/vocab/src/lib/readings/romaji.test.ts` | 36 | |
 | `apps/vocab/src/lib/readings/cyrillic.ts` | 34 | Cyrillic likewise |
 | `apps/vocab/src/lib/readings/cyrillic.test.ts` | 35 | |
-| `apps/vocab/src/lib/readings/runs.ts` | 39 | Its only two importers are the two files above |
+| `apps/vocab/src/lib/readings/runs.ts` | 39 | Its only two importers were the two providers above |
 
-Plus, inside `registry.ts`, the `ReadingProvider` type, the `readingProviders`
-array, `loadOnce`, and `composeRomanizers`: roughly 60 of its 103 lines. Plus two
-npm dependencies, `wanakana` and `transliteration`
-(`apps/vocab/package.json`), neither used anywhere else in the monorepo.
-
-Roughly 196 lines deleted outright, about 60 more collapsed, two dependencies
-gone, and every prompt in the app gets to say Chinese.
+415 lines deleted against 121 added across the reading path, so the overlay is
+294 lines lighter and lives in one file. Two npm dependencies are gone,
+`wanakana` and `transliteration`, confirmed unused everywhere else in the
+monorepo before removal. Every prompt in the app now says Chinese.
 
 ## Verification
 
-Automated, per wave:
+Automated, all run green on `claude/vocab-chinese-waves-2-5`:
 
 ```sh
-bun run typecheck                 # from apps/vocab and packages/app-shell
-bun test apps/vocab               # 6 test files today
-bun test apps/tab-manager         # the other consumer of the shared chat seam
-   bun scripts/check-doc-hygiene.ts  # ADR-0195 is Accepted; this guards the two-state spec lifecycle
+bun run --cwd apps/vocab typecheck        # 1851 files, 0 errors
+bun run --cwd packages/app-shell typecheck  # 1664 files, 0 errors
+bun test apps/vocab                       # 40 pass, 4 files
+bun test packages/app-shell               # 8 pass
+bun test apps/tab-manager                 # 13 pass, the other consumer of the shared seam
+bun scripts/check-doc-hygiene.ts          # clean
+bun run --cwd apps/vocab build            # production build; pinyin-pro stays a separate 302 KB chunk
 ```
 
-New assertions worth writing:
+Assertions written:
 
-- `session.test.ts`: a seed's opening line is identical for an empty pool and a
-  full one; a practice opening contains exactly the phrases passed in and
-  nothing else from the pool; both produce a title that is not `'New Chat'`.
-- `agent-chat` (or a Vocab-level test): `createConversation({ title })` produces
-  a row whose title survives the first `sendMessage`, and
-  `createConversation()` with no argument is byte-identical in behavior to
-  today.
+- `seeds.test.ts`: every seed opens a titled conversation with a first turn, no
+  seed title is `'New Chat'`, titles are distinct, and every opening line is
+  actually Chinese. `sampleSeeds` draws distinct seeds, only from the committed
+  list, and returns the whole list rather than looping when asked for more.
+- `readings.test.ts`: the abstain guard holds end to end (a kana- or
+  hangul-bearing passage resolves to identity, Han and all), and the resolved
+  romanizer is shared rather than rebuilt per message.
+- `agent-chat.svelte.test.ts`: renaming a conversation writes the new title to
+  its row.
 
-Manual, and not automatable:
+The planned "a seed's opening line is identical for an empty pool and a full
+one" assertion was not written, because the built shape makes it untypable: a
+seed is static data and `sampleSeeds` takes only a count, so there is no pool
+argument to vary. Independence is structural, not asserted.
 
+The planned "the auto-title does not reclaim a renamed title" assertion was
+attempted and dropped. The registry's tests shim `$derived` to a single
+evaluation, so a handle cannot observe its own row changing mid-test; the same
+guard is already covered by "a supplied title survives the opening turn".
+
+Manual, and not run here. This environment has no credentialed model endpoint
+and no browser session, so none of the following was exercised:
+
+- Read three ordinary answers and confirm the tutor stays conversational rather
+  than drilling saved phrases. If it drills, the light-steering sentence in
+  Wave 2 is too strong. Closest evidence available: the prompt text itself, and
+  a clean production build.
+- Accept a seed and confirm it opens a new titled conversation with that first
+  turn while the current thread is untouched.
 - Start a practice session while a topic conversation is open. The topic thread
   is untouched, a new titled conversation appears in the sidebar, and switching
   back to the topic thread resumes it.
 - Run two practice sessions. They have distinct titles and do not collide in the
   list.
-- Read three ordinary answers and confirm the tutor stays conversational rather
-  than drilling saved phrases. If it drills, the light-steering sentence in
-  Wave 2 is too strong.
+- Rename a conversation by double-clicking its row, and confirm Escape discards
+  the edit while Enter and blur commit it.
 
 ## Explicitly deferred
 
@@ -393,15 +418,27 @@ These need the user, not an implementer.
    preserved by default because ADR-0102 is Accepted and the filter has a real
    consumer. Collapsing to two is a data change and should not happen as a side
    effect of this work.
-2. **Where do seeds come from, and do they need to rotate?** Wave 3 assumes a
-   hand-written list picked without storing what was shown, so the same seed can
-   reappear. If that grates, the cheap fix is per-device transient state, not a
-   table. Model-generated seeds are a larger step and would put a network call
-   in front of a blank thread.
+2. **Where do seeds come from, and do they need to rotate?** Wave 3 shipped a
+   hand-written list of eight, drawn from at random and never recorded, so the
+   same seed can reappear. If that grates, the cheap fix is per-device transient
+   state, not a table. Model-generated seeds are a larger step and would put a
+   network call in front of a blank thread. The list itself is also a taste
+   call: eight topics chosen by an implementer, not by the person who will use
+   them.
 3. **How should the composed opening turn render?** It is a real user turn, so
    the transcript stays a replayable memory, but the learner sees a line they
-   did not type. A chip reads better than a bubble; that is a design call.
+   did not type. Today it renders as an ordinary sent bubble. A chip reads
+   better; that is a design call and nothing built here forecloses it.
 4. **Does practice honor the panel's stage filter, or always exclude the
    comfortable ones?** Today the filter drives the compiled set. Under the
    destination, "practice the ones I am not comfortable with yet" may be the
    only selection worth having.
+5. **Does a taken seed leave litter?** Boot auto-creates a conversation when the
+   list is empty, and that is where the seed chips are shown, so accepting a
+   seed leaves the blank conversation behind and opens a second one. This
+   follows the decision that every intentional session opens a new conversation,
+   and it is the same litter an unused "New Conversation" click already makes,
+   so nothing special-cases it. If it grates in use, the honest fixes are
+   reaping empty untitled conversations or sending a seed into an empty active
+   thread and titling it; the second is a narrowing of the rule and belongs in
+   ADR-0195, not in a component.
