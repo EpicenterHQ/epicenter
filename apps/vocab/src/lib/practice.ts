@@ -7,10 +7,9 @@
  * be open would steer that thread for good; it gets its own conversation
  * instead, and the title is what makes that conversation findable afterwards.
  *
- * Deliberately language-neutral: it names no target or source language, so the
- * conversation's tutor persona stays the single owner of which language the
- * passage and its explanation come back in. That keeps the future language
- * profile seam in one place and this path free of language-specific strings.
+ * It names Chinese directly (ADR-0195). Vocab teaches one language, so a prompt
+ * that works around naming it only buys vagueness: the passage comes back in
+ * Chinese because this turn asks for Chinese, not because the tutor guessed.
  *
  * It reads only entry text and writes nothing. The compiled passage is an
  * ordinary assistant turn in the human-owned transcript, never entry metadata
@@ -60,5 +59,5 @@ function buildPracticeTitle(entryTexts: string[]): string {
  * in context. */
 function buildPracticePrompt(entryTexts: string[]): string {
 	const list = entryTexts.map((text) => `- ${text}`).join('\n');
-	return `Using the entries I'm learning below, write a short, natural passage or dialogue that puts them in context at my level, then briefly explain the parts that are tricky.\n\nEntries:\n${list}`;
+	return `Using the Chinese I'm learning below, write a short, natural passage or dialogue in Chinese that puts it in context at my level, then briefly explain the tricky parts in English.\n\nPhrases:\n${list}`;
 }

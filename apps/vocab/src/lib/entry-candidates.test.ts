@@ -5,7 +5,7 @@
  * transient savable entry candidates.
  *
  * Key behaviors:
- * - Prompt stays language-neutral and requests spans only
+ * - Prompt requests spans only, with no meaning or gloss
  * - Parser accepts clean one-span-per-line output
  * - Parser strips common model formatting without inventing entries
  */
@@ -16,13 +16,6 @@ import {
 } from './entry-candidates.js';
 
 describe('buildEntryCandidatePrompt', () => {
-	test('names no target or source language: the tutor persona owns that', () => {
-		const prompt = buildEntryCandidatePrompt().toLowerCase();
-		for (const leak of ['chinese', 'mandarin', 'english', 'pinyin', '简体']) {
-			expect(prompt).not.toContain(leak);
-		}
-	});
-
 	test('asks for spans only, no meaning or gloss', () => {
 		const prompt = buildEntryCandidatePrompt().toLowerCase();
 		expect(prompt).toContain('one span per line');
