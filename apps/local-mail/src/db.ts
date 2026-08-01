@@ -109,43 +109,7 @@ function parseLabelIds(json: string | null): string[] {
 export type MailDb = ReturnType<typeof openMailDb>;
 
 /**
- * One column of a declared table: its SQLite name and affinity, an optional
- * trailing constraint, and, when SQLite computes the value itself, the
- * expression it computes it from. A generated column cannot disagree with the
- * stored resource, which is why every column that can be one is one.
- */
-type ColumnDeclaration = {
-	name: string;
-	type: 'TEXT' | 'INTEGER';
-	constraint: string | null;
-	generated: { expression: string; storage: 'VIRTUAL' | 'STORED' } | null;
-};
-
-type TableDeclaration = { table: string; columns: ColumnDeclaration[] };
-
-/** A column this app writes at ingest: an id, the resource, a timestamp, or one
- * of the three values SQL cannot reach (see `MIRROR_TABLES`). */
-function stored(
-	name: string,
-	type: ColumnDeclaration['type'],
-	constraint: string | null = null,
-): ColumnDeclaration {
-	return { name, type, constraint, generated: null };
-}
-
-/** A column SQLite projects from the stored resource. */
-function projected(
-	name: string,
-	type: ColumnDeclaration['type'],
-	expression: string,
-	storage: 'VIRTUAL' | 'STORED',
-): ColumnDeclaration {
-	return { name, type, constraint: null, generated: { expression, storage } };
-}
-
-/**
- * The mirror's declared stored shape, as plain data, and the single source the
- * DDL below is generated from.
+ * The mirror's stored shape, as the DDL SQLite receives.
  *
  * Three tiers, per ADR-0196, and no fourth:
  *
@@ -155,9 +119,16 @@ function projected(
  *    was a false statement in the schema. `labels.resource` follows the same
  *    word for the same reason (`labels.list` returns a Label resource); one
  *    mirror should not have two names for "verbatim provider JSON".
- * 2. Every column SQLite can project from it, as a generated column.
+ * 2. Every column SQLite can project from it, as a generated column. A generated
+ *    column cannot disagree with the stored resource, which is why every column
+ *    that can be one is one.
  * 3. Exactly the columns SQL cannot project that pushed-down search and sort
- *    need: `subject`, `sender`, `body_text`, and nothing else. `To`, `Date`, and
+ *    need: `subject`, `sender`, `body_text`, and nothing else. What each one
+ *    means is part of the corpus contract: `subject` is the `Subject` header,
+ *    `sender` is the `From` header, and `body_text` is the decoded `text/plain`
+ *    part, else tags stripped from `text/html` (`message-fields.ts` owns all
+ *    three). Changing `headerValue` or `bodyText` without bumping
+ *    `MIRROR_VERSION` is the mistake to look for in review. `To`, `Date`, and
  *    the HTML body are derived at read time instead.
  *
  * The test for a proposed column is not "is it useful" but "can SQLite project
@@ -166,66 +137,36 @@ function projected(
  * either way: it is a `MIRROR_VERSION` bump, so it costs a full re-pull of the
  * mailbox at 20 quota units per message (ADR-0197).
  *
- * Indexes are deliberately absent: an index holds no mirror facts.
+ * Indexes are deliberately absent here: an index holds no mirror facts, so it
+ * lives in `CREATE_INDEXES` below and outside the corpus contract.
  */
-const MIRROR_TABLES: TableDeclaration[] = [
-	{
-		table: '_meta',
-		columns: [stored('key', 'TEXT', 'PRIMARY KEY'), stored('value', 'TEXT')],
-	},
-	{
-		table: 'labels',
-		columns: [
-			stored('id', 'TEXT', 'PRIMARY KEY'),
-			stored('resource', 'TEXT', 'NOT NULL'),
-			projected('name', 'TEXT', `json_extract(resource, '$.name')`, 'VIRTUAL'),
-			projected('type', 'TEXT', `json_extract(resource, '$.type')`, 'VIRTUAL'),
-			stored('synced_at', 'TEXT', 'NOT NULL'),
-		],
-	},
-	{
-		table: 'messages',
-		columns: [
-			stored('id', 'TEXT', 'PRIMARY KEY'),
-			stored('resource', 'TEXT', 'NOT NULL'),
-			projected(
-				'thread_id',
-				'TEXT',
-				`json_extract(resource, '$.threadId')`,
-				'VIRTUAL',
-			),
-			projected(
-				'snippet',
-				'TEXT',
-				`json_extract(resource, '$.snippet')`,
-				'STORED',
-			),
-			projected(
-				'label_ids',
-				'TEXT',
-				`json_extract(resource, '$.labelIds')`,
-				'VIRTUAL',
-			),
-			projected(
-				'internal_date',
-				'INTEGER',
-				`CAST(json_extract(resource, '$.internalDate') AS INTEGER)`,
-				'STORED',
-			),
-			// The three columns SQL cannot project, written by this app at ingest.
-			// What each one means is part of the corpus contract, so changing any of
-			// these promises is a `MIRROR_VERSION` bump: `subject` is the `Subject`
-			// header, `sender` is the `From` header, and `body_text` is the decoded
-			// `text/plain` part, else tags stripped from `text/html`. Changing
-			// `headerValue` or `bodyText` without bumping the version is the mistake
-			// to look for in review.
-			stored('subject', 'TEXT'),
-			stored('sender', 'TEXT'),
-			stored('body_text', 'TEXT'),
-			stored('synced_at', 'TEXT', 'NOT NULL'),
-		],
-	},
-];
+const CREATE_TABLES = `
+	CREATE TABLE IF NOT EXISTS _meta (
+		key   TEXT PRIMARY KEY,
+		value TEXT
+	);
+
+	CREATE TABLE IF NOT EXISTS labels (
+		id        TEXT PRIMARY KEY,
+		resource  TEXT NOT NULL,
+		name      TEXT GENERATED ALWAYS AS (json_extract(resource, '$.name')) VIRTUAL,
+		type      TEXT GENERATED ALWAYS AS (json_extract(resource, '$.type')) VIRTUAL,
+		synced_at TEXT NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS messages (
+		id            TEXT PRIMARY KEY,
+		resource      TEXT NOT NULL,
+		thread_id     TEXT GENERATED ALWAYS AS (json_extract(resource, '$.threadId')) VIRTUAL,
+		snippet       TEXT GENERATED ALWAYS AS (json_extract(resource, '$.snippet')) STORED,
+		label_ids     TEXT GENERATED ALWAYS AS (json_extract(resource, '$.labelIds')) VIRTUAL,
+		internal_date INTEGER GENERATED ALWAYS AS (CAST(json_extract(resource, '$.internalDate') AS INTEGER)) STORED,
+		subject       TEXT,
+		sender        TEXT,
+		body_text     TEXT,
+		synced_at     TEXT NOT NULL
+	);
+`;
 
 /**
  * The version of the corpus contract this build stores, and the whole of the
@@ -256,22 +197,6 @@ export function mailMirror(dataDir: string, accountEmail: string): Mirror {
 		directory: accountDir(dataDir, accountEmail),
 	});
 }
-
-/** `CREATE TABLE IF NOT EXISTS` for one declared table. Every identifier and
- * expression here is authored in this file and the set is closed, so the
- * declaration interpolates into DDL without further checking. */
-function createTableSql({ table, columns }: TableDeclaration): string {
-	const defs = columns.map((column) => {
-		const constraint = column.constraint ? ` ${column.constraint}` : '';
-		const generated = column.generated
-			? ` GENERATED ALWAYS AS (${column.generated.expression}) ${column.generated.storage}`
-			: '';
-		return `${column.name} ${column.type}${constraint}${generated}`;
-	});
-	return `CREATE TABLE IF NOT EXISTS ${table} (${defs.join(', ')});`;
-}
-
-const CREATE_TABLES = MIRROR_TABLES.map(createTableSql).join('\n');
 
 /**
  * Indexes, outside the corpus contract: they hold no mirror facts, so adding one
