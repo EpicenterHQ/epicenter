@@ -11,7 +11,7 @@
 	} from '@epicenter/vocab';
 	import { onDestroy } from 'svelte';
 	import { getVocabApp } from '$lib/context';
-	import { buildPracticeOpening } from '$lib/practice';
+	import { practiceOpening, type SessionOpening } from '$lib/session';
 	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
 	import ConversationView from './components/ConversationView.svelte';
 	import VocabSidebar from './components/VocabSidebar.svelte';
@@ -45,21 +45,26 @@
 
 	onDestroy(() => chat[Symbol.dispose]());
 
-	/** Practice opens its own conversation, titled after the chosen entries, and
-	 * the compiled turn is that conversation's first message. Whatever thread was
-	 * open is left exactly as it was and stays there to return to. The passage
-	 * comes back under the tutor system prompt; nothing is written to the entries.
+	/** Every composed way in lands here: a seed and a practice selection open their
+	 * own titled conversation, and the composed turn is that conversation's first
+	 * message. Whatever thread was open is left exactly as it was and stays there
+	 * to return to (ADR-0195). Nothing is written back to the entries.
 	 *
 	 * Opening one is asynchronous (the row document has to be ready before a turn
 	 * can land in it), so a failure to acquire the conversation surfaces the same
 	 * way every other background chat failure does. */
-	async function practice(entryTexts: string[]) {
-		if (entryTexts.length === 0) return;
+	async function openSession(opening: SessionOpening) {
 		try {
-			await chat.createConversation(buildPracticeOpening(entryTexts));
+			await chat.createConversation(opening);
 		} catch (cause) {
 			reportBackgroundError(cause);
 		}
+	}
+
+	/** The one entry that reads the saved pool, and only the phrases handed to it. */
+	function practice(entryTexts: string[]) {
+		if (entryTexts.length === 0) return;
+		void openSession(practiceOpening(entryTexts));
 	}
 </script>
 
@@ -92,6 +97,10 @@
 			</div>
 		</header>
 
-		<ConversationView active={chat.active} showReadings={readings} />
+		<ConversationView
+			active={chat.active}
+			showReadings={readings}
+			onSeed={openSession}
+		/>
 	</main>
 </Sidebar.Provider>
