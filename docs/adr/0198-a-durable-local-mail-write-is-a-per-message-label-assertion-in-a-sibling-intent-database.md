@@ -139,11 +139,15 @@ was shown. One projection, shared by the SPA, the CLI, and MCP.
 - **Cross-account atomicity.** Each account has its own file, its own sequence,
   and its own reconciler. An act spanning accounts is several independent acts
   and is reported that way.
-- **Local drafts, send, snooze, and attachment writes.** ADR-0098 refused these
-  on product grounds and ADR-0196 refused attachment bytes on storage grounds.
-  Neither refusal is reopened by having a durable place to put a write, and this
-  record deliberately gives them no expressible shape: they are not label
-  opinions about known messages.
+- **Locally held drafts, send, snooze, and attachment writes.** ADR-0098 refused
+  snooze and send-later on product grounds, and ADR-0196 refused attachment bytes
+  on storage grounds. Drafts are a finer distinction: ADR-0098 allows them as
+  Gmail-backed operations (`drafts.create`, `drafts.update`, `drafts.send`),
+  because those round-trip. What this record refuses is a draft *held locally* as
+  durable intent, which is a second durable write shape and not a label opinion
+  about a known message. Having somewhere to put a pending write does not reopen
+  any of these; none of them is expressible in the shape above, which is the
+  point of fixing the shape.
 - **Deferred permanent delete and spam.** `messages.delete` is never wired
   (ADR-0116's scope), and a deferred, cancellable, silently-retried intent is the
   wrong shape for an irreversible act. Spam reporting trains a shared classifier
