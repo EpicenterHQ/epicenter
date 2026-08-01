@@ -20,12 +20,16 @@
 	/** The acquisition ladder, in order (ADR-0102). A learner picks the rung they
 	 * mean, in either direction: a cycling button turned an ordered ladder into a
 	 * ring, where demoting `understood` meant stepping forward through `usable`. */
-	const STAGES = ['new', 'understood', 'usable'] as const satisfies readonly Entry['stage'][];
+	const STAGES = [
+		'new',
+		'understood',
+		'usable',
+	] as const satisfies readonly Entry['stage'][];
 
 	/** Stage filter values: `all` plus the three acquisition stages. Drives both
 	 * the visible list and the set "Practice these" compiles. Focus is a filter
 	 * over the flat pool, never a stored partition. */
-	const STAGE_FILTERS = ['all', 'new', 'understood', 'usable'] as const;
+	const STAGE_FILTERS = ['all', ...STAGES] as const;
 	type StageFilter = (typeof STAGE_FILTERS)[number];
 	let stageFilter = $state<StageFilter>('all');
 

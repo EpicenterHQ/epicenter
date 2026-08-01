@@ -76,8 +76,9 @@ export const CONVERSATION_SEEDS: readonly SessionOpening[] = [
 export function sampleSeeds(count: number): SessionOpening[] {
 	const pool = [...CONVERSATION_SEEDS];
 	const drawn: SessionOpening[] = [];
-	const wanted = Math.min(count, pool.length);
-	while (drawn.length < wanted) {
+	// Drawing without replacement: each pick leaves the pool, so the loop
+	// terminates on the pool running out even if more were asked for.
+	while (drawn.length < count && pool.length > 0) {
 		const [seed] = pool.splice(Math.floor(Math.random() * pool.length), 1);
 		if (seed) drawn.push(seed);
 	}

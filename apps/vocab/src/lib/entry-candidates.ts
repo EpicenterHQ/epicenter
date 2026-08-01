@@ -1,7 +1,7 @@
 /**
  * Entry candidates: propose savable spans from one settled assistant message.
  *
- * The sibling of {@link buildPracticeOpening} on the read side. Where Practice
+ * The sibling of {@link practiceOpening} on the read side. Where Practice
  * compiles saved entries into a passage, this asks the model to extract notable
  * spans from a passage the user just read, so a whole answer can be triaged into
  * the entry pool without dragging a selection over each phrase. Its reason to
@@ -13,7 +13,7 @@
  * through the one entry writer (`entriesState.save`). No gloss, no meaning, no
  * provenance, no language, and no candidate metadata is ever stored (ADR-0102).
  *
- * It names Chinese directly, like {@link buildPracticeOpening} (ADR-0195). A
+ * It names Chinese directly, like {@link practiceOpening} (ADR-0195). A
  * Vocab answer is deliberately bilingual, so "the spans worth saving" and "the
  * Chinese spans" are the same set, and saying so is more precise than asking the
  * model to infer which half of its own answer was the lesson.
