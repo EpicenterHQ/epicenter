@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-03
+- **Amended by:** [ADR-0195](0195-vocab-is-a-chinese-companion-and-one-app-serves-one-learning-goal.md) (Proposed), which withdraws the language-blind tutor, the multi-script reading registry, and the three-category script taxonomy. The decision that readings are a deterministic, offline, client-side derived view over clean text is retained in full.
 - **Relates:** [ADR-0102](0102-vocab-stores-verbatim-entries-under-a-human-owned-note-and-refuses-glosses-srs-and-provenance.md) (verbatim, language-blind entries: this reinforces the no-language-column refusal)
 
 ## Context
