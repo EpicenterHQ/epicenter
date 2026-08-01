@@ -12,6 +12,8 @@
 		parseEntryCandidates,
 	} from '$lib/entry-candidates';
 	import { auth } from '$lib/platform/auth';
+	import { sampleSeeds } from '$lib/seeds';
+	import type { SessionOpening } from '$lib/session';
 	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
 	import { getVocabApp } from '$lib/context';
 	import DictationButton from './DictationButton.svelte';
@@ -22,7 +24,23 @@
 	let {
 		active,
 		showReadings,
-	}: { active: ConversationHandle | undefined; showReadings: boolean } = $props();
+		onSeed,
+	}: {
+		active: ConversationHandle | undefined;
+		showReadings: boolean;
+		/** Accept a proactive topic: opens a new conversation of its own, like
+		 * Practice. The current thread is untouched. */
+		onSeed: (seed: SessionOpening) => void;
+	} = $props();
+
+	/** How many topics a blank thread offers. Enough to feel like a choice, few
+	 * enough to read at a glance. */
+	const SEED_OFFER_COUNT = 3;
+
+	/** Drawn once for the page, not per conversation, so the offer does not
+	 * reshuffle under a learner who switched away and came back. Nothing records
+	 * what was drawn (ADR-0195), so a repeat is possible and cheap. */
+	const seeds = sampleSeeds(SEED_OFFER_COUNT);
 
 	// `active` does not narrow inside a snippet closure (a snippet can outlive the
 	// `{#if active}` guard), so the input accessory reads these instead of the
@@ -303,13 +321,25 @@
 			{/if}
 		{/snippet}
 		{#snippet emptyState()}
+			<!-- The proactive way in: each topic opens its own titled conversation,
+			so this thread stays blank and available rather than being steered. -->
 			<div
-				class="flex flex-1 items-center justify-center text-muted-foreground"
+				class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center"
 			>
-				<p>
-					Ask a question and get an answer in the language you're learning, plus
-					English.
+				<p class="text-muted-foreground">
+					Ask about a word, a phrase, or anything at all, and the answer comes
+					back in Chinese and English.
 				</p>
+				<div class="flex flex-col items-center gap-2">
+					<p class="text-xs text-muted-foreground">Or start on a topic</p>
+					<div class="flex flex-wrap justify-center gap-2">
+						{#each seeds as seed (seed.title)}
+							<Button variant="outline" size="sm" onclick={() => onSeed(seed)}>
+								{seed.title}
+							</Button>
+						{/each}
+					</div>
+				</div>
 			</div>
 		{/snippet}
 	</AgentChatThread>

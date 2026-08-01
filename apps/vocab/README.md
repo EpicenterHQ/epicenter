@@ -38,7 +38,8 @@ src/
     application.ts         # openVocabApplication(): replica + bound Lens + entry pool
     context.ts             # the app handle's Svelte context
     instance.ts            # self-hosted instance connection setting
-    practice.ts            # buildPracticeOpening(): title + opening turn for a practice session
+    session.ts             # SessionOpening; practiceOpening(): title + opening turn for a practice session
+    seeds.ts               # the hand-written topic openers a blank thread offers
     entry-candidates.ts    # the extraction prompt and its output parser
     platform/auth.ts       # OAuth auth client
     state/
