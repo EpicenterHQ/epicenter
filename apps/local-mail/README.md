@@ -7,11 +7,23 @@ polling, then exposes the mirror through CLI queries and a stdio MCP server.
 Design authority lives in ADRs first, then the current code:
 `docs/adr/0081-*.md` (a per-device grant and mirror), `docs/adr/0082-*.md`
 (push-free `history.list` polling), `docs/adr/0098-*.md` (state round-trips
-through Gmail), `docs/adr/0116-*.md` (desktop-first, one Bun engine), and
+through Gmail), `docs/adr/0116-*.md` (desktop-first, one Bun engine),
 `docs/adr/0188-*.md` (who owns the Google application identity, and the
-device-only credential boundary). The mirror is Gmail-owned cache data.
+device-only credential boundary), `docs/adr/0196-*.md` (the mirror is a reader
+and one full message fetch is its entire budget), and `docs/adr/0197-*.md` (the
+artifact is named by its corpus version). The mirror is Gmail-owned cache data.
 Human-meaningful mail state must round-trip through Gmail, not a local-only
 table.
+
+**Writes are being rebuilt.** `docs/adr/0198-*.md` and `docs/adr/0199-*.md` are
+Proposed and describe the destination: a triage act becomes a durable
+per-message label assertion in a sibling `intent.db`, and one reconciler per
+account is the only thing that writes to Gmail. The code below still does the
+old thing, sending each write to Gmail from the request path and folding the
+response into the mirror. Read
+`specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md` before
+touching `src/modify.ts`, `src/sync.ts`, or `ui/src/lib/optimistic.ts`: all
+three are on the deletion list.
 
 ## Shape
 

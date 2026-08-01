@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-30
+- **Amended by:** [ADR-0199](0199-one-account-reconciler-is-local-mails-only-gmail-writer.md) at the write-through clause only: a write is no longer sent to Gmail from the request path. It is asserted locally (ADR-0198) and delivered by the account's one reconciler, which drains before it pulls. Gmail remains authority and the mirror still folds only what Gmail confirmed. Push-free polling, the single `historyId` cursor, and the full-resync-on-404 rule are untouched.
 - **Relates:** [ADR-0081](0081-per-upstream-oauth-concurrency-decides-mirror-topology.md) (establishes Gmail permits per-device grants, unlike Local Books), [ADR-0064](0064-the-local-books-mirror-keeps-one-realm-cdc-cursor-table-existence-is-the-per-entity-init-latch.md) (the single-cursor CDC discipline this borrows), [ADR-0061](0061-local-books-reads-facts-from-the-mirror-reports-live-and-writes-through-one-approved-verb.md) (write-through discipline this borrows), [ADR-0116](0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md) (which process owns the poll loop), [ADR-0188](0188-gmail-app-identity-belongs-to-the-distribution-and-no-epicenter-server-enters-the-gmail-path.md) (the Gmail application identity, split out of this record on acceptance)
 
 ## Context
