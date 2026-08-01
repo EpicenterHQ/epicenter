@@ -150,6 +150,47 @@ describe('listMessages', () => {
 		}
 	});
 
+	test('search treats % and _ as characters the user typed, not wildcards', () => {
+		const { db, cleanup } = openTmp();
+		try {
+			db.ingestFullPullPage(
+				[
+					message({
+						id: 'discount',
+						payload: {
+							headers: [{ name: 'Subject', value: 'Save 50% today' }],
+						},
+					}),
+					message({
+						id: 'plain',
+						payload: { headers: [{ name: 'Subject', value: 'Save 50 today' }] },
+					}),
+					message({
+						id: 'underscored',
+						payload: { headers: [{ name: 'Subject', value: 'build_id ready' }] },
+					}),
+					message({
+						id: 'any-char',
+						payload: { headers: [{ name: 'Subject', value: 'buildxid ready' }] },
+					}),
+				],
+				'2026-07-02T00:00:00.000Z',
+			);
+
+			// A bare `%` would match every row; a bare `_` would match any character.
+			expect(
+				db.listMessages({ search: '50%', limit: 100, offset: 0 }).map((r) => r.id),
+			).toEqual(['discount']);
+			expect(
+				db
+					.listMessages({ search: 'build_id', limit: 100, offset: 0 })
+					.map((r) => r.id),
+			).toEqual(['underscored']);
+		} finally {
+			cleanup();
+		}
+	});
+
 	test('TRASH-labeled rows are hidden from All mail and every label view', () => {
 		const { db, cleanup } = openTmp();
 		try {

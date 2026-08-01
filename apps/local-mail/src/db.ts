@@ -94,6 +94,12 @@ function sameLabelSet(a: string[], b: string[]): boolean {
 	return b.every((id) => present.has(id));
 }
 
+/** Escape a user-typed substring for `LIKE ... ESCAPE '\'`: the backslash first,
+ * so escaping it cannot re-escape the wildcards added after it. */
+function escapeLikePattern(input: string): string {
+	return input.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 function parseLabelIds(json: string | null): string[] {
 	if (!json) return [];
 	try {
@@ -421,8 +427,13 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 				);
 			}
 			if (search) {
-				where.push(`(subject LIKE $q OR sender LIKE $q OR body_text LIKE $q)`);
-				params.$q = `%${search}%`;
+				// The search box is a substring search, so `%` and `_` typed into it
+				// are literal characters, not wildcards: without the escape, searching
+				// "50%" matched every message and "a_b" matched "axb".
+				where.push(
+					`(subject LIKE $q ESCAPE '\\' OR sender LIKE $q ESCAPE '\\' OR body_text LIKE $q ESCAPE '\\')`,
+				);
+				params.$q = `%${escapeLikePattern(search)}%`;
 			}
 			const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 			const rows = db
