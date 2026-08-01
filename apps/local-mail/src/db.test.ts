@@ -87,6 +87,16 @@ function messageRow(db: MailDb, id: string) {
 		.get(id);
 }
 
+/** Live row count straight from SQL. The writer handle serves the app's read
+ * models, not status, so it has no `counts()` of its own; the readonly reader
+ * is where that read model lives. */
+function countRows(db: MailDb, table: 'messages' | 'labels'): number {
+	return (
+		db.raw.query<{ n: number }, []>(`SELECT count(*) AS n FROM ${table}`).get()
+			?.n ?? 0
+	);
+}
+
 function base64Url(input: string): string {
 	return Buffer.from(input, 'utf8')
 		.toString('base64')
@@ -294,7 +304,7 @@ describe('full pull page ingestion', () => {
 		cleanup();
 	});
 
-	test('counts and recentMessages read live rows, newest first', () => {
+	test('a deleted message leaves the mirror, and the rest stay newest first', () => {
 		const { db, cleanup } = openTmp();
 		db.ingestFullPullPage(
 			[
@@ -317,8 +327,11 @@ describe('full pull page ingestion', () => {
 		);
 		db.ingestLabels([{ id: 'INBOX', name: 'INBOX', type: 'system' }], 's1');
 
-		expect(db.counts()).toEqual({ messages: 2, labels: 1 });
-		expect(db.recentMessages(1)[0]?.subject).toBe('Newest subject');
+		expect(countRows(db, 'messages')).toBe(2);
+		expect(countRows(db, 'labels')).toBe(1);
+		expect(
+			db.listMessages({ limit: 10, offset: 0 }).map((row) => row.subject),
+		).toEqual(['Newest subject', 'Older subject']);
 
 		db.applyHistoryBatch({
 			messagesToUpsert: [],
@@ -327,10 +340,10 @@ describe('full pull page ingestion', () => {
 			newHistoryId: '700',
 			syncedAt: 's2',
 		});
-		expect(db.counts().messages).toBe(1);
-		expect(db.recentMessages(5).map((row) => row.subject)).toEqual([
-			'Older subject',
-		]);
+		expect(countRows(db, 'messages')).toBe(1);
+		expect(
+			db.listMessages({ limit: 10, offset: 0 }).map((row) => row.subject),
+		).toEqual(['Older subject']);
 		cleanup();
 	});
 
@@ -589,7 +602,7 @@ describe('the artifact lifecycle', () => {
 		first.close();
 
 		const second = openMailDb(location);
-		expect(second.counts().messages).toBe(1);
+		expect(countRows(second, 'messages')).toBe(1);
 		expect(second.readRealmState().historyId).toBe('42');
 		second.close();
 
@@ -623,7 +636,7 @@ describe('the artifact lifecycle', () => {
 			accountEmail: 'you@example.com',
 		});
 		// The successor starts empty. It does not inherit, re-project, or delete.
-		expect(db.counts().messages).toBe(0);
+		expect(countRows(db, 'messages')).toBe(0);
 		db.close();
 
 		expect(existsSync(predecessorPath)).toBe(true);

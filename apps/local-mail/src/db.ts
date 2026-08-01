@@ -301,16 +301,6 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 		 ON CONFLICT(id) DO UPDATE SET resource = excluded.resource, synced_at = excluded.synced_at`,
 	);
 	const deleteLabelsStmt = db.query(`DELETE FROM labels`);
-	const liveMessageCountStmt = db.query<{ n: number }, []>(
-		`SELECT count(*) AS n FROM messages`,
-	);
-	const labelCountStmt = db.query<{ n: number }, []>(
-		`SELECT count(*) AS n FROM labels`,
-	);
-	const recentMessagesStmt = db.query<
-		{ subject: string | null; sender: string | null },
-		[number]
-	>(`SELECT subject, sender FROM messages ORDER BY internal_date DESC LIMIT ?`);
 
 	function readRealmState(): RealmState {
 		return {
@@ -386,24 +376,10 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 			return tx.immediate();
 		},
 
-		counts(): { messages: number; labels: number } {
-			return {
-				messages: liveMessageCountStmt.get()?.n ?? 0,
-				labels: labelCountStmt.get()?.n ?? 0,
-			};
-		},
-
 		findLabelByIdOrExactName(
 			label: string,
 		): { id: string; name: string | null } | null {
 			return findLabelByIdOrExactNameStmt.get(label, label, label) ?? null;
-		},
-
-		/** Live messages, newest first, for post-pass reporting. */
-		recentMessages(
-			limit: number,
-		): { subject: string | null; sender: string | null }[] {
-			return recentMessagesStmt.all(limit);
 		},
 
 		/**
