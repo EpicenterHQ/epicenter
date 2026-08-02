@@ -61,7 +61,7 @@ function setup(
 		syncedAt,
 	);
 	return {
-		deps: { labels: db, intent, now: () => Date.parse(ACTED_AT) },
+		deps: { db, intent, now: () => Date.parse(ACTED_AT) },
 		db,
 		cleanup: () => {
 			intent.close();
@@ -182,7 +182,7 @@ describe('assertMessageLabels', () => {
 		try {
 			expect(db.listLabels()).toEqual([]);
 			const deps: AssertDeps = {
-				labels: db,
+				db,
 				intent,
 				now: () => Date.parse(ACTED_AT),
 			};
@@ -216,7 +216,7 @@ describe('assertMessageLabels', () => {
 		const intent = openIntentDb(account);
 		try {
 			const deps: AssertDeps = {
-				labels: db,
+				db,
 				intent,
 				now: () => Date.parse(ACTED_AT),
 			};

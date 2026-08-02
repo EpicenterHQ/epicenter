@@ -117,10 +117,12 @@ export type AssertLabelsOutcome = {
 };
 
 /**
- * The mirror's label table, narrowed to the one question the act path asks of
- * it. Naming the capability rather than passing the whole mirror is the point:
- * an act resolves custom label names and writes to the intent store, and this
- * type is what says it can do nothing else to Gmail's disposable copy.
+ * The mirror, narrowed to the one question the act path asks of it. Naming the
+ * capability rather than the whole mirror is the point: an act resolves custom
+ * label names and writes to the intent store, and this type is what says it can
+ * do nothing else to Gmail's disposable copy. Every caller holds a full
+ * `ReconcileDeps` and hands it straight over; the narrowing lives here, in the
+ * type, so no call site has to restate it.
  */
 export type LabelDirectory = {
 	findLabelByIdOrExactName(
@@ -129,7 +131,7 @@ export type LabelDirectory = {
 };
 
 export type AssertDeps = {
-	labels: LabelDirectory;
+	db: LabelDirectory;
 	intent: IntentDb;
 	/** The act's clock. Injected like every other clock here, and stamped onto
 	 * each assertion so a status surface can report how long the oldest
@@ -204,7 +206,7 @@ export function assertMessageLabels({
 		});
 	}
 
-	const { data: resolved, error } = resolveLabelIds(deps.labels, [
+	const { data: resolved, error } = resolveLabelIds(deps.db, [
 		...input.addLabels,
 		...input.removeLabels,
 	]);

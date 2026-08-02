@@ -447,7 +447,7 @@ async function runTriageAct(
 	try {
 		const deps: ReconcileDeps = session.deps;
 		const { data: act, error } = assertMessageLabels({
-			deps: { labels: deps.db, intent: deps.intent, now: deps.now },
+			deps,
 			input: {
 				ids: args.positionals,
 				addLabels: verb.addLabels,

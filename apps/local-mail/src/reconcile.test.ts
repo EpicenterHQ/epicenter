@@ -490,13 +490,13 @@ describe('drain', () => {
 		try {
 			const archive = () =>
 				assertMessageLabels({
-					deps: { labels: deps.db, intent: deps.intent, now: deps.now },
+					deps,
 					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
 					readOnly: false,
 				});
 			const unarchive = () =>
 				assertMessageLabels({
-					deps: { labels: deps.db, intent: deps.intent, now: deps.now },
+					deps,
 					input: { ids: ['m1'], addLabels: ['INBOX'], removeLabels: [] },
 					readOnly: false,
 				});
