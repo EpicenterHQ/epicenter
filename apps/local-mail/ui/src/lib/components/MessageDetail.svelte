@@ -17,7 +17,6 @@
 	import { planLabel, planToggle, type TriageAction } from '$lib/actions';
 	import { api } from '$lib/api';
 	import { fullDate, labelDisplayName } from '$lib/format';
-	import { applyLabelDeltas, type LabelDelta } from '$lib/optimistic';
 	import type { MailLabel } from '$lib/types';
 	import MessageBody from './MessageBody.svelte';
 
@@ -26,7 +25,6 @@
 		account,
 		readOnly,
 		labels,
-		pendingDeltas,
 		busy,
 		labelsOpen,
 		onDispatch,
@@ -39,25 +37,23 @@
 		account: string | null;
 		readOnly: boolean;
 		labels: MailLabel[];
-		/** Pending page-owned label projections for this message. */
-		pendingDeltas: LabelDelta[];
-		/** True while a modify is in flight (the page owns the mutation). */
+		/** True while an act is in flight (the page owns the mutation). */
 		busy: boolean;
 		/** Page-owned open state for the Labels menu, so the `l` key can open it. */
 		labelsOpen: boolean;
 		/** Fire a planned triage action; the page runs it, gates read-only, and
 		 * owns the undo toast. Buttons and the keyboard share this one path. */
 		onDispatch: (action: TriageAction) => void;
-		/** Move the shown message to Trash; the page owns the write and its Undo.
-		 * Separate from `onDispatch` because trash is a distinct Gmail endpoint,
-		 * not a label delta. */
+		/** Move the shown message to Trash. Its own callback only because the
+		 * button is not a toggle off the current labels the way the others are;
+		 * underneath it is the same assertion path. */
 		onTrash: () => void;
 		onLabelsOpenChange: (open: boolean) => void;
 	} = $props();
 
-	// Keyed by id AND account, with `account` trailing `id` so `['message', id]`
-	// stays a prefix and `reconcileAfterWrite`'s `['message', id]` invalidation
-	// still matches. The account belongs in the key because switching accounts
+	// Keyed by id AND account, with `account` trailing `id` so the page's
+	// `['message']` invalidation after an act still matches every open detail.
+	// The account belongs in the key because switching accounts
 	// changes it even for the one render before the selection `$effect` re-resolves
 	// `id`: that render then reads a fresh (empty) cache entry and shows Loading,
 	// rather than the previous account's cached message flashing through.
@@ -67,11 +63,9 @@
 		enabled: id !== null && account !== null,
 	}));
 
-	const detail = $derived(
-		message.data
-			? { ...message.data, labelIds: applyLabelDeltas(message.data.labelIds, pendingDeltas) }
-			: undefined,
-	);
+	// The server's labels already include this machine's undelivered triage, so
+	// the chips and the toolbar's toggle directions read straight off them.
+	const detail = $derived(message.data);
 	const inInbox = $derived(detail?.labelIds.includes('INBOX') ?? false);
 	const unread = $derived(detail?.labelIds.includes('UNREAD') ?? false);
 	const starred = $derived(detail?.labelIds.includes('STARRED') ?? false);

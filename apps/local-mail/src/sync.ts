@@ -101,7 +101,7 @@ export type SyncOutcome = {
 	messagesUpserted: number;
 	messagesDeleted: number;
 	/** Mirrored rows whose label set materially changed this pass. An idempotent
-	 * history echo of labels the write-through fold already applied counts 0, so
+	 * history echo of labels the reconciler already folded counts 0, so
 	 * this reads as "what the sync actually changed", like its sibling counts. */
 	labelsPatched: number;
 	failure: SyncFailure | null;
@@ -409,50 +409,5 @@ export async function syncMailbox(
 			cursorBefore,
 			MirrorWriteError.MirrorBusy({ cause }).error,
 		);
-	}
-}
-
-type SyncLoopOptions = {
-	forceFull: boolean;
-	intervalMs: number;
-	/** Aborting the signal stops the loop after the current pass or sleep. */
-	signal: AbortSignal;
-	/** Called after each pass with its outcome and 1-based pass number. */
-	onPass: (outcome: SyncOutcome, pass: number) => void;
-};
-
-/** A sleep that resolves early when the signal aborts, so Ctrl-C is instant. */
-function interruptibleSleep(ms: number, signal: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
-		const onAbort = () => {
-			clearTimeout(timer);
-			resolve();
-		};
-		const timer = setTimeout(() => {
-			signal.removeEventListener('abort', onAbort);
-			resolve();
-		}, ms);
-		signal.addEventListener('abort', onAbort, { once: true });
-	});
-}
-
-/**
- * Run `syncMailbox` on a loop until the signal aborts. The first pass honors
- * `forceFull`; every later pass is incremental (the cursor has advanced), so
- * `--full --interval` means "one full pull, then keep up with history.list".
- */
-export async function runSyncLoop(
-	deps: SyncDeps,
-	opts: SyncLoopOptions,
-): Promise<void> {
-	let pass = 0;
-	while (!opts.signal.aborted) {
-		const outcome = await syncMailbox(deps, {
-			forceFull: opts.forceFull && pass === 0,
-		});
-		pass += 1;
-		opts.onPass(outcome, pass);
-		if (opts.signal.aborted) break;
-		await interruptibleSleep(opts.intervalMs, opts.signal);
 	}
 }

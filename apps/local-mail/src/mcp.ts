@@ -1,7 +1,13 @@
 /**
- * `local-mail mcp`: a stdio Model Context Protocol server that exposes read
- * and refresh verbs over the local Gmail mirror to a foreign host (Claude Code,
- * Codex, Cursor, ...).
+ * `local-mail mcp`: a stdio Model Context Protocol server that exposes the local
+ * Gmail mirror, and the triage vocabulary over it, to a foreign host (Claude
+ * Code, Codex, Cursor, ...).
+ *
+ * An agent here plays by the same rules a human does. `assert_labels` records a
+ * durable local change and returns; `reconcile` is the pass that talks to Gmail,
+ * and it refuses to run when another owner already holds the account. Reads see
+ * recorded-but-undelivered changes, so an agent and the open app never describe
+ * the same mailbox differently.
  *
  * Why MCP, and why local stdio: Local Mail is a private Gmail mirror for local
  * tools. A subprocess reading the local SQLite directly is the exposure that
@@ -43,16 +49,16 @@ import {
 import { type Static, type TObject, Type } from 'typebox';
 import { Value } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { acquireSyncLock, syncOwnerBusy } from './lock.ts';
-import { resolveAndModifyMessageLabels } from './modify.ts';
+import { assertMessageLabels } from './assert.ts';
+import { acquireReconcileLock, reconcileOwnerBusy } from './lock.ts';
 import { queryMail } from './query.ts';
+import { reconcileAccount } from './reconcile.ts';
 import {
 	type LocalMailRuntime,
+	openAccountSession,
 	openLocalMailRuntime,
-	openSyncSession,
 } from './runtime.ts';
 import { readMailStatus } from './status.ts';
-import { syncMailbox } from './sync.ts';
 import { VERSION } from './version.ts';
 
 /**
@@ -91,7 +97,7 @@ const TOOLS: ToolDescriptor[] = [
 		name: 'query',
 		title: 'Query mail',
 		description:
-			'Run a read-only SQL query against the local Gmail mirror. Tables: messages(id, raw JSON, thread_id, snippet, label_ids JSON array, internal_date epoch millis, subject, sender, body_text, synced_at) and labels(id, raw JSON, name, type, synced_at). label_ids is JSON text: test membership with EXISTS (SELECT 1 FROM json_each(messages.label_ids) WHERE value = ?). Results are capped at 1000 rows. The schema can change between versions because the mirror is disposable, so saved queries are not a stable contract.',
+			"Run a read-only SQL query against the local Gmail mirror. Tables: messages(id, raw JSON, thread_id, snippet, label_ids JSON array, internal_date epoch millis, subject, sender, body_text, synced_at) and labels(id, raw JSON, name, type, synced_at). messages.label_ids is Gmail's LAST KNOWN label set. For what the app actually shows, which includes triage recorded locally and not yet delivered to Gmail, join the effective_labels(message_id, label_id) view instead: SELECT m.subject FROM messages m JOIN effective_labels e ON e.message_id = m.id WHERE e.label_id = 'INBOX'. Results are capped at 1000 rows. The schema can change between versions because the mirror is disposable, so saved queries are not a stable contract.",
 		input: Type.Object({
 			sql: Type.String({
 				description:
@@ -119,10 +125,10 @@ const TOOLS: ToolDescriptor[] = [
 		},
 	}),
 	defineMcpTool({
-		name: 'sync',
-		title: 'Refresh mail',
+		name: 'reconcile',
+		title: 'Reconcile mail',
 		description:
-			'Refresh the local Gmail mirror. Incremental by default; pass full to force a complete re-pull. This only updates the local copy.',
+			'Deliver any locally recorded label changes to Gmail, then refresh the local mirror. Incremental by default; pass full to force a complete re-pull.',
 		input: Type.Object({
 			full: Type.Optional(
 				Type.Boolean({
@@ -133,27 +139,33 @@ const TOOLS: ToolDescriptor[] = [
 		}),
 		tier: 'write',
 		async run(ctx, args) {
-			// Sync needs a single owner per account. If the app (or another sync)
-			// holds the lock, yield with a note instead of racing a second bulk
-			// pull; nothing failed, so this is Ok, not an error. The model can just
-			// read the mirror, which is being kept fresh by whoever owns the loop.
-			const lock = acquireSyncLock({
+			// A reconcile needs a single owner per account: it is the only writer to
+			// Gmail. If the app (or another pass) holds the lock, yield with a note
+			// instead of becoming a second one; nothing failed, so this is Ok, not
+			// an error. That owner delivers the pending changes anyway.
+			const lock = acquireReconcileLock({
 				dataDir: ctx.config.dataDir,
 				accountEmail: ctx.accountEmail,
 			});
 			if (!lock) {
-				return Ok(syncOwnerBusy(ctx.accountEmail));
+				return Ok(reconcileOwnerBusy(ctx.accountEmail));
 			}
 			try {
-				const { data: session, error } = await openSyncSession(ctx);
+				const { data: session, error } = await openAccountSession(ctx);
 				if (error) return Err(error);
 				try {
-					const outcome = await syncMailbox(session.deps, {
+					const outcome = await reconcileAccount(session.deps, {
 						forceFull: args.full ?? false,
+						readOnly: ctx.config.readOnly,
 					});
-					if (outcome.failure) {
+					// A failure in either phase is reportable, but the outcome rides
+					// along: the model should see what DID get delivered, and that
+					// nothing was lost.
+					const failure = outcome.delivery.failure ?? outcome.pull.failure;
+					if (failure) {
 						return Err({
-							message: `Sync failed (${outcome.failure.name}: ${outcome.failure.message}). The cursor did not advance.`,
+							message: `Reconcile incomplete (${failure.name}: ${failure.message}). Nothing was lost; undelivered changes are kept and the next pass retries.`,
+							structured: outcome,
 						});
 					}
 					return Ok(outcome);
@@ -166,15 +178,15 @@ const TOOLS: ToolDescriptor[] = [
 		},
 	}),
 	defineMcpTool({
-		name: 'modify_labels',
-		title: 'Modify message labels',
+		name: 'assert_labels',
+		title: 'Change message labels',
 		description:
-			'Add or remove Gmail labels on 1 to 100 messages. Pass Gmail label ids or exact label names; UNREAD marks unread, removing UNREAD marks read, removing INBOX archives, and adding INBOX unarchives. Gmail accepts or rejects each mutation before the local mirror is folded.',
+			'Record a label change for 1 to 500 messages: add or remove Gmail labels by id or exact name. UNREAD marks unread, removing UNREAD marks read, removing INBOX archives, adding INBOX unarchives, and adding TRASH moves to trash. The change is durable and visible to every local read immediately, including this mirror; Gmail is told by the next reconcile pass, which the open app runs on its own. Asking for a label state Gmail already has cancels any pending change instead of queueing a second one.',
 		input: Type.Object({
 			ids: Type.Array(Type.String({ minLength: 1 }), {
 				minItems: 1,
-				maxItems: 100,
-				description: 'Gmail message ids to mutate serially.',
+				maxItems: 500,
+				description: 'The Gmail message ids to change.',
 			}),
 			addLabels: Type.Optional(
 				Type.Array(Type.String({ minLength: 1 }), {
@@ -191,30 +203,22 @@ const TOOLS: ToolDescriptor[] = [
 		}),
 		tier: 'mutation',
 		async run(ctx, args) {
-			const { data: session, error } = await openSyncSession(ctx);
+			const { data: session, error } = await openAccountSession(ctx);
 			if (error) return Err(error);
 			try {
-				const { data, error: modifyError } =
-					await resolveAndModifyMessageLabels({
-						deps: session.deps,
+				const { data, error: assertError } = assertMessageLabels({
+					deps: session.deps,
+					input: {
 						ids: args.ids,
 						addLabels: args.addLabels ?? [],
 						removeLabels: args.removeLabels ?? [],
-						readOnly: ctx.config.readOnly,
-					});
-				// A whole-request refusal (read-only, empty sets, unknown label)
-				// never ran, so it is a plain error with no structured payload.
-				if (modifyError) return Err({ message: modifyError.message });
-				// A systemic abort (token, throttle, network) ran partway: flag
-				// isError but keep the per-id results so the model sees what
-				// succeeded. Per-id Gmail rejections are NOT an error channel;
-				// they ride inside the structured results for per-id self-repair.
-				if (data.aborted) {
-					return Err({
-						message: `Modify aborted after ${data.results.length} of ${args.ids.length} id(s): ${data.aborted.message}`,
-						structured: data,
-					});
-				}
+					},
+					readOnly: ctx.config.readOnly,
+				});
+				// The only failures are refusals that recorded nothing (read-only,
+				// an empty label set, an unknown label name). Once recorded, an act
+				// cannot fail: delivery is the reconciler's pass, not this call.
+				if (assertError) return Err({ message: assertError.message });
 				return Ok(data);
 			} finally {
 				session.close();

@@ -20,9 +20,10 @@ import { join } from 'node:path';
 import type { AppConfig } from '../config.ts';
 import { type MailDb, openMailDb } from '../db.ts';
 import type { GmailClient } from '../gmail-client.ts';
+import { type IntentDb, openIntentDb } from '../intent.ts';
+import type { ReconcileDeps } from '../reconcile.ts';
 import type { LocalMailRuntime } from '../runtime.ts';
 import type { GmailMessage } from '../schema.ts';
-import type { SyncDeps } from '../sync.ts';
 import type { TokenStore } from '../token-store.ts';
 import { type AccountApi, createApiApp } from './api.ts';
 
@@ -66,21 +67,26 @@ function message(id: string, subject: string): GmailMessage {
 }
 
 /**
- * Build one account's `AccountApi` slice backed by a real on-disk mirror under
- * the shared data dir (the arrangement the host uses: one dir, one subdir per
- * account). `ownsLoop` defaults true; the gate is a passthrough.
+ * Build one account's `AccountApi` slice backed by a real on-disk mirror and
+ * intent store under the shared data dir (the arrangement the host uses: one
+ * dir, one subdir per account). `ownsLoop` defaults true; the gate is a
+ * passthrough, and the wake is recorded rather than run.
  */
 function account(
 	dataDir: string,
 	accountEmail: string,
 	seed: { messageId: string; subject: string; label: string },
 	ownsLoop = true,
-): { api: AccountApi; db: MailDb } {
+): { api: AccountApi; db: MailDb; intent: IntentDb; wakes: number } {
 	const db = openMailDb({ dataDir, accountEmail });
+	const intent = openIntentDb({ dataDir, accountEmail });
 	const syncedAt = '2026-07-08T00:00:00.000Z';
 	db.ingestFullPullPage([message(seed.messageId, seed.subject)], syncedAt);
 	db.ingestLabels(
-		[{ id: seed.label, name: seed.label, type: 'user' }],
+		[
+			{ id: seed.label, name: seed.label, type: 'user' },
+			{ id: 'INBOX', name: 'INBOX', type: 'system' },
+		],
 		syncedAt,
 	);
 	db.finishFullPull('1000', syncedAt);
@@ -89,18 +95,31 @@ function account(
 		store,
 		accountEmail,
 	};
-	const syncDeps: SyncDeps = {
+	const deps: ReconcileDeps = {
 		db,
-		// The read/list/status/busy paths never call the client; a real one is
-		// only needed for the modify/trash routes, which are not exercised here.
+		intent,
+		// No route here calls Gmail: reads answer from the mirror, and an act is a
+		// local write. Only a reconcile pass would need a client, and the only
+		// reconcile exercised here is the busy yield, which returns before the pass.
 		client: {} as unknown as GmailClient,
 		config: runtime.config,
 		now: () => Date.parse(syncedAt),
 	};
-	return {
-		api: { runtime, syncDeps, gate: (fn) => fn(), ownsLoop },
+	const created = {
 		db,
+		intent,
+		wakes: 0,
+		api: {
+			runtime,
+			deps,
+			gate: (fn: () => Promise<unknown>) => fn(),
+			requestWake: () => {
+				created.wakes += 1;
+			},
+			ownsLoop,
+		} as AccountApi,
 	};
+	return created;
 }
 
 function tempDir(): { dir: string; cleanup: () => void } {
@@ -149,7 +168,9 @@ describe('createApiApp multi-account routing', () => {
 		});
 
 		a.db.close();
+		a.intent.close();
 		b.db.close();
+		b.intent.close();
 		tmp.cleanup();
 	});
 
@@ -197,7 +218,9 @@ describe('createApiApp multi-account routing', () => {
 		expect(labelsA.labels.map((l) => l.id)).not.toContain('LB');
 
 		a.db.close();
+		a.intent.close();
 		b.db.close();
+		b.intent.close();
 		tmp.cleanup();
 	});
 
@@ -220,6 +243,7 @@ describe('createApiApp multi-account routing', () => {
 		expect(body.error.name).toBe('AccountNotFound');
 
 		a.db.close();
+		a.intent.close();
 		tmp.cleanup();
 	});
 
@@ -245,10 +269,11 @@ describe('createApiApp multi-account routing', () => {
 		expect(absent.status).toBe(401);
 
 		a.db.close();
+		a.intent.close();
 		tmp.cleanup();
 	});
 
-	test('POST sync yields busy when this host does not own the account loop', async () => {
+	test('POST reconcile yields busy when this host does not own the account loop', async () => {
 		const tmp = tempDir();
 		const a = account(
 			tmp.dir,
@@ -263,18 +288,107 @@ describe('createApiApp multi-account routing', () => {
 		});
 
 		const res = await app.fetch(
-			new Request('http://127.0.0.1/api/accounts/a@example.com/sync', {
+			new Request('http://127.0.0.1/api/accounts/a@example.com/reconcile', {
 				method: 'POST',
 				headers: { authorization: `Bearer ${BEARER}` },
 			}),
 		);
 		expect(res.status).toBe(200);
 		expect(await res.json()).toMatchObject({
-			synced: false,
-			reason: 'sync-owner-active',
+			reconciled: false,
+			reason: 'reconcile-owner-active',
 		});
 
 		a.db.close();
+		a.intent.close();
+		tmp.cleanup();
+	});
+});
+
+describe('POST /messages/assert', () => {
+	function post(
+		app: ReturnType<typeof createApiApp>,
+		path: string,
+		body: unknown,
+	) {
+		return app.fetch(
+			new Request(`http://127.0.0.1${path}`, {
+				method: 'POST',
+				headers: {
+					authorization: `Bearer ${BEARER}`,
+					'content-type': 'application/json',
+				},
+				body: JSON.stringify(body),
+			}),
+		);
+	}
+
+	test('an act is recorded, wakes the reconciler, and shows up in the very next read', async () => {
+		const tmp = tempDir();
+		const a = account(tmp.dir, 'a@example.com', {
+			messageId: 'ma',
+			subject: 'Alpha',
+			label: 'LA',
+		});
+		const app = createApiApp({
+			accounts: new Map([['a@example.com', a.api]]),
+			readOnly: false,
+			bearer: BEARER,
+		});
+
+		const before = (await (
+			await get(app, '/api/accounts/a@example.com/messages?label=INBOX')
+		).json()) as { messages: { id: string }[] };
+		expect(before.messages.map((m) => m.id)).toEqual(['ma']);
+
+		const res = await post(app, '/api/accounts/a@example.com/messages/assert', {
+			ids: ['ma'],
+			removeLabels: ['INBOX'],
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ asserted: 1, withdrawn: 0 });
+		expect(a.wakes).toBe(1);
+		expect(a.intent.pending()).toMatchObject([
+			{ messageId: 'ma', labelId: 'INBOX', want: false },
+		]);
+
+		// No Gmail call happened (the client is a stub that would throw), and the
+		// inbox is already empty: the read model composed the act before filtering.
+		const after = (await (
+			await get(app, '/api/accounts/a@example.com/messages?label=INBOX')
+		).json()) as { messages: { id: string }[] };
+		expect(after.messages).toEqual([]);
+
+		a.db.close();
+		a.intent.close();
+		tmp.cleanup();
+	});
+
+	test('read-only refuses the act, records nothing, and asks for no wake', async () => {
+		const tmp = tempDir();
+		const a = account(tmp.dir, 'a@example.com', {
+			messageId: 'ma',
+			subject: 'Alpha',
+			label: 'LA',
+		});
+		const app = createApiApp({
+			accounts: new Map([['a@example.com', a.api]]),
+			readOnly: true,
+			bearer: BEARER,
+		});
+
+		const res = await post(app, '/api/accounts/a@example.com/messages/assert', {
+			ids: ['ma'],
+			removeLabels: ['INBOX'],
+		});
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: { name: string } };
+		expect(body.error.name).toBe('AssertFailed');
+		expect(a.intent.pending()).toEqual([]);
+		expect(a.wakes).toBe(0);
+
+		a.db.close();
+		a.intent.close();
 		tmp.cleanup();
 	});
 });

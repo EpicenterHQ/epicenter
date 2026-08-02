@@ -17,5 +17,3 @@ export type MessageSummary = Awaited<
 >['messages'][number];
 
 export type MessageDetail = Awaited<ReturnType<typeof api.message>>;
-
-export type ModifyMessageLabelsOutcome = Awaited<ReturnType<typeof api.modify>>;

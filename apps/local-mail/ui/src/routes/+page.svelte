@@ -2,8 +2,6 @@
 	import * as Dialog from '@epicenter/ui/dialog';
 	import { Kbd } from '@epicenter/ui/kbd';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
-	import { createSubscriber } from 'svelte/reactivity';
 	import { toast } from 'svelte-sonner';
 	import {
 		invert,
@@ -17,14 +15,6 @@
 	import MessageList from '$lib/components/MessageList.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import { api } from '$lib/api';
-	import {
-		deltaForTrashed,
-		MESSAGE_WRITE_MUTATION_KEY,
-		projectMessageList,
-		readPendingWrites,
-		reconcileAfterWrite,
-		type PendingMessageWrite,
-	} from '$lib/optimistic';
 
 	// Default to the inbox: this is a triage surface, and the inbox is the queue.
 	let selectedLabel = $state<string | null>('INBOX');
@@ -80,126 +70,82 @@
 		};
 	});
 
-	const sync = createMutation(() => ({
-		mutationFn: () => api.sync(selectedAccount as string),
+	const reconcile = createMutation(() => ({
+		mutationFn: () => api.reconcile(selectedAccount as string),
 		onSuccess: (outcome) => {
-			// The host yields busy when another owner holds this account's sync loop
-			// (a headless `sync`); it keeps the mirror fresh, so this is a note, not
-			// a failure, and there is nothing new to invalidate.
-			if ('synced' in outcome) {
+			// The host yields busy when another owner holds this account's
+			// reconciler; that owner delivers and pulls, so this is a note, not a
+			// failure, and there is nothing new to invalidate.
+			if ('reconciled' in outcome) {
 				toast.info(outcome.message);
 				return;
 			}
-			if (outcome.failure) {
-				toast.error(`Sync failed: ${outcome.failure.message}`);
+			const { delivery, pull } = outcome;
+			if (delivery.failure) {
+				toast.error(`Could not reach Gmail: ${delivery.failure.message}`, {
+					description: `${delivery.retained} change(s) still pending. Nothing was lost.`,
+				});
+			} else if (pull.failure) {
+				toast.error(`Refresh failed: ${pull.failure.message}`);
 			} else {
+				const sent = delivery.delivered
+					? `${delivery.delivered} change(s) sent, `
+					: '';
 				toast.success(
-					`Synced: ${outcome.messagesUpserted} upserted, ${outcome.messagesDeleted} deleted, ${outcome.labelsPatched} labels patched`,
+					`${sent}${pull.messagesUpserted} upserted, ${pull.messagesDeleted} deleted, ${pull.labelsPatched} labels patched`,
 				);
 			}
-			// A completed sync has folded any pending write, so the mirror is current.
-			clearCatchingUp();
-			queryClient.invalidateQueries({ queryKey: ['messages'] });
-			queryClient.invalidateQueries({ queryKey: ['status'] });
-			queryClient.invalidateQueries({ queryKey: ['labels'] });
+			invalidateReads();
 		},
 		onError: (error: Error) => toast.error(error.message),
 	}));
 
-	// Every message write (label modify, trash, untrash) returns the same
-	// per-id outcome; this reports it once. Success is self-evident from the
-	// effect (the row leaves, chips update), so the only transient element that
-	// earns a toast is Undo. `onUndo` is null when there is nothing to offer
-	// (a no-op action, or the undo write itself, which fires silently).
-	type ModifyOutcome = Awaited<ReturnType<typeof api.modify>>;
-	function reportOutcome(
-		outcome: ModifyOutcome,
-		label: string,
-		onUndo: (() => void) | null,
-	): void {
-		const failed = outcome.results.filter((r) => r.error).length;
-		if (outcome.aborted) {
-			toast.error(`${label} aborted: ${outcome.aborted.message}`);
-			return;
-		}
-		if (failed) {
-			toast.error(`${label} failed`, {
-				description: outcome.results.find((r) => r.error)?.error?.message,
-			});
-			return;
-		}
-		if (onUndo) toast.success(label, { action: { label: 'Undo', onClick: onUndo } });
-		// `folded:false` = Gmail accepted it but the mirror row was not patched.
-		// That is a mirror-state fact, so it goes to the chip.
-		if (outcome.results.some((r) => !r.folded)) flashCatchingUp();
+	/** Re-read what the server now says. Every triage act lands in the server's
+	 * durable intent store, and the read models overlay it, so a plain refetch
+	 * already shows the act; there is nothing to project in browser memory. */
+	function invalidateReads(): void {
+		queryClient.invalidateQueries({ queryKey: ['messages'] });
+		queryClient.invalidateQueries({ queryKey: ['message'] });
+		queryClient.invalidateQueries({ queryKey: ['status'] });
+		queryClient.invalidateQueries({ queryKey: ['labels'] });
 	}
 
-	// The label write path. Both the toolbar (via `onDispatch`) and the keyboard
+	// The one write path. Both the toolbar (via `onDispatch`) and the keyboard
 	// call this; the read-only gate and the undo toast live here alone. `id` is
 	// explicit so Undo targets the original message even after the selection has
-	// moved on.
-	// Variables extend `PendingMessageWrite` so the projection can read `id` and
-	// `delta` off any pending message write without knowing which mutation it was.
-	type ModifyVars = PendingMessageWrite & { action: TriageAction; undoable: boolean };
-	const modify = createMutation(() => ({
-		mutationKey: MESSAGE_WRITE_MUTATION_KEY,
-		mutationFn: (v: ModifyVars) =>
-			api.modify(selectedAccount as string, {
+	// moved on. Undo is the inverse assertion, which cancels the original
+	// outright when the reconciler has not delivered it yet.
+	type ActVars = { id: string; action: TriageAction; undoable: boolean };
+	const act = createMutation(() => ({
+		mutationFn: (v: ActVars) =>
+			api.assert(selectedAccount as string, {
 				ids: [v.id],
 				addLabels: v.action.addLabels,
 				removeLabels: v.action.removeLabels,
 			}),
-		onSuccess: (outcome, v) => {
-			reportOutcome(
-				outcome,
-				v.action.label,
-				v.undoable && isReversible(v.action)
-					? () => runOn(v.id, invert(v.action), false)
-					: null,
-			);
+		onSuccess: (_outcome, v) => {
+			// Success is self-evident from the effect (the row leaves, chips update),
+			// so the only element that earns a toast is Undo. The undo act itself is
+			// not undoable, and fires silently.
+			if (v.undoable && isReversible(v.action)) {
+				toast.success(v.action.label, {
+					action: { label: 'Undo', onClick: () => runOn(v.id, invert(v.action), false) },
+				});
+			}
 		},
 		onError: (error: Error) => toast.error(error.message),
-		onSettled: (_data, _error, v) => reconcileAfterWrite(queryClient, v.id),
+		onSettled: () => invalidateReads(),
 	}));
-
-	// Trash is its own Gmail endpoint, not a label delta, so it is a separate
-	// write; `trashed` carries the direction, matching the core. Undo restores
-	// (untrash) by firing the same mutation the other way, and fires silently.
-	type TrashVars = PendingMessageWrite & { trashed: boolean };
-	const setTrashed = createMutation(() => ({
-		mutationKey: MESSAGE_WRITE_MUTATION_KEY,
-		mutationFn: (v: TrashVars) =>
-			api.setTrashed(selectedAccount as string, {
-				ids: [v.id],
-				trashed: v.trashed,
-			}),
-		onSuccess: (outcome, v) => {
-			reportOutcome(
-				outcome,
-				v.trashed ? 'Moved to trash' : 'Restored from trash',
-				v.trashed ? () => restoreFromTrash(v.id) : null,
-			);
-		},
-		onError: (error: Error) => toast.error(error.message),
-		onSettled: (_data, _error, v) => reconcileAfterWrite(queryClient, v.id),
-	}));
-
-	function restoreFromTrash(id: string): void {
-		setTrashed.mutate({ id, trashed: false, delta: deltaForTrashed(false) });
-	}
 
 	function runOn(id: string, action: TriageAction, undoable: boolean): void {
 		if (readOnly) return;
-		modify.mutate({
-			id,
-			action,
-			undoable,
-			delta: { add: action.addLabels, remove: action.removeLabels },
-		});
+		act.mutate({ id, action, undoable });
 	}
 	function trashSelected(): void {
-		if (readOnly || !selectedId) return;
-		setTrashed.mutate({ id: selectedId, trashed: true, delta: deltaForTrashed(true) });
+		if (!selectedId) return;
+		// Trash is an ordinary label here. Only delivery treats it specially,
+		// because Gmail gives it its own endpoint.
+		runOn(selectedId, { label: 'Moved to trash', addLabels: ['TRASH'], removeLabels: [] }, true);
 	}
 	/** Dispatch a planned action against the current selection. */
 	function dispatch(action: TriageAction): void {
@@ -207,54 +153,25 @@
 		runOn(selectedId, action, true);
 	}
 
-	// The pending-write set lives in TanStack's mutation cache. Bridge it into
-	// reactivity with `createSubscriber` (the repo's standard external-store
-	// bridge, cf. `fromKv`/`fromTable`) so `pendingWrites` is a plain `$derived`
-	// that re-reads whenever a write starts or settles. `useMutationState` is
-	// avoided deliberately: its result array is grown in place and never shrinks,
-	// so a settled write would keep masking its row (see `readPendingWrites`).
-	const subscribeMutations = createSubscriber((update) =>
-		queryClient.getMutationCache().subscribe(update),
-	);
-	const pendingWrites = $derived.by(() => {
-		subscribeMutations();
-		return readPendingWrites(queryClient);
-	});
-
+	// The list is exactly what the server returned. There is no client-side
+	// projection: the server already composed Gmail's facts with this machine's
+	// undelivered triage before it filtered and paged, so the page cannot
+	// disagree with the CLI or an agent about what is in the inbox.
 	const labelList = $derived(labels.data?.labels ?? []);
-	const messageList = $derived(
-		projectMessageList(messages.data?.messages ?? [], pendingWrites, selectedLabel),
-	);
-	const selectedPendingDeltas = $derived(
-		pendingWrites
-			.filter((write) => write.id === selectedId)
-			.map((write) => write.delta),
-	);
+	const messageList = $derived(messages.data?.messages ?? []);
 	const readOnly = $derived(status.data?.readOnly ?? false);
-	// True when the mirror holds no messages at all (nothing synced yet), as
+	// True when the mirror holds no messages at all (nothing pulled yet), as
 	// opposed to this label/search view simply matching none. Drives which empty
-	// state the list shows: "run sync" vs "no match".
+	// state the list shows: "reconcile" vs "no match".
 	const mirrorEmpty = $derived((status.data?.rows.messages ?? 0) === 0);
-	const syncError = $derived(
-		sync.error?.message ??
-			(sync.data && 'failure' in sync.data
-				? (sync.data.failure?.message ?? null)
+	const reconcileError = $derived(
+		reconcile.error?.message ??
+			(reconcile.data && 'delivery' in reconcile.data
+				? (reconcile.data.delivery.failure?.message ??
+					reconcile.data.pull.failure?.message ??
+					null)
 				: null),
 	);
-
-	// A brief "catching up" flash on the mirror chip after a sync-lagging write.
-	let catchingUp = $state(false);
-	let catchUpTimer: ReturnType<typeof setTimeout> | undefined;
-	function flashCatchingUp(): void {
-		catchingUp = true;
-		clearTimeout(catchUpTimer);
-		catchUpTimer = setTimeout(() => (catchingUp = false), 4000);
-	}
-	function clearCatchingUp(): void {
-		catchingUp = false;
-		clearTimeout(catchUpTimer);
-	}
-	onDestroy(() => clearTimeout(catchUpTimer));
 
 	// Keep the selection valid: default to the first row, and re-resolve when a
 	// filter change drops the current selection out of the list.
@@ -361,11 +278,10 @@
 			selectedId = null;
 			labelsOpen = false;
 		}}
-		syncing={sync.isPending}
-		{syncError}
-		{catchingUp}
-		onRefresh={() => {
-			if (selectedAccount) sync.mutate();
+		reconciling={reconcile.isPending}
+		{reconcileError}
+		onReconcile={() => {
+			if (selectedAccount) reconcile.mutate();
 		}}
 	/>
 
@@ -394,8 +310,7 @@
 				account={selectedAccount}
 				{readOnly}
 				labels={labelList}
-				pendingDeltas={selectedPendingDeltas}
-				busy={modify.isPending || setTrashed.isPending}
+				busy={act.isPending}
 				{labelsOpen}
 				onDispatch={dispatch}
 				onTrash={trashSelected}

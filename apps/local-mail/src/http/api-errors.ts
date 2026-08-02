@@ -41,9 +41,10 @@ export const ApiError = defineErrors({
 		message: 'Message not found.',
 		status: 404 as const,
 	}),
-	/** A message write (label modify or trash/untrash) was refused before Gmail
-	 * (read-only mode, unknown label) or failed systemically. */
-	ModifyFailed: ({ message }: { message: string }) => ({
+	/** A triage act was refused before anything was recorded: read-only mode, no
+	 * ids, too many ids, an empty label set, or a label name the mirror does not
+	 * know. Nothing here reports a Gmail failure; the act path never calls Gmail. */
+	AssertFailed: ({ message }: { message: string }) => ({
 		message,
 		status: 400 as const,
 	}),

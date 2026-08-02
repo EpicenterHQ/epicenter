@@ -87,7 +87,8 @@ export type BootedHarness = {
  * the launch coordinates. Never touches the real mirror or real Gmail.
  */
 export async function bootHarness(opts: {
-	/** `false` => modifies omit labelIds, exercising the `folded:false` chip. */
+	/** `false` => modifies omit labelIds, so the reconciler retires the assertion
+	 * without folding Gmail's answer into the mirror copy. */
 	fold: boolean;
 	lmTestDir?: string;
 }): Promise<BootedHarness> {

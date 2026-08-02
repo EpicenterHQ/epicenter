@@ -84,7 +84,7 @@
 			</Empty.Title>
 			<Empty.Description>
 				{mirrorEmpty
-					? 'Run local-mail sync --full to populate the mirror.'
+					? 'Run local-mail reconcile --full to populate the mirror.'
 					: 'Try a different label or search term.'}
 			</Empty.Description>
 		</Empty.Root>

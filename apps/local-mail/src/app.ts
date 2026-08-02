@@ -3,25 +3,25 @@ import { join, sep } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type AppConfig, loadConfig } from './config.ts';
 import { type AccountApi, createApiApp, mintBearer } from './http/api.ts';
-import { acquireSyncLock, type SyncLock } from './lock.ts';
+import { acquireReconcileLock, type ReconcileLock } from './lock.ts';
 import { clearPresence, writePresence } from './presence.ts';
+import { reconcileAccount } from './reconcile.ts';
 import {
+	type AccountSession,
 	type LocalMailRuntime,
-	openSyncSession,
+	openAccountSession,
 	runtimeForAccount,
-	type SyncSession,
 } from './runtime.ts';
-import { syncMailbox } from './sync.ts';
 import { createFileTokenStore, type TokenStore } from './token-store.ts';
 
 /**
  * `local-mail app`: the desktop runtime host. One Bun process serves the triage
- * SPA and its `/api` over `127.0.0.1`, and the same process keeps the mirror
- * fresh through the sync loop, holding the per-account sync lock for its
- * lifetime (the single loop owner). This is a loopback web host; the Tauri
- * desktop shell points a `WebviewUrl::External` window at this origin and owns
- * nothing else. The bearer stays injected into the HTML this engine serves and
- * never transits Rust (ADR-0116).
+ * SPA and its `/api` over `127.0.0.1`, and the same process runs each account's
+ * reconciler, holding the per-account lock for its lifetime (the single writer).
+ * This is a loopback web host; the Tauri desktop shell points a
+ * `WebviewUrl::External` window at this origin and owns nothing else. The bearer
+ * stays injected into the HTML this engine serves and never transits Rust
+ * (ADR-0116).
  *
  * The security model, condensed:
  *
@@ -50,7 +50,15 @@ import { createFileTokenStore, type TokenStore } from './token-store.ts';
  * `/api/*` to `api.fetch`.
  */
 
-const SYNC_INTERVAL_MS = 30_000;
+const RECONCILE_INTERVAL_MS = 30_000;
+/**
+ * How long a wake waits before running. Keyboard triage arrives in bursts (three
+ * archives in a second), and every one of them is already durable and already
+ * visible, so the only thing this delay costs is how soon Gmail hears; what it
+ * buys is one delivery pass instead of three. Short enough that a single act
+ * still feels immediate to anyone watching Gmail in another window.
+ */
+const WAKE_COALESCE_MS = 750;
 
 /** Headers on every HTML response that carries the injected bearer. `no-store`
  * keeps a rotated bearer out of the browser cache; the frame denials stop a
@@ -65,17 +73,59 @@ const INJECTED_HTML_HEADERS: Record<string, string> = {
 };
 
 /**
- * One in-process promise chain: the background loop and a "refresh now" request
- * both enqueue here, so at most one sync pass touches the mirror at a time. No
- * coalescing (a refresh may ride a pass that started before the click); the
- * spec accepts that for v1.
+ * One in-process promise chain: the background loop and an explicit reconcile
+ * both enqueue here, so at most one pass touches the account at a time. No
+ * coalescing (an explicit reconcile may ride a pass that started before the
+ * click); the spec accepts that for v1.
  */
-function createSyncGate() {
+function createReconcileGate() {
 	let tail: Promise<unknown> = Promise.resolve();
 	return function run<T>(fn: () => Promise<T>): Promise<T> {
 		const result = tail.then(fn, fn);
 		tail = result.catch(() => {});
 		return result;
+	};
+}
+
+/**
+ * When the next reconcile pass is due. Two things can make one due: the poll
+ * interval, and a local assertion asking to be delivered. The second is
+ * coalesced, so a burst of triage produces one pass, and both are interrupted by
+ * shutdown so Ctrl-C is instant.
+ *
+ * This is the whole wake mechanism. There is no cross-process channel: an act
+ * made by the CLI while the app is open is delivered by the app's next poll, and
+ * an act made while nothing is running waits for the next app or CLI pass. The
+ * assertion is durable either way, which is what makes waiting acceptable.
+ */
+function createPassClock(signal: AbortSignal) {
+	let wakeRequested = false;
+	let onWake: (() => void) | null = null;
+
+	return {
+		requestWake(): void {
+			wakeRequested = true;
+			onWake?.();
+		},
+
+		async waitForNextPass(): Promise<void> {
+			if (!wakeRequested) {
+				await new Promise<void>((resolve) => {
+					const finish = () => {
+						clearTimeout(timer);
+						signal.removeEventListener('abort', finish);
+						onWake = null;
+						resolve();
+					};
+					const timer = setTimeout(finish, RECONCILE_INTERVAL_MS);
+					onWake = finish;
+					signal.addEventListener('abort', finish, { once: true });
+				});
+			}
+			if (!wakeRequested || signal.aborted) return;
+			wakeRequested = false;
+			await Bun.sleep(WAKE_COALESCE_MS);
+		},
 	};
 }
 
@@ -140,17 +190,18 @@ async function serveStatic(
 }
 
 /**
- * One account's slice of the running host: its runtime, its open sync session
- * (writer db + Gmail client), its per-account serialize gate, and the sync-owner
- * lock IF this host won it. `lock === null` means another owner (a headless
- * `sync`) holds the loop for that account; the host still serves its reads and
- * Gmail-first writes (both lock-free), it just runs no loop for it.
+ * One account's slice of the running host: its runtime, its open session (mirror
+ * + intent store + Gmail client), its per-account serialize gate, its pass
+ * clock, and the reconcile-owner lock IF this host won it. `lock === null` means
+ * another owner holds the account's reconciler; the host still serves its reads
+ * and records its acts (both lock-free), it just delivers nothing for it.
  */
 type AccountEngine = {
 	runtime: LocalMailRuntime;
-	session: SyncSession;
+	session: AccountSession;
 	gate: <T>(fn: () => Promise<T>) => Promise<T>;
-	lock: SyncLock | null;
+	clock: ReturnType<typeof createPassClock>;
+	lock: ReconcileLock | null;
 };
 
 /**
@@ -196,11 +247,12 @@ export async function runApp(options: { port?: number }): Promise<number> {
 
 	const controller = new AbortController();
 	// One engine per account, all under this one origin. A per-account gate keeps
-	// each mirror single-writer while letting distinct accounts sync concurrently.
+	// each account single-writer while letting distinct accounts reconcile
+	// concurrently.
 	const engines: AccountEngine[] = [];
 	for (const accountEmail of accountEmails) {
 		const runtime = runtimeForAccount(config, store, accountEmail);
-		const { data: session, error: sessionError } = await openSyncSession(
+		const { data: session, error: sessionError } = await openAccountSession(
 			runtime,
 			{
 				gmailLog: (m) => console.error(`[gmail ${accountEmail}] ${m}`),
@@ -211,12 +263,21 @@ export async function runApp(options: { port?: number }): Promise<number> {
 			// One account failing to open (e.g. its token vanished between the store
 			// listing and now) must not sink the whole host; log it and serve the rest.
 			console.error(
-				`Skipping ${accountEmail}: ${sessionError?.message ?? 'failed to open sync session.'}`,
+				`Skipping ${accountEmail}: ${sessionError?.message ?? 'failed to open its session.'}`,
 			);
 			continue;
 		}
-		const lock = acquireSyncLock({ dataDir: config.dataDir, accountEmail });
-		engines.push({ runtime, session, gate: createSyncGate(), lock });
+		const lock = acquireReconcileLock({
+			dataDir: config.dataDir,
+			accountEmail,
+		});
+		engines.push({
+			runtime,
+			session,
+			gate: createReconcileGate(),
+			clock: createPassClock(controller.signal),
+			lock,
+		});
 	}
 
 	if (engines.length === 0) {
@@ -231,8 +292,13 @@ export async function runApp(options: { port?: number }): Promise<number> {
 			engine.runtime.accountEmail,
 			{
 				runtime: engine.runtime,
-				syncDeps: engine.session.deps,
+				deps: engine.session.deps,
 				gate: engine.gate,
+				// Only an owner can deliver, so only an owner's clock is worth
+				// waking; for the rest, the owning process polls.
+				requestWake: engine.lock
+					? () => engine.clock.requestWake()
+					: () => undefined,
 				ownsLoop: engine.lock !== null,
 			},
 		]),
@@ -271,35 +337,36 @@ export async function runApp(options: { port?: number }): Promise<number> {
 		},
 	});
 
-	// One background sync loop per account this host won the lock for, each
-	// serialized through its own gate (the same gate its POST .../sync rides).
-	// An account whose loop is owned elsewhere is still served; that other owner
-	// keeps its mirror fresh.
+	// One reconciler per account this host won the lock for, each serialized
+	// through its own gate (the same gate its POST .../reconcile rides). An
+	// account whose reconciler is owned elsewhere is still served; that other
+	// owner delivers its acts and keeps its mirror fresh.
 	for (const engine of engines) {
 		if (!engine.lock) {
 			console.error(
-				`[sync ${engine.runtime.accountEmail}] loop owned elsewhere; serving reads only.`,
+				`[reconcile ${engine.runtime.accountEmail}] owned elsewhere; serving reads and recording acts only.`,
 			);
 			continue;
 		}
-		const { session, gate, runtime } = engine;
+		const { session, gate, clock, runtime } = engine;
 		(async () => {
 			while (!controller.signal.aborted) {
-				await gate(() => syncMailbox(session.deps, { forceFull: false })).catch(
-					(cause) =>
-						console.error(
-							`[sync ${runtime.accountEmail}] loop pass failed: ${cause}`,
-						),
+				await gate(() =>
+					reconcileAccount(session.deps, { forceFull: false, readOnly }),
+				).catch((cause) =>
+					console.error(
+						`[reconcile ${runtime.accountEmail}] pass failed: ${cause}`,
+					),
 				);
 				if (controller.signal.aborted) break;
-				await Bun.sleep(SYNC_INTERVAL_MS);
+				await clock.waitForNextPass();
 			}
 		})();
 	}
 
 	const origin = `http://127.0.0.1:${server.port}`;
-	// Publish presence so the Vite dev server (and, later, a routed one-shot
-	// `sync`) can find this host's origin and bearer. Presence, not spawn.
+	// Publish presence so the Vite dev server can find this host's origin and
+	// bearer. Presence, not spawn.
 	writePresence({ origin, bearer, pid: process.pid }, config.dataDir);
 	// stdout carries only the origin, so a caller can capture it; the hint goes
 	// to stderr. No browser is launched: opening the window is the host's job

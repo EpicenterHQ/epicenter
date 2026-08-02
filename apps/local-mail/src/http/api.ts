@@ -3,15 +3,16 @@ import { sValidator } from '@hono/standard-validator';
 import { type } from 'arktype';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
+import { assertMessageLabels } from '../assert.ts';
 import type { MailDb } from '../db.ts';
-import { syncOwnerBusy } from '../lock.ts';
+import { reconcileOwnerBusy } from '../lock.ts';
 import {
-	resolveAndModifyMessageLabels,
-	setMessagesTrashed,
-} from '../modify.ts';
+	type ReconcileDeps,
+	type ReconcileOutcome,
+	reconcileAccount,
+} from '../reconcile.ts';
 import type { LocalMailRuntime } from '../runtime.ts';
 import { readMailStatus } from '../status.ts';
-import { type SyncDeps, syncMailbox } from '../sync.ts';
 import { ApiError } from './api-errors.ts';
 
 /**
@@ -39,13 +40,12 @@ import { ApiError } from './api-errors.ts';
  * band (an injected `window.__LOCAL_MAIL__` global, never the URL). Every `/api`
  * request must present it; there is no bootstrap-token exchange endpoint.
  *
- * Label writes go through the same core the CLI and MCP use
- * (`resolveAndModifyMessageLabels`); the archive/read/label intents desugar into
- * one `/api/accounts/:account/messages/modify` route, not per-intent routes.
- * Trash is separate because Gmail models trash/untrash as their own endpoints,
- * not a label delta, but it stays one route:
- * `/api/accounts/:account/messages/trash` carries the direction as a `trashed`
- * boolean, the same shape the core (`setMessagesTrashed`) already owns.
+ * No route here writes to Gmail. Every triage act, archive, read, star, label,
+ * and trash alike, desugars into one `POST /messages/assert` that records a
+ * durable local assertion and asks the host's reconciler to wake; the reconciler
+ * delivers it (`POST /reconcile` is the explicit, synchronous form of the same
+ * pass). Reads answer from the mirror WITH those assertions overlaid, so the
+ * list a caller gets back already reflects the act it just made.
  */
 
 /** The per-launch local API bearer: 256 bits of CSPRNG, base64url. Minted once
@@ -58,18 +58,14 @@ export function mintBearer(): string {
 // `@hono/standard-validator`, as in `packages/server`). typebox stays for the
 // Gmail wire shapes in `schema.ts`; these are two different boundaries.
 
-/** `POST /api/messages/modify` body: ids plus the add/remove label sets the UI
- * desugars its archive/read/label intents into. */
-const ModifyBody = type({
+/** `POST /api/messages/assert` body: the concrete ids the caller acted on, plus
+ * the label sets every triage intent desugars into. Trash is not special here:
+ * moving to trash adds `TRASH`, and Undo removes it. */
+const AssertBody = type({
 	ids: 'string[]',
 	'addLabels?': 'string[]',
 	'removeLabels?': 'string[]',
 });
-
-/** `POST /api/messages/trash` body: the ids and the direction. `trashed:true`
- * moves them to Trash, `false` restores them (the write behind Undo). The
- * direction is explicit, matching the core's `setMessagesTrashed({trashed})`. */
-const TrashBody = type({ ids: 'string[]', trashed: 'boolean' });
 
 /** `GET /api/messages` query. Values arrive as strings; `limit`/`offset` are
  * parsed and clamped in the handler, matching the original bounds. */
@@ -82,22 +78,26 @@ const MessageQuery = type({
 
 /**
  * Everything the `/api` surface needs to serve one account: its runtime (for
- * `status`), its writer db + Gmail client (`syncDeps`, for reads and
- * Gmail-first writes), its per-account serialize gate, and whether THIS host
- * owns that account's sync loop (holds the `lock.ts` lock). Reads and triage
- * writes never take the lock, so they work regardless; only `POST .../sync`
- * cares, yielding busy when the loop is owned elsewhere.
+ * `status`), its mirror + intent store + Gmail client (`deps`), its per-account
+ * serialize gate, the wake it asks for after an act, and whether THIS host owns
+ * that account's reconcile loop (holds the `lock.ts` lock). Reads and acts never
+ * take the lock, so they work regardless; only `POST .../reconcile` cares,
+ * yielding busy when the loop is owned elsewhere.
  */
 export type AccountApi = {
 	runtime: LocalMailRuntime;
-	syncDeps: SyncDeps;
+	deps: ReconcileDeps;
 	/** The per-account serialize gate: this account's background loop and its
-	 * `POST .../sync` both enqueue here, so at most one pass touches its mirror
-	 * at a time. Distinct accounts sync concurrently. */
+	 * `POST .../reconcile` both enqueue here, so at most one pass touches its
+	 * mirror at a time. Distinct accounts reconcile concurrently. */
 	gate: <T>(fn: () => Promise<T>) => Promise<T>;
-	/** Whether this host holds the account's sync-owner lock (runs its loop). A
-	 * false value means another owner (a headless `sync`) has it, so a manual
-	 * refresh yields `syncOwnerBusy` rather than racing a second bulk pull. */
+	/** Ask the host's loop for a coalesced pass, so a local assertion is
+	 * delivered shortly after it is made rather than at the next poll. A no-op
+	 * when this host does not own the loop; that owner's poll picks it up. */
+	requestWake: () => void;
+	/** Whether this host holds the account's reconcile-owner lock (runs its
+	 * loop). A false value means another owner has it, so an explicit reconcile
+	 * yields `reconcileOwnerBusy` rather than racing a second writer. */
 	ownsLoop: boolean;
 };
 
@@ -155,7 +155,7 @@ export function createApiApp(deps: ApiDeps) {
 				const err = ApiError.AccountNotFound();
 				return c.json(err, err.error.status);
 			}
-			return c.json({ labels: account.syncDeps.db.listLabels() });
+			return c.json({ labels: account.deps.db.listLabels() });
 		})
 		.get('/messages', sValidator('query', MessageQuery), (c) => {
 			const account = accountFor(c);
@@ -164,7 +164,7 @@ export function createApiApp(deps: ApiDeps) {
 				return c.json(err, err.error.status);
 			}
 			const { label, q, limit, offset } = c.req.valid('query');
-			const db: MailDb = account.syncDeps.db;
+			const db: MailDb = account.deps.db;
 			return c.json({
 				messages: db.listMessages({
 					labelId: label,
@@ -181,66 +181,53 @@ export function createApiApp(deps: ApiDeps) {
 				const err = ApiError.AccountNotFound();
 				return c.json(err, err.error.status);
 			}
-			const detail = account.syncDeps.db.getMessageDetail(c.req.param('id'));
+			const detail = account.deps.db.getMessageDetail(c.req.param('id'));
 			if (!detail) {
 				const err = ApiError.MessageNotFound();
 				return c.json(err, err.error.status);
 			}
 			return c.json(detail);
 		})
-		.post('/sync', async (c) => {
+		.post('/reconcile', async (c) => {
 			const account = accountFor(c);
 			if (!account) {
 				const err = ApiError.AccountNotFound();
 				return c.json(err, err.error.status);
 			}
-			const { runtime, syncDeps, gate, ownsLoop } = account;
+			const { runtime, deps, gate, ownsLoop } = account;
 			// This host owns the loop only when it holds the lock. Without it,
-			// another owner keeps the mirror fresh, so yield busy instead of
-			// racing a second bulk pull (the same contract the headless `sync` uses).
-			if (!ownsLoop) return c.json(syncOwnerBusy(runtime.accountEmail));
-			const outcome = await gate(() =>
-				syncMailbox(syncDeps, { forceFull: false }),
+			// another owner delivers and pulls, so yield busy instead of becoming a
+			// second writer (the same contract the headless pass uses).
+			if (!ownsLoop) return c.json(reconcileOwnerBusy(runtime.accountEmail));
+			const outcome: ReconcileOutcome = await gate(() =>
+				reconcileAccount(deps, { forceFull: false, readOnly }),
 			);
 			return c.json(outcome);
 		})
-		.post('/messages/modify', sValidator('json', ModifyBody), async (c) => {
+		.post('/messages/assert', sValidator('json', AssertBody), (c) => {
 			const account = accountFor(c);
 			if (!account) {
 				const err = ApiError.AccountNotFound();
 				return c.json(err, err.error.status);
 			}
 			const { ids, addLabels, removeLabels } = c.req.valid('json');
-			const { data, error } = await resolveAndModifyMessageLabels({
-				deps: account.syncDeps,
-				ids,
-				addLabels: addLabels ?? [],
-				removeLabels: removeLabels ?? [],
+			const { data, error } = assertMessageLabels({
+				deps: account.deps,
+				input: {
+					ids,
+					addLabels: addLabels ?? [],
+					removeLabels: removeLabels ?? [],
+				},
 				readOnly,
 			});
 			if (error) {
-				const err = ApiError.ModifyFailed({ message: error.message });
+				const err = ApiError.AssertFailed({ message: error.message });
 				return c.json(err, err.error.status);
 			}
-			return c.json(data);
-		})
-		.post('/messages/trash', sValidator('json', TrashBody), async (c) => {
-			const account = accountFor(c);
-			if (!account) {
-				const err = ApiError.AccountNotFound();
-				return c.json(err, err.error.status);
-			}
-			const { ids, trashed } = c.req.valid('json');
-			const { data, error } = await setMessagesTrashed({
-				deps: account.syncDeps,
-				ids,
-				trashed,
-				readOnly,
-			});
-			if (error) {
-				const err = ApiError.ModifyFailed({ message: error.message });
-				return c.json(err, err.error.status);
-			}
+			// The act is already durable and already visible to every read; the wake
+			// only decides how soon Gmail hears about it, so it is fired and not
+			// awaited.
+			account.requestWake();
 			return c.json(data);
 		});
 

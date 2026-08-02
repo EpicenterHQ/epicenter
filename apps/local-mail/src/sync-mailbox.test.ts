@@ -577,7 +577,7 @@ describe('syncMailbox: INCREMENTAL', () => {
 	test('an idempotent history echo of already-current labels reports labelsPatched 0', async () => {
 		const { db, cleanup } = seededDb();
 		// The seeded row already carries exactly ['INBOX']; a labelsAdded echo of
-		// the same set (the shape a write-through fold produces, then Gmail replays
+		// the same set (the shape the reconciler's fold produces, then Gmail replays
 		// through history) touches the row but changes nothing material.
 		const client = createFakeGmailClient({
 			mailbox: new Map(),

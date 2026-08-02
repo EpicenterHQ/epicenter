@@ -8,7 +8,7 @@
 	let { children } = $props();
 
 	// The mirror is a local SQLite read: refetch is cheap and staleness matters
-	// (a background sync pass or a label fold changes rows), so keep staleTime
+	// (a background reconcile pass changes rows), so keep staleTime
 	// short and refetch on focus.
 	const queryClient = new QueryClient({
 		defaultOptions: {

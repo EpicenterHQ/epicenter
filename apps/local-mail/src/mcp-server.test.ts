@@ -201,22 +201,24 @@ test('mcp: tools/list, body query, status, errors, and a clean stream', async ()
 			};
 		}>;
 		const names = tools.map((tool) => tool.name).sort();
-		expect(names).toEqual(['modify_labels', 'query', 'status', 'sync']);
+		expect(names).toEqual(['assert_labels', 'query', 'reconcile', 'status']);
 		const query = tools.find((tool) => tool.name === 'query');
 		expect(query?.description).toContain('messages(id, raw JSON');
 		expect(query?.description).toContain('labels(id, raw JSON');
-		expect(query?.description).toContain('json_each(messages.label_ids)');
+		// The one thing an agent must not get wrong: mirrored labels are Gmail's
+		// last word, effective_labels is what the app shows.
+		expect(query?.description).toContain('effective_labels');
 		expect(query?.description).toContain('capped at 1000 rows');
 		expect(query?.inputSchema.properties).toHaveProperty('sql');
 		expect(query?.annotations?.readOnlyHint).toBe(true);
-		const sync = tools.find((tool) => tool.name === 'sync');
-		expect(sync?.annotations?.readOnlyHint).toBe(false);
-		expect(sync?.annotations?.destructiveHint).toBe(false);
-		const modifyLabels = tools.find((tool) => tool.name === 'modify_labels');
-		expect(modifyLabels?.inputSchema.properties).toHaveProperty('ids');
-		expect(modifyLabels?.inputSchema.properties).toHaveProperty('addLabels');
-		expect(modifyLabels?.inputSchema.properties).toHaveProperty('removeLabels');
-		expect(modifyLabels?.annotations).toMatchObject({
+		const reconcile = tools.find((tool) => tool.name === 'reconcile');
+		expect(reconcile?.annotations?.readOnlyHint).toBe(false);
+		expect(reconcile?.annotations?.destructiveHint).toBe(false);
+		const assertLabels = tools.find((tool) => tool.name === 'assert_labels');
+		expect(assertLabels?.inputSchema.properties).toHaveProperty('ids');
+		expect(assertLabels?.inputSchema.properties).toHaveProperty('addLabels');
+		expect(assertLabels?.inputSchema.properties).toHaveProperty('removeLabels');
+		expect(assertLabels?.annotations).toMatchObject({
 			readOnlyHint: false,
 			destructiveHint: false,
 			idempotentHint: true,
@@ -251,12 +253,12 @@ test('mcp: tools/list, body query, status, errors, and a clean stream', async ()
 		expect(statusData.historyId).toBe('1000');
 		expect(statusData.rows).toEqual({ messages: 1, labels: 2 });
 
-		const syncWithoutToken = await mcp.request('tools/call', {
-			name: 'sync',
+		const reconcileWithoutToken = await mcp.request('tools/call', {
+			name: 'reconcile',
 			arguments: {},
 		});
-		expect(syncWithoutToken.error).toBeUndefined();
-		expect(syncWithoutToken.result?.isError).toBe(true);
+		expect(reconcileWithoutToken.error).toBeUndefined();
+		expect(reconcileWithoutToken.result?.isError).toBe(true);
 
 		const unknown = await mcp.request('tools/call', {
 			name: 'does_not_exist',
@@ -287,7 +289,7 @@ test('mcp: tools/list, body query, status, errors, and a clean stream', async ()
 	}
 });
 
-test('mcp: LOCAL_MAIL_READ_ONLY hides mutation tools but leaves reads and sync listed', async () => {
+test('mcp: LOCAL_MAIL_READ_ONLY hides mutation tools but leaves reads and reconcile listed', async () => {
 	const tmp = tempDir();
 	seedMirror(tmp.dir);
 	const mcp = await connect({
@@ -301,12 +303,12 @@ test('mcp: LOCAL_MAIL_READ_ONLY hides mutation tools but leaves reads and sync l
 		const tools = (list.result?.tools ?? []) as Array<{ name: string }>;
 		expect(tools.map((tool) => tool.name).sort()).toEqual([
 			'query',
+			'reconcile',
 			'status',
-			'sync',
 		]);
 
 		const hidden = await mcp.request('tools/call', {
-			name: 'modify_labels',
+			name: 'assert_labels',
 			arguments: {
 				ids: ['m1'],
 				addLabels: ['Work'],
@@ -319,7 +321,7 @@ test('mcp: LOCAL_MAIL_READ_ONLY hides mutation tools but leaves reads and sync l
 	}
 });
 
-test('mcp: modify_labels folds Gmail labels and keeps per-id rejections structured', async () => {
+test('mcp: assert_labels records locally, and reconcile is what reaches Gmail', async () => {
 	const tmp = tempDir();
 	seedMirror(tmp.dir);
 	await seedToken(tmp.dir);
@@ -332,15 +334,6 @@ test('mcp: modify_labels folds Gmail labels and keeps per-id rejections structur
 			const url = new URL(request.url);
 			const body = request.method === 'POST' ? await request.json() : null;
 			requests.push({ method: request.method, pathname: url.pathname, body });
-			if (url.pathname === '/gmail/v1/users/me/labels') {
-				return Response.json({
-					labels: [
-						{ id: 'INBOX', name: 'INBOX', type: 'system' },
-						{ id: 'Label_1', name: 'Work', type: 'user' },
-						{ id: 'BAD', name: 'Bad label', type: 'user' },
-					],
-				});
-			}
 			if (url.pathname === '/gmail/v1/users/me/messages/m1/modify') {
 				return Response.json({
 					id: 'm1',
@@ -348,16 +341,30 @@ test('mcp: modify_labels folds Gmail labels and keeps per-id rejections structur
 					labelIds: ['Label_1'],
 				});
 			}
-			if (url.pathname === '/gmail/v1/users/me/messages/m2/modify') {
-				return Response.json(
-					{
-						error: {
-							errors: [{ reason: 'invalidArgument' }],
-							message: 'Invalid label: BAD',
-						},
-					},
-					{ status: 400 },
-				);
+			// The pull phase: this mirror's last sync is old enough that the pass
+			// chooses FULL, so answer the whole backfill with the one message.
+			if (url.pathname === '/gmail/v1/users/me/profile') {
+				return Response.json({ historyId: '1001', emailAddress: ACCOUNT });
+			}
+			if (url.pathname === '/gmail/v1/users/me/messages') {
+				return Response.json({ messages: [{ id: 'm1' }] });
+			}
+			if (url.pathname === '/gmail/v1/users/me/messages/m1') {
+				return Response.json({
+					id: 'm1',
+					threadId: 't1',
+					labelIds: ['Label_1'],
+					internalDate: '1719000000000',
+					payload: { headers: [{ name: 'Subject', value: 'Quarterly plan' }] },
+				});
+			}
+			if (url.pathname === '/gmail/v1/users/me/labels') {
+				return Response.json({
+					labels: [
+						{ id: 'INBOX', name: 'INBOX', type: 'system' },
+						{ id: 'Label_1', name: 'Work', type: 'user' },
+					],
+				});
 			}
 			return new Response('not found', { status: 404 });
 		},
@@ -370,7 +377,7 @@ test('mcp: modify_labels folds Gmail labels and keeps per-id rejections structur
 
 	try {
 		const ok = await mcp.request('tools/call', {
-			name: 'modify_labels',
+			name: 'assert_labels',
 			arguments: {
 				ids: ['m1'],
 				addLabels: ['Work'],
@@ -379,59 +386,59 @@ test('mcp: modify_labels folds Gmail labels and keeps per-id rejections structur
 		});
 		expect(ok.error).toBeUndefined();
 		expect(ok.result?.isError).toBeFalsy();
+		expect(ok.result?.structuredContent).toEqual({
+			asserted: 2,
+			withdrawn: 0,
+		});
+		// The act reached nothing on the network. Gmail hears from the reconciler.
+		expect(requests).toEqual([]);
 
+		// ...and yet the very next read already reflects it, because the read
+		// models compose facts with intent.
 		const query = await mcp.request('tools/call', {
 			name: 'query',
 			arguments: {
-				sql: "SELECT label_ids FROM messages WHERE id = 'm1'",
+				sql: `SELECT label_id FROM effective_labels WHERE message_id = 'm1' ORDER BY label_id`,
 			},
 		});
 		const data = query.result?.structuredContent as {
-			rows: Array<{ label_ids: string }>;
+			rows: Array<{ label_id: string }>;
 		};
-		expect(JSON.parse(data.rows[0]?.label_ids ?? '[]')).toEqual(['Label_1']);
-		expect(ok.result?.structuredContent).toMatchObject({
-			results: [{ id: 'm1', labelIds: ['Label_1'], folded: true, error: null }],
-			aborted: null,
+		expect(data.rows.map((row) => row.label_id)).toEqual(['Label_1']);
+
+		const reconciled = await mcp.request('tools/call', {
+			name: 'reconcile',
+			arguments: {},
+		});
+		expect(reconciled.error).toBeUndefined();
+		expect(reconciled.result?.isError).toBeFalsy();
+		expect(reconciled.result?.structuredContent).toMatchObject({
+			delivery: { pending: 2, delivered: 2, retained: 0, failure: null },
 		});
 
-		// A per-id Gmail rejection is not the error channel: it rides inside the
-		// structured results so the model can retry that id and keep the others.
-		const rejected = await mcp.request('tools/call', {
-			name: 'modify_labels',
-			arguments: {
-				ids: ['m2'],
-				addLabels: ['BAD'],
-			},
-		});
-		expect(rejected.error).toBeUndefined();
-		expect(rejected.result?.isError).toBeFalsy();
-		const rejectedData = rejected.result?.structuredContent as {
-			results: Array<{
-				id: string;
-				error: { name: string; message: string } | null;
-			}>;
-			aborted: unknown;
-		};
-		expect(rejectedData.aborted).toBeNull();
-		expect(rejectedData.results[0]?.id).toBe('m2');
-		expect(rejectedData.results[0]?.error?.message).toContain(
-			'Gmail API returned 400',
-		);
-		expect(rejectedData.results[0]?.error?.message).toContain(
-			'Invalid label: BAD',
-		);
-
+		// One message, one modify, carrying both opinions.
 		expect(requests).toContainEqual({
 			method: 'POST',
 			pathname: '/gmail/v1/users/me/messages/m1/modify',
 			body: { addLabelIds: ['Label_1'], removeLabelIds: ['INBOX'] },
 		});
-		expect(requests).toContainEqual({
-			method: 'POST',
-			pathname: '/gmail/v1/users/me/messages/m2/modify',
-			body: { addLabelIds: ['BAD'], removeLabelIds: [] },
+		expect(requests.filter((r) => r.pathname.endsWith('/modify'))).toHaveLength(
+			1,
+		);
+
+		// Nothing is owed any more, and the mirror now holds Gmail's own answer.
+		const after = await mcp.request('tools/call', {
+			name: 'query',
+			arguments: {
+				sql: `SELECT label_ids FROM messages WHERE id = 'm1'`,
+			},
 		});
+		const afterData = after.result?.structuredContent as {
+			rows: Array<{ label_ids: string }>;
+		};
+		expect(JSON.parse(afterData.rows[0]?.label_ids ?? '[]')).toEqual([
+			'Label_1',
+		]);
 	} finally {
 		mcp.stop();
 		apiServer.stop(true);
@@ -439,7 +446,31 @@ test('mcp: modify_labels folds Gmail labels and keeps per-id rejections structur
 	}
 });
 
-test('mcp: failed sync pass returns isError instead of a successful outcome payload', async () => {
+test('mcp: an unknown label name is refused without recording anything', async () => {
+	const tmp = tempDir();
+	seedMirror(tmp.dir);
+	await seedToken(tmp.dir);
+	const mcp = await connect({
+		LOCAL_MAIL_DIR: tmp.dir,
+		LOCAL_MAIL_ACCOUNT: ACCOUNT,
+	});
+
+	try {
+		const refused = await mcp.request('tools/call', {
+			name: 'assert_labels',
+			arguments: { ids: ['m1'], addLabels: ['Nope'] },
+		});
+		expect(refused.error).toBeUndefined();
+		expect(refused.result?.isError).toBe(true);
+		const content = refused.result?.content as Array<{ text: string }>;
+		expect(content[0]?.text).toContain('Unknown Gmail label "Nope"');
+	} finally {
+		mcp.stop();
+		tmp.cleanup();
+	}
+});
+
+test('mcp: a failed reconcile pass returns isError instead of a successful outcome payload', async () => {
 	const tmp = tempDir();
 	await seedToken(tmp.dir);
 	const apiServer = Bun.serve({
@@ -456,7 +487,7 @@ test('mcp: failed sync pass returns isError instead of a successful outcome payl
 	});
 
 	const failed = await mcp.request('tools/call', {
-		name: 'sync',
+		name: 'reconcile',
 		arguments: {},
 	});
 
@@ -465,7 +496,7 @@ test('mcp: failed sync pass returns isError instead of a successful outcome payl
 	const content = failed.result?.content as Array<{ text: string }>;
 	expect(content[0]?.text).toContain('Http');
 	expect(content[0]?.text).toContain('Gmail API returned 400');
-	expect(content[0]?.text).toContain('cursor did not advance');
+	expect(content[0]?.text).toContain('Nothing was lost');
 
 	mcp.stop();
 	apiServer.stop(true);

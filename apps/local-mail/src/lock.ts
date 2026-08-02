@@ -1,14 +1,16 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureAccountDir } from './paths.ts';
 
 /**
- * The per-account sync-owner lock. The runtime invariant is: at most one active
- * sync owner per account. Only the sync path takes this lock; reads
- * (`query`/`status`) open the mirror read-only, and triage writes go Gmail-first
- * with a best-effort local fold, so neither needs it. The holders are the open
- * desktop `app` (holds it for its whole lifetime while the loop runs), a CLI
- * `sync --watch` loop, and a one-shot `sync` for the duration of its single pass.
+ * The per-account reconcile-owner lock. The runtime invariant is: at most one
+ * active reconciler per account, and the reconciler is the only thing that
+ * writes to Gmail, so this lock now names the account's single writer rather
+ * than just its single puller. Reads (`query`/`status`) open the mirror
+ * read-only and triage acts only write the local intent store, so neither needs
+ * it. The holders are the open desktop `app` (holds it for its whole lifetime
+ * while its loop runs), a CLI `reconcile --watch` loop, and a one-shot act or
+ * `reconcile` for the duration of its single pass.
  *
  * A dedicated `lock.db` held with `BEGIN EXCLUSIVE` is the lock: a second holder
  * fails to open the transaction instantly (`busy_timeout = 0`) and yields rather
@@ -19,24 +21,23 @@ import { join } from 'node:path';
  * in-process holder, not just a second process.
  */
 
-export type SyncLock = { release(): void };
+export type ReconcileLock = { release(): void };
 
 /**
- * Try to become the sync owner for `<dataDir>/<accountEmail>`. Returns the lock
- * to `release()` when the pass or loop ends, or `null` when another owner (the
- * open app, another sync) already holds it. The account directory is created if
- * missing so the very first `sync` after `connect` can take the lock before the
- * mirror db exists.
+ * Try to become the reconcile owner for `<dataDir>/<accountEmail>`. Returns the
+ * lock to `release()` when the pass or loop ends, or `null` when another owner
+ * (the open app, another reconcile) already holds it. The account directory is
+ * created if missing so the very first pass after `connect` can take the lock
+ * before the mirror db exists.
  */
-export function acquireSyncLock({
+export function acquireReconcileLock({
 	dataDir,
 	accountEmail,
 }: {
 	dataDir: string;
 	accountEmail: string;
-}): SyncLock | null {
-	const accountDir = join(dataDir, accountEmail);
-	mkdirSync(accountDir, { recursive: true, mode: 0o700 });
+}): ReconcileLock | null {
+	const accountDir = ensureAccountDir(dataDir, accountEmail);
 	const db = new Database(join(accountDir, 'lock.db'), { create: true });
 	db.run('PRAGMA busy_timeout = 0;');
 	try {
@@ -58,30 +59,31 @@ export function acquireSyncLock({
 }
 
 /**
- * The message a headless `sync` prints (CLI) or returns (MCP) when another owner
- * already holds the lock. It exits cleanly: nothing failed, the mirror is being
- * kept fresh by whoever owns the loop.
+ * The message a headless pass prints (CLI) or returns (MCP) when another owner
+ * already holds the lock. It exits cleanly: nothing failed, and whoever owns the
+ * loop delivers the pending assertions and keeps the mirror fresh.
  */
-export function syncOwnerBusyMessage(accountEmail: string): string {
-	return `Local Mail is already syncing ${accountEmail} (the app is open, or another sync is running). Skipping; the mirror is being kept fresh.`;
+export function reconcileOwnerBusyMessage(accountEmail: string): string {
+	return `Local Mail is already reconciling ${accountEmail} (the app is open, or another pass is running). Skipping; that owner delivers pending changes and keeps the mirror fresh.`;
 }
 
 /**
- * The structured yield a headless `sync` emits when another owner holds the lock:
- * `local-mail sync --json` prints it on stdout and the MCP `sync` tool returns it
- * as `Ok`. `synced: false` is the discriminant against a real `SyncOutcome` (which
- * has no `synced` field); `reason` is a stable machine token; `message` is human.
+ * The structured yield a headless pass emits when another owner holds the lock:
+ * `local-mail reconcile --json` prints it on stdout and the MCP `reconcile` tool
+ * returns it as `Ok`. `reconciled: false` is the discriminant against a real
+ * `ReconcileOutcome` (which has no `reconciled` field); `reason` is a stable
+ * machine token; `message` is human.
  */
-export type SyncOwnerBusy = {
-	synced: false;
-	reason: 'sync-owner-active';
+export type ReconcileOwnerBusy = {
+	reconciled: false;
+	reason: 'reconcile-owner-active';
 	message: string;
 };
 
-export function syncOwnerBusy(accountEmail: string): SyncOwnerBusy {
+export function reconcileOwnerBusy(accountEmail: string): ReconcileOwnerBusy {
 	return {
-		synced: false,
-		reason: 'sync-owner-active',
-		message: syncOwnerBusyMessage(accountEmail),
+		reconciled: false,
+		reason: 'reconcile-owner-active',
+		message: reconcileOwnerBusyMessage(accountEmail),
 	};
 }

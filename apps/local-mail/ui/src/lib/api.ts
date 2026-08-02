@@ -102,14 +102,16 @@ export const api = {
 		if (!res.ok) throw await toError(res);
 		return res.json();
 	},
-	sync: async (account: string) => {
-		const res = await client.api.accounts[':account'].sync.$post({
+	reconcile: async (account: string) => {
+		const res = await client.api.accounts[':account'].reconcile.$post({
 			param: { account },
 		});
 		if (!res.ok) throw await toError(res);
 		return res.json();
 	},
-	modify: async (
+	/** Record a triage act. It is durable and visible to the very next read
+	 * before this resolves; the host's reconciler delivers it to Gmail. */
+	assert: async (
 		account: string,
 		input: {
 			ids: string[];
@@ -117,18 +119,7 @@ export const api = {
 			removeLabels?: string[];
 		},
 	) => {
-		const res = await client.api.accounts[':account'].messages.modify.$post({
-			param: { account },
-			json: input,
-		});
-		if (!res.ok) throw await toError(res);
-		return res.json();
-	},
-	setTrashed: async (
-		account: string,
-		input: { ids: string[]; trashed: boolean },
-	) => {
-		const res = await client.api.accounts[':account'].messages.trash.$post({
+		const res = await client.api.accounts[':account'].messages.assert.$post({
 			param: { account },
 			json: input,
 		});
