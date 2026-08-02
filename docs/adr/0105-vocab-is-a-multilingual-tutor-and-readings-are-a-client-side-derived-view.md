@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-03
+- **Amended by:** [ADR-0195](0195-vocab-is-a-chinese-conversation-companion-and-every-intentional-session-is-a-new-conversation.md), which withdraws the language-blind tutor, the multi-script provider registry, the three-category script taxonomy, and the "How to add a language" procedure below. The derived-view decision stands whole: readings are deterministic, offline, client-side, and computed over clean text, a missing reading beats a wrong one, and both the AI reading path and the plugin catalog stay refused.
 - **Relates:** [ADR-0102](0102-vocab-stores-verbatim-entries-under-a-human-owned-note-and-refuses-glosses-srs-and-provenance.md) (verbatim, language-blind entries: this reinforces the no-language-column refusal)
 
 ## Context
