@@ -10,7 +10,6 @@ import {
 	type AccountSession,
 	type LocalMailRuntime,
 	openAccountSession,
-	runtimeForAccount,
 } from './runtime.ts';
 import { createFileTokenStore, type TokenStore } from './token-store.ts';
 
@@ -251,7 +250,9 @@ export async function runApp(options: { port?: number }): Promise<number> {
 	// concurrently.
 	const engines: AccountEngine[] = [];
 	for (const accountEmail of accountEmails) {
-		const runtime = runtimeForAccount(config, store, accountEmail);
+		// Built directly, not through `resolveAccount`: the host already knows
+		// which account this is, having enumerated it from the store above.
+		const runtime: LocalMailRuntime = { config, store, accountEmail };
 		const { data: session, error: sessionError } = await openAccountSession(
 			runtime,
 			{

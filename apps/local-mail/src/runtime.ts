@@ -22,7 +22,11 @@ import {
  * guarantee by construction.
  *
  * `connect` and `seed-token` stay outside: they create accounts, so there is
- * no account to resolve yet.
+ * no account to resolve yet. So does the desktop `app`, which serves EVERY
+ * connected account under one origin: it enumerates them from the store and
+ * builds one of these per account, because there is no single account to
+ * resolve. `openLocalMailRuntime` is the other entry, and it freezes exactly one
+ * account for the whole process.
  */
 export type LocalMailRuntime = {
 	config: AppConfig;
@@ -38,22 +42,6 @@ export async function openLocalMailRuntime(): Promise<
 	const { data: accountEmail, error } = await resolveAccount(config, store);
 	if (error) return Err(error);
 	return Ok({ config, store, accountEmail });
-}
-
-/**
- * Build a runtime for an already-known connected account, bypassing
- * `resolveAccount`'s "which one" decision. The desktop `app` serves EVERY
- * connected account under one origin, so it enumerates them from the store
- * itself and holds one of these per account; there is no single account to
- * resolve. CLI and MCP keep using `openLocalMailRuntime`, which freezes exactly
- * one account for the whole process.
- */
-export function runtimeForAccount(
-	config: AppConfig,
-	store: TokenStore,
-	accountEmail: string,
-): LocalMailRuntime {
-	return { config, store, accountEmail };
 }
 
 export type AccountSession = {
