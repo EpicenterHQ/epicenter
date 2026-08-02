@@ -30,6 +30,27 @@ assertions, retire each one that Gmail confirms, then pull Gmail's facts.**
 Nothing else calls `messages.modify`, `messages.trash`, or `messages.untrash`.
 The CLI verbs, the MCP tools, and the HTTP routes all assert and return.
 
+### Why this replaces write-through rather than refining it
+
+Write-through (ADR-0082, ADR-0116) made the request path the writer: the click
+called Gmail, and the mirror folded the response. It failed on three counts, and
+none of them is fixable by retrying harder.
+
+1. **It had nowhere to put a write it could not send.** Offline or throttled, the
+   act was simply lost, and the browser projection that hid this fact lived in
+   memory and died on reload.
+2. **It had as many writers as it had surfaces.** The CLI, MCP, and HTTP each
+   called Gmail independently, so two of them could send conflicting changes for
+   one message, and either could land between two pages of a pull.
+3. **It made the durable effect synchronous with the click**, which is the one
+   property that cannot survive an offline-capable client. Everything else
+   write-through promised, Gmail as authority and the mirror written only from
+   Gmail's response, is preserved here exactly.
+
+The correction is therefore not "write-through plus a retry queue". It is moving
+the write's durable moment from the network call to a local assertion, and giving
+the network call one owner.
+
 ### The pass, in order
 
 1. **Drain.** Read every assertion for this account. Group by `message_id`, and
@@ -93,20 +114,28 @@ one a reviewer can confirm is correct.
 
 ### When an assertion cannot be achieved
 
-**Refuse it before it exists, where that is possible.** An assertion is created
-only against a message and a label the mirror already holds. A label name that
-does not resolve, a label id that is not in `labels`, and a message id that is
-not in `messages` are all refused at the moment the user acts, to the user's
-face, and no row is written. That is where the great majority of impossible
-assertions are caught, and it is the cheap place to catch them.
+**One refusal happens before the row exists, and it is about shape, not facts.**
+An assertion's key is a Gmail label id, so a label the user names has to resolve
+to an id at act time, against the mirror's `labels` table. A name that does not
+resolve cannot become a keyed assertion at all, and it is refused to the user's
+face with nothing written. That is a well-formedness check on the key, and it is
+the only pre-creation refusal this record establishes.
 
-What survives that check is the race: a message deleted or purged in Gmail
-between the act and the drain. Gmail answers with a per-id `400` or `404`, and
-retrying cannot fix it. **The assertion is discarded and the discard is reported
-in that pass's result**, then the drain continues to the next message. There is
-no failure row, no unachievable state, and nothing to clean up later, because a
-row that cannot ever be delivered has no reason to outlive the pass that learned
-so.
+**It is not a check that the assertion will succeed, and no such check exists.**
+Nothing consults the mirror to decide whether an assertion is achievable,
+redundant, or already satisfied. The mirror lags Gmail by up to a poll interval
+and may be mid-backfill, so a "the mirror already agrees" test would drop real
+writes on stale evidence. Achievability is settled by Gmail at delivery and
+nowhere else.
+
+At delivery, a per-id `400` or `404` means Gmail will not accept a change for
+that message, usually because it was deleted or purged, and retrying cannot fix
+it. **The assertion is discarded and the discard is reported in that pass's
+result**, then the drain continues to the next message. There is no failure row,
+no unachievable state, and nothing to clean up later, because a row that cannot
+ever be delivered has no reason to outlive the pass that learned so. This is a
+provider verdict, which is the only kind of evidence allowed to end an
+assertion's life other than success or an explicit human discard.
 
 Everything else, a rejected token, a throttle, a network error, is systemic. The
 pass stops delivering, every affected row keeps its opinion **exactly as it was**,

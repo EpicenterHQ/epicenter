@@ -191,14 +191,19 @@ no schedule to build (ADR-0199).
   survives retirement; a per-id 404 discards that assertion, names it in the pass
   result, and the loop continues; a token failure leaves **every row byte-for-byte
   unchanged** and still runs the pull.
-- Unit: asserting against a message id or label id the mirror does not hold
-  writes no row and returns the refusal to the caller.
+- Unit: a label name that does not resolve to an id in the mirror's `labels`
+  table writes no row and returns the refusal to the caller. This is the only
+  pre-creation refusal; nothing tests "the mirror already agrees", because no
+  such rule exists (ADR-0198, ADR-0199).
+- Unit: an assertion whose effect the mirror already appears to satisfy is still
+  written and still delivered. A stale mirror must never suppress a real write.
 - Unit: `listMessages` with a pending `want=0` on `INBOX` omits the row from the
   inbox view **and** returns a full page, proving the overlay is pushed down.
 - Live smoke against a real account: archive with the network off, quit the
   process, reopen, observe delivery and the row disappearing from `intent.db`.
-- Live smoke: assert, then remove the assertion before the next wake, and
-  confirm with `history.list` that Gmail never saw it.
+- Live smoke: assert, then discard before the next wake, and confirm with
+  `history.list` that Gmail never saw it. This is the discard window, not a
+  general cancel guarantee.
 - Full `bun run check`.
 
 ### W2. The ledger surface
@@ -213,6 +218,11 @@ label id, want, and `asserted_at`. There is nothing else to return.
 `POST /pending/discard` takes ids or clears all, and discard is the only exit
 that is not delivery. A pending list shows the assertions with per-row discard;
 it does not show a per-row status, because there is not one.
+
+Discard is abandonment, not recall. It removes an undelivered row so it is never
+sent; it cannot un-send one the reconciler already delivered. The UI says that
+rather than implying an atomic cancel, and getting back from a delivered change
+is a new assertion like any other.
 
 Disconnect reports the undelivered count and discards on confirmation;
 reauthorization retains. CLI gains `pending` and `discard`; MCP gains a
@@ -233,15 +243,23 @@ write landed.
 
 Thread and bulk acts enumerate concrete ids from the mirror at act time and
 assert one row per id. The per-act cap defaults to 500 ids, refused with a count
-rather than silently truncated. Read-on-open asserts `(id, UNREAD, want=0)`, and
-only when the message's effective labels still contain `UNREAD`, so reopening a
-read message creates nothing.
+rather than silently truncated.
+
+Read-on-open asserts `(id, UNREAD, want=0)` when the user opens a message the UI
+is showing as unread. The trigger is the affordance the user saw, not a
+correctness test against mirrored facts: if the mirror is stale and Gmail already
+has the message read, the assertion is written anyway and Gmail no-ops it. An
+earlier draft made this conditional on the effective label set, which is the
+fact-comparison ADR-0198 refuses. Repeat opens are free regardless, because the
+primary key collapses them into one row.
 
 **Gate**
 - Unit: a thread act over a 3-message thread creates exactly 3 assertions.
 - Live smoke: act on a thread, receive a new message into it before the next
   wake, and confirm the new message is untouched.
-- Unit: opening an already-read message asserts nothing.
+- Unit: opening the same message twice leaves exactly one assertion.
+- Unit: reversing an act (archive then un-archive) overwrites the row and bumps
+  `seq`; it never deletes the row and never consults the mirror.
 
 ### W4. Collapse and straggler sweep
 
@@ -343,6 +361,10 @@ edit, not a decision record.
 - **No per-row failure state, ever.** If `attempts`, `last_error`, a status
   column, or a dead-letter table is proposed, that is a change to ADR-0198 and
   needs a record, not a pull request.
+- **Local facts never retire intent.** No rule may drop, skip, or suppress an
+  assertion because the mirror appears to already satisfy it; the mirror lags and
+  can be incomplete. Reversal is a new assertion, retirement is the reconciler's
+  after provider confirmation, and discard is an explicit human act.
 
 ### One thing genuinely worth deciding
 

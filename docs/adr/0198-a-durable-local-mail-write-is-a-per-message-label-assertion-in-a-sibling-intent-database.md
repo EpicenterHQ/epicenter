@@ -120,12 +120,34 @@ match `<name>.v<version>.db`, so reclamation cannot name it, and neither opening
 mode ever creates or touches it. The file carries the same sensitivity handling
 as the mirror: `0600`, inside the `0700` account directory.
 
-### What an assertion is worth before it is delivered
+### Reversing an act, and the cancellation this record does not promise
 
-Nothing has happened to the mailbox. An assertion is local, visible, and
-cancellable: removing the row is a complete cancellation, and Gmail never learns
-the user changed their mind. After delivery is confirmed, Gmail is authority and
-the local row is gone; there is no local state left to disagree with it.
+**A new assertion supersedes an old one.** Undo, un-archive, and un-star are not
+cancellations and are not comparisons against the mirror: they are an assertion
+of the opposite `want` on the same key, which overwrites the row and allocates a
+new `seq`. That is the only reversal mechanism, it works identically whether the
+previous assertion was delivered or not, and it needs no knowledge of what Gmail
+currently holds.
+
+**Only the reconciler retires an assertion, and only on provider confirmation**
+(ADR-0199). Nothing else deletes a row as a consequence of what the mirror says.
+This matters because the mirror is a lagging copy: it can disagree with Gmail by
+a whole poll interval, and it can be mid-backfill or missing a message entirely.
+A rule of the form "drop the assertion because the mirror already agrees with it"
+would silently discard a write on stale evidence, and an earlier draft of this
+record contained one. It is withdrawn. Local facts never retire intent.
+
+**Discard is abandonment, not recall.** A user may discard undelivered work
+(ADR-0199 owns that surface), and discarding removes the row so it is never
+delivered. What discard cannot do is un-send: if the reconciler already delivered
+that assertion, Gmail has the change, the following pull folds it in, and getting
+back is a new assertion like any other. Discard is therefore honest about its
+window rather than promising an atomic cancel it cannot implement against a
+remote API.
+
+Before delivery, nothing has happened to the mailbox. After delivery is
+confirmed, Gmail is authority and the row is gone, so there is no local state
+left to disagree with it.
 
 Every read surface projects the effective label set as the mirror's stored labels
 with the account's assertions applied over them, computed where the query runs so
@@ -148,6 +170,12 @@ was shown. One projection, shared by the SPA, the CLI, and MCP.
 - **Automatic expiry.** No assertion ages out, and nothing prunes the map on a
   timer or a threshold. An undelivered write leaves only two ways: Gmail accepts
   it, or a human discards it.
+- **Retirement decided from mirrored facts.** Nothing may retire, skip, or
+  suppress an assertion because the mirror appears to already satisfy it. The
+  mirror lags Gmail by up to a poll interval and can be mid-backfill or missing a
+  message outright, so any such rule discards a real write on stale evidence.
+  Retirement belongs to the reconciler and to provider confirmation alone, and
+  reversal is a new assertion, never a local comparison.
 - **A standing policy over a thread, query, or label.** Intent never refers to a
   set that can grow after the user acted.
 - **Local-only mail state.** Every assertion names a Gmail label id and exists in
