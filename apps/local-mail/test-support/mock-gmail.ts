@@ -11,8 +11,9 @@
  *   MOCK_PORT   port to bind on 127.0.0.1 (0 => an ephemeral port, printed below)
  *   MOCK_DB     absolute path to the copied `mail.db` (opened read-only)
  *   MOCK_LOG    absolute path for the modify JSONL log (optional)
- *   MOCK_FOLD   "false" => every modify omits `labelIds` (exercises the
- *               `folded:false`, still-catching-up UI path); anything else folds
+ *   MOCK_FOLD   "false" => every modify omits `labelIds`, so the reconciler
+ *               retires the assertion without folding an answer into the mirror
+ *               and the row waits for the next pull; anything else folds
  *
  * Every route other than history-echo and modify returns a NON-retryable 403,
  * which the engine treats as a hard, non-destructive failure. That guarantees
@@ -108,7 +109,7 @@ const server = Bun.serve({
 			}
 
 			// folded:true => return labelIds so the mirror row folds immediately.
-			// folded:false => omit labelIds so the engine reports folded:false.
+			// folded:false => omit labelIds so the reconciler has nothing to fold.
 			return json(
 				FOLD
 					? { id, threadId: cur.threadId, labelIds }

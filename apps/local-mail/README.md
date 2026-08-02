@@ -17,11 +17,13 @@ table.
 
 - Runtime: Bun. `bun:sqlite` stores the mirror, built-in `fetch` calls Gmail,
   `oauth4webapi` handles OAuth.
-- One SQLite file per connected account: `<data-dir>/<accountEmail>/mail.db`.
-  The refresh token lives in a separate `0600 credentials.json` at the data-dir
-  root, never inside the mirror db.
-- Data and account directories are `0700`. `mail.db`, `mail.db-wal`,
-  `mail.db-shm`, and `credentials.json` are `0600`.
+- One account directory per connected account, `<data-dir>/<accountEmail>/`,
+  holding the disposable `mail.db` mirror, the durable `intent.db` (triage this
+  machine has recorded but not yet delivered to Gmail), and the `lock.db` naming
+  the account's single reconciler. The refresh token lives in a separate
+  `0600 credentials.json` at the data-dir root, never inside the mirror db.
+- Data and account directories are `0700`. The SQLite files, their `-wal`/`-shm`
+  sidecars, and `credentials.json` are `0600`.
 - Tables: `messages`, `labels`, and `_meta`. Thread facts are derived from live
   messages instead of stored in a separate `threads` table.
 - `messages.body_text` is decoded at ingest from `text/plain` MIME parts, with
@@ -65,10 +67,10 @@ run and every other git worktree on this machine reads the override from there,
 so no per-worktree config is needed. See [`.env.example`](.env.example) for the
 canonical override names.
 
-Local Mail requests `gmail.modify` so write-through label changes can round-trip
-through Gmail. Although Google grants send at the same OAuth layer, Local Mail
-does not expose send, reply, compose, drafts, trash, untrash, or delete in this
-phase.
+Local Mail requests `gmail.modify` so label changes and trash transitions can
+round-trip through Gmail. Although Google grants send at the same OAuth layer,
+Local Mail does not expose send, reply, compose, drafts, or permanent delete in
+this phase.
 
 Headless bootstrap is still available. The refresh token is redeemed
 immediately (one refresh grant plus a profile read), so a dead token fails
@@ -79,12 +81,12 @@ Gmail profile instead of being typed:
 bun run src/bin.ts seed-token <refresh-token>
 ```
 
-Build or refresh the mirror:
+Deliver pending local triage to Gmail, then refresh the mirror:
 
 ```sh
-bun run src/bin.ts sync --full
+bun run src/bin.ts reconcile --full
 
-bun run src/bin.ts sync --watch
+bun run src/bin.ts reconcile --watch
 ```
 
 Check connection and mirror state:
@@ -99,24 +101,27 @@ Query the mirror:
 bun run src/bin.ts query "SELECT subject, sender FROM messages ORDER BY internal_date DESC LIMIT 10"
 ```
 
-Triage messages. Each verb is a Gmail label change that the mirror folds in
-after Gmail accepts it. Output is human-readable; add `--json` for the typed
-`ModifyMessageLabelsOutcome` that MCP and the `app` HTTP API share.
+Triage messages. Each verb records a durable local label assertion; nothing on
+this path calls Gmail. Output is human-readable; add `--json` for the typed
+report the MCP tool and the `app` HTTP API share.
 
 ```sh
 bun run src/bin.ts archive <id...>
 bun run src/bin.ts unarchive <id...>
 bun run src/bin.ts mark-read <id...>
 bun run src/bin.ts mark-unread <id...>
+bun run src/bin.ts trash <id...>
+bun run src/bin.ts untrash <id...>
 bun run src/bin.ts label <id...> --add Work --remove Promotions
 ```
 
 `archive`, `mark-read`, and friends are the triage vocabulary; `label` is the
 transparent primitive they desugar to (`archive` is `label --remove INBOX`).
-Any per-id rejection or a systemic abort exits nonzero, so
-`mark-read <id> && next` never proceeds on a mailbox that did not change.
-`LOCAL_MAIL_READ_ONLY` refuses every write while leaving `query`/`status`/`sync`
-available.
+The verb then runs a reconcile pass if it can take the account's lock;
+otherwise the open app or the next pass delivers it. Exit 0 means the act is
+durable, not that Gmail has heard: only a refusal that recorded nothing (an
+unknown label, read-only mode) exits nonzero. `LOCAL_MAIL_READ_ONLY` refuses
+every act while leaving `query`, `status`, and `reconcile`'s pull available.
 
 Serve the triage UI and its API from one loopback process:
 
@@ -124,7 +129,7 @@ Serve the triage UI and its API from one loopback process:
 bun run src/bin.ts app
 ```
 
-`app` is the desktop runtime host: it runs the sync loop and serves the triage
+`app` is the desktop runtime host: it runs the reconcile loop and serves the triage
 SPA (`ui/`) plus a same-origin `/api` on `127.0.0.1`, then prints the origin to
 open (`http://127.0.0.1:PORT`). It launches no browser; opening the window is the
 host's job (a terminal today, Tauri later), not the engine's. Security: every
@@ -137,11 +142,15 @@ cross-origin page cannot frame the auto-authenticated SPA. The bearer is a
 loopback credential, never a Gmail token. In app mode the host loads every
 connected account and serves them under one origin: `GET /api/accounts` lists
 the loaded accounts, and reads/writes live under `/api/accounts/:account/*`.
-The label write route is `POST /api/accounts/:account/messages/modify`
-(`{ ids, addLabels, removeLabels }` -> `ModifyMessageLabelsOutcome`) over the
-same core the CLI verbs and MCP tool use, so archive/read/label all desugar to
-add/remove sets client-side. `LOCAL_MAIL_READ_ONLY` disables writes end to end;
-`--port <n>` pins the server port (`LOCAL_MAIL_PORT` is the env fallback).
+No route writes to Gmail. Every act goes through
+`POST /api/accounts/:account/messages/assert` (`{ ids, addLabels, removeLabels }`)
+over the same core the CLI verbs and MCP tool use, so archive/read/star/label
+and trash all desugar to add/remove sets client-side; the host's reconciler
+delivers them, and `POST /api/accounts/:account/reconcile` is the explicit form
+of that pass. Reads answer from the mirror with those assertions overlaid, so a
+caller sees its own act immediately. `LOCAL_MAIL_READ_ONLY` disables writes end
+to end; `--port <n>` pins the server port (`LOCAL_MAIL_PORT` is the env
+fallback).
 
 Develop the UI against a running `app`:
 
@@ -165,18 +174,22 @@ bun run src/bin.ts mcp
 
 When more than one account is connected, `local-mail app` serves all of them
 under one origin with an account switcher. Set `LOCAL_MAIL_ACCOUNT` only for
-headless `sync`, `query`, and `mcp`, which operate on one account per process.
+headless `reconcile`, `query`, and `mcp`, which operate on one account per
+process.
 
 Tools:
 
-- `query`: read-only SQL over the mirror, capped at 1000 returned rows.
-- `status`: account, cursor, and row counts.
-- `sync`: one local mirror refresh pass. This writes only the local cache.
-- `modify_labels`: add or remove Gmail labels on 1 to 100 messages by id or
-  exact name (`addLabels`/`removeLabels`), then fold Gmail's response. Per-id
-  rejections ride inside the structured result; only a systemic abort sets
-  `isError`. Unlisted under `LOCAL_MAIL_READ_ONLY`. The CLI triage verbs above
-  are the human-facing form of this one tool.
+- `query`: read-only SQL over the mirror, capped at 1000 returned rows. Join the
+  `effective_labels` view to see triage that has not reached Gmail yet.
+- `status`: account, cursor, row counts, and how much local triage is still
+  undelivered.
+- `reconcile`: one pass. Delivers pending assertions to Gmail, then refreshes the
+  mirror. Yields cleanly when another owner (the open app) holds the account.
+- `assert_labels`: record a label change for 1 to 500 messages by id or exact
+  name (`addLabels`/`removeLabels`). Durable and visible to every local read
+  immediately; Gmail hears on the next pass. Unlisted under
+  `LOCAL_MAIL_READ_ONLY`. The CLI triage verbs above are the human-facing form
+  of this one tool.
 
 ## Config
 
@@ -187,7 +200,7 @@ Tools:
   credentials in a source build fail loudly naming the exact variables.
   Changing the effective client requires reconnecting every account on this
   machine.
-- `LOCAL_MAIL_ACCOUNT`: optional account override for `sync`, `query`, and
+- `LOCAL_MAIL_ACCOUNT`: optional account override for `reconcile`, `query`, and
   `mcp`. Required only when more than one account is connected.
 - `LOCAL_MAIL_DIR`: data directory override.
 - `LOCAL_MAIL_TOKEN_FILE`: token file override.
@@ -207,7 +220,7 @@ bun run typecheck
 ```
 
 The tests use real `bun:sqlite` temp files for DB behavior, a fake
-`GmailClient` for sync folding, mock HTTP endpoints for OAuth, and a real MCP
+`GmailClient` for delivery and sync folding, mock HTTP endpoints for OAuth, and a real MCP
 stdio subprocess for the agent-facing protocol surface.
 
 ## Not built yet
@@ -225,7 +238,7 @@ stdio subprocess for the agent-facing protocol surface.
   identity is provisioned in this repository. Signing, notarization, and the
   official Google client still need release configuration, as described in
   `src-tauri/README.md`.
-- Send, reply, compose, drafts, trash, untrash, and permanent delete.
+- Send, reply, compose, drafts, and permanent delete.
 - Thread-level modify and `messages.batchModify`. Triage is message-level.
 - FTS5. `LIKE` over `body_text` is enough for the current mirror size.
 - Push/Pub/Sub and any LAN or remote exposure (the server binds `127.0.0.1`).

@@ -63,8 +63,8 @@ import { VERSION } from './version.ts';
 
 /**
  * A tool that ran to completion but failed can still carry its structured
- * outcome: `modify_labels` sets `structured` on a systemic abort so the model
- * reads the per-id results even while `isError` flags the abort.
+ * outcome: `reconcile` sets `structured` when a phase failed, so the model reads
+ * what did get delivered and pulled even while `isError` flags the failure.
  */
 type ToolFailure = { message: string; structured?: unknown };
 type ToolOutcome = Result<unknown, ToolFailure>;
