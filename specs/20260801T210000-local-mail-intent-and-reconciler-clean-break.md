@@ -93,7 +93,7 @@ and counts all agree.
 | One pending answer                              | `optimistic.ts` and its test are deleted in the same wave, not deprecated            |
 | Drain before pull                               | `syncMailbox` becomes the pull phase of `reconcile`, not a peer verb                 |
 | Writing and pulling cannot interleave           | The sync lock becomes the reconciler lock                                            |
-| Undelivered work is visible and discardable     | A ledger surface: count, oldest age, per-row error, discard                          |
+| Undelivered work is visible and discardable     | A ledger surface: aggregate count, oldest age, one pass-level failure, discard       |
 | Bulk and thread acts touch only current members | Enumeration happens at act time from the mirror, never at drain time                 |
 
 Read top to bottom, the first four rows are one indivisible cut. Splitting them

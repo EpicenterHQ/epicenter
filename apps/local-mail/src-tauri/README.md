@@ -2,8 +2,9 @@
 
 The smallest native wrapper around the Bun mail engine (`local-mail app`). It
 owns the window and the child engine's lifetime, and nothing else. Gmail OAuth,
-token refresh, sync, the SQLite mirror, and the loopback API bearer all stay in
-Bun end to end (ADR-0116). Rust never sees a Gmail token or the bearer.
+token refresh, the reconciler that is Gmail's only writer, the SQLite mirror, the
+durable `intent.db`, and the loopback API bearer all stay in Bun end to end
+(ADR-0116, ADR-0199). Rust never sees a Gmail token or the bearer.
 
 ## How it works
 
@@ -43,8 +44,10 @@ is the engine starting, not a hang. Watch the terminal for `[sync ...]` and the
 `listening on http://127.0.0.1:...` hint.
 
 Only `bun` is called: no port is pinned, so this never collides with a separate
-`local-mail app` you already have open (that instance keeps the sync lock; this
-one serves reads, both under their own ephemeral origins).
+`local-mail app` you already have open. That instance keeps the per-account
+reconciler lock, so it is the only one delivering to Gmail; this one serves reads
+and can still record triage assertions, which the lock holder delivers on its
+next wake (ADR-0199). Both run under their own ephemeral origins.
 
 ## Build a desktop bundle
 
@@ -114,10 +117,13 @@ hardened-runtime block.
 ## Deferred niceties (not correctness gates)
 
 - **Graceful engine shutdown.** Exit kills the engine with SIGKILL, which is
-  safe by design (the sync lock is a kernel-released fcntl lock; presence is
-  stale-safe). A SIGINT/SIGTERM path (so the engine clears its presence file and
-  releases the lock cleanly) is a nice-to-have.
+  safe by design (the reconciler lock is a kernel-released fcntl lock; presence
+  is stale-safe). A SIGINT/SIGTERM path (so the engine clears its presence file
+  and releases the lock cleanly) is a nice-to-have. Undelivered work is not at
+  risk either way: an assertion is committed to `intent.db` when the act returns,
+  and a kill between a Gmail call and its retirement leaves the row, so the next
+  pass redelivers it and Gmail no-ops the repeat (ADR-0198, ADR-0199).
 - **Orphan on hard kill.** If the app is SIGKILLed, the engine is reparented and
-  keeps running (holding the sync lock). Harmless and self-healing (the lock is
-  crash-safe; the next launch or a manual `kill` clears it), but worth a
+  keeps running (holding the reconciler lock). Harmless and self-healing (the
+  lock is crash-safe; the next launch or a manual `kill` clears it), but worth a
   parent-death watchdog if it ever bites.

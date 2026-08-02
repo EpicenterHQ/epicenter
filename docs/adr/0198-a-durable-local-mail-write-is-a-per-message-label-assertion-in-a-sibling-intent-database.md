@@ -161,6 +161,17 @@ was shown. One projection, shared by the SPA, the CLI, and MCP.
 - **A generic payload, change, or operation table.** A row is a label opinion.
   There is no untyped blob column that a future feature can smuggle a different
   kind of write into.
+- **A provider-independent request or operation abstraction.** Both halves of the
+  key are Gmail ids, and delivery is a named Gmail method (ADR-0199). There is no
+  `MailOperation`, no convergent-request type, and no seam at which a second mail
+  provider would slot in. An earlier draft of this work proposed exactly that, a
+  "convergent request" held in the person's Epicenter replica and settled against
+  whichever provider owned the message; it is withdrawn. Local Mail is the only
+  Gmail client and ships no second provider (ADR-0083), so the abstraction would
+  have one implementation, and its cost is paid twice: it hides the id-keyed,
+  Gmail-method-shaped contract that makes retirement provable, and it is the
+  generic shape through which send, snooze, and drafts arrive without another
+  decision.
 - **Durable per-row failure state.** No attempt counter, no error column, no
   retry schedule, no backoff stored on the row, and therefore no dead-letter
   tier, because a dead-letter tier is what a failure column eventually needs. An

@@ -1,8 +1,18 @@
 # local-mail
 
-Headless Gmail mirror for local tools and agents. It syncs a Gmail account into
-a private SQLite database with full pulls plus incremental `history.list`
-polling, then exposes the mirror through CLI queries and a stdio MCP server.
+Headless Gmail reader and triage ledger for local tools and agents. It pulls a
+Gmail account into a private SQLite mirror with full pulls plus incremental
+`history.list` polling, records triage acts as durable local assertions, and
+delivers them back to Gmail from one writer per account. CLI queries, a stdio
+MCP server, and a loopback SPA all read the same two files.
+
+Two files per account carry that, and the difference between them is the whole
+design:
+
+| File                 | Holds                                | If you lose it             |
+| -------------------- | ------------------------------------ | -------------------------- |
+| `mail.v<version>.db` | Gmail's facts, mirrored              | Nothing but quota; re-pull |
+| `intent.db`          | What the user asked for, undelivered | Real work, unrecoverably   |
 
 Design authority lives in ADRs first, then the current code:
 `docs/adr/0081-*.md` (a per-device grant and mirror), `docs/adr/0082-*.md`
@@ -10,10 +20,12 @@ Design authority lives in ADRs first, then the current code:
 through Gmail), `docs/adr/0116-*.md` (desktop-first, one Bun engine),
 `docs/adr/0188-*.md` (who owns the Google application identity, and the
 device-only credential boundary), `docs/adr/0196-*.md` (the mirror is a reader
-and one full message fetch is its entire budget), and `docs/adr/0197-*.md` (the
-artifact is named by its corpus version). The mirror is Gmail-owned cache data.
-Human-meaningful mail state must round-trip through Gmail, not a local-only
-table.
+and one full message fetch is its entire budget), `docs/adr/0197-*.md` (the
+artifact is named by its corpus version), `docs/adr/0198-*.md` (what a durable
+write is), and `docs/adr/0199-*.md` (who delivers it). The mirror is Gmail-owned
+cache data. Human-meaningful mail state must round-trip through Gmail, not a
+local-only table; an undelivered assertion is not an exception to that, because
+it names a Gmail label id and exists in order to stop existing.
 
 ## The write model
 
@@ -47,18 +59,25 @@ schedule, no dead-letter tier, and nothing expires. Retries are bounded by a
 human with a discard button.
 
 **Refused, deliberately:** a generic queue or event log, a payload or operation
-table, standing policy over a thread or query, cross-account atomicity,
-`messages.batchModify` (its response body is empty, so it proves nothing about
-which assertions landed), background delivery after the app closes, and
-browser-memory optimism beside the durable ledger.
+table, a provider-independent request abstraction, standing policy over a thread
+or query, cross-account atomicity, `messages.batchModify`, background delivery
+after the app closes, and browser-memory optimism beside the durable ledger. Each
+one is a decision with a record; the full list, with its reasons, is under
+[Refused](#refused) at the end of this file.
 
-**Build state.** The model above is the accepted architecture and the only one to
-design against. The code is mid-migration: `src/modify.ts` still calls Gmail from
-the request path, `src/sync.ts` still runs as a peer verb rather than the
-reconciler's pull phase, and `ui/src/lib/optimistic.ts` still projects pending
-writes in browser memory. All three are on the deletion list. Read
-`specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md` before
-touching any of them, and do not extend them.
+**Build state.** The model above is the architecture and the only one to design
+against. Everything below this line describes that model, not a migration state,
+so read a disagreement between this file and the working tree as work that is
+owed rather than as a second model that is allowed. The names used below are the
+destination's: where a tree still spells the pass `sync`, the write route
+`POST /messages/modify`, or the MCP tool `modify_labels`, that is the migration
+and not an alternative vocabulary. Nothing on the old write path may be extended:
+`src/modify.ts`, every request-path Gmail call, and
+`ui/src/lib/optimistic.ts` are deletions, not code to build on. What is still
+owed, wave by wave and with its gates, is
+`specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md`, which is
+also the only place a per-file migration status belongs, because that file is
+deleted when the work lands and this one is not.
 
 ## Shape
 
@@ -158,9 +177,12 @@ canonical override names.
 Local Mail requests `gmail.modify` so label changes can round-trip through Gmail.
 Trash and untrash are in scope and built: the app UI moves a message to Trash and
 undoes it, delivered through Gmail's own `messages.trash` / `messages.untrash`
-verbs rather than as a label delta. Although Google grants send at the same OAuth
-layer, Local Mail does not expose send, reply, compose, drafts, or permanent
-delete. `messages.delete` is deliberately never wired.
+verbs rather than as a label delta, though it is stored as an ordinary `TRASH`
+assertion like any other label. Although Google grants send at the same OAuth
+layer, Local Mail exposes no send, reply, compose, or drafts today, and
+permanent delete is refused outright: `messages.delete` is deliberately never
+wired. The difference matters when reading the two lists at the end of this
+file. Send and drafts are unbuilt; permanent delete is a decision.
 
 Headless bootstrap is still available. The refresh token is redeemed
 immediately (one refresh grant plus a profile read), so a dead token fails
@@ -174,15 +196,14 @@ bun run src/bin.ts seed-token <refresh-token>
 Run a reconcile pass: drain this account's assertions, then pull Gmail's facts.
 
 ```sh
-bun run src/bin.ts sync --full
+bun run src/bin.ts reconcile --full
 
-bun run src/bin.ts sync --watch
+bun run src/bin.ts reconcile --watch
 ```
 
-The verb is still spelled `sync` in the code and collapses to `reconcile` in the
-migration: a pass is drain-then-pull, so there is no separate sync. If the open
-app already owns this account's reconciler, a headless pass yields to it rather
-than becoming a second writer.
+There is no separate sync verb, because a pass is drain-then-pull and the pull is
+its second half. If the open app already owns this account's reconciler, a
+headless pass yields to it rather than becoming a second writer.
 
 Check connection and mirror state:
 
@@ -205,15 +226,17 @@ bun run src/bin.ts archive <id...>
 bun run src/bin.ts unarchive <id...>
 bun run src/bin.ts mark-read <id...>
 bun run src/bin.ts mark-unread <id...>
+bun run src/bin.ts trash <id...>
+bun run src/bin.ts untrash <id...>
 bun run src/bin.ts label <id...> --add Work --remove Promotions
 ```
 
 `archive`, `mark-read`, and friends are the triage vocabulary; `label` is the
-transparent primitive they desugar to (`archive` is `label --remove INBOX`), and
-all of them collapse to one assert verb in the migration, because archive, read,
-star, trash, and a custom label are the same assertion with a different label id.
-`LOCAL_MAIL_READ_ONLY` refuses every write while leaving `query`/`status` and the
-pull half of a pass available.
+transparent primitive they desugar to (`archive` is `label --remove INBOX`).
+They are spellings, not separate write paths: archive, read, star, trash, and a
+custom label are one assertion with a different label id, so every verb here
+reaches the same single assert. `LOCAL_MAIL_READ_ONLY` refuses every write while
+leaving `query`/`status` and the pull half of a pass available.
 
 An assertion is durable the moment the verb returns, so a triage act survives an
 offline machine, a killed process, and a reboot. It is not a Gmail write yet:
@@ -226,7 +249,7 @@ Serve the triage UI and its API from one loopback process:
 bun run src/bin.ts app
 ```
 
-`app` is the desktop runtime host: it runs the sync loop and serves the triage
+`app` is the desktop runtime host: it owns this account's reconciler and serves the triage
 SPA (`ui/`) plus a same-origin `/api` on `127.0.0.1`, then prints the origin to
 open (`http://127.0.0.1:PORT`). It launches no browser; opening the window is the
 host's job (a terminal today, Tauri later), not the engine's. Security: every
@@ -242,12 +265,21 @@ the loaded accounts, and reads/writes live under `/api/accounts/:account/*`.
 The write surface collapses to four routes over the same core the CLI verbs and
 MCP tools use:
 
-| Route                                        | Does                                                        |
-| -------------------------------------------- | ----------------------------------------------------------- |
-| `POST /api/accounts/:account/messages/assert` | Record label assertions for concrete ids and return          |
-| `GET /api/accounts/:account/pending`          | The undelivered assertions, plus count and oldest age        |
-| `POST /api/accounts/:account/pending/discard` | Abandon undelivered assertions, by id or all                 |
-| `POST /api/accounts/:account/reconcile`       | Wake the reconciler now: drain, then pull                    |
+| Route                                         | Does                                                          |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `POST /api/accounts/:account/messages/assert` | Record label assertions for concrete ids and return           |
+| `POST /api/accounts/:account/reconcile`       | Wake the reconciler now: drain, then pull                     |
+| `GET /api/accounts/:account/pending`          | The undelivered assertions as stored, so discard can name one |
+| `POST /api/accounts/:account/pending/discard` | Abandon undelivered assertions, by id or all                  |
+
+The first two are the whole write door and the invariant lives there: a request
+asserts or it wakes the reconciler, and nothing else reaches Gmail. The last two
+are the ledger surface, and they are the only place individual assertions are
+enumerated; they exist so a human can name one to discard. `GET /status` carries
+the aggregate reading (undelivered count, age of the oldest, the current
+reconcile failure as one message) and never a per-assertion status, because there
+is not one. The ledger pair is decided but not built: it is wave W2 of
+`specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md`.
 
 Archive, read, star, trash, and custom labels all desugar to assertions
 client-side; trash is an ordinary `TRASH` assertion here and routes to Gmail's
@@ -284,26 +316,31 @@ bun run src/bin.ts mcp
 
 When more than one account is connected, `local-mail app` serves all of them
 under one origin with an account switcher. Set `LOCAL_MAIL_ACCOUNT` only for
-headless `sync`, `query`, and `mcp`, which operate on one account per process.
+headless `reconcile`, `query`, and `mcp`, which operate on one account per
+process.
 
 Tools:
 
-- `query`: read-only SQL over the mirror, capped at 1000 returned rows. Reads see
-  the mirror's stored labels; the effective view an agent should triage against
-  applies the account's pending assertions over them.
+- `query`: read-only SQL over the mirror, capped at 1000 returned rows. The read
+  connection attaches the account's `intent.db` read-only, so a query can see
+  both the mirror's stored labels and the effective set that overlays the
+  account's undelivered assertions over them. Triage against the effective set;
+  the stored labels are Gmail's last word, not what the user has already asked
+  for.
 - `status`: account, cursor, row counts, and the write ledger: undelivered count,
-  age of the oldest, and the current reconcile failure if there is one.
+  age of the oldest, and the current reconcile failure if there is one. Aggregate
+  only, by design.
 - `reconcile`: one pass, drain then pull. Yields if another process owns this
-  account's reconciler. (Spelled `sync` in the code until the migration lands.)
+  account's reconciler.
 - `assert`: record label assertions on messages by id, adding or removing labels
   by id or exact name. It returns what it stored, not what Gmail did, because
   delivery has not happened yet; an agent that needs to know its write landed
   reads `pending` or `status` afterward rather than assuming. Unlisted under
   `LOCAL_MAIL_READ_ONLY`. The CLI triage verbs above are the human-facing form of
-  this one tool. (Spelled `modify_labels` in the code until the migration lands,
-  where it still calls Gmail directly and returns a fold outcome.)
+  this one tool.
 - `pending`: this account's undelivered assertions, so an agent can see work it
-  queued rather than assuming it landed.
+  asked for rather than assuming it landed. Decided but not built; it lands with
+  the ledger surface in wave W2.
 
 ## Config
 
@@ -314,7 +351,7 @@ Tools:
   credentials in a source build fail loudly naming the exact variables.
   Changing the effective client requires reconnecting every account on this
   machine.
-- `LOCAL_MAIL_ACCOUNT`: optional account override for `sync`, `query`, and
+- `LOCAL_MAIL_ACCOUNT`: optional account override for `reconcile`, `query`, and
   `mcp`. Required only when more than one account is connected.
 - `LOCAL_MAIL_DIR`: data directory override.
 - `LOCAL_MAIL_TOKEN_FILE`: token file override.
@@ -352,7 +389,47 @@ stdio subprocess for the agent-facing protocol surface.
   identity is provisioned in this repository. Signing, notarization, and the
   official Google client still need release configuration, as described in
   `src-tauri/README.md`.
-- Send, reply, compose, drafts, trash, untrash, and permanent delete.
-- Thread-level modify and `messages.batchModify`. Triage is message-level.
+- The ledger surface. `GET /pending`, `POST /pending/discard`, the CLI `pending`
+  and `discard` verbs, the MCP `pending` tool, and the SPA's pending panel are
+  decided and unbuilt (wave W2). Until they exist, `status` reports the count and
+  the oldest age but nothing can abandon an undelivered assertion, which is the
+  one exit besides delivery that the model promises.
+- Enumeration surfaces. Thread and bulk acts, and asserting `UNREAD` off when a
+  message is opened, are wave W3. The semantics are already fixed: enumerate
+  concrete message ids from the mirror at the moment the user acts, never at
+  delivery time.
+- Gmail-backed drafts, send, reply, and compose. Allowed in principle only for
+  drafts, which round-trip (ADR-0098); none is built, and shipping send would
+  widen the OAuth grant past `gmail.modify` (ADR-0188).
 - FTS5. `LIKE` over `body_text` is enough for the current mirror size.
-- Push/Pub/Sub and any LAN or remote exposure (the server binds `127.0.0.1`).
+
+## Refused
+
+These are decisions, not gaps. Each has a record, and adding one back is an ADR
+rather than a pull request.
+
+- **Local-only mail state**: snooze, send-later, and a local tag or read flag
+  that never reaches Gmail (ADR-0098). A pending assertion is not an exception:
+  it names a Gmail label id and exists in order to stop existing.
+- **Permanent delete and spam reporting.** `messages.delete` is never wired, and
+  a deferred, discardable, silently-retried intent is the wrong shape for an
+  irreversible act (ADR-0198).
+- **A locally held draft as durable intent.** A Gmail-backed draft is a different
+  thing and is merely unbuilt; a draft that lives only on this device is a second
+  durable write shape (ADR-0198).
+- **Attachment and media bytes on disk, in any form.** One
+  `messages.get(format=full)` is the entire per-message budget (ADR-0196).
+- **Thread-level modify.** `threads.modify` applies to the thread as Gmail sees
+  it at delivery, which would silently include messages that arrived after the
+  user acted. Triage is message-level for that reason, not for lack of effort
+  (ADR-0199).
+- **`messages.batchModify`.** Its response body is empty, so it proves nothing
+  about which assertions landed. The reopen condition is named and specific in
+  ADR-0199; the quota saving alone does not meet it.
+- **A generic queue, event log, or provider-independent operation abstraction**,
+  and any per-assertion attempt counter, error column, retry schedule, or
+  dead-letter tier (ADR-0198, ADR-0199).
+- **Background delivery after the app closes**, and any always-on warm-mirror
+  daemon (ADR-0116, ADR-0199).
+- **Push/Pub/Sub**, and any LAN or remote exposure: the server binds `127.0.0.1`
+  (ADR-0082, ADR-0116).
