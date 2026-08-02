@@ -20,8 +20,8 @@ import { ApiError } from './api-errors.ts';
  * (`Bun.serve` in `app.ts`) owns the Host-check kill switch and static SPA
  * serving: `/api/*` falls through to this Hono app, `/*` serves `ui/dist`.
  *
- * The app is built by a factory so its per-launch dependencies (the per-account
- * writer db + sync gate, the per-launch bearer) are injected rather than
+ * The app is built by a factory so its per-launch dependencies (each account's
+ * session and reconcile gate, the per-launch bearer) are injected rather than
  * captured at module load, while `export type ApiApp = ReturnType<typeof
  * createApiApp>` still hands the SPA a precise end-to-end typed `hc` client.
  * Every handler returns `c.json(...)`, so the client's response types are
@@ -31,8 +31,8 @@ import { ApiError } from './api-errors.ts';
  * The surface is multi-account. `GET /api/accounts` lists the accounts the host
  * loaded at launch, and every read/write route is scoped under
  * `/api/accounts/:account/*`: one loopback origin serves all connected mailboxes
- * (`app.ts` holds one sync session, one gate, and one per-account sync lock for
- * each). An unknown `:account` is a 404 (`AccountNotFound`); the set is frozen at
+ * (`app.ts` holds one session, one gate, and one reconcile-owner lock attempt
+ * for each). An unknown `:account` is a 404 (`AccountNotFound`); the set is frozen at
  * launch, matching the MCP one-session-per-account rule.
  *
  * Auth is one per-launch bearer, minted by the host and handed to the SPA out of
@@ -152,7 +152,9 @@ export function createApiApp(deps: ApiDeps) {
 				readOnly,
 			});
 		})
-		.get('/labels', (c) => c.json({ labels: c.var.account.deps.db.listLabels() }))
+		.get('/labels', (c) =>
+			c.json({ labels: c.var.account.deps.db.listLabels() }),
+		)
 		.get('/messages', sValidator('query', MessageQuery), (c) => {
 			const { label, q, limit, offset } = c.req.valid('query');
 			const db: MailDb = c.var.account.deps.db;
