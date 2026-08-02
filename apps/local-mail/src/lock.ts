@@ -59,18 +59,13 @@ export function acquireReconcileLock({
 }
 
 /**
- * The message a headless pass prints (CLI) or returns (MCP) when another owner
- * already holds the lock. It exits cleanly: nothing failed, and whoever owns the
- * loop delivers the pending assertions and keeps the mirror fresh.
- */
-export function reconcileOwnerBusyMessage(accountEmail: string): string {
-	return `Local Mail is already reconciling ${accountEmail} (the app is open, or another pass is running). Skipping; that owner delivers pending changes and keeps the mirror fresh.`;
-}
-
-/**
- * The structured yield a headless pass emits when another owner holds the lock:
- * `local-mail reconcile --json` prints it on stdout and the MCP `reconcile` tool
- * returns it as `Ok`. `reconciled: false` is the discriminant against a real
+ * What a pass yields when another owner already holds the lock. It exits
+ * cleanly: nothing failed, and whoever owns the loop delivers the pending
+ * assertions and keeps the mirror fresh.
+ *
+ * `local-mail reconcile --json` prints this on stdout, the MCP `reconcile` tool
+ * returns it as `Ok`, and the HTTP route sends it as the body; the human CLI
+ * prints its `message`. `reconciled: false` is the discriminant against a real
  * `ReconcileOutcome` (which has no `reconciled` field); `reason` is a stable
  * machine token; `message` is human.
  */
@@ -84,6 +79,6 @@ export function reconcileOwnerBusy(accountEmail: string): ReconcileOwnerBusy {
 	return {
 		reconciled: false,
 		reason: 'reconcile-owner-active',
-		message: reconcileOwnerBusyMessage(accountEmail),
+		message: `Local Mail is already reconciling ${accountEmail} (the app is open, or another pass is running). Skipping; that owner delivers pending changes and keeps the mirror fresh.`,
 	};
 }

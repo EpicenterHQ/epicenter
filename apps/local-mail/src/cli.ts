@@ -1,10 +1,6 @@
 import { type AssertLabelsOutcome, assertMessageLabels } from './assert.ts';
 import { loadConfig } from './config.ts';
-import {
-	acquireReconcileLock,
-	reconcileOwnerBusy,
-	reconcileOwnerBusyMessage,
-} from './lock.ts';
+import { acquireReconcileLock, reconcileOwnerBusy } from './lock.ts';
 import { redeemRefreshToken, runAuthorizationFlow } from './oauth.ts';
 import { queryMail } from './query.ts';
 import {
@@ -324,12 +320,9 @@ async function runReconcile(args: ParsedArgs): Promise<number> {
 	if (!lock) {
 		// A busy yield is a terminal outcome, so it goes to stdout like the success
 		// and failure summaries do. --json emits the structured payload
-		// (discriminated by `reconciled: false`); the human form is the same note.
-		console.log(
-			args.json
-				? JSON.stringify(reconcileOwnerBusy(runtime.accountEmail), null, 2)
-				: reconcileOwnerBusyMessage(runtime.accountEmail),
-		);
+		// (discriminated by `reconciled: false`); the human form is its message.
+		const busy = reconcileOwnerBusy(runtime.accountEmail);
+		console.log(args.json ? JSON.stringify(busy, null, 2) : busy.message);
 		return 0;
 	}
 
