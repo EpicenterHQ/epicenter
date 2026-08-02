@@ -26,9 +26,10 @@
 	}
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
-	// capability-free (no tools, no approval), one general multilingual system
-	// prompt, and the hosted VOCAB_MODEL as the default a new conversation starts
-	// on. The active conversation lives in internal state (Vocab has no URL seam).
+	// capability-free (no tools, no approval), the one Chinese tutor persona, and
+	// the hosted VOCAB_MODEL as the default a new conversation starts on. The
+	// active conversation lives in internal state rather than the URL, which is
+	// why the session entries below are actions and not routes (ADR-0195).
 	const chat = createAgentChatState({
 		table: vocab.tables.conversations,
 		openConversationDocument: (id) => vocab.tables.conversations.openDocument(id),

@@ -27,8 +27,8 @@
 	] as const satisfies readonly Entry['stage'][];
 
 	/** Stage filter values: `all` plus the three acquisition stages. Drives both
-	 * the visible list and the set "Practice these" compiles. Focus is a filter
-	 * over the flat pool, never a stored partition. */
+	 * the visible list and the set "Practice in a new chat" compiles. Focus is a
+	 * filter over the flat pool, never a stored partition. */
 	const STAGE_FILTERS = ['all', ...STAGES] as const;
 	type StageFilter = (typeof STAGE_FILTERS)[number];
 	let stageFilter = $state<StageFilter>('all');
