@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { sValidator } from '@hono/standard-validator';
 import { type } from 'arktype';
-import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { assertMessageLabels } from '../assert.ts';
 import type { MailDb } from '../db.ts';
@@ -115,28 +114,31 @@ type ApiDeps = {
 export function createApiApp(deps: ApiDeps) {
 	const { accounts, readOnly, bearer } = deps;
 
-	// Look up the account named by the `:account` segment, or undefined. The
-	// caller emits the 404 inline via `c.json`, NOT this helper: a helper that
-	// returned a bare `Response` would widen `c.json`'s `TypedResponse` and break
-	// `hc<ApiApp>` response inference for the whole route. `Context` is the
-	// untyped base, so `param('account')` is `string | undefined`; a missing
-	// segment can never key the map, so `?? ''` folds it into the same 404.
-	const accountFor = (c: Context): AccountApi | undefined =>
-		accounts.get(c.req.param('account') ?? '');
-
 	// The account-scoped surface, mounted under `/api/accounts/:account`. It is
 	// its own sub-app combined via `.route()` (not seven sibling `:account`
 	// routes on one chain) so `hc<ApiApp>` infers every route: Hono merges a
 	// mounted sub-schema under the param in one step, where a long chain of
 	// param-prefixed siblings degrades the generated client type. `:account`
-	// resolves from the mount path, so handlers read it via `accountFor(c)`.
-	const accountApp = new Hono()
-		.get('/status', async (c) => {
-			const account = accountFor(c);
+	// resolves from the mount path.
+	const accountApp = new Hono<{ Variables: { account: AccountApi } }>()
+		// Resolving the account is middleware, not a per-handler guard: a handler
+		// that never runs cannot forget the 404, and the answer to "which account is
+		// this?" gets exactly one owner. A middleware response stays out of
+		// `hc<ApiApp>`'s inferred union, unlike a helper returning a bare `Response`,
+		// so every handler below still types as its own `c.json` shape alone. The
+		// param is `string | undefined` on the untyped base context, and a missing
+		// segment can never key the map, so `?? ''` folds it into the same 404.
+		.use(async (c, next) => {
+			const account = accounts.get(c.req.param('account') ?? '');
 			if (!account) {
 				const err = ApiError.AccountNotFound();
 				return c.json(err, err.error.status);
 			}
+			c.set('account', account);
+			return next();
+		})
+		.get('/status', async (c) => {
+			const account = c.var.account;
 			const status = await readMailStatus(account.runtime);
 			return c.json({
 				accountEmail: status.accountEmail,
@@ -150,22 +152,10 @@ export function createApiApp(deps: ApiDeps) {
 				readOnly,
 			});
 		})
-		.get('/labels', (c) => {
-			const account = accountFor(c);
-			if (!account) {
-				const err = ApiError.AccountNotFound();
-				return c.json(err, err.error.status);
-			}
-			return c.json({ labels: account.deps.db.listLabels() });
-		})
+		.get('/labels', (c) => c.json({ labels: c.var.account.deps.db.listLabels() }))
 		.get('/messages', sValidator('query', MessageQuery), (c) => {
-			const account = accountFor(c);
-			if (!account) {
-				const err = ApiError.AccountNotFound();
-				return c.json(err, err.error.status);
-			}
 			const { label, q, limit, offset } = c.req.valid('query');
-			const db: MailDb = account.deps.db;
+			const db: MailDb = c.var.account.deps.db;
 			return c.json({
 				messages: db.listMessages({
 					labelId: label,
@@ -177,12 +167,7 @@ export function createApiApp(deps: ApiDeps) {
 		})
 		// Hono already URL-decodes path params, so no manual decodeURIComponent.
 		.get('/messages/:id', (c) => {
-			const account = accountFor(c);
-			if (!account) {
-				const err = ApiError.AccountNotFound();
-				return c.json(err, err.error.status);
-			}
-			const detail = account.deps.db.getMessageDetail(c.req.param('id'));
+			const detail = c.var.account.deps.db.getMessageDetail(c.req.param('id'));
 			if (!detail) {
 				const err = ApiError.MessageNotFound();
 				return c.json(err, err.error.status);
@@ -190,12 +175,7 @@ export function createApiApp(deps: ApiDeps) {
 			return c.json(detail);
 		})
 		.post('/reconcile', async (c) => {
-			const account = accountFor(c);
-			if (!account) {
-				const err = ApiError.AccountNotFound();
-				return c.json(err, err.error.status);
-			}
-			const { runtime, deps, gate, ownsLoop } = account;
+			const { runtime, deps, gate, ownsLoop } = c.var.account;
 			// This host owns the loop only when it holds the lock. Without it,
 			// another owner delivers and pulls, so yield busy instead of becoming a
 			// second writer (the same contract the headless pass uses).
@@ -206,11 +186,7 @@ export function createApiApp(deps: ApiDeps) {
 			return c.json(outcome);
 		})
 		.post('/messages/assert', sValidator('json', AssertBody), (c) => {
-			const account = accountFor(c);
-			if (!account) {
-				const err = ApiError.AccountNotFound();
-				return c.json(err, err.error.status);
-			}
+			const account = c.var.account;
 			const { ids, addLabels, removeLabels } = c.req.valid('json');
 			const { data, error } = assertMessageLabels({
 				deps: account.deps,
