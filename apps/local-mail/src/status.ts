@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mailDbPath, openMailDbReadonly } from './db.ts';
-import { openIntentDb, type PendingSummary } from './intent.ts';
+import { type PendingSummary, readPendingSummary } from './intent.ts';
 import type { LocalMailRuntime } from './runtime.ts';
 import { isAccessTokenExpired } from './tokens.ts';
 
@@ -44,10 +44,17 @@ export async function readMailStatus({
 			: null,
 	};
 
+	// Two files, two owners, two independent questions: the mirror answers for
+	// Gmail's facts, and the intent store answers for what this machine still
+	// owes Gmail. Read the second one FIRST and unconditionally, because the
+	// mirror's absence tells us nothing about it: the mirror is deleted and
+	// rebuilt on a shape change, and undelivered triage deliberately outlives
+	// that. Reporting zero pending just because there is no mirror would hide the
+	// user's own work at exactly the moment it is most easily lost.
+	const pending = readPendingSummary({ dataDir: config.dataDir, accountEmail });
+
 	const path = mailDbPath(config.dataDir, accountEmail);
 	if (!existsSync(path)) {
-		// No mirror means no labels to resolve against, so no act can have been
-		// recorded either; reporting zero here is a fact, not a default.
 		return {
 			...base,
 			mirror: 'empty',
@@ -56,14 +63,11 @@ export async function readMailStatus({
 			lastFullPullAt: null,
 			lastSyncedAt: null,
 			rows: { messages: 0, labels: 0 },
-			pending: { assertions: 0, oldestAssertedAt: null },
+			pending,
 		};
 	}
 
-	// Two files, two owners: the mirror answers for Gmail's facts, and the intent
-	// store answers for what this machine still owes Gmail.
 	const db = openMailDbReadonly({ dataDir: config.dataDir, accountEmail });
-	const intent = openIntentDb({ dataDir: config.dataDir, accountEmail });
 	try {
 		const realm = db.realmState();
 		return {
@@ -74,10 +78,9 @@ export async function readMailStatus({
 			lastFullPullAt: realm.lastFullPullAt,
 			lastSyncedAt: realm.lastSyncedAt,
 			rows: db.counts(),
-			pending: intent.summary(),
+			pending,
 		};
 	} finally {
-		intent.close();
 		db.close();
 	}
 }

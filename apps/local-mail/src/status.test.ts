@@ -8,14 +8,17 @@
  * - missing mirror reports `empty`
  * - mirror file with no history cursor reports `building`
  * - mirror with a history cursor reports `ready`
+ * - undelivered triage stays visible whether or not a mirror exists, and a
+ *   status read never creates the durable store it reports on
  */
 
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AppConfig } from './config.ts';
 import { openMailDb } from './db.ts';
+import { intentDbPath, openIntentDb } from './intent.ts';
 import type { GmailMessage } from './schema.ts';
 import { readMailStatus } from './status.ts';
 import type { TokenStore } from './token-store.ts';
@@ -111,5 +114,80 @@ test('status reports ready when the mirror has a cursor', async () => {
 	expect(status.mirror).toBe('ready');
 	expect(status.historyId).toBe('1000');
 	expect(status.rows.messages).toBe(1);
+	tmp.cleanup();
+});
+
+test('pending assertions stay visible when the mirror is gone', async () => {
+	// The mirror is disposable: a shape change deletes and rebuilds it, and a
+	// status call can land in that window. The durable store outlives it on
+	// purpose, so a missing mirror must never be read as "nothing is owed" -
+	// that is exactly when a user needs to see their undelivered work.
+	const tmp = tempDir();
+	const intent = openIntentDb({ dataDir: tmp.dir, accountEmail: ACCOUNT });
+	intent.assert(
+		[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+		'2026-08-01T10:00:00.000Z',
+	);
+	intent.close();
+
+	const status = await readMailStatus({
+		config: config(tmp.dir),
+		accountEmail: ACCOUNT,
+		store,
+	});
+
+	expect(status.mirror).toBe('empty');
+	expect(status.rows).toEqual({ messages: 0, labels: 0 });
+	expect(status.pending).toEqual({
+		assertions: 1,
+		oldestAssertedAt: '2026-08-01T10:00:00.000Z',
+	});
+	tmp.cleanup();
+});
+
+test('a status read reports zero pending without creating the store', async () => {
+	const tmp = tempDir();
+
+	const status = await readMailStatus({
+		config: config(tmp.dir),
+		accountEmail: ACCOUNT,
+		store,
+	});
+
+	expect(status.pending).toEqual({ assertions: 0, oldestAssertedAt: null });
+	// Reading must not conjure a durable file for an account that has none.
+	expect(existsSync(intentDbPath(tmp.dir, ACCOUNT))).toBe(false);
+	tmp.cleanup();
+});
+
+test('pending assertions survive a mirror rebuild and stay on the status line', async () => {
+	const tmp = tempDir();
+	const account = { dataDir: tmp.dir, accountEmail: ACCOUNT };
+	const intent = openIntentDb(account);
+	intent.assert(
+		[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+		'2026-08-01T10:00:00.000Z',
+	);
+	intent.close();
+
+	const db = openMailDb(account);
+	db.ingestFullPullPage([message('m1')], '2026-07-01T00:00:00.000Z');
+	db.finishFullPull('1000', '2026-07-01T00:00:00.000Z');
+	// The rebuild path: an unrecognised version makes the next open delete the
+	// mirror file and start over.
+	db.raw.run(`UPDATE _meta SET value = 'ancient' WHERE key = ?`, [
+		'schema_version',
+	]);
+	db.close();
+	openMailDb(account).close();
+
+	const status = await readMailStatus({
+		config: config(tmp.dir),
+		accountEmail: ACCOUNT,
+		store,
+	});
+
+	expect(status.rows.messages).toBe(0);
+	expect(status.pending.assertions).toBe(1);
 	tmp.cleanup();
 });

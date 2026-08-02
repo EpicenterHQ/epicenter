@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { accountDirPath, ensureAccountDir, secureDbFiles } from './paths.ts';
 
@@ -66,9 +67,34 @@ export function intentDbPath(dataDir: string, accountEmail: string): string {
 	return join(accountDirPath(dataDir, accountEmail), 'intent.db');
 }
 
+/**
+ * The pending aggregate for an account, without creating anything. Two rules
+ * meet here, and both matter:
+ *
+ * - A store that does not exist is honestly zero, and a read must not conjure a
+ *   durable file (or an account directory) for an account that has none.
+ * - A missing MIRROR says nothing at all about this. The mirror is deleted and
+ *   rebuilt whenever its shape changes, and outliving that is the entire reason
+ *   this file is separate, so undelivered work stays visible across a rebuild.
+ */
+export function readPendingSummary({
+	dataDir,
+	accountEmail,
+}: IntentDbLocation): PendingSummary {
+	if (!existsSync(intentDbPath(dataDir, accountEmail))) {
+		return { assertions: 0, oldestAssertedAt: null };
+	}
+	const intent = openIntentDb({ dataDir, accountEmail });
+	try {
+		return intent.summary();
+	} finally {
+		intent.close();
+	}
+}
+
 export type IntentDb = ReturnType<typeof openIntentDb>;
 
-type IntentDbLocation = { dataDir: string; accountEmail: string };
+export type IntentDbLocation = { dataDir: string; accountEmail: string };
 
 /**
  * Open (creating if needed) one account's durable intent store. Cheap enough to
