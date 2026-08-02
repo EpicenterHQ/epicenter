@@ -113,13 +113,18 @@ generic materialization or session API built before a second consumer exists.
   `so.epicenter.vocab` is the replica identity, and renaming it would strand
   local data for a cosmetic gain.
 
-**This decision is accepted ahead of most of its implementation.** The session
-mechanism it names is implemented (the two commits above) and has one producer
-(`apps/vocab/src/lib/practice.ts` through
-`apps/vocab/src/routes/+page.svelte`). The Chinese declaration, the
-proactive seed, and the collapse of the reading registry are not built. The
-remaining waves are tracked in
-[the execution spec](../../specs/20260731T234500-vocab-chinese-conversation-companion.md).
+**This decision is implemented.** The session mechanism it names is
+`createConversation` in `packages/app-shell/src/agent-chat/agent-chat.svelte.ts`,
+and its two composed producers are `apps/vocab/src/lib/session.ts` (practice)
+and `apps/vocab/src/lib/seeds.ts` (topic seeds), both wired through
+`apps/vocab/src/routes/+page.svelte`. The Chinese declaration reaches every
+prompt the app composes, and the reading path is one `apps/vocab/src/lib/readings.ts`
+with the abstain guard intact. What remains is the manual verification no test
+can stand in for (reading real answers to confirm the tutor stays
+conversational rather than drilling) and the product questions the composed
+opener raises, both tracked in
+[the execution spec](../../specs/20260731T234500-vocab-chinese-conversation-companion.md)
+until it is spent and deleted.
 
 **Triggers to reopen.** If a practice session measurably drifts back to generic
 tutoring within a few turns, the move is precise: widen the shared chat seam to
