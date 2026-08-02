@@ -26,8 +26,9 @@ import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
  * - The provider refuses the request (400/404). That names the request, not
  *   necessarily every assertion inside it, so a rejected group is retried one
  *   assertion at a time and only the individually rejected one is resolved. A
- *   resolved assertion is simply retired: nothing is written down about why,
- *   because a dead-letter row would be state nobody reads.
+ *   resolved assertion is retired and reported in this pass's `discarded` list,
+ *   which is the whole record of it: nothing about the refusal is written to
+ *   disk, because a dead-letter row would be state nobody reads back.
  * - Anything else (auth, throttling, network, 5xx) is systemic. Delivery stops
  *   where it is, every undelivered assertion stays exactly as it was, and the
  *   next pass tries again. No attempt counter, because the retry policy is "the
@@ -45,13 +46,37 @@ const TRASH = 'TRASH';
 
 export type ReconcileDeps = SyncDeps & { intent: IntentDb };
 
+/**
+ * One assertion Gmail refused on its own terms, reported for THIS pass and
+ * nowhere else. It names what was dropped in the vocabulary the user acted in
+ * (this message, this label, wanted or not) plus Gmail's own status and words,
+ * so a surface can say what happened instead of a change quietly vanishing.
+ *
+ * It is not persisted. Writing it down would be the dead-letter table this
+ * design refuses: nothing would ever read it back, and a durable "failed" row
+ * is exactly the kind of state that starts needing its own lifecycle. The
+ * assertion is retired because it can never succeed; the explanation rides out
+ * with the pass that discovered it.
+ */
+export type DiscardedAssertion = {
+	messageId: string;
+	labelId: string;
+	/** The presence that was wanted: `true` on the message, `false` off it. */
+	want: boolean;
+	/** Gmail's HTTP status, 400 or 404. */
+	status: number;
+	/** Gmail's own explanation, as returned. */
+	reason: string;
+};
+
 export type DeliveryOutcome = {
 	/** Assertions the drain phase held at its start. */
 	pending: number;
 	/** Assertions Gmail confirmed and the store retired. */
 	delivered: number;
-	/** Assertions retired without delivery: the target is impossible or gone. */
-	unachievable: number;
+	/** Assertions retired without delivery because Gmail refused them
+	 * individually. Ephemeral: this array is the only record of them. */
+	discarded: DiscardedAssertion[];
 	/**
 	 * Assertions still owed to Gmail when the pass ended: everything a systemic
 	 * failure stopped short of, plus anything re-asserted mid-delivery, plus
@@ -92,11 +117,14 @@ function groupByMessage(pending: LabelIntent[]): MessageDelivery[] {
 }
 
 /** A 400 or 404 names this message or label, not the connection: the assertion
- * cannot ever be satisfied, so it is resolved rather than retried forever. */
-function isUnachievable(error: GmailClientError): boolean {
-	return (
-		error.name === 'Http' && (error.status === 400 || error.status === 404)
-	);
+ * cannot ever be satisfied, so it is resolved rather than retried forever.
+ * Narrowing to the `Http` variant is what gives the caller a status to report. */
+function unachievableStatus(
+	error: GmailClientError,
+): { status: number; reason: string } | null {
+	if (error.name !== 'Http') return null;
+	if (error.status !== 400 && error.status !== 404) return null;
+	return { status: error.status, reason: error.message };
 }
 
 /**
@@ -114,7 +142,7 @@ async function drain(
 		return {
 			pending: pending.length,
 			delivered: 0,
-			unachievable: 0,
+			discarded: [],
 			retained: pending.length,
 			failure: null,
 		};
@@ -122,7 +150,7 @@ async function drain(
 
 	const log = deps.log ?? (() => {});
 	let delivered = 0;
-	let unachievable = 0;
+	const discarded: DiscardedAssertion[] = [];
 	let failure: DeliveryOutcome['failure'] = null;
 
 	/**
@@ -149,7 +177,8 @@ async function drain(
 	): Promise<boolean> {
 		const { data: message, error } = await send(covered);
 		if (error) {
-			if (!isUnachievable(error)) {
+			const refusal = unachievableStatus(error);
+			if (!refusal) {
 				failure = { name: error.name, message: error.message };
 				return false;
 			}
@@ -163,7 +192,19 @@ async function drain(
 				return true;
 			}
 			log(`delivery refused for ${covered[0]?.messageId}: ${error.message}`);
-			unachievable += deps.intent.retire(covered);
+			for (const assertion of covered) {
+				// Retire first: only a row that actually left the store is reported as
+				// discarded, so a pair re-asserted mid-flight (whose sequence no longer
+				// matches) is not announced as dropped when it is in fact still owed.
+				if (deps.intent.retire([assertion]) === 1) {
+					discarded.push({
+						messageId: assertion.messageId,
+						labelId: assertion.labelId,
+						want: assertion.want,
+						...refusal,
+					});
+				}
+			}
 			return true;
 		}
 		if (message.labelIds) {
@@ -206,7 +247,7 @@ async function drain(
 	return {
 		pending: pending.length,
 		delivered,
-		unachievable,
+		discarded,
 		// Read back rather than subtracted: a pair re-asserted mid-pass is still
 		// owed even though its predecessor was delivered, and the store is the
 		// only thing that knows.

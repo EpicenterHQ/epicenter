@@ -146,6 +146,7 @@ export function createApiApp(deps: ApiDeps) {
 				lastSyncedAt: status.lastSyncedAt,
 				lastFullPullAt: status.lastFullPullAt,
 				rows: status.rows,
+				pending: status.pending,
 				readOnly,
 			});
 		})

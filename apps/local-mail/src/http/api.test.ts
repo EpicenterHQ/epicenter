@@ -201,10 +201,12 @@ describe('createApiApp multi-account routing', () => {
 			accountEmail: string;
 			mirror: string;
 			rows: { messages: number };
+			pending: { assertions: number; oldestAssertedAt: string | null };
 		};
 		expect(statusA.accountEmail).toBe('a@example.com');
 		expect(statusA.mirror).toBe('ready');
 		expect(statusA.rows.messages).toBe(1);
+		expect(statusA.pending).toEqual({ assertions: 0, oldestAssertedAt: null });
 
 		const messagesB = (await (
 			await get(app, '/api/accounts/b@example.com/messages')
@@ -348,6 +350,16 @@ describe('POST /messages/assert', () => {
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ asserted: 1 });
 		expect(a.wakes).toBe(1);
+
+		// The same act is now visible as undelivered work on the status surface,
+		// in aggregate: how much, and how long the oldest has waited.
+		const status = (await (
+			await get(app, '/api/accounts/a@example.com/status')
+		).json()) as {
+			pending: { assertions: number; oldestAssertedAt: string | null };
+		};
+		expect(status.pending.assertions).toBe(1);
+		expect(status.pending.oldestAssertedAt).not.toBeNull();
 		expect(a.intent.pending()).toMatchObject([
 			{ messageId: 'ma', labelId: 'INBOX', want: false },
 		]);

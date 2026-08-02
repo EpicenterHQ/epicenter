@@ -18,6 +18,8 @@ import { type MailDb, openMailDb } from './db.ts';
 import { type IntentDb, openIntentDb } from './intent.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
+const ASSERTED_AT = '2026-08-01T12:00:00.000Z';
+
 function openTmp(): { db: MailDb; intent: IntentDb; cleanup: () => void } {
 	const dir = mkdtempSync(join(tmpdir(), 'local-mail-read-'));
 	const db = openMailDb({ dataDir: dir, accountEmail: 'you@example.com' });
@@ -232,7 +234,10 @@ describe('listMessages with undelivered triage', () => {
 		const { db, intent, cleanup } = openTmp();
 		try {
 			seed(db);
-			intent.assert([{ messageId: 'newest', labelId: 'INBOX', want: false }]);
+			intent.assert(
+				[{ messageId: 'newest', labelId: 'INBOX', want: false }],
+				ASSERTED_AT,
+			);
 
 			const inbox = db.listMessages({
 				labelId: 'INBOX',
@@ -254,7 +259,10 @@ describe('listMessages with undelivered triage', () => {
 		const { db, intent, cleanup } = openTmp();
 		try {
 			seed(db);
-			intent.assert([{ messageId: 'oldest', labelId: 'Label_7', want: true }]);
+			intent.assert(
+				[{ messageId: 'oldest', labelId: 'Label_7', want: true }],
+				ASSERTED_AT,
+			);
 			expect(
 				db
 					.listMessages({ labelId: 'Label_7', limit: 100, offset: 0 })
@@ -269,7 +277,10 @@ describe('listMessages with undelivered triage', () => {
 		const { db, intent, cleanup } = openTmp();
 		try {
 			seed(db);
-			intent.assert([{ messageId: 'newest', labelId: 'TRASH', want: true }]);
+			intent.assert(
+				[{ messageId: 'newest', labelId: 'TRASH', want: true }],
+				ASSERTED_AT,
+			);
 
 			expect(
 				db.listMessages({ limit: 100, offset: 0 }).map((r) => r.id),
@@ -303,7 +314,10 @@ describe('listMessages with undelivered triage', () => {
 				],
 				new Date().toISOString(),
 			);
-			intent.assert([{ messageId: 'trashed', labelId: 'TRASH', want: false }]);
+			intent.assert(
+				[{ messageId: 'trashed', labelId: 'TRASH', want: false }],
+				ASSERTED_AT,
+			);
 
 			expect(
 				db
@@ -333,10 +347,13 @@ describe('listMessages with undelivered triage', () => {
 				new Date().toISOString(),
 			);
 			// Archive the first two, undelivered.
-			intent.assert([
-				{ messageId: 'm0', labelId: 'INBOX', want: false },
-				{ messageId: 'm1', labelId: 'INBOX', want: false },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm0', labelId: 'INBOX', want: false },
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+				],
+				ASSERTED_AT,
+			);
 
 			const page = db.listMessages({ labelId: 'INBOX', limit: 3, offset: 0 });
 			// A projection applied after the query would return one row here (three
@@ -351,7 +368,10 @@ describe('listMessages with undelivered triage', () => {
 		const { db, intent, cleanup } = openTmp();
 		try {
 			seed(db);
-			intent.assert([{ messageId: 'newest', labelId: 'INBOX', want: false }]);
+			intent.assert(
+				[{ messageId: 'newest', labelId: 'INBOX', want: false }],
+				ASSERTED_AT,
+			);
 			// The overlay is a read-time projection: it never edits the row the
 			// reconciler folds Gmail's answers into.
 			const row = db.raw
@@ -430,10 +450,13 @@ describe('getMessageDetail', () => {
 		const { db, intent, cleanup } = openTmp();
 		try {
 			seed(db);
-			intent.assert([
-				{ messageId: 'newest', labelId: 'UNREAD', want: false },
-				{ messageId: 'newest', labelId: 'STARRED', want: true },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'newest', labelId: 'UNREAD', want: false },
+					{ messageId: 'newest', labelId: 'STARRED', want: true },
+				],
+				ASSERTED_AT,
+			);
 			expect(db.getMessageDetail('newest')?.labelIds).toEqual([
 				'INBOX',
 				'Label_7',

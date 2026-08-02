@@ -4,6 +4,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
 	import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
+	import ClockIcon from '@lucide/svelte/icons/clock';
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import { relativeTime } from '$lib/format';
@@ -29,6 +30,12 @@
 		reconcileError: string | null;
 		onReconcile: () => void;
 	} = $props();
+
+	// Local triage Gmail has not been told about yet. Two numbers, no list: the
+	// point is that undelivered work is never invisible, not that this becomes a
+	// place to manage it.
+	const pending = $derived(status?.pending.assertions ?? 0);
+	const oldestPending = $derived(status?.pending.oldestAssertedAt ?? null);
 
 	// The mirror chip is the one canonical mirror-state surface.
 	const mirror = $derived(status?.mirror ?? 'empty');
@@ -99,6 +106,15 @@
 			<span class="tabular-nums" title={status.lastSyncedAt ?? 'never synced'}>
 				synced {relativeTime(status.lastSyncedAt)}
 			</span>
+			{#if pending > 0}
+				<span
+					class="flex items-center gap-1 rounded border border-border px-1.5 py-0.5 font-medium text-amber-500 tabular-nums"
+					title="Changes recorded here that Gmail has not been told about yet. The reconciler delivers them; nothing is lost if this app closes first."
+				>
+					<ClockIcon class="size-3" />
+					{pending} pending · {relativeTime(oldestPending)}
+				</span>
+			{/if}
 			{#if status.readOnly}
 				<span
 					class="flex items-center gap-1 rounded border border-border px-1.5 py-0.5 font-medium text-amber-500"

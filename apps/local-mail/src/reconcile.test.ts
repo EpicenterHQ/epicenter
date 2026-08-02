@@ -210,11 +210,14 @@ describe('drain', () => {
 		);
 		const { deps, intent, cleanup } = setup(client);
 		try {
-			intent.assert([
-				{ messageId: 'm1', labelId: 'INBOX', want: false },
-				{ messageId: 'm1', labelId: 'UNREAD', want: false },
-				{ messageId: 'm1', labelId: 'STARRED', want: true },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+					{ messageId: 'm1', labelId: 'UNREAD', want: false },
+					{ messageId: 'm1', labelId: 'STARRED', want: true },
+				],
+				new Date(NOW).toISOString(),
+			);
 
 			const { delivery } = await pass(deps);
 
@@ -243,7 +246,10 @@ describe('drain', () => {
 		);
 		const { deps, db, cleanup } = setup(client);
 		try {
-			deps.intent.assert([{ messageId: 'm1', labelId: 'INBOX', want: false }]);
+			deps.intent.assert(
+				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+				new Date(NOW).toISOString(),
+			);
 			await pass(deps);
 			// The overlay is gone and the fact took its place, so the row never
 			// flickers back into the inbox between the two writes.
@@ -262,10 +268,13 @@ describe('drain', () => {
 		);
 		const { deps, intent, cleanup } = setup(client);
 		try {
-			intent.assert([
-				{ messageId: 'm1', labelId: 'UNREAD', want: false },
-				{ messageId: 'm1', labelId: 'TRASH', want: true },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'UNREAD', want: false },
+					{ messageId: 'm1', labelId: 'TRASH', want: true },
+				],
+				new Date(NOW).toISOString(),
+			);
 
 			await pass(deps);
 
@@ -287,7 +296,10 @@ describe('drain', () => {
 		);
 		const { deps, intent, cleanup } = setup(client, [message('m1', ['TRASH'])]);
 		try {
-			intent.assert([{ messageId: 'm1', labelId: 'TRASH', want: false }]);
+			intent.assert(
+				[{ messageId: 'm1', labelId: 'TRASH', want: false }],
+				new Date(NOW).toISOString(),
+			);
 			await pass(deps);
 			expect(client.untrashCalls).toEqual(['m1']);
 			expect(client.modifyCalls).toEqual([]);
@@ -384,10 +396,13 @@ describe('drain', () => {
 		});
 		const { deps, intent, db, cleanup } = setup(client);
 		try {
-			intent.assert([
-				{ messageId: 'm1', labelId: 'INBOX', want: false },
-				{ messageId: 'm1', labelId: 'Label_gone', want: true },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+					{ messageId: 'm1', labelId: 'Label_gone', want: true },
+				],
+				new Date(NOW).toISOString(),
+			);
 
 			const { delivery } = await pass(deps);
 
@@ -404,10 +419,20 @@ describe('drain', () => {
 			expect(delivery).toMatchObject({
 				pending: 2,
 				delivered: 1,
-				unachievable: 1,
 				retained: 0,
 				failure: null,
 			});
+			// The refusal is reported for this pass and nowhere else: the message,
+			// the label, the presence that was wanted, and Gmail's own words.
+			expect(delivery.discarded).toEqual([
+				{
+					messageId: 'm1',
+					labelId: 'Label_gone',
+					want: true,
+					status: 400,
+					reason: expect.stringContaining('Invalid label: Label_gone'),
+				},
+			]);
 			expect(intent.pending()).toEqual([]);
 			// The archive really landed; only the impossible label was dropped.
 			expect(mirroredLabels(db, 'm1')).toEqual(['UNREAD']);
@@ -432,17 +457,20 @@ describe('drain', () => {
 		});
 		const { deps, intent, cleanup } = setup(client);
 		try {
-			intent.assert([
-				{ messageId: 'm1', labelId: 'INBOX', want: false },
-				{ messageId: 'm1', labelId: 'STARRED', want: true },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+					{ messageId: 'm1', labelId: 'STARRED', want: true },
+				],
+				new Date(NOW).toISOString(),
+			);
 
 			const { delivery } = await pass(deps);
 
 			expect(delivery.failure?.name).toBe('Throttled');
 			expect(delivery).toMatchObject({
 				delivered: 0,
-				unachievable: 0,
+				discarded: [],
 				retained: 2,
 			});
 			expect(intent.pending()).toHaveLength(2);
@@ -466,10 +494,13 @@ describe('drain', () => {
 			message('m2', ['INBOX']),
 		]);
 		try {
-			intent.assert([
-				{ messageId: 'm1', labelId: 'INBOX', want: false },
-				{ messageId: 'm2', labelId: 'INBOX', want: false },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+					{ messageId: 'm2', labelId: 'INBOX', want: false },
+				],
+				new Date(NOW).toISOString(),
+			);
 
 			const { delivery } = await pass(deps);
 
@@ -477,12 +508,22 @@ describe('drain', () => {
 			expect(delivery).toMatchObject({
 				pending: 2,
 				delivered: 1,
-				unachievable: 1,
 				retained: 0,
 				failure: null,
 			});
+			// The refusal is reported for this pass and nowhere else: the message,
+			// the label, the presence that was wanted, and Gmail's own words.
+			expect(delivery.discarded).toEqual([
+				{
+					messageId: 'm1',
+					labelId: 'INBOX',
+					want: false,
+					status: 404,
+					reason: expect.stringContaining('Gmail API returned 404'),
+				},
+			]);
 			// Nothing about the refusal is written down: the store holds wishes, not
-			// a dead-letter queue.
+			// a dead-letter queue, and the report above is the whole record of it.
 			expect(intent.pending()).toEqual([]);
 		} finally {
 			cleanup();
@@ -501,10 +542,13 @@ describe('drain', () => {
 			message('m2', ['INBOX']),
 		]);
 		try {
-			intent.assert([
-				{ messageId: 'm1', labelId: 'INBOX', want: false },
-				{ messageId: 'm2', labelId: 'INBOX', want: false },
-			]);
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+					{ messageId: 'm2', labelId: 'INBOX', want: false },
+				],
+				new Date(NOW).toISOString(),
+			);
 
 			const { delivery, pull } = await pass(deps);
 
@@ -513,7 +557,7 @@ describe('drain', () => {
 			expect(delivery).toMatchObject({
 				pending: 2,
 				delivered: 0,
-				unachievable: 0,
+				discarded: [],
 				retained: 2,
 			});
 			expect(delivery.failure?.name).toBe('Throttled');
@@ -529,7 +573,10 @@ describe('drain', () => {
 		const client = fakeGmail(new Map([['m1', { data: message('m1', []) }]]));
 		const { deps, intent, cleanup } = setup(client);
 		try {
-			intent.assert([{ messageId: 'm1', labelId: 'INBOX', want: false }]);
+			intent.assert(
+				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+				new Date(NOW).toISOString(),
+			);
 
 			const { delivery, pull } = await pass(deps, true);
 
@@ -557,7 +604,7 @@ describe('drain', () => {
 			expect(delivery).toEqual({
 				pending: 0,
 				delivered: 0,
-				unachievable: 0,
+				discarded: [],
 				retained: 0,
 				failure: null,
 			});

@@ -258,11 +258,18 @@ function renderReconcileOutcome(outcome: ReconcileOutcome): string {
 	const lines: string[] = [];
 	if (delivery.pending > 0 || delivery.failure) {
 		const parts = [`${delivery.delivered} delivered`];
-		if (delivery.unachievable > 0) {
-			parts.push(`${delivery.unachievable} impossible (dropped)`);
+		if (delivery.discarded.length > 0) {
+			parts.push(`${delivery.discarded.length} refused by Gmail`);
 		}
 		if (delivery.retained > 0) parts.push(`${delivery.retained} still pending`);
 		lines.push(`Delivery: ${parts.join(', ')}.`);
+		// The discarded list exists only in this outcome, so print it in full: it
+		// is the user's one chance to see what Gmail would not accept.
+		for (const dropped of delivery.discarded) {
+			lines.push(
+				`  dropped ${dropped.want ? '+' : '-'}${dropped.labelId} on ${dropped.messageId} (${dropped.status}): ${dropped.reason}`,
+			);
+		}
 		if (delivery.failure) {
 			lines.push(
 				`Delivery stopped (${delivery.failure.name}): ${delivery.failure.message}. Nothing was lost; the next pass retries.`,
@@ -528,6 +535,8 @@ function renderStatus(status: MailStatus): string {
 		['last synced', status.lastSyncedAt ?? 'never'],
 		['messages', String(status.rows.messages)],
 		['labels', String(status.rows.labels)],
+		['pending changes', String(status.pending.assertions)],
+		['oldest pending', status.pending.oldestAssertedAt ?? 'none'],
 	];
 	const width = Math.max(...rows.map(([key]) => key.length));
 	return rows

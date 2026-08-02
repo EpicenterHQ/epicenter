@@ -53,6 +53,15 @@ export type LabelIntent = {
 /** An opinion to record. `seq` is allocated by the store, never by the caller. */
 export type LabelAssertion = Omit<LabelIntent, 'seq'>;
 
+/** What is owed to Gmail right now, in aggregate. Deliberately two numbers and
+ * no rows: enough for a status line to be honest about undelivered work without
+ * any per-assertion status becoming durable state. */
+export type PendingSummary = {
+	assertions: number;
+	/** ISO timestamp of the longest-waiting assertion, or `null` when none. */
+	oldestAssertedAt: string | null;
+};
+
 export function intentDbPath(dataDir: string, accountEmail: string): string {
 	return join(accountDirPath(dataDir, accountEmail), 'intent.db');
 }
@@ -78,14 +87,33 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 	db.exec('PRAGMA synchronous = FULL;');
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS label_intents (
-			message_id TEXT    NOT NULL,
-			label_id   TEXT    NOT NULL,
-			want       INTEGER NOT NULL,
-			seq        INTEGER NOT NULL,
+			message_id  TEXT    NOT NULL,
+			label_id    TEXT    NOT NULL,
+			want        INTEGER NOT NULL,
+			seq         INTEGER NOT NULL,
+			asserted_at TEXT,
 			PRIMARY KEY (message_id, label_id)
 		);
 		CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
 	`);
+	// The disposable mirror answers a shape change by deleting itself. This file
+	// cannot, so a column arrives by migration and existing rows are backfilled
+	// rather than left with a hole. `asserted_at` is nullable only because
+	// `ADD COLUMN` cannot be NOT NULL without a constant default, and a constant
+	// would be a lie about when the user acted.
+	const columns = db
+		.query<{ name: string }, []>(
+			`SELECT name FROM pragma_table_info('label_intents')`,
+		)
+		.all()
+		.map((column) => column.name);
+	if (!columns.includes('asserted_at')) {
+		db.exec(`ALTER TABLE label_intents ADD COLUMN asserted_at TEXT`);
+		db.run(
+			`UPDATE label_intents SET asserted_at = ? WHERE asserted_at IS NULL`,
+			[new Date().toISOString()],
+		);
+	}
 	secureDbFiles(path);
 
 	const readSeqStmt = db.query<{ value: string }, []>(
@@ -95,12 +123,13 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 		`INSERT INTO _meta (key, value) VALUES ('next_seq', ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 	);
-	const upsertStmt = db.query<never, [string, string, number, number]>(
-		`INSERT INTO label_intents (message_id, label_id, want, seq)
-		 VALUES (?, ?, ?, ?)
+	const upsertStmt = db.query<never, [string, string, number, number, string]>(
+		`INSERT INTO label_intents (message_id, label_id, want, seq, asserted_at)
+		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(message_id, label_id) DO UPDATE SET
 		   want = excluded.want,
-		   seq = excluded.seq`,
+		   seq = excluded.seq,
+		   asserted_at = excluded.asserted_at`,
 	);
 	const retireStmt = db.query<never, [string, string, number]>(
 		`DELETE FROM label_intents
@@ -113,6 +142,13 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 
 	const maxSeqStmt = db.query<{ seq: number | null }, []>(
 		`SELECT max(seq) AS seq FROM label_intents`,
+	);
+	const summaryStmt = db.query<
+		{ assertions: number; oldest_asserted_at: string | null },
+		[]
+	>(
+		`SELECT count(*) AS assertions, min(asserted_at) AS oldest_asserted_at
+		 FROM label_intents`,
 	);
 
 	/**
@@ -133,20 +169,35 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 		/**
 		 * Record opinions, one fresh sequence per pair, in one transaction. Every
 		 * opinion the act path passes is stored: this is the last word on each
-		 * pair, not a judgement about whether it is worth delivering.
+		 * pair, not a judgement about whether it is worth delivering. `assertedAt`
+		 * comes from the caller's clock and is the only thing that lets a surface
+		 * say how long the oldest undelivered change has been waiting.
 		 */
-		assert(assertions: LabelAssertion[]): number {
+		assert(assertions: LabelAssertion[], assertedAt: string): number {
 			if (assertions.length === 0) return 0;
 			const tx = db.transaction(() => {
 				let seq = nextSeq();
 				for (const { messageId, labelId, want } of assertions) {
-					upsertStmt.run(messageId, labelId, want ? 1 : 0, seq);
+					upsertStmt.run(messageId, labelId, want ? 1 : 0, seq, assertedAt);
 					seq += 1;
 				}
 				writeSeqStmt.run(String(seq));
 				return assertions.length;
 			});
 			return tx.immediate();
+		},
+
+		/**
+		 * How much is owed and how long the oldest has waited. Two aggregates, not
+		 * a row listing: a surface should be able to say "3 changes, oldest 2
+		 * minutes" without anything per-row becoming durable state.
+		 */
+		summary(): PendingSummary {
+			const row = summaryStmt.get();
+			return {
+				assertions: row?.assertions ?? 0,
+				oldestAssertedAt: row?.oldest_asserted_at ?? null,
+			};
 		},
 
 		/** Everything still owed to Gmail, oldest assertion first. */

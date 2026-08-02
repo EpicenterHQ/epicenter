@@ -81,6 +81,20 @@
 				return;
 			}
 			const { delivery, pull } = outcome;
+			// Gmail refused these outright, so they are gone. This toast is the only
+			// place they are ever reported: nothing durable records a refusal, so
+			// saying it once, here, is the whole contract.
+			if (delivery.discarded.length > 0) {
+				toast.warning(
+					`Gmail refused ${delivery.discarded.length} change(s)`,
+					{
+						description: delivery.discarded
+							.map((d) => `${d.want ? 'add' : 'remove'} ${d.labelId}: ${d.reason}`)
+							.join('\n'),
+						duration: 12_000,
+					},
+				);
+			}
 			if (delivery.failure) {
 				toast.error(`Could not reach Gmail: ${delivery.failure.message}`, {
 					description: `${delivery.retained} change(s) still pending. Nothing was lost.`,

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mailDbPath, openMailDbReadonly } from './db.ts';
+import { openIntentDb, type PendingSummary } from './intent.ts';
 import type { LocalMailRuntime } from './runtime.ts';
 import { isAccessTokenExpired } from './tokens.ts';
 
@@ -15,6 +16,13 @@ export type MailStatus = {
 	lastFullPullAt: string | null;
 	lastSyncedAt: string | null;
 	rows: { messages: number; labels: number };
+	/**
+	 * Local triage Gmail has not been told about yet: how much, and how long the
+	 * oldest has waited. Aggregates only. A surface that wants to say "3 changes
+	 * pending, oldest 2 minutes" has everything it needs, and nothing per-row is
+	 * durable enough to become a ledger.
+	 */
+	pending: PendingSummary;
 };
 
 export async function readMailStatus({
@@ -38,6 +46,8 @@ export async function readMailStatus({
 
 	const path = mailDbPath(config.dataDir, accountEmail);
 	if (!existsSync(path)) {
+		// No mirror means no labels to resolve against, so no act can have been
+		// recorded either; reporting zero here is a fact, not a default.
 		return {
 			...base,
 			mirror: 'empty',
@@ -46,10 +56,14 @@ export async function readMailStatus({
 			lastFullPullAt: null,
 			lastSyncedAt: null,
 			rows: { messages: 0, labels: 0 },
+			pending: { assertions: 0, oldestAssertedAt: null },
 		};
 	}
 
+	// Two files, two owners: the mirror answers for Gmail's facts, and the intent
+	// store answers for what this machine still owes Gmail.
 	const db = openMailDbReadonly({ dataDir: config.dataDir, accountEmail });
+	const intent = openIntentDb({ dataDir: config.dataDir, accountEmail });
 	try {
 		const realm = db.realmState();
 		return {
@@ -60,8 +74,10 @@ export async function readMailStatus({
 			lastFullPullAt: realm.lastFullPullAt,
 			lastSyncedAt: realm.lastSyncedAt,
 			rows: db.counts(),
+			pending: intent.summary(),
 		};
 	} finally {
+		intent.close();
 		db.close();
 	}
 }

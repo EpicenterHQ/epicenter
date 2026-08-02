@@ -552,7 +552,10 @@ describe('readonly open', () => {
 		const { db, dataDir, cleanup } = openTmp();
 		db.ingestFullPullPage([message({ labelIds: ['INBOX', 'UNREAD'] })], 's1');
 		const intent = openIntentDb({ dataDir, accountEmail: 'you@example.com' });
-		intent.assert([{ messageId: 'm1', labelId: 'INBOX', want: false }]);
+		intent.assert(
+			[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+			'2026-08-01T12:00:00.000Z',
+		);
 
 		const reader = openMailDbReadonly({
 			dataDir,
