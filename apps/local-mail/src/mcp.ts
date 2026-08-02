@@ -207,7 +207,11 @@ const TOOLS: ToolDescriptor[] = [
 			if (error) return Err(error);
 			try {
 				const { data, error: assertError } = assertMessageLabels({
-					deps: session.deps,
+					deps: {
+						labels: session.deps.db,
+						intent: session.deps.intent,
+						now: session.deps.now,
+					},
 					input: {
 						ids: args.ids,
 						addLabels: args.addLabels ?? [],

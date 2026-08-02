@@ -18,6 +18,39 @@ import { type Static, Type } from 'typebox';
  * a non-mutating predicate, it never strips unknown properties.
  */
 
+/**
+ * Gmail's system label ids. These are protocol constants, not mailbox data:
+ * Gmail assigns them, they are identical in every account, and unlike a user
+ * label they can be neither renamed nor deleted (Gmail API reference, verified
+ * 2026-08-01). Knowing them is what lets triage work before the first pull and
+ * across a mirror rebuild, when the mirrored label table is empty but archiving
+ * still has an unambiguous meaning.
+ *
+ * `CATEGORY_*` are included because Gmail's inbox tabs are system labels a user
+ * can legitimately act on. Custom labels are `Label_<n>` and are NOT here: their
+ * ids and names are account data, so they resolve against the mirror.
+ */
+export const GMAIL_SYSTEM_LABEL_IDS = new Set([
+	'INBOX',
+	'SENT',
+	'DRAFT',
+	'SPAM',
+	'TRASH',
+	'UNREAD',
+	'STARRED',
+	'IMPORTANT',
+	'CHAT',
+	'CATEGORY_PERSONAL',
+	'CATEGORY_SOCIAL',
+	'CATEGORY_PROMOTIONS',
+	'CATEGORY_UPDATES',
+	'CATEGORY_FORUMS',
+]);
+
+/** Gmail routes trash through its own endpoints rather than a label delta, so
+ * this one id is special at delivery. It is an ordinary label everywhere else. */
+export const TRASH_LABEL_ID = 'TRASH';
+
 /** One Gmail message resource. `messages.get(format=full)` populates every
  * field; a `history.list` record's embedded `message` is thinner (id/threadId/
  * labelIds only, per the Gmail History API), which is why every field past

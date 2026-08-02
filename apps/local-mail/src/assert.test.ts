@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type AssertDeps, assertMessageLabels } from './assert.ts';
-import { openMailDb } from './db.ts';
+import { type MailDb, openMailDb } from './db.ts';
 import { openIntentDb } from './intent.ts';
 import type { GmailMessage } from './schema.ts';
 
@@ -38,6 +38,9 @@ function setup(
 	messages: GmailMessage[] = [message('m1', ['INBOX', 'UNREAD'])],
 ): {
 	deps: AssertDeps;
+	/** The mirror behind `deps.labels`, for the one test that needs to change
+	 * Gmail's facts underneath an act. */
+	db: MailDb;
 	cleanup: () => void;
 } {
 	const dir = mkdtempSync(join(tmpdir(), 'local-mail-assert-'));
@@ -58,7 +61,8 @@ function setup(
 		syncedAt,
 	);
 	return {
-		deps: { db, intent, now: () => Date.parse(ACTED_AT) },
+		deps: { labels: db, intent, now: () => Date.parse(ACTED_AT) },
+		db,
 		cleanup: () => {
 			intent.close();
 			db.close();
@@ -166,6 +170,73 @@ describe('assertMessageLabels', () => {
 		}
 	});
 
+	test('system labels resolve with an empty mirror label table', () => {
+		// Before the first pull, and for the whole window after a mirror rebuild,
+		// the mirrored label table is empty. Gmail's system ids are protocol
+		// constants, so triage keeps working: refusing to archive because the
+		// disposable copy has not been repopulated would be refusing a concrete id.
+		const dir = mkdtempSync(join(tmpdir(), 'local-mail-assert-'));
+		const account = { dataDir: dir, accountEmail: 'you@example.com' };
+		const db = openMailDb(account);
+		const intent = openIntentDb(account);
+		try {
+			expect(db.listLabels()).toEqual([]);
+			const deps: AssertDeps = {
+				labels: db,
+				intent,
+				now: () => Date.parse(ACTED_AT),
+			};
+
+			const archived = act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
+			expect(archived.error).toBeNull();
+			const trashed = act(deps, {
+				ids: ['m1'],
+				addLabels: ['TRASH'],
+				removeLabels: ['UNREAD', 'STARRED'],
+			});
+			expect(trashed.error).toBeNull();
+
+			expect(intent.pending().map((i) => [i.labelId, i.want])).toEqual([
+				['INBOX', false],
+				['TRASH', true],
+				['UNREAD', false],
+				['STARRED', false],
+			]);
+		} finally {
+			intent.close();
+			db.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('a custom label is still mailbox data, so an unknown one is still refused', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'local-mail-assert-'));
+		const account = { dataDir: dir, accountEmail: 'you@example.com' };
+		const db = openMailDb(account);
+		const intent = openIntentDb(account);
+		try {
+			const deps: AssertDeps = {
+				labels: db,
+				intent,
+				now: () => Date.parse(ACTED_AT),
+			};
+			// `Label_7` looks like a Gmail custom id, but only the mirror can say
+			// whether this account has it, and right now the mirror knows nothing.
+			expect(
+				act(deps, { ids: ['m1'], addLabels: ['Label_7'] }).error?.name,
+			).toBe('UnknownLabel');
+			expect(
+				act(deps, { ids: ['m1'], addLabels: ['Altered Trajectories'] }).error
+					?.name,
+			).toBe('UnknownLabel');
+			expect(intent.pending()).toEqual([]);
+		} finally {
+			intent.close();
+			db.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test('an unknown label name is refused and records nothing', () => {
 		const { deps, cleanup } = setup();
 		try {
@@ -267,13 +338,13 @@ describe('assertMessageLabels', () => {
 	});
 
 	test('repeating an act that the mirror agrees with never shrinks what is owed', () => {
-		const { deps, cleanup } = setup();
+		const { deps, db, cleanup } = setup();
 		try {
 			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
 			// Pretend the reconciler delivered it and the pull folded Gmail's answer,
 			// but the retirement has not happened yet. The mirror now agrees with the
 			// pending assertion, which is exactly when a cancellation rule would fire.
-			deps.db.patchMessageLabels('m1', ['UNREAD'], '2026-08-01T12:00:01.000Z');
+			db.patchMessageLabels('m1', ['UNREAD'], '2026-08-01T12:00:01.000Z');
 			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
 			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
 

@@ -1,7 +1,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { MailDb } from './db.ts';
 import type { IntentDb, LabelAssertion } from './intent.ts';
+import { GMAIL_SYSTEM_LABEL_IDS } from './schema.ts';
 
 /**
  * The act path: what happens the moment a human (or an agent) triages a
@@ -12,9 +12,12 @@ import type { IntentDb, LabelAssertion } from './intent.ts';
  *
  * Two rules give the surfaces their behaviour for free:
  *
- * - Label names resolve to Gmail label ids HERE, against the mirror, because a
- *   name is a display string the user can rename while an assertion waits. What
- *   is stored is the immutable id.
+ * - Labels resolve to Gmail label ids HERE, because a name is a display string
+ *   the user can rename while an assertion waits; what is stored is the
+ *   immutable id. Gmail's SYSTEM ids are protocol constants and resolve without
+ *   the mirror, so archive, read, star, and trash keep working before the first
+ *   pull and across a mirror rebuild. Only custom labels are mailbox data, and
+ *   only they are looked up.
  * - EVERY valid opinion is recorded, at a fresh sequence, even when the mirror
  *   already agrees with it. Nothing here reads Gmail's facts to decide whether
  *   an act is worth keeping, and nothing here deletes an assertion.
@@ -41,12 +44,18 @@ import type { IntentDb, LabelAssertion } from './intent.ts';
 const MAX_MESSAGES_PER_ACT = 500;
 
 /**
- * Gmail's own ceiling: `messages.modify` accepts at most 100 label ids in
- * `addLabelIds` and 100 in `removeLabelIds` (Gmail API reference, verified
- * 2026-08-01). It is enforced HERE, in the core, rather than only in the MCP
- * tool schema, because an assertion that no delivery could ever carry is not
- * worth making durable: the request it needs cannot be built. A tool schema is
- * a hint to one caller; this is the invariant for all of them.
+ * Gmail's own per-request ceiling: `messages.modify` accepts at most 100 label
+ * ids in `addLabelIds` and 100 in `removeLabelIds` (Gmail API reference,
+ * verified 2026-08-01). Enforced here, in the core rather than only in the MCP
+ * tool schema, so no surface can record an act whose shape Gmail would refuse.
+ *
+ * Scope, precisely: this bounds ONE act, not the total pending for a message.
+ * Two acts of 60 labels each leave 120 pending for the same message, and the
+ * drain groups them into one request Gmail will refuse. That case is already
+ * handled where it happens rather than pre-empted here: a refused group is
+ * retried one assertion at a time, so every one of them still lands (see
+ * `reconcile.ts`). The cost is one wasted request in a case that needs an
+ * account with a hundred custom labels to reach at all.
  */
 const MAX_LABELS_PER_DIRECTION = 100;
 
@@ -77,7 +86,7 @@ export const AssertLabelsError = defineErrors({
 		count,
 	}),
 	UnknownLabel: ({ label }: { label: string }) => ({
-		message: `Unknown Gmail label "${label}". Create it in Gmail, reconcile, or pass the label id.`,
+		message: `Unknown Gmail label "${label}". Gmail's system labels (INBOX, UNREAD, STARRED, TRASH, CATEGORY_*) always resolve; a custom label has to exist in the local copy first, so create it in Gmail and reconcile.`,
 		label,
 	}),
 	/** One act cannot both want and not want the same label. Resolving it by
@@ -107,8 +116,20 @@ export type AssertLabelsOutcome = {
 	asserted: number;
 };
 
+/**
+ * The mirror's label table, narrowed to the one question the act path asks of
+ * it. Naming the capability rather than passing the whole mirror is the point:
+ * an act resolves custom label names and writes to the intent store, and this
+ * type is what says it can do nothing else to Gmail's disposable copy.
+ */
+export type LabelDirectory = {
+	findLabelByIdOrExactName(
+		label: string,
+	): { id: string; name: string | null } | null;
+};
+
 export type AssertDeps = {
-	db: MailDb;
+	labels: LabelDirectory;
 	intent: IntentDb;
 	/** The act's clock. Injected like every other clock here, and stamped onto
 	 * each assertion so a status surface can report how long the oldest
@@ -116,16 +137,28 @@ export type AssertDeps = {
 	now: () => number;
 };
 
-/** Resolve one label id or exact name against the mirror's label table. No
- * Gmail call: the act path is offline by construction, and the mirror carries
- * every label the account has seen. */
+/**
+ * Resolve label ids and exact names. No Gmail call: the act path is offline by
+ * construction.
+ *
+ * A system label id needs no lookup at all. Gmail assigns those, they are the
+ * same in every account, and asking the mirror for them made triage depend on a
+ * disposable file: with an empty label table (before the first pull, or right
+ * after a rebuild) archiving was refused as an unknown label even though
+ * `INBOX` could not be more concrete. Custom labels are genuinely mailbox data,
+ * so they still resolve against the mirror and an unknown one is still refused.
+ */
 function resolveLabelIds(
-	db: MailDb,
+	directory: LabelDirectory,
 	labels: string[],
 ): Result<string[], AssertLabelsError> {
 	const resolved: string[] = [];
 	for (const label of labels) {
-		const row = db.findLabelByIdOrExactName(label);
+		if (GMAIL_SYSTEM_LABEL_IDS.has(label)) {
+			resolved.push(label);
+			continue;
+		}
+		const row = directory.findLabelByIdOrExactName(label);
 		if (!row) return AssertLabelsError.UnknownLabel({ label });
 		resolved.push(row.id);
 	}
@@ -171,7 +204,7 @@ export function assertMessageLabels({
 		});
 	}
 
-	const { data: resolved, error } = resolveLabelIds(deps.db, [
+	const { data: resolved, error } = resolveLabelIds(deps.labels, [
 		...input.addLabels,
 		...input.removeLabels,
 	]);

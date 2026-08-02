@@ -1,7 +1,7 @@
 import type { Result } from 'wellcrafted/result';
 import type { GmailClientError } from './gmail-client.ts';
 import type { IntentDb, LabelIntent } from './intent.ts';
-import type { GmailMessage } from './schema.ts';
+import { type GmailMessage, TRASH_LABEL_ID } from './schema.ts';
 import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
 
 /**
@@ -35,14 +35,15 @@ import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
  *   next pass", not a function of how many passes came before.
  *
  * Assertions are handled independently: one message's rejection never stops
- * another's, and within a message the label change and the trash move are
- * separate deliveries.
+ * another's, and within a message the trash transition and the label change are
+ * separate deliveries, ordered so each still means what the user meant (see the
+ * drain loop).
+ *
+ * A group Gmail refuses for being too large is not special-cased: the same
+ * split retry that handles one impossible label delivers each assertion on its
+ * own, so an accumulation past Gmail's 100-label-per-direction request cap
+ * still lands.
  */
-
-/** Gmail models trash as its own endpoints rather than a label delta, so this
- * one label id routes differently AT DELIVERY. Everywhere else (the act path,
- * the read overlay, the intent store) it is an ordinary label. */
-const TRASH = 'TRASH';
 
 export type ReconcileDeps = SyncDeps & { intent: IntentDb };
 
@@ -110,7 +111,7 @@ function groupByMessage(pending: LabelIntent[]): MessageDelivery[] {
 			delivery = { messageId: intent.messageId, labels: [], trash: null };
 			byMessage.set(intent.messageId, delivery);
 		}
-		if (intent.labelId === TRASH) delivery.trash = intent;
+		if (intent.labelId === TRASH_LABEL_ID) delivery.trash = intent;
 		else delivery.labels.push(intent);
 	}
 	return [...byMessage.values()];
@@ -219,6 +220,33 @@ async function drain(
 	}
 
 	for (const { messageId, labels, trash } of groupByMessage(pending)) {
+		// Order within a message is not the order the user clicked in; it is the
+		// order that makes every one of their assertions mean what they meant.
+		//
+		// Trash is a state a message is IN, not a label alongside the others.
+		// While a message sits in Trash it carries none of the labels a modify
+		// would touch, and untrashing restores whatever it had before. So an
+		// untrash must happen FIRST, or a modify sent beforehand is a no-op that
+		// the untrash then overwrites: "restore this and archive it" would deliver
+		// both assertions, retire both, and leave the message back in the inbox.
+		// Trashing must happen LAST for the mirror image of the same reason, since
+		// label work aimed at a message already in Trash is thrown away.
+		//
+		// Each step is its own delivery with its own retirement, so a systemic
+		// failure between them leaves the rest owed rather than lost.
+		const deliverTrash = (pair: LabelIntent) =>
+			deliver(
+				() =>
+					pair.want
+						? deps.client.trashMessage(messageId)
+						: deps.client.untrashMessage(messageId),
+				// Always one assertion, so this never splits; Gmail's trash endpoints
+				// take no label set to be partly wrong about.
+				[pair],
+			);
+
+		if (trash && !trash.want && !(await deliverTrash(trash))) break;
+
 		if (labels.length > 0) {
 			const proceed = await deliver(
 				(subset) =>
@@ -230,18 +258,8 @@ async function drain(
 			);
 			if (!proceed) break;
 		}
-		if (trash) {
-			// Always one assertion, so this never splits; Gmail's trash endpoints
-			// take no label set to be partly wrong about.
-			const proceed = await deliver(
-				() =>
-					trash.want
-						? deps.client.trashMessage(messageId)
-						: deps.client.untrashMessage(messageId),
-				[trash],
-			);
-			if (!proceed) break;
-		}
+
+		if (trash?.want && !(await deliverTrash(trash))) break;
 	}
 
 	return {

@@ -213,7 +213,11 @@ export function createApiApp(deps: ApiDeps) {
 			}
 			const { ids, addLabels, removeLabels } = c.req.valid('json');
 			const { data, error } = assertMessageLabels({
-				deps: account.deps,
+				deps: {
+					labels: account.deps.db,
+					intent: account.deps.intent,
+					now: account.deps.now,
+				},
 				input: {
 					ids,
 					addLabels: addLabels ?? [],

@@ -308,6 +308,174 @@ describe('drain', () => {
 		}
 	});
 
+	test('restoring from trash happens BEFORE the label changes it enables', async () => {
+		// The case that made this ordering non-negotiable. A message sits in Gmail
+		// Trash, carrying none of the labels a modify would touch, and the user
+		// asks for both "restore" and "archive". Delivered labels-first, the modify
+		// is a no-op against a trashed message and the untrash then puts INBOX
+		// back: both assertions retire and the archive is silently lost.
+		const order: string[] = [];
+		const client = fakeGmail(new Map(), {
+			onWrite: () => undefined,
+			onModify: () => {
+				order.push('modify');
+				return { data: message('m1', ['UNREAD']) };
+			},
+		});
+		const untrashed = client.untrashMessage.bind(client);
+		client.untrashMessage = async (id: string) => {
+			order.push('untrash');
+			return untrashed(id);
+		};
+		const { deps, intent, db, cleanup } = setup(client, [
+			message('m1', ['TRASH']),
+		]);
+		client.results.set('m1', { data: message('m1', ['INBOX', 'UNREAD']) });
+		try {
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'TRASH', want: false },
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+				],
+				new Date(NOW).toISOString(),
+			);
+
+			const { delivery } = await pass(deps);
+
+			expect(order).toEqual(['untrash', 'modify']);
+			expect(client.modifyCalls).toEqual([
+				{ id: 'm1', addLabelIds: [], removeLabelIds: ['INBOX'] },
+			]);
+			expect(delivery).toMatchObject({ pending: 2, delivered: 2, retained: 0 });
+			// Both wishes held: out of Trash, and out of the inbox.
+			expect(mirroredLabels(db, 'm1')).toEqual(['UNREAD']);
+			expect(intent.pending()).toEqual([]);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('moving to trash happens AFTER the label changes it would swallow', async () => {
+		const order: string[] = [];
+		const client = fakeGmail(new Map(), {
+			onModify: () => {
+				order.push('modify');
+				return { data: message('m1', ['STARRED', 'UNREAD']) };
+			},
+		});
+		const trashed = client.trashMessage.bind(client);
+		client.trashMessage = async (id: string) => {
+			order.push('trash');
+			return trashed(id);
+		};
+		const { deps, intent, cleanup } = setup(client);
+		client.results.set('m1', { data: message('m1', ['TRASH']) });
+		try {
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'TRASH', want: true },
+					{ messageId: 'm1', labelId: 'STARRED', want: true },
+				],
+				new Date(NOW).toISOString(),
+			);
+
+			const { delivery } = await pass(deps);
+
+			// The star is applied while the message can still carry it, then it goes
+			// to Trash. Reversed, the star would land on a trashed message.
+			expect(order).toEqual(['modify', 'trash']);
+			expect(delivery).toMatchObject({ pending: 2, delivered: 2, retained: 0 });
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('a re-assert during the untrash keeps the newer wish and still delivers the labels', async () => {
+		let intent: IntentDb | undefined;
+		let reasserted = false;
+		const client = fakeGmail(
+			new Map([['m1', { data: message('m1', ['INBOX']) }]]),
+			{
+				onWrite: () => {
+					// The user changes their mind about trash while the untrash is on the
+					// wire; the archive they also asked for is untouched by that.
+					if (reasserted) return;
+					reasserted = true;
+					intent?.assert(
+						[{ messageId: 'm1', labelId: 'TRASH', want: true }],
+						new Date(NOW).toISOString(),
+					);
+				},
+			},
+		);
+		const created = setup(client, [message('m1', ['TRASH'])]);
+		intent = created.intent;
+		try {
+			intent.assert(
+				[
+					{ messageId: 'm1', labelId: 'TRASH', want: false },
+					{ messageId: 'm1', labelId: 'INBOX', want: false },
+				],
+				new Date(NOW).toISOString(),
+			);
+
+			const { delivery } = await pass(created.deps);
+
+			expect(client.untrashCalls).toEqual(['m1']);
+			// The untrash proved the old sequence and retires nothing; the archive is
+			// unrelated and lands.
+			expect(delivery).toMatchObject({ pending: 2, delivered: 1, retained: 1 });
+			expect(intent.pending()).toMatchObject([
+				{ messageId: 'm1', labelId: 'TRASH', want: true },
+			]);
+		} finally {
+			created.cleanup();
+		}
+	});
+
+	test("a group past Gmail's per-request label cap still lands, one at a time", async () => {
+		// The act path caps ONE act at 100 labels per direction; two acts can still
+		// accumulate past it for the same message. Nothing pre-empts that: Gmail
+		// refuses the oversized request and the split retry delivers every
+		// assertion individually.
+		const client = fakeGmail(new Map(), {
+			onModify: (body) =>
+				body.addLabelIds.length > 100
+					? {
+							error: GmailApiError.Http({
+								status: 400,
+								body: 'Too many labels',
+							}).error,
+						}
+					: { data: message('m1', ['INBOX']) },
+		});
+		const { deps, intent, cleanup } = setup(client);
+		try {
+			intent.assert(
+				Array.from({ length: 101 }, (_, i) => ({
+					messageId: 'm1',
+					labelId: `Label_${i}`,
+					want: true,
+				})),
+				new Date(NOW).toISOString(),
+			);
+
+			const { delivery } = await pass(deps);
+
+			// One refused group, then 101 single-assertion deliveries.
+			expect(client.modifyCalls).toHaveLength(102);
+			expect(delivery).toMatchObject({
+				pending: 101,
+				delivered: 101,
+				discarded: [],
+				retained: 0,
+			});
+			expect(intent.pending()).toEqual([]);
+		} finally {
+			cleanup();
+		}
+	});
+
 	test('archive then undo, racing an in-flight drain, keeps the undo', async () => {
 		// The whole point of sequencing, driven through the public act path rather
 		// than the store: the user archives, the drain picks it up, and the undo
@@ -322,13 +490,13 @@ describe('drain', () => {
 		try {
 			const archive = () =>
 				assertMessageLabels({
-					deps,
+					deps: { labels: deps.db, intent: deps.intent, now: deps.now },
 					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
 					readOnly: false,
 				});
 			const unarchive = () =>
 				assertMessageLabels({
-					deps,
+					deps: { labels: deps.db, intent: deps.intent, now: deps.now },
 					input: { ids: ['m1'], addLabels: ['INBOX'], removeLabels: [] },
 					readOnly: false,
 				});
