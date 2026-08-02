@@ -22,6 +22,7 @@ import {
 	openMailDbReadonly,
 	SCHEMA_VERSION,
 } from './db.ts';
+import { openIntentDb } from './intent.ts';
 import type { GmailMessage } from './schema.ts';
 
 function tempDir() {
@@ -543,19 +544,46 @@ describe('readonly open', () => {
 		reader.close();
 		cleanup();
 	});
+
+	test('the ad-hoc SQL surface sees the same effective labels the app does', () => {
+		// The `query` verb and the MCP `query` tool run through this handle while
+		// the app holds the mirror and the intent store open. They have to see the
+		// live overlay, or an agent would read a mailbox no human is looking at.
+		const { db, dataDir, cleanup } = openTmp();
+		db.ingestFullPullPage([message({ labelIds: ['INBOX', 'UNREAD'] })], 's1');
+		const intent = openIntentDb({ dataDir, accountEmail: 'you@example.com' });
+		intent.assert([{ messageId: 'm1', labelId: 'INBOX', want: false }]);
+
+		const reader = openMailDbReadonly({
+			dataDir,
+			accountEmail: 'you@example.com',
+		});
+		const effective = reader.raw
+			.query<{ label_id: string }, []>(
+				`SELECT label_id FROM effective_labels WHERE message_id = 'm1' ORDER BY label_id`,
+			)
+			.all()
+			.map((row) => row.label_id);
+		expect(effective).toEqual(['UNREAD']);
+		// Reading the durable store through the attachment must not make this
+		// handle a second writer to it.
+		expect(() => reader.raw.exec(`DELETE FROM intent.label_intents`)).toThrow();
+
+		reader.close();
+		intent.close();
+		cleanup();
+	});
 });
 
 describe('mirror layout', () => {
 	test('an account email that is not one path segment cannot name a mirror directory', () => {
 		expect(() => mailDbPath('/data', '../evil')).toThrow(
-			'cannot name a mirror directory',
+			'cannot name a directory',
 		);
 		expect(() => mailDbPath('/data', 'a/b@example.com')).toThrow(
-			'cannot name a mirror directory',
+			'cannot name a directory',
 		);
-		expect(() => mailDbPath('/data', '')).toThrow(
-			'cannot name a mirror directory',
-		);
+		expect(() => mailDbPath('/data', '')).toThrow('cannot name a directory');
 		expect(mailDbPath('/data', 'you@example.com')).toBe(
 			join('/data', 'you@example.com', 'mail.db'),
 		);

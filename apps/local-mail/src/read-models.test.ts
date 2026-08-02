@@ -1,10 +1,12 @@
 /**
  * The HTTP read surface's projections (db.ts's `listMessages`,
  * `getMessageDetail`, `listLabels`). These are the read models `local-mail app`
- * serves to the triage SPA; the point of the tests is that they project Gmail's
- * own mirrored bytes (label ids, epoch dates, headers, extracted body) without
- * inventing state: label filtering is a `json_each` over the stored `labelIds`,
- * search is a plain `LIKE`, and the detail pulls `To`/`Date` from the raw blob.
+ * serves to the triage SPA, the CLI, and MCP. Two things are under test: that
+ * they project Gmail's own mirrored bytes (epoch dates, headers, extracted body)
+ * without inventing state, and that every label question they answer is asked of
+ * the EFFECTIVE label set, Gmail's facts with this machine's undelivered triage
+ * overlaid. The overlay has to sit under the filter, not over the result, or a
+ * filtered page would come back short.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -13,14 +15,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type MailDb, openMailDb } from './db.ts';
+import { type IntentDb, openIntentDb } from './intent.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
-function openTmp(): { db: MailDb; cleanup: () => void } {
+function openTmp(): { db: MailDb; intent: IntentDb; cleanup: () => void } {
 	const dir = mkdtempSync(join(tmpdir(), 'local-mail-read-'));
 	const db = openMailDb({ dataDir: dir, accountEmail: 'you@example.com' });
+	const intent = openIntentDb({
+		dataDir: dir,
+		accountEmail: 'you@example.com',
+	});
 	return {
 		db,
+		intent,
 		cleanup: () => {
+			intent.close();
 			db.close();
 			rmSync(dir, { recursive: true, force: true });
 		},
@@ -218,6 +227,143 @@ describe('listMessages', () => {
 	});
 });
 
+describe('listMessages with undelivered triage', () => {
+	test('an undelivered archive leaves the inbox view and its labels reflect it', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			seed(db);
+			intent.assert([{ messageId: 'newest', labelId: 'INBOX', want: false }]);
+
+			const inbox = db.listMessages({
+				labelId: 'INBOX',
+				limit: 100,
+				offset: 0,
+			});
+			expect(inbox.map((r) => r.id)).toEqual(['oldest']);
+			const all = db.listMessages({ limit: 100, offset: 0 });
+			expect(all.find((r) => r.id === 'newest')?.labelIds).toEqual([
+				'UNREAD',
+				'Label_7',
+			]);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('an undelivered label add puts the row into that label view', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			seed(db);
+			intent.assert([{ messageId: 'oldest', labelId: 'Label_7', want: true }]);
+			expect(
+				db
+					.listMessages({ labelId: 'Label_7', limit: 100, offset: 0 })
+					.map((r) => r.id),
+			).toEqual(['newest', 'oldest']);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('an undelivered trash hides the row everywhere but the Trash view', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			seed(db);
+			intent.assert([{ messageId: 'newest', labelId: 'TRASH', want: true }]);
+
+			expect(
+				db.listMessages({ limit: 100, offset: 0 }).map((r) => r.id),
+			).toEqual(['middle', 'oldest']);
+			expect(
+				db
+					.listMessages({ labelId: 'INBOX', limit: 100, offset: 0 })
+					.map((r) => r.id),
+			).toEqual(['oldest']);
+			expect(
+				db
+					.listMessages({ labelId: 'TRASH', limit: 100, offset: 0 })
+					.map((r) => r.id),
+			).toEqual(['newest']);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('an undelivered untrash brings the row back into the ordinary views', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			db.ingestFullPullPage(
+				[
+					message({ id: 'live', internalDate: '2000', labelIds: ['INBOX'] }),
+					message({
+						id: 'trashed',
+						internalDate: '1000',
+						labelIds: ['INBOX', 'TRASH'],
+					}),
+				],
+				new Date().toISOString(),
+			);
+			intent.assert([{ messageId: 'trashed', labelId: 'TRASH', want: false }]);
+
+			expect(
+				db
+					.listMessages({ labelId: 'INBOX', limit: 100, offset: 0 })
+					.map((r) => r.id),
+			).toEqual(['live', 'trashed']);
+			expect(
+				db.listMessages({ labelId: 'TRASH', limit: 100, offset: 0 }),
+			).toEqual([]);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('the overlay is applied before LIMIT, so a filtered page comes back full', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			// Ten inbox messages, newest first by internal date.
+			db.ingestFullPullPage(
+				Array.from({ length: 10 }, (_, i) =>
+					message({
+						id: `m${i}`,
+						internalDate: String(100 - i),
+						labelIds: ['INBOX'],
+					}),
+				),
+				new Date().toISOString(),
+			);
+			// Archive the first two, undelivered.
+			intent.assert([
+				{ messageId: 'm0', labelId: 'INBOX', want: false },
+				{ messageId: 'm1', labelId: 'INBOX', want: false },
+			]);
+
+			const page = db.listMessages({ labelId: 'INBOX', limit: 3, offset: 0 });
+			// A projection applied after the query would return one row here (three
+			// fetched, two hidden). Pushed down, the page is full and starts at m2.
+			expect(page.map((r) => r.id)).toEqual(['m2', 'm3', 'm4']);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('mirroredLabelIds still reports Gmail facts, ignoring the overlay', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			seed(db);
+			intent.assert([{ messageId: 'newest', labelId: 'INBOX', want: false }]);
+			expect(db.mirroredLabelIds('newest')).toEqual([
+				'INBOX',
+				'UNREAD',
+				'Label_7',
+			]);
+			expect(db.mirroredLabelIds('ghost')).toBeNull();
+		} finally {
+			cleanup();
+		}
+	});
+});
+
 describe('getMessageDetail', () => {
 	test('projects To/Date headers and the extracted body', () => {
 		const { db, cleanup } = openTmp();
@@ -269,6 +415,24 @@ describe('getMessageDetail', () => {
 		try {
 			seed(db);
 			expect(db.getMessageDetail('ghost')).toBeNull();
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('labelIds carry undelivered triage, so the detail pane agrees with the list', () => {
+		const { db, intent, cleanup } = openTmp();
+		try {
+			seed(db);
+			intent.assert([
+				{ messageId: 'newest', labelId: 'UNREAD', want: false },
+				{ messageId: 'newest', labelId: 'STARRED', want: true },
+			]);
+			expect(db.getMessageDetail('newest')?.labelIds).toEqual([
+				'INBOX',
+				'Label_7',
+				'STARRED',
+			]);
 		} finally {
 			cleanup();
 		}
