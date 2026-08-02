@@ -386,10 +386,7 @@ test('mcp: assert_labels records locally, and reconcile is what reaches Gmail', 
 		});
 		expect(ok.error).toBeUndefined();
 		expect(ok.result?.isError).toBeFalsy();
-		expect(ok.result?.structuredContent).toEqual({
-			asserted: 2,
-			withdrawn: 0,
-		});
+		expect(ok.result?.structuredContent).toEqual({ asserted: 2 });
 		// The act reached nothing on the network. Gmail hears from the reconciler.
 		expect(requests).toEqual([]);
 

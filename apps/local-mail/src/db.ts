@@ -385,26 +385,6 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 		},
 
 		/**
-		 * Gmail's last-known label facts for one message, WITHOUT the intent
-		 * overlay, or `null` when the message is not mirrored at all. The act path
-		 * needs the facts rather than the effective set: an assertion records how
-		 * the user's wish differs from what Gmail holds, so comparing a wish
-		 * against a previous wish would make every act look like a no-op.
-		 */
-		mirroredLabelIds(id: string): string[] | null {
-			const row = getMessageRawStmt.get(id);
-			if (!row) return null;
-			try {
-				const parsed = JSON.parse(row.raw) as { labelIds?: unknown };
-				return Array.isArray(parsed.labelIds)
-					? parsed.labelIds.filter((v): v is string => typeof v === 'string')
-					: [];
-			} catch {
-				return [];
-			}
-		},
-
-		/**
 		 * Fold Gmail's authoritative post-mutation labels into one mirrored row.
 		 * Returns false when the row is absent and does not touch `_meta`: a fold
 		 * is not a sync pass and must not move staleness or history cursors.

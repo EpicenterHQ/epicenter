@@ -6,9 +6,12 @@
  *   Gmail's own endpoint at delivery and never smuggled into a label set.
  * - Retirement requires the sequence that was delivered, so an act made while a
  *   delivery is in flight survives it.
- * - A per-target refusal (400/404) resolves that assertion and the loop
- *   continues; a systemic failure stops delivery and keeps every assertion, with
+ * - A refused request is retried one assertion at a time before anything is
+ *   resolved, so one impossible label cannot discard the archive that shared its
+ *   call; a systemic failure stops delivery and keeps every assertion, with
  *   nothing written down about the failure itself.
+ * - An act made mid-delivery wins, because retirement matches the sequence that
+ *   was actually proved.
  * - Read-only skips delivery entirely.
  *
  * The pull phase is `sync.ts`, tested there; the fake client below returns an
@@ -19,6 +22,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertMessageLabels } from './assert.ts';
 import type { AppConfig } from './config.ts';
 import { type MailDb, openMailDb } from './db.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
@@ -70,35 +74,62 @@ type FakeGmail = GmailClient & {
 	}[];
 	trashCalls: string[];
 	untrashCalls: string[];
+	/** The scripted per-id results, exposed so a test can change Gmail's answer
+	 * between two passes. */
+	results: Map<string, WriteResult>;
 };
+
+const MIRRORED_LABELS: GmailLabel[] = [
+	{ id: 'INBOX', name: 'INBOX', type: 'system' },
+	{ id: 'UNREAD', name: 'UNREAD', type: 'system' },
+	{ id: 'STARRED', name: 'STARRED', type: 'system' },
+	{ id: 'TRASH', name: 'TRASH', type: 'system' },
+];
 
 /**
  * A Gmail client whose write endpoints are scripted per message id and whose
  * read endpoints report an unchanged mailbox, so the pull phase is a no-op.
+ *
  * `onWrite` fires before the scripted result is returned, which is how the
- * mid-flight re-assertion test injects an act into the middle of a delivery.
+ * racing-act tests slip a real triage act into the middle of a delivery.
+ * `onModify` answers by request body rather than by id, which is how the
+ * splitting test makes one label acceptable and another not.
  */
 function fakeGmail(
 	results: Map<string, WriteResult>,
-	onWrite?: (id: string) => void,
+	hooks: {
+		onWrite?: (id: string) => void;
+		onModify?: (body: {
+			addLabelIds: string[];
+			removeLabelIds: string[];
+		}) => WriteResult | null;
+	} = {},
 ): FakeGmail {
 	const modifyCalls: FakeGmail['modifyCalls'] = [];
 	const trashCalls: string[] = [];
 	const untrashCalls: string[] = [];
-	const lookup = (id: string) => {
-		onWrite?.(id);
-		const result = results.get(id);
-		if (!result) return GmailApiError.Http({ status: 404, body: 'not found' });
-		return 'error' in result
+	const answer = (result: WriteResult) =>
+		'error' in result
 			? { data: null, error: result.error }
 			: { data: result.data, error: null };
+	const lookup = (id: string) => {
+		hooks.onWrite?.(id);
+		const result = results.get(id);
+		if (!result) return GmailApiError.Http({ status: 404, body: 'not found' });
+		return answer(result);
 	};
 	return {
 		modifyCalls,
 		trashCalls,
 		untrashCalls,
+		results,
 		async modifyMessage(id, body) {
 			modifyCalls.push({ id, ...body });
+			const scripted = hooks.onModify?.(body);
+			if (scripted) {
+				hooks.onWrite?.(id);
+				return answer(scripted);
+			}
 			return lookup(id);
 		},
 		async trashMessage(id) {
@@ -119,7 +150,10 @@ function fakeGmail(
 			return { data: { historyId: '1' }, error: null };
 		},
 		async listLabels(): Promise<{ data: GmailLabel[]; error: null }> {
-			return { data: [], error: null };
+			// The pull phase replaces the mirrored label set with whatever this
+			// returns, so hand back the seeded one rather than emptying the table
+			// underneath a later act.
+			return { data: MIRRORED_LABELS, error: null };
 		},
 		async getProfile() {
 			return { data: { historyId: '1' }, error: null };
@@ -139,6 +173,7 @@ function setup(
 	});
 	const syncedAt = new Date(NOW).toISOString();
 	db.ingestFullPullPage(messages, syncedAt);
+	db.ingestLabels(MIRRORED_LABELS, syncedAt);
 	// A cursor plus a recent sync keeps the pull phase INCREMENTAL, so these
 	// tests exercise delivery rather than a full backfill.
 	db.finishFullPull('1', syncedAt);
@@ -156,6 +191,17 @@ function setup(
 
 const pass = (deps: ReconcileDeps, readOnly = false) =>
 	reconcileAccount(deps, { forceFull: false, readOnly });
+
+/** Gmail's facts for one message, straight out of the mirror column, with no
+ * intent overlay: what the reconciler folded, not what a reader would see. */
+function mirroredLabels(db: MailDb, id: string): string[] {
+	const row = db.raw
+		.query<{ label_ids: string | null }, [string]>(
+			`SELECT label_ids FROM messages WHERE id = ?`,
+		)
+		.get(id);
+	return JSON.parse(row?.label_ids ?? '[]') as string[];
+}
 
 describe('drain', () => {
 	test('one message with several opinions becomes one modify call', async () => {
@@ -201,7 +247,7 @@ describe('drain', () => {
 			await pass(deps);
 			// The overlay is gone and the fact took its place, so the row never
 			// flickers back into the inbox between the two writes.
-			expect(db.mirroredLabelIds('m1')).toEqual(['UNREAD']);
+			expect(mirroredLabels(db, 'm1')).toEqual(['UNREAD']);
 			expect(
 				db.listMessages({ labelId: 'INBOX', limit: 10, offset: 0 }),
 			).toEqual([]);
@@ -250,28 +296,158 @@ describe('drain', () => {
 		}
 	});
 
-	test('an act made mid-delivery survives the delivery it raced', async () => {
-		let intent: IntentDb | undefined;
+	test('archive then undo, racing an in-flight drain, keeps the undo', async () => {
+		// The whole point of sequencing, driven through the public act path rather
+		// than the store: the user archives, the drain picks it up, and the undo
+		// lands while that delivery is on the wire.
+		let undo: (() => void) | null = null;
 		const client = fakeGmail(
 			new Map([['m1', { data: message('m1', ['UNREAD']) }]]),
-			// The user un-archives while the archive is on the wire.
-			() => intent?.assert([{ messageId: 'm1', labelId: 'INBOX', want: true }]),
+			{ onWrite: () => undo?.() },
 		);
 		const created = setup(client);
-		intent = created.intent;
+		const { deps, intent, db, cleanup } = created;
 		try {
-			intent.assert([{ messageId: 'm1', labelId: 'INBOX', want: false }]);
+			const archive = () =>
+				assertMessageLabels({
+					deps,
+					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
+					readOnly: false,
+				});
+			const unarchive = () =>
+				assertMessageLabels({
+					deps,
+					input: { ids: ['m1'], addLabels: ['INBOX'], removeLabels: [] },
+					readOnly: false,
+				});
 
-			const { delivery } = await pass(created.deps);
+			expect(archive().error).toBeNull();
+			undo = () => {
+				undo = null;
+				expect(unarchive().error).toBeNull();
+			};
 
-			// The delivery proved the OLD sequence, so it retired nothing, and the
-			// newer wish is still owed.
-			expect(delivery).toMatchObject({ pending: 1, delivered: 0, retained: 1 });
-			expect(intent.pending()).toMatchObject([
-				{ messageId: 'm1', labelId: 'INBOX', want: true },
+			const first = await pass(deps);
+
+			// Gmail was told to archive, and answered. But the undo carries a newer
+			// sequence, so that answer proves nothing about it: nothing is retired,
+			// and the mailbox the user sees is back in the inbox on the strength of
+			// the still-pending assertion.
+			expect(client.modifyCalls).toEqual([
+				{ id: 'm1', addLabelIds: [], removeLabelIds: ['INBOX'] },
 			]);
+			expect(first.delivery).toMatchObject({
+				pending: 1,
+				delivered: 0,
+				retained: 1,
+			});
+			expect(mirroredLabels(db, 'm1')).toEqual(['UNREAD']);
+			expect(
+				db
+					.listMessages({ labelId: 'INBOX', limit: 10, offset: 0 })
+					.map((r) => r.id),
+			).toEqual(['m1']);
+
+			// The next pass delivers the undo. That second call is the redundant
+			// modify this design accepts: one wasted request, and no lost choice.
+			client.results.set('m1', { data: message('m1', ['INBOX', 'UNREAD']) });
+			const second = await pass(deps);
+
+			expect(client.modifyCalls).toHaveLength(2);
+			expect(client.modifyCalls[1]).toEqual({
+				id: 'm1',
+				addLabelIds: ['INBOX'],
+				removeLabelIds: [],
+			});
+			expect(second.delivery).toMatchObject({ delivered: 1, retained: 0 });
+			expect(intent.pending()).toEqual([]);
+			expect(mirroredLabels(db, 'm1')).toEqual(['INBOX', 'UNREAD']);
 		} finally {
-			created.cleanup();
+			cleanup();
+		}
+	});
+
+	test('a rejected group is retried one assertion at a time', async () => {
+		// Gmail refuses the request because of ONE label in it. Retiring the whole
+		// group on that basis would throw away the archive the user also asked for,
+		// so the group is split and only the individually rejected pair resolves.
+		const client = fakeGmail(new Map(), {
+			onModify: (body) =>
+				body.addLabelIds.includes('Label_gone')
+					? {
+							error: GmailApiError.Http({
+								status: 400,
+								body: 'Invalid label: Label_gone',
+							}).error,
+						}
+					: { data: message('m1', ['UNREAD']) },
+		});
+		const { deps, intent, db, cleanup } = setup(client);
+		try {
+			intent.assert([
+				{ messageId: 'm1', labelId: 'INBOX', want: false },
+				{ messageId: 'm1', labelId: 'Label_gone', want: true },
+			]);
+
+			const { delivery } = await pass(deps);
+
+			// One grouped attempt, then one attempt per assertion.
+			expect(client.modifyCalls).toEqual([
+				{
+					id: 'm1',
+					addLabelIds: ['Label_gone'],
+					removeLabelIds: ['INBOX'],
+				},
+				{ id: 'm1', addLabelIds: [], removeLabelIds: ['INBOX'] },
+				{ id: 'm1', addLabelIds: ['Label_gone'], removeLabelIds: [] },
+			]);
+			expect(delivery).toMatchObject({
+				pending: 2,
+				delivered: 1,
+				unachievable: 1,
+				retained: 0,
+				failure: null,
+			});
+			expect(intent.pending()).toEqual([]);
+			// The archive really landed; only the impossible label was dropped.
+			expect(mirroredLabels(db, 'm1')).toEqual(['UNREAD']);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('a systemic failure during a split retry stops the pass and keeps everything', async () => {
+		let attempts = 0;
+		const client = fakeGmail(new Map(), {
+			onModify: () => {
+				attempts += 1;
+				// The group is refused, and the first split retry hits a throttle.
+				return attempts === 1
+					? {
+							error: GmailApiError.Http({ status: 400, body: 'bad request' })
+								.error,
+						}
+					: { error: GmailApiError.Throttled({ retries: 5 }).error };
+			},
+		});
+		const { deps, intent, cleanup } = setup(client);
+		try {
+			intent.assert([
+				{ messageId: 'm1', labelId: 'INBOX', want: false },
+				{ messageId: 'm1', labelId: 'STARRED', want: true },
+			]);
+
+			const { delivery } = await pass(deps);
+
+			expect(delivery.failure?.name).toBe('Throttled');
+			expect(delivery).toMatchObject({
+				delivered: 0,
+				unachievable: 0,
+				retained: 2,
+			});
+			expect(intent.pending()).toHaveLength(2);
+		} finally {
+			cleanup();
 		}
 	});
 

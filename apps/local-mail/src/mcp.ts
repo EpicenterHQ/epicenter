@@ -181,7 +181,7 @@ const TOOLS: ToolDescriptor[] = [
 		name: 'assert_labels',
 		title: 'Change message labels',
 		description:
-			'Record a label change for 1 to 500 messages: add or remove Gmail labels by id or exact name. UNREAD marks unread, removing UNREAD marks read, removing INBOX archives, adding INBOX unarchives, and adding TRASH moves to trash. The change is durable and visible to every local read immediately, including this mirror; Gmail is told by the next reconcile pass, which the open app runs on its own. Asking for a label state Gmail already has cancels any pending change instead of queueing a second one.',
+			'Record a label change for 1 to 500 messages: add or remove Gmail labels by id or exact name. UNREAD marks unread, removing UNREAD marks read, removing INBOX archives, adding INBOX unarchives, and adding TRASH moves to trash. The change is durable and visible to every local read immediately, including this mirror; Gmail is told by the next reconcile pass, which the open app runs on its own. Each message and label pair keeps only its latest requested state, so asking again replaces the previous answer rather than queueing a second change. One call cannot both add and remove the same label.',
 		input: Type.Object({
 			ids: Type.Array(Type.String({ minLength: 1 }), {
 				minItems: 1,

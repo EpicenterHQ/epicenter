@@ -394,17 +394,7 @@ type TriageActReport = {
 };
 
 function renderTriageAct(report: TriageActReport, done: string): string {
-	const { asserted, withdrawn } = report.act;
-	const lines: string[] = [];
-	if (asserted > 0) lines.push(`${asserted} change(s) recorded (${done}).`);
-	if (withdrawn > 0) {
-		lines.push(
-			`${withdrawn} pending change(s) cancelled: Gmail already agrees, so nothing will be sent.`,
-		);
-	}
-	if (asserted === 0 && withdrawn === 0) {
-		lines.push(`Nothing to do (${done} already).`);
-	}
+	const lines = [`${report.act.asserted} change(s) recorded (${done}).`];
 	lines.push(
 		report.reconcile === null
 			? 'Another reconciler owns this account (the app is open, or a pass is running); it delivers this shortly.'

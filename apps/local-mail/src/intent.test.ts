@@ -4,7 +4,8 @@
  * These pin the two properties everything else leans on: the store holds a MAP
  * from `(message, label)` to a wish, not a log of acts; and its sequence is
  * monotonic for the life of the account, which is what stops an in-flight
- * delivery from retiring a newer wish.
+ * delivery from retiring a newer wish. A row leaves only through `retire`, and
+ * only against the sequence a delivery actually proved.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -88,30 +89,6 @@ describe('assert', () => {
 				['INBOX', 1],
 				['UNREAD', 2],
 			]);
-		} finally {
-			cleanup();
-		}
-	});
-});
-
-describe('withdraw', () => {
-	test('removes the assertion outright, so nothing is owed', () => {
-		const { intent, cleanup } = openTmp();
-		try {
-			intent.assert([{ messageId: 'm1', labelId: 'INBOX', want: false }]);
-			expect(intent.withdraw([{ messageId: 'm1', labelId: 'INBOX' }])).toBe(1);
-			expect(intent.pending()).toEqual([]);
-		} finally {
-			cleanup();
-		}
-	});
-
-	test('withdrawing a pair that was never asserted changes nothing', () => {
-		const { intent, cleanup } = openTmp();
-		try {
-			expect(intent.withdraw([{ messageId: 'ghost', labelId: 'INBOX' }])).toBe(
-				0,
-			);
 		} finally {
 			cleanup();
 		}

@@ -346,7 +346,7 @@ describe('POST /messages/assert', () => {
 			removeLabels: ['INBOX'],
 		});
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ asserted: 1, withdrawn: 0 });
+		expect(await res.json()).toEqual({ asserted: 1 });
 		expect(a.wakes).toBe(1);
 		expect(a.intent.pending()).toMatchObject([
 			{ messageId: 'ma', labelId: 'INBOX', want: false },

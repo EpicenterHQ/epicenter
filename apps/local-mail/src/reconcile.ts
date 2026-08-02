@@ -23,9 +23,11 @@ import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
  *
  * Failure handling has exactly two shapes, and no state is persisted for either:
  *
- * - The provider says this specific target is impossible or gone (400/404). The
- *   assertion can never succeed, so it is retired. Nothing is written down about
- *   why; a dead-letter row would be state nobody reads.
+ * - The provider refuses the request (400/404). That names the request, not
+ *   necessarily every assertion inside it, so a rejected group is retried one
+ *   assertion at a time and only the individually rejected one is resolved. A
+ *   resolved assertion is simply retired: nothing is written down about why,
+ *   because a dead-letter row would be state nobody reads.
  * - Anything else (auth, throttling, network, 5xx) is systemic. Delivery stops
  *   where it is, every undelivered assertion stays exactly as it was, and the
  *   next pass tries again. No attempt counter, because the retry policy is "the
@@ -124,21 +126,41 @@ async function drain(
 	let failure: DeliveryOutcome['failure'] = null;
 
 	/**
-	 * Deliver one Gmail call's worth of assertions. Folds the returned message
-	 * into the mirror BEFORE retiring, so the fact lands before the overlay that
-	 * was standing in for it disappears; a crash between the two redelivers, and
-	 * label writes are idempotent. Returns false when the failure was systemic
-	 * and the pass must stop.
+	 * Deliver a set of assertions through one Gmail call, and answer whether the
+	 * pass may continue.
+	 *
+	 * On success the returned message is folded into the mirror BEFORE the
+	 * assertions are retired, so the fact lands before the overlay standing in for
+	 * it disappears; a crash between the two redelivers, and label writes are
+	 * idempotent.
+	 *
+	 * On a per-target refusal the rejection is about the REQUEST, not necessarily
+	 * about every assertion in it: one label id Gmail will not accept would
+	 * otherwise take the whole group down with it. So a rejected group of more
+	 * than one is retried an assertion at a time, and only the assertion that is
+	 * individually rejected is resolved. `send` takes the subset for exactly this
+	 * reason.
 	 */
 	async function deliver(
-		call: Promise<Result<GmailMessage, GmailClientError>>,
+		send: (
+			subset: LabelIntent[],
+		) => Promise<Result<GmailMessage, GmailClientError>>,
 		covered: LabelIntent[],
 	): Promise<boolean> {
-		const { data: message, error } = await call;
+		const { data: message, error } = await send(covered);
 		if (error) {
 			if (!isUnachievable(error)) {
 				failure = { name: error.name, message: error.message };
 				return false;
+			}
+			if (covered.length > 1) {
+				log(
+					`delivery refused for ${covered[0]?.messageId}; retrying its ${covered.length} assertions one at a time: ${error.message}`,
+				);
+				for (const assertion of covered) {
+					if (!(await deliver(send, [assertion]))) return false;
+				}
+				return true;
 			}
 			log(`delivery refused for ${covered[0]?.messageId}: ${error.message}`);
 			unachievable += deps.intent.retire(covered);
@@ -158,19 +180,23 @@ async function drain(
 	for (const { messageId, labels, trash } of groupByMessage(pending)) {
 		if (labels.length > 0) {
 			const proceed = await deliver(
-				deps.client.modifyMessage(messageId, {
-					addLabelIds: labels.filter((i) => i.want).map((i) => i.labelId),
-					removeLabelIds: labels.filter((i) => !i.want).map((i) => i.labelId),
-				}),
+				(subset) =>
+					deps.client.modifyMessage(messageId, {
+						addLabelIds: subset.filter((i) => i.want).map((i) => i.labelId),
+						removeLabelIds: subset.filter((i) => !i.want).map((i) => i.labelId),
+					}),
 				labels,
 			);
 			if (!proceed) break;
 		}
 		if (trash) {
+			// Always one assertion, so this never splits; Gmail's trash endpoints
+			// take no label set to be partly wrong about.
 			const proceed = await deliver(
-				trash.want
-					? deps.client.trashMessage(messageId)
-					: deps.client.untrashMessage(messageId),
+				() =>
+					trash.want
+						? deps.client.trashMessage(messageId)
+						: deps.client.untrashMessage(messageId),
 				[trash],
 			);
 			if (!proceed) break;

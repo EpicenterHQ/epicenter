@@ -4,8 +4,11 @@
  *
  * - An act is offline. It resolves label names against the mirror and never
  *   calls Gmail, so `deps` here carries no client at all.
- * - Assertions record DIVERGENCE from Gmail's facts, so asking for what Gmail
- *   already has cancels a pending act instead of queueing an opposite one.
+ * - EVERY valid opinion is recorded at a fresh sequence, including one the
+ *   mirror already agrees with. The mirror lags Gmail and lags in-flight
+ *   delivery, so treating agreement as "nothing to do" would silently drop a
+ *   user's choice; a redundant label modify is the cheaper mistake.
+ * - An inverse act replaces the pending one rather than erasing it.
  * - The read-only gate refuses before anything is recorded.
  */
 
@@ -86,7 +89,7 @@ describe('assertMessageLabels', () => {
 				removeLabels: ['INBOX'],
 			});
 			expect(error).toBeNull();
-			expect(data).toEqual({ asserted: 1, withdrawn: 0 });
+			expect(data).toEqual({ asserted: 1 });
 			expect(deps.intent.pending()).toMatchObject([
 				{ messageId: 'm1', labelId: 'INBOX', want: false },
 			]);
@@ -95,27 +98,55 @@ describe('assertMessageLabels', () => {
 		}
 	});
 
-	test('the inverse act before delivery cancels the assertion outright', () => {
+	test('an inverse act overwrites the pending one at a newer sequence', () => {
 		const { deps, cleanup } = setup();
 		try {
 			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
+			const first = deps.intent.pending()[0];
+
 			const { data } = act(deps, { ids: ['m1'], addLabels: ['INBOX'] });
 
-			// Gmail's fact is still INBOX, so wanting INBOX is not a divergence: the
-			// pending act disappears and Gmail is never told about either half.
-			expect(data).toEqual({ asserted: 0, withdrawn: 1 });
-			expect(deps.intent.pending()).toEqual([]);
+			// One row, not two, and not zero: the store keeps the latest answer for
+			// the pair, and the newer sequence is what invalidates the retirement of
+			// any delivery still carrying the older one.
+			expect(data).toEqual({ asserted: 1 });
+			const pending = deps.intent.pending();
+			expect(pending).toHaveLength(1);
+			expect(pending[0]).toMatchObject({ labelId: 'INBOX', want: true });
+			expect(pending[0]?.seq).toBeGreaterThan(first?.seq ?? 0);
 		} finally {
 			cleanup();
 		}
 	});
 
-	test('asking for what Gmail already has records nothing', () => {
+	test('an act the mirror already agrees with is still recorded', () => {
 		const { deps, cleanup } = setup();
 		try {
+			// The mirror says INBOX is present. It can be wrong in both directions:
+			// stale against Gmail, or simply not yet folded from a delivery this
+			// machine already sent. Judging the act redundant against it would throw
+			// the user's choice away on the strength of a guess.
 			const { data } = act(deps, { ids: ['m1'], addLabels: ['INBOX'] });
-			expect(data).toEqual({ asserted: 0, withdrawn: 0 });
-			expect(deps.intent.pending()).toEqual([]);
+			expect(data).toEqual({ asserted: 1 });
+			expect(deps.intent.pending()).toMatchObject([
+				{ messageId: 'm1', labelId: 'INBOX', want: true },
+			]);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('a stale mirror does not stop the user from asserting the opposite', () => {
+		// Gmail has moved on (the message was un-archived elsewhere) but this
+		// mirror still shows the pre-change facts. The user, looking at some other
+		// view or simply at reality, asks for INBOX off, and that has to be kept.
+		const { deps, cleanup } = setup([message('m1', [])]);
+		try {
+			const { data } = act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
+			expect(data).toEqual({ asserted: 1 });
+			expect(deps.intent.pending()).toMatchObject([
+				{ messageId: 'm1', labelId: 'INBOX', want: false },
+			]);
 		} finally {
 			cleanup();
 		}
@@ -138,6 +169,30 @@ describe('assertMessageLabels', () => {
 		try {
 			const { error } = act(deps, { ids: ['m1'], addLabels: ['Nope'] });
 			expect(error?.name).toBe('UnknownLabel');
+			expect(deps.intent.pending()).toEqual([]);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('one act cannot both add and remove the same label', () => {
+		const { deps, cleanup } = setup();
+		try {
+			const byId = act(deps, {
+				ids: ['m1'],
+				addLabels: ['Label_7'],
+				removeLabels: ['Label_7'],
+			});
+			expect(byId.error?.name).toBe('ContradictoryLabel');
+
+			// Caught after resolution, so spelling one side as a display name does
+			// not sneak past it.
+			const byName = act(deps, {
+				ids: ['m1'],
+				addLabels: ['Altered Trajectories'],
+				removeLabels: ['Label_7'],
+			});
+			expect(byName.error?.name).toBe('ContradictoryLabel');
 			expect(deps.intent.pending()).toEqual([]);
 		} finally {
 			cleanup();
@@ -178,12 +233,11 @@ describe('assertMessageLabels', () => {
 		}
 	});
 
-	test('an id the mirror has never seen is asserted, not cancelled', () => {
+	test('an id the mirror has never seen is recorded like any other', () => {
 		const { deps, cleanup } = setup();
 		try {
 			const { data } = act(deps, { ids: ['ghost'], removeLabels: ['INBOX'] });
-			// There is no fact to agree with, so the wish stands and gets delivered.
-			expect(data).toEqual({ asserted: 1, withdrawn: 0 });
+			expect(data).toEqual({ asserted: 1 });
 		} finally {
 			cleanup();
 		}

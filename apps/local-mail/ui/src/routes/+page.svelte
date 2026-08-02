@@ -113,8 +113,8 @@
 	// The one write path. Both the toolbar (via `onDispatch`) and the keyboard
 	// call this; the read-only gate and the undo toast live here alone. `id` is
 	// explicit so Undo targets the original message even after the selection has
-	// moved on. Undo is the inverse assertion, which cancels the original
-	// outright when the reconciler has not delivered it yet.
+	// moved on. Undo is the inverse assertion: it replaces the pending one, and
+	// wins even against a delivery already in flight.
 	type ActVars = { id: string; action: TriageAction; undoable: boolean };
 	const act = createMutation(() => ({
 		mutationFn: (v: ActVars) =>

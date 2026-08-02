@@ -347,17 +347,23 @@ describe('listMessages with undelivered triage', () => {
 		}
 	});
 
-	test('mirroredLabelIds still reports Gmail facts, ignoring the overlay', () => {
+	test("the mirror's own column keeps Gmail's facts under the overlay", () => {
 		const { db, intent, cleanup } = openTmp();
 		try {
 			seed(db);
 			intent.assert([{ messageId: 'newest', labelId: 'INBOX', want: false }]);
-			expect(db.mirroredLabelIds('newest')).toEqual([
+			// The overlay is a read-time projection: it never edits the row the
+			// reconciler folds Gmail's answers into.
+			const row = db.raw
+				.query<{ label_ids: string | null }, [string]>(
+					`SELECT label_ids FROM messages WHERE id = ?`,
+				)
+				.get('newest');
+			expect(JSON.parse(row?.label_ids ?? '[]')).toEqual([
 				'INBOX',
 				'UNREAD',
 				'Label_7',
 			]);
-			expect(db.mirroredLabelIds('ghost')).toBeNull();
 		} finally {
 			cleanup();
 		}

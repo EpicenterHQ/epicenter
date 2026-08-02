@@ -20,10 +20,15 @@ import { accountDirPath, ensureAccountDir, secureDbFiles } from './paths.ts';
  * It is NOT a queue, an action log, a payload table, a retry counter, a
  * dead-letter table, a schedule, or a standing policy. The primary key is the
  * design: re-asserting a pair overwrites its `want` and takes a fresh `seq`, so
- * archive then unarchive then archive is one row, and asking for what a message
- * already has is not an assertion at all but the removal of one (see
- * `withdraw`). Nothing here talks to Gmail; `reconcile.ts` is the only writer to
- * the provider, and it is the only caller of `pending` and `retire`.
+ * archive then unarchive then archive is one row rather than three acts, and the
+ * store never grows with history. Nothing here talks to Gmail; `reconcile.ts` is
+ * the only writer to the provider, and it is the only caller of `pending` and
+ * `retire`.
+ *
+ * There is deliberately no way to delete a row except `retire`, which requires
+ * the sequence a delivery actually proved. An act cannot erase an earlier act,
+ * it can only supersede it, so no code path can drop a user's choice on the
+ * strength of a guess about what Gmail already holds.
  *
  * `seq` comes from a counter in `_meta`, not from `max(seq) + 1`: retirement
  * empties the table, and a counter that restarts would let an in-flight delivery
@@ -47,10 +52,6 @@ export type LabelIntent = {
 
 /** An opinion to record. `seq` is allocated by the store, never by the caller. */
 export type LabelAssertion = Omit<LabelIntent, 'seq'>;
-
-/** A pair to remove (the act path cancelling) or to retire (delivery landing,
- * which additionally has to match `seq`). */
-export type LabelIntentPair = Pick<LabelIntent, 'messageId' | 'labelId'>;
 
 export function intentDbPath(dataDir: string, accountEmail: string): string {
 	return join(accountDirPath(dataDir, accountEmail), 'intent.db');
@@ -101,9 +102,6 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 		   want = excluded.want,
 		   seq = excluded.seq`,
 	);
-	const deletePairStmt = db.query<never, [string, string]>(
-		`DELETE FROM label_intents WHERE message_id = ? AND label_id = ?`,
-	);
 	const retireStmt = db.query<never, [string, string, number]>(
 		`DELETE FROM label_intents
 		 WHERE message_id = ? AND label_id = ? AND seq = ?`,
@@ -133,9 +131,9 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 		path,
 
 		/**
-		 * Record opinions, one fresh sequence per pair, in one transaction. The
-		 * caller has already decided that each pair diverges from what Gmail's
-		 * facts say (`assert.ts`); this only stores the decision.
+		 * Record opinions, one fresh sequence per pair, in one transaction. Every
+		 * opinion the act path passes is stored: this is the last word on each
+		 * pair, not a judgement about whether it is worth delivering.
 		 */
 		assert(assertions: LabelAssertion[]): number {
 			if (assertions.length === 0) return 0;
@@ -147,24 +145,6 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 				}
 				writeSeqStmt.run(String(seq));
 				return assertions.length;
-			});
-			return tx.immediate();
-		},
-
-		/**
-		 * Drop assertions outright: the user asked for what Gmail already has, so
-		 * there is nothing to deliver. This is how an inverse act cancels a write
-		 * that has not left the machine, and it is why undo before the next
-		 * reconcile costs Gmail nothing.
-		 */
-		withdraw(pairs: LabelIntentPair[]): number {
-			if (pairs.length === 0) return 0;
-			const tx = db.transaction(() => {
-				let removed = 0;
-				for (const { messageId, labelId } of pairs) {
-					removed += deletePairStmt.run(messageId, labelId).changes;
-				}
-				return removed;
 			});
 			return tx.immediate();
 		},

@@ -1,7 +1,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { MailDb } from './db.ts';
-import type { IntentDb, LabelAssertion, LabelIntentPair } from './intent.ts';
+import type { IntentDb, LabelAssertion } from './intent.ts';
 
 /**
  * The act path: what happens the moment a human (or an agent) triages a
@@ -15,10 +15,19 @@ import type { IntentDb, LabelAssertion, LabelIntentPair } from './intent.ts';
  * - Label names resolve to Gmail label ids HERE, against the mirror, because a
  *   name is a display string the user can rename while an assertion waits. What
  *   is stored is the immutable id.
- * - An act that asks for what Gmail's facts already say is not an assertion, it
- *   is the removal of one. That single rule is what makes undo-before-delivery
- *   cancel a write instead of queueing a second one, and it is why the store
- *   only ever holds divergence from the mirror.
+ * - EVERY valid opinion is recorded, at a fresh sequence, even when the mirror
+ *   already agrees with it. Nothing here reads Gmail's facts to decide whether
+ *   an act is worth keeping, and nothing here deletes an assertion.
+ *
+ * That second rule is the one worth defending, because skipping or cancelling
+ * on mirror agreement looks free and is not. The mirror lags: it does not carry
+ * a change the reconciler has sent but not yet pulled back, and it can be stale
+ * against Gmail for a whole poll interval. An act judged redundant against those
+ * facts is a user choice dropped silently. So undo before delivery REPLACES the
+ * pending assertion (a fresh sequence, which also invalidates the retirement of
+ * the delivery it raced) rather than erasing it, and the worst case is one
+ * redundant label modify, which Gmail accepts as a no-op. A wasted request is a
+ * bounded, visible cost; a lost intent is neither.
  *
  * Ids are snapshotted by the caller, not resolved later: the surfaces pass the
  * concrete message ids the user acted on, so a message that arrives into the
@@ -49,6 +58,13 @@ export const AssertLabelsError = defineErrors({
 		message: `Unknown Gmail label "${label}". Create it in Gmail, reconcile, or pass the label id.`,
 		label,
 	}),
+	/** One act cannot both want and not want the same label. Resolving it by
+	 * list order would make the outcome depend on how the caller happened to
+	 * spell it, so it is refused instead. */
+	ContradictoryLabel: ({ label }: { label: string }) => ({
+		message: `Label "${label}" is asked to be both added and removed by the same act.`,
+		label,
+	}),
 });
 export type AssertLabelsError = InferErrors<typeof AssertLabelsError>;
 
@@ -62,14 +78,11 @@ export type AssertLabelsInput = {
 };
 
 export type AssertLabelsOutcome = {
-	/** Pairs now recorded as diverging from Gmail's facts. */
+	/** `(message, label)` pairs this act recorded, each at a fresh sequence.
+	 * Always `ids.length * (addLabels.length + removeLabels.length)`: an act
+	 * that agrees with the mirror is still recorded, so this is a count of what
+	 * was asked for, not of what looked worth keeping. */
 	asserted: number;
-	/**
-	 * Pairs whose assertion was removed because the act asked for what Gmail
-	 * already holds. Undo before the next reconcile lands here, and Gmail never
-	 * hears about either half.
-	 */
-	withdrawn: number;
 };
 
 export type AssertDeps = { db: MailDb; intent: IntentDb };
@@ -91,9 +104,9 @@ function resolveLabelIds(
 }
 
 /**
- * Record one triage act. Returns what changed in the durable store; there is no
- * per-id outcome because no id can fail: the act is a local write, and delivery
- * is somebody else's pass.
+ * Record one triage act. Returns how much it recorded; there is no per-id
+ * outcome because no id can fail: the act is a local write, and delivery is
+ * somebody else's pass.
  */
 export function assertMessageLabels({
 	deps,
@@ -125,30 +138,24 @@ export function assertMessageLabels({
 	const wanted = resolved.slice(0, input.addLabels.length);
 	const unwanted = resolved.slice(input.addLabels.length);
 
+	// Checked after resolution, so naming the same label by id in one list and
+	// by display name in the other is caught too.
+	const contradiction = wanted.find((id) => unwanted.includes(id));
+	if (contradiction) {
+		return AssertLabelsError.ContradictoryLabel({ label: contradiction });
+	}
+
 	const opinions: [labelId: string, want: boolean][] = [
 		...wanted.map((id): [string, boolean] => [id, true]),
 		...unwanted.map((id): [string, boolean] => [id, false]),
 	];
 
 	const assertions: LabelAssertion[] = [];
-	const withdrawals: LabelIntentPair[] = [];
 	for (const messageId of input.ids) {
-		// `null` means the message is not mirrored, so there is no fact to agree
-		// with; every opinion about it is a divergence until a pull says otherwise.
-		const facts = deps.db.mirroredLabelIds(messageId);
-		const diverges = (labelId: string, want: boolean) =>
-			facts === null || facts.includes(labelId) !== want;
 		for (const [labelId, want] of opinions) {
-			if (diverges(labelId, want))
-				assertions.push({ messageId, labelId, want });
-			else withdrawals.push({ messageId, labelId });
+			assertions.push({ messageId, labelId, want });
 		}
 	}
 
-	// Withdrawals go first, so an act that names the same label in both
-	// directions (`--add INBOX --remove INBOX`) settles on the one that diverges
-	// from Gmail rather than on list order.
-	const withdrawn = deps.intent.withdraw(withdrawals);
-	const asserted = deps.intent.assert(assertions);
-	return Ok({ asserted, withdrawn });
+	return Ok({ asserted: deps.intent.assert(assertions) });
 }
