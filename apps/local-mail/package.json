@@ -17,7 +17,7 @@
 	},
 	"scripts": {
 		"connect": "bun run src/bin.ts connect",
-		"sync": "bun run src/bin.ts sync",
+		"reconcile": "bun run src/bin.ts reconcile",
 		"status": "bun run src/bin.ts status",
 		"app": "bun run src/bin.ts app",
 		"app:desktop": "tauri dev",

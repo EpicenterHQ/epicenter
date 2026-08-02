@@ -9,7 +9,7 @@ import { mailDbPath, openMailDbReadonly } from './db.ts';
 
 export const MailQueryError = defineErrors({
 	NoMirror: ({ path }: { path: string }) => ({
-		message: `No Gmail mirror at ${path}. Run "local-mail sync --full" first.`,
+		message: `No Gmail mirror at ${path}. Run "local-mail reconcile --full" first.`,
 	}),
 	QueryFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Read-only query failed (the mirror rejects writes): ${extractErrorMessage(cause)}`,

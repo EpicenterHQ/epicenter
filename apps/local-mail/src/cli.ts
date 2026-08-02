@@ -224,7 +224,7 @@ async function runConnect(_args: ParsedArgs): Promise<number> {
 	await store.set(token);
 	console.log(`Connected ${token.accountEmail}.`);
 	console.log(`Tokens stored in ${config.credentialsPath}.`);
-	console.log(`Next: run "local-mail sync --full".`);
+	console.log(`Next: run "local-mail reconcile --full".`);
 	return 0;
 }
 
@@ -249,7 +249,7 @@ async function runSeedToken(args: ParsedArgs): Promise<number> {
 	const store = createFileTokenStore(config.credentialsPath);
 	await store.set(token);
 	console.log(`Seeded ${token.accountEmail} at ${config.credentialsPath}.`);
-	console.log(`Next: run "local-mail sync --full".`);
+	console.log(`Next: run "local-mail reconcile --full".`);
 	return 0;
 }
 
