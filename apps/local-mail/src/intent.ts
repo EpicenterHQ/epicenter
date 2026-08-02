@@ -111,35 +111,22 @@ export function openIntentDb({ dataDir, accountEmail }: IntentDbLocation) {
 	// The mirror runs NORMAL because Gmail can rebuild it. Nothing can rebuild
 	// this file, so it pays the fsync.
 	db.exec('PRAGMA synchronous = FULL;');
+	// The disposable mirror answers a shape change by deleting itself. This file
+	// cannot, so a future column has to arrive by migration and backfill rather
+	// than by a rebuild. There is nothing to migrate yet: this is the store's
+	// first shape, and every row it has ever held came from `assert`, which
+	// always stamps `asserted_at`.
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS label_intents (
 			message_id  TEXT    NOT NULL,
 			label_id    TEXT    NOT NULL,
 			want        INTEGER NOT NULL,
 			seq         INTEGER NOT NULL,
-			asserted_at TEXT,
+			asserted_at TEXT    NOT NULL,
 			PRIMARY KEY (message_id, label_id)
 		);
 		CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
 	`);
-	// The disposable mirror answers a shape change by deleting itself. This file
-	// cannot, so a column arrives by migration and existing rows are backfilled
-	// rather than left with a hole. `asserted_at` is nullable only because
-	// `ADD COLUMN` cannot be NOT NULL without a constant default, and a constant
-	// would be a lie about when the user acted.
-	const columns = db
-		.query<{ name: string }, []>(
-			`SELECT name FROM pragma_table_info('label_intents')`,
-		)
-		.all()
-		.map((column) => column.name);
-	if (!columns.includes('asserted_at')) {
-		db.exec(`ALTER TABLE label_intents ADD COLUMN asserted_at TEXT`);
-		db.run(
-			`UPDATE label_intents SET asserted_at = ? WHERE asserted_at IS NULL`,
-			[new Date().toISOString()],
-		);
-	}
 	secureDbFiles(path);
 
 	const readSeqStmt = db.query<{ value: string }, []>(
