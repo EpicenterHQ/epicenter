@@ -47,10 +47,6 @@ export const GMAIL_SYSTEM_LABEL_IDS = new Set([
 	'CATEGORY_FORUMS',
 ]);
 
-/** Gmail routes trash through its own endpoints rather than a label delta, so
- * this one id is special at delivery. It is an ordinary label everywhere else. */
-export const TRASH_LABEL_ID = 'TRASH';
-
 /** One Gmail message resource. `messages.get(format=full)` populates every
  * field; a `history.list` record's embedded `message` is thinner (id/threadId/
  * labelIds only, per the Gmail History API), which is why every field past

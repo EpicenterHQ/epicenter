@@ -1,7 +1,7 @@
 import type { Result } from 'wellcrafted/result';
 import type { GmailClientError } from './gmail-client.ts';
 import type { IntentDb, LabelIntent } from './intent.ts';
-import { type GmailMessage, TRASH_LABEL_ID } from './schema.ts';
+import type { GmailMessage } from './schema.ts';
 import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
 
 /**
@@ -101,8 +101,12 @@ type MessageDelivery = {
 	trash: LabelIntent | null;
 };
 
-/** Group pending assertions by message, preserving assertion order so the
- * oldest act is delivered first. */
+/**
+ * Group pending assertions by message, preserving assertion order so the oldest
+ * act is delivered first. `TRASH` is pulled out of the label set here because
+ * Gmail routes it through its own endpoints rather than a label delta; it is an
+ * ordinary label at every other layer, and only delivery has to know.
+ */
 function groupByMessage(pending: LabelIntent[]): MessageDelivery[] {
 	const byMessage = new Map<string, MessageDelivery>();
 	for (const intent of pending) {
@@ -111,7 +115,7 @@ function groupByMessage(pending: LabelIntent[]): MessageDelivery[] {
 			delivery = { messageId: intent.messageId, labels: [], trash: null };
 			byMessage.set(intent.messageId, delivery);
 		}
-		if (intent.labelId === TRASH_LABEL_ID) delivery.trash = intent;
+		if (intent.labelId === 'TRASH') delivery.trash = intent;
 		else delivery.labels.push(intent);
 	}
 	return [...byMessage.values()];
