@@ -21,6 +21,8 @@ import { openMailDb } from './db.ts';
 import { openIntentDb } from './intent.ts';
 import type { GmailMessage } from './schema.ts';
 
+const ACTED_AT = '2026-08-01T12:00:00.000Z';
+
 function message(id: string, labelIds: string[]): GmailMessage {
 	return {
 		id,
@@ -56,7 +58,7 @@ function setup(
 		syncedAt,
 	);
 	return {
-		deps: { db, intent },
+		deps: { db, intent, now: () => Date.parse(ACTED_AT) },
 		cleanup: () => {
 			intent.close();
 			db.close();
@@ -238,6 +240,46 @@ describe('assertMessageLabels', () => {
 		try {
 			const { data } = act(deps, { ids: ['ghost'], removeLabels: ['INBOX'] });
 			expect(data).toEqual({ asserted: 1 });
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("Gmail's per-direction label cap is enforced here, not only at MCP", () => {
+		const { deps, cleanup } = setup();
+		try {
+			const labels = Array.from({ length: 101 }, (_, i) => `Label_${i}`);
+			// The cap is checked before label resolution, so it does not depend on
+			// the mirror knowing these names: an assertion no `messages.modify` could
+			// ever carry is refused rather than made durable.
+			const added = act(deps, { ids: ['m1'], addLabels: labels });
+			expect(added.error?.name).toBe('TooManyLabels');
+			expect(added.error?.message).toContain('at most 100 labels added');
+
+			const removed = act(deps, { ids: ['m1'], removeLabels: labels });
+			expect(removed.error?.name).toBe('TooManyLabels');
+			expect(removed.error?.message).toContain('at most 100 labels removed');
+
+			expect(deps.intent.pending()).toEqual([]);
+		} finally {
+			cleanup();
+		}
+	});
+
+	test('repeating an act that the mirror agrees with never shrinks what is owed', () => {
+		const { deps, cleanup } = setup();
+		try {
+			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
+			// Pretend the reconciler delivered it and the pull folded Gmail's answer,
+			// but the retirement has not happened yet. The mirror now agrees with the
+			// pending assertion, which is exactly when a cancellation rule would fire.
+			deps.db.patchMessageLabels('m1', ['UNREAD'], '2026-08-01T12:00:01.000Z');
+			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
+			act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
+
+			expect(deps.intent.pending()).toMatchObject([
+				{ messageId: 'm1', labelId: 'INBOX', want: false },
+			]);
 		} finally {
 			cleanup();
 		}

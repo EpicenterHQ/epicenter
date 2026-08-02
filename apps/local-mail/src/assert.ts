@@ -34,10 +34,21 @@ import type { IntentDb, LabelAssertion } from './intent.ts';
  * same thread or view afterwards is untouched.
  */
 
-/** The one cap on an act. Deliberately not Gmail's per-request limit: nothing
- * here is a request. It exists so a mistyped bulk act cannot queue an unbounded
- * drain, and it is refused with the count rather than silently truncated. */
+/** The cap on how many messages one act covers. Deliberately not Gmail's
+ * per-request limit: nothing here is a request. It exists so a mistyped bulk act
+ * cannot queue an unbounded drain, and it is refused with the count rather than
+ * silently truncated. */
 const MAX_MESSAGES_PER_ACT = 500;
+
+/**
+ * Gmail's own ceiling: `messages.modify` accepts at most 100 label ids in
+ * `addLabelIds` and 100 in `removeLabelIds` (Gmail API reference, verified
+ * 2026-08-01). It is enforced HERE, in the core, rather than only in the MCP
+ * tool schema, because an assertion that no delivery could ever carry is not
+ * worth making durable: the request it needs cannot be built. A tool schema is
+ * a hint to one caller; this is the invariant for all of them.
+ */
+const MAX_LABELS_PER_DIRECTION = 100;
 
 export const AssertLabelsError = defineErrors({
 	ReadOnly: () => ({
@@ -53,6 +64,17 @@ export const AssertLabelsError = defineErrors({
 	}),
 	EmptyLabelMutation: () => ({
 		message: 'At least one label must be added or removed.',
+	}),
+	TooManyLabels: ({
+		direction,
+		count,
+	}: {
+		direction: 'added' | 'removed';
+		count: number;
+	}) => ({
+		message: `Gmail accepts at most ${MAX_LABELS_PER_DIRECTION} labels ${direction} in one change, got ${count}.`,
+		direction,
+		count,
 	}),
 	UnknownLabel: ({ label }: { label: string }) => ({
 		message: `Unknown Gmail label "${label}". Create it in Gmail, reconcile, or pass the label id.`,
@@ -85,7 +107,14 @@ export type AssertLabelsOutcome = {
 	asserted: number;
 };
 
-export type AssertDeps = { db: MailDb; intent: IntentDb };
+export type AssertDeps = {
+	db: MailDb;
+	intent: IntentDb;
+	/** The act's clock. Injected like every other clock here, and stamped onto
+	 * each assertion so a status surface can report how long the oldest
+	 * undelivered change has waited. */
+	now: () => number;
+};
 
 /** Resolve one label id or exact name against the mirror's label table. No
  * Gmail call: the act path is offline by construction, and the mirror carries
@@ -129,6 +158,18 @@ export function assertMessageLabels({
 	if (input.addLabels.length === 0 && input.removeLabels.length === 0) {
 		return AssertLabelsError.EmptyLabelMutation();
 	}
+	if (input.addLabels.length > MAX_LABELS_PER_DIRECTION) {
+		return AssertLabelsError.TooManyLabels({
+			direction: 'added',
+			count: input.addLabels.length,
+		});
+	}
+	if (input.removeLabels.length > MAX_LABELS_PER_DIRECTION) {
+		return AssertLabelsError.TooManyLabels({
+			direction: 'removed',
+			count: input.removeLabels.length,
+		});
+	}
 
 	const { data: resolved, error } = resolveLabelIds(deps.db, [
 		...input.addLabels,
@@ -157,5 +198,10 @@ export function assertMessageLabels({
 		}
 	}
 
-	return Ok({ asserted: deps.intent.assert(assertions) });
+	return Ok({
+		asserted: deps.intent.assert(
+			assertions,
+			new Date(deps.now()).toISOString(),
+		),
+	});
 }
