@@ -46,6 +46,16 @@ import { ApiError } from './api-errors.ts';
  * not a label delta, but it stays one route:
  * `/api/accounts/:account/messages/trash` carries the direction as a `trashed`
  * boolean, the same shape the core (`setMessagesTrashed`) already owns.
+ *
+ * WITHDRAWN: the two write routes above call Gmail from the request path, which
+ * ADR-0199 replaced. The model is that a route records durable label assertions
+ * (ADR-0198) and returns, and one reconciler per account is the only Gmail
+ * writer. This surface collapses to `messages/assert`, `pending`,
+ * `pending/discard`, and `reconcile`; `messages/modify`, `messages/trash`, and
+ * `sync` are deleted along with the `MessageWriteOutcome` shape, which described
+ * a request that talked to Gmail. Trash keeps no special route: it is an
+ * ordinary `TRASH` assertion that routes to Gmail's own verbs at delivery. See
+ * `specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md`.
  */
 
 /** The per-launch local API bearer: 256 bits of CSPRNG, base64url. Minted once
@@ -83,7 +93,7 @@ const MessageQuery = type({
 /**
  * Everything the `/api` surface needs to serve one account: its runtime (for
  * `status`), its writer db + Gmail client (`syncDeps`, for reads and
- * Gmail-first writes), its per-account serialize gate, and whether THIS host
+ * request-path writes, which ADR-0199 withdraws), its per-account serialize gate, and whether THIS host
  * owns that account's sync loop (holds the `lock.ts` lock). Reads and triage
  * writes never take the lock, so they work regardless; only `POST .../sync`
  * cares, yielding busy when the loop is owned elsewhere.

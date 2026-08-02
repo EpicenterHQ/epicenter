@@ -1,3 +1,20 @@
+/**
+ * WITHDRAWN MODEL, ON THE DELETION LIST. This module is the request-path Gmail
+ * writer: a caller hands it ids, it calls `messages.modify`/`trash`/`untrash`
+ * per id, and it folds each response into the mirror. ADR-0199 withdrew that
+ * arrangement, so nothing here describes current architecture.
+ *
+ * The model is: a triage act records durable label assertions in the account's
+ * `intent.db` (ADR-0198), and one reconciler per account is the only thing that
+ * calls a Gmail write method, draining before it pulls (ADR-0199). This file
+ * collapses to an assert and `reconcile.ts` takes over the Gmail calls.
+ *
+ * Do not extend it. Read
+ * `specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md` first;
+ * the comments below still describe the old path accurately, which is the only
+ * reason they are still here.
+ */
+
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { MailDb } from './db.ts';
@@ -122,8 +139,10 @@ function tryFoldMessageLabels({
 /**
  * Run one per-message Gmail write per id and fold each accepted response's
  * `labelIds` into the mirror. The shared spine of every message mutation
- * (label modify, trash, untrash): Gmail is authoritative, SQLite is a
- * disposable fold. A 400/404 is about that id alone and the loop continues; a
+ * (label modify, trash, untrash) on the withdrawn request-path model: Gmail is
+ * authoritative, SQLite is a disposable fold. Gmail-as-authority survives into
+ * ADR-0199; calling it from here does not. A 400/404 is about that id alone and
+ * the loop continues (under ADR-0199 that case discards the assertion); a
  * token, throttle, or network error is systemic and aborts the rest. `mutate`
  * is the only thing that varies, so each caller supplies just its Gmail call.
  */
@@ -234,7 +253,10 @@ export async function modifyMessageLabels({
  * than a label delta forced through add/remove. It needs only the `gmail.modify`
  * scope; the permanent `messages.delete` is deliberately never wired. Like the
  * label core it writes Gmail first and folds the returned `labelIds` into the
- * mirror. Because `listMessages` hides `TRASH`-labeled rows, a trashed message
+ * mirror, which is the withdrawn arrangement: under ADR-0198 trash is stored as
+ * an ordinary `TRASH` assertion and routes to these two endpoints only at
+ * delivery, and Undo is a new assertion rather than a second call from the UI.
+ * Because `listMessages` hides `TRASH`-labeled rows, a trashed message
  * leaves every triage view at once; Undo untrashes and folds again, restoring
  * it wherever Gmail's returned labels place it.
  */

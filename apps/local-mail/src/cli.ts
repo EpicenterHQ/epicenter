@@ -265,7 +265,10 @@ async function runSync(args: ParsedArgs): Promise<number> {
 
 	// Sync is the one operation that needs a single owner per account. If the app
 	// (or another sync) already holds the lock, yield cleanly instead of racing a
-	// second bulk pull. Reads and Gmail-first triage writes never take this lock.
+	// second bulk pull. Reads never take this lock. Triage writes do not take it
+	// today because they call Gmail directly, which ADR-0199 withdraws: once a
+	// pass is drain-then-pull, this lock is the reconciler lock and is what makes
+	// one writer per account true.
 	const lock = acquireSyncLock({
 		dataDir: runtime.config.dataDir,
 		accountEmail: runtime.accountEmail,

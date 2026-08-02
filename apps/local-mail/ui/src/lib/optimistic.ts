@@ -1,3 +1,20 @@
+/**
+ * REFUSED MODEL, ON THE DELETION LIST. This module keeps pending writes in
+ * browser memory: it reads TanStack's mutation cache and projects label deltas
+ * over cached rows at render time. That state dies on reload, is invisible to
+ * the CLI and MCP, and can only hide rows this browser already fetched, so a
+ * filtered list's paging and counts are wrong while a write is in flight.
+ *
+ * ADR-0198 refuses browser-memory optimism beside the durable ledger: there is
+ * one pending state and it is on disk, in the account's `intent.db`. The read
+ * models project effective labels (mirror labels, minus `want=0` assertions,
+ * plus `want=1`) in SQL, so every surface agrees and paging stays correct.
+ *
+ * This file and its test are deleted in that cut, not migrated. Do not extend
+ * it, and do not add a second pending store beside the assertions. See
+ * `specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md`.
+ */
+
 import type { QueryClient } from '@tanstack/svelte-query';
 import type { MessageSummary } from './types';
 

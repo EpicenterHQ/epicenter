@@ -5,8 +5,11 @@ import { join } from 'node:path';
 /**
  * The per-account sync-owner lock. The runtime invariant is: at most one active
  * sync owner per account. Only the sync path takes this lock; reads
- * (`query`/`status`) open the mirror read-only, and triage writes go Gmail-first
- * with a best-effort local fold, so neither needs it. The holders are the open
+ * (`query`/`status`) open the mirror read-only, so they do not need it. Triage
+ * writes do not take it today only because they still call Gmail from the
+ * request path, which ADR-0199 withdraws: this becomes the reconciler lock,
+ * covering drain and pull together, and holding it is what makes a process the
+ * account's one Gmail writer. The holders are the open
  * desktop `app` (holds it for its whole lifetime while the loop runs), a CLI
  * `sync --watch` loop, and a one-shot `sync` for the duration of its single pass.
  *

@@ -56,9 +56,24 @@ import { syncMailbox } from './sync.ts';
 import { VERSION } from './version.ts';
 
 /**
+ * WITHDRAWN MODEL in the two write tools below. `modify_labels` calls Gmail from
+ * the tool handler and `sync` is a peer verb that only pulls. ADR-0199 replaced
+ * that: a write tool records durable label assertions (ADR-0198) and returns,
+ * one reconciler per account is the only Gmail writer, and a pass is
+ * drain-then-pull, so `sync` becomes `reconcile`. The catalog collapses to
+ * `query`, `status`, `reconcile`, `assert`, and `pending`, the last of which is
+ * how an agent checks that work it queued actually landed instead of assuming a
+ * returned outcome means Gmail agreed.
+ *
+ * The `description` strings below are left describing what the tools do today on
+ * purpose: they are a runtime contract an MCP client reads, so they must stay
+ * true to the running code rather than to the destination. See
+ * `specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md`.
+ *
  * A tool that ran to completion but failed can still carry its structured
  * outcome: `modify_labels` sets `structured` on a systemic abort so the model
- * reads the per-id results even while `isError` flags the abort.
+ * reads the per-id results even while `isError` flags the abort. That shape goes
+ * away with the direct write path.
  */
 type ToolFailure = { message: string; structured?: unknown };
 type ToolOutcome = Result<unknown, ToolFailure>;

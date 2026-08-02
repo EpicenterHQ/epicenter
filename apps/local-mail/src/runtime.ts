@@ -17,8 +17,10 @@ import {
  * them. That is a deliberate lifetime rule, not just deduplication: a
  * long-lived MCP server must keep one stable account identity for its whole
  * session (connecting a second account mid-session must not flip which
- * mailbox existing tools talk to), and Phase 3 write-through tools inherit
- * that guarantee by construction.
+ * mailbox existing tools talk to), and the write tools inherit that guarantee by
+ * construction. It matters more under ADR-0198, where each account owns its own
+ * `intent.db` and its own assertion sequence: a process that could flip accounts
+ * mid-session could assert into the wrong ledger.
  *
  * `connect` and `seed-token` stay outside: they create accounts, so there is
  * no account to resolve yet.

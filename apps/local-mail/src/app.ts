@@ -143,8 +143,13 @@ async function serveStatic(
  * One account's slice of the running host: its runtime, its open sync session
  * (writer db + Gmail client), its per-account serialize gate, and the sync-owner
  * lock IF this host won it. `lock === null` means another owner (a headless
- * `sync`) holds the loop for that account; the host still serves its reads and
- * Gmail-first writes (both lock-free), it just runs no loop for it.
+ * `sync`) holds the loop for that account; the host still serves its reads, it
+ * just runs no loop for it.
+ *
+ * Under ADR-0199 this lock becomes the reconciler lock and covers Gmail writes
+ * as well as pulling, so a host without it asserts and yields delivery to the
+ * owner. The direct write path this file still exposes is withdrawn; see
+ * `specs/20260801T210000-local-mail-intent-and-reconciler-clean-break.md`.
  */
 type AccountEngine = {
 	runtime: LocalMailRuntime;

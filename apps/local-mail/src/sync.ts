@@ -101,7 +101,7 @@ export type SyncOutcome = {
 	messagesUpserted: number;
 	messagesDeleted: number;
 	/** Mirrored rows whose label set materially changed this pass. An idempotent
-	 * history echo of labels the write-through fold already applied counts 0, so
+	 * history echo of labels a delivery already folded counts 0, so
 	 * this reads as "what the sync actually changed", like its sibling counts. */
 	labelsPatched: number;
 	failure: SyncFailure | null;

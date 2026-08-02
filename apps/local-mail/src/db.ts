@@ -408,7 +408,7 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 
 	/**
 	 * Fold `labelIds` into one row's stored resource, reporting both whether the row was
-	 * `found` (a write-through fold cares only about this) and whether the label
+	 * `found` (a delivery fold cares only about this) and whether the label
 	 * set `changed` materially (the sync metric counts only these, so an
 	 * idempotent history echo of labels already current does not read as drift).
 	 * The write is unconditional either way: a no-op patch still refreshes
@@ -678,7 +678,7 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 		 *
 		 * Returns `labelsChanged`: how many label patches materially changed a
 		 * row's label set. A patch whose labels already match (a history echo of
-		 * a change the write-through fold already applied) is applied but not
+		 * a change a confirmed delivery already folded) is applied but not
 		 * counted, so the sync metric reports convergence, not phantom drift.
 		 */
 		applyHistoryBatch({
