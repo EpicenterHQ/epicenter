@@ -14,7 +14,12 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { planLabel, planToggle, type TriageAction } from '$lib/actions';
+	import {
+		MOVE_TO_TRASH,
+		planLabel,
+		planToggle,
+		type TriageAction,
+	} from '$lib/actions';
 	import { api } from '$lib/api';
 	import { fullDate, labelDisplayName } from '$lib/format';
 	import type { MailLabel } from '$lib/types';
@@ -28,7 +33,6 @@
 		busy,
 		labelsOpen,
 		onDispatch,
-		onTrash,
 		onLabelsOpenChange,
 	}: {
 		id: string | null;
@@ -44,10 +48,6 @@
 		/** Fire a planned triage action; the page runs it, gates read-only, and
 		 * owns the undo toast. Buttons and the keyboard share this one path. */
 		onDispatch: (action: TriageAction) => void;
-		/** Move the shown message to Trash. Its own callback only because the
-		 * button is not a toggle off the current labels the way the others are;
-		 * underneath it is the same assertion path. */
-		onTrash: () => void;
 		onLabelsOpenChange: (open: boolean) => void;
 	} = $props();
 
@@ -205,7 +205,9 @@
 				</DropdownMenu.Content>
 			</DropdownMenu.Root>
 
-			{@render actionButton('Move to trash', Trash2Icon, onTrash)}
+			{@render actionButton('Move to trash', Trash2Icon, () =>
+				onDispatch(MOVE_TO_TRASH),
+			)}
 		</div>
 
 		<!-- Body: formatted (sanitized HTML) or plain text, chosen per message.

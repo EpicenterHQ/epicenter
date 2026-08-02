@@ -6,6 +6,7 @@
 	import {
 		invert,
 		isReversible,
+		MOVE_TO_TRASH,
 		planToggle,
 		type ToggleVerb,
 		type TriageAction,
@@ -155,12 +156,6 @@
 		if (readOnly) return;
 		act.mutate({ id, action, undoable });
 	}
-	function trashSelected(): void {
-		if (!selectedId) return;
-		// Trash is an ordinary label here. Only delivery treats it specially,
-		// because Gmail gives it its own endpoint.
-		runOn(selectedId, { label: 'Moved to trash', addLabels: ['TRASH'], removeLabels: [] }, true);
-	}
 	/** Dispatch a planned action against the current selection. */
 	function dispatch(action: TriageAction): void {
 		if (!selectedId) return;
@@ -262,7 +257,7 @@
 		} else if (e.key === '#') {
 			// Gmail's own trash key. Shift-guarded already: `#` is never produced
 			// while typing here because the text-field guard returned above.
-			trashSelected();
+			dispatch(MOVE_TO_TRASH);
 			e.preventDefault();
 		}
 	}
@@ -327,7 +322,6 @@
 				busy={act.isPending}
 				{labelsOpen}
 				onDispatch={dispatch}
-				onTrash={trashSelected}
 				onLabelsOpenChange={(open) => (labelsOpen = open)}
 			/>
 		{/key}

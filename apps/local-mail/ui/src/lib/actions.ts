@@ -1,9 +1,9 @@
 // The shared triage-action seam. One place turns a triage intent plus a
 // message's current Gmail labels into the concrete `{addLabels, removeLabels}`
-// payload the `/api/messages/modify` route takes, and its inverse. Both the
-// MessageDetail toolbar and the page-level keyboard handler plan actions here,
-// so buttons and keys fire the exact same write; the undo affordance is just
-// the inverse of what was fired.
+// assertion the `/api/accounts/:account/messages/assert` route records, and its
+// inverse. Both the MessageDetail toolbar and the page-level keyboard handler
+// plan actions here, so buttons and keys fire the exact same act; the undo
+// affordance is just the inverse of what was fired.
 //
 // Pure and Svelte-free on purpose: the mutation, the read-only gate, and the
 // toast live at the page (their single owner), and this stays unit-testable.
@@ -37,6 +37,16 @@ export function planToggle(labelIds: string[], verb: ToggleVerb): TriageAction {
 				: { label: 'Starred', addLabels: ['STARRED'], removeLabels: [] };
 	}
 }
+
+/** Moving to trash is an ordinary assertion, not a Gmail endpoint the UI has to
+ * know about: it adds `TRASH` like any other label, and its Undo is the inverse
+ * that removes it. Fixed rather than a toggle because the trash button only ever
+ * points one way; restoring happens from the Trash view's own labels. */
+export const MOVE_TO_TRASH: TriageAction = {
+	label: 'Moved to trash',
+	addLabels: ['TRASH'],
+	removeLabels: [],
+};
 
 /** Add or remove one Gmail label by id. `name` is the already-resolved display
  * name (the caller has the label list); this stays free of the format layer. */
