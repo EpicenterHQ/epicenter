@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
-import { unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { openIntentDb } from './intent.ts';
+import { intentDbPath, openIntentDb } from './intent.ts';
 import { bodyHtml, bodyText, headerValue } from './message-fields.ts';
 import { accountDirPath, ensureAccountDir, secureDbFiles } from './paths.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
@@ -151,12 +151,19 @@ export function mailDbPath(dataDir: string, accountEmail: string): string {
  * a filtered page over a 100k-message mirror goes from sub-millisecond to
  * hundreds of milliseconds. Keep the union inside the scalar subquery.
  *
- * It lives in TEMP, not in the mirror file, because it names an attached
+ * `overlaid` is false only when there is no intent store to attach, which a
+ * read-only opener must not create. The overlay arms simply drop out, which is
+ * the honest reading of "nothing is asserted": effective labels are the
+ * mirrored ones. It is the same definition with an empty overlay, not a second
+ * answer to the same question.
+ *
+ * The view lives in TEMP, not in the mirror file, because it names an attached
  * database: a connection that opened the mirror without `intent` attached must
  * not inherit a view it cannot resolve. TEMP also lets a read-only mirror handle
  * define it, since the temp schema is writable either way.
  */
-const EFFECTIVE_LABELS_VIEW = `
+function effectiveLabelsView(overlaid: boolean): string {
+	return `
 	CREATE TEMP VIEW IF NOT EXISTS effective_labels AS
 		SELECT m.id AS message_id, j.value AS label_id
 		  FROM messages m,
@@ -164,13 +171,18 @@ const EFFECTIVE_LABELS_VIEW = `
 		         SELECT json_group_array(value) FROM (
 		           SELECT mirrored.value AS value
 		             FROM json_each(m.label_ids) mirrored
-		            WHERE NOT EXISTS (
+		            ${
+									overlaid
+										? `WHERE NOT EXISTS (
 		                  SELECT 1 FROM intent.label_intents i
 		                   WHERE i.message_id = m.id AND i.label_id = mirrored.value)
 		           UNION ALL
 		           SELECT i.label_id
 		             FROM intent.label_intents i
-		            WHERE i.message_id = m.id AND i.want = 1))) j`;
+		            WHERE i.message_id = m.id AND i.want = 1`
+										: ''
+								}))) j`;
+}
 
 /** The effective label set of the row a query is currently on, as a JSON array
  * string. Correlated, so it is computed only for the rows a page returns. */
@@ -202,23 +214,35 @@ function readOnlyAttachUri(path: string): string {
 
 /**
  * Attach one account's durable intent store to a mirror connection and define
- * the effective-label view over it. The intent file is opened (and created, if
- * this is the first run) by its own owner first: attaching a missing file under
- * `mode=ro` fails outright, and an empty one has no table for the view to name.
+ * the effective-label view over it.
  *
- * Read-only is the ownership statement, and it also decouples the two files'
- * locks: a writable attachment would be pulled into every `BEGIN IMMEDIATE` on
- * the mirror, so a full-pull page commit would block a triage act mid-flight.
- * `intent.ts` holds the only handle that may write here.
+ * `create` says whether this opener may bring the store into existence. A
+ * writable mirror is opened by a path that is about to need it, so it prepares
+ * both files. A read-only opener (`query`, `status`) must not: a question about
+ * an account should not leave a durable file behind, so when there is no store
+ * it attaches nothing and the view degenerates to the mirrored labels.
+ *
+ * Attaching read-only is the ownership statement, and it also decouples the two
+ * files' locks: a writable attachment would be pulled into every
+ * `BEGIN IMMEDIATE` on the mirror, so a full-pull page commit would block a
+ * triage act mid-flight. `intent.ts` holds the only handle that may write here.
  */
 function attachIntent(
 	db: Database,
 	{ dataDir, accountEmail }: MailDbLocation,
+	{ create }: { create: boolean },
 ): void {
-	const intent = openIntentDb({ dataDir, accountEmail });
-	intent.close();
-	db.run('ATTACH DATABASE ? AS intent', [readOnlyAttachUri(intent.path)]);
-	db.exec(EFFECTIVE_LABELS_VIEW);
+	const path = intentDbPath(dataDir, accountEmail);
+	if (create) {
+		// Opened and closed by its own owner first: attaching a missing file under
+		// `mode=ro` fails outright, and an empty one has no table for the view.
+		openIntentDb({ dataDir, accountEmail }).close();
+	} else if (!existsSync(path)) {
+		db.exec(effectiveLabelsView(false));
+		return;
+	}
+	db.run('ATTACH DATABASE ? AS intent', [readOnlyAttachUri(path)]);
+	db.exec(effectiveLabelsView(true));
 }
 
 type MailDbLocation = { dataDir: string; accountEmail: string };
@@ -275,7 +299,7 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 	setMetaStmt.run('schema_version', SCHEMA_VERSION);
 	// After the version check, so a rebuilt mirror still gets the overlay, and
 	// after the mirror schema, so the view's reference to `messages` resolves.
-	attachIntent(db, { dataDir, accountEmail });
+	attachIntent(db, { dataDir, accountEmail }, { create: true });
 
 	const upsertMessageStmt = db.query(
 		`INSERT INTO messages (id, raw, subject, sender, body_text, synced_at)
@@ -671,7 +695,7 @@ export function openMailDbReadonly({ dataDir, accountEmail }: MailDbLocation) {
 		readonly: true,
 	});
 	db.exec('PRAGMA busy_timeout = 5000;');
-	attachIntent(db, { dataDir, accountEmail });
+	attachIntent(db, { dataDir, accountEmail }, { create: false });
 
 	const meta = (key: string): string | null =>
 		db

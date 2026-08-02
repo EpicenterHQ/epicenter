@@ -12,7 +12,14 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -22,7 +29,7 @@ import {
 	openMailDbReadonly,
 	SCHEMA_VERSION,
 } from './db.ts';
-import { openIntentDb } from './intent.ts';
+import { intentDbPath, openIntentDb } from './intent.ts';
 import type { GmailMessage } from './schema.ts';
 
 function tempDir() {
@@ -542,6 +549,33 @@ describe('readonly open', () => {
 		});
 		expect(() => reader.raw.exec(`DELETE FROM messages`)).toThrow();
 		reader.close();
+		cleanup();
+	});
+
+	test('a read-only open of a mirror with no intent store creates nothing', () => {
+		// `query` and `status` are questions, not writes. With no store beside the
+		// mirror the overlay is empty, which is the honest answer, and asking must
+		// not leave a durable file behind.
+		const { db, dataDir, cleanup } = openTmp();
+		db.ingestFullPullPage([message({ labelIds: ['INBOX'] })], 's1');
+		db.close();
+		rmSync(intentDbPath(dataDir, 'you@example.com'), { force: true });
+
+		const reader = openMailDbReadonly({
+			dataDir,
+			accountEmail: 'you@example.com',
+		});
+		expect(
+			reader.raw
+				.query<{ label_id: string }, []>(
+					`SELECT label_id FROM effective_labels WHERE message_id = 'm1'`,
+				)
+				.all()
+				.map((row) => row.label_id),
+		).toEqual(['INBOX']);
+		reader.close();
+
+		expect(existsSync(intentDbPath(dataDir, 'you@example.com'))).toBe(false);
 		cleanup();
 	});
 
