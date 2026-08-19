@@ -143,11 +143,7 @@ describe('local-books app /api', () => {
 
 	test('every route but the exchange requires a bearer', async () => {
 		ctx = buildApp();
-		for (const path of [
-			'/api/status',
-			'/api/entities',
-			'/api/entities/Invoice',
-		]) {
+		for (const path of ['/api/status', '/api/tables', '/api/tables/invoices']) {
 			const res = await ctx.app.request(path);
 			expect(res.status).toBe(401);
 		}
@@ -200,53 +196,61 @@ describe('local-books app /api', () => {
 		expect(body.mirror).toBe('ready');
 	});
 
-	test('entities lists the configured record types with counts', async () => {
+	test('tables lists what the database holds, with counts and pragma columns', async () => {
 		ctx = buildApp();
 		const bearer = await exchange(ctx.app);
-		const res = await ctx.app.request('/api/entities', authed(bearer));
+		const res = await ctx.app.request('/api/tables', authed(bearer));
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
 			mirrorBuilt: boolean;
-			entities: { entity: string; rows: number }[];
+			tables: { name: string; rowCount: number; pk: string | null }[];
 		};
 		expect(body.mirrorBuilt).toBe(true);
-		const invoice = body.entities.find((e) => e.entity === 'Invoice');
-		expect(invoice?.rows).toBe(2);
+		// The list is sqlite_master, so it is the whole artifact: every corpus
+		// table (pulled or not) and the sync bookkeeping, not a curated subset.
+		const invoices = body.tables.find((t) => t.name === 'invoices');
+		expect(invoices?.rowCount).toBe(2);
+		expect(invoices?.pk).toBe('id');
+		expect(body.tables.some((t) => t.name === '_meta')).toBe(true);
+		expect(body.tables.some((t) => t.name === 'transfers')).toBe(true);
 	});
 
-	test('an entity page returns rows and columns; an unknown entity is rejected', async () => {
+	test('a table page returns rows and columns; an unknown table is 404', async () => {
 		ctx = buildApp();
 		const bearer = await exchange(ctx.app);
-		const ok = await ctx.app.request('/api/entities/Invoice', authed(bearer));
+		const ok = await ctx.app.request('/api/tables/invoices', authed(bearer));
 		expect(ok.status).toBe(200);
 		const page = (await ok.json()) as {
 			rows: { id: string }[];
-			columns: { name: string }[];
+			columns: { name: string; generated: boolean }[];
 		};
 		expect(page.rows.length).toBe(2);
-		expect(page.columns.some((c) => c.name === 'total_amt')).toBe(true);
+		// pragma_table_xinfo sees the generated columns table_info hides.
+		expect(
+			page.columns.some((c) => c.name === 'total_amt' && c.generated),
+		).toBe(true);
 
-		const bad = await ctx.app.request(
-			'/api/entities/DROP_TABLE',
-			authed(bearer),
-		);
-		expect(bad.status).toBe(400);
+		// A name sqlite_master does not hold never reaches SQL.
+		const bad = await ctx.app.request('/api/tables/DROP_TABLE', authed(bearer));
+		expect(bad.status).toBe(404);
 	});
 
-	test('a row detail carries the parsed blob; a missing row is 404', async () => {
+	test('a row detail carries every column verbatim; a missing row is 404', async () => {
 		ctx = buildApp();
 		const bearer = await exchange(ctx.app);
-		const ok = await ctx.app.request(
-			'/api/entities/Invoice/i1',
-			authed(bearer),
-		);
+		const ok = await ctx.app.request('/api/tables/invoices/i1', authed(bearer));
 		expect(ok.status).toBe(200);
-		const detail = (await ok.json()) as { id: string; raw: { Id: string } };
-		expect(detail.id).toBe('i1');
-		expect(detail.raw.Id).toBe('i1');
+		const detail = (await ok.json()) as {
+			pk: string | null;
+			values: { id: string; raw: string };
+		};
+		expect(detail.pk).toBe('id');
+		expect(detail.values.id).toBe('i1');
+		// The blob ships verbatim; presentation-side parsing is the UI's job.
+		expect((JSON.parse(detail.values.raw) as { Id: string }).Id).toBe('i1');
 
 		const missing = await ctx.app.request(
-			'/api/entities/Invoice/nope',
+			'/api/tables/invoices/nope',
 			authed(bearer),
 		);
 		expect(missing.status).toBe(404);

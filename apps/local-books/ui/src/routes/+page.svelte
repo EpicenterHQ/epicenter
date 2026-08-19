@@ -6,12 +6,12 @@
 	} from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { api } from '$lib/api';
-	import EntityRail from '$lib/components/EntityRail.svelte';
 	import QueryPanel from '$lib/components/QueryPanel.svelte';
 	import ReportPanel from '$lib/components/ReportPanel.svelte';
 	import RowDetail from '$lib/components/RowDetail.svelte';
 	import RowTable from '$lib/components/RowTable.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
+	import TableRail from '$lib/components/TableRail.svelte';
 
 	type Tab = 'browse' | 'query' | 'reports';
 	const TABS: { id: Tab; label: string }[] = [
@@ -21,7 +21,7 @@
 	];
 	let tab = $state<Tab>('browse');
 
-	let selectedEntity = $state<string | null>(null);
+	let selectedTable = $state<string | null>(null);
 	let selectedRowId = $state<string | null>(null);
 
 	const queryClient = useQueryClient();
@@ -30,14 +30,14 @@
 		queryKey: ['status'],
 		queryFn: () => api.status(),
 	}));
-	const entities = createQuery(() => ({
-		queryKey: ['entities'],
-		queryFn: () => api.entities(),
+	const tables = createQuery(() => ({
+		queryKey: ['tables'],
+		queryFn: () => api.tables(),
 	}));
 	const rows = createQuery(() => ({
-		queryKey: ['rows', selectedEntity],
-		queryFn: () => api.rows(selectedEntity as string, { limit: 200 }),
-		enabled: selectedEntity !== null,
+		queryKey: ['rows', selectedTable],
+		queryFn: () => api.rows(selectedTable as string, { limit: 200 }),
+		enabled: selectedTable !== null,
 	}));
 
 	const sync = createMutation(() => ({
@@ -53,42 +53,48 @@
 				);
 			}
 			queryClient.invalidateQueries({ queryKey: ['status'] });
-			queryClient.invalidateQueries({ queryKey: ['entities'] });
+			queryClient.invalidateQueries({ queryKey: ['tables'] });
 			queryClient.invalidateQueries({ queryKey: ['rows'] });
 			queryClient.invalidateQueries({ queryKey: ['row'] });
 		},
 		onError: (error: Error) => toast.error(error.message),
 	}));
 
-	const entityList = $derived(entities.data?.entities ?? []);
-	const selectedColumns = $derived(
-		entityList.find((e) => e.entity === selectedEntity)?.columns ?? [],
-	);
+	const tableList = $derived(tables.data?.tables ?? []);
 	const syncError = $derived(sync.error?.message ?? null);
 
-	// Default the selection to the first initialized record type (the one with rows
-	// worth browsing), falling back to the first entity so the pane is never empty.
+	// Default the selection to the first data table with rows worth browsing,
+	// falling back to the first data table so the pane is never empty. `_meta` is
+	// sync bookkeeping, so it never wins by default (it stays reachable by click).
 	$effect(() => {
-		if (selectedEntity !== null || entityList.length === 0) return;
-		const withRows = entityList.find((e) => e.initialized && e.rows > 0);
-		selectedEntity = withRows?.entity ?? entityList[0]?.entity ?? null;
+		if (selectedTable !== null || tableList.length === 0) return;
+		const data = tableList.filter((t) => t.name !== '_meta');
+		const withRows = data.find((t) => t.rowCount > 0);
+		selectedTable =
+			withRows?.name ?? data[0]?.name ?? tableList[0]?.name ?? null;
 	});
 
-	// Keep the row selection valid: default to the first row, and re-resolve when an
-	// entity change drops the current selection out of the list.
+	// Keep the row selection valid: default to the first addressable row, and
+	// re-resolve when a table change drops the current selection out of the list.
 	$effect(() => {
-		const list = rows.data?.rows ?? [];
-		if (list.length === 0) {
+		const page = rows.data;
+		const list = page?.rows ?? [];
+		const pk = page?.pk ?? null;
+		if (list.length === 0 || pk === null) {
 			selectedRowId = null;
 			return;
 		}
-		if (!selectedRowId || !list.some((r) => String(r.id) === selectedRowId)) {
-			selectedRowId = String(list[0]?.id);
+		const keys = list
+			.map((r) => r[pk])
+			.filter((v) => v !== null && v !== undefined)
+			.map(String);
+		if (!selectedRowId || !keys.includes(selectedRowId)) {
+			selectedRowId = keys[0] ?? null;
 		}
 	});
 
-	function selectEntity(entity: string) {
-		selectedEntity = entity;
+	function selectTable(table: string) {
+		selectedTable = table;
 		selectedRowId = null;
 	}
 </script>
@@ -117,22 +123,21 @@
 
 	<div class="flex min-h-0 flex-1">
 		{#if tab === 'browse'}
-			<EntityRail
-				entities={entityList}
-				selected={selectedEntity}
-				onSelect={selectEntity}
+			<TableRail
+				tables={tableList}
+				selected={selectedTable}
+				onSelect={selectTable}
 			/>
 			<RowTable
 				page={rows.data}
-				loading={rows.isPending && selectedEntity !== null}
+				loading={rows.isPending && selectedTable !== null}
 				error={rows.error?.message ?? null}
 				selectedId={selectedRowId}
 				onSelect={(id) => (selectedRowId = id)}
 			/>
 			<RowDetail
-				entity={selectedEntity}
+				table={selectedTable}
 				id={selectedRowId}
-				columns={selectedColumns}
 				readOnly={status.data?.readOnly ?? false}
 			/>
 		{:else if tab === 'query'}

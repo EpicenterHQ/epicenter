@@ -31,14 +31,11 @@ async function runCli(args: string[], env: Record<string, string> = {}) {
 /** Seed the r1 company's current mirror artifact with one live invoice. */
 function seedMirror(dir: string): void {
 	const db = openBooksDb(booksDbFile(dir, 'r1'));
+	// The schema exists at open (MIRROR_SCHEMA); doc_number/total_amt project
+	// from the blob.
 	db.raw.exec(`
-		CREATE TABLE invoices (
-			id TEXT PRIMARY KEY, raw TEXT NOT NULL, updated_at TEXT,
-			synced_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
-			doc_number TEXT, total_amt REAL
-		);
-		INSERT INTO invoices (id, raw, synced_at, deleted, doc_number, total_amt) VALUES
-			('1', '{"Id":"1"}', '2026-01-01', 0, 'INV-1', 8000.0);
+		INSERT INTO invoices (id, raw, synced_at, deleted) VALUES
+			('1', '{"Id":"1","DocNumber":"INV-1","TotalAmt":8000.0}', '2026-01-01', 0);
 	`);
 	db.close();
 }

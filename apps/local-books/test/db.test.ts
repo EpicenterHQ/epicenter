@@ -18,7 +18,7 @@ import {
 	openBooksDb,
 	openBooksDbReadonly,
 } from '../src/db.ts';
-import { entityDef, type QbObject } from '../src/entities.ts';
+import { DEFAULT_ENTITIES, entityDef, type QbObject } from '../src/entities.ts';
 import { tempDir } from './helpers.ts';
 
 const PURCHASE = entityDef('Purchase');
@@ -129,13 +129,13 @@ describe('the realm cursor', () => {
 		cleanup();
 	});
 
-	test('reopening a writer preserves the rows and the cursor', () => {
+	test('reopening a writer preserves the rows, the cursor, and the latch', () => {
 		const tmp = tempDir();
 		const mirror = booksDbFile(tmp.dir, 'r1');
 		let db = openBooksDb(mirror);
-		ingPurchase(db, purchase('60'), 's1');
-		db.ingest([], {
+		db.ingest([{ def: PURCHASE, objects: [purchase('60')] }], {
 			syncedAt: 's1',
+			fullPulled: ['Purchase'],
 			realmState: {
 				cdcCursor: '2026-02-01T00:00:00.000Z',
 				lastFullPullAt: '2026-02-01T00:00:00.000Z',
@@ -153,15 +153,64 @@ describe('the realm cursor', () => {
 		expect(db.isInitialized(PURCHASE)).toBe(true);
 		expect(db.entityStatus(PURCHASE).rows).toBe(1);
 		// Nothing about the stored shape is stamped in the file: `_meta` carries the
-		// cursor and only the cursor.
+		// realm cursor and the per-entity full-pull latches, nothing else.
 		expect(
 			db.raw
 				.query<{ key: string }, []>(`SELECT key FROM _meta ORDER BY key`)
 				.all()
 				.map((r) => r.key),
-		).toEqual(['cdc_cursor', 'last_full_pull_at', 'last_synced_at']);
+		).toEqual([
+			'cdc_cursor',
+			'full_pulled:Purchase',
+			'last_full_pull_at',
+			'last_synced_at',
+		]);
 		db.close();
 		tmp.cleanup();
+	});
+});
+
+describe('the schema is created at open', () => {
+	test('every mapped table exists with the bookkeeping columns before any pull', () => {
+		const { db, cleanup } = openTmp();
+		// The artifact's schema is a pure function of MIRROR_VERSION: the whole
+		// corpus exists from the moment the file does, pulled or not, and the shared
+		// upsert in `ingest` depends on these five columns in every table. This is
+		// also the ENTITY_TABLES <-> MIRROR_SCHEMA drift guard: a mapping entry
+		// without a CREATE TABLE fails here.
+		for (const name of DEFAULT_ENTITIES) {
+			const def = entityDef(name);
+			const columns = db.raw
+				.query<{ name: string; pk: number }, [string]>(
+					`SELECT name, pk FROM pragma_table_xinfo(?)`,
+				)
+				.all(def.table);
+			const byName = new Map(columns.map((c) => [c.name, c]));
+			for (const required of [
+				'id',
+				'raw',
+				'updated_at',
+				'synced_at',
+				'deleted',
+			]) {
+				expect(byName.has(required)).toBe(true);
+			}
+			expect(byName.get('id')?.pk).toBe(1);
+		}
+		cleanup();
+	});
+
+	test('the full-pull latch is ingest state, not table existence', () => {
+		const { db, cleanup } = openTmp();
+		// The table exists (created at open) but nothing has been pulled...
+		expect(db.isInitialized(PURCHASE)).toBe(false);
+		// ...and rows alone (a CDC batch, a recategorize fold) do not latch it.
+		ingPurchase(db, purchase('60'), 's1');
+		expect(db.isInitialized(PURCHASE)).toBe(false);
+		// Only a pass that declares itself a full pull does.
+		db.ingest([], { syncedAt: 's2', fullPulled: ['Purchase'] });
+		expect(db.isInitialized(PURCHASE)).toBe(true);
+		cleanup();
 	});
 });
 

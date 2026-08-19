@@ -13,34 +13,53 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { toast } from 'svelte-sonner';
 	import { api } from '$lib/api';
-	import { columnLabel, formatCell, shortTimestamp } from '$lib/format';
-	import type { EntityColumn } from '$lib/types';
+	import { asJson, formatCell } from '$lib/format';
 
 	let {
-		entity,
+		table,
 		id,
-		columns,
 		readOnly,
 	}: {
-		entity: string | null;
+		table: string | null;
 		id: string | null;
-		columns: EntityColumn[];
 		readOnly: boolean;
 	} = $props();
 
 	const queryClient = useQueryClient();
 
 	const detail = createQuery(() => ({
-		queryKey: ['row', entity, id],
-		queryFn: () => api.row(entity as string, id as string),
-		enabled: entity !== null && id !== null,
+		queryKey: ['row', table, id],
+		queryFn: () => api.row(table as string, id as string),
+		enabled: table !== null && id !== null,
 	}));
 
-	// Recategorize is the one QuickBooks write, and only expense transactions carry
-	// an account-based line. Hidden when read-only or for any other record type.
-	const canRecategorize = $derived(
-		!readOnly && (entity === 'Purchase' || entity === 'Bill'),
+	// Every column value verbatim, split by rendering: scalars go in the grid,
+	// serialized JSON (the raw blob, _meta values) gets a pretty-printed block.
+	const entries = $derived(Object.entries(detail.data?.values ?? {}));
+	const typeByName = $derived(
+		new Map((detail.data?.columns ?? []).map((c) => [c.name, c.type])),
 	);
+	const scalarEntries = $derived(entries.filter(([, v]) => asJson(v) === null));
+	const jsonEntries = $derived(
+		entries.flatMap(([name, v]) => {
+			const parsed = asJson(v);
+			return parsed === null
+				? []
+				: [{ name, pretty: JSON.stringify(parsed, null, 2) }];
+		}),
+	);
+
+	// Recategorize is the one QuickBooks write, and only expense transactions
+	// carry an account-based line. The mirror table names the QB entity the API
+	// verb takes. Hidden when read-only or for any other table.
+	const RECATEGORIZE_TABLES: Record<string, 'Purchase' | 'Bill'> = {
+		purchases: 'Purchase',
+		bills: 'Bill',
+	};
+	const recategorizeEntity = $derived(
+		table === null ? undefined : RECATEGORIZE_TABLES[table],
+	);
+	const canRecategorize = $derived(!readOnly && recategorizeEntity !== undefined);
 
 	let targetAccountId = $state('');
 	let targetAccountName = $state('');
@@ -48,7 +67,7 @@
 	const recategorize = createMutation(() => ({
 		mutationFn: () =>
 			api.recategorize({
-				entity: entity as 'Purchase' | 'Bill',
+				entity: recategorizeEntity as 'Purchase' | 'Bill',
 				id: id as string,
 				account_id: targetAccountId.trim(),
 				account_name: targetAccountName.trim() || undefined,
@@ -60,20 +79,16 @@
 			toast.success(`Recategorized ${result.entity} ${result.id}: ${moves}`);
 			targetAccountId = '';
 			targetAccountName = '';
-			queryClient.invalidateQueries({ queryKey: ['row', entity, id] });
+			queryClient.invalidateQueries({ queryKey: ['row', table, id] });
 			queryClient.invalidateQueries({ queryKey: ['rows'] });
-			queryClient.invalidateQueries({ queryKey: ['entities'] });
+			queryClient.invalidateQueries({ queryKey: ['tables'] });
 		},
 		onError: (error: Error) => toast.error(error.message),
 	}));
-
-	const rawJson = $derived(
-		detail.data ? JSON.stringify(detail.data.raw, null, 2) : '',
-	);
 </script>
 
 <aside class="flex w-96 shrink-0 flex-col overflow-hidden border-l border-border bg-background">
-	{#if !entity || !id}
+	{#if !table || !id}
 		<Empty.Root class="flex-1 border-0">
 			<Empty.Media variant="icon">
 				<MousePointerClickIcon class="size-5" />
@@ -95,25 +110,20 @@
 		<div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
 			<header class="border-b border-border px-4 py-3">
 				<div class="flex items-center gap-2">
-					<span class="text-sm font-semibold">{detail.data.entity}</span>
-					<span class="font-mono text-xs text-muted-foreground">{detail.data.id}</span>
-					{#if detail.data.deleted}
+					<span class="font-mono text-sm font-semibold">{detail.data.table}</span>
+					<span class="font-mono text-xs text-muted-foreground">{id}</span>
+					{#if detail.data.values.deleted === 1}
 						<Badge variant="outline" class="text-amber-500">deleted</Badge>
 					{/if}
 				</div>
-				<div class="mt-1 text-xs text-muted-foreground">
-					updated {shortTimestamp(detail.data.updatedAt)} · synced {shortTimestamp(
-						detail.data.syncedAt,
-					)}
-				</div>
 			</header>
 
-			{#if columns.length > 0}
+			{#if scalarEntries.length > 0}
 				<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-b border-border px-4 py-3 text-sm">
-					{#each columns as column (column.name)}
-						<dt class="capitalize text-muted-foreground">{columnLabel(column.name)}</dt>
+					{#each scalarEntries as [name, value] (name)}
+						<dt class="font-mono text-xs text-muted-foreground">{name}</dt>
 						<dd class="truncate text-right tabular-nums">
-							{formatCell(detail.data.columns[column.name], column)}
+							{formatCell(value, { name, type: typeByName.get(name) ?? 'TEXT' })}
 						</dd>
 					{/each}
 				</dl>
@@ -157,12 +167,14 @@
 				</form>
 			{/if}
 
-			<div class="min-h-0 flex-1 px-4 py-3">
-				<p class="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					Raw QuickBooks JSON
-				</p>
-				<pre class="overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-xs">{rawJson}</pre>
-			</div>
+			{#each jsonEntries as entry (entry.name)}
+				<div class="min-h-0 px-4 py-3">
+					<p class="mb-1 font-mono text-xs font-medium text-muted-foreground">
+						{entry.name}
+					</p>
+					<pre class="overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-xs">{entry.pretty}</pre>
+				</div>
+			{/each}
 		</div>
 	{/if}
 </aside>

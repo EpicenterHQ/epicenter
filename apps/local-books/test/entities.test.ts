@@ -14,7 +14,13 @@ import { type BooksDb, booksDbFile, openBooksDb } from '../src/db.ts';
 import { entityDef, type QbObject } from '../src/entities.ts';
 import { tempDir } from './helpers.ts';
 
-/** Open a throwaway mirror, upsert one object, return its projected columns. */
+/**
+ * Open a throwaway mirror, upsert one object, return its projected columns.
+ * The column list comes from `pragma_table_xinfo` (generated columns report
+ * `hidden` 2/3), not from any TypeScript declaration: the database's own DDL
+ * is the schema authority, so the test reads the schema the same way the
+ * browse surface does.
+ */
 function project(entity: string, raw: QbObject): Record<string, unknown> {
 	const def = entityDef(entity);
 	const tmp = tempDir();
@@ -25,7 +31,13 @@ function project(entity: string, raw: QbObject): Record<string, unknown> {
 		db.ingest([{ def, objects: [raw] }], {
 			syncedAt: '2026-06-21T00:00:00.000Z',
 		});
-		const cols = def.columns.map((c) => c.name).join(', ');
+		const cols = db.raw
+			.query<{ name: string }, [string]>(
+				`SELECT name FROM pragma_table_xinfo(?) WHERE hidden IN (2, 3)`,
+			)
+			.all(def.table)
+			.map((c) => c.name)
+			.join(', ');
 		return db.raw
 			.query(`SELECT ${cols} FROM ${def.table} WHERE id = ?`)
 			.get(id) as Record<string, unknown>;

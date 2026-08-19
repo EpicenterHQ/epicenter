@@ -1,8 +1,8 @@
 // Presentation helpers for the books surface. None of this invents state; it only
-// makes the mirror's own bytes (QuickBooks ids, ISO timestamps, extracted scalar
-// columns) scannable for a human.
+// makes the mirror's own bytes (QuickBooks ids, ISO timestamps, SQLite column
+// values) scannable for a human.
 
-import type { EntityColumn } from './types';
+import type { TableColumn } from './types';
 
 const moneyFmt = new Intl.NumberFormat(undefined, {
 	style: 'currency',
@@ -10,26 +10,29 @@ const moneyFmt = new Intl.NumberFormat(undefined, {
 });
 const numberFmt = new Intl.NumberFormat();
 
-/** Format one extracted-column cell by its declared SQLite type. */
-export function formatCell(value: unknown, column: EntityColumn): string {
+/**
+ * Format one cell by the column's declared SQLite type (from
+ * `pragma_table_xinfo`). Every REAL in the mirror is money, so REAL renders as
+ * currency; QuickBooks booleans arrive as `json_extract` 0/1, so the flag
+ * columns render yes/no.
+ */
+export function formatCell(
+	value: unknown,
+	column: Pick<TableColumn, 'name' | 'type'>,
+): string {
 	if (value === null || value === undefined) return '';
 	if (column.type === 'REAL') {
 		const n = Number(value);
 		return Number.isFinite(n) ? moneyFmt.format(n) : String(value);
 	}
 	if (column.type === 'INTEGER') {
-		// QuickBooks booleans arrive as json_extract 0/1; render the flag columns as
-		// yes/no, other integers as plain numbers.
-		if (column.name === 'active') return value === 1 ? 'yes' : 'no';
+		if (column.name === 'active' || column.name === 'deleted') {
+			return value === 1 ? 'yes' : 'no';
+		}
 		const n = Number(value);
 		return Number.isFinite(n) ? numberFmt.format(n) : String(value);
 	}
 	return String(value);
-}
-
-/** A short, human-readable column header from the snake_case column name. */
-export function columnLabel(name: string): string {
-	return name.replace(/_/g, ' ');
 }
 
 /** "2m ago" style relative time for the sync status. */
@@ -56,6 +59,22 @@ export function shortTimestamp(iso: string | null): string {
 		dateStyle: 'medium',
 		timeStyle: 'short',
 	}).format(date);
+}
+
+/**
+ * Parse a cell that holds serialized JSON (the `raw` blob, `_meta` values), or
+ * null when the value is not a JSON object/array. Presentation-side parsing:
+ * the API ships column values verbatim.
+ */
+export function asJson(value: unknown): unknown | null {
+	if (typeof value !== 'string') return null;
+	const first = value.trimStart()[0];
+	if (first !== '{' && first !== '[') return null;
+	try {
+		return JSON.parse(value);
+	} catch {
+		return null;
+	}
 }
 
 export { numberFmt };

@@ -42,12 +42,12 @@ export const ApiError = defineErrors({
 		message: 'Invalid bootstrap token.',
 		status: 401 as const,
 	}),
-	/** A path parameter named an entity the registry does not know. */
-	UnknownEntity: ({ entity }: { entity: string }) => ({
-		message: `Unknown entity "${entity}".`,
-		status: 400 as const,
+	/** A path parameter named a table the mirror does not hold. */
+	UnknownTable: ({ table }: { table: string }) => ({
+		message: `No table "${table}" in the mirror.`,
+		status: 404 as const,
 	}),
-	/** No mirror row for the requested entity id. */
+	/** No mirror row for the requested table id. */
 	RowNotFound: () => ({
 		message: 'Row not found.',
 		status: 404 as const,

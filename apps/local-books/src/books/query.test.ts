@@ -16,14 +16,12 @@ function fixtureMirror() {
 	const dir = mkdtempSync(join(tmpdir(), 'local-books-'));
 	const mirror = booksDbFile(dir, 'realm-1');
 	const db = openBooksDb(mirror);
+	// The schema exists at open (MIRROR_SCHEMA), so seeding is inserts only;
+	// total_amt is a generated projection of the blob.
 	db.raw.exec(`
-		CREATE TABLE invoices (
-			id TEXT PRIMARY KEY, raw TEXT NOT NULL, updated_at TEXT,
-			synced_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, total_amt REAL
-		);
-		INSERT INTO invoices (id, raw, synced_at, deleted, total_amt) VALUES
-			('i1', '{"Id":"i1"}', '2026-01-01', 0, 100.0),
-			('i2', '{"Id":"i2"}', '2026-01-01', 1, 50.0);
+		INSERT INTO invoices (id, raw, synced_at, deleted) VALUES
+			('i1', '{"Id":"i1","TotalAmt":100.0}', '2026-01-01', 0),
+			('i2', '{"Id":"i2","TotalAmt":50.0}', '2026-01-01', 1);
 	`);
 	db.close();
 	return {

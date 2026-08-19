@@ -99,17 +99,17 @@ export const api = {
 		if (!res.ok) throw await toError(res);
 		return res.json();
 	},
-	entities: async () => {
-		const res = await client.api.entities.$get();
+	tables: async () => {
+		const res = await client.api.tables.$get();
 		if (!res.ok) throw await toError(res);
 		return res.json();
 	},
 	rows: async (
-		entity: string,
+		table: string,
 		query: { limit?: number; offset?: number } = {},
 	) => {
-		const res = await client.api.entities[':entity'].$get({
-			param: { entity },
+		const res = await client.api.tables[':table'].$get({
+			param: { table },
 			query: {
 				...(query.limit != null ? { limit: String(query.limit) } : {}),
 				...(query.offset != null ? { offset: String(query.offset) } : {}),
@@ -118,9 +118,9 @@ export const api = {
 		if (!res.ok) throw await toError(res);
 		return res.json();
 	},
-	row: async (entity: string, id: string) => {
-		const res = await client.api.entities[':entity'][':id'].$get({
-			param: { entity, id },
+	row: async (table: string, id: string) => {
+		const res = await client.api.tables[':table'][':id'].$get({
+			param: { table, id },
 		});
 		if (!res.ok) throw await toError(res);
 		return res.json();

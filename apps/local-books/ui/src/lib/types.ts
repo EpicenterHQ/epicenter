@@ -7,15 +7,15 @@ import type { api } from './api';
 
 export type BooksStatus = Awaited<ReturnType<typeof api.status>>;
 
-export type EntityList = Awaited<ReturnType<typeof api.entities>>;
+export type TableList = Awaited<ReturnType<typeof api.tables>>;
 
-export type EntitySummary = EntityList['entities'][number];
+export type TableSummary = TableList['tables'][number];
 
-export type EntityColumn = EntitySummary['columns'][number];
+export type TableColumn = TableSummary['columns'][number];
 
-export type EntityRowsPage = Awaited<ReturnType<typeof api.rows>>;
+export type TableRowsPage = Awaited<ReturnType<typeof api.rows>>;
 
-export type EntityRowDetail = Awaited<ReturnType<typeof api.row>>;
+export type TableRowDetail = Awaited<ReturnType<typeof api.row>>;
 
 export type QueryResult = Awaited<ReturnType<typeof api.query>>;
 

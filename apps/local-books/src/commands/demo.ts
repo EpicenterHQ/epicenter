@@ -212,7 +212,12 @@ export async function runDemo(): Promise<number> {
 	];
 	db.ingest(
 		seed.map(({ entity, objects }) => ({ def: entityDef(entity), objects })),
-		{ syncedAt: new Date().toISOString() },
+		{
+			syncedAt: new Date().toISOString(),
+			// The seed is each entity's complete demo corpus, so latch them the way a
+			// real full pull would; status then reports them initialized.
+			fullPulled: seed.map(({ entity }) => entity),
+		},
 	);
 	db.close();
 
@@ -224,7 +229,7 @@ export async function runDemo(): Promise<number> {
 	console.log('Who owes us money? (open invoices)');
 	table(
 		mirror,
-		`SELECT c.display_name AS customer, i.doc_number AS invoice, i.doc_date AS date,
+		`SELECT c.display_name AS customer, i.doc_number AS invoice, i.txn_date AS date,
 		        printf('$%,.2f', i.balance) AS outstanding
 		 FROM invoices i JOIN customers c ON c.id = i.customer_ref
 		 WHERE i.deleted = 0 AND i.balance > 0 ORDER BY i.balance DESC`,

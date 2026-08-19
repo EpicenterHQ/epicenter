@@ -64,8 +64,10 @@ describe('readBooksStatus', () => {
 		const status = await statusFor(tmp.dir);
 		expect(status.mirror).toBe('building');
 		expect(status.cdcCursor).toBeNull();
+		// The rows landed but no full pull committed its latch, so the entity is
+		// honestly uninitialized: a half pull never reads as a corpus.
 		expect(status.entities).toEqual([
-			{ entity: 'Invoice', rows: 1, deleted: 0, initialized: true },
+			{ entity: 'Invoice', rows: 1, deleted: 0, initialized: false },
 		]);
 		tmp.cleanup();
 	});
@@ -76,6 +78,7 @@ describe('readBooksStatus', () => {
 		const db = openBooksDb(mirror);
 		db.ingest([{ def: entityDef('Invoice'), objects: [{ Id: 'i1' }] }], {
 			syncedAt: '2026-01-01T00:00:00Z',
+			fullPulled: ['Invoice'],
 			realmState: {
 				cdcCursor: 'c1',
 				lastFullPullAt: 'c1',

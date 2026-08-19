@@ -119,7 +119,12 @@ async function fullPullEach(
 			failures.push({ entity: name, error: pulled.error });
 			continue;
 		}
-		const counts = db.ingest([{ def, objects: pulled.data }], { syncedAt });
+		// The latch commits with the rows it records: a crash rolls both back, so
+		// the next pass backfills this entity again rather than trusting a half pull.
+		const counts = db.ingest([{ def, objects: pulled.data }], {
+			syncedAt,
+			fullPulled: [name],
+		});
 		const { upserted, deleted } = counts[name] ?? { upserted: 0, deleted: 0 };
 		entities.push({ entity: name, upserted, deleted, backfilled });
 	}
@@ -132,9 +137,9 @@ async function fullPullEach(
  * through its query endpoint (an honest asymmetry: each entity is its own query
  * endpoint), then advances the single realm cursor. INCREMENTAL fires ONE
  * batched `/cdc` call for all entities since that cursor and advances it, after
- * first backfilling any entity that has never been full-pulled (a missing table
- * is the only signal we need: CDC carries only changes since the cursor, so a
- * fresh entity must full-pull its history once before it can ride the batch).
+ * first backfilling any entity that has never been full-pulled (the `_meta`
+ * latch is the only signal we need: CDC carries only changes since the cursor,
+ * so a fresh entity must full-pull its history once before it can ride the batch).
  * The cursor advances only on a clean pass, so any failure re-pulls its window
  * next time (idempotent) instead of skipping it.
  */
@@ -197,10 +202,10 @@ export async function syncRealm(
 	}
 
 	// INCREMENTAL. Snapshot which entities were already initialized BEFORE
-	// backfilling: a freshly-added entity (no table) is backfilled in full and
-	// excluded from this pass's CDC (it is already current), while the rest ride
-	// one batched CDC call. cursorBefore is non-null here (a null cursor forces
-	// FULL above).
+	// backfilling: a freshly-added entity (no `_meta` latch) is backfilled in
+	// full and excluded from this pass's CDC (it is already current), while the
+	// rest ride one batched CDC call. cursorBefore is non-null here (a null
+	// cursor forces FULL above).
 	const newNames: string[] = [];
 	const cdcNames: string[] = [];
 	for (const name of names) {

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-25
+- **Amended by:** [ADR-0250](0250-the-local-books-mirror-artifact-is-the-schema-authority-and-browse-is-a-generic-sqlite-inspector.md): the per-entity init latch is a `full_pulled:<Entity>` key in `_meta`, not table existence (tables now exist from open); the one-realm-cursor decision stands.
 
 ## Context
 

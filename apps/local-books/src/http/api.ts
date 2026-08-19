@@ -6,9 +6,9 @@ import { Hono } from 'hono';
 import type { OpenQbClient } from '../books/qb-access.ts';
 import { queryBooks } from '../books/query.ts';
 import {
-	getEntityRow,
-	listEntities,
-	pageEntityRows,
+	getTableRow,
+	listTables,
+	pageTableRows,
 } from '../books/read-models.ts';
 import {
 	RECATEGORIZE_ENTITIES,
@@ -18,7 +18,6 @@ import { fetchReport, REPORT_NAMES } from '../books/report.ts';
 import { readBooksStatus } from '../books/status.ts';
 import type { AppConfig } from '../config.ts';
 import type { DbFile } from '../db-file.ts';
-import { entityDef, isKnownEntity } from '../entities.ts';
 import type { SyncOutcome } from '../sync.ts';
 import type { TokenStore } from '../token-store.ts';
 import { ApiError } from './api-errors.ts';
@@ -59,7 +58,7 @@ export function mintToken(): string {
 /** `POST /api/session` body: the single-use bootstrap token being exchanged. */
 const SessionBody = type({ token: 'string >= 1' });
 
-/** `GET /api/entities/:entity` query. Strings arrive raw; clamped in the handler. */
+/** `GET /api/tables/:table` query. Strings arrive raw; clamped in the handler. */
 const RowsQuery = type({ 'limit?': 'string', 'offset?': 'string' });
 
 /** `POST /api/query` body: the read-only SQL to run over the mirror. */
@@ -172,37 +171,28 @@ export function createApiApp(deps: ApiDeps) {
 			const status = await readBooksStatus({ config, realmId, mirror, store });
 			return c.json({ ...status, readOnly });
 		})
-		.get('/api/entities', (c) => {
-			const defs = config.entities.map((name) => entityDef(name));
-			return c.json(listEntities({ mirror, defs }));
-		})
-		.get('/api/entities/:entity', sValidator('query', RowsQuery), (c) => {
-			const entity = c.req.param('entity');
-			// The registry is the SQL-identifier boundary: a name it does not know
-			// never reaches a table string.
-			if (!isKnownEntity(entity)) {
-				const err = ApiError.UnknownEntity({ entity });
-				return c.json(err, err.error.status);
-			}
+		.get('/api/tables', (c) => c.json(listTables({ mirror })))
+		.get('/api/tables/:table', sValidator('query', RowsQuery), (c) => {
+			const table = c.req.param('table');
 			const { limit, offset } = c.req.valid('query');
-			return c.json(
-				pageEntityRows({
-					mirror,
-					def: entityDef(entity),
-					limit: clampInt(limit, 100, 500),
-					offset: clampInt(offset, 0, Number.MAX_SAFE_INTEGER),
-				}),
-			);
-		})
-		.get('/api/entities/:entity/:id', (c) => {
-			const entity = c.req.param('entity');
-			if (!isKnownEntity(entity)) {
-				const err = ApiError.UnknownEntity({ entity });
+			// The read-model resolves the name against sqlite_master before any
+			// interpolation, so an unknown string ends here as a 404, never in SQL.
+			const page = pageTableRows({
+				mirror,
+				table,
+				limit: clampInt(limit, 100, 500),
+				offset: clampInt(offset, 0, Number.MAX_SAFE_INTEGER),
+			});
+			if (page === null) {
+				const err = ApiError.UnknownTable({ table });
 				return c.json(err, err.error.status);
 			}
-			const detail = getEntityRow({
+			return c.json(page);
+		})
+		.get('/api/tables/:table/:id', (c) => {
+			const detail = getTableRow({
 				mirror,
-				def: entityDef(entity),
+				table: c.req.param('table'),
 				id: c.req.param('id'),
 			});
 			if (!detail) {

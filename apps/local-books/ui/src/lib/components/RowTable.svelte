@@ -4,8 +4,8 @@
 	import * as Table from '@epicenter/ui/table';
 	import DatabaseIcon from '@lucide/svelte/icons/database';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { columnLabel, formatCell, numberFmt } from '$lib/format';
-	import type { EntityRowsPage } from '$lib/types';
+	import { formatCell, numberFmt } from '$lib/format';
+	import type { TableRowsPage } from '$lib/types';
 
 	let {
 		page,
@@ -14,7 +14,7 @@
 		selectedId,
 		onSelect,
 	}: {
-		page: EntityRowsPage | undefined;
+		page: TableRowsPage | undefined;
 		loading: boolean;
 		error: string | null;
 		selectedId: string | null;
@@ -23,6 +23,15 @@
 
 	const columns = $derived(page?.columns ?? []);
 	const rows = $derived(page?.rows ?? []);
+	const pk = $derived(page?.pk ?? null);
+
+	// The row's address, when the table has a single-column primary key. Without
+	// one there is nothing stable to select or fetch a detail by.
+	function rowKey(row: Record<string, unknown>): string | null {
+		if (pk === null) return null;
+		const value = row[pk];
+		return value === null || value === undefined ? null : String(value);
+	}
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
@@ -30,7 +39,7 @@
 		class="flex h-9 shrink-0 items-center justify-between border-b border-border px-3 text-xs text-muted-foreground"
 	>
 		{#if page}
-			<span>{page.entity}</span>
+			<span class="font-mono">{page.table}</span>
 			<span class="tabular-nums">
 				{numberFmt.format(rows.length)} of {numberFmt.format(page.total)} rows
 			</span>
@@ -54,29 +63,34 @@
 					<DatabaseIcon class="size-5" />
 				</Empty.Media>
 				<Empty.Title>No rows</Empty.Title>
-				<Empty.Description>This record type may not be synced yet.</Empty.Description>
+				<Empty.Description>This table may not be synced yet.</Empty.Description>
 			</Empty.Root>
 		{:else}
 			<Table.Root class="text-sm">
 				<Table.Header>
 					<Table.Row>
-						<Table.Head class="w-24 font-mono text-xs">id</Table.Head>
 						{#each columns as column (column.name)}
-							<Table.Head class="capitalize {column.type === 'REAL' ? 'text-right' : ''}">
-								{columnLabel(column.name)}
+							<Table.Head
+								class="font-mono text-xs {column.type === 'REAL' ? 'text-right' : ''}"
+							>
+								{column.name}
 							</Table.Head>
 						{/each}
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
-					{#each rows as row (row.id)}
+					{#each rows as row, index (rowKey(row) ?? index)}
+						{@const key = rowKey(row)}
 						<Table.Row
-							class="cursor-pointer {selectedId === String(row.id) ? 'bg-muted' : ''} {row.deleted === 1 ? 'text-muted-foreground line-through' : ''}"
-							onclick={() => onSelect(String(row.id))}
+							class="{key !== null ? 'cursor-pointer' : ''} {selectedId !== null && selectedId === key ? 'bg-muted' : ''} {row.deleted === 1 ? 'text-muted-foreground line-through' : ''}"
+							onclick={() => {
+								if (key !== null) onSelect(key);
+							}}
 						>
-							<Table.Cell class="font-mono text-xs">{row.id}</Table.Cell>
 							{#each columns as column (column.name)}
-								<Table.Cell class={column.type === 'REAL' ? 'text-right tabular-nums' : ''}>
+								<Table.Cell
+									class="max-w-64 truncate {column.type === 'REAL' ? 'text-right tabular-nums' : ''}"
+								>
 									{formatCell(row[column.name], column)}
 								</Table.Cell>
 							{/each}
