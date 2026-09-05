@@ -105,6 +105,22 @@ export function buildTrustedOAuthClients() {
 }
 
 /**
+ * OAuth client ids that must stay disabled.
+ *
+ * `epicenter-cli` was seeded before the terminal machine-auth surface was
+ * deleted, and the seed script only upserts, so the row survives in every
+ * database that was seeded while the CLI existed. It no longer skips consent
+ * and its `/cli-callback` redirect target is gone, but Better Auth still reads
+ * it as valid client metadata at `/authorize` and `/token` unless `disabled`
+ * is true (see the `disabled` field on the `oauthClient` table: "indicates if
+ * the current application is disabled"). The deploy seed disables these rows
+ * after upserting the trusted set, keeping the row for audit instead of
+ * deleting it. Never re-add an id from this list to
+ * {@link buildTrustedOAuthClients}.
+ */
+export const RETIRED_OAUTH_CLIENT_IDS = ['epicenter-cli'] as const;
+
+/**
  * Project a checked-in trusted client into Better Auth's `oauth_client` row.
  *
  * Used by the `apps/api` `oauth:seed` deploy script and by the auth tests that
