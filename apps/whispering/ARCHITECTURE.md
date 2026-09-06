@@ -29,7 +29,7 @@ defineData()                            src/lib/data.ts (inert schema)
 
 `src/lib/data.ts` defines the fixed application id, flat table fields, required row `content` codecs, and KV settings schema with no platform APIs.
 
-`src/lib/whispering/dependencies.ts` exports `whisperingDependencies`, the build's two environment-owned inputs: the `authClient` from `#platform/auth` and `BlobsLive` from `#platform/blobs`. It is pure data and factories; nothing there opens storage.
+The build's environment-owned inputs arrive through two seams: `authClient` from `#platform/auth`, read by `$lib/epicenter.svelte.ts` when it creates the handle, and `createWhisperingBlobs` from `#platform/blobs`, called by `WhisperingShell` once per session with the opened replica's app and principal, because the blob store is one account's (ADR-0349). Neither seam opens storage at module evaluation.
 
 `openWhisperingApp(dependencies, { signal })` requires a signed-in account and refuses otherwise, because a store is one replica of an authority and a signed-out generation has no document to fall back to. It opens that account's replica through `createEpicenter` from `@epicenter/app`, then hands back settings, recordings, and recipes as UI-free product namespaces. Any failure releases everything it opened and rejects.
 

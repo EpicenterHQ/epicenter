@@ -34,7 +34,7 @@ app.settings.set('settings.recording.trigger', 'vad');
 
 ### `recordings.svelte.ts`
 
-Recording metadata backed by structural workspace row ids. The app namespace maintains the cache, owns row/blob consistency (`storeAudio`, `create` cleanup, `delete`, the audio workflows, and the `uploadedAt` marker), and refreshes after local writes or installed remote record changes; this module only makes its reads reactive. Use `$lib/queries/audio` for availability query identity and `services.blobSources` for playback.
+Recording metadata backed by structural workspace row ids. The app namespace maintains the cache, owns row/blob consistency (`storeAudio`, `create` cleanup, `delete`, the audio workflows, and the `uploadedAt` marker), and refreshes after local writes or installed remote record changes; this module only makes its reads reactive. Use `$lib/queries/audio` for availability query identity and `app.blobs.sources` for playback; the blob store is the account's and is built per session (ADR-0349), so it is reached through the app rather than a module-level service.
 
 ```typescript
 import { InstantString } from '@epicenter/data/field';
