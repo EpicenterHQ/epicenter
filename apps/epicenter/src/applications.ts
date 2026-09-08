@@ -21,6 +21,7 @@
  * admit, so "not launchable" never means "available for someone else to claim".
  */
 
+import { APPS } from '@epicenter/constants/apps';
 import { BUILT_IN_ROUTES } from './routes.ts';
 
 /** One application a person can launch, however the host serves it. */
@@ -64,10 +65,11 @@ export const COMPILED_APPLICATIONS: readonly Application[] = [
 	MAIL_APPLICATION,
 ];
 
-/**
- * Compose the one list Home renders from the release's trusted application
- * table. Installed application discovery is deliberately not part of the host.
- */
-export function listApplications(): Application[] {
-	return [...COMPILED_APPLICATIONS];
-}
+/** IDs that belong to Epicenter's own built-in routes and cannot be installed. */
+export const RESERVED_APPLICATION_IDS: readonly string[] = [
+	...Object.values(BUILT_IN_ROUTES).map((route) => route.id),
+	APPS.WHISPERING.id,
+	APPS.HONEYCRISP.id,
+	APPS.VOCAB.id,
+	'so.epicenter.local-mail',
+];

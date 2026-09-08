@@ -56,6 +56,7 @@ import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_SIGN_OUT_ROUTE,
+	APPLICATIONS_ROUTE,
 	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
@@ -1633,13 +1634,52 @@ async function exitWithin(
 }
 
 describe('sidecar end-to-end smoke', () => {
-	test('the spawned entrypoint serves the built SPA and drives a turn', async () => {
+	test('the spawned entrypoint installs and serves an app, then drives a turn', async () => {
 		const page = await buildSpaOnce();
 		const appsDist = writeAppsDistFixture(page);
+		const dataDir = testDataDir();
+		const releaseRoot = testDataDir();
+		const installedAppId = 'so.epicenter.installed-e2e';
+		const installedPage = applicationPage('Installed release');
+		mkdirSync(releaseRoot, { recursive: true });
+		writeFileSync(
+			join(releaseRoot, 'manifest.json'),
+			JSON.stringify({
+				id: installedAppId,
+				title: 'Installed release',
+				version: '1.0.0',
+			}),
+		);
+		writeFileSync(join(releaseRoot, 'index.html'), installedPage);
+		const install = Bun.spawn(
+			[
+				'bun',
+				'run',
+				'scripts/install.ts',
+				'--',
+				releaseRoot,
+				'--data-dir',
+				dataDir,
+			],
+			{
+				cwd: queryDir,
+				stdout: 'pipe',
+				stderr: 'pipe',
+			},
+		);
+		expect(await install.exited).toBe(0);
+		expect(await new Response(install.stdout).text()).toContain(
+			`Installed Installed release (${installedAppId})`,
+		);
+		expect(
+			await Bun.file(
+				join(dataDir, 'apps', installedAppId, 'bundle', 'index.html'),
+			).text(),
+		).toBe(installedPage);
 
 		// The fake OpenAI-compatible backend. One request and one text answer:
 		// the spawned host has no tool catalog to call into, so what this proves
-		// end to end is the sidecar, the SPA, the session, and the socket.
+		// end to end is the installer, sidecar, installed SPA, session, and socket.
 		let inferenceRequests = 0;
 		const inference = Bun.serve({
 			hostname: '127.0.0.1',
@@ -1661,7 +1701,6 @@ describe('sidecar end-to-end smoke', () => {
 		});
 		const port = boundPort(portProbe);
 		await portProbe.stop(true);
-		const dataDir = testDataDir();
 		const folderDir = testDataDir();
 		const ignoredDirectory = testDataDir();
 		const sidecar = Bun.spawn(
@@ -1709,6 +1748,20 @@ describe('sidecar end-to-end smoke', () => {
 			expect(cookie).toBeDefined();
 			// Startup paths win even when the child environment names other roots.
 			const headers = { cookie: cookie ?? '', origin };
+			const applications = await fetch(APPLICATIONS_ROUTE.url(origin), {
+				headers,
+			});
+			expect(applications.status).toBe(200);
+			expect((await applications.json()).apps).toContainEqual({
+				id: installedAppId,
+				title: 'Installed release',
+			});
+			const installed = await fetch(`${origin}/apps/${installedAppId}/`, {
+				headers,
+			});
+			expect(installed.status).toBe(200);
+			expect(withoutAuthBootstrap(await installed.text())).toBe(installedPage);
+
 			const blobId = generateBlobId();
 			const put = await fetch(`${origin}${desktopBlobUrl(blobId)}`, {
 				method: 'PUT',

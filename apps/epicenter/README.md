@@ -109,31 +109,30 @@ open 'epicenter://app/honeycrisp'
 open 'epicenter://app/home'
 ```
 
-## Publish an app catalog
+## Install a local application release
 
-The promotion command accepts already-built static outputs. It does not install
+The local installer accepts one already-built release. It does not install
 dependencies, run build scripts, or read application source (ADR-0179). How the
-folders were produced, and by whom, is outside the contract. The candidate
-directory contains one built result per app:
+folder was produced, and by whom, is outside the contract:
 
 ```text
-candidate/
-|-- notes/
-|   `-- index.html
-`-- timeline/
-    `-- index.html
+release/
+|-- manifest.json
+|-- index.html
+`-- assets/
 ```
 
-Publish it from the repository root:
+Install it from the repository root:
 
 ```bash
-bun run --cwd apps/epicenter catalog:publish -- ./candidate --data-dir ./tmp/epicenter-data
+# Stop Epicenter first, then restart it after installation.
+bun run --cwd apps/epicenter install -- /path/to/release --data-dir /tmp/epicenter-data
 ```
 
-Epicenter copies and validates the complete candidate, stores it as an
-immutable generation, and atomically selects it for the next launch. A running
-process keeps serving the generation it selected at startup. Restart Epicenter
-to activate the new catalog.
+Epicenter validates the manifest and static files, copies them into
+`<data-root>/apps/<app-id>/bundle`, and preserves every existing app-owned file
+outside `bundle/`. Restart Epicenter after installation so startup discovers the
+new application and composes it with the compiled applications.
 
 ## Build and verify
 

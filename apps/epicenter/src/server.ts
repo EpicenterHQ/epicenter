@@ -27,7 +27,7 @@ import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
 import { createAccountRelay } from './account-relay.ts';
 import type { AppSecretOwner } from './app-secrets.ts';
-import { type Application, listApplications } from './applications.ts';
+import type { Application } from './applications.ts';
 import {
 	CheckoutPreconditionFailedError,
 	checkoutFolderPath,
@@ -439,10 +439,12 @@ export function createHomeServer({
 		} satisfies HomeSessionResponse),
 	);
 
-	// What Home lists as launchable: the release's trusted compiled applications.
+	// What Home lists as launchable: every validated compiled or installed app.
 	app.get(APPLICATIONS_ROUTE.pattern, (c) =>
 		c.json({
-			apps: listApplications(),
+			apps: staticAssets.applications.map(
+				({ id, title }) => ({ id, title }) satisfies Application,
+			),
 		} satisfies ApplicationsResponse),
 	);
 
