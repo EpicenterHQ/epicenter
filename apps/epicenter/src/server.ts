@@ -43,7 +43,6 @@ import {
 } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
-	ACCOUNT_PROFILE_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	APPLICATIONS_ROUTE,
@@ -220,12 +219,10 @@ export function createHomeServer({
 		if (c.req.header('origin') !== origin) return c.text('Forbidden', 403);
 		await next();
 	};
-	// The account broker carries only host-owned identity commands and the
-	// profile projection. There is deliberately no authorize/bearer-grant
-	// route: no credential ever crosses into a WebView, so the windows keep
-	// the loopback-only CSP. The read-only profile GET is session-guarded
-	// without the origin check because a browser omits the Origin header on
-	// same-origin GETs.
+	// Windows issue identity commands and relay Account traffic through Bun;
+	// no server credential crosses into a WebView. GET and HEAD require the
+	// browser session without an Origin header, which same-origin reads omit.
+	// Mutations and sync upgrades additionally require the exact Origin.
 	app.use('/_epicenter/account/*', async (c, next) => {
 		if (c.req.method === 'GET' || c.req.method === 'HEAD')
 			return requireBrowserSession(c, next);
@@ -310,12 +307,6 @@ export function createHomeServer({
 		);
 	});
 
-	app.get(ACCOUNT_PROFILE_ROUTE.pattern, async (c) => {
-		if (!desktopAuth.account) return c.text('Signed out', 401);
-		const profile = await desktopAuth.account.getProfile();
-		if (profile.error !== null) return c.text('Profile unavailable', 502);
-		return c.json(profile.data);
-	});
 	app.post(ACCOUNT_SIGN_IN_ROUTE.pattern, async (c) => {
 		const result = await desktopAuth.startSignIn();
 		if (result.error) return c.text('Sign-in failed', 502);

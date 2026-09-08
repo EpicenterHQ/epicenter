@@ -55,7 +55,6 @@ import type { BunDevice } from './device.ts';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
-	ACCOUNT_PROFILE_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
@@ -812,9 +811,14 @@ describe('createHomeServer', () => {
 			expect(missingOrigin.status).toBe(403);
 
 			const profileWithoutSession = await fetch(
-				ACCOUNT_PROFILE_ROUTE.url(origin),
+				`${origin}/_epicenter/account/http?path=%2Fapi%2Fsession`,
 			);
 			expect(profileWithoutSession.status).toBe(401);
+			const obsoleteProfile = await fetch(
+				`${origin}/_epicenter/account/profile`,
+				{ headers: { cookie, origin } },
+			);
+			expect(obsoleteProfile.status).toBe(404);
 
 			const signedOut = await fetch(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
 				method: 'POST',

@@ -46,7 +46,6 @@ export type BuiltInRouteId = keyof typeof BUILT_IN_ROUTES;
 export const BOOTSTRAP_ROUTE = route('/_epicenter/bootstrap');
 export const ACCOUNT_SIGN_IN_ROUTE = route('/_epicenter/account/sign-in');
 export const ACCOUNT_SIGN_OUT_ROUTE = route('/_epicenter/account/sign-out');
-export const ACCOUNT_PROFILE_ROUTE = route('/_epicenter/account/profile');
 export const HOME_ROUTE = BUILT_IN_ROUTES.home;
 export const WHISPERING_ROUTE = BUILT_IN_ROUTES.whispering;
 export const HONEYCRISP_ROUTE = BUILT_IN_ROUTES.honeycrisp;

@@ -18,6 +18,7 @@ import { createHomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
 
 async function setup({ verification }: { verification?: Promise<void> } = {}) {
+	const sessionRequests: Request[] = [];
 	const requests: {
 		path: string;
 		bearer: string | null;
@@ -39,6 +40,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		async fetch(request, server) {
 			const url = new URL(request.url);
 			if (url.pathname === '/api/session') {
+				sessionRequests.push(request.clone());
 				verifications++;
 				await verification;
 				return Response.json({
@@ -244,6 +246,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		windowAuth,
 		auth,
 		requests,
+		sessionRequests,
 		localCalls,
 		streamCancelled,
 		retryReceived,
@@ -274,6 +277,29 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		},
 	};
 }
+
+test('desktop profile uses the HTTP relay with credentials only on upstream requests', async () => {
+	await using context = await setup();
+	const { account, localCalls, sessionRequests, origin } = context;
+	expect(expectOk(await account.getProfile())).toEqual({
+		id: account.principalId,
+		email: 'alice@example.test',
+	});
+	expect(localCalls).toHaveLength(1);
+	const request = localCalls[0]!;
+	expect(request.url).toBe(
+		`${origin}/_epicenter/account/http?path=%2Fapi%2Fsession`,
+	);
+	expect(request.method).toBe('GET');
+	expect(request.headers.get('authorization')).toBeNull();
+	expect(request.headers.get('cookie')).toBeNull();
+	expect(await request.text()).toBe('');
+	expect(sessionRequests.length).toBeGreaterThan(0);
+	for (const upstream of sessionRequests) {
+		expect(upstream.headers.get('authorization')).toBe('Bearer initial');
+		expect(upstream.headers.get('cookie')).toBeNull();
+	}
+});
 
 test('desktop HTTP replays the body after a credential revision and decodes compressed responses once', async () => {
 	await using context = await setup();
