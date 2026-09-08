@@ -14,7 +14,6 @@ import { expect, test } from 'bun:test';
 import {
 	type AppSqliteDatabase,
 	type Device,
-	databaseName,
 } from '@epicenter/device';
 import { Ok } from 'wellcrafted/result';
 import { createTestAppSqlite } from './app-sqlite.test-support.ts';
@@ -86,7 +85,7 @@ test('a first open creates the durable file and stamps its version', async () =>
 
 test('the durable file refuses a shape written by a newer build', async () => {
 	const owner = testOwner();
-	const opened = await owner.device.sqlite.open(databaseName('local'));
+	const opened = await owner.device.sqlite.open('local');
 	if (opened.error !== null) throw opened.error;
 	await stamp(opened.data, LOCAL_SCHEMA_VERSION + 1);
 

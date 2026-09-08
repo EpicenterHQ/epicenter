@@ -1,6 +1,6 @@
 ---
 name: post-implementation-review
-description: Review completed implementation work for dead paths, stale imports, invariant ownership, and API shape, then delegate focused checks. Use when reviewing work after implementation, doing a second pass, or performing a final sweep.
+description: Review cumulative implementation for structural collapse, invariant ownership, and correctness. Use for adversarial checkpoint reviews, reviewing work after implementation, doing a second pass, or performing a final sweep.
 metadata:
   author: epicenter
   version: '1.0'
@@ -8,8 +8,10 @@ metadata:
 
 # Post Implementation Review
 
-The goal is a hard second read: catch stale abstractions, dead paths, bad
-ownership, and confusing names while the edit context is still fresh.
+Implementation reveals relationships that a plan could only predict. Review the
+whole affected system to find the owner or invariant that makes several local
+repairs unnecessary. Then check the resulting shape for correctness and clarity.
+A collection of individually reasonable helpers can still form the wrong design.
 
 Do not silently fix structural concerns. First name what is wrong and why it
 matters, then fix it when it clears the evidence bar below.
@@ -30,7 +32,7 @@ Report:
 
 Pause:
   explicit user limits, product direction, destructive actions,
-  broad reshaping, or unclear ownership
+  reshaping beyond the authorized outcome, or unresolved product ownership
 ```
 
 Two things never move when the lane widens:
@@ -65,19 +67,67 @@ svelte                   Svelte components, stores, runes, query usage, UI state
 yjs                      CRDT documents, shared types, transactions, conflict behavior
 ```
 
+## Independent checkpoint review
+
+[spec-execution](../spec-execution/SKILL.md) owns the between-wave cadence and
+model selection. This section owns the reviewer's evidence and judgment. It
+also applies when the user requests an adversarial checkpoint without a spec.
+Ordinary final reviews need not launch another agent automatically.
+
+Use a read-only reviewer that did not implement the wave. Supply the accepted
+outcome and explicit constraints, the task-start baseline and cumulative diff
+including task-owned uncommitted and untracked work, the touched-file inventory,
+relevant consumers and tests, verification results, newly discovered facts, and
+remaining waves. Distinguish task changes from unrelated work already present. Give raw artifacts and open
+questions, not the implementer's preferred conclusion. A summary alone is not
+sufficient evidence.
+
+The reviewer traces the affected boundary across files and consumers before
+judging individual helpers. Its central question is:
+
+> Given what implementation has revealed, what stronger invariant or different
+> ownership boundary would eliminate the most complexity, and how should that
+> change the remaining plan?
+
+Apply the ownership, invariant, and mental inlining passes below to that
+cumulative view. Load `greenfield-clean-breaks` for ownership or boundary
+redesign, and `collapse-pass` when the finding calls for a continuous collapse
+pass; do not duplicate their procedures here. Include new abstractions and
+previous waves. Expand beyond touched files only to establish the relevant
+owner, callers, or consequences, rather than starting a repository-wide audit.
+
+Return the strongest grounded structural opportunity, or explain why the
+current boundaries earn their place. Show the current and proposed shape,
+concrete file or caller evidence, the behavior that must survive, complexity
+removed and introduced, and which remaining tasks should change or disappear.
+Report correctness blockers separately so an attractive collapse cannot hide a
+regression. Name the verification that would distinguish an improvement from
+moving complexity elsewhere. No finding quota: keeping the design is valid.
+
+The reviewer does not edit the live checkout or launch child agents.
+The primary agent owns adjudication, edits, verification, plan updates, and
+launching any additional reviewers.
+Additional reviewers need distinct unresolved questions; splitting the holistic
+review into file lanes would recreate the blind spot this checkpoint addresses.
+
 ## Review Order
 
-1. Identify every file touched by the implementation.
-2. Re-read each touched file from top to bottom.
+1. Identify the cumulative changed behavior or API and trace its owners,
+   callers, lifecycle, and invariants across the affected system.
+2. Inventory the touched files and read them in that context, including relevant
+   unchanged consumers and tests.
 3. List every file read as an ASCII tree before analysis.
 4. Run the first-read pass.
 5. Run the mental inlining pass.
 6. Run the ownership and collapse check.
 7. Run the smell and invariant checks.
 8. Review API shape, naming, and file organization.
-9. Run diagnostics and tests appropriate to the changed lane. Reproduce any
-   failure on clean HEAD before blaming the change; separate pre-existing red
-   from regressions you introduced.
+9. Run diagnostics and tests appropriate to the changed lane. Compare failures
+   against the task-start baseline for cumulative reviews, or the agreed review
+   baseline otherwise, using a separate checkout when reproduction is needed.
+   Current HEAD may already contain earlier waves; reproducing there does not
+   establish that a failure predates the task. Report unverified attribution as
+   uncertain rather than calling it pre-existing.
 10. Report findings before making cleanup edits unless the issue is a direct
     compile or test failure.
 
@@ -269,7 +319,7 @@ Would leave alone
 
 Verification
 [Commands run and result, or why not run. For any failure, note whether it
- reproduces on clean HEAD so pre-existing red is not misread as a regression.]
+ reproduces at the review baseline, or whether attribution remains uncertain.]
 ```
 
 For an implementation pass, make the cleanup edits after reporting the issue in

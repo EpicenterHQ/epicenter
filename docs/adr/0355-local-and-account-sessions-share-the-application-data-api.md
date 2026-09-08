@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-07
 - **Amended by:** [ADR-0359](0359-the-document-factory-owns-readiness-and-closure.md) at the live handle's construction mechanism: the document factory owns readiness and closure.
-- **Amends:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at account-required storage and generation creation; [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at one active session per app and unconditional sync; [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) at account-only access to declared tables and device-only ownership of named SQLite files. Secrets remain a separate device capability.
+- **Amends:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at account-required storage and generation creation; [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at one active session per app and unconditional sync; [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) at account-only access to declared tables and the ownership of named SQLite files. Secrets remain a separate device capability.
 - **Implementation note:** Local and account openers, the common application blob handle, declared blob fields, authority-scoped data/blob addresses, and scoped named SQLite owner protocol are implemented. Runtime wiring remains opt-in for applications that use named SQLite files; explicit imports between local and account libraries and whole-library removal remain future work.
 
 ## Context
@@ -261,9 +261,10 @@ names. SQLite journal and WAL sidecars belong to the same database lifecycle.
 Closing and erasing a scope must coordinate its SQL handles and sidecars as well
 as its table and blob stores.
 
-The old `device.sqlite.open(name)` surface remains only as a local-compatibility
-adapter for its existing device-scoped consumers. The new app composition uses a
-scoped owner protocol: the native owner writes `<root>/apps/<app-id>/local/...`
+The runtime constructors expose the same scoped SQLite capability as the app
+handle, bound to `{ kind: 'local' }` for device-local consumers. The app
+composition uses the same owner protocol with the captured local or account
+scope: the native owner writes `<root>/apps/<app-id>/local/...`
 or `<root>/apps/<app-id>/accounts/<authority-id>/<principal-id>/...`, while the
 browser worker maps the same logical scope to an opaque OPFS filename. It has no
 reader or migration for the earlier flat files. Signing in never adopts local files

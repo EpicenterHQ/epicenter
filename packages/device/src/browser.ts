@@ -23,7 +23,7 @@
 import { Ok } from 'wellcrafted/result';
 import { createBrowserSqliteTransport } from './browser-sqlite.js';
 import { appIdOrThrow, type Device, type SecretStore } from './index.js';
-import { createOwnedSqlite, unwrap } from './owner.js';
+import { createOwnedSqlite, createScopedSqlite, unwrap } from './owner.js';
 
 /**
  * What a browser tab can own, scoped to one application.
@@ -40,17 +40,22 @@ import { createOwnedSqlite, unwrap } from './owner.js';
 export function createBrowserDevice({ appId }: { appId: string }): Device {
 	const request = createBrowserSqliteTransport();
 	appIdOrThrow(appId);
+	const owner = {
+		open: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) =>
+			createOwnedSqlite(request, ownerAppId, scope, name),
+		delete: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) => {
+			const result = await unwrap(
+				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
+				'sqlite-delete',
+				() => undefined,
+			);
+			if (result.error !== null) throw result.error;
+		},
+	};
 	return {
-		sqlite: Object.freeze({
-			open: async (name) =>
-				Ok(createOwnedSqlite(request, appId, { kind: 'local' }, name)),
-			delete: (name) =>
-				unwrap(
-					request({ kind: 'sqlite-delete', appId, scope: { kind: 'local' }, name }),
-					'sqlite-delete',
-					() => undefined,
-				),
-		}),
+		sqlite: Object.freeze(
+			createScopedSqlite(owner, appId, () => ({ kind: 'local' })),
+		),
 		secrets: Object.freeze(createTabMemorySecrets()),
 	};
 }

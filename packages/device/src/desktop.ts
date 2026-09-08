@@ -36,7 +36,7 @@ import {
 	SecretError,
 	type SecretStore,
 } from './index.js';
-import { createOwnedSqlite, unwrap } from './owner.js';
+import { createOwnedSqlite, createScopedSqlite, unwrap } from './owner.js';
 import {
 	DEVICE_PATH,
 	type DeviceRequest,
@@ -62,17 +62,22 @@ export function createDesktopDevice({
 }: CreateDesktopDeviceOptions & { appId: string }): Device {
 	const request = createOwnerRequest(options);
 	appIdOrThrow(appId);
+	const owner = {
+		open: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) =>
+			createOwnedSqlite(request, ownerAppId, scope, name),
+		delete: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) => {
+			const result = await unwrap(
+				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
+				'sqlite-delete',
+				() => undefined,
+			);
+			if (result.error !== null) throw result.error;
+		},
+	};
 	return {
-		sqlite: Object.freeze({
-			open: async (name) =>
-				Ok(createOwnedSqlite(request, appId, { kind: 'local' }, name)),
-			delete: (name) =>
-				unwrap(
-					request({ kind: 'sqlite-delete', appId, scope: { kind: 'local' }, name }),
-					'sqlite-delete',
-					() => undefined,
-				),
-		}),
+		sqlite: Object.freeze(
+			createScopedSqlite(owner, appId, () => ({ kind: 'local' })),
+		),
 		secrets: Object.freeze(createKeychainSecrets(request, appId)),
 	};
 }

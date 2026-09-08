@@ -28,9 +28,8 @@ import { isAppId } from '@epicenter/constants/app-id';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import type { ScopedSqlite } from './owner.js';
 import {
-	type DatabaseName,
-	isDatabaseName,
 	isSecretLabel,
 	type SecretLabel,
 } from './protocol.js';
@@ -71,40 +70,17 @@ export const SecretError = defineErrors({
 export type SecretError = InferErrors<typeof SecretError>;
 
 /**
- * The two names an application mints, and the guards that narrow them.
- *
- * Re-exported here rather than left on `/protocol`, because that subpath is
- * the desktop owner's wire and an application is not writing one. The guards
- * narrow: a name that passed one is a `DatabaseName` or a `SecretLabel`, which
- * is what lets the store stop asking on every call.
+ * Secret labels are re-exported here because they are part of the device
+ * credential capability. SQLite names belong to the scoped application
+ * capability and are validated when that capability opens them.
  */
 export {
-	type DatabaseName,
-	isDatabaseName,
 	isSecretLabel,
 	type SecretLabel,
 } from './protocol.js';
 
 /**
- * Mint one SQLite file name, refusing what this platform cannot file.
- *
- * It throws, because a name reaching this is a constant in a build and a wrong
- * one is a bug rather than a condition. A name derived from a value that
- * arrived at runtime is not this function's business; narrow it with
- * `isDatabaseName` where it is born, so the refusal can say what the person
- * did rather than what the grammar is.
- */
-export function databaseName(value: string): DatabaseName {
-	if (!isDatabaseName(value)) {
-		throw new Error(
-			DeviceError.InvalidDatabaseName({ databaseName: value }).error.message,
-		);
-	}
-	return value;
-}
-
-/**
- * Narrow one application id, on the same terms as {@link databaseName}.
+ * Narrow one application id at the composition boundary.
  *
  * Both constructors call it, so a bad id is refused where it is supplied
  * rather than accepted here and refused later by the host, which would report
@@ -117,7 +93,7 @@ export function appIdOrThrow(value: string): string {
 	return value;
 }
 
-/** Mint one secret label, on the same terms as {@link databaseName}. */
+/** Mint one secret label at the credential composition boundary. */
 export function secretLabel(value: string): SecretLabel {
 	if (!isSecretLabel(value)) {
 		throw new Error(
@@ -180,10 +156,6 @@ export type SecretStore = {
  * it is.
  */
 export type Device = {
-	readonly sqlite: {
-		open(name: DatabaseName): Promise<Result<AppSqliteDatabase, DeviceError>>;
-		/** Delete one file this application named, closing the owner's handle (ADR-0321). */
-		delete(name: DatabaseName): Promise<Result<void, DeviceError>>;
-	};
+	readonly sqlite: ScopedSqlite;
 	readonly secrets: SecretStore;
 };

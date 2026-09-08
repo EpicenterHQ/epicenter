@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createDesktopDevice } from './desktop.js';
-import { databaseName, secretLabel } from './index.js';
+import { secretLabel } from './index.js';
 import type { DeviceRequest } from './protocol.js';
 
 function ownerFor(answer: (request: DeviceRequest) => Response): {
@@ -32,7 +32,7 @@ test('statements and secrets reach the owner scoped by application', async () =>
 		fetch: owner.fetch,
 	});
 
-	const sqlite = await storage.sqlite.open(databaseName('mail'));
+	const sqlite = await storage.sqlite.open('mail');
 	if (sqlite.error !== null) throw sqlite.error;
 	const rows = await sqlite.data.all('SELECT id FROM messages');
 	expect(rows.data).toEqual([{ id: 'one' }]);

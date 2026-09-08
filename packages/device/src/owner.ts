@@ -21,13 +21,13 @@ import { Ok, type Result } from 'wellcrafted/result';
 import {
 	type AppSqliteDatabase,
 	DeviceError,
-	isDatabaseName,
 } from './index.js';
 import type {
 	DeviceRequest,
 	DeviceResponse,
 	StorageScope,
 } from './protocol.js';
+import { isDatabaseName } from './protocol.js';
 
 /**
  * Whoever actually holds the files, for every application on this machine.
@@ -116,18 +116,36 @@ export function createScopedSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
 	getScope: () => StorageScope,
+	assertUsable: () => void = () => {},
+	trackOperation: <T>(pending: Promise<T>) => Promise<T> = (pending) => pending,
 ): ScopedSqlite {
 	return {
 		open: async (name) => {
+			assertUsable();
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			try {
-				return Ok(await owner.open(appId, getScope(), name));
+				const database = await owner.open(appId, getScope(), name);
+				return Ok({
+					run: (...args) => {
+						assertUsable();
+						return trackOperation(database.run(...args));
+					},
+					all: (...args) => {
+						assertUsable();
+						return trackOperation(database.all(...args));
+					},
+					batch: (...args) => {
+						assertUsable();
+						return trackOperation(database.batch(...args));
+					},
+				});
 			} catch (cause) {
 				return DeviceError.StorageFailed({ cause });
 			}
 		},
 		delete: async (name) => {
+			assertUsable();
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			try {

@@ -1,9 +1,6 @@
 import {
 	type AppSqliteDatabase,
-	type DatabaseName,
 	type Device,
-	databaseName,
-	isDatabaseName,
 	isSecretLabel,
 	type SecretLabel,
 } from '@epicenter/device';
@@ -49,7 +46,7 @@ import { type SqliteHandle, sqliteHandle } from './handle.ts';
 export const LOCAL_MAIL_APP_ID = 'so.epicenter.local-mail';
 
 /** The durable file. One per device, never per account, never unlinked. */
-export const LOCAL_DATABASE = databaseName('local');
+export const LOCAL_DATABASE = 'local';
 
 /**
  * Where one account's bytes are filed: the file it owns, and the label its
@@ -64,13 +61,13 @@ export const LOCAL_DATABASE = databaseName('local');
  * nothing has reached it.
  */
 export type AccountFiling = {
-	readonly database: DatabaseName;
+	readonly database: string;
 	readonly secret: SecretLabel;
 };
 
 export function accountFiling(sub: string): AccountFiling | undefined {
 	const database = `mail-${sub}`;
-	return isDatabaseName(database) && isSecretLabel(sub)
+	return /^mail-[a-z0-9_-]+$/.test(database) && isSecretLabel(sub)
 		? { database, secret: sub }
 		: undefined;
 }
@@ -145,7 +142,7 @@ export async function openLocalMailStorage(
 
 async function open(
 	device: Device,
-	name: DatabaseName,
+	name: string,
 ): Promise<AppSqliteDatabase> {
 	const opened = await device.sqlite.open(name);
 	if (opened.error !== null) throw opened.error;
@@ -268,7 +265,7 @@ export const MAIL_CACHE_SCHEMA = [
  */
 async function openBorrowed(
 	device: Device,
-	name: DatabaseName,
+	name: string,
 ): Promise<AppSqliteDatabase> {
 	const opened = await open(device, name);
 	const handle = sqliteHandle(opened);

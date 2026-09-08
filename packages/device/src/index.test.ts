@@ -8,12 +8,13 @@
  */
 
 import { expect, test } from 'bun:test';
-import { databaseName, secretLabel } from './index.js';
+import { secretLabel } from './index.js';
+import { isDatabaseName } from './protocol.js';
 
-test('a name is checked where it is minted, not on every call', () => {
-	expect(() => databaseName('../mail')).toThrow('is not valid');
-	expect(() => databaseName('Mail')).toThrow('is not valid');
-	expect(String(databaseName('mail'))).toBe('mail');
+test('a database name is checked at the scoped capability boundary', () => {
+	expect(isDatabaseName('../mail')).toBe(false);
+	expect(isDatabaseName('Mail')).toBe(false);
+	expect(isDatabaseName('mail')).toBe(true);
 
 	expect(() => secretLabel('../other')).toThrow('is not valid');
 	expect(() => secretLabel('a/b')).toThrow('is not valid');
