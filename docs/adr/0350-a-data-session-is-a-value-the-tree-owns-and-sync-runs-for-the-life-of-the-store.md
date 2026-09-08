@@ -36,7 +36,7 @@ against a server. It was a local boolean read, on a backoff already capped at
 thirty seconds. Retrying it costs a function call.
 
 Two more facts finish the case. Hosted sign-in is a document navigation:
-`packages/auth/src/oauth-launchers/launchers.ts` sets `window.location.href`, so
+`packages/auth/src/hosted-browser-redirect-auth.ts` sets `window.location.href`, so
 the page is replaced whether or not anything asks for a reload. And a `{#key}`
 block already gives the exact lifetime the reload was faking. Svelte 5.56's
 `ensure()` in `internal/client/dom/blocks/branches.js` creates the branch for

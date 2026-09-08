@@ -169,7 +169,7 @@
 
 - Desired result: No deployment still advertises a registered OAuth client for
   the deleted CLI.
-- Grounding: `apps/api/scripts/seed-oauth-clients.ts` only upserts the clients
+- Grounding: The [removed OAuth seed](https://github.com/EpicenterHQ/epicenter/blob/f59fc1e19f/apps/api/scripts/seed-oauth-clients.ts) only upserts the clients
   it knows about; it never deletes. The `epicenter-cli` row seeded before that
   client was removed from `buildTrustedOAuthClients` therefore survives in every
   database that was seeded, still carrying its `/cli-callback` redirect URI. It
@@ -179,6 +179,8 @@
   'epicenter-cli'` per deployed database, or setting `disabled = true` to keep
   the row for audit. Deliberately not executed here: this is a production
   database mutation, not a code change.
+  The direct-session implementation removes these registration surfaces for
+  fresh deployments; it has not changed any deployed database.
 - Revisit when: The next production deploy of `apps/api`, or sooner if an audit
   of registered OAuth clients is run.
 

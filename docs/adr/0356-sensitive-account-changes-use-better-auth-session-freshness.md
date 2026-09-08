@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-07
-- **Unbuilt:** The shared ten-minute freshness policy, principal-bound account-management requests, and its integration with independent client-session issuance.
+- **Implementation:** Shared freshness, principal binding, and independent issuance are implemented locally. Verification and limits are recorded below; proposal status is unchanged.
 
 ## Context
 
@@ -19,11 +19,10 @@ middleware checks `session.createdAt`. An existing provider SSO session can
 complete that sign-in without another password or biometric interaction.
 [Better Auth documents freshness as session age](https://better-auth.com/docs/concepts/session-management#session-freshness).
 
-The current login-change hook in `packages/server/src/auth/base-config.ts`
-extends this check to linking and passkey deletion. Account deletion in
-`apps/api/worker/account/routes.ts` repeats the default 24-hour threshold.
-Neither mechanism establishes fresh human interaction. Comments claiming that
-they re-prove the human or prevent borrowed-browser takeover overstate them.
+Before this replacement, the login-change hook extended the default session-age
+check to linking and passkey deletion, and account deletion repeated its
+24-hour threshold. Neither mechanism established fresh human interaction.
+The replacement uses one 600-second policy without making that stronger claim.
 
 An additional proof would require email confirmation for people without
 passkeys, provider-specific authentication-age verification, or a mandatory
@@ -38,7 +37,7 @@ replace the application's OAuth grants with session bearers.
 Set `session.freshAge` to 600 seconds in the shared auth configuration. The
 same value governs Epicenter's additional login-change guards and account
 deletion. A session must also be active in the server database. Age exactly
-equal to the limit is stale. The ten-minute window shortens the current
+equal to the limit is stale. The ten-minute window shortens the former
 24-hour opportunity for a stolen fresh session, at the cost of signing in
 again when returning to account settings.
 
@@ -124,18 +123,42 @@ it does not bound the second. Additional provider links create additional
 ways to regain account access. Stronger reauthentication would reduce these
 risks; [OWASP recommends it for sensitive features](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#require-re-authentication-for-sensitive-features).
 
-The freshness decision avoids unbuilt proof machinery. Existing freshness,
-principal-binding, and origin guards still need implementation and tests. The
-separate OAuth-provider replacement deletes grants, refresh rotation,
-registrations, discovery, and the cookie-dashboard resource client. It still
-needs a protected handoff, independent revocation, captured Account lifetimes,
-and a server-enforced socket authorization bound.
+The freshness decision avoids additional proof machinery. The implementation
+checks live sessions, expected principal, expiry, and age before sensitive
+handlers. The separate OAuth-provider replacement deletes grants, refresh
+rotation, registrations, discovery, and the cookie-dashboard resource client.
+It retains the protected handoff, independent revocation, captured Account
+lifetimes, and a server-enforced socket authorization bound.
 
 Revisit this policy if stronger account-change assurance, shared/public-device
 use, or protection against fresh-session theft becomes a product requirement.
 Untrusted or permission-limited applications would also require reconsidering
 the full-access session credential. Do not add dormant proof hooks in advance
 of that decision.
+
+## Implementation and verification
+
+The global before-hook uses Better Auth's public session API with only the
+explicit bearer when one was supplied, otherwise the hosted cookie. It disables
+refresh and cookie caching for the gate, then requires the expected principal
+and an age strictly below 600 seconds. Invalid bearers cannot fall back to a
+valid unrelated cookie. Database failure returns a server failure, not an
+invalid-credential verdict.
+
+Real-route tests cover stale, fresh, boundary-age, mixed-credential,
+wrong-principal, and infrastructure-failure requests. Provider-link callbacks
+retain the authorized initiating principal; implicit same-email linking is
+tested separately. The Chromium dashboard smoke registers and renames a
+virtual passkey for the captured principal despite another person's hosted
+cookie. Its narrow browser cookie adapter preserves challenge/state cookies
+without using them to select the Account.
+
+Handoff and resource-renewal tests preserve `createdAt`. Passive hosted
+continuation cannot manufacture freshness; explicit reauthentication requests
+a new social or passkey sign-in. Live provider SSO and physical authenticators
+remain untested. See [ADR-0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md)
+for the implementation evidence, native smoke limits, and the pre-existing
+account-deletion erasure gap. No stronger human-presence assurance is claimed.
 
 ## Considered alternatives
 

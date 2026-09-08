@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-07
 - **Relates:** [ADR-0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) and [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), whose hosted OAuth-provider requirement is being reconsidered.
-- **Unbuilt:** Direct session issuance to browser and desktop clients, the session credential runtime, dashboard adoption, and removal of Epicenter's OAuth-provider layer.
+- **Implementation:** Local replacement and verification recorded below. Proposal status is unchanged; implementation does not approve the record.
 
 ## Context
 
@@ -12,7 +12,7 @@ resources. The resource guard resolves a credential to a principal. It does not
 enforce different application scopes. Registered clients request the same
 identity and offline-access scopes and skip consent.
 
-There are two OAuth relationships in the current system:
+Before this replacement there were two OAuth relationships:
 
 ```txt
 Google / GitHub -> Epicenter
@@ -22,14 +22,14 @@ Epicenter -> an Epicenter application
   Epicenter issues an OAuth access token and refresh token to that application.
 ```
 
-The second relationship introduces another credential lifecycle. Browser apps
-use `createHostedBrowserRedirectAuth`. The desktop's
-`createDesktopAuthAuthority` holds an OAuth grant and carries HTTP and sync for
-its WebViews. The dashboard uses `createSameOriginCookieAuth` and the browser's
-ambient Better Auth cookie.
+The second relationship introduced another credential lifecycle. Browser apps
+used `createHostedBrowserRedirectAuth`. The desktop's
+`createDesktopAuthAuthority` held an OAuth grant and carried HTTP and sync for
+its WebViews. The dashboard used the now-deleted `createSameOriginCookieAuth`
+and the browser's ambient Better Auth cookie.
 
 ```txt
-CURRENT: THREE APPLICATION PATHS
+BEFORE: THREE APPLICATION PATHS
 
                        Google / GitHub
                               |
@@ -63,9 +63,8 @@ CURRENT: THREE APPLICATION PATHS
 The Account and desktop-relay implementation is recorded by commits
 `dca1909f60` and `f272e2ae34`. Its lifetime decision is described in
 [ADR-0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md).
-This proposal replaces the credential mechanism underneath that implemented
-contract. ADR-0353's current cookie-dashboard exception explicitly permits
-adoption of Account once the dashboard holds an account-bound credential.
+This replacement changes the credential mechanism underneath that contract.
+ADR-0353 now records the dashboard's implemented Account adoption.
 
 The `Account` contract in `packages/auth/src/auth-contract.ts` binds operations
 to one uninterrupted attachment to a person on a server. Ambient cookies cannot
@@ -93,7 +92,7 @@ and the dashboard SPA. A session bearer is an Epicenter session token carried
 in an authorization header, not a Google token or an Epicenter OAuth JWT.
 
 ```txt
-TARGET: ONE SESSION MODEL
+IMPLEMENTED: ONE SESSION MODEL
 
                        Google / GitHub
                               |
@@ -207,7 +206,7 @@ HTTP, and sync checks.
 | Compatibility readers and staged credential migration | Final verification of the new path |
 
 The dashboard's application credential becomes accessible to its JavaScript.
-It loses the HttpOnly protection of its current application session cookie.
+It loses the HttpOnly protection of its former application session cookie.
 The desktop keeps its secret outside the WebView. Origin checks, callback
 validation, and transport credential handling remain necessary.
 
@@ -224,21 +223,72 @@ trust decision still matters: giving an untrusted client limited, delegated
 access would reopen this decision. Removing registrations must not remove
 callback allowlisting or browser-origin controls.
 
-A session bearer is a longer-lived secret than the current short access token.
+A session bearer is a longer-lived secret than the former short access token.
 WebSocket admission must validate it without echoing or logging it. Revoking
 the database session does not close a socket already admitted. The replacement
-must bound socket authorization lifetime and validate again on reconnect,
+uses a 600-second socket authorization deadline and validates again on reconnect,
 including when a Durable Object hibernates. Changing token types does not
 provide immediate cross-device logout.
 
-Session duration and renewal are user-visible policy. The current session
-configuration and OAuth refresh grant have different lifetimes; using the
-current cookie defaults would change remembered-login behavior. The execution
-plan must choose and verify that policy explicitly.
+Session duration and renewal are user-visible policy. Sessions expire after
+30 days and extend after one day of use, including ordinary resource traffic.
+Renewal preserves the authentication age used for sensitive changes.
 
 Self-host remains one operator-supplied static bearer resolving to `instance`.
 It does not acquire Better Auth or a hosted login flow. This change concerns
 the three hosted application surfaces, not the deployment partition model.
+
+## Implementation and verification
+
+The local implementation is committed in `0c329cbb54` and `23bade0df4`.
+Better Auth 1.6.23 owns signed sessions. The issuance plugin binds a 120-second
+single-use code to S256 PKCE, state, and an exact approved callback. It creates
+an independently revocable session with the source authentication age.
+A successful live source-session lookup authorizes issuance. Revocation after
+that lookup can race with session creation: an already-authorized independent
+session may finish issuing and is not automatically revoked with its source.
+The fresh Postgres baseline removes Epicenter OAuth and JWKS tables. No shared
+database was reset or migrated, and nothing was deployed.
+
+`createSessionAuth` owns verification, serialized persistence, cancellation,
+and permanent Account retirement. Sign-out retires locally immediately and
+waits up to five seconds for best-effort remote revocation. Failure or timeout
+is logged; success does not confirm remote revocation. Credential replacement
+awaits the same bounded cleanup outside the storage queue before completion.
+Native relaunch waits for that completion.
+
+The dashboard keys its query cache on the Account object. Its browser adapter
+permits challenge/state cookies only for same-origin `/auth/link-social`,
+`/auth/passkey/generate-register-options`, and
+`/auth/passkey/verify-registration` requests with captured bearer and expected
+principal headers. Their guard checks the explicit credential before library
+cookie reads. Resource traffic omits cookies.
+
+Verification includes disposable Postgres redemption races across two Bun
+processes, real mounted bearer and management routes, renewal and independent
+revocation, and Workers idle/hibernation deadline tests. The final client/app/
+dashboard/billing run passed 150 tests; desktop tests passed 118, and four Rust
+auth tests passed. Affected typechecks and the API UI production build passed.
+The full workspace typecheck still fails in four pre-existing Skills test
+fixtures missing `openWebSocket`.
+
+Both opt-in Chromium smokes under `packages/auth/smoke/` passed. They cover
+actual navigation, persisted handoff state, CORS, encoded WebSocket admission,
+the built hosted sign-in and dashboard callback routes, and virtual passkey
+registration/rename for Alice while the ambient cookie belongs to Bob.
+
+Live Google, GitHub, Microsoft, and Apple provider flows were not exercised.
+Fixtures do not prove provider configuration or provider SSO behavior in a real
+account. Packaged Tauri login, OS deep-link delivery, real keychain writes,
+physical authenticators, and actual process relaunch remain untested
+interactively. The local dev launcher origin is tested without starting its
+Infisical-backed services. These are release smoke requirements, not claims
+established by the local harnesses.
+
+Account deletion still lacks a store-authority erasure step. The freshness gate
+tests authorize deletion; they do not prove complete data erasure. Socket
+expiry limits access, not data retention. That pre-existing gap needs separate
+implementation.
 
 ## Considered alternatives
 

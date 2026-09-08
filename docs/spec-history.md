@@ -16,13 +16,19 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1422 specs ever** (522 still in tree, 900 removed).
+**1428 specs ever** (524 still in tree, 904 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-09-07 | direct-session-auth.handoff | removed | specs/20260907T214002-direct-session-auth.handoff.md |
+| 2026-09-07 | direct-session-auth | removed | specs/20260907T214002-direct-session-auth.md |
+| 2026-09-05 | keyed-session-boot | in tree | specs/20260905T005141-keyed-session-boot.md |
+| 2026-09-05 | account-exit-and-local-removal.execute | removed | specs/20260905T210735-account-exit-and-local-removal.execute.md |
+| 2026-09-05 | account-exit-and-local-removal | removed | specs/20260905T210735-account-exit-and-local-removal.md |
+| 2026-08-28 | the-switch | in tree | specs/20260828T230000-the-switch.md |
 | 2026-08-26 | host-discovery-connect-device | in tree | apps/epicenter/specs/host-discovery-connect-device.md |
 | 2026-08-26 | inference-credit-billing | removed | specs/20260826T120000-inference-credit-billing.md |
 | 2026-08-26 | instance-stops-doing-inference | removed | specs/20260826T190000-instance-stops-doing-inference.md |

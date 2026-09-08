@@ -609,6 +609,6 @@ Two habits make the link hard to forget:
 | [0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) | A data session keeps one account for its entire lifetime | Proposed (amends 0230, 0339, and 0350 at account transport, selection, and session identity) |
 | [0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md) | Hosted applications authenticate with Better Auth session bearers | Proposed |
 | [0355](0355-local-and-account-sessions-share-the-application-data-api.md) | Local and account sessions share the application data API | Proposed (unbuilt) |
-| [0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md) | Sensitive account changes use Better Auth session freshness | Proposed (unbuilt) |
+| [0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md) | Sensitive account changes use Better Auth session freshness | Proposed |
 
 When you add an ADR, add its row here.

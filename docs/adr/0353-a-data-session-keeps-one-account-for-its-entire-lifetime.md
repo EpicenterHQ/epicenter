@@ -46,11 +46,13 @@ use that value, including while sign-in persists a replacement before relaunch.
 The host forwards protocol bytes and does not acquire a replica or reconnect
 independently. A window that closes its data session closes its sync connection.
 
-The current cookie dashboard retains a concrete cookie HTTP client. Shared account UI
-requires only profile presentation and sign-in commands, so the dashboard does
-not advertise an account-bound transport or an unusable socket method. This
-restriction follows from its ambient cookie. A future dashboard that holds an
-explicit account-bound credential can use Account under the same contract.
+The dashboard now holds an independent signed session and uses Account under
+the same contract, as proposed in
+[ADR-0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md).
+Its keyed child owns its captured management/billing clients and query cache.
+The former cookie-only client and AuthControls exception are removed. Browser
+cookies remain part of hosted sign-in and provider/passkey ceremonies, not
+dashboard resource selection.
 
 ## Consequences
 
