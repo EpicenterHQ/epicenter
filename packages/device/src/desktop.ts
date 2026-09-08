@@ -50,6 +50,24 @@ export type CreateDesktopDeviceOptions = {
 	fetch?: typeof globalThis.fetch;
 };
 
+export function createDesktopSqliteOwner(
+	options: CreateDesktopDeviceOptions = {},
+): import('./owner.js').DeviceSqliteOwner {
+	const request = createOwnerRequest(options);
+	return {
+		open: async (ownerAppId, scope, name) =>
+			createOwnedSqlite(request, ownerAppId, scope, name),
+		delete: async (ownerAppId, scope, name) => {
+			const result = await unwrap(
+				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
+				'sqlite-delete',
+				() => undefined,
+			);
+			if (result.error !== null) throw result.error;
+		},
+	};
+}
+
 /**
  * What the trusted origin owns, scoped to one application.
  *
@@ -60,20 +78,9 @@ export function createDesktopDevice({
 	appId,
 	...options
 }: CreateDesktopDeviceOptions & { appId: string }): Device {
-	const request = createOwnerRequest(options);
 	appIdOrThrow(appId);
-	const owner = {
-		open: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) =>
-			createOwnedSqlite(request, ownerAppId, scope, name),
-		delete: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) => {
-			const result = await unwrap(
-				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
-				'sqlite-delete',
-				() => undefined,
-			);
-			if (result.error !== null) throw result.error;
-		},
-	};
+	const request = createOwnerRequest(options);
+	const owner = createDesktopSqliteOwner(options);
 	return {
 		sqlite: Object.freeze(
 			createScopedSqlite(owner, appId, () => ({ kind: 'local' })),

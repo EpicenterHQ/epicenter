@@ -4,12 +4,14 @@ An app opens one local or account dataset and owns that application handle until
 
 ```ts
 import { createEpicenter } from '@epicenter/app';
+import { createBrowserAppBlobs } from '@epicenter/app/browser';
 
 const epicenter = createEpicenter({
  appId: APP_ID,
  definition: honeycrispDefinition,
-	// Pass the platform's SQLite owner when this app uses named SQLite files.
+	// Every app supplies its build's SQLite owner.
 	sqlite: deviceSqliteOwner,
+	blobs: createBrowserAppBlobs(),
 });
 const app = epicenter.openAccount(account);
 const result = await app.ready;
@@ -72,10 +74,11 @@ The app handle captures account identity and transport at open time. Sign-out
 retires that transport without changing the handle's dataset identity; the
 owner closes the handle and removes consuming UI.
 
-When a runtime owner is supplied, `app.sqlite.open(name)` and
-`app.sqlite.delete(name)` use the same captured local or account scope as the
-rest of the handle. The app API validates the plain database name; the runtime
-owner stores local files below `local/sqlite/` and account files below
+`app.sqlite.open(name)` and `app.sqlite.delete(name)` use the same captured
+local or account scope as the rest of the handle. Every runtime supplies the
+same capability, so an app never branches on whether SQLite exists. The app
+API validates the plain database name; the runtime owner stores local files
+below `local/sqlite/` and account files below
 `accounts/<authority-id>/<principal-id>/sqlite/`. SQLite is auxiliary app data:
 primary tables and their durable Yjs records remain in the data store.
 
@@ -90,8 +93,8 @@ and future whole-library removal are recorded in
 [ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
 
 Focused tests cover deferred acquisition, retained operations, and resource
-release. A disposable-profile WebKit and Chromium probe also verified local row
-and attachment-created row/blob persistence across browser-process restart,
+release. A disposable-profile WebKit and Chromium probe also verified
+attachment-created row/blob persistence across browser-process restart,
 playback bytes, and URL release. This does not establish native recording or
 account-transfer behavior.
 

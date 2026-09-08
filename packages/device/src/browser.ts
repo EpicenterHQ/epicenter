@@ -25,6 +25,22 @@ import { createBrowserSqliteTransport } from './browser-sqlite.js';
 import { appIdOrThrow, type Device, type SecretStore } from './index.js';
 import { createOwnedSqlite, createScopedSqlite, unwrap } from './owner.js';
 
+export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwner {
+	const request = createBrowserSqliteTransport();
+	return {
+		open: async (ownerAppId, scope, name) =>
+			createOwnedSqlite(request, ownerAppId, scope, name),
+		delete: async (ownerAppId, scope, name) => {
+			const result = await unwrap(
+				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
+				'sqlite-delete',
+				() => undefined,
+			);
+			if (result.error !== null) throw result.error;
+		},
+	};
+}
+
 /**
  * What a browser tab can own, scoped to one application.
  *
@@ -36,20 +52,8 @@ import { createOwnedSqlite, createScopedSqlite, unwrap } from './owner.js';
  * Results, so this leaf has the same contract as the desktop owner.
  */
 export function createBrowserDevice({ appId }: { appId: string }): Device {
-	const request = createBrowserSqliteTransport();
 	appIdOrThrow(appId);
-	const owner = {
-		open: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) =>
-			createOwnedSqlite(request, ownerAppId, scope, name),
-		delete: async (ownerAppId: string, scope: import('./protocol.js').StorageScope, name: string) => {
-			const result = await unwrap(
-				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
-				'sqlite-delete',
-				() => undefined,
-			);
-			if (result.error !== null) throw result.error;
-		},
-	};
+	const owner = createBrowserSqliteOwner();
 	return {
 		sqlite: Object.freeze(
 			createScopedSqlite(owner, appId, () => ({ kind: 'local' })),

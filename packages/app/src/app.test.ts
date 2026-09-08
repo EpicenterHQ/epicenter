@@ -17,10 +17,21 @@ import {
 	plainText,
 } from '@epicenter/data/definition';
 import { createEpicenter } from './index.js';
+import { createBrowserAppBlobs } from './browser.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { Ok } from 'wellcrafted/result';
 
 installTestLocks();
+
+const testSqlite: DeviceSqliteOwner = {
+	open: async () => ({
+		run: async () => Ok({ changes: 0 }),
+		all: async () => Ok([]),
+		batch: async () => Ok({ changes: [] }),
+	}),
+	delete: async () => undefined,
+};
+const testBlobs = createBrowserAppBlobs();
 
 const definition = defineData({
 	id: 'so.epicenter.app-test',
@@ -32,7 +43,12 @@ const definition = defineData({
 });
 
 const create = () =>
-	createEpicenter({ appId: 'so.epicenter.app-test', definition });
+	createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: testSqlite,
+		blobs: testBlobs,
+	});
 
 async function clearStorage() {
 	for (const { name } of await indexedDB.databases()) {
@@ -104,18 +120,17 @@ test('the app SQLite capability follows the captured local or account scope', as
 		appId: 'so.epicenter.app-test',
 		definition,
 		sqlite: owner,
+		blobs: testBlobs,
 	});
 	const localApp = epicenter.openLocal();
-	await expect(localApp.sqlite?.open('search')).rejects.toThrow(
+	await expect(localApp.sqlite.open('search')).rejects.toThrow(
 		'not ready',
 	);
 	expectOk(await localApp.ready);
-	const localDatabase = expectOk(
-		await localApp.sqlite!.open('search'),
-	);
+	const localDatabase = expectOk(await localApp.sqlite.open('search'));
 	const accountApp = epicenter.openAccount(account);
 	expectOk(await accountApp.ready);
-	await accountApp.sqlite?.open('search');
+	await accountApp.sqlite.open('search');
 	expect(scopes).toEqual([
 		{ kind: 'local' },
 		{ kind: 'account', authorityId: 'test-authority', principalId: 'alice' },
@@ -145,6 +160,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 		appId: 'so.epicenter.app-test',
 		definition,
 		sqlite: owner,
+		blobs: testBlobs,
 	}).openLocal();
 	expectOk(await app.ready);
 	const deleting = app.sqlite!.delete('search');
@@ -153,12 +169,28 @@ test('closing waits for an admitted SQLite delete', async () => {
 	const closing = app.close().then(() => {
 		closed = true;
 	});
+	const replacement = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+		blobs: testBlobs,
+	}).openLocal();
 	await Promise.resolve();
 	expect(closed).toBe(false);
+	expect(expectErr(await replacement.ready).name).toBe('AlreadyOpen');
 	releaseDelete();
 	await deleting;
 	await closing;
 	expect(closed).toBe(true);
+	await replacement.close();
+	const reopened = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+		blobs: testBlobs,
+	}).openLocal();
+	expectOk(await reopened.ready);
+	await reopened.close();
 });
 
 test('the app handle owns scoped blob reads and writes by BlobId', async () => {
@@ -312,6 +344,8 @@ test('invalid definitions and missing account identity throw before opening stor
 	const invalid = createEpicenter({
 		appId: 'so.epicenter.app-test',
 		definition: { id: '', tables: {}, kv: {} },
+		sqlite: testSqlite,
+		blobs: testBlobs,
 	});
 	expect(() => invalid.openLocal()).toThrow();
 	const account: Account = {

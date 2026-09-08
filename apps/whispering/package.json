@@ -5,13 +5,13 @@
 	"description": "Speech-to-text SPA served by the Epicenter desktop host",
 	"imports": {
 		"#platform/analytics": "./src/lib/services/analytics/index.tauri.ts",
+		"#platform/app-blobs": {
+			"epicenter-host": "./src/lib/platform/app-blobs.epicenter-host.ts",
+			"default": "./src/lib/platform/app-blobs.browser.ts"
+		},
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
-		},
-		"#platform/blobs": {
-			"epicenter-host": "./src/lib/services/blobs/index.epicenter-host.ts",
-			"default": "./src/lib/services/blobs/index.browser.ts"
 		},
 		"#platform/commands": "./src/lib/commands.tauri.ts",
 		"#platform/dictation-indicator": "./src/lib/dictation-indicator/DictationIndicator.tauri.svelte",
@@ -20,6 +20,10 @@
 		"#platform/manual-recorder-config": "./src/lib/state/manual-recorder-config.tauri.ts",
 		"#platform/os": "./src/lib/platform/os.tauri.ts",
 		"#platform/os-notify": "./src/lib/report/os-notify.tauri.ts",
+		"#platform/sqlite": {
+			"epicenter-host": "./src/lib/platform/sqlite.epicenter-host.ts",
+			"default": "./src/lib/platform/sqlite.browser.ts"
+		},
 		"#platform/recorder": "./src/lib/services/recorder/index.tauri.ts",
 		"#platform/recording-mic-level": "./src/lib/recording-overlay/mic-level.tauri.ts",
 		"#platform/system-shortcuts": "./src/lib/platform/system-shortcuts.tauri.ts",
@@ -73,6 +77,7 @@
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@mistralai/mistralai": "^1.9.18",

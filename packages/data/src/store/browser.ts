@@ -448,7 +448,7 @@ export async function openIdbBacking(
  * existed to prevent, so `v4` names are left where they are and nothing here
  * reads, adopts, or deletes them.
  */
-const STORE_GENERATION = 'v5';
+
 
 /**
  * Whether a value can be one segment of an address.
@@ -473,7 +473,7 @@ function isSegment(value: string): boolean {
  * the number (ADR-0324, ADR-0292).
  *
  * ```txt
- * epicenter/v5/<app-id>/<principal-id>/<data-id>/
+ * epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/
  * ```
  *
  * The PREFIX rather than an address, because both callers want it: one appends
@@ -513,7 +513,7 @@ function generationPrefix(
 	appId: string,
 	principalId: PrincipalId,
 	dataId: string,
-	authorityId?: string,
+	authorityId: string,
 ): Result<string, StoreError> {
 	if (!isAppId(appId)) {
 		return StoreError.Unaddressable({
@@ -530,16 +530,14 @@ function generationPrefix(
 			reason: `'${principalId}' is not an address segment`,
 		});
 	}
-	if (authorityId !== undefined && !isSegment(authorityId)) {
+	if (!isSegment(authorityId)) {
 		return StoreError.Unaddressable({
 			reason: `'${authorityId}' is not an address segment`,
 		});
 	}
-	return authorityId === undefined
-		? Ok(`epicenter/${STORE_GENERATION}/${appId}/${principalId}/${dataId}/`)
-		: Ok(
-				`epicenter/${appId}/accounts/${authorityId}/${principalId}/data/${dataId}/`,
-			);
+	return Ok(
+		`epicenter/${appId}/accounts/${authorityId}/${principalId}/data/${dataId}/`,
+	);
 }
 
 function localGenerationPrefix(
@@ -803,7 +801,7 @@ async function acquireDatabase(
  */
 export function openAppData<
 	const TDefinition extends DataDefinition,
-	TSqlite = null,
+	TSqlite,
 >(
 	definition: TDefinition,
 	{
@@ -811,11 +809,15 @@ export function openAppData<
 		account,
 		blobs,
 		sqlite,
+		onClose,
+		beforeClose,
 	}: {
 		appId: string;
 		account?: DatabaseAccount;
 		blobs: StoreBlobBacking;
-		sqlite?: TSqlite;
+		sqlite: TSqlite;
+		onClose?: () => void;
+		beforeClose?: () => Promise<void>;
 	},
 ) {
 	if (!isAppId(appId))
@@ -833,6 +835,8 @@ export function openAppData<
 	const parts = createStoreOverPort<StoreError | DataDefinitionParseError>({
 		definition: parsed,
 		blobStore: blobs.local,
+		onClose,
+		beforeClose,
 		local: account === undefined,
 		async acquire() {
 			if (account === undefined) {
@@ -864,7 +868,7 @@ export function openAppData<
 			ready: parts.ready,
 			close: parts.close,
 			blobs: parts.createBlobs(blobs),
-			sqlite: sqlite ?? null,
+			sqlite,
 		}),
 	);
 }
@@ -901,7 +905,7 @@ async function writeGeneration({
 }: {
 	appId: string;
 	principalId: PrincipalId;
-	authorityId?: string;
+	authorityId: string;
 	dataId: string;
 	generation: number;
 	state: Uint8Array;
@@ -1183,14 +1187,16 @@ async function listGenerations(
  */
 export async function eraseGenerations({
 	appId,
+	authorityId,
 	principalId,
 	dataId,
 }: {
 	appId: string;
+	authorityId: string;
 	principalId: PrincipalId;
 	dataId: string;
 }): Promise<Result<{ erased: number }, StoreError>> {
-	const located = generationPrefix(appId, principalId, dataId);
+	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	if (located.error !== null) return Err(located.error);
 	const names = await heldGenerationNames(located.data);
 
@@ -1275,7 +1281,7 @@ async function newestGeneration({
 }: {
 	appId: string;
 	principalId: PrincipalId;
-	authorityId?: string;
+	authorityId: string;
 	dataId: string;
 }): Promise<number | undefined> {
 	const located = generationPrefix(appId, principalId, dataId, authorityId);

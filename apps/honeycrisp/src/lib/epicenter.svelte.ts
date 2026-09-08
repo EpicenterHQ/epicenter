@@ -23,7 +23,9 @@
  */
 
 import { createEpicenter } from '@epicenter/app';
+import { createBrowserAppBlobs } from '@epicenter/app/browser';
 import { APPS } from '@epicenter/constants/apps';
+import { sqlite } from '#platform/sqlite';
 import { honeycrispDefinition } from '$lib/data';
 
 /**
@@ -37,6 +39,8 @@ import { honeycrispDefinition } from '$lib/data';
 export const epicenter = createEpicenter({
 	appId: APPS.HONEYCRISP.id,
 	definition: honeycrispDefinition,
+	sqlite,
+	blobs: createBrowserAppBlobs(),
 });
 
 // A hot swap of this module builds a second handle while the first still holds
@@ -60,7 +64,3 @@ export const epicenter = createEpicenter({
 // this its own boundary; invalidating immediately says it cannot really handle
 // the swap, so the update goes on up to the page exactly as it did before, with
 // the old handle now closed.
-if (import.meta.hot) {
-	import.meta.hot.dispose(() => epicenter.close());
-	import.meta.hot.accept(() => import.meta.hot?.invalidate());
-}

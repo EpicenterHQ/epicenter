@@ -135,8 +135,13 @@ function databaseFilename(
 	const partition =
 		scope.kind === 'local'
 			? 'local'
-			: `accounts-${scope.authorityId}-${scope.principalId}`;
-	return `/${encodeURIComponent(appId)}-${encodeURIComponent(partition)}-${encodeURIComponent(name)}.sqlite`;
+			: `account:${scope.authorityId}:${scope.principalId}`;
+	// Encode the tuple as one value. Concatenating encoded segments is not
+	// injective: (authority=one-two, principal=three) collides with
+	// (authority=one, principal=two-three). The filename is an implementation
+	// detail, so preserving the tuple's boundaries is more important than
+	// mirroring the desktop directory spelling here.
+	return `/${encodeURIComponent(JSON.stringify([appId, partition, name]))}.sqlite`;
 }
 
 const owner: DeviceSqliteOwner = {

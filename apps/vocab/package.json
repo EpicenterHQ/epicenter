@@ -4,6 +4,9 @@
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
+	"imports": {
+		"#platform/sqlite": "./src/lib/platform/sqlite.browser.ts"
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
@@ -22,6 +25,7 @@
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",

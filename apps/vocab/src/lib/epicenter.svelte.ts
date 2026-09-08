@@ -22,7 +22,9 @@
  */
 
 import { createEpicenter } from '@epicenter/app';
+import { createBrowserAppBlobs } from '@epicenter/app/browser';
 import { APPS } from '@epicenter/constants/apps';
+import { sqlite } from '#platform/sqlite';
 import { vocabDefinition } from '$lib/data';
 
 /**
@@ -35,13 +37,11 @@ import { vocabDefinition } from '$lib/data';
 export const epicenter = createEpicenter({
 	appId: APPS.VOCAB.id,
 	definition: vocabDefinition,
+	sqlite,
+	blobs: createBrowserAppBlobs(),
 });
 
 // The disposer RETURNS the close, because Vite awaits it: the replacement
 // module must not ask for the Web Lock while this document is still letting go
 // of it. Construction is inert, so the replacement acquires nothing until the
 // page calls `open`.
-if (import.meta.hot) {
-	import.meta.hot.dispose(() => epicenter.close());
-	import.meta.hot.accept(() => import.meta.hot?.invalidate());
-}

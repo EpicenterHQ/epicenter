@@ -1,4 +1,17 @@
 import {
+	generateBlobId,
+	createBlobAttachment,
+	consumeBlobAttachment,
+	isBlobAttachment,
+	type BlobAttachment,
+	type BlobId,
+	type BlobRemote,
+	type BlobSource,
+	type BlobSources,
+	type BlobStore,
+	BlobStoreError,
+} from '@epicenter/blobs';
+import {
 	type ConformanceIssue,
 	compileData,
 	type DataDefinition,
@@ -10,8 +23,9 @@ import {
 import type { SqliteDatabase } from '@epicenter/sqlite';
 import * as Y from '@y/y';
 import { customAlphabet } from 'nanoid';
+import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
+import { Err, isErr, isOk, Ok, type Result, trySync } from 'wellcrafted/result';
 
 import {
 	createDatabaseDocument,
@@ -27,6 +41,11 @@ import {
 	updateRow,
 } from './document.js';
 import {
+	attachStoreSync,
+	type AttachStoreSyncOptions,
+} from '../sync/attach.js';
+import { persistOnHide } from './flush-on-hide.js';
+import {
 	copyBytes,
 	createSqliteDurablePort,
 	NO_AUTHORITY,
@@ -34,6 +53,7 @@ import {
 } from './log.js';
 import {
 	createPersistenceController,
+	type PersistenceController,
 	type DurablePort,
 	type DurableSnapshot,
 } from './persistence.js';
@@ -48,7 +68,10 @@ export type {
 // store refuses with, `handles.ts` is what an application holds. Re-exported
 // here rather than moved out of reach, because `@epicenter/data`'s barrel and
 // every caller already name them through this path.
-import type { SyncConnectionStatus } from '../sync/connection.js';
+import type {
+	SyncConnection,
+	SyncConnectionStatus,
+} from '../sync/connection.js';
 import type {
 	ApplyFailedError,
 	NonconformingRow,
@@ -64,7 +87,6 @@ import type {
 	Row,
 	StoredData,
 	SyncCapability,
-	TableHandle,
 	TableListener,
 	UntypedDeclaredData,
 } from './handles.js';
@@ -92,6 +114,18 @@ const mintRowId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 24);
 
 /** Bytes this process authored, which is what has to reach the authority. */
 const localOrigin = Object.freeze({ kind: 'epicenter-local' });
+
+const StoreBackgroundError = defineErrors({
+	CloseFailed: ({ cause }: { cause: unknown }) => ({
+		message:
+			'Store resources could not be fully released after an opening failure.',
+		cause,
+	}),
+	SyncTransportFailed: ({ cause }: { cause: unknown }) => ({
+		message: 'A sync dial failed for this replica.',
+		cause,
+	}),
+});
 
 /**
  * One `applyRemote` call, carried on the transaction that applies it.
@@ -208,8 +242,7 @@ type SyncEngine = ClientLog & {
 	 * What a snapshot offer carries, and synchronous like every other read of
 	 * this document. It was a promise for a shape that no longer exists: it
 	 * used to read closed row documents from storage, and ADR-0295 left one
-	 * document, already open, already in memory. Opening is the only
-	 * asynchronous thing this package does.
+	 * document, already open, already in memory.
 	 */
 	encodeSnapshot(): Uint8Array;
 };
@@ -270,7 +303,18 @@ export function syncEngineOf(store: DataDocument): SyncEngine {
 }
 
 /** What every store engine needs: the definition and the durable engine. */
-type StoreEngineOptions = {
+export type StoreBacking = {
+	durable: DurablePort;
+	loaded: DurableSnapshot;
+	dispose?: () => void | Promise<void>;
+	replication?: Pick<AttachStoreSyncOptions, 'address' | 'transport'>;
+};
+
+type StoreEngineOptions<
+	TError extends { name: string; message: string } = never,
+> = {
+	/** Local libraries never create an upload obligation. */
+	local?: boolean;
 	/**
 	 * The one data definition this runtime holds, already parsed
 	 * (ADR-0240). Every table handle and the KV handle close over it for the
@@ -278,11 +322,8 @@ type StoreEngineOptions = {
 	 * disposing this store and constructing the next one.
 	 */
 	definition: ParsedDataDefinition;
-	/** The runtime-native durable engine: one atomic batch per flush. */
-	durable: DurablePort;
-	/** What that engine held at open, materialized once. */
-	loaded: DurableSnapshot;
-	dispose?: () => void | Promise<void>;
+	/** Local bytes used by owning table fields and the app's blob capabilities. */
+	blobStore?: BlobStore;
 	/**
 	 * Where a subscriber's own failure and a failed durable flush go.
 	 *
@@ -293,6 +334,22 @@ type StoreEngineOptions = {
 	 * like a store that stopped notifying.
 	 */
 	log?: Logger;
+	/** Called synchronously when close begins, before any asynchronous drain. */
+	onClose?: () => void;
+	/** Work owned by a composed capability that must drain before release. */
+	beforeClose?: () => Promise<void>;
+} & (
+	| StoreBacking
+	| {
+			acquire(): Promise<Result<StoreBacking, TError>>;
+	  }
+);
+
+/** Platform primitives used by the app's blob operations, not another owner. */
+export type StoreBlobBacking = {
+	local: BlobStore;
+	sources: BlobSources;
+	remote: BlobRemote | null;
 };
 
 export type CreateStoreOptions<TDatabase extends DataDefinition> = {
@@ -300,6 +357,8 @@ export type CreateStoreOptions<TDatabase extends DataDefinition> = {
 	definition: TDatabase;
 	/** The durable record: the update log, the outbox, the cursor, the metadata. */
 	sqlite: SqliteDatabase;
+	/** Optional local bytes for owning table fields; data-only readers need none. */
+	blobStore?: BlobStore;
 	dispose?: () => void | Promise<void>;
 	log?: Logger;
 };
@@ -351,7 +410,7 @@ function overSqlite<TDatabase extends DataDefinition>({
 export function createAccountStore<const TDatabase extends DataDefinition>(
 	options: CreateStoreOptions<TDatabase>,
 ): Data<TDatabase> {
-	const { store, close, view } = createStoreEngine(overSqlite(options));
+	const { store, close, view } = createStoreOverPort(overSqlite(options));
 	// The symbol is composed back on here and nowhere else. These constructors
 	// acquire one thing, so disposing the object frees everything it took, and a
 	// test's `await using` is exactly right. A replica acquires three (ADR-0340),
@@ -364,51 +423,119 @@ export function createAccountStore<const TDatabase extends DataDefinition>(
 }
 
 /**
- * The same two constructors over an arbitrary durable engine (ADR-0238),
- * returned as parts rather than composed data.
+ * Construct one document's real capabilities and own its backing until close.
  *
- * The browser passes an IndexedDB port here; the SQLite constructors above
- * are this plus `createSqliteDurablePort`. The caller loads the snapshot
- * first (that may be asynchronous), so construction itself stays synchronous.
- * Parts, because an opener may still have to wrap the store (`discard` on a
- * deletable replica) before composing what an application sees; the store and
- * the view are one runtime either way, born over one definition.
+ * SQLite supplies an already loaded backing and initializes inline. Browser
+ * acquisition is asynchronous; it hydrates the same document and named roots
+ * before ready succeeds. Neither path records replay as a new local write.
+ *
+ * The parts are internal composition inputs, not a second application handle.
+ * An opener assigns view and identity onto store, preserving its persistence
+ * getter, and freezes the resulting object. Never spread an opening store:
+ * spreading evaluates that getter before the controller exists.
  */
-export function createAccountStoreOverPort(options: StoreEngineOptions): {
-	store: DataDocument;
-	/** Flush what is queued, destroy the document, and release what it held. */
-	close: () => Promise<void>;
-	view: UntypedDeclaredData;
-	definition: ParsedDataDefinition;
-} {
-	return createStoreEngine(options);
-}
-
-function createStoreEngine({
-	definition,
-	durable,
-	loaded,
-	dispose = () => undefined,
-	log = createLogger('data/store'),
-}: StoreEngineOptions): {
-	store: DataDocument;
-	close: () => Promise<void>;
-	view: UntypedDeclaredData;
-	definition: ParsedDataDefinition;
-} {
+export function createStoreOverPort<
+	TError extends { name: string; message: string } = never,
+>(options: StoreEngineOptions<TError>) {
+	const {
+		definition,
+		blobStore,
+		local = false,
+		log = createLogger('data/store'),
+		onClose,
+		beforeClose,
+	} = options;
 	const database = createDatabaseDocument();
 	let disposed = false;
+	let initialized = false;
+	let held: StoreBacking | undefined;
+	let connection: SyncConnection | undefined;
+	let stopHideFlush: (() => void) | undefined;
+	const blobOperations = new Set<Promise<unknown>>();
+	const adoptedBlobIds = new Set<BlobId>();
+	const blobSources = new Set<BlobSource>();
+
+	function runBlobOperation<T>(operation: () => Promise<T>): Promise<T> {
+		assertUsable();
+		// Admit before invoking platform code: even a reentrant close must see
+		// this operation. Work admitted before close is allowed to finish.
+		const pending = Promise.resolve().then(operation);
+		blobOperations.add(pending);
+		void pending.then(
+			() => blobOperations.delete(pending),
+			() => blobOperations.delete(pending),
+		);
+		return pending;
+	}
+
+	/** Construct actual blob methods under this document's readiness and close. */
+	function createBlobs({
+		sources,
+		remote,
+	}: Pick<StoreBlobBacking, 'sources' | 'remote'>) {
+		if (blobStore === undefined)
+			throw new Error('This document has no blob store.');
+		const local = blobStore;
+		return Object.freeze({
+			remote:
+				remote === null
+					? null
+					: Object.freeze({
+							upload: (id: BlobId) => runBlobOperation(() => remote.upload(id)),
+							download: (id: BlobId) =>
+								runBlobOperation(() => remote.download(id)),
+							purge: (id: BlobId) => runBlobOperation(() => remote.purge(id)),
+						}),
+			add(blob: Blob) {
+				return runBlobOperation(async () => {
+					const id = generateBlobId();
+					const result = await local.put(id, blob);
+					return result.error === null ? Ok(id) : result;
+				});
+			},
+			get: (id: BlobId) => runBlobOperation(() => local.get(id)),
+			adopt: (id: BlobId) =>
+				runBlobOperation(async () => {
+					if (adoptedBlobIds.has(id))
+						return BlobStoreError.BlobAttachmentAlreadyAdopted({ id });
+					const result = await local.stat(id);
+					if (result.error !== null) return result;
+					adoptedBlobIds.add(id);
+					return Ok(createBlobAttachment(id, local));
+				}),
+			stat: (id: BlobId) => runBlobOperation(() => local.stat(id)),
+			statMany: (ids: readonly BlobId[]) =>
+				runBlobOperation(() => local.statMany(ids)),
+			open(id: BlobId) {
+				return runBlobOperation(async () => {
+					const result = await sources.open(id);
+					if (result.error !== null) return result;
+					const source = result.data;
+					if (disposed) {
+						source[Symbol.dispose]();
+						throw new StoreUnusableError();
+					}
+					blobSources.add(source);
+					return Ok(
+						Object.freeze({
+							url: source.url,
+							[Symbol.dispose]() {
+								if (blobSources.delete(source)) source[Symbol.dispose]();
+							},
+						}),
+					);
+				});
+			},
+			removeLocal: (id: BlobId) => runBlobOperation(() => local.delete(id)),
+		});
+	}
 
 	/**
 	 * The local-persistence debt: accepted work the durable engine has not
 	 * confirmed (ADR-0238). Every verb enqueues here and returns; a refused
 	 * flush retains the work and reports `blocked`, and never fails the verb.
 	 */
-	const controller = createPersistenceController({
-		port: durable,
-		loaded,
-		log,
-	});
+	let controller: PersistenceController;
 
 	/**
 	 * The next append id. The store mints ids, never the port.
@@ -418,7 +545,7 @@ function createStoreEngine({
 	 * everything the record already holds so an id is never reused across a
 	 * reopen.
 	 */
-	let nextId = loaded.lastId + 1;
+	let nextId = 0;
 	const mintId = (): number => nextId++;
 	/**
 	 * Who is watching each table, keyed by its ROOT, and what it is handed: the
@@ -484,6 +611,7 @@ function createStoreEngine({
 	function notify(listeners: ReadonlySet<() => void> | undefined): void {
 		if (listeners === undefined || listeners.size === 0) return;
 		for (const listener of [...listeners]) {
+			if (disposed) break;
 			const { error } = trySync({
 				try: listener,
 				catch: (cause) => StoreError.SubscriberThrew({ cause }),
@@ -499,6 +627,7 @@ function createStoreEngine({
 	): void {
 		if (listeners === undefined || listeners.size === 0) return;
 		for (const listener of [...listeners]) {
+			if (disposed) break;
 			const { error } = trySync({
 				try: () => listener(rowIds),
 				catch: (cause) => StoreError.SubscriberThrew({ cause }),
@@ -517,6 +646,7 @@ function createStoreEngine({
 	 * `attrs` names it on insert, on a field edit, and on delete.
 	 */
 	function subscribeTable(root: Y.Type, listener: TableListener): () => void {
+		assertUsable();
 		let forRoot = tableListeners.get(root);
 		if (forRoot === undefined) {
 			forRoot = new Set();
@@ -617,82 +747,108 @@ function createStoreEngine({
 		}
 	}
 
-	// Hydrate BEFORE the listener exists, so replaying the record cannot append
-	// what it just read. Ordering rather than an origin to ignore, and the
-	// ordering is backstopped: a replay that reached the listener would carry
-	// `transaction.local === false` with no remote origin, and the throw below
-	// would fail the open loudly on the first stored update.
-	for (const stored of loaded.updates) {
-		// Not copied. Both ports hand over arrays that are already this caller's
-		// alone, and `applyUpdateV2` reads its input rather than writing to it,
-		// so a copy here duplicated the whole document for the length of one
-		// call: after a fold the chain is one baseline row, and that row IS the
-		// document.
-		Y.applyUpdateV2(database, stored, null);
-	}
+	function initialize({ durable, loaded, replication }: StoreBacking): void {
+		// Hydrate BEFORE the listener exists, so replaying the record cannot append
+		// what it just read. Ordering rather than an origin to ignore, and the
+		// ordering is backstopped: a replay that reached the listener would carry
+		// `transaction.local === false` with no remote origin, and the throw below
+		// would fail the open loudly on the first stored update.
+		for (const stored of loaded.updates) {
+			// Not copied. Both ports hand over arrays that are already this caller's
+			// alone, and `applyUpdateV2` reads its input rather than writing to it,
+			// so a copy here duplicated the whole document for the length of one
+			// call: after a fold the chain is one baseline row, and that row IS the
+			// document.
+			Y.applyUpdateV2(database, stored, null);
+		}
+		controller = createPersistenceController({
+			port: durable,
+			loaded,
+			log,
+			assertUsable,
+		});
+		nextId = loaded.lastId + 1;
 
-	database.on(
-		'updateV2',
-		(
-			update: Uint8Array,
-			origin: unknown,
-			_document: Y.Doc,
-			transaction: Y.Transaction,
-		) => {
-			if (isRemoteApply(origin)) {
-				// `applyRemote` owns both halves for its own bytes. It hears about
-				// this transaction through the origin it minted.
-				origin.transaction = transaction;
-				return;
-			}
-			// What remains must be a LOCAL transaction, whether a store verb ran
-			// it under `localOrigin` or an application wrote through a live type
-			// it holds. `applyUpdateV2` forces `transaction.local` to false and a
-			// local `transact` defaults it to true, so this check makes the branch
-			// below provably an application writing through this document's own
-			// types rather than by convention. Decoded foreign bytes reaching it
-			// would be persisted as the EMITTED update rather than the received
-			// one (nothing at all when causal dependencies are missing; see
-			// `applyRemote`), and would join the outbox as this device's authored
-			// work and be republished to the authority. The throw surfaces
-			// synchronously at the rogue `Y.applyUpdateV2` call site, before
-			// anything is accepted, so the store is untouched.
-			if (!transaction.local) {
-				throw new Error(
-					"Foreign bytes must enter through applyRemote. A direct Y.applyUpdateV2 on this document would be republished as this device's own work, and is lost entirely when its causal dependencies have not arrived.",
-				);
-			}
-			// The delivery runs in a finally, deliberately: the live document
-			// already holds the change, so what a subscriber would read is true
-			// whatever the durable engine later does with the bytes.
+		database.on(
+			'updateV2',
+			(
+				update: Uint8Array,
+				origin: unknown,
+				_document: Y.Doc,
+				transaction: Y.Transaction,
+			) => {
+				if (isRemoteApply(origin)) {
+					// `applyRemote` owns both halves for its own bytes. It hears about
+					// this transaction through the origin it minted.
+					origin.transaction = transaction;
+					return;
+				}
+				// What remains must be a LOCAL transaction, whether a store verb ran
+				// it under `localOrigin` or an application wrote through a live type
+				// it holds. `applyUpdateV2` forces `transaction.local` to false and a
+				// local `transact` defaults it to true, so this check makes the branch
+				// below provably an application writing through this document's own
+				// types rather than by convention. Decoded foreign bytes reaching it
+				// would be persisted as the EMITTED update rather than the received
+				// one (nothing at all when causal dependencies are missing; see
+				// `applyRemote`), and would join the outbox as this device's authored
+				// work and be republished to the authority. The throw surfaces
+				// synchronously at the rogue `Y.applyUpdateV2` call site, before
+				// anything is accepted, so the store is untouched.
+				if (!transaction.local) {
+					throw new Error(
+						"Foreign bytes must enter through applyRemote. A direct Y.applyUpdateV2 on this document would be republished as this device's own work, and is lost entirely when its causal dependencies have not arrived.",
+					);
+				}
+				// The delivery runs in a finally, deliberately: the live document
+				// already holds the change, so what a subscriber would read is true
+				// whatever the durable engine later does with the bytes.
+				try {
+					const id = mintId();
+					const bytes = copyBytes(update);
+					// Nudged at acceptance, not when the flush lands, and the sender's
+					// idle timer is what makes that safe: it waits a second before
+					// asking what is owed, and a flush is a microtask. By the time
+					// `coalesce` reads the durable outbox the append is in it.
+					notify(localWorkListeners);
+					controller.enqueue([
+						{
+							kind: 'append',
+							id,
+							bytes,
+							// What an append this device authored owes the authority
+							// (ADR-0301): these bytes, with no position for them yet,
+							// which is `undefined` and records as NULL. Bytes that
+							// ARRIVED carry `NO_AUTHORITY` instead, so NULL means owed
+							// and nothing else does, which is what lets the fold choose
+							// by row rather than by store kind.
+							authoritySeq: local ? NO_AUTHORITY : undefined,
+						},
+					]);
+					mergeOwedIfLong();
+				} finally {
+					deliver(transaction);
+				}
+			},
+		);
+		initialized = true;
+		stopHideFlush = persistOnHide(() => controller.persistence.flush());
+		if (replication !== undefined) {
 			try {
-				const id = mintId();
-				const bytes = copyBytes(update);
-				// Nudged at acceptance, not when the flush lands, and the sender's
-				// idle timer is what makes that safe: it waits a second before
-				// asking what is owed, and a flush is a microtask. By the time
-				// `coalesce` reads the durable outbox the append is in it.
-				notify(localWorkListeners);
-				controller.enqueue([
-					{
-						kind: 'append',
-						id,
-						bytes,
-						// What an append this device authored owes the authority
-						// (ADR-0301): these bytes, with no position for them yet,
-						// which is `undefined` and records as NULL. Bytes that
-						// ARRIVED carry `NO_AUTHORITY` instead, so NULL means owed
-						// and nothing else does, which is what lets the fold choose
-						// by row rather than by store kind.
-						authoritySeq: undefined,
-					},
-				]);
-				mergeOwedIfLong();
-			} finally {
-				deliver(transaction);
+				connection = attachStoreSync({
+					store,
+					...replication,
+					onTransportError: (cause) =>
+						log.warn(StoreBackgroundError.SyncTransportFailed({ cause })),
+				});
+				// A caller-owned transport can synchronously close this store
+				// before attach returns the connection close must release.
+				if (disposed) connection[Symbol.dispose]();
+			} catch (cause) {
+				log.warn(StoreBackgroundError.SyncTransportFailed({ cause }));
 			}
-		},
-	);
+		}
+	}
 
 	/**
 	 * Collapse owed appends into one resendable row (ADR-0301).
@@ -735,6 +891,7 @@ function createStoreEngine({
 	 */
 	function assertUsable(): void {
 		if (disposed) throw new StoreUnusableError();
+		if (!initialized) throw new Error('The store is not ready.');
 	}
 
 	/**
@@ -836,10 +993,14 @@ function createStoreEngine({
 			return Ok(undefined);
 		},
 		onLocalWork(listener: () => void): () => void {
+			assertUsable();
 			localWorkListeners.add(listener);
 			return () => localWorkListeners.delete(listener);
 		},
-		hasUnresolvedDependencies: () => hasPendingStructs(database),
+		hasUnresolvedDependencies() {
+			assertUsable();
+			return hasPendingStructs(database);
+		},
 		encodeSnapshot(): Uint8Array {
 			assertUsable();
 			return new Uint8Array(Y.encodeStateAsUpdateV2(database));
@@ -847,7 +1008,7 @@ function createStoreEngine({
 	};
 
 	// The one view this runtime will ever hold, built over the one definition,
-	// after hydration.
+	// before hydration. Named roots converge; no rows or defaults are minted.
 	const view = buildView();
 
 	const base: Omit<DataDocument, 'sync' | 'definition'> = {
@@ -906,6 +1067,7 @@ function createStoreEngine({
 			};
 		},
 		onCommitted(listener: () => void): () => void {
+			assertUsable();
 			committedListeners.add(listener);
 			return () => committedListeners.delete(listener);
 		},
@@ -925,11 +1087,19 @@ function createStoreEngine({
 				itemsPerLiveRow: liveRows === 0 ? items : items / liveRows,
 			};
 		},
-		stateVector: () => new Uint8Array(Y.encodeStateVector(database)),
-		encodeStateSince: (stateVector?: Uint8Array) =>
-			new Uint8Array(Y.encodeStateAsUpdateV2(database, stateVector)),
+		stateVector() {
+			assertUsable();
+			return new Uint8Array(Y.encodeStateVector(database));
+		},
+		encodeStateSince(stateVector?: Uint8Array) {
+			assertUsable();
+			return new Uint8Array(Y.encodeStateAsUpdateV2(database, stateVector));
+		},
 		// Acceptance, retirement, and state enumeration are the engine's to drive.
-		persistence: controller.persistence,
+		get persistence() {
+			assertUsable();
+			return controller.persistence;
+		},
 	};
 
 	/**
@@ -941,26 +1111,119 @@ function createStoreEngine({
 	 * closing while blocked is the accepted loss ADR-0238 makes visible rather
 	 * than a reason to hang.
 	 */
-	const close = async (): Promise<void> => {
-		if (disposed) return;
+	let closing: Promise<void> | undefined;
+	const close = (): Promise<void> => {
 		disposed = true;
-		await controller.persistence.flush();
-		database.destroy();
-		await dispose();
+		onClose?.();
+		if (closing !== undefined) return closing;
+		// Publish completion before a disposer can re-enter close. The async
+		// body still stops callbacks synchronously, before its first await.
+		const completion = Promise.withResolvers<void>();
+		closing = completion.promise;
+		void (async () => {
+			try {
+				try {
+					connection?.[Symbol.dispose]();
+				} finally {
+					stopHideFlush?.();
+				}
+			} finally {
+				try {
+					const flushing = initialized ? controller.close() : undefined;
+					await acquisition;
+					await Promise.allSettled(blobOperations);
+					await flushing;
+				} finally {
+					try {
+						const sources = [...blobSources];
+						blobSources.clear();
+						await Promise.all(
+							sources.map(async (source) => source[Symbol.dispose]()),
+						);
+					} finally {
+						try {
+							await beforeClose?.();
+						} finally {
+							try {
+								database.destroy();
+							} finally {
+								await held?.dispose?.();
+							}
+						}
+					}
+				}
+			}
+		})().then(completion.resolve, completion.reject);
+		return closing;
 	};
 	// The delivery machinery is registered against the capability rather than
 	// the store, so a wrapper that spreads the store (a `discard()` opener)
 	// keeps the door reachable.
 	const sync: SyncCapability = Object.freeze({
-		replicates: true as const,
-		status: () => attachedStatus.get(sync)?.(),
+		status() {
+			assertUsable();
+			return attachedStatus.get(sync)?.();
+		},
 	});
-	syncEngines.set(sync, Object.freeze(syncEngine));
+	if (!local) syncEngines.set(sync, Object.freeze(syncEngine));
+	// Composition preserves the real persistence getter instead of evaluating
+	// it before acquisition. The opener freezes this object after adding identity.
+	const store = Object.assign(base, { sync, definition });
+	const acquisition: Promise<Result<StoreBacking, TError | StoreError>> =
+		'acquire' in options
+			? Promise.resolve()
+					.then(options.acquire)
+					.catch((cause) => StoreError.StorageFailed({ cause }))
+					.then((result: Result<StoreBacking, TError | StoreError>) => {
+						if (isOk(result)) held = result.data;
+						return result;
+					})
+			: Promise.resolve(Ok(options));
+	if (!('acquire' in options)) {
+		held = options;
+		try {
+			initialize(options);
+		} catch (cause) {
+			void close().catch((error) =>
+				log.error(StoreBackgroundError.CloseFailed({ cause: error })),
+			);
+			throw cause;
+		}
+	}
+	const ready: Promise<Result<void, TError | StoreError>> = acquisition.then(
+		async (result) => {
+			if (isErr(result)) {
+				return failOpening(result.error);
+			}
+			if (disposed) {
+				return failOpening(StoreError.ClosedWhileOpening().error);
+			}
+			if (!initialized) {
+				try {
+					initialize(result.data);
+				} catch (cause) {
+					return failOpening(StoreError.StorageFailed({ cause }).error);
+				}
+			}
+			if (disposed) return failOpening(StoreError.ClosedWhileOpening().error);
+			return Ok(undefined);
+		},
+	);
+	async function failOpening(error: TError | StoreError) {
+		// Readiness reports why opening failed. A cleanup failure remains on
+		// close's promise and is logged, never substituted for that boot outcome.
+		await close().catch((cause) =>
+			log.error(StoreBackgroundError.CloseFailed({ cause })),
+		);
+		return Err(error);
+	}
 	return {
 		// The compiled declaration rides on the store, so nothing downstream
 		// compiles it a second time (ADR-0340).
-		store: Object.freeze({ ...base, sync, definition }),
+		store,
+		createBlobs,
 		close,
+		ready,
 		view,
 		definition,
 	};
@@ -1039,7 +1302,7 @@ function createStoreEngine({
 	function buildView(): UntypedDeclaredData {
 		const kv = createKvHandle();
 
-		const tables: Record<string, TableHandle> = {};
+		const tables: Record<string, UntypedDeclaredData['tables'][string]> = {};
 		for (const [tableName, table] of definition.tables) {
 			tables[tableName] = createTableHandle(tableName, table);
 		}
@@ -1122,6 +1385,7 @@ function createStoreEngine({
 				return readBack().issues;
 			},
 			subscribe(listener: () => void): () => void {
+				assertUsable();
 				kvListeners.add(listener);
 				let stopped = false;
 				return () => {
@@ -1167,8 +1431,11 @@ function createStoreEngine({
 	function createTableHandle(
 		tableName: string,
 		table: ParsedTable,
-	): TableHandle {
+	): UntypedDeclaredData['tables'][string] {
 		const root = tableRoot(database, tableName);
+		const blobFields = [...table.fields.values()].filter(
+			(field) => field.kind === 'blob',
+		);
 
 		/** One stored payload, read through the declaration the way every read reads. */
 		function conformRow(
@@ -1208,23 +1475,87 @@ function createStoreEngine({
 			return { ...row, content };
 		}
 
-		// Typed where it is WRITTEN, not where it is returned. `Object.freeze(literal)`
-		// infers `Readonly<typeof literal>` first, so by the time the result meets
-		// the return type it is no longer a FRESH literal and an extra member is
-		// not an error. Annotating here is what makes a phantom impossible: one
-		// was implemented and unreachable for a release because a cast hid it.
-		const handle: TableHandle = {
-			create(fields: RowInput): Row {
-				const rowId = mintRowId();
-				// The node is integrated in the same transaction (ADR-0295), and
-				// never again: nested types do not converge by name, so one minted
-				// lazily on two devices would lose a subtree.
-				transact(() => createRow(root, rowId, fields));
-				// Read back rather than echoed: a node the caller omitted was minted
-				// empty here, and one it passed is now the INTEGRATED node rather
-				// than the detached one it handed over. Echoing the argument would
-				// return a node that reads as empty.
-				return withContent({ id: rowId, ...readRow(root, rowId) });
+		const handle: UntypedDeclaredData['tables'][string] = {
+			create(fields) {
+				assertUsable();
+				const values: RowInput = {};
+				for (const [name, value] of Object.entries(fields)) {
+					if (table.fields.get(name)?.kind === 'blob') continue;
+					if (value instanceof Blob)
+						throw new TypeError(`'${name}' is not a blob field.`);
+					values[name] = value;
+				}
+				if (blobFields.length === 0) {
+					const rowId = mintRowId();
+					transact(() => createRow(root, rowId, values));
+					// Read the integrated content node, never echo its detached input.
+					return withContent({ id: rowId, ...readRow(root, rowId) });
+				}
+				if (blobStore === undefined)
+					throw new Error('This document has no blob store.');
+				if (database._transaction !== null) {
+					throw new Error(
+						'Attachment creation cannot run inside a synchronous transaction.',
+					);
+				}
+				const attachments: { name: string; blob: Blob | BlobAttachment }[] = [];
+				for (const field of blobFields) {
+					const value = fields[field.name];
+					if (value === null && field.nullable) {
+						values[field.name] = null;
+						continue;
+					}
+					if (!(value instanceof Blob) && !isBlobAttachment(value))
+						throw new TypeError(`'${field.name}' requires Blob bytes or an adopted attachment.`);
+					attachments.push({ name: field.name, blob: value });
+				}
+				return runBlobOperation(async () => {
+					const written: BlobId[] = [];
+					const rowId = mintRowId();
+					try {
+						for (const { name, blob } of attachments) {
+							assertUsable();
+							if (isBlobAttachment(blob)) {
+									const adoptedId = blob.id;
+									if (consumeBlobAttachment(blob, blobStore) === undefined)
+										throw new TypeError('The adopted attachment belongs to another blob store or was already consumed.');
+									const present = await blobStore.stat(adoptedId);
+									if (present.error !== null) return present;
+								values[name] = adoptedId;
+								continue;
+							}
+							const id = generateBlobId();
+							const result = await blobStore.put(id, blob);
+							if (result.error !== null) return result;
+							written.push(id);
+							values[name] = id;
+						}
+						assertUsable();
+						transact(() => {
+							createRow(root, rowId, values);
+						});
+						return Ok(withContent({ id: rowId, ...readRow(root, rowId) }));
+					} finally {
+						// A transaction can throw after partial mutation. The row, not
+						// a second publication flag, says which bytes it accepted.
+						const referenced = Object.values(readRow(root, rowId) ?? {});
+						const unreferenced = written.filter(
+							(id) => !referenced.includes(id),
+						);
+						const cleanup = await Promise.all(
+							unreferenced.map(async (id) => {
+								try {
+									return await blobStore.delete(id);
+								} catch (cause) {
+									return BlobStoreError.BlobStoreFailed({ id, cause });
+								}
+							}),
+						);
+						for (const result of cleanup) {
+							if (result.error !== null) log.error(result.error);
+						}
+					}
+				});
 			},
 			get(rowId: string): Row | undefined {
 				assertUsable();
@@ -1239,6 +1570,13 @@ function createStoreEngine({
 				return data === null ? undefined : withContent(data);
 			},
 			update(rowId: string, fields: JsonObject): Result<void, RowAbsentError> {
+				assertUsable();
+				for (const field of blobFields) {
+					if (Object.hasOwn(fields, field.name))
+						throw new TypeError(
+							`'${field.name}' is an owning blob field and cannot be patched by ID.`,
+						);
+				}
 				// One lookup, not two. This used to ask `hasRow` and then write
 				// through a function that would have minted the row had the answer
 				// changed in between; `updateRow` answers whether it found one, so

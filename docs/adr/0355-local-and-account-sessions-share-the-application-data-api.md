@@ -4,11 +4,11 @@
 - **Date:** 2026-09-07
 - **Amended by:** [ADR-0359](0359-the-document-factory-owns-readiness-and-closure.md) at the live handle's construction mechanism: the document factory owns readiness and closure.
 - **Amends:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at account-required storage and generation creation; [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at one active session per app and unconditional sync; [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) at account-only access to declared tables and the ownership of named SQLite files. Secrets remain a separate device capability.
-- **Implementation note:** Local and account openers, the common application blob handle, declared blob fields, authority-scoped data/blob addresses, and scoped named SQLite owner protocol are implemented. Runtime wiring remains opt-in for applications that use named SQLite files; explicit imports between local and account libraries and whole-library removal remain future work.
+- **Implementation note:** Local and account openers, the common application blob handle, declared blob fields, authority-scoped data/blob addresses, and scoped named SQLite owner protocol are implemented. Every application composes a runtime SQLite owner through its build-time platform seam; the app handle never exposes an absent or frozen compatibility capability.
 
 ## Context
 
-`createEpicenter({ appId, definition })` in `packages/app/src/index.ts`
+`createEpicenter({ appId, definition, sqlite })` in `packages/app/src/index.ts`
 currently opens one account-bound session through `open(account)`. The store
 apps gate interaction on identity. An existing account replica can open offline,
 but a fresh installation cannot create a durable recording library without an
@@ -30,7 +30,7 @@ read both libraries while preserving the source.
 
 **An application declares its data once and opens separate local and account sessions.**
 
-The target call sites below describe APIs to build, not current exports:
+The canonical call site is:
 
 ```ts
 import { createEpicenter } from '@epicenter/app';
@@ -56,6 +56,7 @@ const definition = defineData({
 const epicenter = createEpicenter({
   appId: 'so.epicenter.whispering',
   definition,
+  sqlite: platformSqliteOwner,
 });
 
 const localApp = epicenter.openLocal();

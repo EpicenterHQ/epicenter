@@ -1,20 +1,8 @@
 /**
- * Whispering's composition over one open replica.
+ * Whispering's domains over an account app handle.
  *
- * An authority mints every generation (ADR-0336), so this app has exactly one
- * document: the signed-in principal's replica. Opening it is the session's verb
- * and `$lib/epicenter.svelte.ts` owns the handle (ADR-0344), so these tests
- * compose the same two halves that module composes: `createEpicenter` with a
- * fake account, then `createWhisperingApp` over what the open handed back.
- *
- * Key behaviors:
- * - A signed-out account opens nothing at all, and says so through the session
- *   rather than by throwing
- * - Settings recover application defaults, notify, and survive a reopen
- * - Closing the session releases the store, so the next open finds it free
- *
- * `fake-indexeddb` supplies the browser store's storage; the socket is a fake
- * whose frames come from the real sync protocol (`encodeFrame`).
+ * Exercises settings defaults, notifications, persistence across reopening,
+ * and domain disposal using the real IndexedDB opener.
  */
 import 'fake-indexeddb/auto';
 import { installTestLocks } from '@epicenter/data/test-locks';
@@ -37,14 +25,27 @@ import { expect, test } from 'bun:test';
 );
 
 import { createEpicenter } from '@epicenter/app';
+import { createBrowserAppBlobs } from '@epicenter/app/browser';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import type { AppBlobs } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import type { BlobStore } from '@epicenter/blobs';
+import { createBlobAttachment, generateBlobId, type BlobStore } from '@epicenter/blobs';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { APPS } from '@epicenter/constants/apps';
-import { encodeFrame } from '@epicenter/data/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data';
+
+const testSqlite: DeviceSqliteOwner = {
+	open: async () => ({
+		run: async () => Ok({ changes: 0 }),
+		all: async () => Ok([]),
+		batch: async () => Ok({ changes: [] }),
+	}),
+	delete: async () => undefined,
+};
+const testBlobs = createBrowserAppBlobs();
 import { createWhisperingApp } from './app';
 
 const local: BlobStore = {
@@ -65,6 +66,24 @@ const local: BlobStore = {
 	},
 };
 
+function appBlobs(): AppBlobs {
+	const sources = createBrowserBlobSources(local);
+	return {
+		remote: null,
+		async add(blob) {
+			const id = generateBlobId();
+			const result = await local.put(id, blob);
+			return result.error === null ? Ok(id) : result;
+		},
+		get: (id) => local.get(id),
+		stat: (id) => local.stat(id),
+		statMany: (ids) => local.statMany(ids),
+		open: (id) => sources.open(id),
+		removeLocal: (id) => local.delete(id),
+		adopt: async (id) => Ok(createBlobAttachment(id, local)),
+	};
+}
+
 /**
  * Start each test from empty storage. IndexedDB outlives a test in this
  * process the way it outlives a page in a browser, and these tests each tell a
@@ -73,7 +92,7 @@ const local: BlobStore = {
 async function resetStorage(): Promise<void> {
 	for (const database of await indexedDB.databases()) {
 		const name = database.name;
-		if (name === undefined) continue;
+		if (!name?.startsWith(`epicenter/${APPS.WHISPERING.id}/`)) continue;
 		await new Promise<void>((resolve, reject) => {
 			const request = indexedDB.deleteDatabase(name);
 			request.onsuccess = () => resolve();
@@ -83,9 +102,7 @@ async function resetStorage(): Promise<void> {
 }
 
 /**
- * A socket the test scripts: listeners attach through the same
- * `addEventListener` surface the real driver uses, and `deliver` hands the
- * client a real protocol frame.
+ * A socket that opens and closes through the real driver's event surface.
  */
 function createFakeSocket() {
 	const listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -105,9 +122,6 @@ function createFakeSocket() {
 	return {
 		socket: socket as unknown as WebSocket,
 		open: () => dispatch('open', {}),
-		deliver(frame: Parameters<typeof encodeFrame>[0]) {
-			dispatch('message', { data: encodeFrame(frame).slice().buffer });
-		},
 	};
 }
 
@@ -156,6 +170,7 @@ function createFakeAccount({
 		return Response.json({ generations: [...held.keys()].sort() });
 	};
 	return {
+		authorityId: 'test-authority',
 		principalId: asPrincipalId(principalId),
 		baseURL: 'https://api.test',
 		fetch: generations,
@@ -193,37 +208,39 @@ async function openWhispering(account: Account) {
 	const handle = createEpicenter({
 		appId: APPS.WHISPERING.id,
 		definition: whisperingDefinition,
+		sqlite: testSqlite,
+		blobs: testBlobs,
 	});
-	const session = handle.open(account);
-	return { handle, session, account, opened: await session.opened };
+	const app = handle.openAccount(account);
+	expectOk(await app.ready);
+	return app;
 }
 
-test('constructing a handle opens no local database before an account session', async () => {
+test('constructing a factory acquires no local database', async () => {
 	await resetStorage();
 	const handle = createEpicenter({
 		appId: APPS.WHISPERING.id,
 		definition: whisperingDefinition,
+		sqlite: testSqlite,
+		blobs: testBlobs,
 	});
-	expect(await indexedDB.databases()).toEqual([]);
-	await handle.close();
+	expect(
+		(await indexedDB.databases()).filter(({ name }) =>
+			name?.startsWith(`epicenter/${APPS.WHISPERING.id}/`),
+		),
+	).toEqual([]);
+	expect(handle.appId).toBe(APPS.WHISPERING.id);
 });
 
 test('settings recover application defaults, notify, and survive a reopen', async () => {
 	await resetStorage();
 	{
-		const { handle, opened, account } = await openWhispering(
-			announcingAccount('alice'),
-		);
-		if (opened.error !== null) throw opened.error;
+		const account = announcingAccount('alice');
+		const data = await openWhispering(account);
 		const app = createWhisperingApp({
-			data: opened.data,
+			data,
 			account,
-			blobs: {
-				local,
-				remote: null,
-				sources: createBrowserBlobSources(local),
-				unscoped: null,
-			},
+			blobs: appBlobs(),
 		});
 
 		// Chosen by the application, applied by a read, never stored.
@@ -242,32 +259,25 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		await Bun.sleep(10);
 
 		app[Symbol.dispose]();
-		await handle.close();
+		await data.close();
 	}
 
 	// The same account, opened again on the same device: settings live on the
 	// replica now, so surviving a reopen is the replica being found and reused
 	// rather than a second document being minted underneath it. It is also the
 	// close above being real: a lock still held would answer `AlreadyOpen`.
-	const { handle, opened, account } = await openWhispering(
-		announcingAccount('alice'),
-	);
-	if (opened.error !== null) throw opened.error;
+	const account = announcingAccount('alice');
+	const data = await openWhispering(account);
 	const reopened = createWhisperingApp({
-		data: opened.data,
+		data,
 		account,
-		blobs: {
-			local,
-			remote: null,
-			sources: createBrowserBlobSources(local),
-			unscoped: null,
-		},
+		blobs: appBlobs(),
 	});
 
 	expect(reopened.settings.get('recordingAutoUpload')).toBe(true);
 
 	reopened[Symbol.dispose]();
-	await handle.close();
+	await data.close();
 });
 
 test('the domains stop reading the store once they are disposed', async () => {
@@ -276,19 +286,12 @@ test('the domains stop reading the store once they are disposed', async () => {
 	// that can end them: a component reading the app through context has no
 	// `[Symbol.dispose]` to reach for.
 	await resetStorage();
-	const { handle, opened, account } = await openWhispering(
-		announcingAccount('alice'),
-	);
-	if (opened.error !== null) throw opened.error;
+	const account = announcingAccount('alice');
+	const data = await openWhispering(account);
 	const app = createWhisperingApp({
-		data: opened.data,
+		data,
 		account,
-		blobs: {
-			local,
-			remote: null,
-			sources: createBrowserBlobSources(local),
-			unscoped: null,
-		},
+		blobs: appBlobs(),
 	});
 
 	app[Symbol.dispose]();
@@ -296,9 +299,9 @@ test('the domains stop reading the store once they are disposed', async () => {
 	app.settings.subscribe(() => {
 		notifications += 1;
 	});
-	opened.data.kv.update({ recordingAutoUpload: true });
+	data.kv.update({ recordingAutoUpload: true });
 	await Bun.sleep(10);
 
 	expect(notifications).toBe(0);
-	await handle.close();
+	await data.close();
 });

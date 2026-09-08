@@ -5,7 +5,8 @@
 	"description": "One application's Epicenter Data session.",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./browser": "./src/browser.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",

@@ -12,6 +12,10 @@
 		"#platform/folder": {
 			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
 			"default": "./src/lib/platform/folder.browser.ts"
+		},
+		"#platform/sqlite": {
+			"epicenter-host": "./src/lib/platform/sqlite.epicenter-host.ts",
+			"default": "./src/lib/platform/sqlite.browser.ts"
 		}
 	},
 	"scripts": {
@@ -50,6 +54,7 @@
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/sync": "workspace:*",
 		"@y/prosemirror": "2.0.0-6",
