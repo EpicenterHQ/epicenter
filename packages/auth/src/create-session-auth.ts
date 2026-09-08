@@ -15,9 +15,9 @@ import {
 	OpenWebSocketDenied,
 } from './auth-errors.js';
 import type { PersistedAuth } from './auth-types.js';
-import { mergeRequestHeaders, resolveTargetUrl } from './bearer-fetch.js';
 import type { PersistedAuthStorage } from './persisted-auth-storage.js';
 import { getProfileVia, readApiSession } from './read-api-session.js';
+import { resolveTargetUrl } from './resolve-target-url.js';
 
 export type SessionLauncher = {
 	startSignIn(options: {
@@ -238,7 +238,12 @@ export function createSessionAuth({
 			async function send() {
 				const credential = await authorize(owner, signal);
 				signal.throwIfAborted();
-				const headers = mergeRequestHeaders(input, init);
+				const headers = new Headers(
+					input instanceof Request ? input.headers : undefined,
+				);
+				new Headers(init?.headers).forEach((value, key) =>
+					headers.set(key, value),
+				);
 				headers.set('authorization', `Bearer ${credential.value.token}`);
 				headers.delete('cookie');
 				const response = await whileActive(

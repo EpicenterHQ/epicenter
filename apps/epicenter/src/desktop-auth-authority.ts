@@ -41,9 +41,6 @@ export function createDesktopAuthAuthority({
 			setItem: (key, value) => {
 				transaction.set(key, value);
 			},
-			removeItem: (key) => {
-				transaction.delete(key);
-			},
 		},
 	});
 	let callbackWaiter:

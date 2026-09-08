@@ -10,8 +10,8 @@ import type {
 } from './auth-contract.js';
 import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
 import type { AuthIdentityState } from './auth-identity-state.js';
-import { resolveTargetUrl } from './bearer-fetch.js';
 import { getProfileVia } from './read-api-session.js';
+import { resolveTargetUrl } from './resolve-target-url.js';
 
 /**
  * Non-secret identity projection a desktop window boots with. The Bun

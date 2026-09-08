@@ -28,7 +28,7 @@ export function createSessionHandoffClient({
 }: {
 	baseURL: string;
 	callback: string;
-	storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+	storage: Pick<Storage, 'getItem' | 'setItem'>;
 	fetch?: (
 		input: Request | string | URL,
 		init?: RequestInit,

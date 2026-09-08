@@ -62,9 +62,6 @@ async function setup(callback = browserCallback) {
 			setItem: (key: string, value: string) => {
 				cells.set(key, value);
 			},
-			removeItem: (key: string) => {
-				cells.delete(key);
-			},
 		};
 		const options = { baseURL, callback, storage };
 		const client = createSessionHandoffClient(options);
