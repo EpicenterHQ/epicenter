@@ -1,9 +1,12 @@
 # @epicenter/auth
 
-Auth selects an account; every data session keeps the account it opened with.
+Auth selects an account; every application session keeps the Account it opened with.
 
 ```ts
-const auth = createHostedBrowserRedirectAuth(/* browser configuration */);
+const auth = createHostedBrowserRedirectAuth({
+ appId: 'so.epicenter.example',
+ baseURL: 'https://api.epicenter.so',
+});
 const state = auth.state;
 if (state.status !== 'signed-out') {
  const account = state.account;
@@ -14,60 +17,105 @@ if (state.status !== 'signed-out') {
 ```
 
 `Account` holds a fixed `principalId` and `baseURL`, authenticated `fetch`,
-`openWebSocket`, and `getProfile`. Within a running auth authority, its object
-identity lasts through credential refresh, temporary disconnection, and
-reauthentication as the same person. A browser navigation or desktop host
-relaunch creates a new authority and application session.
-Sign-out or account replacement permanently retires its network access. Signing
-back in creates a new Account, even for the same person on the same server.
+`openWebSocket`, and `getProfile`. Its object identity lasts through temporary
+disconnection and uninterrupted same-person reauthentication. Browser
+navigation or desktop host relaunch creates a new runtime and application session.
 
-An account accepts requests only for its own server. Retirement aborts in-flight
-HTTP requests and response streams, closes its sockets, and prevents pending
-authorization or retries from using a successor account. It cannot undo an
-operation the server already processed. A request's own cancellation does not
-cancel another request's shared credential refresh.
+Sign-out or account replacement permanently retires its network access.
+Signing back in creates a new Account, even for the same person on the same
+server. Retirement aborts HTTP requests and response streams, closes sockets,
+and prevents pending authorization or retries from borrowing a successor
+credential. It cannot undo an operation the server already processed.
+
+Sign-out clears persistence and waits up to five seconds for a best-effort
+server revocation attempt. Failure or timeout is logged, not returned as proof
+of remote logout. Success confirms local cleanup, not remote revocation.
+Replacing a credential also awaits bounded cleanup of its predecessor before
+sign-in completes, without delaying local retirement or blocking storage writes.
+
+## One hosted session path
+
+Better Auth owns sessions and remains the client of social identity providers.
+Epicenter does not issue OAuth access/refresh grants. `createSessionAuth`
+owns one persisted `{ token, principalId }` cell, verification, ordered writes,
+sign-in cancellation, and Account retirement.
+
+The cached principal permits local boot without a network call. Before the
+first resource request, the runtime verifies that the credential belongs to
+that principal through `/api/session`. A rejected credential preserves the
+Account and publishes `reauth-required`; an unavailable server refuses network
+traffic without discarding local identity.
+
+Requests use an explicit signed session bearer with `credentials: 'omit'`.
+The Account rejects foreign origins and does not follow redirects. A 401
+pauses that credential. A request retries once only if same-Account
+reauthentication installed a different credential while it was in flight.
+There is no refresh-token exchange.
+
+## Browser and dashboard
+
+`createHostedBrowserRedirectAuth` composes local credential storage,
+sessionStorage handoff transactions, and `createSessionAuth`. Browser apps
+and the hosted dashboard use this same composition. The dashboard uses
+`/session/callback`; app callbacks default to `/auth/callback`.
+
+`startSignIn` begins a hosted sign-in. The hosted page explicitly continues
+with its cookie session, or completes a social/passkey sign-in. The callback
+carries only a short-lived code and state. The client redeems it with its PKCE
+verifier for an independent signed session. Cancelled, superseded, and replayed
+completions cannot install a credential; orphaned results are revoked where possible.
+A passive handoff inherits the source session's authentication age.
+
+Only callback-capable clients expose `completeSignIn`. Success means the
+credential was verified, persisted, and published. The callback route then uses
+`window.location.replace` to leave the callback document.
+`startSignIn({ reauthenticate: true })` requests a new sign-in instead of
+reusing the hosted cookie through the Continue button.
+
+The dashboard captures an Account for its requests and query cache. Its
+Better Auth management client also uses that Account and sends the expected
+principal. Ambient cookies belong to hosted sign-in, not dashboard resources.
+
+The browser adapter permits challenge/state cookies only on same-origin
+`/auth/link-social`, `/auth/passkey/generate-register-options`, and
+`/auth/passkey/verify-registration` requests carrying the captured bearer and
+expected principal. Their server guard resolves that bearer before reading
+ambient cookies. This preserves browser ceremonies without cookie fallback.
+
+## Desktop
+
+Desktop WebViews use `createDesktopBrokerAuth`; they receive identity and
+loopback access, never the remote credential. Bun owns the same session runtime
+and completes the hosted handoff through the native deep link.
+
+The host forwards HTTP and live sync through its captured boot Account while a
+new sign-in is persisted for relaunch. A failed relaunch cannot make an old
+window use a replacement Account. Apps own their local stores and sync engines;
+the host relays bytes and owns no application replica or reconnect loop.
+
+## Lifetime and policy
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
-that same Account. The status belongs to auth; it is not part of the account's
-identity. Svelte apps use `fromAuth` and key the session component on
-`auth.state.account`.
+that same Account. Svelte apps adapt it with `fromAuth` and key the session
+component on `auth.state.account`, never principal or status alone.
 
-## Browser and desktop
+The hosted server checks live session rows on HTTP requests and socket admission.
+Sessions last 30 days and renew after one day of use. Renewal does not reset
+authentication age. Sensitive account changes require a matching principal and
+a session younger than 600 seconds. A completed social sign-in can satisfy that
+window through provider SSO; it is not proof of fresh human interaction.
 
-Browser OAuth accounts attach a bearer directly. Desktop accounts send HTTP and
-live sync through the loopback Bun host. The host captures its boot account and
-forwards through that account even while a new sign-in is being persisted for
-relaunch. A failed relaunch therefore cannot make an old window use a new
-account. Server credentials never cross into the window.
+Admitted store sockets have a server-enforced 600-second authorization deadline,
+including idle and hibernating connections. Revocation rejects subsequent
+admission; it does not immediately close every existing socket.
 
-Apps own their local stores and sync engines in both environments. Closing a
-data session stops its sync connection. The host relays bytes and owns no app
-replica, reconnect loop, or background synchronization.
-
-`AuthIdentityState` is the serializable identity projection used by credential
-authorities and the desktop bootstrap. It contains no transport functions.
-
-## Account UI and the cookie dashboard
-
-Shared sign-in and profile UI takes `AuthControls`. Data apps use the narrower
-`AuthClient`, whose selected state includes a real Account. Only callback-capable
-OAuth clients expose `completeSignIn`.
-
-The same-origin dashboard uses its concrete cookie HTTP client. Its ambient
-cookie cannot promise account-bound replica traffic, so it exposes no Account
-and no sync socket stub. Third-party inference uses its own transport and key.
-
-## Changing the credential model
-
-Credential issuance, renewal, and persistence can change underneath Account.
-Keep its lifetime independent of the token format, and preserve the desktop
-host's captured boot account even when relaunch fails. The current OAuth
-implementation is one provider of that contract.
-
-Carry forward the behavior covered by `src/account-lifetime.test.ts`,
+Carry forward `src/account-lifetime.test.ts`,
 `src/desktop-broker-auth.test.ts`,
 `../../apps/epicenter/src/account-transport.test.ts`, and
-`../../apps/whispering/src/lib/services/blobs/account-blob-remote.test.ts`.
-Replace credential-specific fixtures as needed while retaining the retirement,
-request replay, streaming cancellation, and socket closure checks. Navigation
-and host relaunch recreate the runtime; same-runtime renewal does not.
+`../../apps/whispering/src/lib/services/blobs/account-blob-remote.test.ts`
+when changing the credential owner. The opt-in
+`bun packages/auth/smoke/session-handoff.browser.mjs` exercises Chromium with
+disposable hosted-login fixtures, not real provider credentials or packaged Tauri.
+After building the API UI, `bun packages/auth/smoke/dashboard.browser.mjs`
+exercises the built sign-in/callback/dashboard routes and a virtual WebAuthn
+authenticator while a different principal owns the ambient browser cookie.

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AuthControls } from '@epicenter/auth';
+	import type { AuthClient } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 
@@ -18,7 +18,7 @@
 		 * node already answered signed-out, and a sign-in ends this page rather
 		 * than updating it.
 		 */
-		auth: AuthControls;
+		auth: AuthClient;
 		/** The application's name, as the heading, e.g. `'Honeycrisp'`. */
 		appName: string;
 		/** What this application calls a person's stuff, plural, e.g. `'notes'`. */
@@ -33,7 +33,7 @@
 	 *
 	 * Resolving means the launcher finished its work, not that a navigation
 	 * happened (`auth-contract.ts`). The desktop broker answers 202 as soon as
-	 * the host has started OAuth out of process, in loopback milliseconds, and
+	 * the host has started sign-in out of process, in loopback milliseconds, and
 	 * then nothing on this page moves again until the process is replaced; the
 	 * hosted client assigns `location.href` and returns without blocking.
 	 * Clearing the flag on success re-enables the button in the gap and invites

@@ -1,31 +1,39 @@
-/**
- * The Better Auth browser client for the hosted SPA.
- *
- * Ownership boundary (deliberate, not incidental): Better Auth owns account
- * linking, passkeys, account rows, and cookie sessions, so its own browser
- * flows are driven by ITS client here. Epicenter owns identity, principal
- * resolution, bearer/workspace/WebSocket auth, and every non-browser client;
- * that lives in {@link $lib/platform/auth} ($lib/platform/auth.ts) and the
- * `@epicenter/auth` package. The dashboard legitimately uses both because they
- * answer different questions:
- *
- *   "Who is signed into Epicenter?"                  -> Epicenter auth client
- *   "What login methods are attached to this user?"  -> this Better Auth client
- *
- * `basePath: '/auth'` matches where the deployment mounts Better Auth (not the
- * library default `/api/auth`); same-origin so the first-party cookie rides on
- * every request. The passkey plugin client runs the WebAuthn ceremonies with
- * `@simplewebauthn/browser` internally, so nothing here hand-rolls them.
- */
+/** Hosted sign-in uses cookies; dashboard management captures one Account. */
 
 import { passkeyClient } from '@better-auth/passkey/client';
+import type { Account } from '@epicenter/auth';
 import { createAuthClient } from 'better-auth/client';
 
 export const authClient = createAuthClient({
-	baseURL: window.location.origin,
+	baseURL: typeof window === 'undefined' ? undefined : window.location.origin,
 	basePath: '/auth',
 	plugins: [passkeyClient()],
 });
+
+/** Every management request stays bound to the Account that opened this client. */
+export function createAccountManagementClient(account: Account) {
+	return createAuthClient({
+		baseURL: account.baseURL,
+		basePath: '/auth',
+		// The mounted account page owns navigation after checking its lifetime.
+		disableDefaultFetchPlugins: true,
+		plugins: [passkeyClient()],
+		fetchOptions: {
+			credentials: 'omit',
+			customFetchImpl: (input, init) => {
+				const headers = new Headers(
+					input instanceof Request ? input.headers : undefined,
+				);
+				new Headers(init?.headers).forEach((value, key) =>
+					headers.set(key, value),
+				);
+				headers.delete('cookie');
+				headers.set('x-epicenter-principal', account.principalId);
+				return account.fetch(input, { ...init, headers, credentials: 'omit' });
+			},
+		},
+	});
+}
 
 /** The browser exposes WebAuthn. The Better Auth server always has the plugin;
  *  this capability is the per-client gate the sign-in and account pages check. */

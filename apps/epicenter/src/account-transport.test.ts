@@ -1,4 +1,4 @@
-/** Real loopback traffic through the window adapter, host guards and OAuth account. */
+/** Real loopback traffic through the window adapter, host guards and session Account. */
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,7 @@ import {
 	type Account,
 	ApiSessionResponse,
 	type AuthFetch,
-	createOAuthAppAuth,
+	createSessionAuth,
 } from '@epicenter/auth';
 import { createDesktopBrokerAuth } from '@epicenter/auth/desktop';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
@@ -17,7 +17,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { createHomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
 
-async function setup() {
+async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	const requests: {
 		path: string;
 		bearer: string | null;
@@ -25,7 +25,11 @@ async function setup() {
 		cookie: string | null;
 		protocols: string | null;
 	}[] = [];
-	let refreshes = 0;
+	const retryReceived = Promise.withResolvers<void>();
+	const releaseRetry = Promise.withResolvers<void>();
+	const revocations: Promise<Response>[] = [];
+	let verifications = 0;
+	let nextToken = 'revised';
 	let upstreamSockets = 0;
 	let cancelStream: (() => void) | undefined;
 	const streamCancelled = Promise.withResolvers<void>();
@@ -34,21 +38,18 @@ async function setup() {
 		port: 0,
 		async fetch(request, server) {
 			const url = new URL(request.url);
-			if (url.pathname === '/api/session')
+			if (url.pathname === '/api/session') {
+				verifications++;
+				await verification;
 				return Response.json({
-					principalId: 'alice',
+					principalId:
+						request.headers.get('authorization') === 'Bearer bob'
+							? 'bob'
+							: 'alice',
 					email: 'alice@example.test',
 				});
-			if (url.pathname === '/auth/oauth2/token') {
-				refreshes++;
-				return Response.json({
-					access_token: 'refreshed',
-					refresh_token: 'refresh-2',
-					token_type: 'bearer',
-					expires_in: 3600,
-				});
 			}
-			if (url.pathname === '/auth/oauth2/revoke') return new Response(null);
+			if (url.pathname === '/auth/sign-out') return new Response(null);
 			requests.push({
 				path: url.pathname,
 				bearer: request.headers.get('authorization'),
@@ -62,9 +63,12 @@ async function setup() {
 			}
 			if (
 				url.pathname === '/api/retry' &&
-				request.headers.get('authorization') !== 'Bearer refreshed'
-			)
+				request.headers.get('authorization') !== 'Bearer revised'
+			) {
+				retryReceived.resolve();
+				await releaseRetry.promise;
 				return new Response(null, { status: 401 });
+			}
 			if (url.pathname === '/api/gzip')
 				return new Response(
 					Bun.gzipSync(new TextEncoder().encode('{"ok":true}')),
@@ -112,22 +116,24 @@ async function setup() {
 		},
 	});
 	const baseURL = upstream.url.origin;
-	const auth = createOAuthAppAuth({
+	const auth = createSessionAuth({
 		baseURL,
-		clientId: 'test',
+		fetch(input, init) {
+			const response = fetch(input, init);
+			if (String(input).endsWith('/auth/sign-out')) revocations.push(response);
+			return response;
+		},
 		persistedAuthStorage: {
 			initial: {
 				principalId: ApiSessionResponse.assert({ principalId: 'alice' })
 					.principalId,
-				grant: {
-					accessToken: 'initial',
-					refreshToken: 'refresh',
-					accessTokenExpiresAt: Number.MAX_SAFE_INTEGER,
-				},
+				token: 'initial',
 			},
 			set() {},
 		},
-		launcher: { startSignIn: async () => Ok({ status: 'launched' }) },
+		launcher: {
+			startSignIn: async () => ({ status: 'completed', token: nextToken }),
+		},
 	});
 	if (auth.state.status === 'signed-out')
 		throw new Error('Missing test account');
@@ -135,7 +141,6 @@ async function setup() {
 	const bootstrap = {
 		state: { status: 'signed-in' as const, principalId: account.principalId },
 		connection: { baseURL, status: 'connected' as const },
-		networkEligible: false,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
 	const host = await createHomeHost({
@@ -163,7 +168,8 @@ async function setup() {
 			account,
 			bootSnapshot: bootstrap,
 			get state() {
-				return auth.state.status === 'signed-out'
+				return auth.state.status === 'signed-out' ||
+					auth.state.account !== account
 					? { status: 'signed-out' as const }
 					: {
 							status: auth.state.status,
@@ -240,8 +246,14 @@ async function setup() {
 		requests,
 		localCalls,
 		streamCancelled,
-		get refreshes() {
-			return refreshes;
+		retryReceived,
+		releaseRetry,
+		get verifications() {
+			return verifications;
+		},
+		async signIn(token: string) {
+			nextToken = token;
+			expectOk(await auth.startSignIn());
 		},
 		get upstreamSockets() {
 			return upstreamSockets;
@@ -249,6 +261,8 @@ async function setup() {
 		async [Symbol.asyncDispose]() {
 			windowAuth[Symbol.dispose]();
 			auth[Symbol.dispose]();
+			await Promise.resolve();
+			await Promise.allSettled(revocations);
 			cancelStream?.();
 			await until(() => localOpened === localClosed);
 			// Bun 1.3.1 through 1.3.14 count server-closed sockets after both close events.
@@ -261,23 +275,27 @@ async function setup() {
 	};
 }
 
-test('desktop HTTP preserves request bodies across refresh and decodes compressed responses once', async () => {
+test('desktop HTTP replays the body after a credential revision and decodes compressed responses once', async () => {
 	await using context = await setup();
-	const response = await context.account.fetch('/api/retry', {
+	const pending = context.account.fetch('/api/retry', {
 		method: 'POST',
 		body: 'same bytes',
 		headers: { authorization: 'window-supplied' },
 	});
+	await context.retryReceived.promise;
+	await context.signIn('revised');
+	context.releaseRetry.resolve();
+	const response = await pending;
 	expect(response.status).toBe(201);
 	expect(await response.text()).toBe('forwarded');
-	expect(context.refreshes).toBe(1);
+	expect(context.verifications).toBe(2);
 	expect(context.requests.map(({ body }) => body)).toEqual([
 		'same bytes',
 		'same bytes',
 	]);
 	expect(context.requests.map(({ bearer }) => bearer)).toEqual([
 		'Bearer initial',
-		'Bearer refreshed',
+		'Bearer revised',
 	]);
 	expect(context.requests.every(({ cookie }) => cookie === null)).toBe(true);
 	expect(
@@ -311,7 +329,7 @@ test('host refuses missing sessions, foreign origins and escaped destinations be
 		'//foreign.test/api/example',
 		'/\\foreign.test/api/example',
 		'https://foreign.test/api/example',
-		'/auth/oauth2/token',
+		'/auth/session/redeem',
 	]) {
 		expect(
 			(
@@ -376,6 +394,65 @@ test('retirement aborts an HTTP response after its headers and first body chunk'
 	// Host closes its upstream body; the downstream response terminates too.
 	await context.streamCancelled.promise;
 	await reader.cancel();
+});
+
+test('cancelling one caller during shared verification leaves the other request active', async () => {
+	const verification = Promise.withResolvers<void>();
+	await using context = await setup({ verification: verification.promise });
+	const caller = new AbortController();
+	const first = context.account
+		.fetch('/api/cancelled', { signal: caller.signal })
+		.catch((error: unknown) => error);
+	const second = context.account.fetch('/api/survives');
+	await until(
+		() => context.verifications === 1 && context.localCalls.length === 2,
+	);
+	caller.abort();
+	expect(await first).toBeInstanceOf(Error);
+	verification.resolve();
+	expect((await second).status).toBe(201);
+	expect(context.verifications).toBe(1);
+	expect(context.requests.map(({ path }) => path)).toEqual(['/api/survives']);
+});
+
+test('caller cancellation terminates its relayed stream without retiring the account', async () => {
+	await using context = await setup();
+	const caller = new AbortController();
+	const response = await context.account.fetch('/api/stream', {
+		signal: caller.signal,
+	});
+	const reader = response.body!.getReader();
+	expect((await reader.read()).value?.length).toBeGreaterThan(0);
+	caller.abort();
+	await context.streamCancelled.promise;
+	await reader.cancel().catch(() => undefined);
+	expect((await context.account.fetch('/api/still-active')).status).toBe(201);
+	expect(context.windowAuth.state.status).toBe('signed-in');
+});
+
+test('an old window cannot relay through the successor credential after account replacement', async () => {
+	await using context = await setup();
+	const address = STORE_SYNC_ROUTE.address(context.account.baseURL, {
+		dataId: 'so.test.notes',
+		generation: 1,
+		cursor: 0,
+	});
+	const socket = await context.account.openWebSocket(address);
+	await until(() => context.upstreamSockets === 1);
+	await context.signIn('bob');
+	await until(
+		() =>
+			socket.readyState === WebSocket.CLOSED && context.upstreamSockets === 0,
+	);
+	const response = await context.account.fetch('/api/old-window');
+	expect(response.status).toBe(401);
+	expect(context.windowAuth.state.status).toBe('signed-out');
+	expect(context.requests.some(({ bearer }) => bearer === 'Bearer bob')).toBe(
+		false,
+	);
+	expect(context.requests.some(({ path }) => path === '/api/old-window')).toBe(
+		false,
+	);
 });
 
 async function until(condition: () => boolean) {

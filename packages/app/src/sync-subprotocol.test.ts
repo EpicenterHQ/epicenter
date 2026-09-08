@@ -4,7 +4,7 @@
  *
  * This is the one seam neither package could cover alone, and the gap was not
  * hypothetical. `attachStoreSync` called `openWebSocket(url)` with no
- * protocols; every OAuth client appends `bearer.<token>` to whatever it is
+ * protocols; every authenticated client appends `bearer.<token>` to whatever it is
  * given; and the rooms route refuses an upgrade that offers protocols without
  * `epicenter`. So a browser replica offered exactly `['bearer.…']` and every
  * dial came back 400.
@@ -12,12 +12,12 @@
  * `packages/data`'s own dial test fakes the transport, and `packages/auth`'s
  * contract test fakes the caller, so each half passed while the pair was
  * broken. This file is where they meet: the real `attachStoreSync`, the real
- * `createOAuthAppAuth`, and a `WebSocket` constructor that records what it was
+ * `createSessionAuth`, and a `WebSocket` constructor that records what it was
  * asked for.
  */
 
 import { expect, test } from 'bun:test';
-import { createOAuthAppAuth } from '@epicenter/auth';
+import { createSessionAuth } from '@epicenter/auth';
 import type { ReplicaDocument } from '@epicenter/data';
 import {
 	defineData,
@@ -32,7 +32,6 @@ import {
 	BEARER_SUBPROTOCOL_PREFIX,
 	MAIN_SUBPROTOCOL,
 } from '@epicenter/sync/auth-subprotocol';
-import { Ok } from 'wellcrafted/result';
 
 const definition = defineData({
 	id: 'so.epicenter.subprotocol-test',
@@ -76,21 +75,16 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 	} as unknown as typeof WebSocket;
 
 	const persisted = {
-		grant: {
-			accessToken: 'access-token',
-			refreshToken: 'refresh-token',
-			accessTokenExpiresAt: Date.now() + 3_600_000,
-		},
+		token: 'access-token',
 		principalId: asPrincipalId('user-1'),
 	};
 
 	// The real client, with only its two runtime edges injected: the fetch that
 	// verifies `/api/session` and the constructor that would open the socket.
-	const auth = createOAuthAppAuth({
+	const auth = createSessionAuth({
 		baseURL: BASE_URL,
-		clientId: 'client-1',
 		persistedAuthStorage: { initial: persisted, set: async () => undefined },
-		launcher: { startSignIn: async () => Ok({ status: 'launched' }) },
+		launcher: { startSignIn: async () => ({ status: 'launched' }) },
 		WebSocket: WebSocketRecorder,
 		fetch: async (input) =>
 			String(input instanceof Request ? input.url : input).endsWith(

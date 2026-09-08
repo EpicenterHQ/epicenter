@@ -8,7 +8,7 @@ This is a floor, not a junk drawer. A fact belongs here only when more than one 
 
 ### `@epicenter/constants/apps`
 
-The app origin and port registry (`APPS`), plus the origin helpers CORS and OAuth redirect allowlists derive from it (`localUrl`, `appOrigins`, `prodOrigins`) and the Node API-base default (`EPICENTER_API_URL`). Everything about "where an app answers" is derived from `APPS`.
+The app origin and port registry (`APPS`), plus the origin helpers CORS and sign-in callback approval derive from it (`localUrl`, `appOrigins`, `prodOrigins`) and the Node API-base default (`EPICENTER_API_URL`). Exact callback paths are approved by the hosted auth configuration, separately from trusted origins.
 
 ```typescript
 import { APPS, appOrigins } from '@epicenter/constants/apps';
@@ -27,14 +27,6 @@ const apiUrl = APP_URLS.API; // dev: http://localhost:8787 · prod: https://api.
 ### `@epicenter/constants/api-routes`
 
 `API_ROUTES`: the shared home for API route contracts whose domain has no dedicated shared package (the session projection, the blob store, the `/v1` inference gateways). Each leaf carries the server `pattern`, an optional server-only `prefixPattern` mount helper, and the client `url(...)` builder. Not a registry of every route: routes whose domain owns a shared package live there. `@epicenter/sync` owns the store sync route (`STORE_SYNC_ROUTE`), because a browser replica builds that URL and has no business importing a server to learn it.
-
-### `@epicenter/constants/oauth-routes` and `@epicenter/constants/oauth-clients`
-
-The OAuth endpoints Epicenter clients call (`OAUTH_ROUTES`) and the public first-party client ids and scopes every app presents at sign-in (`oauth-clients`). Shared by `@epicenter/auth` (the clients) and `@epicenter/server` (the authorization server).
-
-### `@epicenter/constants/oauth-seed`
-
-`buildTrustedOAuthClients` / `projectTrustedOAuthClientToRow`: project the first-party clients (composed from `APPS` and `oauth-clients`) into the Better Auth `oauth_client` rows. Shared by the server's auth plugin and the `apps/api` deploy seed script, neither of which can own it without a backwards dependency, so it stays on the floor beside its inputs.
 
 ### `@epicenter/constants/ai-providers`
 

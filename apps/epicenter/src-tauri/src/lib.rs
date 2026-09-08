@@ -243,7 +243,7 @@ enum RustToBunAuthFrame<'a> {
         status: &'static str,
         value: Option<&'a str>,
     },
-    OauthCallback {
+    AuthCallback {
         url: &'a str,
     },
 }
@@ -260,7 +260,7 @@ struct HostState {
     process: Mutex<Option<ManagedChild>>,
     active_token: Mutex<Option<String>>,
     pending_apps: Mutex<Vec<BuiltInApp>>,
-    pending_oauth_callback: Mutex<Option<String>>,
+    pending_auth_callback: Mutex<Option<String>>,
     /// A section of Home an application asked the shell to open, held until Home
     /// is able to claim it. Only the latest survives: two recovery nudges in a
     /// row should land the user somewhere once, not queue a backlog.
@@ -277,7 +277,7 @@ impl HostState {
             process: Mutex::new(None),
             active_token: Mutex::new(None),
             pending_apps: Mutex::new(Vec::new()),
-            pending_oauth_callback: Mutex::new(None),
+            pending_auth_callback: Mutex::new(None),
             pending_home_section: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
             starting: AtomicBool::new(false),
@@ -316,17 +316,17 @@ impl HostState {
             .take()
     }
 
-    fn queue_oauth_callback(&self, url: String) {
+    fn queue_auth_callback(&self, url: String) {
         *self
-            .pending_oauth_callback
+            .pending_auth_callback
             .lock()
-            .expect("pending OAuth callback lock poisoned") = Some(url);
+            .expect("pending auth callback lock poisoned") = Some(url);
     }
 
-    fn take_oauth_callback(&self) -> Option<String> {
-        self.pending_oauth_callback
+    fn take_auth_callback(&self) -> Option<String> {
+        self.pending_auth_callback
             .lock()
-            .expect("pending OAuth callback lock poisoned")
+            .expect("pending auth callback lock poisoned")
             .take()
     }
 
@@ -801,8 +801,8 @@ pub fn run() {
             let mut opened_window = false;
             if let Some(urls) = current {
                 for url in &urls {
-                    if let Some(callback) = parse_oauth_callback(url) {
-                        queue_or_send_oauth_callback(app.handle(), callback);
+                    if let Some(callback) = parse_auth_callback(url) {
+                        queue_or_send_auth_callback(app.handle(), callback);
                     }
                     if let Some(built_in) = parse_app_deep_link(url) {
                         request_window(app.handle(), built_in);
@@ -831,8 +831,8 @@ fn open_forwarded_deep_links(app: &DesktopAppHandle, arguments: &[String]) {
         let Ok(url) = tauri::Url::parse(argument) else {
             continue;
         };
-        if let Some(callback) = parse_oauth_callback(&url) {
-            queue_or_send_oauth_callback(app, callback);
+        if let Some(callback) = parse_auth_callback(&url) {
+            queue_or_send_auth_callback(app, callback);
         }
     }
     if built_ins.is_empty() {
@@ -862,8 +862,8 @@ fn apps_from_arguments(arguments: &[String]) -> Vec<BuiltInApp> {
 
 fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     for url in urls {
-        if let Some(callback) = parse_oauth_callback(url) {
-            queue_or_send_oauth_callback(app, callback);
+        if let Some(callback) = parse_auth_callback(url) {
+            queue_or_send_auth_callback(app, callback);
         }
         if let Some(built_in) = parse_app_deep_link(url) {
             request_window(app, built_in);
@@ -871,7 +871,7 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     }
 }
 
-fn parse_oauth_callback(url: &tauri::Url) -> Option<String> {
+fn parse_auth_callback(url: &tauri::Url) -> Option<String> {
     if url.scheme() != "epicenter"
         || url.host_str() != Some("auth")
         || url.path() != "/callback"
@@ -887,7 +887,7 @@ fn parse_oauth_callback(url: &tauri::Url) -> Option<String> {
     Some(url.to_string())
 }
 
-fn queue_or_send_oauth_callback(app: &DesktopAppHandle, url: String) {
+fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
     let state = app.state::<HostState>();
     let generation = state
         .process
@@ -896,16 +896,16 @@ fn queue_or_send_oauth_callback(app: &DesktopAppHandle, url: String) {
         .as_ref()
         .map(|process| process.generation);
     let Some(generation) = generation else {
-        state.queue_oauth_callback(url);
+        state.queue_auth_callback(url);
         return;
     };
     if let Err(error) = send_auth_frame(
         &state,
         generation,
-        &RustToBunAuthFrame::OauthCallback { url: &url },
+        &RustToBunAuthFrame::AuthCallback { url: &url },
     ) {
-        state.queue_oauth_callback(url);
-        append_parent_log(app, &format!("deliver OAuth callback: {error:#}"));
+        state.queue_auth_callback(url);
+        append_parent_log(app, &format!("deliver auth callback: {error:#}"));
     }
 }
 
@@ -1044,13 +1044,13 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
         });
     }
 
-    if let Some(callback) = state.take_oauth_callback() {
+    if let Some(callback) = state.take_auth_callback() {
         send_auth_frame(
             &state,
             generation,
-            &RustToBunAuthFrame::OauthCallback { url: &callback },
+            &RustToBunAuthFrame::AuthCallback { url: &callback },
         )
-        .context("deliver the queued OAuth callback")?;
+        .context("deliver the queued auth callback")?;
     }
 
     state.activate(&token);
@@ -1413,9 +1413,9 @@ fn validate_hosted_auth_url(value: &str) -> Result<()> {
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()
-        || !url.path().starts_with("/auth/")
+        || url.path() != "/sign-in"
     {
-        bail!("authorization URL must stay under {HOSTED_AUTH_ORIGIN}/auth/");
+        bail!("authorization URL must be {HOSTED_AUTH_ORIGIN}/sign-in");
     }
     Ok(())
 }
@@ -2518,13 +2518,13 @@ mod tests {
     }
 
     #[test]
-    fn oauth_deep_links_accept_only_the_exact_callback_route() {
+    fn auth_deep_links_accept_only_the_exact_callback_route() {
         for url in [
             "epicenter://auth/callback?code=code&state=state",
             "epicenter://auth/callback?error=access_denied&state=state",
         ] {
             assert_eq!(
-                parse_oauth_callback(&url.parse().unwrap()),
+                parse_auth_callback(&url.parse().unwrap()),
                 Some(url.to_string())
             );
         }
@@ -2537,24 +2537,27 @@ mod tests {
             "epicenter://user@auth/callback?code=code",
             "https://api.epicenter.so/auth/callback?code=code",
         ] {
-            assert_eq!(parse_oauth_callback(&denied.parse().unwrap()), None);
+            assert_eq!(parse_auth_callback(&denied.parse().unwrap()), None);
         }
     }
 
     #[test]
     fn system_browser_accepts_only_hosted_auth_urls() {
         for allowed in [
-            "https://api.epicenter.so/auth/oauth2/authorize?client_id=desktop",
-            "https://api.epicenter.so/auth/sign-in",
+            "https://api.epicenter.so/sign-in?callback=epicenter%3A%2F%2Fauth%2Fcallback&state=state&challenge=challenge",
+            "https://api.epicenter.so/sign-in?reauth=1",
         ] {
             validate_hosted_auth_url(allowed).unwrap();
         }
         for denied in [
-            "http://api.epicenter.so/auth/sign-in",
-            "https://api.epicenter.so.evil.test/auth/sign-in",
+            "http://api.epicenter.so/sign-in",
+            "https://api.epicenter.so.evil.test/sign-in",
             "https://api.epicenter.so/not-auth",
-            "https://user@api.epicenter.so/auth/sign-in",
-            "https://api.epicenter.so/auth/sign-in#fragment",
+            "https://api.epicenter.so/sign-in/extra",
+            "https://api.epicenter.so/auth/sign-in",
+            "https://user@api.epicenter.so/sign-in",
+            "https://api.epicenter.so/sign-in#fragment",
+            "https://api.epicenter.so:444/sign-in",
         ] {
             assert!(validate_hosted_auth_url(denied).is_err());
         }
@@ -2562,6 +2565,16 @@ mod tests {
 
     #[test]
     fn bun_auth_frames_are_closed_and_exact() {
+        assert_eq!(
+            serde_json::to_value(RustToBunAuthFrame::AuthCallback {
+                url: "epicenter://auth/callback?code=code&state=state",
+            })
+            .unwrap(),
+            serde_json::json!({
+                "type": "auth-callback",
+                "url": "epicenter://auth/callback?code=code&state=state",
+            })
+        );
         assert_eq!(
             serde_json::from_str::<BunToRustAuthFrame>(
                 "{\"type\":\"store-auth\",\"requestId\":\"one\",\"serialized\":null}"

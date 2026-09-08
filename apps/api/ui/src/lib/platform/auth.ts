@@ -1,12 +1,11 @@
-import { createSameOriginCookieAuth } from '@epicenter/auth';
+import { createHostedBrowserRedirectAuth } from '@epicenter/auth';
 import { fromAuth } from '@epicenter/auth/svelte';
+import { DASHBOARD_APP_ID } from '@epicenter/constants/apps';
 
-// The dashboard is served by the API at the same origin (api.epicenter.so/dashboard),
-// so it authenticates with the first-party Better Auth session cookie rather than
-// running PKCE against its own origin. See createSameOriginCookieAuth. The default
-// callbackURL (the current path) returns the user to where they were after sign-in.
-export const authClient = createSameOriginCookieAuth({
+export const authClient = createHostedBrowserRedirectAuth({
+	appId: DASHBOARD_APP_ID,
 	baseURL: window.location.origin,
+	callbackPath: '/session/callback',
 });
 
 // Boot code takes `authClient`; a component that must track takes `auth`.

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { AuthControls } from '@epicenter/auth';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -16,7 +15,7 @@
 	 */
 	type SignInPanelProps = {
 		/** The app's auth client; its `startSignIn` drives the primary button. */
-		auth: ReactiveAuthClient<AuthControls>;
+		auth: ReactiveAuthClient;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**
@@ -44,8 +43,8 @@
 	);
 
 	// One sign-in surface: the primary button and the retry action both call
-	// `auth.startSignIn()`. The client owns whether that means OAuth or token
-	// verification; this surface only chooses the human label.
+	// `auth.startSignIn()`. The client owns the hosted browser or native handoff;
+	// this surface only chooses the human label.
 	//
 	// Pending until the page or the process is replaced, and cleared only on a
 	// failure. See `sign-in-screen.svelte` for why: resolving means the launcher

@@ -1,12 +1,10 @@
 import { createHostedBrowserRedirectAuth } from '@epicenter/auth';
 import { fromAuth } from '@epicenter/auth/svelte';
 import { APPS } from '@epicenter/constants/apps';
-import { EPICENTER_VOCAB_OAUTH_CLIENT_ID } from '@epicenter/constants/oauth-clients';
 import { APP_URLS } from '@epicenter/constants/vite';
 
 export const authClient = createHostedBrowserRedirectAuth({
 	appId: APPS.VOCAB.id,
-	oauthClientId: EPICENTER_VOCAB_OAUTH_CLIENT_ID,
 	baseURL: APP_URLS.API,
 });
 

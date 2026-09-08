@@ -7,7 +7,7 @@ import { describeRoute } from 'hono-openapi';
 import type { CloudEnv } from '../types.js';
 
 export const authApp = new Hono<CloudEnv>()
-	.get('/sign-in', async (c) => {
+	.on('GET', ['/sign-in', '/session/callback'], async (c) => {
 		const shell = await c.var.authUiShell(c);
 		const headers = new Headers(shell.headers);
 		headers.set('Cache-Control', 'no-store');

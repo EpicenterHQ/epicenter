@@ -61,8 +61,8 @@ export type EpicenterClientOptions = {
 	/** Base URL of the Epicenter server (no trailing slash required). */
 	baseURL: string;
 	/**
-	 * Authenticated fetch. Produced by `createOAuthAppAuth({...}).fetch`
-	 * from `@epicenter/auth`. The client does not own auth lifecycle.
+	 * Authenticated fetch from a captured `Account` in `@epicenter/auth`.
+	 * The client does not own auth lifecycle.
 	 */
 	fetch: AuthFetch;
 };

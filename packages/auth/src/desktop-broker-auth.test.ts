@@ -29,7 +29,6 @@ const bootstrap = {
 		baseURL: 'https://api.epicenter.so',
 		status: 'connected',
 	},
-	networkEligible: true,
 } as const;
 
 function recordingFetch(
@@ -173,7 +172,6 @@ test('the self-hosted server projects its boot connection status', () => {
 				baseURL: 'https://epicenter.example.com',
 				status: 'connected',
 			},
-			networkEligible: true,
 		},
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => new Response('ok'),
@@ -244,7 +242,6 @@ test('a desktop window is not a callback client', () => {
 				baseURL: 'https://api.epicenter.test',
 				status: 'connected',
 			},
-			networkEligible: false,
 		},
 		brokerBaseURL: 'http://127.0.0.1:4242',
 		fetch: async () => new Response(null, { status: 204 }),

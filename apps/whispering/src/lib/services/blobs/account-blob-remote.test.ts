@@ -1,11 +1,11 @@
 /**
  * A blob transfer belongs to the account captured by its session.
- * Exercises the real OAuth account transport and blob remote composition,
+ * Exercises the real session account transport and blob remote composition,
  * including delayed local reads, a 401 across account replacement, and a
  * later sign-in to the same principal.
  */
 import { expect, test } from 'bun:test';
-import { type AuthFetch, createOAuthAppAuth } from '@epicenter/auth';
+import { type AuthFetch, createSessionAuth } from '@epicenter/auth';
 import {
 	type BlobStore,
 	BlobStoreError,
@@ -23,20 +23,14 @@ function setup(
 	resourceFetch: AuthFetch = async () => new Response(null, { status: 204 }),
 ) {
 	const sent: (string | null)[] = [];
-	const grant = (name: string) => ({
-		accessToken: name,
-		refreshToken: `${name}-refresh`,
-		accessTokenExpiresAt: Number.MAX_SAFE_INTEGER,
-	});
-	const auth = createOAuthAppAuth({
+	const auth = createSessionAuth({
 		baseURL: 'https://example.test',
-		clientId: 'blob-test',
 		persistedAuthStorage: {
-			initial: { principalId: asPrincipalId('alice'), grant: grant('alice') },
+			initial: { principalId: asPrincipalId('alice'), token: 'alice' },
 			set() {},
 		},
 		launcher: {
-			startSignIn: async () => Ok({ status: 'completed', grant: grant('bob') }),
+			startSignIn: async () => ({ status: 'completed', token: 'bob' }),
 		},
 		fetch: async (input, init) => {
 			const url = input instanceof Request ? input.url : String(input);

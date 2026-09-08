@@ -40,32 +40,29 @@ export type Connection = {
 	onChange(fn: (status: ConnectionStatus) => void): () => void;
 };
 
-/** The presentation and account commands shared with the cookie dashboard.
- * It promises no account-bound data transport. */
-export type AuthControls<
-	TState extends { status: string } = {
-		status: 'signed-out' | 'signed-in' | 'reauth-required';
-	},
-> = {
-	state: TState;
+/** Auth selects accounts; applications hold the Account they opened. */
+export type AuthClient = {
+	state: AuthState;
 	connection: Connection;
-	onStateChange(fn: (state: TState) => void): () => void;
-	startSignIn(): Promise<Result<undefined, AuthError>>;
+	onStateChange(fn: (state: AuthState) => void): () => void;
+	startSignIn(options?: {
+		reauthenticate?: boolean;
+	}): Promise<Result<undefined, AuthError>>;
+	/** Retire locally and clear persistence. Hosted clients await a revocation
+	 * attempt for up to five seconds; success does not confirm remote revocation.
+	 */
 	signOut(): Promise<Result<undefined, AuthError>>;
 	getProfile(): Promise<Result<Principal, AuthError>>;
 	[Symbol.dispose](): void;
 };
 
-/** Auth selects accounts; applications hold the account they opened. */
-export type AuthClient = AuthControls<AuthState>;
-
-/** Only a redirect launcher can consume an OAuth callback. */
+/** Only a redirect launcher can consume a sign-in callback. */
 export type CallbackAuthClient = AuthClient & {
 	completeSignIn(): Promise<Result<undefined, AuthError>>;
 };
 
 export function isCallbackAuthClient(
-	client: AuthControls,
+	client: AuthClient,
 ): client is CallbackAuthClient {
 	return (
 		typeof (client as Partial<CallbackAuthClient>).completeSignIn === 'function'

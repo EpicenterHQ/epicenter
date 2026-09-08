@@ -1,9 +1,9 @@
 import { type } from 'arktype';
 import {
 	type BetterAuthOptions,
+	betterAuth,
 	type Session,
 	type User,
-	betterAuth,
 } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -214,8 +214,8 @@ export function createAuth({
 		session: SESSION_POLICY,
 		// Cookie transport for browser clients: host-only, SameSite=Lax
 		// everywhere (non-secure on localhost so the Vite `/auth` proxy works).
-		// Hosted sign-in and account management use cookies; application data
-		// requests carry session bearers. No cross-subdomain cookie is needed.
+		// Hosted sign-in uses cookies; dashboard management and application data
+		// use captured session bearers. No cross-subdomain cookie is needed.
 		//
 		// NOTE: We intentionally omit `partitioned: true` (CHIPS).
 		// Partitioned cookies are keyed by the top-level site at creation

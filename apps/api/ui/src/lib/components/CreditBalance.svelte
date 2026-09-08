@@ -4,7 +4,8 @@
 	import { Progress } from '@epicenter/ui/progress';
 	import { Skeleton } from '@epicenter/ui/skeleton';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { billing } from '$lib/billing/queries';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { billing } = getDashboard();
 
 	const overview = createQuery(() => billing.overview.options);
 

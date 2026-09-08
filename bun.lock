@@ -627,12 +627,11 @@
         "@epicenter/principal": "workspace:*",
         "@epicenter/sync": "workspace:*",
         "arktype": "catalog:",
-        "better-auth": "catalog:",
-        "oauth4webapi": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
+        "better-auth": "catalog:",
         "svelte": "catalog:",
         "typescript": "catalog:",
       },
@@ -697,7 +696,6 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@better-auth/oauth-provider": "catalog:",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "typescript": "catalog:",
@@ -944,7 +942,6 @@
   },
   "catalog": {
     "@better-auth/drizzle-adapter": "^1.6.23",
-    "@better-auth/oauth-provider": "^1.6.23",
     "@better-auth/passkey": "^1.6.23",
     "@biomejs/biome": "^2.4.10",
     "@hono/standard-validator": "^0.2.2",
@@ -1057,8 +1054,6 @@
     "@better-auth/memory-adapter": ["@better-auth/memory-adapter@1.6.23", "", { "peerDependencies": { "@better-auth/core": "^1.6.23", "@better-auth/utils": "0.4.2" } }, "sha512-krIiR0pIVkaKlAzm690n5bcMW4NGbqeMg0HQSD9fz/KcQF/eWLqcq9gG/BhHTj2i/y96qH+W5JWPmaSOS5iTgQ=="],
 
     "@better-auth/mongo-adapter": ["@better-auth/mongo-adapter@1.6.23", "", { "peerDependencies": { "@better-auth/core": "^1.6.23", "@better-auth/utils": "0.4.2", "mongodb": "^6.0.0 || ^7.0.0" }, "optionalPeers": ["mongodb"] }, "sha512-7+QdevitGlKBbP6JbiSk5SBnzPsKV/mDrQBGBn8hwByQLeJwqpqbuBPw7ZI8vzUlFfAAnyFiqwP3Eb8mxnp7pA=="],
-
-    "@better-auth/oauth-provider": ["@better-auth/oauth-provider@1.6.23", "", { "dependencies": { "jose": "^6.1.3", "zod": "^4.3.6" }, "peerDependencies": { "@better-auth/core": "^1.6.23", "@better-auth/utils": "0.4.2", "@better-fetch/fetch": "1.3.1", "better-auth": "^1.6.23", "better-call": "1.3.7" } }, "sha512-1sDN+N4Sztmpk8ziCU3MXicxOTfvYoHvHvhJMQ7PSfr+pLXnYN+dJFI9S3zBRwstmTeJx/OhRIZWrwFJ0TgBnA=="],
 
     "@better-auth/passkey": ["@better-auth/passkey@1.6.23", "", { "dependencies": { "@simplewebauthn/browser": "^13.2.2", "@simplewebauthn/server": "^13.2.3", "zod": "^4.3.6" }, "peerDependencies": { "@better-auth/core": "^1.6.23", "@better-auth/utils": "0.4.2", "@better-fetch/fetch": "1.3.1", "better-auth": "^1.6.23", "better-call": "1.3.7", "nanostores": "^1.0.1" } }, "sha512-nr5tKaNd/huUwTYX4DUm4HcXgBkixj0lXrRHdy9azY4fFjF49Tyif4sPyRMWnQJYxlRJ1HVEMJq2nGyr5CLXQg=="],
 

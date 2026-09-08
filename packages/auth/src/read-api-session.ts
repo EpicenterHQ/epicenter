@@ -11,9 +11,8 @@ import { ApiSessionResponse, type Principal } from './auth-types.js';
 
 /**
  * The neutral outcome of one bearer `/api/session` read. The variants name the
- * four ways the read can fail; both bearer clients read them directly (a
- * `Rejected` is the 401/403 that drives the OAuth client's `pauseNetworkAuth`
- * and the instance-token client's drop to `signed-out`).
+ * four ways the read can fail. A refusal pauses session access or rejects the
+ * instance connection; an infrastructure failure preserves cached identity.
  */
 export const ApiSessionReadError = defineErrors({
 	/** The `fetch` itself threw (network, DNS, CORS, offline). */
@@ -43,12 +42,8 @@ export type ApiSessionReadError = InferErrors<typeof ApiSessionReadError>;
  * Read `/api/session` once with a bearer token and return the validated session
  * or a neutral failure.
  *
- * This is the single HTTP read of `/api/session` shared by the bearer clients:
- * the OAuth client's grant verification and the instance-token client's boot
- * check both call it. They differ only in how each reacts to an
- * {@link ApiSessionReadError}; the request, the status branching, and the
- * response parsing live here once. The same-origin cookie dashboard is the lone
- * non-bearer reader and keeps its own cookie-credentialed read.
+ * Session verification and the instance-token boot check share this read.
+ * Each owner decides how the result affects its own lifetime and state.
  *
  * `baseURL` is the deployment's authority origin (ADR-0326), already canonical.
  */
@@ -66,6 +61,7 @@ export async function readApiSession({
 		response = await fetch(API_ROUTES.session.url(baseURL), {
 			headers: { Authorization: `Bearer ${token}` },
 			credentials: 'omit',
+			redirect: 'error',
 		});
 	} catch (cause) {
 		return ApiSessionReadError.Unreachable({ cause });

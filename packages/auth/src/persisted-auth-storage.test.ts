@@ -1,18 +1,14 @@
+/** Session storage parses preloaded cells and propagates ordered writes and removals. */
 import { describe, expect, test } from 'bun:test';
 import { PersistedAuth } from './auth-types.js';
 import {
 	createSerializedPersistedAuthStorage,
 	createWebStoragePersistedAuthStorage,
-	loadPersistedAuthStorage,
 	serializePersistedAuth,
 } from './persisted-auth-storage.js';
 
 const cell = PersistedAuth.assert({
-	grant: {
-		accessToken: 'access',
-		refreshToken: 'refresh',
-		accessTokenExpiresAt: 1_000_000,
-	},
+	token: 'session',
 	principalId: 'user-1',
 });
 
@@ -75,62 +71,6 @@ describe('createSerializedPersistedAuthStorage', () => {
 		});
 
 		expect(persistedAuthStorage.initial).toBeNull();
-	});
-});
-
-describe('loadPersistedAuthStorage', () => {
-	type TrackingStore = {
-		read: () => Promise<string | null>;
-		write: (serialized: string | null) => Promise<void>;
-		written: Array<string | null>;
-	};
-
-	function trackingStore(initial: string | null): TrackingStore {
-		let current = initial;
-		const written: Array<string | null> = [];
-		return {
-			written,
-			read: () => Promise.resolve(current),
-			write: (serialized) => {
-				written.push(serialized);
-				current = serialized;
-				return Promise.resolve();
-			},
-		};
-	}
-
-	test('hydrates initial from the async read', async () => {
-		const store = trackingStore(serializePersistedAuth(cell));
-
-		const persistedAuthStorage = await loadPersistedAuthStorage(store);
-
-		expect(persistedAuthStorage.initial).toEqual(cell);
-	});
-
-	test('a corrupt async cell hydrates as signed out', async () => {
-		const persistedAuthStorage = await loadPersistedAuthStorage(
-			trackingStore('{'),
-		);
-
-		expect(persistedAuthStorage.initial).toBeNull();
-	});
-
-	test('set forwards a serialized write to the store', async () => {
-		const store = trackingStore(null);
-		const persistedAuthStorage = await loadPersistedAuthStorage(store);
-
-		await persistedAuthStorage.set(cell);
-
-		expect(store.written).toEqual([serializePersistedAuth(cell)]);
-	});
-
-	test('set(null) forwards a remove to the store', async () => {
-		const store = trackingStore(serializePersistedAuth(cell));
-		const persistedAuthStorage = await loadPersistedAuthStorage(store);
-
-		await persistedAuthStorage.set(null);
-
-		expect(store.written).toEqual([null]);
 	});
 });
 

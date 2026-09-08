@@ -18,7 +18,7 @@
 
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { createOAuthAppAuth, type PersistedAuthStorage } from '@epicenter/auth';
+import { createSessionAuth, type PersistedAuthStorage } from '@epicenter/auth';
 import type { ReplicaDocument } from '@epicenter/data';
 import { defineData, defineTable, field, plainText } from '@epicenter/data';
 import { createAccountStore } from '@epicenter/data/direct';
@@ -53,17 +53,13 @@ type Opening = { url: string; protocols: string[] };
 
 /**
  * The signed-in browser client Honeycrisp boots with: a persisted cell holding
- * a live grant, `/api/session` confirming the same principal, and a `WebSocket`
+ * a live session, `/api/session` confirming the same principal, and a `WebSocket`
  * that records instead of connecting.
  */
 function createBrowserAuth(onOpening: (opening: Opening) => void) {
 	const storage: PersistedAuthStorage = {
 		initial: {
-			grant: {
-				accessToken: ACCESS_TOKEN,
-				refreshToken: 'refresh-token',
-				accessTokenExpiresAt: Date.now() + 3_600_000,
-			},
+			token: ACCESS_TOKEN,
 			principalId: asPrincipalId(PRINCIPAL_ID),
 		},
 		set: async () => {},
@@ -78,11 +74,10 @@ function createBrowserAuth(onOpening: (opening: Opening) => void) {
 		addEventListener() {}
 		close() {}
 	} as unknown as typeof WebSocket;
-	return createOAuthAppAuth({
+	return createSessionAuth({
 		baseURL: BASE_URL,
-		clientId: 'client-1',
 		persistedAuthStorage: storage,
-		launcher: { startSignIn: async () => Ok({ status: 'launched' }) },
+		launcher: { startSignIn: async () => ({ status: 'launched' }) },
 		WebSocket: WebSocketRecorder,
 		fetch: async (input) => {
 			if (String(input).endsWith('/api/session')) {

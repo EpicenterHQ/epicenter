@@ -27,10 +27,9 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
-	import { account, accountKeys } from '$lib/account/queries';
+	import { accountKeys } from '$lib/account/queries';
 	import {
 		type AuthError,
-		authClient,
 		isPasskeyCancellation,
 		requiresReauth,
 		supportsPasskeys,
@@ -41,14 +40,14 @@
 		type SocialProvider,
 	} from '$lib/auth/providers';
 	import ProviderButton from '$lib/auth/ProviderButton.svelte';
-	import { session } from '$lib/auth/session';
 	import UserIdentity from '$lib/auth/UserIdentity.svelte';
 	import { auth } from '$lib/platform/auth';
-	import { queryClient } from '$lib/query/client';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { account, accountQueries, management: authClient, queryClient, signal } = getDashboard();
 
-	const sessionQuery = createQuery(() => session.options);
-	const linkedQuery = createQuery(() => account.linked.options);
-	const passkeysQuery = createQuery(() => account.passkeys.options);
+	const sessionQuery = createQuery(() => accountQueries.session.options);
+	const linkedQuery = createQuery(() => accountQueries.linked.options);
+	const passkeysQuery = createQuery(() => accountQueries.passkeys.options);
 
 	const profile = $derived(sessionQuery.data?.user ?? null);
 	const linkedAccounts = $derived(linkedQuery.data ?? []);
@@ -107,22 +106,13 @@
 		history.replaceState(null, '', url.pathname + url.search + url.hash);
 	});
 
-	/**
-	 * The stale-session remedy is a one-click re-sign-in. It must SIGN OUT first:
-	 * only a new sign-in mints a session with a fresh `createdAt` (Better Auth's
-	 * `getSession` refreshes `expiresAt`/`updatedAt` but never `createdAt`), and
-	 * the hosted `/sign-in` page bounces an already-signed-in browser straight
-	 * back to its callback, so a stale-but-valid session would loop without ever
-	 * seeing the provider buttons. Dropping the cookie first lets `/sign-in`
-	 * render the providers, and the returning session is fresh.
-	 */
 	function reauthToast() {
 		toast.error('Sign in again to change your sign-in methods.', {
 			action: {
 				label: 'Sign in',
 				onClick: async () => {
-					await auth.signOut();
-					await auth.startSignIn();
+					if (signal.aborted) return;
+					await auth.startSignIn({ reauthenticate: true });
 				},
 			},
 		});
@@ -151,6 +141,7 @@
 			description: `You're signed in as ${email}. Connect a ${label} account as another way to sign in? If its email differs from ${email}, it is still linked to this account.`,
 			confirm: { text: 'Connect' },
 			onConfirm: async () => {
+				if (signal.aborted) return;
 				const { data, error } = await authClient.linkSocial({
 					provider,
 					callbackURL: window.location.href,
@@ -160,6 +151,7 @@
 					// `?error`/`?error_description` it appends into a toast.
 					errorCallbackURL: window.location.href,
 				});
+				if (signal.aborted) return;
 				if (error) {
 					reportError(error, `Could not connect ${label}.`);
 					return;
@@ -182,6 +174,7 @@
 					providerId: linkedAccount.providerId,
 					accountId: linkedAccount.accountId,
 				});
+				if (signal.aborted) return;
 				if (error) {
 					if (reportError(error, `Could not disconnect ${label}.`).terminal) {
 						return;
@@ -196,6 +189,7 @@
 
 	async function addPasskey() {
 		const { error } = await authClient.passkey.addPasskey();
+		if (signal.aborted) return;
 		if (error) {
 			if (isPasskeyCancellation(error)) return;
 			if (requiresReauth(error)) {
@@ -231,6 +225,7 @@
 			name,
 		});
 		renaming = false;
+		if (signal.aborted) return;
 		if (error) {
 			reportError(error, 'Could not rename this passkey.');
 			return;
@@ -243,8 +238,7 @@
 	 * Hosted account deletion (`DELETE /api/account`). The server deletes in a
 	 * retry-safe order and answers 503 with the failed step on a partial
 	 * failure, so the remedy is always "retry until 204". Only a 204 means the
-	 * account is gone; afterwards the session is dead, so sign-out is
-	 * best-effort cookie cleanup before leaving the dashboard.
+	 * account is gone; afterwards we clear local auth before leaving the dashboard.
 	 */
 	function deleteAccount() {
 		const email = profile?.email ?? 'this account';
@@ -253,9 +247,14 @@
 			description: `Permanently delete ${email} everywhere: synced workspaces, documents, uploaded files, billing, and every way to sign in. This cannot be undone. Data stored on your devices stays on your devices.`,
 			confirm: { text: 'Delete forever', variant: 'destructive' },
 			onConfirm: async () => {
-				const response = await auth.fetch('/api/account', { method: 'DELETE' });
+				const response = await account.fetch('/api/account', {
+					method: 'DELETE',
+					credentials: 'omit',
+					headers: { 'x-epicenter-principal': account.principalId },
+				});
+				if (signal.aborted) return;
 				if (!response.ok) {
-					if (response.status === 403) {
+					if (response.status === 401 || response.status === 403) {
 						// The route requires a fresh session; the remedy is the same
 						// re-sign-in the other sensitive account changes use.
 						reauthToast();
@@ -289,6 +288,7 @@
 				const { error } = await authClient.passkey.deletePasskey({
 					id: passkey.id,
 				});
+				if (signal.aborted) return;
 				if (error) {
 					if (reportError(error, 'Could not remove this passkey.').terminal) {
 						return;

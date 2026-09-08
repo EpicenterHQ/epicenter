@@ -274,6 +274,8 @@ export function createHomeServer({
 			});
 		} catch (error) {
 			c.header('x-epicenter-auth-state', desktopAuth.state.status);
+			if (desktopAuth.state.status === 'signed-out')
+				return c.text('Signed out', 401);
 			if (
 				typeof error === 'object' &&
 				error !== null &&

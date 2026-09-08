@@ -46,8 +46,8 @@ export const auth = betterAuth({
 	...BASE_AUTH_CONFIG,
 	/**
 	 * The CLI always runs locally, so we hardcode the dev URL. The value doesn't
-	 * affect schema generation. It only prevents `oauthProvider` from crashing on
-	 * `new URL('')` during plugin init. The runtime config derives baseURL from the request.
+	 * affect schema generation. The session and passkey plugins need a valid
+	 * origin at initialization. Runtime configuration uses the deployment's origin.
 	 */
 	baseURL,
 	database: drizzleAdapter(db, { provider: 'pg', schema }),

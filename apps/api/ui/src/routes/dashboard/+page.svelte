@@ -7,15 +7,15 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { billingApi } from '$lib/billing/api';
-	import { billing, billingKeys } from '$lib/billing/queries';
+	import { billingKeys } from '$lib/billing/queries';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
 	import CreditBalance from '$lib/components/CreditBalance.svelte';
 	import ModelCostGuide from '$lib/components/ModelCostGuide.svelte';
 	import PlanComparison from '$lib/components/PlanComparison.svelte';
 	import TopModels from '$lib/components/TopModels.svelte';
 	import UsageChart from '$lib/components/UsageChart.svelte';
-	import { queryClient } from '$lib/query/client';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { billing, billingApi, queryClient, signal } = getDashboard();
 
 	const overview = createQuery(() => billing.overview.options);
 	const plans = createQuery(() => billing.plans.options);
@@ -29,6 +29,7 @@
 
 	async function openBillingPortal() {
 		const { data, error } = await billingApi.portal();
+		if (signal.aborted) return;
 		if (error) return toastOnError(error, 'Could not open billing portal');
 		if (data.portalUrl) window.location.href = data.portalUrl;
 	}

@@ -1,13 +1,13 @@
+/** Captured Accounts survive reauthentication and permanently retire on sign-out, replacement, and disposal. */
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
-import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { AuthFetch } from './auth-contract.js';
 import type { PersistedAuth } from './auth-types.js';
-import { createOAuthAppAuth } from './create-oauth-app-auth.js';
+import { createSessionAuth } from './create-session-auth.js';
 
-function setup(options: { fetch?: AuthFetch; expired?: boolean } = {}) {
+function setup(options: { fetch?: AuthFetch } = {}) {
 	let person = 'alice';
 	let token = 'alice-1';
 	const writes: (PersistedAuth | null)[] = [];
@@ -25,17 +25,12 @@ function setup(options: { fetch?: AuthFetch; expired?: boolean } = {}) {
 			this.dispatchEvent(new Event('close'));
 		}
 	}
-	const auth = createOAuthAppAuth({
+	const auth = createSessionAuth({
 		baseURL: 'https://account.test',
-		clientId: 'test',
 		persistedAuthStorage: {
 			initial: {
 				principalId: asPrincipalId(person),
-				grant: {
-					accessToken: token,
-					refreshToken: 'refresh',
-					accessTokenExpiresAt: options.expired ? 0 : Number.MAX_SAFE_INTEGER,
-				},
+				token,
 			},
 			set(value) {
 				writes.push(value);
@@ -44,31 +39,17 @@ function setup(options: { fetch?: AuthFetch; expired?: boolean } = {}) {
 		launcher: {
 			async startSignIn() {
 				launches++;
-				return Ok({
-					status: 'completed',
-					grant: {
-						accessToken: token,
-						refreshToken: 'refresh',
-						accessTokenExpiresAt: Number.MAX_SAFE_INTEGER,
-					},
-				});
+				return { status: 'completed', token };
 			},
 		},
 		WebSocket: FakeSocket as unknown as typeof WebSocket,
 		fetch: async (input, init) => {
 			const path = new URL(input instanceof Request ? input.url : String(input))
 				.pathname;
-			if (path === '/auth/oauth2/revoke') return new Response(null);
+			if (path === '/auth/sign-out') return new Response(null);
 			if (options.fetch) return options.fetch(input, init);
 			if (path === '/api/session')
 				return Response.json({ principalId: person });
-			if (path === '/auth/oauth2/token')
-				return Response.json({
-					access_token: token,
-					refresh_token: 'new-refresh',
-					expires_in: 3600,
-					token_type: 'bearer',
-				});
 			resources.push(new Headers(init?.headers).get('authorization') ?? 'none');
 			return new Response('ok');
 		},
@@ -103,8 +84,8 @@ const address = STORE_SYNC_ROUTE.address('https://account.test', {
 	cursor: 0,
 });
 
-test('refresh and uninterrupted same-person sign-in preserve the Account object', async () => {
-	using context = setup({ expired: true });
+test('verification and uninterrupted same-person sign-in preserve the Account object', async () => {
+	using context = setup();
 	const account = context.account;
 	await account.fetch('/api/example');
 	expect(context.account).toBe(account);
@@ -162,20 +143,17 @@ test('retirement closes every socket belonging to that account', async () => {
 	expect(context.sockets.every((socket) => socket.closed)).toBe(true);
 });
 
-test('canceling one HTTP caller leaves another caller sharing refresh active', async () => {
-	const refresh = Promise.withResolvers<Response>();
+test('canceling one HTTP caller leaves another caller sharing verification active', async () => {
+	const verification = Promise.withResolvers<Response>();
 	const entered = Promise.withResolvers<void>();
-	let refreshes = 0;
+	let verifications = 0;
 	using context = setup({
-		expired: true,
 		fetch: async (input) => {
-			if (String(input).endsWith('/auth/oauth2/token')) {
-				refreshes++;
+			if (String(input).endsWith('/api/session')) {
+				verifications++;
 				entered.resolve();
-				return refresh.promise;
+				return verification.promise;
 			}
-			if (String(input).endsWith('/api/session'))
-				return Response.json({ principalId: 'alice' });
 			return new Response('ok');
 		},
 	});
@@ -187,25 +165,18 @@ test('canceling one HTTP caller leaves another caller sharing refresh active', a
 	await entered.promise;
 	cancel.abort();
 	expect(await first).toMatchObject({ name: 'AbortError' });
-	refresh.resolve(
-		Response.json({
-			access_token: 'refreshed',
-			token_type: 'bearer',
-			expires_in: 3600,
-		}),
-	);
+	verification.resolve(Response.json({ principalId: 'alice' }));
 	expect(await (await second).text()).toBe('ok');
-	expect(refreshes).toBe(1);
+	expect(verifications).toBe(1);
 });
 
-test('disposal during refresh prevents later persistence and a subsequent sign-in launch', async () => {
-	const refresh = Promise.withResolvers<Response>();
+test('disposal during verification prevents later persistence and a subsequent sign-in launch', async () => {
+	const verification = Promise.withResolvers<Response>();
 	const entered = Promise.withResolvers<void>();
 	using context = setup({
-		expired: true,
 		fetch: async () => {
 			entered.resolve();
-			return refresh.promise;
+			return verification.promise;
 		},
 	});
 	const pending = context.account
@@ -214,13 +185,7 @@ test('disposal during refresh prevents later persistence and a subsequent sign-i
 	await entered.promise;
 	context.auth[Symbol.dispose]();
 	expect(await pending).toMatchObject({ name: 'AbortError' });
-	refresh.resolve(
-		Response.json({
-			access_token: 'late',
-			token_type: 'bearer',
-			expires_in: 3600,
-		}),
-	);
+	verification.resolve(Response.json({ principalId: 'alice' }));
 	await Bun.sleep(0);
 	expect(context.writes).toEqual([]);
 	expect((await context.auth.startSignIn()).error?.name).toBe(
@@ -246,7 +211,7 @@ test('an account rejects foreign HTTP and socket destinations before requesting 
 	).rejects.toThrow('own server');
 });
 
-test('a browser Account replays a RequestInit stream after a 401 refresh', async () => {
+test('a browser Account replays a RequestInit stream only after in-flight credential replacement', async () => {
 	const bodies: string[] = [];
 	using context = setup({
 		fetch: async (input, init) => {
@@ -254,17 +219,12 @@ test('a browser Account replays a RequestInit stream after a 401 refresh', async
 				.pathname;
 			if (path === '/api/session')
 				return Response.json({ principalId: 'alice' });
-			if (path === '/auth/oauth2/token')
-				return Response.json({
-					access_token: 'refreshed',
-					token_type: 'bearer',
-					expires_in: 3600,
-				});
 			bodies.push(
 				await new Response(
 					input instanceof Request ? input.body : init?.body,
 				).text(),
 			);
+			if (bodies.length === 1) await context.signIn('alice', 'alice-2');
 			return new Response('ok', { status: bodies.length === 1 ? 401 : 200 });
 		},
 	});
@@ -275,3 +235,118 @@ test('a browser Account replays a RequestInit stream after a 401 refresh', async
 	).toBe(200);
 	expect(bodies).toEqual(['same streamed bytes', 'same streamed bytes']);
 });
+
+test('retirement aborts a real HTTP response stream after headers have returned', async () => {
+	const revoked = Promise.withResolvers<void>();
+	const server = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		fetch(request) {
+			if (new URL(request.url).pathname === '/api/session')
+				return Response.json({ principalId: 'alice' });
+			if (new URL(request.url).pathname === '/auth/sign-out')
+				return new Response(null, { status: 204 });
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode('first'));
+					},
+				}),
+			);
+		},
+	});
+	try {
+		using auth = createSessionAuth({
+			baseURL: server.url.origin,
+			fetch: async (input, init) => {
+				const response = await fetch(input, init);
+				if (String(input).endsWith('/auth/sign-out')) revoked.resolve();
+				return response;
+			},
+			persistedAuthStorage: {
+				initial: {
+					token: 'alice-session',
+					principalId: asPrincipalId('alice'),
+				},
+				set() {},
+			},
+			launcher: {
+				async startSignIn() {
+					return { status: 'launched' };
+				},
+			},
+		});
+		if (auth.state.status === 'signed-out')
+			throw new Error('Expected cached identity');
+		const response = await auth.state.account.fetch('/stream');
+		const reader = response.body!.getReader();
+		expect(new TextDecoder().decode((await reader.read()).value)).toBe('first');
+		expectOk(await auth.signOut());
+		await expect(reader.read()).rejects.toMatchObject({ name: 'AbortError' });
+		await revoked.promise;
+	} finally {
+		await server.stop(true);
+	}
+});
+
+test('socket verification gates bearer emission and shares the result with HTTP', async () => {
+	const verification = Promise.withResolvers<Response>();
+	const entered = Promise.withResolvers<void>();
+	const openings: string[][] = [];
+	class Socket extends EventTarget {
+		constructor(_url: string, protocols: string[]) {
+			super();
+			openings.push(protocols);
+		}
+		close() {
+			this.dispatchEvent(new Event('close'));
+		}
+	}
+	let reads = 0;
+	using auth = createSessionAuth({
+		baseURL: 'https://account.test',
+		persistedAuthStorage: {
+			initial: { token: 'session', principalId: asPrincipalId('alice') },
+			set() {},
+		},
+		launcher: {
+			async startSignIn() {
+				return { status: 'launched' };
+			},
+		},
+		WebSocket: Socket as unknown as typeof WebSocket,
+		fetch: async (input) => {
+			if (String(input).endsWith('/api/session')) {
+				reads++;
+				entered.resolve();
+				return verification.promise;
+			}
+			return new Response(null, { status: 204 });
+		},
+	});
+	if (auth.state.status === 'signed-out')
+		throw new Error('Expected cached identity');
+	const socket = auth.state.account.openWebSocket(address);
+	const http = auth.state.account.fetch('/resource');
+	await entered.promise;
+	expect(openings).toEqual([]);
+	verification.resolve(Response.json({ principalId: 'alice' }));
+	await Promise.all([socket, http]);
+	expect(reads).toBe(1);
+	expect(openings).toEqual([[...address.protocols, 'bearer.session']]);
+});
+
+for (const status of [401, 503]) {
+	test(`socket verification ${status} emits no bearer and preserves the Account`, async () => {
+		using context = setup({
+			fetch: async () => new Response(null, { status }),
+		});
+		const account = context.account;
+		await expect(account.openWebSocket(address)).rejects.toMatchObject({
+			name: 'OpenWebSocketDenied',
+			code: status === 401 ? 'reauth-required' : 'auth-unavailable',
+		});
+		expect(context.account).toBe(account);
+		expect(context.sockets).toEqual([]);
+	});
+}

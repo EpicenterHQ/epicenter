@@ -33,10 +33,6 @@ export const AuthError = defineErrors({
 		message: `Failed to sign out: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
-	RefreshGrantFailed: ({ cause }: { cause: unknown }) => ({
-		message: `Failed to refresh OAuth grant: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
 	ProfileUnavailable: ({ cause }: { cause: unknown }) => ({
 		message: `Failed to read profile: ${extractErrorMessage(cause)}`,
 		cause,

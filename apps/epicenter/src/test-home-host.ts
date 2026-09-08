@@ -10,7 +10,7 @@ export function createTestDesktopAuth() {
 			async storeAuth() {},
 			async openAuthUrl() {},
 			relaunch() {},
-			onOAuthCallback(listener) {
+			onAuthCallback(listener) {
 				callbackListeners.add(listener);
 				return () => callbackListeners.delete(listener);
 			},

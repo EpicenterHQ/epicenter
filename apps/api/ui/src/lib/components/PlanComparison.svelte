@@ -9,8 +9,9 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { billing, billingKeys } from '$lib/billing/queries';
-	import { queryClient } from '$lib/query/client';
+	import { billingKeys } from '$lib/billing/queries';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { billing, queryClient } = getDashboard();
 
 	let isAnnual = $state(false);
 	let confirmDialog = $state.raw<{ card: BillingPlanCard } | null>(null);

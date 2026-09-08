@@ -11,7 +11,9 @@ function setup() {
 	const app = new Hono<CloudEnv>();
 	app.use('*', async (c, next) => {
 		c.set('authUiShell', () => new Response('sign-in shell'));
-		c.set('auth', { handler: async () => new Response('Better Auth', {status: 418}) } as unknown as CloudEnv['Variables']['auth']);
+		c.set('auth', {
+			handler: async () => new Response('Better Auth', { status: 418 }),
+		} as unknown as CloudEnv['Variables']['auth']);
 		await next();
 	});
 	app.route('/', authApp);
@@ -19,8 +21,15 @@ function setup() {
 }
 test('sign-in serves the shell without redirecting arbitrary callback URLs', async () => {
 	const app = setup();
-	for (const callback of ['/dashboard', '//attacker.example', '/\\\\attacker.example', 'https://attacker.example']) {
-		const response = await app.request('/sign-in?callbackURL=' + encodeURIComponent(callback));
+	for (const callback of [
+		'/dashboard',
+		'//attacker.example',
+		'/\\\\attacker.example',
+		'https://attacker.example',
+	]) {
+		const response = await app.request(
+			'/sign-in?callbackURL=' + encodeURIComponent(callback),
+		);
 		expect(response.status).toBe(200);
 		expect(response.headers.get('location')).toBeNull();
 		expect(response.headers.get('referrer-policy')).toBe('no-referrer');
@@ -31,5 +40,16 @@ test('the provider catch-all remains and consent/resource discovery are absent',
 	const app = setup();
 	expect((await app.request('/auth/callback/google')).status).toBe(418);
 	expect((await app.request('/consent')).status).toBe(404);
-	expect((await app.request('/.well-known/oauth-protected-resource')).status).toBe(404);
+	expect(
+		(await app.request('/.well-known/oauth-protected-resource')).status,
+	).toBe(404);
+});
+test('the dashboard callback serves a private shell outside the Better Auth catch-all', async () => {
+	const response = await setup().request(
+		'/session/callback?code=one-time&state=bound',
+	);
+	expect(response.status).toBe(200);
+	expect(response.headers.get('cache-control')).toBe('no-store');
+	expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+	expect(await response.text()).toBe('sign-in shell');
 });

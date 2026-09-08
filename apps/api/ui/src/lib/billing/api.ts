@@ -6,10 +6,10 @@
  * its wire shapes. Each method returns `Result<T, BillingApiError>` so
  * consumers destructure `{ data, error }` instead of try/catch.
  *
- * Uses `auth.fetch` so the first-party auth cookie rides along on
- * every request. Same-origin deployment; no CORS config needed.
+ * Each factory captures one Account's fetch for its entire lifetime.
  */
 
+import type { Account } from '@epicenter/auth';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { Err, type Result, tryAsync } from 'wellcrafted/result';
 import type {
@@ -22,9 +22,8 @@ import type {
 	PortalSession,
 	UsageQuery,
 	UsageSeries,
-} from '$api/billing/contracts';
-import { BillingError } from '$api/billing/errors';
-import { auth } from '$lib/platform/auth';
+} from '../../../../worker/billing/contracts.js';
+import { BillingError } from '../../../../worker/billing/errors.js';
 
 /** Tagged error for the billing API boundary, split by what actually failed. */
 export const BillingApiError = defineErrors({
@@ -94,53 +93,61 @@ async function readResponse<TResponse>(
 	});
 }
 
-async function get<TResponse>(
-	endpoint: string,
-): Promise<BillingResult<TResponse>> {
-	const { data: res, error } = await tryAsync({
-		try: () => auth.fetch(endpoint),
-		catch: (cause) => BillingApiError.RequestFailed({ endpoint, cause }),
-	});
-	if (error) return Err(error);
-	return readResponse<TResponse>(endpoint, res);
+export function createBillingApi(account: Account) {
+	async function get<TResponse>(
+		endpoint: string,
+	): Promise<BillingResult<TResponse>> {
+		const { data: res, error } = await tryAsync({
+			try: () => account.fetch(endpoint),
+			catch: (cause) => BillingApiError.RequestFailed({ endpoint, cause }),
+		});
+		if (error) return Err(error);
+		return readResponse<TResponse>(endpoint, res);
+	}
+
+	async function post<TBody, TResponse>(
+		endpoint: string,
+		body: TBody,
+	): Promise<BillingResult<TResponse>> {
+		const { data: res, error } = await tryAsync({
+			try: () =>
+				account.fetch(endpoint, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body),
+				}),
+			catch: (cause) => BillingApiError.RequestFailed({ endpoint, cause }),
+		});
+		if (error) return Err(error);
+		return readResponse<TResponse>(endpoint, res);
+	}
+
+	return {
+		overview: () => get<BillingOverview>('/api/billing/overview'),
+
+		usage: (params: UsageQuery) =>
+			post<UsageQuery, UsageSeries>('/api/billing/usage', params),
+
+		events: (params: EventsQuery = {}) =>
+			post<EventsQuery, BillingEventsPage>('/api/billing/events', params),
+
+		plans: () => get<BillingPlansView>('/api/billing/plans'),
+
+		previewPlanChange: (params: { planId: string }) =>
+			post<{ planId: string }, PlanChangePreview>(
+				'/api/billing/preview',
+				params,
+			),
+
+		checkoutPlan: (params: { planId: string; successUrl?: string }) =>
+			post<typeof params, CheckoutResult>('/api/billing/checkout/plan', params),
+
+		checkoutTopUp: (params: { successUrl?: string } = {}) =>
+			post<typeof params, CheckoutResult>(
+				'/api/billing/checkout/top-up',
+				params,
+			),
+
+		portal: () => get<PortalSession>('/api/billing/portal'),
+	};
 }
-
-async function post<TBody, TResponse>(
-	endpoint: string,
-	body: TBody,
-): Promise<BillingResult<TResponse>> {
-	const { data: res, error } = await tryAsync({
-		try: () =>
-			auth.fetch(endpoint, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(body),
-			}),
-		catch: (cause) => BillingApiError.RequestFailed({ endpoint, cause }),
-	});
-	if (error) return Err(error);
-	return readResponse<TResponse>(endpoint, res);
-}
-
-export const billingApi = {
-	overview: () => get<BillingOverview>('/api/billing/overview'),
-
-	usage: (params: UsageQuery) =>
-		post<UsageQuery, UsageSeries>('/api/billing/usage', params),
-
-	events: (params: EventsQuery = {}) =>
-		post<EventsQuery, BillingEventsPage>('/api/billing/events', params),
-
-	plans: () => get<BillingPlansView>('/api/billing/plans'),
-
-	previewPlanChange: (params: { planId: string }) =>
-		post<{ planId: string }, PlanChangePreview>('/api/billing/preview', params),
-
-	checkoutPlan: (params: { planId: string; successUrl?: string }) =>
-		post<typeof params, CheckoutResult>('/api/billing/checkout/plan', params),
-
-	checkoutTopUp: (params: { successUrl?: string } = {}) =>
-		post<typeof params, CheckoutResult>('/api/billing/checkout/top-up', params),
-
-	portal: () => get<PortalSession>('/api/billing/portal'),
-};

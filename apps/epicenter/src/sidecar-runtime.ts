@@ -64,7 +64,7 @@ export type NativePort = ReturnType<typeof createNativeAuthPort>;
  */
 export type NativeAuthPort = Pick<
 	NativePort,
-	'completed' | 'storeAuth' | 'openAuthUrl' | 'relaunch' | 'onOAuthCallback'
+	'completed' | 'storeAuth' | 'openAuthUrl' | 'relaunch' | 'onAuthCallback'
 >;
 
 const BOOT_FRAME_KEYS = [
@@ -75,7 +75,7 @@ const BOOT_FRAME_KEYS = [
 	'type',
 ];
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
-const OAUTH_CALLBACK = 'epicenter://auth/callback';
+const AUTH_CALLBACK = 'epicenter://auth/callback';
 
 /**
  * Parse the one explicit runtime-mode argument supplied by the Rust parent.
@@ -304,7 +304,7 @@ export function createNativeAuthPort(
 
 	function accept(line: string) {
 		const frame = parseNativeFrame(line);
-		if (frame.type === 'oauth-callback') {
+		if (frame.type === 'auth-callback') {
 			if (callbackListeners.size === 0) queuedCallback = frame.url;
 			else for (const listener of callbackListeners) listener(frame.url);
 			return;
@@ -357,7 +357,7 @@ export function createNativeAuthPort(
 		relaunch() {
 			send({ type: 'relaunch' });
 		},
-		onOAuthCallback(listener: (url: string) => void) {
+		onAuthCallback(listener: (url: string) => void) {
 			callbackListeners.add(listener);
 			if (queuedCallback !== null) {
 				const callback = queuedCallback;
@@ -383,7 +383,7 @@ type NativeFrame =
 			message: string;
 			value?: undefined;
 	  }
-	| { type: 'oauth-callback'; url: string };
+	| { type: 'auth-callback'; url: string };
 
 function parseNativeFrame(line: string): NativeFrame {
 	let value: unknown;
@@ -396,10 +396,10 @@ function parseNativeFrame(line: string): NativeFrame {
 		throw new Error('The native auth frame must be a JSON object.');
 	}
 	const frame = value as Record<string, unknown>;
-	if (frame.type === 'oauth-callback') {
+	if (frame.type === 'auth-callback') {
 		assertExactKeys(frame, ['type', 'url']);
-		if (typeof frame.url !== 'string' || !isOAuthCallback(frame.url)) {
-			throw new Error('Rust sent an invalid OAuth callback URL.');
+		if (typeof frame.url !== 'string' || !isAuthCallback(frame.url)) {
+			throw new Error('Rust sent an invalid auth callback URL.');
 		}
 		return frame as NativeFrame;
 	}
@@ -445,11 +445,11 @@ function assertExactKeys(value: Record<string, unknown>, expected: string[]) {
 	}
 }
 
-function isOAuthCallback(value: string): boolean {
+function isAuthCallback(value: string): boolean {
 	try {
 		const url = new URL(value);
 		return (
-			`${url.protocol}//${url.host}${url.pathname}` === OAUTH_CALLBACK &&
+			`${url.protocol}//${url.host}${url.pathname}` === AUTH_CALLBACK &&
 			(url.searchParams.has('code') || url.searchParams.has('error')) &&
 			url.username === '' &&
 			url.password === '' &&

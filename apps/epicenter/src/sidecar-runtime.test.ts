@@ -230,7 +230,7 @@ describe('parent pipe', () => {
 });
 
 describe('native auth port', () => {
-	test('correlates fixed native requests and forwards one queued OAuth callback', async () => {
+	test('correlates fixed native requests and forwards one queued auth callback', async () => {
 		let controller!: ReadableStreamDefaultController<string>;
 		const parentPipe: ParentPipe = {
 			bootLine: Promise.resolve(bootFrame()),
@@ -268,13 +268,13 @@ describe('native auth port', () => {
 
 		controller.enqueue(
 			JSON.stringify({
-				type: 'oauth-callback',
+				type: 'auth-callback',
 				url: 'epicenter://auth/callback?code=code&state=state',
 			}),
 		);
 		await Promise.resolve();
 		const callbacks: string[] = [];
-		native.onOAuthCallback((url) => callbacks.push(url));
+		native.onAuthCallback((url) => callbacks.push(url));
 		expect(callbacks).toEqual([
 			'epicenter://auth/callback?code=code&state=state',
 		]);

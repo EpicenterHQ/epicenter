@@ -1,6 +1,6 @@
 import { createSubscriber } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
-import type { AuthClient, AuthControls } from '../index.js';
+import type { AuthClient } from '../index.js';
 
 /**
  * An auth client whose `state` and `connection.status` track in Svelte.
@@ -21,7 +21,7 @@ import type { AuthClient, AuthControls } from '../index.js';
  * route reads that member. It defaults to `AuthClient`, so every existing
  * annotation still means what it meant.
  */
-export type ReactiveAuthClient<TClient extends AuthControls = AuthClient> =
+export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
 	TClient & Brand<'ReactiveAuthClient'>;
 
 /**
@@ -55,13 +55,13 @@ export type ReactiveAuthClient<TClient extends AuthControls = AuthClient> =
  * once per component instance, for that component's whole life.
  *
  * Both facts are wrapped uniformly even though not every client can change
- * either one. The hosted OAuth and same-origin cookie clients report a
+ * either one. The hosted session clients report a
  * constant `connected` with an `onChange` that never fires, and the desktop
  * broker also publishes credential refusal and retirement. Uniformity is the point: the brand
  * promises that reads track IF the underlying client ever changes, which is a
  * promise every client can keep.
  */
-export function fromAuth<TClient extends AuthControls>(
+export function fromAuth<TClient extends AuthClient>(
 	authClient: TClient,
 ): ReactiveAuthClient<TClient> {
 	const subscribeState = createSubscriber((update) =>

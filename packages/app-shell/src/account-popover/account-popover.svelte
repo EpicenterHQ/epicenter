@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { AuthControls } from '@epicenter/auth';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
@@ -42,7 +41,7 @@
 		 * The app's auth client. Its connection
 		 * supplies the selected server and live connection status.
 		 */
-		auth: ReactiveAuthClient<AuthControls>;
+		auth: ReactiveAuthClient;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**
@@ -253,4 +252,3 @@
 		{/if}
 	</Popover.Content>
 </Popover.Root>
-

@@ -11,10 +11,10 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { mode, toggleMode } from 'mode-watcher';
 	import { goto } from '$app/navigation';
-	import { billingApi } from '$lib/billing/api';
-	import { billing } from '$lib/billing/queries';
+	import { getDashboard } from '$lib/dashboard/context';
 	import { auth } from '$lib/platform/auth';
 
+	const { billing, billingApi, signal } = getDashboard();
 	const overview = createQuery(() => billing.overview.options);
 
 	const planName = $derived(overview.data?.planDisplayName ?? 'Free');
@@ -22,6 +22,7 @@
 
 	async function openBillingPortal() {
 		const { data, error } = await billingApi.portal();
+		if (signal.aborted) return;
 		if (error) return toastOnError(error, 'Could not open billing portal');
 		if (data.portalUrl) window.location.href = data.portalUrl;
 	}

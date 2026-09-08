@@ -5,10 +5,21 @@ import { APPS, localUrl } from '@epicenter/constants/apps';
 const apiRoot = resolve(import.meta.dir, '..');
 const uiBuild = resolve(apiRoot, 'ui/build');
 const devVars = resolve(apiRoot, '.dev.vars');
+const publicOrigin = process.env.API_PUBLIC_ORIGIN ?? localUrl(APPS.API);
+const publicUrl = new URL(publicOrigin);
+if (
+	publicUrl.protocol !== 'http:' ||
+	!['localhost', '127.0.0.1', '[::1]'].includes(publicUrl.hostname) ||
+	publicUrl.origin !== publicOrigin
+) {
+	throw new Error(
+		'API_PUBLIC_ORIGIN must be an HTTP loopback origin for local dev.',
+	);
+}
 
 // The cloud UI SPA is built into apps/api/ui/build/ (SvelteKit
 // adapter-static, fallback.html shell). Wrangler errors if its assets
-// directory does not exist, and the auth surfaces (/sign-in, /consent)
+// directory does not exist, and the auth surfaces (/sign-in, /session/callback)
 // are served from that build, so build it once when the
 // shell is missing. Subsequent boots skip the build to keep the edit loop
 // fast; rerun `bun run --cwd apps/api/ui build` after UI changes you want
@@ -19,7 +30,7 @@ if (!(await Bun.file(resolve(uiBuild, 'fallback.html')).exists())) {
 	const uiBuildRun = await Bun.$`bun run --cwd ui build`.cwd(apiRoot).nothrow();
 	if (uiBuildRun.exitCode !== 0) {
 		console.error(
-			'Cloud UI build failed; /sign-in, /consent, and /dashboard will 503 until `bun run --cwd apps/api/ui build` succeeds.',
+			'Cloud UI build failed; /sign-in, /session/callback, and /dashboard will 503 until `bun run --cwd apps/api/ui build` succeeds.',
 		);
 	}
 }
@@ -46,7 +57,7 @@ if (auth.exitCode !== 0 || !auth.stdout.toString().trim()) {
 }
 
 const wrangler =
-	await Bun.$`infisical run --silent --env=dev --path=/api -- bun x wrangler dev --var ${`API_PUBLIC_ORIGIN:${localUrl(APPS.API)}`}`
+	await Bun.$`infisical run --silent --env=dev --path=/api -- bun x wrangler dev --var ${`API_PUBLIC_ORIGIN:${publicOrigin}`}`
 		.cwd(apiRoot)
 		// Dev narrows the public auth origin to localhost. Required auth
 		// bindings, including GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, come

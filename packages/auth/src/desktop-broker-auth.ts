@@ -24,7 +24,6 @@ export type DesktopAuthBootstrap = {
 		baseURL: string;
 		status: ConnectionStatus;
 	};
-	networkEligible: boolean;
 };
 
 /** Where the Bun authority stamps the boot snapshot into a served document. */

@@ -8,7 +8,8 @@
 	import { scaleUtc } from 'd3-scale';
 	import { curveMonotoneX } from 'd3-shape';
 	import { AreaChart } from 'layerchart';
-	import { billing } from '$lib/billing/queries';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { billing } = getDashboard();
 
 	type Range = '7d' | '30d' | '90d';
 
