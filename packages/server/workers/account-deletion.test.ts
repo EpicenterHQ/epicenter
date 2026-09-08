@@ -1,7 +1,7 @@
 /**
  * Drives the real hosted deletion route through its session gate in workerd.
- * Successful admission reaches the first storage step, intentionally unavailable
- * in this fixture; rejected requests cannot start deletion or select a cookie user.
+ * A fresh session receives an explicit refusal without deleting account records.
+ * Rejected requests cannot start deletion or select a different cookie user.
  */
 import { betterAuth } from 'better-auth';
 import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
@@ -60,8 +60,9 @@ async function setup() {
 	return { db, alice, bob, ctx, remove, principal: () => principal };
 }
 
-test('deletion admits only the explicit fresh principal even with another browser cookie', async () => {
-	const { alice, bob, remove, principal } = await setup();
+test('deletion refuses the explicit fresh principal without changing either account', async () => {
+	const { db, alice, bob, remove, principal } = await setup();
+	const before = structuredClone(db);
 	const response = await remove({
 		authorization: `Bearer ${alice.token}`,
 		cookie: bob.cookie,
@@ -69,9 +70,10 @@ test('deletion admits only the explicit fresh principal even with another browse
 	});
 	expect(response.status).toBe(503);
 	expect(await response.json()).toMatchObject({
-		error: { failedStep: 'blobs' },
+		error: { code: 'ACCOUNT_DELETION_UNAVAILABLE' },
 	});
 	expect(principal()).toBe(alice.user.id);
+	expect(db).toEqual(before);
 });
 
 test('missing invalid mixed or wrong-principal credentials cannot reach deletion', async () => {
