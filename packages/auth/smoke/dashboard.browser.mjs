@@ -65,6 +65,20 @@ try {
 		secret,
 		database: memoryAdapter(db),
 		trustedOrigins: [origin],
+		socialProviders: {
+			google: {
+				clientId: 'disposable-fixture',
+				clientSecret: 'disposable-fixture',
+			},
+			github: {
+				clientId: 'disposable-fixture',
+				clientSecret: 'disposable-fixture',
+			},
+			microsoft: {
+				clientId: 'disposable-fixture',
+				clientSecret: 'disposable-fixture',
+			},
+		},
 		plugins: authPlugins(origin, [`${origin}/session/callback`]),
 		hooks: {
 			before: requireAccountSession((headers) =>
@@ -86,6 +100,49 @@ try {
 		email: 'bob@example.test',
 		emailVerified: true,
 	});
+	const providerLabels = {
+		google: 'Google',
+		github: 'GitHub',
+		microsoft: 'Microsoft',
+	};
+	const providerCodes = new Map();
+	let providerExchanges = 0;
+	for (const provider of context.socialProviders) {
+		assert(Object.hasOwn(providerLabels, provider.id));
+		provider.createAuthorizationURL = async ({ state }) =>
+			new URL(
+				`/fixture/provider/${provider.id}?${new URLSearchParams({ state })}`,
+				origin,
+			);
+		provider.validateAuthorizationCode = async ({ code }) => {
+			providerExchanges += 1;
+			const selected = providerCodes.get(code);
+			providerCodes.delete(code);
+			assert(
+				selected?.provider === provider.id,
+				'Provider code must be unused and belong to this provider',
+			);
+			return { accessToken: `fixture-${selected.identity}` };
+		};
+		provider.getUserInfo = async ({ accessToken }) => {
+			const identity =
+				accessToken === 'fixture-alice'
+					? alice
+					: accessToken === 'fixture-bob'
+						? bob
+						: null;
+			assert(identity, 'Unknown disposable provider identity');
+			return {
+				user: {
+					id: `${provider.id}-${identity.id}`,
+					name: identity.name,
+					email: identity.email,
+					emailVerified: true,
+				},
+				data: {},
+			};
+		};
+	}
 	const hosted = await context.internalAdapter.createSession(alice.id, false);
 	const signed = `${hosted.token}.${await makeSignature(hosted.token, secret)}`;
 	const shell = () =>
@@ -136,6 +193,20 @@ try {
 				},
 			}),
 	);
+	app.get('/fixture/provider/:provider', (c) => {
+		const provider = c.req.param('provider');
+		const state = c.req.query('state');
+		if (!Object.hasOwn(providerLabels, provider) || !state)
+			return c.text('Unknown simulated provider or missing OAuth state.', 400);
+		const callback = (identity) => {
+			const code = crypto.randomUUID();
+			if (identity) providerCodes.set(code, { provider, identity });
+			return `/auth/callback/${provider}?${new URLSearchParams({ state, ...(identity ? { code } : { error: 'access_denied' }) }).toString().replaceAll('&', '&amp;')}`;
+		};
+		return c.html(
+			`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Simulated ${providerLabels[provider]} sign-in</title><main style="max-width:40rem;margin:5rem auto;padding:1.5rem;font:1rem/1.6 system-ui"><h1>Simulated ${providerLabels[provider]} sign-in</h1><p>Local test only. This is not ${providerLabels[provider]}. No real provider is contacted, and no password or provider credentials are requested.</p><p>Choose a disposable account to complete the real Epicenter sign-in callback.</p><p><a href="${callback('alice')}">Continue as Alice (alice@example.test)</a></p><p><a href="${callback('bob')}">Continue as Bob (bob@example.test)</a></p><p><a href="${callback(null)}">Cancel simulated sign-in</a></p></main></html>`,
+		);
+	});
 	mountAuthRoutes(app, {
 		setup: async (_c, next) => next(),
 		serveAuthUiShell: shell,
@@ -826,6 +897,115 @@ try {
 		0,
 	);
 	assert.deepEqual(pageErrors, []);
+	// Actual provider buttons traverse Better Auth's state/callback/session flow.
+	// Only the upstream provider interaction is simulated on the local chooser.
+	const exchangesBeforeInvalidState = providerExchanges;
+	const invalidState = await fetch(
+		`${origin}/auth/callback/google?code=not-issued&state=not-issued`,
+		{ redirect: 'manual' },
+	);
+	assert.equal(invalidState.status, 302);
+	assert((invalidState.headers.get('location') ?? '').includes('error='));
+	assert.equal(
+		providerExchanges,
+		exchangesBeforeInvalidState,
+		'Better Auth must reject invalid state before provider exchange',
+	);
+	for (const [provider, label] of Object.entries(providerLabels)) {
+		const providerContext = await browser.newContext();
+		const providerPage = await providerContext.newPage();
+		providerPage.setDefaultTimeout(10_000);
+		const providerErrors = [];
+		providerPage.on('pageerror', (error) => providerErrors.push(error.message));
+		const destination = `${origin}/dashboard/account?expectedPrincipal=${encodeURIComponent(alice.id)}`;
+		await providerPage.goto(destination);
+		await providerPage
+			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
+			.click();
+		await providerPage
+			.getByRole('button', { name: `Continue with ${label}`, exact: true })
+			.click();
+		await providerPage
+			.getByRole('heading', { name: `Simulated ${label} sign-in`, exact: true })
+			.waitFor();
+		await providerPage.screenshot({
+			path: `/tmp/epicenter-simulated-${provider}-sign-in.png`,
+			fullPage: true,
+		});
+		await providerPage
+			.getByRole('link', {
+				name: 'Continue as Alice (alice@example.test)',
+				exact: true,
+			})
+			.click();
+		await providerPage
+			.getByRole('button', {
+				name: 'Continue as alice@example.test',
+				exact: true,
+			})
+			.click();
+		await providerPage.waitForURL(destination);
+		await providerPage
+			.getByRole('main')
+			.getByText('alice@example.test', { exact: true })
+			.waitFor();
+		assert(
+			db.account.some(
+				(account) =>
+					account.providerId === provider && account.userId === alice.id,
+			),
+		);
+		if (provider === 'google') {
+			await providerPage
+				.getByRole('button', { name: 'Connect GitHub', exact: true })
+				.click();
+			await providerPage
+				.getByRole('button', { name: 'Connect', exact: true })
+				.click();
+			await providerPage
+				.getByRole('heading', { name: 'Simulated GitHub sign-in', exact: true })
+				.waitFor();
+			await providerPage
+				.getByRole('link', {
+					name: 'Continue as Alice (alice@example.test)',
+					exact: true,
+				})
+				.click();
+			await providerPage.waitForURL(destination);
+			await providerPage
+				.getByRole('main')
+				.getByText('alice@example.test', { exact: true })
+				.waitFor();
+			assert(
+				db.account.some(
+					(account) =>
+						account.providerId === 'github' && account.userId === alice.id,
+				),
+			);
+		}
+		await providerPage
+			.getByRole('button', { name: 'Account menu', exact: true })
+			.click();
+		await providerPage
+			.getByRole('menuitem', { name: 'Sign out', exact: true })
+			.click();
+		await providerPage
+			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
+			.click();
+		await providerPage
+			.getByRole('button', {
+				name: 'Continue as alice@example.test',
+				exact: true,
+			})
+			.click();
+		await providerPage.waitForURL(destination);
+		await providerPage
+			.getByRole('main')
+			.getByText('alice@example.test', { exact: true })
+			.waitFor();
+		assert.deepEqual(providerErrors, []);
+		await providerContext.close();
+	}
 	if (popoverFixture) {
 		const menuContext = await browser.newContext();
 		const source = await menuContext.newPage();
