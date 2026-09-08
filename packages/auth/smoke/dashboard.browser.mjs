@@ -529,7 +529,12 @@ try {
 	);
 
 	// Theme is a persistent menu preference: toggling must not dismiss its menu.
-	await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+	const accountMenuTrigger = page.getByRole('button', {
+		name: 'Account menu',
+		exact: true,
+	});
+	await accountMenuTrigger.focus();
+	await page.keyboard.press('Enter');
 	const startedDark = await page
 		.locator('html')
 		.evaluate((element) => element.classList.contains('dark'));
@@ -557,6 +562,29 @@ try {
 				.evaluate((element) => element.classList.contains('dark')),
 			dark,
 		);
+		await page.waitForTimeout(200);
+		await page.screenshot({
+			path: `/tmp/epicenter-account-menu-${dark ? 'dark' : 'light'}.png`,
+		});
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.waitForTimeout(200);
+		for (const element of [accountMenuTrigger, page.getByRole('menu')]) {
+			const bounds = await element.boundingBox();
+			assert(
+				bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390,
+				'Account trigger and menu must fit the mobile viewport',
+			);
+		}
+		assert.equal(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+			true,
+		);
+		await page.screenshot({
+			path: `/tmp/epicenter-account-menu-mobile-${dark ? 'dark' : 'light'}.png`,
+		});
+		await page.setViewportSize({ width: 1280, height: 720 });
 	}
 	await page.keyboard.press('Escape');
 	await page.screenshot({
