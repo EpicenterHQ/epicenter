@@ -30,44 +30,42 @@ const log = createLogger('whispering/recordings');
 export const RecordingCreationError = defineErrors({
 	/**
 	 * The row could not be written, so the audio that was already committed
-	 * for it has been released. Reachable: the store refuses a write after the
+	 * for it needs cleanup. Reachable: the store refuses a write after the
 	 * session closed, and a malformed input throws.
 	 */
 	RowCreateFailed: ({
 		audioBlobId,
 		cause,
+		cleanupError,
 	}: {
 		audioBlobId: BlobId;
 		cause: unknown;
+		cleanupError: BlobStoreFailed | null;
 	}) => ({
-		message: 'Could not create the recording; its audio was released.',
+		message:
+			cleanupError === null
+				? 'Could not create the recording; its local audio was removed.'
+				: 'Could not create the recording or remove its local audio.',
 		audioBlobId,
 		cause,
+		cleanupError,
 	}),
 });
 export type RecordingCreationError = InferErrors<typeof RecordingCreationError>;
 
 /**
- * What one backup pass did. Never an error: a pass reports, and the rows say
+ * What one backup flight did. A flight reports, and the rows say
  * what is still owed.
  */
 export type BackupReport = {
-	/** Rows whose audio reached the account on this pass. */
+	/** Rows whose audio reached the account during this flight. */
 	uploaded: number;
 	/** Rows whose audio is not on this device, so this device cannot send it. */
 	absent: number;
-	/** Rows whose upload failed; they stay owed and the next pass tries again. */
+	/** Rows that failed and did not succeed in a later coalesced pass. */
 	failed: number;
 	/** The pass stopped early: the remote is unavailable, or two uploads in a row failed. */
 	aborted: boolean;
-};
-
-/** Where the rows still owed to the account sit, by a `stat` of each. */
-export type BackupSurvey = {
-	/** Owed, and the audio is on this device. */
-	waiting: number;
-	/** Owed, and the audio is on some other device. */
-	elsewhere: number;
 };
 
 export const RecordingDeletionError = defineErrors({
@@ -95,6 +93,8 @@ export const RecordingDeletionError = defineErrors({
 export type RecordingDeletionError = InferErrors<typeof RecordingDeletionError>;
 
 export type WhisperingRecordings = {
+	/** The initial attempt to claim earlier local audio has settled. */
+	readonly audioReady: Promise<void>;
 	readonly sorted: Recording[];
 	readonly count: number;
 	readonly nonconforming: NonconformingRow[];
@@ -110,7 +110,9 @@ export type WhisperingRecordings = {
 			BlobAlreadyExists | BlobStoreFailed
 		>
 	>;
-	create(value: NewRecording): Recording;
+	create(
+		value: NewRecording,
+	): Promise<Result<Recording, RecordingCreationError>>;
 	patch(
 		id: Recording['id'],
 		partial: Partial<Omit<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
@@ -163,16 +165,14 @@ export type WhisperingRecordings = {
 	readonly backup: {
 		/** Rows owed to the account, synchronously, wherever their audio is. */
 		readonly pending: number;
-		/** The owed rows split by whether this device holds their audio. */
-		survey(): Promise<Result<BackupSurvey, BlobStoreFailed>>;
 		/**
 		 * Send what this device holds and the account does not, newest first,
 		 * one transfer at a time. Single-flight and coalescing: a kick during a
 		 * pass schedules one more pass after it and resolves when that one is
-		 * done too, so every caller's answer includes the rows it saw. It never
-		 * rejects and never retries inside itself; the next trigger is the retry.
+		 * done too, so every caller's answer includes the rows it saw. It
+		 * schedules no autonomous retries; another trigger requests the next pass.
 		 */
-		kick(): Promise<BackupReport>;
+		kick(options?: { refreshLocal?: boolean }): Promise<BackupReport>;
 	};
 	subscribe(listener: () => void): () => void;
 };
@@ -193,6 +193,13 @@ export function createWhisperingRecordings({
 	let rows: Recording[] = [];
 	let sorted: Recording[] = [];
 	let nonconforming: NonconformingRow[] = [];
+	let disposed = false;
+	const knownAbsent = new Set<BlobId>();
+	let localRevision = 0;
+	function audioBecameLocal(id: BlobId) {
+		localRevision += 1;
+		knownAbsent.delete(id);
+	}
 	const listeners = new Set<() => void>();
 	const notify = () => {
 		for (const listener of listeners) listener();
@@ -308,80 +315,95 @@ export function createWhisperingRecordings({
 	/** The rows owed to the account, newest first, as of now. */
 	const owed = () => sorted.filter(({ uploadedAt }) => uploadedAt === null);
 
-	async function survey(): Promise<Result<BackupSurvey, BlobStoreFailed>> {
-		const result: BackupSurvey = { waiting: 0, elsewhere: 0 };
-		for (const recording of owed()) {
-			const { error } = await blobs.local.stat(recording.audioBlobId);
-			if (error === null) result.waiting += 1;
-			else if (error.name === 'BlobNotFound') result.elsewhere += 1;
-			else return Err(error);
-		}
-		return Ok(result);
-	}
-
-	/**
-	 * One pass. Each row is re-read before its upload, because a pass is long
-	 * and a row can be deleted or uploaded elsewhere while it runs. A `stat`
-	 * first, so a row whose audio another device holds costs one local read
-	 * and no transfer. Two consecutive failures are systemic (an expired
-	 * session, a full disk) and stop the pass rather than fail every row.
-	 */
-	async function pass(): Promise<BackupReport> {
-		const report: BackupReport = {
-			uploaded: 0,
-			absent: 0,
-			failed: 0,
-			aborted: false,
-		};
-		let consecutiveFailures = 0;
-		const failed = (): boolean => {
-			report.failed += 1;
-			consecutiveFailures += 1;
-			if (consecutiveFailures < 2) return false;
-			report.aborted = true;
-			return true;
-		};
-		for (const { id } of owed()) {
-			const recording = resolve(id);
-			if (recording === undefined || recording.uploadedAt !== null) continue;
-			const stat = await blobs.local.stat(recording.audioBlobId);
-			if (stat.error !== null) {
-				if (stat.error.name === 'BlobNotFound') {
-					report.absent += 1;
-					continue;
-				}
-				if (failed()) break;
-				continue;
-			}
-			const { error } = await audio.upload(recording);
-			if (error === null) {
-				report.uploaded += 1;
-				consecutiveFailures = 0;
-				continue;
-			}
-			if (error.name === 'RemoteUnavailable') {
-				report.aborted = true;
-				break;
-			}
-			if (failed()) break;
-		}
-		return report;
-	}
-
 	let inFlight: Promise<BackupReport> | undefined;
 	let again = false;
-	function kick(): Promise<BackupReport> {
+	function kick({ refreshLocal = false } = {}): Promise<BackupReport> {
+		// A click can discover bytes another tab wrote, even during this flight.
+		if (refreshLocal) {
+			knownAbsent.clear();
+			localRevision += 1;
+		}
 		if (inFlight !== undefined) {
 			again = true;
 			return inFlight;
 		}
 		inFlight = (async () => {
-			let report = await pass();
-			while (again) {
+			await audioReady;
+			const uploaded = new Set<Recording['id']>();
+			const absent = new Set<Recording['id']>();
+			const failed = new Set<Recording['id']>();
+			let aborted = false;
+			do {
 				again = false;
-				report = await pass();
-			}
-			return report;
+				if (disposed || blobs.remote === null) {
+					aborted = true;
+					break;
+				}
+				const candidates = owed().filter((row) => {
+					if (!knownAbsent.has(row.audioBlobId)) return true;
+					absent.add(row.id);
+					return false;
+				});
+				const revision = localRevision;
+				const stats =
+					candidates.length === 0
+						? []
+						: await blobs.local.statMany(
+								candidates.map((row) => row.audioBlobId),
+							);
+				if (disposed || blobs.remote === null) {
+					aborted = true;
+					break;
+				}
+				// Discovery already paid for the whole batch. Remember all confirmed
+				// misses even if early upload failures stop the following walk.
+				if (revision === localRevision) {
+					for (const [index, row] of candidates.entries()) {
+						if (stats[index]?.error?.name === 'BlobNotFound')
+							knownAbsent.add(row.audioBlobId);
+					}
+				}
+				let consecutiveFailures = 0;
+				for (const [index, candidate] of candidates.entries()) {
+					if (disposed || blobs.remote === null) {
+						aborted = true;
+						break;
+					}
+					const recording = resolve(candidate.id);
+					if (recording === undefined || recording.uploadedAt !== null)
+						continue;
+					const stat = stats[index];
+					if (stat === undefined)
+						throw new Error('Blob batch stat omitted a requested id.');
+					if (stat.error?.name === 'BlobNotFound') {
+						absent.add(recording.id);
+						continue;
+					}
+					const error = stat.error ?? (await audio.upload(recording)).error;
+					if (error === null) {
+						uploaded.add(recording.id);
+						failed.delete(recording.id);
+						absent.delete(recording.id);
+						consecutiveFailures = 0;
+						continue;
+					}
+					if (error.name === 'RemoteUnavailable') {
+						aborted = true;
+						break;
+					}
+					failed.add(recording.id);
+					if (++consecutiveFailures >= 2) {
+						aborted = true;
+						break;
+					}
+				}
+			} while (again && !aborted);
+			return {
+				uploaded: uploaded.size,
+				absent: absent.size,
+				failed: failed.size,
+				aborted,
+			};
 		})().finally(() => {
 			inFlight = undefined;
 		});
@@ -389,12 +411,23 @@ export function createWhisperingRecordings({
 	}
 
 	read();
+	// Rows are hydrated before construction. No discovery may cache an absence
+	// until this claim attempt settles, including a partially successful attempt.
+	const audioReady =
+		blobs.unscoped === null
+			? Promise.resolve()
+			: blobs.unscoped
+					.claim(sorted.map((row) => row.audioBlobId))
+					.then(({ error }) => {
+						if (error !== null) log.warn(error);
+					});
 	// Registration is synchronous, does no I/O and never fires initially, so the
 	// read above has already seen everything (ADR-0187). It fires for a local
 	// write and for bytes that arrived from another device alike, which is what
 	// retired every hand-maintained cache patch below.
 	const unsubscribeRecords = table.subscribe(read);
 	const recordings: WhisperingRecordings = {
+		audioReady,
 		get sorted() {
 			return sorted;
 		},
@@ -414,39 +447,39 @@ export function createWhisperingRecordings({
 			const audioBlobId = generateBlobId();
 			const result = await blobs.local.put(audioBlobId, blob);
 			if (result.error !== null) return result;
+			audioBecameLocal(audioBlobId);
 			return Ok({ audioBlobId, byteLength: blob.size });
 		},
-		create(value) {
+		async create(value) {
 			// Row creation owns row/blob consistency. Every caller commits the
 			// audio before creating the row, so a row that fails to land would
-			// leave bytes no row cites. Releasing them is fire-and-forget because
-			// this is synchronous and the store already refused; the throw is the
-			// caller's to handle.
+			// leave bytes no row cites. Await their cleanup before reporting the
+			// original failure, and preserve a failed cleanup in the same error.
 			const { data: written, error } = trySync({
-				try: () =>
-					table.create({
+				try: () => {
+					if (disposed) throw new Error('The recording session is closed.');
+					return table.create({
 						...value,
 						audioBlobId: asStoredBlobId(value.audioBlobId),
 						uploadedAt: null,
 						transcriptionStatus: 'pending',
 						transcriptionCompletedAt: null,
 						transcriptionError: null,
-					}),
-				catch: (cause) =>
-					RecordingCreationError.RowCreateFailed({
-						audioBlobId: value.audioBlobId,
-						cause,
-					}),
+					});
+				},
+				catch: (cause) => Err({ cause }),
 			});
 			if (error !== null) {
-				void blobs.local
-					.delete(value.audioBlobId)
-					.then(({ error: release }) => {
-						if (release !== null) log.warn(release);
-					});
-				throw error;
+				const { error: cleanupError } = await blobs.local.delete(
+					value.audioBlobId,
+				);
+				return RecordingCreationError.RowCreateFailed({
+					audioBlobId: value.audioBlobId,
+					cause: error.cause,
+					cleanupError,
+				});
 			}
-			return asRecording(written);
+			return Ok(asRecording(written));
 		},
 		patch(id, partial) {
 			// Structural typing lets a whole row flow in as the partial, so drop
@@ -475,6 +508,7 @@ export function createWhisperingRecordings({
 			return asRecording(reread);
 		},
 		async delete(toDelete) {
+			await audioReady;
 			const ids = Array.isArray(toDelete) ? toDelete : [toDelete];
 			// An unknown id is already gone; deletion is idempotent over it.
 			const selected = ids
@@ -482,23 +516,30 @@ export function createWhisperingRecordings({
 				.filter((recording) => recording !== undefined);
 			return deleteResolved(selected);
 		},
-		audioAvailability(id) {
+		async audioAvailability(id) {
+			await audioReady;
 			return withRecording(id, audio.availability);
 		},
-		uploadAudio(id) {
+		async uploadAudio(id) {
+			await audioReady;
 			return withRecording(id, audio.upload);
 		},
-		downloadAudio(id) {
-			return withRecording(id, audio.download);
+		async downloadAudio(id) {
+			await audioReady;
+			const recording = resolve(id);
+			const result = await withRecording(id, audio.download);
+			if (result.error === null && recording !== undefined)
+				audioBecameLocal(recording.audioBlobId);
+			return result;
 		},
-		removeLocalAudio(id) {
+		async removeLocalAudio(id) {
+			await audioReady;
 			return withRecording(id, audio.removeLocal);
 		},
 		backup: {
 			get pending() {
 				return owed().length;
 			},
-			survey,
 			kick,
 		},
 		subscribe(listener) {
@@ -510,6 +551,9 @@ export function createWhisperingRecordings({
 	return {
 		recordings,
 		[Symbol.dispose]() {
+			disposed = true;
+			again = false;
+			knownAbsent.clear();
 			unsubscribeRecords();
 			listeners.clear();
 		},

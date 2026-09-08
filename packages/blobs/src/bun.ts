@@ -230,6 +230,9 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		stat(id) {
 			return statBlob(id);
 		},
+		statMany(ids) {
+			return Promise.all(ids.map(statBlob));
+		},
 
 		async delete(id) {
 			const validatedId = validateId(id);

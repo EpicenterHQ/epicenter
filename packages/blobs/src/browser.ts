@@ -226,6 +226,18 @@ export function createBrowserBlobStore({
 		put: (id, blob) => operate(id, () => store.put(id, blob)),
 		get: (id) => operate(id, () => store.get(id)),
 		stat: (id) => operate(id, () => store.stat(id)),
+		async statMany(ids) {
+			if (ids.length === 0) return [];
+			const result = await withLock<
+				Awaited<ReturnType<BlobStore['statMany']>>,
+				never
+			>(locks, database, 'shared', async () => Ok(await store.statMany(ids)));
+			if (result.error !== null)
+				return ids.map((id) =>
+					BlobStoreError.BlobStoreFailed({ id, cause: result.error }),
+				);
+			return result.data;
+		},
 		delete: (id) => operate(id, () => store.delete(id)),
 	};
 }
@@ -316,6 +328,44 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 			if (error !== null) return Err(error);
 			if (data === undefined) return BlobStoreError.BlobNotFound({ id });
 			return Ok({ size: data.size, contentType: data.contentType });
+		},
+
+		async statMany(ids) {
+			if (ids.length === 0) return [];
+			const result = await tryAsync({
+				try: () =>
+					withDatabase(indexedDb, databaseName, async (database) => {
+						const transaction = database.transaction(
+							METADATA_STORE,
+							'readonly',
+						);
+						const completed = whenTransactionCompletes(transaction);
+						const store = transaction.objectStore(METADATA_STORE);
+						// Queue every request before yielding, while the transaction is active.
+						const requests = ids.map(
+							(id) =>
+								requestResult(store.get(id)) as Promise<
+									StoredBlobMetadata | undefined
+								>,
+						);
+						const [metadata] = await Promise.all([
+							Promise.all(requests),
+							completed,
+						]);
+						return metadata;
+					}),
+				catch: (cause) => Err({ cause }),
+			});
+			if (result.error !== null)
+				return ids.map((id) =>
+					BlobStoreError.BlobStoreFailed({ id, cause: result.error.cause }),
+				);
+			return ids.map((id, index) => {
+				const metadata = result.data[index];
+				return metadata === undefined
+					? BlobStoreError.BlobNotFound({ id })
+					: Ok({ size: metadata.size, contentType: metadata.contentType });
+			});
 		},
 
 		delete(id) {

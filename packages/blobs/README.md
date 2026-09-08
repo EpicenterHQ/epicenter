@@ -40,7 +40,7 @@ boundary.
 ## Model
 
 - The local store is canonical for app operations. Blob capabilities are address-only: they act on ids the application already knows (no `list`, no `clear`), and application data supplies each id's meaning.
-- Blob bytes are immutable under an id. `put` refuses replacement, and `stat` reads size and content type without loading the bytes.
+- Blob bytes are immutable under an id. `put` refuses replacement, and `stat` reads size and content type without loading the bytes. `statMany(ids)` returns one result per supplied id in order; the browser uses one metadata transaction and never enumerates ids.
 - Missing bytes and immutable-ID collisions are expected, typed answers:
   `BlobNotFound`, `RemoteBlobNotFound`, and `BlobAlreadyExists`. Operational
   failures (`BlobStoreFailed`, `BlobRemoteFailed`) are separate variants

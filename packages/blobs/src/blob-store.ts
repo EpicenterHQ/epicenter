@@ -79,6 +79,13 @@ export type BlobStore = {
 	get(id: BlobId): Promise<Result<Blob, BlobNotFound | BlobStoreFailed>>;
 	/** Read size and content type without loading the bytes. */
 	stat(id: BlobId): Promise<Result<BlobStat, BlobNotFound | BlobStoreFailed>>;
+	/**
+	 * Read metadata for supplied ids, in input order. Browser stores use one
+	 * metadata transaction. Empty input performs no I/O; this never enumerates ids.
+	 */
+	statMany(
+		ids: readonly BlobId[],
+	): Promise<Result<BlobStat, BlobNotFound | BlobStoreFailed>[]>;
 	/** Remove the local bytes for an id. Idempotent: missing bytes are `Ok`. */
 	delete(id: BlobId): Promise<Result<void, BlobStoreFailed>>;
 };

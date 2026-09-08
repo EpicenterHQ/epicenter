@@ -41,7 +41,7 @@ export function createWebviewBlobStore({
 		});
 	}
 
-	return {
+	const store: BlobStore = {
 		async put(id, blob) {
 			const response = await request(id, {
 				method: 'PUT',
@@ -105,6 +105,10 @@ export function createWebviewBlobStore({
 			return Ok({ contentType, size });
 		},
 
+		statMany(ids) {
+			return Promise.all(ids.map((id) => store.stat(id)));
+		},
+
 		async delete(id) {
 			const response = await request(id, { method: 'DELETE' });
 			if (response.error !== null) return Err(response.error);
@@ -119,6 +123,7 @@ export function createWebviewBlobStore({
 			return Ok(undefined);
 		},
 	};
+	return store;
 }
 
 /**

@@ -4,7 +4,7 @@
  * Verifies the intentionally small automatic policy at the row-creation seam.
  *
  * Key behaviors:
- * - An enabled setting uploads the new row once, then kicks the reconciler once
+ * - An enabled setting kicks the reconciler after the row exists
  * - A disabled setting performs no upload and no kick
  * - Upload remains best-effort and does not block transcription
  * - History failure warns only after usable text is delivered
@@ -15,6 +15,10 @@ import { Err, Ok } from 'wellcrafted/result';
 import type { RecordingId } from '$lib/data';
 
 let autoUpload = true;
+let remoteAvailable = true;
+let creationError: { name: string; message: string } | null = null;
+const markFailed = mock();
+const markTranscribing = mock();
 let willPolish = false;
 const uploadAudio = mock(async () => Ok(undefined));
 const kick = mock(async () => ({
@@ -65,8 +69,8 @@ mock.module('$lib/report', () => ({
 }));
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
 	dictationLifecycle: {
-		markTranscribing: mock(),
-		markFailed: mock(),
+		markTranscribing,
+		markFailed,
 		markPolishing: mock(),
 		markDelivered: mock(),
 	},
@@ -80,12 +84,15 @@ type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 const app = {
 	settings: { get: () => autoUpload },
 	recordings: {
-		// Synchronous, like the domain it stands in for: the store commits before
-		// `create` returns, so there is no promise for the pipeline to await.
-		create(fields: Record<string, unknown>) {
-			return { ...fields, id: 'recording-1' as RecordingId };
+		// The row commits before the promise settles; failed creation awaits cleanup.
+		async create(fields: Record<string, unknown>) {
+			if (creationError !== null) return Err(creationError);
+			return Ok({ ...fields, id: 'recording-1' as RecordingId });
 		},
 		uploadAudio,
+		get remoteAvailable() {
+			return remoteAvailable;
+		},
 		backup: { kick },
 		update: mock(async () => Ok(undefined)),
 	},
@@ -93,20 +100,40 @@ const app = {
 
 afterEach(() => {
 	autoUpload = true;
+	remoteAvailable = true;
+	creationError = null;
 	willPolish = false;
 	historyError = null;
 	polishedHistoryError = null;
 });
 
-test('auto-upload sends the new row, then kicks the reconciler, only when enabled', async () => {
+test('failed creation reports dictation loss without entering transcription', async () => {
+	creationError = {
+		name: 'RowCreateFailed',
+		message: 'Could not create the recording.',
+	};
+	const transcribingBefore = markTranscribing.mock.calls.length;
+	await expect(
+		processRecordingPipeline(app, {
+			audioBlobId: generateBlobId(),
+			durationMs: 100,
+		}),
+	).rejects.toMatchObject(creationError);
+	expect(markFailed).toHaveBeenLastCalledWith({
+		tier: 'silent-loss',
+		error: creationError,
+	});
+	expect(markTranscribing).toHaveBeenCalledTimes(transcribingBefore);
+});
+
+test('auto-upload kicks only under policy with a remote, without bypassing the runner', async () => {
 	await processRecordingPipeline(app, {
 		audioBlobId: generateBlobId(),
 		durationMs: 100,
 		deliverySource: 'import',
 	});
 	await new Promise((settle) => setTimeout(settle, 0));
-	expect(uploadAudio).toHaveBeenCalledTimes(1);
-	expect(uploadAudio).toHaveBeenLastCalledWith('recording-1');
+	expect(uploadAudio).not.toHaveBeenCalled();
 	expect(kick).toHaveBeenCalledTimes(1);
 
 	autoUpload = false;
@@ -116,7 +143,15 @@ test('auto-upload sends the new row, then kicks the reconciler, only when enable
 		deliverySource: 'import',
 	});
 	await new Promise((settle) => setTimeout(settle, 0));
-	expect(uploadAudio).toHaveBeenCalledTimes(1);
+	expect(uploadAudio).not.toHaveBeenCalled();
+	expect(kick).toHaveBeenCalledTimes(1);
+	autoUpload = true;
+	remoteAvailable = false;
+	await processRecordingPipeline(app, {
+		audioBlobId: generateBlobId(),
+		durationMs: 100,
+		deliverySource: 'import',
+	});
 	expect(kick).toHaveBeenCalledTimes(1);
 });
 

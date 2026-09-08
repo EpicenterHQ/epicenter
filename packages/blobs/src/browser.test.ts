@@ -620,7 +620,86 @@ test('an exclusive erase excludes every ordinary verb without opening a database
 			cause: { name: 'BlobStoreHeld' },
 		});
 	}
+	for (const result of await store.statMany([id])) {
+		expect(expectErr(result)).toMatchObject({
+			name: 'BlobStoreFailed',
+			cause: { name: 'BlobStoreHeld' },
+		});
+	}
 	expect(await databaseNames()).not.toContain(databaseName);
+});
+
+test('batch stat reads only metadata in one transaction and preserves input order', async () => {
+	const { scope, blobs } = setup();
+	const first = generateBlobId();
+	const absent = generateBlobId();
+	const last = generateBlobId();
+	expectOk(await blobs.put(first, new Blob(['one'])));
+	expectOk(await blobs.put(last, new Blob(['second'])));
+	const transactions: (string | string[])[] = [];
+	const monitored = Object.create(indexedDB) as IDBFactory;
+	monitored.open = (name, version) => {
+		const request = indexedDB.open(name, version);
+		request.addEventListener('success', () => {
+			const database = request.result;
+			const transaction = database.transaction.bind(database);
+			database.transaction = (stores, mode, options) => {
+				transactions.push(stores);
+				return transaction(stores, mode, options);
+			};
+		});
+		return request;
+	};
+	const store = createBrowserBlobStore({
+		...scope,
+		indexedDb: monitored,
+		locks: testLocks,
+	});
+	const result = await store.statMany([last, absent, first, last]);
+	expect(result).toHaveLength(4);
+	expect(expectOk(result[0]!)).toMatchObject({ size: 6 });
+	expect(expectErr(result[1]!)).toMatchObject({
+		name: 'BlobNotFound',
+		id: absent,
+	});
+	expect(expectOk(result[2]!)).toMatchObject({ size: 3 });
+	expect(expectOk(result[3]!)).toMatchObject({ size: 6 });
+	expect(transactions).toEqual(['blob-metadata']);
+	expect(await store.statMany([])).toEqual([]);
+	expect(transactions).toEqual(['blob-metadata']);
+});
+
+test('an aborted metadata batch returns a storage failure for every requested id', async () => {
+	const { scope, blobs } = setup();
+	const id = generateBlobId();
+	expectOk(await blobs.put(id, new Blob(['preserved'])));
+	const monitored = Object.create(indexedDB) as IDBFactory;
+	monitored.open = (name, version) => {
+		const request = indexedDB.open(name, version);
+		request.addEventListener('success', () => {
+			const database = request.result;
+			const transaction = database.transaction.bind(database);
+			database.transaction = (stores, mode, options) => {
+				const result = transaction(stores, mode, options);
+				queueMicrotask(() => result.abort());
+				return result;
+			};
+		});
+		return request;
+	};
+	const store = createBrowserBlobStore({
+		...scope,
+		indexedDb: monitored,
+		locks: testLocks,
+	});
+	const ids = [id, generateBlobId()];
+	const results = await store.statMany(ids);
+	expect(results).toHaveLength(2);
+	expect(results.map((result) => expectErr(result).name)).toEqual([
+		'BlobStoreFailed',
+		'BlobStoreFailed',
+	]);
+	expect(await expectOk(await blobs.get(id)).text()).toBe('preserved');
 });
 
 test('a blocked delete reports failure but retains exclusion until the request actually settles', async () => {

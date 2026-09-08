@@ -419,11 +419,13 @@ function stubBunStore(overrides: Partial<BunRemoteStore> = {}): BunRemoteStore {
 }
 
 function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
-	return {
+	const store: BlobStore = {
 		put: async () => Ok(undefined),
 		get: async (id) => BlobStoreError.BlobNotFound({ id }),
 		stat: async (id) => BlobStoreError.BlobNotFound({ id }),
+		statMany: (ids) => Promise.all(ids.map((id) => store.stat(id))),
 		delete: async () => Ok(undefined),
 		...overrides,
 	};
+	return store;
 }

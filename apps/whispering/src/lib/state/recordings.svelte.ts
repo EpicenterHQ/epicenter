@@ -19,6 +19,7 @@ export function createRecordings({
 }: Pick<WhisperingApp, 'recordings'>): WhisperingRecordings {
 	const invalidate = createSubscriber((update) => recordings.subscribe(update));
 	return {
+		audioReady: recordings.audioReady,
 		get sorted() {
 			invalidate();
 			return recordings.sorted;
@@ -53,7 +54,6 @@ export function createRecordings({
 				invalidate();
 				return recordings.backup.pending;
 			},
-			survey: recordings.backup.survey,
 			kick: recordings.backup.kick,
 		},
 		subscribe: recordings.subscribe,

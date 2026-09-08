@@ -30,11 +30,8 @@ try {
 	await page.goto(`http://127.0.0.1:${server.port}`);
 	const result = await page.evaluate(async () => {
 		const moduleUrl = '/blobs.js';
-		const {
-			browserBlobStoreName,
-			createBrowserBlobStore,
-			createBrowserBlobSources,
-		} = await import(moduleUrl);
+		const { eraseBlobStore, createBrowserBlobStore, createBrowserBlobSources } =
+			await import(moduleUrl);
 		const fail = (error: unknown): never => {
 			throw new Error(
 				typeof error === 'object' && error !== null
@@ -70,6 +67,16 @@ try {
 		if ((await stored.data.text()) !== 'webkit bytes') {
 			throw new Error('Persisted bytes changed after reopen.');
 		}
+		const batch = await reopened.statMany([id, 'blob_zzzzzzzzzzzzzzzzzzzzz']);
+		if (
+			batch.length !== 2 ||
+			batch[0].data?.size !== input.size ||
+			batch[1].error?.name !== 'BlobNotFound'
+		) {
+			throw new Error(
+				'Batched metadata lost its input order or missing result.',
+			);
+		}
 
 		const sources = createBrowserBlobSources(reopened);
 		const opened = await sources.open(id);
@@ -95,7 +102,8 @@ try {
 		if (missing.error?.name !== 'BlobNotFound') {
 			throw new Error('Deleted bytes remained readable.');
 		}
-		indexedDB.deleteDatabase(browserBlobStoreName(scope));
+		const erased = await eraseBlobStore(scope);
+		if (erased.error) fail(erased.error);
 		return { size: stat.data.size, contentType: stat.data.contentType };
 	});
 	process.stdout.write(

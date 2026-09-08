@@ -48,34 +48,39 @@ export async function processRecordingPipeline(
 	// the pill from `recording` to `transcribing`. File imports have their own
 	// surface, so they leave the dictation lifecycle untouched.
 	const isDictation = deliverySource === 'recording';
+	// Row creation awaits cleanup of committed audio if its row cannot be written.
+	const { data: recording, error: creationError } = await app.recordings.create(
+		{
+			audioBlobId,
+			title: '',
+			recordedAt: now,
+			recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			transcript: '',
+			polishedTranscript: null,
+			duration: durationMs,
+			// The recording domain initializes the transcription columns explicitly, so
+			// a fresh recording is `pending` with no completion and no error.
+		},
+	);
+	if (creationError !== null) {
+		if (isDictation)
+			dictationLifecycle.markFailed({
+				tier: 'silent-loss',
+				error: creationError,
+			});
+		throw creationError;
+	}
 	if (isDictation) dictationLifecycle.markTranscribing();
 
-	// Row creation owns row/blob consistency: if the row cannot be written,
-	// `create` releases the already-committed audio and throws, so a lost row
-	// never strands bytes.
-	const recording = app.recordings.create({
-		audioBlobId,
-		title: '',
-		recordedAt: now,
-		recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		transcript: '',
-		polishedTranscript: null,
-		duration: durationMs,
-		// The recording domain initializes the transcription columns explicitly, so
-		// a fresh recording is `pending` with no completion and no error.
-	});
-
-	if (app.settings.get('recordingAutoUpload')) {
-		// The new row first, so it does not wait behind older failures, then one
-		// kick of the reconciler for whatever else this device still owes. No
-		// toast on failure: the rows are the queue, and the recordings page says
-		// how many are waiting, which is a surface that does not scroll away.
-		void app.recordings
-			.uploadAudio(recording.id)
-			.then(() => app.recordings.backup.kick())
-			.catch((cause: unknown) => {
-				log.warn(new Error('Backup after recording threw', { cause }));
-			});
+	if (
+		app.settings.get('recordingAutoUpload') &&
+		app.recordings.remoteAvailable
+	) {
+		// The row is committed before discovery, and every automatic upload uses
+		// the same flight. A new recording during a pass schedules another pass.
+		void app.recordings.backup.kick().catch((cause: unknown) => {
+			log.warn(new Error('Backup after recording threw', { cause }));
+		});
 	}
 
 	// File import has no pill, so it keeps a progress toast; the dictation path is

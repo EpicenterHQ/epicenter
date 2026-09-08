@@ -56,6 +56,9 @@ const local: BlobStore = {
 	async stat() {
 		return Ok({ size: 0, contentType: 'application/octet-stream' });
 	},
+	statMany(ids) {
+		return Promise.all(ids.map((id) => local.stat(id)));
+	},
 	async delete() {
 		return Ok(undefined);
 	},
