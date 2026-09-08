@@ -4,7 +4,7 @@ import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
 	deleteUnscopedBrowserBlobs,
-	eraseBrowserBlobStore,
+	eraseBlobStore,
 	unscopedBrowserBlobs,
 } from '@epicenter/blobs/browser';
 import {
@@ -14,14 +14,7 @@ import {
 import type { PrincipalId } from '@epicenter/principal';
 import { auth, authClient } from '#platform/auth';
 import type { WhisperingBlobs } from '$lib/whispering/app';
-
-// The server and the authenticated fetch are boot facts, so they come off
-// `authClient`: reading them through the reactive surface would track nothing
-// and only suggest they change.
-const epicenterClient = createEpicenterClient({
-	baseURL: authClient.connection.baseURL,
-	fetch: authClient.fetch,
-});
+import { createPrincipalFetch } from './principal-fetch.js';
 
 /**
  * Browser composition: one account's IndexedDB bytes, the hosted remote copy
@@ -46,6 +39,10 @@ export function createWhisperingBlobs({
 	principalId: PrincipalId;
 }): WhisperingBlobs {
 	const local = createBrowserBlobStore({ appId, principalId });
+	const epicenterClient = createEpicenterClient({
+		baseURL: authClient.connection.baseURL,
+		fetch: createPrincipalFetch(authClient, principalId),
+	});
 	const remote = createBrowserBlobRemote({ local, client: epicenterClient });
 	return {
 		local,
@@ -53,7 +50,10 @@ export function createWhisperingBlobs({
 		// reload the page (ADR-0088), and the remote copy is exactly what stops
 		// working there, so this answer has to change underneath a live app.
 		get remote() {
-			return auth.state.status === 'signed-in' ? remote : null;
+			return auth.state.status === 'signed-in' &&
+				auth.state.principalId === principalId
+				? remote
+				: null;
 		},
 		sources: createBrowserBlobSources(local),
 		unscoped: {
@@ -72,4 +72,4 @@ export function createWhisperingBlobs({
  * held the store has closed.
  */
 export const eraseWhisperingBlobs = (scope: BrowserBlobScope) =>
-	eraseBrowserBlobStore(scope);
+	eraseBlobStore(scope);

@@ -53,7 +53,5 @@ export function createWhisperingBlobs(
 export const eraseWhisperingBlobs:
 	| ((
 			scope: BrowserBlobScope,
-	  ) => ReturnType<
-			typeof import('@epicenter/blobs/browser').eraseBrowserBlobStore
-	  >)
+	  ) => ReturnType<typeof import('@epicenter/blobs/browser').eraseBlobStore>)
 	| null = null;

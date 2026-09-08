@@ -9,7 +9,7 @@
 
 	/**
 	 * What an earlier version of Whispering left in the origin-wide store and
-	 * this account's rows do not cite (ADR-0349). It may be another account's,
+	 * this account has not yet claimed (ADR-0349). It may be another account's,
 	 * so nothing deletes it but a person who has been told that (ADR-0351).
 	 * Renders nothing when there is nothing.
 	 */
@@ -57,7 +57,7 @@
 			onclick={() =>
 				confirmationDialog.open({
 					title: 'Delete unclaimed audio?',
-					description: `This deletes ${count} ${count === 1 ? 'audio file' : 'audio files'} (${megabytes(bytes)} MB) that no recording in this account uses. If another account on this browser still needs them, they will be gone for that account too. Nothing online is affected.`,
+					description: `This deletes ${count} ${count === 1 ? 'audio file' : 'audio files'} (${megabytes(bytes)} MB) that have not been moved into this account. Some may still be needed by this account or another account on this browser. Deleting them cannot be undone. Nothing online is affected.`,
 					confirm: { text: 'Delete', variant: 'destructive' },
 					onConfirm: () => remove.mutate(),
 				})}

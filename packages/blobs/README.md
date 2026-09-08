@@ -9,7 +9,7 @@ database per application per account at
 `epicenter/v5/<app-id>/<principal-id>/blobs` (`browserBlobStoreName`), the
 sibling of that account's replica address; `createBrowserBlobStore` takes the
 scope and never a raw name, so an unscoped store cannot be built.
-`eraseBrowserBlobStore` deletes one account's database under an exclusive Web
+`eraseBlobStore` deletes one account's database under an exclusive Web
 Lock, and `claimUnscopedBrowserBlobs` moves the bytes an earlier build wrote to
 the origin-wide `epicenter-blobs` into an account's store, by the ids its rows
 cite; what no row cites is summarized by `unscopedBrowserBlobs` and deleted only

@@ -201,10 +201,33 @@ export function createBrowserBlobStore({
 	appId,
 	principalId,
 	indexedDb = indexedDB,
+	locks = platformLocks(),
 }: BrowserBlobScope & {
 	indexedDb?: IDBFactory;
+	locks?: BlobLockManager;
 }): BlobStore {
-	return createStoreAt(browserBlobStoreName({ appId, principalId }), indexedDb);
+	const database = browserBlobStoreName({ appId, principalId });
+	const store = createStoreAt(database, indexedDb);
+	async function operate<TValue, TError>(
+		id: BlobId,
+		run: () => Promise<Result<TValue, TError>>,
+	): Promise<Result<TValue, TError | BlobStoreFailed>> {
+		const result = await withLock<Result<TValue, TError>, never>(
+			locks,
+			database,
+			'shared',
+			async () => Ok(await run()),
+		);
+		if (result.error !== null)
+			return BlobStoreError.BlobStoreFailed({ id, cause: result.error });
+		return result.data;
+	}
+	return {
+		put: (id, blob) => operate(id, () => store.put(id, blob)),
+		get: (id) => operate(id, () => store.get(id)),
+		stat: (id) => operate(id, () => store.stat(id)),
+		delete: (id) => operate(id, () => store.delete(id)),
+	};
 }
 
 /** The store over one database, whatever it is named. */
@@ -373,14 +396,14 @@ const DELETE_BLOCKED_TIMEOUT_MS = 10_000;
 /**
  * The slice of the Web Locks API an erase and a claim need, declared so a
  * test can hand in its own and so the assumption about the platform is
- * written down: exclusive mode, and refuse rather than queue.
+ * written down: shared operations, exclusive erasure, and refuse rather than queue.
  */
 export type BlobLockManager = {
-	request(
+	request<TValue>(
 		name: string,
-		options: { mode: 'exclusive'; ifAvailable: true },
-		callback: (lock: unknown) => Promise<void> | undefined,
-	): Promise<unknown>;
+		options: { mode: 'shared' | 'exclusive'; ifAvailable: true },
+		callback: (lock: unknown) => Promise<TValue>,
+	): Promise<TValue>;
 };
 
 function platformLocks(): BlobLockManager | undefined {
@@ -399,12 +422,12 @@ function lockName(database: string): string {
 export const BrowserBlobStoreError = defineErrors({
 	/** No `navigator.locks`. Refused rather than run unguarded. */
 	LocksUnsupported: ({ database }: { database: string }) => ({
-		message: `This runtime has no Web Locks, so '${database}' cannot be erased or claimed safely.`,
+		message: `This runtime has no Web Locks, so '${database}' cannot be accessed safely.`,
 		database,
 	}),
-	/** Another erase or claim holds this database right now. */
+	/** An incompatible operation holds this database right now. */
 	BlobStoreHeld: ({ database }: { database: string }) => ({
-		message: `'${database}' is being erased or claimed by another tab.`,
+		message: `'${database}' is held by another blob operation.`,
 		database,
 	}),
 	/** The lock request itself threw, for a reason nobody can name. */
@@ -440,55 +463,50 @@ export const BrowserBlobStoreError = defineErrors({
 export type BrowserBlobStoreError = InferErrors<typeof BrowserBlobStoreError>;
 
 /**
- * Run one operation while holding the exclusive lock on one database, or
+ * Run one operation while holding a lock on one database, or
  * report why it could not be taken. `run` must resolve a `Result` and never
  * reject; a rejection here is reported as the lock request failing, which is
  * the one channel a thrown callback has.
  */
-function withExclusiveLock<TValue, TError>(
+async function withLock<TValue, TError>(
 	locks: BlobLockManager | undefined,
 	database: string,
+	mode: 'shared' | 'exclusive',
 	run: () => Promise<Result<TValue, TError>>,
 ): Promise<Result<TValue, TError | BrowserBlobStoreError>> {
 	if (locks === undefined) {
-		return Promise.resolve(
-			BrowserBlobStoreError.LocksUnsupported({ database }),
-		);
+		return BrowserBlobStoreError.LocksUnsupported({ database });
 	}
-	return new Promise((settle) => {
-		void locks
-			.request(
+	const result = await tryAsync({
+		try: () =>
+			locks.request(
 				lockName(database),
-				{ mode: 'exclusive', ifAvailable: true },
-				(lock) => {
-					if (lock === null) {
-						settle(BrowserBlobStoreError.BlobStoreHeld({ database }));
-						return undefined;
-					}
-					// The lock is held for exactly as long as this promise is pending.
-					return run().then(settle);
-				},
-			)
-			.catch((cause: unknown) =>
-				settle(BrowserBlobStoreError.LockRequestFailed({ database, cause })),
-			);
+				{ mode, ifAvailable: true },
+				async (
+					lock,
+				): Promise<Result<TValue, TError | BrowserBlobStoreError>> =>
+					lock === null
+						? BrowserBlobStoreError.BlobStoreHeld({ database })
+						: run(),
+			),
+		catch: (cause) =>
+			BrowserBlobStoreError.LockRequestFailed({ database, cause }),
 	});
+	return result.error === null ? result.data : Err(result.error);
 }
 
 /**
  * Delete one database whole, waiting out a transient block.
  *
- * Every connection this package opens closes at the end of its verb, so a
- * `blocked` event means a verb in another tab is mid-flight and the delete
- * completes the moment it finishes. That is the opposite of the replica's
- * rule, where a connection is held for a store's whole life and `blocked` can
- * only be foreign. Waiting is bounded so a context that does keep one open
- * cannot hang an exit; after the bound this reports failure, and the delete
- * stays pending in the browser and lands when the connection closes.
+ * Cooperative operations have already released their shared locks and closed
+ * their connections. A foreign connection can still block deletion. Report
+ * that to the caller after a bound, but keep this promise pending: IndexedDB
+ * cannot cancel the request, so its exclusive lock must outlive the timeout.
  */
 function deleteDatabase(
 	indexedDb: IDBFactory,
 	database: string,
+	reportBlocked: (cause: Error) => void,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const request = indexedDb.deleteDatabase(database);
@@ -504,7 +522,7 @@ function deleteDatabase(
 		request.onblocked = () => {
 			timer ??= setTimeout(
 				() =>
-					reject(
+					reportBlocked(
 						new Error(
 							'Another tab is holding this blob store open. Close it first.',
 						),
@@ -522,14 +540,12 @@ function deleteDatabase(
  * captured principal, never a widened filter: generation enumeration must not
  * learn to see this database. It never touches the authority's copy.
  *
- * It takes the exclusive lock so it cannot interleave with a claim writing
- * into the same database, and refuses rather than queues when one holds it.
- * Ordinary verbs take no lock: a `put` that starts after this completes
- * recreates the database, and no lock here can prevent that. What prevents it
- * is the exit's order, which closes the session and blocks the exit while a
- * recording is active, so the last verb has landed before this runs.
+ * Every verb takes a shared lock for its entire operation; erase refuses
+ * while any verb or claim holds the database. Callers must stop producers
+ * before erasing. These operation locks cannot prevent a surviving idle
+ * handle or a newly opened session from creating the database afterward.
  */
-export function eraseBrowserBlobStore({
+export function eraseBlobStore({
 	appId,
 	principalId,
 	indexedDb = indexedDB,
@@ -539,13 +555,27 @@ export function eraseBrowserBlobStore({
 	locks?: BlobLockManager;
 }): Promise<Result<void, BrowserBlobStoreError>> {
 	const database = browserBlobStoreName({ appId, principalId });
-	return withExclusiveLock(locks, database, () =>
-		tryAsync({
-			try: () => deleteDatabase(indexedDb, database),
-			catch: (cause) =>
-				BrowserBlobStoreError.BlobEraseFailed({ database, cause }),
-		}),
-	);
+	return eraseDatabase(indexedDb, locks, database);
+}
+
+/** A blocked delete can report failure, but keeps its lock until IndexedDB settles. */
+function eraseDatabase(
+	indexedDb: IDBFactory,
+	locks: BlobLockManager | undefined,
+	database: string,
+): Promise<Result<void, BrowserBlobStoreError>> {
+	return new Promise((settle) => {
+		void withLock(locks, database, 'exclusive', () =>
+			tryAsync({
+				try: () =>
+					deleteDatabase(indexedDb, database, (cause) =>
+						settle(BrowserBlobStoreError.BlobEraseFailed({ database, cause })),
+					),
+				catch: (cause) =>
+					BrowserBlobStoreError.BlobEraseFailed({ database, cause }),
+			}),
+		).then(settle);
+	});
 }
 
 /** What an earlier build left in the unscoped store, without naming any of it. */
@@ -622,13 +652,17 @@ function summarizeUnscoped(
  */
 export async function unscopedBrowserBlobs({
 	indexedDb = indexedDB,
+	locks = platformLocks(),
 }: {
 	indexedDb?: IDBFactory;
+	locks?: BlobLockManager;
 } = {}): Promise<Result<UnscopedBlobSummary, BrowserBlobStoreError>> {
-	const exists = await unscopedExists(indexedDb);
-	if (exists.error !== null) return Err(exists.error);
-	if (!exists.data) return Ok({ count: 0, bytes: 0 });
-	return summarizeUnscoped(indexedDb);
+	return withLock(locks, UNSCOPED_DATABASE_NAME, 'shared', async () => {
+		const exists = await unscopedExists(indexedDb);
+		if (exists.error !== null) return Err(exists.error);
+		if (!exists.data) return Ok({ count: 0, bytes: 0 });
+		return summarizeUnscoped(indexedDb);
+	});
 }
 
 /**
@@ -645,8 +679,7 @@ export async function unscopedBrowserBlobs({
  *
  * Bytes no supplied row cites are somebody else's or nobody's, and ADR-0351
  * forbids deleting bytes of unproven ownership, so they stay and are counted.
- * Only when nothing at all remains is the empty database deleted, because an
- * empty database is nobody's.
+ * Even an empty legacy database stays until an explicit delete.
  *
  * One failed id is skipped and the walk goes on; a second consecutive failure
  * is systemic (quota, a blocked open) and aborts with that error. Both locks
@@ -668,20 +701,19 @@ export async function claimUnscopedBrowserBlobs({
 }): Promise<
 	Result<UnscopedBlobClaim, BrowserBlobStoreError | BlobStoreFailed>
 > {
-	const exists = await unscopedExists(indexedDb);
-	if (exists.error !== null) return Err(exists.error);
-	if (!exists.data) {
-		return Ok({
-			claimed: 0,
-			absent: ids.length,
-			skipped: 0,
-			unclaimed: { count: 0, bytes: 0 },
-		});
-	}
 	const database = browserBlobStoreName({ appId, principalId });
 	const walk = async (): Promise<
 		Result<UnscopedBlobClaim, BrowserBlobStoreError | BlobStoreFailed>
 	> => {
+		const exists = await unscopedExists(indexedDb);
+		if (exists.error !== null) return Err(exists.error);
+		if (!exists.data)
+			return Ok({
+				claimed: 0,
+				absent: ids.length,
+				skipped: 0,
+				unclaimed: { count: 0, bytes: 0 },
+			});
 		const unscoped = createStoreAt(UNSCOPED_DATABASE_NAME, indexedDb);
 		const scoped = createStoreAt(database, indexedDb);
 		const claim = { claimed: 0, absent: 0, skipped: 0 };
@@ -725,21 +757,10 @@ export async function claimUnscopedBrowserBlobs({
 
 		const unclaimed = await summarizeUnscoped(indexedDb);
 		if (unclaimed.error !== null) return Err(unclaimed.error);
-		if (unclaimed.data.count === 0) {
-			const { error } = await tryAsync({
-				try: () => deleteDatabase(indexedDb, UNSCOPED_DATABASE_NAME),
-				catch: (cause) =>
-					BrowserBlobStoreError.BlobEraseFailed({
-						database: UNSCOPED_DATABASE_NAME,
-						cause,
-					}),
-			});
-			if (error !== null) return Err(error);
-		}
 		return Ok({ ...claim, unclaimed: unclaimed.data });
 	};
-	return withExclusiveLock(locks, database, () =>
-		withExclusiveLock(locks, UNSCOPED_DATABASE_NAME, walk),
+	return withLock(locks, database, 'shared', () =>
+		withLock(locks, UNSCOPED_DATABASE_NAME, 'exclusive', walk),
 	);
 }
 
@@ -758,14 +779,5 @@ export function deleteUnscopedBrowserBlobs({
 	indexedDb?: IDBFactory;
 	locks?: BlobLockManager;
 } = {}): Promise<Result<void, BrowserBlobStoreError>> {
-	return withExclusiveLock(locks, UNSCOPED_DATABASE_NAME, () =>
-		tryAsync({
-			try: () => deleteDatabase(indexedDb, UNSCOPED_DATABASE_NAME),
-			catch: (cause) =>
-				BrowserBlobStoreError.BlobEraseFailed({
-					database: UNSCOPED_DATABASE_NAME,
-					cause,
-				}),
-		}),
-	);
+	return eraseDatabase(indexedDb, locks, UNSCOPED_DATABASE_NAME);
 }

@@ -15,6 +15,7 @@ import { asPrincipalId } from '@epicenter/principal';
 import { indexedDB } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
+import type { BlobStoreError } from './blob-store.js';
 import {
 	type BlobLockManager,
 	browserBlobStoreName,
@@ -22,9 +23,11 @@ import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
 	deleteUnscopedBrowserBlobs,
-	eraseBrowserBlobStore,
+	eraseBlobStore,
 	unscopedBrowserBlobs,
 } from './browser.js';
+
+const testLocks = fakeLocks().locks;
 
 const APP_ID = 'so.epicenter.test';
 
@@ -37,7 +40,11 @@ function setup() {
 	return {
 		scope,
 		databaseName: browserBlobStoreName(scope),
-		blobs: createBrowserBlobStore({ ...scope, indexedDb: indexedDB }),
+		blobs: createBrowserBlobStore({
+			...scope,
+			indexedDb: indexedDB,
+			locks: testLocks,
+		}),
 	};
 }
 
@@ -118,6 +125,7 @@ test('put persists bytes and metadata across store instances', async () => {
 	const reopened = createBrowserBlobStore({
 		...scope,
 		indexedDb: indexedDB,
+		locks: testLocks,
 	});
 	const stored = expectOk(await reopened.get(id));
 	const stat = expectOk(await reopened.stat(id));
@@ -324,6 +332,7 @@ test('blocked database opens reject and close a later connection', async () => {
 	const blobs = createBrowserBlobStore({
 		...setup().scope,
 		indexedDb: blockedIndexedDb,
+		locks: testLocks,
 	});
 
 	const error = expectErr(await blobs.get(id));
@@ -337,20 +346,28 @@ test('blocked database opens reject and close a later connection', async () => {
 });
 
 /**
- * An in-test Web Locks manager: exclusive mode and `ifAvailable`, which is
- * the whole of what an erase or a claim asks for. Injected rather than
+ * An in-test Web Locks manager with shared readers and exclusive erasure.
+ * It refuses conflicts with `ifAvailable`. Injected rather than
  * installed on `navigator`, so a test can hold a name and watch the refusal.
  */
 function fakeLocks() {
 	const held = new Set<string>();
+	const readers = new Map<string, number>();
 	const locks: BlobLockManager = {
-		async request(name, _options, callback) {
-			if (held.has(name)) return callback(null);
-			held.add(name);
+		async request(name, { mode }, callback) {
+			if (held.has(name) || (mode === 'exclusive' && readers.has(name)))
+				return callback(null);
+			if (mode === 'exclusive') held.add(name);
+			else readers.set(name, (readers.get(name) ?? 0) + 1);
 			try {
 				return await callback({ name });
 			} finally {
-				held.delete(name);
+				if (mode === 'exclusive') held.delete(name);
+				else {
+					const count = (readers.get(name) ?? 1) - 1;
+					if (count === 0) readers.delete(name);
+					else readers.set(name, count);
+				}
 			}
 		},
 	};
@@ -401,7 +418,7 @@ test("erase deletes one account's database and leaves the other account's", asyn
 	expectOk(await second.blobs.put(id, new Blob(['theirs'])));
 
 	expectOk(
-		await eraseBrowserBlobStore({
+		await eraseBlobStore({
 			...first.scope,
 			indexedDb: indexedDB,
 			locks: fakeLocks().locks,
@@ -423,13 +440,11 @@ test('erase refuses rather than queues while a claim holds the store, and refuse
 	held.add(`epicenter.blobs:${databaseName}`);
 
 	expect(
-		expectErr(
-			await eraseBrowserBlobStore({ ...scope, indexedDb: indexedDB, locks }),
-		),
+		expectErr(await eraseBlobStore({ ...scope, indexedDb: indexedDB, locks })),
 	).toMatchObject({ name: 'BlobStoreHeld', database: databaseName });
 	expect(
 		expectErr(
-			await eraseBrowserBlobStore({
+			await eraseBlobStore({
 				...scope,
 				indexedDb: indexedDB,
 				locks: undefined,
@@ -463,7 +478,9 @@ test('a claim against a browser that never had the unscoped store creates nothin
 	});
 	expect(await databaseNames()).not.toContain('epicenter-blobs');
 	expect(
-		expectOk(await unscopedBrowserBlobs({ indexedDb: indexedDB })),
+		expectOk(
+			await unscopedBrowserBlobs({ indexedDb: indexedDB, locks: testLocks }),
+		),
 	).toEqual({ count: 0, bytes: 0 });
 });
 
@@ -514,7 +531,7 @@ test('a claim moves the cited bytes, leaves the uncited ones counted, and is ide
 	expect(await databaseNames()).not.toContain('epicenter-blobs');
 });
 
-test('a claim that empties the unscoped store deletes it, and holds both locks while it runs', async () => {
+test('a claim keeps even an empty unscoped store, and holds both locks while it runs', async () => {
 	const { scope, databaseName } = setup();
 	const { held, locks } = fakeLocks();
 	const id = generateBlobId();
@@ -529,7 +546,7 @@ test('a claim that empties the unscoped store deletes it, and holds both locks w
 		}),
 	);
 	expect(claim.unclaimed).toEqual({ count: 0, bytes: 0 });
-	expect(await databaseNames()).not.toContain('epicenter-blobs');
+	expect(await databaseNames()).toContain('epicenter-blobs');
 
 	held.add(`epicenter.blobs:${databaseName}`);
 	await seedUnscoped(generateBlobId(), 'held');
@@ -552,3 +569,86 @@ test('a claim that empties the unscoped store deletes it, and holds both locks w
 	held.clear();
 	expectOk(await deleteUnscopedBrowserBlobs({ indexedDb: indexedDB, locks }));
 });
+
+test('erase refuses a put before its bytes finish converting, while another shared read succeeds', async () => {
+	const { scope } = setup();
+	const { locks } = fakeLocks();
+	const store = createBrowserBlobStore({
+		...scope,
+		indexedDb: indexedDB,
+		locks,
+	});
+	const bytes = Promise.withResolvers<ArrayBuffer>();
+	const started = Promise.withResolvers<void>();
+	const blob = new Blob(['pending']);
+	blob.arrayBuffer = () => {
+		started.resolve();
+		return bytes.promise;
+	};
+	const id = generateBlobId();
+	const put = store.put(id, blob);
+	await started.promise;
+	expect(expectErr(await store.stat(id)).name).toBe('BlobNotFound');
+	expect(
+		expectErr(await eraseBlobStore({ ...scope, indexedDb: indexedDB, locks }))
+			.name,
+	).toBe('BlobStoreHeld');
+	bytes.resolve(new TextEncoder().encode('pending').buffer);
+	expectOk(await put);
+	expectOk(await eraseBlobStore({ ...scope, indexedDb: indexedDB, locks }));
+	expect(await databaseNames()).not.toContain(browserBlobStoreName(scope));
+});
+
+test('an exclusive erase excludes every ordinary verb without opening a database', async () => {
+	const { scope, databaseName } = setup();
+	const { held, locks } = fakeLocks();
+	const store = createBrowserBlobStore({
+		...scope,
+		indexedDb: indexedDB,
+		locks,
+	});
+	held.add(`epicenter.blobs:${databaseName}`);
+	const id = generateBlobId();
+	for (const result of await Promise.all([
+		store.put(id, new Blob(['blocked'])),
+		store.get(id),
+		store.stat(id),
+		store.delete(id),
+	])) {
+		expect(expectErr<BlobStoreError>(result)).toMatchObject({
+			name: 'BlobStoreFailed',
+			cause: { name: 'BlobStoreHeld' },
+		});
+	}
+	expect(await databaseNames()).not.toContain(databaseName);
+});
+
+test('a blocked delete reports failure but retains exclusion until the request actually settles', async () => {
+	const { scope } = setup();
+	const { locks } = fakeLocks();
+	const request = {} as IDBOpenDBRequest;
+	const indexedDb = {
+		deleteDatabase() {
+			queueMicrotask(() =>
+				request.onblocked?.(new Event('blocked') as IDBVersionChangeEvent),
+			);
+			return request;
+		},
+	} as unknown as IDBFactory;
+	const result = await eraseBlobStore({ ...scope, indexedDb, locks });
+	expect(expectErr(result).name).toBe('BlobEraseFailed');
+	const store = createBrowserBlobStore({
+		...scope,
+		indexedDb: indexedDB,
+		locks,
+	});
+	expect(expectErr(await store.get(generateBlobId()))).toMatchObject({
+		cause: { name: 'BlobStoreHeld' },
+	});
+	request.onsuccess?.(new Event('success'));
+	// Let the request and lock-release promise settle.
+	await Bun.sleep(0);
+	expect(expectErr(await store.get(generateBlobId())).name).toBe(
+		'BlobNotFound',
+	);
+}, 15_000);
