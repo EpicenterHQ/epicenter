@@ -226,9 +226,43 @@ try {
 		assert.equal(returnTo.origin, origin);
 		return c.redirect(returnTo.href);
 	});
-	app.get('/api/billing/portal', (c) =>
-		c.json({ portalUrl: `${origin}/dashboard` }),
-	);
+	function fixtureReturnUrl(value) {
+		try {
+			const url = new URL(value);
+			if (url.origin !== origin || url.username || url.password) return null;
+			if (
+				!['/dashboard', '/dashboard/account', '/dashboard/usage'].includes(
+					url.pathname,
+				)
+			)
+				return null;
+			return url;
+		} catch {
+			return null;
+		}
+	}
+	app.get('/api/billing/portal', (c) => {
+		const returnTo = fixtureReturnUrl(c.req.query('returnUrl'));
+		if (!returnTo)
+			return c.text('The fixture requires a local dashboard return URL.', 400);
+		return c.json({
+			portalUrl: `${origin}/fixture/billing-portal?returnTo=${encodeURIComponent(returnTo.href)}`,
+		});
+	});
+	app.get('/fixture/billing-portal', (c) => {
+		const returnTo = fixtureReturnUrl(c.req.query('returnTo'));
+		if (!returnTo)
+			return c.text('The fixture requires a local dashboard return URL.', 400);
+		return c.html(
+			`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Simulated billing portal</title><main style="max-width:40rem;margin:5rem auto;padding:1.5rem;font:1rem/1.6 system-ui"><h1>Simulated billing portal</h1><p>Local test only. No payment provider is connected and no charges can occur.</p><p>The real billing portal manages payment methods and invoices. This fixture only demonstrates leaving the dashboard and returning to the same account.</p><a href="/fixture/billing-portal/return?returnTo=${encodeURIComponent(returnTo.href)}">Return to Epicenter</a></main></html>`,
+		);
+	});
+	app.get('/fixture/billing-portal/return', (c) => {
+		const returnTo = fixtureReturnUrl(c.req.query('returnTo'));
+		return returnTo
+			? c.redirect(returnTo.href)
+			: c.text('The fixture requires a local dashboard return URL.', 400);
+	});
 	app.get('/dashboard', shell);
 	app.get('/dashboard/*', shell);
 	app.get('/*', async (c) => {
@@ -391,6 +425,69 @@ try {
 		new URL(page.url()).searchParams.get('expectedPrincipal'),
 		alice.id,
 	);
+	const portalReturn = page.url();
+	await page
+		.getByRole('button', { name: 'Manage billing', exact: true })
+		.click();
+	await page
+		.getByRole('heading', { name: 'Simulated billing portal', exact: true })
+		.waitFor();
+	await page
+		.getByText(
+			'Local test only. No payment provider is connected and no charges can occur.',
+			{ exact: true },
+		)
+		.waitFor();
+	await page.screenshot({
+		path: '/tmp/epicenter-account-simulated-portal.png',
+		fullPage: true,
+	});
+	await page
+		.getByRole('link', { name: 'Return to Epicenter', exact: true })
+		.click();
+	await page.waitForURL(portalReturn);
+	await page.getByText('2,050', { exact: true }).waitFor();
+	assert.equal(
+		(
+			await fetch(
+				`${origin}/fixture/billing-portal/return?returnTo=${encodeURIComponent('https://example.test/dashboard')}`,
+				{ redirect: 'manual' },
+			)
+		).status,
+		400,
+	);
+
+	// Theme is a persistent menu preference: toggling must not dismiss its menu.
+	await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+	const startedDark = await page
+		.locator('html')
+		.evaluate((element) => element.classList.contains('dark'));
+	for (const dark of [!startedDark, startedDark]) {
+		await page
+			.getByRole('menuitem', {
+				name: dark ? 'Dark mode' : 'Light mode',
+				exact: true,
+			})
+			.click();
+		await page
+			.getByRole('menuitem', {
+				name: dark ? 'Light mode' : 'Dark mode',
+				exact: true,
+			})
+			.waitFor();
+		await page.waitForFunction(
+			(expectedDark) =>
+				document.documentElement.classList.contains('dark') === expectedDark,
+			dark,
+		);
+		assert.equal(
+			await page
+				.locator('html')
+				.evaluate((element) => element.classList.contains('dark')),
+			dark,
+		);
+	}
+	await page.keyboard.press('Escape');
 	await page.screenshot({
 		path: '/tmp/epicenter-account-credits.png',
 		fullPage: true,
@@ -483,6 +580,17 @@ try {
 		.getByText('alice@example.test', { exact: true })
 		.waitFor();
 	await page.getByText('No passkeys yet.', { exact: true }).waitFor();
+	const connectedAccountsCard = page
+		.locator('[data-slot="card"]')
+		.filter({ has: page.getByText('Connected accounts', { exact: true }) });
+	await connectedAccountsCard
+		.getByText('No connected accounts yet.', { exact: true })
+		.waitFor();
+	assert.equal(await connectedAccountsCard.locator('ul').count(), 0);
+	assert.equal(
+		await connectedAccountsCard.locator('[data-slot="separator"]').count(),
+		0,
+	);
 	const registration = page.waitForResponse((response) =>
 		response.url().endsWith('/auth/passkey/verify-registration'),
 	);
@@ -506,7 +614,7 @@ try {
 			.getByRole('button', {
 				name:
 					new URL(page.url()).pathname === '/dashboard'
-						? 'Manage billing'
+						? /Manage billing|Opening billing/
 						: 'Add a passkey',
 				exact: true,
 			})
@@ -546,7 +654,9 @@ try {
 			const ceremonyReturn = page.url();
 			const release = Promise.withResolvers();
 			const destination = `${origin}/dashboard?smoke=${ceremony}`;
+			let ceremonyRequests = 0;
 			const handler = async (route) => {
+				ceremonyRequests += 1;
 				await release.promise;
 				await route.fulfill({
 					json:
@@ -571,6 +681,12 @@ try {
 						.click();
 				}
 				const request = await entered;
+				if (ceremony === 'portal') {
+					const pending = page.getByRole('button', { name: /Opening billing/ });
+					assert.equal(await pending.isDisabled(), true);
+					await pending.evaluate((button) => button.click());
+					assert.equal(ceremonyRequests, 1);
+				}
 				assert.equal(
 					request.headers().authorization,
 					`Bearer ${persisted.token}`,

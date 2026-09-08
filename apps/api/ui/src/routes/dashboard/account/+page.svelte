@@ -317,6 +317,8 @@
 						{linkedQuery.error.message || 'Could not load connected accounts.'}
 					</Alert.Description>
 				</Alert.Root>
+			{:else if linkedAccounts.length === 0}
+				<p class="text-sm text-muted-foreground">No connected accounts yet.</p>
 			{:else}
 				<ul class="flex flex-col divide-y rounded-md border">
 					{#each linkedAccounts as linkedAccount (linkedAccount.id)}
@@ -346,9 +348,9 @@
 			{/if}
 
 			{#if availableProviders.length > 0}
-				<Separator />
+				{#if linkedAccounts.length > 0}<Separator />{/if}
 				<div class="flex flex-col gap-3">
-					<p class="text-sm font-medium">Connect another account</p>
+					<p class="text-sm font-medium">{linkedAccounts.length > 0 ? 'Connect another account' : 'Connect an account'}</p>
 					{#each availableProviders as provider (provider)}
 						<ProviderButton
 							{provider}

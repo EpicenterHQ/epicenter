@@ -28,11 +28,18 @@
 			: 'Buy credits',
 	);
 
+	let openingPortal = $state(false);
 	async function openBillingPortal() {
-		const { data, error } = await billingApi.portal(window.location.href);
-		if (pageDisposed || signal.aborted) return;
-		if (error) return toastOnError(error, 'Could not open billing portal');
-		if (data.portalUrl) window.location.href = data.portalUrl;
+		if (openingPortal || pageDisposed || signal.aborted) return;
+		openingPortal = true;
+		try {
+			const { data, error } = await billingApi.portal(window.location.href);
+			if (pageDisposed || signal.aborted) return;
+			if (error) return toastOnError(error, 'Could not open billing portal');
+			if (data.portalUrl) window.location.href = data.portalUrl;
+		} finally {
+			openingPortal = false;
+		}
 	}
 
 	const topUp = createMutation(() => billing.topUp.options);
@@ -89,7 +96,9 @@
 			{topUpLabel}
 		{/if}
 	</Button>
-	<Button variant="outline" onclick={openBillingPortal}>Manage billing</Button>
+	<Button variant="outline" onclick={openBillingPortal} disabled={openingPortal}>
+		{#if openingPortal}<Spinner class="size-3.5" /> Opening billing…{:else}Manage billing{/if}
+	</Button>
 </section>
 
 <PlanComparison />

@@ -42,7 +42,9 @@ bun packages/auth/smoke/dashboard.browser.mjs
 ```
 
 The smoke uses Chromium, in-memory Better Auth data, and local billing endpoints.
-It makes no provider or production payment calls. To inspect the fixture manually:
+Manage billing opens an explicitly simulated portal with a return link. It does
+not show real invoices or payment methods, and makes no provider or production
+payment calls. To inspect the fixture manually:
 
 ```bash
 DASHBOARD_FIXTURE_ONLY=1 bun packages/auth/smoke/dashboard.browser.mjs

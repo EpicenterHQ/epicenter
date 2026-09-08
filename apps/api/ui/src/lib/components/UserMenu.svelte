@@ -66,7 +66,7 @@
 			{#if session.isError}
 				<DropdownMenu.Item disabled={session.isFetching} onclick={() => session.refetch()}>Retry account</DropdownMenu.Item>
 			{/if}
-			<DropdownMenu.Item onclick={toggleMode}>
+			<DropdownMenu.Item closeOnSelect={false} onSelect={toggleMode}>
 				{#if isDark}
 					<SunIcon class="mr-2 size-4" />
 					Light mode
