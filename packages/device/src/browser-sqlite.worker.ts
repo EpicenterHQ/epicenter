@@ -132,16 +132,13 @@ function databaseFilename(
 	scope: import('./protocol.js').StorageScope,
 	name: string,
 ): string {
-	const partition =
+	const address =
 		scope.kind === 'local'
-			? 'local'
-			: `account:${scope.authorityId}:${scope.principalId}`;
-	// Encode the tuple as one value. Concatenating encoded segments is not
-	// injective: (authority=one-two, principal=three) collides with
-	// (authority=one, principal=two-three). The filename is an implementation
-	// detail, so preserving the tuple's boundaries is more important than
-	// mirroring the desktop directory spelling here.
-	return `/${encodeURIComponent(JSON.stringify([appId, partition, name]))}.sqlite`;
+			? [appId, 'local', name]
+			: [appId, 'account', scope.authorityId, scope.principalId, name];
+	// Keep every identity component separate before encoding. Joining even
+	// part of the address with ':' aliases accounts whose identifiers contain it.
+	return `/${encodeURIComponent(JSON.stringify(address))}.sqlite`;
 }
 
 const owner: DeviceSqliteOwner = {
