@@ -19,7 +19,6 @@
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { createSessionAuth, type PersistedAuthStorage } from '@epicenter/auth';
-import type { ReplicaDocument } from '@epicenter/data';
 import { defineData, defineTable, field, plainText } from '@epicenter/data';
 import { openAccountStore } from '@epicenter/data/direct';
 import { attachStoreSync } from '@epicenter/data/sync';
@@ -94,25 +93,14 @@ function createBrowserAuth(onOpening: (opening: Opening) => void) {
 	});
 }
 
-type AddressedStore = ReplicaDocument & AsyncDisposable & { baseURL: string };
-
-/** An account replica addressed the way an opener stamps one (ADR-0340). */
-async function openStore(): Promise<AddressedStore> {
+/** The real store; its transport address is supplied when sync attaches. */
+function openStore() {
 	const live = new Database(':memory:');
-	const store = await openAccountStore({
+	return openAccountStore({
 		definition,
 		sqlite: createBunSqliteAdapter(live),
 		dispose: () => live.close(),
 	});
-	const addressed = Object.create(store) as AddressedStore;
-	Object.defineProperties(addressed, {
-		appId: { value: definition.id },
-		dataId: { value: definition.id },
-		generation: { value: 1 },
-		baseURL: { value: BASE_URL },
-		principalId: { value: asPrincipalId(PRINCIPAL_ID) },
-	});
-	return addressed;
 }
 
 /**
@@ -164,6 +152,7 @@ async function dial(): Promise<Opening> {
 	await using _store = store;
 	const connection = attachStoreSync({
 		store,
+		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
 		transport:
 			auth.state.status === 'signed-out'
 				? (() => {

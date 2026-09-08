@@ -421,6 +421,7 @@ function stubBunStore(overrides: Partial<BunRemoteStore> = {}): BunRemoteStore {
 function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
 	const store: BlobStore = {
 		put: async () => Ok(undefined),
+		copy: async (id) => BlobStoreError.BlobNotFound({ id }),
 		get: async (id) => BlobStoreError.BlobNotFound({ id }),
 		stat: async (id) => BlobStoreError.BlobNotFound({ id }),
 		statMany: (ids) => Promise.all(ids.map((id) => store.stat(id))),
