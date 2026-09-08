@@ -114,7 +114,7 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'mountCloudAuth',
+		surface: 'mountAuthRoutes',
 		method: 'GET',
 		url: `${ORIGIN}/auth/get-session`,
 		worker: 'served',
@@ -294,10 +294,38 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 			);
 		}
 		for (const fetcher of [worker, bun]) {
-			for (const path of ['/missing', '/api/not-a-surface']) {
+			for (const path of [
+				'/missing',
+				'/api/not-a-surface',
+				'/v1/chat/unknown',
+				'/v1/audio/unknown',
+				'/api/billing/unknown',
+			]) {
 				expect((await fetcher(new Request(`${ORIGIN}${path}`))).status).toBe(
 					404,
 				);
+			}
+		}
+		for (const fetcher of [worker, bun]) {
+			for (const [method, path] of [
+				['DELETE', '/api/session'],
+				['GET', '/api/blobs'],
+				['PUT', `/api/blobs/${PROBE_BLOB_ID}`],
+				['GET', '/v1/chat/completions'],
+				['GET', '/v1/audio/transcriptions'],
+				['POST', '/api/billing/plans'],
+				['GET', '/api/account'],
+				['POST', '/api/store/v1/sync'],
+				['DELETE', '/api/data/v1/test.data/generations'],
+				['POST', '/api/data/v1/test.data/generations/1'],
+			]) {
+				const response = await fetcher(
+					new Request(`${ORIGIN}${path}`, {
+						method,
+						headers: { authorization: 'Bearer routing-probe' },
+					}),
+				);
+				expect(response.status).toBe(404);
 			}
 		}
 		expect(databaseCalls).toBe(0);

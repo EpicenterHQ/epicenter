@@ -89,7 +89,7 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'mountCloudAuth',
+		surface: 'mountAuthRoutes',
 		method: 'GET',
 		url: `${ORIGIN}/auth/get-session`,
 		worker: 'absent',

@@ -52,11 +52,11 @@ import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 import {
 	CloudAuthBindings,
 	type CloudEnv,
-	createCloudDbMiddleware,
+	createCloudContextMiddleware,
 	createDb,
 	createServerApp,
+	mountAuthRoutes,
 	mountBlobsApp,
-	mountCloudAuth,
 	mountInferenceApp,
 	mountSessionApp,
 	mountTranscriptionApp,
@@ -83,7 +83,7 @@ import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
  * a shown provider fail later. Unlike the Cloudflare edge (whose bindings are
  * deploy-gated and `wrangler types`-typed), `process.env` is unchecked, so boot is
  * the place to validate it. The validated env is also what feeds
- * `mountCloudAuth`'s `resolveAuthSecrets` below, so the Cloud-only secrets reach
+ * `createCloudContextMiddleware`'s `resolveAuthSecrets` below, so the Cloud-only secrets reach
  * Better Auth without ever entering the portable `ServerBindings`.
  */
 const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
@@ -154,20 +154,21 @@ export function startBunApiServer(
 		c.json({ product: 'hub', version: '0.1.0', runtime: 'bun' }),
 	);
 	// The live Bun process keeps the drain alive without waitUntil.
-	const database = createCloudDbMiddleware({
+	const cloudContext = createCloudContextMiddleware({
 		connect: async () => ({ db, close: async () => {} }),
 		afterResponse: () => {},
-	});
-	// Public auth shells bypass setup. Database-backed endpoints and resource
-	// guards explicitly install the returned middleware, just like the Worker.
-	const cloudAuth = mountCloudAuth(app, {
-		database,
+
 		resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
 		resolveAuthSecrets: () => env,
+	});
+	// Public auth shells bypass setup. Database-backed endpoints and resource
+	// guards explicitly install the context middleware, just like the Worker.
+	mountAuthRoutes(app, {
+		setup: cloudContext,
 		serveAuthUiShell,
 	});
 	const bearer = every(
-		cloudAuth,
+		cloudContext,
 		requireBearerPrincipal(resolveBearerPrincipal),
 	);
 	mountSessionApp(app, { auth: bearer });

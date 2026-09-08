@@ -17,11 +17,11 @@ import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
 import {
 	type CloudEnv,
 	connectHyperdriveDb,
-	createCloudDbMiddleware,
+	createCloudContextMiddleware,
 	createServerApp,
 	GenerationsLedger,
+	mountAuthRoutes,
 	mountBlobsApp,
-	mountCloudAuth,
 	mountInferenceApp,
 	mountSessionApp,
 	mountStoreSyncApp,
@@ -32,7 +32,6 @@ import {
 	StoreAuthority,
 	type StoreAuthorityStub,
 } from '@epicenter/server';
-import { GENERATIONS_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import { describeRoute } from 'hono-openapi';
@@ -92,23 +91,24 @@ app.get('/', (c) =>
 
 // Route-owned Postgres lifetime. Hyperdrive acquisition and waitUntil belong
 // to this runtime; the middleware drains queued work before closing the client.
-const database = createCloudDbMiddleware({
+const cloudContext = createCloudContextMiddleware({
 	connect: (env) => connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
 	afterResponse: (c, work) => c.executionCtx.waitUntil(work),
+
+	resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
+	resolveAuthSecrets: (c) => c.env as Cloudflare.Env,
 });
 
 // Public auth shells bypass setup. Better Auth endpoints install it directly;
 // protected resource mounts below compose it before their own auth guards.
 // Cloud secrets stay at this deployment edge, outside ServerBindings.
-const cloudAuth = mountCloudAuth(app, {
-	database,
-	resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
-	resolveAuthSecrets: (c) => c.env as Cloudflare.Env,
+mountAuthRoutes(app, {
+	setup: cloudContext,
 	serveAuthUiShell: serveUiShell,
 });
 
 const bearer = every(
-	cloudAuth,
+	cloudContext,
 	requireBearerPrincipal(resolveRequestSessionPrincipal),
 );
 
@@ -121,15 +121,8 @@ mountSessionApp(app, { auth: bearer });
 // stamped from that bearer and prefixed onto the object name, so being signed
 // in on two devices is the whole of the sharing model. The authority reads
 // nothing it stores.
-// Store routes use subprotocol bearers, so install setup before their own guard.
-for (const path of [
-	STORE_SYNC_ROUTE.pattern,
-	GENERATIONS_ROUTE.collectionPattern,
-	GENERATIONS_ROUTE.itemPattern,
-]) {
-	app.use(path, cloudAuth);
-}
 mountStoreSyncApp(app, {
+	setup: cloudContext,
 	resolveBearerPrincipal: resolveRequestSessionPrincipal,
 	resolveStore: (env) => {
 		const bindings = env as Cloudflare.Env & {
@@ -172,11 +165,10 @@ mountBillingApi(app, { auth: bearer });
 // Hosted account deletion currently refuses before destructive work because
 // historical storage ownership and write retirement are not yet established.
 // The mount preserves fresh-session and principal-binding checks.
-app.delete('/api/account', cloudAuth);
-mountAccountDeletionApi(app);
+mountAccountDeletionApi(app, { setup: cloudContext });
 
 // Dashboard SPA: serve the cloud UI shell for the dashboard URLs. The hosted
-// auth browser surfaces use the same shell through `mountCloudAuth` above.
+// auth browser surfaces use the same shell through `mountAuthRoutes` above.
 // Cloud-only because the `ASSETS` binding lives in this worker's wrangler
 // config; hashed assets (`/_app/*`, favicon) are served by the asset layer
 // before the Worker runs.

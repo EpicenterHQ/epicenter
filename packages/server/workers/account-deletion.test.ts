@@ -49,12 +49,13 @@ async function setup() {
 	const bob = await issue('bob@example.test');
 	let principal: string | undefined;
 	const app = new Hono<CloudEnv>();
-	app.use('*', async (c, next) => {
-		c.set('auth', auth as unknown as CloudEnv['Variables']['auth']);
-		await next();
-		principal = c.var.principal?.id;
+	mountAccountDeletionApi(app, {
+		setup: async (c, next) => {
+			c.set('auth', auth as unknown as CloudEnv['Variables']['auth']);
+			await next();
+			principal = c.var.principal?.id;
+		},
 	});
-	mountAccountDeletionApi(app);
 	const remove = (headers: HeadersInit) =>
 		app.request('/api/account', { method: 'DELETE', headers }, {});
 	return { db, alice, bob, ctx, remove, principal: () => principal };

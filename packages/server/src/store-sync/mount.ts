@@ -22,7 +22,8 @@ import {
 	parseSubprotocols,
 	STORE_SYNC_ROUTE,
 } from '@epicenter/sync';
-import type { Hono, MiddlewareHandler } from 'hono';
+import type { Context, Hono, MiddlewareHandler } from 'hono';
+import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
 
@@ -112,25 +113,22 @@ function parseGeneration(value: string | null): number | undefined {
 export function mountStoreSyncApp<E extends Env = Env>(
 	app: Hono<E>,
 	opts: {
+		/** Request context needed by this deployment's session resolver. */
+		setup?: MiddlewareHandler<E>;
 		resolveBearerPrincipal: ResolveBearerPrincipal<E>;
 		resolveStore: ResolveStore;
 	},
 ): void {
-	app.use(
+	const bearer = requireStoreBearer(opts.resolveBearerPrincipal);
+	const auth = opts.setup ? every(opts.setup, bearer) : bearer;
+	app.get(
 		STORE_SYNC_ROUTE.pattern,
-		requireStoreBearer(opts.resolveBearerPrincipal),
-	);
-	// Route handlers use the portable `Env`; this deployment-facing generic only
-	// adds bindings and variables. Keep the one cast at that boundary rather than
-	// hide the routes in a one-use sub-app.
-	const storeApp = app as unknown as Hono<Env>;
-	storeApp.get(
-		STORE_SYNC_ROUTE.pattern,
+		auth,
 		describeRoute({
 			description: "Upgrade onto this partition's store authority",
 			tags: ['store-sync'],
 		}),
-		async (c) => {
+		async (c: Context<Env>) => {
 			if (!isWebSocketUpgrade(c)) {
 				return new Response('The store transport is WebSocket-only', {
 					status: 426,
@@ -186,22 +184,15 @@ export function mountStoreSyncApp<E extends Env = Env>(
 	// The generations collection (ADR-0292, ADR-0293). Ordinary authenticated
 	// requests rather than upgrades, so they go through the same bearer
 	// middleware every other `/api` surface uses.
-	storeApp.use(
-		GENERATIONS_ROUTE.collectionPattern,
-		requireStoreBearer(opts.resolveBearerPrincipal),
-	);
-	storeApp.use(
-		GENERATIONS_ROUTE.itemPattern,
-		requireStoreBearer(opts.resolveBearerPrincipal),
-	);
 
-	storeApp.get(
+	app.get(
 		GENERATIONS_ROUTE.collectionPattern,
+		auth,
 		describeRoute({
 			description: 'Every generation of this database that exists',
 			tags: ['store-sync'],
 		}),
-		async (c) => {
+		async (c: Context<Env>) => {
 			const dataId = parseDataId(c.req.param('dataId'));
 			if (dataId === undefined) {
 				return c.text('dataId must be a data definition id', 400);
@@ -213,13 +204,14 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		},
 	);
 
-	storeApp.post(
+	app.post(
 		GENERATIONS_ROUTE.collectionPattern,
+		auth,
 		describeRoute({
 			description: 'Import one whole database state as a new generation',
 			tags: ['store-sync'],
 		}),
-		async (c) => {
+		async (c: Context<Env>) => {
 			const dataId = parseDataId(c.req.param('dataId'));
 			if (dataId === undefined) {
 				return c.text('dataId must be a data definition id', 400);
@@ -249,13 +241,14 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		},
 	);
 
-	storeApp.get(
+	app.get(
 		GENERATIONS_ROUTE.itemPattern,
+		auth,
 		describeRoute({
 			description: "One generation's whole state, served verbatim",
 			tags: ['store-sync'],
 		}),
-		async (c) => {
+		async (c: Context<Env>) => {
 			const dataId = parseDataId(c.req.param('dataId'));
 			if (dataId === undefined) {
 				return c.text('dataId must be a data definition id', 400);

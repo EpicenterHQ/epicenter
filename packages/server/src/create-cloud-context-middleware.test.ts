@@ -4,15 +4,24 @@
  * close once after every queued promise settles, including failure paths.
  */
 import { expect, test } from 'bun:test';
-import { Hono } from 'hono';
 import { every } from 'hono/combine';
-import { createCloudDbMiddleware } from './create-cloud-db-middleware.js';
+import { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 import type { Db } from './db/create-db.js';
-import { mountCloudAuth } from './mount-cloud-auth.js';
+import { mountAuthRoutes } from './routes/auth.js';
 import { createServerApp } from './server-app.js';
 import type { CloudEnv } from './types.js';
 
 const origin = 'https://api.example.com';
+const identity = {
+	resolveOrigin: () => origin,
+	resolveTrustedOrigins: () => [origin],
+};
+const authOptions = {
+	resolveAuthSecrets: () => ({
+		BETTER_AUTH_SECRET: 'cloud-context-test-secret-1234567890',
+	}),
+	resolveSessionCallbacks: () => [],
+};
 
 test('public shells and unrelated 404s bypass failing acquisition and auth setup', async () => {
 	const app = createServerApp<CloudEnv>({
@@ -22,20 +31,22 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	app.onError((_error, c) => c.text('Unavailable', 503));
 	let acquisitions = 0;
 	let drains = 0;
-	const setup = mountCloudAuth(app, {
-		database: createCloudDbMiddleware({
-			connect: async () => {
-				acquisitions++;
-				throw new Error('Postgres unavailable');
-			},
-			afterResponse: () => {
-				drains++;
-			},
-		}),
+	const setup = createCloudContextMiddleware({
+		...authOptions,
+		connect: async () => {
+			acquisitions++;
+			throw new Error('Postgres unavailable');
+		},
+		afterResponse: () => {
+			drains++;
+		},
 		resolveAuthSecrets: () => {
 			throw new Error('Public shell must not construct auth');
 		},
 		resolveSessionCallbacks: () => [],
+	});
+	mountAuthRoutes(app, {
+		setup,
 		serveAuthUiShell: (c) => c.html('<html>Sign in</html>'),
 	});
 	app.on(['GET', 'POST'], '/api/protected', setup, (c) => c.text('secret'));
@@ -75,14 +86,15 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 for (const handlerFails of [false, true]) {
 	for (const workFails of [false, true]) {
 		test(`connection closes once after all work settles (handler failure: ${handlerFails}, work failure: ${workFails})`, async () => {
-			const app = new Hono<CloudEnv>();
+			const app = createServerApp<CloudEnv>(identity);
 			app.onError((_error, c) => c.text('Handler failed', 500));
 			const slow = Promise.withResolvers<void>();
 			const fast = Promise.withResolvers<void>();
 			let closes = 0;
 			let acquisitions = 0;
 			const drains: Promise<unknown>[] = [];
-			const database = createCloudDbMiddleware({
+			const database = createCloudContextMiddleware({
+				...authOptions,
 				connect: async () => {
 					acquisitions++;
 					return {
@@ -125,7 +137,7 @@ for (const handlerFails of [false, true]) {
 }
 
 test('a rethrowing error handler still schedules exactly one close', async () => {
-	const app = new Hono<CloudEnv>();
+	const app = createServerApp<CloudEnv>(identity);
 	const failure = new Error('Handler failed');
 	app.onError((error) => {
 		throw error;
@@ -134,7 +146,8 @@ test('a rethrowing error handler still schedules exactly one close', async () =>
 	const drains: Promise<unknown>[] = [];
 	app.get(
 		'/operation',
-		createCloudDbMiddleware({
+		createCloudContextMiddleware({
+			...authOptions,
 			connect: async () => ({
 				db: {} as Db,
 				close: async () => {
@@ -150,6 +163,41 @@ test('a rethrowing error handler still schedules exactly one close', async () =>
 		},
 	);
 	await expect(app.request('/operation')).rejects.toBe(failure);
+	expect(drains).toHaveLength(1);
+	await Promise.all(drains);
+	expect(closes).toBe(1);
+});
+
+test('auth construction failure closes the acquired handle without running the handler', async () => {
+	const app = createServerApp<CloudEnv>(identity);
+	app.onError((_error, c) => c.text('Auth unavailable', 503));
+	let closes = 0;
+	let handled = false;
+	const drains: Promise<unknown>[] = [];
+	app.get(
+		'/operation',
+		createCloudContextMiddleware({
+			...authOptions,
+			connect: async () => ({
+				db: {} as Db,
+				close: async () => {
+					closes++;
+				},
+			}),
+			resolveAuthSecrets: () => {
+				throw new Error('Auth secrets unavailable');
+			},
+			afterResponse: (_c, work) => {
+				drains.push(work);
+			},
+		}),
+		(c) => {
+			handled = true;
+			return c.text('secret');
+		},
+	);
+	expect((await app.request('/operation')).status).toBe(503);
+	expect(handled).toBe(false);
 	expect(drains).toHaveLength(1);
 	await Promise.all(drains);
 	expect(closes).toBe(1);

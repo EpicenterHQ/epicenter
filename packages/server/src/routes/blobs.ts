@@ -1,5 +1,5 @@
 /**
- * Blobs sub-app: an address-only opaque-id object store.
+ * Blob routes: an address-only opaque-id object store.
  *
  * Uniform principal-partitioned URL shape:
  *   POST   /api/blobs              authed: request an upload ticket
@@ -30,7 +30,7 @@ import { parseBlobId } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { sValidator } from '@hono/standard-validator';
 import { type } from 'arktype';
-import { Hono, type MiddlewareHandler } from 'hono';
+import type { Hono, MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
 import { MAX_BLOB_BYTES } from '../constants.js';
@@ -117,110 +117,19 @@ export function resolveDeploymentBlobStore(
 /**
  * Build this deployment's S3 blob store onto `c.var.blobStore`, or answer 503
  * when object storage is not configured. One owner for the "store is configured"
- * invariant, so every handler can assume the store is present. Typed as a bare
- * `MiddlewareHandler` so it slots into the `Hono<Env>` parent mount beside auth; it sets a
- * `BlobEnv` variable the sub-app reads.
+ * invariant, so every handler can assume the store is present. Hono carries
+ * the middleware's BlobEnv into the following handler, including upload-body
+ * validation, without putting blobStore on the portable Env.
  */
-const requireBlobStore: MiddlewareHandler = createMiddleware<BlobEnv>(
-	async (c, next) => {
-		const store = resolveDeploymentBlobStore(c.env);
-		if (!store) {
-			const err = BlobError.StorageNotConfigured();
-			return c.json(err, err.error.status);
-		}
-		c.set('blobStore', store);
-		await next();
-	},
-);
-
-const blobsApp = new Hono<BlobEnv>()
-	// POST: request a create-only presigned PUT.
-	.post(
-		API_ROUTES.blobs.collection.pattern,
-		describeRoute({
-			description: 'Request an upload ticket for an opaque-id blob.',
-			tags: ['blobs'],
-		}),
-		sValidator('json', TicketBody),
-		async (c) => {
-			const principalId = c.var.principal.id;
-			const { blobId: rawBlobId, sizeBytes, contentType } = c.req.valid('json');
-			const blobId = parseBlobId(rawBlobId);
-
-			if (!blobId) {
-				const err = BlobError.InvalidBlobId({ value: rawBlobId });
-				return c.json(err, err.error.status);
-			}
-			if (!Number.isInteger(sizeBytes) || sizeBytes < 0) {
-				const err = BlobError.InvalidSize({ value: sizeBytes });
-				return c.json(err, err.error.status);
-			}
-			if (sizeBytes > MAX_BLOB_BYTES) {
-				const err = BlobError.BlobTooLarge({
-					size: sizeBytes,
-					maxBytes: MAX_BLOB_BYTES,
-				});
-				return c.json(err, err.error.status);
-			}
-
-			const key = blobKey(principalId, blobId);
-			const url = API_ROUTES.blobs.byId.url(c.var.authBaseURL, blobId);
-
-			const { url: uploadUrl, requiredHeaders } =
-				await c.var.blobStore.presignPut({
-					key,
-					contentType: contentType || 'application/octet-stream',
-					expiresInSeconds: PUT_TTL_SECONDS,
-				});
-
-			// The ticket carries only what the uploader acts on. The PUT is
-			// create-only; clients treat 412 as idempotent success for this BlobId.
-			return c.json({
-				url,
-				uploadUrl,
-				requiredHeaders,
-			});
-		},
-	)
-	// GET by id: read (302 to short-TTL presigned GET).
-	.get(
-		API_ROUTES.blobs.byId.pattern,
-		describeRoute({
-			description:
-				'Read a blob: 302-redirect to a short-lived presigned GET URL.',
-			tags: ['blobs'],
-		}),
-		async (c) => {
-			const principalId = c.var.principal.id;
-			const blobId = parseBlobId(c.req.param('blobId'));
-			if (!blobId) return c.notFound();
-			const key = blobKey(principalId, blobId);
-			if (!(await c.var.blobStore.exists(key))) {
-				const err = BlobError.NotFound();
-				return c.json(err, err.error.status);
-			}
-			const presignedGet = await c.var.blobStore.presignGet({
-				key,
-				expiresInSeconds: GET_TTL_SECONDS,
-			});
-			return c.redirect(presignedGet, 302);
-		},
-	)
-	// DELETE by id: principal-local, idempotent.
-	.delete(
-		API_ROUTES.blobs.byId.pattern,
-		describeRoute({
-			description: 'Delete a blob for the current principal.',
-			tags: ['blobs'],
-		}),
-		async (c) => {
-			const principalId = c.var.principal.id;
-			const blobId = parseBlobId(c.req.param('blobId'));
-			if (!blobId) return c.notFound();
-			await c.var.blobStore.delete(blobKey(principalId, blobId));
-			return c.body(null, 204);
-		},
-	);
+const requireBlobStore = createMiddleware<BlobEnv>(async (c, next) => {
+	const store = resolveDeploymentBlobStore(c.env);
+	if (!store) {
+		const err = BlobError.StorageNotConfigured();
+		return c.json(err, err.error.status);
+	}
+	c.set('blobStore', store);
+	await next();
+});
 
 /**
  * Mount the blobs surface on a deployment's server app.
@@ -239,16 +148,102 @@ export function mountBlobsApp<E extends Env = Env>(
 	app: Hono<E>,
 	opts: { auth: MiddlewareHandler<E> },
 ): void {
-	// Every blob route runs the same chain: authenticate, then ensure object
-	// storage is configured. The chain is bare-typed because it mixes the
-	// deployment's `E`-typed auth with the blob-local `BlobEnv` middleware
-	// (`requireBlobStore` stamps `c.var.blobStore`); both run on the same app.
-	const chain: [MiddlewareHandler, MiddlewareHandler] = [
-		opts.auth,
-		requireBlobStore,
-	];
+	app
+		// POST: request a create-only presigned PUT.
+		.post(
+			API_ROUTES.blobs.collection.pattern,
+			opts.auth,
+			requireBlobStore,
+			describeRoute({
+				description: 'Request an upload ticket for an opaque-id blob.',
+				tags: ['blobs'],
+			}),
+			sValidator('json', TicketBody),
+			async (c) => {
+				const principalId = c.var.principal.id;
+				const {
+					blobId: rawBlobId,
+					sizeBytes,
+					contentType,
+				} = c.req.valid('json');
+				const blobId = parseBlobId(rawBlobId);
 
-	app.use(API_ROUTES.blobs.collection.pattern, ...chain);
-	app.on(['GET', 'DELETE'], API_ROUTES.blobs.byId.pattern, ...chain);
-	app.route('/', blobsApp);
+				if (!blobId) {
+					const err = BlobError.InvalidBlobId({ value: rawBlobId });
+					return c.json(err, err.error.status);
+				}
+				if (!Number.isInteger(sizeBytes) || sizeBytes < 0) {
+					const err = BlobError.InvalidSize({ value: sizeBytes });
+					return c.json(err, err.error.status);
+				}
+				if (sizeBytes > MAX_BLOB_BYTES) {
+					const err = BlobError.BlobTooLarge({
+						size: sizeBytes,
+						maxBytes: MAX_BLOB_BYTES,
+					});
+					return c.json(err, err.error.status);
+				}
+
+				const key = blobKey(principalId, blobId);
+				const url = API_ROUTES.blobs.byId.url(c.var.authBaseURL, blobId);
+
+				const { url: uploadUrl, requiredHeaders } =
+					await c.var.blobStore.presignPut({
+						key,
+						contentType: contentType || 'application/octet-stream',
+						expiresInSeconds: PUT_TTL_SECONDS,
+					});
+
+				// The ticket carries only what the uploader acts on. The PUT is
+				// create-only; clients treat 412 as idempotent success for this BlobId.
+				return c.json({
+					url,
+					uploadUrl,
+					requiredHeaders,
+				});
+			},
+		)
+		// GET by id: read (302 to short-TTL presigned GET).
+		.get(
+			API_ROUTES.blobs.byId.pattern,
+			opts.auth,
+			requireBlobStore,
+			describeRoute({
+				description:
+					'Read a blob: 302-redirect to a short-lived presigned GET URL.',
+				tags: ['blobs'],
+			}),
+			async (c) => {
+				const principalId = c.var.principal.id;
+				const blobId = parseBlobId(c.req.param('blobId'));
+				if (!blobId) return c.notFound();
+				const key = blobKey(principalId, blobId);
+				if (!(await c.var.blobStore.exists(key))) {
+					const err = BlobError.NotFound();
+					return c.json(err, err.error.status);
+				}
+				const presignedGet = await c.var.blobStore.presignGet({
+					key,
+					expiresInSeconds: GET_TTL_SECONDS,
+				});
+				return c.redirect(presignedGet, 302);
+			},
+		)
+		// DELETE by id: principal-local, idempotent.
+		.delete(
+			API_ROUTES.blobs.byId.pattern,
+			opts.auth,
+			requireBlobStore,
+			describeRoute({
+				description: 'Delete a blob for the current principal.',
+				tags: ['blobs'],
+			}),
+			async (c) => {
+				const principalId = c.var.principal.id;
+				const blobId = parseBlobId(c.req.param('blobId'));
+				if (!blobId) return c.notFound();
+				await c.var.blobStore.delete(blobKey(principalId, blobId));
+				return c.body(null, 204);
+			},
+		);
 }

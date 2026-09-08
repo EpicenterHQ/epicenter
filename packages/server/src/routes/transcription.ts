@@ -33,7 +33,8 @@
  */
 
 import { API_ROUTES } from '@epicenter/constants/api-routes';
-import { Hono, type MiddlewareHandler } from 'hono';
+import type { Context, Hono, MiddlewareHandler } from 'hono';
+import { every } from 'hono/combine';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { describeRoute } from 'hono-openapi';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -65,107 +66,6 @@ function clampStatus(status: number): ContentfulStatusCode {
 	return 502;
 }
 
-const transcriptionApp = new Hono<Env>().post(
-	API_ROUTES.ai.transcriptions.pattern,
-	describeRoute({
-		description: 'OpenAI-compatible speech-to-text gateway',
-		tags: ['ai'],
-	}),
-	async (c) => {
-		const form = await c.req.formData().catch(() => null);
-		if (!form) {
-			return c.json(
-				openAiError('Expected a multipart form body.', 'invalid_request'),
-				400,
-			);
-		}
-
-		const model = form.get('model');
-		if (model !== STT_MODEL) {
-			return c.json(
-				openAiError(`Unknown model: ${String(model)}`, 'UnknownModel'),
-				400,
-			);
-		}
-
-		const file = form.get('file');
-		if (!file || typeof file === 'string') {
-			return c.json(
-				openAiError(
-					'Expected an audio file in the `file` field.',
-					'invalid_request',
-				),
-				400,
-			);
-		}
-
-		// House-key-only (ADR-0054): the gateway holds the key and never reads one
-		// from the request, so it provably never receives a user's provider key.
-		const apiKey = c.env[STT_HOUSE_KEY_ENV];
-		if (!apiKey) {
-			return c.json(
-				openAiError(`${model} is not configured.`, 'ProviderNotConfigured'),
-				503,
-			);
-		}
-
-		// Rebuild the upstream form: the audio, the upstream model id, and
-		// `verbose_json` so the reply carries `duration` for a metering policy. The
-		// optional `language` / `prompt` hints pass through; everything else (a
-		// client-supplied `response_format`, stray fields) is dropped on purpose.
-		const upstreamForm = new FormData();
-		upstreamForm.append('file', file);
-		upstreamForm.append('model', STT_MODEL);
-		upstreamForm.append('response_format', 'verbose_json');
-		const language = form.get('language');
-		if (typeof language === 'string') upstreamForm.append('language', language);
-		const prompt = form.get('prompt');
-		if (typeof prompt === 'string') upstreamForm.append('prompt', prompt);
-
-		let upstreamResponse: Response;
-		try {
-			upstreamResponse = await fetch(`${STT_BASE_URL}/audio/transcriptions`, {
-				method: 'POST',
-				// No content-type: `fetch` sets the multipart boundary itself.
-				headers: { authorization: `Bearer ${apiKey}` },
-				body: upstreamForm,
-				signal: c.req.raw.signal,
-			});
-		} catch (error) {
-			return c.json(
-				openAiError(extractErrorMessage(error), 'upstream_unreachable'),
-				502,
-			);
-		}
-
-		const text = await upstreamResponse.text().catch(() => '');
-		if (!upstreamResponse.ok) {
-			const status = clampStatus(upstreamResponse.status);
-			let payload: unknown;
-			try {
-				payload = JSON.parse(text);
-			} catch {
-				payload = null;
-			}
-			if (payload && typeof payload === 'object' && 'error' in payload) {
-				return c.json(payload as Record<string, unknown>, status);
-			}
-			return c.json(
-				openAiError(
-					text || `Upstream returned ${upstreamResponse.status}.`,
-					'upstream_error',
-				),
-				status,
-			);
-		}
-
-		// Forward the verbose_json transcript verbatim (buffered, not streamed): the
-		// body is small, and a buffered JSON response is what a metering policy
-		// clones to read `duration`. The client reads only `text`.
-		return c.body(text, 200, { 'content-type': 'application/json' });
-	},
-);
-
 /**
  * Mount the OpenAI-compatible speech-to-text gateway on a deployment's server
  * app. Mirrors {@link mountInferenceApp}: it bundles the deployment's auth and
@@ -181,7 +81,107 @@ export function mountTranscriptionApp<E extends Env = Env>(
 		policies?: MiddlewareHandler<E>[];
 	},
 ): void {
-	const policies = opts.policies ?? [];
-	app.use(API_ROUTES.ai.transcriptions.prefixPattern, opts.auth, ...policies);
-	app.route('/', transcriptionApp);
+	const auth = every(opts.auth, ...(opts.policies ?? []));
+	app.post(
+		API_ROUTES.ai.transcriptions.pattern,
+		auth,
+		describeRoute({
+			description: 'OpenAI-compatible speech-to-text gateway',
+			tags: ['ai'],
+		}),
+		async (c: Context<Env>) => {
+			const form = await c.req.formData().catch(() => null);
+			if (!form) {
+				return c.json(
+					openAiError('Expected a multipart form body.', 'invalid_request'),
+					400,
+				);
+			}
+
+			const model = form.get('model');
+			if (model !== STT_MODEL) {
+				return c.json(
+					openAiError(`Unknown model: ${String(model)}`, 'UnknownModel'),
+					400,
+				);
+			}
+
+			const file = form.get('file');
+			if (!file || typeof file === 'string') {
+				return c.json(
+					openAiError(
+						'Expected an audio file in the `file` field.',
+						'invalid_request',
+					),
+					400,
+				);
+			}
+
+			// House-key-only (ADR-0054): the gateway holds the key and never reads one
+			// from the request, so it provably never receives a user's provider key.
+			const apiKey = c.env[STT_HOUSE_KEY_ENV];
+			if (!apiKey) {
+				return c.json(
+					openAiError(`${model} is not configured.`, 'ProviderNotConfigured'),
+					503,
+				);
+			}
+
+			// Rebuild the upstream form: the audio, the upstream model id, and
+			// `verbose_json` so the reply carries `duration` for a metering policy. The
+			// optional `language` / `prompt` hints pass through; everything else (a
+			// client-supplied `response_format`, stray fields) is dropped on purpose.
+			const upstreamForm = new FormData();
+			upstreamForm.append('file', file);
+			upstreamForm.append('model', STT_MODEL);
+			upstreamForm.append('response_format', 'verbose_json');
+			const language = form.get('language');
+			if (typeof language === 'string')
+				upstreamForm.append('language', language);
+			const prompt = form.get('prompt');
+			if (typeof prompt === 'string') upstreamForm.append('prompt', prompt);
+
+			let upstreamResponse: Response;
+			try {
+				upstreamResponse = await fetch(`${STT_BASE_URL}/audio/transcriptions`, {
+					method: 'POST',
+					// No content-type: `fetch` sets the multipart boundary itself.
+					headers: { authorization: `Bearer ${apiKey}` },
+					body: upstreamForm,
+					signal: c.req.raw.signal,
+				});
+			} catch (error) {
+				return c.json(
+					openAiError(extractErrorMessage(error), 'upstream_unreachable'),
+					502,
+				);
+			}
+
+			const text = await upstreamResponse.text().catch(() => '');
+			if (!upstreamResponse.ok) {
+				const status = clampStatus(upstreamResponse.status);
+				let payload: unknown;
+				try {
+					payload = JSON.parse(text);
+				} catch {
+					payload = null;
+				}
+				if (payload && typeof payload === 'object' && 'error' in payload) {
+					return c.json(payload as Record<string, unknown>, status);
+				}
+				return c.json(
+					openAiError(
+						text || `Upstream returned ${upstreamResponse.status}.`,
+						'upstream_error',
+					),
+					status,
+				);
+			}
+
+			// Forward the verbose_json transcript verbatim (buffered, not streamed): the
+			// body is small, and a buffered JSON response is what a metering policy
+			// clones to read `duration`. The client reads only `text`.
+			return c.body(text, 200, { 'content-type': 'application/json' });
+		},
+	);
 }

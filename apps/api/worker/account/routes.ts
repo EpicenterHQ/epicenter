@@ -74,9 +74,13 @@ const requireFreshAccountSession: MiddlewareHandler<CloudEnv> =
  * Refuse deletion before any destructive work until historical storage ownership
  * and write retirement are established. See README.md for the missing evidence.
  */
-export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
+export function mountAccountDeletionApi(
+	app: Hono<CloudEnv>,
+	opts: { setup: MiddlewareHandler<CloudEnv> },
+): void {
 	app.delete(
 		'/api/account',
+		opts.setup,
 		describeRoute({
 			description:
 				'Account deletion is unavailable. A valid fresh account session receives 503 with ACCOUNT_DELETION_UNAVAILABLE; no deletion is accepted or started.',

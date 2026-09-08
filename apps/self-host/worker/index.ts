@@ -64,7 +64,7 @@ app.get('/', (c) =>
 	c.json({ product: 'instance', version: '0.1.0', runtime: 'cloudflare' }),
 );
 
-// No `mountCloudAuth`: the instance composes no Better Auth and no sessions. The
+// No `createCloudContextMiddleware`: the instance composes no Better Auth and no sessions. The
 // operator bearer (`auth` above) is the only gate, so every surface is
 // bearer-authenticated (ADR-0075).
 mountSessionApp(app, { auth });

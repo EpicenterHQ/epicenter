@@ -10,7 +10,7 @@
  *
  * Nothing else here is runtime-specific. The cloud's Postgres connection and
  * `waitUntil` drain are cloud concerns the cloud installs itself
- * ({@link createCloudDbMiddleware}) on database-dependent routes. Public shells
+ * ({@link createCloudContextMiddleware}) on database-dependent routes. Public shells
  * bypass that middleware; the instance composes no Postgres.
  *
  * Generic over the context `E`: the cloud composes `createServerApp<CloudEnv>` so
@@ -63,7 +63,7 @@ export type Identity = {
  *
  * The deployment is responsible for exposing a health endpoint on `/`. The cloud's
  * relational-auth context (`c.var.auth`, `c.var.db`) is NOT installed here: the
- * cloud adds it via {@link mountCloudAuth} + {@link createCloudDbMiddleware}, so the
+ * cloud adds it via {@link createCloudContextMiddleware}, so the
  * single-partition instance composes no Better Auth and no Postgres (ADR-0076).
  */
 export function createServerApp<E extends Env = Env>({

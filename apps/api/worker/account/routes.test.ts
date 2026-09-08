@@ -23,37 +23,38 @@ function fixture({
 	};
 	let reads = 0;
 	const app = new Hono<CloudEnv>();
-	app.use('*', async (c, next) => {
-		c.set('auth', {
-			options: { session: { freshAge: 600 } },
-			api: {
-				async getSession(input: {
-					headers: Headers;
-					query: { disableCookieCache: boolean; disableRefresh: boolean };
-				}) {
-					reads++;
-					expect(input.headers.get('authorization')).toBe('Bearer fixture');
-					expect(input.query).toEqual({
-						disableCookieCache: true,
-						disableRefresh: true,
-					});
-					if (unavailable) throw new Error('session store unavailable');
-					return missing ? null : session;
+	mountAccountDeletionApi(app, {
+		setup: async (c, next) => {
+			c.set('auth', {
+				options: { session: { freshAge: 600 } },
+				api: {
+					async getSession(input: {
+						headers: Headers;
+						query: { disableCookieCache: boolean; disableRefresh: boolean };
+					}) {
+						reads++;
+						expect(input.headers.get('authorization')).toBe('Bearer fixture');
+						expect(input.query).toEqual({
+							disableCookieCache: true,
+							disableRefresh: true,
+						});
+						if (unavailable) throw new Error('session store unavailable');
+						return missing ? null : session;
+					},
 				},
-			},
-		} as unknown as CloudEnv['Variables']['auth']);
-		// Any attempted database deletion fails the response assertion below.
-		c.set(
-			'db',
-			new Proxy({} as CloudEnv['Variables']['db'], {
-				get() {
-					throw new Error('deletion must not access storage');
-				},
-			}),
-		);
-		return next();
+			} as unknown as CloudEnv['Variables']['auth']);
+			// Any attempted database deletion fails the response assertion below.
+			c.set(
+				'db',
+				new Proxy({} as CloudEnv['Variables']['db'], {
+					get() {
+						throw new Error('deletion must not access storage');
+					},
+				}),
+			);
+			return next();
+		},
 	});
-	mountAccountDeletionApi(app);
 	return {
 		get reads() {
 			return reads;

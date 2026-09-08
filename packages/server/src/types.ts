@@ -87,22 +87,22 @@ export type Env = {
  * the hosted cloud composes (Better Auth + Postgres). The single-partition
  * instance composes none of it, so these never appear on the instance's `Env`
  * (ADR-0076): the type makes "the instance reads no cloud secret" a compile fact,
- * not a JSDoc promise. The cloud's auth wrappers, `mountCloudAuth`, `createCloudDbMiddleware`,
+ * not a JSDoc promise. The cloud's auth wrappers, `createCloudContextMiddleware`,
  * and the hosted auth routes type against this; the portable surfaces stay on `Env`.
  */
 export type CloudEnv = {
 	Bindings: ServerBindings;
 	Variables: Env['Variables'] & {
 		/**
-		 * The per-request Postgres handle. Populated by `createCloudDbMiddleware`. Read by
+		 * The per-request Postgres handle. Populated by `createCloudContextMiddleware`. Read by
 		 * Better Auth and hosted account/billing operations.
 		 */
 		db: NodePgDatabase<typeof schema>;
-		/** The per-request Better Auth instance, set by mountCloudAuth's middleware. */
+		/** The per-request Better Auth instance, set by createCloudContextMiddleware. */
 		auth: ReturnType<typeof createAuth>;
 		/**
 		 * Per-request queue of fire-and-forget promises that must outlive the HTTP
-		 * response (billing's Autumn charges). `createCloudDbMiddleware` drains the whole queue
+		 * response (billing's Autumn charges). `createCloudContextMiddleware` drains the whole queue
 		 * (`Promise.allSettled(...).then(close)`) through the deployment's
 		 * `afterResponse` hook (`executionCtx.waitUntil` on Workers, the live process
 		 * on Bun), then closes the db handle. The queue is the data; the hook is how

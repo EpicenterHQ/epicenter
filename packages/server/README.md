@@ -46,12 +46,18 @@ choice and any deployment policy.
 | `mountBlobsApp` | `src/routes/blobs.ts` | Content-addressed bytes, S3-compatible behind `resolveDeploymentBlobStore`. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference, with `rateLimit` available as a policy. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
-| `mountCloudAuth`, `createCloudDbMiddleware` | `src/mount-cloud-auth.ts`, `src/create-cloud-db-middleware.ts` | Cloud only. Public HTML shells bypass relational setup. |
+| `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells and database-backed auth endpoints. Cloud only. |
 
-`mountCloudAuth` returns database/auth middleware for protected resource mounts.
-Compose it before their authentication guards. The database middleware closes
-its handle after queued work settles; public shells and unrelated 404s never
-acquire one. The instance composes neither Better Auth nor Postgres.
+The hosted app builds `createCloudContextMiddleware` once, then combines it
+with its session-bearer guard using Hono's `every`. The context middleware
+acquires the database, constructs auth, and closes the handle after queued work
+settles. Public HTML shells bypass it. Self-host supplies its instance-token
+guard directly and composes neither Better Auth nor Postgres.
+
+Both deployments pass their auth middleware to the same feature mounts. Each
+mount registers exact methods and paths with Hono, keeping auth, validation,
+and handlers together. Unknown paths and unsupported methods do not run those
+route dependencies. Billing keeps a sub-app for its local error handler.
 
 Billing is not here and never comes here: the catalog, the routes, and Autumn
 live in `apps/api/worker/billing/`, because they are hosted-only.

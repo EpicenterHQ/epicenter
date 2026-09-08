@@ -22,7 +22,7 @@
  *   by value or by type.
  * - The relational-auth secrets (`BETTER_AUTH_SECRET` and the OAuth provider
  *   credentials) are NOT here: the relational-auth substrate is a Cloud-only
- *   layer, so its env is `CloudAuthBindings` (beside `mountCloudAuth`), supplied
+ *   layer, so its env is `CloudAuthBindings` (beside `createAuth`), supplied
  *   by the cloud at its own edge and passed directly to `createAuth`. Keeping
  *   them out of the portable contract is what makes it truly portable: the
  *   single-partition instance's env never inherits a secret it does not read

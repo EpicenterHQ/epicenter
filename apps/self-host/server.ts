@@ -126,7 +126,7 @@ export function startSelfHostServer(): void {
 
 	const app = createServerApp({
 		// The instance composes no Postgres (no Better Auth), so it never calls
-		// `mountCloudDb` and `createServerApp` stays on the portable `Env`: `c.var.db`
+		// `createCloudContextMiddleware` and `createServerApp` stays on the portable `Env`: `c.var.db`
 		// is never set (ADR-0076).
 		resolveOrigin: () => origin,
 		// A self-host trusts its OWN origin, the Tauri desktop client, and any
@@ -139,7 +139,7 @@ export function startSelfHostServer(): void {
 	app.get('/', (c) =>
 		c.json({ product: 'instance', version: '0.1.0', runtime: 'bun' }),
 	);
-	// No `mountCloudAuth`: the instance composes no Better Auth and no sessions. The
+	// No `createCloudContextMiddleware`: the instance composes no Better Auth and no sessions. The
 	// operator bearer (`auth` above) is the only gate, so every surface is
 	// bearer-authenticated (ADR-0075).
 	mountSessionApp(app, { auth });
