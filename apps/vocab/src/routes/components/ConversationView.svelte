@@ -4,9 +4,11 @@
 		AgentChatThread,
 		type ConversationHandle,
 	} from '@epicenter/app-shell/agent-chat';
+	import { createAccountManagementUrl } from '@epicenter/auth';
 	import { complete } from '@epicenter/client';
 	import { Button } from '@epicenter/ui/button';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import { untrack } from 'svelte';
 	import {
 		buildEntryCandidatePrompt,
 		parseEntryCandidates,
@@ -17,6 +19,11 @@
 	import ReadingMarkdown from './ReadingMarkdown.svelte';
 
 	const { entries } = getVocabSurface();
+	// The route keys this whole surface on Account identity, like its inference client.
+	const account = untrack(() => {
+		const state = auth.state;
+		return state.status === 'signed-out' ? undefined : state.account;
+	});
 
 	let {
 		active,
@@ -200,12 +207,14 @@
 		connections={inferenceConnections}
 		placeholder="Ask about a word, phrase, or sentence you're learning..."
 		onSignIn={() => void auth.startSignIn()}
-		onUpgrade={() =>
-			void window.open(
-					new URL('/dashboard', auth.connection.baseURL).toString(),
+		onUpgrade={() => {
+			if (!account) return;
+			window.open(
+				createAccountManagementUrl(account).href,
 				'_blank',
 				'noopener',
-			)}
+			);
+		}}
 	>
 		{#snippet inputAccessory()}
 			<DictationButton disabled={isGenerating} onTranscript={appendTranscript} />

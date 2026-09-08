@@ -611,4 +611,6 @@ Two habits make the link hard to forget:
 | [0355](0355-local-and-account-sessions-share-the-application-data-api.md) | Local and account sessions share the application data API | Proposed (unbuilt) |
 | [0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md) | Sensitive account changes use Better Auth session freshness | Proposed |
 
+| [0357](0357-the-account-website-owns-account-management-and-apps-retry-their-own-work.md) | The account website owns account management and apps retry their own work | Proposed |
+
 When you add an ADR, add its row here.

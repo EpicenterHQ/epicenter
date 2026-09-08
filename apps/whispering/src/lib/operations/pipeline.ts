@@ -13,6 +13,7 @@ import { report } from '$lib/report';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { creditAction } from './credit-action.js';
 
 const log = createLogger('whispering/pipeline');
 
@@ -96,13 +97,15 @@ export async function processRecordingPipeline(
 		await transcribeAndPersist(app, recording.id, audioBlobId);
 
 	if (transcribeError) {
+		const action = creditAction(transcribeError, app.account);
 		if (isDictation) {
 			dictationLifecycle.markFailed({
 				tier: 'transcription',
 				error: transcribeError,
 			});
+			if (action) report.error({ cause: transcribeError, action });
 		} else {
-			transcribeLoading?.reject({ cause: transcribeError });
+			transcribeLoading?.reject({ cause: transcribeError, action });
 		}
 		return;
 	}

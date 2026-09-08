@@ -27,6 +27,7 @@ export function createBillingQueries(
 	return {
 		overview: defineQuery({
 			queryKey: billingKeys.overview,
+			refetchOnWindowFocus: 'always',
 			queryFn: () => billingApi.overview(),
 		}),
 

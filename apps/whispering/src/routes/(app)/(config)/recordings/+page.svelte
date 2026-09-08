@@ -46,6 +46,7 @@
 	import { createRawSnippet } from 'svelte';
 	import { PATHS } from '$lib/services/fs-paths';
 	import { report } from '$lib/report';
+	import { creditAction } from '$lib/operations/credit-action';
 	import { tauri } from '#platform/tauri';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
 	import type { Recording } from '$lib/state/recordings.svelte';
@@ -440,6 +441,12 @@
 										// key) reads as one line, not N copies.
 										const [firstFailure] = errs;
 										if (!firstFailure) return; // errs is non-empty here
+										const creditFailure = errs.find(
+											({ error }) => error.name === 'InsufficientCredits',
+										);
+										const addCredits = creditFailure
+											? creditAction(creditFailure.error, app.account)
+											: undefined;
 										const failureSummary = [
 											...new Set(errs.map(({ error }) => error.message)),
 										].join('\n');
@@ -449,6 +456,7 @@
 												cause: firstFailure.error,
 												title: `Failed to transcribe ${errs.length} recording${errs.length === 1 ? '' : 's'}`,
 												description: failureSummary,
+												action: addCredits,
 											});
 											return;
 										}
@@ -457,7 +465,7 @@
 											cause: firstFailure.error,
 											title: `Transcribed ${oks.length} of ${oks.length + errs.length} recordings`,
 											description: `${oks.length} succeeded, ${errs.length} failed${historyWarningCount === 0 ? '' : `, ${historyWarningCount} may not have been saved to history`}:\n${failureSummary}`,
-											action: copyUnsavedAction,
+											action: copyUnsavedAction ?? addCredits,
 										});
 									},
 								},

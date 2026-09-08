@@ -8,6 +8,7 @@
  * - A disabled setting performs no upload and no kick
  * - Upload remains best-effort and does not block transcription
  * - History failure warns only after usable text is delivered
+ * - Credit failures offer account management without delivering or resuming work
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import { generateBlobId } from '@epicenter/blobs';
@@ -17,6 +18,7 @@ import type { RecordingId } from '$lib/data';
 let autoUpload = true;
 let remoteAvailable = true;
 let creationError: { name: string; message: string } | null = null;
+let transcriptionError: { name: string; message: string } | null = null;
 const markFailed = mock();
 const markTranscribing = mock();
 let willPolish = false;
@@ -32,6 +34,8 @@ const deliverTranscriptionResult = mock(async () => ({
 	notice: { title: 'done' },
 }));
 const reportInfo = mock();
+const reportError = mock();
+const rejectLoading = mock();
 let historyError: { name: string; message: string } | null = null;
 let polishedHistoryError: { name: string; message: string } | null = null;
 const saveRecordingHistory = mock(async () =>
@@ -51,10 +55,12 @@ mock.module('$lib/operations/sound', () => ({
 }));
 mock.module('$lib/operations/transcribe', () => ({
 	transcribeAndPersist: async () =>
-		Ok({
-			text: 'transcript',
-			history: historyError === null ? Ok(undefined) : Err(historyError),
-		}),
+		transcriptionError !== null
+			? Err(transcriptionError)
+			: Ok({
+					text: 'transcript',
+					history: historyError === null ? Ok(undefined) : Err(historyError),
+				}),
 }));
 mock.module('$lib/operations/transcription-history', () => ({
 	saveRecordingHistory,
@@ -63,8 +69,8 @@ mock.module('$lib/report', () => ({
 	log: { warn: mock() },
 	report: {
 		info: reportInfo,
-		error: mock(),
-		loading: () => ({ resolve: mock(), reject: mock() }),
+		error: reportError,
+		loading: () => ({ resolve: mock(), reject: rejectLoading }),
 	},
 }));
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
@@ -82,6 +88,7 @@ const { processRecordingPipeline } = await import('./pipeline.js');
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
 const app = {
+	account: { baseURL: 'https://api.example.test', principalId: 'alice' },
 	settings: { get: () => autoUpload },
 	recordings: {
 		// The row commits before the promise settles; failed creation awaits cleanup.
@@ -102,6 +109,7 @@ afterEach(() => {
 	autoUpload = true;
 	remoteAvailable = true;
 	creationError = null;
+	transcriptionError = null;
 	willPolish = false;
 	historyError = null;
 	polishedHistoryError = null;
@@ -235,3 +243,24 @@ test('polished history success does not hide an earlier raw history error', asyn
 		description: historyError.message,
 	});
 });
+
+for (const deliverySource of ['recording', 'import'] as const) {
+	test(`${deliverySource} credit failure offers Add credits and preserves the interrupted work`, async () => {
+		transcriptionError = {
+			name: 'InsufficientCredits',
+			message: 'Add credits, then retry.',
+		};
+		const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
+		await processRecordingPipeline(app, {
+			audioBlobId: generateBlobId(),
+			durationMs: 100,
+			deliverySource,
+		});
+		expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
+		const notice = deliverySource === 'recording' ? reportError : rejectLoading;
+		expect(notice).toHaveBeenLastCalledWith({
+			cause: transcriptionError,
+			action: { label: 'Add credits', onClick: expect.any(Function) },
+		});
+	});
+}

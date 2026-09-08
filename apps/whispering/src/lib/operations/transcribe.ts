@@ -37,9 +37,9 @@ const log = createLogger('whispering/transcribe');
 
 /**
  * The error any transcription path can surface. Deliberately `AnyTaggedError`
- * rather than the concrete provider-error union: every consumer (toast,
- * failed-row tooltip, practice view, analytics) presents these by `.message`,
- * and none discriminate on `.name`. The user-facing message is curated where
+ * rather than the concrete provider-error union: consumers present these by
+ * `.message`, while insufficient credits additionally offers an account link.
+ * The user-facing message is curated where
  * the context lives, in each service's `defineErrors` constructors, so this
  * boundary only needs to promise `{ name, message }`. Widening to the full
  * union would add error variants no consumer reads.
@@ -55,7 +55,7 @@ const TranscriptionOperationError = defineErrors({
 	 *  that fixes it. */
 	InsufficientCredits: () => ({
 		message:
-			"You're out of Epicenter AI credits. Add credits from the dashboard to keep transcribing, or switch to your own provider in settings.",
+			"You're out of Epicenter AI credits. Add credits on the account website, then return and retry your recording. You can also switch to your own provider in settings.",
 	}),
 	LocalTranscriptionUnavailableOnWeb: () => ({
 		message:

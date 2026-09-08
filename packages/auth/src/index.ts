@@ -1,3 +1,4 @@
+export { createAccountManagementUrl } from './account-management.js';
 export type {
 	Account,
 	AuthClient,

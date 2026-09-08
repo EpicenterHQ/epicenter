@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '@epicenter/ui/button';
 	import { Badge } from '@epicenter/ui/badge';
 	import * as Card from '@epicenter/ui/card';
 	import { Progress } from '@epicenter/ui/progress';
@@ -13,7 +14,7 @@
 	const trial = $derived(overview.data?.trial ?? null);
 	const planDisplayName = $derived(overview.data?.planDisplayName ?? 'Free');
 
-	const usagePercent = $derived(
+	const remainingPercent = $derived(
 		credits && credits.granted > 0
 			? Math.min(100, Math.round((credits.remaining / credits.granted) * 100))
 			: 0,
@@ -32,7 +33,7 @@
 </script>
 
 {#if overview.isPending}
-	<Card.Root class="mb-8">
+	<Card.Root class="mb-4">
 		<Card.Header> <Skeleton class="h-6 w-20" /> </Card.Header>
 		<Card.Content>
 			<Skeleton class="h-8 w-32 mb-3" />
@@ -40,15 +41,16 @@
 		</Card.Content>
 	</Card.Root>
 {:else if overview.isError}
-	<Card.Root class="mb-8 border-destructive">
+	<Card.Root class="mb-4 border-destructive">
 		<Card.Content class="pt-6">
 			<p class="text-sm text-destructive">
-				Failed to load balance. Try refreshing.
+				Could not load your credit balance.
 			</p>
+			<Button variant="outline" class="mt-3" disabled={overview.isFetching} onclick={() => overview.refetch()}>Retry balance</Button>
 		</Card.Content>
 	</Card.Root>
 {:else if credits}
-	<Card.Root class="mb-8">
+	<Card.Root class="mb-4">
 		<Card.Header class="flex-row items-center justify-between space-y-0 pb-2">
 			<Card.Title class="text-sm font-medium">Credits</Card.Title>
 			{#if daysUntilReset !== null}
@@ -75,11 +77,11 @@
 					{credits.remaining.toLocaleString()}
 				</span>
 				<span class="text-sm text-muted-foreground">
-					of {credits.granted.toLocaleString()} included
+					of {credits.granted.toLocaleString()} total
 				</span>
 			</div>
 
-			<Progress value={usagePercent} class="h-2 mb-3" />
+			<Progress value={remainingPercent} class="h-2 mb-3" />
 
 			{#if credits.rolloverRemaining > 0}
 				<div class="flex gap-4 text-xs text-muted-foreground">

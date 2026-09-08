@@ -8,10 +8,13 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
+	import { onDestroy } from 'svelte';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { billingKeys } from '$lib/billing/queries';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing, queryClient } = getDashboard();
+	const { billing, queryClient, signal } = getDashboard();
+	let disposed = false;
+	onDestroy(() => { disposed = true; });
 
 	let isAnnual = $state(false);
 	let confirmDialog = $state.raw<{ card: BillingPlanCard } | null>(null);
@@ -55,22 +58,22 @@
 </script>
 
 <section class="mt-10 mb-8">
-	<div class="flex items-center justify-between mb-4">
+	<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
 		<h2 class="text-lg font-semibold">Plans</h2>
 		<div class="flex items-center gap-2 rounded-lg bg-muted p-1 text-xs">
 			<Button
-				variant="ghost"
+				variant={!isAnnual ? 'secondary' : 'ghost'}
 				size="sm"
-				class="rounded-md {!isAnnual ? 'bg-background shadow-sm' : 'text-muted-foreground'}"
+				aria-pressed={!isAnnual}
 				onclick={() => (isAnnual = false)}
 				>Monthly</Button
 			>
 			<Button
-				variant="ghost"
+				variant={isAnnual ? 'secondary' : 'ghost'}
 				size="sm"
-				class="rounded-md {isAnnual ? 'bg-background shadow-sm' : 'text-muted-foreground'}"
+				aria-pressed={isAnnual}
 				onclick={() => (isAnnual = true)}
-				>Annual <span class="ml-1 text-emerald-500">Save ~17%</span></Button
+				>Annual <span class="ml-1 text-muted-foreground">Save ~17%</span></Button
 			>
 		</div>
 	</div>
@@ -81,11 +84,16 @@
 				<Skeleton class="h-64" />
 			{/each}
 		</div>
+	{:else if plans.isError}
+		<p role="alert" class="text-sm text-destructive">Could not load plans.</p>
+		<Button variant="outline" class="mt-3" disabled={plans.isFetching} onclick={() => plans.refetch()}>Retry plans</Button>
+	{:else if visibleCards.length === 0}
+		<p class="text-sm text-muted-foreground">No plans are available right now.</p>
 	{:else}
 		<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 			{#each visibleCards as card (card.id)}
 				<Card.Root
-					class="{card.isRecommended ? 'border-primary ring-1 ring-primary' : ''} {card.cta === 'Current' ? 'border-emerald-700 bg-emerald-950/20' : ''} flex flex-col"
+					class="{card.isRecommended ? 'border-primary ring-1 ring-primary' : ''} {card.cta === 'Current' ? 'border-primary bg-muted' : ''} flex flex-col"
 				>
 					<Card.Header class="pb-2">
 						<div class="flex items-center gap-2">
@@ -105,7 +113,7 @@
 						{/if}
 						<p>All AI models</p>
 						{#if card.rollover}
-							<p class="text-emerald-400">∞ credit rollover</p>
+							<p class="text-foreground">∞ credit rollover</p>
 						{:else}
 							<p>Credits reset monthly</p>
 						{/if}
@@ -162,6 +170,8 @@
 			<Dialog.Description>
 				{#if previewMutation.isPending}
 					Calculating cost...
+				{:else if previewMutation.isError}
+					Could not preview this plan change.
 				{:else if previewSummary}
 					{previewSummary}
 				{:else}
@@ -169,13 +179,17 @@
 				{/if}
 			</Dialog.Description>
 		</Dialog.Header>
+		{#if previewMutation.isError}
+			<p role="alert" class="text-sm text-destructive">{extractErrorMessage(previewMutation.error)}</p>
+			<Button variant="outline" onclick={() => { if (confirmDialog) previewMutation.mutate({ planId: confirmDialog.card.id }); }}>Retry preview</Button>
+		{/if}
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => (confirmDialog = null)}>
 				Cancel
 			</Button>
 			<Button
 				onclick={() => {
-					if (!confirmDialog) return;
+					if (!confirmDialog || !previewMutation.isSuccess || previewMutation.variables?.planId !== confirmDialog.card.id || disposed || signal.aborted) return;
 					checkoutMutation.mutate(
 						{
 							planId: confirmDialog.card.id,
@@ -183,6 +197,7 @@
 						},
 						{
 							onSuccess: (data) => {
+								if (disposed || signal.aborted) return;
 								if (data.checkoutUrl) {
 									window.location.href = data.checkoutUrl;
 								} else {
@@ -191,17 +206,17 @@
 									queryClient.invalidateQueries({ queryKey: billingKeys.all });
 								}
 							},
-							onError: (error) =>
-								toast.error('Upgrade failed', {
-									description: extractErrorMessage(error),
-								}),
+							onError: (error) => {
+								if (disposed || signal.aborted) return;
+								toast.error('Plan change failed', { description: extractErrorMessage(error) });
+							},
 						},
 					);
 				}}
-				disabled={checkoutMutation.isPending}
+				disabled={checkoutMutation.isPending || !previewMutation.isSuccess || previewMutation.variables?.planId !== confirmDialog?.card.id}
 			>
 				{#if checkoutMutation.isPending}
-					<Spinner class="size-3.5" />
+					<Spinner class="size-3.5" /> Updating plan…
 				{:else}
 					Confirm
 				{/if}

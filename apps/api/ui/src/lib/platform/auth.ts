@@ -1,6 +1,10 @@
 import { createHostedBrowserRedirectAuth } from '@epicenter/auth';
 import { fromAuth } from '@epicenter/auth/svelte';
 import { DASHBOARD_APP_ID } from '@epicenter/constants/apps';
+import {
+	dashboardReturnKey,
+	readDashboardReturnPath,
+} from '../dashboard/navigation.js';
 
 export const authClient = createHostedBrowserRedirectAuth({
 	appId: DASHBOARD_APP_ID,
@@ -10,6 +14,20 @@ export const authClient = createHostedBrowserRedirectAuth({
 
 // Boot code takes `authClient`; a component that must track takes `auth`.
 export const auth = fromAuth(authClient);
+
+/** Keep account navigation with this tab's sign-in ceremony. */
+export async function startDashboardSignIn(
+	options?: Parameters<typeof auth.startSignIn>[0],
+) {
+	window.sessionStorage.setItem(
+		dashboardReturnKey,
+		readDashboardReturnPath(
+			`${window.location.pathname}${window.location.search}${window.location.hash}`,
+			window.location.origin,
+		),
+	);
+	return auth.startSignIn(options);
+}
 
 if (import.meta.hot) {
 	import.meta.hot.dispose(() => {

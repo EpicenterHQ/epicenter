@@ -675,13 +675,14 @@ fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}/apps/{id}/").parse()?;
     let initialization_script = initialization_script(&origin, token)?;
+    let account_opener = app.clone();
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(format!("Epicenter: {id}"))
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
         .initialization_script(initialization_script)
         .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {id} app WebView"))?;
     release_host_resources_on_destroy(&window);
@@ -1425,6 +1426,28 @@ fn validate_hosted_auth_url(value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Ordinary new-tab account links leave the desktop app's work in place.
+/// The host opens only the hosted account destinations in the system browser.
+fn is_hosted_account_url(url: &tauri::Url) -> bool {
+    url.origin().ascii_serialization() == HOSTED_AUTH_ORIGIN
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+        && matches!(
+            url.path(),
+            "/dashboard" | "/dashboard/usage" | "/dashboard/account"
+        )
+}
+
+fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowResponse<Wry> {
+    if is_hosted_account_url(url) {
+        if let Err(error) = app.opener().open_url(url.as_str(), None::<String>) {
+            append_parent_log(app, &format!("could not open the account website: {error}"));
+        }
+    }
+    NewWindowResponse::Deny
+}
+
 fn fail_generation(app: &DesktopAppHandle, generation: u64, message: String) {
     let state = app.state::<HostState>();
     if state.shutting_down.load(Ordering::Acquire) {
@@ -1544,6 +1567,7 @@ fn ensure_window(
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}{}", built_in.path()).parse()?;
     let initialization_script = initialization_script(&origin, token)?;
+    let account_opener = app.clone();
     let window = WebviewWindowBuilder::new(app, built_in.id(), WebviewUrl::External(url))
         .title(built_in.title())
         .inner_size(1100.0, 760.0)
@@ -1551,7 +1575,7 @@ fn ensure_window(
         .visible(reveal)
         .initialization_script(initialization_script)
         .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {} WebView", built_in.title()))?;
 
@@ -2549,6 +2573,31 @@ mod tests {
             "https://api.epicenter.so/auth/callback?code=code",
         ] {
             assert_eq!(parse_auth_callback(&denied.parse().unwrap()), None);
+        }
+    }
+
+    #[test]
+    fn system_browser_accepts_only_hosted_account_destinations() {
+        for allowed in [
+            "https://api.epicenter.so/dashboard?expectedPrincipal=alice",
+            "https://api.epicenter.so/dashboard/usage?expectedPrincipal=alice",
+            "https://api.epicenter.so/dashboard/account",
+        ] {
+            assert!(is_hosted_account_url(&allowed.parse().unwrap()));
+        }
+        for denied in [
+            "http://api.epicenter.so/dashboard",
+            "https://api.epicenter.so.evil.test/dashboard",
+            "https://api.epicenter.so:444/dashboard",
+            "https://user@api.epicenter.so/dashboard",
+            "https://api.epicenter.so/dashboard#fragment",
+            "https://api.epicenter.so/dashboard/other",
+            "https://api.epicenter.so/dashboard/usage/extra",
+            "https://api.epicenter.so/sign-in",
+            "https://api.epicenter.so/auth/sign-out",
+            "file:///dashboard",
+        ] {
+            assert!(!is_hosted_account_url(&denied.parse().unwrap()));
         }
     }
 

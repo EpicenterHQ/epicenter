@@ -41,7 +41,7 @@
 	} from '$lib/auth/providers';
 	import ProviderButton from '$lib/auth/ProviderButton.svelte';
 	import UserIdentity from '$lib/auth/UserIdentity.svelte';
-	import { auth } from '$lib/platform/auth';
+	import { startDashboardSignIn } from '$lib/platform/auth';
 	import { getDashboard } from '$lib/dashboard/context';
 	const { accountQueries, management: authClient, queryClient, signal } = getDashboard();
 	// Leaving account settings does not retire the shared dashboard Account.
@@ -120,7 +120,7 @@
 				label: 'Sign in',
 				onClick: async () => {
 					if (pageDisposed || signal.aborted) return;
-					await auth.startSignIn({ reauthenticate: true });
+					await startDashboardSignIn({ reauthenticate: true });
 				},
 			},
 		});

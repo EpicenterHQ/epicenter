@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { authClient } from '$lib/platform/auth';
+	import { dashboardReturnKey, readDashboardReturnPath } from '$lib/dashboard/navigation';
 
+	const destination = readDashboardReturnPath(
+			window.sessionStorage.getItem(dashboardReturnKey), window.location.origin,
+		);
 	const completion = authClient.completeSignIn().then((result) => {
 		if (result.error) throw new Error(result.error.message);
-		window.location.replace('/dashboard');
+		window.sessionStorage.removeItem(dashboardReturnKey);
+		window.location.replace(destination);
 	});
 </script>
 
@@ -21,7 +26,7 @@
 	{:catch error}
 		<div class="space-y-3 text-center">
 			<p role="alert">{error.message}</p>
-			<a href="/dashboard" class="underline">Return to dashboard</a>
+			<a href={destination} class="underline">Return to account</a>
 		</div>
 	{/await}
 </div>
