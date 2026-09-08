@@ -42,10 +42,11 @@ export function createBrowserDevice({ appId }: { appId: string }): Device {
 	appIdOrThrow(appId);
 	return {
 		sqlite: Object.freeze({
-			open: async (name) => Ok(createOwnedSqlite(request, appId, name)),
+			open: async (name) =>
+				Ok(createOwnedSqlite(request, appId, { kind: 'local' }, name)),
 			delete: (name) =>
 				unwrap(
-					request({ kind: 'sqlite-delete', appId, name }),
+					request({ kind: 'sqlite-delete', appId, scope: { kind: 'local' }, name }),
 					'sqlite-delete',
 					() => undefined,
 				),

@@ -18,6 +18,7 @@ import {
 	type DeviceResponse,
 	isDatabaseName,
 	isSecretLabel,
+	isStorageScope,
 	type SqliteStatement,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
@@ -798,7 +799,9 @@ function parseDeviceRequest(
 		input === null ||
 		typeof input.kind !== 'string' ||
 		typeof input.appId !== 'string' ||
-		!isAppId(input.appId)
+		!isAppId(input.appId) ||
+		!('scope' in input) ||
+		!isStorageScope(input.scope)
 	) {
 		return undefined;
 	}
@@ -810,11 +813,11 @@ function parseDeviceRequest(
 		const statement = parseSqliteStatement(input.statement);
 		return statement === undefined || !isDatabaseName(input.name)
 			? undefined
-			: { kind, appId: input.appId, name: input.name, statement };
+			: { kind, appId: input.appId, scope: input.scope, name: input.name, statement };
 	}
 	if (kind === 'sqlite-delete' && typeof input.name === 'string') {
 		return isDatabaseName(input.name)
-			? { kind, appId: input.appId, name: input.name }
+			? { kind, appId: input.appId, scope: input.scope, name: input.name }
 			: undefined;
 	}
 	if (kind === 'sqlite-batch' && typeof input.name === 'string') {
@@ -827,7 +830,7 @@ function parseDeviceRequest(
 			if (statement === undefined) return undefined;
 			statements.push(statement);
 		}
-		return { kind, appId: input.appId, name: input.name, statements };
+		return { kind, appId: input.appId, scope: input.scope, name: input.name, statements };
 	}
 	if (
 		(kind === 'secret-put' ||

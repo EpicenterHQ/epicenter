@@ -49,7 +49,7 @@ import {
 import * as Y from '@y/y';
 import { type DBSchema, deleteDB, type IDBPDatabase, openDB } from 'idb';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { claimDocument, releaseDocument } from './claims.js';
+import { claimDocument } from './claims.js';
 import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
@@ -66,12 +66,12 @@ import type {
 	OutboxEntry,
 } from './persistence.js';
 import {
-	createAccountStoreOverPort,
-	type DataDocument,
+	createStoreOverPort,
 	type DeclaredData,
 	type ReplicaData,
+	type StoreBacking,
+	type StoreBlobBacking,
 	StoreError,
-	type UntypedDeclaredData,
 } from './store.js';
 
 /**
@@ -513,6 +513,7 @@ function generationPrefix(
 	appId: string,
 	principalId: PrincipalId,
 	dataId: string,
+	authorityId?: string,
 ): Result<string, StoreError> {
 	if (!isAppId(appId)) {
 		return StoreError.Unaddressable({
@@ -529,7 +530,28 @@ function generationPrefix(
 			reason: `'${principalId}' is not an address segment`,
 		});
 	}
-	return Ok(`epicenter/${STORE_GENERATION}/${appId}/${principalId}/${dataId}/`);
+	if (authorityId !== undefined && !isSegment(authorityId)) {
+		return StoreError.Unaddressable({
+			reason: `'${authorityId}' is not an address segment`,
+		});
+	}
+	return authorityId === undefined
+		? Ok(`epicenter/${STORE_GENERATION}/${appId}/${principalId}/${dataId}/`)
+		: Ok(
+				`epicenter/${appId}/accounts/${authorityId}/${principalId}/data/${dataId}/`,
+			);
+}
+
+function localGenerationPrefix(
+	appId: string,
+	dataId: string,
+): Result<string, StoreError> {
+	if (!isAppId(appId)) {
+		return StoreError.Unaddressable({
+			reason: `'${appId}' is not an application id`,
+		});
+	}
+	return Ok(`epicenter/${appId}/local/data/${dataId}/`);
 }
 
 /**
@@ -570,11 +592,7 @@ export type OpenDatabaseOptions = {
 	appId: string;
 	/** The exact generation to open. Never discovered, never defaulted. */
 	generation: number;
-	/**
-	 * The account this generation belongs to. Required, and there is no second
-	 * shape: an authority mints every generation, so a database with no account
-	 * is not a kind this package can open.
-	 */
+	/** The account this exact-generation replica belongs to. */
 	account: DatabaseAccount;
 };
 
@@ -627,9 +645,8 @@ async function fetchGeneration(
 /**
  * Open one exact generation of one database, cache-first (ADR-0292).
  *
- * One opener, and one store. An authority mints every generation, so the
- * device store this used to fork against is gone, and with it the
- * `sync === undefined` discriminant and the second address grammar.
+ * This low-level opener addresses a known account generation and leaves sync
+ * attachment to its caller. Application sessions enter through `openAppData`.
  *
  * The sequence, and every step of it is load-bearing:
  *
@@ -655,18 +672,54 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 ): Promise<
 	Result<OpenedDatabase<TDatabase>, StoreError | DataDefinitionParseError>
 > {
+	const { data: parsed, error: parseError } = compileData(definition);
+	if (parseError !== null) return Err(parseError);
+	const parts = createStoreOverPort({
+		definition: parsed,
+		acquire: () => acquireDatabase(parsed, { appId, generation, account }),
+	});
+	const ready = await parts.ready;
+	if (ready.error !== null) return ready;
+	return Ok({
+		store: Object.freeze(
+			Object.assign(parts.store, parts.view as DeclaredData<TDatabase>, {
+				appId,
+				dataId: parsed.id,
+				generation,
+				baseURL: account.baseURL,
+				principalId: account.principalId,
+			}),
+		),
+		close: parts.close,
+	});
+}
+
+/** Acquire an exact generation's durable backing without constructing a document. */
+async function acquireDatabase(
+	parsed: ParsedDataDefinition,
+	{
+		appId,
+		generation,
+		account,
+	}: {
+		appId: string;
+		generation: number;
+		account?: DatabaseAccount;
+	},
+): Promise<Result<StoreBacking, StoreError>> {
 	if (!isGeneration(generation)) {
 		return StoreError.Unaddressable({
 			reason: `'${generation}' is not a generation number`,
 		});
 	}
-	// Parsed before anything is claimed or opened: a declaration may arrive as
-	// data, and a refusal here is a boot outcome rather than a programmer
-	// error (ADR-0240).
-	const { data: parsed, error: parseError } = compileData(definition);
-	if (parseError !== null) return Err(parseError);
-
-	const located = generationPrefix(appId, account.principalId, parsed.id);
+	const located = account
+		? generationPrefix(
+				appId,
+				account.principalId,
+				parsed.id,
+				account.authorityId,
+			)
+		: localGenerationPrefix(appId, parsed.id);
 	if (located.error !== null) return Err(located.error);
 
 	// Asked here rather than by an application, because this is the one place
@@ -676,12 +729,13 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 	void requestPersistentStorage();
 
 	const address = `${located.data}${generation}`;
-	const { error: claimError } = await claimDocument(address);
-	if (claimError !== null) return Err(claimError);
+	const claim = await claimDocument(address);
+	if (claim.error !== null) return Err(claim.error);
+	const release = claim.data.release;
 
 	const opened = await openIdbBacking(address);
 	if (opened.error !== null) {
-		releaseDocument(address);
+		release();
 		return Err(opened.error);
 	}
 	let backing = opened.data;
@@ -689,10 +743,17 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 	if (backing.loaded.updates.length === 0) {
 		// A miss. Whatever happens next, the shell this open just created must
 		// not be left behind reading as a hit.
-		const fetched = await fetchGeneration(account, parsed.id, generation);
+		const fetched = account
+			? await fetchGeneration(account, parsed.id, generation)
+			: Ok({
+					bytes: new Uint8Array(
+						Y.encodeStateAsUpdateV2(createDatabaseDocument()),
+					),
+					position: 0,
+				});
 		if (fetched.error !== null) {
 			backing.close();
-			releaseDocument(address);
+			release();
 			await deleteIndexedDb(address).catch(() => undefined);
 			return Err(fetched.error);
 		}
@@ -709,7 +770,7 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 		});
 		if (writeError !== null) {
 			backing.close();
-			releaseDocument(address);
+			release();
 			return Err(writeError);
 		}
 		// Reopened rather than patched in memory: what hydrates has to be what
@@ -718,60 +779,94 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 		backing.close();
 		const reopened = await openIdbBacking(address);
 		if (reopened.error !== null) {
-			releaseDocument(address);
+			release();
 			return Err(reopened.error);
 		}
 		backing = reopened.data;
 	}
 
 	const held = backing;
-	// What can throw here is the hydration replay meeting a stored update it
-	// cannot decode, which is "the store could not read its durable record":
-	// contained so a corrupt record refuses the boot instead of leaking the
-	// claim and the open connection.
-	let parts: {
-		store: DataDocument;
-		close: () => Promise<void>;
-		view: UntypedDeclaredData;
-		definition: ParsedDataDefinition;
-	};
-	try {
-		parts = createAccountStoreOverPort({
-			definition: parsed,
-			durable: held.port,
-			loaded: held.loaded,
-			dispose: () => {
-				held.close();
-				releaseDocument(address);
-			},
-		});
-	} catch (cause) {
-		held.close();
-		releaseDocument(address);
-		return StoreError.StorageFailed({ cause });
-	}
-
-	// The whole address, stamped by the one party that knows it (ADR-0340).
-	// Four of these five facts arrived as arguments and were thrown away after
-	// they resolved a document name; keeping them is not new state.
-	//
-	// `close` comes back BESIDE the store rather than on it. What a caller has
-	// to end here is more than the document: whoever attaches sync and a
-	// page-hide listener holds those too, and a disposal on the store would
-	// free one of the three and leave a connection running against a document
-	// whose every verb throws.
 	return Ok({
-		store: Object.freeze({
-			...(parts.view as DeclaredData<TDatabase>),
-			...parts.store,
+		durable: held.port,
+		loaded: held.loaded,
+		dispose() {
+			held.close();
+			release();
+		},
+	});
+}
+
+/**
+ * Construct the actual app document now and hydrate it from browser storage.
+ * Invalid build-time declarations and account identities throw synchronously;
+ * acquisition failures are reported by the engine's ready Result.
+ */
+export function openAppData<
+	const TDefinition extends DataDefinition,
+	TSqlite = null,
+>(
+	definition: TDefinition,
+	{
+		appId,
+		account,
+		blobs,
+		sqlite,
+	}: {
+		appId: string;
+		account?: DatabaseAccount;
+		blobs: StoreBlobBacking;
+		sqlite?: TSqlite;
+	},
+) {
+	if (!isAppId(appId))
+		throw new Error(`The application id '${appId}' is not valid.`);
+	const { data: parsed, error } = compileData(definition);
+	if (error !== null) throw new Error(error.message, { cause: error });
+	const authorityId = account?.authorityId;
+	if (account !== undefined && authorityId === undefined) {
+		throw new Error('The account has no stable authority identity.');
+	}
+	const identity =
+		account !== undefined && authorityId !== undefined
+			? Object.freeze({ authorityId, principalId: account.principalId })
+			: null;
+	const parts = createStoreOverPort<StoreError | DataDefinitionParseError>({
+		definition: parsed,
+		blobStore: blobs.local,
+		local: account === undefined,
+		async acquire() {
+			if (account === undefined) {
+				return acquireDatabase(parsed, { appId, generation: 1 });
+			}
+			const resolved = await resolveGeneration(definition, { appId, account });
+			if (resolved.error !== null) return resolved;
+			const generation = resolved.data.generation;
+			const acquired = await acquireDatabase(parsed, {
+				appId,
+				generation,
+				account,
+			});
+			if (acquired.error !== null) return acquired;
+			return Ok({
+				...acquired.data,
+				replication: {
+					address: { baseURL: account.baseURL, dataId: parsed.id, generation },
+					transport: account,
+				},
+			});
+		},
+	});
+	return Object.freeze(
+		Object.assign(parts.store, parts.view as DeclaredData<TDefinition>, {
 			appId,
 			dataId: parsed.id,
-			generation,
-			baseURL: account.baseURL,
-			principalId: account.principalId,
+			account: identity,
+			ready: parts.ready,
+			close: parts.close,
+			blobs: parts.createBlobs(blobs),
+			sqlite: sqlite ?? null,
 		}),
-		close: parts.close,
-	});
+	);
 }
 
 /**
@@ -798,6 +893,7 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 async function writeGeneration({
 	appId,
 	principalId,
+	authorityId,
 	dataId,
 	generation,
 	state,
@@ -805,6 +901,7 @@ async function writeGeneration({
 }: {
 	appId: string;
 	principalId: PrincipalId;
+	authorityId?: string;
 	dataId: string;
 	generation: number;
 	state: Uint8Array;
@@ -815,12 +912,13 @@ async function writeGeneration({
 			reason: `'${generation}' is not a generation number`,
 		});
 	}
-	const located = generationPrefix(appId, principalId, dataId);
+	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	if (located.error !== null) return Err(located.error);
 	const address = `${located.data}${generation}`;
 
-	const { error: claimError } = await claimDocument(address);
-	if (claimError !== null) return Err(claimError);
+	const claim = await claimDocument(address);
+	if (claim.error !== null) return Err(claim.error);
+	const release = claim.data.release;
 	try {
 		const opened = await openIdbBacking(address);
 		if (opened.error !== null) return Err(opened.error);
@@ -840,7 +938,7 @@ async function writeGeneration({
 			backing.close();
 		}
 	} finally {
-		releaseDocument(address);
+		release();
 	}
 }
 
@@ -895,13 +993,19 @@ export async function createGeneration(
 	// Refused before the state is posted, so an account this device cannot name
 	// never reaches the authority: the number would come back and have nowhere
 	// to be written.
-	const located = generationPrefix(appId, account.principalId, parsed.id);
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
 	if (located.error !== null) return Err(located.error);
 	const posted = await postGeneration(account, parsed.id, state);
 	if (posted.error !== null) return Err(posted.error);
 	const { error } = await writeGeneration({
 		appId,
 		principalId: account.principalId,
+		authorityId: account.authorityId,
 		dataId: parsed.id,
 		generation: posted.data.generation,
 		state,
@@ -993,6 +1097,7 @@ export async function resolveGeneration(
 	const held = await newestGeneration({
 		appId,
 		principalId: account.principalId,
+		authorityId: account.authorityId,
 		dataId: parsed.id,
 	});
 	if (held !== undefined) return Ok({ generation: held });
@@ -1091,17 +1196,17 @@ export async function eraseGenerations({
 
 	// The same claim an open takes, so "somebody has this open" has one answer
 	// on this origin rather than a second one read off a delete that blocked.
-	const claimed: string[] = [];
+	const claims: Array<{ name: string; release(): void }> = [];
 	const release = () => {
-		for (const name of claimed) releaseDocument(name);
+		for (const claim of claims) claim.release();
 	};
 	for (const name of names) {
-		const { error } = await claimDocument(name);
-		if (error !== null) {
+		const claim = await claimDocument(name);
+		if (claim.error !== null) {
 			release();
-			return Err(error);
+			return Err(claim.error);
 		}
-		claimed.push(name);
+		claims.push({ name, release: claim.data.release });
 	}
 
 	try {
@@ -1165,13 +1270,15 @@ async function heldGenerationNames(prefix: string): Promise<string[]> {
 async function newestGeneration({
 	appId,
 	principalId,
+	authorityId,
 	dataId,
 }: {
 	appId: string;
 	principalId: PrincipalId;
+	authorityId?: string;
 	dataId: string;
 }): Promise<number | undefined> {
-	const located = generationPrefix(appId, principalId, dataId);
+	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	// A name this store cannot build addresses nothing, so there is nothing
 	// here to find. `openDatabase` refuses the same input loudly; this one is a
 	// question about what is on disk and the honest answer is "none".

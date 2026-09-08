@@ -127,15 +127,23 @@ async function closing(file: string): Promise<void> {
 	);
 }
 
-function databaseFilename(appId: string, name: string): string {
-	return `/${encodeURIComponent(appId)}-${encodeURIComponent(name)}.sqlite`;
+function databaseFilename(
+	appId: string,
+	scope: import('./protocol.js').StorageScope,
+	name: string,
+): string {
+	const partition =
+		scope.kind === 'local'
+			? 'local'
+			: `accounts-${scope.authorityId}-${scope.principalId}`;
+	return `/${encodeURIComponent(appId)}-${encodeURIComponent(partition)}-${encodeURIComponent(name)}.sqlite`;
 }
 
 const owner: DeviceSqliteOwner = {
-	open: async (appId, name) =>
-		sqliteOver(await opening(databaseFilename(appId, name))),
-	delete: async (appId, name) => {
-		const file = databaseFilename(appId, name);
+	open: async (appId, scope, name) =>
+		sqliteOver(await opening(databaseFilename(appId, scope, name))),
+	delete: async (appId, scope, name) => {
+		const file = databaseFilename(appId, scope, name);
 		// Closed first, because the pool unlinks out from under a live connection
 		// without saying so: the connection survives and every statement through
 		// it then reports that the tables are gone.

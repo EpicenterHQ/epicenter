@@ -81,16 +81,17 @@ The platform-managed layout is:
       local/        local-session-owned application state
         data/       local data generations
         blobs/      local app bytes
+        sqlite/     local app SQLite files
       accounts/     account-session-owned application state
         <authority-id>/
           <principal-id>/
             data/   account data generations
             blobs/  account app bytes
-      sqlite/       app-owned device files
+            sqlite/ account app SQLite files
 ```
 
-This tree is schematic. ADR-0348 owns the versioned local and
-authority-plus-principal SQLite paths, and ADR-0349 owns the matching blob
+This tree is schematic. ADR-0355 owns the local and
+authority-plus-principal data, blob, and SQLite paths, and ADR-0349 owns the matching blob
 paths. The installation decision owns the app directory boundary and bundle
 replacement rule; it does not replace those storage decisions.
 

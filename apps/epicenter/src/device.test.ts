@@ -4,11 +4,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createBunDevice } from './device.ts';
 
+const local = { kind: 'local' } as const;
+
 test('application SQLite is scoped, async, and batch is atomic', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	const storage = createBunDevice(root);
-	const first = await storage.open('so.epicenter.mail', 'mail');
-	const second = await storage.open('so.epicenter.other', 'mail');
+	const first = await storage.open('so.epicenter.mail', local, 'mail');
+	const second = await storage.open('so.epicenter.other', local, 'mail');
+	const account = await storage.open(
+		'so.epicenter.mail',
+		{ kind: 'account', authorityId: 'cloud', principalId: 'alice' },
+		'mail',
+	);
 
 	const schema = await first.batch([
 		{ sql: 'CREATE TABLE messages (id TEXT PRIMARY KEY, subject TEXT)' },
@@ -34,10 +41,12 @@ test('application SQLite is scoped, async, and batch is atomic', async () => {
 	const isolated = await second.all('SELECT name FROM sqlite_master');
 	expect(isolated.data).toEqual([]);
 	await second.run('CREATE TABLE only_here (id TEXT)');
+	await account.run('CREATE TABLE account_only (id TEXT)');
 	const mailPath = join(
 		root,
 		'apps',
 		'so.epicenter.mail',
+		'local',
 		'sqlite',
 		'mail.sqlite',
 	);
@@ -45,11 +54,23 @@ test('application SQLite is scoped, async, and batch is atomic', async () => {
 		root,
 		'apps',
 		'so.epicenter.other',
+		'local',
+		'sqlite',
+		'mail.sqlite',
+	);
+	const accountPath = join(
+		root,
+		'apps',
+		'so.epicenter.mail',
+		'accounts',
+		'cloud',
+		'alice',
 		'sqlite',
 		'mail.sqlite',
 	);
 	expect(Bun.file(mailPath).size).toBeGreaterThan(0);
 	expect(Bun.file(otherPath).size).toBeGreaterThan(0);
+	expect(Bun.file(accountPath).size).toBeGreaterThan(0);
 });
 
 test('an open that failed is not remembered', async () => {
@@ -61,10 +82,10 @@ test('an open that failed is not remembered', async () => {
 	const appDir = join(root, 'apps', 'so.epicenter.mail');
 	await mkdir(join(root, 'apps'), { recursive: true });
 	await Bun.write(appDir, 'in the way');
-	await expect(storage.open('so.epicenter.mail', 'mail')).rejects.toThrow();
+	await expect(storage.open('so.epicenter.mail', local, 'mail')).rejects.toThrow();
 
 	await rm(appDir);
-	const opened = await storage.open('so.epicenter.mail', 'mail');
+	const opened = await storage.open('so.epicenter.mail', local, 'mail');
 	expect(
 		(await opened.run('CREATE TABLE recovered (id TEXT)')).error,
 	).toBeNull();
@@ -73,14 +94,14 @@ test('an open that failed is not remembered', async () => {
 test('deleting a database closes it, removes the file, and forgets the name', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	const storage = createBunDevice(root);
-	const path = join(root, 'apps', 'so.epicenter.mail', 'sqlite', 'mail.sqlite');
+	const path = join(root, 'apps', 'so.epicenter.mail', 'local', 'sqlite', 'mail.sqlite');
 
-	const before = await storage.open('so.epicenter.mail', 'mail');
+	const before = await storage.open('so.epicenter.mail', local, 'mail');
 	await before.run('CREATE TABLE messages (id TEXT)');
 	await before.run('INSERT INTO messages VALUES (?)', ['one']);
 	expect(await Bun.file(path).exists()).toBe(true);
 
-	await storage.delete('so.epicenter.mail', 'mail');
+	await storage.delete('so.epicenter.mail', local, 'mail');
 	expect(await Bun.file(path).exists()).toBe(false);
 	// The closed handle stays closed: an application holding it past a deletion
 	// is holding a connection to a file that is gone, and must be told so.
@@ -88,12 +109,12 @@ test('deleting a database closes it, removes the file, and forgets the name', as
 
 	// Opening the same name again is a new, empty database rather than the
 	// evicted handle.
-	const after = await storage.open('so.epicenter.mail', 'mail');
+	const after = await storage.open('so.epicenter.mail', local, 'mail');
 	expect((await after.all('SELECT name FROM sqlite_master')).data).toEqual([]);
 });
 
 test('deleting a database that was never created succeeds', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	const storage = createBunDevice(root);
-	await storage.delete('so.epicenter.mail', 'never');
+	await storage.delete('so.epicenter.mail', local, 'never');
 });

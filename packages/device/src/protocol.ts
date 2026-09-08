@@ -54,6 +54,37 @@ export const DEVICE_PATH = '/api/device';
  */
 export type DatabaseName = string & Brand<'DatabaseName'>;
 
+/** The application session partition that owns a named SQLite file. */
+export type StorageScope =
+	| { kind: 'local' }
+	| { kind: 'account'; authorityId: string; principalId: string };
+
+/** Validate the path segments carried across the host boundary. */
+export function isStorageScope(value: unknown): value is StorageScope {
+	if (typeof value !== 'object' || value === null || !('kind' in value)) {
+		return false;
+	}
+	if (value.kind === 'local') return true;
+	return (
+		value.kind === 'account' &&
+		'authorityId' in value &&
+		'principalId' in value &&
+		isPathSegment(value.authorityId) &&
+		isPathSegment(value.principalId)
+	);
+}
+
+function isPathSegment(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.length > 0 &&
+		value !== '.' &&
+		value !== '..' &&
+		!value.includes('/') &&
+		!value.includes('\\')
+	);
+}
+
 /** One label a secret is filed under (ADR-0310), branded for the same reason. */
 export type SecretLabel = string & Brand<'SecretLabel'>;
 
@@ -85,24 +116,28 @@ export type DeviceRequest =
 	| {
 			kind: 'sqlite-run';
 			appId: string;
+			scope: StorageScope;
 			name: string;
 			statement: SqliteStatement;
 	  }
 	| {
 			kind: 'sqlite-all';
 			appId: string;
+			scope: StorageScope;
 			name: string;
 			statement: SqliteStatement;
 	  }
 	| {
 			kind: 'sqlite-batch';
 			appId: string;
+			scope: StorageScope;
 			name: string;
 			statements: readonly SqliteStatement[];
 	  }
 	| {
 			kind: 'sqlite-delete';
 			appId: string;
+			scope: StorageScope;
 			name: string;
 	  }
 	| {

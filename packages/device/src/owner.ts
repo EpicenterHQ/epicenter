@@ -18,8 +18,16 @@
 
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
-import { type AppSqliteDatabase, DeviceError } from './index.js';
-import type { DeviceRequest, DeviceResponse } from './protocol.js';
+import {
+	type AppSqliteDatabase,
+	DeviceError,
+	isDatabaseName,
+} from './index.js';
+import type {
+	DeviceRequest,
+	DeviceResponse,
+	StorageScope,
+} from './protocol.js';
 
 /**
  * Whoever actually holds the files, for every application on this machine.
@@ -35,8 +43,8 @@ import type { DeviceRequest, DeviceResponse } from './protocol.js';
  * That is why nothing on this type closes: closing is a step inside `delete`.
  */
 export type DeviceSqliteOwner = {
-	open(appId: string, name: string): Promise<AppSqliteDatabase>;
-	delete(appId: string, name: string): Promise<void>;
+	open(appId: string, scope: StorageScope, name: string): Promise<AppSqliteDatabase>;
+	delete(appId: string, scope: StorageScope, name: string): Promise<void>;
 };
 
 /** The requests an owner answers. Secrets are a different owner entirely. */
@@ -62,10 +70,10 @@ export async function answerDevice(
 	request: AppSqliteRequest,
 ): Promise<DeviceResponse> {
 	if (request.kind === 'sqlite-delete') {
-		await owner.delete(request.appId, request.name);
+		await owner.delete(request.appId, request.scope, request.name);
 		return { kind: request.kind };
 	}
-	const database = await owner.open(request.appId, request.name);
+	const database = await owner.open(request.appId, request.scope, request.name);
 	switch (request.kind) {
 		case 'sqlite-run': {
 			const result = await database.run(
@@ -96,6 +104,42 @@ export type AppSqliteTransport = (
 	message: AppSqliteRequest,
 ) => Promise<Result<DeviceResponse, DeviceError>>;
 
+/** Bind one owner to an app while leaving local/account selection to its opener. */
+export type ScopedSqlite = {
+	open(name: string): Promise<
+		Result<AppSqliteDatabase, DeviceError>
+	>;
+	delete(name: string): Promise<Result<void, DeviceError>>;
+};
+
+export function createScopedSqlite(
+	owner: DeviceSqliteOwner,
+	appId: string,
+	getScope: () => StorageScope,
+): ScopedSqlite {
+	return {
+		open: async (name) => {
+			if (!isDatabaseName(name))
+				return DeviceError.InvalidDatabaseName({ databaseName: name });
+			try {
+				return Ok(await owner.open(appId, getScope(), name));
+			} catch (cause) {
+				return DeviceError.StorageFailed({ cause });
+			}
+		},
+		delete: async (name) => {
+			if (!isDatabaseName(name))
+				return DeviceError.InvalidDatabaseName({ databaseName: name });
+			try {
+				await owner.delete(appId, getScope(), name);
+				return Ok(undefined);
+			} catch (cause) {
+				return DeviceError.StorageFailed({ cause });
+			}
+		},
+	};
+}
+
 /**
  * One database's handle, over a transport.
  *
@@ -109,6 +153,7 @@ export type AppSqliteTransport = (
 export function createOwnedSqlite(
 	request: AppSqliteTransport,
 	appId: string,
+	scope: StorageScope,
 	name: string,
 ): AppSqliteDatabase {
 	return {
@@ -117,6 +162,7 @@ export function createOwnedSqlite(
 				request({
 					kind: 'sqlite-run',
 					appId,
+					scope,
 					name,
 					statement: { sql, parameters },
 				}),
@@ -131,6 +177,7 @@ export function createOwnedSqlite(
 				request({
 					kind: 'sqlite-all',
 					appId,
+					scope,
 					name,
 					statement: { sql, parameters },
 				}),
@@ -139,7 +186,7 @@ export function createOwnedSqlite(
 			),
 		batch: (statements) =>
 			unwrap(
-				request({ kind: 'sqlite-batch', appId, name, statements }),
+				request({ kind: 'sqlite-batch', appId, scope, name, statements }),
 				'sqlite-batch',
 				(response) => ({ changes: [...response.changes] }),
 			),

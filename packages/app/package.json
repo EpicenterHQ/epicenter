@@ -13,8 +13,11 @@
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
+		"@epicenter/blobs": "workspace:*",
+		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

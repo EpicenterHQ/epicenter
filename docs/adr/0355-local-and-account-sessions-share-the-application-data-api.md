@@ -1,9 +1,10 @@
 # 0355. Local and account sessions share the application data API
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-07
+- **Amended by:** [ADR-0359](0359-the-document-factory-owns-readiness-and-closure.md) at the live handle's construction mechanism: the document factory owns readiness and closure.
 - **Amends:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at account-required storage and generation creation; [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at one active session per app and unconditional sync; [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) at account-only access to declared tables and device-only ownership of named SQLite files. Secrets remain a separate device capability.
-- **Unbuilt:** Local table sessions, the two explicit openers, the common application blob handle, declared blob fields, authority-scoped storage addresses, scoped named SQLite files, and explicit imports between local and account libraries.
+- **Implementation note:** Local and account openers, the common application blob handle, declared blob fields, authority-scoped data/blob addresses, and scoped named SQLite owner protocol are implemented. Runtime wiring remains opt-in for applications that use named SQLite files; explicit imports between local and account libraries and whole-library removal remain future work.
 
 ## Context
 
@@ -57,8 +58,8 @@ const epicenter = createEpicenter({
   definition,
 });
 
-const localSession = epicenter.openLocal();
-const accountSession = epicenter.openAccount(account);
+const localApp = epicenter.openLocal();
+const accountApp = epicenter.openAccount(account);
 ```
 
 `appId` is a reverse-DNS application identity. The data definition ID identifies
@@ -66,19 +67,58 @@ its schema independently, even when the strings match. Definitions perform no
 storage I/O and capture no account. `field.blob()` belongs with the field
 declarations and describes an owning attachment field; it constructs no store.
 
-Both openers return a session with `opened` and `close`. Whole-library removal
-belongs to the app factory, with its final public spelling still to be chosen. `opened` resolves a typed Result containing the common
-application handle. Acquisition and release are coordinated per storage address;
-opening one scope does not supersede another. Account sessions capture one
-account for their lifetime. The initial API opens one default local library per
-app and definition, without a named-workspace selector.
+Both openers return one live application handle. It owns readiness, operations,
+and closure; there is no separate `session.app` or resolved application object.
+Acquisition and release are coordinated per storage address, so opening local
+and account data simultaneously does not supersede either handle. The initial
+API opens one default local library per app and definition.
 
-**Local and account sessions expose the same tables and blob methods.**
+**Each application runtime opens a given address once.**
+
+Applications construct a handle once and distribute it by import, props, or
+context. A second live open of the same address is unsupported and resolves its
+`ready` with a typed duplicate-open failure; it never replaces or shares the
+first handle. Closing the rejected handle cannot close the first. After complete
+closure, an explicit open may acquire the address again. Local and account
+addresses are distinct and can coexist. Another browser tab is another runtime;
+storage locks and the platform owner must still prevent conflicting writes.
+This rule adds no public registry, lease, or reference-counted handle.
+
+**The application exposes account identity once and readiness once.**
+
+`app.account` is readonly `AccountIdentity | null`, available immediately and
+fixed for the handle's lifetime. `AccountIdentity` contains `authorityId` and
+`principalId`, without credentials. Null means this device's local dataset;
+non-null means the dataset selected by that account identity. The public handle
+has no `scope`, `isLocal`, or blob-specific remote-availability flag. Account
+identity describes the opened dataset, not the current global sign-in state.
+Account transport remains bound to the account captured by the opener. Sign-out
+can retire that transport without changing the dataset identity; a non-null
+`app.account` is not proof of current authorization.
+
+`app.ready` settles once as `Promise<Result<void, OpenError>>`. Success means
+this dataset's local tables and capabilities can be used. Account opening does
+not initiate sign-in: it receives an already established account. An existing
+local replica can become ready offline; a first account open may need the
+authority to resolve or create a generation. Readiness does not await full sync,
+blob downloads, or backup completion.
+
+Storage-dependent access before readiness or after closure fails explicitly.
+The ordinary UI prevents premature access by rendering children only after a
+successful ready Result. A failed initialization never renders those children.
+`close()` owns release while opening or ready and is idempotent. Its completion
+means acquisition and resource release have settled, not merely that a closed
+flag was set. `ready` does not become pending again on closure; the owner must
+remove consuming UI before or with closing the handle. The gate proves initial
+readiness, not perpetual liveness. Closing preserves durable data. Whole-library
+removal is separate.
+
+**Local and account handles expose the same table and blob methods.**
 
 ```ts
-const opened = await localSession.opened;
-if (opened.error) return handleError(opened.error);
-const app = opened.data;
+const app = epicenter.openLocal();
+const ready = await app.ready;
+if (ready.error) return handleError(ready.error);
 
 const created = await app.tables.recordings.create({
   title: 'Meeting notes',
@@ -86,10 +126,12 @@ const created = await app.tables.recordings.create({
 });
 if (created.error) return handleError(created.error);
 
-const audioId = created.data.audio; // BlobId, not a URL or embedded bytes.
-const source = await app.blobs.open(audioId);
+const source = await app.blobs.open(created.data.audio);
 // On success, release source.data with Symbol.dispose after playback use.
 ```
+
+Examples retain full paths such as `app.tables.recordings.create(...)` instead
+of introducing aliases for namespaces that add no meaning.
 
 The table integration commits bytes locally before publishing their row
 reference. Rows synchronize references, never attachment bytes. Each attachment
@@ -101,7 +143,6 @@ row store and byte store.
 
 | Application blob member | Contract |
 | --- | --- |
-| `supportsRemote` | Readonly capability fixed for the session, never a reachability test |
 | `add(blob)` | Mint an immutable ID, save locally, return the ID |
 | `get(id)` | Read local bytes as a JavaScript `Blob` |
 | `stat(id)`, `statMany(ids)` | Read local size and content type |
@@ -109,11 +150,13 @@ row store and byte store.
 | `upload(id)`, `download(id)` | Explicit same-ID copies between local storage and the configured remote |
 | `removeLocal(id)`, `removeRemote(id)` | Remove only the named copy |
 
-Operations return typed Results. Local sessions have `supportsRemote === false`;
-remote operations return `RemoteNotConfigured` without network I/O. An offline
-account session still supports remote operations, which can fail on transport.
-Signing in elsewhere never changes a local session's capability. `get` and
-`open` have no implicit download fallback.
+Operations return typed Results. `app.account === null` means remote operations
+return `RemoteNotConfigured` without network I/O. Every account handle configures
+remote transfer, even while offline; transport and authorization can still fail.
+There is no second capability fact to maintain. Signing in elsewhere never
+changes a local handle's identity. `get` and `open` have no implicit download
+fallback. Independently composed blob primitives still receive their remote
+explicitly and need no application account metadata.
 
 The portable storage contract retains `put(id, blob)` for caller-supplied IDs,
 including downloads. The application handle composes storage, transfer, and
@@ -152,14 +195,20 @@ named SQLite files. Segments must be unambiguous and safe; a fabricated principa
 named `local` is not a scope. The browser origin and filesystem root remain outer
 isolation boundaries.
 
-Each resource records its format or schema compatibility in its own metadata.
-Openers migrate supported older formats and refuse unsupported newer ones before
-mutation. Applications own migrations of their named SQL schemas. Format
-versions, application releases, and data generations remain separate concepts.
-An incompatible build must not silently create a second usable library. Migration
-may stage a temporary copy but must have one authoritative result and a resumable
-cutover. Existing v5 addresses require an explicit migration into stable addresses;
-this decision does not rename or overwrite existing bytes in place.
+**The implementation is a clean break with no legacy data migration.**
+
+The new stable layout is the only layout the new implementation reads or writes.
+Delete old address builders, migration readers, unscoped-blob claiming workflows,
+compatibility overloads, and fallback storage paths. Existing v5 and native flat
+stores are not imported, adopted, or consulted. No storage-format version belongs
+in the root. Future resource formats may declare compatibility in resource-local
+metadata, but this work adds no general migration framework.
+
+Temporary repository breakage is allowed while replacing the implementation and
+its callers. Final verification must pass; intermediate compatibility adapters
+are not required to keep old call sites compiling. This authorizes removing
+legacy support, not an unsolicited sweep deleting files from a person's device.
+Development and verification use fresh disposable storage roots and origins.
 
 An authority ID identifies a synchronization destination independently of its
 principal IDs. Its stable identity and authenticated association with a server
@@ -171,9 +220,9 @@ This local layout does not prescribe a new remote object-key or wire format.
 Blobs sit beside data generations so restoring rows can reuse existing bytes.
 Erasing an account's local scope leaves the local library and other accounts
 untouched. Local-library removal is explicit and independent of sign-out.
-Session erasure coordinates active work before removing the selected scope.
+Library removal coordinates active work before removing the selected scope.
 
-**Named SQLite files inherit the session scope and remain local on that device.**
+**Named SQLite files inherit the app handle’s storage address and remain local on that device.**
 
 The target application handle exposes `app.sqlite.open(name)` in both local and
 account sessions. The caller supplies a database name without an extension; the
@@ -212,13 +261,14 @@ names. SQLite journal and WAL sidecars belong to the same database lifecycle.
 Closing and erasing a scope must coordinate its SQL handles and sidecars as well
 as its table and blob stores.
 
-Today `device.sqlite.open(name)` in `packages/device/src/index.ts` is device-only.
-The native owner uses `<root>/apps/<app-id>/sqlite/<name>.sqlite`; the browser
-worker maps it to `/<encoded-app-id>-<encoded-name>.sqlite` inside its OPFS pool.
-Moving these files into `local/sqlite/` requires explicit migration. Existing
-device files must never move into an account scope merely because someone signs
-in. A SQLite-only application must retain an independent scoped opener without
-having to declare tables or open a replica. Secrets retain their device lifetime
+The old `device.sqlite.open(name)` surface remains only as a local-compatibility
+adapter for its existing device-scoped consumers. The new app composition uses a
+scoped owner protocol: the native owner writes `<root>/apps/<app-id>/local/...`
+or `<root>/apps/<app-id>/accounts/<authority-id>/<principal-id>/...`, while the
+browser worker maps the same logical scope to an opaque OPFS filename. It has no
+reader or migration for the earlier flat files. Signing in never adopts local files
+into an account directory. A SQLite-only application can use the scoped opener
+without declaring tables or opening a replica. Secrets retain their device lifetime
 outside local/account library erasure.
 
 **A local generation is created locally and never becomes an account generation.**
@@ -248,17 +298,21 @@ These are target members, not additional current exports:
 | Owner | Members | Lifetime |
 | --- | --- | --- |
 | App factory | `openLocal()`, `openAccount(account)` | Inert app identity and definition |
-| Session | `opened`, `close()` | One captured ownership scope |
-| Opened application | `tables`, `blobs`, `sqlite` | Bound to the session |
+| Live application | `account`, `ready`, `tables`, `kv`, `blobs`, `sqlite`, `close()` | One local or account dataset |
 | SQLite namespace | `open(name)`, `delete(name)` | Named files within the session scope |
 | Opened SQL database | `run(sql, parameters?)`, `all(sql, parameters?)`, `batch(statements)` | Released with its session |
+
+The inventory names the main capabilities, not permission to delete existing
+data behavior. Preserve declared KV access on `app.kv`, content operations, and
+observation capabilities where real callers need them, without a second data
+wrapper.
 
 SQL operations preserve the existing asynchronous Result contract. `batch`
 executes its statements transactionally; the application API does not accept an
 asynchronous transaction callback across a worker or host boundary. Repeated
 opens of one name share coordinated underlying ownership. `sqlite.delete(name)`
 closes and invalidates existing handles for that name before removing its files;
-a later explicit open creates a fresh database. Session closure prevents new
+a later explicit open creates a fresh database. App closure prevents new
 operations and coordinates in-flight work before releasing resources.
 
 Whole-library removal is an app-factory operation that removes a selected local
@@ -276,20 +330,17 @@ the need for a public local reset remain open for product review.
 **Applications can distribute a handle through singleton imports, props, or framework context.**
 
 The API requires no context provider or framework-specific reactive wrapper.
-A client-only application may export a session at module scope and gate its
-consumers on `session.opened`. An application may instead own the session in a
-component and pass its resolved handle through props or context. Both use the
-same session and application contracts. Framework signals do not change promise
-readiness or module evaluation order.
+A client-only application can export `const app = epicenter.openLocal()` at
+module scope and gate consumers on `app.ready`. The successful branch can render
+children that import that same `app`, or pass that same object through props or
+context. No second facade is needed. Both distribution styles use one contract.
+Framework signals do not change promise readiness or module evaluation order.
 
-A module-level session exposes lifecycle and readiness immediately; it does not
-expose ready tables synchronously. An app that wants descendants to import a
-ready-only facade directly must own that facade and the gate that protects its
-reads. The exact facade, if needed by Epicenter's apps, remains an app-composition
-choice rather than a second storage implementation. Instance scripts below a
-successful gate run after readiness; imported module initializers do not gain
-that guarantee. Multiple simultaneous library instances need explicit selection
-or subtree scoping instead of one ambiguously selected global handle.
+Instance scripts below a successful gate run after readiness; imported module
+initializers do not gain that guarantee. Multiple simultaneous dataset handles
+need explicit selection or subtree scoping instead of one ambiguously selected
+global handle. Account-specific module singletons must not leak across server
+requests. The singleton examples describe client-only ownership.
 
 ## Contracts to resolve before implementation
 
@@ -297,40 +348,29 @@ The public composition above is settled; the following mechanisms still need
 concrete designs and validation:
 
 - Stable authority identity and its authenticated binding to hosted and
-  self-hosted endpoints, including address changes and legacy migration.
-- Resource format metadata, interrupted storage migration, and older-build refusal,
-  across IndexedDB, OPFS, and native roots.
+  self-hosted endpoints, including address changes; no legacy migration is required.
+- Resource-local format validation across IndexedDB, OPFS, and native roots,
+  without adding compatibility readers for previous layouts.
 - Local generation allocation and compaction without a remote acknowledgment,
   plus coordination across tabs and processes.
 - Attachment cleanup and replacement, transfer/deletion races, durable upload
   receipts, and a status API that distinguishes local presence from a historical
-  remote acknowledgment. `supportsRemote` answers none of those questions.
+  remote acknowledgment. `app.account` answers none of those questions.
 - A standalone SQL/blob opener that inherits the same scope without requiring
   a data definition or replica. Its exact constructor remains to be designed.
 - Resumable application imports with ID mappings and explicit completion criteria.
 
 ## Build toward the decision
 
-1. Specify the authority identity, address codec, and generation bookkeeping.
-   Design an explicit, resumable migration from v5 browser stores and existing
-   native storage. Preserve ownership and verify copies before deleting sources;
-   never assign unscoped legacy bytes to the next account that signs in.
-2. Add durable local opening and per-address session coordination. Prove restart
-   persistence without credentials, simultaneous local/account opening, and
-   isolated close and erasure before changing application boot gates. Add scoped
-   SQLite opening with the same address codec, preserving standalone SQL use
-   and migrating existing device databases into the local branch.
-3. Compose the uniform blob handle over existing primitives. Verify immutable
-   identity, unsupported remote Results, offline capability semantics, and
-   platform-owned streaming without routing desktop recordings through a WebView.
-4. Add the blob field descriptor and table integration. Specify interrupted
-   creation, replacement, deletion, synchronized upload receipts, and cleanup
-   before claiming lifecycle reliability. A receipt describes an acknowledged
-   upload, not verified current remote presence. Arbitrary direct row mutation
-   must not bypass the owning-field contract.
-5. Move Whispering's first-run path to its local session. Offer account libraries
-   and explicit import, then individual and bulk upload. Prove interrupted import
-   recovery, source preservation, and download/playback on a second device.
+Implement from the final call sites backward: identity and addresses, one-handle
+lifecycle, local persistence, blob and SQL composition, attachment fields, then
+application integration. Validate Whispering's record/restart/play path before
+broadening the consumer sweep. An independent GPT-6 review follows each meaningful
+slice, looking for duplicate facts and boundaries that no longer own a distinct
+job. The implementing agent owns integration and verifies review findings.
+
+Execution checkpoints and evidence targets live in
+[the implementation spec](../../specs/20260907T231907-local-account-app-clean-break.md).
 
 ## Consequences
 
@@ -340,8 +380,9 @@ local recordings. Local-only use requires neither SQLite-specific application
 code nor a configured self-hosted server.
 
 Two libraries consume separate storage, and importing duplicates rows and bytes.
-Applications must explain library selection and import progress. Account storage
-migration needs an authority identity that the current address lacks. Uniform
+Applications must explain dataset selection and import progress. Account storage
+needs an authority identity that the current address lacks. Previous on-disk
+layouts are unsupported by the new implementation. Uniform
 remote methods add an unsupported-operation Result to local handles. Attachment
 fields move recovery responsibility into the integration; a field descriptor
 alone does not remove failure windows.
@@ -353,4 +394,9 @@ alone does not remove failure windows.
 - A local session gains synchronization after sign-in: this makes an existing account library's merge policy implicit.
 - Account-required storage with offline caching: a fresh installation still cannot create its first recording without credentials.
 - App-bound field builders: field declarations need neither an app ID nor a live session.
-- Optional remote namespaces: callers must branch through a different object shape. A fixed capability and typed Results preserve one application handle.
+- Optional remote namespaces: callers must branch through a different object shape. `app.account` and typed Results preserve one application handle.
+
+- Separate session and ready-app objects: one handle can own readiness, operations, and closure without a forwarding facade.
+- `supportsRemote`, `isLocal`, or `scope` beside `app.account`: they repeat a fact already determined by account identity.
+- Versioned storage roots and legacy import-on-open: they preserve an old format at the cost of duplicate paths; this implementation is a clean break.
+- Same-address handle sharing: it makes one caller's close affect another caller; applications open an address once.
