@@ -8,7 +8,6 @@
 	import { toast } from 'svelte-sonner';
 	import { hasGmailIdentity } from '$lib/identity';
 	import { mail } from '$lib/mail';
-	import { gmailAuthorization } from '#platform/gmail-authorization';
 
 	let { loading, another = false, onConnected, onCancel }: {
 		loading: boolean;
@@ -41,7 +40,7 @@
 			// The web build leaves the page here and never comes back to this
 			// line; the desktop build waits and answers with where Google sent
 			// the person. Either way the request stays in hand.
-			const callbackUrl = await gmailAuthorization.authorize(request);
+			const callbackUrl = await mail.authorize(request);
 			connected = (await mail.finishConnect(request, callbackUrl)).sub;
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));

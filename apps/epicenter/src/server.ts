@@ -46,6 +46,10 @@ import {
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_SIGN_IN_ROUTE,
+	ACCOUNT_CONNECT_ROUTE,
+	ACCOUNT_PREPARE_CONNECTION_ROUTE,
+	ACCOUNT_CANCEL_CONNECTION_ROUTE,
+	ACCOUNT_SELECT_HOSTED_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	APPLICATIONS_ROUTE,
 	BOOTSTRAP_ROUTE,
@@ -341,6 +345,37 @@ export function createHomeServer({
 		);
 	});
 
+	app.post(ACCOUNT_PREPARE_CONNECTION_ROUTE.pattern, async (c) => {
+		const result = await desktopAuth.prepareConnection();
+		if (result.error) return c.text('An application could not close. Save your work and try again.', 409);
+		return c.body(null, 204);
+	});
+	app.post(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern, async (c) => {
+		const result = await desktopAuth.cancelConnection();
+		if (result.error) return c.text('Could not resume applications.', 500);
+		return c.body(null, 204);
+	});
+	app.post(ACCOUNT_CONNECT_ROUTE.pattern, async (c) => {
+		const body: unknown = await c.req.json().catch(() => null);
+		if (
+			typeof body !== 'object' ||
+			body === null ||
+			!('server' in body) ||
+			!('token' in body) ||
+			typeof body.server !== 'string' ||
+			typeof body.token !== 'string'
+		)
+			return c.text('Enter a server URL and token.', 400);
+		const result = await desktopAuth.connectInstance(body.server, body.token);
+		if (result.error)
+			return c.text('Could not connect. Check the server URL and token.', 502);
+		return c.body(null, 202);
+	});
+	app.post(ACCOUNT_SELECT_HOSTED_ROUTE.pattern, async (c) => {
+		const result = await desktopAuth.selectHosted();
+		if (result.error) return c.text('Could not change servers.', 500);
+		return c.body(null, 202);
+	});
 	app.post(ACCOUNT_SIGN_IN_ROUTE.pattern, async (c) => {
 		const result = await desktopAuth.startSignIn();
 		if (result.error) return c.text('Sign-in failed', 502);

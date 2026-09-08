@@ -13,6 +13,11 @@ export * from './auth-errors.js';
 export type { AuthIdentityState } from './auth-identity-state.js';
 export { ApiSessionResponse, Principal } from './auth-types.js';
 export {
+	type BrowserAuth,
+	createBrowserAuth,
+	isBrowserAuth,
+} from './browser-auth.js';
+export {
 	type CreateSessionAuthOptions,
 	createInstanceAuth,
 	createSessionAuth,
@@ -22,6 +27,7 @@ export {
 	type CreateHostedBrowserRedirectAuthOptions,
 	createHostedBrowserRedirectAuth,
 } from './hosted-browser-redirect-auth.js';
+export { normalizeInstanceServer } from './instance-server.js';
 export {
 	assertStrongToken,
 	generateInstanceToken,

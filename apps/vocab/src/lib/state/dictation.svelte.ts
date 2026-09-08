@@ -62,6 +62,35 @@ export function createDictation(
 	// in spoken order. The chain is an ordering device, not an error channel:
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
+	let starting:
+		| Promise<Result<void, VadRecorderError | DeviceStreamError>>
+		| undefined;
+	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
+	let closing: Promise<void> | undefined;
+	let closed = false;
+	let callbackGeneration = 0;
+
+	function stop(): Promise<Result<void, VadRecorderError>> {
+		if (stopping) return stopping;
+		stopping = (async () => {
+			// The recorder cannot stop an as-yet unacquired microphone. Join its
+			// admitted start before tearing down the session it may create.
+			await starting;
+			const { error } = await vad.stopActiveListening();
+			// destroy flushes the final phrase, but an already-running model frame
+			// can call back later. Only callbacks admitted before stop settled count.
+			callbackGeneration++;
+			if (error) return Err(error);
+			status = 'idle';
+			return Ok(undefined);
+		})();
+		void stopping
+			.finally(() => {
+				stopping = undefined;
+			})
+			.catch(() => {});
+		return stopping;
+	}
 
 	return {
 		/** The one mic state the UI reads. */
@@ -87,60 +116,76 @@ export function createDictation(
 		}: {
 			onTranscript: (result: Result<string, TranscribeError>) => void;
 		}): Promise<Result<void, VadRecorderError | DeviceStreamError>> {
-			if (status !== 'idle') return Ok(undefined);
+			if (closed || stopping || status !== 'idle') return Ok(undefined);
+			if (starting) return starting;
+			const generation = ++callbackGeneration;
+			starting = (async () => {
+				const { error: startError } = await vad.startActiveListening({
+					// Default device: vocab has no device picker (the package reads no
+					// store; the caller passes a deviceId, and vocab refuses to have one).
+					// Status writes are gated on an armed session so a callback that fires
+					// during the start or stop window cannot flip a closed session's state;
+					// the blob itself is still delivered (the user spoke it).
+					onSpeechStart: () => {
+						if (generation !== callbackGeneration) return;
+						if (status !== 'idle') status = 'speaking';
+					},
+					onVADMisfire: () => {
+						if (generation !== callbackGeneration) return;
+						if (status !== 'idle') status = 'listening';
+					},
+					// No level meter in vocab.
+					onLevel: () => {},
+					onSpeechEnd: (blob) => {
+						if (generation !== callbackGeneration) return;
+						if (status !== 'idle') status = 'listening';
+						inFlightCount += 1;
+						deliveries = deliveries
+							.then(async () => {
+								const transport = inferenceConnections.resolveOrHosted(VOCAB_STT_MODEL);
+								onTranscript(
+									// No language hint: a learner may dictate their question in the
+									// language they are studying, so Whisper auto-detects (ADR-0105).
+									await transcribe(blob, transport, {
+										model: VOCAB_STT_MODEL,
+									}),
+								);
+							})
+							// transcribe is Result-typed and never rejects; this only keeps a
+							// throwing onTranscript from wedging every later phrase's delivery.
+							.catch(() => {})
+							.finally(() => {
+								inFlightCount -= 1;
+							});
+					},
+				});
+				if (startError) return Err(startError);
 
-			const { error: startError } = await vad.startActiveListening({
-				// Default device: vocab has no device picker (the package reads no
-				// store; the caller passes a deviceId, and vocab refuses to have one).
-				// Status writes are gated on an armed session so a callback that fires
-				// during the start or stop window cannot flip a closed session's state;
-				// the blob itself is still delivered (the user spoke it).
-				onSpeechStart: () => {
-					if (status !== 'idle') status = 'speaking';
-				},
-				onVADMisfire: () => {
-					if (status !== 'idle') status = 'listening';
-				},
-				// No level meter in vocab.
-				onLevel: () => {},
-				onSpeechEnd: (blob) => {
-					if (status !== 'idle') status = 'listening';
-					inFlightCount += 1;
-					deliveries = deliveries
-						.then(async () => {
-							const transport =
-								inferenceConnections.resolveOrHosted(VOCAB_STT_MODEL);
-							onTranscript(
-								// No language hint: a learner may dictate their question in the
-								// language they are studying, so Whisper auto-detects (ADR-0105).
-								await transcribe(blob, transport, {
-									model: VOCAB_STT_MODEL,
-								}),
-							);
-						})
-						// transcribe is Result-typed and never rejects; this only keeps a
-						// throwing onTranscript from wedging every later phrase's delivery.
-						.catch(() => {})
-						.finally(() => {
-							inFlightCount -= 1;
-						});
-				},
-			});
-			if (startError) return Err(startError);
-
-			status = 'listening';
-			return Ok(undefined);
+				status = 'listening';
+				return Ok(undefined);
+			})();
+			try {
+				return await starting;
+			} finally {
+				starting = undefined;
+			}
 		},
 
 		/**
 		 * Close the mic. Phrases already captured still transcribe and deliver;
 		 * {@link isTranscribing} stays true until they land.
 		 */
-		async stop(): Promise<Result<void, VadRecorderError>> {
-			status = 'idle';
-			const { error: stopError } = await vad.stopActiveListening();
-			if (stopError) return Err(stopError);
-			return Ok(undefined);
+		stop,
+
+		/** End this UI lifetime, including startup and every captured phrase. */
+		close(): Promise<void> {
+			closed = true;
+			closing ??= (async () => {
+				const { error } = await stop();
+				if (error) throw error;
+				await deliveries;
+			})();
+			return closing;
 		},
 	};
 }

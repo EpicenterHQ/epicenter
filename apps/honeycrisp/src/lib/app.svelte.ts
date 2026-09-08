@@ -301,24 +301,24 @@ function createNotes(table: ReactiveData<HoneycrispData>['tables']['notes']) {
 		// writes during sustained typing, and a person who stops typing and
 		// closes the tab should not lose their title to a pending timer.
 		let queued: ReturnType<typeof setTimeout> | undefined;
+		const flush = () => {
+			if (queued === undefined) return;
+			clearTimeout(queued);
+			queued = undefined;
+			// The row may have disappeared since this body's edit was queued.
+			table.update(id, {
+				title: noteTitle(content),
+				updatedAt: InstantString.now(),
+			});
+		};
 		const stop = table.watch(content, () => {
-			if (queued !== undefined) return;
-			queued = setTimeout(() => {
-				queued = undefined;
-				// The note may have been deleted, here or on another device, since
-				// the edit that queued this. `update` refuses an absent row, which
-				// is exactly the drop this wants.
-				table.update(id, {
-					title: noteTitle(content),
-					updatedAt: InstantString.now(),
-				});
-			}, 0);
+			if (queued === undefined) queued = setTimeout(flush, 0);
 		});
 		return {
 			content,
 			close: () => {
 				stop();
-				if (queued !== undefined) clearTimeout(queued);
+				flush();
 			},
 		};
 	}

@@ -41,6 +41,7 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
+		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/device": "workspace:*",
 		"@epicenter/local-mail": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",

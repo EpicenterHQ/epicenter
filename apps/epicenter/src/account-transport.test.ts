@@ -180,6 +180,10 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 						};
 			},
 			startSignIn: auth.startSignIn,
+			prepareConnection: async () => Ok(undefined),
+			cancelConnection: async () => Ok(undefined),
+			connectInstance: async () => Ok(undefined),
+			selectHosted: async () => Ok(undefined),
 			async signOut() {
 				expectOk(await auth.signOut());
 				return Ok(undefined);

@@ -284,6 +284,24 @@ describe('native auth port', () => {
 			}),
 		);
 		await stored;
+		for (const [type, operation] of [
+			['close-applications', () => native.closeApplications()],
+			['resume-applications', () => native.resumeApplications()],
+		] as const) {
+			const pending = operation();
+			expect(JSON.parse(writes.at(-1) ?? '')).toEqual({
+				type,
+				requestId: 'request-1',
+			});
+			controller.enqueue(
+				JSON.stringify({
+					type: 'native-result',
+					requestId: 'request-1',
+					status: 'ok',
+				}),
+			);
+			await pending;
+		}
 
 		controller.enqueue(
 			JSON.stringify({

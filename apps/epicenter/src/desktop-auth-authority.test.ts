@@ -18,8 +18,12 @@ function setup({
 	relaunch,
 	fetch: fetchOverride,
 	store,
+	closeApplications,
+	resumeApplications,
 }: {
 	authCell?: string | null;
+	closeApplications?: () => Promise<void>;
+	resumeApplications?: () => Promise<void>;
 	open?: (url: string) => Promise<void>;
 	relaunch?: () => void;
 	fetch?: AuthFetch;
@@ -35,6 +39,12 @@ function setup({
 	const authority = createDesktopAuthAuthority({
 		authCell,
 		nativeAuthPort: {
+			async closeApplications() {
+				await closeApplications?.();
+			},
+			async resumeApplications() {
+				await resumeApplications?.();
+			},
 			completed: completed.promise,
 			async storeAuth(serialized) {
 				await store?.(serialized);
@@ -121,8 +131,8 @@ test('a stored session boots offline and authorizes after verification without e
 			.principalId,
 	});
 	expect(context.authority.bootSnapshot.connection).toEqual({
-		authorityId: 'epicenter-api',
 		baseURL: 'https://api.epicenter.so',
+		authorityId: 'epicenter-api',
 		status: 'connected',
 	});
 	expect(JSON.stringify(context.authority.bootSnapshot)).not.toContain(
@@ -234,7 +244,7 @@ test('failed relaunch after replacement leaves the captured boot Account permane
 	const pending = context.authority.startSignIn();
 	await until(() => context.urls.length === 1);
 	context.finish('bob-1');
-	await expect(pending).rejects.toThrow('relaunch failed');
+	expect((await pending).error).not.toBeNull();
 	expect(context.authority.account).toBe(boot);
 	expect(context.authority.state).toEqual({ status: 'signed-out' });
 	expect(context.authority.bootSnapshot.state).toEqual({
@@ -260,7 +270,7 @@ test('a signed-out boot never acquires an Account when sign-in cannot relaunch',
 	const pending = context.authority.startSignIn();
 	await until(() => context.urls.length === 1);
 	context.finish();
-	await expect(pending).rejects.toThrow('relaunch failed');
+	expect((await pending).error).not.toBeNull();
 	expect(context.authority.account).toBeNull();
 	expect(context.authority.state).toEqual({ status: 'signed-out' });
 	expect(context.authority.bootSnapshot.state).toEqual({
@@ -405,4 +415,386 @@ test('a cancelled redemption cannot overwrite a later sign-in or request another
 		2,
 	);
 	expect(revoked).not.toContain('bob-2');
+});
+
+test('instance selection verifies and persists one cell, then retires the captured boot Account', async () => {
+	using context = setup({
+		fetch: async (input, init) => {
+			const request = new Request(input, init);
+			if (new URL(request.url).pathname === '/auth/sign-out')
+				return new Response(null);
+			expect(request.url).toBe('http://localhost:8788/api/session');
+			expect(request.headers.get('authorization')).toBe('Bearer operator');
+			return Response.json({ principalId: 'instance' });
+		},
+	});
+	expectOk(await context.authority.prepareConnection());
+	const boot = context.authority.account!;
+	expectOk(
+		await context.authority.connectInstance(
+			'http://LOCALHOST:8788/',
+			'operator',
+		),
+	);
+	expect(context.writes.map((cell) => JSON.parse(cell!))).toEqual([
+		null,
+		{
+			server: 'http://localhost:8788',
+			auth: { token: 'operator', principalId: 'instance' },
+		},
+	]);
+	expect(context.events).toEqual(['stored', 'stored', 'relaunch']);
+	expect(context.authority.baseURL).toBe('https://api.epicenter.so');
+	expect(context.authority.account).toBe(boot);
+	await expect(boot.fetch('/api/example')).rejects.toBeDefined();
+	expect(JSON.stringify(context.authority.bootSnapshot)).not.toContain(
+		'operator',
+	);
+});
+
+test('an instance boots offline with its own identity and disconnects without hosted revocation', async () => {
+	using context = setup({
+		authCell: JSON.stringify({
+			server: 'http://localhost:8788',
+			auth: { token: 'operator', principalId: 'instance' },
+		}),
+		fetch: async () => {
+			throw new Error('Disconnect must not make requests.');
+		},
+	});
+	expect(context.authority.account!.authorityId).toStartWith('instance-');
+	expect(context.authority.bootSnapshot.connection.authorityId).toBe(
+		context.authority.account!.authorityId!,
+	);
+	expect(context.authority.baseURL).toBe('http://localhost:8788');
+	expect(context.authority.bootSnapshot.signInLocation).toBe('host-settings');
+	expectOk(await context.authority.signOut());
+	expect(context.writes).toEqual([
+		JSON.stringify({ server: 'http://localhost:8788', auth: null }),
+	]);
+	expect(context.events).toEqual(['stored', 'relaunch']);
+});
+
+test('rejected instance credentials leave the original boot and stored selection intact', async () => {
+	using context = setup({
+		fetch: async () => new Response(null, { status: 401 }),
+	});
+	expectOk(await context.authority.prepareConnection());
+	const boot = context.authority.account;
+	expect(
+		(
+			await context.authority.connectInstance(
+				'https://my-server.example',
+				'wrong',
+			)
+		).error,
+	).not.toBeNull();
+	expect(context.writes).toEqual([]);
+	expect(context.authority.account).toBe(boot);
+});
+
+test('sign-out cancels an instance verification before it can save or relaunch', async () => {
+	const requested = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	using context = setup({
+		authCell: null,
+		fetch: async () => {
+			requested.resolve();
+			await release.promise;
+			return Response.json({ principalId: 'instance' });
+		},
+	});
+	expectOk(await context.authority.prepareConnection());
+	const connecting = context.authority.connectInstance(
+		'https://my-server.example',
+		'operator',
+	);
+	await requested.promise;
+	expectOk(await context.authority.signOut());
+	expect((await connecting).error).not.toBeNull();
+	release.resolve();
+	await Bun.sleep(0);
+	expect(context.writes).toEqual([null]);
+	expect(context.events).toEqual(['stored', 'relaunch']);
+});
+
+test('cancelling an instance commit leaves the original server signed out', async () => {
+	const writing = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	let first = true;
+	using context = setup({
+		fetch: async () => Response.json({ principalId: 'instance' }),
+		store: async (cell) => {
+			if (cell !== null && first) {
+				first = false;
+				writing.resolve();
+				await release.promise;
+			}
+		},
+	});
+	expectOk(await context.authority.prepareConnection());
+	const connecting = context.authority.connectInstance(
+		'https://my-server.example',
+		'operator',
+	);
+	await writing.promise;
+	context.authority[Symbol.dispose]();
+	release.resolve();
+	expect((await connecting).error).not.toBeNull();
+	await until(() => context.writes.length === 3);
+	expect(context.writes.at(-1)).toBeNull();
+	expect(context.events).not.toContain('relaunch');
+});
+
+test('disconnect during hosted release cancels selection and does not reconnect', async () => {
+	const revoking = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	using context = setup({
+		fetch: async (input) => {
+			if (new URL(String(input)).pathname === '/auth/sign-out') {
+				revoking.resolve();
+				await release.promise;
+				return new Response(null);
+			}
+			return Response.json({ principalId: 'instance' });
+		},
+	});
+	expectOk(await context.authority.prepareConnection());
+	const connecting = context.authority.connectInstance(
+		'https://my-server.example',
+		'operator',
+	);
+	await revoking.promise;
+	const disconnecting = context.authority.signOut();
+	await until(() => context.writes.length === 2);
+	release.resolve();
+	await connecting;
+	expectOk(await disconnecting);
+	expect(context.writes.at(-1)).toBeNull();
+	expect(context.events.filter((event) => event === 'relaunch')).toHaveLength(
+		1,
+	);
+});
+
+for (const target of ['instance', 'hosted'] as const) {
+	test(`${target} selection drains an outstanding old principal-mismatch write before saving the next boot`, async () => {
+		const oldResponse = Promise.withResolvers<Response>();
+		const oldRequested = Promise.withResolvers<void>();
+		const clearing = Promise.withResolvers<void>();
+		const releaseClear = Promise.withResolvers<void>();
+		let firstClear = true;
+		using context = setup({
+			authCell: JSON.stringify({
+				server: 'https://old.example',
+				auth: { token: 'old', principalId: 'instance' },
+			}),
+			fetch: async (input) => {
+				if (new URL(String(input)).origin === 'https://old.example') {
+					oldRequested.resolve();
+					return oldResponse.promise;
+				}
+				return Response.json({ principalId: 'instance' });
+			},
+			store: async (cell) => {
+				if (cell !== null && JSON.parse(cell).auth === null && firstClear) {
+					firstClear = false;
+					clearing.resolve();
+					await releaseClear.promise;
+				}
+			},
+		});
+		const oldRequest = context.authority
+			.account!.fetch('/api/example')
+			.catch(() => undefined);
+		await oldRequested.promise;
+		oldResponse.resolve(Response.json({ principalId: 'different-person' }));
+		await clearing.promise;
+		expectOk(await context.authority.prepareConnection());
+		const selecting =
+			target === 'instance'
+				? context.authority.connectInstance('https://new.example', 'operator')
+				: context.authority.selectHosted();
+		await Bun.sleep(0);
+		expect(context.writes).toEqual([]);
+		expect(context.events).not.toContain('relaunch');
+		releaseClear.resolve();
+		expectOk(await selecting);
+		await oldRequest;
+		expect(context.writes.map((cell) => JSON.parse(cell ?? 'null'))).toEqual([
+			{ server: 'https://old.example', auth: null },
+			{ server: 'https://old.example', auth: null },
+			target === 'instance'
+				? {
+						server: 'https://new.example',
+						auth: { token: 'operator', principalId: 'instance' },
+					}
+				: null,
+		]);
+		expect(context.events.at(-1)).toBe('relaunch');
+	});
+}
+
+test('server selection is refused until every application has closed', async () => {
+	const closed = Promise.withResolvers<void>();
+	using context = setup({ closeApplications: () => closed.promise });
+	expect(
+		(await context.authority.connectInstance('https://example.com', 'token'))
+			.error,
+	).not.toBeNull();
+	expect((await context.authority.selectHosted()).error).not.toBeNull();
+	const preparing = context.authority.prepareConnection();
+	expect((await context.authority.selectHosted()).error).not.toBeNull();
+	expect(context.writes).toEqual([]);
+	closed.resolve();
+	expectOk(await preparing);
+	expectOk(await context.authority.cancelConnection());
+	expect((await context.authority.selectHosted()).error).not.toBeNull();
+});
+
+test('a failed application close refuses sign-out without changing credentials or relaunching', async () => {
+	using context = setup({
+		closeApplications: async () => {
+			throw new Error('unsaved data');
+		},
+	});
+	expect((await context.authority.signOut()).error).not.toBeNull();
+	expect(context.writes).toEqual([]);
+	expect(context.events).toEqual([]);
+	expect(context.authority.state.status).toBe('signed-in');
+	expect((await context.authority.prepareConnection()).error).not.toBeNull();
+});
+
+test('ordinary sign-in waits for application close before opening the browser', async () => {
+	const closed = Promise.withResolvers<void>();
+	using context = setup({ closeApplications: () => closed.promise });
+	const signingIn = context.authority.startSignIn();
+	await Bun.sleep(0);
+	expect(context.urls).toEqual([]);
+	closed.resolve();
+	await until(() => context.urls.length === 1);
+	context.finish();
+	expectOk(await signingIn);
+});
+
+test('cancelling preparation revokes selection before the native launch gate reopens', async () => {
+	const resumed = Promise.withResolvers<void>();
+	let closes = 0;
+	using context = setup({
+		closeApplications: async () => {
+			closes++;
+		},
+		resumeApplications: () => resumed.promise,
+	});
+	expectOk(await context.authority.prepareConnection());
+	const cancelling = context.authority.cancelConnection();
+	expect(
+		(await context.authority.connectInstance('https://example.com', 'token'))
+			.error,
+	).not.toBeNull();
+	expect((await context.authority.selectHosted()).error).not.toBeNull();
+	expect((await context.authority.prepareConnection()).error).not.toBeNull();
+	expect((await context.authority.startSignIn()).error).not.toBeNull();
+	expect(context.writes).toEqual([]);
+	expect(closes).toBe(1);
+	resumed.resolve();
+	expectOk(await cancelling);
+	expect((await context.authority.selectHosted()).error).not.toBeNull();
+	expectOk(await context.authority.prepareConnection());
+	expect(closes).toBe(2);
+});
+
+for (const failure of ['candidate-save', 'old-sign-out'] as const) {
+	test(`cancel after ${failure} failure restarts the original server signed out`, async () => {
+		const originalServer = 'https://old.example';
+		let fail = true;
+		let resumed = false;
+		using context = setup({
+			authCell: JSON.stringify({
+				server: originalServer,
+				auth: { token: 'old', principalId: 'instance' },
+			}),
+			fetch: async () => Response.json({ principalId: 'instance' }),
+			resumeApplications: async () => {
+				resumed = true;
+			},
+			store: async (cell) => {
+				const value = JSON.parse(cell ?? 'null');
+				if (
+					fail &&
+					(failure === 'candidate-save'
+						? value?.auth?.token === 'new'
+						: value?.auth === null)
+				) {
+					fail = false;
+					throw new Error('native write failed');
+				}
+			},
+		});
+		expectOk(await context.authority.prepareConnection());
+		expect(
+			(await context.authority.connectInstance('https://new.example', 'new'))
+				.error,
+		).not.toBeNull();
+		expect(context.authority.state.status).toBe('signed-out');
+		expect(context.events).not.toContain('relaunch');
+		expectOk(await context.authority.cancelConnection());
+		expect(context.writes.at(-1)).toBe(
+			JSON.stringify({ server: originalServer, auth: null }),
+		);
+		expect(resumed).toBe(false);
+		expect(context.events.at(-1)).toBe('relaunch');
+	});
+}
+
+test('failed cancellation clear never relaunches or reopens a retired boot', async () => {
+	let resumed = false;
+	using context = setup({
+		fetch: async () => Response.json({ principalId: 'instance' }),
+		store: async () => {
+			throw new Error('native storage unavailable');
+		},
+		resumeApplications: async () => {
+			resumed = true;
+		},
+	});
+	expectOk(await context.authority.prepareConnection());
+	expect(
+		(await context.authority.connectInstance('https://new.example', 'new'))
+			.error,
+	).not.toBeNull();
+	expect((await context.authority.cancelConnection()).error).not.toBeNull();
+	expect(context.events).toEqual([]);
+	expect(resumed).toBe(false);
+});
+
+test('failed hosted replacement drains its persistence before recovering the original boot signed out', async () => {
+	const clearing = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	let first = true;
+	let resumed = false;
+	using context = setup({
+		resumeApplications: async () => {
+			resumed = true;
+		},
+		store: async () => {
+			if (first) {
+				first = false;
+				clearing.resolve();
+				await release.promise;
+				throw new Error('failed old identity clear');
+			}
+		},
+	});
+	const signingIn = context.authority.startSignIn();
+	await until(() => context.urls.length === 1);
+	context.finish('bob-2');
+	await clearing.promise;
+	expect(context.authority.state.status).toBe('signed-out');
+	expect(context.events).toEqual([]);
+	expect(resumed).toBe(false);
+	release.resolve();
+	expect((await signingIn).error).not.toBeNull();
+	expect(context.writes).toEqual([null]);
+	expect(context.events).toEqual(['stored', 'relaunch']);
+	expect(resumed).toBe(false);
 });

@@ -27,5 +27,5 @@ export type GmailAuthorization = {
 	 *
 	 * The web leaf never resolves: the page is gone before it could.
 	 */
-	authorize(request: AuthorizationRequest): Promise<URL>;
+	authorize(request: AuthorizationRequest, signal: AbortSignal): Promise<URL>;
 };

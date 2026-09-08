@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Card from '@epicenter/ui/card';
@@ -7,11 +8,8 @@
 	import { Input } from '@epicenter/ui/input';
 	import { Link } from '@epicenter/ui/link';
 	import * as Select from '@epicenter/ui/select';
-	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { cn } from '@epicenter/ui/utils';
-	import { createMutation } from '@tanstack/svelte-query';
-	import { resultMutationOptions } from 'wellcrafted/query';
 	import CopyablePre from '$lib/components/copyable/CopyablePre.svelte';
 	import {
 		SUPPORTED_LANGUAGES_OPTIONS,
@@ -112,12 +110,7 @@
 	// owns sign-out; this section only makes the hosted transcription route ready.
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
 	const accountLocked = $derived(recordingActive.current);
-	const startSignIn = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['transcription-setup', 'startSignIn'],
-			mutationFn: () => auth.startSignIn(),
-		}),
-	);
+	const openConnection = getConnectionScreen();
 </script>
 
 {#snippet renderServiceIcon(entry: TranscriptionProviderEntry)}
@@ -213,11 +206,6 @@
 		</Field.Field>
 	{:else}
 		<Field.Field>
-			{#if startSignIn.error}
-				<Field.Description class="text-destructive">
-					{startSignIn.error.message}
-				</Field.Description>
-			{/if}
 			{#if accountLocked}
 				<Field.Description class="text-muted-foreground">
 					Stop recording to sign in.
@@ -225,13 +213,10 @@
 			{/if}
 			<Button
 				class="w-full sm:w-auto sm:self-start"
-				onclick={() => startSignIn.mutate()}
-				disabled={startSignIn.isPending || accountLocked}
+				onclick={openConnection}
+				disabled={accountLocked}
 			>
-				{#if startSignIn.isPending}
-					<Spinner class="size-4" />
-					Signing in...
-				{:else if auth.state.status === 'reauth-required'}
+				{#if auth.state.status === 'reauth-required'}
 					Reconnect
 				{:else}
 					Sign in with Epicenter

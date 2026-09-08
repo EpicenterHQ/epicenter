@@ -19,6 +19,7 @@
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
 	import SignInPanel from './sign-in-panel.svelte';
+	import { getConnectionScreen } from '../boot-screens/connection-screen-context.js';
 
 	const accountProfileQueryClient = new QueryClient({
 		defaultOptions: {
@@ -89,11 +90,10 @@
 	}: AccountPopoverProps = $props();
 
 	let popoverOpen = $state(false);
+	const openConnection = getConnectionScreen();
 	let removing = $state(false);
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
-	// A page-reloading account change (sign in/out, forget device) is unsafe right
-	// now; the reason is shown and those actions are disabled. Reconnect is safe
-	// (it never reloads), so it stays enabled.
+	// The app can refuse account actions while capture is active.
 	const accountLocked = $derived(!!disabledReason);
 	// A new auth selection gets its own profile query. The controller captures
 	// its account when the request begins; retirement cancels a stale read.
@@ -108,7 +108,7 @@
 		() => accountProfileQueryClient,
 	);
 	const accountLabel = $derived(
-		profile.data?.email ?? (profile.error ? 'Offline' : 'Loading...'),
+		profile.data?.email ?? (profile.data ? 'Your server' : profile.error ? 'Offline' : 'Loading...'),
 	);
 
 	const signOut = createMutation(
@@ -222,19 +222,21 @@
 					<p class="text-xs text-muted-foreground">{disabledReason}</p>
 				{/if}
 				<div class="border-t pt-3 flex flex-col gap-1">
-					<Button
-						href={createAccountManagementUrl(auth.state.account, 'account').href}
-						target="_blank"
-						rel="noopener noreferrer"
-						variant="ghost"
-						size="sm"
-						class="w-full justify-start"
-						onclick={() => (popoverOpen = false)}
-					>
-						<ExternalLink class="size-3.5" />
-						Manage account
-						<span class="sr-only">(opens in browser)</span>
-					</Button>
+					{#if auth.state.account.authorityId === 'epicenter-api'}
+						<Button
+							href={createAccountManagementUrl(auth.state.account, 'account').href}
+							target="_blank"
+							rel="noopener noreferrer"
+							variant="ghost"
+							size="sm"
+							class="w-full justify-start"
+							onclick={() => (popoverOpen = false)}
+						>
+							<ExternalLink class="size-3.5" />
+							Manage account
+							<span class="sr-only">(opens in browser)</span>
+						</Button>
+					{/if}
 					<Button
 						variant="ghost"
 						size="sm"
@@ -269,6 +271,9 @@
 			<div class="p-4">
 					<SignInPanel {auth} {syncNoun} {disabledReason} />
 			</div>
+		{/if}
+		{#if openConnection && auth.state.status === 'signed-in'}
+			<div class="px-4 pb-4"><Button variant="outline" class="w-full" onclick={openConnection} disabled={accountLocked}>Change connection</Button></div>
 		{/if}
 	</Popover.Content>
 </Popover.Root>

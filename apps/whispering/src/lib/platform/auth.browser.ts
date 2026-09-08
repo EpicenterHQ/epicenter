@@ -1,9 +1,9 @@
-import { createHostedBrowserRedirectAuth } from '@epicenter/auth';
+import { createBrowserAuth } from '@epicenter/auth';
 import { fromAuth } from '@epicenter/auth/svelte';
 import { APPS } from '@epicenter/constants/apps';
 import { APP_URLS } from '@epicenter/constants/vite';
 
-export const authClient = createHostedBrowserRedirectAuth({
+export const authClient = createBrowserAuth({
 	appId: APPS.WHISPERING.id,
 	authorityId: 'epicenter-api',
 	baseURL: APP_URLS.API,

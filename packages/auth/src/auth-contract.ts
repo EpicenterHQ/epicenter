@@ -44,6 +44,8 @@ export type Connection = {
 
 /** Auth selects accounts; applications hold the Account they opened. */
 export type AuthClient = {
+	/** A host-owned token must be entered in host settings, outside app windows. */
+	signInLocation?: 'host-settings';
 	state: AuthState;
 	connection: Connection;
 	onStateChange(fn: (state: AuthState) => void): () => void;

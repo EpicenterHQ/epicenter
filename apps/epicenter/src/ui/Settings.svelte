@@ -1,6 +1,15 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { Input } from '@epicenter/ui/input';
+	import { Label } from '@epicenter/ui/label';
+	import {
+		ACCOUNT_CONNECT_ROUTE,
+		ACCOUNT_PREPARE_CONNECTION_ROUTE,
+		ACCOUNT_CANCEL_CONNECTION_ROUTE,
+		ACCOUNT_SELECT_HOSTED_ROUTE,
+	} from '../routes.ts';
+	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { WHISPERING_APPLICATION } from '../applications.ts';
@@ -9,7 +18,7 @@
 	import { localModels } from './local-models.svelte';
 
 	/**
-	 * Host-level administration (ADR-0189). Today that is the one active local
+	 * Host-level administration (ADR-0189) includes the cloud connection and local
 	 * transcription model (ADR-0180), which lives here rather than in the shell
 	 * header: choosing what every application on this device transcribes with is
 	 * a settings act, not a conversation control.
@@ -20,6 +29,37 @@
 	 */
 
 	const launcher = createLaunch();
+	let server = $state('');
+	let token = $state('');
+	let connecting = $state(false);
+	let connectionError = $state('');
+	let choosingServer = $state(false);
+	async function connect(path: string, body?: { server: string; token: string }) {
+		connecting = true;
+		connectionError = '';
+		try {
+			const response = await fetch(path, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body ?? {}),
+			});
+			if (!response.ok) throw new Error(await response.text());
+			token = '';
+			if (path === ACCOUNT_PREPARE_CONNECTION_ROUTE.pattern) {
+				choosingServer = true;
+				connecting = false;
+			}
+			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern) {
+				choosingServer = false;
+				connecting = false;
+			}
+			// A selected connection stays pending until native replaces this process.
+		} catch (cause) {
+			connectionError =
+				cause instanceof Error ? cause.message : 'Could not connect.';
+			connecting = false;
+		}
+	}
 
 	/**
 	 * Whether local transcription can actually run now: a model is chosen and its
@@ -34,6 +74,38 @@
 		localModels.active !== null && localModels.active.installed,
 	);
 </script>
+
+{#if isDesktopHost()}
+	{#if !choosingServer}
+		<div class="grid gap-3 border-b p-3">
+			<h2 class="font-medium">Server connection</h2>
+			<p class="text-muted-foreground">Close your applications before choosing a server. Epicenter waits for their data to finish saving.</p>
+			<Button disabled={connecting} onclick={() => void connect(ACCOUNT_PREPARE_CONNECTION_ROUTE.pattern)}>Close apps and choose server</Button>
+			{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
+		</div>
+	{:else}
+	<form
+		class="grid gap-3 border-b p-3"
+		onsubmit={(event) => {
+			event.preventDefault();
+			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server, token });
+		}}
+	>
+		<h2 class="font-medium">Connect to your server</h2>
+		<p class="text-muted-foreground">Epicenter restarts to use the selected server. Your existing local data stays with its original server.</p>
+		<Label for="instance-server">Server URL</Label>
+		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" disabled={connecting} />
+		<Label for="instance-token">Server token</Label>
+		<Input id="instance-token" type="password" required bind:value={token} autocomplete="off" disabled={connecting} />
+		<div class="flex gap-2">
+			<Button type="button" variant="ghost" disabled={connecting} onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel</Button>
+			<Button type="submit" disabled={connecting}>Connect and restart</Button>
+			<Button type="button" variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SELECT_HOSTED_ROUTE.pattern)}>Use Epicenter hosted</Button>
+		</div>
+		{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
+	</form>
+	{/if}
+{/if}
 
 {#if localModels.available}
 	<div class="grid gap-3 p-3">

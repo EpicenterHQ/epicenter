@@ -1,0 +1,22 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "application-close-development",
+	"description": "Application documents acknowledge their own completed close before the desktop changes servers.",
+	"local": false,
+	"windows": [
+		"app-*",
+		"whispering",
+		"honeycrisp",
+		"mail"
+	],
+	"remote": {
+		"urls": [
+			"http://127.0.0.1:39131"
+		]
+	},
+	"permissions": [
+		"core:event:allow-listen",
+		"core:event:allow-unlisten",
+		"allow-finish-application-close"
+	]
+}

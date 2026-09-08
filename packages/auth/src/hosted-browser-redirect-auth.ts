@@ -57,7 +57,7 @@ export function createHostedBrowserRedirectAuth({
 			});
 		},
 		persistedAuthStorage: createWebStoragePersistedAuthStorage({
-			key: `${appId}.auth.persisted`,
+			key: `${appId}.auth.persisted:${new URL(baseURL).origin}`,
 			storage: window.localStorage,
 		}),
 		launcher: {

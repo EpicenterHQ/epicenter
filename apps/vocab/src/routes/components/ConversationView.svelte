@@ -5,6 +5,7 @@
 		type ConversationHandle,
 	} from '@epicenter/app-shell/agent-chat';
 	import { createAccountManagementUrl } from '@epicenter/auth';
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
 	import { complete } from '@epicenter/client';
 	import { Button } from '@epicenter/ui/button';
 	import CheckIcon from '@lucide/svelte/icons/check';
@@ -19,6 +20,7 @@
 	import ReadingMarkdown from './ReadingMarkdown.svelte';
 
 	const { entries } = getVocabSurface();
+	const openConnection = getConnectionScreen();
 	// The route keys this whole surface on Account identity, like its inference client.
 	const account = untrack(() => {
 		const state = auth.state;
@@ -206,7 +208,7 @@
 		conversation={active}
 		connections={inferenceConnections}
 		placeholder="Ask about a word, phrase, or sentence you're learning..."
-		onSignIn={() => void auth.startSignIn()}
+		onSignIn={openConnection}
 		onUpgrade={() => {
 			if (!account) return;
 			window.open(

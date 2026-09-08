@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { toastOnError } from '@epicenter/ui/sonner';
@@ -19,12 +20,7 @@
 	// browser recording, so block account changes while a capture is active.
 	const accountLocked = $derived(recordingActive.current);
 
-	const startSignIn = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['account', 'startSignIn'],
-			mutationFn: () => auth.startSignIn(),
-		}),
-	);
+	const openConnection = getConnectionScreen();
 
 	const signOut = createMutation(() =>
 		resultMutationOptions({
@@ -74,20 +70,12 @@
 			</Field.Field>
 		{:else}
 			<Field.Field>
-				{#if startSignIn.error}
-					<Field.Description class="text-destructive">
-						{startSignIn.error.message}
-					</Field.Description>
-				{/if}
 				<Button
 					class="w-full sm:w-auto sm:self-start"
-					onclick={() => startSignIn.mutate()}
-					disabled={startSignIn.isPending || accountLocked}
+					onclick={openConnection}
+					disabled={accountLocked}
 				>
-					{#if startSignIn.isPending}
-						<Spinner class="size-4" />
-						Signing in...
-					{:else if auth.state.status === 'reauth-required'}
+					{#if auth.state.status === 'reauth-required'}
 						Reconnect
 					{:else}
 						Sign in with Epicenter

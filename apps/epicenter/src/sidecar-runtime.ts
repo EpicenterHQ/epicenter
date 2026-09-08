@@ -67,7 +67,13 @@ export type NativePort = ReturnType<typeof createNativeAuthPort>;
  */
 export type NativeAuthPort = Pick<
 	NativePort,
-	'completed' | 'storeAuth' | 'openAuthUrl' | 'relaunch' | 'onAuthCallback'
+	| 'completed'
+	| 'storeAuth'
+	| 'openAuthUrl'
+	| 'relaunch'
+	| 'onAuthCallback'
+	| 'closeApplications'
+	| 'resumeApplications'
 >;
 
 const BOOT_FRAME_KEYS = [
@@ -294,6 +300,8 @@ export function createNativeAuthPort(
 
 	function request(
 		frame:
+			| { type: 'close-applications' }
+			| { type: 'resume-applications' }
 			| { type: 'store-auth'; serialized: string | null }
 			| { type: 'open-auth-url'; url: string }
 			| {
@@ -368,6 +376,12 @@ export function createNativeAuthPort(
 		},
 		async deleteAppSecret(appId: string, accountId: string) {
 			await request({ type: 'delete-app-secret', appId, accountId });
+		},
+		async closeApplications() {
+			await request({ type: 'close-applications' });
+		},
+		async resumeApplications() {
+			await request({ type: 'resume-applications' });
 		},
 		relaunch() {
 			send({ type: 'relaunch' });

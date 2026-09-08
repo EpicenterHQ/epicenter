@@ -19,6 +19,7 @@ import { resolveTargetUrl } from './resolve-target-url.js';
  * never contains a bearer, refresh grant, or instance token.
  */
 export type DesktopAuthBootstrap = {
+	signInLocation?: 'host-settings';
 	state: AuthIdentityState;
 	connection: {
 		authorityId: string;
@@ -239,6 +240,9 @@ export function createDesktopBrokerAuth({
 	if (bootstrap.state.status !== 'signed-out' && account)
 		state = { status: bootstrap.state.status, account };
 	return {
+		...(bootstrap.signInLocation
+			? { signInLocation: bootstrap.signInLocation }
+			: {}),
 		get state() {
 			return state;
 		},

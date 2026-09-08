@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import { Button } from '@epicenter/ui/button';
 	import * as Command from '@epicenter/ui/command';
 	import * as Empty from '@epicenter/ui/empty';
@@ -16,12 +18,12 @@
 		getSelectedTranscriptionService,
 		getTranscriptionReadiness,
 	} from '$lib/settings/transcription-validation';
-	import { auth } from '#platform/auth';
 	import { tauri } from '#platform/tauri';
 	import TranscriberRow from './TranscriberRow.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const openConnection = getConnectionScreen();
 
 	let {
 		class: className,
@@ -185,7 +187,7 @@
 					your audio until you choose a provider.
 				</Empty.Description>
 				<Empty.Content class="flex flex-col gap-2">
-					<Button onclick={() => auth.startSignIn()}>Sign in to Epicenter</Button>
+					<Button onclick={openConnection} disabled={recordingActive.current}>Sign in to Epicenter</Button>
 					<Button
 						variant="outline"
 						onclick={() => {

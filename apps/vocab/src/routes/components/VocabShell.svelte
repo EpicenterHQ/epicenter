@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Account } from "@epicenter/auth";
+	import type { App } from '@epicenter/app';
 	import { createDictation } from "$lib/state/dictation.svelte";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';
@@ -8,7 +9,6 @@
 	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
 	import { fromData } from '@epicenter/svelte';
 	import type { vocabDefinition } from '$lib/data';
-	import type { App } from '@epicenter/app';
 	import { onDestroy } from 'svelte';
 	import { runVocabMutation } from '$lib/mutation';
 	import { buildPracticeOpening } from '$lib/practice';
@@ -69,12 +69,20 @@
 	/* svelte-ignore state_referenced_locally */
 	const settings = createSettingsState({ data });
 
-	onDestroy(() => {
-		void dictation.stop();
-		chat[Symbol.dispose]();
-		entries[Symbol.dispose]();
-		settings[Symbol.dispose]();
-	});
+	let closing: Promise<void> | undefined;
+	export function close(): Promise<void> {
+		closing ??= (async () => {
+			try {
+				await dictation.close();
+			} finally {
+				chat[Symbol.dispose]();
+				entries[Symbol.dispose]();
+				settings[Symbol.dispose]();
+			}
+		})();
+		return closing;
+	}
+	onDestroy(() => void close().catch(() => {}));
 
 	/**
 	 * Practice opens its own conversation, titled after the chosen entries, and

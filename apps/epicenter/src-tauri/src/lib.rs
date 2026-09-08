@@ -29,6 +29,9 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
+#[path = "application-close.rs"]
+mod application_close;
+use application_close::ApplicationClose;
 
 pub mod audio;
 use audio::encode_recording_for_upload;
@@ -221,6 +224,14 @@ enum BunToRustAuthFrame {
         app_id: String,
         #[serde(rename = "accountId")]
         account_id: String,
+    },
+    CloseApplications {
+        #[serde(rename = "requestId")]
+        request_id: String,
+    },
+    ResumeApplications {
+        #[serde(rename = "requestId")]
+        request_id: String,
     },
     Relaunch {},
 }
@@ -666,6 +677,9 @@ fn app_window_label(id: &str) -> String {
 }
 
 fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -> Result<()> {
+    if app.state::<ApplicationClose>().blocks_launch() {
+        bail!("Finish or cancel server selection before opening an application.");
+    }
     let label = app_window_label(id);
     if let Some(window) = app.get_webview_window(&label) {
         focus(window);
@@ -715,8 +729,11 @@ pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
-    let native_handler = tauri::generate_handler![encode_recording_for_upload, launch_application]
-        as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
+    let native_handler = tauri::generate_handler![
+        encode_recording_for_upload,
+        launch_application,
+        application_close::finish_application_close
+    ] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
         .level_for("epicenter::transcription", log::LevelFilter::Debug)
@@ -747,6 +764,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
+        .manage(ApplicationClose::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(Mutex::new(Recorder::new()))
         .manage(DownloadManager::default());
@@ -758,7 +776,7 @@ pub fn run() {
         .invoke_handler(move |invoke| {
             if matches!(
                 invoke.message.command(),
-                "encode_recording_for_upload" | "launch_application"
+                "encode_recording_for_upload" | "launch_application" | "finish_application_close"
             ) {
                 native_handler(invoke)
             } else {
@@ -1353,7 +1371,26 @@ fn handle_auth_frame(
             let result = delete_app_secret(&app.config().identifier, &app_id, &account_id);
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::Relaunch {} => app.restart(),
+        BunToRustAuthFrame::CloseApplications { request_id } => {
+            let app = app.clone();
+            thread::spawn(move || {
+                let result =
+                    application_close::close_applications(&app, generation, request_id.clone());
+                let _ = send_native_result(&app, generation, &request_id, result);
+            });
+            Ok(())
+        }
+        BunToRustAuthFrame::ResumeApplications { request_id } => {
+            let result = app.state::<ApplicationClose>().resume_closed();
+            send_native_result(app, generation, &request_id, result)
+        }
+        BunToRustAuthFrame::Relaunch {} => {
+            if !app.state::<ApplicationClose>().is_closed() {
+                log::warn!("Refused relaunch before applications finished closing.");
+                return Ok(());
+            }
+            app.restart()
+        }
     }
 }
 
@@ -1557,6 +1594,9 @@ fn ensure_window(
     token: &str,
     reveal: bool,
 ) -> Result<()> {
+    if built_in.is_launchable() && app.state::<ApplicationClose>().blocks_launch() {
+        bail!("Finish or cancel server selection before opening an application.");
+    }
     if let Some(window) = app.get_webview_window(built_in.id()) {
         if reveal {
             focus(window);
@@ -1600,6 +1640,7 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
 }
 
 fn invalidate_windows(app: &DesktopAppHandle) {
+    app.state::<ApplicationClose>().abandon();
     let (sender, receiver) = mpsc::sync_channel(1);
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
@@ -2177,7 +2218,11 @@ mod tests {
     /// (raw bytes) or are host-owned rather than part of the app contract.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        const HANDWRITTEN: &[&str] = &["encode_recording_for_upload", "launch_application"];
+        const HANDWRITTEN: &[&str] = &[
+            "encode_recording_for_upload",
+            "launch_application",
+            "finish_application_close",
+        ];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),

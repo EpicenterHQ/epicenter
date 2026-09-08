@@ -570,6 +570,26 @@ describe('createHomeServer', () => {
 		expect(calls).toBe(1);
 	});
 
+	test('server selection requires the private browser session and exact Origin', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const server = await serveHost(host);
+		try {
+			for (const path of ['/_epicenter/account/connect', '/_epicenter/account/select-hosted']) {
+				const url = `${server.url.origin}${path}`;
+				expect((await fetch(url, { method: 'POST' })).status).toBe(401);
+				const headers = new Headers(authenticatedHeaders(server));
+				headers.delete('origin');
+				expect((await fetch(url, { method: 'POST', headers })).status).toBe(403);
+				headers.set('origin', 'https://foreign.example');
+				expect((await fetch(url, { method: 'POST', headers })).status).toBe(403);
+			}
+			const malformed = await fetch(`${server.url.origin}/_epicenter/account/connect`, {
+				method: 'POST', headers: { ...authenticatedHeaders(server), origin: server.url.origin }, body: '{}',
+			});
+			expect(malformed.status).toBe(400);
+		} finally { await server.stop(true); }
+	});
+
 	test('serves Home and every compiled application plus honest placeholders', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),

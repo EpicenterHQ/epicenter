@@ -1,31 +1,29 @@
 <script lang="ts">
+	import { isBrowserAuth } from '@epicenter/auth';
 	import type { AuthClient } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
+	import ServerConnection from './server-connection.svelte';
 
 	/**
-	 * The screen a signed-out person meets instead of their data.
-	 *
-	 * Mounted by the boot node, which is the narrowest node not shared with
-	 * `/auth/callback` (ADR-0345). The boot node decides WHO is looking; this
-	 * renders the one thing they can do about it.
+	 * Connection choices shown after the boot owner has closed its app session.
 	 */
 	type SignInScreenProps = {
 		/**
 		 * The application's auth client, whose `startSignIn` this button calls.
 		 *
-		 * Nothing here is read reactively, so the raw client is enough: the boot
-		 * node already answered signed-out, and a sign-in ends this page rather
-		 * than updating it.
+		 * The boot owner has already closed the app, and successful sign-in
+		 * replaces this document or process.
 		 */
 		auth: AuthClient;
 		/** The application's name, as the heading, e.g. `'Honeycrisp'`. */
 		appName: string;
 		/** What this application calls a person's stuff, plural, e.g. `'notes'`. */
 		noun: string;
+		onCancel?: () => void;
 	};
 
-	let { auth, appName, noun }: SignInScreenProps = $props();
+	let { auth, appName, noun, onCancel }: SignInScreenProps = $props();
 
 	/**
 	 * Pending until the page or the process is replaced, which is why there is no
@@ -40,6 +38,7 @@
 	 * the second click this state exists to prevent.
 	 */
 	let signingIn = $state(false);
+	let connecting = $state(false);
 	let signInError = $state<string | undefined>(undefined);
 
 	async function signIn() {
@@ -57,18 +56,24 @@
 	<div class="flex max-w-sm flex-col items-center gap-4">
 		<div class="space-y-2">
 			<h1 class="text-lg font-semibold">{appName}</h1>
-			<p class="text-sm text-muted-foreground">Sign in to open your {noun}.</p>
+			<p class="text-sm text-muted-foreground">{onCancel ? 'Choose where to connect.' : `Sign in to open your ${noun}.`}</p>
 			{#if signInError !== undefined}
 				<p class="text-xs text-destructive">{signInError}</p>
 			{/if}
 		</div>
-		<Button size="lg" disabled={signingIn} onclick={signIn}>
-			{#if signingIn}
-				<Spinner class="size-4" />
-				Signing in…
-			{:else}
-				Sign in with Epicenter
-			{/if}
-		</Button>
+		{#if auth.signInLocation === 'host-settings'}
+			<p class="text-sm text-muted-foreground">Open Home Settings to enter your server token.</p>
+		{:else if !isBrowserAuth(auth) || !auth.selectedServer}
+			<Button size="lg" disabled={signingIn || connecting} onclick={signIn}>
+				{#if signingIn}
+					<Spinner class="size-4" />
+					Signing in…
+				{:else}
+					Sign in with Epicenter
+				{/if}
+			</Button>
+		{/if}
+		<ServerConnection {auth} disabled={signingIn} bind:pending={connecting} />
+		{#if onCancel}<Button variant="ghost" disabled={signingIn || connecting} onclick={onCancel}>Back to {appName}</Button>{/if}
 	</div>
 </div>

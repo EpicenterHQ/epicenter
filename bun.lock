@@ -263,6 +263,7 @@
       "name": "@epicenter/local-mail-ui",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/app-shell": "workspace:*",
         "@epicenter/device": "workspace:*",
         "@epicenter/local-mail": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
@@ -614,6 +615,7 @@
         "@lucide/svelte": "catalog:",
         "@standard-schema/spec": "catalog:",
         "@tanstack/svelte-query": "catalog:",
+        "@tauri-apps/api": "catalog:",
         "@y/y": "14.0.0-rc.24",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",

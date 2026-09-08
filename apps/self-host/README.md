@@ -56,6 +56,27 @@ contract (`ServerBindings`) and declares the deployment-owned config,
 declare them there (or regenerate with `bun run typegen` and re-add the
 `extends` clause).
 
+## Connect an application
+
+For cross-device store sync, run the Cloudflare Worker. On the browser app's
+sign-in screen, open **Connect to your server** and enter the instance origin
+and operator token. The client verifies the token before saving it, then reopens
+the app. From an open app, the account menu first closes the current app and
+finishes its pending local work before showing connection choices.
+
+In the desktop host, open **Home Settings** and close applications before
+choosing a server. Native waits for every app window, including hidden windows,
+to finish closing. Failed close or timeout refuses selection. The host then
+verifies and saves the chosen credential and relaunches. App windows receive
+no remote credential. After token rotation, enter the replacement in the same
+place; desktop app windows direct you to Home Settings.
+
+One document or desktop process uses one server. Changing servers reopens the
+app with a separate account and local data address. Existing local data stays on
+the device; connecting never migrates or uploads another server's data. Choose
+**Use Epicenter Cloud** to return to hosted sign-in. Neither instance path has
+hosted account management.
+
 ## What this isn't
 
 This is not Epicenter Cloud. There are no billing routes (billing is hosted-only and lives in `apps/api/worker/billing/`), no dashboard SPA, and no SLA, support contract, or paid hosting from Epicenter. There is also no per-user partitioning: every valid token reaches the one `principals/instance` partition. Multi-tenancy, where everyone signs in and gets their own private partition, is Epicenter Cloud's only. An enterprise that wants on-prem runs one instance (shared), or one instance per person or team.
