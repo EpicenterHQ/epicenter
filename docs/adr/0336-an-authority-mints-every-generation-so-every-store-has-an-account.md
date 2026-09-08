@@ -5,6 +5,8 @@
 - **Supersedes:** [ADR-0233](0233-a-browser-application-keeps-a-device-document-and-one-account-replica-per-account.md) (the device document, the retained replica, and the sign-out rule) and [ADR-0279](0279-an-application-has-two-databases-and-copying-a-row-is-the-verb.md) (two databases and the copy between them, which has nothing left to copy between)
 - **Amends:** [ADR-0324](0324-a-database-address-is-its-data-id-and-generation-and-the-definition-declares-its-authority.md) by withdrawing the `authority` field and the two-data-ids section; [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) at "the device assigns it without"; [ADR-0262](0262-the-desktop-host-owns-one-active-connection-and-no-connection-registry.md) at "local data survives sign-out"
 
+- **Amended by:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at account-required storage: local sessions mint local generations; account generations remain authority-owned.
+
 ## Context
 
 Two store kinds existed. A device store recorded `NO_AUTHORITY`
