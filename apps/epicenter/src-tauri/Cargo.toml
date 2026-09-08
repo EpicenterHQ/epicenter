@@ -17,10 +17,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6", features = [] }
 
 [dev-dependencies]
-# `test` gives the mock runtime, which is how `app_data`'s tests reach the real
-# `PathResolver::app_data_dir` and compare it to the TypeScript resolver that
-# owns the same path (ADR-0201). Test builds only: dev-dependency features are
-# not unified into the shipped binary.
+# The mock runtime verifies native path selection for both bundled identities.
+# Test builds only: these features do not enter the shipped binary.
 tauri = { version = "2.11", features = ["test"] }
 
 [dependencies]

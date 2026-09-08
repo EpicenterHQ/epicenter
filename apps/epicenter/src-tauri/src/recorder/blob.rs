@@ -26,7 +26,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{info, warn};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::audio::decode_to_pcm16k_mono;
 use crate::recorder::error::RecorderError;
@@ -101,20 +101,16 @@ fn validate_blob_id(id: &str) -> Result<(), RecorderError> {
     Ok(())
 }
 
-/// `<root>/blobs`, resolved natively because a recording can start before this
-/// process has anything to be told (`crate::app_data`). The sidecar names the
-/// same directory from `epicenterDataRoot()`, and the two are pinned equal by
-/// `app_data`'s tests rather than by both reading the same constant.
-fn blobs_directory(app: &AppHandle) -> Result<PathBuf, RecorderError> {
-    let root = crate::app_data::epicenter_data_root(app).map_err(|error| {
-        RecorderError::failed(format!("resolve the Epicenter data root: {error}"))
-    })?;
-    Ok(root.join(BLOBS_DIRECTORY))
+/// The recorder and sidecar consume the same startup-selected data directory.
+fn blobs_directory(app: &AppHandle) -> PathBuf {
+    app.state::<crate::app_data::DesktopPaths>()
+        .data_dir
+        .join(BLOBS_DIRECTORY)
 }
 
 fn blob_data_path(app: &AppHandle, id: &str) -> Result<PathBuf, RecorderError> {
     validate_blob_id(id)?;
-    Ok(blobs_directory(app)?.join(id).join(DATA_FILE))
+    Ok(blobs_directory(app).join(id).join(DATA_FILE))
 }
 
 /// One blob's bytes, being written, before the blob exists.
@@ -138,7 +134,7 @@ impl StagedBlob {
     /// recording, so a caller learns its blob cannot be written before it spends
     /// an hour capturing audio for it.
     pub fn create(app: &AppHandle, id: &str) -> Result<Self, RecorderError> {
-        Self::stage(blobs_directory(app)?, id)
+        Self::stage(blobs_directory(app), id)
     }
 
     /// Open a staging directory under a given blobs root.
@@ -305,9 +301,7 @@ impl StagedBlob {
 /// pid embedded in each staged directory name would close it, and is not worth
 /// the platform-specific code for a race that cannot lose audio.
 pub fn delete_stale_staging(app: &AppHandle) {
-    let Ok(root) = blobs_directory(app) else {
-        return;
-    };
+    let root = blobs_directory(app);
     delete_staging_root(&root);
 }
 

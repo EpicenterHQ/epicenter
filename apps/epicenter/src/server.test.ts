@@ -168,6 +168,7 @@ async function serveHost(
 	owners: {
 		device?: BunDevice;
 		appSecrets?: AppSecretOwner;
+		folderRoot?: string;
 	} = {},
 ) {
 	const portProbe = Bun.serve({
@@ -179,6 +180,7 @@ async function serveHost(
 	await portProbe.stop(true);
 	const origin = `http://127.0.0.1:${port}`;
 	const { app, websocket } = createHomeServer({
+		folderRoot: testDataDir(),
 		host,
 		origin,
 		launchToken: TOKEN,
@@ -409,6 +411,7 @@ describe('createHomeServer', () => {
 		const desktopAuth = createTestDesktopAuth();
 		expect(() =>
 			createHomeServer({
+				folderRoot: testDataDir(),
 				host,
 				origin: 'http://127.0.0.1:39130',
 				launchToken: '',
@@ -426,6 +429,7 @@ describe('createHomeServer', () => {
 		]) {
 			expect(() =>
 				createHomeServer({
+					folderRoot: testDataDir(),
 					host,
 					origin,
 					launchToken: TOKEN,
@@ -1597,7 +1601,7 @@ async function readPortAnnouncement(
 					const ready = JSON.parse(line) as ReadyFrame;
 					expect(ready).toEqual({
 						type: 'ready',
-						protocolVersion: 2,
+						protocolVersion: 3,
 						port: ready.port,
 					});
 					return ready.port;
@@ -1657,6 +1661,9 @@ describe('sidecar end-to-end smoke', () => {
 		});
 		const port = boundPort(portProbe);
 		await portProbe.stop(true);
+		const dataDir = testDataDir();
+		const folderDir = testDataDir();
+		const ignoredDirectory = testDataDir();
 		const sidecar = Bun.spawn(
 			['bun', 'run', 'src/main.ts', '--runtime-mode=development'],
 			{
@@ -1664,12 +1671,12 @@ describe('sidecar end-to-end smoke', () => {
 				env: {
 					...process.env,
 					EPICENTER_APPS_DIST: appsDist,
+					EPICENTER_DATA_DIR: ignoredDirectory,
+					EPICENTER_FOLDER_DIR: ignoredDirectory,
 					// The engine POSTs `${baseURL}/chat/completions`, so the base
 					// carries the `/v1` prefix.
 					EPICENTER_INFERENCE_URL: `${inference.url.origin}/v1`,
 					EPICENTER_INFERENCE_MODEL: 'fake-model',
-					// Keep the host's replicas out of the real user data directory.
-					EPICENTER_DATA_DIR: testDataDir(),
 				},
 				stdin: 'pipe',
 				stdout: 'pipe',
@@ -1679,7 +1686,7 @@ describe('sidecar end-to-end smoke', () => {
 		try {
 			// The credential and Rust-resolved port travel in the boot frame.
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 2, token: TOKEN, port, authCell: null })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 3, token: TOKEN, port, authCell: null, dataDir, folderDir })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const announcedPort = await readPortAnnouncement(sidecar, 30_000);
@@ -1700,6 +1707,43 @@ describe('sidecar end-to-end smoke', () => {
 			expect(bootstrap.status).toBe(204);
 			const cookie = bootstrap.headers.get('set-cookie')?.split(';', 1)[0];
 			expect(cookie).toBeDefined();
+			// Startup paths win even when the child environment names other roots.
+			const headers = { cookie: cookie ?? '', origin };
+			const blobId = generateBlobId();
+			const put = await fetch(`${origin}${desktopBlobUrl(blobId)}`, {
+				method: 'PUT',
+				headers,
+				body: 'native-selected bytes',
+			});
+			expect(put.status).toBe(201);
+			expect(
+				await Bun.file(join(dataDir, 'blobs', blobId, 'data')).text(),
+			).toBe('native-selected bytes');
+			expect(
+				await Bun.file(
+					join(ignoredDirectory, 'blobs', blobId, 'data'),
+				).exists(),
+			).toBe(false);
+			const checkoutUrl = `${origin}${CHECKOUT_PATH}/so.epicenter.honeycrisp`;
+			const before = await fetch(checkoutUrl, { headers });
+			await before.text();
+			const checkedOut = await fetch(checkoutUrl, {
+				method: 'PUT',
+				headers: { ...headers, 'if-match': before.headers.get('etag') ?? '' },
+				body: `${JSON.stringify({ path: 'kv.json', contents: '{}' })}\n`,
+			});
+			expect(checkedOut.status).toBe(204);
+			expect(
+				await Bun.file(
+					join(folderDir, 'so.epicenter.honeycrisp', 'kv.json'),
+				).text(),
+			).toBe('{}');
+			expect(
+				await Bun.file(
+					join(ignoredDirectory, 'so.epicenter.honeycrisp', 'kv.json'),
+				).exists(),
+			).toBe(false);
+
 			const served = await fetch(HOME_ROUTE.url(origin), {
 				headers: { cookie: cookie ?? '' },
 			});
@@ -1766,7 +1810,6 @@ describe('sidecar end-to-end smoke', () => {
 					EPICENTER_APPS_DIST: appsDist,
 					EPICENTER_INFERENCE_URL: 'http://127.0.0.1:1/v1',
 					EPICENTER_INFERENCE_MODEL: 'unused-model',
-					EPICENTER_DATA_DIR: testDataDir(),
 				},
 				stdin: 'pipe',
 				stdout: 'pipe',
@@ -1775,7 +1818,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 2, token: TOKEN, port: occupiedPort, authCell: null })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 3, token: TOKEN, port: occupiedPort, authCell: null, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await exitWithin(sidecar, 30_000)).not.toBe(0);
@@ -1807,7 +1850,6 @@ describe('sidecar end-to-end smoke', () => {
 					EPICENTER_APPS_DIST: appsDist,
 					EPICENTER_INFERENCE_URL: 'http://127.0.0.1:1/v1',
 					EPICENTER_INFERENCE_MODEL: 'unused-model',
-					EPICENTER_DATA_DIR: testDataDir(),
 				},
 				stdin: 'pipe',
 				stdout: 'pipe',
@@ -1816,7 +1858,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 2, token: TOKEN, port, authCell: null })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 3, token: TOKEN, port, authCell: null, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await readPortAnnouncement(sidecar, 30_000)).toBe(port);
@@ -1856,10 +1898,8 @@ describe('checkout routes (ADR-0337)', () => {
 
 	test('a checkout replaces the folder, and reads back as what was written', async () => {
 		const folderRoot = mkdtempSync(join(tmpdir(), 'checkout-route-test-'));
-		const previousRoot = process.env.EPICENTER_FOLDER_DIR;
-		process.env.EPICENTER_FOLDER_DIR = folderRoot;
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
+		const server = await serveHost(host, PAGE, null, { folderRoot });
 		const origin = server.url.origin;
 		const url = `${origin}${CHECKOUT_PATH}/so.epicenter.honeycrisp`;
 		const folder = join(folderRoot, 'so.epicenter.honeycrisp');
@@ -1961,18 +2001,14 @@ describe('checkout routes (ADR-0337)', () => {
 			expect(read.headers.get('etag')).toMatch(/^"[0-9a-f]{64}"$/);
 		} finally {
 			await server.stop(true);
-			if (previousRoot === undefined) delete process.env.EPICENTER_FOLDER_DIR;
-			else process.env.EPICENTER_FOLDER_DIR = previousRoot;
 			rmSync(folderRoot, { recursive: true, force: true });
 		}
 	});
 
 	test('a data id the render never produces is refused', async () => {
 		const folderRoot = mkdtempSync(join(tmpdir(), 'checkout-route-test-'));
-		const previousRoot = process.env.EPICENTER_FOLDER_DIR;
-		process.env.EPICENTER_FOLDER_DIR = folderRoot;
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
+		const server = await serveHost(host, PAGE, null, { folderRoot });
 		const origin = server.url.origin;
 		try {
 			const refused = [
@@ -2018,8 +2054,6 @@ describe('checkout routes (ADR-0337)', () => {
 			).toBe(true);
 		} finally {
 			await server.stop(true);
-			if (previousRoot === undefined) delete process.env.EPICENTER_FOLDER_DIR;
-			else process.env.EPICENTER_FOLDER_DIR = previousRoot;
 			rmSync(folderRoot, { recursive: true, force: true });
 		}
 	});

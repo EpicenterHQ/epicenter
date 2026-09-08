@@ -159,6 +159,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	await probe.stop(true);
 	const origin = `http://127.0.0.1:${port}`;
 	const { app, websocket } = createHomeServer({
+		folderRoot: join(directory, 'checkout'),
 		origin,
 		launchToken: 'launch',
 		host,

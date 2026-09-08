@@ -11,6 +11,8 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import {
 	createNativeAuthPort,
@@ -33,6 +35,8 @@ function bootFrame(overrides: Record<string, unknown> = {}): string {
 		token: TOKEN,
 		port: PRODUCTION_PORT,
 		authCell: null,
+		dataDir: join(tmpdir(), 'so.epicenter.dev'),
+		folderDir: join(tmpdir(), 'Epicenter Dev'),
 		...overrides,
 	});
 }
@@ -137,8 +141,23 @@ describe('boot protocol', () => {
 
 	test('unknown protocol versions are rejected', () => {
 		expect(() =>
-			parseBootFrame(bootFrame({ protocolVersion: 3 }), 'production'),
-		).toThrow('Unsupported boot protocol version: 3');
+			parseBootFrame(bootFrame({ protocolVersion: 99 }), 'production'),
+		).toThrow('Unsupported boot protocol version: 99');
+	});
+
+	test('native directories are required, absolute, and preserved exactly', () => {
+		for (const key of ['dataDir', 'folderDir']) {
+			for (const value of [null, 123, '', 'relative/directory', '/bad\0path']) {
+				expect(() =>
+					parseBootFrame(bootFrame({ [key]: value }), 'development'),
+				).toThrow('absolute filesystem path');
+			}
+		}
+		const dataDir = join(tmpdir(), 'custom data');
+		const folderDir = join(tmpdir(), 'custom checkout');
+		expect(
+			parseBootFrame(bootFrame({ dataDir, folderDir }), 'development'),
+		).toMatchObject({ dataDir, folderDir });
 	});
 
 	test('invalid token types and non-base64url tokens are rejected', () => {
@@ -178,7 +197,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 2,
+			protocolVersion: 3,
 			port: PRODUCTION_PORT,
 		});
 	});

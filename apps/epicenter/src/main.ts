@@ -16,7 +16,6 @@ import {
 	createEpicenterClient,
 	createOpenAiAgentEngine,
 } from '@epicenter/client';
-import { epicenterDataRoot } from '@epicenter/constants/app-data';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createNativeAppSecrets } from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
@@ -56,18 +55,7 @@ async function main(): Promise<void> {
 
 		const { engine, model } = homeEngineFromEnvironment(process.env);
 
-		// The one Epicenter root, resolved here rather than received. A desktop
-		// host and a CLI that each computed this path would have to agree on it
-		// exactly, so one TypeScript function owns it and everything else calls
-		// that (ADR-0201). `blobs` below it is the host's own
-		// names, and everything under `apps/` is somebody else's.
-		//
-		// There is no `data/` any more. The host used to open a store there, sync
-		// it, render it to markdown, project it to SQLite and serve it raw; every
-		// one of those read application data the host had no business holding
-		// (ADR-0226), and the applications on the store each own their own now
-		// (ADR-0227).
-		const dataRoot = epicenterDataRoot();
+		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
 		const blobs = createBunBlobStore({
@@ -104,6 +92,7 @@ async function main(): Promise<void> {
 		);
 		const origin = `http://127.0.0.1:${boot.port}`;
 		const { app, websocket } = createHomeServer({
+			folderRoot: boot.folderDir,
 			host,
 			origin,
 			launchToken: boot.token,

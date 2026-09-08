@@ -9,7 +9,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
-import { epicenterFolderRoot, isAppId } from '@epicenter/constants/app-data';
+import { isAppId } from '@epicenter/constants/app-id';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import { answerDevice } from '@epicenter/device/owner';
 import {
@@ -73,6 +73,8 @@ export type ApplicationsResponse = {
 };
 
 export type HomeServerOptions = {
+	/** Working copy directory selected by native startup. */
+	folderRoot: string;
 	host: HomeHost;
 	/** Exact active origin, including the Rust-selected explicit port. */
 	origin: string;
@@ -109,6 +111,7 @@ const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><ti
 const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
 
 export function createHomeServer({
+	folderRoot,
 	host,
 	origin,
 	launchToken,
@@ -122,11 +125,6 @@ export function createHomeServer({
 	if (launchToken === '') {
 		throw new Error('Device refuses to serve without a launch token.');
 	}
-	// Resolved once, here, rather than per request. `epicenterFolderRoot` reads
-	// the environment and refuses a relative override by throwing, and a
-	// misconfiguration should stop the boot loudly rather than turn every folder
-	// pass into a 500 (ADR-0271).
-	const folderRoot = epicenterFolderRoot();
 	const activeUrl = validateOrigin(origin);
 	const activeHost = activeUrl.host;
 	const sessionHashes = new Set<string>();
@@ -459,9 +457,7 @@ export function createHomeServer({
 	 * parsed. The host owns the root, the refusal, and the atomic swap; the
 	 * application owns what any of it means.
 	 *
-	 * The root is resolved once, at construction, so a misconfigured
-	 * `EPICENTER_FOLDER_DIR` fails the boot loudly instead of throwing inside
-	 * every request.
+	 * Native startup validates the root before the server is constructed.
 	 */
 	const checkoutFolder = (c: {
 		req: { param(name: string): string | undefined };

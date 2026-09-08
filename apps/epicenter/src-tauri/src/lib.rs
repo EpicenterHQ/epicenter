@@ -92,7 +92,7 @@ const APP_WINDOW_PREFIX: &str = "app-";
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 2;
+const PROTOCOL_VERSION: u8 = 3;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
@@ -172,6 +172,8 @@ struct BootFrame<'a> {
     token: &'a str,
     port: u16,
     auth_cell: Option<&'a str>,
+    #[serde(flatten)]
+    paths: &'a app_data::DesktopPaths,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -765,6 +767,8 @@ pub fn run() {
         .setup(move |app| {
             specta_builder.mount_events(app);
 
+            app.manage(app_data::DesktopPaths::resolve(app.handle())?);
+
             // A recording that was still capturing when a previous launch died
             // left a partial WAV in the recorder's private staging. It is not a
             // blob and never will be one, so it is deleted here and nothing
@@ -1074,12 +1078,7 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
 fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
     let log = open_log_file(app)?;
 
-    // The Bun host resolves the Epicenter data root itself, from the one
-    // TypeScript function that owns that path (ADR-0201). Do not pass one from
-    // here: a Rust-computed root leaves the desktop and every CLI as two
-    // implementations of a directory they have to agree on exactly, and it
-    // swallows the ambient `EPICENTER_DATA_DIR` that the host and the
-    // recorder's `crate::app_data` both honour.
+    // The native startup owns paths; the sidecar receives them in its boot frame.
     let mut command = host_command(app)?;
     command
         .env("EPICENTER_APPS_DIST", apps_dist(app)?)
@@ -1093,8 +1092,14 @@ fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
     let mut stdin = child.stdin.take().context("capture Bun stdin")?;
     let stdout = child.stdout.take().context("capture Bun stdout")?;
     let token = launch_token()?;
-    let auth_cell = read_auth_cell().context("read the desktop auth cell")?;
-    let frame = boot_frame_json(&token, port, auth_cell.as_deref())?;
+    let auth_cell =
+        read_auth_cell(&app.config().identifier).context("read the desktop auth cell")?;
+    let frame = boot_frame_json(
+        &token,
+        port,
+        auth_cell.as_deref(),
+        &app.state::<app_data::DesktopPaths>(),
+    )?;
 
     if let Err(error) = writeln!(stdin, "{frame}").and_then(|()| stdin.flush()) {
         stop_starting_child(child, stdin);
@@ -1112,7 +1117,7 @@ fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
         Ok(value) => value,
         Err(mpsc::RecvTimeoutError::Timeout) => {
             stop_starting_child(child, stdin);
-            bail!("Bun did not emit its v2 ready frame within 15 seconds");
+            bail!("Bun did not emit its v3 ready frame within 15 seconds");
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             stop_starting_child(child, stdin);
@@ -1286,7 +1291,7 @@ fn handle_auth_frame(
             request_id,
             serialized,
         } => {
-            let result = write_auth_cell(serialized);
+            let result = write_auth_cell(&app.config().identifier, serialized);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustAuthFrame::OpenAuthUrl { request_id, url } => {
@@ -1303,7 +1308,7 @@ fn handle_auth_frame(
             account_id,
             value,
         } => {
-            let result = write_app_secret(&app_id, &account_id, &value);
+            let result = write_app_secret(&app.config().identifier, &app_id, &account_id, &value);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustAuthFrame::GetAppSecret {
@@ -1315,7 +1320,7 @@ fn handle_auth_frame(
                 bail!("native requestId must be non-empty");
             }
             let state = app.state::<HostState>();
-            match read_app_secret(&app_id, &account_id) {
+            match read_app_secret(&app.config().identifier, &app_id, &account_id) {
                 Ok(value) => send_auth_frame(
                     &state,
                     generation,
@@ -1344,7 +1349,7 @@ fn handle_auth_frame(
             app_id,
             account_id,
         } => {
-            let result = delete_app_secret(&app_id, &account_id);
+            let result = delete_app_secret(&app.config().identifier, &app_id, &account_id);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustAuthFrame::Relaunch {} => app.restart(),
@@ -1679,13 +1684,19 @@ fn launch_token() -> Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn boot_frame_json(token: &str, port: u16, auth_cell: Option<&str>) -> Result<String> {
+fn boot_frame_json(
+    token: &str,
+    port: u16,
+    auth_cell: Option<&str>,
+    paths: &app_data::DesktopPaths,
+) -> Result<String> {
     serde_json::to_string(&BootFrame {
         r#type: "boot",
         protocol_version: PROTOCOL_VERSION,
         token,
         port,
         auth_cell,
+        paths,
     })
     .context("serialize the Bun boot frame")
 }
@@ -1696,15 +1707,15 @@ fn read_ready_frame(reader: &mut impl BufRead, expected_port: u16) -> Result<()>
         .read_line(&mut line)
         .context("read the Bun readiness frame")?;
     if count == 0 {
-        bail!("Bun exited without emitting its v2 ready frame");
+        bail!("Bun exited without emitting its v3 ready frame");
     }
     if !line.ends_with('\n') {
-        bail!("Bun closed stdout before completing its v2 ready frame");
+        bail!("Bun closed stdout before completing its v3 ready frame");
     }
 
     let line = line.trim_end_matches(['\r', '\n']);
     let frame: ReadyFrame =
-        serde_json::from_str(line).context("Bun stdout was not one strict v2 ready frame")?;
+        serde_json::from_str(line).context("Bun stdout was not one strict v3 ready frame")?;
     if frame.r#type != "ready" {
         bail!("Bun emitted a frame other than ready");
     }
@@ -1810,9 +1821,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_expected_v2_ready_frame() {
+    fn parses_only_the_expected_v3_ready_frame() {
         read_ready_frame(
-            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39130}\n"),
+            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39130}\n"),
             PRODUCTION_PORT,
         )
         .unwrap();
@@ -1820,9 +1831,9 @@ mod tests {
         for invalid in [
             "preamble\n",
             "{\"type\":\"ready\",\"protocolVersion\":1,\"port\":39130}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39131}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39130,\"extra\":true}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39130}",
+            "{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39131}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39130,\"extra\":true}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39130}",
         ] {
             assert!(read_ready_frame(&mut Cursor::new(invalid), PRODUCTION_PORT).is_err());
         }
@@ -2612,16 +2623,21 @@ mod tests {
     }
 
     #[test]
-    fn boot_frame_is_strict_v2_and_carries_the_opaque_auth_cell() {
-        let token = URL_SAFE_NO_PAD.encode([7_u8; 32]);
-        let json = boot_frame_json(&token, PRODUCTION_PORT, Some("opaque")).unwrap();
+    fn boot_frame_carries_the_native_directories_and_auth_cell() {
+        let paths = app_data::DesktopPaths {
+            data_dir: std::env::temp_dir().join("so.epicenter.dev"),
+            folder_dir: std::env::temp_dir().join("Epicenter Dev"),
+        };
+        let json = boot_frame_json("safe_token", PRODUCTION_PORT, Some("opaque"), &paths).unwrap();
+        let frame: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            json,
-            format!(
-                "{{\"type\":\"boot\",\"protocolVersion\":2,\"token\":\"{token}\",\"port\":39130,\"authCell\":\"opaque\"}}"
-            )
+            frame,
+            serde_json::json!({
+                "type": "boot", "protocolVersion": 3, "token": "safe_token",
+                "port": PRODUCTION_PORT, "authCell": "opaque",
+                "dataDir": paths.data_dir, "folderDir": paths.folder_dir,
+            })
         );
-        assert!(!token.contains('='));
     }
 
     #[test]

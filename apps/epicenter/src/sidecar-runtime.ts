@@ -4,6 +4,7 @@
  * lifetime signal. Bun validates that input but never resolves a port itself.
  */
 
+import { isAbsolute } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 /**
@@ -14,7 +15,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
  */
 const SHUTDOWN_GRACE_MS = 10_000;
 
-export const SIDECAR_PROTOCOL_VERSION = 2;
+export const SIDECAR_PROTOCOL_VERSION = 3;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -25,6 +26,8 @@ export type BootFrame = {
 	token: string;
 	port: number;
 	authCell: string | null;
+	dataDir: string;
+	folderDir: string;
 };
 
 export type ReadyFrame = {
@@ -69,6 +72,8 @@ export type NativeAuthPort = Pick<
 
 const BOOT_FRAME_KEYS = [
 	'authCell',
+	'dataDir',
+	'folderDir',
 	'port',
 	'protocolVersion',
 	'token',
@@ -126,7 +131,7 @@ export function parseBootFrame(
 		keys.some((key, index) => key !== BOOT_FRAME_KEYS[index])
 	) {
 		throw new Error(
-			'The boot frame must contain exactly type, protocolVersion, token, port, and authCell.',
+			'The boot frame must contain exactly type, protocolVersion, token, port, authCell, dataDir, and folderDir.',
 		);
 	}
 
@@ -159,6 +164,16 @@ export function parseBootFrame(
 		throw new Error('The boot auth cell must be a string or null.');
 	}
 
+	for (const key of ['dataDir', 'folderDir'] as const) {
+		const directory = frame[key];
+		if (
+			typeof directory !== 'string' ||
+			!isAbsolute(directory) ||
+			directory.includes('\0')
+		) {
+			throw new Error(`The boot ${key} must be an absolute filesystem path.`);
+		}
+	}
 	return frame as BootFrame;
 }
 

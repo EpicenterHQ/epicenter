@@ -104,7 +104,7 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 	// than only against `parseBootFrame`: production is pinned to one port, and
 	// a parent offering another gets a refusal instead of a stray listener.
 	const misbound = Bun.spawn([binary, '--runtime-mode=production'], {
-		env: { EPICENTER_DATA_DIR: dataDir, PATH: '' },
+		env: { PATH: '' },
 		stdin: 'pipe',
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -116,6 +116,8 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 			token: 'compiled_test_token',
 			port: PRODUCTION_PORT + 1,
 			authCell: null,
+			dataDir,
+			folderDir: join(dataDir, 'checkout'),
 		})}\n`,
 	);
 	await misbound.stdin.flush();
@@ -128,7 +130,6 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 	const port = freePort();
 	const sidecar = Bun.spawn([binary, '--runtime-mode=development'], {
 		env: {
-			EPICENTER_DATA_DIR: dataDir,
 			EPICENTER_APPS_DIST: join(appDir, 'dist'),
 			EPICENTER_INFERENCE_URL: 'http://127.0.0.1:1/v1',
 			EPICENTER_INFERENCE_MODEL: 'unused-model',
@@ -146,6 +147,8 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 				token: 'compiled_test_token',
 				port,
 				authCell: null,
+				dataDir,
+				folderDir: join(dataDir, 'checkout'),
 			})}\n`,
 		);
 		await sidecar.stdin.flush();

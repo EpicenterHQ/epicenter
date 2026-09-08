@@ -1,6 +1,7 @@
 //! Internal OS credential-store backing for the desktop auth cell and for one
 //! labeled secret per application account.
 //!
+//! The running bundle identifier names the service, isolating dev credentials.
 //! Rust owns the service and account strings. Bun sends the desktop auth cell's
 //! opaque value, or an application id and an account id; it never sends an
 //! address in the credential store, and it cannot construct one. WebViews never
@@ -12,13 +13,6 @@
 
 use keyring::{Entry, Error as KeyringCrateError};
 use thiserror::Error;
-
-const KEYRING_SERVICE: &str = "so.epicenter";
-// macOS scopes keychain ACLs to the app's code signature, so an
-// ad-hoc-signed dev build touching an entry created by the notarized prod
-// build, or the reverse, can trigger a Keychain permission prompt. If that
-// bites, suffix this service string per channel, such as `so.epicenter.dev`,
-// rather than sharing one entry across signatures.
 
 // Epicenter stores exactly one desktop auth cell, so the account is a Rust
 // constant rather than an input from Bun or a WebView.
@@ -46,18 +40,21 @@ fn is_label(value: &str) -> bool {
 fn app_secret_account(app_id: &str, account_id: &str) -> Result<String, KeyringError> {
     if !is_label(app_id) || !is_label(account_id) {
         return Err(KeyringError::Failed {
-            message: "an application secret label must be one dot, dash, underscore, or alphanumeric run".to_string(),
+            message:
+                "an application secret label must be one dot, dash, underscore, or alphanumeric run"
+                    .to_string(),
         });
     }
     Ok(format!("app:{app_id}:{account_id}"))
 }
 
 pub(crate) fn read_app_secret(
+    service: &str,
     app_id: &str,
     account_id: &str,
 ) -> Result<Option<String>, KeyringError> {
     let account = app_secret_account(app_id, account_id)?;
-    let entry = Entry::new(KEYRING_SERVICE, &account)
+    let entry = Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.get_password() {
         Ok(password) => Ok(Some(password)),
@@ -67,20 +64,25 @@ pub(crate) fn read_app_secret(
 }
 
 pub(crate) fn write_app_secret(
+    service: &str,
     app_id: &str,
     account_id: &str,
     value: &str,
 ) -> Result<(), KeyringError> {
     let account = app_secret_account(app_id, account_id)?;
-    Entry::new(KEYRING_SERVICE, &account)
+    Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?
         .set_password(value)
         .map_err(|e| KeyringError::from_crate_error("writing keyring entry", e))
 }
 
-pub(crate) fn delete_app_secret(app_id: &str, account_id: &str) -> Result<(), KeyringError> {
+pub(crate) fn delete_app_secret(
+    service: &str,
+    app_id: &str,
+    account_id: &str,
+) -> Result<(), KeyringError> {
     let account = app_secret_account(app_id, account_id)?;
-    let entry = Entry::new(KEYRING_SERVICE, &account)
+    let entry = Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.delete_credential() {
         Ok(()) | Err(KeyringCrateError::NoEntry) => Ok(()),
@@ -95,8 +97,8 @@ pub enum KeyringError {
     Failed { message: String },
 }
 
-pub(crate) fn read_auth_cell() -> Result<Option<String>, KeyringError> {
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+pub(crate) fn read_auth_cell(service: &str) -> Result<Option<String>, KeyringError> {
+    let entry = Entry::new(service, KEYRING_ACCOUNT)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.get_password() {
         Ok(password) => Ok(Some(password)),
@@ -105,8 +107,8 @@ pub(crate) fn read_auth_cell() -> Result<Option<String>, KeyringError> {
     }
 }
 
-pub(crate) fn write_auth_cell(value: Option<String>) -> Result<(), KeyringError> {
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+pub(crate) fn write_auth_cell(service: &str, value: Option<String>) -> Result<(), KeyringError> {
+    let entry = Entry::new(service, KEYRING_ACCOUNT)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match value {
         Some(password) => entry
