@@ -74,6 +74,13 @@ version and principal path below these directories remains governed by the
 separate storage decisions. Updating or reinstalling a release does not remove
 any of those data directories.
 
+The app directory is a shared ownership boundary, not a promise that one layer
+owns every byte below it. Epicenter owns the installed `bundle/` and may replace
+it during installation. The application owns `data/`, `sqlite/`, and its
+principal-scoped `blobs/`; the host provides the capabilities that open or
+serve those stores but does not interpret their application contents. An
+installed application never receives the platform data-root path.
+
 There is no second registry file in the V1 installed layout. The manifest is
 copied into `bundle/` with the release. A future installation record may add
 provenance, but it must not become a second source of application identity.
@@ -134,6 +141,9 @@ release, and an operator can use an existing deployment mechanism.
 - The host remains inert at installation. It validates the release and replaces
   only the host-owned bundle, leaving app-owned entries untouched. It does not
   install dependencies or execute source-project build scripts.
+- The host's filesystem ownership stops at `bundle/`. Storage paths below the
+  app directory are implementation details of the app's data and device
+  capabilities, even when the host process opens the underlying files.
 - V1 installation is a stopped-host administrative action. The operator stops
   Epicenter, installs or replaces the bundle, and then restarts it. Hot
   replacement coordination is a later decision.

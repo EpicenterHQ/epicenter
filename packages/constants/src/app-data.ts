@@ -2,8 +2,9 @@
  * Where Epicenter stores things on a machine.
  *
  * Epicenter owns exactly one application-data root. Every trusted app it runs or
- * admits receives one directory below it and owns everything inside, partitioned
- * by an identifier the external authority owns and never reuses. See ADR-0201.
+ * admits receives one directory below it. Epicenter owns the installed bundle
+ * below that directory, while the app owns its data and device stores, which
+ * may be opened through host capabilities. See ADR-0358.
  *
  * Three parties choose names along that path, and each function below is one
  * hand-off between two of them: Epicenter names the root and its own
@@ -15,8 +16,8 @@
  *
  * These are pure functions over strings and a grammar. There is no store, no
  * handle, no registry of app directories, and no lifecycle: allocating a place
- * is naming it, not owning a store, and the host never creates, opens, reads, or
- * reclaims anything below the directory it names.
+ * is naming it, not owning a store. Storage capabilities own the lifecycle of
+ * the specific stores they open below an app directory.
  */
 
 import { homedir } from 'node:os';
@@ -106,14 +107,14 @@ function localDataDir({ env, platform, homeDir }: DataRootSystem): string {
 }
 
 /**
- * An app's one directory: `<root>/apps/<appId>`. The app owns everything below
- * the result and Epicenter never looks inside it (ADR-0201, ADR-0193).
+ * An app's one directory: `<root>/apps/<appId>`. The host owns the installed
+ * `bundle/` below it; the app owns its data and device stores. This function
+ * names the shared app boundary, not a permission capability (ADR-0358).
  *
  * `apps/` is where naming authority changes hands. Above it Epicenter chooses
- * the names (`blobs` and whatever it adds next); below
- * it an app does. One segment keeps a host directory added later from landing
- * on an app id, and it is the boundary the host's promise is stated against:
- * everything under `apps/` is somebody else's, all of it, by position.
+ * the names. Below an app id, the bundle and the app's stores have separate
+ * owners. One segment keeps a host directory added later from landing on an
+ * app id, and the host's promise is stated against that explicit split.
  *
  * Allocation is nominal: this names a place and creates nothing. A directory
  * exists exactly when its owner writes into it, the same rule

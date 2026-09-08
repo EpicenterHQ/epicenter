@@ -157,8 +157,21 @@ The installer must not:
 ### Wave 4: app-owned storage paths
 
 Deferred from this slice. The installer preserves existing app-owned entries
-without relocating or opening them. A later storage-specific change can align
-the desktop runtime with ADR-0314, ADR-0324, ADR-0348, and ADR-0349.
+without relocating or opening them. The next storage-specific change must run
+in this order:
+
+1. Define the scoped capability handoff that gives a host route or native
+   recorder both the app ID and captured principal. A shared-origin route that
+   receives only a blob ID cannot safely select the ADR-0349 directory.
+2. Align desktop SQLite opening with ADR-0348's
+   apps/<app-id>/data/v5/<principal-id>/<data-id>/<generation>.sqlite path.
+3. Align desktop blobs with ADR-0349's
+   apps/<app-id>/<principal-id>/blobs/<blob-id>/ path.
+4. Add restart, account-replacement, erase, and reinstall proofs before
+   removing the current shared blob root.
+
+The installer remains storage-agnostic throughout this work. It preserves
+entries outside bundle/ and never migrates or interprets them.
 
 ### Wave 5: CLI entrypoint
 
