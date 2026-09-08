@@ -1,6 +1,11 @@
-# A data session keeps one account for its entire lifetime
+# 0353. A data session keeps one account for its entire lifetime
 
-Status: Proposed
+- **Status:** Proposed
+- **Date:** 2026-09-07
+- **Amends:** [ADR-0339](0339-an-application-creates-one-epicenter-and-an-account-is-what-adds-a-store.md) at account selection: the inert constructor takes the app id and definition; `open(account)` captures the account per session.
+- **Amends:** [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at the session key and account lifetime: key on the Account object, preserve it through renewal within one authority, and permanently retire its transport on sign-out or replacement. The session owns sync and closes normally.
+- **Amends:** [ADR-0230](0230-an-auth-client-always-offers-openwebsocket-and-a-model-that-cannot-sync-denies-permanently.md) at its universal socket requirement: Account owns data transport; AuthClient selects accounts; cookie-only account UI promises neither an Account nor a socket stub. Runtime transport refusals remain typed.
+- **Relates:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md): authenticated byte forwarding preserves app-owned stores and synchronization.
 
 ## Context
 
@@ -23,8 +28,8 @@ permanently ends that account's network access.**
 Auth publishes a stable Account in its signed-in and reauth-required states.
 Within a running auth authority, refresh, disconnection, and uninterrupted
 reauthentication as the same person preserve that object. Browser navigation
-and desktop host relaunch create a new authority and application session. Sign-out or account replacement retires it. Signing back
-in creates a new object even when the principal and server are unchanged.
+and desktop host relaunch create a new authority and application session.
+Sign-out or account replacement retires it. Signing back in creates a new object even when the principal and server are unchanged.
 
 The credential authority owns the account lifetime independently of token
 rotation. Authorization checks that lifetime after asynchronous work; transports
@@ -41,9 +46,11 @@ use that value, including while sign-in persists a replacement before relaunch.
 The host forwards protocol bytes and does not acquire a replica or reconnect
 independently. A window that closes its data session closes its sync connection.
 
-The cookie dashboard retains a concrete cookie HTTP client. Shared account UI
+The current cookie dashboard retains a concrete cookie HTTP client. Shared account UI
 requires only profile presentation and sign-in commands, so the dashboard does
-not advertise an account-bound transport or an unusable socket method.
+not advertise an account-bound transport or an unusable socket method. This
+restriction follows from its ambient cookie. A future dashboard that holds an
+explicit account-bound credential can use Account under the same contract.
 
 ## Consequences
 

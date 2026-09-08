@@ -16,24 +16,30 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 ## Application composition
 
-Whispering binds its inert data definition to one account replica, acquired as one ready app inside the mounted Svelte root:
+Whispering creates one inert handle and opens a data session for the Account
+selected by its boot layout:
 
 ```txt
-defineData()                            src/lib/data.ts (inert schema)
-  -> whisperingDependencies             src/lib/whispering/dependencies.ts (auth + blobs)
-    -> openWhisperingApp()              src/lib/whispering/app.ts (transactional async open)
-      -> openWhisperingUiSession()      src/lib/whispering/ui-session.ts (app + query runtime)
-        -> (app)/+layout.svelte         the boot node: opens, and renders the four states
-          -> WhisperingShell.svelte     the session, its context, and the app chrome
+src/lib/data.ts                         inert definition
+src/lib/epicenter.svelte.ts              createEpicenter({ appId, definition })
+(app)/+layout.svelte                    auth gate; key on Account
+  -> RecordingsSession.svelte           epicenter.open(account); owns close/retry
+    -> WhisperingShell.svelte           blobs, UI session, context, and chrome
+      -> createWhisperingUiSession      query runtime and application adapters
+        -> createWhisperingApp          settings, recordings, and recipes
 ```
 
-`src/lib/data.ts` defines the fixed application id, flat table fields, required row `content` codecs, and KV settings schema with no platform APIs.
+`#platform/auth` supplies auth; the boot layout passes its selected Account to
+the session child. `#platform/blobs` supplies `createWhisperingBlobs`, called by
+`WhisperingShell` with the app id and that same Account. Neither seam opens
+application storage at module evaluation.
 
-The build's environment-owned inputs arrive through two seams: `authClient` from `#platform/auth`, read by `$lib/epicenter.svelte.ts` when it creates the handle, and `createWhisperingBlobs` from `#platform/blobs`, called by `WhisperingShell` once per session with the opened replica's app and principal, because the blob store is one account's (ADR-0349). Neither seam opens storage at module evaluation.
-
-`openWhisperingApp(dependencies, { signal })` requires a signed-in account and refuses otherwise, because a store is one replica of an authority and a signed-out generation has no document to fall back to. It opens that account's replica through `createEpicenter` from `@epicenter/app`, then hands back settings, recordings, and recipes as UI-free product namespaces. Any failure releases everything it opened and rejects.
-
-The `(app)` layout is the boot node and does two things: it calls `epicenter.open()` once during initialisation, and it renders the four states of that session (ADR-0344). Its `ready` branch mounts `WhisperingShell`, which owns everything that exists because the store is open: the UI session (`createWhisperingUiSession`, composing the Svelte reactivity adapters, a session-scoped TanStack `QueryClient`, and the query namespace), the typed `getWhisperingApp()` / `getWhisperingQueries()` context, and the whole app chrome. Boot retry is another `open()` rather than a document reload, because a failed session is not memoized. The shell owns the session's ordered disposal; it does not own the replica, which is the document's (ADR-0088).
+`RecordingsSession` renders the pending, error, or data result of
+`session.opened`. A retry replaces the session with `epicenter.open(account)`.
+Its cleanup closes the session, releasing the replica and sync connection.
+`WhisperingShell` owns the UI session, its query cache, product namespaces, and
+ordered disposal. Hosted transcription and remote blobs use the captured
+Account, so delayed work cannot switch to the next person's credentials.
 
 The app's recordings namespace owns row and blob consistency: audio storage, upload, download, purge, the `uploadedAt` marker, and deletion of the online copy, device copy, and row as one workflow. A row's values and its `content` node both live in the one Yjs 14 database document; there is no SQLite projection beside it (ADR-0269).
 

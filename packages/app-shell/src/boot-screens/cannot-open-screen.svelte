@@ -24,9 +24,8 @@
 		error: unknown;
 		/**
 		 * Open again. A prop rather than `location.reload()`, because opening is a
-		 * verb: the boot node passes `() => void epicenter.open()`, so trying again
-		 * re-runs exactly the thing that failed instead of throwing the document
-		 * away to get back somewhere the session can already reach.
+		 * verb: the session owner replaces its session with `epicenter.open(account)`
+		 * using the same captured Account. Retrying keeps the document running.
 		 */
 		retry: () => void;
 	};

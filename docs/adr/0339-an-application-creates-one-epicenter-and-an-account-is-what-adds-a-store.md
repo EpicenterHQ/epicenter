@@ -1,6 +1,7 @@
 # 0339. An application creates one epicenter, and an account is what adds a store
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) at account selection: the constructor is inert over app id and definition, and `open(account)` captures the Account per session. The one-handle and one-store decisions stand.
 - **Amended by:** [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) at its mechanism: `EpicenterBinding`, `EpicenterBindingFactory`, the `binding` option, and the `Epicenter<never>` overload are withdrawn, and the runtime half is `@epicenter/device`. "An application creates one epicenter, and an account is what adds a store" stands.
 - **Date:** 2026-09-02
 - **Unbuilt:** nothing. Built with two corrections this record now carries: the two names an application mints are branded, and the root is not types only.

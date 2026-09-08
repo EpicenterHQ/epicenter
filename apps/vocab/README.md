@@ -54,14 +54,11 @@ vocab.ts                    # Shared isomorphic model (tables, KV, VocabMessage 
 
 ## Key decisions
 
-- The store is opened explicitly. `$lib/epicenter.svelte.ts` composes one
-  `createEpicenter` over the definition and the account and adapts it with
-  the handle itself; `components/ConversationsSession.svelte` calls `epicenter.open()` under the boot node's gate after
-  reading auth and renders `closed | opening | ready | failed`, handing
-  `state.data` to `VocabShell` (ADR-0339, ADR-0344). Vocab's own opener is
-  gone, and with it the flush-on-hide listener it never had: the shared opener
-  asks the page for a flush before it goes, so the last few seconds of typing
-  survive.
+- `$lib/epicenter.svelte.ts` creates an inert handle from the app id and
+  definition. The boot page keys `ConversationsSession` on the selected Account.
+  That child calls `epicenter.open(account)`, renders `session.opened`, and passes
+  the opened data to `VocabShell`. Retries keep the captured Account; unmounting
+  closes the session. The shared opener owns persistence and sync.
 - The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's `content` node. There is no `chatMessages` table.
 - The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
 - The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).

@@ -21,8 +21,8 @@ browser as a static site.
 Honeycrisp declares one inert data definition over `so.epicenter.honeycrisp` (`src/lib/data.ts`) and opens it as a store the app owns:
 
 ```txt
-createEpicenter({ appId, definition, account })  the handle, composed once, inert
-epicenter.open()                                 synchronous; answers a DataSession
+createEpicenter({ appId, definition })           the handle, composed once, inert
+epicenter.open(account)                           synchronous; answers a DataSession
 session.opened                                   settles once: the store, or why not
 session.close()                                  releases the lock, socket, and listener
 session.erase()                                  the one deleting verb, from the account menu

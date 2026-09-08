@@ -56,3 +56,18 @@ OAuth clients expose `completeSignIn`.
 The same-origin dashboard uses its concrete cookie HTTP client. Its ambient
 cookie cannot promise account-bound replica traffic, so it exposes no Account
 and no sync socket stub. Third-party inference uses its own transport and key.
+
+## Changing the credential model
+
+Credential issuance, renewal, and persistence can change underneath Account.
+Keep its lifetime independent of the token format, and preserve the desktop
+host's captured boot account even when relaunch fails. The current OAuth
+implementation is one provider of that contract.
+
+Carry forward the behavior covered by `src/account-lifetime.test.ts`,
+`src/desktop-broker-auth.test.ts`,
+`../../apps/epicenter/src/account-transport.test.ts`, and
+`../../apps/whispering/src/lib/services/blobs/account-blob-remote.test.ts`.
+Replace credential-specific fixtures as needed while retaining the retirement,
+request replay, streaming cancellation, and socket closure checks. Navigation
+and host relaunch recreate the runtime; same-runtime renewal does not.

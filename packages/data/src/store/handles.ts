@@ -659,24 +659,13 @@ export type SyncCapability = {
 /**
  * The account half of an address, and how this device reaches its authority.
  *
- * A value rather than an `AuthClient`, and the difference is the point. An
- * `AuthClient` is live: its `state` moves when a person signs in or out. This
- * is three facts read at one instant, which is what lets a session answer for
- * the principal that opened it even if the client moves underneath.
+ * Capture this value for the data session. Its principal and server stay fixed,
+ * and its HTTP and socket transport must never adopt another account's
+ * credentials. `Account` from `@epicenter/auth` satisfies this contract directly.
  *
- * It carries both ways this device reaches its authority, and that is the whole
- * of it: `fetch` for a generation it does not hold, which is an HTTP request
- * (ADR-0292), and `openWebSocket` for the updates that follow, which is a
- * socket. Nothing else opening a replica needs a second object, so nothing else
- * takes one: `attachStoreSync` reads the transport off this rather than being
- * handed a client.
- *
- * An `AuthClient` does not satisfy it. A client keeps its principal under
- * `state`, so a snapshot has to read it out, and `accountOf` in
- * `@epicenter/auth` is the one function that does. Keeping that translation on
- * the auth side is what lets this file stay free of the auth package, which is
- * load-bearing rather than tidy: `createAccountStore` opens a store with no
- * account at all, and a Durable Object is one of its callers.
+ * `fetch` opens generations this device does not hold; `openWebSocket` carries
+ * later updates for the store's lifetime. Keeping this structural contract here
+ * lets data openers consume accounts without depending on the auth package.
  */
 export type DatabaseAccount = {
 	readonly baseURL: string;

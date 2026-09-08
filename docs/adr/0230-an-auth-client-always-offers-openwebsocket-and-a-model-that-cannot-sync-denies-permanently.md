@@ -1,6 +1,7 @@
 # 0230. An auth client always offers `openWebSocket`, and a credential model that cannot sync denies permanently
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) at the universal socket requirement: Account carries HTTP and sync transport, while AuthClient selects accounts. Cookie-only UI has no Account or socket stub; typed runtime transport refusals remain.
 - **Date:** 2026-08-09
 - **Amended by:** [ADR-0232](0232-a-page-lifetime-is-one-auth-generation-and-a-permanently-denied-sync-stops-for-good.md): the final consequence below pointed at parking and resuming in the sync driver. The `SyncDial` contract did gain a signal (`denied`), but there is no parked state and no resume; a permanently denied connection stops for good and a credential change reloads the app.
 - **Amended by:** [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at the mechanism, not the rule: the `denied` signal ADR-0232 added is deleted and so is `permanence`. "Denies permanently" now means the model refuses from a literal on every dial, reported as `'no-credential-model'` on `status().refusal` and dialled again on backoff. That every client offers `openWebSocket` and answers "can this client sync" at runtime is untouched.

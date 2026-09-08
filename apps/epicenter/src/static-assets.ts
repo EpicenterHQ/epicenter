@@ -24,8 +24,8 @@ export type StaticAsset = {
  * three things to do to it that a file cannot carry: gate it behind an
  * established browser session, stamp the auth bootstrap into it, and hash its
  * inline scripts into the one Content-Security-Policy this origin sends. That
- * stamp is what lets a build open the host-owned replica instead of one of its
- * own, and the hash is what lets its own boot script run at all.
+ * stamp supplies the account identity used to reach the host's credential broker.
+ * The app opens its own replica; the hash lets its boot script run.
  */
 type ServedSpa = {
 	id: string;
