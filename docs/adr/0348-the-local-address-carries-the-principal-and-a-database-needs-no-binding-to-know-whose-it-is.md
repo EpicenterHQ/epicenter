@@ -1,10 +1,10 @@
-# 0348. The local address carries the principal, and a database needs no binding to know whose it is
+# 0348. The local address carries its session scope, and a database needs no binding to know whose it is
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
-- **Amends:** [ADR-0324](0324-a-database-address-is-its-data-id-and-generation-and-the-definition-declares-its-authority.md) at its refusal of the partition segments and at the format version: the address regains `<principal-id>` between the app id and the data id, and the version becomes `v5`. Its app segment, its "one grammar, two spellings" rule, and its refusal of the base URL all stand. And [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) at the binding and the refusal, both withdrawn: a database records no `{ baseURL, principalId }` stamp, there is no `binding` object store, and `StoreError.BoundElsewhere` does not exist. Its re-homing decision (export then import, a fresh fail-closed export pass, final state and not history) is untouched and still governs.
+- **Amends:** [ADR-0324](0324-a-database-address-is-its-data-id-and-generation-and-the-definition-declares-its-authority.md) at its refusal of the partition segments and at the format version: an account address carries `<authority-id>/<principal-id>` after the app id, while a local address carries `local`; the browser account spelling remains in the `v5` epoch and the local/account scope names are explicit. Its app segment, its "one grammar, two spellings" rule, and its refusal of the base URL all stand. And [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) at the binding and the refusal, both withdrawn: a database records no `{ baseURL, principalId }` stamp, there is no `binding` object store, and `StoreError.BoundElsewhere` does not exist. Its re-homing decision (export then import, a fresh fail-closed export pass, final state and not history) is untouched and still governs.
 - **Relates:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) (an account is required to open, which is the premise ADR-0325 said no address could have), [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) (a person deletes; nothing is deleted as a protocol step), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (one build names one authority)
-- **Unbuilt:** the desktop spelling, `<root>/apps/<app-id>/data/v5/<principal-id>/<data-id>/<n>.sqlite`. No desktop code writes `data/` at all, which was already true of ADR-0324's `v4` spelling. There is no reaper for stranded `v4` records and there will not be one.
+- **Unbuilt:** the desktop account spelling, `<root>/apps/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>.sqlite`, and the local spelling, `<root>/apps/<app-id>/local/data/<data-id>/1.sqlite`. No desktop code writes either path yet. There is no reaper for stranded `v4` records and there will not be one.
 
 ## Context
 
@@ -38,19 +38,23 @@ else and compare it on every open forever.
 
 ## Decision
 
-**The address carries the principal, so a database needs no binding to know
+**The address carries the session scope, so a database needs no binding to know
 whose it is.**
 
 ```txt
-<platform namespace> / <format version> / <app-id> / <principal-id> / <data-id> / <generation>
+<platform namespace> / <scope> / <data-id> / <generation>
 
-browser   epicenter/v5/<app-id>/<principal-id>/<data-id>/<n>
-desktop   <root>/apps/<app-id>/data/v5/<principal-id>/<data-id>/<n>.sqlite
+browser local    epicenter/<app-id>/local/data/<data-id>/<n>
+browser account epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>
+desktop local    <root>/apps/<app-id>/local/data/<data-id>/<n>.sqlite
+desktop account <root>/apps/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>.sqlite
 ```
 
-One grammar, two spellings, which is ADR-0324's rule unchanged. The principal
-sits BELOW the app id because an application owns its directory (ADR-0314), so
-that ordering is the only one both substrates can share.
+One scope grammar has two forms: `local`, or an account identified by the
+authority that minted the principal and that principal itself. The authority is
+part of the durable account coordinate because the same principal text may be
+issued by different deployments. The app id remains above the scope because an
+application owns its directory (ADR-0314).
 
 **The principal is refused, never canonicalized.** `PrincipalId` is whatever the
 authority minted, and an identifier is compared byte for byte by whoever issued
@@ -66,8 +70,9 @@ already does.
 record at a v5 name can only belong to the account its name says it does, the
 same way it can only belong to the generation its name says it does (ADR-0292).
 
-**Two accounts on one device are two replicas.** Neither can address the other's,
-so there is nothing to refuse and nothing to merge.
+**Local state and account state are different replicas.** Local state has no
+authority or principal and is never an account's replica. Two accounts on one
+device are also separate because their authority and principal segments differ.
 
 **Erasing is scoped to one account, and the verb closes first.**
 `eraseGenerations` takes the principal, so forgetting one person's copy on a

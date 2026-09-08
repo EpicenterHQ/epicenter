@@ -1,11 +1,11 @@
-# 0349. Blob bytes belong to one app and principal, beside their replicas
+# 0349. Blob bytes belong to one app and session scope, beside their replicas
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
 - **Supersedes:** [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) at its public operations, `table.blobUrl(rowId)` and `table.writeBlob(rowId, bytes)`. Neither exists and neither will: a blob is addressed by `BlobId`, not by the row that cites it. ADR-0173 is `Proposed` and its write-once slot was already withdrawn by [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md), so what is left of it after this record is a `Considered alternatives` entry.
 - **Amends:** [ADR-0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it-rather-than-losing-it.md) at "No blob identity crosses the boundary, ever. There is no `BlobId`", which is withdrawn: the recorder returns the id at `stop` and the application writes it into the row, which `apps/whispering/src/lib/whispering/recording-audio.ts` already does through `recording.audioBlobId`. Its row-that-fills rule and its refusal of a recorder-owned `cancel` stand. And [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at the spelling of `apps/<app-id>/blobs/`, which gains a `<principal-id>` segment; its one directory per app and its refusal of a shared root stand. And [ADR-0201](0201-epicenter-owns-one-app-data-root-and-an-app-partitions-its-one-directory-by-a-stable-authority-identifier.md) at its open question of who tells the recorder where blobs live, which is answered below: the caller hands `start` the app and the principal.
 - **Relates:** [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md) (a minted nanoid, never a content hash), [ADR-0154](0154-blob-access-is-address-only.md) (address-only, no enumeration), [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) (audio does not move into the page), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md), [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) (`principals/<id>/blobs/<blobId>`, per principal and not per generation), [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) ("a blob reference travels; the blob bytes do not"), [ADR-0348](0348-the-local-address-carries-the-principal-and-a-database-needs-no-binding-to-know-whose-it-is.md) (the principal is an address segment), [ADR-0342](0342-sign-in-is-the-door-to-keeping-not-to-using.md) (`Proposed`, edited in place: a trial has no blob store for the same reason it has no replica), [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md) (`Superseded` by [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md); its `upload`/`download`/`purge` vocabulary survives here)
-- **Relates:** [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md): blobs are account data. The deleted binding carries no blob namespace; which platform object owns the verbs remains open.
+- **Relates:** [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md): account blobs are account data, while local blobs belong to the local session; which platform object owns the verbs remains open.
 - **Unbuilt:** the desktop half, and the platform answer. Built, in the browser: the store is one account's, `createBrowserBlobStore({ appId, principalId })` opens `epicenter/v5/<app-id>/<principal-id>/blobs` and can open nothing else; `eraseBlobStore` deletes it as the second step of Whispering's "sign out and remove local data", after the generations and against the same captured principal; `claimUnscopedBrowserBlobs` moves, once per session, the bytes an earlier build wrote to `epicenter-blobs` that this account's rows cite, and what no row cites is counted and sized in settings for a person to delete; and the unused document-bytes `Blobs` contract is gone. Not built: the desktop spelling, where `recorder/blob.rs` still resolves `<appDataDir>/blobs` and the host keeps one flat `<root>/blobs`, so the desktop build offers sign-out only. Which object carries the blob verbs at the platform level is reopened by ADR-0352 and not answered here.
 ## Context
 
@@ -17,22 +17,46 @@ There was a second, unrelated thing called blobs in the tree: a `Blobs` contract
 
 ## Decision
 
-**Blob bytes are the account's, and the name says so. One grammar with two substrates, scoped by app and principal, beside the data id.**
+**Blob bytes belong to the session scope, and the name says so. One grammar with
+two substrates, scoped by app and either local or authority-plus-principal.**
 
 ```txt
-browser   epicenter/v5/<app-id>/<principal-id>/blobs                (one IndexedDB database)
-desktop   <root>/apps/<app-id>/<principal-id>/blobs/<blob-id>/      (host filesystem)
+browser local    epicenter/<app-id>/local/blobs                         (one IndexedDB database)
+browser account epicenter/<app-id>/accounts/<authority-id>/<principal-id>/blobs
+desktop local    <root>/apps/<app-id>/local/blobs/<blob-id>/             (host filesystem)
+desktop account <root>/apps/<app-id>/accounts/<authority-id>/<principal-id>/blobs/<blob-id>/
 ```
 
-The browser name is the sibling of `epicenter/v5/<app-id>/<principal-id>/<data-id>/<n>` (ADR-0348). The principal is in the name for confidentiality and erasure rather than for ADR-0348's merge argument: two `blob_` nanoids cannot collide, but removing one account's local data has to be able to take its audio and leave another's, and a second person signing in on a shared laptop must not reach the first one's recordings.
+The browser name is the sibling of the local or account data address (ADR-0348).
+Account scope includes both authority and principal; local scope has neither.
+The account identity is in the name for confidentiality and erasure: removing
+one account's local data must leave another's, and a second person signing in
+on a shared laptop must not reach the first person's recordings.
 
-**Per principal, not per data id and not per generation.** The authority keeps one copy per principal, and rows in two of one app's data ids may cite one `BlobId`, so a data-id scope would duplicate bytes or force a lookup across scopes. A restore mints a new generation citing the same ids, so a per-generation store would copy or orphan every blob.
+**Per session scope, not per data id and not per generation.** An account
+authority keeps one copy per authority-plus-principal, while local state has one
+local copy. Rows in two of one app's data ids may cite one `BlobId`, so a data-id
+scope would duplicate bytes or force a lookup across scopes. A restore mints a
+new generation citing the same ids, so a per-generation store would copy or
+orphan every blob.
 
 **`blobs` cannot collide with anything the replica address produces, and the grammar is what guarantees it rather than a reserved word.** A data id is reverse-domain and must contain a dot (`packages/data/src/definition/addresses.ts`), so no data id is a bare word. Generation enumeration matches `<data-id>/` with its trailing slash and requires the remainder to be a number, so it never sees a sibling. A test in `@epicenter/data` pins that a dotless segment is never a data id, which covers any later bare-word sibling under the account prefix the same way.
 
-**The store takes the scope and never a name.** `createBrowserBlobStore({ appId, principalId })` in `@epicenter/blobs/browser` derives the database name through `browserBlobStoreName`, and there is no `databaseName` option and no default, so an unscoped store cannot be built by omission. Each segment is refused rather than canonicalized, under the rule the replica address and a desktop partition already use: not empty, no path separator, and not `.` or `..`. A bad segment throws at construction, the way `createBrowserDevice` refuses a bad app id: this is a composition root handling values a program supplied. The app id's fuller grammar is enforced by `createEpicenter`; here it only has to be one segment. The two spellings, replica and blob, live in two packages and are pinned to each other by test rather than a shared constant, because `@epicenter/data` does not know blobs exist.
+**The store takes the scope and never a name.** `createBrowserBlobStore` in
+`@epicenter/blobs/browser` takes `appId`, `principalId`, and optional
+`authorityId`, deriving either local or account scope through
+`browserBlobStoreName`. There is no `databaseName` option and no default, so an
+unscoped store cannot be built by omission. Each segment is refused rather than
+canonicalized, under the rule the replica address and a desktop partition
+already use: not empty, no path separator, and not `.` or `..`.
 
-**Desktop blobs use `apps/<app-id>/<principal-id>/blobs/`.** The app and principal form the account scope, as they do in the browser name. This reopens the earlier kind-first proposal and amends ADR-0201's partition spelling for blobs. Device files keep their existing locations; erasing blobs deletes this exact directory, never the principal's parent. There is no generation segment: a restored row still cites the same opaque bytes. Nothing writes this desktop spelling yet.
+**Desktop blobs use the same scope below the app directory.** Local bytes use
+`apps/<app-id>/local/blobs/`; account bytes use
+`apps/<app-id>/accounts/<authority-id>/<principal-id>/blobs/`. Device files keep
+their existing app-scoped location; erasing account blobs deletes the exact
+account directory, never its authority or app parent. There is no generation
+segment: a restored row still cites the same opaque bytes. Nothing writes these
+desktop spellings yet.
 
 **An application builds its blob store per session from its captured account.** Whispering's `#platform/blobs` seam exports `createWhisperingBlobs({ appId, account })`. The shell passes the same immutable `Account` that opened the data session; the local store uses its `principalId` and the remote uses its retired-on-sign-out transport. The result is `app.blobs`, Whispering's own composition. ADR-0352 leaves the platform owner of the verbs open.
 
@@ -40,7 +64,7 @@ The browser name is the sibling of `epicenter/v5/<app-id>/<principal-id>/<data-i
 
 **A row records whether its blob is uploaded; the blob store does not.** Whispering's `uploadedAt` is the instance: `availability` in `recording-audio.ts` reads `stat` for local bytes and the row's `uploadedAt` for the remote copy. `stat` answers size and content type about this device and nothing about the authority.
 
-**Desktop bytes stay on the host filesystem.** ADR-0226 refuses moving them into the page and states the price: the Rust progressive writer needs a filesystem, multi-hour captures do not belong in IndexedDB, and an upload streams from the host instead of crossing WebView IPC. `recorder/blob.rs` will take `{ appId, principalId }` at `start` and join them, which answers ADR-0201's open question about who tells the recorder where blobs live.
+**Desktop bytes stay on the host filesystem.** ADR-0226 refuses moving them into the page and states the price: the Rust progressive writer needs a filesystem, multi-hour captures do not belong in IndexedDB, and an upload streams from the host instead of crossing WebView IPC. `recorder/blob.rs` will take the session scope `{ appId, authorityId?, principalId }` at `start` and join it, which answers ADR-0201's open question about who tells the recorder where blobs live.
 
 **The browser codec keeps storing `ArrayBuffer` plus content type.** WebKit rejects persisted `Blob` and `File` values (`packages/blobs/README.md`), so the store reconstructs a `Blob` on read. That stays until `bun run smoke:webkit` in `packages/blobs` proves otherwise.
 

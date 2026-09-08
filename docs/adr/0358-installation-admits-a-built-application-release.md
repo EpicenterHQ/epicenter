@@ -61,25 +61,29 @@ The installed application keeps the release beside the data it owns:
   apps/
     <app-id>/
       bundle/            release files, including manifest.json
-      data/             versioned, principal-scoped app data
+      local/            local-session-owned app state
+        data/            local data generations
+        blobs/           local app bytes
+      accounts/         account-session-owned app state
+        <authority-id>/
+          <principal-id>/
+            data/        account data generations
+            blobs/       account app bytes
       sqlite/            app-owned device files
-      <principal-id>/
-        blobs/          principal-scoped app bytes
 ```
 
-`bundle/` is replaceable release output. `data/` is durable application data.
-`sqlite/` is application-owned device state or a local projection. `blobs/`
-holds application bytes with an explicit local and remote lifecycle. The exact
-version and principal path below these directories remains governed by the
-separate storage decisions. Updating or reinstalling a release does not remove
-any of those data directories.
+`bundle/` is replaceable release output. `local/` and `accounts/` hold
+application data and blobs by session scope. `sqlite/` is application-owned
+device state or a local projection. The exact version and generation path below
+these directories remains governed by the separate storage decisions. Updating
+or reinstalling a release does not remove any of those data directories.
 
 The app directory is a shared ownership boundary, not a promise that one layer
 owns every byte below it. Epicenter owns the installed `bundle/` and may replace
-it during installation. The application owns `data/`, `sqlite/`, and its
-principal-scoped `blobs/`; the host provides the capabilities that open or
-serve those stores but does not interpret their application contents. An
-installed application never receives the platform data-root path.
+it during installation. The application owns `local/`, `accounts/`, and
+`sqlite/`; the host provides the capabilities that open or serve those stores
+but does not interpret their application contents. An installed application
+never receives the platform data-root path.
 
 There is no second registry file in the V1 installed layout. The manifest is
 copied into `bundle/` with the release. A future installation record may add

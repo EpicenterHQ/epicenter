@@ -78,16 +78,21 @@ The platform-managed layout is:
   apps/
     <app-id>/
       bundle/       installed release files, including manifest.json
-      data/         Epicenter application data, scoped per data ADR
+      local/        local-session-owned application state
+        data/       local data generations
+        blobs/      local app bytes
+      accounts/     account-session-owned application state
+        <authority-id>/
+          <principal-id>/
+            data/   account data generations
+            blobs/  account app bytes
       sqlite/       app-owned device files
-      <principal-id>/
-        blobs/      app-owned bytes, scoped per blob ADR
 ```
 
-This tree is schematic. ADR-0348 owns the versioned, principal-scoped SQLite
-data path, and ADR-0349 owns the principal-scoped blob path. The installation
-decision owns the app directory boundary and bundle replacement rule; it does
-not replace those storage decisions.
+This tree is schematic. ADR-0348 owns the versioned local and
+authority-plus-principal SQLite paths, and ADR-0349 owns the matching blob
+paths. The installation decision owns the app directory boundary and bundle
+replacement rule; it does not replace those storage decisions.
 
 The manifest is copied into `bundle/` with the release. There is no second
 registry file in this slice. A directory below `apps/` is an installed app only
@@ -164,9 +169,12 @@ in this order:
    recorder both the app ID and captured principal. A shared-origin route that
    receives only a blob ID cannot safely select the ADR-0349 directory.
 2. Align desktop SQLite opening with ADR-0348's
-   apps/<app-id>/data/v5/<principal-id>/<data-id>/<generation>.sqlite path.
+   local/data/<data-id>/<generation>.sqlite and
+   accounts/<authority-id>/<principal-id>/data/<data-id>/<generation>.sqlite
+   paths.
 3. Align desktop blobs with ADR-0349's
-   apps/<app-id>/<principal-id>/blobs/<blob-id>/ path.
+   local/blobs/<blob-id>/ and
+   accounts/<authority-id>/<principal-id>/blobs/<blob-id>/ paths.
 4. Add restart, account-replacement, erase, and reinstall proofs before
    removing the current shared blob root.
 
