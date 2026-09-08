@@ -521,6 +521,53 @@ describe('createHomeServer', () => {
 		}
 	});
 
+	test('nested application APIs reject unauthorized requests before invoking a handler', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const origin = 'http://127.0.0.1:43127';
+		const { app } = createHomeServer({
+			folderRoot: testDataDir(),
+			host,
+			origin,
+			launchToken: TOKEN,
+			staticAssets: await createAppsDistFixture(),
+			blobs: createTestBlobs(),
+			desktopAuth: createTestDesktopAuth(),
+			blobRemote: null,
+		});
+		let calls = 0;
+		const path = '/api/apps/so.epicenter.test/auth-regression';
+		app.post(path, (c) => {
+			calls += 1;
+			return c.body(null, 204);
+		});
+		const headers = { host: '127.0.0.1:43127', origin };
+		const unauthorized = await app.request(`${origin}${path}`, {
+			method: 'POST',
+			headers,
+		});
+		expect(unauthorized.status).toBe(401);
+		expect(calls).toBe(0);
+		const bootstrap = await app.request(BOOTSTRAP_ROUTE.url(origin), {
+			method: 'POST',
+			headers: { ...headers, authorization: `Bearer ${TOKEN}` },
+		});
+		expect(bootstrap.status).toBe(204);
+		const cookie = bootstrap.headers.get('set-cookie')?.split(';', 1)[0];
+		if (cookie === undefined) throw new Error('test bootstrap set no cookie');
+		const forbidden = await app.request(`${origin}${path}`, {
+			method: 'POST',
+			headers: { ...headers, cookie, origin: 'https://untrusted.example' },
+		});
+		expect(forbidden.status).toBe(403);
+		expect(calls).toBe(0);
+		const authorized = await app.request(`${origin}${path}`, {
+			method: 'POST',
+			headers: { ...headers, cookie },
+		});
+		expect(authorized.status).toBe(204);
+		expect(calls).toBe(1);
+	});
+
 	test('serves Home and every compiled application plus honest placeholders', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),

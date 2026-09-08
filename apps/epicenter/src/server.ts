@@ -380,6 +380,11 @@ export function createHomeServer({
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
 	app.use(APPLICATIONS_ROUTE.pattern, requireBrowserSession);
+	// Application-scoped blob routes are host APIs over private local files. The
+	// generic application listing is already guarded above; this wildcard keeps
+	// newly added app routes behind the same browser session by default.
+	app.use('/api/apps/*', requireBrowserSession);
+
 	app.use('/api/mail/*', requireBrowserSession);
 	// Taking is destructive, because one authorization is redeemable once and a
 	// second reader would be redeeming a code Google has already spent.
