@@ -13,7 +13,7 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 
 import { openSyncAuthority } from './authority.js';
 
@@ -78,12 +78,12 @@ describe('a generation is seeded once, from one whole state (ADR-0293)', () => {
 
 		const position = expectOk(authority.seed(state));
 		// Position 1, not 0: zero already means "no snapshot", so the state is
-		// appended as entry 1 and snapshotted there in one step.
+		// stored directly as the snapshot at position 1.
 		expect(position).toBe(1);
 		expect(expectOk(authority.snapshotPosition())).toBe(1);
 		expect(expectOk(authority.snapshot())?.bytes).toEqual(state);
-		// The entry it was appended as is gone, replaced by the snapshot that
-		// covers it, so a bootstrapping device is sent the state exactly once.
+		// No transient log entry is needed, so a bootstrapping device receives
+		// the state exactly once.
 		expect(expectOk(authority.since(0))).toEqual([]);
 	});
 
@@ -110,4 +110,41 @@ describe('a generation is seeded once, from one whole state (ADR-0293)', () => {
 			'SnapshotRefused',
 		);
 	});
+});
+
+test('a failed seed rolls back all chunks and can be retried without nested transactions', () => {
+	const sqlite = createBunSqliteAdapter(new Database(':memory:'));
+	let fail = true;
+	let inTransaction = false;
+	let inserts = 0;
+	const authority = openSyncAuthority({
+		sqlite: {
+			...sqlite,
+			run(sql, bindings) {
+				if (sql.includes('INSERT') && sql.includes('_snapshot')) {
+					inserts += 1;
+					if (fail && inserts === 2) throw new Error('snapshot insert failed');
+				}
+				return sqlite.run(sql, bindings);
+			},
+			transaction(run) {
+				if (inTransaction) throw new Error('nested transaction');
+				inTransaction = true;
+				try {
+					return sqlite.transaction(run);
+				} finally {
+					inTransaction = false;
+				}
+			},
+		},
+	});
+	const bytes = opaque(4, 2_097_153);
+	expectErr(authority.seed(bytes));
+	expect(expectOk(authority.head())).toBe(0);
+	expect(expectOk(authority.snapshot())).toBeUndefined();
+	expect(expectOk(authority.since(0))).toEqual([]);
+	fail = false;
+	expect(expectOk(authority.seed(bytes))).toBe(1);
+	expect(expectOk(authority.snapshot())?.bytes).toEqual(bytes);
+	expect(expectOk(authority.since(0))).toEqual([]);
 });

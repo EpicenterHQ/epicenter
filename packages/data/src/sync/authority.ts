@@ -69,7 +69,7 @@
  */
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
+import { Err, type Result, trySync } from 'wellcrafted/result';
 
 import { copyBytes } from '../store/log.js';
 import { CHUNK_BYTES, intoChunks } from './frames.js';
@@ -177,9 +177,8 @@ export type SyncAuthority = {
 	 * current through, and the socket carries only what happened afterwards.
 	 *
 	 * Position 1 rather than 0, and the reason is that 0 already means "no
-	 * snapshot": the state is appended as entry 1 and immediately snapshotted
-	 * there, in one transaction, which composes the two existing verbs instead
-	 * of teaching the position space a second meaning.
+	 * snapshot": one transaction stores every chunk directly at position 1.
+	 * The next append follows it at position 2.
 	 *
 	 * **Once, on an empty log.** A generation is created once and never mutated
 	 * in place, so a second seed is a caller confusing import with sync and is
@@ -367,11 +366,23 @@ export function openSyncAuthority({
 					current: head,
 				});
 			}
-			const appended = this.append(bytes);
-			if (appended.error !== null) return appended;
-			const replaced = this.replaceSnapshot(appended.data, bytes);
-			if (replaced.error !== null) return Err(replaced.error);
-			return Ok(appended.data);
+			// Birth needs only the snapshot. Writing a temporary log entry first
+			// split one durable fact across two commits and made a failed seed
+			// impossible to retry. Every chunk commits in this one transaction.
+			return read(() =>
+				sqlite.transaction(() => {
+					for (const [index, chunk] of intoChunks(
+						bytes,
+						CHUNK_BYTES,
+					).entries()) {
+						sqlite.run(
+							'INSERT INTO _snapshot (position, chunk, bytes) VALUES (?, ?, ?)',
+							[1, index, new Uint8Array(chunk)],
+						);
+					}
+					return 1;
+				}),
+			);
 		},
 
 		replaceSnapshot(position, bytes): Result<void, AuthorityError> {

@@ -1693,8 +1693,7 @@ describe('who may replace the snapshot', () => {
 			}),
 		);
 
-		const refusal = answers.map((bytes) => expectOk(decodeFrame(bytes))).at(-1);
-		expect(refusal?.kind).toBe('refuse');
+		expect(answers).toEqual([]);
 		// And nothing was destroyed: the work is still there.
 		expect(phone.titles()).toEqual(['real work']);
 	});
@@ -2253,7 +2252,7 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		const { authority } = openAuthority();
 		const broken: SyncAuthority = {
 			...authority,
-			head: () => AuthorityError.StorageFailed({ cause: new Error('io') }),
+			snapshot: () => AuthorityError.StorageFailed({ cause: new Error('io') }),
 		};
 		const hub = createSyncHub({ authority: broken });
 		const sent: Uint8Array[] = [];

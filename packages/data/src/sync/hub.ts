@@ -22,7 +22,9 @@
  * round-trip, and the retirement arm all went with the question.
  */
 
-import type { SyncAuthority } from './authority.js';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+
+import type { AuthorityError, SyncAuthority } from './authority.js';
 import {
 	CHUNK_BYTES,
 	type ChunkCollector,
@@ -66,10 +68,9 @@ export type SyncHub = {
 	/**
 	 * A replica attached at its cursor: the one door.
 	 *
-	 * Catch-up runs before the connection is registered, so a replica is never
-	 * relayed an update it has no baseline for, and membership is what makes
-	 * the reverse impossible too: an unregistered connection's pushes land
-	 * nowhere.
+	 * Catch-up must succeed for membership to survive. Synchronous answers wait
+	 * until catch-up finishes; failed admission removes membership before those
+	 * answers run. An unregistered connection's pushes land nowhere.
 	 */
 	join(connection: HubConnection): Admission;
 	/** Bytes arrived from a replica. */
@@ -100,6 +101,26 @@ export function createSyncHub({
 	batch?: number;
 }): SyncHub {
 	const connections = new Map<HubConnection, ChunkCollector>();
+	// A synchronous peer may answer inside send(). Finish the current delivery
+	// before processing its answer, including every chunk and the cursor write.
+	const pending: { connection: HubConnection; message: Uint8Array }[] = [];
+	let dispatchDepth = 0;
+
+	function drain(): void {
+		if (dispatchDepth !== 0) return;
+		dispatchDepth += 1;
+		try {
+			for (
+				let next = pending.shift();
+				next !== undefined;
+				next = pending.shift()
+			) {
+				process(next.connection, next.message);
+			}
+		} finally {
+			dispatchDepth -= 1;
+		}
+	}
 
 	/**
 	 * Bring a connection up to the snapshot if it is behind one.
@@ -112,10 +133,13 @@ export function createSyncHub({
 	 * identities, so a replica arriving with unsent offline work keeps it and
 	 * pushes it afterwards like any other local write.
 	 */
-	function catchUpToSnapshot(connection: HubConnection): void {
+	function catchUpToSnapshot(
+		connection: HubConnection,
+	): Result<void, AuthorityError> {
 		const { data: snapshot, error } = authority.snapshot();
-		if (error !== null || snapshot === undefined) return;
-		if (connection.cursor >= snapshot.position) return;
+		if (error !== null) return Err(error);
+		if (snapshot === undefined || connection.cursor >= snapshot.position)
+			return Ok(undefined);
 		const chunks = intoChunks(snapshot.bytes, CHUNK_BYTES);
 		for (const [index, chunk] of chunks.entries()) {
 			connection.send(
@@ -129,20 +153,25 @@ export function createSyncHub({
 			);
 		}
 		connection.cursor = snapshot.position;
+		return Ok(undefined);
 	}
 
 	/** Send everything after this connection's cursor, up to `ceiling`. */
-	function deliver(connection: HubConnection, ceiling?: number): void {
-		catchUpToSnapshot(connection);
+	function deliver(
+		connection: HubConnection,
+		ceiling?: number,
+	): Result<void, AuthorityError> {
+		const caughtUp = catchUpToSnapshot(connection);
+		if (caughtUp.error !== null) return caughtUp;
 		for (;;) {
 			const { data: entries, error } = authority.since(
 				connection.cursor,
 				batch,
 			);
-			if (error !== null) return;
-			if (entries.length === 0) return;
+			if (error !== null) return Err(error);
+			if (entries.length === 0) return Ok(undefined);
 			for (const entry of entries) {
-				if (ceiling !== undefined && entry.seq > ceiling) return;
+				if (ceiling !== undefined && entry.seq > ceiling) return Ok(undefined);
 				const chunks = intoChunks(entry.bytes, CHUNK_BYTES);
 				for (const [index, chunk] of chunks.entries()) {
 					connection.send(
@@ -157,21 +186,27 @@ export function createSyncHub({
 				}
 				connection.cursor = entry.seq;
 			}
-			if (entries.length < batch) return;
+			if (entries.length < batch) return Ok(undefined);
 		}
 	}
 
 	return Object.freeze({
 		join(connection): Admission {
-			// Read before anything is sent, so an unreadable log answers with
-			// silence rather than seating a connection it cannot catch up.
-			if (authority.head().error !== null) return 'unavailable';
-			connections.set(
-				connection,
-				createChunkCollector({ limitBytes: BUFFER_CEILING_BYTES }),
-			);
-			deliver(connection);
-			return 'admitted';
+			dispatchDepth += 1;
+			try {
+				connections.set(
+					connection,
+					createChunkCollector({ limitBytes: BUFFER_CEILING_BYTES }),
+				);
+				if (deliver(connection).error !== null) {
+					connections.delete(connection);
+					return 'unavailable';
+				}
+				return 'admitted';
+			} finally {
+				dispatchDepth -= 1;
+				drain();
+			}
 		},
 
 		leave(connection) {
@@ -181,67 +216,83 @@ export function createSyncHub({
 		attached: () => connections.size,
 
 		receive(connection, message) {
-			const collector = connections.get(connection);
-			if (collector === undefined) return;
-
-			const { data: frame, error } = decodeFrame(message);
-			if (error !== null) return;
-			if (frame.kind === 'offer')
-				return takeOffer(connection, collector, frame);
-			if (frame.kind !== 'push') return;
-
-			// The only refusal about CONTENT that survives, and it is about framing
-			// rather than about meaning: a submission that changes its chunk count
-			// mid-flight, or one that would push the buffered partials past the
-			// limit. The authority itself never reads the bytes, so "these are not a
-			// valid update" is not a thing anything here can say.
-			const { data: whole, error: chunkError } = collector.accept(frame);
-			if (chunkError !== null) {
-				connection.send(
-					encodeFrame({
-						kind: 'refuse',
-						submission: frame.submission,
-						reason: chunkError.reason,
-					}),
-				);
-				return;
-			}
-			if (whole === undefined) return;
-
-			const { data: seq, error: appendError } = authority.append(whole);
-			if (appendError !== null) {
-				// Storage failed, and it is said out loud on the socket naming the
-				// submission. A throw here would be swallowed by `workerd` without
-				// closing the socket, and the client would hold the work forever
-				// believing it was in transit. That is the entire reason a refusal is
-				// a frame, and it stays true for a failure the server did not choose.
-				connection.send(
-					encodeFrame({
-						kind: 'refuse',
-						submission: frame.submission,
-						reason: appendError.message,
-					}),
-				);
-				return;
-			}
-
-			// Anything this connection has not been sent yet goes out BEFORE its
-			// ack, so an ack is always exactly one past what the replica holds. The
-			// replica checks that, and a check that can be met by construction is
-			// worth arranging rather than asserting and hoping.
-			deliver(connection, seq - 1);
-			connection.cursor = seq;
-			connection.send(
-				encodeFrame({ kind: 'ack', submission: frame.submission, seq }),
-			);
-
-			for (const other of connections.keys()) {
-				if (other !== connection) deliver(other);
-			}
-			askForSnapshot(connection);
-			return;
+			pending.push({ connection, message: new Uint8Array(message) });
+			drain();
 		},
 	});
+
+	function process(connection: HubConnection, message: Uint8Array): void {
+		const collector = connections.get(connection);
+		if (collector === undefined) return;
+
+		const { data: frame, error } = decodeFrame(message);
+		if (error !== null) return;
+		if (frame.kind === 'offer') return takeOffer(connection, collector, frame);
+		if (frame.kind !== 'push') return;
+
+		// The only refusal about CONTENT that survives, and it is about framing
+		// rather than about meaning: a submission that changes its chunk count
+		// mid-flight, or one that would push the buffered partials past the
+		// limit. The authority itself never reads the bytes, so "these are not a
+		// valid update" is not a thing anything here can say.
+		const { data: whole, error: chunkError } = collector.accept(frame);
+		if (chunkError !== null) {
+			connection.send(
+				encodeFrame({
+					kind: 'refuse',
+					submission: frame.submission,
+					reason: chunkError.reason,
+				}),
+			);
+			return;
+		}
+		if (whole === undefined) return;
+
+		const { data: seq, error: appendError } = authority.append(whole);
+		if (appendError !== null) {
+			// Storage failed, and it is said out loud on the socket naming the
+			// submission. A throw here would be swallowed by `workerd` without
+			// closing the socket, and the client would hold the work forever
+			// believing it was in transit. That is the entire reason a refusal is
+			// a frame, and it stays true for a failure the server did not choose.
+			connection.send(
+				encodeFrame({
+					kind: 'refuse',
+					submission: frame.submission,
+					reason: appendError.message,
+				}),
+			);
+			return;
+		}
+
+		// Anything this connection has not been sent yet goes out BEFORE its
+		// ack, so an ack is always exactly one past what the replica holds. The
+		// replica checks that, and a check that can be met by construction is
+		// worth arranging rather than asserting and hoping.
+		const { error: deliveryError } = deliver(connection, seq - 1);
+		if (deliveryError !== null) {
+			// The append is durable, but eliding its bytes would certify a gap.
+			// Keep the submission owed; a retry may safely append it again.
+			connection.send(
+				encodeFrame({
+					kind: 'refuse',
+					submission: frame.submission,
+					reason: deliveryError.message,
+				}),
+			);
+			return;
+		}
+		connection.cursor = seq;
+		connection.send(
+			encodeFrame({ kind: 'ack', submission: frame.submission, seq }),
+		);
+
+		for (const other of connections.keys()) {
+			if (other !== connection) deliver(other);
+		}
+		askForSnapshot(connection);
+		return;
+	}
 
 	/**
 	 * Ask a connection for a snapshot, when it is the one that can give one.
@@ -278,31 +329,11 @@ export function createSyncHub({
 		// lands, and its snapshot still accounts for everything through 815,
 		// which is all it is used for. Requiring equality refused good snapshots
 		// under ordinary traffic.
-		if (connection.cursor < frame.position) {
-			connection.send(
-				encodeFrame({
-					kind: 'refuse',
-					submission: frame.position,
-					reason: `a snapshot at ${frame.position} came from a connection sent only through ${connection.cursor}`,
-				}),
-			);
-			return;
-		}
+		if (connection.cursor < frame.position) return;
 
-		// And the half the authority checks: that this is also the head.
-		const { error: snapshotError } = authority.replaceSnapshot(
-			frame.position,
-			whole,
-		);
-		if (snapshotError !== null) {
-			connection.send(
-				encodeFrame({
-					kind: 'refuse',
-					submission: frame.position,
-					reason: snapshotError.message,
-				}),
-			);
-		}
-		return;
+		// Snapshot maintenance is best effort. A position is not a submission ID,
+		// so a rejected offer must never emit a push refusal. The hub asks again
+		// while the tail remains large enough to replace.
+		authority.replaceSnapshot(frame.position, whole);
 	}
 }
