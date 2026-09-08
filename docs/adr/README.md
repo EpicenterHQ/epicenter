@@ -607,5 +607,6 @@ Two habits make the link hard to forget:
 | [0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) | Local data removal is an explicit sign-out choice | Accepted at its decision, amended at its mechanism: no intent record, no boot gate, no recovery screen, no exclusion boundary; ordering carries it |
 | [0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) | An account's data and a device's files are two packages, because only one of them is removed | Accepted (amends 0339 at its mechanism: the binding, the factory, and the `Epicenter<never>` overload are withdrawn) |
 | [0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) | A data session keeps one account for its entire lifetime | Proposed (amends 0230, 0339, and 0350 at account transport, selection, and session identity) |
+| [0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md) | Hosted applications authenticate with Better Auth session bearers | Proposed |
 
 When you add an ADR, add its row here.
