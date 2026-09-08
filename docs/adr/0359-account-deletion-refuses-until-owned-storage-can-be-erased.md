@@ -32,6 +32,14 @@ authentication; storage and billing keep their own mechanics. The lifecycle
 owner must register allocation before storage is addressed, prevent late writes
 at their commit boundaries, and retry after the user's credentials are gone.
 
+Keep hosted account lifecycle in `apps/api/worker/account`. Self-host entry points
+do not mount it, receive its bindings, or supply a no-op implementation. Shared
+storage code owns resource retirement and erasure only where a real consumer
+needs those operations. It carries no hosted-mode or deletion-enabled flag.
+The single `instance` principal is shared data, so its bearer grants no account
+deletion or whole-instance reset surface. Operator erasure is a separate concern
+and is not a feature being implemented by this decision.
+
 Hosted erasure excludes client-device copies. A future completion response must
 name any retained tombstone and external-provider retention instead of claiming
 deletion everywhere.

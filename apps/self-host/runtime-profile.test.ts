@@ -105,6 +105,14 @@ const PROFILE: Surface[] = [
 		why: 'Billing is hosted-only and lives in `apps/api/worker/billing/` (ADR-0075). An instance must never grow it.',
 	},
 	{
+		surface: 'hosted account deletion',
+		method: 'DELETE',
+		url: `${ORIGIN}/api/account`,
+		worker: 'absent',
+		bun: 'absent',
+		why: 'The shared instance has no individual accounts. Its bearer does not grant an instance-wide reset operation.',
+	},
+	{
 		surface: 'dashboard SPA',
 		method: 'GET',
 		url: `${ORIGIN}/dashboard`,

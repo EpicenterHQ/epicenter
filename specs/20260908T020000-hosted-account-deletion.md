@@ -24,6 +24,39 @@ this scope.
 Do not deploy or reset storage as part of implementing this plan. No conditional
 flag may silently relabel an incomplete inventory as complete.
 
+## Composition boundary
+
+Hosted account deletion belongs to `apps/api/worker/account`. Self-hosting
+composes the capabilities it uses; it does not run the hosted account lifecycle
+with features disabled. Both self-host entry points keep account deletion absent.
+The shared `instance` bearer must not gain an instance-wide reset operation.
+
+Keep the job, inventory owner, alarms, receipts, account gate, and coordination of
+auth/Postgres/billing deletion in the hosted deployment. Add no `isHosted`,
+`enableDeletion`, optional account-lifecycle dependency, or no-op instance
+lifecycle to shared routes, bindings, or bootstrap code. Do not build a generic
+workflow framework for a second deletion product that nobody requested.
+
+Shared storage code may own real resource behavior, such as permanently retiring
+an authority and erasing its bytes. It must not learn about accounts, billing,
+deletion jobs, or receipt status. A boundary earns its place through an actual
+consumer and an invariant, not possible future self-host reuse. If an adapter
+only exists to connect storage to hosted account lifecycle, keep it hosted.
+
+The upload commit design needs particular scrutiny: the current shared blob
+surface issues direct PUT URLs. Hosted middleware cannot retract an issued URL.
+A stronger upload protocol must either earn its place as common storage behavior
+or be composed as a hosted surface with the existing instance behavior intact.
+Do not implement an optional deletion check that is always absent on self-host.
+
+Verify two distinct properties: runtime-profile tests keep account deletion
+unmounted on both instance runtimes; an import/bundle review checks that the new
+hosted lifecycle is not reachable from their entry points. Route absence alone
+does not prove dependency absence. The server barrels already re-export some
+cloud-only modules; do not describe them as a clean dependency split without
+checking the actual build. Do not widen this task into moving all existing auth
+code merely to make that claim.
+
 ## Smallest candidate
 
 Use one hosted Durable Object per principal to own an append-before-allocation
