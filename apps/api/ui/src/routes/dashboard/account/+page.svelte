@@ -26,7 +26,7 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { accountKeys } from '$lib/account/queries';
 	import {
 		type AuthError,
@@ -44,6 +44,14 @@
 	import { auth } from '$lib/platform/auth';
 	import { getDashboard } from '$lib/dashboard/context';
 	const { account, accountQueries, management: authClient, queryClient, signal } = getDashboard();
+	// Leaving account settings does not retire the shared dashboard Account.
+	let pageDisposed = false;
+	let ownedDialog: typeof confirmationDialog.options = null;
+	onDestroy(() => {
+		pageDisposed = true;
+		if (ownedDialog && confirmationDialog.options === ownedDialog)
+			confirmationDialog.close();
+	});
 
 	const sessionQuery = createQuery(() => accountQueries.session.options);
 	const linkedQuery = createQuery(() => accountQueries.linked.options);
@@ -111,7 +119,7 @@
 			action: {
 				label: 'Sign in',
 				onClick: async () => {
-					if (signal.aborted) return;
+					if (pageDisposed || signal.aborted) return;
 					await auth.startSignIn({ reauthenticate: true });
 				},
 			},
@@ -141,7 +149,7 @@
 			description: `You're signed in as ${email}. Connect a ${label} account as another way to sign in? If its email differs from ${email}, it is still linked to this account.`,
 			confirm: { text: 'Connect' },
 			onConfirm: async () => {
-				if (signal.aborted) return;
+				if (pageDisposed || signal.aborted) return;
 				const { data, error } = await authClient.linkSocial({
 					provider,
 					callbackURL: window.location.href,
@@ -151,7 +159,7 @@
 					// `?error`/`?error_description` it appends into a toast.
 					errorCallbackURL: window.location.href,
 				});
-				if (signal.aborted) return;
+				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					reportError(error, `Could not connect ${label}.`);
 					return;
@@ -160,6 +168,7 @@
 				if (data?.url) window.location.href = data.url;
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 
 	function disconnect(linkedAccount: LinkedAccount) {
@@ -170,11 +179,12 @@
 			description: `Remove ${label} as a way to sign in to ${email}? You can reconnect it anytime.`,
 			confirm: { text: 'Disconnect', variant: 'destructive' },
 			onConfirm: async () => {
+				if (pageDisposed || signal.aborted) return;
 				const { error } = await authClient.unlinkAccount({
 					providerId: linkedAccount.providerId,
 					accountId: linkedAccount.accountId,
 				});
-				if (signal.aborted) return;
+				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					if (reportError(error, `Could not disconnect ${label}.`).terminal) {
 						return;
@@ -185,11 +195,13 @@
 				invalidate(accountKeys.linked);
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 
 	async function addPasskey() {
+		if (pageDisposed || signal.aborted) return;
 		const { error } = await authClient.passkey.addPasskey();
-		if (signal.aborted) return;
+		if (pageDisposed || signal.aborted) return;
 		if (error) {
 			if (isPasskeyCancellation(error)) return;
 			if (requiresReauth(error)) {
@@ -214,6 +226,7 @@
 	}
 
 	async function saveRename(passkey: Passkey) {
+		if (pageDisposed || signal.aborted) return;
 		const name = editingName.trim();
 		if (!name || name === passkey.name) {
 			cancelRename();
@@ -224,8 +237,8 @@
 			id: passkey.id,
 			name,
 		});
+		if (pageDisposed || signal.aborted) return;
 		renaming = false;
-		if (signal.aborted) return;
 		if (error) {
 			reportError(error, 'Could not rename this passkey.');
 			return;
@@ -247,12 +260,13 @@
 			description: `Permanently delete ${email} everywhere: synced workspaces, documents, uploaded files, billing, and every way to sign in. This cannot be undone. Data stored on your devices stays on your devices.`,
 			confirm: { text: 'Delete forever', variant: 'destructive' },
 			onConfirm: async () => {
+				if (pageDisposed || signal.aborted) return;
 				const response = await account.fetch('/api/account', {
 					method: 'DELETE',
 					credentials: 'omit',
 					headers: { 'x-epicenter-principal': account.principalId },
 				});
-				if (signal.aborted) return;
+				if (pageDisposed || signal.aborted) return;
 				if (!response.ok) {
 					if (response.status === 401 || response.status === 403) {
 						// The route requires a fresh session; the remedy is the same
@@ -273,9 +287,11 @@
 				} catch {
 					// The session was already destroyed with the account.
 				}
+				if (pageDisposed || signal.aborted) return;
 				window.location.href = '/';
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 
 	function deletePasskey(passkey: Passkey) {
@@ -285,10 +301,11 @@
 			description: `Remove ${label}? You won't be able to sign in with it anymore.`,
 			confirm: { text: 'Remove', variant: 'destructive' },
 			onConfirm: async () => {
+				if (pageDisposed || signal.aborted) return;
 				const { error } = await authClient.passkey.deletePasskey({
 					id: passkey.id,
 				});
-				if (signal.aborted) return;
+				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					if (reportError(error, 'Could not remove this passkey.').terminal) {
 						return;
@@ -299,6 +316,7 @@
 				invalidate(accountKeys.passkeys);
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 </script>
 

@@ -5,6 +5,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Tabs from '@epicenter/ui/tabs';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { billingKeys } from '$lib/billing/queries';
@@ -16,6 +17,11 @@
 	import UsageChart from '$lib/components/UsageChart.svelte';
 	import { getDashboard } from '$lib/dashboard/context';
 	const { billing, billingApi, queryClient, signal } = getDashboard();
+	// Sibling dashboard routes share the Account, but not this page's redirects.
+	let pageDisposed = false;
+	onDestroy(() => {
+		pageDisposed = true;
+	});
 
 	const overview = createQuery(() => billing.overview.options);
 	const plans = createQuery(() => billing.plans.options);
@@ -29,7 +35,7 @@
 
 	async function openBillingPortal() {
 		const { data, error } = await billingApi.portal();
-		if (signal.aborted) return;
+		if (pageDisposed || signal.aborted) return;
 		if (error) return toastOnError(error, 'Could not open billing portal');
 		if (data.portalUrl) window.location.href = data.portalUrl;
 	}

@@ -194,6 +194,159 @@ try {
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await page.getByText('Chromium proof', { exact: true }).waitFor();
 
+	// A client-side route change disposes the page, not the captured Account.
+	// An injected ordinary link exercises SvelteKit's real navigation handler.
+	async function navigateWithinDashboard(path) {
+		await page.waitForLoadState('load');
+		await page
+			.getByRole('button', {
+				name:
+					new URL(page.url()).pathname === '/dashboard'
+						? 'Manage billing'
+						: 'Add a passkey',
+				exact: true,
+			})
+			.waitFor();
+		const marker = await page.evaluate((path) => {
+			window.dashboardSmokeDocument ??= crypto.randomUUID();
+			const link = document.createElement('a');
+			link.href = path;
+			document.body.append(link);
+			link.click();
+			link.remove();
+			return window.dashboardSmokeDocument;
+		}, path);
+		await page.waitForURL(`${origin}${path}`);
+		await page
+			.getByRole('button', {
+				name: path === '/dashboard' ? 'Manage billing' : 'Add a passkey',
+				exact: true,
+			})
+			.waitFor();
+		assert.equal(
+			await page.evaluate(() => window.dashboardSmokeDocument),
+			marker,
+			`Expected SPA navigation to ${path}`,
+		);
+	}
+
+	for (const ceremony of ['portal', 'provider']) {
+		const source = ceremony === 'portal' ? '/dashboard' : '/dashboard/account';
+		const other = ceremony === 'portal' ? '/dashboard/account' : '/dashboard';
+		const endpoint =
+			ceremony === 'portal' ? '/api/billing/portal' : '/auth/link-social';
+		await navigateWithinDashboard(source);
+		for (const leavePage of [true, false]) {
+			const entered = page.waitForRequest(`${origin}${endpoint}`);
+			const release = Promise.withResolvers();
+			const destination = `${origin}/dashboard?smoke=${ceremony}`;
+			const handler = async (route) => {
+				await release.promise;
+				await route.fulfill({
+					json:
+						ceremony === 'portal'
+							? { portalUrl: destination }
+							: { url: destination },
+				});
+			};
+			await page.route(`${origin}${endpoint}`, handler);
+			const response = page.waitForResponse(`${origin}${endpoint}`);
+			try {
+				if (ceremony === 'portal') {
+					await page
+						.getByRole('button', { name: 'Manage billing', exact: true })
+						.click();
+				} else {
+					await page
+						.getByRole('button', { name: 'Connect Google', exact: true })
+						.click();
+					await page
+						.getByRole('button', { name: 'Connect', exact: true })
+						.click();
+				}
+				const request = await entered;
+				assert.equal(
+					request.headers().authorization,
+					`Bearer ${persisted.token}`,
+				);
+				if (ceremony === 'provider')
+					assert.equal(request.headers()['x-epicenter-principal'], alice.id);
+				if (leavePage) await navigateWithinDashboard(other);
+				release.resolve();
+				await (await response).finished();
+				if (leavePage) {
+					// Allow the response continuation and navigation task to run.
+					await page.waitForTimeout(200);
+					assert.equal(
+						page.url(),
+						`${origin}${other}`,
+						`${ceremony} redirected after page disposal`,
+					);
+					await navigateWithinDashboard(source);
+				} else {
+					await page.waitForURL(destination);
+					await page
+						.getByRole('button', { name: 'Manage billing', exact: true })
+						.waitFor();
+				}
+			} finally {
+				release.resolve();
+				await page.unroute(`${origin}${endpoint}`, handler);
+			}
+		}
+	}
+
+	await navigateWithinDashboard('/dashboard/account');
+	// A confirmation belongs to the page that opened it, not a later remount.
+	await page.getByTitle('Remove passkey').click();
+	await navigateWithinDashboard('/dashboard');
+	await navigateWithinDashboard('/dashboard/account');
+	assert.equal(await page.getByRole('alertdialog').count(), 0);
+
+	for (const status of [200, 403]) {
+		const endpoint = `${origin}/auth/passkey/delete-passkey`;
+		const release = Promise.withResolvers();
+		const handler = async (route) => {
+			await release.promise;
+			await route.fulfill({
+				status,
+				json:
+					status === 200
+						? { status: true }
+						: { message: 'Late passkey refusal' },
+			});
+		};
+		await page.route(endpoint, handler);
+		const entered = page.waitForRequest(endpoint);
+		const response = page.waitForResponse(endpoint);
+		try {
+			await page.getByTitle('Remove passkey').click();
+			await page.getByRole('button', { name: 'Remove', exact: true }).click();
+			await entered;
+			await navigateWithinDashboard('/dashboard');
+			release.resolve();
+			await (await response).finished();
+			await page.waitForTimeout(200);
+			assert.equal(
+				await page.getByText('Passkey removed', { exact: true }).count(),
+				0,
+			);
+			assert.equal(
+				await page
+					.getByText('Sign in again to change your sign-in methods.', {
+						exact: true,
+					})
+					.count(),
+				0,
+			);
+			await navigateWithinDashboard('/dashboard/account');
+			assert.equal(await page.getByRole('alertdialog').count(), 0);
+		} finally {
+			release.resolve();
+			await page.unroute(endpoint, handler);
+		}
+	}
+
 	for (const request of requests.filter((request) =>
 		request.path.startsWith('/api/'),
 	)) {
@@ -233,9 +386,58 @@ try {
 		'Bob cookie must not rescue malformed explicit bearer',
 	);
 	assert.equal(db.passkey.length, 1);
+
+	// Deletion retires the page during sign-out. Its late completion must not
+	// replace a route chosen while the bounded revocation attempt is pending.
+	const signOutEndpoint = `${origin}/auth/sign-out`;
+	const releaseSignOut = Promise.withResolvers();
+	const signOutHandler = async (route) => {
+		await releaseSignOut.promise;
+		await route.fulfill({ json: { success: true } });
+	};
+	await page.route(`${origin}/api/account`, (route) =>
+		route.fulfill({ status: 204 }),
+	);
+	await page.route(signOutEndpoint, signOutHandler);
+	const signingOut = page.waitForRequest(signOutEndpoint);
+	const signedOut = page.waitForResponse(signOutEndpoint);
+	try {
+		await page
+			.getByRole('button', { name: 'Delete account', exact: true })
+			.click();
+		await page
+			.getByRole('button', { name: 'Delete forever', exact: true })
+			.click();
+		await signingOut;
+		await page
+			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
+			.waitFor();
+		await page.evaluate(() => {
+			const link = document.createElement('a');
+			link.href = '/sign-in';
+			document.body.append(link);
+			link.click();
+			link.remove();
+		});
+		await page.waitForURL(`${origin}/sign-in`);
+		releaseSignOut.resolve();
+		await signedOut;
+		// The auth runtime cancels the response body, so response.finished() is
+		// not a completion signal here. Cover its entire five-second deadline.
+		await page.waitForTimeout(5_200);
+		assert.equal(
+			page.url(),
+			`${origin}/sign-in`,
+			'Disposed deletion callback redirected after sign-out',
+		);
+	} finally {
+		releaseSignOut.resolve();
+		await page.unroute(signOutEndpoint, signOutHandler);
+		await page.unroute(`${origin}/api/account`);
+	}
 	assert.deepEqual(pageErrors, []);
 	console.log(
-		`PASS Chromium ${browser.version()}: built hosted sign-in, independent dashboard session, callback routing, cookie-independent profile/resources, virtual passkey registration and rename bound to Alice despite Bob's cookie.`,
+		`PASS Chromium ${browser.version()}: built hosted sign-in, independent dashboard session, callback routing, cookie-independent profile/resources, virtual passkey registration and rename bound to Alice despite Bob's cookie; disposed pages suppress portal/provider redirects, passkey feedback, stale dialogs, and post-sign-out navigation; live pages retain redirects.`,
 	);
 } finally {
 	await browser?.close();
