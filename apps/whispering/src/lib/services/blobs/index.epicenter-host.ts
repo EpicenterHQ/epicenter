@@ -17,9 +17,10 @@ import type { WhisperingBlobs } from '$lib/whispering/app';
  *
  * The scope is accepted and, today, unused. The host still keeps one flat
  * `<root>/blobs` for every account (ADR-0349 names the target,
- * `<root>/apps/<app-id>/blobs/<principal-id>/`, as unbuilt), and it resolves
- * the caller's app and principal from the signed-in session rather than from
- * a request parameter. The signature is the browser leaf's so the shell has
+ * `<root>/apps/<app-id>/<principal-id>/blobs/`, as unbuilt). Its routes check
+ * a browser session cookie but do not resolve an app or principal. The host
+ * must enforce that scope before it can isolate accounts. The signature is
+ * the browser leaf's so the shell has
  * one call to make; when the host partitions, this leaf changes and the shell
  * does not. There is no unscoped store to claim from here: the flat directory
  * IS the store, and it was never anything else.

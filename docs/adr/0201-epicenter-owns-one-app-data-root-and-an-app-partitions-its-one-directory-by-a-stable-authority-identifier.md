@@ -16,9 +16,9 @@
   inter-app API.
 - **Amended by:** [ADR-0349](0349-blobs-are-a-namespace-on-the-handle-addressed-by-id-and-stored-under-the-replicas-principal.md) at the open question this record left, "a
   separate question about who tells the recorder where blobs live, and it is not
-  decided here": the recorder is handed `{ appId, principalId }` at start and
-  writes under `<root>/apps/<app-id>/blobs/<principal-id>/`, which is this
-  record's own `partitionDir` shape, kind first. The root question is not
+  decided here": the planned recorder handoff takes `{ appId, principalId }`
+  at start and targets `<root>/apps/<app-id>/<principal-id>/blobs/`. For blobs this
+  replaces the kind-first `partitionDir` spelling. The root question is not
   otherwise reopened.
 - **Amends:** [ADR-0062](0062-local-books-stores-oauth-tokens-in-a-single-0600-file.md) at one clause, the location of the token file, which is now the app directory's root and keeps its `0600` mode and its exclusion from any mirror directory; [ADR-0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md) at one clause, where a standalone CLI's data lives, leaving its standalone shape and deferred daemon untouched.
 - **Completed by:** [ADR-0202](0202-a-provider-account-belongs-to-the-app-whose-durable-state-it-names-and-epicenter-brokers-none.md), which answers the one question this record left open: who owns the provider grant that names a partition. It amends nothing here.
