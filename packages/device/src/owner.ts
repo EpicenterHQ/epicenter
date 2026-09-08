@@ -115,7 +115,7 @@ export type ScopedSqlite = {
 export function createScopedSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
-	getScope: () => StorageScope,
+	scope: StorageScope,
 	assertUsable: () => void = () => {},
 	trackOperation: <T>(operation: () => Promise<T>) => Promise<T> = (operation) =>
 		operation(),
@@ -127,7 +127,7 @@ export function createScopedSqlite(
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			try {
 				const database = await trackOperation(() =>
-					owner.open(appId, getScope(), name),
+					owner.open(appId, scope, name),
 				);
 				return Ok({
 					run: (...args) => {
@@ -152,7 +152,7 @@ export function createScopedSqlite(
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			try {
-				await trackOperation(() => owner.delete(appId, getScope(), name));
+				await trackOperation(() => owner.delete(appId, scope, name));
 				return Ok(undefined);
 			} catch (cause) {
 				return DeviceError.StorageFailed({ cause });

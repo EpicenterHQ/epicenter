@@ -97,7 +97,7 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 		const scopedSqlite = createScopedSqlite(
 			sqlite,
 			appId,
-			() => scope,
+			scope,
 			() => {
 				if (sqliteState.closed) throw new Error('The app is disposed.');
 				if (!sqliteState.ready) throw new Error('The app is not ready.');

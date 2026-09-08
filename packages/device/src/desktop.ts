@@ -83,7 +83,7 @@ export function createDesktopDevice({
 	const owner = createDesktopSqliteOwner(options);
 	return {
 		sqlite: Object.freeze(
-			createScopedSqlite(owner, appId, () => ({ kind: 'local' })),
+			createScopedSqlite(owner, appId, { kind: 'local' }),
 		),
 		secrets: Object.freeze(createKeychainSecrets(request, appId)),
 	};

@@ -56,7 +56,7 @@ export function createBrowserDevice({ appId }: { appId: string }): Device {
 	const owner = createBrowserSqliteOwner();
 	return {
 		sqlite: Object.freeze(
-			createScopedSqlite(owner, appId, () => ({ kind: 'local' })),
+			createScopedSqlite(owner, appId, { kind: 'local' }),
 		),
 		secrets: Object.freeze(createTabMemorySecrets()),
 	};
