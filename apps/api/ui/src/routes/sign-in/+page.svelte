@@ -6,8 +6,7 @@
  import { Spinner } from '@epicenter/ui/spinner';
  import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
  import { createMutation, createQuery, QueryClient } from '@tanstack/svelte-query';
- import AuthCard from '$lib/auth/AuthCard.svelte';
- import AuthHeader from '$lib/auth/AuthHeader.svelte';
+ import EpicenterMark from '$lib/auth/EpicenterMark.svelte';
  import ProviderButton from '$lib/auth/ProviderButton.svelte';
  import UserIdentity from '$lib/auth/UserIdentity.svelte';
  import { authClient, isPasskeyCancellation, supportsPasskeys } from '$lib/auth/client';
@@ -86,12 +85,19 @@
  <meta name="referrer" content="no-referrer" />
 </svelte:head>
 
-<AuthCard>
- <AuthHeader title={request?.reauthenticate ? 'Sign in again' : 'Sign in to Epicenter'}>
-  {#snippet description()}
+<div class="flex min-h-dvh items-center justify-center p-6">
+ <Card.Root class="w-full max-w-sm gap-5">
+  <div class="flex justify-center">
+   <EpicenterMark class="size-12 rounded-xl" />
+  </div>
+ <Card.Header class="justify-items-center text-center">
+  <Card.Title>
+   <h1 class="text-xl font-semibold tracking-tight">{request?.reauthenticate ? 'Sign in again' : 'Sign in to Epicenter'}</h1>
+  </Card.Title>
+  <Card.Description>
    {#if request}Continue to {new URL(request.callback).host}.{:else}Start sign-in from the app you want to use.{/if}
-  {/snippet}
- </AuthHeader>
+  </Card.Description>
+ </Card.Header>
  <Card.Content class="flex flex-col gap-3">
   {#if session.isPending}
    <Spinner class="mx-auto size-5" />
@@ -117,4 +123,5 @@
   {/if}
   {#if error}<Alert.Root variant="destructive"><Alert.Description>{error.message}</Alert.Description></Alert.Root>{/if}
  </Card.Content>
-</AuthCard>
+ </Card.Root>
+</div>
