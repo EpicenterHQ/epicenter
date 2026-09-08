@@ -32,10 +32,8 @@ import { createOwnedSqlite, createScopedSqlite, unwrap } from './owner.js';
  * one storage worker; the application scope is the name the worker files
  * under, exactly as it is for the Bun owner.
  *
- * `open` cannot fail here, which is the same thing the desktop leaf says: it
- * resolves a name to a handle rather than a connection, and whether the file
- * can be opened at all is answered by the first statement through it. Handing
- * back a `Result` anyway keeps one contract across runtimes.
+ * The scoped capability validates the name and returns owner failures as
+ * Results, so this leaf has the same contract as the desktop owner.
  */
 export function createBrowserDevice({ appId }: { appId: string }): Device {
 	const request = createBrowserSqliteTransport();

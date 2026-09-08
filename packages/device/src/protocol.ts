@@ -38,15 +38,9 @@ export const DEVICE_PATH = '/api/device';
 /**
  * One SQLite file name this platform admits, checked wherever one is minted.
  *
- * Branded, so the check happens once at the name rather than once per call.
- * `epicenter.sqlite.open` used to re-run it on every open and every delete,
- * and `secrets` on every put, get, and delete: six guards answering one
- * question about a string that, in every caller here, is either a constant in
- * the build or a value the application already had to validate to report
- * something useful about it. Local Mail's `mail-<sub>` is the whole population
- * of derived names, and `finishConnect` already refused a subject that could
- * not be one, because "we cannot file your mail under that" is a sentence only
- * the application can write.
+ * Branded for the wire and owner boundary. The application-facing scoped
+ * capability accepts plain strings and performs this check exactly when a
+ * database is opened or deleted; the brand stays internal to the protocol.
  *
  * The desktop owner still validates on arrival (`apps/epicenter/src/server.ts`),
  * which is where a check has to live anyway: a brand is a compile-time fact,

@@ -30,7 +30,7 @@ Object.assign(globalThis, {
 		parameters: unknown[] = [],
 	): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await storage.sqlite.open(name as never);
+	const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
 				return { ok: false, error: opened.error.message };
 			const result = await opened.data.run(sql, parameters as never);
@@ -45,7 +45,7 @@ Object.assign(globalThis, {
 		parameters: unknown[] = [],
 	): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await storage.sqlite.open(name as never);
+	const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
 				return { ok: false, error: opened.error.message };
 			const result = await opened.data.all(sql, parameters as never);
@@ -59,7 +59,7 @@ Object.assign(globalThis, {
 		statements: { sql: string; parameters?: unknown[] }[],
 	): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await storage.sqlite.open(name as never);
+	const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
 				return { ok: false, error: opened.error.message };
 			const result = await opened.data.batch(statements as never);
@@ -70,7 +70,7 @@ Object.assign(globalThis, {
 	},
 	async remove(name: string): Promise<Answer> {
 		return attempt(async () => {
-			const gone = await storage.sqlite.delete(name as never);
+	const gone = await storage.sqlite.delete(name);
 			return gone.error === null
 				? { ok: true }
 				: { ok: false, error: gone.error.message };
