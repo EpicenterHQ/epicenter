@@ -26,10 +26,7 @@ import { Database } from 'bun:sqlite';
 import { defineData, defineTable } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
-import {
-	createAccountStore,
-	type DataDocument,
-} from '../../src/store/store.js';
+import { type DataDocument, openAccountStore } from '../../src/store/store.js';
 import {
 	createSyncClient,
 	createSyncConnection,
@@ -78,8 +75,8 @@ async function stat(app: string = application): Promise<Stat> {
 	return (await response.json()) as Stat;
 }
 
-function openReplica() {
-	const db = createAccountStore({
+async function openReplica() {
+	const db = await openAccountStore({
 		definition: evidenceDatabase,
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 	});
@@ -181,8 +178,8 @@ console.log('1. where the value cap actually is, bisected to the byte');
 console.log('\n2. an update past the cap, through the real socket');
 {
 	await fetch(`${origin}/probe/reset?app=${application}`);
-	const author = openReplica();
-	const reader = openReplica();
+	const author = await openReplica();
+	const reader = await openReplica();
 	const authorClient = createSyncClient({ store: author.store, idleMs: 20 });
 	const readerClient = createSyncClient({ store: reader.store, idleMs: 20 });
 	const authorSocket = await connect(authorClient);
@@ -198,6 +195,7 @@ console.log('\n2. an update past the cap, through the real socket');
 	// One transaction, well past the cap. There is no seam here for a coalescing
 	// bound to cut at, which is why the fix has to be framing at storage.
 	text.applyDelta(text.change.insert('x'.repeat(5_000_000)) as never);
+	await author.store.persistence.flush();
 	authorClient.flush();
 
 	let arrived: { length: number } | undefined;
@@ -234,8 +232,8 @@ console.log('\n3. sustained traffic through ONE instance');
 {
 	await fetch(`${origin}/probe/reset?app=${application}`);
 	const messages = Number(process.env.PROBE_MESSAGES ?? '2000');
-	const author = openReplica();
-	const reader = openReplica();
+	const author = await openReplica();
+	const reader = await openReplica();
 	const authorClient = createSyncClient({ store: author.store, idleMs: 5 });
 	const readerClient = createSyncClient({ store: reader.store, idleMs: 5 });
 	const authorSocket = await connect(authorClient);
@@ -253,6 +251,7 @@ console.log('\n3. sustained traffic through ONE instance');
 		void written;
 		// One send per row, deliberately: this experiment is about the authority
 		// under load, so it is run with coalescing turned off in effect.
+		await author.store.persistence.flush();
 		authorClient.flush();
 		// The stall is RECORDED rather than thrown on. It is a known open finding
 		// and it reproduces; a probe that dies here measures nothing after it,
@@ -459,8 +458,8 @@ console.log('\n5. the same regime, driven, so the watchdog can be judged');
 	await fetch(`${origin}/probe/reset?app=${application}-driven`);
 	const messages = Number(process.env.PROBE_DRIVEN_MESSAGES ?? '1500');
 	const partition = `${application}-driven`;
-	const author = openReplica();
-	const reader = openReplica();
+	const author = await openReplica();
+	const reader = await openReplica();
 
 	/** How many sockets each side has opened, which is how a recovery is counted. */
 	const dials = { author: 0, reader: 0 };
@@ -522,6 +521,7 @@ console.log('\n5. the same regime, driven, so the watchdog can be judged');
 			at: new Date().toISOString(),
 		});
 		void written;
+		await author.store.persistence.flush();
 		authorConnection.flush();
 		// Patience well past one watchdog window plus its backoff, so a stall that
 		// the watchdog recovers reads as slow rather than as a failure, and one it

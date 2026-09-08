@@ -401,9 +401,10 @@ derived from the document (SQL, search, exports) is a follower composed
 outside the store.
 
 In the browser the durable facts live directly in IndexedDB, one object store
-(`updates`) written one atomic transaction per flush. Over a synchronous SQLite (a Durable Object's storage,
-or a memory record in a test) a flush is one transaction, so a successful
-write is durable when the verb returns.
+(`updates`) written one atomic transaction per flush. The SQLite replica port
+uses a native synchronous transaction, but its controller follows the same
+asynchronous completion path. Reads observe the live edit immediately; await
+`persistence.flush()` and check its status to observe the durable outcome.
 
 There is no worker and no OPFS. The reasoning is in the module comment titled
 "Why there is no worker" at the top of `packages/data/src/store/browser.ts`, and

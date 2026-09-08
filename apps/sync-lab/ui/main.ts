@@ -10,7 +10,7 @@ import { field, plainText } from '@epicenter/data/definition';
  */
 
 import { defineData, defineTable } from '@epicenter/data/definition';
-import { createAccountStore } from '@epicenter/data/direct';
+import { openAccountStore } from '@epicenter/data/direct';
 import { createSyncConnection } from '@epicenter/data/sync';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
@@ -38,7 +38,7 @@ const device =
 	})();
 
 const sqlite3 = await sqlite3InitModule();
-const db = createAccountStore({
+const db = await openAccountStore({
 	definition: labDatabase,
 	sqlite: createBrowserSqliteAdapter(new sqlite3.oo1.DB(':memory:')),
 });

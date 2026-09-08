@@ -4,67 +4,38 @@ Orientation, not a design record. The decisions and their reasoning live in
 `docs/adr/`; this is the page that makes any single function here readable
 without first finding the four ADRs it assumes.
 
-## The model, in four sentences
+## The model
 
-> Every edit is appended to a diary.
-> The authority numbers the pages it has seen; unnumbered pages still need sending.
-> Where you are in the world's history is just the highest number in your diary.
-> Old pages get glued together into one so opening stays fast.
-
-There is no asterisk on any of those. If you find yourself needing one to
-explain something here, that is a bug in the code rather than in the sentence.
-
-## Where things live
+The live `Y.Doc` accepts edits immediately. Its persistence controller queues
+updates, confirms durable bytes, and makes those bytes available to sync.
+The authority numbers opaque submissions. Durable rows record both the document
+bytes and whether delivery is still owed.
 
 ```txt
- ┌─ THE BROWSER TAB ────────────────────────────────────────┐
- │                                                          │
- │   the live Y.Doc          what a person sees, now        │
- │        │                                                 │
- │        │  updateV2 bytes, on every transaction           │
- │        ├─────────────────────┬──────────────────┐        │
- │        ▼                     ▼                  │        │
- │   persistence            sync delivery          │        │
- │   attempt                attempt                │        │
- │        │                     │                  │        │
- │        ▼                     │                  │        │
- │   ONE OBJECT STORE, `updates`, keyed by append id│       │
- │                                                  │       │
- │     id    bytes            authoritySeq          │       │
- │      1    ████████████     500                   │       │
- │      2    ▪                501                   │       │
- │      3    ▪                NULL   ← still owed   │       │
- │      4    ▪                NULL   ← still owed   │       │
- └──────────────────────────────────────────────────┼───────┘
-                                                    ▼
- ┌─ THE AUTHORITY, one Durable Object ──────────────────────┐
- │   snapshot @ 500  ████████                               │
- │   501 ██   502 ██   503 ██                               │
- │                                                          │
- │   It cannot open any of these. It numbers and forwards.  │
- └──────────────────────────────────────────────────────────┘
+local edit -> live Y.Doc -> updateV2 -> persistence queue
+                                           |
+                                    atomic durable batch
+                                           |
+                                      onSendable
+                                           |
+                                    byte-blind authority
+                                           |
+remote apply <- received bytes and position <- numbered entry
 ```
 
-Neither arrow out of the live document can block or fail an edit. An edit is
-accepted the moment the Yjs transaction commits, and a storage failure becomes
-persistence status rather than a thrown edit (ADR-0300).
+Browser replicas store their update chain in IndexedDB. The SQLite port follows
+the same contract in tests and runtime probes. The authority stores its own log
+and client-provided snapshots in SQLite.
 
-The two arrows are not independent, though, and the order matters: **the sender
-reads the durable outbox, so an edit is offered to the authority once it is
-durable** (ADR-0302). That costs nothing in the normal path, because the sender
-waits a second after being nudged before asking what is owed and a flush is a
-microtask. It costs exactly one thing: a device whose storage is refusing
-writes stops syncing until storage recovers.
+A storage failure cannot undo an accepted edit. It retains the failed batch in
+memory and reports `blocked`. The sender reads confirmed durable debt, so an edit
+whose append failed stays local until persistence recovers. A network connection
+cannot rescue those unpersisted bytes. Closing while still blocked can lose them.
 
-That cost is paid out loud. `persistence.get()` reports `blocked`, and
-`PersistenceNotice` in `@epicenter/app-shell` renders it: every application
-mounts it in its shell, where the opened store already is. A person is told that
-changes are not being saved on this device and that closing the window loses
-them, and the notice offers `flush()` as one retry.
-
-Only `blocked` is shown. `pending` is the microtask between accepting an edit
-and confirming it, so rendering it would flicker on every keystroke and say
-nothing.
+`pending` covers the entire outstanding storage operation, which may take longer
+than a microtask. `saved` means the local queue is empty, independently of remote
+acknowledgement. The app's persistence notice shows `blocked` and offers `flush()`
+as a retry.
 
 ## The one column you have to understand
 
@@ -76,11 +47,10 @@ subsystem reads plainly.
 | --- | --- | --- |
 | `NULL` | **owed.** This device authored these bytes and the authority has never seen them. | a replica's own appends |
 | `0` (`NO_AUTHORITY`) | **held, never owed.** Real bytes with no position, and none is coming. | a local store's own appends; received bytes whose position is unknown; a fold baseline |
-| `>= 1` | the position the authority's log gave these bytes | an acknowledgement |
+| `>= 1` | the position the authority's log gave these bytes | an acknowledgement or received entry |
 
-`0` is not a sentinel squeezed into a value space. The authority numbers
-entries `COALESCE(MAX(seq), 0) + 1`, so its first position is `1` and `0` is
-unreachable by construction (`sync/authority.ts`).
+The authority starts numbering at `1`; `0` cannot identify an authority entry
+(`sync/authority.ts`).
 
 The distinction that carries the design is **`NULL` against everything else**,
 because that is the one the sender reads. A local store records `NO_AUTHORITY`
@@ -123,6 +93,11 @@ Without acknowledgements nothing is lost, but this device re-uploads every edit
 forever, re-downloads the whole history on every reconnect, and never shrinks
 its log.
 
+A received acknowledgement also suppresses resend in the current session while
+its durable write is pending. That in-memory floor disappears on restart. If the
+acknowledgement never reached disk, reopening recovers the owed rows and safely
+resends them. The durable cursor advances only with the committed record.
+
 ## The fold chooses by row, never by store
 
 ```txt
@@ -136,8 +111,9 @@ its log.
                                   could be offered
 ```
 
-Owed rows collapse only above `lastCoalescedId`, the highest id the sender has
-ever been handed. A row above that watermark has never been named by any
+Owed rows collapse after the outstanding batch finishes, above both the live
+acknowledgement floor and `lastCoalescedId`, the highest id the sender has ever
+been handed. A row above that watermark has never been named by any
 submission, so no acknowledgement in flight can name it. Offline, `coalesce` is
 never called, so every append qualifies and a device with no connection stays
 bounded by the threshold rather than by how long it stayed offline.
@@ -157,7 +133,7 @@ you should not.
 | File | Owns |
 | --- | --- |
 | `store.ts` | the live document, the typed surface, and the client half of sync |
-| `persistence.ts` | the ordered queue, its status, and the durable mirror the sender reads |
+| `persistence.ts` | IDs, the ordered queue, durable mirror, debt merging, and send eligibility |
 | `log.ts` | the SQLite `DurablePort`, the fold, and `replay` |
 | `browser.ts` | the IndexedDB `DurablePort`, the address scheme, generation import over HTTP, and `openDatabase` |
 | `document.ts` | the Yjs grammar: table roots, rows, content nodes |
@@ -174,8 +150,8 @@ stayed green while disagreeing about the fold.
 ## What happens when things break
 
 ```txt
-   persistence fails, network fine   the edit is live, the authority takes it,
-                                     a restart re-downloads it. status: blocked
+   persistence fails, network fine   the edit is live but cannot be sent yet.
+                                     restart can lose it. status: blocked
 
    persistence fine, network down    the edit is durable and owed. it goes out
                                      on reconnect

@@ -228,7 +228,7 @@ export function createSyncConnection({
 	/** The submission the watchdog saw on its previous tick. */
 	let watched: number | undefined;
 
-	const stopLocalWork = syncEngineOf(store).onLocalWork(() => client.nudge());
+	const stopSendable = syncEngineOf(store).onSendable(() => client.nudge());
 
 	function cancelTimers(): void {
 		cancelHealthy?.();
@@ -283,7 +283,7 @@ export function createSyncConnection({
 	/** Let go of everything, permanently. Disposal, and nothing else. */
 	function shutdown(): void {
 		running = false;
-		stopLocalWork();
+		stopSendable();
 		cancelRedial?.();
 		cancelRedial = undefined;
 		abandon();

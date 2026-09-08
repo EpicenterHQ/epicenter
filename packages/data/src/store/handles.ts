@@ -551,11 +551,9 @@ export type DataDocument = {
 	 * its own surface below. Delivered BEFORE table and KV notifications in
 	 * the same flush, and that order is a contract: a composed follower marks
 	 * itself dirty here, so it is already dirty by the time any table
-	 * subscriber reads through it. Strictly wider than `onLocalWork`, and the
-	 * two are not
-	 * interchangeable: the transport wants to know that THIS replica owes the
-	 * authority something, so bytes that arrived from a peer must not nudge
-	 * it, while this fires for those too.
+	 * subscriber reads through it. The transport instead listens for durable
+	 * outbound work through `onSendable`; this also fires for remote changes
+	 * and fires before their persistence completes.
 	 */
 	onCommitted(listener: () => void): () => void;
 	/**

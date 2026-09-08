@@ -20,7 +20,7 @@ import { defineData, defineTable } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Result } from 'wellcrafted/result';
 
-import { createAccountStore, type DeclaredData } from '../store/store.js';
+import { type DeclaredData, openAccountStore } from '../store/store.js';
 import { openSyncAuthority } from './authority.js';
 import { createSyncConnection, type SyncDial } from './connection.js';
 import { createSyncHub, type HubConnection } from './hub.js';
@@ -59,12 +59,14 @@ function createWire() {
 		defer(task: () => void) {
 			queue.push(task);
 		},
-		settle() {
+		async settle() {
+			await new Promise<void>((resolve) => setImmediate(resolve));
 			let guard = 0;
 			while (queue.length > 0) {
 				guard += 1;
 				if (guard > 10_000) throw new Error('the wire never settled');
 				(queue.shift() as () => void)();
+				await new Promise<void>((resolve) => setImmediate(resolve));
 			}
 		},
 		inFlight: () => queue.length,
@@ -131,7 +133,7 @@ function openAuthority() {
  * point: everything a host used to write by hand is now the driver's, and the
  * host writes only `dial`.
  */
-function openDriven({
+async function openDriven({
 	hub,
 	wire,
 	clock,
@@ -144,7 +146,7 @@ function openDriven({
 	unacknowledgedMs?: number;
 	backoff?: (failures: number) => number;
 }) {
-	const data = createAccountStore({
+	const data = await openAccountStore({
 		definition: database,
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 	});
@@ -217,7 +219,7 @@ function openDriven({
 	};
 }
 
-function setup(
+async function setup(
 	options: {
 		healthyMs?: number;
 		unacknowledgedMs?: number;
@@ -227,8 +229,8 @@ function setup(
 	const wire = createWire();
 	const clock = createClock();
 	const { authority, hub } = openAuthority();
-	const phone = openDriven({ hub, wire, clock, ...options });
-	const laptop = openDriven({ hub, wire, clock, ...options });
+	const phone = await openDriven({ hub, wire, clock, ...options });
+	const laptop = await openDriven({ hub, wire, clock, ...options });
 	return { wire, clock, authority, hub, phone, laptop };
 }
 
@@ -241,10 +243,10 @@ function setup(
  * stall the watchdog then correctly reports: the first version of this helper
  * did exactly that and made a working driver look broken.
  */
-function run(wire: Wire, clock: Clock, ms: number, sliceMs = 100) {
+async function run(wire: Wire, clock: Clock, ms: number, sliceMs = 100) {
 	let elapsed = 0;
 	for (;;) {
-		wire.settle();
+		await wire.settle();
 		if (elapsed >= ms) return;
 		const slice = Math.min(sliceMs, ms - elapsed);
 		clock.advance(slice);
@@ -253,47 +255,47 @@ function run(wire: Wire, clock: Clock, ms: number, sliceMs = 100) {
 }
 
 describe('a write syncs without anyone remembering to say so', () => {
-	test('a row created on one device arrives on the other', () => {
+	test('a row created on one device arrives on the other', async () => {
 		// Nothing in this test nudges or flushes. The store announces its own
 		// local work and the driver starts the idle timer, which is the whole
 		// point: a caller that forgets used to leave the write sitting in the
 		// outbox until some unrelated write happened to start the timer.
-		const { wire, clock, phone, laptop } = setup();
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 
 		expect(laptop.titles()).toEqual(['Groceries']);
 	});
 
-	test('CONTROL: it does NOT arrive before the idle timer fires', () => {
+	test('CONTROL: it does NOT arrive before the idle timer fires', async () => {
 		// The isolation. If this ever fails, the test above is measuring the
 		// harness delivering eagerly rather than the store's announcement.
-		const { wire, clock, phone, laptop } = setup();
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		expect(laptop.titles()).toEqual([]);
 	});
 
-	test("text written into a row's content node syncs on the same timer", () => {
-		const { wire, clock, phone, laptop } = setup();
+	test("text written into a row's content node syncs on the same timer", async () => {
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		const note = expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
 		const body = phone.db.tables.notes.get(note.id)?.content;
 		if (body === undefined) throw new Error('the row has no content');
 		body.applyDelta(body.change.insert('milk and eggs') as never);
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 
 		const arrived = laptop.db.tables.notes.get(note.id)?.content;
 		expect(JSON.stringify(arrived?.toJSON())).toContain('milk and eggs');
@@ -301,42 +303,42 @@ describe('a write syncs without anyone remembering to say so', () => {
 });
 
 describe('a gap is repaired without anybody noticing it', () => {
-	test('a lost entry wedges the replica, and the driver reconnects it', () => {
+	test('a lost entry wedges the replica, and the driver reconnects it', async () => {
 		// The failure a randomised schedule found: a device wedged at 108 kept
 		// receiving 118, 119 and 121 and rejecting all of them, with no error
 		// surfaced and the socket perfectly healthy. The client sets
 		// `needsResync` and waits for someone to notice; this is that someone.
-		const { wire, clock, phone, laptop } = setup();
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		// The laptop loses the frame carrying the first entry, so the second is
 		// a gap and every later one is too.
 		laptop.loseNextFrames(1);
 		expectOk(phone.db.tables.notes.create({ title: 'first' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 		expectOk(phone.db.tables.notes.create({ title: 'second' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 		expect(laptop.connection.status().needsResync).toBe(true);
 
 		// The backoff, and then the catch-up from the laptop's own cursor.
-		run(wire, clock, 5_000);
+		await run(wire, clock, 5_000);
 
 		expect(laptop.titles()).toEqual(['first', 'second']);
 		expect(laptop.connection.status().needsResync).toBe(false);
 		expect(laptop.connection.status().lastReconnect).toBe('resync');
 	});
 
-	test('CONTROL: without the reconnect the same schedule stays wedged forever', () => {
+	test('CONTROL: without the reconnect the same schedule stays wedged forever', async () => {
 		// The same lost frame, driven by hand the way every host used to drive
 		// it, with the one rule that used to be optional left out. It never
 		// recovers however long it is left alone.
 		const wire = createWire();
 		const clock = createClock();
 		const { hub } = openAuthority();
-		const phone = openDriven({ hub, wire, clock });
-		const laptop = openDriven({
+		const phone = await openDriven({ hub, wire, clock });
+		const laptop = await openDriven({
 			hub,
 			wire,
 			clock,
@@ -346,13 +348,13 @@ describe('a gap is repaired without anybody noticing it', () => {
 		});
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		laptop.loseNextFrames(1);
 		expectOk(phone.db.tables.notes.create({ title: 'first' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 		expectOk(phone.db.tables.notes.create({ title: 'second' }));
-		run(wire, clock, 60_000);
+		await run(wire, clock, 60_000);
 
 		expect(laptop.titles()).toEqual([]);
 		expect(laptop.connection.status().needsResync).toBe(true);
@@ -360,33 +362,33 @@ describe('a gap is repaired without anybody noticing it', () => {
 });
 
 describe('a socket that dies is dialled again from the replica own cursor', () => {
-	test('work written while disconnected goes out on reconnect', () => {
-		const { wire, clock, phone, laptop } = setup();
+	test('work written while disconnected goes out on reconnect', async () => {
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 		expectOk(phone.db.tables.notes.create({ title: 'before' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 		expect(laptop.titles()).toEqual(['before']);
 
 		phone.breakSocket();
 		expectOk(phone.db.tables.notes.create({ title: 'while offline' }));
-		run(wire, clock, 5_000);
+		await run(wire, clock, 5_000);
 
 		expect(laptop.titles()).toEqual(['before', 'while offline']);
 		expect(phone.connection.status().lastReconnect).toBe('closed');
 	});
 
-	test('every dial asks from what this replica has applied', () => {
-		const { wire, clock, phone, laptop } = setup();
+	test('every dial asks from what this replica has applied', async () => {
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 		expectOk(phone.db.tables.notes.create({ title: 'first' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 
 		laptop.breakSocket();
-		run(wire, clock, 5_000);
+		await run(wire, clock, 5_000);
 
 		// Two dials, not three. The first is the ordinary open at zero; the
 		// bootstrap round-trip that used to sit between them went with the
@@ -399,70 +401,74 @@ describe('a socket that dies is dialled again from the replica own cursor', () =
 		expect(laptop.dialledFrom).toEqual([0, 1]);
 	});
 
-	test('a socket that never stays up backs off, and a working one resets it', () => {
-		const { wire, clock, phone } = setup({ healthyMs: 5_000 });
+	test('a socket that never stays up backs off, and a working one resets it', async () => {
+		const { wire, clock, phone } = await setup({ healthyMs: 5_000 });
 		phone.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		for (let attempt = 0; attempt < 3; attempt += 1) {
 			phone.breakSocket();
 			// Just past this attempt's backoff, and well short of the healthy
 			// window, so the redial happens and never counts as a good connection.
-			run(wire, clock, 1_000 * 2 ** attempt + 1);
+			await run(wire, clock, 1_000 * 2 ** attempt + 1);
 		}
 		expect(phone.connection.status().failures).toBe(3);
 
 		// One socket that lasts, and the count goes back to nothing.
-		run(wire, clock, 5_000);
+		await run(wire, clock, 5_000);
 
 		expect(phone.connection.status().failures).toBe(0);
 	});
 });
 
 describe('a submission nobody answers is not waited on forever', () => {
-	test('the watchdog reconnects, and the work is delivered afterwards', () => {
+	test('the watchdog reconnects, and the work is delivered afterwards', async () => {
 		// The production stall in `evidence/workerd/results.md`, made
 		// self-healing without knowing what causes it: a sustained run against
 		// Cloudflare stopped waiting for an acknowledgement, four hypotheses
 		// were tested and none of them was it.
-		const { wire, clock, phone, laptop } = setup({ unacknowledgedMs: 10_000 });
+		const { wire, clock, phone, laptop } = await setup({
+			unacknowledgedMs: 10_000,
+		});
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		// The push leaves and its acknowledgement never comes back.
 		phone.loseNextFrames(1);
 		expectOk(phone.db.tables.notes.create({ title: 'first' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 		expect(phone.connection.status().inFlight).toBe(true);
 
 		// The damage. One submission is out at a time, so nothing this device
 		// writes from here on can leave, and every layer still reports success.
 		expectOk(phone.db.tables.notes.create({ title: 'second' }));
-		run(wire, clock, 5_000);
+		await run(wire, clock, 5_000);
 		expect(laptop.titles()).toEqual(['first']);
 
 		// Two ticks: the first records the submission, the second finds the same
 		// one still out. One tick would reconnect a busy client on every pass.
-		run(wire, clock, 25_000);
+		await run(wire, clock, 25_000);
 
 		expect(phone.connection.status().lastReconnect).toBe('stalled');
 		expect(laptop.titles()).toEqual(['first', 'second']);
 	});
 
-	test('CONTROL: a client that keeps getting acknowledged is never reconnected', () => {
+	test('CONTROL: a client that keeps getting acknowledged is never reconnected', async () => {
 		// The false positive the submission NUMBER exists to avoid. Only one
 		// submission is ever out and the next starts the moment the previous is
 		// acknowledged, so under sustained work `inFlight` is continuously true
 		// on a completely healthy client.
-		const { wire, clock, phone, laptop } = setup({ unacknowledgedMs: 1_000 });
+		const { wire, clock, phone, laptop } = await setup({
+			unacknowledgedMs: 1_000,
+		});
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		for (let index = 0; index < 20; index += 1) {
 			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
-			run(wire, clock, 1_100);
+			await run(wire, clock, 1_100);
 		}
 
 		expect(phone.connection.status().lastReconnect).toBeUndefined();
@@ -477,14 +483,14 @@ describe('a refused dial is reported and dialled again', () => {
 	 * the attempt just closes, which is what a transport failure (network loss,
 	 * an unreachable authority) is reported as.
 	 */
-	function openRefused({
+	async function openRefused({
 		clock,
 		refuseEvery,
 	}: {
 		clock: Clock;
 		refuseEvery: boolean;
 	}) {
-		const data = createAccountStore({
+		const data = await openAccountStore({
 			definition: database,
 			sqlite: createBunSqliteAdapter(new Database(':memory:')),
 		});
@@ -505,9 +511,9 @@ describe('a refused dial is reported and dialled again', () => {
 		return { db, connection, dials: () => dials };
 	}
 
-	test('a refusal is status, not a stop: the driver keeps dialling', () => {
+	test('a refusal is status, not a stop: the driver keeps dialling', async () => {
 		const clock = createClock();
-		const replica = openRefused({ clock, refuseEvery: true });
+		const replica = await openRefused({ clock, refuseEvery: true });
 		replica.connection.start();
 		clock.advance(120_000);
 
@@ -527,12 +533,13 @@ describe('a refused dial is reported and dialled again', () => {
 		// that had let go would take the write and schedule nothing.
 		const scheduled = clock.pending();
 		expectOk(replica.db.tables.notes.create({ title: 'local only' }));
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(clock.pending()).toBe(scheduled + 1);
 	});
 
-	test('disposal under a standing refusal lets go of everything', () => {
+	test('disposal under a standing refusal lets go of everything', async () => {
 		const clock = createClock();
-		const replica = openRefused({ clock, refuseEvery: true });
+		const replica = await openRefused({ clock, refuseEvery: true });
 		replica.connection.start();
 		clock.advance(120_000);
 		const dialled = replica.dials();
@@ -544,9 +551,9 @@ describe('a refused dial is reported and dialled again', () => {
 		expect(clock.pending()).toBe(0);
 	});
 
-	test('a dial that reaches the wire clears the refusal even when it fails', () => {
+	test('a dial that reaches the wire clears the refusal even when it fails', async () => {
 		const clock = createClock();
-		const data = createAccountStore({
+		const data = await openAccountStore({
 			definition: database,
 			sqlite: createBunSqliteAdapter(new Database(':memory:')),
 		});
@@ -574,9 +581,9 @@ describe('a refused dial is reported and dialled again', () => {
 		connection[Symbol.dispose]();
 	});
 
-	test('a socket that opens clears the refusal', () => {
+	test('a socket that opens clears the refusal', async () => {
 		const clock = createClock();
-		const data = createAccountStore({
+		const data = await openAccountStore({
 			definition: database,
 			sqlite: createBunSqliteAdapter(new Database(':memory:')),
 		});
@@ -604,9 +611,9 @@ describe('a refused dial is reported and dialled again', () => {
 		connection[Symbol.dispose]();
 	});
 
-	test('CONTROL: an ordinary close reports no refusal and retries the same way', () => {
+	test('CONTROL: an ordinary close reports no refusal and retries the same way', async () => {
 		const clock = createClock();
-		const replica = openRefused({ clock, refuseEvery: false });
+		const replica = await openRefused({ clock, refuseEvery: false });
 		replica.connection.start();
 		clock.advance(120_000);
 
@@ -618,32 +625,32 @@ describe('a refused dial is reported and dialled again', () => {
 });
 
 describe('the driver lets go of what it has abandoned', () => {
-	test('a dead socket cannot detach the one that replaced it', () => {
-		const { wire, clock, phone, laptop } = setup();
+	test('a dead socket cannot detach the one that replaced it', async () => {
+		const { wire, clock, phone, laptop } = await setup();
 		phone.connection.start();
 		laptop.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 		const stale = phone.breakSocket;
-		run(wire, clock, 5_000);
+		await run(wire, clock, 5_000);
 
 		// The socket that died two connections ago, reporting its close late.
 		stale();
 		expectOk(phone.db.tables.notes.create({ title: 'still connected' }));
-		run(wire, clock, 1_000);
+		await run(wire, clock, 1_000);
 
 		expect(laptop.titles()).toEqual(['still connected']);
 	});
 
-	test('disposing stops dialling and stops listening to the store', () => {
-		const { wire, clock, phone } = setup();
+	test('disposing stops dialling and stops listening to the store', async () => {
+		const { wire, clock, phone } = await setup();
 		phone.connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 		const dials = phone.dialledFrom.length;
 
 		phone.connection[Symbol.dispose]();
 		phone.breakSocket();
 		expectOk(phone.db.tables.notes.create({ title: 'after disposal' }));
-		run(wire, clock, 60_000);
+		await run(wire, clock, 60_000);
 
 		expect(phone.dialledFrom).toHaveLength(dials);
 		expect(phone.connection.status().connected).toBe(false);
@@ -657,10 +664,10 @@ describe('a retired opcode on the wire is ignored, not concluded from', () => {
 	// address now, so there is no question to ask and no verdict to draw
 	// (ADR-0292). A decoder meeting either ignores it, which is what lets a
 	// deployment roll forward past a peer that has not.
-	test('a frame nobody understands leaves the driver running', () => {
+	test('a frame nobody understands leaves the driver running', async () => {
 		const wire = createWire();
 		const clock = createClock();
-		const data = createAccountStore({
+		const data = await openAccountStore({
 			definition: database,
 			sqlite: createBunSqliteAdapter(new Database(':memory:')),
 		});
@@ -676,7 +683,7 @@ describe('a retired opcode on the wire is ignored, not concluded from', () => {
 			},
 		});
 		connection.start();
-		run(wire, clock, 0);
+		await run(wire, clock, 0);
 
 		expect(connection.status().connected).toBe(true);
 		expect(connection.status().lastError).toBeUndefined();

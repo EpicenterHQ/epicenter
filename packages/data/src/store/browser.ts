@@ -270,118 +270,147 @@ export async function openIdbBacking(
 				async commit(ops: readonly DurableOp[]): Promise<void> {
 					const transaction = durable.transaction(UPDATES_STORE, 'readwrite');
 					const updates = transaction.objectStore(UPDATES_STORE);
-					let chain = held;
-					let grew = false;
-					for (const op of ops) {
-						switch (op.kind) {
-							case 'append': {
-								void updates.put(
-									{
-										bytes: copyBytes(op.bytes),
-										authoritySeq: op.authoritySeq ?? null,
-									},
-									op.id,
-								);
-								chain += 1;
-								grew = true;
-								break;
-							}
-							case 'mergeOwed': {
-								for (const replaced of op.replaces) {
-									void updates.delete(replaced);
-								}
-								void updates.put(
-									{ bytes: copyBytes(op.bytes), authoritySeq: null },
-									op.id,
-								);
-								chain = chain - op.replaces.length + 1;
-								break;
-							}
-							case 'ack': {
-								// One statement's worth of work, and the shape it takes here
-								// is what a keyed object store makes cheap. A cursor walk
-								// costs one round trip PER ROW to advance, which is what
-								// made a wide ack -- a device reconnecting with a day of
-								// offline work owed -- the slowest thing this port does.
-								// Reading the range in two requests and issuing the stamps
-								// without awaiting them costs two round trips for the whole
-								// batch instead of one per row.
-								//
-								// The reads are the price: the range includes the baseline,
-								// so a wide ack holds one document in memory while it runs.
-								// That is bounded by the document rather than by the
-								// backlog, and it is paid once per ack rather than per row.
-								// `evidence/browser/port-cost` measures both shapes.
-								const range = IDBKeyRange.upperBound(op.throughId);
-								const [keys, rows] = await Promise.all([
-									updates.getAllKeys(range),
-									updates.getAll(range),
-								]);
-								for (const [index, key] of keys.entries()) {
-									const row = rows[index];
-									if (row === undefined || row.authoritySeq !== null) continue;
-									void updates.put(
-										{ ...row, authoritySeq: op.authoritySeq },
-										key,
+					const writes: Promise<unknown>[] = [];
+					function track(request: Promise<unknown>): void {
+						// Attach now: another awaited request may fail before settlement.
+						// Keep the original rejection for the batch's final await.
+						void request.catch(() => {});
+						writes.push(request);
+					}
+					track(transaction.done);
+					try {
+						let chain = held;
+						let grew = false;
+						for (const op of ops) {
+							switch (op.kind) {
+								case 'append': {
+									track(
+										updates.put(
+											{
+												bytes: copyBytes(op.bytes),
+												authoritySeq: op.authoritySeq ?? null,
+											},
+											op.id,
+										),
 									);
+									chain += 1;
 									grew = true;
+									break;
 								}
-								break;
-							}
-						}
-					}
-
-					// The same fold the SQL engine applies, and the same question:
-					// an acknowledged row may be replaced by a whole-document
-					// re-encode, an owed row may not (ADR-0301). A store with no
-					// authority holds no owed rows, so it collapses everything here
-					// without being told which kind it is.
-					if (grew && chain >= SNAPSHOT_FOLD_THRESHOLD) {
-						const foldable: { id: number; bytes: Uint8Array }[] = [];
-						let position: number | null = null;
-						let at = await updates.openCursor();
-						while (at !== null) {
-							const row = at.value;
-							if (row.authoritySeq !== null) {
-								foldable.push({ id: at.key as number, bytes: row.bytes });
-								if (
-									row.authoritySeq !== null &&
-									row.authoritySeq > (position ?? -1)
-								) {
-									position = row.authoritySeq;
+								case 'mergeOwed': {
+									for (const replaced of op.replaces) {
+										track(updates.delete(replaced));
+									}
+									track(
+										updates.put(
+											{ bytes: copyBytes(op.bytes), authoritySeq: null },
+											op.id,
+										),
+									);
+									chain = chain - op.replaces.length + 1;
+									break;
+								}
+								case 'ack': {
+									// One statement's worth of work, and the shape it takes here
+									// is what a keyed object store makes cheap. A cursor walk
+									// costs one round trip PER ROW to advance, which is what
+									// made a wide ack -- a device reconnecting with a day of
+									// offline work owed -- the slowest thing this port does.
+									// Reading the range in two requests and issuing the stamps
+									// without awaiting them costs two round trips for the whole
+									// batch instead of one per row.
+									//
+									// The reads are the price: the range includes the baseline,
+									// so a wide ack holds one document in memory while it runs.
+									// That is bounded by the document rather than by the
+									// backlog, and it is paid once per ack rather than per row.
+									// `evidence/browser/port-cost` measures both shapes.
+									const range = IDBKeyRange.upperBound(op.throughId);
+									const [keys, rows] = await Promise.all([
+										updates.getAllKeys(range),
+										updates.getAll(range),
+									]);
+									for (const [index, key] of keys.entries()) {
+										const row = rows[index];
+										if (row === undefined || row.authoritySeq !== null)
+											continue;
+										track(
+											updates.put(
+												{ ...row, authoritySeq: op.authoritySeq },
+												key,
+											),
+										);
+										grew = true;
+									}
+									break;
 								}
 							}
-							at = await at.continue();
 						}
-						const through = foldable.at(-1)?.id;
-						if (
-							foldable.length >= SNAPSHOT_FOLD_THRESHOLD &&
-							through !== undefined
-						) {
-							const folded = replay(
-								foldable.map((row) => ({ seq: row.id, bytes: row.bytes })),
-							);
-							let baseline: Uint8Array;
-							try {
-								baseline = new Uint8Array(Y.encodeStateAsUpdateV2(folded));
-							} finally {
-								folded.destroy();
-							}
-							for (const row of foldable) void updates.delete(row.id);
-							// The baseline inherits the highest position it replaced, so
-							// on a syncing store it is not owed and is never offered back.
-							void updates.put(
-								{ bytes: baseline, authoritySeq: position ?? NO_AUTHORITY },
-								through,
-							);
-							chain = chain - foldable.length + 1;
-						}
-					}
 
-					await transaction.done;
-					// Advanced only after the batch landed, so a retried batch
-					// recomputes from the same starting point.
-					held = chain;
+						// The same fold the SQL engine applies, and the same question:
+						// an acknowledged row may be replaced by a whole-document
+						// re-encode, an owed row may not (ADR-0301). A store with no
+						// authority holds no owed rows, so it collapses everything here
+						// without being told which kind it is.
+						if (grew && chain >= SNAPSHOT_FOLD_THRESHOLD) {
+							const foldable: { id: number; bytes: Uint8Array }[] = [];
+							let position: number | null = null;
+							let at = await updates.openCursor();
+							while (at !== null) {
+								const row = at.value;
+								if (row.authoritySeq !== null) {
+									foldable.push({ id: at.key as number, bytes: row.bytes });
+									if (
+										row.authoritySeq !== null &&
+										row.authoritySeq > (position ?? -1)
+									) {
+										position = row.authoritySeq;
+									}
+								}
+								at = await at.continue();
+							}
+							const through = foldable.at(-1)?.id;
+							if (
+								foldable.length >= SNAPSHOT_FOLD_THRESHOLD &&
+								through !== undefined
+							) {
+								const folded = replay(
+									foldable.map((row) => ({ seq: row.id, bytes: row.bytes })),
+								);
+								let baseline: Uint8Array;
+								try {
+									baseline = new Uint8Array(Y.encodeStateAsUpdateV2(folded));
+								} finally {
+									folded.destroy();
+								}
+								for (const row of foldable) track(updates.delete(row.id));
+								// The baseline inherits the highest position it replaced, so
+								// on a syncing store it is not owed and is never offered back.
+								track(
+									updates.put(
+										{ bytes: baseline, authoritySeq: position ?? NO_AUTHORITY },
+										through,
+									),
+								);
+								chain = chain - foldable.length + 1;
+							}
+						}
+
+						await Promise.all(writes);
+						// Advanced only after the batch landed, so a retried batch
+						// recomputes from the same starting point.
+						held = chain;
+					} catch (cause) {
+						// A JavaScript failure does not abort IndexedDB automatically.
+						// Preserve the original error if a request already aborted it.
+						try {
+							transaction.abort();
+						} catch {
+							/* Already settled. */
+						}
+						await Promise.allSettled(writes);
+						throw cause;
+					}
 				},
 			};
 

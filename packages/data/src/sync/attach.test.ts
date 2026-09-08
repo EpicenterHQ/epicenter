@@ -20,7 +20,7 @@ import type {
 	SocketTransport,
 	WebSocketAddress,
 } from '@epicenter/sync/transport';
-import { createAccountStore, type ReplicaDocument } from '../store/store.js';
+import { openAccountStore, type ReplicaDocument } from '../store/store.js';
 import { attachStoreSync } from './attach.js';
 
 const database = defineData({
@@ -40,9 +40,9 @@ type AddressedTestStore = ReplicaDocument &
 		principalId: ReturnType<typeof asPrincipalId>;
 	};
 
-function openStore(): AddressedTestStore {
+async function openStore(): Promise<AddressedTestStore> {
 	const live = new Database(':memory:');
-	const db = createAccountStore({
+	const db = await openAccountStore({
 		definition: database,
 		sqlite: createBunSqliteAdapter(live),
 		dispose: () => live.close(),
@@ -75,7 +75,7 @@ function createTransport(
 }
 
 test('the first dial names the dataId, a cursor of zero, and the main subprotocol', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	const { transport, dials } = createTransport(
 		() => new Promise<WebSocket>(() => {}),
@@ -105,7 +105,7 @@ test('the first dial names the dataId, a cursor of zero, and the main subprotoco
 });
 
 test('the store answers for the connection driving it, and stops when it goes', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	// Nothing attached, so there is nothing to report. A surface renders that
 	// the same way it renders a refusal it cannot act on: no status line
@@ -127,7 +127,7 @@ test('the store answers for the connection driving it, and stops when it goes', 
 });
 
 test('a denial is reported as a refusal code and is not a transport error', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	const denial = {
 		name: 'OpenWebSocketDenied',
@@ -152,7 +152,7 @@ test('a denial is reported as a refusal code and is not a transport error', asyn
 });
 
 test('an unrecognised rejection is a transport error and a close', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	const cause = new TypeError('Failed to fetch');
 	const { transport } = createTransport(() => Promise.reject(cause));
@@ -171,7 +171,7 @@ test('an unrecognised rejection is a transport error and a close', async () => {
 });
 
 test('abandoning an attempt closes a socket that arrives late', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	let closes = 0;
 	const socket = {
@@ -213,7 +213,7 @@ function createSocket(readyState: number) {
 }
 
 test('a socket handed back already open is attached without an open event', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	// What a Worker's upgrade produces: `fetch` answers with an accepted
 	// socket, which is live and will never fire `open`. Waiting for one leaves
@@ -235,7 +235,7 @@ test('a socket handed back already open is attached without an open event', asyn
 });
 
 test('a connecting socket is attached only once it opens', async () => {
-	const store = openStore();
+	const store = await openStore();
 	await using _store = store;
 	const { socket, fire } = createSocket(0);
 	const { transport } = createTransport(() => Promise.resolve(socket));

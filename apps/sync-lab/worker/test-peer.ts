@@ -6,7 +6,7 @@
  * topology: a browser keeps its durable client facts in IndexedDB. The peer
  * keeps them in its one DO SQLite database through the engine seam
  * (`@epicenter/data/direct`), so this Worker-runtime test can run the real
- * `createAccountStore`, `createSyncClient`, and WebSocket protocol against
+ * `openAccountStore`, `createSyncClient`, and WebSocket protocol against
  * the real authority.
  *
  * Therefore this fixture proves authority hibernation and protocol convergence,
@@ -24,7 +24,7 @@ import {
 	field,
 	plainText,
 } from '@epicenter/data/definition';
-import { createAccountStore } from '@epicenter/data/direct';
+import { openAccountStore } from '@epicenter/data/direct';
 import {
 	createSyncClient,
 	decodeFrame,
@@ -56,7 +56,7 @@ const labDatabase = defineData({
 function openNotes(
 	sqlite: ReturnType<typeof createDurableObjectSqliteAdapter>,
 ) {
-	return createAccountStore({ definition: labDatabase, sqlite });
+	return openAccountStore({ definition: labDatabase, sqlite });
 }
 
 /**
@@ -88,21 +88,24 @@ export type TestPeerReport = {
 type Env = { SYNC: DurableObjectNamespace };
 
 export class SyncLabTestPeer extends DurableObject<Env> {
-	private readonly db: ReturnType<typeof openNotes>;
-	private readonly client: SyncClient;
+	private readonly ready: Promise<{
+		db: Awaited<ReturnType<typeof openNotes>>;
+		client: SyncClient;
+	}>;
 	private readonly redeliveredEntries = new Set<number>();
 	private readonly redeliveredSnapshots = new Set<number>();
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
-		this.db = openNotes(
+		this.ready = openNotes(
 			createDurableObjectSqliteAdapter(
 				ctx.storage as unknown as DurableObjectSqliteStorage,
 			),
-		);
-		// Every send in this file is explicit, so the idle timer never fires and a
-		// test never waits on a clock it does not control.
-		this.client = createSyncClient({ store: this.db, idleMs: 60_000 });
+		).then((db) => ({
+			db,
+			// Explicit sends keep the test independent of an idle timer.
+			client: createSyncClient({ store: db, idleMs: 60_000 }),
+		}));
 	}
 
 	/**
@@ -121,24 +124,28 @@ export class SyncLabTestPeer extends DurableObject<Env> {
 	 * with the deeply unhelpful "Specified address is missing port".
 	 */
 	async openSocket(partition: string): Promise<void> {
-		const socket = await this.dial(partition);
+		const { client } = await this.ready;
+		const socket = await this.dial(partition, client);
 		socket.accept();
 		// Attached in the same synchronous turn as `accept()`, because catch-up
 		// frames were already queued by the authority's `fetch` before it returned.
 		socket.addEventListener('message', (event) => {
 			if (typeof event.data === 'string') return;
-			this.observe(new Uint8Array(event.data));
-			this.client.receive(new Uint8Array(event.data));
+			this.observe(new Uint8Array(event.data), client);
+			client.receive(new Uint8Array(event.data));
 		});
-		socket.addEventListener('close', () => this.client.detach());
-		this.client.attach({ send: (bytes) => socket.send(bytes) });
+		socket.addEventListener('close', () => client.detach());
+		client.attach({ send: (bytes) => socket.send(bytes) });
 	}
 
 	/** One upgrade at this peer's cursor. There is nothing else to declare. */
-	private async dial(partition: string): Promise<WebSocket> {
+	private async dial(
+		partition: string,
+		client: SyncClient,
+	): Promise<WebSocket> {
 		const stub = this.env.SYNC.get(this.env.SYNC.idFromName(partition));
 		const response = await stub.fetch(
-			`https://sync-lab.invalid/sync?cursor=${this.client.cursor()}`,
+			`https://sync-lab.invalid/sync?cursor=${client.cursor()}`,
 			{ headers: { Upgrade: 'websocket' } },
 		);
 		const socket = response.webSocket;
@@ -154,10 +161,10 @@ export class SyncLabTestPeer extends DurableObject<Env> {
 	 * the cursor past it. `seq <= cursor` is the exact condition the client
 	 * ignores, so this counts precisely the re-delivery the wake path produces.
 	 */
-	private observe(bytes: Uint8Array): void {
+	private observe(bytes: Uint8Array, client: SyncClient): void {
 		const { data: frame, error } = decodeFrame(bytes);
 		if (error !== null) return;
-		const cursor = this.client.cursor();
+		const cursor = client.cursor();
 		if (frame.kind === 'entry' && frame.seq <= cursor) {
 			this.redeliveredEntries.add(frame.seq);
 		}
@@ -167,9 +174,11 @@ export class SyncLabTestPeer extends DurableObject<Env> {
 	}
 
 	/** Write one row and send it now. */
-	write(title: string): void {
-		this.db.tables.notes.create({ title, body: '' });
-		this.client.flush();
+	async write(title: string): Promise<void> {
+		const { db, client } = await this.ready;
+		db.tables.notes.create({ title, body: '' });
+		await db.persistence.flush();
+		client.flush();
 	}
 
 	/**
@@ -178,14 +187,17 @@ export class SyncLabTestPeer extends DurableObject<Env> {
 	 * The only affordable way to reach the authority's 64 KB snapshot floor from
 	 * a test: hundreds of small rows would take hundreds of round trips.
 	 */
-	writeLarge(title: string, bytes: number): void {
-		this.db.tables.notes.create({ title, body: 'x'.repeat(bytes) });
-		this.client.flush();
+	async writeLarge(title: string, bytes: number): Promise<void> {
+		const { db, client } = await this.ready;
+		db.tables.notes.create({ title, body: 'x'.repeat(bytes) });
+		await db.persistence.flush();
+		client.flush();
 	}
 
-	report(): TestPeerReport {
-		const status = this.client.status();
-		const listed = this.db.tables.notes;
+	async report(): Promise<TestPeerReport> {
+		const { db, client } = await this.ready;
+		const status = client.status();
+		const listed = db.tables.notes;
 		return {
 			cursor: status.cursor,
 			inFlight: status.inFlight,

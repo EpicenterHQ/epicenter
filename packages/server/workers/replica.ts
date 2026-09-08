@@ -4,7 +4,7 @@
  * It is a Durable Object for one reason. A replica is an `DataDocument`, a
  * store's durable record is SQLite here, and the only synchronous SQLite
  * inside `workerd` is a Durable Object's own storage. Everything else here is
- * the deployed client: `createAccountStore` for the store, `attachStoreSync`
+ * the deployed client: `openAccountStore` for the store, `attachStoreSync`
  * for the dial, over the real routes, so a test can assert on the rows a
  * device actually holds rather than on frames a harness counted.
  *
@@ -30,7 +30,7 @@ import {
 	type ReplicaData,
 } from '@epicenter/data';
 import { field } from '@epicenter/data/definition';
-import { createAccountStore } from '@epicenter/data/direct';
+import { openAccountStore } from '@epicenter/data/direct';
 import { attachStoreSync, type SyncConnection } from '@epicenter/data/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import {
@@ -95,27 +95,33 @@ export class StoreTestReplica extends DurableObject<Env> {
 	 * it writes locally and only `startSync()`s later, which is exactly the
 	 * device the stated-loss contract is about.
 	 */
-	open(
+	async open(
 		bearer: string,
 		origin: string,
 		{ connect = true }: { connect?: boolean } = {},
-	): void {
+	): Promise<void> {
 		if (this.store !== undefined) return;
-		this.bearer = bearer;
-		const database = createDurableObjectSqliteAdapter(
-			this.ctx.storage as unknown as DurableObjectSqliteStorage,
-		);
-		// The whole address, stamped the way `openDatabase` stamps a browser's
-		// replica: the dial reads the data id, the generation and the origin off
-		// the store rather than beside it (ADR-0340), so there is no second
-		// address here that could disagree with the one a page builds.
-		this.store = Object.freeze({
-			...createAccountStore({ definition: probeDefinition, sqlite: database }),
-			appId: probeDefinition.id,
-			dataId: probeDefinition.id,
-			generation: PROBE_GENERATION,
-			baseURL: origin,
-			principalId: asPrincipalId(bearer.replace(/^device:/, '')),
+		await this.ctx.blockConcurrencyWhile(async () => {
+			if (this.store !== undefined) return;
+			this.bearer = bearer;
+			const database = createDurableObjectSqliteAdapter(
+				this.ctx.storage as unknown as DurableObjectSqliteStorage,
+			);
+			// The whole address, stamped the way `openDatabase` stamps a browser's
+			// replica: the dial reads the data id, the generation and the origin off
+			// the store rather than beside it (ADR-0340), so there is no second
+			// address here that could disagree with the one a page builds.
+			this.store = Object.freeze({
+				...(await openAccountStore({
+					definition: probeDefinition,
+					sqlite: database,
+				})),
+				appId: probeDefinition.id,
+				dataId: probeDefinition.id,
+				generation: PROBE_GENERATION,
+				baseURL: origin,
+				principalId: asPrincipalId(bearer.replace(/^device:/, '')),
+			});
 		});
 		if (connect) this.startSync();
 	}
@@ -170,6 +176,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 		if (this.connection !== undefined) return;
 		this.connection = attachStoreSync({
 			store,
+			address: store,
 			transport: this.transport(),
 			onTransportError: (cause) => {
 				this.lastTransportError = String(cause);

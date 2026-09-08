@@ -91,7 +91,7 @@ import { join } from 'node:path';
 import { defineData, defineTable } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
-import { createAccountStore, syncEngineOf } from '../../src/store/store.js';
+import { openAccountStore, syncEngineOf } from '../../src/store/store.js';
 import { openSyncAuthority } from '../../src/sync/authority.js';
 
 const benchDatabase = defineData({
@@ -205,7 +205,7 @@ async function build(
 	const authority = openSyncAuthority({
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 	});
-	const db = createAccountStore({
+	const db = await openAccountStore({
 		definition: benchDatabase,
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 	});
@@ -214,6 +214,7 @@ async function build(
 	let sinceSend = 0;
 	/** Hand everything unsent to the authority, exactly as the client does. */
 	const send = async () => {
+		await store.persistence.flush();
 		const owed = syncEngineOf(store).coalesce();
 		if (owed === undefined) return;
 		const position = authority.append(owed.bytes);
@@ -304,7 +305,7 @@ async function build(
 			});
 		}
 	}
-	send();
+	await send();
 
 	// What the hub puts on the wire for a connection at cursor zero: the snapshot
 	// first if there is one, then every entry after the position it covers. This
@@ -398,7 +399,7 @@ async function apply(
 	expectation: Expectation,
 ): Promise<ApplyReport> {
 	const updates = unpackPayload(packed);
-	const db = createAccountStore({
+	const db = await openAccountStore({
 		definition: benchDatabase,
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 	});
@@ -413,6 +414,7 @@ async function apply(
 		if (applied.error !== null) throw applied.error;
 		appliedBytes += update.length;
 	}
+	await store.persistence.flush();
 	const applyMs = performance.now() - started;
 
 	// The control. Bytes moving is not the claim; the vault arriving is.

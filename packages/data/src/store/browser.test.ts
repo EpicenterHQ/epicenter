@@ -47,6 +47,7 @@ import {
 	type DatabaseAccount,
 	eraseGenerations,
 	openDatabase,
+	openIdbBacking,
 	resolveGeneration,
 } from './browser.js';
 import { openMemory } from './memory.js';
@@ -1007,4 +1008,44 @@ describe("a row's content node survives a reopen (ADR-0295)", () => {
 		expect(content?.getAttr('cursor' as never)).toBe(8);
 		await reopened[Symbol.asyncDispose]();
 	});
+});
+
+test('a request failure remains inside the commit rejection and rolls back', async () => {
+	const backing = expectOk(await openIdbBacking('failed-request-is-contained'));
+	const put = IDBObjectStore.prototype.put;
+	// Force the second valid append to encounter a native request failure.
+	// The later ack yields before commit reaches its final settlement await.
+	IDBObjectStore.prototype.put = function (value) {
+		return this.add(value, 1);
+	};
+	try {
+		await expect(
+			backing.port.commit([
+				{
+					kind: 'append',
+					id: 1,
+					bytes: new Uint8Array([0, 0]),
+					authoritySeq: undefined,
+				},
+				{
+					kind: 'append',
+					id: 2,
+					bytes: new Uint8Array([0, 0]),
+					authoritySeq: undefined,
+				},
+				{ kind: 'ack', throughId: 2, authoritySeq: 1 },
+			]),
+		).rejects.toThrow();
+	} finally {
+		IDBObjectStore.prototype.put = put;
+		backing.close();
+	}
+	const reopened = expectOk(
+		await openIdbBacking('failed-request-is-contained'),
+	);
+	try {
+		expect(reopened.loaded.updates).toHaveLength(0);
+	} finally {
+		reopened.close();
+	}
 });
