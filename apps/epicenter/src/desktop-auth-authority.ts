@@ -51,6 +51,7 @@ export function createDesktopAuthAuthority({
 		callbackWaiter?.accept(url),
 	);
 	const auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL: EPICENTER_API_URL,
 		fetch,
 		persistedAuthStorage: createSerializedPersistedAuthStorage({

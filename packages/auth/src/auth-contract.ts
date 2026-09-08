@@ -17,6 +17,8 @@ export type AuthFetch = (
  * new Account even for the same person. Retirement does not erase local data.
  */
 export type Account = {
+	/** Stable identity of the synchronization authority, independent of its URL. */
+	readonly authorityId: string;
 	readonly principalId: PrincipalId;
 	readonly baseURL: string;
 	fetch: AuthFetch;

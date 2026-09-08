@@ -8,6 +8,7 @@ import {
 
 export const authClient = createHostedBrowserRedirectAuth({
 	appId: DASHBOARD_APP_ID,
+	authorityId: 'epicenter-api',
 	baseURL: window.location.origin,
 	callbackPath: '/session/callback',
 });

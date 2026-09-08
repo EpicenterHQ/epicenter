@@ -29,6 +29,8 @@ export type SessionLauncher = {
 };
 
 type AccountAuthOptions = {
+	/** Stable authority identity supplied by deployment configuration. */
+	authorityId?: string;
 	baseURL: string;
 	persistedAuthStorage: PersistedAuthStorage;
 	fetch?: AuthFetch;
@@ -135,6 +137,7 @@ export function createInstanceAuth(
 
 function createBearerAuth(
 	{
+		authorityId,
 		baseURL,
 		persistedAuthStorage,
 		launcher,
@@ -314,6 +317,7 @@ function createBearerAuth(
 			return retry.response;
 		};
 		const account: Account = Object.freeze({
+			authorityId: authorityId ?? new URL(baseURL).origin,
 			principalId: value.principalId,
 			baseURL,
 			fetch: accountFetch,

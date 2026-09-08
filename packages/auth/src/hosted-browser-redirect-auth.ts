@@ -6,6 +6,7 @@ import { createSessionHandoffClient } from './session-handoff-client.js';
 
 export type CreateHostedBrowserRedirectAuthOptions = {
 	appId: string;
+	authorityId?: string;
 	baseURL: string;
 	callbackPath?: string;
 };
@@ -13,6 +14,7 @@ export type CreateHostedBrowserRedirectAuthOptions = {
 /** Browser storage and redirect convention; applications own their Account. */
 export function createHostedBrowserRedirectAuth({
 	appId,
+	authorityId,
 	baseURL,
 	callbackPath = '/auth/callback',
 }: CreateHostedBrowserRedirectAuthOptions) {
@@ -31,6 +33,7 @@ export function createHostedBrowserRedirectAuth({
 		storage: window.sessionStorage,
 	});
 	return createSessionAuth({
+		authorityId,
 		baseURL,
 		fetch(input, init) {
 			const target = new URL(input instanceof Request ? input.url : input);

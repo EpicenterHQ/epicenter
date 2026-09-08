@@ -5,6 +5,7 @@ import { APP_URLS } from '@epicenter/constants/vite';
 
 export const authClient = createHostedBrowserRedirectAuth({
 	appId: APPS.HONEYCRISP.id,
+	authorityId: 'epicenter-api',
 	baseURL: APP_URLS.API,
 });
 

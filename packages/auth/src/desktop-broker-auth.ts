@@ -150,6 +150,7 @@ export function createDesktopBrokerAuth({
 		bootstrap.state.status === 'signed-out'
 			? null
 			: Object.freeze({
+					authorityId: new URL(baseURL).origin,
 					principalId: bootstrap.state.principalId,
 					baseURL,
 					fetch: accountFetch,
