@@ -32,7 +32,7 @@ import type { Env } from './types.js';
 export type Identity = {
 	/**
 	 * This deployment's canonical public origin, resolved from the per-request
-	 * `env`. Becomes the Better Auth `baseURL`, OAuth issuer, and token audience,
+	 * `env`. Becomes the Better Auth `baseURL` and hosted callback origin,
 	 * so it must be stable per deployment and never inferred from `c.req.url`.
 	 * `apps/api` returns `env.API_PUBLIC_ORIGIN ?? PRODUCTION_API_URL` (dev
 	 * override, else the baked constant); `apps/self-host` returns the operator-set
@@ -76,7 +76,7 @@ export function createServerApp<E extends Env = Env>({
 	// the env binding, no DB) so downstream middleware, including CORS and the
 	// cookie-CSRF guard, can scope the trusted-origin allow-list to this
 	// deployment. The origin is supplied explicitly and never inferred from the
-	// request, so the auth audience is stable per deployment.
+	// request, so hosted callback URLs are stable per deployment.
 	app.use('*', async (c, next) => {
 		const baseURL = resolveOrigin(c.env);
 		c.set('authBaseURL', baseURL);

@@ -9,7 +9,7 @@ import type { Principal } from '@epicenter/auth';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { Context } from 'hono';
 import type { Result } from 'wellcrafted/result';
-import type { CloudAuthBindings, createAuth } from './auth/create-auth.js';
+import type { createAuth } from './auth/create-auth.js';
 import type { OAuthError } from './auth/oauth-errors.js';
 import type * as schema from './db/schema/index.js';
 import type { ServerBindings } from './server-bindings.js';
@@ -18,8 +18,7 @@ import type { ServerBindings } from './server-bindings.js';
  * How an explicit bearer token resolves to the calling principal: the one auth
  * seam.
  *
- * The surface wrappers (`requireCookieOrBearerPrincipal`, `requireBearerPrincipal`)
- * own credential extraction from the `Authorization` header and hand the resolver
+ * The `requireBearerPrincipal` wrapper extracts the `Authorization` header and hands the resolver
  * a bare token. The resolver only verifies; it never reads request headers, so
  * no route has to fake another route's header to authenticate.
  * The deployment builds each wrapper by closing it over its resolver
@@ -27,8 +26,8 @@ import type { ServerBindings } from './server-bindings.js';
  * the wrapper's closure, not stamped on the context: there is no
  * `c.var.resolveBearerPrincipal`.
  *
- * The cloud closes over the real resolver (`resolveRequestOAuthPrincipal`: an
- * OAuth bearer verified against JWKS); an instance closes over its env-token
+ * The cloud closes over `resolveRequestSessionPrincipal`, which verifies a signed
+ * bearer against its Better Auth session row; an instance closes over its env-token
  * resolver (`createEnvTokenResolver`). A dev-only entrypoint closes over a trivial
  * `dev:<principalId>` resolver so the runtime-parity smoke needs no interactive
  * login; that bypass lives in a dev entry production never imports, never an
@@ -36,11 +35,11 @@ import type { ServerBindings } from './server-bindings.js';
  *
  * Returns the same `Result<Principal, OAuthError>` every resolver returns, so a
  * different resolver slots in without touching the wrappers' error handling
- * (HTTP 401, the OAuth `WWW-Authenticate` challenge, or the relay's 4401 close).
+ * (HTTP 401, the Bearer `WWW-Authenticate` challenge, or the relay's 4401 close).
  *
  * Generic over the context it reads: the instance's env-token resolver needs only
- * the portable {@link Env}; the cloud's `resolveRequestOAuthPrincipal` reads
- * `c.var.auth` + `c.var.db`, so it is a `ResolveBearerPrincipal<CloudEnv>`. The
+ * the portable {@link Env}; the cloud's `resolveRequestSessionPrincipal` reads
+ * `c.var.auth`, so it is a `ResolveBearerPrincipal<CloudEnv>`. The
  * wrapper that closes over a resolver carries the same `E`, so a cloud resolver
  * only composes onto a cloud app.
  */
@@ -101,13 +100,6 @@ export type CloudEnv = {
 		db: NodePgDatabase<typeof schema>;
 		/** The per-request Better Auth instance. Populated by `mountCloudAuth`. */
 		auth: ReturnType<typeof createAuth>;
-		/**
-		 * The cloud-only relational-auth secrets ({@link CloudAuthBindings}),
-		 * resolved once per request by `mountCloudAuth` from the cloud's own
-		 * deploy-gated env so its readers (Better Auth construction and the `authApp`
-		 * sign-in page) take them from one resolved value, never the portable `c.env`.
-		 */
-		authSecrets: CloudAuthBindings;
 		/**
 		 * Deployment-owned static shell for the hosted auth browser surfaces.
 		 * `packages/server` owns auth policy and dispatch, but the deployable owns

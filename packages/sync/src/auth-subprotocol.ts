@@ -2,7 +2,7 @@
  * WebSocket subprotocol auth: shared client/server constants.
  *
  * Auth tokens travel inside the `Sec-WebSocket-Protocol` handshake header
- * as `bearer.<token>`, not in the URL's query string. The real threat is
+ * as `bearer.<percent-encoded-token>`, not in the URL's query string. The real threat is
  * server-side access logs (Cloudflare, Hono middleware, downstream APMs
  * like Sentry/Datadog): full URLs including query strings are captured by
  * default, so a `?token=` scheme leaks long-lived session tokens into any
@@ -21,7 +21,7 @@
 /** Primary subprotocol name every Epicenter client negotiates. */
 export const MAIN_SUBPROTOCOL = 'epicenter';
 
-/** Prefix for OAuth bearer tokens carried through WebSocket subprotocols. */
+/** Prefix for encoded bearer credentials carried through WebSocket subprotocols. */
 export const BEARER_SUBPROTOCOL_PREFIX = 'bearer.';
 
 /**
@@ -36,9 +36,9 @@ export function parseSubprotocols(header: string | null): string[] {
 	return header.split(',').map((s) => s.trim());
 }
 
-/** The subprotocol entry carrying one bearer credential. */
+/** Percent encoding keeps signed session padding and separators RFC-token safe. */
 export function bearerSubprotocol(token: string): string {
-	return `${BEARER_SUBPROTOCOL_PREFIX}${token}`;
+	return `${BEARER_SUBPROTOCOL_PREFIX}${encodeURIComponent(token)}`;
 }
 
 /**

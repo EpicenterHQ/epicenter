@@ -2,8 +2,8 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the
- * shared `@epicenter/server` library: it names Epicenter's own app origins and
- * browser extension, which only the hosted deployment should trust. A
+ * shared `@epicenter/server` library: it names Epicenter's own app origins,
+ * which only the hosted deployment should trust. A
  * self-host (`apps/self-host`) supplies its own origins instead, so it never
  * inherits trust in epicenter.so domains it has no relationship with.
  */
@@ -70,8 +70,7 @@ function isLocalDeployment(baseURL: string): boolean {
  *
  * Frozen so the long-lived Cloudflare isolate cannot accumulate mutations
  * across requests. Typed `string[]` (not `readonly string[]`) because Better
- * Auth's `trustedOrigins` is mutable, and the readonly type leaks into its
- * inferred Auth, breaking the OAuth metadata helpers.
+ * Auth's `trustedOrigins` option expects a mutable array type.
  */
 export function buildEpicenterTrustedOrigins(baseURL: string): string[] {
 	return Object.freeze(

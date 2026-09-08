@@ -19,7 +19,7 @@
 // The pure generator + boot entropy gate (`generateInstanceToken`
 // / `assertStrongToken`) live in `@epicenter/auth`.
 export { createEnvTokenResolver } from './auth/instance-token.js';
-// The OAuth resource-boundary error union the bearer resolver emits (401
+// The bearer resource-boundary error union the resolver emits (401
 // `InvalidToken` / 503 `ServerError`). Re-exported so a deployment's own bearer
 // resolver (e.g. `apps/api`'s dev auth) returns the same variants the request
 // path expects, without reaching into the auth module directly.
@@ -40,22 +40,11 @@ export {
 // An opt-in burn-rate cap for the inference `policies` seam: caps requests per
 // principal partition so a shared house key cannot be run up unbounded (ADR-0076).
 export { rateLimit } from './middleware/rate-limit.js';
-// Deploy-time admin operations (OAuth client seeding) live in each
-// deployment's own scripts (`apps/api` `oauth:seed:*`), not in this barrel, so
-// `pg` and the drizzle query-builder graph stay out of the worker's module and
-// type programs. The seed builds rows from `projectTrustedOAuthClientToRow` in
-// `@epicenter/constants/oauth-seed` (beside `buildTrustedOAuthClients`, its
-// input), so it never imports this request-path auth barrel.
-//
-// Auth middleware + the cloud's OAuth bearer resolver. A deployment passes one of
-// these as the `auth` for each protected mount (the cloud passes
-// `requireCookieOrBearerPrincipal`, an instance `requireBearerPrincipal`) and passes
-// `resolveRequestOAuthPrincipal` as the cloud resolver; an instance passes its
-// bearer resolver instead (ADR-0075).
+// Protected mounts use requireBearerPrincipal with the deployment's resolver:
+// database-backed sessions on the cloud, operator tokens on an instance.
 export {
 	requireBearerPrincipal,
-	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthPrincipal,
+	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
 // The cloud-only relational layer, in two halves the cloud installs after
 // `createServerApp` (both type against `CloudEnv`): `mountCloudAuth` builds the
@@ -68,7 +57,7 @@ export { CloudAuthBindings, mountCloudAuth } from './mount-cloud-auth.js';
 export { mountCloudDb } from './mount-cloud-db.js';
 // Reusable surfaces. Each `mount*` bundles auth + the route mount, accepting
 // only the deployment-controlled knobs (auth choice, optional policies). The
-// cloud's Better Auth surface (sessions, OAuth, `c.var.auth`) is bundled into
+// cloud's Better Auth surface (sessions, social sign-in, `c.var.auth`) is bundled into
 // `mountCloudAuth`; an instance composes none of it (ADR-0075).
 export { blobPrincipalPrefix, storeAuthorityName } from './principal.js';
 export { mountBlobsApp, resolveDeploymentBlobStore } from './routes/blobs.js';

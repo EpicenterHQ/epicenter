@@ -20,7 +20,6 @@
       "version": "0.0.2",
       "dependencies": {
         "@better-auth/drizzle-adapter": "catalog:",
-        "@better-auth/oauth-provider": "catalog:",
         "@epicenter/auth": "workspace:*",
         "@epicenter/blobs": "workspace:*",
         "@epicenter/constants": "workspace:*",
@@ -785,7 +784,6 @@
       "version": "0.1.1",
       "dependencies": {
         "@better-auth/drizzle-adapter": "catalog:",
-        "@better-auth/oauth-provider": "catalog:",
         "@better-auth/passkey": "catalog:",
         "@epicenter/auth": "workspace:*",
         "@epicenter/blobs": "workspace:*",

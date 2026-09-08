@@ -34,3 +34,10 @@ test('formatSubprotocols and parseSubprotocols are inverses', () => {
 
 	expect(parseSubprotocols(formatSubprotocols(offered))).toEqual(offered);
 });
+
+test('signed session padding and separators are encoded as legal protocol characters', () => {
+	const token = 'session.signature+/=';
+	const protocol = bearerSubprotocol(token);
+	expect(protocol).toBe('bearer.session.signature%2B%2F%3D');
+	expect(protocol).toMatch(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/);
+});

@@ -226,8 +226,8 @@ const blobsApp = new Hono<BlobEnv>()
  * Mount the blobs surface on a deployment's server app.
  *
  * There is no public-read bypass in v1, so every route is
- * uniformly gated by the same chain: the deployment's auth (the cloud passes
- * `requireCookieOrBearerPrincipal`), then {@link requireBlobStore}
+ * uniformly gated by the same chain: the deployment's bearer auth,
+ * then {@link requireBlobStore}
  * (which 503s a deployment with no object storage and otherwise stamps
  * `c.var.blobStore`). Unlike inference and transcription, blobs takes no
  * `policies`: no deployment gates storage today (the cloud is unmetered until

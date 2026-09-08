@@ -10,7 +10,7 @@
  *   3. billing        the Autumn customer and its Stripe counterpart
  *   4. observations   hosted storage-observation rows (no FK, never cascade)
  *   5. auth user      the Better Auth user row; sessions, provider accounts,
- *                     OAuth tokens, consents, and passkeys cascade from it
+ *                     and passkeys cascade from it
  *
  * The auth user goes LAST: it is the durable gate against any later
  * authenticated operation, and while it survives, a client can retry the

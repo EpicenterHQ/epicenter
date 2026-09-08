@@ -12,9 +12,9 @@
  *
  * The generation is in the object's NAME (ADR-0292), so this object holds one
  * history and cannot be pointed at another. That is what deleted the document
- * announcement, the bootstrap round-trip, and the retirement close: every
- * authenticated upgrade is accepted and caught up, and the only refusal left
- * is storage that cannot be read.
+ * announcement, the bootstrap round-trip, and the retirement close. Each
+ * authenticated upgrade gets at most 600 seconds of socket access. The
+ * authority checks that deadline before receiving, sending, or catching up.
  */
 import { DurableObject } from 'cloudflare:workers';
 import {
@@ -31,7 +31,7 @@ import {
 import { LOG_POSITION_HEADER } from '@epicenter/sync/generations-route';
 
 /**
- * A socket's position, kept where it survives hibernation.
+ * A socket's position and fixed authorization deadline survive hibernation.
  *
  * The in-memory map is the fast path and the attachment is the fallback. They
  * can disagree only in the safe direction: a woken object reads a position that
@@ -39,9 +39,11 @@ import { LOG_POSITION_HEADER } from '@epicenter/sync/generations-route';
  * idempotent. The other direction would skip, and a skipped entry is invisible
  * forever.
  */
-function cursorOf(socket: WebSocket): number {
-	const attached = socket.deserializeAttachment() as { cursor?: number } | null;
-	return attached?.cursor ?? 0;
+function attachmentOf(socket: WebSocket) {
+	return socket.deserializeAttachment() as {
+		cursor: number;
+		authorizedUntil: number;
+	} | null;
 }
 
 export class StoreAuthority extends DurableObject {
@@ -77,15 +79,17 @@ export class StoreAuthority extends DurableObject {
 	 * Joining also runs catch-up, which on a wake is the whole recovery.
 	 */
 	private adopt(socket: WebSocket): HubConnection | undefined {
+		if (!this.isAuthorized(socket)) return undefined;
 		const existing = this.connections.get(socket);
 		if (existing !== undefined) return existing;
-		let written = cursorOf(socket);
+		const attached = attachmentOf(socket)!;
+		let written = attached.cursor;
 		const connection: HubConnection = {
 			cursor: written,
-			send(bytes) {
+			send: (bytes) => {
 				// A closing or closed socket takes nothing more: the hub's send is
 				// fire-and-forget, and workerd throws on a dead socket.
-				if (socket.readyState !== WebSocket.OPEN) return;
+				if (!this.isAuthorized(socket)) return;
 				socket.send(bytes);
 				// `serializeAttachment` is a DURABLE STORAGE WRITE. Written after the
 				// send rather than before, so a failure leaves the position behind
@@ -94,7 +98,7 @@ export class StoreAuthority extends DurableObject {
 				// value that had not changed.
 				if (connection.cursor === written) return;
 				written = connection.cursor;
-				socket.serializeAttachment({ cursor: written });
+				socket.serializeAttachment({ ...attached, cursor: written });
 			},
 		};
 		if (this.hub.join(connection) !== 'admitted') {
@@ -105,6 +109,11 @@ export class StoreAuthority extends DurableObject {
 			return undefined;
 		}
 		this.connections.set(socket, connection);
+		// Catch-up may have closed the socket while the hub was joining it.
+		if (!this.isAuthorized(socket)) {
+			this.forget(socket);
+			return undefined;
+		}
 		return connection;
 	}
 
@@ -134,7 +143,13 @@ export class StoreAuthority extends DurableObject {
 		// Written before adopting, because the attachment is where a position
 		// comes from: this is the one place it is set from a request rather than
 		// read back off the socket, and there is no second source of truth.
-		pair[1].serializeAttachment({ cursor });
+		// Only the authority's clock grants this lifetime. Request headers and
+		// query parameters cannot extend it, including for static-token peers.
+		pair[1].serializeAttachment({
+			cursor,
+			authorizedUntil: Date.now() + 600_000,
+		});
+		await this.scheduleAuthorizationAlarm();
 		// Catch-up runs here, synchronously, before this handler returns, so the
 		// replica's contiguity check holds by construction. The upgrade itself
 		// succeeds either way, because a browser can read a frame and cannot
@@ -195,6 +210,7 @@ export class StoreAuthority extends DurableObject {
 		socket: WebSocket,
 		message: ArrayBuffer | string,
 	): void {
+		if (!this.isAuthorized(socket)) return;
 		if (typeof message === 'string') return;
 		// Nothing thrown. `workerd` swallows a throw here WITHOUT closing the
 		// socket, so a replica would wait forever on a submission that had already
@@ -219,15 +235,16 @@ export class StoreAuthority extends DurableObject {
 	 * that treats `1006` as a fault therefore treats every ordinary tab close
 	 * as an error.
 	 */
-	override webSocketClose(
+	override async webSocketClose(
 		socket: WebSocket,
 		code: number,
 		reason: string,
-	): void {
+	): Promise<void> {
 		this.forget(socket);
 		// 1005 means "no status received", which is not a code a close frame may
 		// carry back; 1006 is never sendable at all.
 		socket.close(code === 1005 || code === 1006 ? 1000 : code, reason);
+		await this.scheduleAuthorizationAlarm();
 	}
 
 	override webSocketError(socket: WebSocket): void {
@@ -238,6 +255,40 @@ export class StoreAuthority extends DurableObject {
 		const connection = this.connections.get(socket);
 		if (connection !== undefined) this.hub.leave(connection);
 		this.connections.delete(socket);
+	}
+
+	/** Missing attachments from older sockets fail closed rather than renew. */
+	private isAuthorized(socket: WebSocket): boolean {
+		if (socket.readyState !== WebSocket.OPEN) return false;
+		const deadline = attachmentOf(socket)?.authorizedUntil;
+		if (
+			typeof deadline === 'number' &&
+			Number.isFinite(deadline) &&
+			Date.now() < deadline
+		)
+			return true;
+		this.forget(socket);
+		socket.close(1008, 'socket authorization expired');
+		return false;
+	}
+
+	/** Alarms wake idle objects; every data path also checks for late alarms. */
+	override async alarm(): Promise<void> {
+		await this.scheduleAuthorizationAlarm();
+	}
+
+	private async scheduleAuthorizationAlarm(): Promise<void> {
+		const current = await this.ctx.storage.getAlarm();
+		let earliest = Infinity;
+		for (const socket of this.ctx.getWebSockets()) {
+			if (!this.isAuthorized(socket)) continue;
+			earliest = Math.min(earliest, attachmentOf(socket)!.authorizedUntil);
+		}
+		if (earliest === Infinity) {
+			if (current !== null) await this.ctx.storage.deleteAlarm();
+		} else if (current !== earliest) {
+			await this.ctx.storage.setAlarm(earliest);
+		}
 	}
 
 	/**

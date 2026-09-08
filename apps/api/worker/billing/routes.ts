@@ -24,8 +24,7 @@ const BILLING_PREFIX = '/api/billing';
 /**
  * Mount the cloud billing data plane on the server app.
  *
- * Bundles auth (the dashboard reaches this with cookie sessions; admin
- * scripts reach it with OAuth bearers) and the route mount into one
+ * Bundles session-bearer auth and the route mount into one
  * call. Lives in apps/api, not @epicenter/server, because Autumn is
  * cloud-only deployment policy.
  */

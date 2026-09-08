@@ -1,48 +1,13 @@
 {
-	"version": "7",
-	"dialect": "postgresql",
-	"entries": [
-		{
-			"idx": 0,
-			"version": "7",
-			"when": 1782323860207,
-			"tag": "0000_thin_the_captain",
-			"breakpoints": true
-		},
-		{
-			"idx": 1,
-			"version": "7",
-			"when": 1782547840267,
-			"tag": "0001_small_kree",
-			"breakpoints": true
-		},
-		{
-			"idx": 2,
-			"version": "7",
-			"when": 1783290424779,
-			"tag": "0002_fearless_lady_ursula",
-			"breakpoints": true
-		},
-		{
-			"idx": 3,
-			"version": "7",
-			"when": 1783290659326,
-			"tag": "0003_fantastic_doomsday",
-			"breakpoints": true
-		},
-		{
-			"idx": 4,
-			"version": "7",
-			"when": 1783480626422,
-			"tag": "0004_first_norrin_radd",
-			"breakpoints": true
-		},
-		{
-			"idx": 5,
-			"version": "7",
-			"when": 1784308579193,
-			"tag": "0005_short_shinobi_shaw",
-			"breakpoints": true
-		}
-	]
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788847566578,
+      "tag": "0000_direct_sessions",
+      "breakpoints": true
+    }
+  ]
 }

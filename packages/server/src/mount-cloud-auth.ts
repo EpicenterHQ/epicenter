@@ -2,15 +2,15 @@
  * `mountCloudAuth`: the cloud-only relational-auth layer (Better Auth + Postgres).
  *
  * The hosted cloud composes Better Auth: a per-request `c.var.auth` instance
- * (sessions, OAuth, JWKS) over Postgres, plus the `authApp` surface (sign-in,
- * consent, OAuth metadata, and the Better Auth catch-all). The single-partition
+ * (sessions, social sign-in, and passkeys) over Postgres, plus the `authApp`
+ * browser shell and Better Auth catch-all. The single-partition
  * instance composes NEITHER (ADR-0075): it authenticates one operator-supplied
  * bearer and has no sessions, so it never calls this and never constructs Better
  * Auth. That is the seam that lets an instance drop Postgres entirely.
  *
  * Call it once, right after `createServerApp` and before the principal-scoped mounts:
  * it installs the auth-context middleware (so `c.var.auth` is set before any
- * cookie-or-bearer wrapper or `authApp` route reads it) and mounts `authApp` at
+ * bearer wrapper or `authApp` route reads it) and mounts `authApp` at
  * the root.
  */
 
@@ -33,6 +33,7 @@ export function mountCloudAuth(
 		 * validated env. Read per request because a Worker has no module-scope env.
 		 */
 		resolveAuthSecrets: (c: Context<CloudEnv>) => CloudAuthBindings;
+		resolveSessionCallbacks: (c: Context<CloudEnv>) => readonly string[];
 		/**
 		 * Serve the SvelteKit fallback shell for hosted auth browser surfaces after
 		 * auth route policy has run. The app deployment owns the concrete asset
@@ -44,27 +45,22 @@ export function mountCloudAuth(
 	// Better Auth context. Built per request (Workers expose no module-scope env
 	// or db connection), reading the db handle, auth origin, and trusted origins
 	// the `createServerApp` lifecycle already resolved. Installed before the
-	// cookie-or-bearer wrappers and the `authApp` routes mounted below read
-	// `c.var.auth` and `c.var.authSecrets`. First-party OAuth client rows are
-	// seeded at deploy time (apps/api `oauth:seed:*`), so this path only reads.
+	// bearer wrappers and the `authApp` routes mounted below read
+	// `c.var.auth`.
 	app.use('*', async (c, next) => {
-		// Resolve the cloud-only secrets once and stamp them on the context, so
-		// Better Auth construction reads one validated value rather than the raw
-		// `c.env` bag (ADR-0076).
-		const authSecrets = opts.resolveAuthSecrets(c);
-		c.set('authSecrets', authSecrets);
 		c.set('authUiShell', opts.serveAuthUiShell);
 		c.set(
 			'auth',
 			createAuth({
 				db: c.var.db,
-				env: authSecrets,
+				env: opts.resolveAuthSecrets(c),
 				baseURL: c.var.authBaseURL,
 				trustedOrigins: c.var.trustedOrigins,
+				sessionCallbacks: opts.resolveSessionCallbacks(c),
 			}),
 		);
 		await next();
 	});
-	// Auth surface (HTML pages + OAuth metadata; no /api prefix by design).
+	// Hosted auth pages and Better Auth endpoints have no /api prefix.
 	app.route('/', authApp);
 }

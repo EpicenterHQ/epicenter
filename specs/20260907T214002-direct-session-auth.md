@@ -413,7 +413,58 @@ isolation coverage merely because a test filename contains OAuth.
 
 ## Next checkpoint
 
-Continue the server-contained proof before spreading replacements across apps:
+Server checkpoint implemented locally on 2026-09-07. The handoff is mounted
+with signed bearers and the fresh session-only Postgres baseline. No shared
+database was changed and nothing was deployed.
+
+Verified evidence:
+
+- 85 server auth/resource/route tests passed together; an additional renewal
+  failure test now exercises `updateSession` throwing, and the concurrent
+  deletion test exercises `updateSession` returning null rather than a mocked
+  resolver verdict.
+- Eight disposable Postgres tests include two separate Bun processes racing
+  one code through the deployment Drizzle adapter. Exactly one client session
+  was issued. Revocation and source authentication age remain independent.
+- The shared handoff client passes 14 tests over real Bun HTTP with browser
+  and native callback URLs, persisted transactions, duplicates, expiry,
+  cancellation, supersession, and orphan revocation. This is a protocol harness,
+  not an interactive browser or packaged native smoke test.
+- All 24 Workers tests pass, including the real hosted deletion gate and eight
+  socket-deadline tests. The authority persists a server-computed 600-second
+  deadline and enforces it on input, output, catch-up, and idle alarms.
+- Server source and Workers typechecks pass. Sensitive routes use the public
+  Better Auth session API before checking expected principal and 600-second
+  age. This avoids the upstream before-hook header-normalization ordering trap.
+
+The security and greenfield checkpoint reviews are complete. Chromium
+151.0.7922.34 passed the opt-in smoke at
+`packages/auth/smoke/session-handoff.browser.mjs`, including real navigation,
+sessionStorage persistence, CORS preflights, cookie-free redemption and resource
+requests, encoded WebSocket credentials, and reload replay refusal. The smoke
+uses disposable hosted-login fixtures, not real provider credentials. The
+hosted sign-in UI now presents explicit handoff continuation and the API UI
+typecheck passed. Packaged native login remains unverified.
+
+Next: replace the shared client credential owner and its browser/dashboard/Bun
+consumers, then verify their Account lifetimes and real UI integrations.
+
+The independent review reproduced two integration defects: signed bearer
+padding was illegal in the raw WebSocket subprotocol, and separate handoff
+clients sharing storage could accept an older response after the newer attempt
+completed. Both are fixed and re-reviewed. The handoff retains shared version
+tombstones and local cancellation generations, including storage-write failure;
+17 protocol tests pass. A real Bun WebSocket constructor and mounted hosted
+store gate accept an issued, encoded signed session, then refuse admission after
+revocation.
+
+The greenfield review also found a pre-existing account-deletion limitation:
+`runAccountDeletion` has no store-authority erasure step and `deleteStore` has
+no callers. The fresh-session gate tests do not prove complete erasure. Socket
+expiry bounds access, not data retention. Store-wide deletion ownership needs
+separate implementation; do not claim this auth change fixes it.
+
+Checkpoint requirements and their remaining evidence:
 
 1. Mount the handoff against the fresh session schema, remove the provider
    path, and test atomic redemption with the actual deployment adapter across

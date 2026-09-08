@@ -28,7 +28,6 @@ import { describeRoute } from 'hono-openapi';
 
 import { extractUpgradeBearer } from '../auth/extract-upgrade-bearer.js';
 import { OAuthError } from '../auth/oauth-errors.js';
-import { createOAuthUnauthorizedResourceResponse } from '../auth/oauth-resource.js';
 import { isWebSocketUpgrade } from '../is-websocket-upgrade.js';
 import { setPrincipalOrReject } from '../middleware/require-auth.js';
 import { storeAuthorityName, storeCollectionName } from '../principal.js';
@@ -77,9 +76,7 @@ function requireStoreBearer<E extends Env>(
 		const resolution = bearer
 			? await resolveBearerPrincipal(c, bearer)
 			: OAuthError.InvalidToken();
-		return setPrincipalOrReject(c, next, resolution, (error) =>
-			createOAuthUnauthorizedResourceResponse(c, error),
-		);
+		return setPrincipalOrReject(c, next, resolution);
 	});
 }
 

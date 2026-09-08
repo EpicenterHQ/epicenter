@@ -27,8 +27,7 @@ import {
 	mountStoreSyncApp,
 	mountTranscriptionApp,
 	requireBearerPrincipal,
-	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthPrincipal,
+	resolveRequestSessionPrincipal,
 	type ServerBindings,
 	StoreAuthority,
 	type StoreAuthorityStub,
@@ -42,6 +41,7 @@ import {
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
+import { buildSessionCallbacks } from './session-callbacks.js';
 
 // Compile-time proof that this worker's generated Env provides every
 // binding the library reads. A missing or mistyped binding fails here,
@@ -63,14 +63,10 @@ const app = createServerApp<CloudEnv>({
 	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
 });
 
-// The cloud resolves a request to its principal by verifying an OAuth bearer against
-// JWKS (`resolveRequestOAuthPrincipal` reads `c.var.auth` + `c.var.db`, both present
-// below). Each protected wrapper closes over that one resolver; an instance
+// The cloud resolves a signed bearer against its Better Auth session row.
+// Each protected wrapper closes over that one resolver; an instance
 // closes over its env-token resolver instead (ADR-0075).
-const cookieOrBearer = requireCookieOrBearerPrincipal(
-	resolveRequestOAuthPrincipal,
-);
-const bearer = requireBearerPrincipal(resolveRequestOAuthPrincipal);
+const bearer = requireBearerPrincipal(resolveRequestSessionPrincipal);
 
 // The cloud UI (apps/api/ui) is one root-based SvelteKit SPA whose fallback
 // shell (`fallback.html`) the server hands out for the browser surfaces it
@@ -111,30 +107,30 @@ mountCloudDb(app, {
 });
 
 // Cloud-only relational-auth layer: per-request Better Auth on `c.var.auth`
-// plus the auth surface (sign-in, consent, OAuth metadata). Session cookies are
-// host-only to api.epicenter.so and consumed only by the dashboard the API
-// serves itself; every other client is a bearer client (ADR-0079).
+// plus hosted sign-in, account management, and session handoff. Host-only cookies
+// serve the hosted auth pages; application data requests carry session bearers.
 // Mounted before the principal-scoped surfaces so `c.var.auth` is set when their
-// cookie-or-bearer wrappers run. The single-partition instance composes none of
+// bearer wrappers run. The single-partition instance composes none of
 // this (ADR-0075). The Cloud-only auth secrets are read at this Worker's own edge
 // from its deploy-gated bindings (`c.env as Cloudflare.Env`), never the portable
 // `ServerBindings` (ADR-0076/0066).
 mountCloudAuth(app, {
+	resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
 	resolveAuthSecrets: (c) => c.env as Cloudflare.Env,
 	serveAuthUiShell: serveUiShell,
 });
 
 // Principal-partitioned reusable surfaces.
-mountSessionApp(app, { auth: cookieOrBearer });
+mountSessionApp(app, { auth: bearer });
 // The store transport (ADR-0222, ADR-0292, ADR-0298): one Durable Object per
 // (principal, application id, generation) for the log, and one ledger per
 // (principal, application id) for which generations exist. Both are reached
-// with the same OAuth bearer every other surface uses, and the principal is
+// with the same session bearer every other surface uses, and the principal is
 // stamped from that bearer and prefixed onto the object name, so being signed
 // in on two devices is the whole of the sharing model. The authority reads
 // nothing it stores.
 mountStoreSyncApp(app, {
-	resolveBearerPrincipal: resolveRequestOAuthPrincipal,
+	resolveBearerPrincipal: resolveRequestSessionPrincipal,
 	resolveStore: (env) => {
 		const bindings = env as Cloudflare.Env & {
 			STORE_AUTHORITY: DurableObjectNamespace<StoreAuthority>;
@@ -157,7 +153,7 @@ mountStoreSyncApp(app, {
 // attached, so deferred quota means not calling it. When storage is billed, a
 // `syncBlobStorageWithAutumn` policy and the `policies` seam it needs land on
 // `mountBlobsApp` together.
-mountBlobsApp(app, { auth: cookieOrBearer });
+mountBlobsApp(app, { auth: bearer });
 mountInferenceApp(app, {
 	auth: bearer,
 	policies: [chargeOpenAiCreditsWithAutumn],
@@ -171,13 +167,12 @@ mountTranscriptionApp(app, {
 
 // Cloud-only billing data plane. Auth is bundled into the mount so the
 // dashboard endpoints can't be mounted without it.
-mountBillingApi(app, { auth: cookieOrBearer });
+mountBillingApi(app, { auth: bearer });
 
 // Hosted account deletion (Wave G): one route coordinates authority storage,
 // the blob prefix, the Autumn customer, storage observations, and the auth
 // user, ordered so retries stay authenticated until deletion is complete.
-// Auth is bundled inside the mount: a fresh cookie session only, so a leaked
-// bearer can never destroy the account.
+// The mount owns the account-deletion authentication policy.
 mountAccountDeletionApi(app);
 
 // Dashboard SPA: serve the cloud UI shell for the dashboard URLs. The hosted

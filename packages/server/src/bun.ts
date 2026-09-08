@@ -23,7 +23,7 @@
 // The pure generator + boot entropy gate (`generateInstanceToken` /
 // `assertStrongToken`) live in `@epicenter/auth`.
 export { createEnvTokenResolver } from './auth/instance-token.js';
-// The OAuth resource-boundary error union the bearer resolver emits. Exported
+// The bearer resource-boundary error union the resolver emits. Exported
 // here too (it is not a Cloudflare module) so a Bun entry's dev bearer resolver
 // gets it without importing the main barrel, which would drag in the Cloudflare
 // Durable Objects and their `cloudflare:workers` import.
@@ -37,8 +37,7 @@ export {
 export { rateLimit } from './middleware/rate-limit.js';
 export {
 	requireBearerPrincipal,
-	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthPrincipal,
+	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
 // The cloud-only relational layer (Better Auth on `c.var.auth` + the auth surface,
 // and the Postgres lifecycle). A cloud-on-Bun entry calls `mountCloudAuth` +

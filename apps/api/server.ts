@@ -28,7 +28,7 @@
  * without duplicating it. The bottom of this file runs production only when this
  * file IS the entrypoint (`import.meta.main`), so `server.dev.ts` importing the
  * builder does not also start a second listener. Production passes no
- * `resolveBearerPrincipal` and keeps the real OAuth resolver; this file never imports the
+ * `resolveBearerPrincipal` and keeps the real session resolver; this file never imports the
  * dev bypass.
  *
  * Runtime skew is fenced by design: a DO-only behavior (hibernation restore,
@@ -62,13 +62,13 @@ import {
 	mountTranscriptionApp,
 	type ResolveBearerPrincipal,
 	requireBearerPrincipal,
-	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthPrincipal,
+	resolveRequestSessionPrincipal,
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
 import pg from 'pg';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
+import { buildSessionCallbacks } from './worker/session-callbacks.js';
 
 /**
  * The apps/api Bun env contract: the portable {@link ServerBindings}, the
@@ -101,7 +101,7 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
  * Boot the apps/api Bun server, optionally with an injected principal resolver.
  *
  * Production (`server.ts` as the entrypoint) passes nothing, so
- * `createServerApp` keeps the real OAuth resolver. `server.dev.ts` passes a
+ * this entry uses the real session resolver. `server.dev.ts` passes a
  * dev `Bearer dev:<principalId>` resolver so the parity smoke needs no interactive
  * login. Everything else (env validation, pool, mounts, `Bun.serve`) is
  * identical across the two, so they cannot drift.
@@ -120,8 +120,8 @@ export function startBunApiServer(
 	}
 
 	const port = Number(env.PORT ?? API_BUN_DEV_PORT);
-	// The auth origin must match where the process actually listens (cookies, the
-	// OAuth issuer, the token audience all derive from it). Default to localhost
+	// The auth origin must match where the process actually listens (cookies and
+	// hosted callback URLs derive from it). Default to localhost
 	// on the chosen port; an operator overrides it with their domain.
 	const origin = env.API_PUBLIC_ORIGIN ?? `http://localhost:${port}`;
 
@@ -137,11 +137,10 @@ export function startBunApiServer(
 	});
 
 	// The dev entry passes a dev bearer resolver for the parity smoke; production
-	// keeps the real OAuth bearer resolver. Each protected wrapper closes over it.
+	// keeps the real session bearer resolver. Each protected wrapper closes over it.
 	const resolveBearerPrincipal =
-		opts.resolveBearerPrincipal ?? resolveRequestOAuthPrincipal;
-	const cookieOrBearer = requireCookieOrBearerPrincipal(resolveBearerPrincipal);
-	const bearer = requireBearerPrincipal(resolveBearerPrincipal);
+		opts.resolveBearerPrincipal ?? resolveRequestSessionPrincipal;
+		const bearer = requireBearerPrincipal(resolveBearerPrincipal);
 	const serveAuthUiShell = () =>
 		new Response(
 			'Hosted auth UI is served by the SvelteKit app in Bun dev. Use `bun run --cwd apps/api/ui dev` for browser auth surfaces, or `bun run --cwd apps/api dev` for the Worker asset shell.',
@@ -169,10 +168,11 @@ export function startBunApiServer(
 	// attributes for localhost. The Cloud-only auth secrets come from the
 	// validated `env` closure (ADR-0076), never the portable `ServerBindings`.
 	mountCloudAuth(app, {
+		resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
 		resolveAuthSecrets: () => env,
 		serveAuthUiShell,
 	});
-	mountSessionApp(app, { auth: cookieOrBearer });
+	mountSessionApp(app, { auth: bearer });
 	mountInferenceApp(app, { auth: bearer });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
 	// here for the same reason inference is: this host composes no billing, so
@@ -180,7 +180,7 @@ export function startBunApiServer(
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
 	mountTranscriptionApp(app, { auth: bearer });
-	mountBlobsApp(app, { auth: cookieOrBearer });
+	mountBlobsApp(app, { auth: bearer });
 
 	const server = Bun.serve({
 		port,
