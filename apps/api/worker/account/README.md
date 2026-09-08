@@ -26,7 +26,7 @@ backups, logs, and external provider retention are separate from deletion of
 application-addressable records; no immediate physical-erasure guarantee has
 been established for them. Better Auth remains the authentication owner.
 
-## Historical ownership blocks complete erasure
+## Historical ownership requires deployment evidence
 
 Cloudflare's [List Objects API](https://developers.cloudflare.com/api/resources/durable_objects/subresources/namespaces/subresources/objects/methods/list/)
 returns opaque object IDs and `hasStoredData`, not principal or original name.
@@ -45,8 +45,64 @@ The smallest prerequisite is verified evidence that the hosted namespaces have
 no historical storage, or a complete object-ID-to-owner manifest covering every
 historical namespace/layout. If neither exists, the product must separately
 authorize retirement and purge of the historical namespaces, with its impact on
-all accounts understood. No production inspection, reset, or deployment was
-performed for this review. Future-only registration cannot repair this gap.
+all accounts understood. Future-only registration cannot repair this gap. The
+initial review did not inspect production; the subsequent read-only inspection below supplies a
+point-in-time baseline.
+
+## Live baseline and smallest reset, 2026-09-08
+
+At `2026-09-08T08:07:43Z`, authenticated Cloudflare REST requests returned
+`success: true`, `result: []`, `count: 0`, and an empty pagination cursor for
+both namespaces actually bound to the hosted `api` Worker:
+
+| Namespace | Namespace ID | Objects |
+| --- | --- | --- |
+| `api_StoreAuthority` | `8928d4c933ff48adb4a0de3c5d37d763` | 0 |
+| `api_GenerationsLedger` | `c314f26fa32840c7a994602757d0bc0f` | 0 |
+
+Account-wide namespace listing returned three namespaces in total. The third,
+`epicenter-sync-lab_SyncLabAuthority`, had 24 stored objects. It belongs to
+`epicenter-sync-lab`, the separate throwaway transport harness, and is not bound
+to `api`. It is outside the proposed hosted-account reset scope.
+
+`wrangler r2 bucket info epicenter-blobs` reported zero objects and zero bytes.
+That is bucket reporting, not an S3 object-list or in-flight-upload proof. The
+live Worker has a secret `BLOBS_S3_BUCKET` override; inspecting secret names does
+not establish its value. Postgres rows, external billing records, other S3
+endpoints, and pending uploads were not inspected. No secret values were printed.
+The live API still binds the existing Hyperdrive configuration.
+
+**The smallest reset justified by this evidence is no reset.** Keep the Worker,
+domain, secrets, database connection, and existing empty API namespaces. Do not
+retire the sync laboratory as part of account deletion. The user has confirmed
+there are no real users and historical hosted test data is disposable; no
+production deletion or deployment has been authorized or performed.
+
+This observation is not a write fence and is not a permanent empty-baseline
+certificate. Before enabling the inventory-backed implementation:
+
+1. Finish and locally verify inventory registration, mutation retirement,
+   durable retries, and every storage-owner deletion path.
+2. Prepare an approved deployment that temporarily refuses storage allocations
+   and upload issuance, including ledger-creating GETs. Retire existing sockets
+   and drain delayed requests and old Worker/DO versions; deployment alone does
+   not quiesce them. A past empty listing cannot stand in for this step.
+3. Repeat namespace enumeration after the gate is active, verify the actual blob
+   endpoint/bucket, and establish the disposition of outstanding upload writes.
+   Inspect relational and billing records through their enumerable owner keys;
+   an empty Durable Object namespace does not imply an empty account database.
+4. If the API namespaces remain empty, enable the new allocation owner without
+   deleting infrastructure. If either acquired unregistered objects, propose
+   retiring only the affected API Durable Object classes and creating fresh
+   namespaces as part of the gated cutover. Include exact namespace IDs and
+   irreversible data loss in that separate approval. A name change alone leaves
+   the old data behind; use a supported class deletion migration.
+5. Admit traffic only through inventory-backed allocation. Keep deletion
+   unavailable until blob completion/drain and the other owner guarantees pass.
+
+Cloudflare documents [class deletion as permanent namespace and data removal](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/).
+That is the bounded fallback if storage appears before cutover; deleting and
+recreating the entire project is unnecessary.
 
 ## Verification boundary
 

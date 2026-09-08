@@ -6,15 +6,21 @@ One hosted lifecycle owner inventories every allocated resource and durably
 erases it after retiring the account's ability to write.
 
 The endpoint currently refuses before deletion. The
-[storage map](../apps/api/worker/account/README.md) records the historical blocker.
+[storage map](../apps/api/worker/account/README.md) records the historical risk
+and the 2026-09-08 live inspection: both API namespaces returned zero objects.
+No reset is currently justified; a gated cutover must recheck this baseline.
 The [refusal decision](../docs/adr/0359-account-deletion-refuses-until-owned-storage-can-be-erased.md)
 records why the old synchronous sequence was removed. The workflow below is a
 candidate design, not implemented behavior.
 
 ## Prerequisite
 
-Resolve historical ownership through verified empty namespaces, a complete
-historical manifest, or separately authorized retirement of old namespaces.
+Use the observed empty API namespaces as the candidate starting point. The user
+confirmed zero real users and disposable historical test data. Recheck emptiness
+after stopping old allocations at an approved cutover. If storage appears,
+resolve ownership through a complete manifest or separately approved retirement
+of only the affected API namespaces. The separate sync laboratory is outside
+this scope.
 Do not deploy or reset storage as part of implementing this plan. No conditional
 flag may silently relabel an incomplete inventory as complete.
 
