@@ -43,7 +43,7 @@
 	import UserIdentity from '$lib/auth/UserIdentity.svelte';
 	import { auth } from '$lib/platform/auth';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { account, accountQueries, management: authClient, queryClient, signal } = getDashboard();
+	const { accountQueries, management: authClient, queryClient, signal } = getDashboard();
 	// Leaving account settings does not retire the shared dashboard Account.
 	let pageDisposed = false;
 	let ownedDialog: typeof confirmationDialog.options = null;
@@ -247,52 +247,6 @@
 		invalidate(accountKeys.passkeys);
 	}
 
-	/**
-	 * Hosted account deletion (`DELETE /api/account`). The server deletes in a
-	 * retry-safe order and answers 503 with the failed step on a partial
-	 * failure, so the remedy is always "retry until 204". Only a 204 means the
-	 * account is gone; afterwards we clear local auth before leaving the dashboard.
-	 */
-	function deleteAccount() {
-		const email = profile?.email ?? 'this account';
-		confirmationDialog.open({
-			title: 'Delete account',
-			description: `Permanently delete ${email} everywhere: synced workspaces, documents, uploaded files, billing, and every way to sign in. This cannot be undone. Data stored on your devices stays on your devices.`,
-			confirm: { text: 'Delete forever', variant: 'destructive' },
-			onConfirm: async () => {
-				if (pageDisposed || signal.aborted) return;
-				const response = await account.fetch('/api/account', {
-					method: 'DELETE',
-					credentials: 'omit',
-					headers: { 'x-epicenter-principal': account.principalId },
-				});
-				if (pageDisposed || signal.aborted) return;
-				if (!response.ok) {
-					if (response.status === 401 || response.status === 403) {
-						// The route requires a fresh session; the remedy is the same
-						// re-sign-in the other sensitive account changes use.
-						reauthToast();
-						return;
-					}
-					toast.error(
-						response.status === 503
-							? 'Deletion did not finish. Confirm again to retry until it completes.'
-							: 'Could not delete your account. Please try again.',
-					);
-					throw new Error(`Account deletion answered ${response.status}`); // retryable: keep the dialog open
-				}
-				toast.success('Your account has been deleted');
-				try {
-					await auth.signOut();
-				} catch {
-					// The session was already destroyed with the account.
-				}
-				if (pageDisposed || signal.aborted) return;
-				window.location.href = '/';
-			},
-		});
-		ownedDialog = confirmationDialog.options;
-	}
 
 	function deletePasskey(passkey: Passkey) {
 		const label = passkey.name?.trim() || 'this passkey';
@@ -521,12 +475,12 @@
 		</Card.Header>
 		<Card.Content class="flex flex-col gap-4">
 			<p class="text-sm text-muted-foreground">
-				Permanently deletes your synced workspaces, documents, uploaded files,
-				billing, and every way to sign in. Data stored on your devices stays on
-				your devices. This cannot be undone.
+				Account deletion is currently unavailable because we cannot yet guarantee
+				complete removal of your hosted data. Copies on your devices must be
+				removed separately.
 			</p>
 			<div>
-				<Button variant="destructive" onclick={deleteAccount}>
+				<Button variant="destructive" disabled>
 					<Trash2Icon class="size-4" />
 					Delete account
 				</Button>
