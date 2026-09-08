@@ -14,6 +14,7 @@ export type { AuthIdentityState } from './auth-identity-state.js';
 export { ApiSessionResponse, Principal } from './auth-types.js';
 export {
 	type CreateSessionAuthOptions,
+	createInstanceAuth,
 	createSessionAuth,
 	type SessionLauncher,
 } from './create-session-auth.js';
@@ -21,10 +22,6 @@ export {
 	type CreateHostedBrowserRedirectAuthOptions,
 	createHostedBrowserRedirectAuth,
 } from './hosted-browser-redirect-auth.js';
-export {
-	createInstanceCredentialAuthority,
-	type InstanceCredentialAuthority,
-} from './instance-credential-authority.js';
 export {
 	assertStrongToken,
 	generateInstanceToken,

@@ -614,3 +614,5 @@ Two habits make the link hard to forget:
 | [0357](0357-the-account-website-owns-account-management-and-apps-retry-their-own-work.md) | The account website owns account management and apps retry their own work | Proposed |
 
 When you add an ADR, add its row here.
+
+| [0361](0361-hosted-and-instance-credentials-share-one-account-lifetime.md) | Hosted and instance credentials share one Account lifetime | Proposed |

@@ -28,13 +28,16 @@ export type SessionLauncher = {
 	cancel?(): void;
 };
 
-export type CreateSessionAuthOptions = {
+type AccountAuthOptions = {
 	baseURL: string;
 	persistedAuthStorage: PersistedAuthStorage;
-	launcher: SessionLauncher;
 	fetch?: AuthFetch;
 	WebSocket?: typeof WebSocket;
 	log?: Logger;
+};
+
+export type CreateSessionAuthOptions = AccountAuthOptions & {
+	launcher: SessionLauncher;
 };
 
 type Attachment = {
@@ -69,14 +72,78 @@ export function createSessionAuth(
  * Restored identity is available offline; transport verifies it before first use.
  * Storage writes, including rollback of cancelled installation, are serialized.
  */
-export function createSessionAuth({
-	baseURL,
-	persistedAuthStorage,
-	launcher,
-	fetch: fetchImpl = globalThis.fetch.bind(globalThis),
-	WebSocket: WebSocketImpl = globalThis.WebSocket,
-	log = createLogger('auth/session'),
-}: CreateSessionAuthOptions): AuthClient {
+export function createSessionAuth(
+	options: CreateSessionAuthOptions,
+): AuthClient {
+	const {
+		baseURL,
+		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
+		log = createLogger('auth/session'),
+	} = options;
+	function revoke(token: string): Promise<void> {
+		return Promise.resolve()
+			.then(async () => {
+				const signal = AbortSignal.timeout(5_000);
+				const response = await whileActive(
+					fetchImpl(new URL('/auth/sign-out', baseURL), {
+						signal,
+						method: 'POST',
+						credentials: 'omit',
+						redirect: 'error',
+						headers: {
+							authorization: `Bearer ${token}`,
+							'content-type': 'application/json',
+						},
+						body: '{}',
+					}),
+					signal,
+				);
+				if (response.body) await whileActive(response.body.cancel(), signal);
+				if (!response.ok)
+					throw new Error(`Session revocation failed (${response.status}).`);
+			})
+			.catch((cause: unknown) =>
+				log.error(SessionDiagnostic.Failed({ cause })),
+			);
+	}
+
+	return createBearerAuth(options, revoke);
+}
+
+/** Connect to one selected instance using its existing operator token.
+ * First enrollment verifies /api/session. Disconnect only forgets the local
+ * credential; it cannot revoke a shared operator token.
+ */
+export function createInstanceAuth(
+	options: AccountAuthOptions & {
+		requestToken: (options: { signal: AbortSignal }) => Promise<string>;
+	},
+): AuthClient {
+	const { requestToken, ...shared } = options;
+	return createBearerAuth(
+		{
+			...shared,
+			launcher: {
+				async startSignIn({ signal }) {
+					return { status: 'completed', token: await requestToken({ signal }) };
+				},
+			},
+		},
+		async () => {},
+	);
+}
+
+function createBearerAuth(
+	{
+		baseURL,
+		persistedAuthStorage,
+		launcher,
+		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
+		WebSocket: WebSocketImpl = globalThis.WebSocket,
+		log = createLogger('auth/session'),
+	}: CreateSessionAuthOptions,
+	revoke: (token: string) => Promise<void>,
+): AuthClient {
 	const origin = new URL(baseURL).origin;
 	let persisted = persistedAuthStorage.initial;
 	let attachment: Attachment | null = null;
@@ -119,33 +186,6 @@ export function createSessionAuth({
 		const pending = writes.then(operation);
 		writes = pending.catch(() => undefined);
 		return pending;
-	}
-
-	function revoke(token: string): Promise<void> {
-		return Promise.resolve()
-			.then(async () => {
-				const signal = AbortSignal.timeout(5_000);
-				const response = await whileActive(
-					fetchImpl(new URL('/auth/sign-out', baseURL), {
-						signal,
-						method: 'POST',
-						credentials: 'omit',
-						redirect: 'error',
-						headers: {
-							authorization: `Bearer ${token}`,
-							'content-type': 'application/json',
-						},
-						body: '{}',
-					}),
-					signal,
-				);
-				if (response.body) await whileActive(response.body.cancel(), signal);
-				if (!response.ok)
-					throw new Error(`Session revocation failed (${response.status}).`);
-			})
-			.catch((cause: unknown) =>
-				log.error(SessionDiagnostic.Failed({ cause })),
-			);
 	}
 
 	function retire() {

@@ -27,7 +27,7 @@ server. Retirement aborts HTTP requests and response streams, closes sockets,
 and prevents pending authorization or retries from borrowing a successor
 credential. It cannot undo an operation the server already processed.
 
-Sign-out clears persistence and waits up to five seconds for a best-effort
+Hosted sign-out clears persistence and waits up to five seconds for a best-effort
 server revocation attempt. Failure or timeout is logged, not returned as proof
 of remote logout. Success confirms local cleanup, not remote revocation.
 Replacing a credential also awaits bounded cleanup of its predecessor before
@@ -119,3 +119,17 @@ disposable hosted-login fixtures, not real provider credentials or packaged Taur
 After building the API UI, `bun packages/auth/smoke/dashboard.browser.mjs`
 exercises the built sign-in/callback/dashboard routes and a virtual WebAuthn
 authenticator while a different principal owns the ambient browser cookie.
+
+## Instance credentials
+
+`createInstanceAuth` accepts a fixed `baseURL`, persisted auth storage, and
+`requestToken({ signal })`. The caller collects the existing operator token;
+the shared owner verifies `/api/session` before saving identity or publishing
+an Account. Previously verified identity can reopen offline, but network use
+must pass verification. The same Account lifetime, HTTP, and socket rules apply.
+
+Instance disconnect clears local persistence and retires the Account without
+calling hosted revocation endpoints. The token has no expiration; the operator
+rotates the configured server token to invalidate it. This constructor replaces
+the unused instance credential authority. Client server selection and token-entry
+UI are not yet wired into the shipped applications.
