@@ -10,6 +10,8 @@ const DASHBOARD_DEV_PORT = 5178;
 
 export default defineConfig({
 	plugins: [sveltekit(), tailwindcss()],
+	// The chart and shared tooltip must read the same LayerChart context.
+	resolve: { dedupe: ['layerchart'] },
 	server: {
 		port: DASHBOARD_DEV_PORT,
 		strictPort: true,

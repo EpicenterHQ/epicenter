@@ -158,7 +158,17 @@
 								v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v),
 						},
 					}}
-				/>
+				>
+					{#snippet tooltip()}
+						<Chart.Tooltip
+							labelFormatter={(date: Date) =>
+								date.toLocaleDateString('en-US', {
+									month: 'short',
+									day: 'numeric',
+								})}
+						/>
+					{/snippet}
+				</AreaChart>
 			</Chart.Container>
 
 			<div

@@ -392,7 +392,7 @@ try {
 		.filter({ hasText: 'fixture-small' })
 		.getByRole('cell', { name: '40', exact: true })
 		.waitFor();
-	const chartAreas = page.locator('[data-chart] path.path-area');
+	const chartAreas = page.locator('[data-chart] path.lc-area-path');
 	await chartAreas.first().waitFor();
 	assert.equal(await chartAreas.count(), 2);
 	for (const area of await chartAreas.all()) {
@@ -406,6 +406,33 @@ try {
 		path: '/tmp/epicenter-account-usage.png',
 		fullPage: true,
 	});
+	await page.locator('[data-chart]').hover({ position: { x: 750, y: 130 } });
+	const chartTooltip = page.locator('.cn-chart-tooltip');
+	await chartTooltip.getByText('fixture-large', { exact: true }).waitFor();
+	await chartTooltip.getByText('fixture-small', { exact: true }).waitFor();
+	await chartTooltip.getByText('40', { exact: true }).waitFor();
+	await chartTooltip.getByText('30', { exact: true }).waitFor();
+	// Let the tooltip's entrance transition finish before recording its appearance.
+	await page.waitForTimeout(250);
+	await page.screenshot({
+		path: '/tmp/epicenter-account-usage-hover.png',
+		fullPage: true,
+	});
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.locator('[data-chart]').hover({ position: { x: 230, y: 40 } });
+	await chartTooltip.waitFor();
+	await page.waitForTimeout(250);
+	const tooltipBounds = await chartTooltip.boundingBox();
+	assert(
+		tooltipBounds &&
+			tooltipBounds.x >= 0 &&
+			tooltipBounds.x + tooltipBounds.width <= 390,
+	);
+	await page.screenshot({
+		path: '/tmp/epicenter-account-usage-hover-mobile.png',
+		fullPage: true,
+	});
+	await page.setViewportSize({ width: 1280, height: 900 });
 
 	// An unrelated hosted cookie must not replace the dashboard's captured Alice.
 	const bobSession = await context.internalAdapter.createSession(bob.id, false);
