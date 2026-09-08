@@ -5,7 +5,9 @@ before destructive work: `DELETE /api/account` requires a fresh, live session
 bound by `x-epicenter-principal`, then returns `503` with
 `ACCOUNT_DELETION_UNAVAILABLE`. It accepts no job, tracks no progress, and never
 reports completion. The account page disables deletion. The former synchronous
-coordinator could remove login access while leaving hosted data behind.
+coordinator could remove login access while leaving hosted data behind. Automated
+deletion is deferred for the zero-user V1; see
+[the decision](../../../../docs/adr/0360-defer-automated-hosted-account-deletion.md).
 
 ## Storage inventory, inspected 2026-09-08
 
@@ -79,7 +81,8 @@ there are no real users and historical hosted test data is disposable; no
 production deletion or deployment has been authorized or performed.
 
 This observation is not a write fence and is not a permanent empty-baseline
-certificate. Before enabling the inventory-backed implementation:
+certificate. The following are future cutover checks, not active implementation work. Before
+enabling automated deletion:
 
 1. Finish and locally verify inventory registration, mutation retirement,
    durable retries, and every storage-owner deletion path.
@@ -109,5 +112,6 @@ recreating the entire project is unnecessary.
 `routes.test.ts` proves refusal, principal binding, session freshness, repeated
 requests, and absence of storage/binding access using isolated fixtures. It is
 not an erasure test. No durable deletion workflow has been implemented or
-verified. Its required design and acceptance cases are in
-[the workflow plan](../../../../specs/20260908T020000-hosted-account-deletion.md).
+verified. Automation is deferred. Complete ownership and a tested operator
+procedure are prerequisites to onboarding external users; the follow-up is
+tracked in [the backlog](../../../../BACKLOG.md).

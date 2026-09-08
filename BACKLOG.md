@@ -1,5 +1,17 @@
 # Backlog
 
+## Establish hosted erasure before external onboarding
+
+- Desired result: Attribute every hosted allocation to its account and locally
+  verify an operator-run procedure that retires access and removes owned data.
+- Grounding: Account deletion currently refuses before destructive work. Empty
+  API namespaces were observed on 2026-09-08, but complete allocation ownership
+  and an operator deletion procedure remain unbuilt. See
+  [ADR-0360](docs/adr/0360-defer-automated-hosted-account-deletion.md).
+- Revisit when: Preparing to onboard external users. Automated retries and a
+  self-service endpoint stay deferred until the product needs them or operator
+  deletion becomes recurring work. Self-hosted reset is outside this scope.
+
 ## Make Sign in with Apple a supported product path
 
 - Desired result: Expose and support Sign in with Apple wherever Epicenter
