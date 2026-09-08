@@ -1,5 +1,7 @@
+import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type * as Y from '@y/y';
-import type { Static } from 'typebox';
+import { type Static, Type } from 'typebox';
+import type { TypedTableHandle } from '../store/handles.js';
 import type {
 	CalendarDateString,
 	DateTimeString,
@@ -53,11 +55,46 @@ const definition = defineData({
 			status: field.select(['draft', 'published']),
 			content: plainText(),
 		}),
+		recordings: defineTable({
+			audio: field.blob(),
+			optional: field.nullable(field.blob()),
+			ordinaryId: field.string<BlobId>(),
+			content: plainText(),
+		}),
+		reversed: defineTable({
+			audio: Type.Union([Type.Null(), field.blob()]),
+			content: plainText(),
+		}),
 	},
 });
 
 type Item = RowOf<typeof definition.tables.items>;
 type Values = typeof definition.kv;
+type Recording = RowOf<typeof definition.tables.recordings>;
+type RecordingInput = CreateRowOf<typeof definition.tables.recordings>;
+
+export type _NullableBlobInput = Expect<
+	Equal<RecordingInput['optional'], Blob | BlobId | null>
+>;
+export type _BrandedStringIsNotOwning = Expect<
+	Equal<RecordingInput['ordinaryId'], BlobId>
+>;
+export type _ReversedNullableInput = Expect<
+	Equal<
+		CreateRowOf<typeof definition.tables.reversed>['audio'],
+		Blob | BlobId | null
+	>
+>;
+export type _ReversedNullableRead = Expect<
+	Equal<RowOf<typeof definition.tables.reversed>['audio'], BlobId | null>
+>;
+export type _ReversedNullableCreateIsAsync = Expect<
+	ReturnType<
+		TypedTableHandle<typeof definition.tables.reversed>['create']
+	> extends Promise<unknown>
+		? true
+		: false
+>;
 
 export type _SelectStatic = Expect<
 	Equal<Static<Values['status']>, 'draft' | 'published'>
@@ -85,6 +122,7 @@ export type _RowStatusStatic = Expect<
 >;
 export type _RowIdIsString = Expect<Equal<Item['id'], string>>;
 export type _RowContentIsLiveType = Expect<Equal<Item['content'], Y.Type>>;
+export type _BlobRowStoresId = Expect<Equal<Recording['audio'], BlobId>>;
 
 declare const content: Y.Type;
 const createWithoutContent: CreateRowOf<typeof definition.tables.items> = {
@@ -96,3 +134,18 @@ const createWithContent: CreateRowOf<typeof definition.tables.items> = {
 };
 void createWithoutContent;
 void createWithContent;
+const createRecording: RecordingInput = {
+	audio: new Blob(['audio'], { type: 'audio/wav' }),
+	optional: null,
+	ordinaryId: generateBlobId(),
+};
+void createRecording;
+const copyRecording: RecordingInput = {
+	audio: generateBlobId(),
+	optional: generateBlobId(),
+	ordinaryId: generateBlobId(),
+};
+void copyRecording;
+// @ts-expect-error: arbitrary strings are not validated copy-source IDs.
+const invalidCopy: RecordingInput['audio'] = 'not-a-blob-id';
+void invalidCopy;

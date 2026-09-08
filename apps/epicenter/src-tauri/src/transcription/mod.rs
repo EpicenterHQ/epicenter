@@ -11,6 +11,7 @@ pub use model_cache::ModelCache;
 pub use settings::{LocalTranscriptionSettings, SettingsError, UnloadPolicy};
 
 use crate::recorder::read_blob_samples;
+use crate::recorder::blob::BlobScope;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -196,11 +197,12 @@ pub fn get_local_transcription_readiness(
 pub async fn transcribe_recording(
     audio_blob_id: String,
     hints: TranscriptionHints,
+    scope: BlobScope,
     app_handle: AppHandle,
     model_cache: State<'_, ModelCache>,
 ) -> Result<TranscriptionOutcome, TranscriptionError> {
     let samples = crate::timing::measure("transcribe.read+decode", || {
-        read_blob_samples(&app_handle, &audio_blob_id)
+        read_blob_samples(&app_handle, &audio_blob_id, &scope)
     })
     .map_err(|e| TranscriptionError::AudioReadError {
         message: e.to_string(),

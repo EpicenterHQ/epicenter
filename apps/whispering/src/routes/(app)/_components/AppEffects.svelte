@@ -17,10 +17,7 @@
 	// scoped to this component through $effect cleanup or onMount unmount.
 	const app = getWhisperingApp();
 	const queryClient = useQueryClient();
-	void app.recordings.audioReady.then(() => {
-		void queryClient.invalidateQueries({ queryKey: ['audio', 'availability'] });
-		void queryClient.invalidateQueries({ queryKey: ['audio', 'unclaimed'] });
-	});
+	void queryClient.invalidateQueries({ queryKey: ['audio', 'availability'] });
 	reconcileBackups(app);
 	exposeDebugCommands(app);
 	logAppStarted(app);

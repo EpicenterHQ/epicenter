@@ -8,7 +8,7 @@
 	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
 	import { fromData } from '@epicenter/svelte';
 	import type { vocabDefinition } from '$lib/data';
-	import type { ReplicaData } from '@epicenter/data';
+	import type { App } from '@epicenter/app';
 	import { onDestroy } from 'svelte';
 	import { runVocabMutation } from '$lib/mutation';
 	import { buildPracticeOpening } from '$lib/practice';
@@ -33,8 +33,8 @@
 		removeLocalData,
 	}: {
 		account: Account;
-		data: ReplicaData<typeof vocabDefinition>;
-		removeLocalData: () => Promise<void>;
+		data: App<typeof vocabDefinition>;
+		removeLocalData?: () => Promise<void>;
 	} = $props();
 
 	// `fromData` runs here rather than above, because this mounts exactly once

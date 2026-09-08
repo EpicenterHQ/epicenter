@@ -15,7 +15,7 @@
 //! rules prevent is one window destroying, stopping, or collecting the blob of
 //! a recording another window started.
 
-use crate::recorder::blob::mint_blob_id;
+use crate::recorder::blob::{mint_blob_id, BlobScope};
 use crate::recorder::ended::{EndedReason, RecordingEndedEvent};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{HostRecording, Recorder, Result};
@@ -128,6 +128,7 @@ pub async fn enumerate_recording_devices(
 #[specta::specta]
 pub async fn start_recording(
     device_identifier: Option<String>,
+    scope: BlobScope,
     recorder: State<'_, Mutex<Recorder>>,
     app_handle: AppHandle,
     window: WebviewWindow,
@@ -145,6 +146,7 @@ pub async fn start_recording(
             audio_blob_id,
             owner_label,
             app_handle.clone(),
+            scope,
         )?
     };
     refresh_recording_indicator(&app_handle);

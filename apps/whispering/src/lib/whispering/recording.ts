@@ -29,7 +29,9 @@ export type Recording = Omit<RecordingRow, 'audioBlobId'> & {
  * The application's create input. The recording domain initializes its
  * transcription columns explicitly. `uploadedAt` is withheld because the audio workflows are its
  * only writer, and `audioBlobId` carries the brand for the same reason
- * {@link Recording} does.
+ * {@link Recording} does. A native capture passes its source BlobId; the owning
+ * table copies it to the row's fresh immutable id and leaves the source cleanup
+ * to the capture workflow.
  */
 export type NewRecording = Omit<
 	Parameters<WhisperingData['tables']['recordings']['create']>[0],
@@ -38,7 +40,7 @@ export type NewRecording = Omit<
 	| 'transcriptionStatus'
 	| 'transcriptionCompletedAt'
 	| 'transcriptionError'
-> & { audioBlobId: BlobId };
+> & { audioBlobId: Blob | BlobId };
 
 /** The one boundary where a stored row becomes an app recording. */
 export function asRecording(row: RecordingRow): Recording {
@@ -53,6 +55,3 @@ export function asRecording(row: RecordingRow): Recording {
  * strings it contains. Same one fact, crossing the same boundary the other way,
  * so it lives beside {@link asRecording} rather than at the write site.
  */
-export function asStoredBlobId(id: BlobId): RecordingRow['audioBlobId'] {
-	return id as RecordingRow['audioBlobId'];
-}

@@ -16,7 +16,12 @@ import type * as Y from '@y/y';
 import { type Static, type TSchema, Type } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import { type Field, field as genericField } from '../field/index.js';
+import type { BlobId } from '@epicenter/blobs';
+import {
+	BLOB_KEYWORD,
+	type Field,
+	field as genericField,
+} from '../field/index.js';
 
 export const RESERVED_ATTRIBUTE_PREFIX = '!';
 export const KV_ROOT = 'kv';
@@ -202,9 +207,8 @@ export type DataDefinition = {
  * is a real defect in structural recovery and it is not a reason to reach for
  * the escape hatch, because `Type.Union` never had it.
  *
- * The old return type also carried `& { anyOf: readonly [S, …] }` so the shape
- * could be read back at the type level. Nothing ever read it: `nullableParts`
- * recognizes a nullable field at RUNTIME, off an untyped record.
+ * TypeBox retains the tuple for the owning-field input lens; runtime compilation
+ * recognizes the same nullable shape from its serialized schema.
  */
 function nullable<S extends TSchema>(inner: S) {
 	return Type.Union([inner, Type.Null()]);
@@ -269,7 +273,10 @@ export type RowOf<T extends TableDeclaration> = {
 } & TableValues<T>;
 
 /**
- * What `create` takes: the values, and the node if the caller built one.
+ * What `create` takes: values, attachment sources, and an optional content node.
+ * Owning blob fields accept bytes or a local BlobId to copy, plus null when
+ * declared nullable. Every attachment receives a new ID before row acceptance;
+ * a source ID is never adopted or deleted by creation.
  *
  * The node is OPTIONAL, and that is what keeps a programmatic `create` from
  * having to build an empty one it does not care about: an omitted node is
@@ -281,8 +288,25 @@ export type RowOf<T extends TableDeclaration> = {
  * across them; `createRow` refuses an integrated node rather than letting
  * either happen.
  */
-export type CreateRowOf<T extends TableDeclaration> = TableValues<T> & {
+export type CreateRowOf<T extends TableDeclaration> = {
+	[K in keyof TableFields<T>]: K extends BlobFieldNames<T>
+		? BlobId | Blob | Extract<Static<TableFields<T>[K]>, null>
+		: Static<TableFields<T>[K]>;
+} & {
 	content?: Y.Type;
 };
+
+/** The declared fields whose bytes are owned by the table rather than stored inline. */
+export type BlobFieldNames<T extends TableDeclaration> = {
+	[K in keyof TableFields<T>]: TableFields<T>[K] extends
+		| { [BLOB_KEYWORD]: true }
+		| {
+				anyOf:
+					| [{ [BLOB_KEYWORD]: true }, { type: 'null' }]
+					| [{ type: 'null' }, { [BLOB_KEYWORD]: true }];
+		  }
+		? K
+		: never;
+}[keyof TableFields<T>];
 
 export type KvOf<TDatabase extends DataDefinition> = FieldsOut<TDatabase['kv']>;

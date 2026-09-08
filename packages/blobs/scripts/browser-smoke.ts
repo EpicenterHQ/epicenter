@@ -44,6 +44,7 @@ try {
 		const scope = {
 			appId: 'so.epicenter.smoke',
 			principalId: `webkit-${crypto.randomUUID()}`,
+			authorityId: 'smoke-authority',
 		};
 		const input = new Blob(['webkit bytes'], { type: 'audio/wav' });
 		const first = createBrowserBlobStore(scope);
@@ -53,6 +54,13 @@ try {
 		const collision = await first.put(id, new Blob(['replacement']));
 		if (collision.error?.name !== 'BlobAlreadyExists') {
 			throw new Error('Immutable replacement was not refused.');
+		}
+		const destinationId = 'blob_123456789012345678901';
+		const copied = await first.copy(id, destinationId);
+		if (copied.error) fail(copied.error);
+		const copyCollision = await first.copy(id, destinationId);
+		if (copyCollision.error?.name !== 'BlobAlreadyExists') {
+			throw new Error('COPY replaced an immutable destination.');
 		}
 
 		// Open a new store instance to prove persistence crosses application reload.
@@ -101,6 +109,18 @@ try {
 		const missing = await reopened.get(id);
 		if (missing.error?.name !== 'BlobNotFound') {
 			throw new Error('Deleted bytes remained readable.');
+		}
+		const independent = await reopened.get(destinationId);
+		if (independent.error) fail(independent.error);
+		if (
+			(await independent.data.text()) !== 'webkit bytes' ||
+			independent.data.type !== 'audio/wav'
+		) {
+			throw new Error('COPY lost bytes or metadata after source deletion.');
+		}
+		const missingCopy = await reopened.copy(id, 'blob_zzzzzzzzzzzzzzzzzzzzz');
+		if (missingCopy.error?.name !== 'BlobNotFound') {
+			throw new Error('COPY did not report its missing source.');
 		}
 		const erased = await eraseBlobStore(scope);
 		if (erased.error) fail(erased.error);

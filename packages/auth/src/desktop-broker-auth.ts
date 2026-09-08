@@ -21,6 +21,7 @@ import { resolveTargetUrl } from './resolve-target-url.js';
 export type DesktopAuthBootstrap = {
 	state: AuthIdentityState;
 	connection: {
+		authorityId: string;
 		baseURL: string;
 		status: ConnectionStatus;
 	};
@@ -150,7 +151,7 @@ export function createDesktopBrokerAuth({
 		bootstrap.state.status === 'signed-out'
 			? null
 			: Object.freeze({
-					authorityId: new URL(baseURL).origin,
+					authorityId: bootstrap.connection.authorityId,
 					principalId: bootstrap.state.principalId,
 					baseURL,
 					fetch: accountFetch,

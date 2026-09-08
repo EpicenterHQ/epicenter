@@ -50,11 +50,17 @@ import {
 	type TUnsafe,
 	Type,
 } from 'typebox';
+import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
+import type { BlobId } from '@epicenter/blobs';
 import type { Brand } from 'wellcrafted/brand';
 import type { JsonValue } from 'wellcrafted/json';
 import type { CalendarDateString } from './calendar-date-string.js';
 import type { DateTimeString } from './datetime-string.js';
-import { JSON_SCHEMA_KEYWORD, REFERENCE_KEYWORD } from './field.js';
+import {
+	BLOB_KEYWORD,
+	JSON_SCHEMA_KEYWORD,
+	REFERENCE_KEYWORD,
+} from './field.js';
 import {
 	INSTANT_STRING_PATTERN,
 	type InstantString,
@@ -122,6 +128,17 @@ function reference<T extends string = string>(
 		: T extends BrandedString
 			? TUnsafe<T>
 			: never;
+}
+
+/** An owning byte attachment, stored as an opaque {@link BlobId}. */
+function blob() {
+	return Object.assign(
+		Type.Unsafe<BlobId>({
+			...Type.String(),
+			pattern: `^${BLOB_ID_ROUTE_REGEX}$`,
+		}),
+		{ [BLOB_KEYWORD]: true as const },
+	);
 }
 
 /**
@@ -283,6 +300,7 @@ function json<S extends TSchema>(inner: S): TJson<S> {
 export const field = {
 	string,
 	reference,
+	blob,
 	url,
 	number,
 	integer,

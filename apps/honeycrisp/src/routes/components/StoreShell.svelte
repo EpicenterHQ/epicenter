@@ -5,7 +5,6 @@
 	import { fromData } from '@epicenter/svelte';
 	import { createHoneycrisp, setHoneycrisp } from '$lib/app.svelte.js';
 	import type { HoneycrispData } from '$lib/data';
-	import { openWorkingCopy } from '#platform/folder';
 	import { navigation } from '$lib/navigation.svelte.js';
 	import CommandPalette from './CommandPalette.svelte';
 	import NoteBodyPane from './NoteBodyPane.svelte';
@@ -20,7 +19,7 @@
 	let {
 		data: opened,
 		removeLocalData,
-	}: { data: HoneycrispData; removeLocalData: () => Promise<void> } = $props();
+	}: { data: HoneycrispData; removeLocalData?: () => Promise<void> } = $props();
 
 	/* svelte-ignore state_referenced_locally */
 	const data = fromData(opened);
@@ -38,11 +37,6 @@
 	// is what decides which refusals a person can act on and which ones render
 	// as nothing.
 	const syncStatus = () => data.sync.status();
-	// Nothing to construct in a build with no filesystem: the seam hands out
-	// the capability rather than a flag, so a browser build has no working copy
-	// and the components that take one are never mounted (ADR-0337).
-	/* svelte-ignore state_referenced_locally */
-	const folder = openWorkingCopy?.(data);
 </script>
 
 <PersistenceNotice persistence={data.persistence} />
@@ -63,12 +57,12 @@
 />
 
 <SidebarProvider>
-	<HoneycrispSidebar {syncStatus} {folder} {removeLocalData} />
+	<HoneycrispSidebar {syncStatus} folder={undefined} {removeLocalData} />
 
 	<main class="flex h-screen flex-1 overflow-hidden">
 		<Resizable.PaneGroup direction="horizontal">
 			<Resizable.Pane defaultSize={35} minSize={20}>
-				<NoteList hasFolder={folder !== undefined} />
+				<NoteList hasFolder={false} />
 			</Resizable.Pane>
 			<Resizable.Handle />
 			<Resizable.Pane defaultSize={65} minSize={30} class="flex flex-col">

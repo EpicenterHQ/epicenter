@@ -28,10 +28,10 @@ operations reject premature or closed use, including methods retained by a
 consumer. Hydration fills the same document; no forwarding facade replaces it.
 Invalid declarations and accounts missing authority identity throw before I/O.
 
-The same document factory constructs blob operations. The app selects platform
+The same document factory constructs blob and SQL operations. The app selects platform
 primitives and the browser opener composes the actual capabilities before one
 final freeze. There is no prototype facade or second closure flag. Retained blob
-methods, including remote methods, throw on premature or closed use just as table
+and SQL methods throw on premature or closed use just as table
 methods do; ordinary storage and transfer failures remain Results.
 
 Tables declaring `field.blob()` create attachments directly:
@@ -45,8 +45,10 @@ if (created.error !== null) return handleError(created.error);
 // created.data.audio is a BlobId; app.blobs reads its locally stored bytes.
 ```
 
-`CreateRowOf` accepts bytes for owning fields, including `Blob | null` for nullable
-fields. Plain tables still create synchronously. A branded string field does not
+`CreateRowOf` accepts bytes or a local `BlobId` to copy for owning fields, plus
+`null` for nullable fields. Every attachment gets a new ID; creation preserves
+the source, even when it already belongs to another row. Plain tables still
+create synchronously. A branded string field does not
 own bytes. Owning fields cannot be patched by ID, declared in KV, or created inside
 a synchronous `transact()` callback.
 
@@ -59,7 +61,7 @@ the document's persistence contract. This is not a cross-store atomic transactio
 or crash-recovery journal.
 
 Repeated `close()` calls return one completion promise. Close disables new
-operations immediately, then drains acquisition, persistence, and admitted blob
+operations immediately, then drains acquisition, persistence, and admitted blob/SQL
 operations before releasing resources. Acquired playback sources are released
 once, including sources that arrive during close. Consumers can release them
 earlier and can safely repeat disposal after close.
@@ -86,9 +88,9 @@ Opening is cache-first. A device with a local generation can open it offline;
 a device without an account generation must reach the authority to list, fetch,
 or create one. The app owns persistence, sync, and teardown.
 
-Account opening requires `authorityId`, and the app handle now composes the
-scoped SQLite capability when a runtime owner is supplied. Platform wiring for
-apps that do not use SQLite can omit that owner. The remaining target contract
+Account opening requires `authorityId`. Every app supplies its platform SQLite
+owner; SQL-only consumers can use the device package without opening a document.
+The remaining target contract
 and future whole-library removal are recorded in
 [ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
 

@@ -11,7 +11,7 @@
  * it (ADR-0213).
  */
 
-import type { ReplicaData } from '@epicenter/data';
+import type { App } from '@epicenter/app';
 import type { vocabDefinition } from '$lib/data';
 
 const APPLICATION_DEFAULTS = { showReadings: true } as const;
@@ -19,7 +19,7 @@ const APPLICATION_DEFAULTS = { showReadings: true } as const;
 export function createSettingsState({
 	data,
 }: {
-	data: ReplicaData<typeof vocabDefinition>;
+	data: App<typeof vocabDefinition>;
 }) {
 	function read(): boolean {
 		// One key, one fallback. `get` answers `undefined` for a key never

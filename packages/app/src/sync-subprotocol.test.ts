@@ -18,7 +18,6 @@
 
 import { expect, test } from 'bun:test';
 import { createSessionAuth } from '@epicenter/auth';
-import type { ReplicaDocument } from '@epicenter/data';
 import {
 	defineData,
 	defineTable,
@@ -42,22 +41,6 @@ const definition = defineData({
 });
 
 const BASE_URL = 'https://api.epicenter.test';
-
-type AddressedStore = ReplicaDocument & AsyncDisposable;
-
-/** The address an opener stamps on a store (ADR-0340), applied by hand here. */
-async function openAddressedStore(): Promise<AddressedStore> {
-	const store = await openMemory(definition);
-	const addressed = Object.create(store) as AddressedStore;
-	Object.defineProperties(addressed, {
-		appId: { value: definition.id },
-		dataId: { value: definition.id },
-		generation: { value: 1 },
-		baseURL: { value: BASE_URL },
-		principalId: { value: asPrincipalId('user-1') },
-	});
-	return addressed;
-}
 
 test('the dial offers the main subprotocol beside the bearer', async () => {
 	const openings: { url: string; protocols: string[] }[] = [];
@@ -94,9 +77,10 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 				: new Response(null, { status: 204 }),
 	});
 
-	const store = await openAddressedStore();
+	const store = await openMemory(definition);
 	const connection = attachStoreSync({
 		store,
+		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
 		transport:
 			auth.state.status === 'signed-out'
 				? (() => {

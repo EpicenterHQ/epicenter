@@ -29,7 +29,9 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",

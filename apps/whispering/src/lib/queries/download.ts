@@ -24,7 +24,7 @@ export function createDownloadQueries(
 				Result<void, BlobNotFound | BlobStoreFailed | DownloadError>
 			> => {
 				const { data: audioBlob, error: getAudioBlobError } =
-					await app.blobs.local.get(recording.audioBlobId);
+					await app.blobs.get(recording.audioBlobId);
 
 				if (getAudioBlobError) return Err(getAudioBlobError);
 

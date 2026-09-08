@@ -9,6 +9,7 @@ use tauri::AppHandle;
 
 use super::encode::encode_pcm_to_opus_ogg;
 use crate::recorder::read_blob_samples;
+use crate::recorder::blob::BlobScope;
 
 /// Compress a saved audio blob into OGG/Opus for cloud upload.
 ///
@@ -28,11 +29,12 @@ use crate::recorder::read_blob_samples;
 #[tauri::command]
 pub async fn encode_recording_for_upload(
     audio_blob_id: String,
+    scope: BlobScope,
     app_handle: AppHandle,
 ) -> Result<Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let samples = crate::timing::measure("encode.read+decode", || {
-            read_blob_samples(&app_handle, &audio_blob_id)
+            read_blob_samples(&app_handle, &audio_blob_id, &scope)
         })
         .map_err(|e| e.to_string())?;
         // `read_blob_samples` always decodes to 16 kHz; pass that through so the

@@ -39,7 +39,7 @@
 		/** The `~/Epicenter` folder, or nothing in a build with no filesystem. */
 		folder: WorkingCopy | undefined;
 		/** Erase this account's copy and reopen, which only the session can do. */
-		removeLocalData: () => Promise<void>;
+		removeLocalData?: () => Promise<void>;
 	} = $props();
 
 	const honeycrisp = getHoneycrisp();
@@ -100,7 +100,7 @@
 						// alone: deleting somebody's own directory is not what this button
 						// says it does. Erasing the replica is the rest of it, and the
 						// session owns it, because erasing swaps the session.
-						await removeLocalData();
+						await removeLocalData?.();
 					}}
 				/>
 				<Sidebar.Trigger />

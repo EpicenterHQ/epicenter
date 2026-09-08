@@ -7,13 +7,14 @@
  * Key behaviors:
  * - Complete body and metadata directories publish atomically
  * - Immutable identifiers refuse replacement, including concurrent writers
+ * - Copies preserve the source and publish an independent identity without JS buffering
  * - Stat verifies data presence and exact size without loading its bytes
  * - Request bodies stream into the store without becoming an in-memory Blob
  * - Runtime BlobId validation protects every filesystem operation
  * - Missing reads and repeated deletes keep their typed contract
  */
 
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import {
 	stat as fsStat,
 	mkdir,
@@ -125,6 +126,183 @@ test('concurrent puts publish one complete immutable object', async () => {
 	).toHaveLength(1);
 	const stored = expectOk(await blobs.get(id));
 	expect(['first', 'second']).toContain(await stored.text());
+});
+
+test.each([
+	'request',
+	'response',
+] as const)('copy preserves exact %s metadata after reopening', async (kind) => {
+	const { blobs, directory } = await setup();
+	const source = generateBlobId();
+	const destination = generateBlobId();
+	const headers = { 'content-type': 'text/plain' };
+	expectOk(
+		kind === 'request'
+			? await blobs.putRequest(
+					source,
+					new Request('http://localhost', {
+						method: 'POST',
+						headers,
+						body: 'hello',
+					}),
+				)
+			: await blobs.putResponse(source, new Response('hello', { headers })),
+	);
+	expectOk(await blobs.copy(source, destination));
+	const reopened = createBunBlobStore({ directory });
+	expect(expectOk(await reopened.stat(destination))).toEqual({
+		contentType: 'text/plain',
+		size: 5,
+	});
+	expect(expectOk(await reopened.stat(destination))).toEqual(
+		expectOk(await reopened.stat(source)),
+	);
+});
+
+test('copy preserves metadata and makes both identities independently deletable', async () => {
+	const { blobs, directory } = await setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(
+		await blobs.put(sourceId, new Blob(['source'], { type: 'audio/wav' })),
+	);
+	expectOk(await blobs.copy(sourceId, destinationId));
+	const reopened = createBunBlobStore({ directory });
+	expect(await expectOk(await reopened.get(destinationId)).text()).toBe(
+		'source',
+	);
+	expect(expectOk(await reopened.stat(destinationId))).toEqual({
+		size: 6,
+		contentType: 'audio/wav',
+	});
+	expectOk(await reopened.delete(destinationId));
+	expect(await expectOk(await blobs.get(sourceId)).text()).toBe('source');
+	expectOk(await blobs.copy(sourceId, destinationId));
+	expectOk(await blobs.delete(sourceId));
+	expect(await expectOk(await reopened.get(destinationId)).text()).toBe(
+		'source',
+	);
+});
+
+test('copy refuses existing and identical destinations without changing either object', async () => {
+	const { blobs } = await setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await blobs.put(sourceId, new Blob(['source'])));
+	expectOk(await blobs.put(destinationId, new Blob(['destination'])));
+	for (const id of [destinationId, sourceId]) {
+		expect(expectErr(await blobs.copy(sourceId, id))).toMatchObject({
+			name: 'BlobAlreadyExists',
+			id,
+		});
+	}
+	expect(await expectOk(await blobs.get(sourceId)).text()).toBe('source');
+	expect(await expectOk(await blobs.get(destinationId)).text()).toBe(
+		'destination',
+	);
+});
+
+test('copy cannot read another store and publishes nothing for a missing source', async () => {
+	const first = await setup();
+	const second = await setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await first.blobs.put(sourceId, new Blob(['first store'])));
+	expect(
+		expectErr(await second.blobs.copy(sourceId, destinationId)),
+	).toMatchObject({ name: 'BlobNotFound', id: sourceId });
+	expect(expectErr(await second.blobs.get(destinationId)).name).toBe(
+		'BlobNotFound',
+	);
+	expect(await expectOk(await first.blobs.get(sourceId)).text()).toBe(
+		'first store',
+	);
+});
+
+test('concurrent copies publish one destination and preserve both sources', async () => {
+	const { blobs } = await setup();
+	const firstId = generateBlobId();
+	const secondId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await blobs.put(firstId, new Blob(['first'])));
+	expectOk(await blobs.put(secondId, new Blob(['second'])));
+	const results = await Promise.all([
+		blobs.copy(firstId, destinationId),
+		blobs.copy(secondId, destinationId),
+	]);
+	expect(results.filter((result) => result.error === null)).toHaveLength(1);
+	expect(
+		results.filter((result) => result.error?.name === 'BlobAlreadyExists'),
+	).toHaveLength(1);
+	expect(['first', 'second']).toContain(
+		await expectOk(await blobs.get(destinationId)).text(),
+	);
+	expect(await expectOk(await blobs.get(firstId)).text()).toBe('first');
+	expect(await expectOk(await blobs.get(secondId)).text()).toBe('second');
+});
+
+test('copy transfers a large lazy file without calling JavaScript byte readers', async () => {
+	const { blobs } = await setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	const size = 12 * 1024 * 1024;
+	expectOk(
+		await blobs.put(
+			sourceId,
+			new Blob([new Uint8Array(size).fill(73)], { type: 'audio/wav' }),
+		),
+	);
+	const filePrototype = Object.getPrototypeOf(
+		expectOk(await blobs.get(sourceId)),
+	) as Blob;
+	const readers = (['arrayBuffer', 'bytes', 'text', 'stream'] as const).map(
+		(method) =>
+			spyOn(filePrototype, method).mockImplementation((): never => {
+				throw new Error(`COPY called ${method}`);
+			}),
+	);
+	try {
+		expectOk(await blobs.copy(sourceId, destinationId));
+		for (const reader of readers) expect(reader).not.toHaveBeenCalled();
+	} finally {
+		for (const reader of readers) reader.mockRestore();
+	}
+	expect(expectOk(await blobs.stat(destinationId))).toEqual({
+		size,
+		contentType: 'audio/wav',
+	});
+	const bytes = new Uint8Array(
+		await expectOk(await blobs.get(destinationId)).arrayBuffer(),
+	);
+	expect(bytes.every((byte) => byte === 73)).toBe(true);
+});
+
+test('copy forwards a corrupt source failure without publishing destination bytes', async () => {
+	const { blobs, directory } = await setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await blobs.put(sourceId, new Blob(['source'])));
+	await unlink(join(directory, sourceId, 'data'));
+	expect(expectErr(await blobs.copy(sourceId, destinationId))).toMatchObject({
+		name: 'BlobStoreFailed',
+		id: sourceId,
+	});
+	expect(expectErr(await blobs.stat(destinationId)).name).toBe('BlobNotFound');
+});
+
+test('copy rejects path-hostile source and destination ids', async () => {
+	const { blobs, outside, hostileId } = await setupHostilePathTarget();
+	const sourceId = generateBlobId();
+	expectOk(await blobs.put(sourceId, new Blob(['source'])));
+	expect(
+		expectErr(await blobs.copy(hostileId, generateBlobId())),
+	).toMatchObject({ name: 'BlobStoreFailed', id: hostileId });
+	expect(expectErr(await blobs.copy(sourceId, hostileId))).toMatchObject({
+		name: 'BlobStoreFailed',
+		id: hostileId,
+	});
+	expect(await readFile(join(outside, 'sentinel'), 'utf8')).toBe('untouched');
+	expect(await expectOk(await blobs.get(sourceId)).text()).toBe('source');
 });
 
 test('putRequest keeps the final id invisible until the stream completes', async () => {

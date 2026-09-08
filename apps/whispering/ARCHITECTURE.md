@@ -24,15 +24,14 @@ src/lib/data.ts                         inert definition
 src/lib/epicenter.svelte.ts              createEpicenter({ appId, definition })
 (app)/+layout.svelte                    auth gate; key on Account
   -> RecordingsSession.svelte           epicenter.open(account); owns close/retry
-    -> WhisperingShell.svelte           blobs, UI session, context, and chrome
+    -> WhisperingShell.svelte           app blobs, UI session, context, and chrome
       -> createWhisperingUiSession      query runtime and application adapters
         -> createWhisperingApp          settings, recordings, and recipes
 ```
 
 `#platform/auth` supplies auth; the boot layout passes its selected Account to
-the session child. `#platform/blobs` supplies `createWhisperingBlobs`, called by
-`WhisperingShell` with the app id and that same Account. Neither seam opens
-application storage at module evaluation.
+the session child. The app handle supplies the scoped blob capability alongside
+the opened data document. Neither seam opens application storage at module evaluation.
 
 `RecordingsSession` renders the pending, error, or data result of
 `session.opened`. A retry replaces the session with `epicenter.open(account)`.
@@ -57,20 +56,9 @@ src/lib/services/recorder/
   index.tauri.ts      Tauri recorder plugin
 ```
 
-```jsonc
-// package.json
-{
-  "imports": {
-    "#platform/recorder": "./src/lib/services/recorder/index.tauri.ts",
-    "#platform/blobs": {
-      "epicenter-host": "./src/lib/services/blobs/index.epicenter-host.ts",
-      "default": "./src/lib/services/blobs/index.browser.ts"
-    }
-  }
-}
-```
-
-Three seams keep two leaves: `auth`, `binding`, and `blobs`. Each has an `epicenter-host` leaf for the things the Bun host owns (credential, keychain and files, recording bytes) and a `default` leaf for the `bun dev:whispering` browser tab. The Epicenter build sets `EPICENTER_HOST=1`, which is what activates `epicenter-host` in `vite.config.ts`. That config also lists a `tauri` condition, but no seam declares one any more, so it selects nothing (ADR-0347). Base path is not a seam: `svelte.config.js` sets `paths.base` and routes call `resolve` from `$app/paths`.
+The remaining platform seams are for capabilities genuinely owned by the host,
+such as authentication and recording input. Blob storage is part of the app
+handle and is scoped when that handle opens.
 
 Consumers (for example the services barrel `src/lib/services/index.ts`) import the bare specifier `from '#platform/recorder'` with **no platform branch at the call site**. Where a seam still has two leaves, the off-target file is never resolved, so it is physically absent from the bundle (a build-time guarantee, not Rollup tree-shaking).
 

@@ -19,8 +19,6 @@ import type { BlobId } from './blob-id.js';
  * Deliberately absent, so implementations cannot grow them by accident:
  * - `list`/`clear`: blob capabilities are address-only. Bulk operations
  *   iterate the ids the application's own data knows about.
- * - local `copy`: without a live caller, independent lifetime is the ordinary
- *   `get(existingId)` + `put(generateBlobId(), blob)` composition.
  */
 
 export const BlobStoreError = defineErrors({
@@ -72,6 +70,15 @@ export type BlobStore = {
 		id: BlobId,
 		blob: Blob,
 	): Promise<Result<void, BlobAlreadyExists | BlobStoreFailed>>;
+	/**
+	 * Copy local bytes to a fresh id in this same captured store. The source
+	 * stays unchanged and either id can be deleted independently. An existing
+	 * destination (including the source id itself) is never overwritten.
+	 */
+	copy(
+		sourceId: BlobId,
+		destinationId: BlobId,
+	): Promise<Result<void, BlobNotFound | BlobAlreadyExists | BlobStoreFailed>>;
 	/**
 	 * Read the bytes for an id. `BlobNotFound` is the expected answer when
 	 * the bytes were never stored on this device.

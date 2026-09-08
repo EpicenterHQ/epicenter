@@ -3,16 +3,11 @@ import type {
 	BlobNotFound,
 	BlobRemote,
 	BlobRemoteFailed,
-	BlobSources,
-	BlobStore,
+	RemoteNotConfigured,
 	BlobStoreFailed,
 	RemoteBlobNotFound,
 } from '@epicenter/blobs';
-import type {
-	BrowserBlobStoreError,
-	UnscopedBlobClaim,
-	UnscopedBlobSummary,
-} from '@epicenter/blobs/browser';
+import type { AppBlobs } from '@epicenter/app';
 import { InstantString } from '@epicenter/data/field';
 import {
 	defineErrors,
@@ -31,35 +26,6 @@ import type { Recording } from './recording.js';
  * keeps folding auth into availability. `sources` hands out playback URLs over
  * the same local bytes.
  */
-export type WhisperingBlobs = {
-	local: BlobStore;
-	readonly remote: BlobRemote | null;
-	sources: BlobSources;
-	/**
-	 * What an earlier build wrote to one origin-wide store before audio was
-	 * the account's, or null where no such store ever existed. Null on
-	 * desktop: the host's directory is a different, unfinished problem.
-	 */
-	unscoped: UnscopedAudio | null;
-};
-
-/**
- * The bytes an earlier build left in the unscoped browser store.
- *
- * A claim walks the ids this account's rows cite and moves their bytes into
- * the account's store; what no row cites stays, counted and sized, until a
- * person chooses to delete it (ADR-0349, ADR-0351).
- */
-export type UnscopedAudio = {
-	claim(
-		ids: readonly BlobId[],
-	): Promise<
-		Result<UnscopedBlobClaim, BrowserBlobStoreError | BlobStoreFailed>
-	>;
-	summary(): Promise<Result<UnscopedBlobSummary, BrowserBlobStoreError>>;
-	delete(): Promise<Result<void, BrowserBlobStoreError>>;
-};
-
 export type RecordingAudioAvailability =
 	| 'local-only'
 	| 'local-and-remote'
@@ -125,22 +91,23 @@ export function createRecordingAudio({
 	blobs,
 	updateUploadedAt,
 }: {
-	blobs: WhisperingBlobs;
+	blobs: AppBlobs;
 	updateUploadedAt(
 		id: Recording['id'],
 		uploadedAt: Recording['uploadedAt'],
 	): Promise<{ error: unknown | null }>;
 }) {
-	function requireRemote(
+	function requireRemote(): Result<BlobRemote, RecordingAudioError> {
+		return Ok(blobs.remote);
+	}
+
+	function normalizeRemoteError(
 		recording: AudioState,
-	): Result<BlobRemote, RecordingAudioError> {
-		const remote = blobs.remote;
-		if (remote === null) {
-			return RecordingAudioError.RemoteUnavailable({
-				recordingId: recording.id,
-			});
-		}
-		return Ok(remote);
+		error: BlobNotFound | BlobStoreFailed | BlobRemoteFailed | RemoteNotConfigured | RecordingAudioError,
+	): BlobNotFound | BlobStoreFailed | BlobRemoteFailed | RecordingAudioError {
+		return (error as { name?: string }).name === 'RemoteNotConfigured'
+			? RecordingAudioError.RemoteUnavailable({ recordingId: recording.id }).error
+			: error as BlobNotFound | BlobStoreFailed | BlobRemoteFailed | RecordingAudioError;
 	}
 
 	async function setUploadedAt(
@@ -170,7 +137,7 @@ export function createRecordingAudio({
 		async availability(
 			recording: AudioState,
 		): Promise<Result<RecordingAudioAvailability, BlobStoreFailed>> {
-			const { error } = await blobs.local.stat(recording.audioBlobId);
+			const { error } = await blobs.stat(recording.audioBlobId);
 			if (error === null) {
 				return Ok(
 					recording.uploadedAt === null ? 'local-only' : 'local-and-remote',
@@ -194,16 +161,17 @@ export function createRecordingAudio({
 			>
 		> {
 			if (recording.uploadedAt !== null) return Ok(undefined);
-			const { data: remote, error: unavailable } = requireRemote(recording);
+			const { data: remote, error: unavailable } = requireRemote();
 			if (unavailable !== null) return Err(unavailable);
 
 			const { error: uploadError } = await remote.upload(recording.audioBlobId);
-			if (uploadError !== null) return Err(uploadError);
+			if (uploadError !== null) return Err(normalizeRemoteError(recording, uploadError));
 			const markerResult = await setUploadedAt(recording, InstantString.now());
 			if (markerResult.error === null) return markerResult;
 
 			const { error: purgeError } = await remote.purge(recording.audioBlobId);
 			if (purgeError === null) return markerResult;
+			if ((purgeError as { name?: string }).name === 'RemoteNotConfigured') return markerResult;
 			return RecordingAudioError.UploadCompensationFailed({
 				recordingId: recording.id,
 				updateError: markerResult.error,
@@ -219,7 +187,7 @@ export function createRecordingAudio({
 				void,
 				| RemoteBlobNotFound
 				| BlobStoreFailed
-				| BlobRemoteFailed
+				| BlobRemoteFailed | RecordingAudioError
 				| RecordingAudioError
 			>
 		> {
@@ -228,15 +196,26 @@ export function createRecordingAudio({
 					recordingId: recording.id,
 				});
 			}
-			const { data: remote, error: unavailable } = requireRemote(recording);
+			const { data: remote, error: unavailable } = requireRemote();
 			if (unavailable !== null) return Err(unavailable);
 			const result = await remote.download(recording.audioBlobId);
-			if (result.error?.name !== 'RemoteBlobNotFound') return result;
+			if (result.error?.name !== 'RemoteBlobNotFound') {
+				if (result.error === null) return result;
+				return Err(normalizeRemoteError(recording, result.error)) as unknown as Result<
+					void,
+					RemoteBlobNotFound | BlobStoreFailed | BlobRemoteFailed | RecordingAudioError
+				>;
+			}
 
 			// A remote 404 proves the historical marker stale. Repair the row so the
 			// UI does not keep advertising a downloadable copy that no longer exists.
 			const markerResult = await setUploadedAt(recording, null);
-			return markerResult.error === null ? result : markerResult;
+			return markerResult.error === null
+				? (result as unknown as Result<
+						void,
+						RemoteBlobNotFound | BlobStoreFailed | BlobRemoteFailed | RecordingAudioError
+					>)
+				: markerResult;
 		},
 
 		/** Remove device bytes only after an online copy has succeeded. */
@@ -253,15 +232,15 @@ export function createRecordingAudio({
 					recordingId: recording.id,
 				});
 			}
-			const { data: remote, error: unavailable } = requireRemote(recording);
+			const { data: remote, error: unavailable } = requireRemote();
 			if (unavailable !== null) return Err(unavailable);
 
 			// `uploadedAt` is historical bookkeeping, not proof that the remote
 			// object still exists. Re-uploading is idempotent and proves a durable
 			// copy exists immediately before this operation destroys the local one.
 			const { error: uploadError } = await remote.upload(recording.audioBlobId);
-			if (uploadError !== null) return Err(uploadError);
-			return blobs.local.delete(recording.audioBlobId);
+			if (uploadError !== null) return Err(normalizeRemoteError(recording, uploadError));
+			return blobs.removeLocal(recording.audioBlobId);
 		},
 
 		/**
@@ -276,11 +255,15 @@ export function createRecordingAudio({
 			recording: AudioState,
 		): Promise<Result<void, BlobRemoteFailed | RecordingAudioError>> {
 			if (recording.uploadedAt === null) return Ok(undefined);
-			const { data: remote, error: unavailable } = requireRemote(recording);
+			const { data: remote, error: unavailable } = requireRemote();
 			if (unavailable !== null) return Err(unavailable);
 
 			const { error: purgeError } = await remote.purge(recording.audioBlobId);
-			if (purgeError !== null) return Err(purgeError);
+			if (purgeError !== null)
+				return Err(normalizeRemoteError(recording, purgeError)) as Result<
+					void,
+					BlobRemoteFailed | RecordingAudioError
+				>;
 			return setUploadedAt(recording, null);
 		},
 	};

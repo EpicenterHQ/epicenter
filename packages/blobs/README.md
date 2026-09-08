@@ -6,14 +6,11 @@ This package is the AGPL blob boundary. The root export owns the portable
 contracts; platform subpaths own the implementations that satisfy them. The
 browser subpath provides IndexedDB storage and object-URL sources, one
 database per application per account at
-`epicenter/v5/<app-id>/<principal-id>/blobs` (`browserBlobStoreName`), the
-sibling of that account's replica address; `createBrowserBlobStore` takes the
-scope and never a raw name, so an unscoped store cannot be built.
-`eraseBlobStore` deletes one account's database under an exclusive Web
-Lock, and `claimUnscopedBrowserBlobs` moves the bytes an earlier build wrote to
-the origin-wide `epicenter-blobs` into an account's store, by the ids its rows
-cite; what no row cites is summarized by `unscopedBrowserBlobs` and deleted only
-by `deleteUnscopedBrowserBlobs`, on a person's choice. The Bun
+`epicenter/<app-id>/accounts/<authority-id>/<principal-id>/blobs`
+(`browserBlobStoreName`), the sibling of that account's replica address;
+`createBrowserBlobStore` takes the scope and never a raw name. The local
+partition uses the same scoped codec with the `local` principal. `eraseBlobStore`
+deletes one scoped database under an exclusive Web Lock. The Bun
 subpath provides filesystem storage for desktop hosts and scripts. The WebView
 subpath adapts the authenticated desktop origin back to the same portable
 contracts, including sources that hand out its stable relative media URL.
@@ -57,17 +54,32 @@ boundary.
   disposer is a harmless no-op. Bounded imperative consumers may `using` the
   handle; component lifecycles call `[Symbol.dispose]()` from their cleanup.
 
-For an independent local lifetime, compose the existing verbs: `get` the
-source bytes, mint a new `BlobId`, then `put` those bytes under the new id. That
-duplicates the bytes and makes the new id independently deletable. A dedicated
-`copy` verb is not part of the contract until a live caller needs more than
-that composition.
+For an independent local lifetime, mint a new `BlobId` and call
+`copy(sourceId, destinationId)`. Both ids belong to the same captured store.
+COPY preserves the source and refuses an existing destination, even when
+both ids are equal. The new id can be deleted independently. Missing sources
+return `BlobNotFound`; destination collisions return `BlobAlreadyExists`.
+
+The browser holds its shared erase lock across `get` and immutable `put`.
+Bun composes the same verbs with a lazy `BunFile`, so `Bun.write` copies the
+file without a recording-sized JavaScript buffer. The WebView sends
+`POST /api/apps/:appId/blobs/:destinationId/copy` with JSON `{ sourceId }`
+and the captured account scope query, or no scope query for local bytes.
+COPY requires an explicit app id. The host resolves both ids in that one
+store; bytes never travel through the WebView. HTTP 404 names the source,
+409 names the destination, and 204 reports success.
 
 ## Bun staging ownership
 
 Bun uploads stage under `.staging/bun/`; the Rust recorder stages native
 captures under `.staging/rust/`. Each operation removes its own staging
 directory when it fails.
+
+COPY uses the existing staged publication path. A successful rename exposes
+the complete body and metadata together. This is an atomic visibility
+guarantee, not a power-loss durability guarantee: Bun does not fsync the files
+or containing directories. A process crash can leave unreferenced staging
+files, and this package does not recover or promote them.
 
 The Rust recorder additionally deletes `.staging/rust/` wholesale at host
 startup, because a recording is now written progressively and a host that dies
@@ -82,5 +94,3 @@ does not require.
 
 - A `BlobRef` wrapper: callers already have the `BlobId`, and `stat` returns the
   only metadata the store owns.
-- Local `copy`: `get` + a new `BlobId` + `put` is the explicit independent-life
-  composition, and there is no live caller that earns another primitive.

@@ -4,17 +4,16 @@ import {
 	type BlobNotFound,
 	type BlobRemoteFailed,
 	type BlobStoreFailed,
-	generateBlobId,
 	type RemoteBlobNotFound,
 } from '@epicenter/blobs';
+import type { AppBlobs } from '@epicenter/app';
 import type { NonconformingRow } from '@epicenter/data';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingData } from '../data';
 import {
 	asRecording,
-	asStoredBlobId,
 	type NewRecording,
 	type Recording,
 } from './recording.js';
@@ -22,30 +21,22 @@ import {
 	createRecordingAudio,
 	type RecordingAudioAvailability,
 	RecordingAudioError,
-	type WhisperingBlobs,
 } from './recording-audio';
 
 const log = createLogger('whispering/recordings');
 
 export const RecordingCreationError = defineErrors({
-	/**
-	 * The row could not be written, so the audio that was already committed
-	 * for it needs cleanup. Reachable: the store refuses a write after the
-	 * session closed, and a malformed input throws.
-	 */
+	/** The owning table refused to publish the row after its copy attempt. */
 	RowCreateFailed: ({
 		audioBlobId,
 		cause,
 		cleanupError,
 	}: {
-		audioBlobId: BlobId;
+		audioBlobId: Blob | BlobId;
 		cause: unknown;
 		cleanupError: BlobStoreFailed | null;
 	}) => ({
-		message:
-			cleanupError === null
-				? 'Could not create the recording; its local audio was removed.'
-				: 'Could not create the recording or remove its local audio.',
+		message: 'Could not create the recording.',
 		audioBlobId,
 		cause,
 		cleanupError,
@@ -93,23 +84,12 @@ export const RecordingDeletionError = defineErrors({
 export type RecordingDeletionError = InferErrors<typeof RecordingDeletionError>;
 
 export type WhisperingRecordings = {
-	/** The initial attempt to claim earlier local audio has settled. */
-	readonly audioReady: Promise<void>;
 	readonly sorted: Recording[];
 	readonly count: number;
 	readonly nonconforming: NonconformingRow[];
 	/** Whether the environment currently has an online audio copy capability. */
 	readonly remoteAvailable: boolean;
 	get(id: Recording['id']): Recording | undefined;
-	/** Mint an opaque id and commit captured bytes before any row exists. */
-	storeAudio(
-		blob: Blob,
-	): Promise<
-		Result<
-			{ audioBlobId: BlobId; byteLength: number },
-			BlobAlreadyExists | BlobStoreFailed
-		>
-	>;
 	create(
 		value: NewRecording,
 	): Promise<Result<Recording, RecordingCreationError>>;
@@ -186,9 +166,12 @@ export type WhisperingRecordings = {
 export function createWhisperingRecordings({
 	table,
 	blobs,
+	remoteConfigured,
 }: {
 	table: WhisperingData['tables']['recordings'];
-	blobs: WhisperingBlobs;
+	blobs: AppBlobs;
+	/** Whether this app session has an account-backed remote authority. */
+	remoteConfigured: boolean;
 }) {
 	let rows: Recording[] = [];
 	let sorted: Recording[] = [];
@@ -277,7 +260,7 @@ export function createWhisperingRecordings({
 		const firstUploaded = selected.find(
 			({ uploadedAt }) => uploadedAt !== null,
 		);
-		if (firstUploaded && blobs.remote === null) {
+		if (firstUploaded && !remoteConfigured) {
 			return RecordingAudioError.RemoteUnavailable({
 				recordingId: firstUploaded.id,
 			});
@@ -293,7 +276,7 @@ export function createWhisperingRecordings({
 					cause: purgeError,
 				});
 			}
-			const { error: blobError } = await blobs.local.delete(
+			const { error: blobError } = await blobs.removeLocal(
 				recording.audioBlobId,
 			);
 			if (blobError !== null) {
@@ -328,14 +311,13 @@ export function createWhisperingRecordings({
 			return inFlight;
 		}
 		inFlight = (async () => {
-			await audioReady;
 			const uploaded = new Set<Recording['id']>();
 			const absent = new Set<Recording['id']>();
 			const failed = new Set<Recording['id']>();
 			let aborted = false;
 			do {
 				again = false;
-				if (disposed || blobs.remote === null) {
+				if (disposed || !remoteConfigured) {
 					aborted = true;
 					break;
 				}
@@ -348,10 +330,10 @@ export function createWhisperingRecordings({
 				const stats =
 					candidates.length === 0
 						? []
-						: await blobs.local.statMany(
+						: await blobs.statMany(
 								candidates.map((row) => row.audioBlobId),
 							);
-				if (disposed || blobs.remote === null) {
+				if (disposed || !remoteConfigured) {
 					aborted = true;
 					break;
 				}
@@ -365,7 +347,7 @@ export function createWhisperingRecordings({
 				}
 				let consecutiveFailures = 0;
 				for (const [index, candidate] of candidates.entries()) {
-					if (disposed || blobs.remote === null) {
+					if (disposed || !remoteConfigured) {
 						aborted = true;
 						break;
 					}
@@ -413,21 +395,12 @@ export function createWhisperingRecordings({
 	read();
 	// Rows are hydrated before construction. No discovery may cache an absence
 	// until this claim attempt settles, including a partially successful attempt.
-	const audioReady =
-		blobs.unscoped === null
-			? Promise.resolve()
-			: blobs.unscoped
-					.claim(sorted.map((row) => row.audioBlobId))
-					.then(({ error }) => {
-						if (error !== null) log.warn(error);
-					});
 	// Registration is synchronous, does no I/O and never fires initially, so the
 	// read above has already seen everything (ADR-0187). It fires for a local
 	// write and for bytes that arrived from another device alike, which is what
 	// retired every hand-maintained cache patch below.
 	const unsubscribeRecords = table.subscribe(read);
 	const recordings: WhisperingRecordings = {
-		audioReady,
 		get sorted() {
 			return sorted;
 		},
@@ -438,45 +411,30 @@ export function createWhisperingRecordings({
 			return nonconforming;
 		},
 		get remoteAvailable() {
-			return blobs.remote !== null;
+			return remoteConfigured;
 		},
 		get(id) {
 			return resolve(id);
-		},
-		async storeAudio(blob) {
-			const audioBlobId = generateBlobId();
-			const result = await blobs.local.put(audioBlobId, blob);
-			if (result.error !== null) return result;
-			audioBecameLocal(audioBlobId);
-			return Ok({ audioBlobId, byteLength: blob.size });
 		},
 		async create(value) {
 			// Row creation owns row/blob consistency. Every caller commits the
 			// audio before creating the row, so a row that fails to land would
 			// leave bytes no row cites. Await their cleanup before reporting the
 			// original failure, and preserve a failed cleanup in the same error.
-			const { data: written, error } = trySync({
-				try: () => {
-					if (disposed) throw new Error('The recording session is closed.');
-					return table.create({
-						...value,
-						audioBlobId: asStoredBlobId(value.audioBlobId),
-						uploadedAt: null,
-						transcriptionStatus: 'pending',
-						transcriptionCompletedAt: null,
-						transcriptionError: null,
-					});
-				},
-				catch: (cause) => Err({ cause }),
+			if (disposed) throw new Error('The recording session is closed.');
+			const { data: written, error } = await table.create({
+				...value,
+				audioBlobId: value.audioBlobId,
+				uploadedAt: null,
+				transcriptionStatus: 'pending',
+				transcriptionCompletedAt: null,
+				transcriptionError: null,
 			});
 			if (error !== null) {
-				const { error: cleanupError } = await blobs.local.delete(
-					value.audioBlobId,
-				);
 				return RecordingCreationError.RowCreateFailed({
 					audioBlobId: value.audioBlobId,
-					cause: error.cause,
-					cleanupError,
+					cause: error,
+					cleanupError: null,
 				});
 			}
 			return Ok(asRecording(written));
@@ -508,7 +466,6 @@ export function createWhisperingRecordings({
 			return asRecording(reread);
 		},
 		async delete(toDelete) {
-			await audioReady;
 			const ids = Array.isArray(toDelete) ? toDelete : [toDelete];
 			// An unknown id is already gone; deletion is idempotent over it.
 			const selected = ids
@@ -517,15 +474,12 @@ export function createWhisperingRecordings({
 			return deleteResolved(selected);
 		},
 		async audioAvailability(id) {
-			await audioReady;
 			return withRecording(id, audio.availability);
 		},
 		async uploadAudio(id) {
-			await audioReady;
 			return withRecording(id, audio.upload);
 		},
 		async downloadAudio(id) {
-			await audioReady;
 			const recording = resolve(id);
 			const result = await withRecording(id, audio.download);
 			if (result.error === null && recording !== undefined)
@@ -533,7 +487,6 @@ export function createWhisperingRecordings({
 			return result;
 		},
 		async removeLocalAudio(id) {
-			await audioReady;
 			return withRecording(id, audio.removeLocal);
 		},
 		backup: {

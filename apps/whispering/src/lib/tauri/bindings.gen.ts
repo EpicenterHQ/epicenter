@@ -32,7 +32,7 @@ export const commands = {
 	 *  never has to enumerate devices just to discover what it got. Fails with
 	 *  `Busy` when another window is already recording.
 	 */
-	startRecording: (deviceIdentifier: string | null) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier })),
+	startRecording: (deviceIdentifier: string | null, scope: BlobScope) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier, scope })),
 	/**
 	 *  Stop the recording named by `audio_blob_id`, publish its blob, and report
 	 *  the committed audio.
@@ -70,6 +70,12 @@ export const commands = {
 	 */
 	currentRecording: () => typedError<{
 	audioBlobId: string,
+	/**
+	 *  Dataset selected when the host minted this recording. It must travel
+	 *  through reload recovery; the requesting window is not enough to recover
+	 *  which blob partition owns the staged bytes.
+	 */
+	scope: BlobScope,
 	device: DeviceAcquisition,
 	/**
 	 *  `None` while capture is running. `Some` means capture is over and this
@@ -83,7 +89,7 @@ export const commands = {
 	 *  it, then runs inference on the **active** model with the caller's advisory
 	 *  hints. The caller names audio and hints; it does not name a model.
 	 */
-	transcribeRecording: (audioBlobId: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_recording", { audioBlobId, hints })),
+	transcribeRecording: (audioBlobId: string, hints: TranscriptionHints, scope: BlobScope) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_recording", { audioBlobId, hints, scope })),
 	/**
 	 *  Prewarm the active local model so a following transcribe finds it warm. The
 	 *  frontend fires this fire-and-forget at capture start (manual record or VAD
@@ -369,6 +375,9 @@ export type AppliedHints = {
 	initialPrompt: boolean,
 };
 
+/**  The captured app dataset whose bytes this recorder owns. */
+export type BlobScope = { kind: "local" } | { kind: "account"; authorityId: string; principalId: string };
+
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
 
 /**
@@ -543,6 +552,12 @@ export type HomeSectionPending = null;
  */
 export type HostRecording = {
 	audioBlobId: string,
+	/**
+	 *  Dataset selected when the host minted this recording. It must travel
+	 *  through reload recovery; the requesting window is not enough to recover
+	 *  which blob partition owns the staged bytes.
+	 */
+	scope: BlobScope,
 	device: DeviceAcquisition,
 	/**
 	 *  `None` while capture is running. `Some` means capture is over and this

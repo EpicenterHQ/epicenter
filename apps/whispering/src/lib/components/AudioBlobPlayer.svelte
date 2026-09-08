@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { BlobId, BlobSource } from '@epicenter/blobs';
+	import { createLogger } from 'wellcrafted/logger';
+	import { extractErrorMessage } from 'wellcrafted/error';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	let {
@@ -15,6 +17,7 @@
 	} = $props();
 
 	const app = getWhisperingApp();
+	const log = createLogger('whispering/audio-player');
 	let handle = $state.raw<BlobSource | null>(null);
 
 	// The source outlives any lexical scope (`using` cannot span a component
@@ -28,15 +31,21 @@
 
 		let cancelled = false;
 		let owned: BlobSource | null = null;
-		void app.blobs.sources.open(requestedId).then(({ data }) => {
-			if (data === null) return;
-			if (cancelled) {
-				data[Symbol.dispose]();
-				return;
-			}
-			owned = data;
-			handle = data;
-		});
+		void app.blobs
+			.open(requestedId)
+			.then(({ data }) => {
+				if (data === null) return;
+				if (cancelled) {
+					data[Symbol.dispose]();
+					return;
+				}
+				owned = data;
+				handle = data;
+			})
+			.catch((cause: unknown) => {
+				if (!cancelled)
+					log.error(new Error(extractErrorMessage(cause), { cause }));
+			});
 
 		return () => {
 			cancelled = true;

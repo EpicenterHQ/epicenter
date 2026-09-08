@@ -1,5 +1,8 @@
 import { asDeviceIdentifier } from '@epicenter/recorder';
-import type { BaseRecordingParams } from '$lib/services/recorder/contract';
+import type {
+	BaseRecordingParams,
+	RecordingAccount,
+} from '$lib/services/recorder/contract';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 
 const MANUAL_DEVICE_ID_KEY = 'recording.cpal.deviceId';
@@ -29,10 +32,11 @@ export const manualRecorderConfig = {
 	 * Only settings-derived config lives here; live callbacks (the meter sink)
 	 * are passed separately to `startRecording`.
 	 */
-	resolveStartParams(): BaseRecordingParams {
+	resolveStartParams(account: RecordingAccount): BaseRecordingParams {
 		const deviceId = this.deviceId;
 		return {
 			selectedDeviceId: deviceId ? asDeviceIdentifier(deviceId) : null,
+			account,
 		};
 	},
 };

@@ -26,6 +26,7 @@ import {
 const bootstrap = {
 	state: { status: 'signed-in', principalId: asPrincipalId('alice') },
 	connection: {
+		authorityId: 'test-server',
 		baseURL: 'https://api.epicenter.so',
 		status: 'connected',
 	},
@@ -169,6 +170,7 @@ test('the self-hosted server projects its boot connection status', () => {
 		bootstrap: {
 			state: { status: 'signed-in', principalId: asPrincipalId('instance') },
 			connection: {
+				authorityId: 'test-server',
 				baseURL: 'https://epicenter.example.com',
 				status: 'connected',
 			},
@@ -239,6 +241,7 @@ test('a desktop window is not a callback client', () => {
 		bootstrap: {
 			state: { status: 'signed-out' },
 			connection: {
+				authorityId: 'test-server',
 				baseURL: 'https://api.epicenter.test',
 				status: 'connected',
 			},

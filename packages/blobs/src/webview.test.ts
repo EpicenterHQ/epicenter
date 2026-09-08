@@ -8,6 +8,7 @@
  * Key behaviors:
  * - Stable media URLs remain relative and contain only the opaque BlobId
  * - Requests preserve same-origin cookie authentication
+ * - COPY sends only ids within the captured app and account scope
  * - HTTP not-found and collision statuses become expected typed errors
  * - HEAD metadata is validated before entering the portable contract
  * - Sources hand out the stable URL after a stat check, with a safe no-op
@@ -84,6 +85,95 @@ test('get returns response bytes and maps a missing object', async () => {
 	expect(blob.type).toBe('audio/test');
 	expect(await blob.text()).toBe('audio');
 	expect(expectErr(await blobs.get(id)).name).toBe('BlobNotFound');
+});
+
+test('copy sends only ids in the captured app and account scope', async () => {
+	const { fetcher, requests, requestInits } = setup([
+		new Response(null, { status: 204 }),
+	]);
+	const scope = {
+		kind: 'account' as const,
+		authorityId: 'authority/one',
+		principalId: 'principal one',
+	};
+	const blobs = createWebviewBlobStore({
+		appId: 'so.epicenter.test',
+		scope,
+		fetch: fetcher,
+	});
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	scope.authorityId = 'other-authority';
+	scope.principalId = 'other-principal';
+	expectOk(await blobs.copy(sourceId, destinationId));
+	expect(requests).toHaveLength(1);
+	const request = requests[0]!;
+	const url = new URL(request.url);
+	expect(url.pathname).toBe(
+		`/api/apps/so.epicenter.test/blobs/${destinationId}/copy`,
+	);
+	expect([...url.searchParams]).toEqual([
+		['authorityId', 'authority/one'],
+		['principalId', 'principal one'],
+	]);
+	expect(request.method).toBe('POST');
+	expect(request.headers.get('content-type')).toBe('application/json');
+	expect(request.headers.get('authorization')).toBeNull();
+	expect(await request.json()).toEqual({ sourceId });
+	expect(requestInits[0]).toMatchObject({
+		credentials: 'same-origin',
+		redirect: 'error',
+	});
+});
+
+test('local copy carries no account scope and maps each failure to the affected id', async () => {
+	const { fetcher, requests } = setup(
+		[204, 404, 409, 500].map((status) => new Response(null, { status })),
+	);
+	const blobs = createWebviewBlobStore({
+		appId: 'so.epicenter.test',
+		scope: { kind: 'local' },
+		fetch: fetcher,
+	});
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await blobs.copy(sourceId, destinationId));
+	expect(new URL(requests[0]!.url).search).toBe('');
+	expect(expectErr(await blobs.copy(sourceId, destinationId))).toMatchObject({
+		name: 'BlobNotFound',
+		id: sourceId,
+	});
+	expect(expectErr(await blobs.copy(sourceId, destinationId))).toMatchObject({
+		name: 'BlobAlreadyExists',
+		id: destinationId,
+	});
+	expect(expectErr(await blobs.copy(sourceId, destinationId))).toMatchObject({
+		name: 'BlobStoreFailed',
+		id: destinationId,
+	});
+});
+
+test('copy retains transport causes in a storage failure Result', async () => {
+	const cause = new Error('host unavailable');
+	const blobs = createWebviewBlobStore({
+		appId: 'so.epicenter.test',
+		fetch: async () => {
+			throw cause;
+		},
+	});
+	const destinationId = generateBlobId();
+	expect(
+		expectErr(await blobs.copy(generateBlobId(), destinationId)),
+	).toMatchObject({ name: 'BlobStoreFailed', id: destinationId, cause });
+});
+
+test('copy refuses an unspecified app without contacting the host', async () => {
+	const { blobs, requests } = setup([]);
+	const destinationId = generateBlobId();
+	expect(
+		expectErr(await blobs.copy(generateBlobId(), destinationId)),
+	).toMatchObject({ name: 'BlobStoreFailed', id: destinationId });
+	expect(requests).toHaveLength(0);
 });
 
 test('stat parses HEAD metadata and rejects malformed responses', async () => {

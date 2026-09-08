@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::audio::decode_to_pcm16k_mono;
@@ -33,10 +33,24 @@ use crate::recorder::error::RecorderError;
 
 const BLOB_CONTENT_TYPE: &str = "audio/wav";
 const BLOBS_DIRECTORY: &str = "blobs";
+const WHISPERING_APP_ID: &str = "so.epicenter.whispering";
 const STAGING_DIRECTORY: &str = ".staging";
 const RUST_STAGING_DIRECTORY: &str = "rust";
 const DATA_FILE: &str = "data";
 const METADATA_FILE: &str = "metadata.json";
+
+/// The captured app dataset whose bytes this recorder owns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BlobScope {
+    Local,
+	Account {
+		#[serde(rename = "authorityId")]
+		authority_id: String,
+		#[serde(rename = "principalId")]
+		principal_id: String,
+    },
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,15 +116,37 @@ fn validate_blob_id(id: &str) -> Result<(), RecorderError> {
 }
 
 /// The recorder and sidecar consume the same startup-selected data directory.
-fn blobs_directory(app: &AppHandle) -> PathBuf {
-    app.state::<crate::app_data::DesktopPaths>()
+fn app_blobs_root(app: &AppHandle) -> PathBuf {
+    app
+        .state::<crate::app_data::DesktopPaths>()
         .data_dir
-        .join(BLOBS_DIRECTORY)
+        .join("apps")
+        .join(WHISPERING_APP_ID)
 }
 
-fn blob_data_path(app: &AppHandle, id: &str) -> Result<PathBuf, RecorderError> {
+fn blobs_directory(app: &AppHandle, scope: &BlobScope) -> Result<PathBuf, RecorderError> {
+    let mut root = app_blobs_root(app);
+    match scope {
+        BlobScope::Local => root.push("local"),
+        BlobScope::Account { authority_id, principal_id } => {
+            if !is_path_segment(authority_id) || !is_path_segment(principal_id) {
+                return Err(RecorderError::failed("blob scope contains an invalid path segment"));
+            }
+            root.push("accounts");
+            root.push(authority_id);
+            root.push(principal_id);
+        }
+    }
+    Ok(root.join(BLOBS_DIRECTORY))
+}
+
+fn is_path_segment(value: &str) -> bool {
+    !value.is_empty() && value != "." && value != ".." && !value.contains('/') && !value.contains('\\')
+}
+
+fn blob_data_path(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<PathBuf, RecorderError> {
     validate_blob_id(id)?;
-    Ok(blobs_directory(app).join(id).join(DATA_FILE))
+    Ok(blobs_directory(app, scope)?.join(id).join(DATA_FILE))
 }
 
 /// One blob's bytes, being written, before the blob exists.
@@ -133,8 +169,8 @@ impl StagedBlob {
     /// The id is validated and the destination checked here, at the start of the
     /// recording, so a caller learns its blob cannot be written before it spends
     /// an hour capturing audio for it.
-    pub fn create(app: &AppHandle, id: &str) -> Result<Self, RecorderError> {
-        Self::stage(blobs_directory(app), id)
+    pub fn create(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<Self, RecorderError> {
+        Self::stage(blobs_directory(app, scope)?, id)
     }
 
     /// Open a staging directory under a given blobs root.
@@ -301,8 +337,26 @@ impl StagedBlob {
 /// pid embedded in each staged directory name would close it, and is not worth
 /// the platform-specific code for a race that cannot lose audio.
 pub fn delete_stale_staging(app: &AppHandle) {
-    let root = blobs_directory(app);
-    delete_staging_root(&root);
+    delete_partition_staging(&app_blobs_root(app));
+}
+
+fn delete_partition_staging(root: &Path) {
+    delete_staging_root(&root.join("local").join(BLOBS_DIRECTORY));
+    if let Ok(partitions) = std::fs::read_dir(&root) {
+        for partition in partitions.flatten() {
+            if partition.file_name() == "accounts" {
+                if let Ok(authorities) = std::fs::read_dir(partition.path()) {
+                    for authority in authorities.flatten() {
+                        if let Ok(principals) = std::fs::read_dir(authority.path()) {
+                            for principal in principals.flatten() {
+                                delete_staging_root(&principal.path().join(BLOBS_DIRECTORY));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Delete a blobs root's native staging subtree, whatever it holds.
@@ -323,8 +377,8 @@ pub(crate) fn delete_staging_root(root: &Path) {
 }
 
 /// Decode one canonical local blob to the PCM shape local transcription uses.
-pub fn read_blob_samples(app: &AppHandle, id: &str) -> Result<Vec<f32>, RecorderError> {
-    let path = blob_data_path(app, id)?;
+pub fn read_blob_samples(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<Vec<f32>, RecorderError> {
+    let path = blob_data_path(app, id, scope)?;
     let bytes = std::fs::read(&path)
         .map_err(|error| RecorderError::failed(format!("read blob {}: {error}", path.display())))?;
     decode_to_pcm16k_mono(&bytes)
@@ -363,6 +417,26 @@ mod tests {
     use std::io::Write;
 
     const ID: &str = "blob_aaaaaaaaaaaaaaaaaaaaa";
+
+    #[test]
+    fn startup_sweeps_local_and_account_staging_without_deleting_published_blobs() {
+        let root = tempfile::tempdir().expect("app root");
+        for partition in ["local", "accounts/authority-a/principal", "accounts/authority-b/principal"] {
+            let blobs = root.path().join(partition).join(BLOBS_DIRECTORY);
+            let staging = blobs.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
+            std::fs::create_dir_all(&staging).unwrap();
+            std::fs::write(staging.join("abandoned"), b"partial").unwrap();
+            publish_bytes(&blobs, ID, b"published").unwrap();
+        }
+
+        delete_partition_staging(root.path());
+
+        for partition in ["local", "accounts/authority-a/principal", "accounts/authority-b/principal"] {
+            let blobs = root.path().join(partition).join(BLOBS_DIRECTORY);
+            assert!(!blobs.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY).exists());
+            assert_eq!(std::fs::read(blobs.join(ID).join(DATA_FILE)).unwrap(), b"published");
+        }
+    }
 
     /// Stage `bytes` under `id` and publish them, returning the published size.
     fn publish_bytes(root: &Path, id: &str, bytes: &[u8]) -> Result<u32, RecorderError> {

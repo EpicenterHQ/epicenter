@@ -16,7 +16,6 @@
 	import { tauri } from '#platform/tauri';
 	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
 	import ManualSelectRecordingDevice from './ManualSelectRecordingDevice.svelte';
-	import UnclaimedAudio from './UnclaimedAudio.svelte';
 	import VadSelectRecordingDevice from './VadSelectRecordingDevice.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
@@ -176,8 +175,5 @@
 			</Field.Description>
 		</Field.Field>
 
-		{#if app.blobs.unscoped !== null}
-			<UnclaimedAudio unscoped={app.blobs.unscoped} />
-		{/if}
 	</Field.Group>
 </Field.Set>

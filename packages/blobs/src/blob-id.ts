@@ -5,9 +5,10 @@ import type { Brand } from 'wellcrafted/brand';
 /**
  * @fileoverview BlobId: the one opaque identifier a blob carries everywhere.
  *
- * A blob is minted exactly one id at record time, and that same id names the
- * object in the local store, on the optional remote, and in the row
- * that references it. The id is NOT a content hash: it says nothing about the
+ * Each immutable blob has one ID across local and remote copies. Creating an
+ * owning attachment from an existing blob copies its bytes into a fresh ID,
+ * so deleting either attachment cannot delete the other's bytes.
+ * The id is NOT a content hash: it says nothing about the
  * bytes, and SHA-256 or dedup never appear in this contract.
  *
  * Representation: `blob_` followed by 21 lowercase alphanumerics

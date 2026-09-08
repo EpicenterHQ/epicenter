@@ -42,14 +42,8 @@ export type RecordingId = string;
 export type RecipeId = string;
 
 const recordingsTable = defineTable({
-	/**
-	 * Opaque local and remote identity for this recording's immutable audio.
-	 *
-	 * The pattern survives; the `BlobId` brand does not, because `RowOf` yields
-	 * the field's own type and a brand is a TypeScript fiction the CRDT never
-	 * saw. Re-brand with `parseBlobId` where a row meets the blob store.
-	 */
-	audioBlobId: field.string({ pattern: '^blob_[a-z0-9]{21}$' }),
+	/** Immutable audio bytes owned by this recording and addressed by BlobId. */
+	audioBlobId: field.blob(),
 	/** Set only after an explicit replica upload succeeds. */
 	uploadedAt: field.nullable(field.instant()),
 	title: field.string(),

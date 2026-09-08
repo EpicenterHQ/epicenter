@@ -29,7 +29,7 @@ import { createBrowserAppBlobs } from '@epicenter/app/browser';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import type { AppBlobs } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import { createBlobAttachment, generateBlobId, type BlobStore } from '@epicenter/blobs';
+import { BlobRemoteError, generateBlobId, type BlobStore } from '@epicenter/blobs';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { APPS } from '@epicenter/constants/apps';
 import { asPrincipalId } from '@epicenter/principal';
@@ -49,6 +49,9 @@ const testBlobs = createBrowserAppBlobs();
 import { createWhisperingApp } from './app';
 
 const local: BlobStore = {
+	async copy() {
+		return Ok(undefined);
+	},
 	async put() {
 		return Ok(undefined);
 	},
@@ -69,7 +72,11 @@ const local: BlobStore = {
 function appBlobs(): AppBlobs {
 	const sources = createBrowserBlobSources(local);
 	return {
-		remote: null,
+		remote: {
+			upload: async () => BlobRemoteError.RemoteNotConfigured(),
+			download: async () => BlobRemoteError.RemoteNotConfigured(),
+			purge: async () => BlobRemoteError.RemoteNotConfigured(),
+		},
 		async add(blob) {
 			const id = generateBlobId();
 			const result = await local.put(id, blob);
@@ -80,7 +87,6 @@ function appBlobs(): AppBlobs {
 		statMany: (ids) => local.statMany(ids),
 		open: (id) => sources.open(id),
 		removeLocal: (id) => local.delete(id),
-		adopt: async (id) => Ok(createBlobAttachment(id, local)),
 	};
 }
 

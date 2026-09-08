@@ -11,7 +11,7 @@
  * The key is the durable document's own address, which is what makes the guard
  * exact. On Bun that is the dataId, because an application folder holds one
  * document; in a browser it is
- * `epicenter/v5/<appId>/<principalId>/<dataId>/<generation>` (ADR-0324,
+ * `epicenter/<appId>/accounts/<authorityId>/<principalId>/data/<dataId>/<generation>` (ADR-0324,
  * ADR-0292), so two applications naming one data id may be open at once, two
  * accounts on one device may be open at once, two generations of one database
  * may be open at once, and a second open of any of them is still refused. Two
@@ -67,8 +67,7 @@ function lockManager(): LockManager | undefined {
 		?.locks;
 }
 
-/** How to let go of the lock for an address this realm holds. */
-const originLocks = new Map<string, () => void>();
+type DocumentClaim = { release(): void };
 
 /**
  * Claim a durable document, or report that it is already held.
@@ -92,13 +91,13 @@ const originLocks = new Map<string, () => void>();
  */
 export async function claimDocument(
 	address: string,
-): Promise<Result<void, StoreError>> {
+): Promise<Result<DocumentClaim, StoreError>> {
 	const locks = lockManager();
 	if (locks === undefined) {
 		return StoreError.LocksUnsupported({ address });
 	}
 
-	return await new Promise<Result<void, StoreError>>((settle) => {
+	return await new Promise<Result<DocumentClaim, StoreError>>((settle) => {
 		void locks
 			.request(
 				lockName(address),
@@ -108,14 +107,7 @@ export async function claimDocument(
 						settle(StoreError.AlreadyOpen({ address }));
 						return undefined;
 					}
-					settle(Ok(undefined));
-					// The lock is held for exactly as long as this promise is
-					// pending, so the resolver IS the release. It is kept beside the
-					// address rather than returned, so `releaseDocument` keeps the
-					// signature its call sites already use.
-					return new Promise<void>((release) => {
-						originLocks.set(address, release);
-					});
+					return new Promise<void>((release) => settle(Ok({ release })));
 				},
 			)
 			// A failed request must not leave the open awaiting a promise nobody
@@ -134,13 +126,4 @@ export async function claimDocument(
  */
 function lockName(address: string): string {
 	return `epicenter.store:${address}`;
-}
-
-/** Release an address. Idempotent, because disposal is. */
-export function releaseDocument(address: string): void {
-	const release = originLocks.get(address);
-	if (release !== undefined) {
-		originLocks.delete(address);
-		release();
-	}
 }

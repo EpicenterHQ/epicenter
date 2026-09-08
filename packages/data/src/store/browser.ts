@@ -41,6 +41,11 @@ import {
 	type DataDefinitionParseError,
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
+import {
+	createScopedSqlite,
+	type DeviceSqliteOwner,
+} from '@epicenter/device/owner';
+import type { StorageScope } from '@epicenter/device/protocol';
 import type { PrincipalId } from '@epicenter/principal';
 import {
 	GENERATIONS_ROUTE,
@@ -478,7 +483,6 @@ export async function openIdbBacking(
  * reads, adopts, or deletes them.
  */
 
-
 /**
  * Whether a value can be one segment of an address.
  *
@@ -817,8 +821,11 @@ async function acquireDatabase(
 		durable: held.port,
 		loaded: held.loaded,
 		dispose() {
-			held.close();
-			release();
+			try {
+				held.close();
+			} finally {
+				release();
+			}
 		},
 	});
 }
@@ -828,25 +835,18 @@ async function acquireDatabase(
  * Invalid build-time declarations and account identities throw synchronously;
  * acquisition failures are reported by the engine's ready Result.
  */
-export function openAppData<
-	const TDefinition extends DataDefinition,
-	TSqlite,
->(
+export function openAppData<const TDefinition extends DataDefinition>(
 	definition: TDefinition,
 	{
 		appId,
 		account,
 		blobs,
 		sqlite,
-		onClose,
-		beforeClose,
 	}: {
 		appId: string;
 		account?: DatabaseAccount;
 		blobs: StoreBlobBacking;
-		sqlite: TSqlite;
-		onClose?: () => void;
-		beforeClose?: () => Promise<void>;
+		sqlite: DeviceSqliteOwner;
 	},
 ) {
 	if (!isAppId(appId))
@@ -861,11 +861,12 @@ export function openAppData<
 		account !== undefined && authorityId !== undefined
 			? Object.freeze({ authorityId, principalId: account.principalId })
 			: null;
+	const scope: StorageScope = Object.freeze(
+		identity === null ? { kind: 'local' } : { kind: 'account', ...identity },
+	);
 	const parts = createStoreOverPort<StoreError | DataDefinitionParseError>({
 		definition: parsed,
 		blobStore: blobs.local,
-		onClose,
-		beforeClose,
 		local: account === undefined,
 		async acquire() {
 			if (account === undefined) {
@@ -897,7 +898,7 @@ export function openAppData<
 			ready: parts.ready,
 			close: parts.close,
 			blobs: parts.createBlobs(blobs),
-			sqlite,
+			sqlite: parts.createSqlite(createScopedSqlite(sqlite, appId, scope)),
 		}),
 	);
 }
@@ -1126,24 +1127,45 @@ export async function resolveGeneration(
 > {
 	const { data: parsed, error: parseError } = compileData(definition);
 	if (parseError !== null) return Err(parseError);
-
-	const held = await newestGeneration({
+	const located = generationPrefix(
 		appId,
-		principalId: account.principalId,
-		authorityId: account.authorityId,
-		dataId: parsed.id,
-	});
-	if (held !== undefined) return Ok({ generation: held });
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error !== null) return Err(located.error);
+	// Generation allocation is a read/list/create critical section. Without a
+	// claim around the empty-list observation, two first opens can both POST an
+	// empty generation before either has published its local copy. A refusal is
+	// preferable to minting two histories; the caller can retry after the first
+	// opener has completed.
+	const allocation = await claimDocument(`${located.data}allocation`);
+	if (allocation.error !== null) return Err(allocation.error);
 
-	const listed = await listGenerations(account, parsed.id);
-	if (listed.error !== null) return Err(listed.error);
-	// The maximum rather than the last element. The authority orders its listing
-	// and this does not need to know that.
-	if (listed.data.length > 0) {
-		return Ok({ generation: Math.max(...listed.data) });
+	try {
+		const held = await newestGeneration({
+			appId,
+			principalId: account.principalId,
+			authorityId: account.authorityId,
+			dataId: parsed.id,
+		});
+		if (held !== undefined) return Ok({ generation: held });
+
+		const listed = await listGenerations(account, parsed.id);
+		if (listed.error !== null) return Err(listed.error);
+		// The maximum rather than the last element. The authority orders its listing
+		// and this does not need to know that.
+		if (listed.data.length > 0) {
+			return Ok({ generation: Math.max(...listed.data) });
+		}
+
+		// Await inside the critical section. Returning the promise directly would
+		// run this finally block immediately and let a second first-open race the
+		// still-pending authority POST.
+		return await createGeneration(definition, { appId, account });
+	} finally {
+		allocation.data.release();
 	}
-
-	return createGeneration(definition, { appId, account });
 }
 
 /** Which generations the authority holds, oldest first. */

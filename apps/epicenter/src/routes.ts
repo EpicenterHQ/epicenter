@@ -108,3 +108,7 @@ export const LOCAL_BLOB_REMOTE_ROUTES = {
 	download: { pattern: `${LOCAL_BLOB_PATH}/:blobId/download` },
 	purge: { pattern: `${LOCAL_BLOB_PATH}/:blobId/purge` },
 } as const;
+
+export const LOCAL_BLOB_COPY_ROUTE = route(
+	'/api/apps/:appId/blobs/:destinationId/copy',
+);

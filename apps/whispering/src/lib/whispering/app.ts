@@ -1,5 +1,6 @@
+import type { App } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import type { ReplicaData } from '@epicenter/data';
+import type { AppBlobs } from '@epicenter/app';
 import type { SyncConnectionStatus } from '@epicenter/data/sync';
 import type { WhisperingSettingValues, whisperingDefinition } from '../data';
 
@@ -7,16 +8,13 @@ import {
 	createWhisperingRecipes,
 	type WhisperingRecipes,
 } from './recipes.svelte';
-import type { WhisperingBlobs } from './recording-audio';
 import {
 	createWhisperingRecordings,
 	type WhisperingRecordings,
 } from './recordings';
 
-export type { WhisperingBlobs } from './recording-audio';
-
-/** One account's retained replica of the portable work. */
-export type WhisperingAccountData = ReplicaData<typeof whisperingDefinition>;
+/** One local or account dataset's retained portable work. */
+export type WhisperingAccountData = App<typeof whisperingDefinition>;
 
 /**
  * Hydrated, UI-free settings over typed singleton values.
@@ -94,7 +92,9 @@ const APPLICATION_DEFAULTS: WhisperingSettingValues = {
 };
 
 export type WhisperingApp = {
-	readonly account: Account;
+	/** The UI lifetime still accepts new capture. */
+	readonly recordingEnabled: boolean;
+	readonly account: Account | null;
 	readonly settings: WhisperingSettings;
 	readonly recordings: WhisperingRecordings;
 	readonly recipes: WhisperingRecipes;
@@ -107,7 +107,7 @@ export type WhisperingApp = {
 	 * object carries the blob verbs is reopened by ADR-0352 and not decided
 	 * here.
 	 */
-	readonly blobs: WhisperingBlobs;
+	readonly blobs: AppBlobs;
 	/**
 	 * What sync is doing, or undefined when no connection is attached.
 	 *
@@ -145,13 +145,14 @@ export function createWhisperingApp({
 }: {
 	/** The open replica, as `session.opened` resolved it. */
 	data: WhisperingAccountData;
-	blobs: WhisperingBlobs;
-	account: Account;
+	blobs: AppBlobs;
+	account: Account | null;
 }): WhisperingApp & Disposable {
 	const settingsDomain = createWhisperingSettings({ kv: data.kv });
 	const recordingsDomain = createWhisperingRecordings({
 		table: data.tables.recordings,
 		blobs,
+		remoteConfigured: account !== null,
 	});
 	const recipesDomain = createWhisperingRecipes({
 		table: data.tables.recipes,
@@ -159,6 +160,9 @@ export function createWhisperingApp({
 
 	let disposed = false;
 	return Object.freeze({
+		get recordingEnabled() {
+			return !disposed;
+		},
 		account,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,

@@ -19,7 +19,7 @@
 		"#platform/http": "./src/lib/services/http/index.tauri.ts",
 		"#platform/manual-recorder-config": "./src/lib/state/manual-recorder-config.tauri.ts",
 		"#platform/os": "./src/lib/platform/os.tauri.ts",
-		"#platform/os-notify": "./src/lib/report/os-notify.tauri.ts",
+    "#platform/os-notify": "./src/lib/report/os-notify.tauri.ts",
 		"#platform/sqlite": {
 			"epicenter-host": "./src/lib/platform/sqlite.epicenter-host.ts",
 			"default": "./src/lib/platform/sqlite.browser.ts"

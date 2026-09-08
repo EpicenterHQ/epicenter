@@ -83,7 +83,7 @@
 				<!-- `onRemoveLocalData` is passed only where the platform can remove
 			     one account's audio and leave another's. In the browser build the
 			     audio is the account's own IndexedDB database,
-			     `epicenter/v5/<app-id>/<principal-id>/blobs` (ADR-0349), and the
+			     `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/blobs` (ADR-0349), and the
 			     session component erases it right after the generations. The
 			     desktop leaf exports no erase: the host keeps one flat
 			     `<root>/blobs` behind `/api/local-blobs` for everybody who has

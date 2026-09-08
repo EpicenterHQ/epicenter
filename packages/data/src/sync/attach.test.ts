@@ -13,14 +13,13 @@ import { defineTable, field, plainText } from '@epicenter/data/definition';
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { defineData } from '@epicenter/data/definition';
-import { asPrincipalId } from '@epicenter/principal';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { MAIN_SUBPROTOCOL } from '@epicenter/sync';
 import type {
 	SocketTransport,
 	WebSocketAddress,
 } from '@epicenter/sync/transport';
-import { openAccountStore, type ReplicaDocument } from '../store/store.js';
+import { openAccountStore } from '../store/store.js';
 import { attachStoreSync } from './attach.js';
 
 const database = defineData({
@@ -34,30 +33,19 @@ const database = defineData({
 	},
 });
 
-type AddressedTestStore = ReplicaDocument &
-	AsyncDisposable & {
-		baseURL: string;
-		principalId: ReturnType<typeof asPrincipalId>;
-	};
+const address = {
+	baseURL: 'https://api.epicenter.test',
+	dataId: database.id,
+	generation: 1,
+};
 
-async function openStore(): Promise<AddressedTestStore> {
+function openStore() {
 	const live = new Database(':memory:');
-	const db = await openAccountStore({
+	return openAccountStore({
 		definition: database,
 		sqlite: createBunSqliteAdapter(live),
 		dispose: () => live.close(),
 	});
-	const addressed = Object.create(db) as AddressedTestStore;
-	// The whole address, the way an opener stamps it (ADR-0340). The dial reads
-	// the data id and the generation off the store rather than beside it.
-	Object.defineProperties(addressed, {
-		appId: { value: database.id },
-		dataId: { value: database.id },
-		generation: { value: 1 },
-		baseURL: { value: 'https://api.epicenter.test' },
-		principalId: { value: asPrincipalId('alice') },
-	});
-	return addressed;
 }
 
 /** Record every dial and settle it however the test says. */
@@ -82,6 +70,7 @@ test('the first dial names the dataId, a cursor of zero, and the main subprotoco
 	);
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (cause) => {
 			throw cause;
@@ -115,6 +104,7 @@ test('the store answers for the connection driving it, and stops when it goes', 
 	const { transport } = createTransport(() => new Promise<WebSocket>(() => {}));
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (cause) => {
 			throw cause;
@@ -138,6 +128,7 @@ test('a denial is reported as a refusal code and is not a transport error', asyn
 	const transportErrors: unknown[] = [];
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (cause) => transportErrors.push(cause),
 	});
@@ -159,6 +150,7 @@ test('an unrecognised rejection is a transport error and a close', async () => {
 	const transportErrors: unknown[] = [];
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (error) => transportErrors.push(error),
 	});
@@ -183,6 +175,7 @@ test('abandoning an attempt closes a socket that arrives late', async () => {
 	const { transport } = createTransport(() => arrival.promise);
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (cause) => {
 			throw cause;
@@ -223,6 +216,7 @@ test('a socket handed back already open is attached without an open event', asyn
 	const { transport } = createTransport(() => Promise.resolve(socket));
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (cause) => {
 			throw cause;
@@ -241,6 +235,7 @@ test('a connecting socket is attached only once it opens', async () => {
 	const { transport } = createTransport(() => Promise.resolve(socket));
 	const connection = attachStoreSync({
 		store,
+		address,
 		transport,
 		onTransportError: (cause) => {
 			throw cause;

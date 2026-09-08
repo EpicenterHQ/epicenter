@@ -24,7 +24,7 @@ const log = createLogger('whispering/pipeline');
  * straight to delivery, so it shares delivery's `TranscriptionSource` type.
  */
 type PipelineInput = {
-	audioBlobId: BlobId;
+	audio?: Blob | BlobId;
 	durationMs: number | null;
 	deliverySource?: TranscriptionSource;
 };
@@ -40,7 +40,7 @@ type PipelineInput = {
  */
 export async function processRecordingPipeline(
 	app: WhisperingApp,
-	{ audioBlobId, durationMs, deliverySource = 'recording' }: PipelineInput,
+	{ audio, durationMs, deliverySource = 'recording' }: PipelineInput,
 ) {
 	const now = InstantString.now();
 
@@ -50,9 +50,12 @@ export async function processRecordingPipeline(
 	// surface, so they leave the dictation lifecycle untouched.
 	const isDictation = deliverySource === 'recording';
 	// Row creation awaits cleanup of committed audio if its row cannot be written.
+	if (audio === undefined)
+		throw new Error('Recording pipeline requires audio bytes or a blob id.');
+	const captured = audio;
 	const { data: recording, error: creationError } = await app.recordings.create(
 		{
-			audioBlobId,
+			audioBlobId: captured,
 			title: '',
 			recordedAt: now,
 			recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -94,7 +97,7 @@ export async function processRecordingPipeline(
 			});
 
 	const { data: transcription, error: transcribeError } =
-		await transcribeAndPersist(app, recording.id, audioBlobId);
+	await transcribeAndPersist(app, recording.id, recording.audioBlobId);
 
 	if (transcribeError) {
 		const action = creditAction(transcribeError, app.account);

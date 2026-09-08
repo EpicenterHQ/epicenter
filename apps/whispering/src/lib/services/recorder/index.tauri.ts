@@ -13,9 +13,10 @@ import {
 	type RecorderService,
 	type Recording,
 	type RecordingEndedReason,
+	type RecordingAccount,
 } from '$lib/services/recorder/contract';
 import type { DeviceAcquisition as IpcDeviceAcquisition } from '$lib/tauri/commands';
-import { commands, events } from '$lib/tauri/commands';
+import { blobScope, commands, events } from '$lib/tauri/commands';
 // This file is the Tauri impl, so it imports the non-null capability bag
 // directly from the Tauri marker rather than through the `#platform/tauri`
 // seam (which resolves to `null` under the web condition).
@@ -124,6 +125,7 @@ function createCpalRecorder(): RecorderService<BaseRecordingParams> {
 		audioBlobId: BlobId,
 		device: DeviceAcquisitionOutcome,
 		endedReason: RecordingEndedReason | null,
+		account: RecordingAccount,
 	): Recording {
 		// Every host listener this recording opened, torn down together the moment
 		// no more of them can fire: after a stop, a cancel, or the capture ending.
@@ -163,6 +165,7 @@ function createCpalRecorder(): RecorderService<BaseRecordingParams> {
 
 		return {
 			audioBlobId,
+			account,
 			device,
 			endedReason,
 
@@ -268,13 +271,26 @@ function createCpalRecorder(): RecorderService<BaseRecordingParams> {
 	}
 
 	return {
-		current: async () => {
+		current: async (account: RecordingAccount) => {
 			const { data: live, error: currentError } =
 				await commands.currentRecording();
 			if (currentError !== null) {
 				return recorderErrorFromIpc(currentError);
 			}
 			if (!live) return Ok(null);
+			const belongsToAccount =
+				live.scope.kind === 'local'
+					? account === null
+					: account !== null &&
+						live.scope.authorityId === account.authorityId &&
+						live.scope.principalId === account.principalId;
+			if (!belongsToAccount) {
+				return RecorderError.AlreadyRecording({
+					cause: new Error(
+						'The recovered recording belongs to another dataset.',
+					),
+				});
+			}
 			const parsedId = parseBlobId(live.audioBlobId);
 			if (parsedId === undefined) {
 				return RecorderError.RecorderFailed({
@@ -286,13 +302,14 @@ function createCpalRecorder(): RecorderService<BaseRecordingParams> {
 					parsedId,
 					toDeviceAcquisition(live.device),
 					live.endedReason,
+					account,
 				),
 			);
 		},
 
 		enumerateDevices,
 
-		start: async ({ selectedDeviceId }: BaseRecordingParams) => {
+		start: async ({ selectedDeviceId, account }: BaseRecordingParams) => {
 			const { error: permissionError } = await requestMicrophonePermission();
 			if (permissionError) return Err(permissionError);
 
@@ -300,7 +317,7 @@ function createCpalRecorder(): RecorderService<BaseRecordingParams> {
 			// falls back to the system default when it is gone, and reports which
 			// one it opened.
 			const { data: started, error: startError } =
-				await commands.startRecording(selectedDeviceId);
+				await commands.startRecording(selectedDeviceId, blobScope(account));
 			if (startError !== null) {
 				return recorderErrorFromIpc(startError);
 			}
@@ -314,7 +331,12 @@ function createCpalRecorder(): RecorderService<BaseRecordingParams> {
 			// A freshly started recording never carries an ended reason: the host
 			// only just opened its microphone.
 			return Ok(
-				buildRecording(parsedId, toDeviceAcquisition(started.device), null),
+				buildRecording(
+					parsedId,
+					toDeviceAcquisition(started.device),
+					null,
+					account,
+				),
 			);
 		},
 	};

@@ -104,22 +104,13 @@ export async function importFiles(
 
 	await Promise.all(
 		valid.map(async (file) => {
-			const finalized = await app.recordings.storeAudio(file);
-			if (finalized.error !== null) {
-				report.error({
-					title: 'Failed to save imported audio',
-					cause: finalized.error,
-				});
-				return;
-			}
-
 			void logAnalyticsEvent(app, {
 				type: 'file_import_completed',
 				blob_size: file.size,
 			});
 
 			await processRecordingPipeline(app, {
-				audioBlobId: finalized.data.audioBlobId,
+				audio: file,
 				durationMs: null,
 				deliverySource: 'import',
 			});

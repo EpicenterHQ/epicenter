@@ -10,6 +10,7 @@
  * declaration can see, and a write is what it may say.
  */
 import type {
+	BlobFieldNames,
 	ConformanceIssue,
 	CreateRowOf,
 	DataDefinition,
@@ -20,6 +21,11 @@ import type {
 	RowOf,
 	TableDeclaration,
 } from '@epicenter/data/definition';
+import type {
+	BlobAlreadyExists,
+	BlobNotFound,
+	BlobStoreFailed,
+} from '@epicenter/blobs';
 import type { PrincipalId } from '@epicenter/principal';
 import type { SocketTransport } from '@epicenter/sync/transport';
 import type * as Y from '@y/y';
@@ -65,7 +71,12 @@ export type Row = { id: string } & Record<string, JsonValue | Y.Type>;
  */
 export type TableListener = (rowIds: readonly string[]) => void;
 
-export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
+export type TableHandle<
+	TRow = Row,
+	TInput = RowInput,
+	TPatch = JsonObject,
+	TCreated = TRow,
+> = {
 	/**
 	 * Bring one row into being, at a minted id.
 	 *
@@ -93,8 +104,13 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * The declaration is a read lens, so creation does not validate the supplied
 	 * values or field names. The returned object is the typed write view, while
 	 * a later `get` reports how the current lens interprets the stored payload.
+	 *
+	 * A table with owning blob fields accepts bytes or local copy-source IDs and
+	 * returns a Promise<Result>. Each non-null field receives a fresh ID.
+	 * It persists bytes before accepting the row, outside synchronous `transact`.
+	 * Success means row acceptance, not a cross-store atomic durability guarantee.
 	 */
-	create(fields: TInput): TRow;
+	create(fields: TInput): TCreated;
 	/**
 	 * One row, whole, or nothing.
 	 *
@@ -124,6 +140,7 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * legally land on a row whose OTHER fields this declaration cannot read (that is
 	 * how a nonconforming row is repaired, ADR-0125), and a write verb that
 	 * reported that read as its own failure punished a write that committed.
+	 * Owning blob fields are excluded: patching their IDs would bypass ownership.
 	 */
 	update(rowId: string, fields: TPatch): Result<void, RowAbsentError>;
 	/**
@@ -232,7 +249,15 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 	RowOf<TFields>,
 	CreateRowOf<TFields>,
-	Partial<Pick<RowOf<TFields>, Exclude<keyof RowOf<TFields>, 'id' | 'content'>>>
+	Partial<
+		Pick<
+			RowOf<TFields>,
+			Exclude<keyof RowOf<TFields>, 'id' | 'content' | BlobFieldNames<TFields>>
+		>
+	>,
+	[BlobFieldNames<TFields>] extends [never]
+		? RowOf<TFields>
+		: Promise<Result<RowOf<TFields>, BlobAlreadyExists | BlobNotFound | BlobStoreFailed>>
 >;
 
 /**
@@ -274,27 +299,6 @@ export type DeclaredData<TDatabase extends DataDefinition> = {
 	transact<TResult>(run: () => TResult): TResult;
 };
 
-/**
- * One application's opened data: what the definition declared, and the file
- * under `store`.
- *
- * Named for what it is to the caller. The application itself is a bigger
- * thing that owns UI, state, and sync attachments; what an opener returns is
- * that application's DATA, which is exactly what the reference app already
- * called it (`HoneycrispData`, bound as `db`).
- *
- * The split is by who calls it. `tables` and `kv` are what an
- * application does; `store` holds pressure, the CRDT verbs, and, on a
- * replica, sync: what a transport needs and a feature never touches. Merging
- * the two put thirteen names on one object where four are used, and cost a
- * forwarded getter and a cast to build it. SQL is deliberately not here: an
- * index is a follower an application composes, not a verb the store owes.
- *
- * The view and the store are born together: an opened runtime holds exactly
- * one data definition for its whole life (ADR-0240), so there is no verb
- * that takes a second view of a live store. A newer definition reads the same
- * durable data by closing this runtime and opening the next one.
- */
 /**
  * One application's stored state, by root, with no declaration applied.
  *
@@ -340,14 +344,6 @@ export type Data<TDatabase extends DataDefinition> = DeclaredData<TDatabase> &
 	DataDocument &
 	AsyncDisposable;
 
-/**
- * Account data that knows the server it belongs to.
- *
- * What a browser opener returns once an account is present, and what
- * `attachStoreSync` needs in order to address a socket. Both used to declare
- * this shape themselves, in two files, and only structural typing kept the two
- * copies interchangeable.
- */
 /**
  * A store an application holds, which it cannot close.
  *
@@ -457,7 +453,17 @@ export type KvHandle<TValues = JsonObject> = {
  * TypeScript's depth limit.
  */
 export type UntypedDeclaredData = {
-	readonly tables: Readonly<Record<string, TableHandle>>;
+	readonly tables: Readonly<
+		Record<
+			string,
+			TableHandle<
+				Row,
+				Record<string, JsonValue | Y.Type | Blob>,
+				JsonObject,
+				Row | Promise<Result<Row, BlobAlreadyExists | BlobNotFound | BlobStoreFailed>>
+			>
+		>
+	>;
 	readonly kv: KvHandle;
 	transact<TResult>(run: () => TResult): TResult;
 };
@@ -488,15 +494,9 @@ export type DocumentPressure = {
 /**
  * One opened document's runtime: the live Yjs state and its durable record.
  *
- * Every verb here is a fact about the document itself: measure it, encode it,
- * hear it commit, watch its persistence. The data definition is not on
- * this surface, because it is not a verb: the engine closed over it at
- * construction and every table handle and the KV handle read the one parsed
- * definition for the store's whole life
- * (ADR-0240). What tells the two store kinds apart is `sync`, present on both
- * and carrying the discriminating value: `undefined` on a device-owned
- * document, a `SyncCapability` on a replica. Every store has local
- * persistence; only a replica has a synchronization capability.
+ * Measure the document, encode it, hear commits, and inspect persistence.
+ * The parsed definition is captured once. Local and account data share these
+ * operations; sync status is undefined when no connection is attached.
  */
 export type DataDocument = {
 	/**
@@ -568,8 +568,7 @@ export type DataDocument = {
 	/**
 	 * The app-facing facts of this store's entanglement with its authority.
 	 *
-	 * Always present, because an account is required: a database is minted by
-	 * an authority, so there is no second shape whose `sync` is missing. The
+	 * Always present; local documents report no attached connection. The
 	 * delivery machinery underneath (applying peer bytes, the outbox, cursors,
 	 * the acknowledgement bookkeeping) is deliberately not public. Only the
 	 * transport drives it, and it reaches it through `syncEngineOf` inside this
@@ -594,11 +593,8 @@ export type DataDocument = {
 /**
  * A store that knows the server it belongs to.
  *
- * The one thing it adds over `DataDocument` is the address its opener stamped
- * on it. There is no second document kind to discriminate against: an account
- * is required, so a store with no authority is not a shape this package can
- * produce. The `ReplicaDocument` this was once a union with is gone with the
- * device store.
+ * Exact-generation low-level openers retain this address for artifacts and
+ * diagnostics. The common app handle does not require replica metadata.
  */
 export type ReplicaDocument = DataDocument & {
 	/**
@@ -625,20 +621,10 @@ export type ReplicaDocument = DataDocument & {
 };
 
 /**
- * That this store replicates, and the key its transport is registered against.
- *
- * It carries no facts, and it used to carry one: the document identity, which
- * was a boot node's whole question (ADR-0231). The generation is in the address
- * now, so a replica is bound the moment it opens and there is nothing left to
- * wait for (ADR-0292). What is left is the discriminant the store types already
- * had, plus an object identity `syncEngineOf` can key on, so a wrapper that
- * spreads the store keeps the door reachable.
- *
- * Connection health, failed dials, and in-flight submissions belong to the
- * connection driving the socket and were never here.
+ * The attached connection's status, keyed by this capability's object identity.
+ * Local stores have no registered replication engine and report no connection.
  */
 export type SyncCapability = {
-	readonly replicates: true;
 	/**
 	 * What the attached connection reports, or `undefined` when none is
 	 * attached.
@@ -666,6 +652,7 @@ export type SyncCapability = {
  * lets data openers consume accounts without depending on the auth package.
  */
 export type DatabaseAccount = {
+	readonly authorityId: string;
 	readonly baseURL: string;
 	readonly principalId: PrincipalId;
 	/** A credentialed fetch, waiting on machine work but never on a human. */

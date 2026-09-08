@@ -8,6 +8,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
+import type { WebviewBlobScope } from '@epicenter/blobs/webview';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { isAppId } from '@epicenter/constants/app-id';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
@@ -51,6 +52,7 @@ import {
 	BUILT_IN_ROUTES,
 	CHECKOUT_ROUTE,
 	LOCAL_BLOB_REMOTE_ROUTES,
+	LOCAL_BLOB_COPY_ROUTE,
 	LOCAL_BLOB_ROUTE,
 	MAIL_CALLBACK_ROUTE,
 	MAIL_PENDING_CALLBACK_ROUTE,
@@ -84,7 +86,7 @@ export type HomeServerOptions = {
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
 	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: BunBlobStore;
+	blobs: BunBlobStore | ((appId: string, scope: WebviewBlobScope) => BunBlobStore);
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
 	/**
@@ -93,7 +95,7 @@ export type HomeServerOptions = {
 	 * builds it from the desktop authority, so these routes never see a
 	 * credential or a destination URL.
 	 */
-	blobRemote: BlobRemote | null;
+	blobRemote: BlobRemote | null | ((appId: string, scope: WebviewBlobScope) => BlobRemote | null);
 	/** Bun owner for app-scoped SQLite files. */
 	device?: BunDevice;
 	/** Credential-store owner for one labeled secret per application account. */
@@ -110,6 +112,19 @@ const MAX_BROWSER_SESSIONS = 32;
  */
 const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Device.</p></body></html>`;
 const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
+
+function parseBlobScope(c: Context): WebviewBlobScope | undefined {
+	const authorityId = c.req.query('authorityId');
+	const principalId = c.req.query('principalId');
+	if (authorityId === undefined && principalId === undefined) return { kind: 'local' };
+	if (authorityId === undefined || principalId === undefined) return undefined;
+	if (!isBlobPathSegment(authorityId) || !isBlobPathSegment(principalId)) return undefined;
+	return { kind: 'account', authorityId, principalId };
+}
+
+function isBlobPathSegment(value: string): boolean {
+	return value !== '' && value !== '.' && value !== '..' && !/[\\/]/.test(value);
+}
 
 export function createHomeServer({
 	folderRoot,
@@ -163,6 +178,26 @@ export function createHomeServer({
 	const { upgradeWebSocket, websocket: homeWebsocket } = createBunWebSocket();
 	const relay = createAccountRelay(homeWebsocket);
 	const app = new Hono();
+	const blobStoreFor = (c: Context): BunBlobStore | undefined => {
+		if (typeof blobs === 'function') {
+			const appId = c.req.query('appId') ?? c.req.param('appId');
+			const scope = parseBlobScope(c);
+			return appId !== undefined && isAppId(appId) && scope !== undefined
+				? blobs(appId, scope)
+				: undefined;
+		}
+		return blobs;
+	};
+	const blobRemoteFor = (c: Context): BlobRemote | null | undefined => {
+		if (typeof blobRemote === 'function') {
+			const appId = c.req.query('appId');
+			const scope = parseBlobScope(c);
+			return appId !== undefined && isAppId(appId) && scope !== undefined
+				? blobRemote(appId, scope)
+				: undefined;
+		}
+		return blobRemote;
+	};
 
 	app.use('*', async (c, next) => {
 		if (c.req.header('host') !== activeHost) {
@@ -384,7 +419,6 @@ export function createHomeServer({
 	// generic application listing is already guarded above; this wildcard keeps
 	// newly added app routes behind the same browser session by default.
 	app.use('/api/apps/*', requireBrowserSession);
-
 	app.use('/api/mail/*', requireBrowserSession);
 	// Taking is destructive, because one authorization is redeemable once and a
 	// second reader would be redeeming a code Google has already spent.
@@ -516,11 +550,13 @@ export function createHomeServer({
 	});
 
 	app.put(LOCAL_BLOB_ROUTE.pattern, async (c) => {
+		const store = blobStoreFor(c);
+		if (store === undefined) return c.text('Missing application scope', 400);
 		const id = parseBlobId(c.req.param('blobId'));
 		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.putRequest(id, c.req.raw);
+		const result = await store.putRequest(id, c.req.raw);
 		if (result.error === null) return c.body(null, 201);
-		switch (result.error.name) {
+				switch (result.error.name) {
 			case 'BlobAlreadyExists':
 				return c.text('Blob already exists', 409);
 			case 'BlobStoreFailed':
@@ -539,7 +575,9 @@ export function createHomeServer({
 		}
 		const id = parseBlobId(c.req.param('blobId'));
 		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.stat(id);
+		const store = blobStoreFor(c);
+		if (store === undefined) return c.text('Missing application scope', 400);
+		const result = await store.stat(id);
 		if (result.error !== null) {
 			switch (result.error.name) {
 				case 'BlobNotFound':
@@ -559,9 +597,11 @@ export function createHomeServer({
 	});
 
 	app.get(LOCAL_BLOB_ROUTE.pattern, async (c) => {
+		const store = blobStoreFor(c);
+		if (store === undefined) return c.text('Missing application scope', 400);
 		const id = parseBlobId(c.req.param('blobId'));
 		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.openFile(id);
+		const result = await store.openFile(id);
 		if (result.error !== null) {
 			switch (result.error.name) {
 				case 'BlobNotFound':
@@ -609,11 +649,40 @@ export function createHomeServer({
 	});
 
 	app.delete(LOCAL_BLOB_ROUTE.pattern, async (c) => {
+		const store = blobStoreFor(c);
+		if (store === undefined) return c.text('Missing application scope', 400);
 		const id = parseBlobId(c.req.param('blobId'));
 		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.delete(id);
+		const result = await store.delete(id);
 		if (result.error !== null) return c.text('Blob store failed', 500);
 		return c.body(null, 204);
+	});
+
+	app.post(LOCAL_BLOB_COPY_ROUTE.pattern, async (c) => {
+		const store = blobStoreFor(c);
+		if (store === undefined) return c.text('Missing application scope', 400);
+		const destinationId = parseBlobId(c.req.param('destinationId'));
+		if (destinationId === undefined) return c.text('Invalid blob id', 400);
+		let body: unknown;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.text('Invalid copy request', 400);
+		}
+		const sourceId =
+			typeof body === 'object' && body !== null && 'sourceId' in body &&
+			typeof body.sourceId === 'string'
+				? parseBlobId(body.sourceId)
+				: undefined;
+		if (sourceId === undefined) return c.text('Invalid source blob id', 400);
+		const result = await store.copy(sourceId, destinationId);
+		if (result.error === null) return c.body(null, 204);
+		switch (result.error.name) {
+			case 'BlobNotFound': return c.text('Blob not found', 404);
+			case 'BlobAlreadyExists': return c.text('Blob already exists', 409);
+			case 'BlobStoreFailed': return c.text('Blob store failed', 500);
+			default: return result.error satisfies never;
+		}
 	});
 
 	// Remote copy operations: the blob id in the path is the only input. The
@@ -630,12 +699,15 @@ export function createHomeServer({
 		>,
 	) => {
 		return async (c: Context) => {
+			const selectedRemote = blobRemoteFor(c);
+			if (selectedRemote === undefined)
+				return c.text('Missing application scope', 400);
 			const id = parseBlobId(c.req.param('blobId'));
 			if (id === undefined) return c.text('Invalid blob id', 400);
-			if (blobRemote === null) {
+			if (selectedRemote === null) {
 				return c.text('Remote storage unavailable', 503);
 			}
-			const result = await operate(blobRemote, id);
+			const result = await operate(selectedRemote, id);
 			if (result.error === null) return c.body(null, 204);
 			switch (result.error.name) {
 				case 'BlobNotFound':
@@ -645,6 +717,8 @@ export function createHomeServer({
 					return c.text('Blob store failed', 500);
 				case 'BlobRemoteFailed':
 					return c.text('Remote operation failed', 502);
+				case 'RemoteNotConfigured':
+					return c.text('Remote storage unavailable', 503);
 				default:
 					return result.error satisfies never;
 			}
@@ -804,28 +878,28 @@ function parseDeviceRequest(
 		input === null ||
 		typeof input.kind !== 'string' ||
 		typeof input.appId !== 'string' ||
-		!isAppId(input.appId) ||
-		!('scope' in input) ||
-		!isStorageScope(input.scope)
+		!isAppId(input.appId)
 	) {
 		return undefined;
 	}
 	const kind = input.kind;
+	const scope = 'scope' in input && isStorageScope(input.scope) ? input.scope : undefined;
 	if (
 		(kind === 'sqlite-run' || kind === 'sqlite-all') &&
-		typeof input.name === 'string'
+		typeof input.name === 'string' &&
+		scope !== undefined
 	) {
 		const statement = parseSqliteStatement(input.statement);
 		return statement === undefined || !isDatabaseName(input.name)
 			? undefined
-			: { kind, appId: input.appId, scope: input.scope, name: input.name, statement };
+			: { kind, appId: input.appId, scope, name: input.name, statement };
 	}
-	if (kind === 'sqlite-delete' && typeof input.name === 'string') {
+	if (kind === 'sqlite-delete' && typeof input.name === 'string' && scope !== undefined) {
 		return isDatabaseName(input.name)
-			? { kind, appId: input.appId, scope: input.scope, name: input.name }
+			? { kind, appId: input.appId, scope, name: input.name }
 			: undefined;
 	}
-	if (kind === 'sqlite-batch' && typeof input.name === 'string') {
+	if (kind === 'sqlite-batch' && typeof input.name === 'string' && scope !== undefined) {
 		if (!isDatabaseName(input.name) || !Array.isArray(input.statements)) {
 			return undefined;
 		}
@@ -835,7 +909,7 @@ function parseDeviceRequest(
 			if (statement === undefined) return undefined;
 			statements.push(statement);
 		}
-		return { kind, appId: input.appId, scope: input.scope, name: input.name, statements };
+		return { kind, appId: input.appId, scope, name: input.name, statements };
 	}
 	if (
 		(kind === 'secret-put' ||

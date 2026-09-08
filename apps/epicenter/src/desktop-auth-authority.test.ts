@@ -121,6 +121,7 @@ test('a stored session boots offline and authorizes after verification without e
 			.principalId,
 	});
 	expect(context.authority.bootSnapshot.connection).toEqual({
+		authorityId: 'epicenter-api',
 		baseURL: 'https://api.epicenter.so',
 		status: 'connected',
 	});

@@ -2,23 +2,28 @@
 import { expect, test } from 'bun:test';
 import {
 	type BlobRemote,
+	type BlobId,
 	BlobRemoteError,
 	type BlobStore,
 	BlobStoreError,
 	generateBlobId,
 } from '@epicenter/blobs';
+import type { AppBlobs } from '@epicenter/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { InstantString } from '@epicenter/data/field';
-import { openMemory } from '@epicenter/data/memory';
+import { createMemoryRecord } from '@epicenter/data/memory';
+import { openAccountStore } from '@epicenter/data/direct';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type RecordingId, whisperingDefinition } from '../data';
-import { asStoredBlobId, type NewRecording } from './recording';
-import type { UnscopedAudio } from './recording-audio.js';
+import type { NewRecording } from './recording';
 import { createWhisperingRecordings } from './recordings';
 
 function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
 	const store: BlobStore = {
+		async copy() {
+			return Ok(undefined);
+		},
 		async put() {
 			return Ok(undefined);
 		},
@@ -54,9 +59,30 @@ function stubRemote(overrides: Partial<BlobRemote> = {}): BlobRemote {
 	};
 }
 
+function appBlobs(local: BlobStore, remote: BlobRemote | null): AppBlobs {
+	const sources = createBrowserBlobSources(local);
+	return {
+		remote: remote ?? {
+			upload: async () => BlobRemoteError.RemoteNotConfigured(),
+			download: async () => BlobRemoteError.RemoteNotConfigured(),
+			purge: async () => BlobRemoteError.RemoteNotConfigured(),
+		},
+		async add(blob) {
+			const id = generateBlobId();
+			const result = await local.put(id, blob);
+			return result.error === null ? Ok(id) : result;
+		},
+		get: (id) => local.get(id),
+		stat: (id) => local.stat(id),
+		statMany: (ids) => local.statMany(ids),
+		open: (id) => sources.open(id),
+		removeLocal: (id) => local.delete(id),
+	};
+}
+
 function recording(overrides: Partial<NewRecording> = {}): NewRecording {
 	return {
-		audioBlobId: generateBlobId(),
+		audioBlobId: new Blob(['audio'], { type: 'audio/wav' }),
 		title: '',
 		recordedAt: InstantString.now(),
 		recordedAtZone: 'UTC',
@@ -71,7 +97,7 @@ function recording(overrides: Partial<NewRecording> = {}): NewRecording {
 function storedRow(row: NewRecording) {
 	return {
 		...row,
-		audioBlobId: asStoredBlobId(row.audioBlobId),
+		audioBlobId: row.audioBlobId,
 		uploadedAt: null,
 		transcriptionStatus: 'pending',
 		transcriptionCompletedAt: null,
@@ -83,24 +109,24 @@ async function setup({
 	local = stubLocalStore(),
 	remote = stubRemote(),
 	seed = [],
-	unscoped = null,
 }: {
 	local?: BlobStore;
 	remote?: BlobRemote | null;
 	seed?: ReturnType<typeof recording>[];
-	unscoped?: UnscopedAudio | null;
 } = {}) {
-	const data = await openMemory(whisperingDefinition);
+	const record = createMemoryRecord();
+	const data = await openAccountStore({
+		definition: whisperingDefinition,
+		sqlite: record.sqlite,
+		blobStore: local,
+		dispose: record.close,
+	});
 	const table = data.tables.recordings;
-	for (const row of seed) table.create(storedRow(row));
+	for (const row of seed) expectOk(await table.create(storedRow(row)));
 	const domain = createWhisperingRecordings({
 		table,
-		blobs: {
-			local,
-			remote,
-			sources: createBrowserBlobSources(local),
-			unscoped,
-		},
+		blobs: appBlobs(local, remote),
+		remoteConfigured: remote !== null,
 	});
 	return {
 		table,
@@ -202,61 +228,14 @@ test('deletion removes remote, local, then row', async () => {
 		}),
 	});
 	try {
-		const row = context.table.create({
+		const row = expectOk(await context.table.create({
 			...storedRow(recording()),
 			uploadedAt: InstantString.now(),
-		});
+		}));
 		expectOk(await context.recordings.delete(row.id as RecordingId));
 		order.push(context.table.get(row.id) === undefined ? 'row' : 'live');
 		expect(order).toEqual(['remote', 'local', 'row']);
 	} finally {
-		await context.dispose();
-	}
-});
-
-test('deletion resolves uploaded metadata after the initial claim settles', async () => {
-	const finishClaim = Promise.withResolvers<void>();
-	const order: string[] = [];
-	const context = await setup({
-		seed: [recording()],
-		unscoped: {
-			async claim() {
-				await finishClaim.promise;
-				return Ok({
-					claimed: 1,
-					absent: 0,
-					skipped: 0,
-					unclaimed: { count: 0, bytes: 0 },
-				});
-			},
-			summary: async () => Ok({ count: 0, bytes: 0 }),
-			delete: async () => Ok(undefined),
-		},
-		local: stubLocalStore({
-			async delete() {
-				order.push('local');
-				return Ok(undefined);
-			},
-		}),
-		remote: stubRemote({
-			async purge() {
-				order.push('remote');
-				return Ok(undefined);
-			},
-		}),
-	});
-	try {
-		const row = context.recordings.sorted[0]!;
-		const deleting = context.recordings.delete(row.id);
-		await Promise.resolve();
-		expect(order).toEqual([]);
-		expectOk(context.table.update(row.id, { uploadedAt: InstantString.now() }));
-		finishClaim.resolve();
-		expectOk(await deleting);
-		expect(order).toEqual(['remote', 'local']);
-		expect(context.recordings.get(row.id)).toBeUndefined();
-	} finally {
-		finishClaim.resolve();
 		await context.dispose();
 	}
 });
@@ -276,11 +255,11 @@ test('deletion preflights remote availability for the whole selection', async ()
 		// One local-only recording and one with an online copy. `uploadedAt` is
 		// written through the table rather than the domain, because the audio
 		// workflows are its only writer and there is no remote to upload to here.
-		context.table.create(storedRow(recording()));
-		context.table.create({
+		expectOk(await context.table.create(storedRow(recording())));
+		expectOk(await context.table.create({
 			...storedRow(recording()),
 			uploadedAt: InstantString.now(),
-		});
+		}));
 		const error = expectErr(
 			await context.recordings.delete(
 				context.recordings.sorted.map(({ id }) => id),
@@ -296,51 +275,22 @@ test('deletion preflights remote availability for the whole selection', async ()
 	}
 });
 
-test('row creation admits a storage-valid opaque blob id', async () => {
-	const deleted: string[] = [];
-	const context = await setup({
-		local: stubLocalStore({
-			async delete(id) {
-				deleted.push(id);
-				return Ok(undefined);
-			},
-		}),
-	});
+test('row creation admits bytes and returns its generated BlobId', async () => {
+	const context = await setup();
 	try {
-		const audioBlobId = 'invalid' as ReturnType<typeof generateBlobId>;
-		const created = expectOk(
-			await context.recordings.create({ ...recording(), audioBlobId }),
+		const created = expectOk(await context.recordings.create(recording()));
+		expect(created.audioBlobId).toMatch(/^blob_[a-z0-9]{21}$/);
+		expect(await expectOk(await context.recordings.audioAvailability(created.id))).toBe(
+			'local-only',
 		);
-		expect(created.audioBlobId).toBe(audioBlobId);
-		await Bun.sleep(1);
-		expect(deleted).toEqual([]);
-	} finally {
-		await context.dispose();
-	}
-});
-
-test('storeAudio does not expose an id after a failed local commit', async () => {
-	const context = await setup({
-		local: stubLocalStore({
-			async put(id) {
-				return BlobStoreError.BlobStoreFailed({
-					id,
-					cause: new Error('quota exceeded'),
-				});
-			},
-		}),
-	});
-	try {
-		expectErr(await context.recordings.storeAudio(new Blob(['audio'])));
 	} finally {
 		await context.dispose();
 	}
 });
 
 test('backup sends what this device holds, counts what it does not, and coalesces kicks', async () => {
-	const here = generateBlobId();
-	const elsewhere = generateBlobId();
 	const uploaded: string[] = [];
+	let elsewhere = '';
 	const context = await setup({
 		local: stubLocalStore({
 			async stat(id) {
@@ -356,11 +306,15 @@ test('backup sends what this device holds, counts what it does not, and coalesce
 			},
 		}),
 		seed: [
-			recording({ audioBlobId: here }),
-			recording({ audioBlobId: elsewhere }),
+			recording(),
+			recording(),
 		],
 	});
 	try {
+		const [here, missing] = context.recordings.sorted;
+		if (here === undefined || missing === undefined)
+			throw new Error('seeded two recordings');
+		elsewhere = missing.audioBlobId;
 		expect(context.recordings.backup.pending).toBe(2);
 
 		// Two kicks at once are one pass followed by one more, and both callers
@@ -376,7 +330,7 @@ test('backup sends what this device holds, counts what it does not, and coalesce
 			failed: 0,
 			aborted: false,
 		});
-		expect(uploaded).toEqual([here]);
+		expect(uploaded).toEqual([here.audioBlobId]);
 		expect(context.recordings.backup.pending).toBe(1);
 	} finally {
 		await context.dispose();
@@ -477,7 +431,7 @@ test('automatic kicks batch discovery once and remember missing bytes for the se
 				return requested.map((id) => BlobStoreError.BlobNotFound({ id }));
 			},
 		}),
-		seed: ids.map((audioBlobId) => recording({ audioBlobId })),
+		seed: ids.map((audioBlobId) => recording({ audioBlobId: new Blob([audioBlobId]) })),
 	});
 	try {
 		expect(context.recordings.backup.pending).toBe(100);
@@ -591,103 +545,6 @@ test('a manual kick during discovery invalidates its old missing-byte result', a
 	}
 });
 
-test('backup waits for the initial claim before caching missing bytes', async () => {
-	const finishClaim = Promise.withResolvers<void>();
-	let local = false;
-	let batches = 0;
-	const context = await setup({
-		unscoped: {
-			claim: async () => {
-				await finishClaim.promise;
-				local = true;
-				return Ok({
-					claimed: 1,
-					absent: 0,
-					skipped: 0,
-					unclaimed: { count: 0, bytes: 0 },
-				});
-			},
-			summary: async () => Ok({ count: 0, bytes: 0 }),
-			delete: async () => Ok(undefined),
-		},
-		local: stubLocalStore({
-			statMany: async (ids) => {
-				batches++;
-				return ids.map((id) =>
-					local
-						? Ok({ size: 1, contentType: 'audio/wav' })
-						: BlobStoreError.BlobNotFound({ id }),
-				);
-			},
-		}),
-		seed: [recording()],
-	});
-	try {
-		const pass = context.recordings.backup.kick();
-		await Promise.resolve();
-		expect(batches).toBe(0);
-		finishClaim.resolve();
-		expect((await pass).uploaded).toBe(1);
-		expect(batches).toBe(1);
-	} finally {
-		finishClaim.resolve();
-		await context.dispose();
-	}
-});
-
-test('manual upload and local removal wait for the initial claim', async () => {
-	const finishClaim = Promise.withResolvers<void>();
-	let uploads = 0;
-	let deletes = 0;
-	const context = await setup({
-		seed: [recording(), recording()],
-		unscoped: {
-			async claim() {
-				await finishClaim.promise;
-				return Ok({
-					claimed: 2,
-					absent: 0,
-					skipped: 0,
-					unclaimed: { count: 0, bytes: 0 },
-				});
-			},
-			summary: async () => Ok({ count: 0, bytes: 0 }),
-			delete: async () => Ok(undefined),
-		},
-		local: stubLocalStore({
-			async delete() {
-				deletes++;
-				return Ok(undefined);
-			},
-		}),
-		remote: stubRemote({
-			async upload() {
-				uploads++;
-				return Ok(undefined);
-			},
-		}),
-	});
-	try {
-		const [toUpload, toRemove] = context.recordings.sorted;
-		const uploading = context.recordings.uploadAudio(toUpload!.id);
-		const removing = context.recordings.removeLocalAudio(toRemove!.id);
-		await Promise.resolve();
-		expect(uploads).toBe(0);
-		expect(deletes).toBe(0);
-		expectOk(
-			context.table.update(toRemove!.id, { uploadedAt: InstantString.now() }),
-		);
-		finishClaim.resolve();
-		expectOk(await uploading);
-		expectOk(await removing);
-		expect(uploads).toBe(2);
-		expect(deletes).toBe(1);
-	} finally {
-		finishClaim.resolve();
-		await context.dispose();
-	}
-});
-
 test('disposing during discovery prevents uploads and coalesced work', async () => {
 	const started = Promise.withResolvers<void>();
 	const finish = Promise.withResolvers<void>();
@@ -722,13 +579,12 @@ test('disposing during discovery prevents uploads and coalesced work', async () 
 });
 
 test('early upload failures do not discard missing-byte discoveries later in the batch', async () => {
-	const missing = Array.from({ length: 40 }, () => generateBlobId());
-	const localIds = [generateBlobId(), generateBlobId()];
+	let missing: string[] = [];
+	let localIds: string[] = [];
 	const seen: string[][] = [];
 	const context = await setup({
-		seed: [...localIds, ...missing].map((audioBlobId, index) =>
+		seed: Array.from({ length: 42 }, (_, index) =>
 			recording({
-				audioBlobId,
 				recordedAt: InstantString.fromDate(
 					new Date(Date.now() - index * 1_000),
 				),
@@ -750,6 +606,9 @@ test('early upload failures do not discard missing-byte discoveries later in the
 		}),
 	});
 	try {
+		const ids = context.recordings.sorted.map(({ audioBlobId }) => audioBlobId);
+		localIds = ids.slice(0, 2);
+		missing = ids.slice(2);
 		expect((await context.recordings.backup.kick()).failed).toBe(2);
 		expect((await context.recordings.backup.kick()).failed).toBe(2);
 		expect(seen.map((ids) => ids.length)).toEqual([42, 2]);
@@ -759,47 +618,23 @@ test('early upload failures do not discard missing-byte discoveries later in the
 	}
 });
 
-test('failed row creation awaits cleanup and reports whether local bytes were removed', async () => {
-	const cleanup = Promise.withResolvers<void>();
-	const started = Promise.withResolvers<void>();
+test('recording creation reports the owning table failure without a second cleanup path', async () => {
 	const context = await setup({
 		local: stubLocalStore({
-			delete: async () => {
-				started.resolve();
-				await cleanup.promise;
-				return Ok(undefined);
+			put: async (id) => {
+				return BlobStoreError.BlobStoreFailed({
+					id,
+					cause: new Error('quota exceeded'),
+				});
 			},
 		}),
 	});
-	await context.dispose();
-	let settled = false;
-	const creating = context.recordings.create(recording()).then((result) => {
-		settled = true;
-		return result;
-	});
-	await started.promise;
-	expect(settled).toBe(false);
-	cleanup.resolve();
-	expect(expectErr(await creating)).toMatchObject({
+	try {
+		expect(expectErr(await context.recordings.create(recording()))).toMatchObject({
 		name: 'RowCreateFailed',
 		cleanupError: null,
-	});
-});
-
-test('failed row creation preserves a cleanup failure instead of claiming audio was removed', async () => {
-	const context = await setup({
-		local: stubLocalStore({
-			delete: async (id) =>
-				BlobStoreError.BlobStoreFailed({ id, cause: new Error('disk failed') }),
-		}),
-	});
-	await context.dispose();
-	const error = expectErr(await context.recordings.create(recording()));
-	expect(error).toMatchObject({
-		name: 'RowCreateFailed',
-		cleanupError: { name: 'BlobStoreFailed' },
-	});
-	expect(error.message).toBe(
-		'Could not create the recording or remove its local audio.',
-	);
+		});
+	} finally {
+		await context.dispose();
+	}
 });

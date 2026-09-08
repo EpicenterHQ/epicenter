@@ -25,10 +25,7 @@ import {
 	isOpenWebSocketDenial,
 	type SocketTransport,
 } from '@epicenter/sync/transport';
-import {
-	type ReplicaDocument,
-	registerSyncConnection,
-} from '../store/store.js';
+import { type DataDocument, registerSyncConnection } from '../store/store.js';
 import { createSyncConnection, type SyncConnection } from './connection.js';
 
 /**
@@ -39,19 +36,10 @@ import { createSyncConnection, type SyncConnection } from './connection.js';
 const SOCKET_OPEN = 1;
 
 export type AttachStoreSyncOptions = {
-	/**
-	 * The open account replica this connection carries, which is also the
-	 * address it dials.
-	 *
-	 * The data id and the generation used to arrive beside it, read off the
-	 * same open the caller passed here. A connection is opened against the
-	 * store it drives, so there was never a second address to describe
-	 * (ADR-0340). The generation is the whole of membership (ADR-0292): it is
-	 * created once and never mutated in place, so a socket addressed from the
-	 * store can only be carrying this history's bytes, and there is nothing to
-	 * announce, nothing to compare, and no supersession to conclude.
-	 */
-	store: ReplicaDocument;
+	/** The hydrated document this connection carries. */
+	store: DataDocument;
+	/** The replication address resolved when its backing was acquired. */
+	address: { baseURL: string; dataId: string; generation: number };
 	/**
 	 * How this replica opens its socket. `AuthClient` implements it: it takes
 	 * the address the route built and appends the bearer subprotocol, because a
@@ -70,8 +58,8 @@ export type AttachStoreSyncOptions = {
  * Attach sync to an open account replica, for as long as the store is open,
  * and start it.
  *
- * Every store is an account replica, because an authority mints every
- * generation (ADR-0336), so every open attaches this.
+ * Only account-backed documents attach a connection. Local documents have no
+ * replication address or transport.
  *
  * Whether sync can work is decided by each dial rather than by inspecting auth
  * here, and a refusal is not a failure: the store opened from local state
@@ -81,6 +69,7 @@ export type AttachStoreSyncOptions = {
  */
 export function attachStoreSync({
 	store,
+	address,
 	transport,
 	onTransportError,
 }: AttachStoreSyncOptions): SyncConnection {
@@ -91,9 +80,9 @@ export function attachStoreSync({
 			let abandoned = false;
 			void transport
 				.openWebSocket(
-					STORE_SYNC_ROUTE.address(store.baseURL, {
-						dataId: store.dataId,
-						generation: store.generation,
+					STORE_SYNC_ROUTE.address(address.baseURL, {
+						dataId: address.dataId,
+						generation: address.generation,
 						cursor,
 					}),
 				)

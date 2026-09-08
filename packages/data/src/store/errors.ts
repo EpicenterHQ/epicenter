@@ -68,6 +68,9 @@ export type NonconformingRow = NonconformingValue & {
 };
 
 export const StoreError = defineErrors({
+	ClosedWhileOpening: () => ({
+		message: 'The store was closed while it was opening.',
+	}),
 	/**
 	 * A write named an address that holds no row.
 	 *

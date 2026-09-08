@@ -256,6 +256,13 @@ function compileTable(
 			});
 		}
 		const check = compileField(base.schema);
+		if (tableName === KV_ROOT && base.kind === 'blob') {
+			return DataDefinitionParseError.UnrecognizedField({
+				table: tableName,
+				field: fieldName,
+				reason: 'owning blob fields belong to tables, not KV',
+			});
+		}
 		compiled.set(fieldName, {
 			name: fieldName,
 			kind: base.kind,

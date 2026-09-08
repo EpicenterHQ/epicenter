@@ -40,12 +40,13 @@ import {
 	BlobRemoteError,
 	generateBlobId,
 } from '@epicenter/blobs';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { desktopBlobUrl } from '@epicenter/blobs/webview';
+import { createBunBlobStore, type BunBlobStore } from '@epicenter/blobs/bun';
+import { desktopBlobUrl, type WebviewBlobScope } from '@epicenter/blobs/webview';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import { DEVICE_PATH } from '@epicenter/device/protocol';
 import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
 import { Ok } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import {
 	type AppSecretOwner,
 	createProcessMemoryAppSecrets,
@@ -170,6 +171,7 @@ async function serveHost(
 		device?: BunDevice;
 		appSecrets?: AppSecretOwner;
 		folderRoot?: string;
+		blobs?: BunBlobStore | ((appId: string, scope: WebviewBlobScope) => BunBlobStore);
 	} = {},
 ) {
 	const portProbe = Bun.serve({
@@ -186,7 +188,7 @@ async function serveHost(
 		origin,
 		launchToken: TOKEN,
 		staticAssets: await createAppsDistFixture(page),
-		blobs: createTestBlobs(),
+		blobs: owners.blobs ?? createTestBlobs(),
 		desktopAuth: createTestDesktopAuth(),
 		blobRemote,
 		...owners,
@@ -1334,6 +1336,104 @@ describe('local blob routes', () => {
 		}
 	});
 
+	test('local blob copy is authenticated, scoped, and preserves the source', async () => {
+		await using host = await createTestHost({
+			engine: scriptedEngine([[]]),
+		});
+		const directory = testDataDir();
+		const stores = new Map<string, BunBlobStore>();
+		let selections = 0;
+		const scopedBlobs = (appId: string, scope: WebviewBlobScope) => {
+			selections += 1;
+			const key = JSON.stringify([appId, scope]);
+			let store = stores.get(key);
+			if (store === undefined) {
+				store = createBunBlobStore({
+					directory: join(directory, String(stores.size)),
+				});
+				stores.set(key, store);
+			}
+			return store;
+		};
+		const source = generateBlobId();
+		const destination = generateBlobId();
+		const accountScope = '?authorityId=authority-a&principalId=alice';
+		const sourceStore = scopedBlobs('so.epicenter.whispering', {
+			kind: 'account',
+			authorityId: 'authority-a',
+			principalId: 'alice',
+		});
+		expectOk(await sourceStore.put(source, new Blob(['audio'], { type: 'audio/wav' })));
+		const server = await serveHost(host, PAGE, null, { blobs: scopedBlobs });
+		const { cookie, origin } = authenticationFor(server);
+		const session = { headers: { cookie, origin } };
+		try {
+			const selectionsBeforeRequest = selections;
+			const unauthorized = await fetch(
+				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
+				{ method: 'POST', body: JSON.stringify({ sourceId: source }) },
+			);
+			expect(unauthorized.status).toBe(401);
+			expect(selections).toBe(selectionsBeforeRequest);
+			const foreignOrigin = await fetch(
+				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
+				{
+					method: 'POST',
+					headers: { cookie, origin: 'https://untrusted.example' },
+					body: JSON.stringify({ sourceId: source }),
+				},
+			);
+			expect(foreignOrigin.status).toBe(403);
+			expect(selections).toBe(selectionsBeforeRequest);
+
+			const copied = await fetch(
+				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
+				{
+					method: 'POST',
+					headers: { ...session.headers, 'content-type': 'application/json' },
+					body: JSON.stringify({ sourceId: source }),
+				},
+			);
+			expect(copied.status).toBe(204);
+			for (const id of [source, destination]) {
+				const blob = expectOk(await sourceStore.get(id));
+				expect(await blob.text()).toBe('audio');
+				expect(blob.type).toBe('audio/wav');
+			}
+
+			const duplicate = await fetch(
+				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
+				{
+					method: 'POST',
+					headers: { ...session.headers, 'content-type': 'application/json' },
+					body: JSON.stringify({ sourceId: source }),
+				},
+			);
+			expect(duplicate.status).toBe(409);
+
+			for (const location of [
+				'so.epicenter.whispering',
+				'so.epicenter.whispering?authorityId=authority-b&principalId=alice',
+				'so.epicenter.whispering?authorityId=authority-a&principalId=bob',
+				'so.epicenter.honeycrisp?authorityId=authority-a&principalId=alice',
+			]) {
+				const [appId, query] = location.split('?');
+				const isolated = await fetch(
+					`${server.url.origin}/api/apps/${appId}/blobs/${generateBlobId()}/copy${query === undefined ? '' : `?${query}`}`,
+				{
+					method: 'POST',
+					headers: { ...session.headers, 'content-type': 'application/json' },
+					body: JSON.stringify({ sourceId: source }),
+				},
+				);
+				expect(isolated.status).toBe(404);
+			}
+		} finally {
+			await server.stop(true);
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	test('put, head, byte-range forms, collision, and idempotent delete share one id', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
@@ -1810,18 +1910,28 @@ describe('sidecar end-to-end smoke', () => {
 			expect(withoutAuthBootstrap(await installed.text())).toBe(installedPage);
 
 			const blobId = generateBlobId();
-			const put = await fetch(`${origin}${desktopBlobUrl(blobId)}`, {
+			const put = await fetch(
+				`${origin}${desktopBlobUrl(blobId, 'so.epicenter.whispering')}`,
+				{
 				method: 'PUT',
 				headers,
 				body: 'native-selected bytes',
-			});
+				},
+			);
 			expect(put.status).toBe(201);
 			expect(
-				await Bun.file(join(dataDir, 'blobs', blobId, 'data')).text(),
+				await Bun.file(
+					join(dataDir, 'apps', 'so.epicenter.whispering', 'local', 'blobs', blobId, 'data'),
+				).text(),
 			).toBe('native-selected bytes');
 			expect(
 				await Bun.file(
-					join(ignoredDirectory, 'blobs', blobId, 'data'),
+					join(
+						ignoredDirectory,
+						'blobs',
+						blobId,
+						'data',
+					),
 				).exists(),
 			).toBe(false);
 			const checkoutUrl = `${origin}${CHECKOUT_PATH}/so.epicenter.honeycrisp`;

@@ -123,7 +123,7 @@ test('failed creation reports dictation loss without entering transcription', as
 	const transcribingBefore = markTranscribing.mock.calls.length;
 	await expect(
 		processRecordingPipeline(app, {
-			audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 			durationMs: 100,
 		}),
 	).rejects.toMatchObject(creationError);
@@ -136,7 +136,7 @@ test('failed creation reports dictation loss without entering transcription', as
 
 test('auto-upload kicks only under policy with a remote, without bypassing the runner', async () => {
 	await processRecordingPipeline(app, {
-		audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'import',
 	});
@@ -146,7 +146,7 @@ test('auto-upload kicks only under policy with a remote, without bypassing the r
 
 	autoUpload = false;
 	await processRecordingPipeline(app, {
-		audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'import',
 	});
@@ -156,7 +156,7 @@ test('auto-upload kicks only under policy with a remote, without bypassing the r
 	autoUpload = true;
 	remoteAvailable = false;
 	await processRecordingPipeline(app, {
-		audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'import',
 	});
@@ -172,7 +172,7 @@ test('history failure warns after delivering the usable transcription', async ()
 	const noticesBefore = reportInfo.mock.calls.length;
 
 	await processRecordingPipeline(app, {
-		audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'recording',
 	});
@@ -201,7 +201,7 @@ test('polished history failure still delivers polished text and warns', async ()
 	const noticesBefore = reportInfo.mock.calls.length;
 
 	await processRecordingPipeline(app, {
-		audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'recording',
 	});
@@ -229,7 +229,7 @@ test('polished history success does not hide an earlier raw history error', asyn
 	const noticesBefore = reportInfo.mock.calls.length;
 
 	await processRecordingPipeline(app, {
-		audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'recording',
 	});
@@ -252,7 +252,7 @@ for (const deliverySource of ['recording', 'import'] as const) {
 		};
 		const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 		await processRecordingPipeline(app, {
-			audioBlobId: generateBlobId(),
+		audio: new Blob(['audio']),
 			durationMs: 100,
 			deliverySource,
 		});

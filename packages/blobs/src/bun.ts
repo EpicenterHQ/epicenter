@@ -193,9 +193,25 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		return Ok({ file, stat: metadata.data });
 	}
 
-	return {
+	const store = {
 		put(id, blob) {
 			return putData(id, blob, blob.type);
+		},
+
+		async copy(
+			sourceId: BlobId,
+			destinationId: BlobId,
+		): Promise<
+			Result<void, BlobNotFound | BlobAlreadyExists | BlobStoreFailed>
+		> {
+			// BunFile.type may normalize MIME types; retain the stored metadata.
+			const source = await openBlob(sourceId);
+			if (source.error !== null) return source;
+			return putData(
+				destinationId,
+				source.data.file,
+				source.data.stat.contentType,
+			);
 		},
 
 		/** Store an HTTP request body without first materializing it as a Blob. */
@@ -258,6 +274,7 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		): Promise<Result<void, BlobAlreadyExists | BlobStoreFailed>>;
 		openFile(id: BlobId): ReturnType<typeof openBlob>;
 	};
+	return store;
 }
 
 export type BunBlobStore = ReturnType<typeof createBunBlobStore>;

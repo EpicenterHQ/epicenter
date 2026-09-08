@@ -36,12 +36,11 @@ const aliases = Object.entries(imports).filter(
 );
 
 describe('platform seams', () => {
-	test('the seams are the two the host owns a side of', () => {
-		// `#platform/binding` left with the binding: SQLite files and secrets are
-		// `@epicenter/device`, and Whispering never opened either.
+	test('the host supplies authentication and app storage capabilities', () => {
 		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
+			'#platform/app-blobs',
 			'#platform/auth',
-			'#platform/blobs',
+			'#platform/sqlite',
 		]);
 	});
 

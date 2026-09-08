@@ -4,7 +4,7 @@ import { field, plainText } from '@epicenter/data/definition';
  *
  * A browser store is addressed by the application that opened it, the data it
  * holds, and which history it is (ADR-0324), at an exact generation
- * (ADR-0292): `epicenter/v4/<app-id>/<data-id>/<n>`, one IndexedDB database
+ * (ADR-0292): `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>`, one IndexedDB database
  * and one open claim per GENERATION.
  *
  * Key behaviors:
@@ -108,7 +108,8 @@ const storeAddress = (
 	generation = GEN,
 	appId = APP,
 	principalId: string = ALICE,
-) => `epicenter/v5/${appId}/${principalId}/${dataId}/${generation}`;
+) =>
+	`epicenter/${appId}/accounts/test-authority/${principalId}/data/${dataId}/${generation}`;
 
 /**
  * An account port that serves one generation and assigns numbers locally.
@@ -123,6 +124,7 @@ function accountFor(
 ): DatabaseAccount {
 	return {
 		baseURL,
+		authorityId: 'test-authority',
 		principalId,
 		fetch: async (input, init) => {
 			if (init?.method === 'POST') {
@@ -196,7 +198,7 @@ async function databaseNames(): Promise<string[]> {
 }
 
 describe('one address per application, data id, and generation (ADR-0324)', () => {
-	test('the address is the app id, the principal, the data id, and the number, under v5', async () => {
+	test('the address includes application, authority, principal, data, and generation', async () => {
 		const database = databaseFor('address');
 		const opened = expectOk(await openAccountData(database, ALICE));
 		expect(await databaseNames()).toContain(storeAddress(database.id));
@@ -351,6 +353,7 @@ describe('one address per application, data id, and generation (ADR-0324)', () =
 		const before = await databaseNames();
 		const account: DatabaseAccount = {
 			baseURL: CLOUD,
+			authorityId: 'test-authority',
 			principalId: ALICE,
 			fetch: async () => new Response(null, { status: 503 }),
 			openWebSocket: neverDials,
@@ -397,6 +400,7 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 	): DatabaseAccount {
 		return {
 			baseURL: CLOUD,
+			authorityId: 'test-authority',
 			principalId: ALICE,
 			fetch: async (_input, init) => {
 				if (init?.method === 'POST') {
@@ -423,6 +427,7 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 
 		const account: DatabaseAccount = {
 			baseURL: CLOUD,
+			authorityId: 'test-authority',
 			principalId: ALICE,
 			fetch: async () => {
 				throw new Error('a cached generation asks nobody');
@@ -463,6 +468,53 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 		);
 		expect(minted).toBe(true);
 		expect(resolved.generation).toBe(9);
+	});
+
+	test('concurrent first opens cannot mint two generations', async () => {
+		const database = databaseFor('resolveconcurrentfirst');
+		let enterListing!: () => void;
+		const listingEntered = new Promise<void>((resolve) => {
+			enterListing = resolve;
+		});
+		let releaseListing!: () => void;
+		const listingReleased = new Promise<void>((resolve) => {
+			releaseListing = resolve;
+		});
+		const account: DatabaseAccount = {
+			baseURL: CLOUD,
+			authorityId: 'test-authority',
+			principalId: ALICE,
+			fetch: async (_input, init) => {
+				if (init?.method === 'POST')
+					return new Response(JSON.stringify({ generation: 9, position: 0 }), {
+						headers: { 'content-type': 'application/json' },
+					});
+				enterListing();
+				await listingReleased;
+				return new Response(JSON.stringify({ generations: [] }), {
+					headers: { 'content-type': 'application/json' },
+				});
+			},
+			openWebSocket: neverDials,
+		};
+
+		const first = resolveGeneration(database, { appId: APP, account });
+		await listingEntered;
+		const second = resolveGeneration(database, { appId: APP, account });
+		releaseListing();
+		const [firstResult, secondResult] = await Promise.all([first, second]);
+		const opened = expectOk(
+			firstResult.error === null ? firstResult : secondResult,
+		);
+		const refused = expectErr(
+			firstResult.error !== null ? firstResult : secondResult,
+		);
+		expect(refused.name).toBe('AlreadyOpen');
+		expect(opened.generation).toBe(9);
+		const retried = expectOk(
+			await resolveGeneration(database, { appId: APP, account }),
+		);
+		expect(retried.generation).toBe(9);
 	});
 
 	test('a listing that cannot be read mints nothing', async () => {
@@ -526,6 +578,7 @@ describe('a replica belongs to the account in its address', () => {
 				generation: GEN,
 				account: {
 					baseURL: CLOUD,
+					authorityId: 'test-authority',
 					principalId: asPrincipalId(''),
 					fetch: async () => new Response(null, { status: 404 }),
 					openWebSocket: neverDials,
@@ -548,6 +601,7 @@ describe('a replica belongs to the account in its address', () => {
 				generation: GEN,
 				account: {
 					baseURL: CLOUD,
+					authorityId: 'test-authority',
 					principalId: asPrincipalId('alice/../bob'),
 					fetch: async () => new Response(null, { status: 404 }),
 					openWebSocket: neverDials,
@@ -568,6 +622,7 @@ describe('a replica belongs to the account in its address', () => {
 			// is what a real one does across an import and a re-import.
 			const account: DatabaseAccount = {
 				baseURL: CLOUD,
+				authorityId: 'test-authority',
 				principalId: ALICE,
 				fetch: async () =>
 					new Response(JSON.stringify({ generation, position: 0 }), {
@@ -586,6 +641,7 @@ describe('a replica belongs to the account in its address', () => {
 		const erased = expectOk(
 			await eraseGenerations({
 				appId: APP,
+				authorityId: 'test-authority',
 				principalId: ALICE,
 				dataId: database.id,
 			}),
@@ -610,6 +666,7 @@ describe('a replica belongs to the account in its address', () => {
 		const erased = expectOk(
 			await eraseGenerations({
 				appId: APP,
+				authorityId: 'test-authority',
 				principalId: ALICE,
 				dataId: database.id,
 			}),
@@ -637,6 +694,7 @@ describe('a replica belongs to the account in its address', () => {
 		const refused = expectErr(
 			await eraseGenerations({
 				appId: APP,
+				authorityId: 'test-authority',
 				principalId: ALICE,
 				dataId: database.id,
 			}),
@@ -650,6 +708,7 @@ describe('a replica belongs to the account in its address', () => {
 		const erased = expectOk(
 			await eraseGenerations({
 				appId: APP,
+				authorityId: 'test-authority',
 				principalId: ALICE,
 				dataId: database.id,
 			}),
@@ -684,6 +743,7 @@ describe('a replica belongs to the account in its address', () => {
 			expectOk(
 				await eraseGenerations({
 					appId: APP,
+					authorityId: 'test-authority',
 					principalId: ALICE,
 					dataId: database.id,
 				}),
@@ -750,7 +810,9 @@ describe('the durable facts live in IndexedDB directly (ADR-0238)', () => {
 		// would be adopted by whoever signed in next. None is a shape this reader
 		// can honestly interpret. It does not detect and wipe them. It does not
 		// address them.
-		expect(storeAddress('so.epicenter.x')).toContain('/v5/');
+		expect(storeAddress('so.epicenter.x')).toContain(
+			'/accounts/test-authority/',
+		);
 	});
 
 	test('a superseded record at the same logical address is not opened', async () => {

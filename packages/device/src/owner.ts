@@ -17,11 +17,8 @@
  */
 
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
-import { Ok, type Result } from 'wellcrafted/result';
-import {
-	type AppSqliteDatabase,
-	DeviceError,
-} from './index.js';
+import { Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { type AppSqliteDatabase, DeviceError } from './index.js';
 import type {
 	DeviceRequest,
 	DeviceResponse,
@@ -43,7 +40,11 @@ import { isDatabaseName } from './protocol.js';
  * That is why nothing on this type closes: closing is a step inside `delete`.
  */
 export type DeviceSqliteOwner = {
-	open(appId: string, scope: StorageScope, name: string): Promise<AppSqliteDatabase>;
+	open(
+		appId: string,
+		scope: StorageScope,
+		name: string,
+	): Promise<AppSqliteDatabase>;
 	delete(appId: string, scope: StorageScope, name: string): Promise<void>;
 };
 
@@ -106,9 +107,7 @@ export type AppSqliteTransport = (
 
 /** Bind one owner to an app while leaving local/account selection to its opener. */
 export type ScopedSqlite = {
-	open(name: string): Promise<
-		Result<AppSqliteDatabase, DeviceError>
-	>;
+	open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>>;
 	delete(name: string): Promise<Result<void, DeviceError>>;
 };
 
@@ -116,47 +115,23 @@ export function createScopedSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
 	scope: StorageScope,
-	assertUsable: () => void = () => {},
-	trackOperation: <T>(operation: () => Promise<T>) => Promise<T> = (operation) =>
-		operation(),
 ): ScopedSqlite {
 	return {
 		open: async (name) => {
-			assertUsable();
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
-			try {
-				const database = await trackOperation(() =>
-					owner.open(appId, scope, name),
-				);
-				return Ok({
-					run: (...args) => {
-						assertUsable();
-						return trackOperation(() => database.run(...args));
-					},
-					all: (...args) => {
-						assertUsable();
-						return trackOperation(() => database.all(...args));
-					},
-					batch: (...args) => {
-						assertUsable();
-						return trackOperation(() => database.batch(...args));
-					},
-				});
-			} catch (cause) {
-				return DeviceError.StorageFailed({ cause });
-			}
+			return tryAsync({
+				try: () => owner.open(appId, scope, name),
+				catch: (cause) => DeviceError.StorageFailed({ cause }),
+			});
 		},
 		delete: async (name) => {
-			assertUsable();
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
-			try {
-				await trackOperation(() => owner.delete(appId, scope, name));
-				return Ok(undefined);
-			} catch (cause) {
-				return DeviceError.StorageFailed({ cause });
-			}
+			return tryAsync({
+				try: () => owner.delete(appId, scope, name),
+				catch: (cause) => DeviceError.StorageFailed({ cause }),
+			});
 		},
 	};
 }

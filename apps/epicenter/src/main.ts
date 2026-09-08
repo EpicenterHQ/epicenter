@@ -10,6 +10,7 @@
 
 import { join } from 'node:path';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
+import type { WebviewBlobScope } from '@epicenter/blobs/webview';
 import {
 	type AgentEngine,
 	createBunBlobRemote,
@@ -62,9 +63,13 @@ async function main(): Promise<void> {
 		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
-		const blobs = createBunBlobStore({
-			directory: join(dataRoot, 'blobs'),
-		});
+		const blobs = (appId: string, scope: WebviewBlobScope) =>
+			createBunBlobStore({
+				directory:
+					scope.kind === 'local'
+						? join(dataRoot, 'apps', appId, 'local', 'blobs')
+						: join(dataRoot, 'apps', appId, 'accounts', scope.authorityId, scope.principalId, 'blobs'),
+			});
 		const device = createBunDevice(dataRoot);
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
@@ -75,13 +80,18 @@ async function main(): Promise<void> {
 		// has none until sign-in relaunches the app.
 		const blobRemote =
 			auth.account !== null
-				? createBunBlobRemote({
-						store: blobs,
-						client: createEpicenterClient({
-							baseURL: auth.baseURL,
-							fetch: auth.account.fetch,
-						}),
-					})
+				? (appId: string, scope: WebviewBlobScope) =>
+						scope.kind === 'account' &&
+						scope.authorityId === auth.account!.authorityId &&
+						scope.principalId === auth.account!.principalId
+							? createBunBlobRemote({
+									store: blobs(appId, scope),
+									client: createEpicenterClient({
+										baseURL: auth.baseURL,
+										fetch: auth.account!.fetch,
+									}),
+								})
+							: null
 				: null;
 
 		const appsDist = process.env.EPICENTER_APPS_DIST;

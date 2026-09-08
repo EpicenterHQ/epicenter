@@ -1,15 +1,13 @@
 import {
 	generateBlobId,
-	createBlobAttachment,
-	consumeBlobAttachment,
-	isBlobAttachment,
-	type BlobAttachment,
+	parseBlobId,
 	type BlobId,
 	type BlobRemote,
 	type BlobSource,
 	type BlobSources,
 	type BlobStore,
 	BlobStoreError,
+	BlobRemoteError,
 } from '@epicenter/blobs';
 import {
 	type ConformanceIssue,
@@ -21,6 +19,7 @@ import {
 	type ParsedTable,
 } from '@epicenter/data/definition';
 import type { SqliteDatabase } from '@epicenter/sqlite';
+import type { ScopedSqlite } from '@epicenter/device/owner';
 import * as Y from '@y/y';
 import { customAlphabet } from 'nanoid';
 import { defineErrors } from 'wellcrafted/error';
@@ -322,10 +321,6 @@ type StoreEngineOptions<
 	 * like a store that stopped notifying.
 	 */
 	log?: Logger;
-	/** Called synchronously when close begins, before any asynchronous drain. */
-	onClose?: () => void;
-	/** Work owned by a composed capability that must drain before release. */
-	beforeClose?: () => Promise<void>;
 	acquire(): Promise<Result<StoreBacking, TError>>;
 };
 
@@ -438,8 +433,6 @@ export function createStoreOverPort<
 		blobStore,
 		local = false,
 		log = createLogger('data/store'),
-		onClose,
-		beforeClose,
 	} = options;
 	const database = createDatabaseDocument();
 	let disposed = false;
@@ -447,21 +440,41 @@ export function createStoreOverPort<
 	let held: StoreBacking | undefined;
 	let connection: SyncConnection | undefined;
 	let stopHideFlush: (() => void) | undefined;
-	const blobOperations = new Set<Promise<unknown>>();
-	const adoptedBlobIds = new Set<BlobId>();
+	const operations = new Set<Promise<unknown>>();
 	const blobSources = new Set<BlobSource>();
 
-	function runBlobOperation<T>(operation: () => Promise<T>): Promise<T> {
+	function runOperation<T>(operation: () => Promise<T>): Promise<T> {
 		assertUsable();
 		// Admit before invoking platform code: even a reentrant close must see
 		// this operation. Work admitted before close is allowed to finish.
 		const pending = Promise.resolve().then(operation);
-		blobOperations.add(pending);
+		operations.add(pending);
 		void pending.then(
-			() => blobOperations.delete(pending),
-			() => blobOperations.delete(pending),
+			() => operations.delete(pending),
+			() => operations.delete(pending),
 		);
 		return pending;
+	}
+
+	/** Construct SQL methods admitted and drained by this document. */
+	function createSqlite(backing: ScopedSqlite): ScopedSqlite {
+		return Object.freeze({
+			open: (name) =>
+				runOperation(async () => {
+					const result = await backing.open(name);
+					if (result.error !== null) return result;
+					// The owner caches physical connections shared by other clients.
+					// Refuse publication after close without deleting its database.
+					assertUsable();
+					const database: typeof result.data = {
+						run: (...args) => runOperation(() => result.data.run(...args)),
+						all: (...args) => runOperation(() => result.data.all(...args)),
+						batch: (...args) => runOperation(() => result.data.batch(...args)),
+					};
+					return Ok(Object.freeze(database));
+				}),
+			delete: (name) => runOperation(() => backing.delete(name)),
+		});
 	}
 
 	/** Construct actual blob methods under this document's readiness and close. */
@@ -473,37 +486,39 @@ export function createStoreOverPort<
 			throw new Error('This document has no blob store.');
 		const local = blobStore;
 		return Object.freeze({
-			remote:
-				remote === null
-					? null
-					: Object.freeze({
-							upload: (id: BlobId) => runBlobOperation(() => remote.upload(id)),
-							download: (id: BlobId) =>
-								runBlobOperation(() => remote.download(id)),
-							purge: (id: BlobId) => runBlobOperation(() => remote.purge(id)),
-						}),
+			remote: Object.freeze({
+				upload: (id: BlobId) =>
+					runOperation(() =>
+						remote === null
+							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
+							: remote.upload(id),
+					),
+				download: (id: BlobId) =>
+					runOperation(() =>
+						remote === null
+							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
+							: remote.download(id),
+					),
+				purge: (id: BlobId) =>
+					runOperation(() =>
+						remote === null
+							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
+							: remote.purge(id),
+					),
+			}),
 			add(blob: Blob) {
-				return runBlobOperation(async () => {
+				return runOperation(async () => {
 					const id = generateBlobId();
 					const result = await local.put(id, blob);
 					return result.error === null ? Ok(id) : result;
 				});
 			},
-			get: (id: BlobId) => runBlobOperation(() => local.get(id)),
-			adopt: (id: BlobId) =>
-				runBlobOperation(async () => {
-					if (adoptedBlobIds.has(id))
-						return BlobStoreError.BlobAttachmentAlreadyAdopted({ id });
-					const result = await local.stat(id);
-					if (result.error !== null) return result;
-					adoptedBlobIds.add(id);
-					return Ok(createBlobAttachment(id, local));
-				}),
-			stat: (id: BlobId) => runBlobOperation(() => local.stat(id)),
+			get: (id: BlobId) => runOperation(() => local.get(id)),
+			stat: (id: BlobId) => runOperation(() => local.stat(id)),
 			statMany: (ids: readonly BlobId[]) =>
-				runBlobOperation(() => local.statMany(ids)),
+				runOperation(() => local.statMany(ids)),
 			open(id: BlobId) {
-				return runBlobOperation(async () => {
+				return runOperation(async () => {
 					const result = await sources.open(id);
 					if (result.error !== null) return result;
 					const source = result.data;
@@ -522,7 +537,7 @@ export function createStoreOverPort<
 					);
 				});
 			},
-			removeLocal: (id: BlobId) => runBlobOperation(() => local.delete(id)),
+			removeLocal: (id: BlobId) => runOperation(() => local.delete(id)),
 		});
 	}
 
@@ -1026,7 +1041,6 @@ export function createStoreOverPort<
 	let closing: Promise<void> | undefined;
 	const close = (): Promise<void> => {
 		disposed = true;
-		onClose?.();
 		if (closing !== undefined) return closing;
 		// Publish completion before a disposer can re-enter close. The async
 		// body still stops callbacks synchronously, before its first await.
@@ -1041,10 +1055,13 @@ export function createStoreOverPort<
 				}
 			} finally {
 				try {
-					const flushing = initialized ? controller.close() : undefined;
-					await acquisition;
-					await Promise.allSettled(blobOperations);
-					await flushing;
+					try {
+						const flushing = initialized ? controller.close() : undefined;
+						await acquisition;
+						await flushing;
+					} finally {
+						await Promise.allSettled(operations);
+					}
 				} finally {
 					try {
 						const sources = [...blobSources];
@@ -1054,13 +1071,9 @@ export function createStoreOverPort<
 						);
 					} finally {
 						try {
-							await beforeClose?.();
+							database.destroy();
 						} finally {
-							try {
-								database.destroy();
-							} finally {
-								await held?.dispose?.();
-							}
+							await held?.dispose?.();
 						}
 					}
 				}
@@ -1119,6 +1132,7 @@ export function createStoreOverPort<
 		// compiles it a second time (ADR-0340).
 		store,
 		createBlobs,
+		createSqlite,
 		close,
 		ready,
 		view,
@@ -1324,34 +1338,30 @@ export function createStoreOverPort<
 						'Attachment creation cannot run inside a synchronous transaction.',
 					);
 				}
-				const attachments: { name: string; blob: Blob | BlobAttachment }[] = [];
+				const attachments: { name: string; source: Blob | BlobId }[] = [];
 				for (const field of blobFields) {
 					const value = fields[field.name];
 					if (value === null && field.nullable) {
 						values[field.name] = null;
 						continue;
 					}
-					if (!(value instanceof Blob) && !isBlobAttachment(value))
-						throw new TypeError(`'${field.name}' requires Blob bytes or an adopted attachment.`);
-					attachments.push({ name: field.name, blob: value });
+					const source = value instanceof Blob ? value : parseBlobId(value);
+					if (source === undefined)
+						throw new TypeError(
+							`'${field.name}' requires Blob bytes or a local BlobId to copy.`,
+						);
+					attachments.push({ name: field.name, source });
 				}
-				return runBlobOperation(async () => {
+				return runOperation(async () => {
 					const written: BlobId[] = [];
 					const rowId = mintRowId();
 					try {
-						for (const { name, blob } of attachments) {
+						for (const { name, source } of attachments) {
 							assertUsable();
-							if (isBlobAttachment(blob)) {
-									const adoptedId = blob.id;
-									if (consumeBlobAttachment(blob, blobStore) === undefined)
-										throw new TypeError('The adopted attachment belongs to another blob store or was already consumed.');
-									const present = await blobStore.stat(adoptedId);
-									if (present.error !== null) return present;
-								values[name] = adoptedId;
-								continue;
-							}
 							const id = generateBlobId();
-							const result = await blobStore.put(id, blob);
+							const result = await (source instanceof Blob
+								? blobStore.put(id, source)
+								: blobStore.copy(source, id));
 							if (result.error !== null) return result;
 							written.push(id);
 							values[name] = id;

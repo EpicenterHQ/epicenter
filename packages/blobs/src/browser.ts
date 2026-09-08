@@ -32,22 +32,32 @@ const METADATA_STORE = 'blob-metadata';
  * must not reach the first one's recordings, and removing one account's local
  * data has to be able to take its audio and leave everybody else's.
  */
-export type BrowserBlobScope = {
-	/** The opening application, which is one segment of the name. */
-	appId: string;
-	/** The account whose bytes these are, as the authority asserted it. */
-	principalId: PrincipalId;
-};
+export type BrowserBlobScope =
+	| {
+			/** The opening application, which is one segment of the name. */
+			appId: string;
+			/** The literal device-local partition. */
+			principalId: 'local';
+	  }
+	| {
+			/** The opening application, which is one segment of the name. */
+			appId: string;
+			/** The captured account principal. */
+			principalId: PrincipalId;
+			/** The authority that owns the account partition. */
+			authorityId: string;
+	  };
 
 /**
  * Where one account's blobs live in this browser (ADR-0349).
  *
  * ```txt
- * epicenter/v5/<app-id>/<principal-id>/blobs
+ * epicenter/<app-id>/local/blobs or
+ * epicenter/<app-id>/accounts/<authority-id>/<principal-id>/blobs
  * ```
  *
  * One IndexedDB database per application per principal, named as the sibling
- * of that account's replicas, `epicenter/v5/<app-id>/<principal-id>/<data-id>/<n>`.
+ * of that account's replicas, `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>`.
  * The two spellings live in two packages and are pinned to each other by test
  * rather than by a shared constant: `@epicenter/data` does not know blobs
  * exist, and this package does not open replicas.
@@ -75,13 +85,13 @@ export type BrowserBlobScope = {
  * supplied, the way `createBrowserDevice` refuses a bad app id, and a durable
  * name is not a place to be lenient.
  */
-export function browserBlobStoreName({
-	appId,
-	principalId,
-}: BrowserBlobScope): string {
+export function browserBlobStoreName(scope: BrowserBlobScope): string {
+	const { appId, principalId } = scope;
 	assertOneSegment(appId, 'app id');
 	assertOneSegment(principalId, 'principal id');
-	return `epicenter/v5/${appId}/${principalId}/blobs`;
+	if (!('authorityId' in scope)) return `epicenter/${appId}/local/blobs`;
+	assertOneSegment(scope.authorityId, 'authority id');
+	return `epicenter/${appId}/accounts/${scope.authorityId}/${principalId}/blobs`;
 }
 
 function assertOneSegment(segment: string, label: string): void {
@@ -188,7 +198,7 @@ function isConstraintError(cause: unknown): boolean {
  *
  * The scope is required, and there is no way to name the database directly:
  * a store this constructor hands back is always one application's and one
- * account's, so an unscoped store cannot be built by omission. Construction is
+ * account's, so an unowned store cannot be built by omission. Construction is
  * inert; the database is created by the first verb that opens it.
  *
  * Blob bytes and metadata live in separate object stores within one database.
@@ -197,16 +207,14 @@ function isConstraintError(cause: unknown): boolean {
  * `Blob`, so this platform codec does not leak into application code. Writes
  * and deletes update both stores atomically, while `stat` reads only metadata.
  */
-export function createBrowserBlobStore({
-	appId,
-	principalId,
-	indexedDb = indexedDB,
-	locks = platformLocks(),
-}: BrowserBlobScope & {
-	indexedDb?: IDBFactory;
-	locks?: BlobLockManager;
-}): BlobStore {
-	const database = browserBlobStoreName({ appId, principalId });
+export function createBrowserBlobStore(
+	scope: BrowserBlobScope & {
+		indexedDb?: IDBFactory;
+		locks?: BlobLockManager;
+	},
+): BlobStore {
+	const { indexedDb = globalThis.indexedDB, locks = platformLocks() } = scope;
+	const database = browserBlobStoreName(scope);
 	const store = createStoreAt(database, indexedDb);
 	async function operate<TValue, TError>(
 		id: BlobId,
@@ -224,6 +232,8 @@ export function createBrowserBlobStore({
 	}
 	return {
 		put: (id, blob) => operate(id, () => store.put(id, blob)),
+		copy: (sourceId, destinationId) =>
+			operate(destinationId, () => store.copy(sourceId, destinationId)),
 		get: (id) => operate(id, () => store.get(id)),
 		stat: (id) => operate(id, () => store.stat(id)),
 		async statMany(ids) {
@@ -244,7 +254,13 @@ export function createBrowserBlobStore({
 
 /** The store over one database, whatever it is named. */
 function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
-	return {
+	const store: BlobStore = {
+		async copy(sourceId, destinationId) {
+			const source = await store.get(sourceId);
+			if (source.error !== null) return source;
+			return store.put(destinationId, source.data);
+		},
+
 		async put(id, blob) {
 			return tryAsync({
 				try: async () => {
@@ -385,6 +401,7 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 			});
 		},
 	};
+	return store;
 }
 
 /**
@@ -438,8 +455,6 @@ export function createBrowserBlobSources(
  * to. Nothing here enumerates its ids (ADR-0154); a claim walks the ids the
  * application's rows supply, and the summary counts and sizes what remains.
  */
-const UNSCOPED_DATABASE_NAME = 'epicenter-blobs';
-
 /** How long an erase waits for another tab's connection to close. */
 const DELETE_BLOCKED_TIMEOUT_MS = 10_000;
 
@@ -595,16 +610,14 @@ function deleteDatabase(
  * before erasing. These operation locks cannot prevent a surviving idle
  * handle or a newly opened session from creating the database afterward.
  */
-export function eraseBlobStore({
-	appId,
-	principalId,
-	indexedDb = indexedDB,
-	locks = platformLocks(),
-}: BrowserBlobScope & {
-	indexedDb?: IDBFactory;
-	locks?: BlobLockManager;
-}): Promise<Result<void, BrowserBlobStoreError>> {
-	const database = browserBlobStoreName({ appId, principalId });
+export function eraseBlobStore(
+	scope: BrowserBlobScope & {
+		indexedDb?: IDBFactory;
+		locks?: BlobLockManager;
+	},
+): Promise<Result<void, BrowserBlobStoreError>> {
+	const { indexedDb = globalThis.indexedDB, locks = platformLocks() } = scope;
+	const database = browserBlobStoreName(scope);
 	return eraseDatabase(indexedDb, locks, database);
 }
 
@@ -626,208 +639,4 @@ function eraseDatabase(
 			}),
 		).then(settle);
 	});
-}
-
-/** What an earlier build left in the unscoped store, without naming any of it. */
-export type UnscopedBlobSummary = {
-	/** How many blobs remain. */
-	count: number;
-	/** Their total size in bytes, from metadata; no blob bytes are read. */
-	bytes: number;
-};
-
-/** What one claim did. */
-export type UnscopedBlobClaim = {
-	/** Ids whose bytes moved into this account's store. */
-	claimed: number;
-	/** Ids the unscoped store did not hold: never on this device, or already claimed. */
-	absent: number;
-	/** Ids skipped after one operation failed; the walk went on to the next. */
-	skipped: number;
-	/** What is left for nobody this claim could name. */
-	unclaimed: UnscopedBlobSummary;
-};
-
-async function unscopedExists(
-	indexedDb: IDBFactory,
-): Promise<Result<boolean, BrowserBlobStoreError>> {
-	return tryAsync({
-		try: async () =>
-			(await indexedDb.databases()).some(
-				({ name }) => name === UNSCOPED_DATABASE_NAME,
-			),
-		catch: (cause) => BrowserBlobStoreError.BlobSummaryFailed({ cause }),
-	});
-}
-
-/** Count and size the unscoped store's metadata by cursor; never its bytes. */
-function summarizeUnscoped(
-	indexedDb: IDBFactory,
-): Promise<Result<UnscopedBlobSummary, BrowserBlobStoreError>> {
-	return tryAsync({
-		try: () =>
-			withDatabase(indexedDb, UNSCOPED_DATABASE_NAME, async (database) => {
-				const transaction = database.transaction(METADATA_STORE, 'readonly');
-				const completed = whenTransactionCompletes(transaction);
-				const summary: UnscopedBlobSummary = { count: 0, bytes: 0 };
-				await new Promise<void>((resolve, reject) => {
-					const cursor = transaction.objectStore(METADATA_STORE).openCursor();
-					cursor.onerror = () =>
-						reject(cursor.error ?? new Error('IndexedDB cursor failed'));
-					cursor.onsuccess = () => {
-						const current = cursor.result;
-						if (current === null) {
-							resolve();
-							return;
-						}
-						const { size } = current.value as StoredBlobMetadata;
-						summary.count += 1;
-						summary.bytes += size;
-						current.continue();
-					};
-				});
-				await completed;
-				return summary;
-			}),
-		catch: (cause) => BrowserBlobStoreError.BlobSummaryFailed({ cause }),
-	});
-}
-
-/**
- * How much an earlier build left in the unscoped store on this browser.
- *
- * Zero when the store does not exist, and it is never created by asking: an
- * open would run the upgrade and leave an empty database behind on every
- * device, forever.
- */
-export async function unscopedBrowserBlobs({
-	indexedDb = indexedDB,
-	locks = platformLocks(),
-}: {
-	indexedDb?: IDBFactory;
-	locks?: BlobLockManager;
-} = {}): Promise<Result<UnscopedBlobSummary, BrowserBlobStoreError>> {
-	return withLock(locks, UNSCOPED_DATABASE_NAME, 'shared', async () => {
-		const exists = await unscopedExists(indexedDb);
-		if (exists.error !== null) return Err(exists.error);
-		if (!exists.data) return Ok({ count: 0, bytes: 0 });
-		return summarizeUnscoped(indexedDb);
-	});
-}
-
-/**
- * Claim, for one account, the bytes an earlier build wrote to the unscoped
- * store: the ones this account's rows cite (ADR-0349).
- *
- * Rows are the inventory (ADR-0154). For each id, the bytes are copied into
- * the account's store and then removed from the unscoped one, in that order,
- * so an interruption leaves a duplicate and never a loss: the next claim's
- * `put` answers `BlobAlreadyExists`, which is consumed as success, and the
- * delete then completes. It is a MOVE. If two accounts on one browser ever
- * cite one id, whichever claims first takes the bytes; a reference travels
- * between accounts and the bytes do not (ADR-0325).
- *
- * Bytes no supplied row cites are somebody else's or nobody's, and ADR-0351
- * forbids deleting bytes of unproven ownership, so they stay and are counted.
- * Even an empty legacy database stays until an explicit delete.
- *
- * One failed id is skipped and the walk goes on; a second consecutive failure
- * is systemic (quota, a blocked open) and aborts with that error. Both locks
- * are held for the whole walk, the account's so an erase cannot interleave and
- * the unscoped store's so a delete of it cannot, and both refuse rather than
- * queue: a refusal means another tab is doing this, and the caller can leave it
- * to that tab.
- */
-export async function claimUnscopedBrowserBlobs({
-	appId,
-	principalId,
-	ids,
-	indexedDb = indexedDB,
-	locks = platformLocks(),
-}: BrowserBlobScope & {
-	ids: readonly BlobId[];
-	indexedDb?: IDBFactory;
-	locks?: BlobLockManager;
-}): Promise<
-	Result<UnscopedBlobClaim, BrowserBlobStoreError | BlobStoreFailed>
-> {
-	const database = browserBlobStoreName({ appId, principalId });
-	const walk = async (): Promise<
-		Result<UnscopedBlobClaim, BrowserBlobStoreError | BlobStoreFailed>
-	> => {
-		const exists = await unscopedExists(indexedDb);
-		if (exists.error !== null) return Err(exists.error);
-		if (!exists.data)
-			return Ok({
-				claimed: 0,
-				absent: ids.length,
-				skipped: 0,
-				unclaimed: { count: 0, bytes: 0 },
-			});
-		const unscoped = createStoreAt(UNSCOPED_DATABASE_NAME, indexedDb);
-		const scoped = createStoreAt(database, indexedDb);
-		const claim = { claimed: 0, absent: 0, skipped: 0 };
-		let consecutiveFailures = 0;
-		const failed = (
-			error: BlobStoreFailed,
-		): Err<BlobStoreFailed> | undefined => {
-			consecutiveFailures += 1;
-			if (consecutiveFailures >= 2) return Err(error);
-			claim.skipped += 1;
-			return undefined;
-		};
-
-		for (const id of ids) {
-			const got = await unscoped.get(id);
-			if (got.error !== null) {
-				if (got.error.name === 'BlobNotFound') {
-					claim.absent += 1;
-					consecutiveFailures = 0;
-					continue;
-				}
-				const abort = failed(got.error);
-				if (abort !== undefined) return abort;
-				continue;
-			}
-			const put = await scoped.put(id, got.data);
-			if (put.error !== null && put.error.name !== 'BlobAlreadyExists') {
-				const abort = failed(put.error);
-				if (abort !== undefined) return abort;
-				continue;
-			}
-			const removed = await unscoped.delete(id);
-			if (removed.error !== null) {
-				const abort = failed(removed.error);
-				if (abort !== undefined) return abort;
-				continue;
-			}
-			claim.claimed += 1;
-			consecutiveFailures = 0;
-		}
-
-		const unclaimed = await summarizeUnscoped(indexedDb);
-		if (unclaimed.error !== null) return Err(unclaimed.error);
-		return Ok({ ...claim, unclaimed: unclaimed.data });
-	};
-	return withLock(locks, database, 'shared', () =>
-		withLock(locks, UNSCOPED_DATABASE_NAME, 'exclusive', walk),
-	);
-}
-
-/**
- * Delete the unscoped store whole, on a person's explicit choice.
- *
- * The one deletion of bytes whose owner this package cannot prove, and it is
- * a person's to make (ADR-0351): the application tells them how much is there
- * and that some of it may be another account's, and they decide. Holds the
- * unscoped store's lock so a claim in another tab cannot be reading it.
- */
-export function deleteUnscopedBrowserBlobs({
-	indexedDb = indexedDB,
-	locks = platformLocks(),
-}: {
-	indexedDb?: IDBFactory;
-	locks?: BlobLockManager;
-} = {}): Promise<Result<void, BrowserBlobStoreError>> {
-	return eraseDatabase(indexedDb, locks, UNSCOPED_DATABASE_NAME);
 }

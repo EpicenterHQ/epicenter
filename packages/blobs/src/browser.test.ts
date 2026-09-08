@@ -6,6 +6,7 @@
  * Key behaviors:
  * - Blob bytes and metadata survive reopening the store
  * - Immutable ids refuse replacement without changing the original bytes
+ * - Copies retain source bytes and create independently deletable identities
  * - Missing reads are typed, deletion is idempotent, and failures stay typed
  * - Metadata is stored separately so stat never fetches blob data
  */
@@ -19,12 +20,9 @@ import type { BlobStoreError } from './blob-store.js';
 import {
 	type BlobLockManager,
 	browserBlobStoreName,
-	claimUnscopedBrowserBlobs,
 	createBrowserBlobSources,
 	createBrowserBlobStore,
-	deleteUnscopedBrowserBlobs,
 	eraseBlobStore,
-	unscopedBrowserBlobs,
 } from './browser.js';
 
 const testLocks = fakeLocks().locks;
@@ -36,7 +34,7 @@ let principalSequence = 0;
 /** One fresh account per test, so no test reads another's database. */
 function setup() {
 	const principalId = asPrincipalId(`principal-${principalSequence++}`);
-	const scope = { appId: APP_ID, principalId };
+	const scope = { appId: APP_ID, principalId, authorityId: 'test-authority' };
 	return {
 		scope,
 		databaseName: browserBlobStoreName(scope),
@@ -74,27 +72,32 @@ test('the name is the account prefix of the replica address, ending in blobs', (
 	expect(
 		browserBlobStoreName({
 			appId: 'so.epicenter.whispering',
-			principalId: asPrincipalId('principal-1'),
+			principalId: 'local',
 		}),
-	).toBe('epicenter/v5/so.epicenter.whispering/principal-1/blobs');
+	).toBe('epicenter/so.epicenter.whispering/local/blobs');
 });
 
 test('a segment that could be read as a path is refused at construction', () => {
 	for (const bad of ['', '.', '..', 'a/b', 'a\\b']) {
 		expect(() =>
-			browserBlobStoreName({ appId: APP_ID, principalId: asPrincipalId(bad) }),
+			browserBlobStoreName({
+				appId: APP_ID,
+				principalId: asPrincipalId(bad),
+				authorityId: 'authority',
+			}),
 		).toThrow();
 		expect(() =>
 			browserBlobStoreName({
 				appId: bad,
 				principalId: asPrincipalId('principal-1'),
+				authorityId: 'authority',
 			}),
 		).toThrow();
 	}
 	// Refused, never canonicalized: whitespace and case are the authority's.
-	expect(
-		browserBlobStoreName({ appId: APP_ID, principalId: asPrincipalId(' P ') }),
-	).toBe(`epicenter/v5/${APP_ID}/ P /blobs`);
+	expect(browserBlobStoreName({ appId: APP_ID, principalId: 'local' })).toBe(
+		`epicenter/${APP_ID}/local/blobs`,
+	);
 });
 
 test('two accounts on one browser hold two stores and neither reads the other', async () => {
@@ -114,6 +117,81 @@ test('two accounts on one browser hold two stores and neither reads the other', 
 	expectOk(await second.blobs.put(id, new Blob(['theirs'])));
 	expect(await expectOk(await first.blobs.get(id)).text()).toBe('mine');
 	expect(await expectOk(await second.blobs.get(id)).text()).toBe('theirs');
+});
+
+test('the local partition is separate from every account partition', async () => {
+	const localScope = { appId: APP_ID, principalId: 'local' as const };
+	const accountScope = {
+		appId: APP_ID,
+		principalId: asPrincipalId('local-account'),
+		authorityId: 'test-authority',
+	};
+	const local = createBrowserBlobStore({
+		...localScope,
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	const account = createBrowserBlobStore({
+		...accountScope,
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	const id = generateBlobId();
+
+	expectOk(await local.put(id, new Blob(['local'])));
+	expect(expectErr(await account.get(id))).toMatchObject({
+		name: 'BlobNotFound',
+		id,
+	});
+	expect(await expectOk(await local.get(id)).text()).toBe('local');
+});
+
+test('authority identity is part of the account blob partition', async () => {
+	const principalId = asPrincipalId('same-principal');
+	const first = createBrowserBlobStore({
+		appId: APP_ID,
+		principalId,
+		authorityId: 'authority-one',
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	const second = createBrowserBlobStore({
+		appId: APP_ID,
+		principalId,
+		authorityId: 'authority-two',
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	const id = generateBlobId();
+
+	expectOk(await first.put(id, new Blob(['authority one'])));
+	expect(expectErr(await second.get(id))).toMatchObject({
+		name: 'BlobNotFound',
+		id,
+	});
+});
+
+test('a principal minted as local cannot collide with the local partition', async () => {
+	const local = createBrowserBlobStore({
+		appId: APP_ID,
+		principalId: 'local',
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	const account = createBrowserBlobStore({
+		appId: APP_ID,
+		principalId: asPrincipalId('local'),
+		authorityId: 'authority-one',
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	const id = generateBlobId();
+
+	expectOk(await local.put(id, new Blob(['local partition'])));
+	expect(expectErr(await account.get(id))).toMatchObject({
+		name: 'BlobNotFound',
+		id,
+	});
 });
 
 test('put persists bytes and metadata across store instances', async () => {
@@ -165,6 +243,92 @@ test('concurrent puts commit exactly one immutable blob', async () => {
 	).toHaveLength(1);
 	const stored = expectOk(await blobs.get(id));
 	expect(['first', 'second']).toContain(await stored.text());
+});
+
+test('copy persists a fresh identity whose deletion leaves the source intact', async () => {
+	const { blobs, scope } = setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(
+		await blobs.put(sourceId, new Blob(['source'], { type: 'audio/wav' })),
+	);
+	expectOk(await blobs.copy(sourceId, destinationId));
+	const reopened = createBrowserBlobStore({
+		...scope,
+		indexedDb: indexedDB,
+		locks: testLocks,
+	});
+	expect(await expectOk(await reopened.get(destinationId)).text()).toBe(
+		'source',
+	);
+	expect(expectOk(await reopened.stat(destinationId))).toEqual({
+		size: 6,
+		contentType: 'audio/wav',
+	});
+	expectOk(await reopened.delete(destinationId));
+	expect(await expectOk(await blobs.get(sourceId)).text()).toBe('source');
+	expectOk(await blobs.copy(sourceId, destinationId));
+	expectOk(await blobs.delete(sourceId));
+	expect(await expectOk(await reopened.get(destinationId)).text()).toBe(
+		'source',
+	);
+});
+
+test('copy refuses existing and identical destinations without changing either object', async () => {
+	const { blobs } = setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await blobs.put(sourceId, new Blob(['source'])));
+	expectOk(await blobs.put(destinationId, new Blob(['destination'])));
+	for (const id of [destinationId, sourceId]) {
+		expect(expectErr(await blobs.copy(sourceId, id))).toMatchObject({
+			name: 'BlobAlreadyExists',
+			id,
+		});
+	}
+	expect(await expectOk(await blobs.get(sourceId)).text()).toBe('source');
+	expect(await expectOk(await blobs.get(destinationId)).text()).toBe(
+		'destination',
+	);
+});
+
+test('copy cannot find a source in another captured store and creates no destination', async () => {
+	const first = setup();
+	const second = setup();
+	const sourceId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await first.blobs.put(sourceId, new Blob(['first store'])));
+	expect(
+		expectErr(await second.blobs.copy(sourceId, destinationId)),
+	).toMatchObject({ name: 'BlobNotFound', id: sourceId });
+	expect(expectErr(await second.blobs.get(destinationId)).name).toBe(
+		'BlobNotFound',
+	);
+	expect(await expectOk(await first.blobs.get(sourceId)).text()).toBe(
+		'first store',
+	);
+});
+
+test('concurrent copies publish only one destination and preserve both sources', async () => {
+	const { blobs } = setup();
+	const firstId = generateBlobId();
+	const secondId = generateBlobId();
+	const destinationId = generateBlobId();
+	expectOk(await blobs.put(firstId, new Blob(['first'])));
+	expectOk(await blobs.put(secondId, new Blob(['second'])));
+	const results = await Promise.all([
+		blobs.copy(firstId, destinationId),
+		blobs.copy(secondId, destinationId),
+	]);
+	expect(results.filter((result) => result.error === null)).toHaveLength(1);
+	expect(
+		results.filter((result) => result.error?.name === 'BlobAlreadyExists'),
+	).toHaveLength(1);
+	expect(['first', 'second']).toContain(
+		await expectOk(await blobs.get(destinationId)).text(),
+	);
+	expect(await expectOk(await blobs.get(firstId)).text()).toBe('first');
+	expect(await expectOk(await blobs.get(secondId)).text()).toBe('second');
 });
 
 test('get and stat return BlobNotFound for an unknown id', async () => {
@@ -239,11 +403,17 @@ test('IndexedDB failures return BlobStoreFailed with the original cause', async 
 	const blobs = createBrowserBlobStore({
 		...setup().scope,
 		indexedDb: failingIndexedDb,
+		locks: testLocks,
 	});
 	const id = generateBlobId();
 
 	const error = expectErr(await blobs.get(id));
 	expect(error).toMatchObject({ name: 'BlobStoreFailed', id, cause });
+	expect(expectErr(await blobs.copy(id, generateBlobId()))).toMatchObject({
+		name: 'BlobStoreFailed',
+		id,
+		cause,
+	});
 });
 
 test('browser source acquisitions own independent disposal that revokes exactly once', async () => {
@@ -380,196 +550,6 @@ async function databaseNames(): Promise<string[]> {
 		.filter((name): name is string => name !== undefined);
 }
 
-/** Write one blob the way the pre-scoping build did: straight into `epicenter-blobs`. */
-async function seedUnscoped(id: string, text: string): Promise<void> {
-	const database = await new Promise<IDBDatabase>((resolve, reject) => {
-		const request = indexedDB.open('epicenter-blobs', 1);
-		request.onupgradeneeded = () => {
-			request.result.createObjectStore('blob-data', { keyPath: 'id' });
-			request.result.createObjectStore('blob-metadata', { keyPath: 'id' });
-		};
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error);
-	});
-	try {
-		const transaction = database.transaction(
-			['blob-data', 'blob-metadata'],
-			'readwrite',
-		);
-		const bytes = new TextEncoder().encode(text).buffer;
-		transaction.objectStore('blob-data').add({ id, bytes });
-		transaction
-			.objectStore('blob-metadata')
-			.add({ id, size: bytes.byteLength, contentType: 'audio/wav' });
-		await new Promise<void>((resolve, reject) => {
-			transaction.oncomplete = () => resolve();
-			transaction.onerror = () => reject(transaction.error);
-		});
-	} finally {
-		database.close();
-	}
-}
-
-test("erase deletes one account's database and leaves the other account's", async () => {
-	const first = setup();
-	const second = setup();
-	const id = generateBlobId();
-	expectOk(await first.blobs.put(id, new Blob(['mine'])));
-	expectOk(await second.blobs.put(id, new Blob(['theirs'])));
-
-	expectOk(
-		await eraseBlobStore({
-			...first.scope,
-			indexedDb: indexedDB,
-			locks: fakeLocks().locks,
-		}),
-	);
-
-	const names = await databaseNames();
-	expect(names).not.toContain(first.databaseName);
-	expect(names).toContain(second.databaseName);
-	expect(await expectOk(await second.blobs.get(id)).text()).toBe('theirs');
-	// Nothing recreated the database by asking about it.
-	expect(expectErr(await first.blobs.stat(id)).name).toBe('BlobNotFound');
-	expect(await databaseNames()).toContain(first.databaseName);
-});
-
-test('erase refuses rather than queues while a claim holds the store, and refuses a runtime with no locks', async () => {
-	const { scope, databaseName } = setup();
-	const { held, locks } = fakeLocks();
-	held.add(`epicenter.blobs:${databaseName}`);
-
-	expect(
-		expectErr(await eraseBlobStore({ ...scope, indexedDb: indexedDB, locks })),
-	).toMatchObject({ name: 'BlobStoreHeld', database: databaseName });
-	expect(
-		expectErr(
-			await eraseBlobStore({
-				...scope,
-				indexedDb: indexedDB,
-				locks: undefined,
-			}),
-		).name,
-	).toBe('LocksUnsupported');
-});
-
-test('a claim against a browser that never had the unscoped store creates nothing', async () => {
-	const { scope } = setup();
-	await deleteUnscopedBrowserBlobs({
-		indexedDb: indexedDB,
-		locks: fakeLocks().locks,
-	});
-	const ids = [generateBlobId(), generateBlobId()];
-
-	const claim = expectOk(
-		await claimUnscopedBrowserBlobs({
-			...scope,
-			ids,
-			indexedDb: indexedDB,
-			locks: fakeLocks().locks,
-		}),
-	);
-
-	expect(claim).toEqual({
-		claimed: 0,
-		absent: 2,
-		skipped: 0,
-		unclaimed: { count: 0, bytes: 0 },
-	});
-	expect(await databaseNames()).not.toContain('epicenter-blobs');
-	expect(
-		expectOk(
-			await unscopedBrowserBlobs({ indexedDb: indexedDB, locks: testLocks }),
-		),
-	).toEqual({ count: 0, bytes: 0 });
-});
-
-test('a claim moves the cited bytes, leaves the uncited ones counted, and is idempotent', async () => {
-	const { scope, blobs } = setup();
-	const { locks } = fakeLocks();
-	const cited = generateBlobId();
-	const alreadyScoped = generateBlobId();
-	const somebodyElses = generateBlobId();
-	const neverHere = generateBlobId();
-	await seedUnscoped(cited, 'cited bytes');
-	await seedUnscoped(alreadyScoped, 'older copy');
-	await seedUnscoped(somebodyElses, 'not yours');
-	// A duplicate left by an interrupted earlier claim: the scoped copy wins
-	// and the unscoped one is released.
-	expectOk(await blobs.put(alreadyScoped, new Blob(['older copy'])));
-
-	const first = expectOk(
-		await claimUnscopedBrowserBlobs({
-			...scope,
-			ids: [cited, alreadyScoped, neverHere],
-			indexedDb: indexedDB,
-			locks,
-		}),
-	);
-	expect(first).toEqual({
-		claimed: 2,
-		absent: 1,
-		skipped: 0,
-		unclaimed: { count: 1, bytes: 'not yours'.length },
-	});
-	expect(await expectOk(await blobs.get(cited)).text()).toBe('cited bytes');
-	expect(expectErr(await blobs.stat(somebodyElses)).name).toBe('BlobNotFound');
-	expect(await databaseNames()).toContain('epicenter-blobs');
-
-	const again = expectOk(
-		await claimUnscopedBrowserBlobs({
-			...scope,
-			ids: [cited, alreadyScoped, neverHere],
-			indexedDb: indexedDB,
-			locks,
-		}),
-	);
-	expect(again).toMatchObject({ claimed: 0, absent: 3, skipped: 0 });
-
-	// A person's explicit choice is the only thing that deletes the rest.
-	expectOk(await deleteUnscopedBrowserBlobs({ indexedDb: indexedDB, locks }));
-	expect(await databaseNames()).not.toContain('epicenter-blobs');
-});
-
-test('a claim keeps even an empty unscoped store, and holds both locks while it runs', async () => {
-	const { scope, databaseName } = setup();
-	const { held, locks } = fakeLocks();
-	const id = generateBlobId();
-	await seedUnscoped(id, 'the last one');
-
-	const claim = expectOk(
-		await claimUnscopedBrowserBlobs({
-			...scope,
-			ids: [id],
-			indexedDb: indexedDB,
-			locks,
-		}),
-	);
-	expect(claim.unclaimed).toEqual({ count: 0, bytes: 0 });
-	expect(await databaseNames()).toContain('epicenter-blobs');
-
-	held.add(`epicenter.blobs:${databaseName}`);
-	await seedUnscoped(generateBlobId(), 'held');
-	expect(
-		expectErr(
-			await claimUnscopedBrowserBlobs({
-				...scope,
-				ids: [id],
-				indexedDb: indexedDB,
-				locks,
-			}),
-		).name,
-	).toBe('BlobStoreHeld');
-	held.clear();
-	held.add('epicenter.blobs:epicenter-blobs');
-	expect(
-		expectErr(await deleteUnscopedBrowserBlobs({ indexedDb: indexedDB, locks }))
-			.name,
-	).toBe('BlobStoreHeld');
-	held.clear();
-	expectOk(await deleteUnscopedBrowserBlobs({ indexedDb: indexedDB, locks }));
-});
-
 test('erase refuses a put before its bytes finish converting, while another shared read succeeds', async () => {
 	const { scope } = setup();
 	const { locks } = fakeLocks();
@@ -612,6 +592,7 @@ test('an exclusive erase excludes every ordinary verb without opening a database
 	for (const result of await Promise.all([
 		store.put(id, new Blob(['blocked'])),
 		store.get(id),
+		store.copy(id, generateBlobId()),
 		store.stat(id),
 		store.delete(id),
 	])) {

@@ -79,7 +79,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-use crate::recorder::blob::StagedBlob;
+use crate::recorder::blob::{BlobScope, StagedBlob};
 use crate::recorder::ended::EndedReason;
 use crate::recorder::error::RecorderError;
 
@@ -387,6 +387,8 @@ struct HeldRecording {
     audio_blob_id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
+    /// Dataset selected at start, retained for reload recovery.
+    scope: BlobScope,
     /// Which microphone this recording opened, so a window that reloads can be
     /// told what it is recording from without reopening anything.
     device: DeviceAcquisition,
@@ -420,6 +422,10 @@ pub struct Recorder {
 #[serde(rename_all = "camelCase")]
 pub struct HostRecording {
     pub audio_blob_id: String,
+    /// Dataset selected when the host minted this recording. It must travel
+    /// through reload recovery; the requesting window is not enough to recover
+    /// which blob partition owns the staged bytes.
+    pub scope: BlobScope,
     pub device: DeviceAcquisition,
     /// `None` while capture is running. `Some` means capture is over and this
     /// recording is waiting to be stopped (publishing what it captured) or
@@ -473,6 +479,7 @@ impl Recorder {
         audio_blob_id: String,
         owner_label: String,
         app_handle: AppHandle,
+        scope: BlobScope,
     ) -> Result<HostRecording> {
         self.require_free_slot()?;
 
@@ -492,7 +499,7 @@ impl Recorder {
         // Staging is opened before the microphone, so a recording that cannot be
         // written fails now rather than after an hour of captured speech.
         let capture = StagedCapture::open(
-            StagedBlob::create(&app_handle, &audio_blob_id)?,
+            StagedBlob::create(&app_handle, &audio_blob_id, &scope)?,
             device_rate,
         )?;
 
@@ -583,6 +590,7 @@ impl Recorder {
         self.active = Some(HeldRecording {
             audio_blob_id: audio_blob_id.clone(),
             owner_label,
+            scope: scope.clone(),
             device: acquisition.clone(),
             ended_reason: None,
             cmd_tx,
@@ -590,6 +598,7 @@ impl Recorder {
         });
         Ok(HostRecording {
             audio_blob_id,
+            scope,
             device: acquisition,
             ended_reason: None,
         })
@@ -708,6 +717,7 @@ impl Recorder {
             .filter(|active| active.owner_label == caller_label)
             .map(|active| HostRecording {
                 audio_blob_id: active.audio_blob_id.clone(),
+                scope: active.scope.clone(),
                 device: active.device.clone(),
                 ended_reason: active.ended_reason,
             })
@@ -1472,6 +1482,7 @@ mod tests {
         recorder.active = Some(HeldRecording {
             audio_blob_id: audio_blob_id.to_string(),
             owner_label: owner_label.to_string(),
+            scope: BlobScope::Local,
             device: DeviceAcquisition::Success {
                 device_id: "Test Microphone".to_string(),
             },
@@ -1536,6 +1547,26 @@ mod tests {
         );
         // A window that owns no recording learns nothing about one that exists.
         assert!(recorder.current("whispering").is_none());
+    }
+
+    #[test]
+    fn recovery_reports_the_original_dataset_even_after_capture_ends() {
+        let root = staging_root();
+        let mut recorder = Recorder::new();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        recording_owned_by(&mut recorder, &root, id, "app-notes");
+        assert_eq!(recorder.current("app-notes").unwrap().scope, BlobScope::Local);
+        let account = BlobScope::Account {
+            authority_id: "authority-a".into(),
+            principal_id: "principal".into(),
+        };
+        recorder.active.as_mut().unwrap().scope = account.clone();
+        recorder.end_capture(id, EndedReason::DeviceDisconnected);
+        for _ in 0..2 {
+            assert_eq!(recorder.current("app-notes").unwrap().scope, account);
+        }
+        assert!(recorder.current("another-window").is_none());
+        recorder.cancel(id, "app-notes").unwrap();
     }
 
     /// `current` is a read, not a claim. Two calls answer twice, because a

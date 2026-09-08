@@ -7,6 +7,8 @@
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
+import { type BlobStore, generateBlobId } from '@epicenter/blobs';
+import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { installTestLocks } from '@epicenter/data/test-locks';
@@ -19,7 +21,7 @@ import {
 import { createEpicenter } from './index.js';
 import { createBrowserAppBlobs } from './browser.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 
 installTestLocks();
 
@@ -123,14 +125,14 @@ test('the app SQLite capability follows the captured local or account scope', as
 		blobs: testBlobs,
 	});
 	const localApp = epicenter.openLocal();
-	await expect(localApp.sqlite.open('search')).rejects.toThrow(
-		'not ready',
-	);
+	expect(() => localApp.sqlite.open('search')).toThrow('not ready');
 	expectOk(await localApp.ready);
 	const localDatabase = expectOk(await localApp.sqlite.open('search'));
 	const accountApp = epicenter.openAccount(account);
 	expectOk(await accountApp.ready);
-	await accountApp.sqlite.open('search');
+	Reflect.set(account, 'authorityId', 'replacement-authority');
+	Reflect.set(account, 'principalId', asPrincipalId('bob'));
+	expectOk(await accountApp.sqlite.open('search'));
 	expect(scopes).toEqual([
 		{ kind: 'local' },
 		{ kind: 'account', authorityId: 'test-authority', principalId: 'alice' },
@@ -144,7 +146,9 @@ test('closing waits for an admitted SQLite delete', async () => {
 	let beginDelete!: () => void;
 	let releaseDelete!: () => void;
 	const deleteStarted = new Promise<void>((resolve) => (beginDelete = resolve));
-	const deleteReleased = new Promise<void>((resolve) => (releaseDelete = resolve));
+	const deleteReleased = new Promise<void>(
+		(resolve) => (releaseDelete = resolve),
+	);
 	const owner: DeviceSqliteOwner = {
 		open: async () => ({
 			run: async () => Ok({ changes: 0 }),
@@ -163,7 +167,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 		blobs: testBlobs,
 	}).openLocal();
 	expectOk(await app.ready);
-	const deleting = app.sqlite!.delete('search');
+	const deleting = app.sqlite.delete('search');
 	await deleteStarted;
 	let closed = false;
 	const closing = app.close().then(() => {
@@ -189,6 +193,292 @@ test('closing waits for an admitted SQLite delete', async () => {
 		sqlite: owner,
 		blobs: testBlobs,
 	}).openLocal();
+	expectOk(await reopened.ready);
+	await reopened.close();
+});
+
+test('every retained SQL verb refuses closed use without reaching the shared owner', async () => {
+	const calls: string[] = [];
+	const owner: DeviceSqliteOwner = {
+		async open() {
+			calls.push('open');
+			return {
+				run: async () => {
+					calls.push('run');
+					return Ok({ changes: 1 });
+				},
+				all: async () => {
+					calls.push('all');
+					return Ok([]);
+				},
+				batch: async () => {
+					calls.push('batch');
+					return Ok({ changes: [1] });
+				},
+			};
+		},
+		async delete() {
+			calls.push('delete');
+		},
+	};
+	const app = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+		blobs: testBlobs,
+	}).openLocal();
+	const { open, delete: remove } = app.sqlite;
+	for (const operation of [() => open('search'), () => remove('search')])
+		expect(operation).toThrow('not ready');
+	expect(calls).toEqual([]);
+	expectOk(await app.ready);
+	const { run, all, batch } = expectOk(await open('search'));
+	expectOk(await run('select 1'));
+	expectOk(await all<{ value: number }>('select 1 as value'));
+	expectOk(await batch([{ sql: 'select 1' }]));
+	expectOk(await remove('search'));
+	const admitted = [...calls];
+	const operations = [
+		() => open('search'),
+		() => remove('search'),
+		() => run('select 1'),
+		() => all('select 1'),
+		() => batch([]),
+	];
+	const closing = app.close();
+	for (const operation of operations) expect(operation).toThrow('disposed');
+	await closing;
+	for (const operation of operations) expect(operation).toThrow('disposed');
+	expect(calls).toEqual(admitted);
+});
+
+test.each([
+	'run',
+	'all',
+	'batch',
+] as const)('an admitted SQL %s can reenter close and keeps the claim until it settles', async (verb) => {
+	const released = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	let reentrant: Promise<void> | undefined;
+	const owner: DeviceSqliteOwner = {
+		async open() {
+			async function wait() {
+				reentrant = app.close();
+				started.resolve();
+				await released.promise;
+			}
+			return {
+				run: async () => {
+					await wait();
+					return Ok({ changes: 1 });
+				},
+				all: async () => {
+					await wait();
+					return Ok([]);
+				},
+				batch: async () => {
+					await wait();
+					return Ok({ changes: [1] });
+				},
+			};
+		},
+		delete: testSqlite.delete,
+	};
+	const app = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+		blobs: testBlobs,
+	}).openLocal();
+	expectOk(await app.ready);
+	const database = expectOk(await app.sqlite.open('search'));
+	const pending: Promise<Result<unknown, DeviceError>> =
+		verb === 'batch' ? database.batch([]) : database[verb]('select 1');
+	try {
+		await started.promise;
+		expect(reentrant).toBe(app.close());
+		const duplicate = create().openLocal();
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close();
+		released.resolve();
+		expectOk(await pending);
+		await app.close();
+	} finally {
+		released.resolve();
+		await app.close();
+	}
+});
+
+test('a late SQL open refuses publication and leaves shared physical storage alive', async () => {
+	const opening = Promise.withResolvers<AppSqliteDatabase>();
+	const started = Promise.withResolvers<void>();
+	let deletes = 0;
+	const physical = await testSqlite.open(
+		'so.epicenter.app-test',
+		{ kind: 'local' },
+		'search',
+	);
+	const owner: DeviceSqliteOwner = {
+		open() {
+			started.resolve();
+			return opening.promise;
+		},
+		async delete() {
+			deletes++;
+		},
+	};
+	const app = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+		blobs: testBlobs,
+	}).openLocal();
+	expectOk(await app.ready);
+	const pending = app.sqlite.open('search');
+	const outcome = Promise.allSettled([pending]);
+	await started.promise;
+	const closing = app.close();
+	let closed = false;
+	void closing.then(() => {
+		closed = true;
+	});
+	try {
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(closed).toBe(false);
+		opening.resolve(physical);
+		expect(await outcome).toEqual([
+			{
+				status: 'rejected',
+				reason: expect.objectContaining({ name: 'StoreUnusableError' }),
+			},
+		]);
+		await closing;
+		expect(deletes).toBe(0);
+		expectOk(await physical.run('select 1'));
+	} finally {
+		opening.resolve(physical);
+		await closing;
+	}
+});
+
+test('reentrant failed cleanup still drains SQL, blobs, and owning creation before releasing the claim', async () => {
+	const sql = Promise.withResolvers<Result<{ changes: number }, DeviceError>>();
+	const reading =
+		Promise.withResolvers<Awaited<ReturnType<BlobStore['get']>>>();
+	const writing = Promise.withResolvers<Result<void, never>>();
+	const writeStarted = Promise.withResolvers<void>();
+	const compensating = Promise.withResolvers<Result<void, never>>();
+	const compensated = Promise.withResolvers<void>();
+	const cause = new Error('page cleanup failed');
+	const sqlCause = new Error('SQL rejected');
+	let reentrant: Promise<void> | undefined;
+	const originals = ['document', 'addEventListener', 'removeEventListener'].map(
+		(name) =>
+			[name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
+	);
+	const app = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: {
+			async open() {
+				return {
+					...(await testSqlite.open(
+						'so.epicenter.app-test',
+						{ kind: 'local' },
+						'search',
+					)),
+					run: () => sql.promise,
+				};
+			},
+			delete: testSqlite.delete,
+		},
+		blobs(input) {
+			const backing = testBlobs(input);
+			return {
+				...backing,
+				local: {
+					...backing.local,
+					get: () => reading.promise,
+					put() {
+						writeStarted.resolve();
+						return writing.promise;
+					},
+					delete() {
+						compensated.resolve();
+						return compensating.promise;
+					},
+				},
+			};
+		},
+	}).openLocal();
+	Object.defineProperties(globalThis, {
+		document: {
+			configurable: true,
+			value: {
+				visibilityState: 'visible',
+				addEventListener() {},
+				removeEventListener() {
+					reentrant = app.close();
+					throw cause;
+				},
+			},
+		},
+		addEventListener: { configurable: true, value: () => undefined },
+		removeEventListener: { configurable: true, value: () => undefined },
+	});
+	let closing: Promise<void> | undefined;
+	try {
+		expectOk(await app.ready);
+		const database = expectOk(await app.sqlite.open('search'));
+		const run = database.run('select 1');
+		const read = app.blobs.get(generateBlobId());
+		const create = app.tables.recordings.create({ audio: new Blob(['bytes']) });
+		const outcomes = Promise.allSettled([run, create]);
+		await writeStarted.promise;
+		closing = app.close();
+		const closed = Promise.allSettled([closing]);
+		expect(reentrant).toBe(closing);
+		expect(app.close()).toBe(closing);
+		sql.reject(sqlCause);
+		writing.resolve(Ok(undefined));
+		await compensated.promise;
+		const duplicate = createEpicenter({
+			appId: 'so.epicenter.app-test',
+			definition,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		}).openLocal();
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close();
+		reading.resolve(Ok(new Blob(['read'])));
+		expect(await expectOk(await read).text()).toBe('read');
+		let settled = false;
+		void closed.then(() => {
+			settled = true;
+		});
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(settled).toBe(false);
+		compensating.resolve(Ok(undefined));
+		expect(await outcomes).toEqual([
+			{ status: 'rejected', reason: sqlCause },
+			{
+				status: 'rejected',
+				reason: expect.objectContaining({ name: 'StoreUnusableError' }),
+			},
+		]);
+		expect(await closed).toEqual([{ status: 'rejected', reason: cause }]);
+	} finally {
+		sql.resolve(Ok({ changes: 0 }));
+		reading.resolve(Ok(new Blob()));
+		writing.resolve(Ok(undefined));
+		compensating.resolve(Ok(undefined));
+		await (closing ?? app.close()).catch(() => undefined);
+		for (const [name, descriptor] of originals) {
+			if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
+			else Object.defineProperty(globalThis, name, descriptor);
+		}
+	}
+	const reopened = create().openLocal();
 	expectOk(await reopened.ready);
 	await reopened.close();
 });
@@ -348,22 +638,6 @@ test('invalid definitions and missing account identity throw before opening stor
 		blobs: testBlobs,
 	});
 	expect(() => invalid.openLocal()).toThrow();
-	const account: Account = {
-		principalId: asPrincipalId('alice'),
-		baseURL: 'https://example.test',
-		async fetch() {
-			throw new Error('Must not fetch.');
-		},
-		async openWebSocket() {
-			throw new Error('Must not dial.');
-		},
-		async getProfile() {
-			throw new Error('Must not fetch a profile.');
-		},
-	};
-	expect(() => create().openAccount(account)).toThrow(
-		'stable authority identity',
-	);
 	expect(
 		(await indexedDB.databases()).filter(({ name }) =>
 			name?.split('/').includes('so.epicenter.app-test'),

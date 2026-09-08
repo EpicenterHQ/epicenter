@@ -25,6 +25,10 @@ import type { BlobNotFound, BlobStoreFailed } from './blob-store.js';
  */
 
 export const BlobRemoteError = defineErrors({
+	/** This app handle has no account authority to operate a remote copy. */
+	RemoteNotConfigured: () => ({
+		message: 'Remote blob storage is not configured for this app handle.',
+	}),
 	/**
 	 * The remote holds no object for this id. Expected, not exceptional:
 	 * the object may simply never have been uploaded.
@@ -41,6 +45,9 @@ export const BlobRemoteError = defineErrors({
 	}),
 });
 export type BlobRemoteError = InferErrors<typeof BlobRemoteError>;
+export type RemoteNotConfigured = InferError<
+	typeof BlobRemoteError.RemoteNotConfigured
+>;
 export type RemoteBlobNotFound = InferError<
 	typeof BlobRemoteError.RemoteBlobNotFound
 >;
@@ -62,7 +69,7 @@ export type BlobRemote = {
 	 */
 	upload(
 		id: BlobId,
-	): Promise<Result<void, BlobNotFound | BlobStoreFailed | BlobRemoteFailed>>;
+	): Promise<Result<void, BlobNotFound | BlobStoreFailed | BlobRemoteFailed | RemoteNotConfigured>>;
 	/**
 	 * Copy the object remote -> local, writing through the canonical store.
 	 * `RemoteBlobNotFound` means the object was never uploaded. An immutable-ID
@@ -72,8 +79,8 @@ export type BlobRemote = {
 	download(
 		id: BlobId,
 	): Promise<
-		Result<void, RemoteBlobNotFound | BlobStoreFailed | BlobRemoteFailed>
+		Result<void, RemoteBlobNotFound | BlobStoreFailed | BlobRemoteFailed | RemoteNotConfigured>
 	>;
 	/** Delete the remote object. Idempotent; local bytes are untouched. */
-	purge(id: BlobId): Promise<Result<void, BlobRemoteFailed>>;
+	purge(id: BlobId): Promise<Result<void, BlobRemoteFailed | RemoteNotConfigured>>;
 };

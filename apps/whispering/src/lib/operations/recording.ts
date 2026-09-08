@@ -20,6 +20,7 @@ import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { manualRecorder } from '$lib/state/manual-recorder.svelte';
+import { trackRecordingWork } from '$lib/state/recording-active.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
 
@@ -107,6 +108,7 @@ const ENDED_NOTICE: Record<RecordingEndedReason, string> = {
  */
 export function watchManualRecordingEnded(app: WhisperingApp): void {
 	manualRecorder.onEnded((reason) => {
+		if (!app.recordingEnabled) return;
 		const { error } = RecorderError.RecorderFailed({
 			cause: ENDED_NOTICE[reason],
 		});
@@ -130,6 +132,7 @@ function isVadRecordingActive() {
 export async function startManualRecording(
 	app: WhisperingApp,
 ): Promise<BlobId | null> {
+	if (!app.recordingEnabled) return null;
 	app.settings.set('recordingTrigger', 'manual');
 	// A new dictation is starting: clear any lingering failed/delivered state so
 	// the pill follows this attempt, not the last one.
@@ -148,7 +151,9 @@ export async function startManualRecording(
 	cancelPendingVadResume();
 	recordingMedia.pause(app);
 
-	const { data: recording, error } = await manualRecorder.startRecording();
+	const { data: recording, error } = await manualRecorder.startRecording(
+		app.account,
+	);
 
 	if (error) {
 		void recordingMedia.resume();
@@ -174,33 +179,62 @@ export async function startManualRecording(
 }
 
 export async function stopManualRecording(app: WhisperingApp) {
-	const { data: source, error } = await manualRecorder.stopRecording();
+	if (!app.recordingEnabled) return;
+	return trackRecordingWork(async () => {
+		const { data: source, error } = await manualRecorder.stopRecording(
+			app.account,
+		);
 
-	if (error) {
+		if (error) {
+			void recordingMedia.resume();
+			// Finalizing failed, so the captured audio never reached a row: treat it
+			// as a silent loss rather than a retryable transcription.
+			dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+			return;
+		}
+
+		const { audioBlobId, durationMs, byteLength } = source;
+
+		// The pill carries "stopped -> transcribing"; the transcript landing is the
+		// receipt. No per-step toast.
+		log.info('Recording stopped');
+		void playSoundIfEnabled(app, 'manual-stop');
 		void recordingMedia.resume();
-		// Finalizing failed, so the captured audio never reached a row: treat it
-		// as a silent loss rather than a retryable transcription.
-		dictationLifecycle.markFailed({ tier: 'silent-loss', error });
-		return;
-	}
 
-	const { audioBlobId, durationMs, byteLength } = source;
+		void logAnalyticsEvent(app, {
+			type: 'manual_recording_completed',
+			blob_size: byteLength,
+			duration: durationMs,
+		});
 
-	// The pill carries "stopped -> transcribing"; the transcript landing is the
-	// receipt. No per-step toast.
-	log.info('Recording stopped');
-	void playSoundIfEnabled(app, 'manual-stop');
-	void recordingMedia.resume();
-
-	void logAnalyticsEvent(app, {
-		type: 'manual_recording_completed',
-		blob_size: byteLength,
-		duration: durationMs,
-	});
-
-	await processRecordingPipeline(app, {
-		audioBlobId,
-		durationMs,
+		try {
+			await processRecordingPipeline(app, {
+				audio: audioBlobId,
+				durationMs,
+			});
+		} finally {
+			// Native capture publishes a temporary source id. The owning table copies
+			// it into the row's fresh id; capture owns the temporary source and removes
+			// it after the pipeline has settled, including row or transcription failure.
+			try {
+				const cleanup = await app.blobs.removeLocal(audioBlobId);
+				if (cleanup.error !== null)
+					log.warn(
+						new Error('Native recording source cleanup failed.', {
+							cause: cleanup.error,
+						}),
+					);
+			} catch (cause) {
+				// Cleanup is secondary. In particular, a session may close while the
+				// pipeline is settling; never replace the creation/transcription failure
+				// with a late closed-handle error.
+				log.warn(
+					new Error('Native recording source cleanup was not admitted.', {
+						cause,
+					}),
+				);
+			}
+		}
 	});
 }
 
@@ -231,40 +265,43 @@ export function toggleManualRecording(app: WhisperingApp) {
 }
 
 export async function cancelRecording(app: WhisperingApp) {
-	// Note: distinct from the low-level Tauri `commands.cancelRecording()` (CPAL
-	// stream teardown). This is the user-facing command: it decides what "cancel"
-	// means across the manual and VAD recorders.
-	//
-	// Cancel aborts whichever capture is live, without touching
-	// `recordingTrigger`: the chosen trigger (manual vs VAD) is a deliberate
-	// preference, not
-	// something a cancel keystroke should flip, so cancelling in VAD mode leaves
-	// you in VAD mode, idle and ready to listen again. This is also the global
-	// cancel chord (Cmd + . on macOS), which the global-shortcut plugin fires only
-	// on that exact chord, so when nothing is live it stays silent rather than
-	// toasting on an unrelated press.
+	if (!app.recordingEnabled) return;
+	return trackRecordingWork(async () => {
+		// Note: distinct from the low-level Tauri `commands.cancelRecording()` (CPAL
+		// stream teardown). This is the user-facing command: it decides what "cancel"
+		// means across the manual and VAD recorders.
+		//
+		// Cancel aborts whichever capture is live, without touching
+		// `recordingTrigger`: the chosen trigger (manual vs VAD) is a deliberate
+		// preference, not
+		// something a cancel keystroke should flip, so cancelling in VAD mode leaves
+		// you in VAD mode, idle and ready to listen again. This is also the global
+		// cancel chord (Cmd + . on macOS), which the global-shortcut plugin fires only
+		// on that exact chord, so when nothing is live it stays silent rather than
+		// toasting on an unrelated press.
 
-	// A manual recording is the live capture: discard it.
-	const { data, error } = await manualRecorder.cancelRecording();
-	if (error) {
-		report.error({ title: 'Failed to cancel recording', cause: error });
-		return;
-	}
-	if (data.status === 'cancelled') {
-		void recordingMedia.resume();
-		// The pill vanishing plus the cancel sound is the confirmation; no toast.
-		void playSoundIfEnabled(app, 'manual-cancel');
-		log.info('Recording cancelled');
-		return;
-	}
+		// A manual recording is the live capture: discard it.
+		const { data, error } = await manualRecorder.cancelRecording(app.account);
+		if (error) {
+			report.error({ title: 'Failed to cancel recording', cause: error });
+			return;
+		}
+		if (data.status === 'cancelled') {
+			void recordingMedia.resume();
+			// The pill vanishing plus the cancel sound is the confirmation; no toast.
+			void playSoundIfEnabled(app, 'manual-cancel');
+			log.info('Recording cancelled');
+			return;
+		}
 
-	// No manual recording, but a VAD session may be live. VAD has no
-	// discard-vs-finalize split: tearing the session down is the only way to
-	// abort it, which is exactly what stopVadRecording already does (same
-	// stopActiveListening call, same end state, mode left on `vad`). So cancel a
-	// live VAD session by stopping it, rather than cloning the teardown with a
-	// second toast and a manual-recording sound. Nothing live: silent no-op.
-	if (isVadRecordingActive()) await stopVadRecording(app);
+		// No manual recording, but a VAD session may be live. VAD has no
+		// discard-vs-finalize split: tearing the session down is the only way to
+		// abort it, which is exactly what stopVadRecording already does (same
+		// stopActiveListening call, same end state, mode left on `vad`). So cancel a
+		// live VAD session by stopping it, rather than cloning the teardown with a
+		// second toast and a manual-recording sound. Nothing live: silent no-op.
+		if (isVadRecordingActive()) await stopVadRecording(app);
+	});
 }
 
 // VAD pauses playback per utterance (the speaking window), not for the whole
@@ -308,97 +345,101 @@ function cancelPendingVadResume() {
 }
 
 export async function startVadRecording(app: WhisperingApp) {
-	app.settings.set('recordingTrigger', 'vad');
-	// A new dictation session is starting: clear any lingering terminal state.
-	dictationLifecycle.reset();
-	// A capture just started, so leave the import overlay if it was open (see
-	// startManualRecording).
-	captureSurface.dismissImport();
+	if (!app.recordingEnabled) return;
+	return trackRecordingWork(async () => {
+		app.settings.set('recordingTrigger', 'vad');
+		// A new dictation session is starting: clear any lingering terminal state.
+		dictationLifecycle.reset();
+		// A capture just started, so leave the import overlay if it was open (see
+		// startManualRecording).
+		captureSurface.dismissImport();
 
-	// Warm the local model when listening is armed (not when speech is
-	// detected): arming VAD is the "about to dictate" signal, and starting the
-	// load now means the model is ready before the first word, even for a short
-	// utterance. No-op for cloud/web.
-	prewarmOnDeviceModel(app);
+		// Warm the local model when listening is armed (not when speech is
+		// detected): arming VAD is the "about to dictate" signal, and starting the
+		// load now means the model is ready before the first word, even for a short
+		// utterance. No-op for cloud/web.
+		prewarmOnDeviceModel(app);
 
-	log.info('Starting voice activated capture');
+		log.info('Starting voice activated capture');
 
-	const { data: outcome, error } = await vadRecorder.startActiveListening({
-		onLevel: reportRecordingMicLevel,
-		onSpeechStart: () => {
-			// Speaking window opened: pause whatever is playing. The pill's meter
-			// tint shows speech was detected, so there is no toast.
-			pausePlaybackForSpeech(app);
-		},
-		onSpeechEnd: async (blob) => {
-			// Speaking window closed: resume after a short debounce so a quick
-			// next utterance does not flutter the music.
-			scheduleResumeAfterSpeech();
-			log.info('Voice activated speech captured');
-			void playSoundIfEnabled(app, 'vad-capture');
+		const { data: outcome, error } = await vadRecorder.startActiveListening({
+			onLevel: (level) => {
+				if (app.recordingEnabled) reportRecordingMicLevel(level);
+			},
+			onSpeechStart: () => {
+				if (!app.recordingEnabled) return;
+				// Speaking window opened: pause whatever is playing. The pill's meter
+				// tint shows speech was detected, so there is no toast.
+				pausePlaybackForSpeech(app);
+			},
+			onSpeechEnd: async (blob) => {
+				if (!app.recordingEnabled) return;
+				return trackRecordingWork(async () => {
+					// Speaking window closed: resume after a short debounce so a quick
+					// next utterance does not flutter the music.
+					scheduleResumeAfterSpeech();
+					log.info('Voice activated speech captured');
+					void playSoundIfEnabled(app, 'vad-capture');
 
-			void logAnalyticsEvent(app, {
-				type: 'vad_recording_completed',
-				blob_size: blob.size,
-			});
+					void logAnalyticsEvent(app, {
+						type: 'vad_recording_completed',
+						blob_size: blob.size,
+					});
 
-			const finalized = await app.recordings.storeAudio(blob);
-			if (finalized.error !== null) {
-				dictationLifecycle.markFailed({
-					tier: 'silent-loss',
-					error: finalized.error,
+					await processRecordingPipeline(app, {
+						audio: blob,
+						durationMs: null,
+					});
 				});
-				return;
-			}
-			await processRecordingPipeline(app, {
-				audioBlobId: finalized.data.audioBlobId,
-				durationMs: null,
-			});
-		},
-		onVADMisfire: () => {
-			// False start: schedule the same debounced resume as a real speech
-			// end, so an immediate retry does not flutter the music.
-			scheduleResumeAfterSpeech();
-		},
+			},
+			onVADMisfire: () => {
+				if (!app.recordingEnabled) return;
+				// False start: schedule the same debounced resume as a real speech
+				// end, so an immediate retry does not flutter the music.
+				scheduleResumeAfterSpeech();
+			},
+		});
+
+		if (error) {
+			resumePlaybackForVadEnd();
+			// Listening never armed, so nothing was captured: a silent loss.
+			dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+			return;
+		}
+
+		// The pill shows the armed session; only a device fallback needs a notice.
+		reportDeviceAcquisitionOutcome(outcome, (deviceId) =>
+			deviceConfig.set('recording.navigator.deviceId', deviceId),
+		);
+
+		void playSoundIfEnabled(app, 'vad-start');
 	});
-
-	if (error) {
-		resumePlaybackForVadEnd();
-		// Listening never armed, so nothing was captured: a silent loss.
-		dictationLifecycle.markFailed({ tier: 'silent-loss', error });
-		return;
-	}
-
-	// The pill shows the armed session; only a device fallback needs a notice.
-	reportDeviceAcquisitionOutcome(outcome, (deviceId) =>
-		deviceConfig.set('recording.navigator.deviceId', deviceId),
-	);
-
-	void playSoundIfEnabled(app, 'vad-start');
 }
 
 export async function stopVadRecording(app: WhisperingApp) {
+	if (!app.recordingEnabled) return;
 	if (!isVadRecordingActive()) return;
-
-	log.info('Stopping voice activated capture');
-	const { data, error } = await vadRecorder.stopActiveListening();
-	// Disarming ends the session: restore playback now, do not wait on the
-	// per-utterance debounce.
-	resumePlaybackForVadEnd();
-	if (error) {
-		// Stop is an operation with no capture/outcome phase, so the pill cannot
-		// carry it: a failed disarm keeps a toast (ADR-0039's operation-condition
-		// carve-out). The session may still be live, so the user must know it did
-		// not stop.
-		report.error({
-			title: "Couldn't stop voice activated capture",
-			description: 'The session may still be running. Try stopping it again.',
-			cause: error,
-		});
-		return;
-	}
-	if (data.status === 'idle') return;
-	void playSoundIfEnabled(app, 'vad-stop');
+	return trackRecordingWork(async () => {
+		log.info('Stopping voice activated capture');
+		const { data, error } = await vadRecorder.stopActiveListening();
+		// Disarming ends the session: restore playback now, do not wait on the
+		// per-utterance debounce.
+		resumePlaybackForVadEnd();
+		if (error) {
+			// Stop is an operation with no capture/outcome phase, so the pill cannot
+			// carry it: a failed disarm keeps a toast (ADR-0039's operation-condition
+			// carve-out). The session may still be live, so the user must know it did
+			// not stop.
+			report.error({
+				title: "Couldn't stop voice activated capture",
+				description: 'The session may still be running. Try stopping it again.',
+				cause: error,
+			});
+			return;
+		}
+		if (data.status === 'idle') return;
+		void playSoundIfEnabled(app, 'vad-stop');
+	});
 }
 
 export function toggleVadRecording(app: WhisperingApp) {

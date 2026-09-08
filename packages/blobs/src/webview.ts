@@ -14,9 +14,31 @@ type HttpFetch = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
+export type WebviewBlobScope =
+	| { kind: 'local' }
+	| { kind: 'account'; authorityId: string; principalId: string };
+
+function scopeQuery(
+	appId: string | undefined,
+	scope: WebviewBlobScope | undefined,
+) {
+	const query = new URLSearchParams();
+	if (appId !== undefined) query.set('appId', appId);
+	if (scope?.kind === 'account') {
+		query.set('authorityId', scope.authorityId);
+		query.set('principalId', scope.principalId);
+	}
+	const text = query.toString();
+	return text === '' ? '' : `?${text}`;
+}
+
 /** Construct the stable same-origin media URL for a desktop-local blob. */
-export function desktopBlobUrl(id: BlobId): string {
-	return `${LOCAL_BLOB_PATH}/${id}`;
+export function desktopBlobUrl(
+	id: BlobId,
+	appId?: string,
+	scope?: WebviewBlobScope,
+): string {
+	return `${LOCAL_BLOB_PATH}/${id}${scopeQuery(appId, scope)}`;
 }
 
 /**
@@ -25,14 +47,20 @@ export function desktopBlobUrl(id: BlobId): string {
  * HttpOnly session cookie.
  */
 export function createWebviewBlobStore({
+	appId,
+	scope,
 	fetch: fetcher = globalThis.fetch,
 }: {
+	appId?: string;
+	scope?: WebviewBlobScope;
 	fetch?: HttpFetch;
 } = {}): BlobStore {
+	const query = scopeQuery(appId, scope);
+	const copyQuery = scopeQuery(undefined, scope);
 	async function request(id: BlobId, init: RequestInit) {
 		return tryAsync({
 			try: () =>
-				fetcher(desktopBlobUrl(id), {
+				fetcher(`${LOCAL_BLOB_PATH}/${id}${query}`, {
 					...init,
 					credentials: 'same-origin',
 					redirect: 'error',
@@ -42,6 +70,42 @@ export function createWebviewBlobStore({
 	}
 
 	const store: BlobStore = {
+		async copy(sourceId, destinationId) {
+			if (appId === undefined) {
+				return BlobStoreError.BlobStoreFailed({
+					id: destinationId,
+					cause: new Error('Local blob COPY requires an explicit app id.'),
+				});
+			}
+			const response = await tryAsync({
+				try: () =>
+					fetcher(
+						`/api/apps/${encodeURIComponent(appId)}/blobs/${destinationId}/copy${copyQuery}`,
+						{
+							method: 'POST',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify({ sourceId }),
+							credentials: 'same-origin',
+							redirect: 'error',
+						},
+					),
+				catch: (cause) =>
+					BlobStoreError.BlobStoreFailed({ id: destinationId, cause }),
+			});
+			if (response.error !== null) return response;
+			if (response.data.status === 404)
+				return BlobStoreError.BlobNotFound({ id: sourceId });
+			if (response.data.status === 409)
+				return BlobStoreError.BlobAlreadyExists({ id: destinationId });
+			if (!response.data.ok) {
+				return BlobStoreError.BlobStoreFailed({
+					id: destinationId,
+					cause: new Error(`Local blob COPY returned ${response.data.status}.`),
+				});
+			}
+			return Ok(undefined);
+		},
+
 		async put(id, blob) {
 			const response = await request(id, {
 				method: 'PUT',
@@ -138,17 +202,22 @@ export function createWebviewBlobStore({
  * callers normally never see it.
  */
 export function createWebviewBlobRemote({
+	appId,
+	scope,
 	fetch: fetcher = globalThis.fetch,
 }: {
+	appId?: string;
+	scope?: WebviewBlobScope;
 	fetch?: HttpFetch;
 } = {}): BlobRemote {
 	async function operate(
 		id: BlobId,
 		operation: 'upload' | 'download' | 'purge',
 	) {
+		const suffix = scopeQuery(appId, scope);
 		return tryAsync({
 			try: () =>
-				fetcher(`${desktopBlobUrl(id)}/${operation}`, {
+				fetcher(`${LOCAL_BLOB_PATH}/${id}/${operation}${suffix}`, {
 					method: 'POST',
 					credentials: 'same-origin',
 					redirect: 'error',
@@ -223,12 +292,17 @@ export function createWebviewBlobRemote({
  */
 export function createWebviewBlobSources(
 	local: Pick<BlobStore, 'stat'>,
+	appId?: string,
+	scope?: WebviewBlobScope,
 ): BlobSources {
 	return {
 		async open(id) {
 			const { error } = await local.stat(id);
 			if (error !== null) return Err(error);
-			return Ok({ url: desktopBlobUrl(id), [Symbol.dispose]() {} });
+			return Ok({
+				url: desktopBlobUrl(id, appId, scope),
+				[Symbol.dispose]() {},
+			});
 		},
 	};
 }

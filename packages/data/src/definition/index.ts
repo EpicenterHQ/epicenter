@@ -8,6 +8,7 @@ export {
 	InstantString,
 	jsonValue,
 	type Kind,
+	BLOB_KEYWORD,
 	REFERENCE_KEYWORD,
 	recognize,
 	referenceTargetOf,
@@ -25,6 +26,7 @@ export {
 export { plainText } from './content.js';
 export {
 	CONTENT_FIELD,
+	type BlobFieldNames,
 	type ContentCodec,
 	ContentError,
 	type CreateRowOf,

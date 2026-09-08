@@ -19,6 +19,7 @@ export {
 	type Field,
 	type FieldOf,
 	type Kind,
+	BLOB_KEYWORD,
 	REFERENCE_KEYWORD,
 	recognize,
 	referenceTargetOf,

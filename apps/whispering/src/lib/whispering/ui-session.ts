@@ -1,4 +1,5 @@
 import type { Account } from '@epicenter/auth';
+import type { AppBlobs } from '@epicenter/app';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { pushToTalk } from '../operations/push-to-talk';
 import { watchManualRecordingEnded } from '../operations/recording';
@@ -10,7 +11,6 @@ import {
 	createWhisperingApp,
 	type WhisperingAccountData,
 	type WhisperingApp,
-	type WhisperingBlobs,
 } from './app';
 
 /**
@@ -38,8 +38,8 @@ export function createWhisperingUiSession({
 	account,
 }: {
 	data: WhisperingAccountData;
-	blobs: WhisperingBlobs;
-	account: Account;
+	blobs: AppBlobs;
+	account: Account | null;
 }) {
 	const core = createWhisperingApp({ data, blobs, account });
 	// Named members rather than a spread of `core`, which used to carry
@@ -47,7 +47,12 @@ export function createWhisperingUiSession({
 	// context. Disposal is off `WhisperingApp` entirely now, and `core` is the
 	// only thing holding it; writing the members out is what keeps a new one
 	// from arriving here unwrapped.
+	let disposal: Promise<void> | undefined;
+	let recordingEnabled = true;
 	const app: WhisperingApp = {
+		get recordingEnabled() {
+			return recordingEnabled;
+		},
 		account,
 		settings: createSettingsView(core.settings),
 		recordings: createRecordings(core),
@@ -60,13 +65,13 @@ export function createWhisperingUiSession({
 	// A capture can end without anyone asking, including while no screen is
 	// mounted, so the reaction belongs to the session rather than to a component.
 	watchManualRecordingEnded(app);
-	let disposal: Promise<void> | undefined;
 
 	return {
 		app,
 		queries,
 		queryClient: queryRuntime.queryClient,
 		[Symbol.asyncDispose]() {
+			recordingEnabled = false;
 			disposal ??= (async () => {
 				try {
 					await pushToTalk.dispose(app);

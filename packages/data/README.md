@@ -52,7 +52,7 @@ In a browser the caller also names the application doing the opening and which
 generation it means (ADR-0324, ADR-0292):
 
 ```text
-epicenter/v5/<appId>/<principalId>/<dataId>/<n>
+epicenter/<appId>/accounts/<authorityId>/<principalId>/data/<dataId>/<n>
 ```
 
 That address is the IndexedDB database name, so there is one database per

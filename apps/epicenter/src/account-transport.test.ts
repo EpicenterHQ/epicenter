@@ -142,7 +142,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	const account = auth.state.account;
 	const bootstrap = {
 		state: { status: 'signed-in' as const, principalId: account.principalId },
-		connection: { baseURL, status: 'connected' as const },
+		connection: { baseURL, authorityId: 'test', status: 'connected' as const },
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
 	const host = await createHomeHost({

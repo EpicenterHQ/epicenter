@@ -32,8 +32,10 @@ import {
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { type SecretKey, secrets } from '$lib/state/secrets.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { blobScope } from '$lib/tauri/commands';
 
 const log = createLogger('whispering/transcribe');
+
 
 /**
  * The error any transcription path can surface. Deliberately `AnyTaggedError`
@@ -129,10 +131,15 @@ const uploadDispatch = (app: WhisperingApp) =>
 		// self-host deployment does not. The model is fixed by the gateway.
 		epicenter: {
 			kind: 'wire',
-			resolve: () => ({
-				fetch: app.account.fetch,
-				baseURL: API_ROUTES.ai.baseUrl(app.account.baseURL),
-			}),
+			resolve: () => {
+				const account = app.account;
+				if (account === null)
+					throw new Error('The Epicenter transcription provider requires an account.');
+				return {
+					fetch: account.fetch,
+					baseURL: API_ROUTES.ai.baseUrl(account.baseURL),
+				};
+			},
 			model: () => PROVIDERS.epicenter.model,
 		},
 		OpenAI: {
@@ -217,7 +224,10 @@ async function loadForUpload(
 ): Promise<Result<Blob, TranscriptionError>> {
 	if (tauri) {
 		const { data: oggBytes, error } =
-			await tauri.transcription.encodeRecordingForUpload(audioBlobId);
+			await tauri.transcription.encodeRecordingForUpload(
+				audioBlobId,
+				blobScope(app.account),
+			);
 		if (error === null) return Ok(new Blob([oggBytes], { type: 'audio/ogg' }));
 		report.info({
 			title: 'Audio compression skipped',
@@ -230,7 +240,7 @@ async function loadForUpload(
 		});
 	}
 
-	return app.blobs.local.get(audioBlobId);
+	return app.blobs.get(audioBlobId);
 }
 
 /**
@@ -376,7 +386,7 @@ async function transcribeOnDevice(
 		await tauri.transcription.transcribeRecording(audioBlobId, {
 			language: language === 'auto' ? undefined : language,
 			initialPrompt: prompt || undefined,
-		});
+		}, blobScope(app.account));
 	if (error) return Err(error);
 
 	// Empty audio ran no model, so there is nothing to attribute and nothing to

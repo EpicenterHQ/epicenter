@@ -14,7 +14,7 @@ const CALLBACK_URL = 'epicenter://auth/callback';
 
 export type DesktopAuthBootSnapshot = {
 	state: AuthIdentityState;
-	connection: { baseURL: string; status: ConnectionStatus };
+	connection: { baseURL: string; authorityId: string; status: ConnectionStatus };
 };
 
 /**
@@ -111,7 +111,7 @@ export function createDesktopAuthAuthority({
 		auth.state.status === 'signed-out' ? null : auth.state.account;
 	const bootSnapshot: DesktopAuthBootSnapshot = {
 		state: projectBootIdentity(),
-		connection: { baseURL: EPICENTER_API_URL, status: auth.connection.status },
+		connection: { baseURL: EPICENTER_API_URL, authorityId: 'epicenter-api', status: auth.connection.status },
 	};
 	let signInFlight: ReturnType<typeof auth.startSignIn> | undefined;
 	let disposed = false;

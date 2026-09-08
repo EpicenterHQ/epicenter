@@ -92,7 +92,7 @@ type _SharedContracts = Expect<
 // does not have to enumerate devices first, because the host reports the
 // microphone it actually opened.
 type _StartRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.startRecording>, [string | null]>
+	Equal<Parameters<typeof commands.startRecording>, [string | null, import('./bindings.gen').BlobScope]>
 >;
 
 type _StartRecording = Expect<
@@ -110,6 +110,7 @@ type _HostRecordingShape = Expect<
 		HostRecording,
 		{
 			audioBlobId: string;
+			scope: import('./bindings.gen').BlobScope;
 			device: DeviceAcquisition;
 			endedReason: EndedReason | null;
 		}
@@ -217,7 +218,7 @@ type _TranscribeRecording = Expect<
 type _TranscribeRecordingArgs = Expect<
 	Equal<
 		Parameters<typeof commands.transcribeRecording>,
-		[string, TranscriptionHints]
+		[string, TranscriptionHints, import('./bindings.gen').BlobScope]
 	>
 >;
 

@@ -9,6 +9,7 @@ import type {
 	DeviceAcquisitionOutcome,
 	DeviceIdentifier,
 } from '@epicenter/recorder';
+import type { AccountIdentity } from '@epicenter/app';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -68,8 +69,11 @@ export const RecorderError = defineErrors({
 });
 export type RecorderError = InferErrors<typeof RecorderError>;
 
+/** The dataset that owns a capture. `null` is the local dataset. */
+export type RecordingAccount = AccountIdentity | null;
+
 /**
- * Settings-derived parameters shared across manual recorder implementations.
+ * Device selection and dataset ownership supplied when capture starts.
  *
  * This is config resolved from persisted settings (device, encoding).
  *
@@ -80,6 +84,7 @@ export type RecorderError = InferErrors<typeof RecorderError>;
  */
 export type BaseRecordingParams = {
 	selectedDeviceId: DeviceIdentifier | null;
+	account: RecordingAccount;
 };
 
 /**
@@ -140,6 +145,8 @@ export type RecordingEndedReason =
  */
 export type Recording = {
 	readonly audioBlobId: BlobId;
+	/** The dataset that owns this capture. */
+	readonly account: RecordingAccount;
 	/** Which microphone this recording actually opened. */
 	readonly device: DeviceAcquisitionOutcome;
 	/**
@@ -213,7 +220,9 @@ export type RecorderService<RecordingParams extends BaseRecordingParams> = {
 	 * publishes what it captured, so there is no separate restore or recovery
 	 * call to make.
 	 */
-	current(): Promise<Result<Recording | null, RecorderError>>;
+	current(
+		account: RecordingAccount,
+	): Promise<Result<Recording | null, RecorderError>>;
 
 	/**
 	 * Enumerate available recording devices, for a picker. Starting does not

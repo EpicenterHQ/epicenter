@@ -59,6 +59,7 @@ const PROBE_APP = 'so.epicenter.durability-probe';
  */
 const PROBE_ACCOUNT = {
 	baseURL: 'https://probe.invalid',
+	authorityId: 'probe-authority',
 	principalId: 'probe' as never,
 	fetch: (async (_input: string | URL, init?: RequestInit) =>
 		new Response(
