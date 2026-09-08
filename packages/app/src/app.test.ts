@@ -8,7 +8,6 @@ import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
-import { databaseName } from '@epicenter/device';
 import { asPrincipalId } from '@epicenter/principal';
 import { installTestLocks } from '@epicenter/data/test-locks';
 import {
@@ -83,12 +82,16 @@ test('the app SQLite capability follows the captured local or account scope', as
 		},
 		delete: async () => undefined,
 	};
+	let requests = 0;
 	const account: Account = {
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',
 		async fetch() {
-			return Response.json({ generations: [] });
+			requests++;
+			return requests === 1
+				? Response.json({ generations: [] })
+				: Response.json({ generation: 1, position: 0 });
 		},
 		async openWebSocket() {
 			throw new Error('Not needed for SQLite scope.');
@@ -103,15 +106,59 @@ test('the app SQLite capability follows the captured local or account scope', as
 		sqlite: owner,
 	});
 	const localApp = epicenter.openLocal();
-	await localApp.sqlite?.open(databaseName('search'));
+	await expect(localApp.sqlite?.open('search')).rejects.toThrow(
+		'not ready',
+	);
+	expectOk(await localApp.ready);
+	const localDatabase = expectOk(
+		await localApp.sqlite!.open('search'),
+	);
 	const accountApp = epicenter.openAccount(account);
-	await accountApp.sqlite?.open(databaseName('search'));
+	expectOk(await accountApp.ready);
+	await accountApp.sqlite?.open('search');
 	expect(scopes).toEqual([
 		{ kind: 'local' },
 		{ kind: 'account', authorityId: 'test-authority', principalId: 'alice' },
 	]);
 	await localApp.close();
+	expect(() => localDatabase.run('select 1')).toThrow('disposed');
 	await accountApp.close();
+});
+
+test('closing waits for an admitted SQLite delete', async () => {
+	let beginDelete!: () => void;
+	let releaseDelete!: () => void;
+	const deleteStarted = new Promise<void>((resolve) => (beginDelete = resolve));
+	const deleteReleased = new Promise<void>((resolve) => (releaseDelete = resolve));
+	const owner: DeviceSqliteOwner = {
+		open: async () => ({
+			run: async () => Ok({ changes: 0 }),
+			all: async () => Ok([]),
+			batch: async () => Ok({ changes: [] }),
+		}),
+		delete: async () => {
+			beginDelete();
+			await deleteReleased;
+		},
+	};
+	const app = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+	}).openLocal();
+	expectOk(await app.ready);
+	const deleting = app.sqlite!.delete('search');
+	await deleteStarted;
+	let closed = false;
+	const closing = app.close().then(() => {
+		closed = true;
+	});
+	await Promise.resolve();
+	expect(closed).toBe(false);
+	releaseDelete();
+	await deleting;
+	await closing;
+	expect(closed).toBe(true);
 });
 
 test('the app handle owns scoped blob reads and writes by BlobId', async () => {

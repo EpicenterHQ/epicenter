@@ -117,7 +117,8 @@ export function createScopedSqlite(
 	appId: string,
 	getScope: () => StorageScope,
 	assertUsable: () => void = () => {},
-	trackOperation: <T>(pending: Promise<T>) => Promise<T> = (pending) => pending,
+	trackOperation: <T>(operation: () => Promise<T>) => Promise<T> = (operation) =>
+		operation(),
 ): ScopedSqlite {
 	return {
 		open: async (name) => {
@@ -125,19 +126,21 @@ export function createScopedSqlite(
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			try {
-				const database = await owner.open(appId, getScope(), name);
+				const database = await trackOperation(() =>
+					owner.open(appId, getScope(), name),
+				);
 				return Ok({
 					run: (...args) => {
 						assertUsable();
-						return trackOperation(database.run(...args));
+						return trackOperation(() => database.run(...args));
 					},
 					all: (...args) => {
 						assertUsable();
-						return trackOperation(database.all(...args));
+						return trackOperation(() => database.all(...args));
 					},
 					batch: (...args) => {
 						assertUsable();
-						return trackOperation(database.batch(...args));
+						return trackOperation(() => database.batch(...args));
 					},
 				});
 			} catch (cause) {
@@ -149,7 +152,7 @@ export function createScopedSqlite(
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			try {
-				await owner.delete(appId, getScope(), name);
+				await trackOperation(() => owner.delete(appId, getScope(), name));
 				return Ok(undefined);
 			} catch (cause) {
 				return DeviceError.StorageFailed({ cause });
