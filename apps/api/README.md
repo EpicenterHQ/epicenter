@@ -123,6 +123,9 @@ API keys for AI providers are environment secrets (`wrangler secret put`). They 
 
 ## Development
 
+For the real browser sign-in and billing flow with an isolated Homebrew
+Postgres cluster, follow [Local account integration](./ACCOUNT-INTEGRATION.md).
+
 Prerequisites: Bun, local PostgreSQL, and Infisical CLI authentication
 (`infisical login`). `bun run dev` pipes secrets from Infisical's dev
 environment into Wrangler via `process.env`, so Postgres alone is not enough.
