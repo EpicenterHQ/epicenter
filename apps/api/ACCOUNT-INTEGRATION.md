@@ -95,6 +95,28 @@ Do not count a seeded session or direct Autumn SDK checkout as a pass for the
 browser OAuth-to-payment sequence. Test-account billing records live in Autumn
 sandbox independently of the disposable Postgres cluster.
 
+## Verified on September 8, 2026
+
+The normal local Worker and Vite dashboard completed Google sign-in in Zen
+against Homebrew Postgres 18 on port 55432. The Google project was `Epicenter`
+(`gen-lang-client-0801563203`, number `702083743841`) under `epicenter.so`.
+The `epicenter-login-dev` client now allows the 5178 callback above alongside
+its existing 8787 callback. Production client settings were not changed.
+
+Postgres contained one Google account and two independent sessions after the
+handoff. A Stripe sandbox $5 top-up completed through the dashboard, returned
+to localhost, and increased the balance from 10,000 to 10,500. The balance
+survived reload. Manage billing opened the Stripe sandbox portal with the $5
+invoice marked paid. Usage loaded its empty state and Account showed the
+connected Google account. Dashboard sign-out removed its session row while
+retaining the hosted session for a subsequent Continue handoff.
+
+This exercise found and fixed two defects: the free storage allowance emitted
+a price, and prepaid checkout omitted `featureQuantities`. It did not test
+production payments, other OAuth providers, or Cloudflare's deployed Hyperdrive
+pooling. The sandbox account began with an Ultra trial; these observations do
+not establish that new customers receive the intended default plan.
+
 ## Stop
 
 After stopping the dashboard with Ctrl+C:
