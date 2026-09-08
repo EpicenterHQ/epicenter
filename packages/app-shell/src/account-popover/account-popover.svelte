@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createAccountManagementUrl } from '@epicenter/auth';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
@@ -8,6 +9,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleUser from '@lucide/svelte/icons/circle-user';
 	import DatabaseZap from '@lucide/svelte/icons/database-zap';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import {
 		createMutation,
@@ -29,8 +31,7 @@
 	/**
 	 * Shared account popover.
 	 *
-	 * Renders auth identity and sign-out. When a Data runtime is present, it also
-	 * renders a plain sync status from its narrow observation surface.
+	 * Renders hosted auth identity, account website navigation, and sign-out.
 	 *
 	 * Mount once in each app's root layout, alongside `<ConfirmationDialog />`
 	 * and inside a `<Tooltip.Provider>`: the trigger pill renders a tooltip,
@@ -184,7 +185,13 @@
 			{#if trigger}
 				{@render trigger({ props })}
 			{:else}
-				<Button {...props} variant="ghost" size="icon-sm" {tooltip}>
+				<Button
+					{...props}
+					variant="ghost"
+					size="icon-sm"
+					{tooltip}
+					aria-label="Account"
+				>
 					<!-- Identity glyph stays fixed; the sync dot sits at its
 					     bottom-right like a presence badge (top-right would read
 					     as a notification). -->
@@ -214,11 +221,24 @@
 				{#if disabledReason}
 					<p class="text-xs text-muted-foreground">{disabledReason}</p>
 				{/if}
-				<div class="border-t pt-3 flex gap-2">
+				<div class="border-t pt-3 flex flex-col gap-1">
+					<Button
+						href={createAccountManagementUrl(auth.state.account, 'account').href}
+						target="_blank"
+						rel="noopener noreferrer"
+						variant="ghost"
+						size="sm"
+						class="w-full justify-start"
+						onclick={() => (popoverOpen = false)}
+					>
+						<ExternalLink class="size-3.5" />
+						Manage account
+						<span class="sr-only">(opens in browser)</span>
+					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
-						class="flex-1"
+						class="w-full justify-start"
 						onclick={() => signOut.mutate()}
 						disabled={accountLocked}
 					>

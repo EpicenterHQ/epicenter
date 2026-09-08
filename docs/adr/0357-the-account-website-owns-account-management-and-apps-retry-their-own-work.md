@@ -92,8 +92,11 @@ sign-in, including the failure link. Checkout and portal return URLs preserve
 the same target. The target is a hint; the authenticated Account still owns
 all requests.
 
-Whispering's insufficient-credit notices and Vocab's upgrade action use that
-link. Existing transcription Retry submits work without a balance precheck.
+The shared account popover offers Manage account before an operation fails.
+It opens Account settings in the browser and stays available when recording
+disables sign-out. Whispering's insufficient-credit notices and Vocab's upgrade
+action open Credits instead. Existing transcription Retry submits work without
+a balance precheck.
 The desktop intercepts new-window requests for exact hosted account routes
 and opens the system browser while denying an embedded popup. Other window
 navigation remains restricted.
@@ -108,6 +111,13 @@ work. Desktop/mobile screenshots and a manual local Brave walkthrough verify
 the website. No production payment or shared database was used. Packaged native
 opening and a real transcription retry after real checkout remain release
 smokes; the local website fixture does not prove those integrations.
+
+With `ACCOUNT_POPOVER_SMOKE=1`, the same smoke mounts the real shared menu and
+hosted auth client on another origin. It verifies authenticated profile loading,
+the recording lock, opening Account settings without an opener, hosted sign-in,
+account mismatch refusal, and preservation of an editable draft in the source
+document. The fixture replaces the application's data store, not its account
+menu or authentication.
 
 ## Considered alternatives
 

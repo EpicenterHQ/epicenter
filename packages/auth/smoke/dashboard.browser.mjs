@@ -50,6 +50,7 @@ let grantedCredits = 2_000;
 let previewUnavailable = false;
 const app = new Hono();
 let browser;
+let popoverFixture;
 const server = Bun.serve({
 	hostname: 'localhost',
 	port: 0,
@@ -91,6 +92,29 @@ try {
 		new Response(Bun.file(`${build}fallback.html`), {
 			headers: { 'content-type': 'text/html' },
 		});
+	if (process.env.ACCOUNT_POPOVER_SMOKE === '1') {
+		const { createAccountPopoverFixture } = await import(
+			'../../../apps/honeycrisp/smoke/account-popover/fixture.mjs'
+		);
+		let popoverSession;
+		popoverFixture = await createAccountPopoverFixture(async () => {
+			popoverSession ??= await context.internalAdapter.createSession(
+				alice.id,
+				false,
+			);
+			return {
+				baseURL: origin,
+				session: {
+					token: `${popoverSession.token}.${await makeSignature(popoverSession.token, secret)}`,
+					principalId: alice.id,
+				},
+			};
+		});
+		const { cors } = createRequire(
+			new URL('../../server/package.json', import.meta.url),
+		)('hono/cors');
+		app.use('*', cors({ origin: popoverFixture.origin, credentials: true }));
+	}
 	app.use('*', async (c, next) => {
 		requests.push({
 			path: c.req.path,
@@ -107,6 +131,7 @@ try {
 		() =>
 			new Response('Disposable hosted login', {
 				headers: {
+					'content-type': 'text/plain',
 					'set-cookie': `${context.authCookies.sessionToken.name}=${encodeURIComponent(signed)}; Path=/; HttpOnly; SameSite=Lax`,
 				},
 			}),
@@ -211,10 +236,16 @@ try {
 		if (!path.startsWith('/_app/') && path !== '/favicon.ico')
 			return c.notFound();
 		const file = Bun.file(`${build}${path.slice(1)}`);
-		return (await file.exists()) ? new Response(file) : c.notFound();
+		return (await file.exists())
+			? new Response(file, { headers: { 'content-type': file.type } })
+			: c.notFound();
 	});
 	if (process.env.DASHBOARD_FIXTURE_ONLY === '1') {
 		console.log(`Disposable dashboard fixture: ${origin}/fixture/login`);
+		if (popoverFixture)
+			console.log(
+				`Shared account menu fixture: ${popoverFixture.origin}/?locked=1`,
+			);
 		await new Promise(() => {});
 	}
 
@@ -679,10 +710,119 @@ try {
 		0,
 	);
 	assert.deepEqual(pageErrors, []);
+	if (popoverFixture) {
+		const menuContext = await browser.newContext();
+		const source = await menuContext.newPage();
+		source.setDefaultTimeout(10_000);
+		const menuErrors = [];
+		source.on('pageerror', (error) => menuErrors.push(error.message));
+		menuContext.on('page', (opened) =>
+			opened.on('pageerror', (error) => menuErrors.push(error.message)),
+		);
+		await source.goto(`${origin}/fixture/login`);
+		await source.goto(`${popoverFixture.origin}/?signedOut=1`);
+		await source.getByRole('button', { name: 'Account', exact: true }).click();
+		assert.equal(
+			await source.getByRole('link', { name: /^Manage account/ }).count(),
+			0,
+		);
+		await source.goto(`${popoverFixture.origin}/?locked=1`);
+		await source
+			.getByRole('textbox', { name: 'Work in progress' })
+			.fill('Keep this unfinished note while I manage my account.');
+		const documentMarker = await source.evaluate(
+			() => (window.accountMenuSmokeDocument = crypto.randomUUID()),
+		);
+		await source.getByRole('button', { name: 'Account', exact: true }).click();
+		assert.equal(
+			await source
+				.getByRole('button', { name: 'Sign out', exact: true })
+				.isDisabled(),
+			true,
+		);
+		await source.getByText('alice@example.test', { exact: true }).waitFor();
+		const manage = source.getByRole('link', { name: /^Manage account/ });
+		const destination = `${origin}/dashboard/account?expectedPrincipal=${encodeURIComponent(alice.id)}`;
+		assert.equal(await manage.getAttribute('href'), destination);
+		const opened = menuContext.waitForEvent('page');
+		await manage.click();
+		const accountPage = await opened;
+		accountPage.setDefaultTimeout(10_000);
+		await accountPage.waitForURL(destination);
+		assert.equal(await accountPage.evaluate(() => window.opener), null);
+		await accountPage
+			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
+			.click();
+		await accountPage
+			.getByRole('button', {
+				name: 'Continue as alice@example.test',
+				exact: true,
+			})
+			.click();
+		await accountPage.waitForURL(destination);
+		await accountPage
+			.getByRole('main')
+			.getByText('alice@example.test', { exact: true })
+			.waitFor();
+		await accountPage.screenshot({
+			path: '/tmp/epicenter-account-menu-destination.png',
+			fullPage: true,
+		});
+		assert.equal(
+			await source.evaluate(() => window.accountMenuSmokeDocument),
+			documentMarker,
+		);
+		assert.equal(
+			await source
+				.getByRole('textbox', { name: 'Work in progress' })
+				.inputValue(),
+			'Keep this unfinished note while I manage my account.',
+		);
+		assert.equal(source.url(), `${popoverFixture.origin}/?locked=1`);
+		await source.screenshot({
+			path: '/tmp/epicenter-account-menu-source.png',
+			fullPage: true,
+		});
+		const otherDashboardSession = await context.internalAdapter.createSession(
+			bob.id,
+			false,
+		);
+		await accountPage.evaluate(
+			(session) =>
+				localStorage.setItem(
+					'so.epicenter.dashboard.auth.persisted',
+					JSON.stringify(session),
+				),
+			{
+				token: `${otherDashboardSession.token}.${await makeSignature(otherDashboardSession.token, secret)}`,
+				principalId: bob.id,
+			},
+		);
+		await accountPage.reload();
+		await accountPage
+			.getByText('This link is for a different account', { exact: true })
+			.waitFor();
+		await accountPage.screenshot({
+			path: '/tmp/epicenter-account-menu-mismatch.png',
+			fullPage: true,
+		});
+		assert.equal(
+			await source
+				.getByRole('textbox', { name: 'Work in progress' })
+				.inputValue(),
+			'Keep this unfinished note while I manage my account.',
+		);
+		assert.deepEqual(menuErrors, []);
+		await menuContext.close();
+		console.log(
+			'PASS shared AccountPopover: signed-out absence, recording lock preserves Manage account, independent tab has no opener, real hosted sign-in returns to the captured account, mismatch refused, originating work survives.',
+		);
+	}
 	console.log(
 		`PASS Chromium ${browser.version()}: built hosted sign-in, dashboard continuation and identity guard, balance retry and focus refresh, failed preview blocks purchase, disposable checkout returns to credits; independent dashboard session, cookie-independent profile/resources, virtual passkey registration and rename bound to Alice despite Bob's cookie; disposed pages suppress portal/provider redirects, passkey feedback, stale dialogs; live pages retain redirects, and unavailable deletion issues no request.`,
 	);
 } finally {
 	await browser?.close();
+	await popoverFixture?.close();
 	await server.stop(true);
 }

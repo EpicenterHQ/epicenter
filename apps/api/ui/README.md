@@ -49,6 +49,17 @@ DASHBOARD_FIXTURE_ONLY=1 bun packages/auth/smoke/dashboard.browser.mjs
 ```
 
 Open the printed login URL, then `/dashboard`, and continue as the seeded account.
+To also test the shared app menu opening Account settings on a separate origin:
+
+```bash
+ACCOUNT_POPOVER_SMOKE=1 bun packages/auth/smoke/dashboard.browser.mjs
+```
+
+This mounts the real shared menu and hosted auth client with an editable draft,
+then checks sign-in, account mismatch refusal, and preservation of the draft.
+It does not start an application's data store. Add `DASHBOARD_FIXTURE_ONLY=1`
+to keep both websites open for manual inspection.
+
 The production build emits `build/fallback.html`; Hono serves that shell for
 browser routes while retaining its API endpoints.
 
