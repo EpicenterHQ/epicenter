@@ -135,10 +135,12 @@ and any JWT signing those providers need remain.
 
 One session model does not mean one global token. Each browser client and
 desktop installation has an independent session. Desktop windows share the
-host's captured account through the broker. Issuance must preserve the actual
-age of the person's authentication through sensitive-operation checks, or
-require proven fresh authentication. Creating a session row or completing an
-SSO callback alone must not manufacture fresh account-management authority.
+host's captured account through the broker. Issuance preserves the source
+session's `createdAt`, and renewal changes expiry without resetting freshness.
+Sensitive changes use ordinary Better Auth session freshness as described in
+[ADR-0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md).
+A completed social sign-in can establish freshness through provider SSO;
+Epicenter does not separately prove recent password or biometric interaction.
 
 **The credential runtime owns a captured `Account` independently of the server
 session's expiry.**
@@ -179,11 +181,11 @@ session token never travels in a redirect URL. Native sign-in opens the system
 browser. Browser and native launchers adapt this one handoff to their callback
 and storage mechanisms.
 
-Login-method changes and account deletion require server-verified fresh
-authentication for the same principal as the invoking account. Opening a
-browser that holds another person's cookie cannot authorize the operation.
-Freshness is an authentication requirement; no per-app resource permission
-system is introduced.
+Login-method changes and account deletion require an active session within the
+ten-minute freshness window for the same principal as the invoking account.
+Opening a browser that holds another person's cookie cannot retarget the
+operation. Optional passkeys and provider linking remain available. No email
+confirmation, mandatory enrollment, or per-app permission system is introduced.
 
 **The replacement is implemented without credential compatibility.**
 
@@ -208,6 +210,12 @@ The dashboard's application credential becomes accessible to its JavaScript.
 It loses the HttpOnly protection of its current application session cookie.
 The desktop keeps its secret outside the WebView. Origin checks, callback
 validation, and transport credential handling remain necessary.
+
+A stolen fresh session bearer can also authorize sensitive account changes.
+The signed bearer can be supplied as a Better Auth session cookie, so a
+cookie-only route is not an additional credential boundary. Personal-device
+use is a trust assumption, not protection against remote credential theft.
+The session-freshness decision states this exposure explicitly.
 
 A trusted application can use the same browser path from an independently
 operated domain after explicit callback and origin approval. Repository

@@ -1,7 +1,7 @@
 # Replace hosted OAuth grants with direct sessions
 
 **Date:** 2026-09-07
-**Status:** Draft
+**Status:** In Progress
 
 ## One sentence
 
@@ -10,6 +10,9 @@ across browser apps, desktop-hosted apps, and the dashboard while preserving
 the `Account` each application opened with.
 
 The target is described in [ADR-0354](../docs/adr/0354-hosted-applications-authenticate-with-better-auth-session-bearers.md).
+The sensitive-action policy is recorded in
+[ADR-0356](../docs/adr/0356-sensitive-account-changes-use-better-auth-session-freshness.md):
+optional passkeys, mutable linked providers, and ordinary session freshness.
 The implementation still uses OAuth for apps and cookies for the dashboard.
 Completion means those three surfaces use direct sessions, real Google/GitHub
 sign-in works where configured, and account isolation survives renewal,
@@ -144,6 +147,39 @@ explains native browser and interception protections worth preserving.
 
 ## First proof: session issuance
 
+### Local evidence, 2026-09-07
+
+`packages/server/src/auth/session-handoff.ts` is an unmounted issuance plugin.
+Its endpoint tests exercise installed Better Auth 1.6.23 with a disposable
+memory adapter. Twelve tests pass: independent sessions and revocation,
+PKCE/state/exact callback binding, concurrent redemption and replay, source
+revocation and code expiry, ambient credential/origin rejection, timestamp
+preservation, session lookup renewal, and rejection by a different signing
+secret. The server typecheck passes.
+
+This is partial first-proof evidence. It does not exercise browser or native
+launchers, cancelled callbacks, real provider sign-in, production resource
+middleware renewal, or cross-process Postgres consumption. The installed
+Drizzle adapter implements `consumeOne` with `DELETE RETURNING`; the concurrent
+memory test alone does not prove deployment atomicity. The plugin is not
+mounted beside the existing OAuth path.
+
+The product direction now accepts ordinary Better Auth session freshness.
+Use one 600-second window for sensitive account changes, including deletion.
+Handoff inherits the source session's `createdAt`; renewal does not reset it.
+A completed social sign-in may start that window even when provider SSO is
+silent. This deliberately does not promise fresh human interaction. Passkeys
+remain optional and linked providers remain mutable.
+
+Adversarial review identified an important cost: a stolen fresh session bearer
+can authorize sensitive actions remotely. A signed bearer can also be presented
+as the Better Auth session cookie. Cookie-only route names, Origin checks, and
+personal-device ownership do not establish a separate credential boundary.
+Preserve browser request protections, but do not claim they contain bearer
+theft. ADR-0356 records this tradeoff and when to revisit it.
+
+### Protocol to prove
+
 Demonstrate hosted sign-in to one browser client and the Bun host before scaling
 the new design across callers. Isolated fixtures and broken production callers
 are acceptable during this proof. It is not a compatibility phase.
@@ -166,8 +202,9 @@ Browser client / Bun host       Hosted auth origin       Google / GitHub
   publish captured Account            |                         |
 ```
 
-This is the proposed protocol shape; these endpoints do not yet exist. Prefer
-supported Better Auth facilities or one small Better Auth plugin. Do not
+This is the protocol shape of the unmounted local plugin; end-to-end client
+completion remains unproven. Prefer supported Better Auth facilities or one
+small Better Auth plugin. Do not
 reconstruct an OAuth provider with scopes, grants, discovery, and registration
 tables under session names.
 
@@ -180,11 +217,10 @@ Required evidence:
   install an account. Callback reloads cannot spend the same code twice.
 - The hosted login session and client sessions have independent revocation
   lifetimes. Copying the login session into every app does not satisfy this.
-- Issuance from an old login cannot make sensitive operations see a new
-  authentication time. Preserve verified authentication age using a supported
-  mechanism, or require proven fresh authentication. A new database row or a
-  successful SSO redirect alone is insufficient. Test the installed sensitive
-  endpoints, not only a custom check.
+- Issuance and renewal cannot reset source session age. A completed social or
+  passkey sign-in can start a new freshness window under ADR-0356; merely
+  visiting the hosted page with an existing cookie cannot. Test actual sensitive
+  endpoints, the 600-second boundary, hook ordering, and the invoking principal.
 - Tokens never enter redirect URLs, logs, bootstraps, or native WebViews.
   Development callbacks are allowed explicitly, not by substring matching.
 - The dashboard uses the same browser ceremony on the issuer origin. Inventory
@@ -295,7 +331,7 @@ before its replacement works; no rollback implementation needs to remain live.
    Use compiler errors as the caller inventory. Keep upstream social login.
 2. **Establish issuance and the session schema.** Reproduce the first-proof
    cases with installed Better Auth. Choose the handoff and callback paths.
-   Record token ownership and authentication-age preservation. Rebuild
+   Record token ownership and source-session-age preservation. Rebuild
    disposable auth fixtures from the new schema.
 3. **Implement the shared credential owner and resolver.** Persist the session
    credential and local principal. Resolve hosted HTTP and socket credentials
@@ -315,7 +351,8 @@ before its replacement works; no rollback implementation needs to remain live.
 6. **Complete session policy and sensitive ceremonies.** Verify renewal through
    ordinary bearer traffic. Enforce a socket authorization bound, including
    idle/hibernating connections. Make login changes and deletion use fresh
-   authentication tied to the invoking principal. No per-app scopes are added.
+   sessions under the shared 600-second policy, bound to the invoking principal.
+   No per-app scopes are added.
 7. **Remove stragglers and verify the whole system.** Delete orphan OAuth tables,
    relations, imports, exports, constants, dependencies, scripts, tests, and
    stale instructions. Run the matrix below. Update package READMEs when their
@@ -324,13 +361,92 @@ before its replacement works; no rollback implementation needs to remain live.
 No OAuth compatibility path needs to survive checkpoint 1. Do not add a token
 kind discriminator just to make an intermediate checkpoint compile.
 
+## What collapses
+
+| Boundary | Change | What must survive |
+| --- | --- | --- |
+| Epicenter as OAuth provider | Delete app registrations, grants, refresh exchange, JWT resource verification, discovery, and consent | Explicit origins and exact callback approval; Google/GitHub provider credentials |
+| Client credential ownership | Persist one session credential and principal; remove refresh-token rotation and grant-expiry bookkeeping | Verification, ordered persistence, cancellation, stale-result suppression, permanent Account retirement |
+| Dashboard | Replace ambient-cookie resources and the AuthControls exception with the shared browser Account composition | Browser management ceremonies and an attachment-owned query cache |
+| Sensitive-action proof | Avoid building verified-human timestamps, mandatory enrollment, email step-up, and recovery for a required factor | One session-age policy and principal-bound checks on real routes |
+| Desktop | Replace the host credential machinery, not the relay architecture | Native credential storage, local broker cookies, credential-free WebViews, captured boot Account |
+
+The fourth row avoids unbuilt complexity; it is not a claim that those systems
+already exist and can be deleted. Remove unused extension launchers or storage
+wrappers only after confirming they have no callers. Do not replace each OAuth
+wrapper with an identically layered session wrapper. Separate state only when
+it owns a real lifetime, concurrency rule, or platform boundary.
+
+## Expected file changes
+
+This is a starting inventory, not a promise to edit every file. Recheck callers
+before deletion. Tests keep their behavioral coverage even when helpers vanish.
+
+| Area | Likely files or directories | Work |
+| --- | --- | --- |
+| Server configuration | `packages/server/src/auth/plugins.ts`, `packages/server/src/auth/base-config.ts`, `packages/server/src/auth/create-auth.ts` | Remove provider/JWT plugins; configure bearer signatures, duration, and shared freshness |
+| Handoff | `packages/server/src/auth/session-handoff.ts`, `packages/server/src/auth/session-handoff.test.ts` | Finish and mount the bounded PKCE ceremony; prove deployment adapter behavior |
+| Fresh database | `packages/server/src/db/schema/auth.ts`, `apps/api/drizzle/` | Remove JWKS and Epicenter OAuth client/access/refresh/consent tables and relations; regenerate a fresh baseline |
+| Auth routing | `packages/server/src/routes/auth.ts`, `packages/server/src/middleware/require-auth.ts` | Remove discovery/consent handling and dual resolution; retain exact redirects and distinguish infrastructure failures |
+| Sensitive actions | `apps/api/worker/account/routes.ts`, `apps/api/ui/src/lib/auth/client.ts`, `apps/api/ui/src/routes/dashboard/account/+page.svelte` | Shared freshness and captured-principal binding; preserve provider and passkey ceremonies |
+| Client authority | `packages/auth/src/oauth-credential-authority.ts`, `packages/auth/src/oauth-account.ts`, `packages/auth/src/create-oauth-app-auth.ts`, `packages/auth/src/credential-authority.ts` | Replace grant ownership and collapse wrappers where ownership permits |
+| Obsolete clients | `packages/auth/src/oauth-token-endpoints.ts`, `packages/auth/src/same-origin-cookie-auth.ts` | Delete grant exchange and ambient-cookie resource implementations |
+| Contracts and storage | `packages/auth/src/auth-contract.ts`, `packages/auth/src/auth-types.ts`, `packages/auth/src/auth-errors.ts`, `packages/auth/src/persisted-auth-storage.ts`, `packages/auth/src/index.ts`, `packages/auth/src/svelte/auth.svelte.ts` | Session-only persisted shape and errors; remove dashboard exception without weakening Account |
+| Browser ceremony | `packages/auth/src/hosted-browser-redirect-auth.ts`, `packages/auth/src/oauth-launchers/`, app callback routes | Shared session composition; transaction expiry, cancellation, exact callback and state checks |
+| Browser consumers | `apps/honeycrisp/src/lib/platform/auth.browser.ts`, `apps/whispering/src/lib/platform/auth.browser.ts`, `apps/vocab/src/lib/auth.ts` | Adopt the shared composition beneath existing Account gates |
+| Shared sign-in UI | `packages/app-shell/src/account-popover/account-popover.svelte`, `packages/app-shell/src/account-popover/sign-in-panel.svelte`, `packages/app-shell/src/boot-screens/sign-in-screen.svelte` | Adapt AuthControls consumers when the contract exception is removed |
+| Dashboard attachment | `apps/api/ui/src/lib/platform/auth.ts`, `apps/api/ui/src/lib/query/client.ts`, `apps/api/ui/src/routes/+layout.svelte`, `apps/api/ui/src/routes/dashboard/+layout.svelte` | Captured Account and attachment-owned QueryClient; callback outside issuer handler paths |
+| Dashboard callers | `apps/api/ui/src/lib/billing/`, `apps/api/ui/src/lib/account/`, `apps/api/ui/src/lib/auth/session.ts`, dashboard pages and components | Captured bearer requests; prevent late results entering a successor attachment |
+| Hosted sign-in | `apps/api/ui/src/routes/sign-in/+page.svelte`, `apps/api/ui/src/lib/auth/oauth-query.ts`, consent route | Replace OAuth request continuation and delete consent UI |
+| Desktop owner | `apps/epicenter/src/desktop-auth-authority.ts`, `apps/epicenter/src/sidecar-runtime.ts`, `apps/epicenter/src-tauri/src/lib.rs` | Session persistence and cancellable native completion; preserve failed-relaunch isolation |
+| Desktop relay | `apps/epicenter/src/server.ts`, `apps/epicenter/src/account-relay.ts`, `packages/auth/src/desktop-broker-auth.ts` | Adapt fixtures and credential assumptions; retain relay lifetimes and token stripping |
+| Live sync | `packages/server/src/store-sync/authority.ts`, `packages/server/src/store-sync/mount.ts` | Persist a short authorization deadline; enforce it during idle and hibernation as well as sends |
+| Registration cleanup | `packages/constants/src/`, `apps/api/scripts/seed-oauth-clients.ts`, `scripts/check-api-paths.ts`, package manifests and lockfile | Delete registration/seed/scope machinery and unused direct dependencies; preserve origin policy |
+| Public documentation | `packages/auth/README.md`, ADRs 0071, 0331, 0353, 0354, 0356 | Describe verified behavior; amend only the decisions this change replaces |
+
+Carry forward `account-lifetime`, `desktop-broker-auth`, and
+`refusal-is-not-an-identity-change` tests in `packages/auth/src`, launcher and
+storage cases, the desktop authority/transport/supervisor/server regressions,
+and Whispering's delayed blob-operation tests. Add dashboard attachment tests,
+real sensitive-route tests, and Workers hibernation evidence. Do not delete
+isolation coverage merely because a test filename contains OAuth.
+
+## Next checkpoint
+
+Continue the server-contained proof before spreading replacements across apps:
+
+1. Mount the handoff against the fresh session schema, remove the provider
+   path, and test atomic redemption with the actual deployment adapter across
+   separate connections. A memory-adapter race test is insufficient.
+2. Exercise bearer-only resource routes, renewal through ordinary traffic,
+   revocation, deployment isolation, and database failure classification.
+3. Exercise real management routes with stale, fresh, mixed-credential, and
+   wrong-principal requests. Verify hook order and the exact freshness boundary.
+   Preserve the original principal in provider-link callback state. Sign-out
+   cannot undo a linking operation already authorized at initiation.
+   Test implicit same-email linking during social sign-in separately: it uses
+   the existing provider/email policy, not a prior captured Account session.
+4. Complete one browser and one Bun-host ceremony, including cancellation,
+   duplicate callbacks, and older completion after a newer account choice.
+   A stale redemption must never install its session; revoke an orphaned result
+   where possible. Validate exact callbacks, including rejection of `//host`.
+5. Prove the socket deadline is feasible in the live authority before declaring
+   resource revocation complete. Then apply the shared client ownership model
+   across callers in the replacement order above.
+
+There is already a spec and a cold-start handoff. Update those as evidence
+changes; another planning document would duplicate ownership. Future collapse
+should follow demonstrated redundant state, not remove Account lifetimes or
+weaken origin approval. Stronger authentication, limited third-party delegation,
+external package distribution, and blob API redesign are separate decisions.
+
 ## Remaining execution decisions
 
 | Question | Recommended direction | Required evidence |
 | --- | --- | --- |
 | Issuance mechanism | One PKCE/state ceremony using supported Better Auth facilities | Browser and real Tauri/Bun callback exchange; replay and cross-client rejection |
 | Remembered login | A 30-day sliding client session is the starting candidate, matching the intent of the existing refresh grant | Compare current 7-day session/daily extension; choose and test final values |
-| Freshness at issuance | Preserve actual authentication age or require proven fresh authentication | Old hosted login cannot mint fresh account-management authority |
+| Freshness at issuance (settled) | Inherit source `createdAt`; ordinary completed sign-in can reset it | Handoff and renewal cannot reset the 600-second sensitive-action window |
 | Sign-out | Revoke the selected client session and retire its Account | Independent-client revocation; specified hosted SSO behavior after app sign-out |
 | Persistence | One explicit credential per browser client; native storage for the desktop host | Multi-tab behavior, storage failures, no raw token in WebView |
 | Socket authorization | Short server-enforced interval, revalidation on reconnect | Live authority tests for idle and hibernating sockets |
@@ -357,7 +473,9 @@ restore compatibility. Expose any choice that changes the product promise.
 | Cross-origin target or redirect | No Epicenter credential leaves its server |
 | Dashboard account switch | Old requests and cached profile/usage cannot render as the next account |
 | Native relaunch fails | Old windows never obtain the replacement account's authority |
-| Sensitive action with stale or wrong-principal browser session | Require fresh authentication for the invoking principal |
+| Sensitive action with stale or wrong-principal browser session | Reject at 600 seconds or principal mismatch; require a matching recent sign-in |
+| Completed social sign-in with provider SSO | New freshness window is allowed; do not describe it as proof of human interaction |
+| Fresh signed bearer presented as a session cookie | Recognize the same credential authority; do not assert cookie-only theft containment |
 | Revocation during idle sync | Authorization ends within the documented bound, including hibernation |
 | Self-host token | Static-token principal resolution stays independent of Better Auth |
 

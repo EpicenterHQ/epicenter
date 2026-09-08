@@ -18,6 +18,7 @@ exposing the token to a WebView.
 Read these first:
 
 1. `docs/adr/0354-hosted-applications-authenticate-with-better-auth-session-bearers.md`
+   and `docs/adr/0356-sensitive-account-changes-use-better-auth-session-freshness.md`
 2. `specs/20260907T214002-direct-session-auth.md`
 3. `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
 4. `packages/server/src/auth/plugins.ts`, `packages/server/src/auth/base-config.ts`,
@@ -43,6 +44,14 @@ internal wrappers freely; preserve the tested behavior. The deliverable
 is a verified local implementation, not a production deployment or a reset of
 an unknown database. Disposable test state can be recreated.
 
+Continue in the existing worktree when possible. At handoff, the unmounted
+`session-handoff.ts` proof and its test are untracked local files, not part of
+the documentation commit. Inspect them before replacing them. A fresh checkout
+may not contain them; the spec records the protocol and limits of their evidence,
+not a claim that a clean checkout already implements it. Preserve unrelated
+ADR-0355 work and any other dirty changes. Do not let two sessions edit this
+worktree concurrently.
+
 Every first-party app already gets the same resource access, and the JWT
 resolver performs a database user lookup anyway. The separate OAuth grants do
 not buy the per-app permission model that would justify keeping them. Better
@@ -66,10 +75,13 @@ Do not reconstruct OAuth grants under different names.
 
 Independent client sessions must have independent revocation. Issuance from a
 stale hosted login must not manufacture fresh permission to change login
-methods. Preserve verified authentication age through all sensitive checks, or
-require proven fresh authentication. A new row or successful SSO redirect alone
-does not prove freshness. Never put session tokens in callback URLs or WebView
-bootstraps. Prove PKCE, state, callback validation, atomic single-use redemption,
+methods. Handoff inherits source session `createdAt`; renewal does not reset it.
+Use ordinary Better Auth freshness with one 600-second sensitive-action window.
+A completed social sign-in counts even with silent provider SSO. This is not
+proof of fresh human interaction. Keep passkeys optional and provider linking
+available; do not add mandatory enrollment or email step-up. Never put session
+tokens in callback URLs or WebView bootstraps. Prove PKCE, state, callback
+validation, atomic single-use redemption,
 and stale/cancelled completion behavior.
 
 Within a running auth authority, keep `Account` identity through renewal,
@@ -90,6 +102,12 @@ routes. Retain provider/passkey browser ceremonies, local broker cookies,
 origin checks, and self-host's static-token resolver. They do not require a
 second hosted application credential model.
 
+A stolen fresh bearer can authorize sensitive actions remotely and can be
+presented as the Better Auth session cookie. Personal-device ownership is an
+assumption, not an enforceable security boundary. Bind browser management
+requests to their captured Account's principal and preserve callback principal
+binding; cookie-only naming does not provide theft containment.
+
 Choose session duration and renewal explicitly. Test renewal through actual
 bearer resource traffic. Revocation does not close an admitted socket by itself;
 establish a short authorization bound that survives idle traffic and Durable
@@ -104,6 +122,11 @@ baseline passed 282 targeted tests and affected typechecks, but packaged native
 login remains unverified. Those results do not validate the new session path.
 
 The first proof remains secure issuance of an independent client session.
+An unmounted local plugin and twelve passing memory-adapter tests exist in
+`packages/server/src/auth/session-handoff.ts` and its test file. The server
+typecheck passed. These do not prove real resource renewal, cross-process
+redemption, provider sign-in, or browser/native completion. Recheck current state
+and continue with the spec's next checkpoint rather than restarting the design.
 Removing the OAuth grant lifecycle does not remove the need for a protected
 handoff. If the required replacement grows into a bespoke auth server, explain
 that evidence before spreading it across callers.
