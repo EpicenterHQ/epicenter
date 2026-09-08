@@ -1,7 +1,8 @@
 import {
 	type AuthFetch,
-	type AuthState,
+	type AuthIdentityState,
 	type ConnectionStatus,
+	createOAuthAccount,
 	createOAuthCredentialAuthority,
 	createSerializedPersistedAuthStorage,
 } from '@epicenter/auth';
@@ -17,7 +18,7 @@ import type { NativeAuthPort } from './sidecar-runtime.ts';
 const CALLBACK_TIMEOUT_MS = 10 * 60 * 1_000;
 
 export type DesktopAuthBootSnapshot = {
-	state: AuthState;
+	state: AuthIdentityState;
 	connection: { baseURL: string; status: ConnectionStatus };
 	networkEligible: boolean;
 };
@@ -98,6 +99,8 @@ export function createDesktopAuthAuthority({
 			clientId: EPICENTER_DESKTOP_OAUTH_CLIENT_ID,
 		},
 	);
+	const account = createOAuthAccount(authority, { fetch });
+	const bootSignal = authority.snapshot.accountSignal;
 	const bootSnapshot = {
 		state: authority.snapshot.state,
 		connection: { baseURL: EPICENTER_API_URL, status: 'connected' as const },
@@ -127,11 +130,11 @@ export function createDesktopAuthAuthority({
 	return {
 		baseURL: EPICENTER_API_URL,
 		bootSnapshot,
-		authorize(options?: { forceRefresh?: boolean }) {
-			return authority.authorize(options);
-		},
-		reportRejected(tokenGeneration: number) {
-			authority.reportRejected(tokenGeneration);
+		account,
+		get state(): AuthIdentityState {
+			return bootSignal?.aborted
+				? { status: 'signed-out' }
+				: authority.snapshot.state;
 		},
 		async startSignIn() {
 			const result = await authority.startSignIn();

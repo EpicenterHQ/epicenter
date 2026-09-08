@@ -106,7 +106,7 @@ type EndpointProvider = {
  * The `session` access member: transcription through the Epicenter deployment
  * (the platform "star", ADR-0068/0069/0070) this install is bonded to. Unlike a
  * `key` provider it carries no key or endpoint config; the transport is the
- * signed-in session's audience-scoped fetch (`auth.fetch`), resolved in the
+ * signed-in session's audience-scoped fetch (`account.fetch`), resolved in the
  * dispatcher against `auth.connection.baseURL` (the hosted cloud by default, or a self-host
  * instance if the user pointed there), and the gateway pins its own house model
  * server-side (ADR-0100). So the only fact this entry holds is the single `model`

@@ -1,3 +1,4 @@
+import type { Account } from '@epicenter/auth';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { pushToTalk } from '../operations/push-to-talk';
 import { watchManualRecordingEnded } from '../operations/recording';
@@ -34,17 +35,20 @@ import {
 export function createWhisperingUiSession({
 	data,
 	blobs,
+	account,
 }: {
 	data: WhisperingAccountData;
 	blobs: WhisperingBlobs;
+	account: Account;
 }) {
-	const core = createWhisperingApp({ data, blobs });
+	const core = createWhisperingApp({ data, blobs, account });
 	// Named members rather than a spread of `core`, which used to carry
 	// `[Symbol.dispose]` into the object handed to every component through
 	// context. Disposal is off `WhisperingApp` entirely now, and `core` is the
 	// only thing holding it; writing the members out is what keeps a new one
 	// from arriving here unwrapped.
 	const app: WhisperingApp = {
+		account,
 		settings: createSettingsView(core.settings),
 		recordings: createRecordings(core),
 		recipes: core.recipes,

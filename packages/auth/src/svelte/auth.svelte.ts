@@ -1,6 +1,6 @@
 import { createSubscriber } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
-import type { AuthClient } from '../index.js';
+import type { AuthClient, AuthControls } from '../index.js';
 
 /**
  * An auth client whose `state` and `connection.status` track in Svelte.
@@ -11,7 +11,7 @@ import type { AuthClient } from '../index.js';
  * change.
  *
  * A boot node wants the tracking one (ADR-0350). Its `auth.state` read is what
- * replaced the reload gate: a sign-out flips its `{#if}`, a different principal
+ * replaced the reload gate: a sign-out flips its `{#if}`, a different Account object
  * remounts its `{#key}`, and `signed-in` degrading to `reauth-required` moves
  * neither, so a person keeps working while sync reports the refusal.
  *
@@ -21,7 +21,7 @@ import type { AuthClient } from '../index.js';
  * route reads that member. It defaults to `AuthClient`, so every existing
  * annotation still means what it meant.
  */
-export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
+export type ReactiveAuthClient<TClient extends AuthControls = AuthClient> =
 	TClient & Brand<'ReactiveAuthClient'>;
 
 /**
@@ -57,12 +57,11 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
  * Both facts are wrapped uniformly even though not every client can change
  * either one. The hosted OAuth and same-origin cookie clients report a
  * constant `connected` with an `onChange` that never fires, and the desktop
- * broker's identity is immutable for its process generation, so their
- * subscribers simply never invalidate. Uniformity is the point: the brand
+ * broker also publishes credential refusal and retirement. Uniformity is the point: the brand
  * promises that reads track IF the underlying client ever changes, which is a
  * promise every client can keep.
  */
-export function fromAuth<TClient extends AuthClient>(
+export function fromAuth<TClient extends AuthControls>(
 	authClient: TClient,
 ): ReactiveAuthClient<TClient> {
 	const subscribeState = createSubscriber((update) =>

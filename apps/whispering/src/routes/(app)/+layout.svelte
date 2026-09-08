@@ -27,7 +27,7 @@
 {#if auth.state.status === 'signed-out'}
 	<SignInScreen {auth} appName="Whispering" noun="recordings" />
 {:else}
-	{#key auth.state.principalId}
-		<RecordingsSession>{@render children()}</RecordingsSession>
+	{#key auth.state.account}
+		<RecordingsSession account={auth.state.account}>{@render children()}</RecordingsSession>
 	{/key}
 {/if}

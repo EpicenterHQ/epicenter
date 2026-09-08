@@ -1,62 +1,46 @@
 # @epicenter/app
 
-One application's Epicenter Data session: the replica it opens, and the account
-it opens it for. AGPL-3.0-or-later.
-
-The constructor is `createEpicenter`, one of it, at the root. It is not
-`createEpicenterClient`, which is the HTTP client in `packages/client` and a
-different concern with a different lifetime.
+An app opens a data session for one account and owns that session until it closes.
 
 ```ts
 import { createEpicenter } from '@epicenter/app';
 
-export const epicenter = createEpicenter({
-	appId: APP_ID,
-	definition: honeycrispDefinition,
-	account: authClient,
+const epicenter = createEpicenter({
+ appId: APP_ID,
+ definition: honeycrispDefinition,
 });
+const session = epicenter.open(account);
+const result = await session.opened;
+// Use result.data, or present result.error.
+await session.close();
 ```
 
-## What this package is not
+Construction is inert. `open(account)` returns a session synchronously;
+`session.opened` resolves once with an opened replica or a typed failure. The
+handle serializes acquisition and release, so a new keyed Svelte child may open
+before its predecessor's cleanup without racing for the same Web Lock.
 
-Device-owned SQLite files and secrets are `@epicenter/device`. They were
-on this handle until they were not called: three of the four applications that
-composed one never opened a file or kept a secret, and each still declared a
-platform seam and pulled an OPFS SQLite worker into its bundle to satisfy the
-constructor.
+The boot node renders sign-in while signed out and keys its session child on
+`auth.state.account`. The child captures that Account for its initial open,
+retries, and local erasure. Refresh and offline operation preserve the Account
+and the local session. Sign-out retires account transport; the tree closes the
+data session. Returning to the same person after sign-out creates a new Account.
 
-The split is not tidying. The two are different kinds of thing, and invariant 4
-of the account model turns on the difference: a replica belongs to an app and a
-principal, while a file is a device cache opened before anyone signs in and a
-keychain entry is how an account is reached at all. Neither has a principal to
-be scoped by, so neither is removed when a person removes their local data.
+Opening is cache-first. A device with a local generation can open it offline;
+a device without one must reach the account to list, fetch, or create a
+generation. The session owns persistence, sync, and their teardown. The same
+code runs in a browser and a desktop WebView; the account supplies the transport.
 
-`apps/local-mail` is the one application that opens files and keeps secrets, and
-it is the one application with a `#platform/device` seam.
+`session.erase({ afterClose })` closes the session, runs the optional sign-out
+step, then erases every local generation for the captured principal and app.
+It never rereads the current auth selection. Failure leaves the session closed.
+Whispering separately removes that account's local audio where supported.
 
-## The session does not vary by runtime
+The local replica address includes the opening app, principal, data definition,
+and generation. `appId` is explicit even when it matches the definition id.
+Current builds select one server; changing local address partitioning to support
+multiple servers is a separate storage migration.
 
-There is one `createEpicenter` and it serves every build. The store is
-client-owned everywhere (ADR-0226, ADR-0227), so there is no seam under this
-package and no `typeof window` test: a desktop build runs in a WebView, so a
-runtime sniff could not tell it apart from a browser tab anyway.
-
-## Construction is inert; opening is a verb
-
-Building the handle claims no Web Lock, opens no IndexedDB, and makes no round
-trip. `open()` does all three, plus dialling sync and attaching the flush-on-hide
-listener, and `state` is how a surface watches it.
-
-An application calls `open()` once, from the node that has already decided who
-is signed in. `/auth/callback` renders outside that node and must never reach
-this handle; each app's `boot-node.test.ts` asserts exactly that.
-
-`definition` and `account` arrive together or not at all. An authority mints
-every generation (ADR-0336), so there is no accountless store and no store
-without an account to reach.
-
-## `appId` is the opening application, not the data id
-
-State it explicitly even when it matches `definition.id`. The opening
-application is an independent segment of the store address (ADR-0324), so two
-applications opening one data id hold two replicas rather than sharing one.
+Device-owned SQLite files and secrets belong to `@epicenter/device`. This package
+owns client data sessions in both browser and desktop deployments. License:
+AGPL-3.0-or-later.

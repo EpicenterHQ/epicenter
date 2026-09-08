@@ -103,7 +103,12 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 	const store = await openAddressedStore();
 	const connection = attachStoreSync({
 		store,
-		transport: auth,
+		transport:
+			auth.state.status === 'signed-out'
+				? (() => {
+						throw new Error('No test account');
+					})()
+				: auth.state.account,
 		onTransportError: (cause) => {
 			throw cause;
 		},

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AuthClient } from '@epicenter/auth';
+	import type { AuthControls } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 
@@ -18,7 +18,7 @@
 		 * node already answered signed-out, and a sign-in ends this page rather
 		 * than updating it.
 		 */
-		auth: AuthClient;
+		auth: AuthControls;
 		/** The application's name, as the heading, e.g. `'Honeycrisp'`. */
 		appName: string;
 		/** What this application calls a person's stuff, plural, e.g. `'notes'`. */

@@ -99,7 +99,7 @@ test('stale rejection cannot pause a refreshed credential generation', async () 
 	});
 
 	authority.reportRejected(refreshed.tokenGeneration);
-	expect(authority.snapshot).toEqual({
+	expect(authority.snapshot).toMatchObject({
 		state: {
 			status: 'reauth-required',
 			principalId: asPrincipalId('user-1'),

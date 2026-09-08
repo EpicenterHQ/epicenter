@@ -28,7 +28,7 @@
 {#if auth.state.status === 'signed-out'}
 	<SignInScreen auth={auth} appName="Honeycrisp" noun="notes" />
 {:else}
-	{#key auth.state.principalId}
-		<NotesSession />
+	{#key auth.state.account}
+		<NotesSession account={auth.state.account} />
 	{/key}
 {/if}

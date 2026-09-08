@@ -1,3 +1,4 @@
+import type { Account } from '@epicenter/auth';
 import type { BrowserBlobScope } from '@epicenter/blobs/browser';
 import {
 	createWebviewBlobRemote,
@@ -29,9 +30,10 @@ import type { WhisperingBlobs } from '$lib/whispering/app';
  * identity is immutable per process generation, so the boot auth state is the
  * whole answer. `authClient`, not `auth`, because nothing here tracks.
  */
-export function createWhisperingBlobs(
-	_scope: BrowserBlobScope,
-): WhisperingBlobs {
+export function createWhisperingBlobs(_scope: {
+	appId: string;
+	account: Account;
+}): WhisperingBlobs {
 	const local = createWebviewBlobStore();
 	const remote =
 		authClient.state.status === 'signed-in' ? createWebviewBlobRemote() : null;

@@ -24,7 +24,6 @@ import {
 	createDesktopAuthAuthority,
 	type DesktopAuthAuthority,
 } from './desktop-auth-authority.ts';
-import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
 import { createBunDevice } from './device.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
@@ -83,12 +82,12 @@ async function main(): Promise<void> {
 		// remote over the authority's own deployment fetch, a signed-out one
 		// has none until sign-in relaunches the app.
 		const blobRemote =
-			auth.bootSnapshot.state.status === 'signed-in'
+			auth.account !== null
 				? createBunBlobRemote({
 						store: blobs,
 						client: createEpicenterClient({
 							baseURL: auth.baseURL,
-							fetch: createDesktopAuthorityFetch(auth),
+							fetch: auth.account.fetch,
 						}),
 					})
 				: null;
@@ -140,7 +139,7 @@ async function main(): Promise<void> {
 		});
 	} finally {
 		if (!lifecycleOwnsResources) {
-			if (server) await server.stop(true);
+			if (server) void server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
 			if (host) await host[Symbol.asyncDispose]();
 			await parentPipe.cancel();

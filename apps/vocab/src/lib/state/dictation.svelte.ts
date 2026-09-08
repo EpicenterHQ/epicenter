@@ -33,7 +33,7 @@ import {
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { base } from '$app/paths';
 import { VOCAB_STT_MODEL } from '$lib/data';
-import { inferenceConnections } from './inference-connections.svelte';
+import type { createVocabConnections } from './inference-connections.svelte';
 
 /**
  * Where the mic is: closed, waiting for speech, or capturing a phrase.
@@ -42,7 +42,9 @@ import { inferenceConnections } from './inference-connections.svelte';
  */
 export type DictationStatus = 'idle' | 'listening' | 'speaking';
 
-function createDictation() {
+export function createDictation(
+	inferenceConnections: ReturnType<typeof createVocabConnections>,
+) {
 	// The VAD model and wasm are fetched at runtime, so their URL has to carry
 	// whatever prefix this build was served under. `base` is empty on Vocab's
 	// own deploy and `/apps/<dataId>` inside Epicenter (ADR-0210), which is
@@ -142,5 +144,3 @@ function createDictation() {
 		},
 	};
 }
-
-export const dictation = createDictation();

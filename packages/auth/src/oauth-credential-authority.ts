@@ -2,8 +2,9 @@ import { EPICENTER_API_URL } from '@epicenter/constants/apps';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { AuthFetch, AuthState } from './auth-contract.js';
+import type { AuthFetch } from './auth-contract.js';
 import { AuthError } from './auth-errors.js';
+import type { AuthIdentityState } from './auth-identity-state.js';
 import type {
 	ApiSessionResponse,
 	OAuthTokenGrant,
@@ -28,7 +29,7 @@ const REFRESH_SKEW_MS = 60_000;
 
 type NetworkAccess = 'unverified' | 'verified' | 'paused';
 
-type RuntimeAuthState =
+type RuntimeAuthIdentityState =
 	| { status: 'signed-out' }
 	| {
 			status: 'signed-in';
@@ -48,7 +49,7 @@ type IdentityVerificationFlight = {
 
 type ApiSessionReadResult = Result<ApiSessionResponse, ApiSessionReadError>;
 
-const AuthStateChangeError = defineErrors({
+const AuthIdentityStateChangeError = defineErrors({
 	SubscriberThrew: ({ cause }: { cause: unknown }) => ({
 		message: `Auth state subscriber threw: ${extractErrorMessage(cause)}`,
 		cause,
@@ -69,7 +70,9 @@ export type OAuthCredentialAuthorityOptions = {
 };
 
 export type OAuthCredentialSnapshot = {
-	state: AuthState;
+	state: AuthIdentityState;
+	/** Identity and cancellation for this uninterrupted account attachment. */
+	accountSignal: AbortSignal | null;
 	networkEligible: boolean;
 	tokenGeneration: number;
 };
@@ -105,6 +108,7 @@ export function createOAuthCredentialAuthority(
 	let identityVerificationFlight: IdentityVerificationFlight | null = null;
 	let signInFlight: Promise<Result<undefined, AuthError>> | null = null;
 	let signInGeneration = 0;
+	let disposed = false;
 
 	function beginSignInGeneration() {
 		signInGeneration += 1;
@@ -112,7 +116,7 @@ export function createOAuthCredentialAuthority(
 	}
 
 	function isCurrentSignIn(generation: number) {
-		return signInGeneration === generation;
+		return !disposed && signInGeneration === generation;
 	}
 
 	function cancelInFlightSignIn() {
@@ -154,7 +158,8 @@ export function createOAuthCredentialAuthority(
 					now,
 				});
 				if (error !== null) {
-					if (authSession.persistedAuth !== startedFrom) return false;
+					if (disposed || authSession.persistedAuth !== startedFrom)
+						return false;
 					// ONLY a refusal pauses. This used to be a bare `catch` that
 					// paused on anything the endpoint threw, so a tunnel, a DNS
 					// hiccup, or a 502 dropped a signed-in person to
@@ -170,19 +175,19 @@ export function createOAuthCredentialAuthority(
 					log.error(AuthError.RefreshGrantFailed({ cause: error }));
 					return false;
 				}
-				if (authSession.persistedAuth !== startedFrom) return false;
+				if (disposed || authSession.persistedAuth !== startedFrom) return false;
 				const next = {
 					grant,
 					principalId: startedFrom.principalId,
 				} satisfies PersistedAuth;
 				await authSession.write(next);
-				if (authSession.persistedAuth !== startedFrom) return false;
+				if (disposed || authSession.persistedAuth !== startedFrom) return false;
 				authSession.replaceUnverified(next);
 				return true;
 			} catch (cause) {
 				// `authSession.write` is the only thing left that can throw here,
 				// and a storage failure is not a credential failure either.
-				if (authSession.persistedAuth === startedFrom) {
+				if (!disposed && authSession.persistedAuth === startedFrom) {
 					log.error(AuthError.RefreshGrantFailed({ cause }));
 				}
 				return false;
@@ -212,6 +217,7 @@ export function createOAuthCredentialAuthority(
 			if (error) {
 				if (
 					error.name === 'Rejected' &&
+					!disposed &&
 					authSession.persistedAuth === startedFrom
 				) {
 					authSession.pauseNetworkAuth();
@@ -219,7 +225,7 @@ export function createOAuthCredentialAuthority(
 				return Err(error);
 			}
 			const current = authSession.persistedAuth;
-			if (current !== startedFrom) return Ok(session);
+			if (disposed || current !== startedFrom) return Ok(session);
 
 			if (current.principalId !== session.principalId) {
 				await clearPersistedAuth();
@@ -250,11 +256,17 @@ export function createOAuthCredentialAuthority(
 
 	async function authorize(
 		forceRefresh: boolean,
+		expectedAccount: AbortSignal | null,
 	): Promise<BearerAuthorization> {
-		if (authSession.persistedAuth === null || authSession.networkAuthPaused) {
+		const isCurrent = () =>
+			expectedAccount !== null &&
+			!expectedAccount.aborted &&
+			authSession.snapshot.accountSignal === expectedAccount;
+		if (!isCurrent()) return { status: 'denied', code: 'signed-out' };
+		if (authSession.persistedAuth === null || authSession.networkAuthPaused)
 			return deniedAuthorization();
-		}
 		const refreshed = await refreshGrant(forceRefresh);
+		if (!isCurrent()) return { status: 'denied', code: 'signed-out' };
 		const refreshedPersistedAuth = authSession.persistedAuth;
 		if (
 			!refreshed ||
@@ -268,6 +280,7 @@ export function createOAuthCredentialAuthority(
 			const verification = await verifyPersistedAuthForNetwork(
 				refreshedPersistedAuth,
 			);
+			if (!isCurrent()) return { status: 'denied', code: 'signed-out' };
 			if (verification.error) return deniedAuthorization();
 			verifiedPersistedAuth = authSession.verifiedPersistedAuth;
 			if (verifiedPersistedAuth === null) return deniedAuthorization();
@@ -296,6 +309,8 @@ export function createOAuthCredentialAuthority(
 		attempt: (generation: number) => Promise<Result<undefined, AuthError>>,
 		fail: (args: { cause: unknown }) => Result<never, AuthError>,
 	): Promise<Result<undefined, AuthError>> {
+		if (disposed)
+			return Promise.resolve(fail({ cause: 'Auth client disposed.' }));
 		if (signInFlight !== null) return signInFlight;
 		const generation = beginSignInGeneration();
 		const promise = (async () => {
@@ -358,7 +373,7 @@ export function createOAuthCredentialAuthority(
 		onChange(fn: (snapshot: OAuthCredentialSnapshot) => void) {
 			return authSession.onChange(fn);
 		},
-		onStateChange(fn: (state: AuthState) => void) {
+		onStateChange(fn: (state: AuthIdentityState) => void) {
 			return authSession.onStateChange(fn);
 		},
 		startSignIn() {
@@ -434,14 +449,22 @@ export function createOAuthCredentialAuthority(
 				return AuthError.SignOutFailed({ cause });
 			}
 		},
-		authorize({ forceRefresh = false }: { forceRefresh?: boolean } = {}) {
-			return authorize(forceRefresh);
+		authorize({
+			forceRefresh = false,
+			accountSignal = authSession.snapshot.accountSignal,
+		}: {
+			forceRefresh?: boolean;
+			accountSignal?: AbortSignal | null;
+		} = {}) {
+			return authorize(forceRefresh, accountSignal);
 		},
 		reportRejected(tokenGeneration: number) {
 			if (authSession.tokenGeneration !== tokenGeneration) return;
 			authSession.pauseNetworkAuth();
 		},
 		[Symbol.dispose]() {
+			disposed = true;
+			cancelInFlightSignIn();
 			authSession.dispose();
 		},
 	};
@@ -470,7 +493,7 @@ function createAuthSessionRuntime({
 	persistedAuthStorage: PersistedAuthStorage;
 	log: Logger;
 }) {
-	let runtimeState: RuntimeAuthState =
+	let runtimeState: RuntimeAuthIdentityState =
 		initialPersistedAuth === null
 			? { status: 'signed-out' }
 			: {
@@ -479,15 +502,25 @@ function createAuthSessionRuntime({
 					networkAccess: 'unverified',
 				};
 	let tokenGeneration = initialPersistedAuth === null ? 0 : 1;
-	let currentSnapshot = snapshotFromRuntime(runtimeState, tokenGeneration);
+	let accountLifetime =
+		initialPersistedAuth === null ? null : new AbortController();
+	let currentSnapshot = snapshotFromRuntime(
+		runtimeState,
+		tokenGeneration,
+		accountLifetime?.signal ?? null,
+	);
 	let storageWriteQueue: Promise<void> = Promise.resolve();
 	const changeListeners = new Set<
 		(snapshot: OAuthCredentialSnapshot) => void
 	>();
-	const stateChangeListeners = new Set<(state: AuthState) => void>();
+	const stateChangeListeners = new Set<(state: AuthIdentityState) => void>();
 
 	function publish() {
-		const next = snapshotFromRuntime(runtimeState, tokenGeneration);
+		const next = snapshotFromRuntime(
+			runtimeState,
+			tokenGeneration,
+			accountLifetime?.signal ?? null,
+		);
 		if (credentialSnapshotsEqual(currentSnapshot, next)) return;
 		const stateChanged = !authStatesEqual(currentSnapshot.state, next.state);
 		currentSnapshot = next;
@@ -496,7 +529,9 @@ function createAuthSessionRuntime({
 				try {
 					listener(next.state);
 				} catch (error) {
-					log.error(AuthStateChangeError.SubscriberThrew({ cause: error }));
+					log.error(
+						AuthIdentityStateChangeError.SubscriberThrew({ cause: error }),
+					);
 				}
 			}
 		}
@@ -504,7 +539,9 @@ function createAuthSessionRuntime({
 			try {
 				listener(next);
 			} catch (error) {
-				log.error(AuthStateChangeError.SubscriberThrew({ cause: error }));
+				log.error(
+					AuthIdentityStateChangeError.SubscriberThrew({ cause: error }),
+				);
 			}
 		}
 	}
@@ -518,6 +555,7 @@ function createAuthSessionRuntime({
 	}
 
 	function replace(persistedAuth: PersistedAuth, networkAccess: NetworkAccess) {
+		accountLifetime ??= new AbortController();
 		runtimeState = { status: 'signed-in', persistedAuth, networkAccess };
 		tokenGeneration += 1;
 		publish();
@@ -552,7 +590,7 @@ function createAuthSessionRuntime({
 				changeListeners.delete(fn);
 			};
 		},
-		onStateChange(fn: (state: AuthState) => void) {
+		onStateChange(fn: (state: AuthIdentityState) => void) {
 			stateChangeListeners.add(fn);
 			return () => {
 				stateChangeListeners.delete(fn);
@@ -590,12 +628,16 @@ function createAuthSessionRuntime({
 		async clear() {
 			if (runtimeState.status !== 'signed-out') {
 				runtimeState = { status: 'signed-out' };
+				const retired = accountLifetime;
+				accountLifetime = null;
+				retired?.abort();
 				tokenGeneration += 1;
 				publish();
 			}
 			await write(null);
 		},
 		dispose() {
+			accountLifetime?.abort();
 			changeListeners.clear();
 			stateChangeListeners.clear();
 		},
@@ -603,11 +645,13 @@ function createAuthSessionRuntime({
 }
 
 function snapshotFromRuntime(
-	runtimeState: RuntimeAuthState,
+	runtimeState: RuntimeAuthIdentityState,
 	tokenGeneration: number,
+	accountSignal: AbortSignal | null,
 ): OAuthCredentialSnapshot {
 	return {
 		state: publicStateFromRuntime(runtimeState),
+		accountSignal,
 		networkEligible:
 			runtimeState.status === 'signed-in' &&
 			runtimeState.networkAccess === 'verified',
@@ -615,7 +659,9 @@ function snapshotFromRuntime(
 	};
 }
 
-function publicStateFromRuntime(runtimeState: RuntimeAuthState): AuthState {
+function publicStateFromRuntime(
+	runtimeState: RuntimeAuthIdentityState,
+): AuthIdentityState {
 	if (runtimeState.status === 'signed-out') return { status: 'signed-out' };
 	if (runtimeState.networkAccess === 'paused') {
 		return {
@@ -640,7 +686,7 @@ function credentialSnapshotsEqual(
 	);
 }
 
-function authStatesEqual(left: AuthState, right: AuthState) {
+function authStatesEqual(left: AuthIdentityState, right: AuthIdentityState) {
 	if (left.status !== right.status) return false;
 	if (left.status === 'signed-out') return true;
 	if (right.status === 'signed-out') return false;

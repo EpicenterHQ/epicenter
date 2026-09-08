@@ -52,10 +52,12 @@ test('window fetch attaches no credential to any request', async () => {
 		fetch,
 	});
 
-	await auth.fetch('https://api.epicenter.so/api/session');
-	await auth.fetch('https://example.com/resource');
+	await selectedAccount(auth).fetch('https://api.epicenter.so/api/session');
+	await expect(
+		selectedAccount(auth).fetch('https://example.com/resource'),
+	).rejects.toThrow('own server');
 
-	expect(calls).toHaveLength(2);
+	expect(calls).toHaveLength(1);
 	for (const call of calls) {
 		const headers = new Headers(call.init?.headers);
 		expect(headers.get('authorization')).toBeNull();
@@ -101,8 +103,8 @@ test('a failed broker command returns a typed auth error', async () => {
 
 test('getProfile reads the broker projection, never the server transport', async () => {
 	const { calls, fetch } = recordingFetch((url) =>
-		url.endsWith('/_epicenter/account/profile')
-			? Response.json({ id: 'alice', email: 'alice@example.com' })
+		url.includes('/_epicenter/account/http?')
+			? Response.json({ principalId: 'alice', email: 'alice@example.com' })
 			: new Response('unexpected', { status: 500 }),
 	);
 	const auth = createDesktopBrokerAuth({
@@ -119,26 +121,48 @@ test('getProfile reads the broker projection, never the server transport', async
 	});
 	expect(calls).toHaveLength(1);
 	expect(calls[0]?.url).toBe(
-		'http://127.0.0.1:39130/_epicenter/account/profile',
+		'http://127.0.0.1:39130/_epicenter/account/http?path=%2Fapi%2Fsession',
 	);
 });
 
-test('openWebSocket refuses because a window holds no credential', async () => {
+test('a retired desktop account cannot open a socket', async () => {
 	const auth = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
-		fetch: async () => new Response('ok'),
+		fetch: async () => new Response(null, { status: 202 }),
 	});
-
-	expect(
-		auth.openWebSocket({
-			url: 'wss://api.epicenter.so/rooms',
+	const account = selectedAccount(auth);
+	await auth.signOut();
+	await expect(
+		account.openWebSocket({
+			url: 'wss://api.epicenter.so/api/store/v1/sync',
 			protocols: [MAIN_SUBPROTOCOL],
 		}),
-	).rejects.toMatchObject({
-		name: 'OpenWebSocketDenied',
-		code: 'no-credential-model',
+	).rejects.toMatchObject({ name: 'OpenWebSocketDenied', code: 'signed-out' });
+});
+
+test('a late HTTP completion cannot republish an account after sign-out', async () => {
+	const response = Promise.withResolvers<Response>();
+	const auth = createDesktopBrokerAuth({
+		bootstrap,
+		brokerBaseURL: 'http://127.0.0.1:39130',
+		fetch: async (input) =>
+			String(input instanceof Request ? input.url : input).includes('/http?')
+				? response.promise
+				: new Response(null, { status: 202 }),
 	});
+	const account = selectedAccount(auth);
+	const pending = account
+		.fetch('/api/example')
+		.catch((error: unknown) => error);
+	await auth.signOut();
+	response.resolve(
+		new Response('late', {
+			headers: { 'x-epicenter-auth-state': 'signed-in' },
+		}),
+	);
+	expect(await pending).toMatchObject({ name: 'AbortError' });
+	expect(auth.state).toEqual({ status: 'signed-out' });
 });
 
 test('the self-hosted server projects its boot connection status', () => {
@@ -227,5 +251,39 @@ test('a desktop window is not a callback client', () => {
 	});
 
 	expect(isCallbackAuthClient(auth)).toBe(false);
+	auth[Symbol.dispose]();
+});
+
+function selectedAccount(auth: import('./auth-contract.js').AuthClient) {
+	const state = auth.state;
+	if (state.status === 'signed-out')
+		throw new Error('Expected a selected account');
+	return state.account;
+}
+
+test('an older success response cannot erase a newer desktop credential refusal', async () => {
+	const old = Promise.withResolvers<Response>();
+	let calls = 0;
+	const auth = createDesktopBrokerAuth({
+		bootstrap,
+		brokerBaseURL: 'http://127.0.0.1:39130',
+		fetch: async () =>
+			++calls === 1
+				? old.promise
+				: new Response(null, {
+						status: 401,
+						headers: { 'x-epicenter-auth-state': 'reauth-required' },
+					}),
+	});
+	const account = selectedAccount(auth);
+	const first = account.fetch('/api/old');
+	await account.fetch('/api/new');
+	expect(auth.state.status).toBe('reauth-required');
+	old.resolve(
+		new Response(null, { headers: { 'x-epicenter-auth-state': 'signed-in' } }),
+	);
+	await first;
+	expect(auth.state.status).toBe('reauth-required');
+	expect(selectedAccount(auth)).toBe(account);
 	auth[Symbol.dispose]();
 });

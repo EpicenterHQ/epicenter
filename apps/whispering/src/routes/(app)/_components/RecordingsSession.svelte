@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Account } from "@epicenter/auth";
 	import { CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
 	import { auth } from '#platform/auth';
@@ -15,9 +16,10 @@
 	 * runs after the previous session's release even though Svelte creates the
 	 * new keyed branch before destroying the old one.
 	 */
-	let { children } = $props();
+	let { children, account }: { children: import("svelte").Snippet; account: Account } = $props();
 
-	let session = $state.raw(epicenter.open());
+	/* svelte-ignore state_referenced_locally */
+	let session = $state.raw(epicenter.open(account));
 	$effect(() => () => void session.close());
 
 	/**
@@ -74,10 +76,11 @@
 			appName="Whispering"
 			noun="recordings"
 			{error}
-			retry={() => (session = epicenter.open())}
+			retry={() => (session = epicenter.open(account))}
 		/>
 	{:else}
 		<WhisperingShell
+			{account}
 			{data}
 			removeLocalData={removeLocalData && (() => removeLocalData(data))}
 		>

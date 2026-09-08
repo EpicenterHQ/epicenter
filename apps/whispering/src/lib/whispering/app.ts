@@ -1,3 +1,4 @@
+import type { Account } from '@epicenter/auth';
 import type { ReplicaData } from '@epicenter/data';
 import type { SyncConnectionStatus } from '@epicenter/data/sync';
 import type { WhisperingSettingValues, whisperingDefinition } from '../data';
@@ -93,6 +94,7 @@ const APPLICATION_DEFAULTS: WhisperingSettingValues = {
 };
 
 export type WhisperingApp = {
+	readonly account: Account;
 	readonly settings: WhisperingSettings;
 	readonly recordings: WhisperingRecordings;
 	readonly recipes: WhisperingRecipes;
@@ -139,10 +141,12 @@ export type WhisperingApp = {
 export function createWhisperingApp({
 	data,
 	blobs,
+	account,
 }: {
 	/** The open replica, as `session.opened` resolved it. */
 	data: WhisperingAccountData;
 	blobs: WhisperingBlobs;
+	account: Account;
 }): WhisperingApp & Disposable {
 	const settingsDomain = createWhisperingSettings({ kv: data.kv });
 	const recordingsDomain = createWhisperingRecordings({
@@ -155,6 +159,7 @@ export function createWhisperingApp({
 
 	let disposed = false;
 	return Object.freeze({
+		account,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,
 		recipes: recipesDomain,

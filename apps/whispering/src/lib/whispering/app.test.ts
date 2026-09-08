@@ -37,11 +37,12 @@ import { expect, test } from 'bun:test';
 );
 
 import { createEpicenter } from '@epicenter/app';
-import type { AuthClient } from '@epicenter/auth';
+import type { Account } from '@epicenter/auth';
 import type { BlobStore } from '@epicenter/blobs';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { APPS } from '@epicenter/constants/apps';
 import { encodeFrame } from '@epicenter/data/sync';
+import { asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { whisperingDefinition } from '../data';
 import { createWhisperingApp } from './app';
@@ -111,21 +112,18 @@ function createFakeSocket() {
 }
 
 /**
- * The whole of what the app reads from auth: its boot state, the server's
- * base URL, and `openWebSocket`. Everything else throws, so a test fails
- * loudly if the app starts reaching further.
+ * The captured account used by these app tests: generation HTTP and sync.
+ * Profile reads throw so an unexpected request fails visibly.
  */
-function createFakeAuth({
-	status,
+function createFakeAccount({
 	principalId = 'principal-under-test',
 	openWebSocket = () => {
 		throw new Error('this generation must not dial');
 	},
 }: {
-	status: 'signed-out' | 'signed-in';
 	principalId?: string;
 	openWebSocket?: () => Promise<WebSocket>;
-}): AuthClient {
+}): Account {
 	const unused = () => {
 		throw new Error('not part of the app boot');
 	};
@@ -158,32 +156,23 @@ function createFakeAuth({
 		return Response.json({ generations: [...held.keys()].sort() });
 	};
 	return {
-		state: status === 'signed-out' ? { status } : { status, principalId },
-		connection: {
-			baseURL: 'https://api.test',
-			status: 'connected',
-			onChange: () => () => undefined,
-		},
-		onStateChange: () => () => undefined,
-		startSignIn: unused,
-		signOut: unused,
+		principalId: asPrincipalId(principalId),
+		baseURL: 'https://api.test',
 		fetch: generations,
 		getProfile: unused,
 		openWebSocket,
-		[Symbol.dispose]: () => undefined,
-	} as unknown as AuthClient;
+	};
 }
 
 /**
- * An auth for one account whose every dial simply connects.
+ * An account whose every dial simply connects.
  *
  * There is nothing for a dial to announce any more: a replica used to be
  * unavailable until the authority named the document it belonged to, and the
  * generation is in the address now (ADR-0292).
  */
-function announcingAuth(principalId: string): AuthClient {
-	return createFakeAuth({
-		status: 'signed-in',
+function announcingAccount(principalId: string): Account {
+	return createFakeAccount({
 		principalId,
 		openWebSocket: async () => {
 			const fake = createFakeSocket();
@@ -200,29 +189,21 @@ function announcingAuth(principalId: string): AuthClient {
  * The handle comes back beside the app, because `close` is on the handle and
  * nothing else can end what the open acquired (ADR-0340).
  */
-async function openWhispering(auth: AuthClient) {
+async function openWhispering(account: Account) {
 	const handle = createEpicenter({
 		appId: APPS.WHISPERING.id,
 		definition: whisperingDefinition,
-		account: auth,
 	});
-	const session = handle.open();
-	return { handle, session, opened: await session.opened };
+	const session = handle.open(account);
+	return { handle, session, account, opened: await session.opened };
 }
 
-test('a signed-out account opens nothing at all', async () => {
-	// It used to open a device document and never dial. An authority mints every
-	// generation (ADR-0336), so there is no such document to fall back to and the
-	// open refuses instead. It refuses as a `Result` rather than by throwing: the
-	// layout reads auth before it ever gets here and renders the sign-in gate, so
-	// nobody meets this, and a refusal that arrives as a value is one a surface
-	// can render.
+test('constructing a handle opens no local database before an account session', async () => {
 	await resetStorage();
-	const { handle, opened } = await openWhispering(
-		createFakeAuth({ status: 'signed-out' }),
-	);
-
-	expect(opened.error).not.toBeNull();
+	const handle = createEpicenter({
+		appId: APPS.WHISPERING.id,
+		definition: whisperingDefinition,
+	});
 	expect(await indexedDB.databases()).toEqual([]);
 	await handle.close();
 });
@@ -230,10 +211,13 @@ test('a signed-out account opens nothing at all', async () => {
 test('settings recover application defaults, notify, and survive a reopen', async () => {
 	await resetStorage();
 	{
-		const { handle, opened } = await openWhispering(announcingAuth('alice'));
+		const { handle, opened, account } = await openWhispering(
+			announcingAccount('alice'),
+		);
 		if (opened.error !== null) throw opened.error;
 		const app = createWhisperingApp({
 			data: opened.data,
+			account,
 			blobs: {
 				local,
 				remote: null,
@@ -265,10 +249,13 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 	// replica now, so surviving a reopen is the replica being found and reused
 	// rather than a second document being minted underneath it. It is also the
 	// close above being real: a lock still held would answer `AlreadyOpen`.
-	const { handle, opened } = await openWhispering(announcingAuth('alice'));
+	const { handle, opened, account } = await openWhispering(
+		announcingAccount('alice'),
+	);
 	if (opened.error !== null) throw opened.error;
 	const reopened = createWhisperingApp({
 		data: opened.data,
+		account,
 		blobs: {
 			local,
 			remote: null,
@@ -289,10 +276,13 @@ test('the domains stop reading the store once they are disposed', async () => {
 	// that can end them: a component reading the app through context has no
 	// `[Symbol.dispose]` to reach for.
 	await resetStorage();
-	const { handle, opened } = await openWhispering(announcingAuth('alice'));
+	const { handle, opened, account } = await openWhispering(
+		announcingAccount('alice'),
+	);
 	if (opened.error !== null) throw opened.error;
 	const app = createWhisperingApp({
 		data: opened.data,
+		account,
 		blobs: {
 			local,
 			remote: null,

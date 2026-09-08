@@ -34,7 +34,7 @@ The browser name is the sibling of `epicenter/v5/<app-id>/<principal-id>/<data-i
 
 **Desktop blobs use `apps/<app-id>/<principal-id>/blobs/`.** The app and principal form the account scope, as they do in the browser name. This reopens the earlier kind-first proposal and amends ADR-0201's partition spelling for blobs. Device files keep their existing locations; erasing blobs deletes this exact directory, never the principal's parent. There is no generation segment: a restored row still cites the same opaque bytes. Nothing writes this desktop spelling yet.
 
-**An application builds its blob store per session, from the replica's stamp.** The opened replica carries `appId` and `principalId` (`ReplicaDocument`), minted by the open that `generationPrefix` already validated, so a shell reads the scope off the value it holds rather than off mutable auth. Whispering's `#platform/blobs` seam exports `createWhisperingBlobs({ appId, principalId })`, `WhisperingShell` calls it once per session, and the result is `app.blobs`. That is Whispering's own object; ADR-0352 reopened which platform object carries the verbs, and this record no longer answers it.
+**An application builds its blob store per session from its captured account.** Whispering's `#platform/blobs` seam exports `createWhisperingBlobs({ appId, account })`. The shell passes the same immutable `Account` that opened the data session; the local store uses its `principalId` and the remote uses its retired-on-sign-out transport. The result is `app.blobs`, Whispering's own composition. ADR-0352 leaves the platform owner of the verbs open.
 
 **There is no `list`,** which is ADR-0154 unchanged: the application's own rows are the inventory, and a blob whose every citing row is gone is unreachable.
 

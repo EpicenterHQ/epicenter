@@ -45,20 +45,18 @@ export const AuthError = defineErrors({
 
 export type AuthError = InferErrors<typeof AuthError>;
 
-/**
- * Thrown (not returned) by `AuthClient.openWebSocket` when no usable bearer can
- * be attached: a protected socket is never opened credential-less. A credential
- * model that can never attach one (same-origin cookie, desktop window) throws
- * `'no-credential-model'` rather than omitting the method.
- *
- * The error object conforms to the `OpenWebSocketDenial` contract in
- * `@epicenter/sync`. The sync driver records the `code` on its status and
- * dials again on its ordinary backoff, so a refusal is something a surface
- * renders rather than something that ends sync.
- */
+/** A socket dial refused before it could receive a usable credential. */
 export const OpenWebSocketDenied = defineErrors({
 	OpenWebSocketDenied: ({ code }: { code: SyncRefusal }) => ({
 		message: `No usable bearer for the WebSocket upgrade (${code}).`,
 		code,
 	}),
 }).OpenWebSocketDenied;
+
+/** HTTP authorization failed before a request could be dispatched. */
+export const AccountUnavailable = defineErrors({
+	AccountUnavailable: ({ code }: { code: SyncRefusal }) => ({
+		message: `Account network access is unavailable (${code}).`,
+		code,
+	}),
+}).AccountUnavailable;

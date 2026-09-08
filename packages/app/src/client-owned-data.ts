@@ -16,7 +16,7 @@
  * trusted app (ADR-0334), so both leaves reach the same store the same way.
  */
 
-import type { AccountSnapshot } from '@epicenter/auth';
+import type { Account } from '@epicenter/auth';
 import {
 	eraseGenerations,
 	type OpenedDatabase,
@@ -90,11 +90,11 @@ export async function openReplica<TDefinition extends DataDefinition>({
 	/**
 	 * The account, read at one instant rather than the live client.
 	 *
-	 * The caller snapshots with `accountOf`, so the address this opens is the
+	 * The caller passes a stable Account, so the address this opens is the
 	 * one the caller decided on, even if the client signs in as somebody else
 	 * while this is still queued behind a release.
 	 */
-	account: AccountSnapshot;
+	account: Account;
 }): Promise<
 	Result<OpenedDatabase<TDefinition>, StoreError | DataDefinitionParseError>
 > {

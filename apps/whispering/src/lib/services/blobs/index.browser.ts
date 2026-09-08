@@ -1,3 +1,4 @@
+import type { Account } from '@epicenter/auth';
 import {
 	type BrowserBlobScope,
 	claimUnscopedBrowserBlobs,
@@ -11,10 +12,8 @@ import {
 	createBrowserBlobRemote,
 	createEpicenterClient,
 } from '@epicenter/client';
-import type { PrincipalId } from '@epicenter/principal';
-import { auth, authClient } from '#platform/auth';
+import { auth } from '#platform/auth';
 import type { WhisperingBlobs } from '$lib/whispering/app';
-import { createPrincipalFetch } from './principal-fetch.js';
 
 /**
  * Browser composition: one account's IndexedDB bytes, the hosted remote copy
@@ -33,15 +32,16 @@ import { createPrincipalFetch } from './principal-fetch.js';
  */
 export function createWhisperingBlobs({
 	appId,
-	principalId,
+	account,
 }: {
 	appId: string;
-	principalId: PrincipalId;
+	account: Account;
 }): WhisperingBlobs {
+	const { principalId } = account;
 	const local = createBrowserBlobStore({ appId, principalId });
 	const epicenterClient = createEpicenterClient({
-		baseURL: authClient.connection.baseURL,
-		fetch: createPrincipalFetch(authClient, principalId),
+		baseURL: account.baseURL,
+		fetch: account.fetch,
 	});
 	const remote = createBrowserBlobRemote({ local, client: epicenterClient });
 	return {
@@ -50,8 +50,7 @@ export function createWhisperingBlobs({
 		// reload the page (ADR-0088), and the remote copy is exactly what stops
 		// working there, so this answer has to change underneath a live app.
 		get remote() {
-			return auth.state.status === 'signed-in' &&
-				auth.state.principalId === principalId
+			return auth.state.status === 'signed-in' && auth.state.account === account
 				? remote
 				: null;
 		},

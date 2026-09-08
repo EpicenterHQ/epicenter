@@ -16,10 +16,10 @@
  * transport (see `@epicenter/app-shell` `createInferenceConnections`).
  *
  * The leak guard is structural (ADR-0053): the Epicenter bearer is attached only by
- * `auth.fetch`, and only to the origin it signed into. A connection here is always
+ * `account.fetch`, and only to the origin it signed into. A connection here is always
  * a third-party URL reached with a plain fetch carrying only the user's own key and
  * headers, so a custom turn can never reach its URL with the Epicenter bearer. The
- * single origin check lives on the credential in `fetchWithAuth`, not in this
+ * origin check lives in the account transport, not in this
  * resolver, so this resolver needs no hosted argument to stay safe.
  */
 

@@ -11,7 +11,6 @@
 
 import { LOCAL_BLOB_PATH } from '@epicenter/blobs/webview';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
-import { DEVICE_PATH } from '@epicenter/device/protocol';
 import {
 	CALLBACK_PATH as MAIL_CALLBACK_PATH,
 	PENDING_CALLBACK_PATH as MAIL_PENDING_CALLBACK_PATH,

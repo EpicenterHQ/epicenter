@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { AuthControls } from '@epicenter/auth';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -15,7 +16,7 @@
 	 */
 	type SignInPanelProps = {
 		/** The app's auth client; its `startSignIn` drives the primary button. */
-		auth: ReactiveAuthClient;
+		auth: ReactiveAuthClient<AuthControls>;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**

@@ -331,6 +331,25 @@ describe('native auth port', () => {
 });
 
 describe('shutdown', () => {
+	test('a pending Bun force-stop promise does not prevent owner disposal', async () => {
+		const { events, host, parentClosed, parentPipe, report, signals } = setup();
+		const supervised = superviseSidecar({
+			server: {
+				stop() {
+					events.push('server.stop:true');
+					return new Promise<void>(() => {});
+				},
+			},
+			host,
+			parentPipe,
+			report,
+			signals,
+		});
+		parentClosed.resolve();
+		await supervised;
+		expect(events).toEqual(['server.stop:true', 'host.dispose', 'pipe.cancel']);
+	});
+
 	test('SIGTERM stops the server, disposes the host, and releases stdin in order', async () => {
 		const {
 			events,

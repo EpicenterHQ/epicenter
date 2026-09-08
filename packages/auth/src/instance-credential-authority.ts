@@ -2,12 +2,9 @@ import { INSTANCE_PRINCIPAL_ID } from '@epicenter/principal';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
-import type {
-	AuthFetch,
-	AuthState,
-	ConnectionStatus,
-} from './auth-contract.js';
+import type { AuthFetch, ConnectionStatus } from './auth-contract.js';
 import { AuthError } from './auth-errors.js';
+import type { AuthIdentityState } from './auth-identity-state.js';
 import type { BearerAuthorization } from './credential-authority.js';
 import { readApiSession } from './read-api-session.js';
 
@@ -29,7 +26,7 @@ export type InstanceCredentialAuthorityOptions = {
 };
 
 export type InstanceCredentialSnapshot = {
-	state: AuthState;
+	state: AuthIdentityState;
 	connectionStatus: ConnectionStatus;
 	networkEligible: boolean;
 	tokenGeneration: number;
@@ -50,7 +47,7 @@ export function createInstanceCredentialAuthority(
 	}: InstanceCredentialAuthorityDependencies,
 	{ baseURL, token }: InstanceCredentialAuthorityOptions,
 ) {
-	let state: AuthState = {
+	let state: AuthIdentityState = {
 		status: 'signed-in',
 		principalId: INSTANCE_PRINCIPAL_ID,
 	};
@@ -66,7 +63,7 @@ export function createInstanceCredentialAuthority(
 	const changeListeners = new Set<
 		(snapshot: InstanceCredentialSnapshot) => void
 	>();
-	const stateListeners = new Set<(state: AuthState) => void>();
+	const stateListeners = new Set<(state: AuthIdentityState) => void>();
 	const connectionListeners = new Set<(status: ConnectionStatus) => void>();
 
 	function createSnapshot(): InstanceCredentialSnapshot {
@@ -202,7 +199,7 @@ export function createInstanceCredentialAuthority(
 		);
 	}
 
-	function authStatesEqual(left: AuthState, right: AuthState) {
+	function authStatesEqual(left: AuthIdentityState, right: AuthIdentityState) {
 		if (left.status !== right.status) return false;
 		if (left.status === 'signed-out') return true;
 		if (right.status === 'signed-out') return false;
@@ -222,7 +219,7 @@ export function createInstanceCredentialAuthority(
 				changeListeners.delete(fn);
 			};
 		},
-		onStateChange(fn: (state: AuthState) => void) {
+		onStateChange(fn: (state: AuthIdentityState) => void) {
 			stateListeners.add(fn);
 			return () => {
 				stateListeners.delete(fn);

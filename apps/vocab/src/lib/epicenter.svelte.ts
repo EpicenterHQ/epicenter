@@ -18,12 +18,11 @@
  * (ADR-0334).
  *
  * **Nothing opens when this module is evaluated.** What opens the store is
- * `epicenter.open()`, called once by `routes/+page.svelte` after auth is read.
+ * `epicenter.open(account)`, called once by `routes/+page.svelte` after auth is read.
  */
 
 import { createEpicenter } from '@epicenter/app';
 import { APPS } from '@epicenter/constants/apps';
-import { authClient } from '$lib/auth';
 import { vocabDefinition } from '$lib/data';
 
 /**
@@ -36,7 +35,6 @@ import { vocabDefinition } from '$lib/data';
 export const epicenter = createEpicenter({
 	appId: APPS.VOCAB.id,
 	definition: vocabDefinition,
-	account: authClient,
 });
 
 // The disposer RETURNS the close, because Vite awaits it: the replacement

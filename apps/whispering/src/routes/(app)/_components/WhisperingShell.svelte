@@ -23,6 +23,7 @@
 	`VocabShell`, which both do this inline. Now there is one.
 -->
 <script lang="ts">
+	import type { Account } from "@epicenter/auth";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { fromData } from '@epicenter/svelte';
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -49,6 +50,7 @@
 
 	let {
 		data: opened,
+		account,
 		removeLocalData,
 		children,
 	}: {
@@ -60,6 +62,7 @@
 		 * built below would have gone quiet with nothing to say why.
 		 */
 		data: WhisperingAccountData;
+		account: Account;
 		/**
 		 * Sign out and remove this account's local data, owned by the session
 		 * component above because only it can sequence the close. Absent where
@@ -81,10 +84,10 @@
 	/* svelte-ignore state_referenced_locally */
 	const blobs = createWhisperingBlobs({
 		appId: opened.appId,
-		principalId: opened.principalId,
+		account,
 	});
 	/* svelte-ignore state_referenced_locally */
-	const session = createWhisperingUiSession({ data, blobs });
+	const session = createWhisperingUiSession({ data, blobs, account });
 
 	setWhisperingContext({ app: session.app, queries: session.queries });
 

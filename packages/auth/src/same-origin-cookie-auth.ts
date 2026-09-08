@@ -1,11 +1,12 @@
+import type { AuthIdentityState } from './auth-identity-state.js';
 /// <reference lib="dom" />
 
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, tryAsync } from 'wellcrafted/result';
-import type { AuthClient, AuthFetch, AuthState } from './auth-contract.js';
-import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
+import type { AuthControls, AuthFetch } from './auth-contract.js';
+import { AuthError } from './auth-errors.js';
 import { ApiSessionResponse } from './auth-types.js';
 
 /**
@@ -68,11 +69,11 @@ const SameOriginAuthError = defineErrors({
  * the cookie. Because the httpOnly cookie is invisible to JS, the client cannot
  * know synchronously whether it is signed in; it reads `/api/session` once at
  * construction to confirm, and that response also supplies the `principalId`
- * the public `AuthState` carries.
+ * the public `AuthIdentityState` carries.
  *
  * **So `state` reports `signed-out` for the first round trip after load, and a
  * gate on this client renders its signed-out screen for that long even for
- * somebody who is signed in.** `AuthState` has no arm for "not known yet", and
+ * somebody who is signed in.** `AuthIdentityState` has no arm for "not known yet", and
  * it is not given one for this: three of the four clients read their identity
  * synchronously (a persisted grant, or the desktop bootstrap element), so a
  * fourth arm would force a branch on every gate in the repository for a state
@@ -88,23 +89,21 @@ const SameOriginAuthError = defineErrors({
  * native clients (web app, extension, Tauri, CLI) keep using `createOAuthAppAuth`
  * and PKCE.
  *
- * It cannot sync. A same-origin cookie cannot carry the bearer subprotocol the
- * rooms route requires, so `openWebSocket` denies permanently rather than being
- * absent from the type: a caller opening a socket has to handle that denial for
- * a signed-out client anyway, and this is the same answer for a different
- * reason. The only consumer (the dashboard) is a billing surface with no sync.
+ * Its HTTP requests use the ambient cookie. It offers no account-bound data transport.
  */
 export function createSameOriginCookieAuth({
 	baseURL,
 	callbackURL,
 	fetch: fetchImpl = globalThis.fetch.bind(globalThis),
 	navigate = (url) => globalThis.location.assign(url),
-}: CreateSameOriginCookieAuthConfig): AuthClient {
+}: CreateSameOriginCookieAuthConfig): AuthControls<AuthIdentityState> & {
+	fetch: AuthFetch;
+} {
 	const log = createLogger('auth/same-origin-cookie');
-	let state: AuthState = { status: 'signed-out' };
-	const listeners = new Set<(state: AuthState) => void>();
+	let state: AuthIdentityState = { status: 'signed-out' };
+	const listeners = new Set<(state: AuthIdentityState) => void>();
 
-	function setState(next: AuthState) {
+	function setState(next: AuthIdentityState) {
 		state = next;
 		for (const listener of listeners) {
 			try {
@@ -189,7 +188,7 @@ export function createSameOriginCookieAuth({
 				return () => undefined;
 			},
 		},
-		onStateChange(fn) {
+		onStateChange(fn: (state: AuthIdentityState) => void) {
 			listeners.add(fn);
 			return () => {
 				listeners.delete(fn);
@@ -215,7 +214,7 @@ export function createSameOriginCookieAuth({
 			setState({ status: 'signed-out' });
 			return error ? Err(error) : Ok(undefined);
 		},
-		async fetch(input, init) {
+		async fetch(input: Request | string | URL, init?: RequestInit) {
 			const target =
 				typeof input === 'string' && input.startsWith('/')
 					? new URL(input, baseURL).toString()
@@ -239,14 +238,6 @@ export function createSameOriginCookieAuth({
 					status: read.status,
 				},
 			});
-		},
-		// Refused because of the credential model, not because this client
-		// happens to be signed out: a same-origin cookie cannot carry the bearer
-		// subprotocol the rooms route requires, so no auth state reaches a socket
-		// from here. The dashboard is a billing surface with nothing to sync, and
-		// `'no-credential-model'` is what a status surface renders as nothing.
-		async openWebSocket() {
-			throw OpenWebSocketDenied({ code: 'no-credential-model' }).error;
 		},
 		[Symbol.dispose]() {
 			listeners.clear();

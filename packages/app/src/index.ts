@@ -2,7 +2,7 @@
  * One application's Epicenter Data session: the replica it opens, and the
  * account it opens it for (ADR-0316, ADR-0339).
  *
- * An application creates `epicenter` once and reaches its data through it. It
+ * An application creates `epicenter` once and opens a session for its selected account. It
  * never selects IndexedDB, a generation number, or a socket, because none of
  * those names appear on this surface.
  *
@@ -21,8 +21,7 @@
  * could not tell it apart from a browser tab anyway.
  */
 
-import type { AuthClient } from '@epicenter/auth';
-import { type AccountSnapshot, accountOf } from '@epicenter/auth';
+import type { Account } from '@epicenter/auth';
 import { isAppId } from '@epicenter/constants/app-id';
 import type { ReplicaData } from '@epicenter/data';
 import type { OpenedDatabase, StoreError } from '@epicenter/data/browser';
@@ -56,29 +55,13 @@ export const DataSessionError = defineErrors({
 });
 export type DataSessionError = InferErrors<typeof DataSessionError>;
 
-/**
- * The store half of the handle: an application's one definition, and the
- * account whose replica it opens.
- *
- * They arrive together or not at all. An authority mints every generation
- * (ADR-0336), so there is no accountless store and no store without sync; an
- * application that passes neither gets a handle with no `data` and no
- * `account`, which is the whole surface Local Mail needs.
- */
+/** This application's one data definition. Account selection happens at open. */
 export type EpicenterDataOptions<TDefinition extends DataDefinition> = {
 	/**
 	 * This application's one data definition, which an application has exactly
 	 * one of and imports (ADR-0313).
 	 */
 	definition: TDefinition;
-	/**
-	 * The account this acts as, which the application constructs and passes in.
-	 *
-	 * The package does not build one. A desktop leaf needs its own bootstrap
-	 * and a browser leaf needs a redirect launcher, and a package that built
-	 * both would have to know every auth model an application might use.
-	 */
-	account: AuthClient;
 };
 
 export type CreateEpicenterOptions = {
@@ -116,14 +99,14 @@ export type DataOpenError =
 /**
  * One open of one replica, and the two things that end it.
  *
- * A value the caller owns, not a state the handle publishes. `open()` hands one
+ * A value the caller owns, not a state the handle publishes. `open(account)` hands one
  * back synchronously and every state a surface used to switch on is a branch of
  * `opened`: pending is `{#await}`, refused is its `error`, ready is its `data`.
  * There is no `closed` state, because a caller holding this is holding the
  * session that has it.
  *
- * **A session answers for the principal that created it.** `open()` reads the
- * account once, at the call, so a client that signs in as somebody else while
+ * **A session answers for the principal that created it.** `open(account)` captures the
+ * account at the call, so a client that signs in as somebody else while
  * this was opening does not move the address this opened.
  */
 export type DataSession<TDefinition extends DataDefinition> = {
@@ -177,7 +160,7 @@ export type DataSession<TDefinition extends DataDefinition> = {
 };
 
 /**
- * One application's handle: the account it acts as, and the verb that opens it.
+ * One application's definition and the queue that serializes its data sessions.
  *
  * **Construction is inert and opening is a verb.** `createEpicenter` claims no
  * Web Lock, touches no IndexedDB, and makes no round trip; `open` does all
@@ -198,7 +181,7 @@ export type Epicenter<TDefinition extends DataDefinition> = {
 	 * that one is closed first, and this one's open runs after the release, so
 	 * it meets a free address rather than its own lock.
 	 */
-	open(): DataSession<TDefinition>;
+	open(account: Account): DataSession<TDefinition>;
 	/**
 	 * Close whichever session the handle is holding.
 	 *
@@ -215,7 +198,6 @@ export type Epicenter<TDefinition extends DataDefinition> = {
 export function createEpicenter<const TDefinition extends DataDefinition>({
 	appId,
 	definition,
-	account,
 }: CreateEpicenterOptions &
 	EpicenterDataOptions<TDefinition>): Epicenter<TDefinition> {
 	if (!isAppId(appId)) {
@@ -262,20 +244,7 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 	/** Wait for everything already scheduled against the address to settle. */
 	const settled = () => enqueue(async () => undefined);
 
-	const open = (): DataSession<TDefinition> => {
-		// Read at the call, so this session answers for this principal even if
-		// the client moves while the open is still queued behind a release.
-		// Contained, because `open` is synchronous and a caller assigning its
-		// result cannot catch: a client too broken to state an address fails this
-		// session rather than the statement that asked for one.
-		let address: AccountSnapshot | undefined;
-		let readFailure: unknown;
-		try {
-			address = accountOf(account);
-		} catch (cause) {
-			readFailure = cause;
-		}
-
+	const open = (account: Account): DataSession<TDefinition> => {
 		let publish!: (
 			outcome: Result<ReplicaData<TDefinition>, DataOpenError>,
 		) => void;
@@ -297,11 +266,6 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 				publish(DataSessionError.SessionClosed());
 				return;
 			}
-			if (address === undefined) {
-				if (live === record) live = undefined;
-				publish(DataSessionError.OpenerThrew({ cause: readFailure }));
-				return;
-			}
 			// Contained rather than propagated. `openReplica` resolves a `Result`
 			// and contains its own throws; a promise that breaks that anyway must
 			// not leave this session pending forever, because a surface awaiting
@@ -309,7 +273,7 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 			const outcome = await openReplica({
 				appId,
 				definition,
-				account: address,
+				account,
 			}).catch((cause: unknown) => DataSessionError.OpenerThrew({ cause }));
 
 			if (outcome.error !== null) {
@@ -343,7 +307,7 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 				// where the credential is cleared, so a client read later would
 				// name nobody; this session already knows who it was opened for,
 				// and that is the principal whose copy goes.
-				const { principalId } = accountOf(account);
+				const { principalId } = account;
 				if (live === record) retire();
 				await settled();
 				// Throws out of `erase` on failure, which aborts before anything is

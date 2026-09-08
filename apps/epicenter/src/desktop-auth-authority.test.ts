@@ -72,11 +72,9 @@ test('a stored cell boots the hosted principal and authorizes after verification
 		status: 'connected',
 	});
 	expect(authority.bootSnapshot.networkEligible).toBe(false);
-	expect(await authority.authorize()).toEqual({
-		status: 'authorized',
-		accessToken: 'access-1',
-		tokenGeneration: 1,
-	});
+	expect(String((await authority.account?.getProfile())?.data?.id)).toBe(
+		'alice',
+	);
 });
 
 test('sign-out clears the cell before requesting relaunch', async () => {

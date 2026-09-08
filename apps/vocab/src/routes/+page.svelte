@@ -16,7 +16,7 @@
 {#if auth.state.status === 'signed-out'}
 	<SignInScreen {auth} appName="Vocab" noun="conversations" />
 {:else}
-	{#key auth.state.principalId}
-		<ConversationsSession />
+	{#key auth.state.account}
+		<ConversationsSession account={auth.state.account} />
 	{/key}
 {/if}

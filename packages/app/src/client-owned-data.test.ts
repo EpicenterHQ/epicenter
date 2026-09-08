@@ -1,10 +1,11 @@
+import { asPrincipalId } from '@epicenter/principal';
 import 'fake-indexeddb/auto';
 import { installTestLocks } from '@epicenter/data/test-locks';
 
 installTestLocks();
 
 import { expect, test } from 'bun:test';
-import { type AuthClient, accountOf } from '@epicenter/auth';
+import type { Account } from '@epicenter/auth';
 import { createGeneration, openDatabase } from '@epicenter/data/browser';
 import {
 	defineData,
@@ -95,64 +96,39 @@ function createFakeGenerations() {
 	};
 }
 
-function createFakeAuth({
-	status,
+function createFakeAccount({
 	principalId = 'principal-under-test',
 	openWebSocket = () => Promise.reject(new Error('not connected')),
 }: {
 	status: 'signed-out' | 'signed-in' | 'reauth-required';
 	principalId?: string;
 	openWebSocket?: () => Promise<WebSocket>;
-}): AuthClient {
-	const unused = () => {
-		throw new Error('not part of opening a store');
-	};
+}): Account {
 	const generations = createFakeGenerations();
-	return {
-		state: status === 'signed-out' ? { status } : { status, principalId },
-		connection: {
-			baseURL: 'https://api.test',
-			status: 'connected',
-			onChange: () => () => undefined,
+	return Object.freeze({
+		principalId: asPrincipalId(principalId),
+		baseURL: 'https://api.test',
+		fetch: generations.fetch,
+		getProfile() {
+			throw new Error('Not part of opening a store');
 		},
-		onStateChange: () => () => undefined,
-		startSignIn: unused,
-		signOut: unused,
-		fetch: (input: Request | string | URL, init?: RequestInit) =>
-			generations.fetch(input, init),
-		getProfile: unused,
 		openWebSocket,
-		[Symbol.dispose]: () => undefined,
-	} as unknown as AuthClient;
-}
-
-/**
- * Sign this fake client in as somebody else, in place.
- *
- * The live shape it stands in for is one client whose `state` moved while a
- * session was still letting go of the previous principal's store. The handle
- * reads the state at the `open()` call rather than when the open runs, so a
- * test can move it in between and check which address was opened.
- */
-function signInAs(account: AuthClient, principalId: string): void {
-	(account as { state: unknown }).state = { status: 'signed-in', principalId };
+	});
 }
 
 /** Create an empty generation in this account, the way a first run does. */
-async function importEmptyGeneration(account: AuthClient): Promise<void> {
-	if (account.state.status === 'signed-out') throw new Error('signed out');
+async function importEmptyGeneration(account: Account): Promise<void> {
 	const created = await createGeneration(definition, {
 		appId: APP_ID,
-		account: accountOf(account),
+		account: account,
 	});
 	if (created.error !== null) throw created.error;
 }
 
-function handleFor(account: AuthClient) {
+function handleFor(_account: Account) {
 	return createEpicenter({
 		appId: APP_ID,
 		definition,
-		account,
 	});
 }
 
@@ -163,8 +139,8 @@ function handleFor(account: AuthClient) {
  * perform: the store an application holds cannot close itself (ADR-0340), and
  * the session holds all three things opening acquired.
  */
-async function openedBy(account: AuthClient) {
-	const session = handleFor(account).open();
+async function openedBy(account: Account) {
+	const session = handleFor(account).open(account);
 	const opened = await session.opened;
 	if (opened.error !== null) throw opened.error;
 	return { data: opened.data, close: () => session.close() };
@@ -172,7 +148,10 @@ async function openedBy(account: AuthClient) {
 
 test('the store opens as a replica of the account that was passed in', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const { data, close } = await openedBy(account);
@@ -190,7 +169,10 @@ test('the store opens as a replica of the account that was passed in', async () 
 
 test('construction acquires nothing, and opening is what does', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	// Building the handle claims no Web Lock, opens no IndexedDB, and makes no
@@ -206,25 +188,28 @@ test('construction acquires nothing, and opening is what does', async () => {
 	const other = await openedBy(account);
 	await other.close();
 
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	expect((await session.opened).error).toBeNull();
 	await session.close();
 });
 
 test('a second handle is refused while the first one holds the address', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	if ((await session.opened).error !== null) throw new Error('did not open');
 
 	// A second HANDLE is a second claim, and the store refuses it. That is the
 	// dev-time shape of this: an application constructs one handle per document,
 	// and hot-reloading the module that constructs it meets this until the first
 	// one is closed.
-	const other = await handleFor(account).open().opened;
+	const other = await handleFor(account).open(account).opened;
 	expect(other.error?.name).toBe('AlreadyOpen');
 
 	await session.close();
@@ -232,7 +217,10 @@ test('a second handle is refused while the first one holds the address', async (
 
 test('opening while a session is held closes it first', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	// The account-switch order, which is Svelte's: the new keyed child calls
@@ -241,12 +229,12 @@ test('opening while a session is held closes it first', async () => {
 	// session's real open runs after the first one's release, and it meets a
 	// free address rather than `AlreadyOpen`.
 	const epicenter = handleFor(account);
-	const first = epicenter.open();
+	const first = epicenter.open(account);
 	const held = await first.opened;
 	if (held.error !== null) throw held.error;
 	held.data.tables.notes.create({ title: 'before the switch' });
 
-	const second = epicenter.open();
+	const second = epicenter.open(account);
 	const reopened = await second.opened;
 	if (reopened.error !== null) throw reopened.error;
 	// A fresh open of the same address: a different store object over the same
@@ -264,18 +252,21 @@ test('opening while a session is held closes it first', async () => {
 
 test('opening while a close is in flight chains behind it', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const first = epicenter.open();
+	const first = epicenter.open(account);
 	if ((await first.opened).error !== null) throw new Error('did not open');
 
 	// Not awaited: the close is still letting go of the Web Lock when the next
 	// session asks for it. Starting a second open now would meet a conflict with
 	// no other window in it.
 	const closing = first.close();
-	const second = epicenter.open();
+	const second = epicenter.open(account);
 	const opened = await second.opened;
 	expect(opened.error).toBeNull();
 
@@ -285,11 +276,14 @@ test('opening while a close is in flight chains behind it', async () => {
 
 test('a session opens the address of the principal that was current at the call', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	let account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const first = epicenter.open();
+	const first = epicenter.open(account);
 	const held = await first.opened;
 	if (held.error !== null) throw held.error;
 	held.data.tables.notes.create({ title: "alice's note" });
@@ -299,8 +293,8 @@ test('a session opens the address of the principal that was current at the call'
 	// after the first session's close, and that must not move the address this
 	// session already captured. A session answers for the principal that created
 	// it.
-	const second = epicenter.open();
-	signInAs(account, 'bob');
+	const second = epicenter.open(account);
+	account = createFakeAccount({ status: 'signed-in', principalId: 'bob' });
 	const reopened = await second.opened;
 	if (reopened.error !== null) throw reopened.error;
 	expect(String(reopened.data.principalId)).toBe('alice');
@@ -311,13 +305,16 @@ test('a session opens the address of the principal that was current at the call'
 
 test('a session closed while it is opening resolves SessionClosed', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	// The unmount-mid-open shape. The caller who awaited the open is TOLD,
 	// rather than handed `Ok` over a store whose every verb throws.
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	await session.close();
 	expect((await session.opened).error?.name).toBe('SessionClosed');
 
@@ -330,11 +327,14 @@ test('a session closed while it is opening resolves SessionClosed', async () => 
 
 test('a session closed after it resolved keeps the value it resolved', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	const opened = await session.opened;
 	if (opened.error !== null) throw opened.error;
 
@@ -352,11 +352,14 @@ test('a session closed after it resolved keeps the value it resolved', async () 
 
 test('closing twice is closing once', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	if ((await session.opened).error !== null) throw new Error('did not open');
 
 	// Not `Promise.all`, deliberately: awaiting only the SECOND close is the
@@ -364,7 +367,7 @@ test('closing twice is closing once', async () => {
 	// lock. A caller that then opened met a conflict with no other window.
 	const first = session.close();
 	await session.close();
-	const next = handleFor(account).open();
+	const next = handleFor(account).open(account);
 	expect((await next.opened).error).toBeNull();
 	await next.close();
 	await first;
@@ -372,10 +375,13 @@ test('closing twice is closing once', async () => {
 
 test('the store a session hands over cannot end the session', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
-	const session = handleFor(account).open();
+	const session = handleFor(account).open(account);
 	const opened = await session.opened;
 	if (opened.error !== null) throw opened.error;
 
@@ -394,69 +400,42 @@ test('the store a session hands over cannot end the session', async () => {
 
 test('a failed open leaks nothing, and the next session is the retry', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	// The live failure a person meets: another context holds the document. It is
 	// repaired by that context letting go, and the repair is a new session,
 	// which is exactly what the retry button asks for.
-	const holder = handleFor(account).open();
+	const holder = handleFor(account).open(account);
 	if ((await holder.opened).error !== null) throw new Error('did not open');
 
 	const epicenter = handleFor(account);
-	const refused = epicenter.open();
+	const refused = epicenter.open(account);
 	expect((await refused.opened).error?.name).toBe('AlreadyOpen');
 
 	await holder.close();
 
-	const retried = epicenter.open();
+	const retried = epicenter.open(account);
 	expect((await retried.opened).error).toBeNull();
 	await retried.close();
 });
 
-test('an opener that rejects fails the session rather than wedging it', async () => {
-	await resetStorage();
-
-	// Nothing is known to reach this arm: `openReplica` resolves a `Result` and
-	// contains its own throws. It exists because a promise that breaks that
-	// contract anyway would leave a session with no way out of opening: the
-	// component's `{#await}` would never leave its pending branch and `close`
-	// would rethrow what the attempt rejected with.
-	//
-	// A client carrying no connection is the cheapest way to make the opener
-	// throw instead of resolve: the address is read at the `open()` call, before
-	// anything is claimed or created.
-	const broken = {
-		...createFakeAuth({ status: 'signed-in', principalId: 'alice' }),
-		connection: undefined,
-	} as unknown as AuthClient;
-	const epicenter = handleFor(broken);
-
-	const threw = await epicenter.open().opened;
-	expect(threw.error?.name).toBe('OpenerThrew');
-
-	// The way out, and it is the same way out every other failure has: a new
-	// session runs a second attempt rather than replaying the first one's
-	// rejection.
-	const again = await epicenter.open().opened;
-	expect(again.error?.name).toBe('OpenerThrew');
-	expect(again.error).not.toBe(threw.error);
-
-	// And closing returns rather than rethrowing.
-	await epicenter.close();
-	expect(await databaseNames()).toEqual([]);
-});
-
 test('the handle closes the live session, which is the hot-reload path', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	// The module that built the handle is being replaced, and nothing in the
 	// tree is going to unmount first. `epicenter.close()` is the one caller that
 	// can end a session it does not hold a reference to.
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	const opened = await session.opened;
 	if (opened.error !== null) throw opened.error;
 
@@ -464,7 +443,7 @@ test('the handle closes the live session, which is the hot-reload path', async (
 	expect(() => opened.data.tables.notes.rows).toThrow();
 
 	// The replacement module opens fresh, which is what the release was for.
-	const next = handleFor(account).open();
+	const next = handleFor(account).open(account);
 	expect((await next.opened).error).toBeNull();
 	await next.close();
 
@@ -475,7 +454,7 @@ test('the handle closes the live session, which is the hot-reload path', async (
 test('a held copy opens from local storage before sync is available', async () => {
 	await resetStorage();
 	{
-		const account = createFakeAuth({
+		const account = createFakeAccount({
 			status: 'signed-in',
 			principalId: 'alice',
 		});
@@ -486,7 +465,7 @@ test('a held copy opens from local storage before sync is available', async () =
 	}
 
 	const { data, close } = await openedBy(
-		createFakeAuth({
+		createFakeAccount({
 			status: 'signed-in',
 			principalId: 'alice',
 			openWebSocket: () => Promise.reject(new Error('offline')),
@@ -498,7 +477,7 @@ test('a held copy opens from local storage before sync is available', async () =
 
 test('a refused credential costs sync, not the notes', async () => {
 	await resetStorage();
-	const refusing = createFakeAuth({
+	const refusing = createFakeAccount({
 		status: 'reauth-required',
 		principalId: 'alice',
 		openWebSocket: () =>
@@ -524,23 +503,13 @@ test('a refused credential costs sync, not the notes', async () => {
 	await close();
 });
 
-test('a signed-out account is refused without creating anything', async () => {
-	await resetStorage();
-
-	// It RESOLVES the refusal rather than throwing it (ADR-0339): the session
-	// component switches on the name, and a rejection would hand it an
-	// `unknown`.
-	const opened = await handleFor(
-		createFakeAuth({ status: 'signed-out' }),
-	).open().opened;
-	expect(opened.error?.name).toBe('Unaddressable');
-	expect(await databaseNames()).toEqual([]);
-});
-
 test('two accounts on one device hold two replicas', async () => {
 	await resetStorage();
 	{
-		const alice = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+		const alice = createFakeAccount({
+			status: 'signed-in',
+			principalId: 'alice',
+		});
 		await importEmptyGeneration(alice);
 		const { data, close } = await openedBy(alice);
 		data.tables.notes.create({ title: "alice's note" });
@@ -551,7 +520,7 @@ test('two accounts on one device hold two replicas', async () => {
 	// address, so cache-first resolution never hands him Alice's copy: he asks
 	// his own account, mints his own generation, and opens it. There is no
 	// refusal to render and nothing for a person to repair.
-	const bob = createFakeAuth({ status: 'signed-in', principalId: 'bob' });
+	const bob = createFakeAccount({ status: 'signed-in', principalId: 'bob' });
 	await importEmptyGeneration(bob);
 	const bobOpened = await openedBy(bob);
 	expect(titles(bobOpened.data)).toEqual([]);
@@ -559,14 +528,17 @@ test('two accounts on one device hold two replicas', async () => {
 	await bobOpened.close();
 
 	// And neither replica saw the other. Alice comes back to hers.
-	const alice = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const alice = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	const back = await openedBy(alice);
 	expect(titles(back.data)).toEqual(["alice's note"]);
 	await back.close();
 
 	// Alice forgets this device. Bob's copy is untouched, because an erase
 	// reaches only the principal the session was opened for.
-	const erased = await handleFor(alice).open().erase();
+	const erased = await handleFor(alice).open(alice).erase();
 	expect(erased.error).toBeNull();
 	const remaining = await databaseNames();
 	expect(remaining.some((name) => name.includes('/bob/'))).toBe(true);
@@ -575,11 +547,14 @@ test('two accounts on one device hold two replicas', async () => {
 
 test('a session erases the copy it was opened for, closing itself first', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	const opened = await session.opened;
 	if (opened.error !== null) throw opened.error;
 
@@ -595,14 +570,17 @@ test('a session erases the copy it was opened for, closing itself first', async 
 	// The handle holds nothing afterwards, which is what lets the component's
 	// reopen take the address straight back rather than queue behind a session
 	// that is gone.
-	const next = epicenter.open();
+	const next = epicenter.open(account);
 	expect((await next.opened).error).toBeNull();
 	await next.close();
 });
 
 test('an erase that fails leaves the copy, and the next session opens it', async () => {
 	await resetStorage();
-	const account = createFakeAuth({ status: 'signed-in', principalId: 'alice' });
+	const account = createFakeAccount({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
 	// Two generations, so one can be held open by something this handle does not
 	// own. Erasing claims every generation under the prefix before deleting any,
 	// so a second window on the older one refuses the whole erase (ADR-0281).
@@ -610,13 +588,13 @@ test('an erase that fails leaves the copy, and the next session opens it', async
 	await importEmptyGeneration(account);
 
 	const epicenter = handleFor(account);
-	const session = epicenter.open();
+	const session = epicenter.open(account);
 	if ((await session.opened).error !== null) throw new Error('did not open');
 
 	const other = await openDatabase(definition, {
 		appId: APP_ID,
 		generation: 1,
-		account: accountOf(account),
+		account: account,
 	});
 	if (other.error !== null) throw other.error;
 
@@ -627,7 +605,7 @@ test('an erase that fails leaves the copy, and the next session opens it', async
 	expect(refused.error?.name).toBe('AlreadyOpen');
 	expect(await databaseNames()).not.toEqual([]);
 
-	const reopened = epicenter.open();
+	const reopened = epicenter.open(account);
 	expect((await reopened.opened).error).toBeNull();
 
 	await other.data.close();

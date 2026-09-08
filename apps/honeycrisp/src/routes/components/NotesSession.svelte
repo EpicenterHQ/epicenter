@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Account } from "@epicenter/auth";
 	import { CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
 	import { auth } from '#platform/auth';
 	import { Loading } from '@epicenter/ui/loading';
@@ -17,7 +18,9 @@
 	 * The cleanup-only effect is the whole lifecycle. Closing releases the Web
 	 * Lock, the socket, and the page-hide listener together (ADR-0340).
 	 */
-	let session = $state.raw(epicenter.open());
+	let { account }: { account: Account } = $props();
+	/* svelte-ignore state_referenced_locally */
+	let session = $state.raw(epicenter.open(account));
 	$effect(() => () => void session.close());
 
 	/**
@@ -54,7 +57,7 @@
 			appName="Honeycrisp"
 			noun="notes"
 			{error}
-			retry={() => (session = epicenter.open())}
+			retry={() => (session = epicenter.open(account))}
 		/>
 	{:else}
 		<StoreShell {data} {removeLocalData} />

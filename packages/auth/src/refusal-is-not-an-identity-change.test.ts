@@ -9,7 +9,7 @@
  * ## The loop it prevents
  *
  * A boot node keys one session on the principal, which is `null` when signed
- * out and `state.principalId` otherwise (ADR-0350). Every client boots
+ * out and `state.account` otherwise (ADR-0350). Every client boots
  * OPTIMISTICALLY: it reports the identity it can prove from disk and verifies
  * over the network afterwards. So if a refusal writes `signed-out`, the
  * sequence is
@@ -54,7 +54,6 @@ import { asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import type { AuthClient, AuthFetch, AuthState } from './auth-contract.js';
 import { createOAuthAppAuth } from './create-oauth-app-auth.js';
-import { createInstanceTokenAuth } from './instance-token-auth.js';
 import type { PersistedAuthStorage } from './persisted-auth-storage.js';
 import { createSameOriginCookieAuth } from './same-origin-cookie-auth.js';
 
@@ -62,7 +61,7 @@ const baseURL = 'http://localhost:8788';
 
 /** `reloadOnAuthChange`'s identity boundary, copied so a drift here is loud. */
 const principalKey = (state: AuthState) =>
-	state.status === 'signed-out' ? null : state.principalId;
+	state.status === 'signed-out' ? null : state.account;
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -96,11 +95,6 @@ function persisted(): PersistedAuthStorage {
 /** Every client that boots knowing who it is, which is every client but one. */
 const optimisticClients: Array<{ label: string; open: () => AuthClient }> = [
 	{
-		label: 'self-host instance token',
-		open: () =>
-			createInstanceTokenAuth({ baseURL, token: 'a-token', fetch: refusing }),
-	},
-	{
 		label: 'hosted OAuth',
 		open: () =>
 			createOAuthAppAuth({
@@ -123,7 +117,10 @@ for (const client of optimisticClients) {
 		// Whatever the client does to discover the refusal: the boot check, a
 		// resource call, or a refresh on an expired access token.
 		await settle();
-		await auth.fetch(`${baseURL}/api/blobs`).catch(() => undefined);
+		await (auth.state.status === 'signed-out'
+			? Promise.reject(new Error('signed out'))
+			: auth.state.account.fetch(`${baseURL}/api/blobs`)
+		).catch(() => undefined);
 		await settle();
 
 		// The whole invariant. If this flips, `reloadOnAuthChange` reloads, the
@@ -144,9 +141,9 @@ test('the cookie client is the exemption, and it is exempt for a reason', async 
 				headers: { 'content-type': 'application/json' },
 			}),
 	});
-	expect(principalKey(auth.state)).toBeNull();
+	expect(auth.state.status).toBe('signed-out');
 	await settle();
-	expect(principalKey(auth.state)).toBe(asPrincipalId('user-1'));
+	expect(auth.state.status).toBe('signed-in');
 
 	// So mounting `reloadOnAuthChange` on a cookie app would reload on that
 	// discovery, boot signed-out again, and loop. `apps/api/ui` mounts no gate

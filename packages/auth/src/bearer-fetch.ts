@@ -51,7 +51,7 @@ export function mergeRequestHeaders(
 /**
  * Attach an Epicenter bearer and dispatch a request. The single implementation
  * of the credential-attach rules shared by the OAuth ({@link createOAuthAppAuth})
- * and instance-token ({@link createInstanceTokenAuth}) clients, which differ only
+ * and host transports, which differ only
  * in how they resolve the token:
  *
  *   - The bearer is attached only to `epicenterOrigin` (ADR-0053 audience

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { Account } from "@epicenter/auth";
+	import { createDictation } from "$lib/state/dictation.svelte";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';
 	import { Button } from '@epicenter/ui/button';
@@ -12,7 +14,7 @@
 	import { buildPracticeOpening } from '$lib/practice';
 	import { reportBackgroundError } from '$lib/report';
 	import { createEntriesState } from '$lib/state/entries.svelte';
-	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
+	import { createVocabConnections } from '$lib/state/inference-connections.svelte';
 	import { createSettingsState } from '$lib/state/settings.svelte';
 	import { setVocabSurface } from '$lib/surface';
 	import ConversationView from './ConversationView.svelte';
@@ -27,8 +29,10 @@
 	// `data` and never asks which one it is.
 	let {
 		data: opened,
+		account,
 		removeLocalData,
 	}: {
+		account: Account;
 		data: ReplicaData<typeof vocabDefinition>;
 		removeLocalData: () => Promise<void>;
 	} = $props();
@@ -42,7 +46,10 @@
 	// store, so `data` never changes while this component lives.
 	/* svelte-ignore state_referenced_locally */
 	const entries = createEntriesState({ data });
-	setVocabSurface({ entries });
+	/* svelte-ignore state_referenced_locally */
+	const inferenceConnections = createVocabConnections(account);
+	const dictation = createDictation(inferenceConnections);
+	setVocabSurface({ entries, inferenceConnections, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
 	// capability-free (no tools, no approval), one general multilingual system
@@ -63,6 +70,7 @@
 	const settings = createSettingsState({ data });
 
 	onDestroy(() => {
+		void dictation.stop();
 		chat[Symbol.dispose]();
 		entries[Symbol.dispose]();
 		settings[Symbol.dispose]();

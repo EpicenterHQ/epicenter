@@ -7,7 +7,6 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
-import { getProfileVia } from '@epicenter/auth';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { epicenterFolderRoot, isAppId } from '@epicenter/constants/app-data';
@@ -22,9 +21,11 @@ import {
 	type SqliteStatement,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
+import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
+import { createAccountRelay } from './account-relay.ts';
 import type { AppSecretOwner } from './app-secrets.ts';
 import { type Application, listApplications } from './applications.ts';
 import {
@@ -34,7 +35,6 @@ import {
 	writeCheckout,
 } from './checkout.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
-import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
 import type { BunDevice } from './device.ts';
 import {
 	type HomeHost,
@@ -162,8 +162,8 @@ export function createHomeServer({
 				contentSecurityPolicy(everyPage, APPLICATION_CONNECT_ORIGINS[id]),
 			]),
 	);
-	const deploymentFetch = createDesktopAuthorityFetch(desktopAuth);
-	const { upgradeWebSocket, websocket } = createBunWebSocket();
+	const { upgradeWebSocket, websocket: homeWebsocket } = createBunWebSocket();
+	const relay = createAccountRelay(homeWebsocket);
 	const app = new Hono();
 
 	app.use('*', async (c, next) => {
@@ -227,12 +227,90 @@ export function createHomeServer({
 	// without the origin check because a browser omits the Origin header on
 	// same-origin GETs.
 	app.use('/_epicenter/account/*', async (c, next) => {
-		if (c.req.method === 'GET') return requireBrowserSession(c, next);
+		if (c.req.method === 'GET' || c.req.method === 'HEAD')
+			return requireBrowserSession(c, next);
 		return requirePrivateBroker(c, next);
 	});
 
+	app.all('/_epicenter/account/http', async (c) => {
+		const account = desktopAuth.account;
+		if (!account) return c.text('Signed out', 401);
+		const path = c.req.query('path');
+		if (!path?.startsWith('/') || path.startsWith('//') || path.includes('\\'))
+			return c.text('Invalid account path', 400);
+		const target = new URL(path, account.baseURL);
+		if (
+			target.origin !== new URL(account.baseURL).origin ||
+			!(
+				target.pathname.startsWith('/api/') ||
+				target.pathname.startsWith('/v1/')
+			)
+		)
+			return c.text('Invalid account path', 400);
+		const headers = relayHeaders(c.req.raw.headers);
+		try {
+			const response = await account.fetch(
+				new Request(target, {
+					method: c.req.method,
+					headers,
+					body:
+						c.req.method === 'GET' || c.req.method === 'HEAD'
+							? undefined
+							: c.req.raw.body,
+					signal: c.req.raw.signal,
+					redirect: 'manual',
+				}),
+			);
+			const outgoing = relayHeaders(response.headers);
+			outgoing.delete('set-cookie');
+			outgoing.delete('content-encoding');
+			outgoing.delete('location');
+			outgoing.set('cache-control', 'no-store');
+			outgoing.set('x-epicenter-auth-state', desktopAuth.state.status);
+			return new Response(response.body, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: outgoing,
+			});
+		} catch (error) {
+			c.header('x-epicenter-auth-state', desktopAuth.state.status);
+			if (
+				typeof error === 'object' &&
+				error !== null &&
+				'name' in error &&
+				error.name === 'AccountUnavailable' &&
+				'code' in error
+			)
+				return c.text('Account network access unavailable', 401);
+			return c.text('Account transport unavailable', 502);
+		}
+	});
+	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
+		const dataId = c.req.query('dataId') ?? '';
+		const generation = Number(c.req.query('generation'));
+		const cursor = Number(c.req.query('cursor'));
+		if (
+			!dataId ||
+			!Number.isSafeInteger(generation) ||
+			generation < 0 ||
+			!Number.isSafeInteger(cursor) ||
+			cursor < 0
+		)
+			return c.text('Invalid sync address', 400);
+		return relay.upgrade(
+			c,
+			desktopAuth.account,
+			STORE_SYNC_ROUTE.address(desktopAuth.baseURL, {
+				dataId,
+				generation,
+				cursor,
+			}),
+		);
+	});
+
 	app.get(ACCOUNT_PROFILE_ROUTE.pattern, async (c) => {
-		const profile = await getProfileVia(deploymentFetch, desktopAuth.baseURL);
+		if (!desktopAuth.account) return c.text('Signed out', 401);
+		const profile = await desktopAuth.account.getProfile();
 		if (profile.error !== null) return c.text('Profile unavailable', 502);
 		return c.json(profile.data);
 	});
@@ -617,7 +695,7 @@ export function createHomeServer({
 		}),
 	);
 
-	return { app, websocket };
+	return { app, websocket: relay.websocket };
 }
 
 /**
@@ -897,4 +975,27 @@ function parseFrame(data: unknown): unknown {
 	} catch {
 		return undefined;
 	}
+}
+
+/** Only end-to-end application headers cross the credential boundary. */
+function relayHeaders(source: Headers): Headers {
+	const headers = new Headers(source);
+	const connectionHeaders = headers.get('connection')?.split(',') ?? [];
+	for (const name of [
+		...connectionHeaders,
+		'authorization',
+		'cookie',
+		'host',
+		'connection',
+		'keep-alive',
+		'proxy-authenticate',
+		'proxy-authorization',
+		'te',
+		'trailer',
+		'transfer-encoding',
+		'upgrade',
+		'content-length',
+	])
+		headers.delete(name.trim());
+	return headers;
 }

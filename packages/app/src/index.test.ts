@@ -14,25 +14,23 @@ import { expect, test } from 'bun:test';
 import { createEpicenter } from './index.js';
 
 const definition = { id: 'so.epicenter.notes' } as never;
-const account = {} as never;
 
 test('the application id is explicit and independent from the definition id', () => {
 	// The opening application is its own segment of the store address
 	// (ADR-0324), so a reader application opening the notes definition is a
 	// different replica rather than the same one under another name.
 	expect(
-		createEpicenter({ appId: 'so.epicenter.notes', definition, account }).appId,
+		createEpicenter({ appId: 'so.epicenter.notes', definition }).appId,
 	).toBe('so.epicenter.notes');
 	expect(
-		createEpicenter({ appId: 'so.epicenter.reader', definition, account })
-			.appId,
+		createEpicenter({ appId: 'so.epicenter.reader', definition }).appId,
 	).toBe('so.epicenter.reader');
 });
 
 test('an application id this platform cannot file refuses at construction', () => {
 	// It throws rather than answering a `Result`, because an id reaching this
 	// is a constant in a build and a wrong one is a bug, not a condition.
-	expect(() =>
-		createEpicenter({ appId: 'not an app id', definition, account }),
-	).toThrow('is not valid');
+	expect(() => createEpicenter({ appId: 'not an app id', definition })).toThrow(
+		'is not valid',
+	);
 });

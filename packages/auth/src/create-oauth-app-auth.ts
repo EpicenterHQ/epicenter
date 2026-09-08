@@ -1,26 +1,19 @@
 import { EPICENTER_API_URL } from '@epicenter/constants/apps';
-import { bearerSubprotocol } from '@epicenter/sync/auth-subprotocol';
-import type { OpenWebSocketDenial } from '@epicenter/sync/transport';
 import type { Logger } from 'wellcrafted/logger';
 import type {
 	AuthClient,
 	AuthFetch,
+	AuthState,
 	CallbackAuthClient,
 } from './auth-contract.js';
-import { OpenWebSocketDenied } from './auth-errors.js';
-import {
-	type AuthFetchInput,
-	fetchWithBearer,
-	resolveTargetUrl,
-} from './bearer-fetch.js';
-import type { BearerAuthorization } from './credential-authority.js';
+import { AuthError } from './auth-errors.js';
+import { createOAuthAccount } from './oauth-account.js';
 import { createOAuthCredentialAuthority } from './oauth-credential-authority.js';
 import type {
 	CallbackOAuthLauncher,
 	OAuthLauncher,
 } from './oauth-launchers/contract.js';
 import type { PersistedAuthStorage } from './persisted-auth-storage.js';
-import { getProfileVia } from './read-api-session.js';
 
 /** Construction inputs for the framework-agnostic hosted OAuth client. */
 export type CreateOAuthAppAuthConfig = {
@@ -86,55 +79,34 @@ export function createOAuthAppAuth({
 	now = Date.now,
 	log,
 }: CreateOAuthAppAuthConfig): AuthClient {
-	const epicenterOrigin = new URL(baseURL).origin;
 	const authority = createOAuthCredentialAuthority(
 		{ persistedAuthStorage, launcher, fetch: fetchImpl, log },
 		{ baseURL, clientId, now },
 	);
-
-	function targetsEpicenter(input: AuthFetchInput): boolean {
-		return resolveTargetUrl(input, baseURL)?.origin === epicenterOrigin;
+	let account = createOAuthAccount(authority, {
+		fetch: fetchImpl,
+		WebSocket: WebSocketImpl,
+	});
+	let state: AuthState = projectState();
+	function projectState(): AuthState {
+		const identity = authority.snapshot.state;
+		if (identity.status === 'signed-out' || account === null)
+			return { status: 'signed-out' };
+		return { status: identity.status, account };
 	}
-
-	async function fetchWithAuth(
-		input: AuthFetchInput,
-		init: RequestInit | undefined,
-		providedAuthorization?: BearerAuthorization,
-	) {
-		let authorization = providedAuthorization;
-		const response = await fetchWithBearer({
-			input,
-			init,
-			fetch: fetchImpl,
-			baseURL,
-			epicenterOrigin,
-			resolveToken: async () => {
-				authorization ??= await authority.authorize();
-				return authorization.status === 'authorized'
-					? authorization.accessToken
-					: null;
-			},
-		});
-		return { response, authorization };
-	}
-
-	async function authedFetch(input: AuthFetchInput, init?: RequestInit) {
-		const first = await fetchWithAuth(input, init);
-		if (first.response.status !== 401 || !targetsEpicenter(input)) {
-			return first.response;
-		}
-		const refreshed = await authority.authorize({ forceRefresh: true });
-		if (refreshed.status === 'denied') return first.response;
-		const retry = await fetchWithAuth(input, init, refreshed);
-		if (retry.response.status === 401) {
-			authority.reportRejected(refreshed.tokenGeneration);
-		}
-		return retry.response;
-	}
-
+	const stop = authority.onStateChange(() => {
+		const identity = authority.snapshot.state;
+		if (identity.status === 'signed-out') account = null;
+		else
+			account ??= createOAuthAccount(authority, {
+				fetch: fetchImpl,
+				WebSocket: WebSocketImpl,
+			});
+		state = projectState();
+	});
 	return {
 		get state() {
-			return authority.snapshot.state;
+			return state;
 		},
 		connection: {
 			baseURL,
@@ -146,38 +118,26 @@ export function createOAuthAppAuth({
 			},
 		},
 		onStateChange(fn) {
-			return authority.onStateChange(fn);
+			return authority.onStateChange(() => fn(state));
 		},
 		startSignIn() {
 			return authority.startSignIn();
 		},
-		// Spread rather than declared, so the member is ABSENT on a client whose
-		// launcher cannot complete a callback. `isCallbackAuthClient` is a
-		// runtime read of exactly this, which is what lets one callback route
-		// serve a browser build and a desktop build honestly.
 		...(authority.completeSignIn === undefined
 			? {}
 			: { completeSignIn: authority.completeSignIn }),
 		signOut() {
 			return authority.signOut();
 		},
-		fetch: authedFetch,
-		getProfile: () => getProfileVia(authedFetch, baseURL),
-		async openWebSocket(address) {
-			const authorization = await authority.authorize();
-			if (authorization.status === 'denied') {
-				const denial: OpenWebSocketDenial = OpenWebSocketDenied({
-					code: authorization.code,
-				}).error;
-				throw denial;
-			}
-			return new WebSocketImpl(address.url, [
-				...address.protocols,
-				bearerSubprotocol(authorization.accessToken),
-			]);
+		getProfile() {
+			return (
+				account?.getProfile() ??
+				Promise.resolve(AuthError.ProfileUnavailable({ cause: 'Signed out.' }))
+			);
 		},
 		[Symbol.dispose]() {
 			authority[Symbol.dispose]();
+			stop();
 		},
 	};
 }

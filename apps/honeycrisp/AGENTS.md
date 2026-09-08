@@ -19,10 +19,11 @@ import { epicenter } from '$lib/epicenter.svelte.js';
 Honeycrisp opens no SQLite file and keeps no secret, so it declares no storage
 seam. What varies by build is auth, and whether there is a folder.
 
-`definition` and `account` arrive together in that one file, which IS the store: an authority
-mints every generation (ADR-0336), so there is no accountless notebook.
+`definition` configures that handle; the boot node supplies the selected Account
+to the session component. An authority mints every generation (ADR-0336), so
+there is no accountless notebook.
 **Nothing opens at construction, and opening is a verb.**
-`components/NotesSession.svelte` calls `epicenter.open()` in its script body,
+`components/NotesSession.svelte` calls `epicenter.open(account)` in its script body,
 under the boot node's gate, so a signed-out person meeting the sign-in screen
 pays no Web Lock, no IndexedDB, and no round trip, and `/auth/callback` renders
 under the same layout without opening anything. A retry is a NEW session, which
@@ -53,11 +54,11 @@ usable offline; one that holds none fetches the generation whole before
 returning, so a fresh account never renders empty while its state is arriving.
 
 That file exports ONE name, `epicenter`, and it is the handle itself: there is
-no adapter over it any more. `open()` is SYNCHRONOUS and answers a
+no adapter over it any more. `open(account)` is SYNCHRONOUS and answers a
 `DataSession`, which is a value the tree owns (ADR-0350):
 
 ```ts
-const session = epicenter.open();   // { opened, close, erase }
+const session = epicenter.open(account);   // { opened, close, erase }
 ```
 
 `opened` settles once and never rejects, so pending is `{#await}`, refused is
@@ -65,7 +66,7 @@ its `error`, and ready is its `data`. There is no `closed` state, because a
 caller holding the session is holding the thing that has it. Signed-out is not
 a session state at all: `routes/+page.svelte` reads `auth.state` REACTIVELY and
 renders the sign-in screen, and `components/NotesSession.svelte` is what opens,
-keyed on the principal.
+keyed on the Account object.
 
 The handle serializes sessions on one queue, and that is load-bearing. Svelte
 creates the branch for a new key before it destroys the one it replaces, so a
@@ -162,7 +163,7 @@ only the default one is checked by an editor.
   needs the notes. `NotesSession` owns the session; `StoreShell` takes the store
   it resolved.
 - Do not reload the document on an auth change. The boot node's read tracks, so
-  a sign-out flips its `{#if}` and a principal change remounts its `{#key}`.
+  a sign-out flips its `{#if}` and an Account replacement remounts its `{#key}`.
   `reloadOnAuthChange` is deleted, and reintroducing it would make the keyed
   session unobservable by replacing the document before it could remount.
 - Do not render a store error to a person as the message. `routes/+page.svelte`

@@ -17,14 +17,13 @@
  *
  * **Nothing opens when this module is evaluated.** Construction is inert in
  * both halves, so importing this claims no Web Lock, touches no IndexedDB, and
- * makes no round trip. What opens the notes is `epicenter.open()`, called once
+ * makes no round trip. What opens the notes is `epicenter.open(account)`, called once
  * by `routes/+page.svelte` after auth is ready; `/auth/callback` renders under
  * the same layout and never calls it.
  */
 
 import { createEpicenter } from '@epicenter/app';
 import { APPS } from '@epicenter/constants/apps';
-import { authClient } from '#platform/auth';
 import { honeycrispDefinition } from '$lib/data';
 
 /**
@@ -38,7 +37,6 @@ import { honeycrispDefinition } from '$lib/data';
 export const epicenter = createEpicenter({
 	appId: APPS.HONEYCRISP.id,
 	definition: honeycrispDefinition,
-	account: authClient,
 });
 
 // A hot swap of this module builds a second handle while the first still holds

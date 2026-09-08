@@ -12,7 +12,6 @@
 		parseEntryCandidates,
 	} from '$lib/entry-candidates';
 	import { auth } from '$lib/auth';
-	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
 	import { getVocabSurface } from '$lib/surface';
 	import DictationButton from './DictationButton.svelte';
 	import ReadingMarkdown from './ReadingMarkdown.svelte';
@@ -178,6 +177,7 @@
 		const draft = active.inputValue.trim();
 		active.inputValue = draft ? `${draft} ${text}` : text;
 	}
+	const { inferenceConnections } = getVocabSurface();
 </script>
 
 <svelte:document onselectionchange={handleSelectionChange} />

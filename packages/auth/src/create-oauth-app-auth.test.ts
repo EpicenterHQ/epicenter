@@ -89,9 +89,9 @@ describe('createOAuthAppAuth /api/session verification', () => {
 
 		const { error } = await auth.startSignIn();
 		expect(error).toBeNull();
-		expect(auth.state).toEqual({
+		expect(auth.state).toMatchObject({
 			status: 'signed-in',
-			principalId: asPrincipalId('principal-1'),
+			account: { principalId: asPrincipalId('principal-1') },
 		});
 		// The verified grant and the ids the session reported are persisted.
 		expect(storage.current).toEqual(persistedAuth());
@@ -152,12 +152,12 @@ describe('createOAuthAppAuth /api/session verification', () => {
 			fetch,
 		});
 		// Boots signed-in (unverified) from the persisted cell.
-		expect(auth.state).toEqual({
+		expect(auth.state).toMatchObject({
 			status: 'signed-in',
-			principalId: asPrincipalId('principal-1'),
+			account: { principalId: asPrincipalId('principal-1') },
 		});
 
-		await auth.fetch('/api/blobs');
+		await selectedAccount(auth).fetch('/api/blobs');
 
 		const sessionCall = calls.find(
 			(call) => call.url === `${baseURL}/api/session`,
@@ -185,7 +185,11 @@ describe('createOAuthAppAuth /api/session verification', () => {
 			fetch,
 		});
 
-		await auth.fetch('https://someone-elses-inference.example.com/v1/models');
+		await expect(
+			selectedAccount(auth).fetch(
+				'https://someone-elses-inference.example.com/v1/models',
+			),
+		).rejects.toThrow('own server');
 		const cross = calls.find(
 			(call) =>
 				call.url === 'https://someone-elses-inference.example.com/v1/models',
@@ -208,10 +212,12 @@ describe('createOAuthAppAuth /api/session verification', () => {
 			fetch,
 		});
 
-		await auth.fetch('/api/blobs');
-		expect(auth.state).toEqual({
+		await expect(
+			selectedAccount(auth).fetch('/api/blobs'),
+		).rejects.toMatchObject({ code: 'reauth-required' });
+		expect(auth.state).toMatchObject({
 			status: 'reauth-required',
-			principalId: asPrincipalId('principal-1'),
+			account: { principalId: asPrincipalId('principal-1') },
 		});
 	});
 
@@ -233,3 +239,10 @@ describe('createOAuthAppAuth /api/session verification', () => {
 		});
 	});
 });
+
+function selectedAccount(auth: import('./auth-contract.js').AuthClient) {
+	const state = auth.state;
+	if (state.status === 'signed-out')
+		throw new Error('Expected a selected account');
+	return state.account;
+}

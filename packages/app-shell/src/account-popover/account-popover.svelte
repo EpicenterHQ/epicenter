@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { AuthControls } from '@epicenter/auth';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
@@ -41,7 +42,7 @@
 		 * The app's auth client. Its connection
 		 * supplies the selected server and live connection status.
 		 */
-		auth: ReactiveAuthClient;
+		auth: ReactiveAuthClient<AuthControls>;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
 		/**
@@ -94,20 +95,15 @@
 	// now; the reason is shown and those actions are disabled. Reconnect is safe
 	// (it never reloads), so it stays enabled.
 	const accountLocked = $derived(!!disabledReason);
-	const accountCacheKey = $derived(
-		auth.state.status === 'signed-out' ? null : auth.state.principalId,
-	);
-	// Identity lives on the auth client: `state` carries the principal partition,
-	// and `getProfile()` reads presentational identity (the email) on demand.
-	// TanStack Query owns the reactive cache here, keyed by account, and
-	// `resultQueryOptions` bridges the Result into its throw-on-error contract.
+	// A new auth selection gets its own profile query. The controller captures
+	// its account when the request begins; retirement cancels a stale read.
 	const profile = createQuery(
 		() =>
 			resultQueryOptions({
-				queryKey: ['account-profile', accountCacheKey],
+				queryKey: ['account-profile', auth.state],
 				queryFn: () => auth.getProfile(),
 				enabled: auth.state.status !== 'signed-out',
-				staleTime: Infinity,
+				staleTime: 0,
 			}),
 		() => accountProfileQueryClient,
 	);

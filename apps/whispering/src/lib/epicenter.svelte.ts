@@ -17,14 +17,13 @@
  * selected next door.
  *
  * **Nothing opens when this module is evaluated.** What opens the store is
- * `epicenter.open()`, called once by `(app)/+layout.svelte` after auth is read.
+ * `epicenter.open(account)`, called once by `(app)/+layout.svelte` after auth is read.
  * `/auth/callback` and `/recording-overlay` are siblings of that group and
  * never reach it (ADR-0345).
  */
 
 import { createEpicenter } from '@epicenter/app';
 import { APPS } from '@epicenter/constants/apps';
-import { authClient } from '#platform/auth';
 import { whisperingDefinition } from './data';
 
 /**
@@ -39,7 +38,6 @@ import { whisperingDefinition } from './data';
 export const epicenter = createEpicenter({
 	appId: APPS.WHISPERING.id,
 	definition: whisperingDefinition,
-	account: authClient,
 });
 
 // The disposer RETURNS the close, because Vite awaits it: the replacement

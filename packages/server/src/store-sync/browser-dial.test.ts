@@ -169,7 +169,12 @@ async function dial(): Promise<Opening> {
 	await using _store = store;
 	const connection = attachStoreSync({
 		store,
-		transport: auth,
+		transport:
+			auth.state.status === 'signed-out'
+				? (() => {
+						throw new Error('No test account');
+					})()
+				: auth.state.account,
 		onTransportError: (cause) => {
 			throw cause;
 		},

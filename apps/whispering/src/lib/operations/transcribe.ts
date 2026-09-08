@@ -8,7 +8,6 @@ import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { type AnyTaggedError, defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { authClient } from '#platform/auth';
 import { customFetch } from '#platform/http';
 import { tauri } from '#platform/tauri';
 import {
@@ -131,8 +130,8 @@ const uploadDispatch = (app: WhisperingApp) =>
 		epicenter: {
 			kind: 'wire',
 			resolve: () => ({
-				fetch: authClient.fetch,
-				baseURL: API_ROUTES.ai.baseUrl(authClient.connection.baseURL),
+				fetch: app.account.fetch,
+				baseURL: API_ROUTES.ai.baseUrl(app.account.baseURL),
 			}),
 			model: () => PROVIDERS.epicenter.model,
 		},

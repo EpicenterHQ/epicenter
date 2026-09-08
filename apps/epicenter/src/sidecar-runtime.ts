@@ -515,7 +515,14 @@ export async function superviseSidecar({
 			exit(1);
 		}, graceMs);
 		try {
-			await server.stop(true);
+			// Force-stop releases the listener and sockets immediately. Bun 1.3.1
+			// through 1.3.14 can leave its promise pending after server-initiated
+			// WebSocket close, so waiting here would skip every owner's disposal.
+			void Promise.resolve(server.stop(true)).catch((error: unknown) => {
+				report(
+					`Epicenter host: force-stop failed: ${extractErrorMessage(error)}`,
+				);
+			});
 		} finally {
 			try {
 				await host[Symbol.asyncDispose]();

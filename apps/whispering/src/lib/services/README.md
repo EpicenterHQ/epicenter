@@ -127,7 +127,7 @@ export const services = {
 ```
 
 Blobs are not in the barrel. `#platform/blobs` exports
-`createWhisperingBlobs({ appId, principalId })`, because the local store is one
+`createWhisperingBlobs({ appId, account })`, because the local store is one
 account's (ADR-0349): the browser leaf opens
 `epicenter/v5/<app-id>/<principal-id>/blobs`, so nothing can be built before
 the shell knows which account opened. `WhisperingShell` builds it once per

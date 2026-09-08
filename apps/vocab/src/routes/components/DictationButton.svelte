@@ -1,11 +1,11 @@
 <script lang="ts">
+	import { getVocabSurface } from "$lib/surface";
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleStopIcon from '@lucide/svelte/icons/circle-stop';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { dictation } from '$lib/state/dictation.svelte';
 
 	let {
 		onTranscript,
@@ -52,6 +52,7 @@
 			});
 		}
 	}
+	const { dictation } = getVocabSurface();
 </script>
 
 <Button

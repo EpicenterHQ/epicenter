@@ -1,6 +1,7 @@
-export { type AccountSnapshot, accountOf } from './account-of.js';
 export type {
+	Account,
 	AuthClient,
+	AuthControls,
 	AuthFetch,
 	AuthState,
 	CallbackAuthClient,
@@ -9,6 +10,7 @@ export type {
 } from './auth-contract.js';
 export { isCallbackAuthClient } from './auth-contract.js';
 export * from './auth-errors.js';
+export type { AuthIdentityState } from './auth-identity-state.js';
 export {
 	ApiSessionResponse,
 	Principal,
@@ -40,6 +42,7 @@ export {
 	generateInstanceToken,
 	MIN_INSTANCE_TOKEN_CHARS,
 } from './instance-token.js';
+export { createOAuthAccount } from './oauth-account.js';
 export {
 	createOAuthCredentialAuthority,
 	type OAuthCredentialAuthority,
