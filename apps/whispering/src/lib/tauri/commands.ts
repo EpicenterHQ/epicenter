@@ -27,7 +27,7 @@ import { invoke as rawInvoke } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { events, commands as gen } from './bindings.gen';
 import type { BlobScope } from './bindings.gen';
-import type { AccountIdentity } from '@epicenter/app';
+import type { AccountIdentity } from '@epicenter/principal';
 
 /** Convert the app handle's nullable identity at the native IPC boundary. */
 export function blobScope(account: AccountIdentity | null): BlobScope {

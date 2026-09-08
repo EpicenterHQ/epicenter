@@ -20,6 +20,7 @@ function setup(principalId: string) {
 		complete(body: unknown): void;
 	}[] = [];
 	const account: Account = {
+		authorityId: 'test-authority',
 		principalId: asPrincipalId(principalId),
 		baseURL: 'https://api.example.test',
 		fetch(input, init) {
@@ -192,6 +193,7 @@ for (const successor of ['bob', 'alice']) {
 				});
 				if (path === '/api/session')
 					return Response.json({
+						authorityId: 'test-authority',
 						principalId: authorization === 'Bearer first' ? 'alice' : successor,
 					});
 				if (path === '/auth/sign-out') return Response.json({ success: true });

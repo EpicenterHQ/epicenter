@@ -10,17 +10,16 @@ export type App<TDefinition extends DataDefinition> = ReturnType<
 >;
 export type AppSqlite = App<DataDefinition>['sqlite'];
 export type AppBlobs = App<DataDefinition>['blobs'];
-export type AccountIdentity = NonNullable<App<DataDefinition>['account']>;
 
 export type AppBlobComposition = {
 	local: BlobStore;
 	sources: BlobSources;
-	remote: BlobRemote;
+	remote: BlobRemote | null;
 };
 
 export type AppBlobFactory = (input: {
 	appId: string;
-	account: Account | undefined;
+	account: Account | null;
 }) => AppBlobComposition;
 
 export type Epicenter<TDefinition extends DataDefinition> = {
@@ -44,26 +43,31 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 }): Epicenter<TDefinition> {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
-	function open(account?: Account): App<TDefinition> {
-		const authorityId = account?.authorityId;
-		if (account !== undefined && authorityId === undefined) {
-			throw new Error('The account has no stable authority identity.');
-		}
+	function open(input: Account | null): App<TDefinition> {
+		// Bind every capability before asynchronous acquisition can observe a
+		// caller changing the supplied object. Transport closures retain retirement.
+		const account =
+			input === null
+				? null
+				: Object.freeze({
+						authorityId: input.authorityId,
+						principalId: input.principalId,
+						baseURL: input.baseURL,
+						fetch: input.fetch,
+						openWebSocket: input.openWebSocket,
+						getProfile: input.getProfile,
+					});
 		const blobComposition = blobs({ appId, account });
-		const dataAccount =
-			account !== undefined && authorityId !== undefined
-				? { ...account, authorityId }
-				: undefined;
 		return openAppData(definition, {
 			appId,
-			account: dataAccount,
+			account,
 			blobs: blobComposition,
 			sqlite,
 		});
 	}
 	return Object.freeze({
 		appId,
-		openLocal: () => open(),
+		openLocal: () => open(null),
 		openAccount: (account: Account) => open(account),
 	});
 }

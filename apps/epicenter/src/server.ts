@@ -8,7 +8,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
-import type { WebviewBlobScope } from '@epicenter/blobs/webview';
+import { BLOB_PATHS } from '@epicenter/blobs/webview';
+import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { isAppId } from '@epicenter/constants/app-id';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
@@ -19,7 +20,7 @@ import {
 	type DeviceResponse,
 	isDatabaseName,
 	isSecretLabel,
-	isStorageScope,
+	isSqliteAccount,
 	type SqliteStatement,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
@@ -55,9 +56,6 @@ import {
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
 	CHECKOUT_ROUTE,
-	LOCAL_BLOB_REMOTE_ROUTES,
-	LOCAL_BLOB_COPY_ROUTE,
-	LOCAL_BLOB_ROUTE,
 	MAIL_CALLBACK_ROUTE,
 	MAIL_PENDING_CALLBACK_ROUTE,
 	SESSION_ROUTE,
@@ -90,7 +88,7 @@ export type HomeServerOptions = {
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
 	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: BunBlobStore | ((appId: string, scope: WebviewBlobScope) => BunBlobStore);
+	blobs: (appId: string, account: AccountIdentity | null) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
 	/**
@@ -99,7 +97,10 @@ export type HomeServerOptions = {
 	 * builds it from the desktop authority, so these routes never see a
 	 * credential or a destination URL.
 	 */
-	blobRemote: BlobRemote | null | ((appId: string, scope: WebviewBlobScope) => BlobRemote | null);
+	blobRemote: (
+		appId: string,
+		account: AccountIdentity | null,
+	) => BlobRemote | null;
 	/** Bun owner for app-scoped SQLite files. */
 	device?: BunDevice;
 	/** Credential-store owner for one labeled secret per application account. */
@@ -117,17 +118,13 @@ const MAX_BROWSER_SESSIONS = 32;
 const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Device.</p></body></html>`;
 const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
 
-function parseBlobScope(c: Context): WebviewBlobScope | undefined {
-	const authorityId = c.req.query('authorityId');
-	const principalId = c.req.query('principalId');
-	if (authorityId === undefined && principalId === undefined) return { kind: 'local' };
-	if (authorityId === undefined || principalId === undefined) return undefined;
-	if (!isBlobPathSegment(authorityId) || !isBlobPathSegment(principalId)) return undefined;
-	return { kind: 'account', authorityId, principalId };
-}
-
 function isBlobPathSegment(value: string): boolean {
-	return value !== '' && value !== '.' && value !== '..' && !/[\\/]/.test(value);
+	return (
+		value !== '' &&
+		value !== '.' &&
+		value !== '..' &&
+		!/[\\/\p{Cc}]/u.test(value)
+	);
 }
 
 export function createHomeServer({
@@ -182,26 +179,6 @@ export function createHomeServer({
 	const { upgradeWebSocket, websocket: homeWebsocket } = createBunWebSocket();
 	const relay = createAccountRelay(homeWebsocket);
 	const app = new Hono();
-	const blobStoreFor = (c: Context): BunBlobStore | undefined => {
-		if (typeof blobs === 'function') {
-			const appId = c.req.query('appId') ?? c.req.param('appId');
-			const scope = parseBlobScope(c);
-			return appId !== undefined && isAppId(appId) && scope !== undefined
-				? blobs(appId, scope)
-				: undefined;
-		}
-		return blobs;
-	};
-	const blobRemoteFor = (c: Context): BlobRemote | null | undefined => {
-		if (typeof blobRemote === 'function') {
-			const appId = c.req.query('appId');
-			const scope = parseBlobScope(c);
-			return appId !== undefined && isAppId(appId) && scope !== undefined
-				? blobRemote(appId, scope)
-				: undefined;
-		}
-		return blobRemote;
-	};
 
 	app.use('*', async (c, next) => {
 		if (c.req.header('host') !== activeHost) {
@@ -347,7 +324,11 @@ export function createHomeServer({
 
 	app.post(ACCOUNT_PREPARE_CONNECTION_ROUTE.pattern, async (c) => {
 		const result = await desktopAuth.prepareConnection();
-		if (result.error) return c.text('An application could not close. Save your work and try again.', 409);
+		if (result.error)
+			return c.text(
+				'An application could not close. Save your work and try again.',
+				409,
+			);
 		return c.body(null, 204);
 	});
 	app.post(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern, async (c) => {
@@ -464,7 +445,6 @@ export function createHomeServer({
 		return c.json({ callbackUrl: callback } satisfies PendingCallback);
 	});
 	app.use('/api/home/*', requireBrowserSession);
-	app.use('/api/local-blobs/*', requireBrowserSession);
 	app.use(`${DEVICE_PATH}/*`, requirePrivateBroker);
 	app.post(DEVICE_PATH, async (c) => {
 		const request = parseDeviceRequest(await readJsonObject(c.req.raw));
@@ -584,14 +564,48 @@ export function createHomeServer({
 		}
 	});
 
-	app.put(LOCAL_BLOB_ROUTE.pattern, async (c) => {
-		const store = blobStoreFor(c);
-		if (store === undefined) return c.text('Missing application scope', 400);
+	type BlobEnv = {
+		Variables: { appId: string; account: AccountIdentity | null; id: BlobId };
+	};
+	const blobApi = new Hono<BlobEnv>();
+	blobApi.use('/:blobId/*', async (c, next) => {
+		// The path is the only storage selector. Query aliases must not retarget it.
+		if (new URL(c.req.url).search !== '')
+			return c.text('Invalid blob address', 400);
+		const appId = c.req.param('appId');
 		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
+		if (
+			appId === undefined ||
+			appId.trim() !== appId ||
+			!isAppId(appId) ||
+			id === undefined
+		)
+			return c.text('Invalid blob address', 400);
+		const authorityId = c.req.param('authorityId');
+		const principalId = c.req.param('principalId');
+		if (
+			(authorityId === undefined) !== (principalId === undefined) ||
+			(authorityId !== undefined && !isBlobPathSegment(authorityId)) ||
+			(principalId !== undefined && !isBlobPathSegment(principalId))
+		)
+			return c.text('Invalid account identity', 400);
+		c.set('appId', appId);
+		c.set('id', id);
+		c.set(
+			'account',
+			authorityId === undefined || principalId === undefined
+				? null
+				: { authorityId, principalId: asPrincipalId(principalId) },
+		);
+		await next();
+	});
+
+	blobApi.put('/:blobId', async (c) => {
+		const store = blobs(c.var.appId, c.var.account);
+		const id = c.var.id;
 		const result = await store.putRequest(id, c.req.raw);
 		if (result.error === null) return c.body(null, 201);
-				switch (result.error.name) {
+		switch (result.error.name) {
 			case 'BlobAlreadyExists':
 				return c.text('Blob already exists', 409);
 			case 'BlobStoreFailed':
@@ -603,15 +617,13 @@ export function createHomeServer({
 
 	// Hono derives HEAD from GET before considering explicit HEAD routes. A
 	// middleware guard keeps HEAD metadata-only and preserves Content-Length.
-	app.use(LOCAL_BLOB_ROUTE.pattern, async (c, next) => {
+	blobApi.use('/:blobId', async (c, next) => {
 		if (c.req.method !== 'HEAD') {
 			await next();
 			return;
 		}
-		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
-		const store = blobStoreFor(c);
-		if (store === undefined) return c.text('Missing application scope', 400);
+		const id = c.var.id;
+		const store = blobs(c.var.appId, c.var.account);
 		const result = await store.stat(id);
 		if (result.error !== null) {
 			switch (result.error.name) {
@@ -631,11 +643,9 @@ export function createHomeServer({
 		});
 	});
 
-	app.get(LOCAL_BLOB_ROUTE.pattern, async (c) => {
-		const store = blobStoreFor(c);
-		if (store === undefined) return c.text('Missing application scope', 400);
-		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
+	blobApi.get('/:blobId', async (c) => {
+		const store = blobs(c.var.appId, c.var.account);
+		const id = c.var.id;
 		const result = await store.openFile(id);
 		if (result.error !== null) {
 			switch (result.error.name) {
@@ -683,21 +693,17 @@ export function createHomeServer({
 		});
 	});
 
-	app.delete(LOCAL_BLOB_ROUTE.pattern, async (c) => {
-		const store = blobStoreFor(c);
-		if (store === undefined) return c.text('Missing application scope', 400);
-		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
+	blobApi.delete('/:blobId', async (c) => {
+		const store = blobs(c.var.appId, c.var.account);
+		const id = c.var.id;
 		const result = await store.delete(id);
 		if (result.error !== null) return c.text('Blob store failed', 500);
 		return c.body(null, 204);
 	});
 
-	app.post(LOCAL_BLOB_COPY_ROUTE.pattern, async (c) => {
-		const store = blobStoreFor(c);
-		if (store === undefined) return c.text('Missing application scope', 400);
-		const destinationId = parseBlobId(c.req.param('destinationId'));
-		if (destinationId === undefined) return c.text('Invalid blob id', 400);
+	blobApi.post('/:blobId/copy', async (c) => {
+		const store = blobs(c.var.appId, c.var.account);
+		const destinationId = c.var.id;
 		let body: unknown;
 		try {
 			body = await c.req.json();
@@ -705,7 +711,9 @@ export function createHomeServer({
 			return c.text('Invalid copy request', 400);
 		}
 		const sourceId =
-			typeof body === 'object' && body !== null && 'sourceId' in body &&
+			typeof body === 'object' &&
+			body !== null &&
+			'sourceId' in body &&
 			typeof body.sourceId === 'string'
 				? parseBlobId(body.sourceId)
 				: undefined;
@@ -713,10 +721,14 @@ export function createHomeServer({
 		const result = await store.copy(sourceId, destinationId);
 		if (result.error === null) return c.body(null, 204);
 		switch (result.error.name) {
-			case 'BlobNotFound': return c.text('Blob not found', 404);
-			case 'BlobAlreadyExists': return c.text('Blob already exists', 409);
-			case 'BlobStoreFailed': return c.text('Blob store failed', 500);
-			default: return result.error satisfies never;
+			case 'BlobNotFound':
+				return c.text('Blob not found', 404);
+			case 'BlobAlreadyExists':
+				return c.text('Blob already exists', 409);
+			case 'BlobStoreFailed':
+				return c.text('Blob store failed', 500);
+			default:
+				return result.error satisfies never;
 		}
 	});
 
@@ -733,12 +745,9 @@ export function createHomeServer({
 			| Awaited<ReturnType<BlobRemote['purge']>>
 		>,
 	) => {
-		return async (c: Context) => {
-			const selectedRemote = blobRemoteFor(c);
-			if (selectedRemote === undefined)
-				return c.text('Missing application scope', 400);
-			const id = parseBlobId(c.req.param('blobId'));
-			if (id === undefined) return c.text('Invalid blob id', 400);
+		return async (c: Context<BlobEnv>) => {
+			const selectedRemote = blobRemote(c.var.appId, c.var.account);
+			const id = c.var.id;
 			if (selectedRemote === null) {
 				return c.text('Remote storage unavailable', 503);
 			}
@@ -759,19 +768,21 @@ export function createHomeServer({
 			}
 		};
 	};
-	app.post(
-		LOCAL_BLOB_REMOTE_ROUTES.upload.pattern,
+	blobApi.post(
+		'/:blobId/upload',
 		requireBlobRemote((remote, id) => remote.upload(id)),
 	);
-	app.post(
-		LOCAL_BLOB_REMOTE_ROUTES.download.pattern,
+	blobApi.post(
+		'/:blobId/download',
 		requireBlobRemote((remote, id) => remote.download(id)),
 	);
-	app.post(
-		LOCAL_BLOB_REMOTE_ROUTES.purge.pattern,
+	blobApi.post(
+		'/:blobId/purge',
 		requireBlobRemote((remote, id) => remote.purge(id)),
 	);
 
+	app.route(BLOB_PATHS.local, blobApi);
+	app.route(BLOB_PATHS.account, blobApi);
 	app.get(
 		SESSION_STREAM_ROUTE.pattern,
 		upgradeWebSocket(() => {
@@ -918,23 +929,34 @@ function parseDeviceRequest(
 		return undefined;
 	}
 	const kind = input.kind;
-	const scope = 'scope' in input && isStorageScope(input.scope) ? input.scope : undefined;
+	const account =
+		'account' in input && isSqliteAccount(input.account)
+			? input.account
+			: undefined;
 	if (
 		(kind === 'sqlite-run' || kind === 'sqlite-all') &&
 		typeof input.name === 'string' &&
-		scope !== undefined
+		account !== undefined
 	) {
 		const statement = parseSqliteStatement(input.statement);
 		return statement === undefined || !isDatabaseName(input.name)
 			? undefined
-			: { kind, appId: input.appId, scope, name: input.name, statement };
+			: { kind, appId: input.appId, account, name: input.name, statement };
 	}
-	if (kind === 'sqlite-delete' && typeof input.name === 'string' && scope !== undefined) {
+	if (
+		kind === 'sqlite-delete' &&
+		typeof input.name === 'string' &&
+		account !== undefined
+	) {
 		return isDatabaseName(input.name)
-			? { kind, appId: input.appId, scope, name: input.name }
+			? { kind, appId: input.appId, account, name: input.name }
 			: undefined;
 	}
-	if (kind === 'sqlite-batch' && typeof input.name === 'string' && scope !== undefined) {
+	if (
+		kind === 'sqlite-batch' &&
+		typeof input.name === 'string' &&
+		account !== undefined
+	) {
 		if (!isDatabaseName(input.name) || !Array.isArray(input.statements)) {
 			return undefined;
 		}
@@ -944,7 +966,7 @@ function parseDeviceRequest(
 			if (statement === undefined) return undefined;
 			statements.push(statement);
 		}
-		return { kind, appId: input.appId, scope, name: input.name, statements };
+		return { kind, appId: input.appId, account, name: input.name, statements };
 	}
 	if (
 		(kind === 'secret-put' ||

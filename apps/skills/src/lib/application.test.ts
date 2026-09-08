@@ -40,13 +40,18 @@ import { expect, test } from 'bun:test';
 );
 
 import { skillsDefinition } from '@epicenter/skills';
+import { asPrincipalId } from '@epicenter/principal';
 import { openSkillsRuntime } from './application.js';
 
 /** The account these skipped tests will open under once Skills has auth. */
 const ACCOUNT = {
 	baseURL: 'https://api.epicenter.so',
-	principalId: 'skills' as never,
+	authorityId: 'test-authority',
+	principalId: asPrincipalId('skills'),
 	fetch: async () => new Response(null, { status: 404 }),
+	openWebSocket() {
+		throw new Error('Skipped Skills fixture has no sync server.');
+	},
 };
 
 async function resetStorage(): Promise<void> {

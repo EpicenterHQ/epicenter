@@ -5,11 +5,15 @@
  * document lifetime. Standalone callers retain the owner's actual SQL methods.
  */
 import { expect, test } from 'bun:test';
+import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { DeviceError, type AppSqliteDatabase } from './index.js';
-import { createScopedSqlite, type DeviceSqliteOwner } from './owner.js';
-import type { StorageScope } from './protocol.js';
+import {
+	answerDevice,
+	createAppSqlite,
+	type DeviceSqliteOwner,
+} from './owner.js';
 
 function setup() {
 	const calls: unknown[] = [];
@@ -30,22 +34,21 @@ function setup() {
 	return { owner, database, calls };
 }
 
-test('standalone SQL returns the owner database directly under the supplied scope', async () => {
+test('standalone SQL returns the owner database directly under the supplied account', async () => {
 	const { owner, database, calls } = setup();
-	const scope: StorageScope = {
-		kind: 'account',
+	const account: AccountIdentity = {
 		authorityId: 'authority',
-		principalId: 'alice',
+		principalId: asPrincipalId('alice'),
 	};
-	const sqlite = createScopedSqlite(owner, 'so.epicenter.test', scope);
+	const sqlite = createAppSqlite(owner, 'so.epicenter.test', account);
 	expect(expectOk(await sqlite.open('search'))).toBe(database);
 	expectOk(await sqlite.delete('search'));
 	expectOk(await database.run('select 1'));
 	expectOk(await database.all('select 1'));
 	expectOk(await database.batch([{ sql: 'select 1' }]));
 	expect(calls).toEqual([
-		['open', 'so.epicenter.test', scope, 'search'],
-		['delete', 'so.epicenter.test', scope, 'search'],
+		['open', 'so.epicenter.test', account, 'search'],
+		['delete', 'so.epicenter.test', account, 'search'],
 	]);
 });
 
@@ -56,12 +59,34 @@ test.each([
 	'search.sqlite',
 ])('invalid database name %s never reaches the owner', async (name) => {
 	const { owner, calls } = setup();
-	const sqlite = createScopedSqlite(owner, 'so.epicenter.test', {
-		kind: 'local',
-	});
+	const sqlite = createAppSqlite(owner, 'so.epicenter.test', null);
 	expect(expectErr(await sqlite.open(name)).name).toBe('InvalidDatabaseName');
 	expect(expectErr(await sqlite.delete(name)).name).toBe('InvalidDatabaseName');
 	expect(calls).toEqual([]);
+});
+
+test('standalone SQL captures identity before later opens and deletes', async () => {
+	const { owner, calls } = setup();
+	const account = { authorityId: 'cloud', principalId: asPrincipalId('alice') };
+	const sqlite = createAppSqlite(owner, 'so.epicenter.test', account);
+	account.authorityId = 'replacement';
+	account.principalId = asPrincipalId('bob');
+	expectOk(await sqlite.open('search'));
+	expectOk(await sqlite.delete('search'));
+	expect(calls).toEqual([
+		[
+			'open',
+			'so.epicenter.test',
+			{ authorityId: 'cloud', principalId: 'alice' },
+			'search',
+		],
+		[
+			'delete',
+			'so.epicenter.test',
+			{ authorityId: 'cloud', principalId: 'alice' },
+			'search',
+		],
+	]);
 });
 
 test.each([
@@ -73,10 +98,10 @@ test.each([
 		if (failure === 'throw') throw cause;
 		return Promise.reject(cause);
 	};
-	const sqlite = createScopedSqlite(
+	const sqlite = createAppSqlite(
 		{ open: fail, delete: fail },
 		'so.epicenter.test',
-		{ kind: 'local' },
+		null,
 	);
 	for (const result of [
 		await sqlite.open('search'),
@@ -94,10 +119,39 @@ test('statement failures retain their original Result or rejection', async () =>
 	database.batch = async () => {
 		throw cause;
 	};
-	const sqlite = createScopedSqlite(owner, 'so.epicenter.test', {
-		kind: 'local',
-	});
+	const sqlite = createAppSqlite(owner, 'so.epicenter.test', null);
 	const opened = expectOk(await sqlite.open('search'));
 	expect(await opened.run('select 1')).toBe(refusal);
 	await expect(opened.batch([])).rejects.toBe(cause);
+});
+
+test('an omitted SQL account is rejected before the owner opens or deletes a file', async () => {
+	const { owner, calls } = setup();
+	const request = { appId: 'so.epicenter.test', name: 'search' };
+	await expect(
+		// @ts-expect-error: SQL requests require an explicit account, including local null.
+		answerDevice(owner, { kind: 'sqlite-delete', ...request }),
+	).rejects.toThrow('Invalid SQLite account.');
+	expect(calls).toEqual([]);
+});
+
+test.each([
+	'sqlite-run',
+	'sqlite-all',
+	'sqlite-batch',
+	'sqlite-delete',
+] as const)('%s refuses a malformed account before reaching the owner', async (kind) => {
+	const { owner, calls } = setup();
+	await expect(
+		answerDevice(owner, {
+			kind,
+			appId: 'so.epicenter.test',
+			name: 'search',
+			// @ts-expect-error: an old local scope is not an account identity.
+			account: { kind: 'local' },
+			statement: { sql: 'SELECT 1' },
+			statements: [],
+		}),
+	).rejects.toThrow('Invalid SQLite account.');
+	expect(calls).toEqual([]);
 });

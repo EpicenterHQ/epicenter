@@ -26,7 +26,7 @@ import type {
 	BlobNotFound,
 	BlobStoreFailed,
 } from '@epicenter/blobs';
-import type { PrincipalId } from '@epicenter/principal';
+import type { AccountIdentity, PrincipalId } from '@epicenter/principal';
 import type { SocketTransport } from '@epicenter/sync/transport';
 import type * as Y from '@y/y';
 import type { Result } from 'wellcrafted/result';
@@ -257,7 +257,12 @@ export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 	>,
 	[BlobFieldNames<TFields>] extends [never]
 		? RowOf<TFields>
-		: Promise<Result<RowOf<TFields>, BlobAlreadyExists | BlobNotFound | BlobStoreFailed>>
+		: Promise<
+				Result<
+					RowOf<TFields>,
+					BlobAlreadyExists | BlobNotFound | BlobStoreFailed
+				>
+			>
 >;
 
 /**
@@ -460,7 +465,10 @@ export type UntypedDeclaredData = {
 				Row,
 				Record<string, JsonValue | Y.Type | Blob>,
 				JsonObject,
-				Row | Promise<Result<Row, BlobAlreadyExists | BlobNotFound | BlobStoreFailed>>
+				| Row
+				| Promise<
+						Result<Row, BlobAlreadyExists | BlobNotFound | BlobStoreFailed>
+				  >
 			>
 		>
 	>;
@@ -651,10 +659,8 @@ export type SyncCapability = {
  * later updates for the store's lifetime. Keeping this structural contract here
  * lets data openers consume accounts without depending on the auth package.
  */
-export type DatabaseAccount = {
-	readonly authorityId: string;
+export type DatabaseAccount = AccountIdentity & {
 	readonly baseURL: string;
-	readonly principalId: PrincipalId;
 	/** A credentialed fetch, waiting on machine work but never on a human. */
 	fetch(input: string | URL, init?: RequestInit): Promise<Response>;
 	/** A credentialed dial, which the sync driver repeats for the store's life. */

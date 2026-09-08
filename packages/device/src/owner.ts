@@ -16,15 +16,12 @@
  * request-to-owner dispatcher, where no other transport could reach it.
  */
 
+import type { AccountIdentity } from '@epicenter/principal';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { type AppSqliteDatabase, DeviceError } from './index.js';
-import type {
-	DeviceRequest,
-	DeviceResponse,
-	StorageScope,
-} from './protocol.js';
-import { isDatabaseName } from './protocol.js';
+import type { DeviceRequest, DeviceResponse } from './protocol.js';
+import { isDatabaseName, isSqliteAccount } from './protocol.js';
 
 /**
  * Whoever actually holds the files, for every application on this machine.
@@ -42,10 +39,14 @@ import { isDatabaseName } from './protocol.js';
 export type DeviceSqliteOwner = {
 	open(
 		appId: string,
-		scope: StorageScope,
+		account: AccountIdentity | null,
 		name: string,
 	): Promise<AppSqliteDatabase>;
-	delete(appId: string, scope: StorageScope, name: string): Promise<void>;
+	delete(
+		appId: string,
+		account: AccountIdentity | null,
+		name: string,
+	): Promise<void>;
 };
 
 /** The requests an owner answers. Secrets are a different owner entirely. */
@@ -70,11 +71,18 @@ export async function answerDevice(
 	owner: DeviceSqliteOwner,
 	request: AppSqliteRequest,
 ): Promise<DeviceResponse> {
+	if (!isSqliteAccount(request.account)) {
+		throw new Error('Invalid SQLite account.');
+	}
 	if (request.kind === 'sqlite-delete') {
-		await owner.delete(request.appId, request.scope, request.name);
+		await owner.delete(request.appId, request.account, request.name);
 		return { kind: request.kind };
 	}
-	const database = await owner.open(request.appId, request.scope, request.name);
+	const database = await owner.open(
+		request.appId,
+		request.account,
+		request.name,
+	);
 	switch (request.kind) {
 		case 'sqlite-run': {
 			const result = await database.run(
@@ -105,23 +113,31 @@ export type AppSqliteTransport = (
 	message: AppSqliteRequest,
 ) => Promise<Result<DeviceResponse, DeviceError>>;
 
-/** Bind one owner to an app while leaving local/account selection to its opener. */
+/** SQL files belonging to one application and one captured account or local library. */
 export type ScopedSqlite = {
 	open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>>;
 	delete(name: string): Promise<Result<void, DeviceError>>;
 };
 
-export function createScopedSqlite(
+/** Bind SQL files to an app and account. Document owners enforce their own closure. */
+export function createAppSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
-	scope: StorageScope,
+	account: AccountIdentity | null,
 ): ScopedSqlite {
+	const identity =
+		account === null
+			? null
+			: Object.freeze({
+					authorityId: account.authorityId,
+					principalId: account.principalId,
+				});
 	return {
 		open: async (name) => {
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			return tryAsync({
-				try: () => owner.open(appId, scope, name),
+				try: () => owner.open(appId, identity, name),
 				catch: (cause) => DeviceError.StorageFailed({ cause }),
 			});
 		},
@@ -129,7 +145,7 @@ export function createScopedSqlite(
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
 			return tryAsync({
-				try: () => owner.delete(appId, scope, name),
+				try: () => owner.delete(appId, identity, name),
 				catch: (cause) => DeviceError.StorageFailed({ cause }),
 			});
 		},
@@ -149,16 +165,23 @@ export function createScopedSqlite(
 export function createOwnedSqlite(
 	request: AppSqliteTransport,
 	appId: string,
-	scope: StorageScope,
+	account: AccountIdentity | null,
 	name: string,
 ): AppSqliteDatabase {
+	const identity =
+		account === null
+			? null
+			: Object.freeze({
+					authorityId: account.authorityId,
+					principalId: account.principalId,
+				});
 	return {
 		run: (sql, parameters) =>
 			unwrap(
 				request({
 					kind: 'sqlite-run',
 					appId,
-					scope,
+					account: identity,
 					name,
 					statement: { sql, parameters },
 				}),
@@ -173,7 +196,7 @@ export function createOwnedSqlite(
 				request({
 					kind: 'sqlite-all',
 					appId,
-					scope,
+					account: identity,
 					name,
 					statement: { sql, parameters },
 				}),
@@ -182,7 +205,13 @@ export function createOwnedSqlite(
 			),
 		batch: (statements) =>
 			unwrap(
-				request({ kind: 'sqlite-batch', appId, scope, name, statements }),
+				request({
+					kind: 'sqlite-batch',
+					appId,
+					account: identity,
+					name,
+					statements,
+				}),
 				'sqlite-batch',
 				(response) => ({ changes: [...response.changes] }),
 			),

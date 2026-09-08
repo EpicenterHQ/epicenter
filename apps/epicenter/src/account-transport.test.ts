@@ -164,8 +164,8 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		launchToken: 'launch',
 		host,
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
-		blobs: createBunBlobStore({ directory }),
-		blobRemote: null,
+		blobs: () => createBunBlobStore({ directory }),
+		blobRemote: () => null,
 		desktopAuth: {
 			baseURL,
 			account,

@@ -12,6 +12,7 @@ import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { installTestLocks } from '@epicenter/data/test-locks';
+import { openAppData } from '@epicenter/data/browser';
 import {
 	defineData,
 	defineTable,
@@ -87,11 +88,19 @@ test('local handle opens without account and survives close and reopen', async (
 	await second.close();
 });
 
-test('the app SQLite capability follows the captured local or account scope', async () => {
-	const scopes: unknown[] = [];
+test.each([
+	['app', 'before acquisition'],
+	['app', 'during acquisition'],
+	['data', 'before acquisition'],
+	['data', 'during acquisition'],
+] as const)('%s capabilities retain one account when the input changes %s', async (entry, timing) => {
+	await clearStorage();
+	const requested = Promise.withResolvers<void>();
+	const releaseRequest = Promise.withResolvers<void>();
+	const identities: unknown[] = [];
 	const owner: DeviceSqliteOwner = {
-		open: async (_appId, scope) => {
-			scopes.push(scope);
+		open: async (_appId, account) => {
+			identities.push(account);
 			return {
 				run: async () => Ok({ changes: 0 }),
 				all: async () => Ok([]),
@@ -107,6 +116,10 @@ test('the app SQLite capability follows the captured local or account scope', as
 		baseURL: 'https://example.test',
 		async fetch() {
 			requests++;
+			if (requests === 1) {
+				requested.resolve();
+				await releaseRequest.promise;
+			}
 			return requests === 1
 				? Response.json({ generations: [] })
 				: Response.json({ generation: 1, position: 0 });
@@ -128,14 +141,43 @@ test('the app SQLite capability follows the captured local or account scope', as
 	expect(() => localApp.sqlite.open('search')).toThrow('not ready');
 	expectOk(await localApp.ready);
 	const localDatabase = expectOk(await localApp.sqlite.open('search'));
-	const accountApp = epicenter.openAccount(account);
-	expectOk(await accountApp.ready);
+	const accountApp =
+		entry === 'app'
+			? epicenter.openAccount(account)
+			: openAppData(definition, {
+					appId: 'so.epicenter.app-test',
+					account,
+					blobs: testBlobs({ appId: 'so.epicenter.app-test', account }),
+					sqlite: owner,
+				});
+	if (timing === 'during acquisition') await requested.promise;
 	Reflect.set(account, 'authorityId', 'replacement-authority');
 	Reflect.set(account, 'principalId', asPrincipalId('bob'));
+	Reflect.set(account, 'baseURL', 'https://replacement.test');
+	account.fetch = async () => {
+		throw new Error('Replacement transport must not run.');
+	};
+	releaseRequest.resolve();
+	expectOk(await accountApp.ready);
 	expectOk(await accountApp.sqlite.open('search'));
-	expect(scopes).toEqual([
-		{ kind: 'local' },
-		{ kind: 'account', authorityId: 'test-authority', principalId: 'alice' },
+	expectOk(await accountApp.blobs.add(new Blob(['captured'])));
+	expect(accountApp.account).toEqual({
+		authorityId: 'test-authority',
+		principalId: asPrincipalId('alice'),
+	});
+	const names = (await indexedDB.databases()).map(({ name }) => name);
+	expect(names).toContain(
+		'epicenter/so.epicenter.app-test/accounts/test-authority/alice/data/so.epicenter.app-test/1',
+	);
+	expect(names).toContain(
+		'epicenter/so.epicenter.app-test/accounts/test-authority/alice/blobs',
+	);
+	expect(names.some((name) => name?.includes('replacement-authority'))).toBe(
+		false,
+	);
+	expect(identities).toEqual([
+		null,
+		{ authorityId: 'test-authority', principalId: 'alice' },
 	]);
 	await localApp.close();
 	expect(() => localDatabase.run('select 1')).toThrow('disposed');
@@ -315,7 +357,7 @@ test('a late SQL open refuses publication and leaves shared physical storage ali
 	let deletes = 0;
 	const physical = await testSqlite.open(
 		'so.epicenter.app-test',
-		{ kind: 'local' },
+		null,
 		'search',
 	);
 	const owner: DeviceSqliteOwner = {
@@ -382,11 +424,7 @@ test('reentrant failed cleanup still drains SQL, blobs, and owning creation befo
 		sqlite: {
 			async open() {
 				return {
-					...(await testSqlite.open(
-						'so.epicenter.app-test',
-						{ kind: 'local' },
-						'search',
-					)),
+					...(await testSqlite.open('so.epicenter.app-test', null, 'search')),
 					run: () => sql.promise,
 				};
 			},

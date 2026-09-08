@@ -1,4 +1,4 @@
-import type { PrincipalId } from '@epicenter/principal';
+import type { AccountIdentity } from '@epicenter/principal';
 import type { SocketTransport } from '@epicenter/sync/transport';
 import type { Result } from 'wellcrafted/result';
 import type { AuthError } from './auth-errors.js';
@@ -16,10 +16,7 @@ export type AuthFetch = (
  * access, including in-flight requests and sockets. A later sign-in creates a
  * new Account even for the same person. Retirement does not erase local data.
  */
-export type Account = {
-	/** Stable identity of the synchronization authority, independent of its URL. */
-	readonly authorityId: string;
-	readonly principalId: PrincipalId;
+export type Account = AccountIdentity & {
 	readonly baseURL: string;
 	fetch: AuthFetch;
 	openWebSocket: SocketTransport['openWebSocket'];

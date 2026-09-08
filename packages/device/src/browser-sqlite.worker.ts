@@ -26,6 +26,7 @@
  * retry below asks it not to.
  */
 
+import type { AccountIdentity } from '@epicenter/principal';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import { Ok } from 'wellcrafted/result';
 import type { AppSqliteDatabase } from './index.js';
@@ -54,8 +55,8 @@ type Pool = {
  *
  * One pool rather than one per application, because a pool is an exclusive
  * claim on an OPFS directory and a second install is a refusal, not a second
- * pool. The application scope is the filename, exactly as it is for the Bun
- * owner, whose files are `<appId>/<name>` below one root.
+ * pool. The filename identifies the application, account, and database, just
+ * as the Bun owner's directory path does below one root.
  */
 const POOL_NAME = 'epicenter';
 
@@ -129,23 +130,23 @@ async function closing(file: string): Promise<void> {
 
 function databaseFilename(
 	appId: string,
-	scope: import('./protocol.js').StorageScope,
+	account: AccountIdentity | null,
 	name: string,
 ): string {
 	const address =
-		scope.kind === 'local'
+		account === null
 			? [appId, 'local', name]
-			: [appId, 'account', scope.authorityId, scope.principalId, name];
+			: [appId, 'account', account.authorityId, account.principalId, name];
 	// Keep every identity component separate before encoding. Joining even
 	// part of the address with ':' aliases accounts whose identifiers contain it.
 	return `/${encodeURIComponent(JSON.stringify(address))}.sqlite`;
 }
 
 const owner: DeviceSqliteOwner = {
-	open: async (appId, scope, name) =>
-		sqliteOver(await opening(databaseFilename(appId, scope, name))),
-	delete: async (appId, scope, name) => {
-		const file = databaseFilename(appId, scope, name);
+	open: async (appId, account, name) =>
+		sqliteOver(await opening(databaseFilename(appId, account, name))),
+	delete: async (appId, account, name) => {
+		const file = databaseFilename(appId, account, name);
 		// Closed first, because the pool unlinks out from under a live connection
 		// without saying so: the connection survives and every statement through
 		// it then reports that the tables are gone.

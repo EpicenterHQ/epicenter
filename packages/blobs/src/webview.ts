@@ -1,66 +1,75 @@
 /// <reference lib="dom" />
 
+import { isAppId } from '@epicenter/constants/app-id';
+import type { AccountIdentity } from '@epicenter/principal';
 import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 import { type BlobRemote, BlobRemoteError } from './blob-remote.js';
 import type { BlobSources } from './blob-source.js';
 import { type BlobStore, BlobStoreError } from './blob-store.js';
 
-/** The desktop host path shared by its server and WebView adapter. */
-export const LOCAL_BLOB_PATH = '/api/local-blobs';
+/** Canonical collection paths shared with the desktop host's route mounts. */
+export const BLOB_PATHS = {
+	local: '/api/apps/:appId/local/blobs',
+	account: '/api/apps/:appId/accounts/:authorityId/:principalId/blobs',
+} as const;
 
 type HttpFetch = (
 	input: RequestInfo | URL,
 	init?: RequestInit,
 ) => Promise<Response>;
 
-export type WebviewBlobScope =
-	| { kind: 'local' }
-	| { kind: 'account'; authorityId: string; principalId: string };
-
-function scopeQuery(
-	appId: string | undefined,
-	scope: WebviewBlobScope | undefined,
-) {
-	const query = new URLSearchParams();
-	if (appId !== undefined) query.set('appId', appId);
-	if (scope?.kind === 'account') {
-		query.set('authorityId', scope.authorityId);
-		query.set('principalId', scope.principalId);
+function encodeIdentitySegment(value: unknown, label: string): string {
+	if (
+		typeof value !== 'string' ||
+		value === '' ||
+		value === '.' ||
+		value === '..' ||
+		/[\\/\p{Cc}]/u.test(value)
+	) {
+		throw new TypeError(
+			`Invalid blob account ${label}: expected one path segment.`,
+		);
 	}
-	const text = query.toString();
-	return text === '' ? '' : `?${text}`;
-}
-
-/** Construct the stable same-origin media URL for a desktop-local blob. */
-export function desktopBlobUrl(
-	id: BlobId,
-	appId?: string,
-	scope?: WebviewBlobScope,
-): string {
-	return `${LOCAL_BLOB_PATH}/${id}${scopeQuery(appId, scope)}`;
+	return encodeURIComponent(value);
 }
 
 /**
- * Create the WebView adapter for Epicenter's authenticated local-blob routes.
- * Relative URLs deliberately preserve the active loopback origin and its
- * HttpOnly session cookie.
+ * Capture one app's local or account blob partition before any asynchronous work.
+ * Invalid identity throws at construction; local storage requires explicit `null`.
+ * Relative URLs preserve the loopback origin and its HttpOnly session cookie.
+ * The host owns remote credentials and byte transfer. A local partition has no
+ * remote backing; the document store constructs its guarded public remote.
  */
-export function createWebviewBlobStore({
+export function createWebviewBlobs({
 	appId,
-	scope,
+	account,
 	fetch: fetcher = globalThis.fetch,
 }: {
-	appId?: string;
-	scope?: WebviewBlobScope;
+	appId: string;
+	account: AccountIdentity | null;
 	fetch?: HttpFetch;
-} = {}): BlobStore {
-	const query = scopeQuery(appId, scope);
-	const copyQuery = scopeQuery(undefined, scope);
-	async function request(id: BlobId, init: RequestInit) {
+}): { local: BlobStore; sources: BlobSources; remote: BlobRemote | null } {
+	if (typeof appId !== 'string' || appId.trim() !== appId || !isAppId(appId)) {
+		throw new TypeError(
+			'Invalid blob app id: expected a reverse-domain app id.',
+		);
+	}
+	if (
+		account !== null &&
+		(typeof account !== 'object' || Array.isArray(account))
+	) {
+		throw new TypeError('Blob account must be an explicit identity or null.');
+	}
+	const prefix =
+		account === null
+			? `/api/apps/${encodeURIComponent(appId)}/local/blobs`
+			: `/api/apps/${encodeURIComponent(appId)}/accounts/${encodeIdentitySegment(account.authorityId, 'authorityId')}/${encodeIdentitySegment(account.principalId, 'principalId')}/blobs`;
+	const blobUrl = (id: BlobId) => `${prefix}/${id}`;
+	async function request(id: BlobId, init: RequestInit, suffix = '') {
 		return tryAsync({
 			try: () =>
-				fetcher(`${LOCAL_BLOB_PATH}/${id}${query}`, {
+				fetcher(`${blobUrl(id)}${suffix}`, {
 					...init,
 					credentials: 'same-origin',
 					redirect: 'error',
@@ -69,29 +78,17 @@ export function createWebviewBlobStore({
 		});
 	}
 
-	const store: BlobStore = {
+	const local: BlobStore = {
 		async copy(sourceId, destinationId) {
-			if (appId === undefined) {
-				return BlobStoreError.BlobStoreFailed({
-					id: destinationId,
-					cause: new Error('Local blob COPY requires an explicit app id.'),
-				});
-			}
-			const response = await tryAsync({
-				try: () =>
-					fetcher(
-						`/api/apps/${encodeURIComponent(appId)}/blobs/${destinationId}/copy${copyQuery}`,
-						{
-							method: 'POST',
-							headers: { 'content-type': 'application/json' },
-							body: JSON.stringify({ sourceId }),
-							credentials: 'same-origin',
-							redirect: 'error',
-						},
-					),
-				catch: (cause) =>
-					BlobStoreError.BlobStoreFailed({ id: destinationId, cause }),
-			});
+			const response = await request(
+				destinationId,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ sourceId }),
+				},
+				'/copy',
+			);
 			if (response.error !== null) return response;
 			if (response.data.status === 404)
 				return BlobStoreError.BlobNotFound({ id: sourceId });
@@ -170,7 +167,7 @@ export function createWebviewBlobStore({
 		},
 
 		statMany(ids) {
-			return Promise.all(ids.map((id) => store.stat(id)));
+			return Promise.all(ids.map((id) => local.stat(id)));
 		},
 
 		async delete(id) {
@@ -187,37 +184,14 @@ export function createWebviewBlobStore({
 			return Ok(undefined);
 		},
 	};
-	return store;
-}
 
-/**
- * Create the WebView adapter for the desktop host's remote copy operations.
- *
- * Each verb is one same-origin POST that names only the blob id in its path;
- * the request carries no body, destination, or authorization header. The Bun
- * host owns the deployment credential, mints its own presigned operation, and
- * streams bytes between its filesystem store and the remote, so no signed URL
- * or bearer ever reaches this adapter. A 503 means this process generation
- * has no remote capability (signed out); compositions gate on auth state so
- * callers normally never see it.
- */
-export function createWebviewBlobRemote({
-	appId,
-	scope,
-	fetch: fetcher = globalThis.fetch,
-}: {
-	appId?: string;
-	scope?: WebviewBlobScope;
-	fetch?: HttpFetch;
-} = {}): BlobRemote {
 	async function operate(
 		id: BlobId,
 		operation: 'upload' | 'download' | 'purge',
 	) {
-		const suffix = scopeQuery(appId, scope);
 		return tryAsync({
 			try: () =>
-				fetcher(`${LOCAL_BLOB_PATH}/${id}/${operation}${suffix}`, {
+				fetcher(`${blobUrl(id)}/${operation}`, {
 					method: 'POST',
 					credentials: 'same-origin',
 					redirect: 'error',
@@ -227,82 +201,77 @@ export function createWebviewBlobRemote({
 	}
 
 	function operationFailed(id: BlobId, operation: string, status: number) {
+		if (status === 503) return BlobRemoteError.RemoteNotConfigured();
 		return BlobRemoteError.BlobRemoteFailed({
 			id,
 			cause: new Error(`Host blob ${operation} returned ${status}.`),
 		});
 	}
 
-	return {
-		async upload(id) {
-			const response = await operate(id, 'upload');
-			if (response.error !== null) return Err(response.error);
-			if (response.data.status === 404) {
-				return BlobStoreError.BlobNotFound({ id });
-			}
-			if (response.data.status === 500) {
-				return BlobStoreError.BlobStoreFailed({
-					id,
-					cause: new Error('Host blob upload failed to read local bytes.'),
-				});
-			}
-			if (!response.data.ok) {
-				return operationFailed(id, 'upload', response.data.status);
-			}
-			return Ok(undefined);
-		},
+	const remote: BlobRemote | null =
+		account === null
+			? null
+			: {
+					async upload(id) {
+						const response = await operate(id, 'upload');
+						if (response.error !== null) return Err(response.error);
+						if (response.data.status === 404) {
+							return BlobStoreError.BlobNotFound({ id });
+						}
+						if (response.data.status === 500) {
+							return BlobStoreError.BlobStoreFailed({
+								id,
+								cause: new Error(
+									'Host blob upload failed to read local bytes.',
+								),
+							});
+						}
+						if (!response.data.ok) {
+							return operationFailed(id, 'upload', response.data.status);
+						}
+						return Ok(undefined);
+					},
 
-		async download(id) {
-			const response = await operate(id, 'download');
-			if (response.error !== null) return Err(response.error);
-			if (response.data.status === 404) {
-				return BlobRemoteError.RemoteBlobNotFound({ id });
-			}
-			if (response.data.status === 500) {
-				return BlobStoreError.BlobStoreFailed({
-					id,
-					cause: new Error('Host blob download failed to write local bytes.'),
-				});
-			}
-			if (!response.data.ok) {
-				return operationFailed(id, 'download', response.data.status);
-			}
-			return Ok(undefined);
-		},
+					async download(id) {
+						const response = await operate(id, 'download');
+						if (response.error !== null) return Err(response.error);
+						if (response.data.status === 404) {
+							return BlobRemoteError.RemoteBlobNotFound({ id });
+						}
+						if (response.data.status === 500) {
+							return BlobStoreError.BlobStoreFailed({
+								id,
+								cause: new Error(
+									'Host blob download failed to write local bytes.',
+								),
+							});
+						}
+						if (!response.data.ok) {
+							return operationFailed(id, 'download', response.data.status);
+						}
+						return Ok(undefined);
+					},
 
-		async purge(id) {
-			const response = await operate(id, 'purge');
-			if (response.error !== null) return Err(response.error);
-			if (!response.data.ok) {
-				return operationFailed(id, 'purge', response.data.status);
-			}
-			return Ok(undefined);
-		},
-	};
-}
+					async purge(id) {
+						const response = await operate(id, 'purge');
+						if (response.error !== null) return Err(response.error);
+						if (!response.data.ok) {
+							return operationFailed(id, 'purge', response.data.status);
+						}
+						return Ok(undefined);
+					},
+				};
 
-/**
- * Create WebView playback sources over the desktop host's local-blob routes.
- *
- * `open` confirms the host has local bytes (`stat`), then hands out the
- * stable relative loopback URL. Nothing is allocated per acquisition, so the
- * disposer is deliberately a harmless no-op: the shared `BlobSources`
- * contract promises release is always safe, not that every platform revokes
- * something.
- */
-export function createWebviewBlobSources(
-	local: Pick<BlobStore, 'stat'>,
-	appId?: string,
-	scope?: WebviewBlobScope,
-): BlobSources {
-	return {
+	const sources: BlobSources = {
 		async open(id) {
 			const { error } = await local.stat(id);
 			if (error !== null) return Err(error);
 			return Ok({
-				url: desktopBlobUrl(id, appId, scope),
+				url: blobUrl(id),
+				// Stable host URLs allocate nothing per acquisition.
 				[Symbol.dispose]() {},
 			});
 		},
 	};
+	return { local, sources, remote };
 }

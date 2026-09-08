@@ -18,7 +18,7 @@
  * an application selects per build, while one `createEpicenter` in
  * `@epicenter/app` serves every build.
  *
- * **SQLite is a Bun-owned file.** The owner maps `(appId, name)` to a path
+ * **SQLite is a Bun-owned file.** The owner maps `(appId, account, name)` to a path
  * below the one Epicenter data root; the application sends statements and never
  * sees the path. Deleting one is the same round trip, and the owner closes its
  * handle before it unlinks, because the application cannot (ADR-0321).
@@ -36,7 +36,7 @@ import {
 	SecretError,
 	type SecretStore,
 } from './index.js';
-import { createOwnedSqlite, createScopedSqlite, unwrap } from './owner.js';
+import { createAppSqlite, createOwnedSqlite, unwrap } from './owner.js';
 import {
 	DEVICE_PATH,
 	type DeviceRequest,
@@ -55,11 +55,11 @@ export function createDesktopSqliteOwner(
 ): import('./owner.js').DeviceSqliteOwner {
 	const request = createOwnerRequest(options);
 	return {
-		open: async (ownerAppId, scope, name) =>
-			createOwnedSqlite(request, ownerAppId, scope, name),
-		delete: async (ownerAppId, scope, name) => {
+		open: async (ownerAppId, account, name) =>
+			createOwnedSqlite(request, ownerAppId, account, name),
+		delete: async (ownerAppId, account, name) => {
 			const result = await unwrap(
-				request({ kind: 'sqlite-delete', appId: ownerAppId, scope, name }),
+				request({ kind: 'sqlite-delete', appId: ownerAppId, account, name }),
 				'sqlite-delete',
 				() => undefined,
 			);
@@ -82,9 +82,7 @@ export function createDesktopDevice({
 	const request = createOwnerRequest(options);
 	const owner = createDesktopSqliteOwner(options);
 	return {
-		sqlite: Object.freeze(
-			createScopedSqlite(owner, appId, { kind: 'local' }),
-		),
+		sqlite: Object.freeze(createAppSqlite(owner, appId, null)),
 		secrets: Object.freeze(createKeychainSecrets(request, appId)),
 	};
 }

@@ -37,6 +37,7 @@
 		"@epicenter/data": "workspace:*",
 		"@epicenter/local-mail": "workspace:*",
 		"@epicenter/matter-core": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@epicenter/skills": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",

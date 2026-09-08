@@ -14,6 +14,7 @@
  * no message that would carry it.
  */
 
+import type { AccountIdentity } from '@epicenter/principal';
 import type { SqliteValue } from '@epicenter/sqlite';
 import type { Brand } from 'wellcrafted/brand';
 
@@ -48,19 +49,15 @@ export const DEVICE_PATH = '/api/device';
  */
 export type DatabaseName = string & Brand<'DatabaseName'>;
 
-/** The application session partition that owns a named SQLite file. */
-export type StorageScope =
-	| { kind: 'local' }
-	| { kind: 'account'; authorityId: string; principalId: string };
-
-/** Validate the path segments carried across the host boundary. */
-export function isStorageScope(value: unknown): value is StorageScope {
-	if (typeof value !== 'object' || value === null || !('kind' in value)) {
+/** Validate a SQL account at the wire boundary. Only explicit null is local. */
+export function isSqliteAccount(
+	value: unknown,
+): value is AccountIdentity | null {
+	if (value === null) return true;
+	if (typeof value !== 'object' || Array.isArray(value)) {
 		return false;
 	}
-	if (value.kind === 'local') return true;
 	return (
-		value.kind === 'account' &&
 		'authorityId' in value &&
 		'principalId' in value &&
 		isPathSegment(value.authorityId) &&
@@ -74,6 +71,7 @@ function isPathSegment(value: unknown): value is string {
 		value.length > 0 &&
 		value !== '.' &&
 		value !== '..' &&
+		!value.includes('\0') &&
 		!value.includes('/') &&
 		!value.includes('\\')
 	);
@@ -110,28 +108,28 @@ export type DeviceRequest =
 	| {
 			kind: 'sqlite-run';
 			appId: string;
-			scope: StorageScope;
+			account: AccountIdentity | null;
 			name: string;
 			statement: SqliteStatement;
 	  }
 	| {
 			kind: 'sqlite-all';
 			appId: string;
-			scope: StorageScope;
+			account: AccountIdentity | null;
 			name: string;
 			statement: SqliteStatement;
 	  }
 	| {
 			kind: 'sqlite-batch';
 			appId: string;
-			scope: StorageScope;
+			account: AccountIdentity | null;
 			name: string;
 			statements: readonly SqliteStatement[];
 	  }
 	| {
 			kind: 'sqlite-delete';
 			appId: string;
-			scope: StorageScope;
+			account: AccountIdentity | null;
 			name: string;
 	  }
 	| {

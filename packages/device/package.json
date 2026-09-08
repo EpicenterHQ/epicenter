@@ -17,6 +17,7 @@
 	},
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@sqlite.org/sqlite-wasm": "catalog:",
 		"wellcrafted": "catalog:"

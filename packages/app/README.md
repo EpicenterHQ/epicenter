@@ -76,6 +76,11 @@ The app handle captures account identity and transport at open time. Sign-out
 retires that transport without changing the handle's dataset identity; the
 owner closes the handle and removes consuming UI.
 
+`AccountIdentity` lives in `@epicenter/principal`: authority ID and principal ID,
+without credentials. SQL and WebView blob factories take this identity or
+explicit `null`; no tagged storage wrapper repeats the selection. The document
+owns operation admission and close. Runtime owners still own physical files.
+
 `app.sqlite.open(name)` and `app.sqlite.delete(name)` use the same captured
 local or account scope as the rest of the handle. Every runtime supplies the
 same capability, so an app never branches on whether SQLite exists. The app

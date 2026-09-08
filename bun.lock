@@ -95,6 +95,7 @@
         "@epicenter/device": "workspace:*",
         "@epicenter/local-mail": "workspace:*",
         "@epicenter/matter-core": "workspace:*",
+        "@epicenter/principal": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@epicenter/skills": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
@@ -376,6 +377,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/data": "workspace:*",
+        "@epicenter/principal": "workspace:*",
         "@y/y": "14.0.0-rc.24",
         "mode-watcher": "^1.1.0",
         "wellcrafted": "catalog:",
@@ -654,6 +656,7 @@
       "name": "@epicenter/blobs",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
         "arktype": "catalog:",
         "nanoid": "catalog:",
@@ -739,6 +742,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/constants": "workspace:*",
+        "@epicenter/principal": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
         "@sqlite.org/sqlite-wasm": "catalog:",
         "wellcrafted": "catalog:",

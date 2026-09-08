@@ -1,5 +1,4 @@
 import type { Account } from '@epicenter/auth';
-import { BlobRemoteError, type BlobRemote } from '@epicenter/blobs';
 import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
@@ -10,17 +9,17 @@ import {
 } from '@epicenter/client';
 import type { AppBlobComposition, AppBlobFactory } from './index.js';
 
-const noRemote: BlobRemote = {
-	upload: async () => BlobRemoteError.RemoteNotConfigured(),
-	download: async () => BlobRemoteError.RemoteNotConfigured(),
-	purge: async () => BlobRemoteError.RemoteNotConfigured(),
-};
-
 /** Compose the standard browser/WebView blob capabilities for one app. */
 export function createBrowserAppBlobs(): AppBlobFactory {
-	return ({ appId, account }: { appId: string; account: Account | undefined }): AppBlobComposition => {
+	return ({
+		appId,
+		account,
+	}: {
+		appId: string;
+		account: Account | null;
+	}): AppBlobComposition => {
 		const local = createBrowserBlobStore(
-			account === undefined
+			account === null
 				? { appId, principalId: 'local' }
 				: {
 						appId,
@@ -39,7 +38,7 @@ export function createBrowserAppBlobs(): AppBlobFactory {
 							fetch: account.fetch,
 						}),
 					})
-				: noRemote,
+				: null,
 		};
 	};
 }

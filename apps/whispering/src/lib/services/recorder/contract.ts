@@ -9,7 +9,7 @@ import type {
 	DeviceAcquisitionOutcome,
 	DeviceIdentifier,
 } from '@epicenter/recorder';
-import type { AccountIdentity } from '@epicenter/app';
+import type { AccountIdentity } from '@epicenter/principal';
 import {
 	defineErrors,
 	extractErrorMessage,

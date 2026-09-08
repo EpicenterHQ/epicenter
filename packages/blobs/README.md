@@ -62,10 +62,15 @@ return `BlobNotFound`; destination collisions return `BlobAlreadyExists`.
 
 The browser holds its shared erase lock across `get` and immutable `put`.
 Bun composes the same verbs with a lazy `BunFile`, so `Bun.write` copies the
-file without a recording-sized JavaScript buffer. The WebView sends
-`POST /api/apps/:appId/blobs/:destinationId/copy` with JSON `{ sourceId }`
-and the captured account scope query, or no scope query for local bytes.
-COPY requires an explicit app id. The host resolves both ids in that one
+file without a recording-sized JavaScript buffer. `createWebviewBlobs` captures
+`{ appId, account }` once for local operations, playback, and remote transfer.
+`account` is an `AccountIdentity` from `@epicenter/principal`, or explicit `null`
+for the local library. Local URLs use `/api/apps/:appId/local/blobs/:blobId`;
+account URLs use
+`/api/apps/:appId/accounts/:authorityId/:principalId/blobs/:blobId`.
+COPY appends `/copy` to the destination URL and sends JSON `{ sourceId }`.
+Query selectors and the previous route families are rejected; omitted identity
+does not select local storage. The host resolves both ids in that one
 store; bytes never travel through the WebView. HTTP 404 names the source,
 409 names the destination, and 204 reports success.
 

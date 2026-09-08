@@ -5,8 +5,8 @@ import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { appDataDir, isAppId } from '@epicenter/constants/app-data';
 import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
-import type { StorageScope } from '@epicenter/device/protocol';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import type { AccountIdentity } from '@epicenter/principal';
 import type { SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -32,15 +32,19 @@ export function createBunDevice(root: string): BunDevice {
 
 	function openDatabase(
 		appId: string,
-		scope: StorageScope,
+		account: AccountIdentity | null,
 		name: string,
 	): Promise<OpenedDatabase> {
 		if (!isAppId(appId)) throw new Error('Invalid application id.');
-		const key = `${appId}/${scopeKey(scope)}/${name}`;
+		const key = `${appId}/${accountPath(account)}/${name}`;
 		const existing = opened.get(key);
 		if (existing !== undefined) return existing;
 		const opening = (async () => {
-			const directory = join(appDataDir(root, appId), scopePath(scope), 'sqlite');
+			const directory = join(
+				appDataDir(root, appId),
+				accountPath(account),
+				'sqlite',
+			);
 			await mkdir(directory, { recursive: true });
 			const path = join(directory, `${name}.sqlite`);
 			const database = new Database(path, { create: true });
@@ -57,8 +61,8 @@ export function createBunDevice(root: string): BunDevice {
 	}
 
 	return {
-		open: async (appId, scope, name) =>
-			(await openDatabase(appId, scope, name)).handle,
+		open: async (appId, account, name) =>
+			(await openDatabase(appId, account, name)).handle,
 		/**
 		 * Close this owner's connection, then unlink the file (ADR-0321).
 		 *
@@ -77,12 +81,16 @@ export function createBunDevice(root: string): BunDevice {
 		 * name. This is the same assumption the whole handle registry makes: it
 		 * holds one connection per name for an application that opens once.
 		 */
-		delete: async (appId, scope, name) => {
+		delete: async (appId, account, name) => {
 			if (!isAppId(appId)) throw new Error('Invalid application id.');
-			const key = `${appId}/${scopeKey(scope)}/${name}`;
+			const key = `${appId}/${accountPath(account)}/${name}`;
 			const existing = opened.get(key);
 			opened.delete(key);
-			const directory = join(appDataDir(root, appId), scopePath(scope), 'sqlite');
+			const directory = join(
+				appDataDir(root, appId),
+				accountPath(account),
+				'sqlite',
+			);
 			const path = join(directory, `${name}.sqlite`);
 			if (existing !== undefined) {
 				const database = await existing.catch(() => undefined);
@@ -97,14 +105,10 @@ export function createBunDevice(root: string): BunDevice {
 	};
 }
 
-function scopeKey(scope: StorageScope): string {
-	return scope.kind === 'local'
+function accountPath(account: AccountIdentity | null): string {
+	return account === null
 		? 'local'
-		: `accounts/${scope.authorityId}/${scope.principalId}`;
-}
-
-function scopePath(scope: StorageScope): string {
-	return scopeKey(scope);
+		: `accounts/${account.authorityId}/${account.principalId}`;
 }
 
 /** What the owner holds: the application's three verbs, plus the close it may not call. */

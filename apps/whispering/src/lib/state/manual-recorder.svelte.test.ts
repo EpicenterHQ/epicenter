@@ -4,7 +4,7 @@
  * ownership, not Svelte view invalidation.
  */
 import { expect, mock, test } from 'bun:test';
-import type { AccountIdentity } from '@epicenter/app';
+import type { AccountIdentity } from '@epicenter/principal';
 import { generateBlobId } from '@epicenter/blobs';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';

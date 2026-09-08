@@ -6,10 +6,10 @@
  * This verifies filenames and delete routing, not OPFS durability or contention.
  */
 import { expect, test } from 'bun:test';
-import type { StorageScope } from './protocol.js';
+import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 
 async function deleteFiles(
-	requests: { appId: string; scope: StorageScope; name: string }[],
+	requests: { appId: string; account: AccountIdentity | null; name: string }[],
 ): Promise<string[]> {
 	const child = Bun.spawn({
 		cmd: [
@@ -54,33 +54,33 @@ async function deleteFiles(
 const appId = 'so.epicenter.worker-test';
 
 test('authority and principal separators cannot alias another account file', async () => {
-	const scopes: StorageScope[] = [
-		{ kind: 'account', authorityId: 'one:two', principalId: 'three' },
-		{ kind: 'account', authorityId: 'one', principalId: 'two:three' },
-		{ kind: 'account', authorityId: 'one-two', principalId: 'three' },
-		{ kind: 'account', authorityId: 'one', principalId: 'two-three' },
+	const accounts: AccountIdentity[] = [
+		{ authorityId: 'one:two', principalId: asPrincipalId('three') },
+		{ authorityId: 'one', principalId: asPrincipalId('two:three') },
+		{ authorityId: 'one-two', principalId: asPrincipalId('three') },
+		{ authorityId: 'one', principalId: asPrincipalId('two-three') },
 	];
 	const files = await deleteFiles(
-		scopes.map((scope) => ({ appId, scope, name: 'search' })),
+		accounts.map((account) => ({ appId, account, name: 'search' })),
 	);
-	expect(new Set(files).size).toBe(scopes.length * 2);
+	expect(new Set(files).size).toBe(accounts.length * 2);
 });
 
 test('local, authority, application, and database identity select independent files', async () => {
 	const files = await deleteFiles([
-		{ appId, scope: { kind: 'local' }, name: 'search' },
+		{ appId, account: null, name: 'search' },
 		{
 			appId,
-			scope: { kind: 'account', authorityId: 'local', principalId: 'alice' },
+			account: { authorityId: 'local', principalId: asPrincipalId('alice') },
 			name: 'search',
 		},
 		{
 			appId,
-			scope: { kind: 'account', authorityId: 'other', principalId: 'alice' },
+			account: { authorityId: 'other', principalId: asPrincipalId('alice') },
 			name: 'search',
 		},
-		{ appId: 'so.epicenter.another', scope: { kind: 'local' }, name: 'search' },
-		{ appId, scope: { kind: 'local' }, name: 'other' },
+		{ appId: 'so.epicenter.another', account: null, name: 'search' },
+		{ appId, account: null, name: 'other' },
 	]);
 	expect(new Set(files).size).toBe(10);
 });
@@ -88,10 +88,9 @@ test('local, authority, application, and database identity select independent fi
 test('repeated deletion targets the same database and its own journal', async () => {
 	const request = {
 		appId,
-		scope: {
-			kind: 'account',
+		account: {
 			authorityId: 'a:%"',
-			principalId: 'b:[]',
+			principalId: asPrincipalId('b:[]'),
 		} as const,
 		name: 'search',
 	};
@@ -102,4 +101,21 @@ test('repeated deletion targets the same database and its own journal', async ()
 	expect(files[3]).toBe(files[1]);
 	expect(files[0]?.split('/')).toHaveLength(2);
 	expect(files[0]?.endsWith('.sqlite')).toBe(true);
+});
+
+test('physical filenames preserve the existing serialized tuples', async () => {
+	const files = await deleteFiles([
+		{ appId, account: null, name: 'search' },
+		{
+			appId,
+			account: { authorityId: 'cloud', principalId: asPrincipalId('alice') },
+			name: 'search',
+		},
+	]);
+	expect(files).toEqual([
+		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite-journal`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'account', 'cloud', 'alice', 'search']))}.sqlite`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'account', 'cloud', 'alice', 'search']))}.sqlite-journal`,
+	]);
 });

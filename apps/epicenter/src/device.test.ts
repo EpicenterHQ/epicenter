@@ -1,10 +1,17 @@
+/**
+ * Bun SQLite owner tests.
+ * Verifies file and cache isolation, atomic batches, failed-open recovery, and
+ * deletion that closes retained native handles before reopening an empty file.
+ */
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBunDevice } from './device.ts';
+import { asPrincipalId } from '@epicenter/principal';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import { createBunDevice } from './device.js';
 
-const local = { kind: 'local' } as const;
+const local = null;
 
 test('application SQLite is scoped, async, and batch is atomic', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
@@ -13,7 +20,7 @@ test('application SQLite is scoped, async, and batch is atomic', async () => {
 	const second = await storage.open('so.epicenter.other', local, 'mail');
 	const account = await storage.open(
 		'so.epicenter.mail',
-		{ kind: 'account', authorityId: 'cloud', principalId: 'alice' },
+		{ authorityId: 'cloud', principalId: asPrincipalId('alice') },
 		'mail',
 	);
 
@@ -82,7 +89,9 @@ test('an open that failed is not remembered', async () => {
 	const appDir = join(root, 'apps', 'so.epicenter.mail');
 	await mkdir(join(root, 'apps'), { recursive: true });
 	await Bun.write(appDir, 'in the way');
-	await expect(storage.open('so.epicenter.mail', local, 'mail')).rejects.toThrow();
+	await expect(
+		storage.open('so.epicenter.mail', local, 'mail'),
+	).rejects.toThrow();
 
 	await rm(appDir);
 	const opened = await storage.open('so.epicenter.mail', local, 'mail');
@@ -94,7 +103,14 @@ test('an open that failed is not remembered', async () => {
 test('deleting a database closes it, removes the file, and forgets the name', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	const storage = createBunDevice(root);
-	const path = join(root, 'apps', 'so.epicenter.mail', 'local', 'sqlite', 'mail.sqlite');
+	const path = join(
+		root,
+		'apps',
+		'so.epicenter.mail',
+		'local',
+		'sqlite',
+		'mail.sqlite',
+	);
 
 	const before = await storage.open('so.epicenter.mail', local, 'mail');
 	await before.run('CREATE TABLE messages (id TEXT)');
@@ -117,4 +133,47 @@ test('deleting a database that was never created succeeds', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	const storage = createBunDevice(root);
 	await storage.delete('so.epicenter.mail', local, 'never');
+});
+
+test('cache reuse and deletion preserve other accounts and the local library', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
+	const storage = createBunDevice(root);
+	const appId = 'so.epicenter.mail';
+	const accounts = [
+		null,
+		{ authorityId: 'cloud', principalId: asPrincipalId('alice') },
+		{ authorityId: 'cloud', principalId: asPrincipalId('bob') },
+		{ authorityId: 'other', principalId: asPrincipalId('alice') },
+	];
+	for (const [index, account] of accounts.entries()) {
+		const database = await storage.open(appId, account, 'mail');
+		expect(
+			await storage.open(
+				appId,
+				account === null ? null : { ...account },
+				'mail',
+			),
+		).toBe(database);
+		expectOk(await database.run('CREATE TABLE marker (value INTEGER)'));
+		expectOk(await database.run('INSERT INTO marker VALUES (?)', [index]));
+	}
+	const alice = { authorityId: 'cloud', principalId: asPrincipalId('alice') };
+	const retained = await storage.open(appId, alice, 'mail');
+	await storage.delete(appId, alice, 'mail');
+	expectErr(await retained.all('SELECT * FROM marker'));
+	expect(
+		expectOk(
+			await (await storage.open(appId, alice, 'mail')).all(
+				'SELECT name FROM sqlite_master',
+			),
+		),
+	).toEqual([]);
+	for (const [index, account] of accounts.entries()) {
+		if (index === 1) continue;
+		const database = await storage.open(appId, account, 'mail');
+		expect(expectOk(await database.all('SELECT value FROM marker'))).toEqual([
+			{ value: index },
+		]);
+	}
+	for (const account of accounts) await storage.delete(appId, account, 'mail');
 });

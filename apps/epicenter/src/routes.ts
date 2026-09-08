@@ -9,7 +9,6 @@
  * SPA reaches domain code.
  */
 
-import { LOCAL_BLOB_PATH } from '@epicenter/blobs/webview';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import {
 	CALLBACK_PATH as MAIL_CALLBACK_PATH,
@@ -65,9 +64,6 @@ export const BOOKS_ROUTE = BUILT_IN_ROUTES.books;
 export const APPLICATIONS_ROUTE = route('/api/apps');
 export const SESSION_ROUTE = route('/api/home/session');
 export const SESSION_STREAM_ROUTE = route('/api/home/session/stream');
-export const LOCAL_BLOB_ROUTE = {
-	pattern: `${LOCAL_BLOB_PATH}/:blobId`,
-} as const;
 /**
  * One database's working copy in `~/Device` (ADR-0337).
  *
@@ -108,17 +104,3 @@ export const MAIL_CALLBACK_ROUTE = route(
 );
 /** Where the Mail window collects the callback the host is holding. */
 export const MAIL_PENDING_CALLBACK_ROUTE = route(MAIL_PENDING_CALLBACK_PATH);
-/**
- * Host-owned remote copy operations for one local blob. The id is the only
- * input: no route accepts a destination URL, transfer header, or body, so the
- * host's own deployment authority is the only reachable target.
- */
-export const LOCAL_BLOB_REMOTE_ROUTES = {
-	upload: { pattern: `${LOCAL_BLOB_PATH}/:blobId/upload` },
-	download: { pattern: `${LOCAL_BLOB_PATH}/:blobId/download` },
-	purge: { pattern: `${LOCAL_BLOB_PATH}/:blobId/purge` },
-} as const;
-
-export const LOCAL_BLOB_COPY_ROUTE = route(
-	'/api/apps/:appId/blobs/:destinationId/copy',
-);

@@ -42,10 +42,9 @@ import {
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
 import {
-	createScopedSqlite,
+	createAppSqlite,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
-import type { StorageScope } from '@epicenter/device/protocol';
 import type { PrincipalId } from '@epicenter/principal';
 import {
 	GENERATIONS_ROUTE,
@@ -839,12 +838,12 @@ export function openAppData<const TDefinition extends DataDefinition>(
 	definition: TDefinition,
 	{
 		appId,
-		account,
+		account: input,
 		blobs,
 		sqlite,
 	}: {
 		appId: string;
-		account?: DatabaseAccount;
+		account: DatabaseAccount | null;
 		blobs: StoreBlobBacking;
 		sqlite: DeviceSqliteOwner;
 	},
@@ -853,23 +852,34 @@ export function openAppData<const TDefinition extends DataDefinition>(
 		throw new Error(`The application id '${appId}' is not valid.`);
 	const { data: parsed, error } = compileData(definition);
 	if (error !== null) throw new Error(error.message, { cause: error });
-	const authorityId = account?.authorityId;
-	if (account !== undefined && authorityId === undefined) {
+	const authorityId = input?.authorityId;
+	if (input !== null && authorityId === undefined) {
 		throw new Error('The account has no stable authority identity.');
 	}
+	// Direct callers need the same capture guarantee as the app factory.
+	const account =
+		input === null
+			? null
+			: Object.freeze({
+					authorityId: input.authorityId,
+					principalId: input.principalId,
+					baseURL: input.baseURL,
+					fetch: input.fetch,
+					openWebSocket: input.openWebSocket,
+				});
 	const identity =
-		account !== undefined && authorityId !== undefined
-			? Object.freeze({ authorityId, principalId: account.principalId })
+		account !== null
+			? Object.freeze({
+					authorityId: account.authorityId,
+					principalId: account.principalId,
+				})
 			: null;
-	const scope: StorageScope = Object.freeze(
-		identity === null ? { kind: 'local' } : { kind: 'account', ...identity },
-	);
 	const parts = createStoreOverPort<StoreError | DataDefinitionParseError>({
 		definition: parsed,
 		blobStore: blobs.local,
-		local: account === undefined,
+		local: account === null,
 		async acquire() {
-			if (account === undefined) {
+			if (account === null) {
 				return acquireDatabase(parsed, { appId, generation: 1 });
 			}
 			const resolved = await resolveGeneration(definition, { appId, account });
@@ -898,7 +908,7 @@ export function openAppData<const TDefinition extends DataDefinition>(
 			ready: parts.ready,
 			close: parts.close,
 			blobs: parts.createBlobs(blobs),
-			sqlite: parts.createSqlite(createScopedSqlite(sqlite, appId, scope)),
+			sqlite: parts.createSqlite(createAppSqlite(sqlite, appId, identity)),
 		}),
 	);
 }

@@ -41,7 +41,7 @@ import {
 	generateBlobId,
 } from '@epicenter/blobs';
 import { createBunBlobStore, type BunBlobStore } from '@epicenter/blobs/bun';
-import { desktopBlobUrl, type WebviewBlobScope } from '@epicenter/blobs/webview';
+import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import { DEVICE_PATH } from '@epicenter/device/protocol';
 import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
@@ -74,6 +74,7 @@ import {
 	createHomeServer,
 	type HomeServerEvent,
 	type HomeSessionResponse,
+	type HomeServerOptions,
 } from './server.ts';
 import type { ReadyFrame } from './sidecar-runtime.ts';
 import {
@@ -141,8 +142,42 @@ function testDataDir(): string {
 	return mkdtempSync(join(tmpdir(), 'query-server-test-'));
 }
 
-function createTestBlobs() {
-	return createBunBlobStore({ directory: join(testDataDir(), 'blobs') });
+function createTestBlobs(): HomeServerOptions['blobs'] {
+	const directory = testDataDir();
+	const stores = new Map<string, BunBlobStore>();
+	return (appId, account) => {
+		const key = JSON.stringify([
+			appId,
+			account?.authorityId,
+			account?.principalId,
+		]);
+		let store = stores.get(key);
+		if (store === undefined) {
+			store = createBunBlobStore({
+				directory: join(directory, String(stores.size)),
+			});
+			stores.set(key, store);
+		}
+		return store;
+	};
+}
+
+const TEST_APP_ID = 'so.epicenter.whispering';
+const TEST_ACCOUNT: AccountIdentity = {
+	authorityId: 'authority-a',
+	principalId: asPrincipalId('alice'),
+};
+
+function testBlobUrl(
+	id: string,
+	account: AccountIdentity | null = null,
+	appId = TEST_APP_ID,
+) {
+	const library =
+		account === null
+			? 'local'
+			: `accounts/${encodeURIComponent(account.authorityId)}/${encodeURIComponent(account.principalId)}`;
+	return `/api/apps/${appId}/${library}/blobs/${id}`;
 }
 
 function boundPort(server: { port?: number }): number {
@@ -171,7 +206,7 @@ async function serveHost(
 		device?: BunDevice;
 		appSecrets?: AppSecretOwner;
 		folderRoot?: string;
-		blobs?: BunBlobStore | ((appId: string, scope: WebviewBlobScope) => BunBlobStore);
+		blobs?: HomeServerOptions['blobs'];
 	} = {},
 ) {
 	const portProbe = Bun.serve({
@@ -190,7 +225,7 @@ async function serveHost(
 		staticAssets: await createAppsDistFixture(page),
 		blobs: owners.blobs ?? createTestBlobs(),
 		desktopAuth: createTestDesktopAuth(),
-		blobRemote,
+		blobRemote: (_appId, account) => (account === null ? null : blobRemote),
 		...owners,
 	});
 	const server = Bun.serve({
@@ -421,7 +456,7 @@ describe('createHomeServer', () => {
 				staticAssets,
 				blobs: createTestBlobs(),
 				desktopAuth,
-				blobRemote: null,
+				blobRemote: () => null,
 			}),
 		).toThrow(/launch token/);
 		for (const origin of [
@@ -439,7 +474,7 @@ describe('createHomeServer', () => {
 					staticAssets,
 					blobs: createTestBlobs(),
 					desktopAuth,
-					blobRemote: null,
+					blobRemote: () => null,
 				}),
 			).toThrow(/exact http:\/\/127\.0\.0\.1/);
 		}
@@ -534,7 +569,7 @@ describe('createHomeServer', () => {
 			staticAssets: await createAppsDistFixture(),
 			blobs: createTestBlobs(),
 			desktopAuth: createTestDesktopAuth(),
-			blobRemote: null,
+			blobRemote: () => null,
 		});
 		let calls = 0;
 		const path = '/api/apps/so.epicenter.test/auth-regression';
@@ -574,20 +609,37 @@ describe('createHomeServer', () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const server = await serveHost(host);
 		try {
-			for (const path of ['/_epicenter/account/connect', '/_epicenter/account/select-hosted']) {
+			for (const path of [
+				'/_epicenter/account/connect',
+				'/_epicenter/account/select-hosted',
+			]) {
 				const url = `${server.url.origin}${path}`;
 				expect((await fetch(url, { method: 'POST' })).status).toBe(401);
 				const headers = new Headers(authenticatedHeaders(server));
 				headers.delete('origin');
-				expect((await fetch(url, { method: 'POST', headers })).status).toBe(403);
+				expect((await fetch(url, { method: 'POST', headers })).status).toBe(
+					403,
+				);
 				headers.set('origin', 'https://foreign.example');
-				expect((await fetch(url, { method: 'POST', headers })).status).toBe(403);
+				expect((await fetch(url, { method: 'POST', headers })).status).toBe(
+					403,
+				);
 			}
-			const malformed = await fetch(`${server.url.origin}/_epicenter/account/connect`, {
-				method: 'POST', headers: { ...authenticatedHeaders(server), origin: server.url.origin }, body: '{}',
-			});
+			const malformed = await fetch(
+				`${server.url.origin}/_epicenter/account/connect`,
+				{
+					method: 'POST',
+					headers: {
+						...authenticatedHeaders(server),
+						origin: server.url.origin,
+					},
+					body: '{}',
+				},
+			);
 			expect(malformed.status).toBe(400);
-		} finally { await server.stop(true); }
+		} finally {
+			await server.stop(true);
+		}
 	});
 
 	test('serves Home and every compiled application plus honest placeholders', async () => {
@@ -1251,10 +1303,9 @@ describe('local blob routes', () => {
 		const id = generateBlobId();
 		try {
 			for (const method of ['GET', 'HEAD', 'PUT', 'DELETE']) {
-				const response = await fetch(
-					`${server.url.origin}${desktopBlobUrl(id)}`,
-					{ method },
-				);
+				const response = await fetch(`${server.url.origin}${testBlobUrl(id)}`, {
+					method,
+				});
 				expect(response.status).toBe(401);
 			}
 		} finally {
@@ -1290,14 +1341,14 @@ describe('local blob routes', () => {
 		const session = { headers: { cookie, origin } };
 		try {
 			const unauthenticated = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/upload`,
+				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/upload`,
 				{ method: 'POST' },
 			);
 			expect(unauthenticated.status).toBe(401);
 			expect(calls).toHaveLength(0);
 
 			const invalidId = await fetch(
-				`${server.url.origin}/api/local-blobs/not-a-blob-id/upload`,
+				`${server.url.origin}/api/apps/so.epicenter.whispering/local/blobs/not-a-blob-id/upload`,
 				{ method: 'POST', ...session },
 			);
 			expect(invalidId.status).toBe(400);
@@ -1305,7 +1356,7 @@ describe('local blob routes', () => {
 			// A caller-supplied body is dead weight, never a transfer target: the
 			// stub still receives only the path id.
 			const uploaded = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/upload`,
+				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/upload`,
 				{
 					method: 'POST',
 					headers: { ...session.headers, 'content-type': 'application/json' },
@@ -1315,13 +1366,13 @@ describe('local blob routes', () => {
 			expect(uploaded.status).toBe(204);
 
 			const downloaded = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/download`,
+				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/download`,
 				{ method: 'POST', ...session },
 			);
 			expect(downloaded.status).toBe(404);
 
 			const purged = await fetch(
-				`${server.url.origin}${desktopBlobUrl(id)}/purge`,
+				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/purge`,
 				{ method: 'POST', ...session },
 			);
 			expect(purged.status).toBe(502);
@@ -1346,7 +1397,7 @@ describe('local blob routes', () => {
 		try {
 			for (const operation of ['upload', 'download', 'purge']) {
 				const response = await fetch(
-					`${server.url.origin}${desktopBlobUrl(id)}/${operation}`,
+					`${server.url.origin}${testBlobUrl(id)}/${operation}`,
 					{ method: 'POST', headers: { cookie, origin } },
 				);
 				expect(response.status).toBe(503);
@@ -1363,9 +1414,13 @@ describe('local blob routes', () => {
 		const directory = testDataDir();
 		const stores = new Map<string, BunBlobStore>();
 		let selections = 0;
-		const scopedBlobs = (appId: string, scope: WebviewBlobScope) => {
+		const selectBlobs: HomeServerOptions['blobs'] = (appId, account) => {
 			selections += 1;
-			const key = JSON.stringify([appId, scope]);
+			const key = JSON.stringify([
+				appId,
+				account?.authorityId,
+				account?.principalId,
+			]);
 			let store = stores.get(key);
 			if (store === undefined) {
 				store = createBunBlobStore({
@@ -1377,43 +1432,62 @@ describe('local blob routes', () => {
 		};
 		const source = generateBlobId();
 		const destination = generateBlobId();
-		const accountScope = '?authorityId=authority-a&principalId=alice';
-		const sourceStore = scopedBlobs('so.epicenter.whispering', {
-			kind: 'account',
-			authorityId: 'authority-a',
-			principalId: 'alice',
-		});
-		expectOk(await sourceStore.put(source, new Blob(['audio'], { type: 'audio/wav' })));
-		const server = await serveHost(host, PAGE, null, { blobs: scopedBlobs });
+		const copyUrl = `${testBlobUrl(destination, TEST_ACCOUNT)}/copy`;
+		const sourceStore = selectBlobs(TEST_APP_ID, TEST_ACCOUNT);
+		expectOk(
+			await sourceStore.put(source, new Blob(['audio'], { type: 'audio/wav' })),
+		);
+		const server = await serveHost(host, PAGE, null, { blobs: selectBlobs });
 		const { cookie, origin } = authenticationFor(server);
 		const session = { headers: { cookie, origin } };
 		try {
 			const selectionsBeforeRequest = selections;
-			const unauthorized = await fetch(
-				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
-				{ method: 'POST', body: JSON.stringify({ sourceId: source }) },
-			);
+			const unauthorized = await fetch(`${server.url.origin}${copyUrl}`, {
+				method: 'POST',
+				body: JSON.stringify({ sourceId: source }),
+			});
 			expect(unauthorized.status).toBe(401);
 			expect(selections).toBe(selectionsBeforeRequest);
-			const foreignOrigin = await fetch(
-				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
-				{
-					method: 'POST',
-					headers: { cookie, origin: 'https://untrusted.example' },
-					body: JSON.stringify({ sourceId: source }),
-				},
-			);
+			const foreignOrigin = await fetch(`${server.url.origin}${copyUrl}`, {
+				method: 'POST',
+				headers: { cookie, origin: 'https://untrusted.example' },
+				body: JSON.stringify({ sourceId: source }),
+			});
 			expect(foreignOrigin.status).toBe(403);
 			expect(selections).toBe(selectionsBeforeRequest);
-
-			const copied = await fetch(
-				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
-				{
+			for (const path of [
+				`${copyUrl}?appId=so.epicenter.honeycrisp`,
+				`${copyUrl}?principalId=bob`,
+				`/api/apps/invalid/local/blobs/${destination}/copy`,
+				`/api/apps/${TEST_APP_ID}/accounts/%2F/alice/blobs/${destination}/copy`,
+				`/api/apps/${TEST_APP_ID}/accounts/authority-a/%00/blobs/${destination}/copy`,
+			]) {
+				const refused = await fetch(`${server.url.origin}${path}`, {
 					method: 'POST',
-					headers: { ...session.headers, 'content-type': 'application/json' },
+					headers: session.headers,
 					body: JSON.stringify({ sourceId: source }),
-				},
-			);
+				});
+				expect(refused.status).toBe(400);
+				expect(selections).toBe(selectionsBeforeRequest);
+			}
+			for (const path of [
+				`/api/local-blobs/${destination}`,
+				`/api/apps/${TEST_APP_ID}/blobs/${destination}/copy`,
+			]) {
+				const oldRoute = await fetch(`${server.url.origin}${path}`, {
+					method: 'POST',
+					headers: session.headers,
+					body: JSON.stringify({ sourceId: source }),
+				});
+				expect(oldRoute.status).toBe(404);
+				expect(selections).toBe(selectionsBeforeRequest);
+			}
+
+			const copied = await fetch(`${server.url.origin}${copyUrl}`, {
+				method: 'POST',
+				headers: { ...session.headers, 'content-type': 'application/json' },
+				body: JSON.stringify({ sourceId: source }),
+			});
 			expect(copied.status).toBe(204);
 			for (const id of [source, destination]) {
 				const blob = expectOk(await sourceStore.get(id));
@@ -1421,30 +1495,26 @@ describe('local blob routes', () => {
 				expect(blob.type).toBe('audio/wav');
 			}
 
-			const duplicate = await fetch(
-				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${destination}/copy${accountScope}`,
-				{
-					method: 'POST',
-					headers: { ...session.headers, 'content-type': 'application/json' },
-					body: JSON.stringify({ sourceId: source }),
-				},
-			);
+			const duplicate = await fetch(`${server.url.origin}${copyUrl}`, {
+				method: 'POST',
+				headers: { ...session.headers, 'content-type': 'application/json' },
+				body: JSON.stringify({ sourceId: source }),
+			});
 			expect(duplicate.status).toBe(409);
 
-			for (const location of [
-				'so.epicenter.whispering',
-				'so.epicenter.whispering?authorityId=authority-b&principalId=alice',
-				'so.epicenter.whispering?authorityId=authority-a&principalId=bob',
-				'so.epicenter.honeycrisp?authorityId=authority-a&principalId=alice',
-			]) {
-				const [appId, query] = location.split('?');
+			for (const [appId, account] of [
+				[TEST_APP_ID, null],
+				[TEST_APP_ID, { ...TEST_ACCOUNT, authorityId: 'authority-b' }],
+				[TEST_APP_ID, { ...TEST_ACCOUNT, principalId: asPrincipalId('bob') }],
+				['so.epicenter.honeycrisp', TEST_ACCOUNT],
+			] as const) {
 				const isolated = await fetch(
-					`${server.url.origin}/api/apps/${appId}/blobs/${generateBlobId()}/copy${query === undefined ? '' : `?${query}`}`,
-				{
-					method: 'POST',
-					headers: { ...session.headers, 'content-type': 'application/json' },
-					body: JSON.stringify({ sourceId: source }),
-				},
+					`${server.url.origin}${testBlobUrl(generateBlobId(), account, appId)}/copy`,
+					{
+						method: 'POST',
+						headers: { ...session.headers, 'content-type': 'application/json' },
+						body: JSON.stringify({ sourceId: source }),
+					},
 				);
 				expect(isolated.status).toBe(404);
 			}
@@ -1460,7 +1530,7 @@ describe('local blob routes', () => {
 		});
 		const server = await serveHost(host);
 		const id = generateBlobId();
-		const url = `${server.url.origin}${desktopBlobUrl(id)}`;
+		const url = `${server.url.origin}${testBlobUrl(id)}`;
 		const { cookie, origin } = authenticationFor(server);
 		try {
 			const put = await fetch(url, {
@@ -1534,7 +1604,7 @@ describe('local blob routes', () => {
 			}
 
 			const emptyId = generateBlobId();
-			const emptyUrl = `${server.url.origin}${desktopBlobUrl(emptyId)}`;
+			const emptyUrl = `${server.url.origin}${testBlobUrl(emptyId)}`;
 			expect(
 				(
 					await fetch(emptyUrl, {
@@ -1577,7 +1647,7 @@ describe('local blob routes', () => {
 		});
 		const server = await serveHost(host);
 		const id = generateBlobId();
-		const url = `${server.url.origin}${desktopBlobUrl(id)}`;
+		const url = `${server.url.origin}${testBlobUrl(id)}`;
 		const { cookie, origin } = authenticationFor(server);
 		try {
 			expect(
@@ -1613,7 +1683,7 @@ describe('local blob routes', () => {
 		const server = await serveHost(host);
 		try {
 			const response = await fetch(
-				`${server.url.origin}/api/local-blobs/not-a-blob-id`,
+				`${server.url.origin}/api/apps/so.epicenter.whispering/local/blobs/not-a-blob-id`,
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(response.status).toBe(400);
@@ -1930,28 +2000,28 @@ describe('sidecar end-to-end smoke', () => {
 			expect(withoutAuthBootstrap(await installed.text())).toBe(installedPage);
 
 			const blobId = generateBlobId();
-			const put = await fetch(
-				`${origin}${desktopBlobUrl(blobId, 'so.epicenter.whispering')}`,
-				{
+			const put = await fetch(`${origin}${testBlobUrl(blobId)}`, {
 				method: 'PUT',
 				headers,
 				body: 'native-selected bytes',
-				},
-			);
+			});
 			expect(put.status).toBe(201);
 			expect(
 				await Bun.file(
-					join(dataDir, 'apps', 'so.epicenter.whispering', 'local', 'blobs', blobId, 'data'),
-				).text(),
-			).toBe('native-selected bytes');
-			expect(
-				await Bun.file(
 					join(
-						ignoredDirectory,
+						dataDir,
+						'apps',
+						'so.epicenter.whispering',
+						'local',
 						'blobs',
 						blobId,
 						'data',
 					),
+				).text(),
+			).toBe('native-selected bytes');
+			expect(
+				await Bun.file(
+					join(ignoredDirectory, 'blobs', blobId, 'data'),
 				).exists(),
 			).toBe(false);
 			const checkoutUrl = `${origin}${CHECKOUT_PATH}/so.epicenter.honeycrisp`;
