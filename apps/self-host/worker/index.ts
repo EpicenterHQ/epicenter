@@ -3,8 +3,8 @@
  *
  * The instance on Cloudflare: the same `@epicenter/server` surfaces the Bun entry
  * (`server.ts`) builds, wired to Cloudflare bindings instead of plain
- * primitives (ADR-0066). `runtime-profile.test.ts` keeps the two entries in
- * parity.
+ * primitives (ADR-0066), plus the shared Durable Object store backend.
+ * `runtime-profile.test.ts` records the runtime difference.
  * One single-partition instance, not a multi-user wiki and not
  * a mode: every request resolves to the pinned `principals/instance` partition,
  * and authentication is one operator-supplied static
@@ -13,8 +13,8 @@
  *
  * This is a reference, not an Epicenter-operated product. Copy this folder, set
  * `INSTANCE_TOKEN` (`wrangler secret put INSTANCE_TOKEN`, generated with
- * `bun run gen-token`), and deploy. The instance composes no Better Auth,
- * Postgres, or store authority, so there is no Hyperdrive binding and no
+ * `bun run gen-token`), and deploy. The instance composes no Better Auth or
+ * Postgres, so there is no Hyperdrive binding and no
  * `BETTER_AUTH_SECRET` (ADR-0075). Community-supported.
  *
  * Trust boundary: the deployer operates the infrastructure. Epicenter never holds
@@ -26,13 +26,17 @@ import { assertStrongToken } from '@epicenter/auth';
 import {
 	createEnvTokenResolver,
 	createServerApp,
+	GenerationsLedger,
 	mountBlobsApp,
 	mountInferenceApp,
 	mountSessionApp,
+	mountStoreSyncApp,
 	mountTranscriptionApp,
 	type ResolveBearerPrincipal,
 	rateLimit,
 	requireBearerPrincipal,
+	StoreAuthority,
+	type StoreAuthorityStub,
 } from '@epicenter/server';
 import { resolveSelfHostTrustedOrigins } from '../trusted-origins.js';
 
@@ -68,6 +72,24 @@ app.get('/', (c) =>
 // operator bearer (`auth` above) is the only gate, so every surface is
 // bearer-authenticated (ADR-0075).
 mountSessionApp(app, { auth });
+// The same opaque store backend as hosted, addressed under the one instance
+// principal. Each socket must authenticate again after its 600-second lifetime.
+mountStoreSyncApp(app, {
+	resolveBearerPrincipal,
+	resolveStore: (env) => {
+		const bindings = env as Cloudflare.Env;
+		return {
+			authority: (name) =>
+				bindings.STORE_AUTHORITY.get(
+					bindings.STORE_AUTHORITY.idFromName(name),
+				) as unknown as StoreAuthorityStub,
+			ledger: (name) =>
+				bindings.GENERATIONS_LEDGER.get(
+					bindings.GENERATIONS_LEDGER.idFromName(name),
+				),
+		};
+	},
+});
 // Cap the inference burn rate so a leaked or overused bearer cannot run the
 // operator's house key up unbounded. Per-isolate on Cloudflare (approximate);
 // the real ceiling is the hard spend limit on the provider key itself (README).
@@ -89,3 +111,5 @@ mountTranscriptionApp(app, {
 mountBlobsApp(app, { auth });
 
 export default app;
+
+export { GenerationsLedger, StoreAuthority };

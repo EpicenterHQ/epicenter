@@ -21,7 +21,7 @@ composition and public-shell resilience checkpoint is already committed.
   Coordinate with the active authority-address and desktop-installation work.
 - [ ] Integrate desktop selection without sending remote credentials to WebViews.
   Reopen on server changes; do not migrate data or borrow a successor Account.
-- [ ] Verify which self-host backend can support store sync and mount it before
+- [x] Verify which self-host backend can support store sync and mount it before
   presenting self-host as a full hosted replacement. Do not introduce a Bun
   backend implicitly or claim server composition alone provides convergence.
 - [ ] Verify the full connection UI and both entry paths, update current-facing
@@ -32,3 +32,16 @@ composition and public-shell resilience checkpoint is already committed.
 The shared-core checkpoint does not ship client connection UI. Keep this
 limitation explicit. Account deletion and packaged native callback verification
 remain separate tasks. Do not deploy or reset a shared database.
+
+## Store backend checkpoint
+
+The self-host Worker mounts the shared Durable Object store backend. Runtime
+profile tests cover token gating and constant instance addressing; workerd
+proves generation-byte roundtrip and preservation after operator token rotation.
+The Bun entry has no store backend. Nine focused workerd tests and the self-host
+typecheck pass. Independent review found no backend blocker.
+
+Client startup selection, scoped persistence, and both UI entry paths are
+implemented in the working tree. Browser/desktop lifecycle tests and Chromium
+against the local Worker pass. Their checkpoint awaits the concurrent shared
+authority-ID contract commit; those unrelated hunks are not included here.
