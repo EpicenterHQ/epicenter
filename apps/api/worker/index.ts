@@ -169,10 +169,9 @@ mountTranscriptionApp(app, {
 // dashboard endpoints can't be mounted without it.
 mountBillingApi(app, { auth: bearer });
 
-// Hosted account deletion (Wave G): one route coordinates authority storage,
-// the blob prefix, the Autumn customer, storage observations, and the auth
-// user, ordered so retries stay authenticated until deletion is complete.
-// The mount owns the account-deletion authentication policy.
+// Hosted account deletion currently refuses before destructive work because
+// historical storage ownership and write retirement are not yet established.
+// The mount preserves fresh-session and principal-binding checks.
 app.delete('/api/account', cloudAuth);
 mountAccountDeletionApi(app);
 
