@@ -87,29 +87,22 @@ export type Env = {
  * the hosted cloud composes (Better Auth + Postgres). The single-partition
  * instance composes none of it, so these never appear on the instance's `Env`
  * (ADR-0076): the type makes "the instance reads no cloud secret" a compile fact,
- * not a JSDoc promise. The cloud's auth wrappers, `mountCloudAuth`, `mountCloudDb`,
- * and the `authApp` routes type against this; the portable surfaces stay on `Env`.
+ * not a JSDoc promise. The cloud's auth wrappers, `mountCloudAuth`, `createCloudDbMiddleware`,
+ * and the hosted auth routes type against this; the portable surfaces stay on `Env`.
  */
 export type CloudEnv = {
 	Bindings: ServerBindings;
 	Variables: Env['Variables'] & {
 		/**
-		 * The per-request Postgres handle. Populated by `mountCloudDb`. Read by
-		 * Better Auth (the only Postgres consumer).
+		 * The per-request Postgres handle. Populated by `createCloudDbMiddleware`. Read by
+		 * Better Auth and hosted account/billing operations.
 		 */
 		db: NodePgDatabase<typeof schema>;
-		/** The per-request Better Auth instance. Populated by `mountCloudAuth`. */
+		/** The per-request Better Auth instance, set by mountCloudAuth's middleware. */
 		auth: ReturnType<typeof createAuth>;
 		/**
-		 * Deployment-owned static shell for the hosted auth browser surfaces.
-		 * `packages/server` owns auth policy and dispatch, but the deployable owns
-		 * where the built SvelteKit fallback comes from: Workers read ASSETS, Bun
-		 * can point at local dev or a local build.
-		 */
-		authUiShell: (c: Context<CloudEnv>) => Response | Promise<Response>;
-		/**
 		 * Per-request queue of fire-and-forget promises that must outlive the HTTP
-		 * response (billing's Autumn charges). `mountCloudDb` drains the whole queue
+		 * response (billing's Autumn charges). `createCloudDbMiddleware` drains the whole queue
 		 * (`Promise.allSettled(...).then(close)`) through the deployment's
 		 * `afterResponse` hook (`executionCtx.waitUntil` on Workers, the live process
 		 * on Bun), then closes the db handle. The queue is the data; the hook is how

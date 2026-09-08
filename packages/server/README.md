@@ -46,7 +46,12 @@ choice and any deployment policy.
 | `mountBlobsApp` | `src/routes/blobs.ts` | Content-addressed bytes, S3-compatible behind `resolveDeploymentBlobStore`. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference, with `rateLimit` available as a policy. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
-| `mountCloudAuth`, `mountCloudDb` | `src/mount-cloud-auth.ts`, `src/mount-cloud-db.ts` | Cloud only. An instance composes no Better Auth and no Postgres. |
+| `mountCloudAuth`, `createCloudDbMiddleware` | `src/mount-cloud-auth.ts`, `src/create-cloud-db-middleware.ts` | Cloud only. Public HTML shells bypass relational setup. |
+
+`mountCloudAuth` returns database/auth middleware for protected resource mounts.
+Compose it before their authentication guards. The database middleware closes
+its handle after queued work settles; public shells and unrelated 404s never
+acquire one. The instance composes neither Better Auth nor Postgres.
 
 Billing is not here and never comes here: the catalog, the routes, and Autumn
 live in `apps/api/worker/billing/`, because they are hosted-only.

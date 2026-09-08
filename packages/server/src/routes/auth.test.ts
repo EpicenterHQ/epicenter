@@ -5,18 +5,19 @@
 import { expect, test } from 'bun:test';
 import { Hono } from 'hono';
 import type { CloudEnv } from '../types.js';
-import { authApp } from './auth.js';
+import { mountAuthRoutes } from './auth.js';
 
 function setup() {
 	const app = new Hono<CloudEnv>();
-	app.use('*', async (c, next) => {
-		c.set('authUiShell', () => new Response('sign-in shell'));
-		c.set('auth', {
-			handler: async () => new Response('Better Auth', { status: 418 }),
-		} as unknown as CloudEnv['Variables']['auth']);
-		await next();
+	mountAuthRoutes(app, {
+		serveAuthUiShell: () => new Response('sign-in shell'),
+		setup: async (c, next) => {
+			c.set('auth', {
+				handler: async () => new Response('Better Auth', { status: 418 }),
+			} as unknown as CloudEnv['Variables']['auth']);
+			await next();
+		},
 	});
-	app.route('/', authApp);
 	return app;
 }
 test('sign-in serves the shell without redirecting arbitrary callback URLs', async () => {

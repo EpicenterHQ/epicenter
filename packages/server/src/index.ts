@@ -24,11 +24,9 @@ export { createEnvTokenResolver } from './auth/instance-token.js';
 // resolver (e.g. `apps/api`'s dev auth) returns the same variants the request
 // path expects, without reaching into the auth module directly.
 export { OAuthError } from './auth/oauth-errors.js';
+export { createCloudDbMiddleware } from './create-cloud-db-middleware.js';
 export { connectHyperdriveDb } from './db/backends/cloudflare.js';
-// Database concern (cloud-only). `createDb(client)` wraps a connected pg
-// client/pool in drizzle with the auth schema; a cloud entry hands the result to
-// `mountCloudDb`. The Cloudflare per-request `pg.Client` over Hyperdrive comes from
-// `connectHyperdriveDb`; a Bun host builds its own `pg.Pool` inline.
+// Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
 export {
 	deleteStorageObservations,
@@ -46,15 +44,10 @@ export {
 	requireBearerPrincipal,
 	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
-// The cloud-only relational layer, in two halves the cloud installs after
-// `createServerApp` (both type against `CloudEnv`): `mountCloudAuth` builds the
-// per-request Better Auth instance + the `authApp` surface; `mountCloudDb` runs
-// the per-request Postgres connection + after-response drain. The single-partition
-// instance calls NEITHER and composes no Better Auth or Postgres (ADR-0076).
-// `CloudAuthBindings` is the Cloud-only auth env contract the cloud merges into
-// its own boot validation and resolves through `resolveAuthSecrets` (ADR-0076).
+// Cloud-only relational setup. mountCloudAuth mounts public shells and auth
+// endpoints, then returns database/auth middleware for protected resource mounts.
+// An instance composes neither Better Auth nor Postgres.
 export { CloudAuthBindings, mountCloudAuth } from './mount-cloud-auth.js';
-export { mountCloudDb } from './mount-cloud-db.js';
 // Reusable surfaces. Each `mount*` bundles auth + the route mount, accepting
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // cloud's Better Auth surface (sessions, social sign-in, `c.var.auth`) is bundled into
@@ -67,7 +60,7 @@ export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS,
 // CSRF) and returns the `Hono` every surface mounts onto. It takes one
 // `Identity` (who this deployment is on the web). The cloud's db + Better Auth are
-// NOT here; the cloud adds them via `mountCloudDb` + `mountCloudAuth`.
+// NOT here; the cloud adds them via `createCloudDbMiddleware` + `mountCloudAuth`.
 export { createServerApp } from './server-app.js';
 // Binding contract: the portable env the library reads from `c.env`, as both
 // the arktype schema (value) and its inferred type (same name). Each deployment

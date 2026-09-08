@@ -1,22 +1,12 @@
 /**
- * `mountCloudAuth`: the cloud-only relational-auth layer (Better Auth + Postgres).
- *
- * The hosted cloud composes Better Auth: a per-request `c.var.auth` instance
- * (sessions, social sign-in, and passkeys) over Postgres, plus the `authApp`
- * browser shell and Better Auth catch-all. The single-partition
- * instance composes NEITHER (ADR-0075): it authenticates one operator-supplied
- * bearer and has no sessions, so it never calls this and never constructs Better
- * Auth. That is the seam that lets an instance drop Postgres entirely.
- *
- * Call it once, right after `createServerApp` and before the principal-scoped mounts:
- * it installs the auth-context middleware (so `c.var.auth` is set before any
- * bearer wrapper or `authApp` route reads it) and mounts `authApp` at
- * the root.
+ * Mount public auth shells and database-backed Better Auth endpoints.
+ * Returns the same database/auth middleware for protected resource mounts.
+ * The deployment must attach it before each resource's authentication guard.
  */
-
-import type { Context, Hono } from 'hono';
+import type { Context, Hono, MiddlewareHandler } from 'hono';
+import { every } from 'hono/combine';
 import { type CloudAuthBindings, createAuth } from './auth/create-auth.js';
-import { authApp } from './routes/auth.js';
+import { mountAuthRoutes } from './routes/auth.js';
 import type { CloudEnv } from './types.js';
 
 export { CloudAuthBindings } from './auth/create-auth.js';
@@ -24,6 +14,7 @@ export { CloudAuthBindings } from './auth/create-auth.js';
 export function mountCloudAuth(
 	app: Hono<CloudEnv>,
 	opts: {
+		database: MiddlewareHandler<CloudEnv>;
 		/**
 		 * Resolve this cloud deployment's relational-auth secrets
 		 * ({@link CloudAuthBindings}) from its own env. The secrets are NOT in the
@@ -41,14 +32,8 @@ export function mountCloudAuth(
 		 */
 		serveAuthUiShell: (c: Context<CloudEnv>) => Response | Promise<Response>;
 	},
-): void {
-	// Better Auth context. Built per request (Workers expose no module-scope env
-	// or db connection), reading the db handle, auth origin, and trusted origins
-	// the `createServerApp` lifecycle already resolved. Installed before the
-	// bearer wrappers and the `authApp` routes mounted below read
-	// `c.var.auth`.
-	app.use('*', async (c, next) => {
-		c.set('authUiShell', opts.serveAuthUiShell);
+): MiddlewareHandler<CloudEnv> {
+	const auth: MiddlewareHandler<CloudEnv> = async (c, next) => {
 		c.set(
 			'auth',
 			createAuth({
@@ -60,7 +45,8 @@ export function mountCloudAuth(
 			}),
 		);
 		await next();
-	});
-	// Hosted auth pages and Better Auth endpoints have no /api prefix.
-	app.route('/', authApp);
+	};
+	const setup = every(opts.database, auth);
+	mountAuthRoutes(app, { setup, serveAuthUiShell: opts.serveAuthUiShell });
+	return setup;
 }

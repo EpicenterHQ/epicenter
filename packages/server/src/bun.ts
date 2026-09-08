@@ -6,8 +6,9 @@
  * The hosted cloud's Bun bootstrap and the instance's Bun bootstrap each own
  * their own composition (`apps/api/server.ts`, `apps/self-host/server.ts`); the
  * library ships the parts, not a shared launcher (ADR-0075/0076). A cloud-on-Bun
- * entry additionally installs `mountCloudDb` with a `pg.Pool` checkout and a
- * fire-and-forget drain. Bun is the one non-Cloudflare runtime (ADR-0066):
+ * entry uses `createCloudDbMiddleware` with a shared `pg.Pool` and a
+ * fire-and-forget drain on database-dependent routes. Bun is the one
+ * non-Cloudflare runtime (ADR-0066):
  * `bun:sqlite` is the built-in synchronous engine the Epicenter authority needs,
  * and `bun build --compile` is what ships the self-host binary and the Tauri
  * sidecar. There is no Node backend; this code imports `bun:sqlite` and
@@ -28,6 +29,7 @@ export { createEnvTokenResolver } from './auth/instance-token.js';
 // gets it without importing the main barrel, which would drag in the Cloudflare
 // Durable Objects and their `cloudflare:workers` import.
 export { OAuthError } from './auth/oauth-errors.js';
+export { createCloudDbMiddleware } from './create-cloud-db-middleware.js';
 export { createDb } from './db/create-db.js';
 export {
 	listStorageObservations,
@@ -39,13 +41,10 @@ export {
 	requireBearerPrincipal,
 	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
-// The cloud-only relational layer (Better Auth on `c.var.auth` + the auth surface,
-// and the Postgres lifecycle). A cloud-on-Bun entry calls `mountCloudAuth` +
-// `mountCloudDb` once after `createServerApp`; the single-partition instance calls
-// neither (ADR-0076). `CloudAuthBindings` is the Cloud-only auth env contract,
-// merged into the cloud Bun host's boot validation.
+// Cloud-only relational setup for protected routes. mountCloudAuth mounts the
+// public auth shells separately and returns database/auth middleware.
+// CloudAuthBindings is merged into the Bun host's boot validation.
 export { CloudAuthBindings, mountCloudAuth } from './mount-cloud-auth.js';
-export { mountCloudDb } from './mount-cloud-db.js';
 export { mountBlobsApp } from './routes/blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';

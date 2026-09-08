@@ -17,11 +17,11 @@ import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
 import {
 	type CloudEnv,
 	connectHyperdriveDb,
+	createCloudDbMiddleware,
 	createServerApp,
 	GenerationsLedger,
 	mountBlobsApp,
 	mountCloudAuth,
-	mountCloudDb,
 	mountInferenceApp,
 	mountSessionApp,
 	mountStoreSyncApp,
@@ -32,7 +32,9 @@ import {
 	StoreAuthority,
 	type StoreAuthorityStub,
 } from '@epicenter/server';
+import { GENERATIONS_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import type { Context } from 'hono';
+import { every } from 'hono/combine';
 import { describeRoute } from 'hono-openapi';
 import { mountAccountDeletionApi } from './account/routes.js';
 import {
@@ -40,16 +42,14 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
-import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 import { buildSessionCallbacks } from './session-callbacks.js';
+import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
 // Compile-time proof that this worker's generated Env provides every
 // binding the library reads. A missing or mistyped binding fails here,
 // not deep inside library files compiled in this program.
 ({}) as Cloudflare.Env satisfies ServerBindings;
 
-// The cloud's Postgres + `waitUntil` are NOT here; they are installed by
-// `mountCloudDb` below.
 const app = createServerApp<CloudEnv>({
 	// The hosted cloud's public origin never changes per deploy, so it is
 	// baked from the constants source of truth rather than duplicated into
@@ -62,11 +62,6 @@ const app = createServerApp<CloudEnv>({
 		(env as Cloudflare.Env).API_PUBLIC_ORIGIN ?? PRODUCTION_API_URL,
 	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
 });
-
-// The cloud resolves a signed bearer against its Better Auth session row.
-// Each protected wrapper closes over that one resolver; an instance
-// closes over its env-token resolver instead (ADR-0075).
-const bearer = requireBearerPrincipal(resolveRequestSessionPrincipal);
 
 // The cloud UI (apps/api/ui) is one root-based SvelteKit SPA whose fallback
 // shell (`fallback.html`) the server hands out for the browser surfaces it
@@ -95,30 +90,27 @@ app.get('/', (c) =>
 	c.json({ product: 'hub', version: '0.1.0', runtime: 'cloudflare' }),
 );
 
-// Cloud-only Postgres lifecycle: a per-request pg client over Hyperdrive +
-// `waitUntil` to keep billing's after-response drain alive. Installed first so
-// `c.var.db` is set before Better Auth (and any billing handler) reads it. The
-// instance composes no Postgres and never calls this (ADR-0076). The binding name
-// and `Cloudflare.Env` cast live at this edge, type-checked against this Worker's
-// generated bindings (ADR-0066).
-mountCloudDb(app, {
+// Route-owned Postgres lifetime. Hyperdrive acquisition and waitUntil belong
+// to this runtime; the middleware drains queued work before closing the client.
+const database = createCloudDbMiddleware({
 	connect: (env) => connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
 	afterResponse: (c, work) => c.executionCtx.waitUntil(work),
 });
 
-// Cloud-only relational-auth layer: per-request Better Auth on `c.var.auth`
-// plus hosted sign-in, account management, and session handoff. Host-only cookies
-// serve the hosted auth pages; application data requests carry session bearers.
-// Mounted before the principal-scoped surfaces so `c.var.auth` is set when their
-// bearer wrappers run. The single-partition instance composes none of
-// this (ADR-0075). The Cloud-only auth secrets are read at this Worker's own edge
-// from its deploy-gated bindings (`c.env as Cloudflare.Env`), never the portable
-// `ServerBindings` (ADR-0076/0066).
-mountCloudAuth(app, {
+// Public auth shells bypass setup. Better Auth endpoints install it directly;
+// protected resource mounts below compose it before their own auth guards.
+// Cloud secrets stay at this deployment edge, outside ServerBindings.
+const cloudAuth = mountCloudAuth(app, {
+	database,
 	resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
 	resolveAuthSecrets: (c) => c.env as Cloudflare.Env,
 	serveAuthUiShell: serveUiShell,
 });
+
+const bearer = every(
+	cloudAuth,
+	requireBearerPrincipal(resolveRequestSessionPrincipal),
+);
 
 // Principal-partitioned reusable surfaces.
 mountSessionApp(app, { auth: bearer });
@@ -129,6 +121,14 @@ mountSessionApp(app, { auth: bearer });
 // stamped from that bearer and prefixed onto the object name, so being signed
 // in on two devices is the whole of the sharing model. The authority reads
 // nothing it stores.
+// Store routes use subprotocol bearers, so install setup before their own guard.
+for (const path of [
+	STORE_SYNC_ROUTE.pattern,
+	GENERATIONS_ROUTE.collectionPattern,
+	GENERATIONS_ROUTE.itemPattern,
+]) {
+	app.use(path, cloudAuth);
+}
 mountStoreSyncApp(app, {
 	resolveBearerPrincipal: resolveRequestSessionPrincipal,
 	resolveStore: (env) => {
@@ -173,6 +173,7 @@ mountBillingApi(app, { auth: bearer });
 // the blob prefix, the Autumn customer, storage observations, and the auth
 // user, ordered so retries stay authenticated until deletion is complete.
 // The mount owns the account-deletion authentication policy.
+app.delete('/api/account', cloudAuth);
 mountAccountDeletionApi(app);
 
 // Dashboard SPA: serve the cloud UI shell for the dashboard URLs. The hosted

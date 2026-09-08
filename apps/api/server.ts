@@ -52,11 +52,11 @@ import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 import {
 	CloudAuthBindings,
 	type CloudEnv,
+	createCloudDbMiddleware,
 	createDb,
 	createServerApp,
 	mountBlobsApp,
 	mountCloudAuth,
-	mountCloudDb,
 	mountInferenceApp,
 	mountSessionApp,
 	mountTranscriptionApp,
@@ -66,9 +66,10 @@ import {
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
+import { every } from 'hono/combine';
 import pg from 'pg';
-import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
 import { buildSessionCallbacks } from './worker/session-callbacks.js';
+import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
 
 /**
  * The apps/api Bun env contract: the portable {@link ServerBindings}, the
@@ -125,9 +126,8 @@ export function startBunApiServer(
 	// on the chosen port; an operator overrides it with their domain.
 	const origin = env.API_PUBLIC_ORIGIN ?? `http://localhost:${port}`;
 
-	// One pool for the process; drizzle checks a client out per query and returns
-	// it, so the `mountCloudDb` connect leg below hands back the shared handle with
-	// a no-op close.
+	// One pool for the process. Drizzle checks out clients per query; the
+	// request middleware borrows the pool and has no per-request client to close.
 	const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
 	const db = createDb(pool);
 
@@ -140,7 +140,7 @@ export function startBunApiServer(
 	// keeps the real session bearer resolver. Each protected wrapper closes over it.
 	const resolveBearerPrincipal =
 		opts.resolveBearerPrincipal ?? resolveRequestSessionPrincipal;
-		const bearer = requireBearerPrincipal(resolveBearerPrincipal);
+
 	const serveAuthUiShell = () =>
 		new Response(
 			'Hosted auth UI is served by the SvelteKit app in Bun dev. Use `bun run --cwd apps/api/ui dev` for browser auth surfaces, or `bun run --cwd apps/api dev` for the Worker asset shell.',
@@ -153,25 +153,23 @@ export function startBunApiServer(
 	app.get('/', (c) =>
 		c.json({ product: 'hub', version: '0.1.0', runtime: 'bun' }),
 	);
-	// Cloud-only Postgres lifecycle: hand back the shared `pg.Pool` checkout (drizzle
-	// checks a client out per query, so `close` is a no-op) and let the live Bun
-	// process outlive the response (no `waitUntil`). Installed before `mountCloudAuth`
-	// so `c.var.db` is set when Better Auth reads it. The instance composes none of
-	// this (ADR-0076).
-	mountCloudDb(app, {
+	// The live Bun process keeps the drain alive without waitUntil.
+	const database = createCloudDbMiddleware({
 		connect: async () => ({ db, close: async () => {} }),
 		afterResponse: () => {},
 	});
-	// The cloud's relational-auth layer (Better Auth on `c.var.auth` + the auth
-	// surface), mounted after the db lifecycle. Cookies are host-only everywhere
-	// (this host and the Worker alike); the dev host differs only in non-Secure
-	// attributes for localhost. The Cloud-only auth secrets come from the
-	// validated `env` closure (ADR-0076), never the portable `ServerBindings`.
-	mountCloudAuth(app, {
+	// Public auth shells bypass setup. Database-backed endpoints and resource
+	// guards explicitly install the returned middleware, just like the Worker.
+	const cloudAuth = mountCloudAuth(app, {
+		database,
 		resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
 		resolveAuthSecrets: () => env,
 		serveAuthUiShell,
 	});
+	const bearer = every(
+		cloudAuth,
+		requireBearerPrincipal(resolveBearerPrincipal),
+	);
 	mountSessionApp(app, { auth: bearer });
 	mountInferenceApp(app, { auth: bearer });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered

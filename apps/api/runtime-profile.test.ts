@@ -16,22 +16,27 @@
  * when unconfigured); an unmounted one answers Hono's 404. Every probe carries a
  * bearer so the `/api/*` CSRF gate is skipped, otherwise an unmounted mutating
  * path would 403 before it could 404. Nothing here asserts a status code beyond
- * that: authorization, metering, and payload behavior are each surface's own
- * tests in `packages/server`.
+ * that in the profile checks. Outage checks below additionally verify shell
+ * availability and protected-operation rejection through both entrypoints.
  */
 
 import { expect, mock, test } from 'bun:test';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { GENERATIONS_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
+import { makeSignature } from 'better-auth/crypto';
 
-/**
- * Postgres acquisition runs on every request (`mountCloudDb` is a `use('*')`), so
- * a real driver would turn every probe into a connection error and erase the
- * 404 signal this file reads. Routing is the subject here; the database is not.
- */
+// Exercise the real runtime compositions with a controllable database outage.
+let databaseUnavailable = false;
+let databaseCalls = 0;
 class ProbeClient {
-	async connect() {}
+	async connect() {
+		databaseCalls++;
+		if (databaseUnavailable) throw new Error('Postgres unavailable');
+	}
 	async end() {}
 	async query() {
+		databaseCalls++;
+		if (databaseUnavailable) throw new Error('Postgres unavailable');
 		return { rows: [] };
 	}
 	on() {}
@@ -177,9 +182,12 @@ const workerFetcher = once(async () => {
 		API_PUBLIC_ORIGIN: ORIGIN,
 		BETTER_AUTH_SECRET: 'runtime-profile-probe-secret-not-a-real-key',
 		HYPERDRIVE: { connectionString: 'postgres://probe@localhost:5432/probe' },
-		// The dashboard shell path: a miss makes `serveUiShell` answer 503, which
-		// is still a served surface. Only a 404 means the route is not mounted.
-		ASSETS: { fetch: async () => new Response(null, { status: 404 }) },
+		ASSETS: {
+			fetch: async () =>
+				new Response('<html>Cloud UI</html>', {
+					headers: { 'Content-Type': 'text/html' },
+				}),
+		},
 	};
 	const executionCtx = { waitUntil() {}, passThroughOnException() {} };
 	return (request: Request) =>
@@ -253,5 +261,92 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 			}),
 		);
 		expect(response.status).toBe(404);
+	}
+});
+
+test('Worker public HTML shells and both runtimes unrelated 404s survive Postgres outage without database calls', async () => {
+	const worker = await workerFetcher();
+	const bun = await bunFetcher();
+	databaseUnavailable = true;
+	databaseCalls = 0;
+	try {
+		for (const path of [
+			'/sign-in',
+			'/session/callback',
+			'/dashboard',
+			'/dashboard/usage',
+		]) {
+			const response = await worker(new Request(`${ORIGIN}${path}`));
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe('<html>Cloud UI</html>');
+			if (path === '/sign-in' || path === '/session/callback') {
+				expect(response.headers.get('cache-control')).toBe('no-store');
+				expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+			}
+		}
+		// Bun intentionally delegates browser UI to Vite; its existing diagnostic
+		// must remain available without consulting the shared pool.
+		for (const path of ['/sign-in', '/session/callback']) {
+			const response = await bun(new Request(`${ORIGIN}${path}`));
+			expect(response.status).toBe(503);
+			expect(await response.text()).toContain(
+				'Hosted auth UI is served by the SvelteKit app',
+			);
+		}
+		for (const fetcher of [worker, bun]) {
+			for (const path of ['/missing', '/api/not-a-surface']) {
+				expect((await fetcher(new Request(`${ORIGIN}${path}`))).status).toBe(
+					404,
+				);
+			}
+		}
+		expect(databaseCalls).toBe(0);
+	} finally {
+		databaseUnavailable = false;
+	}
+});
+
+test('both runtime compositions fail closed on protected operations during a database outage', async () => {
+	const worker = await workerFetcher();
+	const bun = await bunFetcher();
+	const token = `probe.${await makeSignature('probe', 'runtime-profile-probe-secret-not-a-real-key')}`;
+	databaseUnavailable = true;
+	try {
+		for (const [fetcher, runtime] of [
+			[worker, 'worker'],
+			[bun, 'bun'],
+		] as const) {
+			for (const row of PROFILE.filter(
+				(row) =>
+					row[runtime] === 'served' &&
+					!['health', 'dashboard SPA'].includes(row.surface),
+			)) {
+				const callsBefore = databaseCalls;
+				const response = await fetcher(
+					new Request(row.url, {
+						method: row.method,
+						headers: { authorization: `Bearer ${token}` },
+					}),
+				);
+				expect(response.status).toBeGreaterThanOrEqual(500);
+				expect(databaseCalls).toBe(callsBefore + 1);
+			}
+		}
+		for (const url of [
+			`${ORIGIN}${STORE_SYNC_ROUTE.pattern}`,
+			GENERATIONS_ROUTE.collection(ORIGIN, 'test.data'),
+			GENERATIONS_ROUTE.item(ORIGIN, 'test.data', 1),
+		]) {
+			const callsBefore = databaseCalls;
+			const response = await worker(
+				new Request(url, {
+					headers: { authorization: `Bearer ${token}` },
+				}),
+			);
+			expect(response.status).toBe(500);
+			expect(databaseCalls).toBe(callsBefore + 1);
+		}
+	} finally {
+		databaseUnavailable = false;
 	}
 });
