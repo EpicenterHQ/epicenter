@@ -18,7 +18,7 @@ import {
 	type RecordingFactory,
 } from '@epicenter/recorder/recording';
 import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createEpicenter } from './index.js';
 import { createBrowserAppBlobs } from './browser.js';
 
@@ -193,6 +193,30 @@ test('close recovers and releases a native capture even without a prior current 
 	const app = epicenter.openLocal();
 	expectOk(await app.ready);
 	await app.close();
+	expect(cancels()).toBe(1);
+});
+
+test('a refused duplicate open cannot cancel the owning app capture', async () => {
+	const { epicenter, cancels } = setup({ recovered: true });
+	const owner = epicenter.openLocal();
+	expectOk(await owner.ready);
+	const duplicate = epicenter.openLocal();
+	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+	await duplicate.close();
+	expect(cancels()).toBe(0);
+	await owner.close();
+	expect(cancels()).toBe(1);
+});
+
+test('closing a duplicate before acquisition cannot cancel the owning app capture', async () => {
+	const { epicenter, cancels } = setup({ recovered: true });
+	const owner = epicenter.openLocal();
+	expectOk(await owner.ready);
+	const duplicate = epicenter.openLocal();
+	await duplicate.close();
+	expectErr(await duplicate.ready);
+	expect(cancels()).toBe(0);
+	await owner.close();
 	expect(cancels()).toBe(1);
 });
 

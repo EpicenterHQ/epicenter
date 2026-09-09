@@ -490,9 +490,9 @@ export function createStoreOverPort<
 			return session;
 		}
 		closeRecording = async () => {
-			// Recover even when this document never asked for current(): a native
-			// capture may have survived a reload. Never cancel a foreign destination.
-			if (sessions.size === 0) {
+			// Only the acquired dataset owner may adopt capture left by a reload.
+			// A refused duplicate opener shares its destination but owns nothing.
+			if (sessions.size === 0 && held !== undefined) {
 				const current = await backing.current();
 				if (current.error && current.error.name !== 'AlreadyRecording')
 					throw current.error;
