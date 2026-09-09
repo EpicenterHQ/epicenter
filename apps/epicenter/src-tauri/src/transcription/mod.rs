@@ -250,3 +250,42 @@ fn join_err(e: tauri::Error) -> TranscriptionError {
         message: format!("Background transcription task failed: {}", e),
     }
 }
+
+/// Installed native models available to explicit file inference. No cache paths escape.
+#[tauri::command]
+#[specta::specta]
+pub fn list_inference_models(model_cache: State<'_, ModelCache>) -> Vec<InferenceModel> {
+    let active = model_cache.settings().active_model_id();
+    catalog::list_models()
+        .into_iter()
+        .filter(|model| model.downloaded)
+        .map(|model| InferenceModel {
+            active: active.as_deref() == Some(model.id.as_str()),
+            id: model.id,
+            installed: true,
+        })
+        .collect()
+}
+
+/// Decode uploaded bytes in memory and run the exact requested catalog model.
+/// The blocking job owns its input until inference finishes, including after caller abort.
+#[tauri::command]
+#[specta::specta]
+pub async fn transcribe_audio_bytes(
+    model_id: String,
+    bytes: Vec<u8>,
+    hints: TranscriptionHints,
+    model_cache: State<'_, ModelCache>,
+) -> Result<TranscriptionOutcome, TranscriptionError> {
+    let cache = model_cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, bytes, hints))
+        .await
+        .map_err(join_err)?
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct InferenceModel {
+    pub id: String,
+    pub installed: bool,
+    pub active: bool,
+}

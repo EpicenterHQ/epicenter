@@ -519,11 +519,13 @@
         "marked": "catalog:",
         "mime": "catalog:",
         "nanoid": "catalog:",
+        "openai": "^7.12.1",
         "tailwind-variants": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/sync": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@epicenter/vite-config": "workspace:*",
         "@lucide/svelte": "catalog:",

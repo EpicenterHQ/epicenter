@@ -1,6 +1,7 @@
 import type { BlobId } from '@epicenter/blobs';
 import { InstantString } from '@epicenter/data/field';
 import { createLogger } from 'wellcrafted/logger';
+import { getApp } from '$lib/application';
 import {
 	deliverTranscriptionResult,
 	type TranscriptionSource,
@@ -42,6 +43,8 @@ export async function processRecordingPipeline(
 	app: WhisperingApp,
 	{ audio, durationMs, deliverySource = 'recording' }: PipelineInput,
 ) {
+	const lifetime = getApp().signal;
+	lifetime.throwIfAborted();
 	const now = InstantString.now();
 
 	// A live dictation (not a file import) drives the dictation pill. The
@@ -67,13 +70,14 @@ export async function processRecordingPipeline(
 		},
 	);
 	if (creationError !== null) {
-		if (isDictation)
+		if (isDictation && app.recordingEnabled && !lifetime.aborted)
 			dictationLifecycle.markFailed({
 				tier: 'silent-loss',
 				error: creationError,
 			});
 		throw creationError;
 	}
+	if (lifetime.aborted || !app.recordingEnabled) return;
 	if (isDictation) dictationLifecycle.markTranscribing();
 
 	if (
@@ -97,7 +101,8 @@ export async function processRecordingPipeline(
 			});
 
 	const { data: transcription, error: transcribeError } =
-	await transcribeAndPersist(app, recording.id, recording.audioBlobId);
+		await transcribeAndPersist(app, recording.id, recording.audioBlobId);
+	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	if (transcribeError) {
 		const action = creditAction(transcribeError, app.account);
@@ -129,18 +134,19 @@ export async function processRecordingPipeline(
 	// import has no pill to cancel from and keeps its own progress toast. The pill
 	// shows the HUD only when an AI pass actually runs (not in speed mode); begin/end
 	// bracket the call so the controller is dropped on success, failure, or abort.
-	const willPolish = polishWillRun(app, transcribedText);
+	const willPolish = polishWillRun(transcribedText);
 	const showPolishHud = willPolish && isDictation;
 	let signal: AbortSignal | undefined;
 	if (showPolishHud) {
 		dictationLifecycle.markPolishing();
 		signal = polishHud.begin();
 	}
-	const { data: polishedText, error: polishError } = await runPolish(app, {
+	const { data: polishedText, error: polishError } = await runPolish({
 		input: transcribedText,
 		signal,
 	});
 	if (showPolishHud) polishHud.end();
+	if (lifetime.aborted || !app.recordingEnabled) return;
 	// Polish is best-effort: a failed AI pass carries the raw transcript in
 	// `fallback`, so a transcript is never lost to a polish error. Surface the
 	// failure without blocking delivery.
@@ -163,6 +169,7 @@ export async function processRecordingPipeline(
 		});
 		if (polishedHistory.error !== null) history = polishedHistory;
 	}
+	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	// The transcript is "ready" once it is polished and about to be delivered, so
 	// the completion sound and the resolved loading notice both fire here.
@@ -172,6 +179,7 @@ export async function processRecordingPipeline(
 			text: deliveredText,
 			source: deliverySource,
 		});
+	if (lifetime.aborted || !app.recordingEnabled) return;
 	if (isDictation) {
 		// The delivered transcript is the dictation receipt. Every reach is a success,
 		// even when history could not be confirmed, so this is always `delivered`; the reach decides

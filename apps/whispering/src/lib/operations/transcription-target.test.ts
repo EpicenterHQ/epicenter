@@ -1,116 +1,53 @@
 /**
- * Transcription Target Tests
- *
- * Verifies the Audio-stage locality rules the Processing surface reports.
- *
- * Key behaviors:
- * - The local runtime transcribes in-process and never leaves the device
- * - Locality follows the resolved endpoint host (loopback), not the provider's
- *   `location` label, so a self-hosted or cloud endpoint at localhost is on-device
- * - A remote self-hosted server reads as the user's own server, not a cloud vendor
- * - A session (Epicenter) bonded at a loopback base URL is this machine, so audio
- *   stays on-device; a remote base URL reads as sent to Epicenter
+ * Transcription destination tests: native execution is scoped to transcription,
+ * HTTP destinations never imply private inference, and Epicenter keeps its name
+ * independently of the gateway address. Backup is not inferred from routing.
  */
-import { describe, expect, test } from 'bun:test';
-import type { DeviceConfigKey } from '../state/device-config.svelte';
-import { describeTranscriptionDestinationFromConfig } from './transcription-target';
+import { expect, test } from 'bun:test';
+import { describeTranscriptionDestinationFromConfig } from './transcription-target.js';
 
-function config(values: Partial<Record<DeviceConfigKey, string>>) {
-	return (key: DeviceConfigKey) => values[key] ?? '';
-}
+test('native inference describes execution without promising audio never leaves', () => {
+	expect(
+		describeTranscriptionDestinationFromConfig({
+			service: 'local',
+			getDeviceConfig: () => '',
+		}),
+	).toBe('Transcribed on this device.');
+});
 
-const REMOTE_SESSION_BASE_URL = 'https://api.epicenter.so';
+test('Epicenter routing never classifies the gateway hostname as local inference', () => {
+	expect(
+		describeTranscriptionDestinationFromConfig({
+			service: 'epicenter',
+			getDeviceConfig: () => 'http://localhost:8787',
+		}),
+	).toBe('Transcription via Epicenter.');
+});
 
-describe('describeTranscriptionDestinationFromConfig', () => {
-	test('local runtime keeps audio on device', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'local',
-				getDeviceConfig: config({}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({ onDevice: true, summary: 'Audio stays on this device.' });
-	});
-
-	test('cloud provider without an override names itself as the destination', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'OpenAI',
-				getDeviceConfig: config({}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({ onDevice: false, summary: 'Audio is sent to OpenAI.' });
-	});
-
-	test('cloud provider overridden to localhost keeps audio on device', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'OpenAI',
-				getDeviceConfig: config({
-					'providers.openai.endpoint': 'http://localhost:1234/v1',
+test('HTTP endpoints name the actual host including preset overrides', () => {
+	for (const service of ['OpenAI', 'speaches'] as const) {
+		for (const host of ['localhost:8000', '127.0.0.1:8000', 'proxy.example']) {
+			expect(
+				describeTranscriptionDestinationFromConfig({
+					service,
+					getDeviceConfig: () => `http://${host}/v1`,
 				}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({ onDevice: true, summary: 'Audio stays on this device.' });
-	});
+			).toBe(`Transcription via ${host}.`);
+		}
+	}
+});
 
-	test('self-hosted server at loopback keeps audio on device', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'speaches',
-				getDeviceConfig: config({
-					'providers.speaches.endpoint': 'http://localhost:8000',
-				}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({ onDevice: true, summary: 'Audio stays on this device.' });
-	});
-
-	test('self-hosted server at a remote host reads as the user own server', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'speaches',
-				getDeviceConfig: config({
-					'providers.speaches.endpoint': 'https://speaches.mybox.example',
-				}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({
-			onDevice: false,
-			summary: 'Audio is sent to your Speaches server.',
-		});
-	});
-
-	test('unconfigured self-hosted server still reads as the user own server', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'speaches',
-				getDeviceConfig: config({}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({
-			onDevice: false,
-			summary: 'Audio is sent to your Speaches server.',
-		});
-	});
-
-	test('session bonded at a loopback base URL keeps audio on device', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'epicenter',
-				getDeviceConfig: config({}),
-				sessionBaseUrl: 'http://localhost:8788',
-			}),
-		).toEqual({ onDevice: true, summary: 'Audio stays on this device.' });
-	});
-
-	test('session bonded at a remote base URL is sent to Epicenter', () => {
-		expect(
-			describeTranscriptionDestinationFromConfig({
-				service: 'epicenter',
-				getDeviceConfig: config({}),
-				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
-			}),
-		).toEqual({ onDevice: false, summary: 'Audio is sent to Epicenter.' });
-	});
+test('canonical vendor is named and missing custom endpoint asks for setup', () => {
+	expect(
+		describeTranscriptionDestinationFromConfig({
+			service: 'OpenAI',
+			getDeviceConfig: () => '',
+		}),
+	).toBe('Transcription via OpenAI.');
+	expect(
+		describeTranscriptionDestinationFromConfig({
+			service: 'speaches',
+			getDeviceConfig: () => '',
+		}),
+	).toBe('Add a transcription server URL.');
 });

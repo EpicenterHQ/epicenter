@@ -48,8 +48,9 @@ use recorder::recorder::Recorder;
 pub mod transcription;
 use transcription::{
     delete_model, download_model, get_active_model, get_local_transcription_readiness,
-    get_unload_policy, list_models, prewarm_model, set_active_model, set_unload_policy,
-    transcribe_recording, LocalTranscriptionSettings, ModelCache,
+    get_unload_policy, list_inference_models, list_models, prewarm_model, set_active_model,
+    set_unload_policy, transcribe_audio_bytes, transcribe_recording, LocalTranscriptionSettings,
+    ModelCache,
 };
 
 pub mod command;
@@ -415,6 +416,8 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             cancel_recording,
             current_recording,
             transcribe_recording,
+            transcribe_audio_bytes,
+            list_inference_models,
             prewarm_model,
             open_accessibility_settings,
             request_accessibility_permission,
@@ -2417,6 +2420,8 @@ mod tests {
         "cancel_recording",
         "current_recording",
         "transcribe_recording",
+        "transcribe_audio_bytes",
+        "list_inference_models",
         "prewarm_model",
         "get_local_transcription_readiness",
     ];

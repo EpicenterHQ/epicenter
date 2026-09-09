@@ -91,6 +91,13 @@ export const commands = {
 	 */
 	transcribeRecording: (audioBlobId: string, hints: TranscriptionHints, destination: BlobDestination) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_recording", { audioBlobId, hints, destination })),
 	/**
+	 *  Decode uploaded bytes in memory and run the exact requested catalog model.
+	 *  The blocking job owns its input until inference finishes, including after caller abort.
+	 */
+	transcribeAudioBytes: (modelId: string, bytes: number[], hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_audio_bytes", { modelId, bytes, hints })),
+	/**  Installed native models available to explicit file inference. No cache paths escape. */
+	listInferenceModels: () => __TAURI_INVOKE<InferenceModel[]>("list_inference_models"),
+	/**
 	 *  Prewarm the active local model so a following transcribe finds it warm. The
 	 *  frontend fires this fire-and-forget at capture start (manual record or VAD
 	 *  listen) for a local route, overlapping the ~1 s model load with the user's
@@ -568,6 +575,12 @@ export type HostRecording = {
 	 *  cancelled (discarding it).
 	 */
 	endedReason: EndedReason | null,
+};
+
+export type InferenceModel = {
+	id: string,
+	installed: boolean,
+	active: boolean,
 };
 
 export type LibraryReplica = { library: "local" } | { library: "personal"; account: ReplicaAccount } | { library: "shared"; account: ReplicaAccount };

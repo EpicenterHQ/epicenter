@@ -37,16 +37,9 @@ export default defineConfig(
 		// this with whatever the base config excludes.
 		optimizeDeps: { exclude: ['onnxruntime-web', 'onnxruntime-web/wasm'] },
 		resolve: {
-			// Build-time platform DI over the `#platform/*` subpaths (package.json
-			// "imports"). One condition, because one question is asked: which
-			// leaves does the Bun host own (its replica, credential, deployment
-			// choice, blob bytes, and asset base). The `.tauri.ts` leaves are
-			// plain aliases in that map rather than condition arms, so nothing
-			// ever resolved on a `tauri` condition (ADR-0347). The web build uses
-			// `default` for every seam, so a host-only file imported by shared
-			// code is unresolvable there and fails at vite build time rather than
-			// at user runtime. The `...defaultClientConditions` spread is
-			// load-bearing: custom conditions REPLACE Vite's defaults.
+			// Host builds select brokered auth and native capabilities. Browser
+			// builds select the default leaves. Both own their own data store.
+			// Preserve Vite's defaults when adding the host condition.
 			...(isEpicenterHost && {
 				conditions: ['epicenter-host', ...defaultClientConditions],
 			}),

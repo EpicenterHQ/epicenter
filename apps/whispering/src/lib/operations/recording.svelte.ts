@@ -1,13 +1,10 @@
-import type { BlobId } from '@epicenter/blobs';
-import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
-import type {
-	Recording,
-	RecordingService,
-} from '@epicenter/app/recorder';
+import type { Recording, RecordingService } from '@epicenter/app/recorder';
 import {
 	RecorderError,
 	type RecordingEndedReason,
 } from '@epicenter/app/recorder';
+import type { BlobId } from '@epicenter/blobs';
+import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
@@ -24,7 +21,6 @@ import { logAnalyticsEvent } from '$lib/operations/analytics';
 import { recordingMedia } from '$lib/operations/media';
 import { processRecordingPipeline } from '$lib/operations/pipeline';
 import { playSoundIfEnabled } from '$lib/operations/sound';
-import { prewarmOnDeviceModel } from '$lib/operations/transcribe';
 import { report } from '$lib/report';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
@@ -118,10 +114,13 @@ export function createWhisperingRecording(
 	let currentCapture = $state.raw<Recording | null>(null);
 	let pendingStart = $state.raw<Promise<void> | null>(null);
 	let stopEndedListener: (() => void) | null = null;
+	let stopLevelListener: (() => void) | null = null;
 
 	function hold(recording: Recording) {
-		stopEndedListener?.();
+		release();
 		currentCapture = recording;
+		// New and recovered captures attach the same page-owned feedback.
+		stopLevelListener = recording.onLevel(reportRecordingMicLevel);
 		// The one ending a live caller cannot infer from its own calls: the
 		// capture died. Everything else that clears `currentCapture` is a consequence
 		// of something this module asked for.
@@ -145,6 +144,8 @@ export function createWhisperingRecording(
 	}
 
 	function release() {
+		stopLevelListener?.();
+		stopLevelListener = null;
 		stopEndedListener?.();
 		stopEndedListener = null;
 		currentCapture = null;
@@ -224,11 +225,6 @@ export function createWhisperingRecording(
 			// surface should follow the live recording, not stay parked on import.
 			captureSurface.dismissImport();
 
-			// Kick off the local model load now, concurrently with bringing up the
-			// recorder, so the ~1 s cold load overlaps the speech you're about to
-			// record rather than being paid after you stop. No-op for cloud/web.
-			prewarmOnDeviceModel(app);
-
 			// Manual owns playback for the whole recording; drop any leftover VAD
 			// per-utterance resume so it cannot fire mid-recording.
 			cancelPendingVadResume();
@@ -244,10 +240,6 @@ export function createWhisperingRecording(
 				dictationLifecycle.markFailed({ tier: 'silent-loss', error });
 				return null;
 			}
-
-			// Feed the pill's meter the live mic level. The browser recorder taps its
-			// MediaStream; the native one forwards the level the host measures.
-			recording.onLevel(reportRecordingMicLevel);
 
 			// The pill shows the live recording; only a device fallback needs a notice.
 			reportDeviceAcquisitionOutcome(recording.device, (deviceId) => {
@@ -396,6 +388,8 @@ export async function closeRecordingWork() {
 		try {
 			if (vadRecorder.state !== 'IDLE') {
 				const result = await vadRecorder.stopActiveListening();
+				// A failed VAD release must remain visible so UI cleanup can retry it.
+				// biome-ignore lint/correctness/noUnsafeFinally: release failure takes precedence over a drained operation failure
 				if (result.error) throw result.error;
 			}
 		} finally {
@@ -466,12 +460,6 @@ export async function startVadRecording(app: WhisperingApp) {
 		// A capture just started, so leave the import overlay if it was open (see
 		// recording.start).
 		captureSurface.dismissImport();
-
-		// Warm the local model when listening is armed (not when speech is
-		// detected): arming VAD is the "about to dictate" signal, and starting the
-		// load now means the model is ready before the first word, even for a short
-		// utterance. No-op for cloud/web.
-		prewarmOnDeviceModel(app);
 
 		log.info('Starting voice activated capture');
 

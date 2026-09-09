@@ -1,4 +1,5 @@
 export const TRANSCRIPTION_SERVICE_IDS = [
+	'connection',
 	'epicenter',
 	'OpenAI',
 	'Groq',

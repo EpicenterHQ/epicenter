@@ -6,7 +6,7 @@ Svelte 5 speech-to-text SPA served by the Epicenter desktop host, which owns its
 
 - Three-layer architecture: Service -> Query -> UI
 - Services are pure functions returning `Result<T, E>`
-- Build-time platform seams use `#platform/*` imports, and Whispering has three: `auth`, `binding`, and `blobs`, each with an `epicenter-host` leaf (the Bun host brokers the credential, holds the keychain and files, streams recording bytes) and a `default` leaf for `bun dev:whispering` in a browser tab (ADR-0347). Every other `#platform/*` entry is a plain path alias to one module; the `tauri` condition selects nothing here and no seam may name it. The store is never a seam: every build opens its own (ADR-0226). Base path is not one either; use `resolve` from `$app/paths`. `src/lib/platform-selection.test.ts` reads the declarations.
+- Load `platform-seams` when changing build selection. Native capabilities use an `epicenter-host` leaf and an actual browser implementation or explicit absence in `default`. Keep both targets typechecked and update `src/lib/platform-selection.test.ts`; a browser build must never invoke native APIs. Every build opens its own store. Use `resolve` from `$app/paths` for application paths.
 - Tauri-only capabilities live in `$lib/tauri.tauri.ts`; shared consumers go through `#platform/*`.
 - Query layer handles reactivity, caching, and error transformation
 - See `ARCHITECTURE.md` for detailed patterns

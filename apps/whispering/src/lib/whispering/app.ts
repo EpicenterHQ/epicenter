@@ -1,8 +1,10 @@
 import type { App, AppBlobs } from '@epicenter/app';
+import type { InferenceConnections } from '@epicenter/app-shell/inference-picker';
 import type { Account } from '@epicenter/auth';
 import type { SyncConnectionStatus } from '@epicenter/data/sync';
 import type { WhisperingSettingValues, whisperingDefinition } from '../data';
 import type { WhisperingRecording } from '../operations/recording.svelte.js';
+import { APPLICATION_DEFAULTS } from '../operations/settings.js';
 
 import {
 	createWhisperingRecipes,
@@ -38,64 +40,12 @@ export type WhisperingSettings = {
 	subscribe(listener: () => void): () => void;
 };
 
-/** Release-local initialization and recovery values for the device KV. */
-// TYPED COMPLETE, not `Partial`. `read` below builds the settings object by
-// walking these keys, so a key declared in `settingsKv` and missing here would
-// vanish from settings silently rather than fall back. `Partial` allowed
-// exactly that; the full record makes the drift a compile error.
-const APPLICATION_DEFAULTS: WhisperingSettingValues = {
-	soundManualStart: true,
-	soundManualStop: true,
-	soundManualCancel: true,
-	soundVadStart: true,
-	soundVadCapture: true,
-	soundVadStop: true,
-	soundTranscriptionComplete: true,
-	soundRecipeComplete: true,
-	outputTranscriptionClipboard: true,
-	outputTranscriptionCursor: false,
-	outputTranscriptionEnter: false,
-	outputRecipeClipboard: true,
-	outputRecipeCursor: false,
-	outputRecipeEnter: false,
-	recordingTrigger: 'manual',
-	recordingPausePlayback: false,
-	recordingAutoUpload: false,
-	transcriptionService: 'local',
-	transcriptionOpenaiModel: 'whisper-1',
-	transcriptionGroqModel: 'whisper-large-v3-turbo',
-	transcriptionElevenlabsModel: 'scribe_v2',
-	transcriptionDeepgramModel: 'nova-3',
-	transcriptionMistralModel: 'voxtral-mini-latest',
-	transcriptionLanguage: 'auto',
-	transcriptionPrompt: '',
-	completionProvider: 'Google',
-	completionModel: 'gemini-2.5-flash',
-	dictionary: null,
-	polishEnabled: true,
-	polishInstructions: 'Fix grammar and punctuation. Keep my wording.',
-	analyticsEnabled: true,
-	shortcutPushToTalkModifiers: null,
-	shortcutPushToTalkKeys: null,
-	shortcutToggleManualRecordingModifiers: null,
-	shortcutToggleManualRecordingKeys: null,
-	shortcutCancelRecordingModifiers: null,
-	shortcutCancelRecordingKeys: null,
-	shortcutToggleVadRecordingModifiers: null,
-	shortcutToggleVadRecordingKeys: null,
-	shortcutOpenRecipePickerModifiers: null,
-	shortcutOpenRecipePickerKeys: null,
-	shortcutRunRecipeOnClipboardModifiers: null,
-	shortcutRunRecipeOnClipboardKeys: null,
-	shortcutOpenSettingsModifiers: null,
-	shortcutOpenSettingsKeys: null,
-};
-
 export type WhisperingApp = {
 	/** The UI lifetime still accepts new capture. */
 	readonly recordingEnabled: boolean;
 	readonly account: Account | null;
 	readonly settings: WhisperingSettings;
+	readonly inferenceConnections: InferenceConnections;
 	readonly recordings: WhisperingRecordings;
 	readonly recipes: WhisperingRecipes;
 	/**

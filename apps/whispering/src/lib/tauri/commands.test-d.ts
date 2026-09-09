@@ -6,8 +6,8 @@
  * `svelte-check` / `tsc` failure at the type level.
  */
 
-import type { Result } from 'wellcrafted/result';
 import type { RecordingEndedReason } from '@epicenter/app/recorder';
+import type { Result } from 'wellcrafted/result';
 import type {
 	commands,
 	DeviceAcquisition,

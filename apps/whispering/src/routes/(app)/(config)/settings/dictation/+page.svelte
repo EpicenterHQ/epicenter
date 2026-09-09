@@ -9,7 +9,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { AdvancedDisclosure, SettingSwitch } from '$lib/components/settings';
 	import { resolve } from '$app/paths';
-	import { polishDestination, polishStatus } from '$lib/operations/run-polish';
+	import { polishDestination, polishStatus } from '$lib/state/polish.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
@@ -21,8 +21,8 @@
 	// facts; the toggle below sets intent, this surfaces when intent is on but
 	// the provider is missing so the control never silently reads "on" while the
 	// pipeline ships raw.
-	const polish = $derived(polishStatus(app));
-	const destination = $derived(polishDestination(app));
+	const polish = $derived(polishStatus());
+	const destination = $derived(polishDestination());
 
 	let newTerm = $state('');
 
@@ -68,13 +68,13 @@
 					<p class="text-muted-foreground text-sm">{destination}</p>
 				{/if}
 
-				{#if polish === 'needs-key'}
+				{#if polish === 'needs-connection'}
 					<div
 						class="border-amber-500/30 bg-amber-500/10 text-foreground flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm"
 					>
 						<KeyRoundIcon class="mt-0.5 size-4 shrink-0 text-amber-500" />
 						<p>
-							Polish is on, but the completion provider is not ready, so
+							Polish is on, but no text connection is selected, so
 							transcripts still ship raw. <Link href={resolve('/settings/processing')}
 								>Check completion settings</Link
 							> to start cleaning them up.

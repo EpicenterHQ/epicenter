@@ -1,31 +1,36 @@
-import { defineApplication } from '@epicenter/app';
-import { createDeparture } from '@epicenter/app-shell/departure';
-import { APPS } from '@epicenter/constants/apps';
-import { authClient } from '#platform/auth';
-import { runtime } from '#platform/runtime';
-import { whisperingDefinition } from './data.js';
+import { createLogger } from 'wellcrafted/logger';
 
-// The mounted application group imports this once; callbacks and overlays do not.
-const auth = authClient.auth;
-const state = auth?.state;
-export const account =
-	!state || state.status === 'signed-out' ? null : state.account;
-const epicenter = defineApplication({
-	appId: APPS.WHISPERING.id,
-	definition: whisperingDefinition,
-	runtime,
-	settingsKey: 'whispering',
-});
-export const app =
-	auth === null || new URLSearchParams(location.search).has('connect')
-		? null
-		: account === null
-			? epicenter.openLocal()
-			: epicenter.openPersonal(account);
-export const departure = createDeparture({
-	retirement: app?.retirement,
-	reload: () => location.reload(),
-	auth: app && auth ? auth : undefined,
-	account,
-	close: () => app?.close() ?? Promise.resolve(),
-});
+const log = createLogger('whispering/application');
+
+let opening: Promise<typeof import('./bootstrap.js')> | undefined;
+let application: typeof import('./bootstrap.js') | undefined;
+let ready = false;
+
+/** Importing this module acquires nothing. The mounted page opens once. */
+export function openApplication() {
+	opening ??= import('./bootstrap.js').then((opened) => {
+		application = opened;
+		void opened.app?.ready
+			.then(async (result) => {
+				if (result.error) return;
+				ready = true;
+			})
+			.catch((cause) => {
+				log.error(
+					new Error('Whispering failed to release an unsuccessful opening.', {
+						cause,
+					}),
+				);
+			});
+		return opened;
+	});
+	return opening;
+}
+
+/** Read the document's concrete App only after readiness and before App closure. Admitted work can finish during UI drain. */
+export function getApp() {
+	if (!ready || !application?.app || application.isClosing()) {
+		throw new Error('Whispering is not ready or is closing.');
+	}
+	return application.app;
+}

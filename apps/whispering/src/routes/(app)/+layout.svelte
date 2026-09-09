@@ -4,16 +4,19 @@
 	import { authClient } from '#platform/auth';
 	import { onMount, tick } from 'svelte';
 	import WhisperingShell from './_components/WhisperingShell.svelte';
+	import LibrarySelection from '$lib/components/LibrarySelection.svelte';
 
 	let { children } = $props();
-	let application = $state.raw<typeof import('$lib/application.js')>();
+	let application = $state.raw<Awaited<ReturnType<typeof import('$lib/application.js')['openApplication']>>>();
 	let error = $state('');
 	let showing = $state(true);
 	let shell: WhisperingShell | undefined = $state();
 	let closeUi: (() => Promise<void>) | undefined;
 	onMount(() => {
 		let stopped = false;
-		void import('$lib/application.js').then(async (opened) => {
+		void import('$lib/application.js').then(async ({ openApplication }) => {
+			if (stopped) return;
+			const opened = await openApplication();
 			if (stopped) { await opened.departure.close(); return; }
 			opened.departure.attachUi({
 				async preflight() {
@@ -45,6 +48,7 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
+	<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
 	<AppBoot startup={authClient} departure={application.departure} hasApp={application.app !== null} appName="Whispering" noun="recordings">
 		{#if application.app && showing}
 			{#await application.app.ready}

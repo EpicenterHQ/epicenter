@@ -121,6 +121,7 @@ const settingsKv = {
 	recordingAutoUpload: field.boolean(),
 
 	transcriptionService: field.select([
+		'connection',
 		'epicenter',
 		'OpenAI',
 		'Groq',
@@ -130,6 +131,7 @@ const settingsKv = {
 		'local',
 		'speaches',
 	]),
+	transcriptionModel: field.string(),
 	transcriptionOpenaiModel: field.string(),
 	transcriptionGroqModel: field.string(),
 	transcriptionElevenlabsModel: field.string(),

@@ -28,7 +28,7 @@
 			title: `Running ${recipe.name}...`,
 			description: 'Reshaping your text with AI.',
 		});
-		const { data, error } = await runRecipe(app, { input, recipe });
+		const { data, error } = await runRecipe({ input, recipe });
 		if (error) {
 			loading.reject({
 				title: `Couldn't run ${recipe.name}`,

@@ -21,6 +21,8 @@ pub const COMMANDS: &[&str] = &[
     "current_recording",
     "encode_recording_for_upload",
     "transcribe_recording",
+    "transcribe_audio_bytes",
+    "list_inference_models",
     "prewarm_model",
     "open_accessibility_settings",
     "request_accessibility_permission",

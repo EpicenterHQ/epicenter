@@ -212,7 +212,7 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		});
 
 		// Chosen by the application, applied by a read, never stored.
-		expect(app.settings.get('transcriptionService')).toBe('local');
+		expect(app.settings.get('transcriptionService')).toBe('connection');
 		expect(app.settings.get('recordingAutoUpload')).toBe(false);
 		expect(app.settings.get('soundManualStart')).toBe(true);
 

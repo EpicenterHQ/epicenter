@@ -16,10 +16,12 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 ## Application composition
 
-`src/lib/application.ts` captures the raw auth Account and opens one App,
-using the local library when signed out. The mounted `(app)` layout dynamically
-imports that plain TypeScript module. Authentication callbacks and overlays do
-not import it. `auth.svelte.ts` adds UI tracking after composition.
+`src/lib/application.ts` acquires nothing on import. The mounted `(app)` layout
+calls `openApplication()`, which loads `bootstrap.ts` once. Bootstrap captures
+the library choice and raw auth Account. Local opens without an Account even
+when another library is signed in; Personal and Shared retain the authenticated
+person. Authentication callbacks and overlays open no primary library.
+`auth.svelte.ts` adds UI tracking after composition.
 
 The layout awaits `app.ready` before rendering `WhisperingShell`, which creates
 its UI session, query client, and recording workflow. Application routes share
@@ -28,8 +30,15 @@ the same App. Library changes close this page and use full document navigation.
 Voluntary departure checks recording recovery and refuses while capture or
 saving needs attention. Terminal retirement stops new recording admission,
 awaits admitted recording work, releases VAD, and disposes the UI before storage
-closes. Network retirement remains immediate. Reload alone is not an awaited
+closes. Imports and retries join the same complete-work drain. Admitted audio
+still saves after UI admission closes, but no further inference or delivery
+starts. Account transport retirement remains immediate. Reload alone is not an awaited
 recording shutdown; native capture still requires explicit recovery.
+
+Saved transcription reads bytes through the same App that recorded them. Its
+operation captures the selected SDK client, model, and hints before that read.
+Connection discovery only suggests models; it never selects a destination.
+Deepgram, ElevenLabs, and Mistral retain their distinct protocol adapters.
 
 ## Service Layer - Pure Business Logic + Platform Abstraction
 
@@ -39,7 +48,8 @@ The key innovation is **build-time platform resolution** via Node-standard `#pla
 
 Storage and saved recording are selected together through `#platform/runtime`:
 the browser leaf selects `browser`, and the host leaf selects `epicenterHost`
-from App. The saved-recording contract lives at `@epicenter/app/recorder`.
+from App. `#platform/ai` independently selects inference transport and configuration.
+The saved-recording contract lives at `@epicenter/app/recorder`.
 The UI session composes `createWhisperingRecording(app, openedApp.recording)`
 once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal releases
 the capture subscription. The opened

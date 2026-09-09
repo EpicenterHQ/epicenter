@@ -7,6 +7,7 @@ import {
 } from '../operations/recording.svelte.js';
 import { createWhisperingQueries } from '../queries';
 import { createWhisperingQueryRuntime } from '../queries/client';
+import { createWhisperingConnections } from '../state/inference-connections.svelte.js';
 import { createRecordings } from '../state/recordings.svelte';
 import { createSettingsView } from '../state/settings.svelte';
 import {
@@ -24,6 +25,7 @@ export function createWhisperingUiSession({
 	account: Account | null;
 }) {
 	const domains = createWhisperingDomains({ openedApp, account });
+	const inference = createWhisperingConnections(openedApp);
 	// Named members rather than a spread of `domains`, which used to carry
 	// `[Symbol.dispose]` into the object handed to every component through
 	// context. Disposal is off `WhisperingApp` entirely now, and `domains` is the
@@ -37,6 +39,7 @@ export function createWhisperingUiSession({
 		},
 		account,
 		settings: createSettingsView(domains.settings),
+		inferenceConnections: inference,
 		recordings: createRecordings(domains),
 		recipes: domains.recipes,
 		blobs: domains.blobs,

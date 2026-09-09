@@ -35,7 +35,6 @@
 		getTranscriptionReadiness,
 	} from '$lib/settings/transcription-validation';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
-	import { localRoute } from '$lib/state/local-route.svelte';
 	import { getRecordingShortcutLabel } from '$lib/utils/recording-shortcut';
 	import { viewTransition } from '$lib/utils/viewTransitions';
 	import { getWhisperingApp } from '$lib/whispering/context';
@@ -65,17 +64,8 @@
 	// for the record screen and routes there instead.
 	const inlineKeyProvider = $derived.by(() => {
 		const provider = getSelectedTranscriptionProvider(app);
-		return provider?.access === 'key' ? provider : null;
+		return provider && (provider.id === 'Deepgram' || provider.id === 'ElevenLabs' || provider.id === 'Mistral') ? provider : null;
 	});
-	// The local route is the one blocker Whispering cannot clear anywhere in its
-	// own settings: there is no key, endpoint, or model for this app to set, and
-	// the active model belongs to the host (ADR-0180). So the action goes to the
-	// surface that owns the fix rather than to a Whispering page that would only
-	// repeat the same sentence and a second button.
-	const needsHomeTranscriptionSetup = $derived(
-		Boolean(tauri) &&
-			getSelectedTranscriptionProvider(app)?.access === 'onDevice',
-	);
 	const PageError = defineErrors({
 		DragDropListenerFailed: ({ cause }: { cause: unknown }) => ({
 			message: `Failed to set up drag drop listener: ${extractErrorMessage(cause)}`,
@@ -193,19 +183,6 @@
 					<Link href={resolve('/settings/processing')}>
 						Change provider, model, or endpoint in Privacy &amp; Processing
 					</Link>
-				</p>
-			{:else if needsHomeTranscriptionSetup}
-				<Button
-					variant="outline"
-					class="w-full"
-					onclick={() => localRoute.openHomeTranscription()}
-				>
-					Set up in Epicenter Home
-				</Button>
-				<p class="text-muted-foreground text-sm">
-					Or <Link href={resolve('/settings/processing')}>
-						transcribe with a cloud provider
-					</Link> instead.
 				</p>
 			{:else}
 				<Button

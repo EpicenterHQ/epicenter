@@ -1,10 +1,7 @@
 /** Verifies capture work blocks closure and failed saving preserves source audio. */
 import { expect, mock, test } from 'bun:test';
+import type { Recording, RecordingService } from '@epicenter/app/recorder';
 import { generateBlobId } from '@epicenter/blobs';
-import type {
-	Recording,
-	RecordingService,
-} from '@epicenter/app/recorder';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 
@@ -22,6 +19,7 @@ let vadFailure: Error | undefined;
 const capture = {
 	audioBlobId: generateBlobId(),
 	onEnded: () => () => {},
+	onLevel: () => () => {},
 	state: 'IDLE',
 	isStarting: false,
 	async stop() {
@@ -70,9 +68,6 @@ mock.module('$lib/operations/pipeline', () => ({
 	},
 }));
 mock.module('$lib/operations/sound', () => ({ playSoundIfEnabled: mock() }));
-mock.module('$lib/operations/transcribe', () => ({
-	prewarmOnDeviceModel: mock(),
-}));
 mock.module('$lib/report', () => ({ report: { info: mock(), error: mock() } }));
 mock.module('$lib/state/capture-surface.svelte', () => ({
 	captureSurface: { dismissImport: mock() },
@@ -253,6 +248,9 @@ test('push-to-talk release during startup saves through the composed workflow', 
 test('retirement retries the retained UI cleanup after unmount before releasing a failed active VAD', async () => {
 	mock.module('../whispering/app', () => ({
 		createWhisperingDomains: () => ({ settings: {}, [Symbol.dispose]() {} }),
+	}));
+	mock.module('../state/inference-connections.svelte.js', () => ({
+		createWhisperingConnections: () => ({}),
 	}));
 	mock.module('../state/recordings.svelte', () => ({
 		createRecordings: () => ({}),

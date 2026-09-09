@@ -22,6 +22,8 @@
 		"allow-cancel-recording",
 		"allow-current-recording",
 		"allow-transcribe-recording",
+		"allow-transcribe-audio-bytes",
+		"allow-list-inference-models",
 		"allow-prewarm-model",
 		"allow-get-local-transcription-readiness",
 		"core:event:allow-listen",

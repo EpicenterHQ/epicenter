@@ -11,7 +11,8 @@
  * - Credit failures offer account management without delivering or resuming work
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import { generateBlobId } from '@epicenter/blobs';
+import { createDeparture } from '@epicenter/app-shell/departure';
+import type { AuthState } from '@epicenter/auth';
 import { Err, Ok } from 'wellcrafted/result';
 import type { RecordingId } from '$lib/data';
 
@@ -22,6 +23,14 @@ let transcriptionError: { name: string; message: string } | null = null;
 const markFailed = mock();
 const markTranscribing = mock();
 let willPolish = false;
+let lifetime = new AbortController();
+let finishPolish: (() => Promise<void>) | undefined;
+let finishTranscription: (() => Promise<void>) | undefined;
+let recordingEnabled = true;
+let createdRows = 0;
+mock.module('$lib/application', () => ({
+	getApp: () => ({ signal: lifetime.signal }),
+}));
 const uploadAudio = mock(async () => Ok(undefined));
 const kick = mock(async () => ({
 	uploaded: 0,
@@ -47,20 +56,24 @@ mock.module('$lib/operations/delivery', () => ({
 }));
 mock.module('$lib/operations/run-polish', () => ({
 	polishWillRun: () => willPolish,
-	runPolish: async (_app: unknown, { input }: { input: string }) =>
-		Ok(willPolish ? 'polished transcript' : input),
+	runPolish: async ({ input }: { input: string }) => {
+		await finishPolish?.();
+		return Ok(willPolish ? 'polished transcript' : input);
+	},
 }));
 mock.module('$lib/operations/sound', () => ({
 	playSoundIfEnabled: mock(async () => Ok(undefined)),
 }));
 mock.module('$lib/operations/transcribe', () => ({
-	transcribeAndPersist: async () =>
-		transcriptionError !== null
+	transcribeAndPersist: async () => {
+		await finishTranscription?.();
+		return transcriptionError !== null
 			? Err(transcriptionError)
 			: Ok({
 					text: 'transcript',
 					history: historyError === null ? Ok(undefined) : Err(historyError),
-				}),
+				});
+	},
 }));
 mock.module('$lib/operations/transcription-history', () => ({
 	saveRecordingHistory,
@@ -88,12 +101,16 @@ const { processRecordingPipeline } = await import('./pipeline.js');
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
 const app = {
+	get recordingEnabled() {
+		return recordingEnabled;
+	},
 	account: { baseURL: 'https://api.example.test', principalId: 'alice' },
 	settings: { get: () => autoUpload },
 	recordings: {
 		// The row commits before the promise settles; failed creation awaits cleanup.
 		async create(fields: Record<string, unknown>) {
 			if (creationError !== null) return Err(creationError);
+			createdRows++;
 			return Ok({ ...fields, id: 'recording-1' as RecordingId });
 		},
 		uploadAudio,
@@ -113,6 +130,103 @@ afterEach(() => {
 	willPolish = false;
 	historyError = null;
 	polishedHistoryError = null;
+	lifetime = new AbortController();
+	finishPolish = undefined;
+	finishTranscription = undefined;
+	recordingEnabled = true;
+});
+
+test('an admitted stop still saves after UI admission closes and failed saving still rejects', async () => {
+	recordingEnabled = false;
+	const rowsBefore = createdRows;
+	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
+	await processRecordingPipeline(app, {
+		audio: new Blob(['audio']),
+		durationMs: 100,
+	});
+	expect(createdRows).toBe(rowsBefore + 1);
+	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
+	creationError = {
+		name: 'RowCreateFailed',
+		message: 'Could not create the recording.',
+	};
+	await expect(
+		processRecordingPipeline(app, {
+			audio: new Blob(['audio']),
+			durationMs: 100,
+		}),
+	).rejects.toMatchObject(creationError);
+});
+
+test('Account replacement drains raw transcription without starting Polish or delivery', async () => {
+	autoUpload = false;
+	willPolish = true;
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	const quiescing = Promise.withResolvers<void>();
+	finishTranscription = () => {
+		entered.resolve();
+		return released.promise;
+	};
+	const polished = mock(async () => {});
+	finishPolish = polished;
+	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
+	let onAccountChange: (next: AuthState) => void = () => {};
+	const departure = createDeparture({
+		account: app.account,
+		auth: {
+			onStateChange(listener) {
+				onAccountChange = listener;
+				return () => {};
+			},
+		},
+		close: async () => {
+			lifetime.abort();
+		},
+	});
+	const processing = processRecordingPipeline(app, {
+		audio: new Blob(['audio']),
+		durationMs: 100,
+	});
+	departure.attachUi({
+		quiesce: async () => {
+			recordingEnabled = false;
+			quiescing.resolve();
+			await processing;
+		},
+	});
+	await entered.promise;
+	onAccountChange({ status: 'signed-out' });
+	await quiescing.promise;
+	expect(lifetime.signal.aborted).toBe(false);
+	released.resolve();
+	await departure.close();
+	expect(polished).not.toHaveBeenCalled();
+	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
+	expect(lifetime.signal.aborted).toBe(true);
+});
+
+test('retirement during Polish suppresses late history and delivery', async () => {
+	willPolish = true;
+	autoUpload = false;
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	finishPolish = () => {
+		entered.resolve();
+		return released.promise;
+	};
+	const writesBefore = saveRecordingHistory.mock.calls.length;
+	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
+	const processing = processRecordingPipeline(app, {
+		audio: new Blob(['audio']),
+		durationMs: 100,
+	});
+	await entered.promise;
+	lifetime.abort();
+	released.resolve();
+	await processing;
+	expect(saveRecordingHistory).toHaveBeenCalledTimes(writesBefore);
+	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
 });
 
 test('failed creation reports dictation loss without entering transcription', async () => {
@@ -123,7 +237,7 @@ test('failed creation reports dictation loss without entering transcription', as
 	const transcribingBefore = markTranscribing.mock.calls.length;
 	await expect(
 		processRecordingPipeline(app, {
-		audio: new Blob(['audio']),
+			audio: new Blob(['audio']),
 			durationMs: 100,
 		}),
 	).rejects.toMatchObject(creationError);
@@ -252,7 +366,7 @@ for (const deliverySource of ['recording', 'import'] as const) {
 		};
 		const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 		await processRecordingPipeline(app, {
-		audio: new Blob(['audio']),
+			audio: new Blob(['audio']),
 			durationMs: 100,
 			deliverySource,
 		});

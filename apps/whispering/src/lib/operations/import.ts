@@ -8,6 +8,7 @@ import {
 import { logAnalyticsEvent } from '$lib/operations/analytics';
 import { processRecordingPipeline } from '$lib/operations/pipeline';
 import { report } from '$lib/report';
+import { trackRecordingWork } from '$lib/state/recording-active.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 type RejectedImportFile = { file: File; reason: string };
@@ -89,6 +90,7 @@ export async function importFiles(
 	app: WhisperingApp,
 	{ files }: { files: File[] },
 ): Promise<void> {
+	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
 	const { valid, rejected } = partitionByImportPolicy(files);
 
 	if (rejected.length > 0) {
@@ -103,17 +105,19 @@ export async function importFiles(
 	if (valid.length === 0) return;
 
 	await Promise.all(
-		valid.map(async (file) => {
-			void logAnalyticsEvent(app, {
-				type: 'file_import_completed',
-				blob_size: file.size,
-			});
+		valid.map((file) =>
+			trackRecordingWork(async () => {
+				void logAnalyticsEvent(app, {
+					type: 'file_import_completed',
+					blob_size: file.size,
+				});
 
-			await processRecordingPipeline(app, {
-				audio: file,
-				durationMs: null,
-				deliverySource: 'import',
-			});
-		}),
+				await processRecordingPipeline(app, {
+					audio: file,
+					durationMs: null,
+					deliverySource: 'import',
+				});
+			}),
+		),
 	);
 }

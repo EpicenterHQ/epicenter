@@ -1,11 +1,9 @@
 /**
  * Which build gets which leaf.
  *
- * Whispering's seams split on one axis: `epicenter-host` when the Bun host
- * owns the thing behind the seam, `default` when the page does, which is the
- * `bun dev:whispering` browser tab (ADR-0347). Every other `#platform/*` entry
- * is a plain path alias to one module, because ADR-0227 refused the build that
- * used to choose.
+ * `epicenter-host` selects the desktop host and native capabilities; `default`
+ * selects the browser page's capabilities. Browser leaves must not initialize
+ * native IPC when the application opens.
  *
  * The failure this guards is silent. Drop the `epicenter-host` leaf from a seam
  * and resolution falls back to `default`, so the host-served build would go
@@ -18,6 +16,9 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { platformCommands } from './commands.browser.js';
+import { createSystemShortcuts } from './platform/system-shortcuts.browser.js';
+import { tauri } from './tauri.browser.js';
 
 const appRoot = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -36,12 +37,31 @@ const aliases = Object.entries(imports).filter(
 );
 
 describe('platform seams', () => {
-	test('the host supplies authentication, storage, and native capture', () => {
+	test('each platform-dependent capability selects a browser or host leaf', () => {
 		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
+			'#platform/ai',
+			'#platform/analytics',
 			'#platform/auth',
+			'#platform/commands',
+			'#platform/dictation-indicator',
+			'#platform/download',
+			'#platform/http',
 			'#platform/manual-recorder-config',
+			'#platform/os',
+			'#platform/os-notify',
+			'#platform/recording-mic-level',
 			'#platform/runtime',
+			'#platform/system-shortcuts',
+			'#platform/tauri',
+			'#platform/text',
+			'#platform/window-events',
 		]);
+	});
+
+	test('browser capabilities do not expose native commands or shortcuts', () => {
+		expect(tauri).toBeNull();
+		expect(createSystemShortcuts).toBeNull();
+		expect(platformCommands).toEqual([]);
 	});
 
 	test('every seam names a host leaf and a default leaf, and nothing else', () => {

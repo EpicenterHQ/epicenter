@@ -21,6 +21,7 @@ import {
 } from './providers';
 
 export const PROVIDER_ICONS = {
+	connection: { icon: epicenterIcon, invertInDarkMode: false },
 	epicenter: { icon: epicenterIcon, invertInDarkMode: false },
 	OpenAI: { icon: openaiIcon, invertInDarkMode: true },
 	Groq: { icon: groqIcon, invertInDarkMode: false },
@@ -69,6 +70,7 @@ export const TRANSCRIPTION_PROVIDERS = (
  * Group *membership* lives in the registry (`access`); this map owns only presentation.
  */
 export const ACCESS_GROUPS = {
+	connection: { heading: 'Connection and model', badge: 'Selected' },
 	onDevice: { heading: 'On your device', badge: 'Local' },
 	session: { heading: 'Epicenter', badge: 'Hosted' },
 	key: { heading: 'Provider API', badge: 'API' },

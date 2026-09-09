@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import type { Account } from "@epicenter/auth";
+	import { Button } from '@epicenter/ui/button';
+	import { Loading } from '@epicenter/ui/loading';
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { fromData } from '@epicenter/svelte';
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -53,11 +55,14 @@
 
 	setWhisperingContext({ app: session.app, queries: session.queries });
 
-	export async function recoverRecording(): Promise<void> {
+	async function recoverRecording(): Promise<void> {
 		if (!session.app.recordingEnabled) return;
 		const recovered = await session.app.recording.recover();
 		if (session.app.recordingEnabled && recovered.error) throw recovered.error;
 	}
+
+	// Do not mount controls or shortcuts until the host recording is known.
+	let recordingReady = $state.raw(recoverRecording());
 
 	export async function preflight(): Promise<void> {
 		await recoverRecording();
@@ -83,30 +88,39 @@
 
 <PersistenceNotice persistence={view.persistence} />
 
-<QueryClientProvider client={session.queryClient}>
-	<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
-	<Tooltip.Provider>
-		<!-- Once, at the session root and outside the responsive nav branch, so
-		     switching between the two navs does not re-run it. -->
-		<AppEffects />
+{#await recordingReady}
+	<Loading class="h-dvh" label="Checking for an active recording…" />
+{:then}
+	<QueryClientProvider client={session.queryClient}>
+		<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
+		<Tooltip.Provider>
+			<!-- Once, at the session root and outside the responsive nav branch, so
+			     switching between the two navs does not re-run it. -->
+			<AppEffects />
 
-		{#if isNarrow.current}
-			<div class="flex h-full min-h-svh flex-col">
-				<div class="flex-1 pb-14">
-					<ContentShell>{@render children()}</ContentShell>
+			{#if isNarrow.current}
+				<div class="flex h-full min-h-svh flex-col">
+					<div class="flex-1 pb-14">
+						<ContentShell>{@render children()}</ContentShell>
+					</div>
+					<BottomNav />
 				</div>
-				<BottomNav />
-			</div>
-		{:else}
-			<Sidebar.Provider bind:open={sidebarOpen}>
-				<VerticalNav {removeLocalData} />
-				<Sidebar.Inset>
-					<ContentShell>{@render children()}</ContentShell>
-				</Sidebar.Inset>
-			</Sidebar.Provider>
-		{/if}
+			{:else}
+				<Sidebar.Provider bind:open={sidebarOpen}>
+					<VerticalNav {removeLocalData} />
+					<Sidebar.Inset>
+						<ContentShell>{@render children()}</ContentShell>
+					</Sidebar.Inset>
+				</Sidebar.Provider>
+			{/if}
 
-		<GlobalDialogs />
-		<DictationIndicator />
-	</Tooltip.Provider>
-</QueryClientProvider>
+			<GlobalDialogs />
+			<DictationIndicator />
+		</Tooltip.Provider>
+	</QueryClientProvider>
+{:catch}
+	<div class="flex h-dvh flex-col items-center justify-center gap-4 p-6">
+		<p role="alert">Could not check whether a recording is running.</p>
+		<Button onclick={() => { recordingReady = recoverRecording(); }}>Try again</Button>
+	</div>
+{/await}

@@ -3,13 +3,13 @@
  * Runes are shimmed for imperative assertions; UI invalidation is typechecked separately.
  */
 import { expect, mock, test } from 'bun:test';
-import { generateBlobId } from '@epicenter/blobs';
-import { asDeviceIdentifier } from '@epicenter/recorder';
 import {
 	RecorderError,
 	type Recording,
 	type RecordingService,
 } from '@epicenter/app/recorder';
+import { generateBlobId } from '@epicenter/blobs';
+import { asDeviceIdentifier } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { WhisperingApp } from '$lib/whispering/app';
@@ -25,8 +25,9 @@ mock.module('$lib/state/vad-recorder.svelte', () => ({ vadRecorder }));
 mock.module('#platform/manual-recorder-config', () => ({
 	manualRecorderConfig: { resolveStartParams: () => ({}) },
 }));
+const reportRecordingMicLevel = mock();
 mock.module('#platform/recording-mic-level', () => ({
-	reportRecordingMicLevel: mock(),
+	reportRecordingMicLevel,
 }));
 mock.module('$app/navigation', () => ({ goto: mock() }));
 mock.module('$app/paths', () => ({ resolve: (path: string) => path }));
@@ -38,9 +39,6 @@ mock.module('$lib/operations/pipeline', () => ({
 	processRecordingPipeline: async () => {},
 }));
 mock.module('$lib/operations/sound', () => ({ playSoundIfEnabled: mock() }));
-mock.module('$lib/operations/transcribe', () => ({
-	prewarmOnDeviceModel: mock(),
-}));
 mock.module('$lib/report', () => ({ report: { info: mock(), error: mock() } }));
 mock.module('$lib/state/capture-surface.svelte', () => ({
 	captureSurface: { dismissImport: mock() },
@@ -59,6 +57,8 @@ const { createWhisperingRecording } = await import('./recording.svelte.js');
 function setup() {
 	const audioBlobId = generateBlobId();
 	const unsubscribe = mock();
+	const unlevel = mock();
+	const onLevel = mock(() => unlevel);
 	let ended: ((reason: 'deviceDisconnected') => void) | undefined;
 	const cancel = mock(async () => Ok(undefined));
 	const stop = mock(async () =>
@@ -71,7 +71,7 @@ function setup() {
 		endedReason: null,
 		stop,
 		cancel,
-		onLevel: () => () => {},
+		onLevel,
 		onEnded: (handler) => {
 			ended = handler;
 			return unsubscribe;
@@ -100,6 +100,8 @@ function setup() {
 		stop,
 		cancel,
 		unsubscribe,
+		onLevel,
+		unlevel,
 		end: () => ended?.('deviceDisconnected'),
 	};
 }
@@ -198,4 +200,53 @@ test('unexpected capture termination runs the same stop-and-save workflow', asyn
 	expect(stop).toHaveBeenCalledTimes(1);
 	expect(unsubscribe).toHaveBeenCalledTimes(1);
 	expect(recorder.state).toBe('IDLE');
+});
+
+test('recovery restores recording state and meter once without starting another capture', async () => {
+	const { recorder, session, current, recording, start, onLevel, unlevel } =
+		setup();
+	const recovery =
+		Promise.withResolvers<Result<Recording | null, RecorderError>>();
+	current.mockImplementationOnce(() => recovery.promise);
+	const pending = recorder.recover();
+	expect(recorder.recover()).toBe(pending);
+	recovery.resolve(Ok(recording));
+	expectOk(await pending);
+	expect(recorder.state).toBe('RECORDING');
+	expect(start).not.toHaveBeenCalled();
+	expect(onLevel).toHaveBeenCalledTimes(1);
+	expect(onLevel).toHaveBeenCalledWith(reportRecordingMicLevel);
+	expectOk(await recorder.recover());
+	expect(onLevel).toHaveBeenCalledTimes(1);
+	session[Symbol.dispose]();
+	expect(unlevel).toHaveBeenCalledTimes(1);
+});
+
+test('cancelling recovered capture releases its meter subscription', async () => {
+	const { recorder, current, recording, unlevel } = setup();
+	current.mockImplementationOnce(async () => Ok(recording));
+	expectOk(await recorder.recover());
+	expect(await recorder.cancel()).toBe(true);
+	expect(unlevel).toHaveBeenCalledTimes(1);
+	expect(recorder.state).toBe('IDLE');
+});
+
+test('recovery saves capture that ended while the page was absent once', async () => {
+	const { recorder, current, recording, stop, unlevel } = setup();
+	const ended = {
+		...recording,
+		endedReason: 'deviceDisconnected' as const,
+		onEnded(handler: Parameters<Recording['onEnded']>[0]) {
+			queueMicrotask(() => handler('deviceDisconnected'));
+			return () => {};
+		},
+	};
+	current.mockImplementationOnce(async () => Ok(ended));
+	expectOk(await recorder.recover());
+	await Bun.sleep(0);
+	expect(stop).toHaveBeenCalledTimes(1);
+	expect(unlevel).toHaveBeenCalledTimes(1);
+	expect(recorder.state).toBe('IDLE');
+	expectOk(await recorder.recover());
+	expect(stop).toHaveBeenCalledTimes(1);
 });

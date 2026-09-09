@@ -50,7 +50,12 @@ type CloudModel = { name: string; description: string; cost: string };
  * session, on that deployment's house key. Hosted deployments meter it (AI credits);
  * self-host deployments proxy it unmetered. `key`/`endpoint` are external services.
  */
-export type ProviderAccess = 'key' | 'endpoint' | 'session' | 'onDevice';
+export type ProviderAccess =
+	| 'key'
+	| 'endpoint'
+	| 'session'
+	| 'onDevice'
+	| 'connection';
 
 type KeyProvider = {
 	access: Extract<ProviderAccess, 'key'>;
@@ -131,12 +136,24 @@ type SessionProvider = {
 };
 
 type TranscriptionProvider =
+	| {
+			access: 'connection';
+			label: string;
+			description: string;
+			capabilities: Capabilities;
+	  }
 	| KeyProvider
 	| OnDeviceProvider
 	| EndpointProvider
 	| SessionProvider;
 
 export const PROVIDERS = {
+	connection: {
+		access: 'connection',
+		label: 'Selected connection',
+		description: 'The exact connection and model selected on this device.',
+		capabilities: { supportsPrompt: true, supportsLanguage: true },
+	},
 	epicenter: {
 		access: 'session',
 		label: 'Epicenter',

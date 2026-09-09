@@ -5,16 +5,14 @@
  * error transformation, or invalidation is exposed in the same shape
  * (no sub-namespace), with each leaf picking one canonical call form.
  *
- * One file behind one import path. `#platform/tauri` is a plain path alias to
- * this module in package.json "imports": there is no second leaf and no
- * condition, because ADR-0227 left one shipped build. The web leaf that used
- * to export `null` under `default` is gone.
+ * `#platform/tauri` selects this module under `epicenter-host`. The default
+ * browser leaf exports `null`, so shared consumers check capability presence
+ * without probing runtime globals.
  *
  * Two exports, one for each use case:
  *
  *     // Shared code, through the seam. `tauri` is annotated `Tauri | null`,
- *     // so consumers are forced to narrow even though the value is always
- *     // present.
+ *     // so consumers narrow before using the native capability.
  *     import { tauri } from '#platform/tauri';
  *     if (tauri) await tauri.fs.pathsToFiles(paths);
  *     // or
