@@ -1,6 +1,15 @@
 import { getContext, setContext } from 'svelte';
 
 const connectionScreen = Symbol('connection-screen');
+const signOut = Symbol('application-sign-out');
+
+export function provideSignOut(action: () => Promise<void>) {
+	setContext(signOut, action);
+}
+
+export function getSignOut(): (() => Promise<void>) | undefined {
+	return getContext(signOut);
+}
 
 /** The boot node closes its one app session before exposing account navigation. */
 export function provideConnectionScreen(open: () => void) {

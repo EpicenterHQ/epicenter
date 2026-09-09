@@ -28,7 +28,14 @@ One runtime: a desktop SPA in a WebView over a client-owned store (ADR-0227). Th
 
 ADR-0227 was executed as a clean break. `apps/skills`, `packages/chat`, `packages/skills`, and app-shell's agent chat all typecheck, so do not treat them as scrap: what they lack is a decision about what they are for, not a compiler pass. `apps/epicenter` serves bundles and forwards authenticated HTTP and live sync through its boot Account. Windows hold no server credentials; each app owns its store and sync lifetime.
 
-The three applications on the store are `apps/honeycrisp`, `apps/vocab`, and `apps/whispering`. Each gates on identity in its boot node and opens nothing while signed out (ADR-0342, rejected: sign-in is a door), and each keys one session on the Account object and opens with that captured Account. Refresh preserves it; sign-out or account replacement permanently retires its network access. The narrowest node not shared with `/auth/callback` owns the gate, which is the page for Honeycrisp and Vocab and the `(app)` group layout for Whispering (ADR-0345).
+The three store applications are `apps/honeycrisp`, `apps/vocab`, and
+`apps/whispering`. Each application document owns one fixed library (ADR-0369).
+Plain TypeScript captures the raw auth Account and opens the App; Svelte adapts
+it at the UI boundary. Honeycrisp and Vocab require identity; Whispering also
+supports local startup. Deliberate account/server changes close UI producers
+and the App before authentication changes and full document navigation.
+Callbacks and auxiliary routes open no primary library. Same-owner refresh
+preserves the App; unexpected retirement closes locally without replacement.
 
 Migration reference: `docs/the-store-and-what-it-replaced.md`.
 

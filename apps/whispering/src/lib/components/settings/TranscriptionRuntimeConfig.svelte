@@ -31,7 +31,7 @@
 	import { localRoute } from '$lib/state/local-route.svelte';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
-	import { auth } from '#platform/auth';
+	import { auth } from '$lib/auth.svelte.js';
 	import { tauri } from '#platform/tauri';
 	import AdvancedDisclosure from './AdvancedDisclosure.svelte';
 	import ProviderConfigFields from './ProviderConfigFields.svelte';

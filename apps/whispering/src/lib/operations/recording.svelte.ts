@@ -29,7 +29,10 @@ import { report } from '$lib/report';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
-import { trackRecordingWork } from '$lib/state/recording-active.svelte';
+import {
+	drainRecordingWork,
+	trackRecordingWork,
+} from '$lib/state/recording-active.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
 
@@ -212,47 +215,49 @@ export function createWhisperingRecording(
 
 	async function start(): Promise<BlobId | null> {
 		if (!app.recordingEnabled) return null;
-		app.settings.set('recordingTrigger', 'manual');
-		// A new dictation is starting: clear any lingering failed/delivered state so
-		// the pill follows this attempt, not the last one.
-		dictationLifecycle.reset();
-		// A capture just started, so leave the import overlay if it was open: the
-		// surface should follow the live recording, not stay parked on import.
-		captureSurface.dismissImport();
+		return trackRecordingWork(async () => {
+			app.settings.set('recordingTrigger', 'manual');
+			// A new dictation is starting: clear any lingering failed/delivered state so
+			// the pill follows this attempt, not the last one.
+			dictationLifecycle.reset();
+			// A capture just started, so leave the import overlay if it was open: the
+			// surface should follow the live recording, not stay parked on import.
+			captureSurface.dismissImport();
 
-		// Kick off the local model load now, concurrently with bringing up the
-		// recorder, so the ~1 s cold load overlaps the speech you're about to
-		// record rather than being paid after you stop. No-op for cloud/web.
-		prewarmOnDeviceModel(app);
+			// Kick off the local model load now, concurrently with bringing up the
+			// recorder, so the ~1 s cold load overlaps the speech you're about to
+			// record rather than being paid after you stop. No-op for cloud/web.
+			prewarmOnDeviceModel(app);
 
-		// Manual owns playback for the whole recording; drop any leftover VAD
-		// per-utterance resume so it cannot fire mid-recording.
-		cancelPendingVadResume();
-		recordingMedia.pause(app);
+			// Manual owns playback for the whole recording; drop any leftover VAD
+			// per-utterance resume so it cannot fire mid-recording.
+			cancelPendingVadResume();
+			recordingMedia.pause(app);
 
-		const { data: recording, error } = await startCapture();
+			const { data: recording, error } = await startCapture();
 
-		if (error) {
-			void recordingMedia.resume();
-			// The recording never started, so there is no blob to recover: the
-			// loudest tier. The pill glances it and the OS notification always fires, so
-			// there is no toast.
-			dictationLifecycle.markFailed({ tier: 'silent-loss', error });
-			return null;
-		}
+			if (error) {
+				void recordingMedia.resume();
+				// The recording never started, so there is no blob to recover: the
+				// loudest tier. The pill glances it and the OS notification always fires, so
+				// there is no toast.
+				dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+				return null;
+			}
 
-		// Feed the pill's meter the live mic level. The browser recorder taps its
-		// MediaStream; the native one forwards the level the host measures.
-		recording.onLevel(reportRecordingMicLevel);
+			// Feed the pill's meter the live mic level. The browser recorder taps its
+			// MediaStream; the native one forwards the level the host measures.
+			recording.onLevel(reportRecordingMicLevel);
 
-		// The pill shows the live recording; only a device fallback needs a notice.
-		reportDeviceAcquisitionOutcome(recording.device, (deviceId) => {
-			manualRecorderConfig.deviceId = deviceId;
+			// The pill shows the live recording; only a device fallback needs a notice.
+			reportDeviceAcquisitionOutcome(recording.device, (deviceId) => {
+				manualRecorderConfig.deviceId = deviceId;
+			});
+
+			log.info('Recording started');
+			void playSoundIfEnabled(app, 'manual-start');
+			return currentCapture?.audioBlobId ?? null;
 		});
-
-		log.info('Recording started');
-		void playSoundIfEnabled(app, 'manual-start');
-		return currentCapture?.audioBlobId ?? null;
 	}
 
 	async function stop(recordingId?: BlobId) {
@@ -382,6 +387,22 @@ export function createWhisperingRecording(
 export type WhisperingRecording = ReturnType<
 	typeof createWhisperingRecording
 >['recording'];
+
+/** Admission is already closed. Finish saves and release the separate VAD engine. */
+export async function closeRecordingWork() {
+	try {
+		await drainRecordingWork();
+	} finally {
+		try {
+			if (vadRecorder.state !== 'IDLE') {
+				const result = await vadRecorder.stopActiveListening();
+				if (result.error) throw result.error;
+			}
+		} finally {
+			resumePlaybackForVadEnd();
+		}
+	}
+}
 
 function isVadRecordingActive() {
 	return (

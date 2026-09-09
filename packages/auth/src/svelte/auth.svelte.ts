@@ -10,10 +10,9 @@ import type { AuthClient } from '../index.js';
  * popover. Since the brand is a subtype, code that only reads once needs no
  * change.
  *
- * A boot node wants the tracking one (ADR-0350). Its `auth.state` read is what
- * replaced the reload gate: a sign-out flips its `{#if}`, a different Account object
- * remounts its `{#key}`, and `signed-in` degrading to `reauth-required` moves
- * neither, so a person keeps working while sync reports the refusal.
+ * Application bootstrap reads the plain client once. This adapter belongs to
+ * UI consumers that display changing identity or connection status; it does not
+ * own application lifetime or select a replacement library.
  *
  * The parameter carries the wrapped client's own type through, because a
  * `CallbackAuthClient` that came out of here as a bare `AuthClient` would lose

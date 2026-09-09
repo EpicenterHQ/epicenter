@@ -287,3 +287,30 @@ test('an older success response cannot erase a newer desktop credential refusal'
 	expect(selectedAccount(auth)).toBe(account);
 	auth[Symbol.dispose]();
 });
+
+test('voluntary sign-out preserves the child Account until the host close barrier answers', async () => {
+	const barrier = Promise.withResolvers<Response>();
+	const auth = createDesktopBrokerAuth({
+		bootstrap,
+		brokerBaseURL: 'http://127.0.0.1:39130',
+		fetch: async () => barrier.promise,
+	});
+	const account = selectedAccount(auth);
+	const signingOut = auth.signOut();
+	expect(selectedAccount(auth)).toBe(account);
+	barrier.resolve(new Response(null, { status: 202 }));
+	await signingOut;
+	expect(auth.state.status).toBe('signed-out');
+});
+
+test('a refused host close barrier leaves the child Account usable', async () => {
+	const auth = createDesktopBrokerAuth({
+		bootstrap,
+		brokerBaseURL: 'http://127.0.0.1:39130',
+		fetch: async () => new Response('Recording in another window', { status: 409 }),
+	});
+	const account = selectedAccount(auth);
+	const result = await auth.signOut();
+	expect(result.error?.name).toBe('SignOutFailed');
+	expect(selectedAccount(auth)).toBe(account);
+});

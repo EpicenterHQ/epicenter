@@ -1,6 +1,6 @@
 ---
 name: auth
-description: 'Epicenter auth packages: `@epicenter/auth` and the Svelte adapter at `@epicenter/auth/svelte`, direct sessions, identity state, account-bound fetch/WebSocket, and how a boot node gates on identity without reloading. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
+description: 'Epicenter auth packages: `@epicenter/auth` and the Svelte adapter at `@epicenter/auth/svelte`, direct sessions, identity state, account-bound fetch/WebSocket, and fixed library page bootstrap and deliberate departure. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
 metadata:
   author: epicenter
   version: '10.0'
@@ -191,20 +191,18 @@ signature padding is illegal in raw WebSocket protocol names.
 
 ## Boot selection
 
-The narrowest boot node not shared with the callback gates signed-out people.
-Key its session child on the Account object:
+The mounted application route imports a plain TypeScript application module.
+That module reads the raw `authClient.state` once and opens one captured App.
+Keep Svelte adaptation in UI modules; `fromAuth` does not select the library.
+Callback, auxiliary route, and route-preload imports must not open the App.
 
-```svelte
-{#if auth.state.status === 'signed-out'}
- <SignInScreen {auth} appName="Honeycrisp" noun="notes" />
-{:else}
- {#key auth.state.account}
-  <NotesSession account={auth.state.account} />
- {/key}
-{/if}
-```
+Honeycrisp and Vocab require an Account. Whispering may open its local library.
+Routes within an application share its App. Library changes await producer
+shutdown and App closure, then change identity and use full document navigation.
+A close failure prevents deliberate mutation/navigation. Only preflight refusal
+allows retry before teardown; a closed App never reopens in the same document.
 
-The child captures its Account, opens its store, and closes on unmount.
-Reauthentication-required preserves the mounted local session. Do not key on
-status, redirect signed-out deep links, reload on every auth change, or erase
-local data because network authorization failed.
+Same-owner credential refresh/refusal preserves the App. Unexpected retirement
+immediately rejects network access and closes locally without selecting another
+Account or a local fallback. Desktop voluntary retirement waits for the host's
+all-window close barrier. Preserve independent source-library transfer lifetimes.

@@ -270,9 +270,9 @@ export function createDesktopBrokerAuth({
 			}
 		},
 		async signOut() {
-			publish('signed-out');
 			try {
 				await broker('/_epicenter/account/sign-out', {});
+				publish('signed-out');
 				return Ok(undefined);
 			} catch (cause) {
 				return AuthError.SignOutFailed({ cause });

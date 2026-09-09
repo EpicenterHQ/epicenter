@@ -18,22 +18,25 @@ browser as a static site.
 
 ### Data layer
 
-Honeycrisp declares one inert data definition over `so.epicenter.honeycrisp` (`src/lib/data.ts`) and opens it as a store the app owns:
+`src/lib/application.ts` reads the plain auth client once and opens the notes
+for that Account. The application route imports it after mounting, so an auth
+callback or route preload opens nothing. Svelte adapts the opened App for UI
+reads; it does not choose or replace the library.
 
 ```txt
-createEpicenter({ appId, definition })           the handle, composed once, inert
-epicenter.open(account)                           synchronous; answers a DataSession
-session.opened                                   settles once: the store, or why not
-session.close()                                  releases the lock, socket, and listener
-session.erase()                                  the one deleting verb, from the account menu
-data.tables.notes.rows                           synchronous from here on
+authClient.state.account -> epicenter.openAccount(account) -> app.ready
+page departure -> editor cleanup -> app.close() -> auth change -> full navigation
 ```
+
+The same page keeps its App across note selection and application navigation.
+Changing account or server starts a fresh document, resetting transient UI.
+Whole-library removal is unavailable.
 
 The definition names the application, and `open` resolves which exact
 generation of it to open: the newest copy this device holds, else the account's
 newest, else a fresh one (ADR-0292, ADR-0339). Nobody chooses that number and
 no URL carries it. The store lives at
-`epicenter/v5/so.epicenter.honeycrisp/<principal-id>/so.epicenter.honeycrisp/<n>`:
+`epicenter/so.epicenter.honeycrisp/accounts/<authority-id>/<principal-id>/data/so.epicenter.honeycrisp/<n>`:
 the opening application, the principal whose copy it is, the data id, then the
 number (ADR-0324, amended by ADR-0348).
 The document shape is the shared `app`/`kv`/`tables:<name>` grammar in
@@ -43,12 +46,9 @@ Every build opens its own store, with no platform seam, and reaches one
 authority per signed-in account (ADR-0225/0226). The desktop host serves
 Honeycrisp's bundle and brokers its credential; it owns none of its data.
 
-**Reads are synchronous after opening.** The handle opens the store by
-replaying a durable log into one `Y.Doc`, then `data.tables.notes.rows` returns
-rows, not a promise. The session's `{#await}` is what the route renders while that
-settles: `closed | opening | ready | failed`, with the store on `ready`. There
-is no `signed-out` among them; that is the route's own read of `auth.state`,
-answered before anything opens.
+**Reads are synchronous after opening.** The route awaits `app.ready` before
+mounting `StoreShell`. Opening failure renders the shared recovery screen;
+signed-out startup renders connection controls without an App.
 
 **Nothing polls and nothing refreshes.** `data.tables.notes.subscribe(...)`
 reports which rows a commit touched, for a local write and for bytes that

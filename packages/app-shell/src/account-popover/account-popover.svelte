@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { createAccountManagementUrl } from '@epicenter/auth';
+	import { AuthError, createAccountManagementUrl } from '@epicenter/auth';
+	import { tryAsync } from 'wellcrafted/result';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
@@ -19,7 +20,7 @@
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
 	import SignInPanel from './sign-in-panel.svelte';
-	import { getConnectionScreen } from '../boot-screens/connection-screen-context.js';
+	import { getConnectionScreen, getSignOut } from '../boot-screens/connection-screen-context.js';
 
 	const accountProfileQueryClient = new QueryClient({
 		defaultOptions: {
@@ -91,6 +92,7 @@
 
 	let popoverOpen = $state(false);
 	const openConnection = getConnectionScreen();
+	const leaveAndSignOut = getSignOut();
 	let removing = $state(false);
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
 	// The app can refuse account actions while capture is active.
@@ -115,7 +117,12 @@
 		() =>
 			resultMutationOptions({
 				mutationKey: ['account', 'signOut'],
-				mutationFn: () => auth.signOut(),
+				mutationFn: async () => {
+					if (leaveAndSignOut) {
+						return tryAsync({ try: leaveAndSignOut, catch: (cause) => AuthError.SignOutFailed({ cause }) });
+					}
+					return auth.signOut();
+				},
 				onMutate: () => {
 					popoverOpen = false;
 				},

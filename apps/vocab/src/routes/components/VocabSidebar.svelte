@@ -8,7 +8,7 @@
 	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import TrashIcon from '@lucide/svelte/icons/trash';
-	import { auth } from '$lib/auth';
+	import { auth } from '$lib/auth.svelte.js';
 	import EntriesPanel from './EntriesPanel.svelte';
 
 	let {

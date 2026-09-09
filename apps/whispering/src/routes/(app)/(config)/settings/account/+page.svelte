@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { getWhisperingApp } from '$lib/whispering/context';
+	import { AuthError } from '@epicenter/auth';
+	import { tryAsync } from 'wellcrafted/result';
 	const app = getWhisperingApp();
-	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import { getConnectionScreen, getSignOut } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { toastOnError } from '@epicenter/ui/sonner';
@@ -9,7 +11,7 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { auth } from '#platform/auth';
+	import { auth } from '$lib/auth.svelte.js';
 	import { tauri } from '#platform/tauri';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 
@@ -23,11 +25,18 @@
 	const accountLocked = $derived(recordingActive(app));
 
 	const openConnection = getConnectionScreen();
+	const leaveAndSignOut = getSignOut();
 
 	const signOut = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['account', 'signOut'],
-			mutationFn: () => auth.signOut(),
+			mutationFn: () => tryAsync({
+				try: async () => {
+					if (!leaveAndSignOut) throw new Error('Application departure is unavailable.');
+					await leaveAndSignOut();
+				},
+				catch: (cause) => AuthError.SignOutFailed({ cause }),
+			}),
 			onError: (error) => toastOnError(error, 'Failed to sign out'),
 		}),
 	);

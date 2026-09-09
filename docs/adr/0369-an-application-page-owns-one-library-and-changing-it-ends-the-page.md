@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-08
 - **Amends:** [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at application lifetime: same-document account session replacement is withdrawn. Credential refusal and sync status remain separate from library selection.
-- **Unbuilt:** Fixed page bootstrap, deliberate departure before auth mutation, and removal of reactive session replacement across the three store applications.
+- **Implementation:** Fixed page bootstrap and deliberate departure are implemented across the three store applications. Acceptance evidence and remaining native/browser checks are tracked in the execution spec.
 
 ## Context
 
@@ -27,10 +27,15 @@ change the library. Application routes and panels borrow the same opened App.
 There is no public Library wrapper, current-app selector, forwarding facade,
 or session replacement manager.
 
+Plain TypeScript composes the raw auth client and the App. The shared opener
+receives an explicit Account; it does not select one from ambient auth. Svelte
+adapts auth and data for display and supplies framework-owned producer cleanup.
+
 The narrowest application boot boundary outside the authentication callback
 opens the App. A module export may share that concrete handle within the
-application document after selection. Callback and auxiliary route imports
-must not open it. A singleton is per document, not per desktop process.
+application document after selection. Callback, auxiliary route, and route-preload imports
+must not open it. The mounted application route dynamically imports the opening
+module; module identity then preserves its concrete App for this document. A singleton is per document, not per desktop process.
 Explicit transfers may acquire a separately captured source library without
 replacing the primary App; their lifetimes must settle before departure.
 

@@ -30,7 +30,7 @@
 		removeLocalData,
 		children,
 	}: {
-		/** The ready framework App, owned and closed by RecordingsSession. */
+		/** The ready framework App, owned and closed by the application document. */
 		openedApp: WhisperingAppHandle;
 		account: Account | null;
 		/**
@@ -59,10 +59,13 @@
 		if (session.app.recordingEnabled && recovered.error) throw recovered.error;
 	}
 
-	export function close(): Promise<void> {
+	export async function preflight(): Promise<void> {
+		await recoverRecording();
 		if (session.app.recordingEnabled && recordingActive(session.app))
 			throw new Error('Finish recording and wait for it to save before closing Whispering.');
-		// Check and retire admission synchronously. Recovery has already settled.
+	}
+
+	export function close(): Promise<void> {
 		return session[Symbol.asyncDispose]();
 	}
 

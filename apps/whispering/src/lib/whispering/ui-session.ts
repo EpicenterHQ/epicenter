@@ -1,7 +1,10 @@
 import type { Account } from '@epicenter/auth';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { pushToTalk } from '../operations/push-to-talk';
-import { createWhisperingRecording } from '../operations/recording.svelte.js';
+import {
+	closeRecordingWork,
+	createWhisperingRecording,
+} from '../operations/recording.svelte.js';
 import { createWhisperingQueries } from '../queries';
 import { createWhisperingQueryRuntime } from '../queries/client';
 import { createRecordings } from '../state/recordings.svelte';
@@ -54,7 +57,11 @@ export function createWhisperingUiSession({
 			recordingEnabled = false;
 			disposal ??= (async () => {
 				try {
-					await pushToTalk.dispose(app);
+					try {
+						await pushToTalk.dispose(app);
+					} finally {
+						await closeRecordingWork();
+					}
 				} finally {
 					recordingSession[Symbol.dispose]();
 					queryRuntime.queryClient.clear();

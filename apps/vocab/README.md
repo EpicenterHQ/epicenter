@@ -26,8 +26,9 @@ vocabDefinition
 ```
 src/
   lib/
-    platform/auth.ts       # OAuth auth client
-    epicenter.svelte.ts    # the one handle: createEpicenter
+    auth.ts                # Plain auth client
+    application.ts         # One captured Account and App per document
+    auth.svelte.ts        # UI auth tracking
     state/
       dictation.svelte.ts              # dictation state and interruption handling
       inference-connections.svelte.ts  # hosted/custom inference connection registry
@@ -41,7 +42,7 @@ src/
   routes/
     +layout.svelte         # Root layout with Toaster
     +layout.ts             # SSR disabled (CSR only)
-    +page.svelte             # Opens the store, and renders its four states
+    +page.svelte           # Imports the App after mounting and renders readiness
     auth/callback/+page.svelte # OAuth callback return to app shell
     components/
       VocabShell.svelte        # Main layout: chat state, sidebar + chat area + readings toggle
@@ -54,11 +55,11 @@ vocab.ts                    # Shared isomorphic model (tables, KV, VocabMessage 
 
 ## Key decisions
 
-- `$lib/epicenter.svelte.ts` creates an inert handle from the app id and
-  definition. The boot page keys `ConversationsSession` on the selected Account.
-  That child calls `epicenter.open(account)`, renders `session.opened`, and passes
-  the opened data to `VocabShell`. Retries keep the captured Account; unmounting
-  closes the session. The shared opener owns persistence and sync.
+- `$lib/application.ts` captures the plain auth client's Account and opens one
+  App. The mounted application page imports it and awaits `app.ready` before
+  rendering `VocabShell`. Departure stops dictation and chat, closes the App,
+  then changes identity and starts a fresh document. Switching conversations
+  stays within the same App. Callback and route preloading open no library.
 - The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's `content` node. There is no `chatMessages` table.
 - The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
 - The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).

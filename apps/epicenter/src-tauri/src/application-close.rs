@@ -272,6 +272,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn both_builds_enable_application_close_acknowledgements() {
+        for (config, capability) in [
+            (
+                include_str!("../tauri.conf.json"),
+                include_str!("../capabilities/application-close-production.json"),
+            ),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                include_str!("../capabilities/application-close-development.json"),
+            ),
+        ] {
+            let config: serde_json::Value = serde_json::from_str(config).unwrap();
+            let capability: serde_json::Value = serde_json::from_str(capability).unwrap();
+            assert!(
+                config["app"]["security"]["capabilities"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&capability["identifier"]),
+                "{} must be enabled so application closure can finish",
+                capability["identifier"]
+            );
+            let permissions = capability["permissions"].as_array().unwrap();
+            for permission in [
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "allow-finish-application-close",
+            ] {
+                assert!(permissions.contains(&serde_json::json!(permission)));
+            }
+        }
+    }
+
+    #[test]
     fn close_requires_the_exact_request_and_native_caller_window() {
         let state = ApplicationClose::default();
         let receiver = state

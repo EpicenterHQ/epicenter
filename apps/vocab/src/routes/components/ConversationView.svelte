@@ -14,7 +14,7 @@
 		buildEntryCandidatePrompt,
 		parseEntryCandidates,
 	} from '$lib/entry-candidates';
-	import { auth } from '$lib/auth';
+	import { auth } from '$lib/auth.svelte.js';
 	import { getVocabSurface } from '$lib/surface';
 	import DictationButton from './DictationButton.svelte';
 	import ReadingMarkdown from './ReadingMarkdown.svelte';

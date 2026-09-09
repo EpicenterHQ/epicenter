@@ -5,7 +5,12 @@
 	import { Label } from '@epicenter/ui/label';
 	import { untrack } from 'svelte';
 
-	let { auth, disabled = false, pending = $bindable(false) }: { auth: AuthClient; disabled?: boolean; pending?: boolean } = $props();
+	let { auth, select, disabled = false, pending = $bindable(false) }: {
+		auth: AuthClient;
+		select: (action: () => ReturnType<AuthClient['startSignIn']>) => ReturnType<AuthClient['startSignIn']>;
+		disabled?: boolean;
+		pending?: boolean;
+	} = $props();
 	const client = $derived(isBrowserAuth(auth) ? auth : null);
 	let url = $state(untrack(() => isBrowserAuth(auth) ? auth.selectedServer ?? '' : ''));
 	let token = $state('');
@@ -16,7 +21,8 @@
 		if (!client) return;
 		pending = true;
 		error = '';
-		const result = await client.connectInstance({ url, token });
+		const selected = client;
+		const result = await select(() => selected.connectInstance({ url, token }));
 		token = '';
 		if (result.error) {
 			error = 'Could not connect. Check the server address and token, then try again.';
@@ -28,7 +34,8 @@
 		if (!client) return;
 		pending = true;
 		error = '';
-		const result = await client.useHostedServer();
+		const selected = client;
+		const result = await select(() => selected.useHostedServer());
 		if (result.error) {
 			error = 'Could not change servers. Try again.';
 			pending = false;

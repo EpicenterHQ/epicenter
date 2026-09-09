@@ -40,11 +40,20 @@
 	let signingIn = $state(false);
 	let connecting = $state(false);
 	let signInError = $state<string | undefined>(undefined);
+	let selection: ReturnType<AuthClient['startSignIn']> | undefined;
+	function select(action: () => ReturnType<AuthClient['startSignIn']>) {
+		if (selection) return selection;
+		selection = action().then((result) => {
+			if (result.error) selection = undefined;
+			return result;
+		});
+		return selection;
+	}
 
 	async function signIn() {
 		signInError = undefined;
 		signingIn = true;
-		const { error } = await auth.startSignIn();
+		const { error } = await select(() => auth.startSignIn());
 		if (error !== null) {
 			signInError = error.message;
 			signingIn = false;
@@ -73,7 +82,7 @@
 				{/if}
 			</Button>
 		{/if}
-		<ServerConnection {auth} disabled={signingIn} bind:pending={connecting} />
+		<ServerConnection {auth} {select} disabled={signingIn} bind:pending={connecting} />
 		{#if onCancel}<Button variant="ghost" disabled={signingIn || connecting} onclick={onCancel}>Back to {appName}</Button>{/if}
 	</div>
 </div>

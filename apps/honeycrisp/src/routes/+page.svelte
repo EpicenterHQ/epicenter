@@ -1,14 +1,46 @@
 <script lang="ts">
-	import { AppBoot } from '@epicenter/app-shell/boot-screens';
-	import { auth } from '#platform/auth';
-	import NotesSession from './components/NotesSession.svelte';
+	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
+	import { Loading } from '@epicenter/ui/loading';
+	import { authClient } from '#platform/auth';
+	import { onMount, tick } from 'svelte';
+	import StoreShell from './components/StoreShell.svelte';
 
-	// The callback is a sibling: it never mounts this App or its connection screen.
-	let session: NotesSession | undefined = $state();
+	let application = $state.raw<typeof import('$lib/application.js')>();
+	let error = $state('');
+	let showing = $state(true);
+	onMount(() => {
+		let stopped = false;
+		void import('$lib/application.js').then(async (opened) => {
+			if (stopped) { await opened.departure.close(); return; }
+			opened.departure.attachUi({
+				async quiesce() {
+					if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+					showing = false;
+					await tick();
+				},
+			});
+			application = opened;
+		}).catch((cause) => { error = cause instanceof Error ? cause.message : 'Could not open Honeycrisp.'; });
+		return () => { stopped = true; };
+	});
 </script>
 
-<AppBoot {auth} appName="Honeycrisp" noun="notes" close={() => session?.close() ?? Promise.resolve()}>
-	{#snippet children(account)}
-		{#if account}<NotesSession {account} bind:this={session} />{/if}
-	{/snippet}
-</AppBoot>
+{#if error}
+	<p role="alert">{error}</p>
+{:else if application}
+	<AppBoot auth={authClient} departure={application.departure} hasApp={application.app !== null} appName="Honeycrisp" noun="notes">
+		{#if application.app && showing}
+			{#await application.app.ready}
+				<Loading class="h-dvh" label="Opening your notes…" />
+			{:then { error }}
+				{#if error !== null}
+					<CannotOpenScreen appName="Honeycrisp" noun="notes" {error} retry={() => location.reload()} />
+				{:else}
+					<StoreShell data={application.app} />
+				{/if}
+			{/await}
+		{/if}
+	</AppBoot>
+{:else}
+	<Loading class="h-dvh" label="Opening your notes…" />
+{/if}

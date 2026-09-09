@@ -96,8 +96,12 @@ the host relays bytes and owns no application replica or reconnect loop.
 ## Lifetime and policy
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
-that same Account. Svelte apps adapt it with `fromAuth` and key the session
-component on `auth.state.account`, never principal or status alone.
+that same Account. Store apps capture the Account from the plain client in
+application bootstrap and keep one App per document. Svelte adapts auth with
+`fromAuth` only for UI tracking. Deliberate departure closes the App before
+mutating identity and navigating; unexpected retirement never opens a successor
+in the same document. Desktop children await the host close barrier before
+voluntary retirement.
 
 The hosted server checks live session rows on HTTP requests and socket admission.
 Sessions last 30 days and renew after one day of use. Renewal does not reset

@@ -32,6 +32,11 @@ const capture = {
 let speechEnd: ((blob: Blob) => Promise<void>) | undefined;
 const vadRecorder = {
 	state: 'IDLE',
+	async stopActiveListening() {
+		vadRecorder.state = 'IDLE';
+		events.push('vad released');
+		return Ok({ status: 'stopped' });
+	},
 	async startActiveListening(options: {
 		onSpeechEnd(blob: Blob): Promise<void>;
 	}) {
@@ -84,6 +89,7 @@ const {
 	startVadRecording,
 	cancelRecording,
 	stopVadRecording,
+	closeRecordingWork,
 } = await import('./recording.svelte.js');
 
 function recordingApp<T extends object>(
@@ -105,6 +111,8 @@ test('recording work owns close eligibility through native finalization and row 
 		blobs: { removeLocal: async () => Ok(undefined) },
 	});
 	const stopping = app.recording.stop();
+	app.recordingEnabled = false;
+	const closing = closeRecordingWork().then(() => { events.push('producers closed'); });
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize']);
@@ -114,7 +122,16 @@ test('recording work owns close eligibility through native finalization and row 
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	saved.resolve();
 	await stopping;
+	await closing;
+	expect(events.at(-1)).toBe('producers closed');
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
+});
+
+test('terminal producer closure releases an armed VAD engine after admission stops', async () => {
+	vadRecorder.state = 'LISTENING';
+	await closeRecordingWork();
+	expect(vadRecorder.state).toBe('IDLE');
+	expect(events.at(-1)).toBe('vad released');
 });
 
 test('VAD initialization owns close eligibility while recorder state remains idle', async () => {

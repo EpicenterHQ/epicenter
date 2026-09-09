@@ -16,31 +16,20 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 ## Application composition
 
-Whispering configures one inert Epicenter factory. The boot layout selects a
-local session or an Account and keys the session component on that selection.
+`src/lib/application.ts` captures the raw auth Account and opens one App,
+using the local library when signed out. The mounted `(app)` layout dynamically
+imports that plain TypeScript module. Authentication callbacks and overlays do
+not import it. `auth.svelte.ts` adds UI tracking after composition.
 
-```txt
-src/lib/data.ts                         dataset definition
-src/lib/epicenter.svelte.ts              createEpicenter with platform bindings
-(app)/+layout.svelte                    identity selection
-  -> RecordingsSession.svelte           openLocal/openAccount; owns ready and close
-    -> WhisperingShell.svelte           receives openedApp; owns UI session
-      -> createWhisperingUiSession      queries and the Whispering UI object
-        -> createWhisperingDomains      settings, saved recordings, and recipes
-        -> createWhisperingRecording    capture state and save/transcribe commands
-```
+The layout awaits `app.ready` before rendering `WhisperingShell`, which creates
+its UI session, query client, and recording workflow. Application routes share
+the same App. Library changes close this page and use full document navigation.
 
-`openedApp` is the framework App throughout this chain. Its type is
-`WhisperingAppHandle`, and it owns tables, blobs, SQL, recording, and closure.
-The UI's `WhisperingApp` exposes product workflows. Its `recording.start()` and
-`recording.stop()` are the common entry for buttons and push-to-talk; stop saves
-an owning row and transcribes. The workflow owns its reactive capture state directly.
-
-`RecordingsSession` renders `openedApp.ready` before mounting the shell and
-closes that same handle after UI teardown. Hosted transcription and remote
-blobs use the captured Account, so delayed work cannot switch credentials.
-
-The app's recordings namespace owns row and blob consistency: audio storage, upload, download, purge, the `uploadedAt` marker, and deletion of the online copy, device copy, and row as one workflow. A row's values and its `content` node both live in the one Yjs 14 database document; there is no SQLite projection beside it (ADR-0269).
+Voluntary departure checks recording recovery and refuses while capture or
+saving needs attention. Terminal retirement stops new recording admission,
+awaits admitted recording work, releases VAD, and disposes the UI before storage
+closes. Network retirement remains immediate. Reload alone is not an awaited
+recording shutdown; native capture still requires explicit recovery.
 
 ## Service Layer - Pure Business Logic + Platform Abstraction
 

@@ -7,88 +7,23 @@ reference for how an app is built.
 
 Design authority: [ADR-0339](../../docs/adr/0339-an-application-creates-one-epicenter-and-an-account-is-what-adds-a-store.md) (an application creates one epicenter, and an account is what adds a store), [ADR-0226](../../docs/adr/0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) (a host serves bundles and brokers credentials and owns no application data), [ADR-0225](../../docs/adr/0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md) (one authority per principal and application; being signed in is the sharing model), [ADR-0295](../../docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) (a database is one Yjs document and a row holds its rich content), [ADR-0292](../../docs/adr/0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md) (a database opens an exact generation cache-first), [ADR-0336](../../docs/adr/0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) (an authority mints every generation, so every store has an account), [ADR-0324](../../docs/adr/0324-a-database-address-is-its-data-id-and-generation-and-the-definition-declares-its-authority.md) (the address is the application, the data id, and the generation), [ADR-0256](../../docs/adr/0256-automatic-folding-is-the-current-maintenance-path-and-manual-workspace-compaction-is-deferred.md) (automatic folding is current; manual workspace compaction is deferred).
 
-## One handle, one URL, and the generation is nobody's to choose
+## One library per application document
 
-`$lib/epicenter.svelte.ts` is where this application's notes come from
-(ADR-0339). There is one of it, for every build:
+`src/lib/application.ts` captures the raw `authClient` Account and opens one
+App. The mounted `routes/+page.svelte` dynamically imports it; callback and
+preloaded route modules must not acquire data. The same document never opens
+a replacement App. `auth.svelte.ts` adapts auth only for UI reads.
 
-```ts
-import { epicenter } from '$lib/epicenter.svelte.js';
-```
+The page submits buffered editor work and unmounts consumers before awaiting
+`app.close()`. Account/server changes then use full document navigation.
+A preflight refusal leaves controls usable; a failure after teardown begins
+requires a fresh document. Keep storage identity and Account transport captured
+at construction. The shared departure owner sequences closure and navigation;
+it does not select or open another library.
 
-Honeycrisp opens no SQLite file and keeps no secret, so it declares no storage
-seam. What varies by build is auth, and whether there is a folder.
-
-`definition` configures that handle; the boot node supplies the selected Account
-to the session component. An authority mints every generation (ADR-0336), so
-there is no accountless notebook.
-**Nothing opens at construction, and opening is a verb.**
-`components/NotesSession.svelte` calls `epicenter.open(account)` in its script body,
-under the boot node's gate, so a signed-out person meeting the sign-in screen
-pays no Web Lock, no IndexedDB, and no round trip, and `/auth/callback` renders
-under the same layout without opening anything. A retry is a NEW session, which
-is what the Try again button assigns.
-
-```text
-epicenter/v5/so.epicenter.honeycrisp/<principal-id>/so.epicenter.honeycrisp/<n>
-```
-
-Three segments after the version: the OPENING application, the principal whose
-copy this is, then the data id (ADR-0324, amended by ADR-0348). The first and
-last are the same string here and nothing writes the first one down: the
-constructor states the opening application explicitly. An application that
-opened another's data would state its different id, and would then hold two
-stores, which ADR-0339 refuses until something needs it. The principal segment
-is why two accounts on one device hold two replicas instead of one contested
-one, and why erasing reaches only the account that asked.
-
-**The generation is not in the URL and there is no picker.** `open` takes the
-newest copy this device holds, else the account's newest, else mints, and
-nothing stores the choice. It creates one only when the account's list comes
-back EMPTY, which is a first run: a device that could not SEE what the account
-has must not invent a history for it. `/account` and `/account/[generation]`
-are gone; the notes are at `/`.
-
-Opening is cache-first and never waits on a socket. A device holding a copy is
-usable offline; one that holds none fetches the generation whole before
-returning, so a fresh account never renders empty while its state is arriving.
-
-That file exports ONE name, `epicenter`, and it is the handle itself: there is
-no adapter over it any more. `open(account)` is SYNCHRONOUS and answers a
-`DataSession`, which is a value the tree owns (ADR-0350):
-
-```ts
-const session = epicenter.open(account);   // { opened, close, erase }
-```
-
-`opened` settles once and never rejects, so pending is `{#await}`, refused is
-its `error`, and ready is its `data`. There is no `closed` state, because a
-caller holding the session is holding the thing that has it. Signed-out is not
-a session state at all: `routes/+page.svelte` reads `auth.state` REACTIVELY and
-renders the sign-in screen, and `components/NotesSession.svelte` is what opens,
-keyed on the Account object.
-
-The handle serializes sessions on one queue, and that is load-bearing. Svelte
-creates the branch for a new key before it destroys the one it replaces, so a
-keyed child opens before its predecessor's cleanup closes. The tree cannot put
-those in order; the handle can.
-
-What `session.opened` resolves is the raw store, and `StoreShell` calls
-`fromData` on it once. It carries no `open`, `close`, `erase`, or disposal:
-those belong to the session that took the lock, the socket, and the listener
-together (ADR-0340).
-
-`createHoneycrisp` turns that one opened store into the reactive application
-object the UI consumes. It adapts the document into Svelte-reactive named
-tables with `fromData`, layers Honeycrisp's domain operations, search, and URL
-navigation on top, and exposes no database identity or fallback. Components
-reach it through `getHoneycrisp()`; raw stores never cross that boundary. The
-sidebar's status line reads `data.sync.status()` off the store itself
-(ADR-0340).
-
-A permanent credential refusal costs sync, not the notes: the store opened
-from local state before a socket was attempted, and the sidebar's status line
-goes quiet.
+`StoreShell` adapts the ready App with `fromData`. `createHoneycrisp` supplies
+notes, search, and navigation through `getHoneycrisp()`. Within-library
+navigation keeps that concrete App. Whole-library removal remains unavailable.
 
 ## The folder is a working copy, and a person fills it
 
@@ -159,13 +94,11 @@ only the default one is checked by an editor.
 
 ## Don'ts
 
-- Do not hand a component `epicenter`, or a lifecycle verb off it, when it only
-  needs the notes. `NotesSession` owns the session; `StoreShell` takes the store
-  it resolved.
-- Do not reload the document on an auth change. The boot node's read tracks, so
-  a sign-out flips its `{#if}` and an Account replacement remounts its `{#key}`.
-  `reloadOnAuthChange` is deleted, and reintroducing it would make the keyed
-  session unobservable by replacing the document before it could remount.
+- Keep lifetime verbs at the application boundary. `StoreShell` consumes the
+  ready App; it does not select or replace a library.
+- Deliberate library changes must await departure before auth mutation and
+  full navigation. A reactive auth subscriber may close a retired App, but
+  must never open a replacement or reload on recoverable credential refusal.
 - Do not render a store error to a person as the message. `routes/+page.svelte`
   passes `appName` and `noun` to `@epicenter/app-shell/boot-screens` and writes
   no sentence itself; `openFailure` decides which failure earns one. A failure

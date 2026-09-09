@@ -1,4 +1,4 @@
-import { auth } from '#platform/auth';
+import { auth } from '$lib/auth.svelte.js';
 import { tauri } from '#platform/tauri';
 import {
 	TRANSCRIPTION_PROVIDERS,
