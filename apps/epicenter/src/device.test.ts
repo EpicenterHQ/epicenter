@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createBunDevice } from './device.js';
+import { createBunDevice } from './test-sqlite.js';
 
 const appId = 'so.epicenter.mail';
 

@@ -625,3 +625,5 @@ When you add an ADR, add its row here.
 | [0372](0372-an-opened-app-exposes-its-configured-remote-blob-capability.md) | An opened App exposes its configured remote blob capability | Proposed |
 
 | [0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) | The caller owns when to close and the App owns resource shutdown | Proposed |
+
+| [0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) | User-authored SQL runs through a bounded read-only operation | Proposed |

@@ -1,9 +1,9 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,7 @@ mod command_names;
 pub mod app_data;
 #[path = "application-close.rs"]
 mod application_close;
+mod sqlite;
 use application_close::ApplicationClose;
 
 pub mod audio;
@@ -66,6 +67,7 @@ use delivery::{simulate_copy_keystroke, simulate_enter_keystroke, write_text};
 mod keyring_storage;
 use keyring_storage::{
     delete_app_secret, read_app_secret, read_auth_cell, write_app_secret, write_auth_cell,
+    SecretAccount,
 };
 
 pub mod media;
@@ -188,9 +190,18 @@ struct ReadyFrame {
     port: u16,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
-enum BunToRustAuthFrame {
+enum BunToRustNativeFrame {
+    Sqlite {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        request: sqlite::Request,
+    },
+    SqliteCancel {
+        #[serde(rename = "requestId")]
+        request_id: String,
+    },
     StoreAuth {
         #[serde(rename = "requestId")]
         request_id: String,
@@ -206,7 +217,7 @@ enum BunToRustAuthFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        account: keyring_storage::SecretAccount,
+        account: SecretAccount,
         label: String,
         value: String,
     },
@@ -215,7 +226,7 @@ enum BunToRustAuthFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        account: keyring_storage::SecretAccount,
+        account: SecretAccount,
         label: String,
     },
     DeleteAppSecret {
@@ -223,7 +234,7 @@ enum BunToRustAuthFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        account: keyring_storage::SecretAccount,
+        account: SecretAccount,
         label: String,
     },
     CloseApplications {
@@ -239,7 +250,7 @@ enum BunToRustAuthFrame {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-enum RustToBunAuthFrame<'a> {
+enum RustToBunNativeFrame<'a> {
     NativeResult {
         #[serde(rename = "requestId")]
         request_id: &'a str,
@@ -265,7 +276,9 @@ enum RustToBunAuthFrame<'a> {
 struct ManagedChild {
     generation: u64,
     child: Child,
-    stdin: Option<ChildStdin>,
+    stdin: Option<mpsc::SyncSender<String>>,
+    sqlite: sqlite::Worker,
+    writer: Option<thread::JoinHandle<()>>,
 }
 
 struct HostState {
@@ -918,10 +931,10 @@ fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
         state.queue_auth_callback(url);
         return;
     };
-    if let Err(error) = send_auth_frame(
+    if let Err(error) = send_native_frame(
         &state,
         generation,
-        &RustToBunAuthFrame::AuthCallback { url: &url },
+        &RustToBunNativeFrame::AuthCallback { url: &url },
     ) {
         state.queue_auth_callback(url);
         append_parent_log(app, &format!("deliver auth callback: {error:#}"));
@@ -1056,18 +1069,41 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
             stop_starting_child(child, stdin);
             bail!("a Bun host is already managed by Epicenter");
         }
+        let (sender, receiver) = mpsc::sync_channel::<String>(64);
+        let failed = Arc::new(AtomicBool::new(false));
+        let writer_failed = failed.clone();
+        let writer = thread::spawn(move || {
+            let mut stdin = stdin;
+            for line in receiver {
+                if writeln!(stdin, "{line}")
+                    .and_then(|()| stdin.flush())
+                    .is_err()
+                {
+                    writer_failed.store(true, Ordering::Release);
+                    break;
+                }
+            }
+        });
+        let sqlite = sqlite::Worker::new(
+            app.state::<app_data::DesktopPaths>().data_dir.clone(),
+            generation,
+            sender.clone(),
+            failed,
+        );
         *process = Some(ManagedChild {
             generation,
             child,
-            stdin: Some(stdin),
+            stdin: Some(sender),
+            sqlite,
+            writer: Some(writer),
         });
     }
 
     if let Some(callback) = state.take_auth_callback() {
-        send_auth_frame(
+        send_native_frame(
             &state,
             generation,
-            &RustToBunAuthFrame::AuthCallback { url: &callback },
+            &RustToBunNativeFrame::AuthCallback { url: &callback },
         )
         .context("deliver the queued auth callback")?;
     }
@@ -1217,14 +1253,17 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
     let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
     thread::spawn(move || loop {
         let mut line = String::new();
-        let event = match stdout.read_line(&mut line) {
+        let event = match (&mut stdout)
+            .take((sqlite::MAX_FRAME_BYTES + 1) as u64)
+            .read_line(&mut line)
+        {
             Ok(0) => Err("Bun closed stdout after readiness".to_string()),
-            Ok(_) if !line.ends_with('\n') => {
-                Err("Bun closed stdout during an auth frame".to_string())
+            Ok(_) if line.len() > sqlite::MAX_FRAME_BYTES || !line.ends_with('\n') => {
+                Err("Bun closed stdout during an native frame".to_string())
             }
             Ok(_) => {
-                serde_json::from_str::<BunToRustAuthFrame>(line.trim_end_matches(['\r', '\n']))
-                    .map_err(|error| format!("Bun emitted an invalid auth frame: {error}"))
+                serde_json::from_str::<BunToRustNativeFrame>(line.trim_end_matches(['\r', '\n']))
+                    .map_err(|error| format!("Bun emitted an invalid native frame: {error}"))
             }
             Err(error) => Err(format!("failed to monitor Bun stdout: {error}")),
         };
@@ -1246,11 +1285,11 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
         if let Ok(event) = stdout_receiver.recv_timeout(Duration::from_millis(150)) {
             match event {
                 Ok(frame) => {
-                    if let Err(error) = handle_auth_frame(&app, generation, frame) {
+                    if let Err(error) = handle_native_frame(&app, generation, frame) {
                         fail_generation(
                             &app,
                             generation,
-                            format!("handle Bun auth frame: {error:#}"),
+                            format!("handle Bun native frame: {error:#}"),
                         );
                         return;
                     }
@@ -1270,6 +1309,10 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
             };
             if process.generation != generation {
                 return;
+            }
+            if process.sqlite.failed.load(Ordering::Acquire) {
+                // A failed/bounded response pipe is terminal; never strand a request.
+                let _ = process.child.kill();
             }
             process.child.try_wait()
         };
@@ -1296,20 +1339,45 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
     });
 }
 
-fn handle_auth_frame(
+fn handle_native_frame(
     app: &DesktopAppHandle,
     generation: u64,
-    frame: BunToRustAuthFrame,
+    frame: BunToRustNativeFrame,
 ) -> Result<()> {
     match frame {
-        BunToRustAuthFrame::StoreAuth {
+        BunToRustNativeFrame::Sqlite {
+            request_id,
+            request,
+        } => {
+            let state = app.state::<HostState>();
+            let process = state.process.lock().expect("host state lock poisoned");
+            let process = process
+                .as_ref()
+                .filter(|process| process.generation == generation)
+                .context("SQLite generation retired")?;
+            process
+                .sqlite
+                .submit(request_id, request)
+                .map_err(|error| anyhow!(error))
+        }
+        BunToRustNativeFrame::SqliteCancel { request_id } => {
+            let state = app.state::<HostState>();
+            let process = state.process.lock().expect("host state lock poisoned");
+            let process = process
+                .as_ref()
+                .filter(|process| process.generation == generation)
+                .context("SQLite generation retired")?;
+            process.sqlite.cancel(&request_id);
+            Ok(())
+        }
+        BunToRustNativeFrame::StoreAuth {
             request_id,
             serialized,
         } => {
             let result = write_auth_cell(&app.config().identifier, serialized);
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::OpenAuthUrl { request_id, url } => {
+        BunToRustNativeFrame::OpenAuthUrl { request_id, url } => {
             let result = validate_hosted_auth_url(&url).and_then(|()| {
                 app.opener()
                     .open_url(url, None::<String>)
@@ -1317,17 +1385,18 @@ fn handle_auth_frame(
             });
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::PutAppSecret {
+        BunToRustNativeFrame::PutAppSecret {
             request_id,
             app_id,
             account,
             label,
             value,
         } => {
-            let result = write_app_secret(&app.config().identifier, &app_id, &account, &label, &value);
+            let result =
+                write_app_secret(&app.config().identifier, &app_id, &account, &label, &value);
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::GetAppSecret {
+        BunToRustNativeFrame::GetAppSecret {
             request_id,
             app_id,
             account,
@@ -1338,10 +1407,10 @@ fn handle_auth_frame(
             }
             let state = app.state::<HostState>();
             match read_app_secret(&app.config().identifier, &app_id, &account, &label) {
-                Ok(value) => send_auth_frame(
+                Ok(value) => send_native_frame(
                     &state,
                     generation,
-                    &RustToBunAuthFrame::NativeValue {
+                    &RustToBunNativeFrame::NativeValue {
                         request_id: &request_id,
                         status: "ok",
                         value: value.as_deref(),
@@ -1349,10 +1418,10 @@ fn handle_auth_frame(
                 ),
                 Err(error) => {
                     let message = error.to_string();
-                    send_auth_frame(
+                    send_native_frame(
                         &state,
                         generation,
-                        &RustToBunAuthFrame::NativeResult {
+                        &RustToBunNativeFrame::NativeResult {
                             request_id: &request_id,
                             status: "error",
                             message: Some(&message),
@@ -1361,7 +1430,7 @@ fn handle_auth_frame(
                 }
             }
         }
-        BunToRustAuthFrame::DeleteAppSecret {
+        BunToRustNativeFrame::DeleteAppSecret {
             request_id,
             app_id,
             account,
@@ -1370,7 +1439,7 @@ fn handle_auth_frame(
             let result = delete_app_secret(&app.config().identifier, &app_id, &account, &label);
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::CloseApplications { request_id } => {
+        BunToRustNativeFrame::CloseApplications { request_id } => {
             let app = app.clone();
             thread::spawn(move || {
                 let result =
@@ -1379,11 +1448,11 @@ fn handle_auth_frame(
             });
             Ok(())
         }
-        BunToRustAuthFrame::ResumeApplications { request_id } => {
+        BunToRustNativeFrame::ResumeApplications { request_id } => {
             let result = app.state::<ApplicationClose>().resume_closed();
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::Relaunch {} => {
+        BunToRustNativeFrame::Relaunch {} => {
             if !app.state::<ApplicationClose>().is_closed() {
                 log::warn!("Refused relaunch before applications finished closing.");
                 return Ok(());
@@ -1404,10 +1473,10 @@ fn send_native_result<E: std::fmt::Display>(
     }
     let state = app.state::<HostState>();
     match result {
-        Ok(()) => send_auth_frame(
+        Ok(()) => send_native_frame(
             &state,
             generation,
-            &RustToBunAuthFrame::NativeResult {
+            &RustToBunNativeFrame::NativeResult {
                 request_id,
                 status: "ok",
                 message: None,
@@ -1415,10 +1484,10 @@ fn send_native_result<E: std::fmt::Display>(
         ),
         Err(error) => {
             let message = error.to_string();
-            send_auth_frame(
+            send_native_frame(
                 &state,
                 generation,
-                &RustToBunAuthFrame::NativeResult {
+                &RustToBunNativeFrame::NativeResult {
                     request_id,
                     status: "error",
                     message: Some(&message),
@@ -1428,12 +1497,12 @@ fn send_native_result<E: std::fmt::Display>(
     }
 }
 
-fn send_auth_frame(
+fn send_native_frame(
     state: &HostState,
     generation: u64,
-    frame: &RustToBunAuthFrame<'_>,
+    frame: &RustToBunNativeFrame<'_>,
 ) -> Result<()> {
-    let line = serde_json::to_string(frame).context("serialize the native auth frame")?;
+    let line = serde_json::to_string(frame).context("serialize the native native frame")?;
     let mut process = state.process.lock().expect("host state lock poisoned");
     let process = process
         .as_mut()
@@ -1443,7 +1512,12 @@ fn send_auth_frame(
         .stdin
         .as_mut()
         .context("the target Bun generation has no command pipe")?;
-    writeln!(stdin, "{line}").and_then(|()| stdin.flush())?;
+    if line.len() > sqlite::MAX_FRAME_BYTES {
+        bail!("Native response exceeds frame limit");
+    }
+    stdin
+        .try_send(line)
+        .context("native response queue is full or closed")?;
     Ok(())
 }
 
@@ -1517,17 +1591,21 @@ fn stop_starting_child(mut child: Child, stdin: ChildStdin) {
 }
 
 fn stop_child(mut process: ManagedChild) {
+    process.sqlite.stop();
     drop(process.stdin.take());
     let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
     loop {
         match process.child.try_wait() {
-            Ok(Some(_)) => return,
+            Ok(Some(_)) => break,
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
             Ok(None) | Err(_) => break,
         }
     }
     let _ = process.child.kill();
     let _ = process.child.wait();
+    if let Some(writer) = process.writer.take() {
+        let _ = writer.join();
+    }
 }
 
 fn shutdown_host(app: &DesktopAppHandle) {
@@ -2670,7 +2748,7 @@ mod tests {
     #[test]
     fn bun_auth_frames_are_closed_and_exact() {
         assert_eq!(
-            serde_json::to_value(RustToBunAuthFrame::AuthCallback {
+            serde_json::to_value(RustToBunNativeFrame::AuthCallback {
                 url: "epicenter://auth/callback?code=code&state=state",
             })
             .unwrap(),
@@ -2680,20 +2758,20 @@ mod tests {
             })
         );
         assert_eq!(
-            serde_json::from_str::<BunToRustAuthFrame>(
+            serde_json::from_str::<BunToRustNativeFrame>(
                 "{\"type\":\"store-auth\",\"requestId\":\"one\",\"serialized\":null}"
             )
             .unwrap(),
-            BunToRustAuthFrame::StoreAuth {
+            BunToRustNativeFrame::StoreAuth {
                 request_id: "one".to_string(),
                 serialized: None,
             }
         );
-        assert!(serde_json::from_str::<BunToRustAuthFrame>(
+        assert!(serde_json::from_str::<BunToRustNativeFrame>(
             "{\"type\":\"execute\",\"command\":\"shell\"}"
         )
         .is_err());
-        assert!(serde_json::from_str::<BunToRustAuthFrame>(
+        assert!(serde_json::from_str::<BunToRustNativeFrame>(
             "{\"type\":\"relaunch\",\"extra\":true}"
         )
         .is_err());

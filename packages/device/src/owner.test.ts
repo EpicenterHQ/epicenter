@@ -27,6 +27,9 @@ function setup() {
 		async open(...args) {
 			calls.push(['open', ...args]);
 			return {
+				async query() {
+					return Ok({ columns: [], rows: [], truncated: false });
+				},
 				async run() {
 					calls.push(['run']);
 					return Ok({ changes: 1 });
@@ -205,7 +208,9 @@ test.each([
 ])('invalid name %s does not acquire storage', async (name) => {
 	const { owner, calls } = setup();
 	const storage = createAppSqlite(owner, appId, null);
-	expect(expectErr(await storage.value.open(name)).name).toBe('InvalidDatabaseName');
+	expect(expectErr(await storage.value.open(name)).name).toBe(
+		'InvalidDatabaseName',
+	);
 	expect(expectErr(await storage.value.delete(name)).name).toBe(
 		'InvalidDatabaseName',
 	);
@@ -351,6 +356,97 @@ test('dispatcher cleanup reports failed physical close and preserves exclusion',
 	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
 });
 
+test('query cancellation bypasses the statement queue but waits for engine cleanup', async () => {
+	const { owner, backend, calls } = setup();
+	const started = Promise.withResolvers<void>();
+	const interrupted = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const original = backend.open;
+	backend.open = async (...args) => ({
+		...(await original(...args)),
+		async query(_sql, options) {
+			options.signal?.addEventListener('abort', () => interrupted.resolve(), {
+				once: true,
+			});
+			started.resolve();
+			await release.promise;
+			calls.push(['query-cleaned']);
+			return DeviceError.StorageFailed({
+				cause: new Error('Query cancelled.'),
+			});
+		},
+	});
+	const dispatcher = createDeviceDispatcher(owner);
+	const remote = createTransportSqliteOwner(async (message) => {
+		try {
+			return Ok(await dispatcher.request(message));
+		} catch (cause) {
+			return DeviceError.StorageFailed({ cause });
+		}
+	});
+	const lifetime = await remote.acquire(appId, null);
+	const database = await lifetime.open('search');
+	const controller = new AbortController();
+	let settled = false;
+	const query = database
+		.query('SELECT 1', { tables: ['messages'], signal: controller.signal })
+		.finally(() => {
+			settled = true;
+		});
+	await started.promise;
+	const next = database.run('INSERT INTO messages VALUES (1)');
+	controller.abort();
+	await interrupted.promise;
+	expect(settled).toBe(false);
+	expect(calls).not.toContainEqual(['run']);
+	const closing = lifetime.close();
+	expect(calls).not.toContainEqual(['close', appId, null, 'search']);
+	release.resolve();
+	expectErr(await query);
+	expectOk(await next);
+	await closing;
+	expect(calls.slice(-3)).toEqual([
+		['query-cleaned'],
+		['run'],
+		['close', appId, null, 'search'],
+	]);
+});
+
+test('a query aborted while queued never reaches the engine', async () => {
+	const { owner, backend } = setup();
+	const release = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	let queried = false;
+	const original = backend.open;
+	backend.open = async (...args) => ({
+		...(await original(...args)),
+		async run() {
+			started.resolve();
+			await release.promise;
+			return Ok({ changes: 0 });
+		},
+		async query() {
+			queried = true;
+			return Ok({ columns: [], rows: [], truncated: false });
+		},
+	});
+	const lifetime = await owner.acquire(appId, null);
+	const database = await lifetime.open('search');
+	const writer = database.run('SELECT 1');
+	await started.promise;
+	const controller = new AbortController();
+	const query = database.query('SELECT 1', {
+		tables: [],
+		signal: controller.signal,
+	});
+	controller.abort();
+	release.resolve();
+	expectOk(await writer);
+	expectErr(await query);
+	expect(queried).toBe(false);
+	await lifetime.close();
+});
+
 test('app SQL acquisition precedes readiness but every public verb checks the borrowed gate synchronously', async () => {
 	const { owner, calls } = setup();
 	let ready = false;
@@ -367,12 +463,13 @@ test('app SQL acquisition precedes readiness but every public verb checks the bo
 	ready = true;
 	const database = expectOk(await open('search'));
 	expect(expectOk(await open('search'))).toBe(database);
-	const { run, all, batch } = database;
+	const { run, all, batch, query } = database;
 	ready = false;
 	for (const invoke of [
 		() => run('SELECT 1'),
 		() => all('SELECT 1'),
 		() => batch([]),
+		() => query('SELECT 1', { tables: [] }),
 	])
 		expect(invoke).toThrow('not ready');
 	expect(calls).toEqual([['open', appId, null, 'search']]);

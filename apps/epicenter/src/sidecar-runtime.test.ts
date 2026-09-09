@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import {
-	createNativeAuthPort,
+	createNativePort,
 	createReadyFrame,
 	type ParentPipe,
 	PRODUCTION_PORT,
@@ -262,7 +262,7 @@ describe('native auth port', () => {
 			async cancel() {},
 		};
 		const writes: string[] = [];
-		const native = createNativeAuthPort(
+		const native = createNativePort(
 			{ parentPipe },
 			{
 				createRequestId: () => 'request-1',
@@ -331,7 +331,7 @@ describe('native auth port', () => {
 			closed: new Promise(() => undefined),
 			async cancel() {},
 		};
-		const native = createNativeAuthPort(
+		const native = createNativePort(
 			{ parentPipe },
 			{ createRequestId: () => 'request-2', writeLine() {} },
 		);
@@ -361,9 +361,9 @@ describe('native auth port', () => {
 			closed: new Promise(() => undefined),
 			async cancel() {},
 		};
-		const native = createNativeAuthPort({ parentPipe }, { writeLine() {} });
+		const native = createNativePort({ parentPipe }, { writeLine() {} });
 		controller.enqueue(JSON.stringify({ type: 'execute', command: 'shell' }));
-		await expect(native.completed).rejects.toThrow('Unknown native auth frame');
+		await expect(native.completed).rejects.toThrow('Unknown native frame');
 	});
 });
 
@@ -508,4 +508,148 @@ describe('shutdown', () => {
 			'Epicenter host: shutting down after the native protocol failing: invalid native frame.',
 		]);
 	});
+});
+
+test('one native reader settles SQL and auth and rejects calls after pipe closure', async () => {
+	let controller!: ReadableStreamDefaultController<string>;
+	const parentPipe: ParentPipe = {
+		bootLine: Promise.resolve(bootFrame()),
+		frames: new ReadableStream({
+			start(value) {
+				controller = value;
+			},
+		}),
+		closed: new Promise(() => undefined),
+		async cancel() {},
+	};
+	const writes: string[] = [];
+	let next = 0;
+	const native = createNativePort(
+		{ parentPipe },
+		{
+			writeLine: (line) => writes.push(line),
+			createRequestId: () => String(++next),
+		},
+	);
+	const query = native.sqlite({
+		kind: 'all',
+		connection: 'generation:1',
+		statement: { sql: 'SELECT 1', parameters: [] },
+	});
+	const auth = native.storeAuth(null);
+	controller.enqueue(
+		JSON.stringify({ type: 'native-result', requestId: '2', status: 'ok' }),
+	);
+	controller.enqueue(
+		JSON.stringify({
+			type: 'sqlite-result',
+			requestId: '1',
+			status: 'ok',
+			data: [{ value: 1 }],
+		}),
+	);
+	expect(await query).toEqual([{ value: 1 }]);
+	await auth;
+	const pending = native.sqlite({ kind: 'close', connection: 'generation:1' });
+	controller.close();
+	await expect(pending).rejects.toThrow('closed');
+	await native.completed;
+	await expect(
+		native.sqlite({ kind: 'close', connection: 'generation:1' }),
+	).rejects.toThrow('closed');
+	await expect(native.storeAuth(null)).rejects.toThrow('closed');
+	expect(writes.length).toBe(3);
+});
+
+test('native cancellation sends a separate frame before the blocked query settles', async () => {
+	let controller!: ReadableStreamDefaultController<string>;
+	const parentPipe: ParentPipe = {
+		bootLine: Promise.resolve(bootFrame()),
+		frames: new ReadableStream({
+			start(value) {
+				controller = value;
+			},
+		}),
+		closed: new Promise(() => undefined),
+		async cancel() {},
+	};
+	const writes: string[] = [];
+	const native = createNativePort(
+		{ parentPipe },
+		{
+			writeLine: (line) => writes.push(line),
+			createRequestId: () => 'query-1',
+		},
+	);
+	const abort = new AbortController();
+	const query = native.sqlite(
+		{
+			kind: 'query',
+			connection: 'generation:1',
+			statement: { sql: 'SELECT 1', parameters: [] },
+			tables: ['messages'],
+		},
+		abort.signal,
+	);
+	abort.abort();
+	expect(JSON.parse(writes[1]!)).toEqual({
+		type: 'sqlite-cancel',
+		requestId: 'query-1',
+	});
+	controller.enqueue(
+		JSON.stringify({
+			type: 'sqlite-result',
+			requestId: 'query-1',
+			status: 'error',
+			message: 'interrupted',
+		}),
+	);
+	await expect(query).rejects.toThrow('interrupted');
+	controller.close();
+	await native.completed;
+});
+
+test('local frame limits reject only that request while pipe write failure completes the port', async () => {
+	let controller!: ReadableStreamDefaultController<string>;
+	const parentPipe: ParentPipe = {
+		bootLine: Promise.resolve(bootFrame()),
+		frames: new ReadableStream({
+			start(value) {
+				controller = value;
+			},
+		}),
+		closed: new Promise(() => undefined),
+		async cancel() {},
+	};
+	let shouldFail = false;
+	let next = 0;
+	const writes: string[] = [];
+	const native = createNativePort(
+		{ parentPipe },
+		{
+			createRequestId: () => String(++next),
+			writeLine(line) {
+				if (shouldFail) throw new Error('pipe broken');
+				writes.push(line);
+			},
+		},
+	);
+	const active = native.storeAuth('small');
+	await expect(native.storeAuth('x'.repeat(8 * 1024 * 1024))).rejects.toThrow(
+		'frame exceeds',
+	);
+	const emptyFrame = JSON.parse(writes[0]!);
+	emptyFrame.serialized = '';
+	emptyFrame.requestId = '3';
+	const exactPayload = 'x'.repeat(8 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(emptyFrame)));
+	await expect(native.storeAuth(exactPayload)).rejects.toThrow('frame exceeds');
+	controller.enqueue(
+		JSON.stringify({ type: 'native-result', requestId: '1', status: 'ok' }),
+	);
+	await active;
+	expect(writes.length).toBe(1);
+	shouldFail = true;
+	await expect(native.storeAuth('next')).rejects.toThrow('pipe broken');
+	await native.completed;
+	await expect(native.storeAuth('after')).rejects.toThrow('pipe broken');
 });

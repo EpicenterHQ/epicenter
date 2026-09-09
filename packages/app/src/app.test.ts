@@ -44,7 +44,7 @@ const testSqlite: DeviceSqliteOwner = {
 		open: async () => ({
 			run: async () => Ok({ changes: 0 }),
 			all: async () => Ok([]),
-
+			query: async () => Ok({ columns: [], rows: [], truncated: false }),
 			batch: async () => Ok({ changes: [] }),
 		}),
 		delete: async () => undefined,
@@ -124,7 +124,7 @@ test.each([
 					return {
 						run: async () => Ok({ changes: 0 }),
 						all: async () => Ok([]),
-
+						query: async () => Ok({ columns: [], rows: [], truncated: false }),
 						batch: async () => Ok({ changes: [] }),
 					};
 				},
@@ -223,7 +223,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			open: async () => ({
 				run: async () => Ok({ changes: 0 }),
 				all: async () => Ok([]),
-
+				query: async () => Ok({ columns: [], rows: [], truncated: false }),
 				batch: async () => Ok({ changes: [] }),
 			}),
 			delete: async () => {
@@ -286,6 +286,10 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 						calls.push('all');
 						return Ok([]);
 					},
+					query: async () => {
+						calls.push('query');
+						return Ok({ columns: [], rows: [], truncated: false });
+					},
 					batch: async () => {
 						calls.push('batch');
 						return Ok({ changes: [1] });
@@ -310,10 +314,11 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 		expect(operation).toThrow('not ready');
 	expect(calls).toEqual([]);
 	expectOk(await app.ready);
-	const { run, all, batch } = expectOk(await open('search'));
+	const { run, all, batch, query } = expectOk(await open('search'));
 	expectOk(await run('select 1'));
 	expectOk(await all<{ value: number }>('select 1 as value'));
 	expectOk(await batch([{ sql: 'select 1' }]));
+	expectOk(await query('select 1', { tables: [] }));
 	expectOk(await remove('search'));
 	const admitted = [...calls];
 	const operations = [
@@ -322,6 +327,7 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 		() => run('select 1'),
 		() => all('select 1'),
 		() => batch([]),
+		() => query('select 1', { tables: [] }),
 	];
 	const closing = app.close();
 	for (const operation of operations) expect(operation).toThrow('disposed');
@@ -334,6 +340,7 @@ test.each([
 	'run',
 	'all',
 	'batch',
+	'query',
 ] as const)('an admitted SQL %s can reenter close and keeps the claim until it settles', async (verb) => {
 	const released = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
@@ -354,6 +361,10 @@ test.each([
 					all: async () => {
 						await wait();
 						return Ok([]);
+					},
+					query: async () => {
+						await wait();
+						return Ok({ columns: [], rows: [], truncated: false });
 					},
 					batch: async () => {
 						await wait();
@@ -377,7 +388,9 @@ test.each([
 	const pending: Promise<Result<unknown, DeviceError>> =
 		verb === 'batch'
 			? database.batch([])
-			: database[verb]('select 1');
+			: verb === 'query'
+				? database.query('select 1', { tables: [] })
+				: database[verb]('select 1');
 	try {
 		await started.promise;
 		expect(reentrant).toBe(app.close());

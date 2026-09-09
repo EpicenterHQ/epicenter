@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
+- **Amended by:** [ADR-0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) proposes adding restricted `query` beside the trusted SQL verbs; named file ownership and deletion remain.
 - **Built.** `deleteSqlite` exists in both leaves and the host owner, and Local
   Mail is its first caller. The refusal of an app-owned key-value surface is
   built by not existing, and `cache_meta` and `intent_meta` are already the shape

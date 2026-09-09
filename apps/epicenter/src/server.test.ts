@@ -43,6 +43,7 @@ import {
 import { createBunBlobStore, type BunBlobStore } from '@epicenter/blobs/bun';
 import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
+import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
 import { DEVICE_PATH } from '@epicenter/device/protocol';
 import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
 import { Ok } from 'wellcrafted/result';
@@ -52,7 +53,7 @@ import {
 	createProcessMemoryAppSecrets,
 } from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
-import { createBunDevice, type BunDevice } from './device.ts';
+import { createBunDevice, type BunDevice } from './test-sqlite.ts';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
@@ -2360,6 +2361,28 @@ describe('checkout routes (ADR-0337)', () => {
 });
 
 describe('the application storage owner', () => {
+    test('desktop SQLite carries binary parameters and results through the actual server socket', async () => {
+        await using host = await createTestHost({engine: scriptedEngine([[]])});
+        const root = testDataDir();
+        const server = await serveHost(host, PAGE, null, {device: createBunDevice(root)});
+        const {cookie, origin} = authenticationFor(server);
+        class AuthenticatedSocket extends BunWebSocket {
+            constructor(url: string) { super(url, {headers: {cookie, origin}}); }
+        }
+        const owner = createDesktopSqliteOwner({baseURL: origin, webSocket: AuthenticatedSocket as unknown as typeof WebSocket});
+        try {
+            const lifetime = await owner.acquire(LOCAL_MAIL_APP_ID, null);
+            try {
+                const database = await lifetime.open('binary');
+                expectOk(await database.run('CREATE TABLE values_test(bytes BLOB, text TEXT)'));
+                expectOk(await database.run('INSERT INTO values_test VALUES (?, ?)', [new Uint8Array([0, 1, 255]), 'a\0b']));
+                expect(expectOk(await database.all('SELECT bytes, text FROM values_test'))).toEqual([{bytes: new Uint8Array([0, 1, 255]), text: 'a\0b'}]);
+                expect((await database.run('SELECT ?', [Infinity])).error).not.toBeNull();
+                expect(expectOk(await database.all('SELECT count(*) AS count FROM values_test'))).toEqual([{count: 1}]);
+            } finally { await lifetime.close(); }
+        } finally { await server.stop(true); rmSync(root, {recursive: true, force: true}); }
+    });
+
 	async function post(server: TestServer, body: unknown) {
 		const { cookie, origin } = authenticationFor(server);
 		return fetch(`${server.url.origin}${DEVICE_PATH}`, {

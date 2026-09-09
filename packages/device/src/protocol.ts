@@ -1,3 +1,4 @@
+import { isQueryResult, type QueryResult } from './query.js';
 /**
  * Messages exchanged by an application handle and the trusted desktop owner.
  *
@@ -108,6 +109,18 @@ type SqliteAddress = { appId: string; account: AccountIdentity | null };
 type SqliteSession = SqliteAddress & { lifetimeId: string };
 
 export type DeviceRequest =
+	| (SqliteSession & {
+			kind: 'sqlite-query';
+			connectionId: string;
+			queryId: string;
+			statement: SqliteStatement;
+			tables: readonly string[];
+	  })
+	| (SqliteSession & {
+			kind: 'sqlite-cancel';
+			connectionId: string;
+			queryId: string;
+	  })
 	| (SqliteAddress & { kind: 'sqlite-acquire' })
 	| (SqliteSession & { kind: 'sqlite-open'; name: string })
 	| (SqliteSession & { kind: 'sqlite-close' })
@@ -148,6 +161,8 @@ export type DeviceRequest =
 	  };
 
 export type DeviceResponse =
+	| { kind: 'sqlite-query'; result: QueryResult }
+	| { kind: 'sqlite-cancel' }
 	| { kind: 'sqlite-acquire'; lifetimeId: string }
 	| { kind: 'sqlite-open'; connectionId: string }
 	| { kind: 'sqlite-close' }
@@ -160,6 +175,8 @@ export type DeviceResponse =
 	| { kind: 'secret-delete' };
 
 const RESPONSE_KINDS: readonly DeviceResponse['kind'][] = [
+	'sqlite-query',
+	'sqlite-cancel',
 	'sqlite-acquire',
 	'sqlite-open',
 	'sqlite-close',
@@ -176,6 +193,7 @@ export function isDeviceResponse(value: unknown): value is DeviceResponse {
 	if (typeof value !== 'object' || value === null || !('kind' in value)) {
 		return false;
 	}
+	if (value.kind === 'sqlite-query') return 'result' in value && isQueryResult(value.result);
 	if (value.kind === 'sqlite-acquire')
 		return (
 			'lifetimeId' in value &&
@@ -189,4 +207,25 @@ export function isDeviceResponse(value: unknown): value is DeviceResponse {
 			value.connectionId.length > 0
 		);
 	return RESPONSE_KINDS.includes(value.kind as DeviceResponse['kind']);
+}
+
+
+/** JSON transport preserves SQLite binary values; query blobs retain their hex tag. */
+export function stringifySqliteFrame(frame: object): string {
+    return JSON.stringify(frame, (_key, value: unknown) => {
+        if (value instanceof Uint8Array) return {blob: [...value]};
+        if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('SQLite numbers must be finite.');
+        return value;
+    });
+}
+
+/** Decode the wire's binary tag before validating request or response structure. */
+export function parseSqliteFrame(text: string): unknown {
+    try {
+        return JSON.parse(text, (_key, value: unknown) => {
+            if (typeof value !== 'object' || value === null || Array.isArray(value) || !('blob' in value) || !Array.isArray(value.blob)) return value;
+            if (Object.keys(value).length !== 1 || !value.blob.every((byte) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new Error('Invalid SQLite blob.');
+            return new Uint8Array(value.blob);
+        });
+    } catch { return undefined; }
 }

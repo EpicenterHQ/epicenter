@@ -1,113 +1,169 @@
-/** Bun-owned application SQLite files. The application never receives this owner. */
-
-import { Database, type SQLQueryBindings } from 'bun:sqlite';
-import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { appDataDir } from '@epicenter/constants/app-data';
-import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
-import {
-	createSqliteOwner,
-	type DeviceSqliteOwner,
-} from '@epicenter/device/owner';
+import { isQueryResult } from '@epicenter/device/query';
+/** Native physical SQLite ownership behind the shared TypeScript lifetime. */
+import { DeviceError } from '@epicenter/device';
+import { createSqliteOwner, type SqliteBackend } from '@epicenter/device/owner';
 import type { AccountIdentity } from '@epicenter/principal';
-import type { SqliteValue } from '@epicenter/sqlite';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
+import { tryAsync } from 'wellcrafted/result';
 
-/** Native implementation of the shared SQLite lifetime owner. */
-export type BunDevice = DeviceSqliteOwner;
+export type NativeSqliteValue = string | number | null | { blob: number[] };
+type NativeStatement = { sql: string; parameters: NativeSqliteValue[] };
+export type NativeSqliteRequest =
+	| {
+			kind: 'open' | 'delete';
+			appId: string;
+			account: AccountIdentity | null;
+			name: string;
+	  }
+	| { kind: 'close'; connection: string }
+	| { kind: 'run' | 'all'; connection: string; statement: NativeStatement }
+	| { kind: 'batch'; connection: string; statements: NativeStatement[] }
+	| {
+			kind: 'query';
+			connection: string;
+			statement: NativeStatement;
+			tables: readonly string[];
+	  };
 
-/**
- * One process-local owner for the host's SQLite files.
- * Compose this once per data root. Separate owners or processes sharing a root
- * are outside this lifetime's exclusion boundary.
- */
-export function createBunDevice(root: string): BunDevice {
-	return createSqliteOwner({
-		async open(appId, account, name) {
-			const directory = join(
-				appDataDir(root, appId),
-				accountPath(account),
-				'sqlite',
-			);
-			await mkdir(directory, { recursive: true });
-			const database = new Database(join(directory, `${name}.sqlite`), {
-				create: true,
-			});
-			try {
-				database.run('PRAGMA busy_timeout = 5000');
-				return createAsyncHandle(database);
-			} catch (cause) {
-				database.close(false);
-				throw cause;
-			}
-		},
-		async delete(appId, account, name) {
-			const path = join(
-				appDataDir(root, appId),
-				accountPath(account),
-				'sqlite',
-				`${name}.sqlite`,
-			);
-			await Promise.all(
-				[path, `${path}-wal`, `${path}-shm`, `${path}-journal`].map((file) =>
-					rm(file, { force: true }),
-				),
-			);
-		},
-	});
-}
-
-function accountPath(account: AccountIdentity | null): string {
-	return account === null
-		? 'local'
-		: `accounts/${account.authorityId}/${account.principalId}`;
-}
-
-/** What the owner holds: the application's three verbs, plus the close it may not call. */
-type OwnedSqliteHandle = AppSqliteDatabase & { close(): Promise<void> };
-
-function createAsyncHandle(database: Database): OwnedSqliteHandle {
+function statement(
+	sql: string,
+	parameters: readonly SqliteValue[] = [],
+): NativeStatement {
 	return {
-		run: (sql, parameters) =>
-			resultOf(() => {
-				const result = database.query(sql).run(...toBindings(parameters));
-				return { changes: result.changes };
-			}),
-		all: <TRow>(sql: string, parameters?: readonly SqliteValue[]) =>
-			resultOf(() =>
-				database
-					.query<TRow, SQLQueryBindings[]>(sql)
-					.all(...toBindings(parameters)),
-			),
-		batch: (statements) =>
-			resultOf(() =>
-				database.transaction(() => {
-					const changes: number[] = [];
-					for (const statement of statements) {
-						const result = database
-							.query(statement.sql)
-							.run(...toBindings(statement.parameters));
-						changes.push(result.changes);
-					}
-					return { changes };
-				})(),
-			),
-		// The shared lifetime drains accepted statements before physical close.
-		close: async () => database.close(false),
+		sql,
+		parameters: parameters.map((value) => {
+			if (value instanceof Uint8Array) return { blob: [...value] };
+			if (typeof value === 'number' && !Number.isFinite(value))
+				throw new Error('SQLite parameters must be finite.');
+			return value;
+		}),
 	};
 }
-
-function toBindings(
-	parameters: readonly SqliteValue[] | undefined,
-): SQLQueryBindings[] {
-	return [...(parameters ?? [])] as SQLQueryBindings[];
+function record(value: unknown): Record<string, unknown> {
+	if (typeof value !== 'object' || value === null || Array.isArray(value))
+		throw new Error('Invalid native SQLite result.');
+	return value as Record<string, unknown>;
 }
-
-function resultOf<T>(operation: () => T): Promise<Result<T, DeviceError>> {
-	return Promise.resolve()
-		.then(operation)
-		.then(
-			(data) => Ok(data),
-			(cause) => DeviceError.StorageFailed({ cause }),
-		);
+function changes(value: unknown): number {
+	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+		throw new Error('Invalid native SQLite changes.');
+	return value;
+}
+function rows(value: unknown): SqliteRow[] {
+	if (!Array.isArray(value)) throw new Error('Invalid native SQLite rows.');
+	return value.map((row) =>
+		Object.fromEntries(
+			Object.entries(record(row)).map(([key, value]) => {
+				if (
+					value === null ||
+					typeof value === 'string' ||
+					(typeof value === 'number' && Number.isFinite(value))
+				)
+					return [key, value];
+				const blob = record(value);
+				if (
+					Object.keys(blob).length !== 1 ||
+					!Array.isArray(blob.blob) ||
+					!blob.blob.every(
+						(byte) =>
+							typeof byte === 'number' &&
+							Number.isInteger(byte) &&
+							byte >= 0 &&
+							byte <= 255,
+					)
+				)
+					throw new Error('Invalid native SQLite blob.');
+				return [key, new Uint8Array(blob.blob)];
+			}),
+		),
+	);
+}
+export function createNativeDevice(native: {
+	sqlite(request: NativeSqliteRequest, signal?: AbortSignal): Promise<unknown>;
+}) {
+	const backend: SqliteBackend = {
+		async open(appId, account, name) {
+			const opened = record(
+				await native.sqlite({ kind: 'open', appId, account, name }),
+			);
+			if (typeof opened.connection !== 'string' || opened.connection === '')
+				throw new Error('Invalid native SQLite connection.');
+			const connection = opened.connection;
+			return {
+				query: (sql, options) =>
+					tryAsync({
+						try: async () => {
+							const value = await native.sqlite(
+								{
+									kind: 'query',
+									connection,
+									statement: statement(sql, options.parameters),
+									tables: options.tables,
+								},
+								options.signal,
+							);
+							if (!isQueryResult(value))
+								throw new Error('Invalid native SQLite query result.');
+							return value;
+						},
+						catch: (cause) => DeviceError.StorageFailed({ cause }),
+					}),
+				run: (sql, parameters) =>
+					tryAsync({
+						try: async () => ({
+							changes: changes(
+								record(
+									await native.sqlite({
+										kind: 'run',
+										connection,
+										statement: statement(sql, parameters),
+									}),
+								).changes,
+							),
+						}),
+						catch: (cause) => DeviceError.StorageFailed({ cause }),
+					}),
+				all: <TRow extends SqliteRow>(
+					sql: string,
+					parameters?: readonly SqliteValue[],
+				) =>
+					tryAsync({
+						try: async () =>
+							rows(
+								await native.sqlite({
+									kind: 'all',
+									connection,
+									statement: statement(sql, parameters),
+								}),
+							) as TRow[],
+						catch: (cause) => DeviceError.StorageFailed({ cause }),
+					}),
+				batch: (statements) =>
+					tryAsync({
+						try: async () => {
+							const response = record(
+								await native.sqlite({
+									kind: 'batch',
+									connection,
+									statements: statements.map((item) =>
+										statement(item.sql, item.parameters),
+									),
+								}),
+							);
+							if (!Array.isArray(response.changes))
+								throw new Error('Invalid native SQLite batch.');
+							return { changes: response.changes.map(changes) };
+						},
+						catch: (cause) => DeviceError.StorageFailed({ cause }),
+					}),
+				async close() {
+					await native.sqlite({ kind: 'close', connection });
+				},
+			};
+		},
+		async delete(appId, account, name) {
+			await native.sqlite({ kind: 'delete', appId, account, name });
+		},
+	};
+	return createSqliteOwner(backend);
 }

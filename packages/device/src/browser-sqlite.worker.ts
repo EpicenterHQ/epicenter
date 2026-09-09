@@ -28,7 +28,9 @@
 
 import type { AccountIdentity } from '@epicenter/principal';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
-import { Ok } from 'wellcrafted/result';
+import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
+import { Ok, tryAsync } from 'wellcrafted/result';
+import { createBrowserQuery } from './browser-query.js';
 import type { AppSqliteDatabase } from './index.js';
 import { DeviceError } from './index.js';
 import {
@@ -37,11 +39,7 @@ import {
 	createSqliteOwner,
 } from './owner.js';
 
-/** sqlite.org's OO1 `DB`, plus the one method the adapter does not carry. */
-type PoolDatabase = Parameters<typeof createBrowserSqliteAdapter>[0] & {
-	close(): void;
-	changes(): number;
-};
+type PoolDatabase = Database;
 
 type Pool = {
 	OpfsSAHPoolDb: new (filename: string) => PoolDatabase;
@@ -60,8 +58,8 @@ type Pool = {
  */
 const POOL_NAME = 'epicenter';
 
-let installing: Promise<Pool> | undefined;
-function poolReady(): Promise<Pool> {
+let installing: Promise<{ pool: Pool; sqlite: Sqlite3Static }> | undefined;
+function poolReady(): Promise<{ pool: Pool; sqlite: Sqlite3Static }> {
 	// The rejection is deliberately not cached: the reason an install fails is
 	// another tab holding the directory, and that tab can close. The library
 	// caches its own, so the retry has to say so.
@@ -72,18 +70,12 @@ function poolReady(): Promise<Pool> {
 	return installing;
 }
 
-async function install(): Promise<Pool> {
-	const sqlite3 = (await import('@sqlite.org/sqlite-wasm')).default;
-	const module = (await sqlite3()) as unknown as {
-		installOpfsSAHPoolVfs(options: {
-			name: string;
-			forceReinitIfPreviouslyFailed: boolean;
-		}): Promise<Pool>;
-	};
-	return module.installOpfsSAHPoolVfs({
-		name: POOL_NAME,
-		forceReinitIfPreviouslyFailed: true,
-	});
+async function install() {
+	const initialize = (await import('@sqlite.org/sqlite-wasm')).default;
+	const sqlite = await initialize();
+	const options = { name: POOL_NAME, forceReinitIfPreviouslyFailed: true };
+	const pool = await sqlite.installOpfsSAHPoolVfs(options);
+	return { pool, sqlite };
 }
 
 function databaseFilename(
@@ -111,13 +103,13 @@ function inPool<T>(operation: () => Promise<T>): Promise<T> {
 const owner = createSqliteOwner({
 	open(appId, account, name) {
 		return inPool(async () => {
-			const pool = await poolReady();
+			const { pool, sqlite } = await poolReady();
 			await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
 			const database = new pool.OpfsSAHPoolDb(
 				databaseFilename(appId, account, name),
 			);
 			return {
-				...sqliteOver(database),
+				...sqliteOver(database, sqlite),
 				async close() {
 					database.close();
 				},
@@ -127,7 +119,7 @@ const owner = createSqliteOwner({
 	delete(appId, account, name) {
 		return inPool(async () => {
 			const file = databaseFilename(appId, account, name);
-			const pool = await poolReady();
+			const { pool } = await poolReady();
 			pool.unlink(file);
 			pool.unlink(`${file}-journal`);
 		});
@@ -143,7 +135,11 @@ const dispatch = createDeviceDispatcher(owner);
  * which OO1 answers on the connection rather than the statement, and the
  * `Result` wrapper the application surface is stated in.
  */
-function sqliteOver(database: PoolDatabase): AppSqliteDatabase {
+function sqliteOver(
+	database: PoolDatabase,
+	module: Sqlite3Static,
+): AppSqliteDatabase {
+	const query = createBrowserQuery(module, database);
 	const sqlite = createBrowserSqliteAdapter(database);
 	const attempt = <T>(run: () => T) => {
 		try {
@@ -153,6 +149,11 @@ function sqliteOver(database: PoolDatabase): AppSqliteDatabase {
 		}
 	};
 	return {
+		query: (sql, options) =>
+			tryAsync({
+				try: () => query(sql, options),
+				catch: (cause) => DeviceError.StorageFailed({ cause }),
+			}),
 		run: async (sql, parameters) =>
 			attempt(() => {
 				sqlite.run(sql, parameters);
@@ -192,7 +193,15 @@ self.onmessage = async (event: MessageEvent<Envelope>) => {
 		// is.
 		self.postMessage({
 			id,
-			failure: cause instanceof Error ? cause.message : String(cause),
+			failure:
+				cause instanceof Error
+					? cause.message
+					: typeof cause === 'object' &&
+							cause !== null &&
+							'cause' in cause &&
+							cause.cause instanceof Error
+						? cause.cause.message
+						: String(cause),
 		});
 	}
 };

@@ -1,3 +1,4 @@
+import type { NativeSqliteRequest } from './device.js';
 import type { AccountIdentity } from '@epicenter/principal';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
@@ -15,6 +16,8 @@ import { extractErrorMessage } from 'wellcrafted/error';
  * is restarted rather than declared unreachable.
  */
 const SHUTDOWN_GRACE_MS = 10_000;
+const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
+const MAX_NATIVE_PENDING = 64;
 
 export const SIDECAR_PROTOCOL_VERSION = 3;
 export const PRODUCTION_PORT = 39_130;
@@ -57,7 +60,7 @@ export type ParentPipe = {
 	cancel(): Promise<void>;
 };
 
-export type NativePort = ReturnType<typeof createNativeAuthPort>;
+export type NativePort = ReturnType<typeof createNativePort>;
 
 /**
  * The slice of the native port the desktop auth authority uses.
@@ -214,6 +217,8 @@ export function watchParentPipe(
 				const { value, done } = await reader.read();
 				if (value) {
 					buffer += decoder.decode(value, { stream: true });
+					if (buffer.length > MAX_NATIVE_FRAME_BYTES)
+						throw new Error('Native frame exceeds limit.');
 				}
 
 				let newline = buffer.indexOf('\n');
@@ -278,7 +283,7 @@ export function watchParentPipe(
  * service and account strings it stores under, so what crosses this pipe stays
  * a pair of labels rather than an address in the credential store (ADR-0310).
  */
-export function createNativeAuthPort(
+export function createNativePort(
 	{ parentPipe }: { parentPipe: ParentPipe },
 	{
 		writeLine = (line) => process.stdout.write(`${line}\n`),
@@ -290,17 +295,42 @@ export function createNativeAuthPort(
 ) {
 	const pending = new Map<
 		string,
-		{ resolve(value: string | null): void; reject(error: Error): void }
+		{
+			type: 'sqlite-result' | 'native-result';
+			resolve(value: unknown): void;
+			reject(error: Error): void;
+		}
 	>();
+	const reader = parentPipe.frames.getReader();
 	const callbackListeners = new Set<(url: string) => void>();
 	let queuedCallback: string | null = null;
+	let failure: Error | undefined;
+	function fail(error: Error) {
+		if (failure) return;
+		failure = error;
+		for (const request of pending.values()) request.reject(failure);
+		pending.clear();
+		// Wake the sole reader so supervision observes terminal write failure too.
+		void reader.cancel().catch(() => undefined);
+	}
 
 	function send(frame: unknown) {
-		writeLine(JSON.stringify(frame));
+		if (failure) throw failure;
+		const line = JSON.stringify(frame);
+		// Native framing counts the newline appended by writeLine.
+		if (Buffer.byteLength(line) + 1 > MAX_NATIVE_FRAME_BYTES)
+			throw new Error('Native frame exceeds limit.');
+		try {
+			writeLine(line);
+		} catch (cause) {
+			fail(cause instanceof Error ? cause : new Error(String(cause)));
+			throw failure;
+		}
 	}
 
 	function request(
 		frame:
+			| { type: 'sqlite'; request: NativeSqliteRequest }
 			| { type: 'close-applications' }
 			| { type: 'resume-applications' }
 			| { type: 'store-auth'; serialized: string | null }
@@ -308,20 +338,61 @@ export function createNativeAuthPort(
 			| {
 					type: 'put-app-secret';
 					appId: string;
-					account: AccountIdentity | null; label: string;
+					account: AccountIdentity | null;
+					label: string;
 					value: string;
 			  }
-			| { type: 'get-app-secret'; appId: string; account: AccountIdentity | null; label: string }
-			| { type: 'delete-app-secret'; appId: string; account: AccountIdentity | null; label: string },
-	): Promise<string | null> {
+			| {
+					type: 'get-app-secret';
+					appId: string;
+					account: AccountIdentity | null;
+					label: string;
+			  }
+			| {
+					type: 'delete-app-secret';
+					appId: string;
+					account: AccountIdentity | null;
+					label: string;
+			  },
+		signal?: AbortSignal,
+	): Promise<unknown> {
+		if (signal?.aborted)
+			return Promise.reject(new Error('SQLite query canceled.'));
+		if (failure) return Promise.reject(failure);
+		if (pending.size >= MAX_NATIVE_PENDING)
+			return Promise.reject(new Error('Native request queue is full.'));
 		const requestId = createRequestId();
-		return new Promise<string | null>((resolve, reject) => {
-			pending.set(requestId, { resolve, reject });
+		if (!requestId || requestId.length > 128 || pending.has(requestId))
+			return Promise.reject(
+				new Error('Invalid or duplicate native request id.'),
+			);
+		return new Promise<unknown>((resolve, reject) => {
+			const abort = () => {
+				try {
+					send({ type: 'sqlite-cancel', requestId });
+				} catch (cause) {
+					fail(cause instanceof Error ? cause : new Error(String(cause)));
+				}
+			};
+			pending.set(requestId, {
+				type: frame.type === 'sqlite' ? 'sqlite-result' : 'native-result',
+				resolve(value) {
+					signal?.removeEventListener('abort', abort);
+					resolve(value);
+				},
+				reject(error) {
+					signal?.removeEventListener('abort', abort);
+					reject(error);
+				},
+			});
+			signal?.addEventListener('abort', abort, { once: true });
 			try {
 				send({ ...frame, requestId });
 			} catch (cause) {
+				pending
+					.get(requestId)
+					?.reject(cause instanceof Error ? cause : new Error(String(cause)));
 				pending.delete(requestId);
-				reject(cause instanceof Error ? cause : new Error(String(cause)));
 			}
 		});
 	}
@@ -340,29 +411,37 @@ export function createNativeAuthPort(
 				`Rust returned unknown native request ${frame.requestId}.`,
 			);
 		}
+		if (request.type !== frame.type)
+			throw new Error('Native response does not match request.');
 		pending.delete(frame.requestId);
-		if (frame.status === 'ok') request.resolve(frame.value ?? null);
+		if (frame.status === 'ok')
+			request.resolve(
+				frame.type === 'sqlite-result' ? frame.data : (frame.value ?? null),
+			);
 		else request.reject(new Error(frame.message));
 	}
 
 	const completed = (async () => {
-		const reader = parentPipe.frames.getReader();
 		try {
 			while (true) {
 				const { value, done } = await reader.read();
 				if (done) return;
 				accept(value);
 			}
+		} catch (cause) {
+			fail(cause instanceof Error ? cause : new Error(String(cause)));
+			throw cause;
 		} finally {
-			for (const request of pending.values()) {
-				request.reject(new Error('The native auth port closed.'));
-			}
-			pending.clear();
+			fail(new Error('The native port closed.'));
+			reader.releaseLock();
 		}
 	})();
 
 	return {
 		completed,
+		sqlite(message: NativeSqliteRequest, signal?: AbortSignal) {
+			return request({ type: 'sqlite', request: message }, signal);
+		},
 		async storeAuth(serialized: string | null) {
 			await request({ type: 'store-auth', serialized });
 		},
@@ -421,6 +500,13 @@ export function createNativeAuthPort(
 }
 
 type NativeFrame =
+	| { type: 'sqlite-result'; requestId: string; status: 'ok'; data: unknown }
+	| {
+			type: 'sqlite-result';
+			requestId: string;
+			status: 'error';
+			message: string;
+	  }
 	| {
 			type: 'native-result';
 			requestId: string;
@@ -441,10 +527,10 @@ function parseNativeFrame(line: string): NativeFrame {
 	try {
 		value = JSON.parse(line);
 	} catch {
-		throw new Error('The native auth frame must be valid JSON.');
+		throw new Error('The native frame must be valid JSON.');
 	}
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-		throw new Error('The native auth frame must be a JSON object.');
+		throw new Error('The native frame must be a JSON object.');
 	}
 	const frame = value as Record<string, unknown>;
 	if (frame.type === 'auth-callback') {
@@ -452,6 +538,22 @@ function parseNativeFrame(line: string): NativeFrame {
 		if (typeof frame.url !== 'string' || !isAuthCallback(frame.url)) {
 			throw new Error('Rust sent an invalid auth callback URL.');
 		}
+		return frame as NativeFrame;
+	}
+	if (frame.type === 'sqlite-result') {
+		assertExactKeys(
+			frame,
+			frame.status === 'ok'
+				? ['data', 'requestId', 'status', 'type']
+				: ['message', 'requestId', 'status', 'type'],
+		);
+		if (
+			typeof frame.requestId !== 'string' ||
+			frame.requestId === '' ||
+			(frame.status !== 'ok' && frame.status !== 'error') ||
+			(frame.status === 'error' && typeof frame.message !== 'string')
+		)
+			throw new Error('Invalid native SQLite frame.');
 		return frame as NativeFrame;
 	}
 	if (frame.type === 'native-result') {
@@ -483,7 +585,7 @@ function parseNativeFrame(line: string): NativeFrame {
 		}
 		return frame as NativeFrame;
 	}
-	throw new Error(`Unknown native auth frame: ${String(frame.type)}.`);
+	throw new Error(`Unknown native frame: ${String(frame.type)}.`);
 }
 
 function assertExactKeys(value: Record<string, unknown>, expected: string[]) {

@@ -1,3 +1,5 @@
+import type { QueryOptions, QueryResult } from './query.js';
+export type { QueryOptions, QueryResult, QueryValue } from './query.js';
 /**
  * Runtime-owned SQLite files and application secrets.
  * SQLite lifetimes capture an app and account identity; standalone devices use
@@ -90,6 +92,11 @@ export function secretLabel(value: string): SecretLabel {
  * lifetime permanently retires this handle. Batch executes one transaction.
  */
 export type AppSqliteDatabase = {
+	/** Execute one bounded read against the explicitly permitted main tables. */
+	query(
+		sql: string,
+		options: QueryOptions,
+	): Promise<Result<QueryResult, DeviceError>>;
 	run(
 		sql: string,
 		parameters?: readonly SqliteValue[],

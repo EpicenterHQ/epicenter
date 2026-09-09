@@ -28,11 +28,11 @@ import {
 	createDesktopAuthAuthority,
 	type DesktopAuthAuthority,
 } from './desktop-auth-authority.ts';
-import { createBunDevice } from './device.ts';
+import { createNativeDevice } from './device.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
 import {
-	createNativeAuthPort,
+	createNativePort,
 	createReadyFrame,
 	parseBootFrame,
 	parseRuntimeMode,
@@ -51,10 +51,10 @@ async function main(): Promise<void> {
 	try {
 		const runtimeMode = parseRuntimeMode(Bun.argv);
 		const boot = parseBootFrame(await parentPipe.bootLine, runtimeMode);
-		const nativeAuthPort = createNativeAuthPort({ parentPipe });
+		const nativePort = createNativePort({ parentPipe });
 		const auth = createDesktopAuthAuthority({
 			authCell: boot.authCell,
-			nativeAuthPort,
+			nativeAuthPort: nativePort,
 		});
 		desktopAuth = auth;
 
@@ -78,10 +78,10 @@ async function main(): Promise<void> {
 								'blobs',
 							),
 			});
-		const device = createBunDevice(dataRoot);
+		const device = createNativeDevice(nativePort);
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
-		const appSecrets = createNativeAppSecrets(nativeAuthPort);
+		const appSecrets = createNativeAppSecrets(nativePort);
 		// Identity is immutable per process generation, so remote availability
 		// is a boot-time fact: a signed-in generation composes the streaming
 		// remote over the authority's own deployment fetch, a signed-out one
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
 				},
 			},
 			parentPipe,
-			protocol: nativeAuthPort,
+			protocol: nativePort,
 		});
 	} finally {
 		if (!lifecycleOwnsResources) {

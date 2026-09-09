@@ -1,7 +1,7 @@
 /**
  * An `AppSqliteDatabase` over an in-memory Bun database, for tests.
  *
- * Not a second owner. The real owners are the host's Bun files and the
+ * Not a second owner. The real owners are the host's native SQLite files and the
  * browser's OPFS database, both behind `device.sqlite.open`; this exists so a
  * test can exercise the statements Local Mail actually sends without standing up
  * a desktop host. It reproduces the contract that matters here: asynchronous,
@@ -29,6 +29,11 @@ export function createTestAppSqlite(): AppSqliteDatabase & {
 		}) as never;
 
 	return {
+		async query() {
+			throw new Error(
+				'Restricted queries require the actual browser or native engine fixture.',
+			);
+		},
 		async run(sql, parameters) {
 			try {
 				const result = database.query(sql).run(...bind(parameters));

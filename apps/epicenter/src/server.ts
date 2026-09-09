@@ -8,14 +8,15 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
-import { BLOB_PATHS } from '@epicenter/blobs/webview';
-import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
+import { BLOB_PATHS } from '@epicenter/blobs/webview';
 import { isAppId } from '@epicenter/constants/app-id';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import { createDeviceDispatcher } from '@epicenter/device/owner';
 import {
 	DEVICE_PATH,
+	parseSqliteFrame,
+	stringifySqliteFrame,
 	type DeviceRequest,
 	type DeviceResponse,
 	isDatabaseName,
@@ -24,6 +25,7 @@ import {
 	type SqliteStatement,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
+import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
@@ -39,7 +41,7 @@ import {
 	writeCheckout,
 } from './checkout.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
-import type { BunDevice } from './device.ts';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import {
 	type HomeHost,
 	type HomeSessionSnapshot,
@@ -103,7 +105,7 @@ export type HomeServerOptions = {
 		account: AccountIdentity | null,
 	) => BlobRemote | null;
 	/** Bun owner for app-scoped SQLite files. */
-	device?: BunDevice;
+	device?: DeviceSqliteOwner;
 	/** Credential-store owner for one labeled secret per application account. */
 	appSecrets?: AppSecretOwner;
 };
@@ -464,7 +466,7 @@ export function createHomeServer({
 			return {
 				onMessage(event, ws) {
 					if (closed) return;
-					const frame = parseFrame(event.data);
+					const frame = typeof event.data === 'string' ? parseSqliteFrame(event.data) : undefined;
 					if (
 						typeof frame !== 'object' ||
 						frame === null ||
@@ -488,7 +490,7 @@ export function createHomeServer({
 						request.kind === 'secret-delete'
 					) {
 						ws.send(
-							JSON.stringify({
+							stringifySqliteFrame({
 								id: frame.id,
 								failure: 'Invalid SQLite request.',
 							}),
@@ -497,12 +499,12 @@ export function createHomeServer({
 					}
 					void dispatcher.request(request).then(
 						(response) => {
-							if (!closed) ws.send(JSON.stringify({ id: frame.id, response }));
+							if (!closed) ws.send(stringifySqliteFrame({ id: frame.id, response }));
 						},
 						() => {
 							if (!closed)
 								ws.send(
-									JSON.stringify({
+									stringifySqliteFrame({
 										id: frame.id,
 										failure: 'Application storage failed',
 									}),
@@ -1032,6 +1034,13 @@ function parseDeviceRequest(
 				? undefined
 				: { kind, ...connection, statement };
 		}
+        if (kind === 'sqlite-query' || kind === 'sqlite-cancel') {
+            if (typeof input.queryId !== 'string' || input.queryId.length === 0 || input.queryId.length > 128) return undefined;
+            if (kind === 'sqlite-cancel') return {kind, ...connection, queryId: input.queryId};
+            const statement = parseSqliteStatement(input.statement);
+            if (!statement || new TextEncoder().encode(statement.sql).length > 65536 || !Array.isArray(input.tables) || input.tables.length > 128 || !input.tables.every((table): table is string => typeof table === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(table))) return undefined;
+            return {kind, ...connection, queryId: input.queryId, statement, tables: input.tables};
+        }
 		if (kind === 'sqlite-batch') {
 			if (!Array.isArray(input.statements)) return undefined;
 			const statements: SqliteStatement[] = [];
@@ -1097,7 +1106,7 @@ function parseSqliteStatement(value: unknown):
 
 function isSqliteValue(value: unknown): boolean {
 	return (
-		value === null || typeof value === 'string' || typeof value === 'number'
+		value === null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) || value instanceof Uint8Array
 	);
 }
 

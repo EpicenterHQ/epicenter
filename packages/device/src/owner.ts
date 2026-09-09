@@ -1,3 +1,4 @@
+import type { QueryOptions } from './query.js';
 /** SQLite lifetime ownership shared by the native host and browser worker. */
 import type { AccountIdentity } from '@epicenter/principal';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
@@ -109,6 +110,17 @@ export function createSqliteOwner(backend: SqliteBackend): DeviceSqliteOwner {
 							);
 						}
 						const handle: AppSqliteDatabase = {
+							query: (sql, options) =>
+								statement(() =>
+									options.signal?.aborted
+										? Promise.resolve(
+												DeviceError.StorageFailed({
+													cause: new Error('Query cancelled.'),
+												}),
+											)
+										: database.query(sql, options),
+								),
+
 							run: (sql, parameters) =>
 								statement(() => database.run(sql, parameters)),
 							all: <TRow extends SqliteRow>(
@@ -243,6 +255,7 @@ export function createAppSqlite(
 				parameters?: readonly SqliteValue[],
 			) => statement(() => database.all<TRow>(sql, parameters)),
 			batch: (statements) => statement(() => database.batch(statements)),
+			query: (sql, options) => statement(() => database.query(sql, options)),
 		};
 		handles.set(database, handle);
 		return handle;
@@ -326,6 +339,10 @@ export function createDeviceDispatcher(owner: DeviceSqliteOwner) {
 	let closing: Promise<void> | undefined;
 	const pending = new Set<Promise<DeviceResponse>>();
 	const cleanupFailures: unknown[] = [];
+	const queries = new Map<
+		string,
+		{ lifetimeId: string; connectionId: string; controller: AbortController }
+	>();
 	async function dispatch(request: AppSqliteRequest): Promise<DeviceResponse> {
 		capture(request.appId, request.account);
 		const key = address(request.appId, request.account);
@@ -361,6 +378,8 @@ export function createDeviceDispatcher(owner: DeviceSqliteOwner) {
 			}
 			case 'sqlite-close':
 				// Revoke before awaiting physical cleanup, including if cleanup fails.
+				for (const query of queries.values())
+					if (query.lifetimeId === request.lifetimeId) query.controller.abort();
 				lifetimes.delete(request.lifetimeId);
 				try {
 					await owned.lifetime.close();
@@ -369,6 +388,38 @@ export function createDeviceDispatcher(owner: DeviceSqliteOwner) {
 					throw cause;
 				}
 				return { kind: request.kind };
+			case 'sqlite-cancel': {
+				const query = queries.get(request.queryId);
+				if (
+					query?.lifetimeId === request.lifetimeId &&
+					query.connectionId === request.connectionId
+				)
+					query.controller.abort();
+				return { kind: request.kind };
+			}
+			case 'sqlite-query': {
+				const database = owned.connections.get(request.connectionId)?.database;
+				if (!database) throw new Error('Unknown SQLite connection.');
+				if (queries.has(request.queryId))
+					throw new Error('Duplicate query ID.');
+				const controller = new AbortController();
+				queries.set(request.queryId, {
+					lifetimeId: request.lifetimeId,
+					connectionId: request.connectionId,
+					controller,
+				});
+				try {
+					const result = await database.query(request.statement.sql, {
+						parameters: request.statement.parameters,
+						tables: request.tables,
+						signal: controller.signal,
+					});
+					if (result.error) throw result.error;
+					return { kind: request.kind, result: result.data };
+				} finally {
+					queries.delete(request.queryId);
+				}
+			}
 			case 'sqlite-run':
 			case 'sqlite-all':
 			case 'sqlite-batch': {
@@ -412,6 +463,7 @@ export function createDeviceDispatcher(owner: DeviceSqliteOwner) {
 			if (closing) return closing;
 			closed = true;
 			closing = (async () => {
+				for (const query of queries.values()) query.controller.abort();
 				await Promise.allSettled([...pending]);
 				const results = await Promise.allSettled(
 					[...lifetimes.values()].map(({ lifetime }) => lifetime.close()),
@@ -461,6 +513,40 @@ export function createTransportSqliteOwner(
 						'sqlite-open',
 					);
 					return {
+						async query(sql: string, options: QueryOptions) {
+							if (options.signal?.aborted)
+								return DeviceError.StorageFailed({
+									cause: new Error('Query cancelled.'),
+								});
+							const queryId = crypto.randomUUID();
+							const response = request({
+								kind: 'sqlite-query',
+								...session,
+								connectionId,
+								queryId,
+								statement: { sql, parameters: options.parameters },
+								tables: options.tables,
+							});
+							const cancel = () => {
+								void request({
+									kind: 'sqlite-cancel',
+									...session,
+									connectionId,
+									queryId,
+								}).catch(() => undefined);
+							};
+							options.signal?.addEventListener('abort', cancel, { once: true });
+							if (options.signal?.aborted) cancel();
+							try {
+								return await unwrap(
+									response,
+									'sqlite-query',
+									(value) => value.result,
+								);
+							} finally {
+								options.signal?.removeEventListener('abort', cancel);
+							}
+						},
 						run: (sql, parameters) =>
 							unwrap(
 								request({

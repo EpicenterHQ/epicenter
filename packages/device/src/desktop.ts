@@ -23,6 +23,8 @@ import {
 } from './owner.js';
 import {
 	DEVICE_PATH,
+	parseSqliteFrame,
+	stringifySqliteFrame,
 	type DeviceRequest,
 	type DeviceResponse,
 	isDeviceResponse,
@@ -97,7 +99,7 @@ function createSqliteSocket({
 			socket.onerror = () => fail(new Error('SQLite socket failed.'));
 			socket.onmessage = (event) => {
 				try {
-					const answer: unknown = JSON.parse(String(event.data));
+					const answer: unknown = parseSqliteFrame(String(event.data));
 					if (
 						typeof answer !== 'object' ||
 						answer === null ||
@@ -130,7 +132,7 @@ function createSqliteSocket({
 		const id = nextId++;
 		let frame: string;
 		try {
-			frame = JSON.stringify({ id, request: message });
+			frame = stringifySqliteFrame({ id, request: message });
 		} catch (cause) {
 			return DeviceError.StorageFailed({ cause });
 		}
