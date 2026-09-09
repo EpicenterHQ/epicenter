@@ -41,24 +41,24 @@ import {
 	type DataDefinitionParseError,
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
+import { claimLibrary } from '@epicenter/device/library-claim';
 import type { LibraryReplicaIdentity, PrincipalId } from '@epicenter/principal';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import {
 	GENERATIONS_ROUTE,
-	CURRENT_GENERATION_HEADER,
 	LOG_POSITION_HEADER,
 } from '@epicenter/sync/generations-route';
 import * as Y from '@y/y';
 import { deleteDB, openDB } from 'idb';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { claimLibrary } from '@epicenter/device/library-claim';
 import { openCurrentCache } from './current-cache.js';
 import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
+	type BrowserDurableDatabase,
+	type BrowserDurableSchema,
 	createIdbUpdates,
 	readIdbUpdates,
-	type BrowserDurableSchema,
-	type BrowserDurableDatabase,
 } from './idb-updates.js';
 import { requestPersistentStorage } from './persist.js';
 import type { DurablePort, DurableSnapshot } from './persistence.js';
@@ -677,34 +677,34 @@ export async function acquireAppData(
 				headers: { 'content-type': 'application/octet-stream' },
 				body,
 			});
-			if (!response.ok)
-				throw new Error(`Current library download returned ${response.status}`);
-			const generationHeader = response.headers.get(CURRENT_GENERATION_HEADER);
-			const positionHeader = response.headers.get(LOG_POSITION_HEADER);
-			if (
-				!generationHeader ||
-				!/^[1-9][0-9]*$/.test(generationHeader) ||
-				!positionHeader ||
-				!/^[0-9]+$/.test(positionHeader)
-			)
-				throw new Error(
-					'Current library download has invalid generation or position headers',
-				);
-			const generation = Number(generationHeader);
-			const position = Number(positionHeader);
-			if (!Number.isSafeInteger(generation) || !Number.isSafeInteger(position))
-				throw new Error(
-					'Current library download has invalid generation or position',
-				);
-			const bytes = new Uint8Array(await response.arrayBuffer());
-			// Validate the whole seed before publishing a usable header.
+			const {
+				generation,
+				head,
+				snapshot: baseline,
+				tail,
+			} = await readCurrentDownload(response);
+			// Reconstruct the captured head before publishing a usable cache.
 			const validation = createDatabaseDocument();
+			let bytes: Uint8Array;
 			try {
-				Y.applyUpdateV2(validation, bytes);
+				Y.applyUpdateV2(validation, baseline.bytes);
+				for (const entry of tail) Y.applyUpdateV2(validation, entry.bytes);
+				if (
+					validation.store.pendingStructs !== null ||
+					validation.store.pendingDs !== null
+				)
+					throw new Error(
+						'Current library download has unresolved Yjs dependencies',
+					);
+				bytes = Y.encodeStateAsUpdateV2(validation);
 			} finally {
 				validation.destroy();
 			}
-			const snapshot = await cache.install({ generation, bytes, position });
+			const snapshot = await cache.install({
+				generation,
+				bytes,
+				position: head,
+			});
 			loaded = { generation, snapshot };
 		}
 		return Ok({

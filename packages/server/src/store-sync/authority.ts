@@ -1,19 +1,16 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
-	openCurrentAuthority,
-	encodeFrame,
 	type CurrentAuthority,
+	encodeFrame,
 	type HubConnection,
+	openCurrentAuthority,
 	type SyncHub,
 } from '@epicenter/data/sync';
 import {
 	createDurableObjectSqliteAdapter,
 	type DurableObjectSqliteStorage,
 } from '@epicenter/sqlite/durable-object';
-import {
-	CURRENT_GENERATION_HEADER,
-	LOG_POSITION_HEADER,
-} from '@epicenter/sync/generations-route';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 
 /**
  * A socket's position and fixed authorization deadline survive hibernation.
@@ -145,15 +142,7 @@ export class StoreAuthority extends DurableObject {
 				offset += chunk.length;
 			}
 			const current = this.authority.ensureCurrent(bytes);
-			return new Response(current.snapshot.bytes as unknown as BodyInit, {
-				headers: {
-					'content-type': 'application/octet-stream',
-					'cache-control': 'no-store',
-					'access-control-expose-headers': `${CURRENT_GENERATION_HEADER}, ${LOG_POSITION_HEADER}`,
-					[CURRENT_GENERATION_HEADER]: String(current.generation),
-					[LOG_POSITION_HEADER]: String(current.snapshot.position),
-				},
-			});
+			return createCurrentDownloadResponse(current);
 		}
 		const query = new URL(request.url).searchParams;
 		const generation = Number(query.get('generation'));

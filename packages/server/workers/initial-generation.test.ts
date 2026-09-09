@@ -5,17 +5,18 @@
  */
 import {
 	env,
-	SELF,
 	evictDurableObject,
 	runInDurableObject,
+	SELF,
 } from 'cloudflare:test';
+import { asPrincipalId } from '@epicenter/principal';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import {
-	CURRENT_ROUTE,
 	CURRENT_GENERATION_HEADER,
+	CURRENT_ROUTE,
 	LOG_POSITION_HEADER,
 } from '@epicenter/sync/generations-route';
 import { expect, test } from 'vitest';
-import { asPrincipalId } from '@epicenter/principal';
 import { libraryStoragePrefix } from '../src/library.js';
 import type { GenerationsLedger } from '../src/store-sync/generations.js';
 
@@ -59,7 +60,7 @@ test('competing seeds return one canonical snapshot and retain it after eviction
 	}
 	const bodies = await Promise.all(
 		responses.map(
-			async (response) => new Uint8Array(await response.arrayBuffer()),
+			async (response) => (await readCurrentDownload(response)).snapshot.bytes,
 		),
 	);
 	expect(bodies[0]).toEqual(bodies[1]);
@@ -67,7 +68,9 @@ test('competing seeds return one canonical snapshot and retain it after eviction
 	await evictDurableObject(authority(person));
 	const reopened = await request(person, new Uint8Array([99]));
 	expect(reopened.headers.get(CURRENT_GENERATION_HEADER)).toBe('1');
-	expect(new Uint8Array(await reopened.arrayBuffer())).toEqual(bodies[0]);
+	expect((await readCurrentDownload(reopened)).snapshot.bytes).toEqual(
+		bodies[0],
+	);
 });
 
 test('an empty initializer leaves no current generation and retry succeeds after eviction', async () => {
@@ -85,7 +88,7 @@ test('an empty initializer leaves no current generation and retry succeeds after
 	await evictDurableObject(authority(person));
 	const response = await request(person, new Uint8Array([8]));
 	expect(response.headers.get(CURRENT_GENERATION_HEADER)).toBe('1');
-	expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(response)).snapshot.bytes).toEqual(
 		new Uint8Array([8]),
 	);
 });

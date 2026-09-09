@@ -18,6 +18,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./auth-subprotocol": "./src/auth-subprotocol.ts",
+		"./current-download": "./src/current-download.ts",
 		"./store-route": "./src/store-route.ts",
 		"./generations-route": "./src/generations-route.ts",
 		"./transport": "./src/transport.ts"

@@ -81,10 +81,12 @@ grammar both halves check against one definition.
 
 ## Scope
 
-This package carries no Yjs, no document framing, and no transport. It is the
-addressing and the handshake, and nothing that speaks over them: the rules about
-who has been sent what live in `@epicenter/data/sync`, and the mount that
-answers this route lives in `packages/server/src/store-sync/`.
+This package owns addressing, the handshake, and the opaque current-download
+envelope. `@epicenter/sync/current-download` carries a captured snapshot and its
+complete accepted tail so the browser can install a complete cache before sync.
+It does not interpret Yjs or own a running transport. The rules about who has
+been sent what live in `@epicenter/data/sync`; the server mount lives in
+`packages/server/src/store-sync/`.
 
 ## License
 

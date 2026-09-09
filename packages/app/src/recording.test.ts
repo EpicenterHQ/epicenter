@@ -10,6 +10,7 @@ import { generateBlobId } from '@epicenter/blobs';
 import { defineData } from '@epicenter/data/definition';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import {
 	RecorderError,
@@ -176,8 +177,14 @@ test('account recording keeps the opened identity when the supplied account chan
 		baseURL: 'https://example.test',
 		async fetch(_input, init) {
 			state ??= await new Response(init?.body).blob();
-			return new Response(state, {
-				headers: { 'epicenter-generation': '1', 'epicenter-log-position': '1' },
+			return createCurrentDownloadResponse({
+				generation: 1,
+				head: 1,
+				snapshot: {
+					position: 1,
+					bytes: new Uint8Array(await state.arrayBuffer()),
+				},
+				tail: [],
 			});
 		},
 		openWebSocket: async () => {

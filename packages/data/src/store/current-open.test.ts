@@ -4,8 +4,9 @@ import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { compileData, defineData } from '@epicenter/data/definition';
 import { asPrincipalId } from '@epicenter/principal';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import * as Y from '@y/y';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { acquireAppData } from './browser.js';
 import { createDatabaseDocument } from './document.js';
 
@@ -38,11 +39,11 @@ function fixture() {
 					async fetch() {
 						calls++;
 						if (!online) throw new Error('offline');
-						return new Response(bytes, {
-							headers: {
-								'epicenter-generation': String(generation),
-								'epicenter-log-position': '1',
-							},
+						return createCurrentDownloadResponse({
+							generation,
+							head: 1,
+							snapshot: { position: 1, bytes },
+							tail: [],
 						});
 					},
 					async openWebSocket(): Promise<WebSocket> {
@@ -146,3 +147,98 @@ test('malformed download does not publish a usable cache', async () => {
 	expect(f.calls()).toBe(1);
 	await retry.dispose?.();
 });
+
+test('startup installs the complete captured tail before local use and offline reopen', async () => {
+	const f = fixture();
+	const source = createDatabaseDocument();
+	Y.applyUpdateV2(source, f.bytes);
+	const tail: { seq: number; bytes: Uint8Array }[] = [];
+	source.on('updateV2', (bytes: Uint8Array) => {
+		tail.push({ seq: tail.length + 2, bytes });
+	});
+	for (let index = 1; index <= 130; index++)
+		source.get('proof').setAttr(`accepted-${index}`, index);
+	source.get('proof').deleteAttr('canonical');
+	source.destroy();
+	const options = f.options('alice');
+	options.remote.transport.fetch = async () =>
+		createCurrentDownloadResponse({
+			generation: 1,
+			head: 132,
+			snapshot: { position: 1, bytes: f.bytes },
+			tail,
+		});
+	const opened = expectOk(await acquireAppData(f.definition, options));
+	expect(opened.loaded.cursor).toBe(132);
+	expect(opened.loaded.outbox).toHaveLength(0);
+	const installed = createDatabaseDocument();
+	for (const bytes of opened.loaded.updates) Y.applyUpdateV2(installed, bytes);
+	expect(installed.get('proof').getAttr('accepted-130')).toBe(130);
+	expect(installed.get('proof').getAttr('canonical')).toBeUndefined();
+	installed.destroy();
+	await opened.dispose?.();
+	f.offline();
+	const reopened = expectOk(
+		await acquireAppData(f.definition, f.options('alice')),
+	);
+	expect(reopened.loaded).toEqual(opened.loaded);
+	await reopened.dispose?.();
+});
+
+test('a truncated tail leaves no cache and a later complete download can retry', async () => {
+	const f = fixture();
+	const options = f.options('alice');
+	options.remote.transport.fetch = async () => {
+		const response = createCurrentDownloadResponse({
+			generation: 1,
+			head: 2,
+			snapshot: { position: 1, bytes: f.bytes },
+			tail: [{ seq: 2, bytes: f.bytes }],
+		});
+		const body = new Uint8Array(await response.arrayBuffer());
+		return new Response(body.slice(0, -1), { headers: response.headers });
+	};
+	expectErr(await acquireAppData(f.definition, options));
+	const retry = expectOk(
+		await acquireAppData(f.definition, f.options('alice')),
+	);
+	expect(f.calls()).toBe(1);
+	expect(retry.loaded.cursor).toBe(1);
+	await retry.dispose?.();
+});
+
+for (const pending of ['structs', 'deletes'] as const) {
+	test(`unresolved ${pending} cannot publish a usable cache`, async () => {
+		const f = fixture();
+		const source = createDatabaseDocument();
+		const parent = new Y.Type();
+		source.get('proof').setAttr('unseen', parent);
+		let delta = new Uint8Array();
+		source.on('updateV2', (bytes: Uint8Array) => {
+			delta = new Uint8Array(bytes);
+		});
+		if (pending === 'structs') parent.setAttr('later', true);
+		else source.get('proof').deleteAttr('unseen');
+		source.destroy();
+		const options = f.options('alice');
+		options.remote.transport.fetch = async () =>
+			createCurrentDownloadResponse({
+				generation: 1,
+				head: 2,
+				snapshot: { position: 1, bytes: f.bytes },
+				tail: [{ seq: 2, bytes: delta }],
+			});
+		const error = expectErr(await acquireAppData(f.definition, options));
+		expect(error).toMatchObject({
+			name: 'StorageFailed',
+			cause: new Error(
+				'Current library download has unresolved Yjs dependencies',
+			),
+		});
+		const retry = expectOk(
+			await acquireAppData(f.definition, f.options('alice')),
+		);
+		expect(f.calls()).toBe(1);
+		await retry.dispose?.();
+	});
+}

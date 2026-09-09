@@ -19,6 +19,7 @@ import {
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { openApp } from './open.js';
 import * as dataBrowser from '@epicenter/data/browser';
@@ -78,11 +79,14 @@ function createGenerationFetch(): Account['fetch'] {
 	return async (_input, init) => {
 		if (init?.method !== 'POST') throw new Error('Expected current download');
 		state ??= await new Response(init.body).blob();
-		return new Response(state, {
-			headers: {
-				'epicenter-generation': '1',
-				'epicenter-log-position': '1',
+		return createCurrentDownloadResponse({
+			generation: 1,
+			head: 1,
+			snapshot: {
+				position: 1,
+				bytes: new Uint8Array(await state.arrayBuffer()),
 			},
+			tail: [],
 		});
 	};
 }
@@ -730,8 +734,11 @@ test('account acquisition hydrates the existing handles and survives refused syn
 		baseURL: 'https://example.test',
 		async fetch() {
 			fetches += 1;
-			return new Response(new Uint8Array(snapshot), {
-				headers: { 'epicenter-generation': '1', 'epicenter-log-position': '1' },
+			return createCurrentDownloadResponse({
+				generation: 1,
+				head: 1,
+				snapshot: { position: 1, bytes: snapshot },
+				tail: [],
 			});
 		},
 		async openWebSocket() {

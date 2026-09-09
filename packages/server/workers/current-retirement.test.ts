@@ -7,13 +7,14 @@ import { env, evictDurableObject, runInDurableObject } from 'cloudflare:test';
 import {
 	decodeFrame,
 	encodeFrame,
-	openCurrentAuthority,
 	type Frame,
+	openCurrentAuthority,
 } from '@epicenter/data/sync';
 import {
 	createDurableObjectSqliteAdapter,
 	type DurableObjectSqliteStorage,
 } from '@epicenter/sqlite/durable-object';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { expect, onTestFinished, test, vi } from 'vitest';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -149,7 +150,7 @@ test('eviction reconstructs the socket original generation and retires it before
 	);
 });
 
-test('current download labels snapshot position while the admitted socket supplies its tail', async () => {
+test('current download includes every accepted tail update before the next socket opens', async () => {
 	const { stub, connect, inside } = await setup();
 	await inside((authority) =>
 		expectOk(authority.bind(1).append(new Uint8Array([8]))),
@@ -159,18 +160,13 @@ test('current download labels snapshot position while the admitted socket suppli
 		body: new Uint8Array([99]),
 	});
 	expect(response.headers.get('epicenter-generation')).toBe('1');
-	expect(response.headers.get('epicenter-log-position')).toBe('1');
-	expect(new Uint8Array(await response.arrayBuffer())).toEqual(
-		new Uint8Array([1]),
-	);
-	const peer = await connect(1);
-	await vi.waitFor(() =>
-		expect(peer.frames).toContainEqual({
-			kind: 'entry',
-			seq: 2,
-			chunk: 0,
-			chunks: 1,
-			bytes: new Uint8Array([8]),
-		}),
-	);
+	expect(response.headers.get('epicenter-log-position')).toBe('2');
+	expect(await readCurrentDownload(response)).toEqual({
+		generation: 1,
+		head: 2,
+		snapshot: { position: 1, bytes: new Uint8Array([1]) },
+		tail: [{ seq: 2, bytes: new Uint8Array([8]) }],
+	});
+	const peer = await connect(1, 2);
+	await vi.waitFor(() => expect(peer.frames).toEqual([{ kind: 'admitted' }]));
 });

@@ -30,12 +30,6 @@ import {
 import { field } from '@epicenter/data/definition';
 import { openAccountStore, syncEngineOf } from '@epicenter/data/direct';
 import { attachStoreSync, type SyncConnection } from '@epicenter/data/sync';
-import { expectOk } from 'wellcrafted/testing';
-import {
-	CURRENT_ROUTE,
-	CURRENT_GENERATION_HEADER,
-	LOG_POSITION_HEADER,
-} from '@epicenter/sync/generations-route';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createDurableObjectSqliteAdapter,
@@ -46,6 +40,9 @@ import {
 	formatSubprotocols,
 	type SocketTransport,
 } from '@epicenter/sync';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
+import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
+import { expectOk } from 'wellcrafted/testing';
 
 /** This harness covers fresh libraries; restore admission has its own Worker suite. */
 const PROBE_GENERATION = 1;
@@ -135,19 +132,20 @@ export class StoreTestReplica extends DurableObject<Env> {
 					body: new Uint8Array(this.store.encodeStateSince()).buffer,
 				},
 			);
-			if (!response.ok)
-				throw new Error(`Current bootstrap refused: ${response.status}`);
-			if (
-				Number(response.headers.get(CURRENT_GENERATION_HEADER)) !==
-				PROBE_GENERATION
-			)
+			const current = await readCurrentDownload(response);
+			if (current.generation !== PROBE_GENERATION)
 				throw new Error('Probe expects generation one');
 			expectOk(
-				syncEngineOf(this.store).applyRemote(
-					new Uint8Array(await response.arrayBuffer()),
-					{ advanceTo: Number(response.headers.get(LOG_POSITION_HEADER)) },
-				),
+				syncEngineOf(this.store).applyRemote(current.snapshot.bytes, {
+					advanceTo: current.snapshot.position,
+				}),
 			);
+			for (const entry of current.tail)
+				expectOk(
+					syncEngineOf(this.store).applyRemote(entry.bytes, {
+						advanceTo: entry.seq,
+					}),
+				);
 			await this.store.persistence.flush();
 		});
 		if (connect) this.startSync();
