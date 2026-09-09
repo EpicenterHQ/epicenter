@@ -115,6 +115,21 @@ try {
 		(written.value as { changes: number } | undefined)?.changes === 1,
 		JSON.stringify(written.value),
 	);
+	const sibling = await call('otherApp', 'SELECT name FROM sqlite_master');
+	check(
+		'another app owner shares the pool with isolated files',
+		sibling.ok && JSON.stringify(sibling.value) === '[]',
+		sibling.error ?? JSON.stringify(sibling.value),
+	);
+	const siblingCreated = await call(
+		'otherApp',
+		'CREATE TABLE sibling(n INTEGER)',
+	);
+	check(
+		'another app can write through its own owner',
+		siblingCreated.ok,
+		siblingCreated.error ?? '',
+	);
 
 	console.log(
 		'\n2. reload the page, which discards the worker and its handles',
@@ -126,6 +141,16 @@ try {
 		'both rows survived',
 		JSON.stringify(survived.value) === JSON.stringify([{ n: 1 }, { n: 2 }]),
 		JSON.stringify(survived.value),
+	);
+	const siblingSurvived = await call(
+		'otherApp',
+		"SELECT name FROM sqlite_master WHERE name = 'sibling'",
+	);
+	check(
+		'the other app file survives reload',
+		JSON.stringify(siblingSurvived.value) ===
+			JSON.stringify([{ name: 'sibling' }]),
+		siblingSurvived.error ?? JSON.stringify(siblingSurvived.value),
 	);
 
 	console.log('\n3. CONTROL: another name is another database');
@@ -166,6 +191,15 @@ try {
 	console.log('\n6. delete, then open the same name again');
 	const removed = await call('remove', 'local');
 	check('the delete succeeded', removed.ok, removed.error ?? '');
+	const siblingAfterDelete = await call(
+		'otherApp',
+		'SELECT count(*) AS c FROM sibling',
+	);
+	check(
+		'deleting one app file preserves the other app connection',
+		JSON.stringify(siblingAfterDelete.value) === JSON.stringify([{ c: 0 }]),
+		siblingAfterDelete.error ?? JSON.stringify(siblingAfterDelete.value),
+	);
 	const reopened = await call('all', 'local', 'SELECT name FROM sqlite_master');
 	check(
 		'the name reopens empty rather than failing forever',

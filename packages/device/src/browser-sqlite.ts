@@ -30,7 +30,7 @@ type Answer =
  * module scope, and a `Worker` constructed there would run in every test and
  * every server render that merely imports the leaf.
  */
-export function createBrowserSqliteTransport(): AppSqliteTransport {
+function createBrowserSqliteTransport(): AppSqliteTransport {
 	let worker: Worker | undefined;
 	const pending = new Map<
 		number,
@@ -54,7 +54,10 @@ export function createBrowserSqliteTransport(): AppSqliteTransport {
 		// them all and start a new worker on the next call: its pool install is
 		// the only thing that can say whether storage is reachable again.
 		const abandon = (cause: unknown) => {
-			if (worker === started) worker = undefined;
+			// Late errors from a retired worker cannot fail its replacement's calls.
+			if (worker !== started) return;
+			worker = undefined;
+			started.terminate();
 			for (const settle of [...pending.values()]) settle({ failed: cause });
 			pending.clear();
 		};
@@ -87,3 +90,7 @@ export function createBrowserSqliteTransport(): AppSqliteTransport {
 			}
 		});
 }
+
+// All app owners in this realm share the pool's worker and request IDs.
+// Constructing the transport performs no I/O; its first request starts it.
+export const browserSqliteTransport = createBrowserSqliteTransport();

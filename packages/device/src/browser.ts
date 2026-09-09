@@ -21,12 +21,11 @@
  */
 
 import { Ok } from 'wellcrafted/result';
-import { createBrowserSqliteTransport } from './browser-sqlite.js';
+import { browserSqliteTransport as request } from './browser-sqlite.js';
 import { appIdOrThrow, type Device, type SecretStore } from './index.js';
 import { createAppSqlite, createOwnedSqlite, unwrap } from './owner.js';
 
 export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwner {
-	const request = createBrowserSqliteTransport();
 	return {
 		open: async (ownerAppId, account, name) =>
 			createOwnedSqlite(request, ownerAppId, account, name),
@@ -44,9 +43,8 @@ export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwn
 /**
  * What a browser tab can own, scoped to one application.
  *
- * The transport is built per call, because one tab has one OPFS and therefore
- * one storage worker; the application scope is the name the worker files
- * under, exactly as it is for the Bun owner.
+ * All owners in this realm share one lazy worker. Each request carries its
+ * application and captured account, so sharing the pool does not share files.
  *
  * The scoped capability validates the name and returns owner failures as
  * Results, so this leaf has the same contract as the desktop owner.

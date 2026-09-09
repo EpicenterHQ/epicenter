@@ -9,6 +9,9 @@ import { createBrowserDevice } from '../../../src/browser.js';
 
 const APP_ID = 'so.epicenter.evidence';
 const storage = createBrowserDevice({ appId: APP_ID });
+const otherStorage = createBrowserDevice({
+	appId: 'so.epicenter.other-evidence',
+});
 
 type Answer = { ok: true; value?: unknown } | { ok: false; error: string };
 
@@ -24,13 +27,24 @@ async function attempt(run: () => Promise<Answer>): Promise<Answer> {
 }
 
 Object.assign(globalThis, {
+	async otherApp(sql: string): Promise<Answer> {
+		return attempt(async () => {
+			const opened = await otherStorage.sqlite.open('local');
+			if (opened.error !== null)
+				return { ok: false, error: opened.error.message };
+			const result = await opened.data.all(sql);
+			return result.error === null
+				? { ok: true, value: result.data }
+				: { ok: false, error: result.error.message };
+		});
+	},
 	async run(
 		name: string,
 		sql: string,
 		parameters: unknown[] = [],
 	): Promise<Answer> {
 		return attempt(async () => {
-	const opened = await storage.sqlite.open(name);
+			const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
 				return { ok: false, error: opened.error.message };
 			const result = await opened.data.run(sql, parameters as never);
@@ -45,7 +59,7 @@ Object.assign(globalThis, {
 		parameters: unknown[] = [],
 	): Promise<Answer> {
 		return attempt(async () => {
-	const opened = await storage.sqlite.open(name);
+			const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
 				return { ok: false, error: opened.error.message };
 			const result = await opened.data.all(sql, parameters as never);
@@ -59,7 +73,7 @@ Object.assign(globalThis, {
 		statements: { sql: string; parameters?: unknown[] }[],
 	): Promise<Answer> {
 		return attempt(async () => {
-	const opened = await storage.sqlite.open(name);
+			const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
 				return { ok: false, error: opened.error.message };
 			const result = await opened.data.batch(statements as never);
@@ -70,7 +84,7 @@ Object.assign(globalThis, {
 	},
 	async remove(name: string): Promise<Answer> {
 		return attempt(async () => {
-	const gone = await storage.sqlite.delete(name);
+			const gone = await storage.sqlite.delete(name);
 			return gone.error === null
 				? { ok: true }
 				: { ok: false, error: gone.error.message };
