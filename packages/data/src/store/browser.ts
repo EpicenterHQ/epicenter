@@ -1215,36 +1215,17 @@ async function listGenerations(
 }
 
 /**
- * Erase every generation of this account's database that this device holds.
+ * Erase the discovered generations of one account definition on this device.
  *
- * The only verb in this file that deletes, and it is scoped to one account: the
- * principal is a segment of the prefix, so forgetting one person's copy on a
- * shared device leaves the other person's alone. It is plural in the
- * generation, because a device that holds several holds them under one prefix
- * and a person forgetting their copy means all of it.
+ * This is not whole-library removal: it excludes blobs, named SQL files, and
+ * other definitions. It claims each discovered generation, but does not exclude
+ * concurrent generation allocation. Callers must stop producers first. Do not
+ * wire this helper directly to an account removal action.
  *
- * Never called as a step in a protocol (ADR-0281). Opening does not repair
- * itself and sign-out deletes nothing. A person decides that this account's
- * copy on this device should be gone, and this is what they invoked.
- *
- * **Every generation is claimed before any is deleted, and then they go oldest
- * first.** The claim is what makes a refusal cost nothing: a generation another
- * window holds open answers `AlreadyOpen`, which names the repair, and nothing
- * is deleted. The order is what makes an interrupted delete legible. Deleting
- * is not atomic across databases, so a crash between two of them leaves the
- * rest; going oldest first means what survives is the newest, which is what the
- * person was looking at. That is not damage. A device holding some generations
- * and not others is the ordinary state of a device (ADR-0281): a stale replica
- * is not dangerous, it is somewhere else, and the next open resolves the newest
- * one held exactly as it always does.
- *
- * So there is no removal-intent record and no recovery screen. Retrying is the
- * same call, it is idempotent, and it finishes the job.
- *
- * It reaches only this storage generation's names. A record written under an
- * older address is not addressed by this prefix and is not deleted: stranded
- * bytes cost storage, and reaping them would make an upgrade the moment
- * somebody's unsynced work became unrecoverable.
+ * Claim every discovered generation before deleting any, so an AlreadyOpen
+ * refusal deletes nothing. Delete oldest first so an interrupted erase leaves
+ * the newest generation. Retrying discovers what remains. Only names in the
+ * current address grammar are selected; legacy storage is left untouched.
  */
 export async function eraseGenerations({
 	appId,

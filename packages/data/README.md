@@ -67,11 +67,12 @@ than from anything written inside the record. The SERVER is not a segment: a
 build names one authority (ADR-0326) and is served from one origin, so it is a
 device-wide constant rather than an address.
 
-`eraseGenerations` is the verb a person invokes to be rid of this account's copy
-on this device; nothing erases on its own, and an erase reaches only the account
-that asked for it. A store cannot be opened without an account, and one that
-names no principal is refused with `StoreError.Unaddressable` rather than
-addressed.
+`eraseGenerations` deletes discovered generations for one account definition.
+It leaves blobs, named SQL files, and other definitions untouched. It claims
+each discovered generation but cannot exclude concurrent generation allocation.
+It is not an implementation of “remove local data.” See the
+[library erasure contract](../../docs/adr/0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md)
+for the ownership and backend work required before exposing that action.
 
 Opening replays a durable log into one `Y.Doc`. After that every read is a
 property access on a document already in memory, so nothing below returns a
