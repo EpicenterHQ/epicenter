@@ -130,29 +130,14 @@ establish which change caused it.
 
 ### 3. Review and steer
 
-Run [post-implementation-review](../post-implementation-review/SKILL.md)'s
-independent checkpoint review. Start one read-only GPT-6 reviewer with high
-reasoning, using the runtime's available GPT-6 model identifier. Give it a fresh
-context and the evidence packet defined there. If that model is unavailable,
-use the strongest available reviewer and disclose the substitution; if
-subagents are unavailable, perform the same pass locally and state that it was
-not independent. Do not invoke Claude unless the user explicitly requests it.
+Run [design-review](../design-review/SKILL.md) on the cumulative implementation
+and remaining plan. It owns reviewer setup, evidence, structural judgment, and
+adjudication.
 
-Hold the reviewed files stable until the reviewer returns. While it reads,
-prepare verification or investigate an independent question outside that
-surface. Do not begin work whose shape depends on the verdict.
-
-The primary agent verifies findings against current code and decides which to
-accept, reject, or defer, with reasons. Apply accepted repairs, verify affected
-behavior, and rewrite remaining waves around the resulting design. Delete tasks
-made unnecessary by a stronger invariant. Report a proposed change to the
-accepted product outcome for user judgment rather than silently adopting it.
-
-Request a focused follow-up when repairs materially change the reviewed
-ownership or expose an unresolved risk. Close the checkpoint when grounded
-findings are resolved and the next wave has a defensible shape. A reviewer may
-recommend continuing unchanged; do not repeat reviews merely to obtain a
-collapse or unanimous approval.
+Resolve the checkpoint before dependent implementation starts. Rewrite remaining
+waves around accepted findings and delete tasks made unnecessary by a stronger
+invariant. The checkpoint may conclude that the current plan should continue
+unchanged.
 
 ### 4. Record the checkpoint
 
@@ -221,7 +206,7 @@ Implementation agents get bounded lanes. Each needs:
   requires the user
 
 This narrow context applies to implementation agents. The independent reviewer
-needs the cumulative view described in `post-implementation-review`.
+needs the cumulative view described in [design-review](../design-review/SKILL.md).
 
 ## Recover without losing the outcome
 
