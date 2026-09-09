@@ -236,7 +236,7 @@ test('the outbox names each waiting act with the message it is about', async () 
 	try {
 		await session.mailbox.ingestFullPullPage(
 			[message('m1', 'Re: budget review')],
-			AT,
+			{ historyId: 'seed', scanId: AT, syncedAt: AT, nextPageToken: null },
 		);
 		await session.intents.assert(
 			[{ messageId: 'm1', labelId: 'INBOX', want: false }],
@@ -264,7 +264,12 @@ test('the outbox names each waiting act with the message it is about', async () 
 test('undelivered work stays counted after the cache is thrown away', async () => {
 	const session = await openTestSession(SUB);
 	try {
-		await session.mailbox.ingestFullPullPage([message('m1', 'Standup')], AT);
+		await session.mailbox.ingestFullPullPage([message('m1', 'Standup')], {
+			historyId: 'seed',
+			scanId: AT,
+			syncedAt: AT,
+			nextPageToken: null,
+		});
 		await session.intents.assert(
 			[{ messageId: 'm1', labelId: 'INBOX', want: false }],
 			AT,

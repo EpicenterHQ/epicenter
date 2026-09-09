@@ -183,9 +183,18 @@ async function initializeDurable(handle: SqliteHandle): Promise<void> {
  * cannot reach another account's mail, which is the isolation an arbitrary-SQL
  * handle can actually enforce (ADR-0319).
  */
-export const MAIL_SCHEMA_VERSION = 1;
+export const MAIL_SCHEMA_VERSION = 2;
+
+const FULL_PULL_CHECKPOINT_SCHEMA = `CREATE TABLE IF NOT EXISTS full_pull_checkpoint (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    history_id TEXT NOT NULL,
+    scan_id TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    next_page_token TEXT
+)`;
 
 export const MAIL_CACHE_SCHEMA = [
+	FULL_PULL_CHECKPOINT_SCHEMA,
 	`CREATE TABLE IF NOT EXISTS sync_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         history_id TEXT,
@@ -201,7 +210,8 @@ export const MAIL_CACHE_SCHEMA = [
 		subject TEXT,
 		sender TEXT,
 		body_text TEXT,
-		synced_at TEXT NOT NULL
+		synced_at TEXT NOT NULL,
+		full_pull_id TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS labels (
 		id TEXT PRIMARY KEY,
@@ -221,6 +231,14 @@ async function openBorrowed(
 	const handle = sqliteHandle(opened);
 	const version = await userVersion(handle);
 	if (version === MAIL_SCHEMA_VERSION) return opened;
+	if (version === 1) {
+		await handle.batch([
+			{ sql: 'ALTER TABLE messages ADD COLUMN full_pull_id TEXT' },
+			{ sql: FULL_PULL_CHECKPOINT_SCHEMA },
+			{ sql: `PRAGMA user_version = ${MAIL_SCHEMA_VERSION}` },
+		]);
+		return opened;
+	}
 
 	// A file nothing has ever written answers version zero and holds no tables,
 	// which is the first account rather than a shape this build refuses. It is

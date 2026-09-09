@@ -277,7 +277,12 @@ test('removal refuses while Gmail has not been told, and deletes nothing', async
 						payload: { headers: [] },
 					} as never,
 				],
-				'2026-07-01T00:00:00.000Z',
+				{
+					historyId: 'seed',
+					scanId: '2026-07-01T00:00:00.000Z',
+					syncedAt: '2026-07-01T00:00:00.000Z',
+					nextPageToken: null,
+				},
 			);
 			await assertAccountLabel(opened.app, sub, {
 				messageId: 'm1',
@@ -337,8 +342,18 @@ test('two accounts are two mail files, and neither reads the other', async () =>
 							payload: { headers: [] },
 						},
 					] as never;
-				await one.ingestFullPullPage(page('m1'), '2026-07-01T00:00:00.000Z');
-				await two.ingestFullPullPage(page('m2'), '2026-07-01T00:00:00.000Z');
+				await one.ingestFullPullPage(page('m1'), {
+					historyId: 'seed',
+					scanId: '2026-07-01T00:00:00.000Z',
+					syncedAt: '2026-07-01T00:00:00.000Z',
+					nextPageToken: null,
+				});
+				await two.ingestFullPullPage(page('m2'), {
+					historyId: 'seed',
+					scanId: '2026-07-01T00:00:00.000Z',
+					syncedAt: '2026-07-01T00:00:00.000Z',
+					nextPageToken: null,
+				});
 
 				// Each account's rows went to its own database, so a statement in one
 				// cannot name a row in the other. What makes that true in production is

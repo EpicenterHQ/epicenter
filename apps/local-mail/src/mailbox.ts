@@ -30,6 +30,16 @@ import {
 } from './message-fields.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
+/** One completed page and the original baseline of its full download.
+ * A null nextPageToken means enumeration finished but finalization may remain.
+ */
+export type FullPullCheckpoint = {
+	scanId: string;
+	historyId: string;
+	syncedAt: string;
+	nextPageToken: string | null;
+};
+
 export type CacheState = {
 	historyId: string | null;
 	lastSyncedAt: string | null;
@@ -135,16 +145,21 @@ export type Mailbox = ReturnType<typeof openMailbox>;
 export function openMailbox(mail: AppSqliteDatabase) {
 	const { all, run, batch } = sqliteHandle(mail);
 
-	function upsertMessageStatement(message: GmailMessage, syncedAt: string) {
+	function upsertMessageStatement(
+		message: GmailMessage,
+		syncedAt: string,
+		scanId: string | null,
+	) {
 		return {
-			sql: `INSERT INTO messages (id, resource, subject, sender, body_text, synced_at)
-			      VALUES (?, ?, ?, ?, ?, ?)
+			sql: `INSERT INTO messages (id, resource, subject, sender, body_text, synced_at, full_pull_id)
+			      VALUES (?, ?, ?, ?, ?, ?, ?)
 			      ON CONFLICT(id) DO UPDATE SET
 			        resource = excluded.resource,
 			        subject = excluded.subject,
 			        sender = excluded.sender,
 			        body_text = excluded.body_text,
-			        synced_at = excluded.synced_at`,
+			        synced_at = excluded.synced_at,
+			        full_pull_id = COALESCE(excluded.full_pull_id, messages.full_pull_id)`,
 			parameters: [
 				message.id,
 				JSON.stringify(message),
@@ -152,6 +167,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				headerValue(message, 'From'),
 				bodyText(message),
 				syncedAt,
+				scanId,
 			] as const,
 		};
 	}
@@ -448,18 +464,52 @@ export function openMailbox(mail: AppSqliteDatabase) {
 			);
 		},
 
-		/**
-		 * One page of a full backfill: upsert every message, no cursor advance.
-		 * One `batch` per page, so a crash mid-backfill loses the in-flight page
-		 * rather than the whole pull.
-		 */
+		/** Resume only from a checkpoint committed with its completed page. */
+		async readFullPullCheckpoint(): Promise<FullPullCheckpoint | null> {
+			const [row] = await all<{
+				history_id: string;
+				scan_id: string;
+				synced_at: string;
+				next_page_token: string | null;
+			}>(
+				'SELECT history_id, scan_id, synced_at, next_page_token FROM full_pull_checkpoint WHERE id = 1',
+			);
+			return row
+				? {
+						historyId: row.history_id,
+						scanId: row.scan_id,
+						syncedAt: row.synced_at,
+						nextPageToken: row.next_page_token,
+					}
+				: null;
+		},
+
+		/** Commit the page and its continuation together; neither can get ahead. */
 		async ingestFullPullPage(
 			messages: readonly GmailMessage[],
-			syncedAt: string,
+			checkpoint: FullPullCheckpoint,
 		): Promise<void> {
-			await batch(
-				messages.map((message) => upsertMessageStatement(message, syncedAt)),
-			);
+			await batch([
+				...messages.map((message) =>
+					upsertMessageStatement(
+						message,
+						checkpoint.syncedAt,
+						checkpoint.scanId,
+					),
+				),
+				{
+					sql: `INSERT INTO full_pull_checkpoint (id, history_id, scan_id, synced_at, next_page_token)
+					      VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+					      history_id = excluded.history_id, scan_id = excluded.scan_id, synced_at = excluded.synced_at,
+					      next_page_token = excluded.next_page_token`,
+					parameters: [
+						checkpoint.historyId,
+						checkpoint.scanId,
+						checkpoint.syncedAt,
+						checkpoint.nextPageToken,
+					],
+				},
+			]);
 		},
 
 		/** Replace the label set, which `labels.list` returns complete every call. */
@@ -481,16 +531,17 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		 * pull replay idempotently instead of disappearing behind a later cursor.
 		 * History catchup alone records the successful-sync time.
 		 */
-		async finishFullPull(historyId: string, syncedAt: string): Promise<number> {
+		async finishFullPull(historyId: string, scanId: string): Promise<number> {
 			const changes = await batch([
 				{
-					sql: `DELETE FROM messages WHERE synced_at < ?`,
-					parameters: [syncedAt],
+					sql: `DELETE FROM messages WHERE full_pull_id IS NOT ?`,
+					parameters: [scanId],
 				},
 				{
 					sql: `UPDATE sync_state SET history_id = ? WHERE id = 1`,
 					parameters: [historyId],
 				},
+				{ sql: `DELETE FROM full_pull_checkpoint` },
 			]);
 			return changes[0] ?? 0;
 		},
@@ -547,7 +598,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 
 			await batch([
 				...messagesToUpsert.map((message) =>
-					upsertMessageStatement(message, syncedAt),
+					upsertMessageStatement(message, syncedAt, null),
 				),
 				...messagesToDelete.map((id) => ({
 					sql: `DELETE FROM messages WHERE id = ?`,

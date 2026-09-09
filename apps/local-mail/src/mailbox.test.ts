@@ -1,3 +1,4 @@
+/** Mailbox reads, overlays, atomic history updates, and full-download completion. */
 import { expect, test } from 'bun:test';
 import { createTestAppSqlite } from './app-sqlite.test-support.ts';
 import { openIntentStore } from './intent-store.ts';
@@ -42,7 +43,7 @@ test('the overlay decides the page, so an archived message leaves it at once', a
 	const intents = openIntentStore(intent, 'account-one');
 	await mailbox.ingestFullPullPage(
 		[message('m1', ['INBOX']), message('m2', ['INBOX'])],
-		AT,
+		{ historyId: 'seed', scanId: AT, syncedAt: AT, nextPageToken: null },
 	);
 
 	// Gmail has not been told, and the inbox page must not show it anyway.
@@ -80,7 +81,7 @@ test('trash is hidden from every view except trash, before Gmail hears about it'
 	const intents = openIntentStore(intent, 'account-one');
 	await mailbox.ingestFullPullPage(
 		[message('m1', ['INBOX']), message('m2', ['INBOX'])],
-		AT,
+		{ historyId: 'seed', scanId: AT, syncedAt: AT, nextPageToken: null },
 	);
 	await intents.assert([{ messageId: 'm1', labelId: 'TRASH', want: true }], AT);
 	const overlay = overlayOf(await intents.pending());
@@ -106,7 +107,12 @@ test('throwing the cache away cannot reach the durable intent store', async () =
 	const { mail, intent } = await openBoth();
 	const mailbox = openMailbox(mail);
 	const intents = openIntentStore(intent, 'account-one');
-	await mailbox.ingestFullPullPage([message('m1', ['INBOX'])], AT);
+	await mailbox.ingestFullPullPage([message('m1', ['INBOX'])], {
+		historyId: 'seed',
+		scanId: AT,
+		syncedAt: AT,
+		nextPageToken: null,
+	});
 	await mailbox.finishFullPull('900', AT);
 	await intents.assert(
 		[{ messageId: 'm1', labelId: 'INBOX', want: false }],
@@ -172,7 +178,7 @@ test('a history batch folds labels and advances the cursor together', async () =
 	const mailbox = openMailbox(mail);
 	await mailbox.ingestFullPullPage(
 		[message('m1', ['INBOX', 'UNREAD']), message('m2', ['INBOX'])],
-		AT,
+		{ historyId: 'seed', scanId: AT, syncedAt: AT, nextPageToken: null },
 	);
 	await mailbox.finishFullPull('900', AT);
 
@@ -200,11 +206,21 @@ test('a history batch folds labels and advances the cursor together', async () =
 test('a full pull sweeps what the pass did not touch', async () => {
 	const { mail } = await openBoth();
 	const mailbox = openMailbox(mail);
-	await mailbox.ingestFullPullPage([message('m1', ['INBOX'])], AT);
+	await mailbox.ingestFullPullPage([message('m1', ['INBOX'])], {
+		historyId: 'seed',
+		scanId: AT,
+		syncedAt: AT,
+		nextPageToken: null,
+	});
 	await mailbox.finishFullPull('900', AT);
 
 	const later = '2026-09-01T00:00:00.000Z';
-	await mailbox.ingestFullPullPage([message('m2', ['INBOX'])], later);
+	await mailbox.ingestFullPullPage([message('m2', ['INBOX'])], {
+		historyId: 'seed',
+		scanId: later,
+		syncedAt: later,
+		nextPageToken: null,
+	});
 	expect(await mailbox.finishFullPull('910', later)).toBe(1);
 	expect(await mailbox.hasMessage('m1')).toBe(false);
 	expect(await mailbox.hasMessage('m2')).toBe(true);
@@ -228,7 +244,12 @@ test('the cache reports which of its three states it is in', async () => {
 			rows: { messages: 0, labels: 0 },
 		});
 
-		await mailbox.ingestFullPullPage([message('m1', ['INBOX'])], AT);
+		await mailbox.ingestFullPullPage([message('m1', ['INBOX'])], {
+			historyId: 'seed',
+			scanId: AT,
+			syncedAt: AT,
+			nextPageToken: null,
+		});
 		const building = await mailbox.status();
 		expect(building.cache).toBe('building');
 		expect(building.rows.messages).toBe(1);

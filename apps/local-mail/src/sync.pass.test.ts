@@ -234,11 +234,14 @@ describe('syncMailbox: FULL pull', () => {
 		const session = await openTestSession();
 		const { mailbox } = session;
 		const cleanup = session.close;
-		await mailbox.ingestFullPullPage(
-			[message('kept'), message('stale')],
-			'2026-05-30T00:00:00.000Z',
-		);
+		await mailbox.ingestFullPullPage([message('kept'), message('stale')], {
+			historyId: 'seed',
+			scanId: '2026-05-30T00:00:00.000Z',
+			syncedAt: '2026-05-30T00:00:00.000Z',
+			nextPageToken: null,
+		});
 
+		await session.mailboxDatabase.run('DELETE FROM full_pull_checkpoint');
 		const remote = new Map([['kept', message('kept')]]);
 		const client = createFakeGmailClient({
 			mailbox: remote,
@@ -278,10 +281,12 @@ describe('syncMailbox: FULL pull', () => {
 describe('syncMailbox: INCREMENTAL', () => {
 	async function seededDb(): Promise<TestSession> {
 		const session = await openTestSession();
-		await session.mailbox.ingestFullPullPage(
-			[message('existing')],
-			'2026-06-30T00:00:00.000Z',
-		);
+		await session.mailbox.ingestFullPullPage([message('existing')], {
+			historyId: 'seed',
+			scanId: '2026-06-30T00:00:00.000Z',
+			syncedAt: '2026-06-30T00:00:00.000Z',
+			nextPageToken: null,
+		});
 		await session.mailbox.ingestLabels([
 			{ id: 'INBOX', name: 'INBOX', type: 'system' },
 		]);
@@ -628,7 +633,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const cleanup = session.close;
 		await mailbox.ingestFullPullPage(
 			[message('existing', { labelIds: ['INBOX', 'IMPORTANT'] })],
-			'2026-06-30T00:00:00.000Z',
+			{
+				historyId: 'seed',
+				scanId: '2026-06-30T00:00:00.000Z',
+				syncedAt: '2026-06-30T00:00:00.000Z',
+				nextPageToken: null,
+			},
 		);
 		await mailbox.finishFullPull('500', '2026-06-30T00:00:00.000Z');
 		const client = createFakeGmailClient({
@@ -910,7 +920,12 @@ describe('whole-mailbox receiving', () => {
 		try {
 			await session.mailbox.ingestFullPullPage(
 				[message('m1', { labelIds: ['INBOX', 'UNREAD'] })],
-				'2020-01-01',
+				{
+					historyId: 'seed',
+					scanId: '2020-01-01',
+					syncedAt: '2020-01-01',
+					nextPageToken: null,
+				},
 			);
 			await session.mailbox.finishFullPull('100', '2020-01-01');
 			const thin = { id: 'm1', threadId: 't-m1' };

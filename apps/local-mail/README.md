@@ -90,6 +90,17 @@ pages finish. A full scan runs when no cursor exists or Gmail rejects an expired
 cursor. History label additions and removals preserve unrelated labels.
 Separate attachment bytes are not downloaded.
 
+Each completed page saves its messages and a download bookmark in the same
+SQLite transaction. If the application stops, the next sync starts at that
+bookmark; an unfinished page is fetched again. A failed continuation request
+with HTTP 400 triggers one fresh scan attempt. Other failures preserve the
+bookmark for retry. Existing version 1 caches upgrade without losing mail.
+
+The bookmark retains the history position from before the scan, so changes
+during the download can be caught up afterward. Each fresh scan also has its
+own ID: finishing removes cached messages absent from that scan without relying
+on the system clock. This recovery does not require a shutdown callback to run.
+
 Triage records a durable assertion for one message and one label. It does not
 need the cache or a credential. Undo records the opposite choice against the
 captured account and message with a newer revision. Only provider confirmation

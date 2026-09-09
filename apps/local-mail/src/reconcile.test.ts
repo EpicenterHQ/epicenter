@@ -160,7 +160,12 @@ async function setup(
 }> {
 	const session = await openTestSession(ACCOUNT_ID);
 	const syncedAt = new Date(NOW).toISOString();
-	await session.mailbox.ingestFullPullPage(messages, syncedAt);
+	await session.mailbox.ingestFullPullPage(messages, {
+		historyId: 'seed',
+		scanId: syncedAt,
+		syncedAt: syncedAt,
+		nextPageToken: null,
+	});
 	await session.mailbox.ingestLabels(MIRRORED_LABELS);
 	// A cursor plus a recent sync keeps the pull phase INCREMENTAL, so these
 	// tests exercise delivery rather than a full backfill.
@@ -837,7 +842,12 @@ describe('across a restart', () => {
 		const syncedAt = new Date(NOW).toISOString();
 		await session.mailbox.ingestFullPullPage(
 			[message('m1', ['INBOX', 'UNREAD'])],
-			syncedAt,
+			{
+				historyId: 'seed',
+				scanId: syncedAt,
+				syncedAt: syncedAt,
+				nextPageToken: null,
+			},
 		);
 		await session.mailbox.ingestLabels(MIRRORED_LABELS);
 		await session.mailbox.finishFullPull('1', syncedAt);

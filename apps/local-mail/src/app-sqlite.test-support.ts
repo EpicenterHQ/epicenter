@@ -1,5 +1,5 @@
 /**
- * An `AppSqliteDatabase` over an in-memory Bun database, for tests.
+ * An `AppSqliteDatabase` over a Bun database, for tests.
  *
  * Not a second owner. The real owners are the host's native SQLite files and the
  * browser's OPFS database, both behind `device.sqlite.open`; this exists so a
@@ -11,10 +11,10 @@
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import type { AppSqliteDatabase } from '@epicenter/device';
 
-export function createTestAppSqlite(): AppSqliteDatabase & {
+export function createTestAppSqlite(path = ':memory:'): AppSqliteDatabase & {
 	close(): void;
 } {
-	const database = new Database(':memory:');
+	const database = new Database(path);
 	const bind = (parameters: readonly unknown[] | undefined) =>
 		[...(parameters ?? [])] as SQLQueryBindings[];
 	const ok = <T>(data: T) => ({ data, error: null }) as never;

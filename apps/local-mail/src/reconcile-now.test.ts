@@ -137,7 +137,12 @@ async function openApp(): Promise<{
 }> {
 	const session = await openTestSession(SUB);
 	const gmail = scriptedGmail();
-	await session.mailbox.ingestFullPullPage([message('m1')], AT);
+	await session.mailbox.ingestFullPullPage([message('m1')], {
+		historyId: 'seed',
+		scanId: AT,
+		syncedAt: AT,
+		nextPageToken: null,
+	});
 	await session.mailbox.ingestLabels(LABELS);
 	await session.mailbox.finishFullPull('1', AT);
 	await session.localDatabase.run(

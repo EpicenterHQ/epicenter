@@ -4,7 +4,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { GmailClient, GmailClientError } from './gmail-client.ts';
-import type { Mailbox } from './mailbox.ts';
+import type { FullPullCheckpoint, Mailbox } from './mailbox.ts';
 import type { GmailMessage, HistoryRecord } from './schema.ts';
 
 const FULL_PULL_GET_CHUNK_SIZE = 8;
@@ -77,13 +77,19 @@ function failedOutcome(
 /** Download all messages, committing each complete page for offline reading. */
 async function fullPull(
 	deps: SyncDeps,
-	syncedAt: string,
-): Promise<{ upserted: number; failure: SyncFailure | null }> {
+	checkpoint: FullPullCheckpoint,
+	resuming: boolean,
+): Promise<{
+	upserted: number;
+	failure: SyncFailure | null;
+	rejectedPageToken?: true;
+}> {
 	const { mailbox, client } = deps;
 	const log = deps.log ?? (() => {});
 	let upserted = 0;
-	let pageToken: string | undefined;
+	let pageToken = checkpoint.nextPageToken ?? undefined;
 	let page = 0;
+	if (resuming && pageToken === undefined) return { upserted, failure: null };
 
 	const labels = await client.listLabels();
 	if (labels.error) return { upserted, failure: labels.error };
@@ -92,7 +98,19 @@ async function fullPull(
 	while (true) {
 		page += 1;
 		const listed = await client.listMessageIds(pageToken);
-		if (listed.error) return { upserted, failure: listed.error };
+		if (listed.error) {
+			// A bad request with a continuation may be a stale page token. Restart
+			// once at the caller; a first-page failure is never swallowed.
+			return {
+				upserted,
+				failure: listed.error,
+				...(pageToken &&
+				listed.error.name === 'Http' &&
+				listed.error.status === 400
+					? { rejectedPageToken: true as const }
+					: {}),
+			};
+		}
 
 		const messages: GmailMessage[] = [];
 		for (
@@ -118,7 +136,10 @@ async function fullPull(
 		}
 
 		try {
-			await mailbox.ingestFullPullPage(messages, syncedAt);
+			await mailbox.ingestFullPullPage(messages, {
+				...checkpoint,
+				nextPageToken: listed.data.nextPageToken ?? null,
+			});
 		} catch (cause) {
 			if (!isSqliteBusy(cause)) throw cause;
 			return { upserted, failure: CacheWriteError.CacheBusy({ cause }).error };
@@ -281,39 +302,70 @@ async function incrementalPoll(
 export async function syncMailbox(deps: SyncDeps): Promise<SyncOutcome> {
 	const { mailbox, now } = deps;
 	const cursorBefore = (await mailbox.readCacheState()).historyId;
+	let checkpoint = await mailbox.readFullPullCheckpoint();
 	const syncedAt = new Date(now()).toISOString();
-	let mode: SyncMode = cursorBefore ? 'INCREMENTAL' : 'FULL';
-	let reason = cursorBefore ? 'saved history cursor' : 'no history cursor';
+	let mode: SyncMode = cursorBefore && !checkpoint ? 'INCREMENTAL' : 'FULL';
+	let reason = checkpoint
+		? 'saved download checkpoint'
+		: cursorBefore
+			? 'saved history cursor'
+			: 'no history cursor';
 	let upserted = 0;
 	let deleted = 0;
 	try {
-		if (cursorBefore) {
+		if (cursorBefore && !checkpoint) {
 			const outcome = await incrementalPoll(deps, cursorBefore, syncedAt);
 			if (outcome.failure?.name !== 'HistoryExpired') return outcome;
 			mode = 'FULL';
 			reason = 'history cursor expired';
 		}
 		deps.log?.(`sync: FULL (${reason})`);
-		// Capture before enumeration so changes during the download can replay.
-		const profile = await deps.client.getProfile();
-		if (profile.error)
-			return failedOutcome(mode, reason, cursorBefore, profile.error);
-		const pulled = await fullPull(deps, syncedAt);
-		upserted = pulled.upserted;
-		if (pulled.failure)
-			return failedOutcome(
-				mode,
-				reason,
-				cursorBefore,
-				pulled.failure,
-				upserted,
-			);
-		deleted = await mailbox.finishFullPull(profile.data.historyId, syncedAt);
+		for (let attempt = 0; ; attempt++) {
+			const resuming = checkpoint !== null;
+			if (!checkpoint) {
+				// Capture before enumeration so changes during the download replay.
+				const profile = await deps.client.getProfile();
+				if (profile.error)
+					return failedOutcome(
+						mode,
+						reason,
+						cursorBefore,
+						profile.error,
+						upserted,
+					);
+				checkpoint = {
+					historyId: profile.data.historyId,
+					scanId: crypto.randomUUID(),
+					syncedAt,
+					nextPageToken: null,
+				};
+			}
+			const pulled = await fullPull(deps, checkpoint, resuming);
+			upserted += pulled.upserted;
+			if (pulled.rejectedPageToken && attempt === 0) {
+				checkpoint = null;
+				reason = 'page token rejected; restarted enumeration';
+				continue;
+			}
+			if (pulled.failure)
+				return failedOutcome(
+					mode,
+					reason,
+					cursorBefore,
+					pulled.failure,
+					upserted,
+				);
+			break;
+		}
+		deleted = await mailbox.finishFullPull(
+			checkpoint.historyId,
+			checkpoint.scanId,
+		);
 		// The baseline is durable now. Failed catchup resumes here next time,
 		// without repeating the completed enumeration. Expiry is a bounded failure.
 		const caughtUp = await incrementalPoll(
 			deps,
-			profile.data.historyId,
+			checkpoint.historyId,
 			new Date(now()).toISOString(),
 		);
 		return {
