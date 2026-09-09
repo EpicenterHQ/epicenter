@@ -5,17 +5,17 @@
 	"version": "0.0.1",
 	"type": "module",
 	"imports": {
-		"#platform/device": {
-			"epicenter-host": "./src/lib/platform/device.epicenter-host.ts",
-			"default": "./src/lib/platform/device.browser.ts"
-		},
 		"#platform/gmail-authorization": {
 			"epicenter-host": "./src/lib/platform/gmail-authorization.epicenter-host.ts",
 			"default": "./src/lib/platform/gmail-authorization.browser.ts"
+		},
+		"#platform/auth": {
+			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
+			"default": "./src/lib/platform/auth.browser.ts"
 		}
 	},
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "infisical run --silent --env=dev --path=/apps/local-mail --project-config-dir=../../api -- vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -47,7 +47,13 @@
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/plugin-opener": "catalog:",
 		"arkregex": "catalog:",
-		"dompurify": "^3.4.10"
+		"dompurify": "^3.4.10",
+		"@epicenter/app": "workspace:*",
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/data": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

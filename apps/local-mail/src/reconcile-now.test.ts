@@ -1,3 +1,4 @@
+import { accountWorkflow } from './accounts.test-support.js';
 /**
  * The one way a pass starts, and what happens when it is asked for twice.
  *
@@ -15,14 +16,14 @@ import { expect, test } from 'bun:test';
 import type { Device } from '@epicenter/device';
 import type { MailSession } from './accounts.ts';
 import {
-	createMailApp,
-	type MailApp,
+	type AccountWorkflow,
+	assertAccountLabel,
 	reconcileNow,
 	removeAccount,
-	withSession,
 } from './accounts.ts';
 import { DEFAULT_MAIL_CONFIG } from './config.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
+import { openIntentStore } from './intent-store.ts';
 import { OAuthError } from './oauth.ts';
 import { readOutbox } from './outbox.ts';
 import type { GmailLabel, GmailMessage, HistoryPage } from './schema.ts';
@@ -120,14 +121,14 @@ function scriptedGmail() {
 /**
  * A connected account whose session is already built.
  *
- * The session map on `MailApp` is seeded rather than left to `openSession`,
+ * The session map on `AccountWorkflow` is seeded rather than left to `openSession`,
  * which is what lets a scripted Gmail stand where the real client would be
  * without the test standing up OAuth and a keychain. Everything else is real:
  * the same two databases, the same intent store, the same pass record, and the
  * same in-flight map `reconcileNow` and `removeAccount` share.
  */
 async function openApp(): Promise<{
-	app: MailApp;
+	app: AccountWorkflow;
 	session: TestSession;
 	deps: MailSession;
 	gmail: ReturnType<typeof scriptedGmail>;
@@ -154,7 +155,7 @@ async function openApp(): Promise<{
 		now: () => NOW,
 	};
 	const forgotten: string[] = [];
-	const app = createMailApp({
+	const app = accountWorkflow({
 		device: {
 			appId: LOCAL_MAIL_APP_ID,
 			secrets: { delete: async () => ({ data: undefined, error: null }) },
@@ -165,7 +166,7 @@ async function openApp(): Promise<{
 			forgetMail: async (sub: string) => {
 				forgotten.push(sub);
 			},
-		} as unknown as MailApp['storage'],
+		} as unknown as AccountWorkflow['storage'],
 		identity: { clientId: 'client', clientSecret: 'secret' },
 		config: DEFAULT_MAIL_CONFIG,
 		now: () => NOW,
@@ -323,6 +324,7 @@ test('removing an account waits for the pass in flight before deleting anything'
 		// and refused with `OwesWork`, so this passing is the wait.
 		expect(removed.error).toBeNull();
 		expect(forgotten).toEqual([SUB]);
+		expect(app.activity.get(SUB)?.session).toBeUndefined();
 		expect(gmail.modifyCalls).toEqual(['m1']);
 	} finally {
 		close();
@@ -353,12 +355,11 @@ test('a request during delivery covers a newly recorded assertion before settlin
 		gmail.hold();
 		const first = reconcileNow(app, SUB);
 		while (gmail.modifyCalls.length === 0) await Bun.sleep(1);
-		await withSession(app, SUB, (held) =>
-			held.intents.assert(
-				[{ messageId: 'm2', labelId: 'INBOX', want: false }],
-				AT,
-			),
-		);
+		await assertAccountLabel(app, SUB, {
+			messageId: 'm2',
+			labelId: 'INBOX',
+			want: false,
+		});
 		const second = reconcileNow(app, SUB);
 		gmail.release();
 		await Promise.all([first, second]);
@@ -374,15 +375,18 @@ test('removal waits for an admitted local write and refuses new account work', a
 	const { app, forgotten, close } = await openApp();
 	const gate = Promise.withResolvers<void>();
 	try {
-		const writing = withSession(app, SUB, async (session) => {
+		const batch = app.storage.local.batch;
+		const entered = Promise.withResolvers<void>();
+		app.storage.local.batch = async (statements) => {
+			entered.resolve();
 			await gate.promise;
-			return session.intents.assert(
-				[{ messageId: 'm1', labelId: 'TRASH', want: true }],
-				AT,
-			);
-		});
+			return batch(statements);
+		};
+		const assertion = { messageId: 'm1', labelId: 'TRASH', want: true };
+		const writing = assertAccountLabel(app, SUB, assertion);
+		await entered.promise;
 		const removing = removeAccount(app, SUB);
-		await expect(withSession(app, SUB, async () => undefined)).rejects.toThrow(
+		await expect(assertAccountLabel(app, SUB, assertion)).rejects.toThrow(
 			'being removed',
 		);
 		await expect(reconcileNow(app, SUB)).rejects.toThrow('being removed');
@@ -390,9 +394,7 @@ test('removal waits for an admitted local write and refuses new account work', a
 		await writing;
 		expect((await removing).error?.name).toBe('OwesWork');
 		expect(forgotten).toEqual([]);
-		expect(
-			await withSession(app, SUB, (session) => session.intents.count()),
-		).toBe(1);
+		expect(await openIntentStore(app.storage.local, SUB).count()).toBe(1);
 	} finally {
 		gate.resolve();
 		close();

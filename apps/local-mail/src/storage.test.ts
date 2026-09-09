@@ -14,19 +14,12 @@ import { expect, test } from 'bun:test';
 import { type AppSqliteDatabase, type Device } from '@epicenter/device';
 import { Ok } from 'wellcrafted/result';
 import { createTestAppSqlite } from './app-sqlite.test-support.ts';
-import { sqliteHandle } from './handle.ts';
-import { openIntentStore } from './intent-store.ts';
-import { openMailbox } from './mailbox.ts';
-import { openPassRecord } from './outbox.ts';
 import {
 	LOCAL_SCHEMA_VERSION,
 	MAIL_SCHEMA_VERSION,
 	openLocalMailStorage,
 	requireAccountFiling,
 } from './storage.ts';
-// Frozen SQL from the shipped v1 shape: migration tests must not derive their
-// starting point from the schema they are meant to validate.
-import legacySchema from './storage-v1.test-fixture.json';
 
 /**
  * A storage owner over in-memory databases, keyed by name the way the host
@@ -178,206 +171,28 @@ test('two accounts are two files, and forgetting one leaves the other', async ()
 	).toHaveLength(1);
 });
 
-async function legacyFile(
-	owner: ReturnType<typeof testOwner>,
-	name: string,
-	schema: readonly string[],
-) {
-	const opened = await owner.device.sqlite.open(name);
-	if (opened.error) throw opened.error;
-	const db = sqliteHandle(opened.data);
-	await db.batch(
-		[...schema, 'PRAGMA user_version = 1'].map((sql) => ({ sql })),
-	);
-	return opened.data;
-}
-
-test('durable v1 migration preserves pending revisions, empty-outbox counters, and failure explanations', async () => {
+test('new account storage reopens with cached mail and durable pending triage intact', async () => {
 	const owner = testOwner();
-	const old = await legacyFile(owner, 'local', legacySchema.local);
-	const db = sqliteHandle(old);
-	await db.batch([
-		{
-			sql: `INSERT INTO accounts VALUES ('one', 'one@example.com', 'connected', 'synced')`,
-		},
-		{
-			sql: `INSERT INTO label_intents VALUES ('one', 'm1', 'TRASH', 1, 17, 'asserted')`,
-		},
-		{
-			sql: `INSERT INTO intent_meta VALUES ('one', 'next_seq', '4'), ('empty', 'next_seq', '90'), ('null-counter', 'next_seq', NULL)`,
-		},
-		{
-			sql: `INSERT INTO last_pass VALUES ('one', 'finished', 2, 1, '[]', 'signin', 'CredentialMissing', 'Reconnect Gmail')`,
-		},
-	]);
-	const storage = await openLocalMailStorage(owner.device);
-	expect(await version(storage.local)).toBe(2);
-	const intents = openIntentStore(storage.local, 'one');
-	expect(await intents.pending()).toEqual([
-		{
-			messageId: 'm1',
-			labelId: 'TRASH',
-			want: true,
-			revision: 17,
-			assertedAt: 'asserted',
-		},
-	]);
-	await intents.assert(
-		[{ messageId: 'm1', labelId: 'TRASH', want: false }],
-		'undo',
+	const first = await openLocalMailStorage(owner.device);
+	await first.local.run(
+		"INSERT INTO accounts VALUES ('one', 'one@example.com', 'today')",
 	);
-	expect((await intents.pending())[0]?.revision).toBe(18);
-	const empty = openIntentStore(storage.local, 'empty');
-	await empty.assert(
-		[{ messageId: 'm2', labelId: 'INBOX', want: false }],
-		'now',
+	await first.local.run(
+		"INSERT INTO label_intents VALUES ('one', 'message', 'INBOX', 0, 1, 'today')",
 	);
-	expect((await empty.pending())[0]?.revision).toBe(90);
-	const nullCounter = openIntentStore(storage.local, 'null-counter');
-	await nullCounter.assert(
-		[{ messageId: 'm3', labelId: 'INBOX', want: false }],
-		'now',
+	const cache = await first.mail('one');
+	await cache.run(
+		"INSERT INTO messages (id, resource, synced_at) VALUES ('message', '{}', 'today')",
 	);
-	expect((await nullCounter.pending())[0]?.revision).toBe(1);
-	expect(await openPassRecord(storage.local, 'one').read()).toEqual({
-		finishedAt: 'finished',
-		discarded: [],
-		failure: {
-			kind: 'signin',
-			name: 'CredentialMissing',
-			message: 'Reconnect Gmail',
-		},
-	});
-	expect(await db.all('SELECT * FROM accounts')).toEqual([
-		{ sub: 'one', email: 'one@example.com', connected_at: 'connected' },
-	]);
-	expect(owner.deleted).toEqual([]);
-});
-
-for (const complete of [false, true]) {
-	test(`cache v1 migration preserves mail and ${complete ? 'complete' : 'incomplete'} pull state`, async () => {
-		const owner = testOwner();
-		const old = await legacyFile(
-			owner,
-			requireAccountFiling('one').database,
-			legacySchema.mail,
-		);
-		const db = sqliteHandle(old);
-		const resource = JSON.stringify({
-			id: 'm1',
-			threadId: 'thread',
-			labelIds: ['INBOX'],
-			snippet: 'hello',
-			internalDate: '100',
-		});
-		await db.batch([
-			{
-				sql: `INSERT INTO messages (id, resource, subject, sender, body_text, synced_at) VALUES ('m1', ?, 'subject', 'sender', 'body', 'seen')`,
-				parameters: [resource],
-			},
-			{
-				sql: `INSERT INTO labels (id, resource, synced_at) VALUES ('INBOX', '{"id":"INBOX","name":"Inbox","type":"system"}', 'seen')`,
-			},
-			...(complete
-				? [
-						{
-							sql: `INSERT INTO cache_meta VALUES ('history_id', '123'), ('last_full_pull_at', 'full'), ('last_synced_at', 'latest')`,
-						},
-					]
-				: []),
-		]);
-		const storage = await openLocalMailStorage(owner.device);
-		const current = await storage.mail('one');
-		expect(await version(current)).toBe(MAIL_SCHEMA_VERSION);
-		expect(await openMailbox(current).readCacheState()).toEqual({
-			historyId: null,
-			lastSyncedAt: complete ? 'latest' : null,
-		});
-		expect(
-			await db.all(
-				'SELECT id, resource, subject, sender, body_text, synced_at FROM messages',
-			),
-		).toEqual([
-			{
-				id: 'm1',
-				resource,
-				subject: 'subject',
-				sender: 'sender',
-				body_text: 'body',
-				synced_at: 'seen',
-			},
-		]);
-		expect(await db.all('SELECT id, name FROM labels')).toEqual([
-			{ id: 'INBOX', name: 'Inbox' },
-		]);
-		expect(owner.deleted).toEqual([]);
-	});
-}
-
-test('a failed durable migration rolls back schema and version without deleting data', async () => {
-	const owner = testOwner();
-	const old = await legacyFile(owner, 'local', legacySchema.local);
-	const db = sqliteHandle(old);
-	await db.run(
-		`INSERT INTO accounts VALUES ('one', 'email', 'connected', 'synced')`,
-	);
-	// Fail after the earlier schema steps have run.
-	await db.run('DROP TABLE last_pass');
-	await expect(openLocalMailStorage(owner.device)).rejects.toThrow();
-	expect(await version(old)).toBe(1);
-	expect(await db.all('SELECT last_synced_at FROM accounts')).toEqual([
-		{ last_synced_at: 'synced' },
-	]);
-	expect(
-		await db.all(
-			"SELECT name FROM sqlite_master WHERE name = 'intent_counters'",
-		),
-	).toEqual([]);
-	expect(owner.deleted).toEqual([]);
-});
-
-test('cache v2 adoption retains offline mail and pending work, and invalidates its smaller-scope cursor once', async () => {
-	const owner = testOwner();
-	const opened = await owner.device.sqlite.open(
-		requireAccountFiling('one').database,
-	);
-	if (opened.error) throw opened.error;
-	const db = sqliteHandle(opened.data);
-	// Frozen v2 sync shape. Other tables are unchanged by this migration.
-	await db.batch([
-		{
-			sql: `CREATE TABLE sync_state (id INTEGER PRIMARY KEY CHECK (id = 1), history_id TEXT, last_full_pull_at TEXT, last_synced_at TEXT)`,
-		},
-		{ sql: `INSERT INTO sync_state VALUES (1, '123', 'full', 'latest')` },
-		{
-			sql: `CREATE TABLE messages (id TEXT PRIMARY KEY, resource TEXT NOT NULL)`,
-		},
-		{
-			sql: `INSERT INTO messages VALUES ('m1', '{"id":"m1","threadId":"t1","labelIds":["INBOX"]}')`,
-		},
-		{ sql: `PRAGMA user_version = 2` },
-	]);
-	const storage = await openLocalMailStorage(owner.device);
-	const intents = openIntentStore(storage.local, 'one');
-	await intents.assert(
-		[{ messageId: 'm1', labelId: 'TRASH', want: true }],
-		'now',
-	);
-	const pending = await intents.pending();
-	const current = await storage.mail('one');
-	expect(await version(current)).toBe(MAIL_SCHEMA_VERSION);
-	expect(await db.all('SELECT * FROM sync_state')).toEqual([
-		{ id: 1, history_id: null, last_synced_at: 'latest' },
-	]);
-	expect(await db.all('SELECT id FROM messages')).toEqual([{ id: 'm1' }]);
-	expect(await intents.pending()).toEqual(pending);
-	expect(owner.deleted).toEqual([]);
-	await db.run("UPDATE sync_state SET history_id = '456' WHERE id = 1");
 	const reopened = await openLocalMailStorage(owner.device);
-	await reopened.mail('one');
+	expect((await reopened.local.all('SELECT sub FROM accounts')).data).toEqual([
+		{ sub: 'one' },
+	]);
 	expect(
-		(
-			await db.all<{ history_id: string }>('SELECT history_id FROM sync_state')
-		)[0]?.history_id,
-	).toBe('456');
+		(await reopened.local.all('SELECT revision FROM label_intents')).data,
+	).toEqual([{ revision: 1 }]);
+	expect(
+		(await (await reopened.mail('one')).all('SELECT id FROM messages')).data,
+	).toEqual([{ id: 'message' }]);
+	expect(owner.deleted).toEqual([]);
 });

@@ -1,21 +1,8 @@
 /**
- * Which build owns Local Mail's files and its secrets.
- *
- * Local Mail is the one application that opens named SQLite files and keeps
- * secrets, so it is the one application with a storage seam. The web build owns
- * an OPFS pool and tab memory; the build the desktop Epicenter host serves owns
- * Bun files and the OS keychain.
- *
- * The failure this guards is silent. Drop the `epicenter-host` leaf and
- * resolution falls back to `default`, so the host-served build would reach for
- * OPFS and tab memory instead of the Bun-owned files and the keychain, and
- * still build and still start. Nothing downstream would complain. These
- * assertions complain instead.
- *
- * This reads declarations only, so it can say exactly which seam lost its host
- * leaf, in milliseconds.
+ * Local Mail selects browser or host Account and Gmail authorization leaves.
+ * Each declared condition must resolve to a real module; App owns storage
+ * selection, so no application Device seam remains.
  */
-
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -55,33 +42,14 @@ describe('platform seams', () => {
 	});
 });
 
-describe('the runtime is the import path', () => {
-	test('each build binds its files and its secrets to its own owner', async () => {
-		// The package name never carries the runtime, so what a build gets is
-		// decided by which subpath its leaf imports.
-		expect(await leafSource('#platform/device', 'default')).toContain(
-			"from '@epicenter/device/browser'",
+describe('auth belongs to the selected build', () => {
+	test('browser and host select their own Account source', async () => {
+		expect(await leafSource('#platform/auth', 'default')).toContain(
+			'createBrowserAuth',
 		);
-		expect(await leafSource('#platform/device', 'epicenter-host')).toContain(
-			"from '@epicenter/device/desktop'",
+		expect(await leafSource('#platform/auth', 'epicenter-host')).toContain(
+			'createDesktopBrokerAuth',
 		);
-	});
-
-	test('each leaf reaches one runtime, not both', async () => {
-		// A leaf that imported both subpaths would pull the OPFS worker into the
-		// desktop bundle and the host transport into the web one, which is the
-		// bundle cost the two packages exist to keep apart.
-		for (const condition of ['default', 'epicenter-host']) {
-			const source = await leafSource('#platform/device', condition);
-			expect({
-				condition,
-				browser: source.includes('@epicenter/device/browser'),
-				desktop: source.includes('@epicenter/device/desktop'),
-			}).toEqual({
-				condition,
-				browser: condition === 'default',
-				desktop: condition === 'epicenter-host',
-			});
-		}
+		expect(imports['#platform/device']).toBeUndefined();
 	});
 });

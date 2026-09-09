@@ -631,3 +631,5 @@ When you add an ADR, add its row here.
 | [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |
 
 | [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Reconstruction is an explicit destructive library operation | Proposed |
+
+| [0378](0378-local-mail-saves-sql-definitions-and-queries-cached-gmail-facts.md) | Local Mail saves SQL definitions and queries cached Gmail facts | Proposed |

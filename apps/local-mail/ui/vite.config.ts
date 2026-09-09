@@ -40,7 +40,7 @@ export default defineConfig(
 	mergeConfig(workspaceAppViteConfig({ port: SPA_DEV_PORT }), {
 		plugins: [denyFramingInDev()],
 		resolve: {
-			// Build-time platform DI over `#platform/device`. The spread is
+			// Build-time platform DI for auth and App resources. The spread is
 			// load-bearing: custom conditions REPLACE Vite's defaults, so a seam
 			// mistake fails at build time rather than at a person's runtime.
 			...(isEpicenterHost && {

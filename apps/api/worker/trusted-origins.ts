@@ -42,6 +42,7 @@ const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = [
  * locally too.
  */
 const DEVELOPMENT_TRUSTED_ORIGINS: readonly string[] = [
+	'http://localhost:5177',
 	...Object.values(APPS).map((app) => localUrl(app)),
 	`http://${new URL(APPS.API.url).host}`,
 ];

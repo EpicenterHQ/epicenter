@@ -12,6 +12,7 @@ const appCallbacks = [
 	'https://vocab.epicenter.so/auth/callback',
 ];
 const localAppCallbacks = [
+	'http://localhost:5177/auth/callback',
 	'http://localhost:5175/auth/callback',
 	'http://localhost:1420/auth/callback',
 	'http://localhost:8888/auth/callback',

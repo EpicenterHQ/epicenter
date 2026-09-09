@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/local-mail",
-	"description": "Gmail in Epicenter: an account registry that syncs, a disposable mailbox cache, and triage that survives it.",
+	"description": "Gmail cache and durable triage operations for the Local Mail application.",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -15,6 +15,7 @@
 		"./authorization-return": "./src/authorization-return.ts",
 		"./config": "./src/config.ts",
 		"./handle": "./src/handle.ts",
+		"./intent-store": "./src/intent-store.ts",
 		"./mailbox": "./src/mailbox.ts",
 		"./oauth": "./src/oauth.ts",
 		"./outbox": "./src/outbox.ts",

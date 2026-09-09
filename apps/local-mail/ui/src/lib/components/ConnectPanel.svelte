@@ -1,7 +1,7 @@
 <script lang="ts">
 	// The first thing a person sees with no account connected, and the only
 	// place Local Mail asks for one.
-	import { gmailSignInNotice } from '#platform/device';
+	import { gmailSignInNotice } from '#platform/gmail-authorization';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -38,9 +38,8 @@
 		let connected: string | null = null;
 		try {
 			const request = await mail.beginConnect();
-			// The web build leaves the page here and never comes back to this
-			// line; the desktop build waits and answers with where Google sent
-			// the person. Either way the request stays in hand.
+			// Both builds retain this document and return the consent callback.
+			// The verifier and browser credentials stay with the open App.
 			const callbackUrl = await mail.authorize(request);
 			connected = (await mail.finishConnect(request, callbackUrl)).sub;
 		} catch (error) {

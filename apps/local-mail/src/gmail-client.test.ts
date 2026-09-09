@@ -17,7 +17,7 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr } from 'wellcrafted/testing';
-import { type MailApp, reconcileNow } from './accounts.ts';
+import { type AccountWorkflow, reconcileNow } from './accounts.ts';
 import type { MailConfig } from './config.ts';
 import { createGmailClient } from './gmail-client.ts';
 import { openPassRecord, readOutbox } from './outbox.js';
@@ -320,7 +320,7 @@ for (const { status, reason, requests: expectedRequests, name } of [
 							},
 						],
 					]),
-				} as unknown as MailApp;
+				} as unknown as AccountWorkflow;
 				await reconcileNow(app, session.sub);
 				const reopened = openPassRecord(session.localDatabase, session.sub);
 				const outbox = await readOutbox({

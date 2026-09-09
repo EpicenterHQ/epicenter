@@ -18,7 +18,7 @@
 	 * who wants one row gone is asking to undo the act, which belongs in the
 	 * message list.
 	 */
-	import { gmailSignInNotice } from '#platform/device';
+	import { gmailSignInNotice } from '#platform/gmail-authorization';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Spinner } from '@epicenter/ui/spinner';

@@ -12,7 +12,7 @@
  * documents `sub` as stable for the life of the account while an email address
  * may change, so `sub` is recorded as `providerAccountId` and the address is
  * display metadata. Neither is Local Mail's own account id: that is the row id
- * Epicenter Data minted, which is what `device.secrets` is keyed by and what
+ * Epicenter Data minted, which is what `app.secrets` is keyed by and what
  * every mail and intent row is partitioned by.
  */
 

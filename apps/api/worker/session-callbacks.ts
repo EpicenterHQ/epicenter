@@ -7,6 +7,8 @@ export function buildSessionCallbacks(baseURL: string) {
 	const local = ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
 	return [
 		'epicenter://auth/callback',
+		// Local Mail has a development browser build and no hosted origin.
+		...(local ? ['http://localhost:5177/auth/callback'] : []),
 		// Outside /auth/*, which belongs to Better Auth on the issuer origin.
 		`${origin}/session/callback`,
 		...[APPS.HONEYCRISP, APPS.WHISPERING, APPS.VOCAB].flatMap((app) =>

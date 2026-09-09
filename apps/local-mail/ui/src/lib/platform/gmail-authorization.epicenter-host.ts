@@ -77,3 +77,7 @@ async function collect(signal: AbortSignal): Promise<PendingCallback | null> {
 	}
 	return (await response.json()) as PendingCallback;
 }
+
+/** Explain the lifetime of the credential owned by this build. */
+export const gmailSignInNotice: string =
+	'Your Gmail sign-in is saved in this device’s secure store. It is not shared with other devices.';
