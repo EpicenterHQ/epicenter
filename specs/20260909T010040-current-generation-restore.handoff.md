@@ -1,148 +1,148 @@
-# Continue the current-generation restore design
+# Continue the current-generation recovery implementation
 
-Continue work in `/Users/braden/conductor/workspaces/epicenter/yamoussoukro`.
-Read `AGENTS.md`, then
-[the implementation spec](20260909T010040-current-generation-restore.md) and
-[ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md).
-The native Bun storage harness has been replaced. Read the portable authority
-checkpoint in the spec, `packages/data/src/sync/authority.ts`,
-`packages/data/src/sync/hub.ts`, and the behavioral tests under
-`packages/data/evidence/current-generation/`. Raw activation remains unmounted.
-The authority owns one current number, transaction-local log SQL, historical
-request-bound receipts, and one retained current hub. `createHub` returns a Result;
-failed admission must never expose an uncached hub that could later become usable
-and split the relay. Bound log handles keep their generation for their lifetime.
+Continue in `/Users/braden/conductor/workspaces/epicenter/yamoussoukro`.
+Read `AGENTS.md`, [ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md),
+[ADR-0386](../docs/adr/0386-recovery-restores-only-verified-backups-and-owns-retry-identity.md),
+and the [execution spec](20260909T010040-current-generation-restore.md).
+Start with Active execution path and Two-device journey checkpoint. Dated
+checkpoints preserve earlier evidence; they do not override the active path.
 
-The browser storage checkpoint is also implemented and independently reviewed.
-`packages/data/src/store/current-cache.ts` owns the optional generation header,
-atomic installation, and synchronous discard fence. It shares the append-sized
-update engine in `idb-updates.ts` with the deployed browser backing. Native
-Chromium and WebKit proofs each pass 27 checks. This establishes storage behavior,
-not the complete native-browser App claim and reload loop.
+Implement the next bounded checkpoint: verified backup publication and a
+persistent library catalog. Manual and imported backups must share immutable
+storage, read-back verification, and publication under the stable library
+authority. Preserve imported bytes exactly. Finish with focused tests, independent
+design review, updated execution evidence, and a reviewable commit.
 
-Wire admission and App retirement ordering are implemented. A socket waits for
-`admitted` before sending its outbox. `retired` stops its driver and reports one
-lifecycle event, even if host socket teardown throws. Store fences and discards
-pending persistence before exposing that event. App close retains the library
-claim through failed invalidation; explicit retry permits eventual close. Page
-departure stops producers, awaits invalidation, closes App, then reloads. An
-unsupported deployed backing fails closed because current cache/bootstrap is
-still unmounted. Keep ordinary close's flush promise separate from discard.
+The larger destination is one library-bound recovery owner with `backup()`,
+`import(file)`, `list()`, `download(backupId)`, and `restore(backupId)`. These methods
+do not exist yet. Add operations as their guarantees become real. Every restore
+will select a published backup; recovery will own the destination safety backup,
+private attempt identity, exact activation bytes, and restart reconciliation.
+Callers never manufacture a restore ID.
 
-The unmounted structural archive is `packages/data/src/artifact/archive.ts` with
-adjacent tests. It preserves stored roots, nested types, formatting, unknown
-values, settings, and referenced blob bytes/MIME types, then authors and checks a
-fresh lineage. Version 1 refuses unsupported versions and unrepresentable state.
-Its conservative BlobId recognition includes text and URLs: an ordinary mention
-of a missing blob can refuse capture. This limitation needs product acceptance.
-Durable backup write/read-back, destination blob installation, and deliberate
-activation orchestration remain unimplemented.
+## What now works
 
-Final review accepted three repaired regressions: socket-close failure cannot
-skip the backing fence; BlobIds split across formatted runs require their blobs;
-and Whispering cleanup remains retryable after component unmount. VAD retains
-ownership on failed destruction while stopping microphone tracks. App retirement
-also starts recorder closure before cache invalidation finishes.
+One stable library authority is mounted in the shared server. It owns the current
+numeric generation, transaction-local log SQL, request-bound activation receipts,
+and one current hub. The same transaction boundary checks generation admission
+and accepted writes. Socket attachments preserve their admitted generation
+through hibernation. Old sockets and partial submissions cannot write into a
+replacement, even after retired bytes are gone.
 
-Verified checkpoint: 208 data/sync/archive/departure tests (1,244 assertions),
-11 recorder/producer tests (41 assertions), and two App retirement tests
-(10 assertions). Native cache proof passes 27 checks per browser. App typecheck
-passes, as does Recorder; data typecheck retains eight baseline browser-global
-diagnostics. Whispering and App-shell Svelte checks still fail in auth/SQL fixture
-integration and an inference-picker test. The spec records their scope.
-The full App suite currently fails because its old bootstrap fixtures return
-JSON where the concurrent new path expects a Yjs snapshot; later tests cascade
-through unreleased test claims. Full workerd initialization/connection failures
-also remain unresolved. See the spec for commands and proof scope.
+Browser App startup uses one stable IndexedDB address with an optional generation
+header. A valid cache opens offline. An absent header triggers a current download.
+The `@epicenter/sync/current-download` envelope carries the frozen snapshot and
+complete accepted tail through one head. The browser checks framing and unresolved
+Yjs dependencies, folds the captured state, and installs its header and baseline
+atomically. The authority treats the update bytes as opaque.
 
-Commit verification later isolated the staged source from concurrent changes:
-all 36 App tests and its typecheck pass, along with 195 sync/lifecycle tests,
-11 recorder tests, and 13 archive tests. The native cache again passed 27 checks
-per browser. The combined-tree failures above therefore must not be attributed
-to the isolated restore commit.
+Confirmed retirement stops the sender, synchronously fences old persistence, and
+invalidates the header and updates together. App departure stops producers,
+awaits invalidation, closes resources, and reloads. `App.signal` exposes the
+existing document lifetime; it means unusable, not cleanup completed. Honeycrisp's
+title producer cancels its timer on abort while ordinary editor close still
+flushes once. Failed invalidation retains the library claim and allows retry.
 
-App retirement wiring was staged against the committed application composition.
-Another task's lazy Whispering bootstrap remains in the working tree. Preserve
-its retirement wiring and readiness cleanup when committing that refactor;
-this checkpoint does not absorb its other application/auth changes.
+The real two-device journey passes in
+`apps/honeycrisp/scripts/library.browser.ts`, with the scenario in
+`library-retirement.ts` and a disposable Worker fixture in `library.worker.ts`.
+The fixture inherits production HTTP/socket handling and activates through the
+actual owning authority. Its private service binding adds no production route.
 
-Another active task began editing `packages/server/src/store-sync/` and the
-first-generation bootstrap path during this execution. It added ledger-backed
-initialization and admission checks. Server replacement is paused pending the
-user's ownership decision; do not overwrite that work. The current-generation
-server adapter proposal was backed out. The server still mounts independently
-writable generations. Existing-history rollout is a separate unanswered question;
-no deployment or deletion is authorized.
+The browser proves an offline edit survives reopening, then confirmed retirement
+discards it and reloads the replacement. It also proves immediate retirement of
+an idle connected peer, zero old outbox uploads on stale reconnection, real editor
+cleanup with a delayed callback, claim retention during paused/failed native
+invalidation, UI retry, and absent-cache bootstrap retry after a failed download.
+Replacement contents and an accepted post-replacement edit appear while all
+new-generation socket frames are withheld.
 
-Work toward the full spec and report the proof still missing. Do not describe
-these unmounted checkpoints as a shipped restore feature.
+## Evidence boundaries
 
-The user settled this product contract:
+The fixture establishes retirement and adoption, not the completed recovery
+operation. Its text-note archive is saved and read back before fresh reconstruction.
+It does not publish a fresh safety backup for every activation or exercise
+attachments. Its receipt retry retains the same request in the live process;
+it does not prove a durable pending-attempt journal across process restart.
+Native application proof is Chromium. Existing cache-only evidence separately
+covers 27 checks each in Chromium and WebKit.
 
-- One current numeric generation per synchronized library at a stable address.
-- Ordinary folding handles maintenance; immutable archives provide recovery;
-  restore reconstructs application data into a fresh Yjs lineage.
-- The authority rejects retired generations. A stale device discards ALL of its
-  unsynchronized work, invalidates its persisted IndexedDB replica, closes the
-  App, and performs a full page reload. No picker or stranded-work recovery.
-- The next page uses normal startup: valid generation header and updates means
-  open locally, including offline; absent header means download current. There
-  is no persisted `held/rejoining` discriminator or old-page replacement fetch.
+If replacement occurs during a download, connection admission rejects the now-old
+generation before uploading. If App closure occurs during acquisition, the claim
+remains held and readiness/hydration are refused, but the response may still
+install a cache before cleanup. Do not claim a stronger no-install-after-abort
+guarantee without implementing and testing it.
 
-Two independent reviews support the ownership model. One stable library authority
-must own the current number, log, and socket admission; a pointer beside separate
-writable generation authorities leaves distributed fencing races. The browser
-backing must fence old writes before atomic invalidation, keeping the library
-claim through cleanup. Ordinary close currently flushes pending writes and is
-not a sufficient discard operation. Bare reload would reopen the retired cache.
+The structural codec is `packages/data/src/artifact/archive.ts`.
+It preserves visible roots, nested types, formatting, unknown values, settings,
+and referenced blob bytes/MIME types, then verifies a fresh lineage.
+`archive-storage.ts` verifies immutable backup read-back and destination blob
+installation. They remain checkpoints without production recovery callers.
+Filesystem reopen tests do not establish power-loss durability or retention.
+Version 1 lacks application/data identity and recognizes BlobIds conservatively,
+including ordinary text; missing referenced bytes refuse capture.
 
-Production still uses independently writable numbered generations. The portable
-owner proves atomic first creation, snapshot-plus-tail capture, conditional
-activation, durable request-bound receipts, and retired read/write refusal.
-Private raw log operations now run inside their owner's transaction. The
-replacement deletes no other owner's tables and uses no nested transactions or
-Result-to-throw bridge. Hub retirement also fences outbound chunks already in
-memory, queued replies, partial submissions, and retained old references.
+## Next implementation
 
-The independent review found and repaired a lost storage-failure refusal. A
-history-free refusal remains sendable when storage admission fails, while old
-membership is still permanently fenced on retirement. Refused partial submissions
-are forgotten. The same review removed a generation-indexed hub registry and
-required failed hub creation to return no hub. Both fixes have regression tests.
+Begin with wave 1 below. Its acceptance proof must cover interrupted publication,
+exact imported download, cross-library refusal, and protection from generic
+deletion. Stop at that working checkpoint; waves 2 through 4 explain what follows.
 
-Evidence already exists in `docs/benchmarks/yjs-root-rotation/` and
-`packages/data/src/__benchmarks__/`. All experiments use `@y/y` 14.0.0-rc.24.
-The checkout/root-replacement suites passed 74 tests with 219 assertions, and
-the data package typecheck passed at that earlier checkpoint. Focused authority/hub and browser-backing typechecks pass. Full-package diagnostics
-must be compared to the captured task baseline and concurrent work; see the spec.
-Native browser storage interruption has been proved, but deployed-server
-activation and the complete application restore loop have not.
-Smaller body updates and byte-aware folding are separate
-follow-ups; the benchmarks do not justify automatic document replacement.
+1. Define archive identity/provenance and one verified publication path for
+   manual, imported, and pre-restore backups. Preserve uploaded bytes. Publish
+   catalog metadata under the stable library authority only after object
+   read-back verification. Protect retained objects from generic deletion.
+2. Build durable attempt reservation and reconciliation. Retain one safety backup,
+   destination generation/head condition, exact prepared bytes, and receipt.
+   Query committed receipts before reading archive storage. Finalize definitive
+   preparation failure atomically with a fence against delayed activation before
+   releasing the active slot. Unknown outcomes remain pending.
+3. Mount authenticated recovery transport through that same authority owner and
+   configured object storage. Bind the coordinator to the page's fixed library.
+   An old archive's source position is provenance, never permission to replace
+   today's destination. Accepted intervening writes cause a conflict.
+4. Add the Backups screen and extend the browser proof to the real recovery
+   operation, restart reconciliation, attachments, recorder cleanup, and
+   obsolete/interrupted bootstrap. Preserve working-copy generation mismatch
+   refusal.
 
-The worktree contains extensive unrelated changes. Inspect `git status` and
-focused diffs; do not reset or absorb other work. This conversation owns ADR-0379,
-these continuation documents, the root-rotation/checkout benchmark files and
-reports, the benchmark script addition in `packages/data/package.json`, and the
-0379 index row. This execution also owns the authority/hub changes, current-generation tests,
-new browser cache and shared update engine, and native browser cache proof.
-This execution also owns wire controls, store/App retirement, shared page
-departure, app producer cleanup, and the unmounted structural archive. Read their
-focused diffs carefully because some files also contain other tasks' edits.
-The direction review corrected one misleading adoption comment in
-`packages/server/src/store-sync/authority.ts`. Its runtime initialization changes
-belong to the other task; do not absorb them into this checkpoint.
-Other edits to the ADR index or package files may be unrelated.
-No commits or deployments were requested. Do not erase existing device or remote
-libraries to make tests pass. Existing-history rollout needs a separate grounded
-decision; the user chose discard of retired pending work, not arbitrary destruction
-of independently writable historical libraries during migration.
+Each reconstruction creates new Yjs operation identities. Retrying activation
+must reuse retained bytes and the original destination condition, not reconstruct
+again. A later deliberate restore of the same backup is a new attempt.
 
-Use the spec's acceptance matrix. Prioritize atomic ensure-current, conditional
-restore with retry receipts, old-socket rejection, paused persistence across
-retirement, and interrupted IDB invalidation/install. Add real-browser proof for
-the browser lifecycle. Run appropriate affected-package tests and typechecks,
-then a design review at a meaningful structural checkpoint. Consult Claude only
-if the user explicitly asks in the continuation. Done for a first slice means a
-reviewable diff with passing focused invariants and an updated spec showing what
-remains; do not represent a private harness as a shipped restore feature.
+Keep the settled product contract: one writable current generation, automatic
+folding for maintenance, immutable archives for recovery, and full document reload
+after retirement. No generation picker, stranded-outbox recovery, writable
+predecessor browsing, automatic resets, or old-page replacement download.
+
+## Verification and workspace
+
+The latest wire/browser-open/App/recording suite passed 62 tests. Three Honeycrisp
+editor tests passed, including two regressions that fail against their saved
+original implementation. Current-retirement, initial-generation, and e2e Worker
+suites passed 13 tests. The converted TypeScript browser journey passes.
+Honeycrisp's normal typecheck also checks its scripts and the separate Worker fixture. Sync, Server, App, both
+Honeycrisp targets, and the data DOM leaf typecheck. Data's root program has eight
+browser-global diagnostics reproduced identically against task-start source.
+Commands and the independent review verdicts are in the execution spec.
+
+The worktree has extensive concurrent changes. Compare task-owned files to the
+recorded baseline; do not reset or absorb other work. This journey adds complete
+current downloads, App.signal/title cancellation, the browser fixture/proof, and
+the corresponding documentation. Earlier authority, cache, archive, and application
+composition work has its own history. The user authorized focused commits for
+this journey and requested this continuation. The implementation commits are `8cea9aa6c6`, `10f4c3456d`, and `d81743d016`.
+The staged source also passed isolated tests, typechecks, and the full browser
+journey. Check the latest commits before editing. `archive-storage.ts` and its
+tests are earlier uncommitted checkpoint work: review their state before absorbing them into publication. No deployment
+was requested.
+
+Existing independently writable historical libraries require a separate rollout
+decision. The mounted Personal path refuses implicit adoption. Do not choose a
+maximum history or delete real libraries to make the new path pass. The test
+configuration uses temporary storage and never touches existing device data.
+
+Continue through working checkpoints and independent review. Consult Claude only
+when explicitly requested. Keep the spec In Progress until the full recovery
+outcome is implemented and verified; then update durable decisions and retire the
+spent planning documents under repository conventions.

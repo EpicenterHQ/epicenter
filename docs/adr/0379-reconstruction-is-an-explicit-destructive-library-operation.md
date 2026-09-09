@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
-- **Unbuilt:** Frozen complete backup capture, conditional authority installation, replica retirement and reload, and the destructive product action. Container replacement is an experiment, not a production document layout.
+- **Unbuilt:** Verified backup catalog, durable restore orchestration, production activation transport, and the destructive product action. The authority and browser retirement path are implemented; container replacement remains an experiment.
 
 ## Context
 
@@ -17,7 +17,8 @@ described destructive restore and reset on reconnection.
 [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md)
 and [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md)
 instead retained older writable databases. These are the decisions being
-reconsidered here; this proposal does not describe the current implementation.
+reconsidered here. Current-generation startup and retirement are implemented;
+the recovery operation and existing-library rollout remain incomplete.
 The older proposed [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
 explored sealed backups separately from the live database. Its implementation
 and historical measurements are not assumptions of this proposal.
@@ -80,6 +81,12 @@ There is no persisted transition status. The outbox and cursor remain derived
 from update rows. An ordinary reopen hydrates a valid cached replica without
 waiting for a network. Cached means locally available, not guaranteed current
 on the server. There is no highest-generation scan and no inference from a failed request.
+Opening establishes which replica the page holds; each sync connection asks the
+authority whether that generation is still writable. The cache cannot answer
+that second question. Online and offline changes preserve the same opened App.
+There is no scheduled reload or one-time boot check that grants permanent
+admission. A cache miss requires the authority before the App becomes ready;
+a complete cache permits immediate local use while connection attempts continue.
 A cursor from the old identity has no meaning in the new one. Restoring the same
 archive twice creates two different replacement identities; it never revives an
 archived identity.
@@ -95,6 +102,17 @@ the replacement against its intended contents. That backup cannot contain work
 the authority has never received. A backup intended to recover rich content and
 blobs must prove that fidelity; today's folder export is not automatically that
 proof.
+
+The accepted loss boundary is every edit in the retired generation that the
+authority never accepted, including offline edits and queued edits during a
+failing connection. A device can keep making those edits until it learns of
+retirement; the loss is not limited to edits made before replacement. Already
+accepted data follows the deliberate operation's semantics: reconstruction
+preserves the captured application data, while restoring an older backup
+intentionally replaces current contents with that backup. The exact-state
+condition prevents activation from silently skipping writes accepted after
+capture. Ordinary reconnection, folding, and garbage collection never authorize
+discarding pending edits. Only explicit replacement retires a generation.
 
 Reconnecting devices must adopt the replacement and discard all unsynchronized
 work belonging to the retired generation. Fence the old backing's writes and
@@ -128,8 +146,11 @@ Retirement must remain enforceable after deleting the old document's bytes;
 an old connection must never recreate it or silently target the current one.
 
 A stale device discovers retirement before uploading to the current document.
-Socket opening is not admission: the transport waits for an explicit admitted or
-retired result before sending the outbox. Rejoining loads the replacement rather
+Socket opening is not admission: on every initial connection and reconnect, the
+transport waits for an explicit admitted or retired result before sending the
+outbox. Admission applies to the connection's captured generation. Replacement
+also retires already-open connections, and the authority rejects their later
+writes under the same serialization boundary as activation. Rejoining loads the replacement rather
 than applying or recovering its old binary outbox. The server's write rejection
 establishes correctness. Closing and reopening the application retires local
 editors and other references.
@@ -167,6 +188,12 @@ model. Archives remain the recovery surface.
 The destructive action accepts a real loss boundary in exchange for a simpler
 live-library model. It does not require enumerating every device or waiting for
 every offline device to acknowledge the transition.
+The authority enforces exclusion of retired edits even when a device has not
+discovered replacement. People do not have to bring every device online before
+restoring. The initiating action explains the possible loss of unsynchronized
+work, and a device that discovers retirement explains why its library reloaded.
+This trade gives up recovery and merging of retired edit queues so ordinary use
+needs only one current writable library.
 
 Container replacement still needs a seeded shared root, complete content copying,
 undo retirement, durable installation, and reload behavior. Two concurrent
@@ -191,19 +218,40 @@ alone may lag accepted writes.
 The [implementation spec](../../specs/20260909T010040-current-generation-restore.md)
 records the reviewed ownership changes, current code entrypoints, implementation
 sequence, and interruption tests. The [continuation handoff](../../specs/20260909T010040-current-generation-restore.handoff.md)
-preserves the settled user contract and the boundary between benchmark evidence
-and the unimplemented production protocol. These planning documents are temporary;
+preserves the settled user contract and the boundary between tested retirement
+and the unimplemented recovery operation. These planning documents are temporary;
 this record owns the decision.
 
 Two independent reviews support one stable library authority and an optional
 local generation header. The second review removed the proposed persisted
-transition state and old-page replacement download. Current code still lacks the
-required generation admission and retirement write fence.
+transition state and old-page replacement download. The mounted authority now
+owns generation admission and the retirement write fence.
+
+The [Honeycrisp browser journey](../../apps/honeycrisp/scripts/library-retirement.ts)
+exercises two independent Chromium profiles against the real self-hosted Worker.
+An offline edit survives reopening, then confirmed retirement discards it and
+reloads the replacement. The test also covers an idle admitted socket, a delayed
+editor callback, a paused invalidation with the library claim held, an aborted
+invalidation and retry, and a failed replacement download. The fresh page displays
+the replacement and its accepted tail while its new socket's frames are withheld.
+
+Current downloads carry an opaque snapshot-plus-tail capture through one log
+head. The browser validates and folds that capture before installing a usable
+cache. `App.signal` exposes the existing store lifetime so editor producers stop
+synchronously when retirement makes the App unusable. It does not mean resource
+cleanup or durable invalidation has finished.
+
+Activation in this journey uses a test-only service binding and the actual
+authority owner. It does not expose a restore endpoint or establish the backup
+catalog, destination safety-backup orchestration, attachment retention, or
+restart reconciliation required by ADR-0386. Stronger cancellation of a cache
+installation after its boot owner aborts also remains unproved; acquisition
+currently retains its claim through completion and refuses a closed App's readiness.
 
 ## Considered alternatives
 
-- Keep indefinitely writable generations and let each device choose. This remains
-  the current design being reconsidered. It preserves old branches but adds a
+- Keep indefinitely writable generations and let each device choose. This was
+  the preceding design. It preserves old branches but adds a
   navigation and synchronization promise that storage maintenance does not need.
 - Replace containers automatically. Refused because old offline edits and a
   competing replacement's entire subtree can disappear despite convergence.

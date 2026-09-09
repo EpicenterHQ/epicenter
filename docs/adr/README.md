@@ -635,3 +635,4 @@ When you add an ADR, add its row here.
 | [0378](0378-local-mail-saves-sql-definitions-and-queries-cached-gmail-facts.md) | Local Mail saves SQL definitions and queries cached Gmail facts | Proposed |
 | [0382](0382-session-composition-selects-issuer-identity-and-management-capabilities.md) | Session composition selects issuer identity and management capabilities | Proposed |
 | [0383](0383-self-hosted-sign-in-defaults-to-passkeys-with-optional-passwords.md) | Self-hosted sign-in defaults to passkeys with optional passwords | Proposed |
+| [0386](0386-recovery-restores-only-verified-backups-and-owns-retry-identity.md) | Recovery restores only verified backups and owns retry identity | Proposed |

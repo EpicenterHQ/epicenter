@@ -2,53 +2,140 @@
 
 **Status:** In Progress
 
-## Shared startup integration and remaining proof
-
-The user assigned the overlapping startup boundary to the Honeycrisp
-library-ownership continuation and selected one current authority with full
-page reopening. Follow `20260909T004225-library-ownership-execution.md` for its
-active implementation and exact evidence. The paused initializer proposal in
-ADR-0385 has been reconciled with this contract: no list/max adoption or separate
-initial-generation owner participates in startup.
-
-The continuation owns `packages/server/src/store-sync/`, the shared route
-constants, and browser acquisition. It mounts the existing current-authority
-transaction, binds hibernated sockets to their admitted generation, and uses the
-optional-header cache for App startup. Historical numbered libraries remain
-untouched and their rollout remains a separate decision. The Honeycrisp Alice/Bob browser slice and 31 Worker tests pass. Exact commands
-and limits are in the ownership execution spec; production restore remains
-unmounted.
-
-Remaining restore work:
-
-1. Compose verified archive storage and blob installation with a retained backup
-   and durable activation request. Prove durability, retention, request-bound
-   receipt recovery, and the deliberate restore operation.
-2. Extend complete browser and Worker proof to production restore activation,
-   interruption, failed invalidation, obsolete downloads, and real hibernation.
-   Preserve working-copy mismatch refusal.
-3. Keep restore generation retirement distinct from Account retirement and
-   ordinary library switching. Only confirmed generation retirement authorizes
-   discarding a replica's pending edits.
-
-No restore endpoint, deployment, destructive migration, or real-library deletion
-is authorized by the Honeycrisp slice. This spec remains In Progress.
-
-
-## Restore scope
-
 Restore replaces the library's current generation; devices invalidate retired
 IndexedDB replicas and reload, while ordinary use stays cache-first and
 offline-capable.
 
-The design is in [ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md).
+The reconstruction design is in [ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md).
+The agreed recovery API and backup history are recorded in
+[ADR-0386](../docs/adr/0386-recovery-restores-only-verified-backups-and-owns-retry-identity.md).
 The current authority now lives in `packages/data/src/sync/authority.ts`.
 Its portable transactions and generation-bound hub lifetimes are exercised under
 `packages/data/evidence/current-generation/`. The replaced native Bun harness has
-been deleted. Production browser startup now uses the stable current authority. Done means the
+been deleted. Production browser startup now uses the stable current authority through the Honeycrisp integration. Done means the
 authority rejects all retired writes, browser invalidation survives interruptions,
 restore preserves its promised archive contents, and affected applications reload
 through normal bootstrap without a generation picker.
+
+## Active execution path
+
+Build one library-bound recovery owner: every restore uses a published backup ID,
+and the owner manages the safety backup and durable attempt behind the call.
+The five-method API below is the target, not an existing export. Archive and
+storage helpers remain unmounted checkpoints with no production callers.
+
+Read Settled product contract, Target ownership, Recovery API and execution,
+and Required proof first. Dated checkpoint sections preserve prior evidence;
+they are not an alternative implementation sequence. Current-authority startup,
+complete captured-head download, and Honeycrisp retirement/reload are integrated
+and exercised together. Production restore orchestration and existing-history
+rollout remain unresolved.
+This execution path targets synchronized libraries. Preserve existing local-only
+startup; local-only backup and replacement need an equivalent local recovery
+owner and are separate unresolved work.
+
+## Two-device journey checkpoint, 2026-09-09
+
+The real Honeycrisp browser harness now proves the requested sequence:
+edit offline, replace elsewhere, reconnect, reject old edits, invalidate, and
+reload the replacement. Two independent Chromium profiles use the actual
+self-hosted authentication, App, editor, IndexedDB backing, and Worker socket
+handlers. A fixture-only service binding activates through the same authority
+instance that owns the live hub. No destructive production endpoint was added.
+
+The offline edit survives an ordinary page reload and stays pending until the
+device learns retirement. The connected peer learns retirement immediately.
+The stale reconnect sends no frames. During a paused native invalidation,
+the old App rejects writes, the editor unmounts, its delayed title callback does
+nothing, and the library claim remains held. Successful cleanup reloads once.
+An aborted invalidation keeps the claim and permits retry through the existing
+button. A failed subsequent download leaves the cache absent and shows normal
+bootstrap retry without a reload loop.
+
+Two implementation gaps were repaired:
+
+- `@epicenter/sync/current-download` frames an opaque snapshot and its complete
+  accepted tail at one captured head. The browser verifies coverage and Yjs
+  dependencies before atomically installing a complete baseline. The native
+  journey displays a post-replacement tail edit while all new-generation socket
+  frames are withheld, so catch-up cannot hide an incomplete HTTP download.
+- `App.signal` exposes the existing document lifetime. Honeycrisp's title
+  producer cancels its timer and subscription synchronously on abort; ordinary
+  editor close still flushes once. Both new regression cases fail against the
+  saved original producer implementation.
+
+Verification commands from the repository root:
+
+```sh
+bun apps/honeycrisp/scripts/library.browser.ts
+bun run --filter @epicenter/honeycrisp typecheck:scripts
+bun test packages/sync/src/current-download.test.ts packages/data/src/store/current-open.test.ts packages/app/src/app.test.ts packages/app/src/recording.test.ts apps/honeycrisp/src/lib/app.test.ts
+bun run --filter @epicenter/server test:workers workers/current-retirement.test.ts workers/initial-generation.test.ts workers/e2e.test.ts
+bun run --filter @epicenter/sync typecheck
+bun run --filter @epicenter/server typecheck
+bun run --filter @epicenter/app typecheck
+bun run --filter @epicenter/honeycrisp typecheck
+bun x tsc --noEmit -p packages/data/tsconfig.dom.json
+```
+
+The browser journey passes. The wire, browser-open, App, and App-recording suite
+passes 62 tests; the three Honeycrisp editor tests also pass. The three Worker
+suites pass 13 tests. Sync, Server, App, both Honeycrisp targets, and the data DOM
+leaf typecheck. Data's root program retains eight browser-global diagnostics,
+reproduced identically using the saved task-start source. Independent reviews
+accepted the production ownership and the browser proof.
+The test Worker also typechecks with the self-hosted Worker program. Documentation
+hygiene reports 43 proposal/dependency findings both before and after this slice;
+ADR-0379 now names ADR-0386 in its existing dependency finding. ADR statuses were
+not changed. Formatting checks pass with the existing test non-null-assertion
+warning; the task-owned diff has no whitespace errors.
+
+This fixture verifies retirement and adoption. Its first reconstruction uses a
+saved/read-back-verified text-note archive, and receipt retry reuses the exact
+request in the live test process. It does not establish a production backup
+catalog, a fresh safety backup for every activation, attachment retention, or
+durable restore-attempt reconciliation after process restart. The real browser
+journey covers Chromium; separate existing cache tests cover WebKit storage.
+
+Obsolete responses have a narrower guarantee today. Admission rejects a download
+whose generation was replaced while it was in flight. Closing an App during
+acquisition retains its claim and refuses subsequent hydration/readiness, but
+the late response may still install a cache before cleanup finishes. A stronger
+no-install-after-boot-abort guarantee remains separate work.
+
+## Design review and next checkpoint, 2026-09-09
+
+An independent design pass retained the opaque download envelope, browser-owned
+Yjs validation, existing App lifetime, and editor-owned title producer. It found
+no correctness blocker. The process launcher, retirement scenario, and disposable
+Worker remain separate because they run distinct lifetimes and runtime programs.
+Both browser scripts are now TypeScript. Honeycrisp's normal typecheck includes
+the Bun/DOM runner and a separate fixture program under the self-hosted Worker.
+The converted browser journey passes. The launcher probes its disposable service
+binding before enrollment because Wrangler can reload during service discovery.
+
+Focused commits record the complete download (`8cea9aa6c6`), producer cancellation
+(`10f4c3456d`), and typed browser proof (`d81743d016`). An isolated copy of the
+staged source passed 62 wire/open/App/recording tests, the three Honeycrisp editor
+tests, 13 Worker tests, Sync/Server/App/Honeycrisp typechecks, both script programs,
+and the complete browser journey. The first isolated browser attempt exposed the
+service-discovery race; the read-only readiness repair passed the repeat run.
+The final full-worktree documentation scan reports 45 findings. Compared with
+the earlier 43-finding report, it adds ADR-0365 and ADR-0376, neither edited by
+this task. The earlier checkpoint counts remain dated evidence.
+
+The next bounded checkpoint is verified backup publication and the persistent
+library catalog. Manual and imported backups must share immutable storage,
+read-back verification, and publication. Preserve imported bytes exactly. Prove
+interrupted publication leaves no published record, downloads return the exact
+saved bytes, another library cannot resolve the ID, and generic deletion cannot
+remove retained backups. Keep the structural codec; absorb the storage
+checkpoint's caller-managed save identity into the recovery owner.
+
+Do not expose a five-method recovery object with unfinished guarantees. Add the
+working publication operations first. Durable restore-attempt reservation,
+receipt-first reconciliation, activation transport, and the Backups screen follow
+as their own checkpoints. The complete outcome below remains the destination.
 
 ## Settled product contract
 
@@ -67,6 +154,9 @@ through normal bootstrap without a generation picker.
 - Retirement fences old writes, invalidates the cache under the library claim,
   closes the App, and reloads the page. The new page downloads and opens the
   replacement. No document swap happens inside a live App.
+- Manual backups, uploaded backups, and automatic pre-restore backups enter
+  one verified catalog outside the replaceable generation. Download and restore
+  accept only published backup IDs. Recovery owns operation identity privately.
 - Ordinary folding stays automatic. Archives are immutable recovery artifacts.
   No automatic fresh-document or nested-container replacement for maintenance.
 
@@ -77,11 +167,11 @@ paths can change independently of this spec.
 
 ```txt
 packages/server/src/store-sync/
-  generations.ts       number allocation and admission ledger
-  authority.ts         one independently writable generation per authority
-  mount.ts             allocate/store/admit import; generation-routed sockets
+  generations.ts       historical ledger retained for migration refusal
+  authority.ts         stable current authority and generation-bound sockets
+  mount.ts             atomic current startup; scoped generation-bound sockets
 packages/data/src/
-  store/browser.ts     generation-named IDB, list/max discovery, bootstrap
+  store/browser.ts     stable replica IDB, optional header, canonical bootstrap
   store/store.ts       App resources, sync, close and persistence ownership
   store/persistence.ts pending writes; close drains the queue
   store/log.ts         acknowledged-log folding
@@ -94,14 +184,15 @@ packages/device/src/library-claim.ts origin-wide app/account exclusion
 packages/app/src/open.ts             App resources and retirement forwarding
 apps/honeycrisp/src/lib/application.ts page-owned App and departure
 packages/sync/src/{store-route,generations-route}.ts wire addresses
+packages/sync/src/current-download.ts complete opaque HTTP capture
+apps/honeycrisp/scripts/library-retirement.ts real browser retirement journey
 ```
 
-At task start, the mount skipped ledger admission for WebSocket upgrades. A
-concurrent task has since added that check and a server-selected initial
-generation. Route admission still cannot retire an already-open socket. Browser
-discovery still scans locally named generations and otherwise takes a remote
-maximum. Ordinary close drains pending writes; retirement now has a separate
-discard path. The new current authority and cache remain unmounted.
+At the original task start, the mount and browser still selected independently
+writable generations. The current App path now uses a stable authority address
+and optional-header cache. Ordinary close drains pending writes; confirmed
+retirement has a separate discard path. Historical personal libraries refuse
+implicit adoption pending an explicit rollout decision.
 
 ## Target ownership
 
@@ -167,40 +258,265 @@ seed an empty remote document or reload in a loop. Boot ownership rejects late
 responses. A restore during download may obsolete its generation; admission
 checks it again before sending. Cached open never proves perpetual currency.
 
-## Implementation sequence
+## Recovery API and execution
 
-1. Re-read current code and capture a focused validation baseline in the dirty
-   checkout. Trace hosted and self-hosted wiring, app openers, checkout callers,
-   and persistence ownership. Produce failing invariant tests in isolated storage
-   before changing production discovery or deleting the ledger.
-2. **Checkpoint implemented and reviewed:** replace the private storage harness
-   with one portable authority transaction owner and generation-bound hub lifetimes. Move the
-   existing log SQL into transaction-local operations shared by the current
-   deployed wrapper and the unmounted replacement. Preserve activation and
-   receipt tests, and add retired-delivery, queued-push, partial-chunk, offer,
-   synchronous-reply, and reconstructed-attachment cases. Delete the replaced
-   harness implementation. Keep activation unmounted until complete backup and
-   restore fidelity is established.
-3. Add explicit admitted/retired synchronization outcomes. Socket open alone
-   must not send the outbox. Ordinary transient failures preserve cache and
-   retry; authenticated retirement terminates that App lifetime.
-4. Prove the optional-header IDB cache, write fence, atomic invalidation, and
-   complete install in a real browser. Wire retirement to App cleanup and page
-   reload. Reuse the normal bootstrap path. Preserve local-only startup and
-   account/authority isolation; update all affected app consumers.
-5. Establish complete archive capture and reconstruction fidelity, including
-   rich content, settings, unknown stored values as promised by the format, and
-   referenced blobs. Define archive version/migration behavior. Verify a backup
-   before destructive activation. A rendered folder or ZIP of current files
-   does not establish a complete consistent backup by itself.
-6. Integrate deliberate restore and remove independently writable-generation
-   APIs, list/max discovery, and obsolete tests. Keep push/pull rejecting a
-   manifest from a different generation. Apply design review at the meaningful
-   structural checkpoint and local post-implementation review before handoff.
+The target application surface is:
 
-These are dependency checkpoints, not a prescription for new helper layers.
-Before implementation, inspect consumers and select the smallest complete first
-slice. Do not deploy or delete real libraries as part of proving the protocol.
+```ts
+const recovery = createLibraryRecovery(resources);
+
+recovery.backup();
+recovery.import(file);
+recovery.list();
+recovery.download(backupId);
+recovery.restore(backupId);
+```
+
+This is proposed call syntax. Result handling is omitted here. `backup` and
+`import` return the published backup record; `list` returns this library's
+published records; `download` returns a way to obtain the original immutable
+file; `restore` returns its resolved outcome. Bind the application definition,
+authenticated library authority, attachment storage, archive storage, and private
+request persistence when constructing recovery. Do not add empty methods to the
+public barrel before their guarantees exist. Concrete factory resource types and
+transport return types follow the first working integration.
+
+### Owners and durable records
+
+```txt
+Backups screen
+  -> library-bound recovery coordinator (application-side codec)
+     -> stable library authority: catalog, restore records, generation activation
+     -> object storage: archive files, retained prepared requests, attachments
+     -> local pending reference: recover the same intent after page restart
+
+Current authority activation
+  -> old generation retirement -> App departure -> normal startup on new page
+```
+
+The catalog and restore records survive generation replacement. Place their
+metadata under the stable library authority's serialization boundary. R2 is the
+hosted object provider through the existing S3 adapter; it does not define public
+IDs or application semantics. Existing principal-scoped blob routes are not a
+library-scoped backup catalog.
+
+A published backup record needs an opaque backup ID, its library scope, immutable
+object reference and digest, byte length, authority-recorded addition time, and
+reason (`manual`, `imported`, or `before-restore`). Source application/data
+identity, format version, and available capture provenance must accompany it.
+Use the addition time for imported entries; do not infer capture time from a
+filename. A capture position describes the source, not permission to overwrite
+the destination. Keep these records outside the Yjs document and replaceable log.
+
+A restore attempt needs an internal operation ID, selected backup ID and digest,
+its exact destination condition, one safety backup ID, exact prepared request
+object and digest, and its outcome/receipt. Reserve one unresolved attempt per
+library atomically. Concurrent attempts cannot each claim the same slot. The
+application retains a small durable pending reference before its first mutating
+request, scoped to the full library identity and outside the retired replica's
+invalidation path. The authority stores the attempt and its progress; immutable
+object storage holds large prepared bytes. Neither a closure nor a recomputed
+archive is durable request storage.
+
+On reopening, reconcile the pending attempt before enabling a new restore or
+fetching its source archive again. A committed receipt must remain readable from
+the journal/authority even when archive object storage is unavailable. The current
+raw authority resolves receipts through `prepareActivation` with replacement
+bytes; add a private authenticated receipt query rather than requiring the
+original source or large prepared object merely to observe a committed outcome.
+Calling `restore` with its pending backup resumes that attempt; another backup
+reports that a restore is already pending. Once an outcome has been reconciled,
+a later deliberate call can allocate a new attempt even for the same backup.
+The UI's retry action continues the pending request. No caller supplies an ID
+and no public prepare/commit API is needed. Prove completion-observation and
+pending-reference cleanup across restart before declaring this contract done.
+
+Define a durable failed-without-activation outcome for definitive preparation
+failures, including conflicting immutable destination attachment bytes. The
+authority must atomically confirm no committed activation, fence that attempt
+against delayed activation, and release the active slot. Activation checks this
+attempt state in the same transaction as its generation/head comparison and
+receipt write; a route-level check followed by another transaction is insufficient.
+Retain all completed backup records. Unknown outcomes remain pending until the
+authority resolves them; never interpret a network failure as proof of no commit.
+This failure finalization belongs to the private coordinator, not a sixth public
+method. Prove another backup can restore after a definitive failure.
+
+The authority remains opaque to Yjs. The recovery coordinator performs semantic
+archive validation and reconstruction. Authority publication binds the authorized
+library and exact stored object identity; restore revalidates the selected bytes
+rather than treating a catalog row as a substitute for validation. Admission,
+accepted log writes, and final activation still share one transaction owner.
+
+### One backup publication path
+
+```txt
+backup(): capture authoritative snapshot + tail + referenced attachments
+import(file): retain the selected file's exact bytes
+pre-restore backup: capture the destination position that activation will compare
+                       |
+                       v
+          validate -> immutable write -> read-back verification
+                       |
+                       v
+          publish library catalog record -> return backup ID
+```
+
+Preserve imported bytes; do not reconstruct and recapture the file simply to
+reuse `saveArchive`. Move the common immutable verification into recovery's
+private publication path. `captureArchive` and `prepareArchive` remain codec
+operations, and the existing storage verification behavior must survive.
+
+Object storage and authority SQL do not share a transaction. First verify the
+immutable object, then publish its record. Interrupted or rejected publication
+must expose no usable backup. A retry reconciles its reserved identity rather
+than duplicating rows. Unreferenced uploads can remain pending cleanup; cleanup
+must not race publication or delete an object referenced by a catalog row or
+restore attempt. The existing generic blob DELETE route must not bypass this
+protection; choose recovery-owned object addressing or enforce references at that
+route. Do not implement bucket scanning as the catalog.
+
+`download(id)` and `restore(id)` resolve only a published record authorized for
+this library. The exact verified digest connects import, download, and restore.
+An expired download URL is retriable; it does not remove the backup. If storage
+is unavailable or corrupted, refuse the action rather than silently substitute
+another object. Publication alone does not establish indefinite storage retention.
+
+### Complete restore sequence
+
+1. Look up the private pending reference and reconcile any existing attempt
+   first. Return its committed receipt without downloading or reconstructing its
+   source again. If it is still preparing, continue that attempt; a different
+   selected backup cannot start while its outcome is unresolved.
+2. For a new attempt, resolve the selected published backup, confirm application
+   compatibility, and validate its bytes. The UI has already named the destination
+   and obtained deliberate restore confirmation. Start the durable attempt, pin
+   its selected source, and reserve its safety backup identity. Capture the destination's generation and
+   exact head, including its tail, and preserve that capture for interrupted
+   preparation before publishing the safety backup.
+3. Save and verify the destination backup through the common publication path.
+   Associate the resulting record with this attempt. Its label is Before restore
+   attempt, since capture does not prove activation succeeded.
+4. Reconstruct the selected archive into a fresh lineage. Install and verify its
+   attachments in the destination storage needed by synchronized devices, not
+   only a transient device cache. Persist the exact activation bytes and
+   destination condition under the attempt before dispatching activation.
+5. Activate conditionally through the stable authority. Retries reuse the same
+   request and receipt. A destination conflict is terminal for this attempt;
+   never silently recapture newer work under the same intent.
+6. Resolve the attempt's outcome and retain its backup records. Retirement closes
+   old App producers and invalidates its cache before full document reload.
+   Pending operation reconciliation must survive that very reload.
+
+Definitive preparation failure finalizes the failed attempt through the authority
+and fences late activation before releasing the slot. An unresolved activation
+response retains the pending attempt until receipt reconciliation succeeds.
+
+If import succeeds but the person cancels restoration, its backup remains in the
+catalog. Failed activation also retains the completed safety backup. Keep one
+safety backup per attempt across response loss and restarts. A different attempt
+is allowed to create another backup even when restoring the same source.
+
+### Implementation waves
+
+1. **Catalog and file contract, independent of deployed server replacement.**
+   - [ ] Add failing portable tests for publication, interruption, library scope,
+     and history surviving generation changes before defining catalog mutations.
+   - [ ] Extend the unshipped archive format with application/data identity and
+     explicit provenance. Decide version refusal from actual fixtures; do not
+     guess missing identity or silently add a compatibility reader.
+   - [ ] Implement private catalog/publication over portable authority SQL and
+     immutable object storage. Reuse exact byte/MIME checks from
+     `archive-storage.ts`; preserve uploaded files unchanged.
+   - [ ] Exercise manual capture and imported files through the same publication
+     owner. Verify invalid files, missing objects, and interrupted finalization
+     never become usable records; retries publish one record.
+   - [ ] Review the resulting owner before starting dependent orchestration.
+2. **Durable restore owner behind the five methods.**
+   - [ ] Build the private attempt journal and active-attempt reservation. Test
+     restart before first response, before/after request persistence, before/after
+     activation, and before/after local pending-reference reconciliation.
+     Prove receipt recovery without archive storage, terminal preparation failure
+     with slot release, and rejection of the failed attempt's late activation.
+   - [ ] Compose destination capture, one safety backup, installed attachments,
+     retained activation request, and receipt recovery. No live activation from
+     unverified preparation and no fresh reconstruction on retry.
+   - [ ] Translate current archive-storage test callers to the complete recovery
+     API. In the existing save/reopen test, backup creation should return the ID
+     subsequently used by download; in interruption tests, retry the owner rather
+     than manually pass captures and bytes; in receipt tests, reopen recovery and
+     use only the backup ID. These are current test consumers, not production UI.
+   - [ ] Absorb storage composition into proposed `packages/data/src/recovery.ts`
+     when that owner exists. Delete superseded standalone storage exports and
+     their forwarding layer; keep codec and opaque authority boundaries.
+3. **Production authority and browser integration.**
+   - [x] Integrate one current authority with the shared browser bootstrap path.
+   - [ ] Mount catalog and private restore transport against one stable library
+     authority, with account/library authorization on every operation. Use
+     configured object storage and prove retention across generation cleanup.
+   - [x] Replace list/max discovery with atomic current download and stable
+     optional-header cache; preserve offline opening and local-only startup.
+   - [x] Prove Durable Object eviction/hibernation and old-socket rejection.
+   - [ ] Exercise hosted R2 adapter behavior and the self-hosted S3 boundary without
+     deploying to production or deleting existing libraries.
+4. **Backups screen and complete native-browser proof.**
+   - [ ] Add Create backup and Upload backup to the Backups screen. Upload selects
+     its published row and offers Restore this backup without a list detour.
+   - [ ] Restore confirmation names the destination and unsynchronized-work loss.
+     Import cancellation, preparation errors, conflicts, and unknown outcomes
+     retain the appropriate backups and pending attempt for recovery.
+   - [ ] Bind the recovery owner to the page's fixed App/account lifetime. Fence
+     late callbacks after departure; never publish into another account's library.
+   - [x] Prove Honeycrisp editor cleanup, full reload, offline cached startup,
+     failed invalidation, failed download, and complete replacement readiness
+     in a native browser through test-only activation.
+   - [ ] Extend the native proof to production recovery, recorder cleanup,
+     restart reconciliation, and obsolete boot response interruption. Preserve
+     different-generation working-copy refusal.
+5. **Prove and retire replaced paths.**
+   - [ ] Run affected suites and typechecks, attributing unrelated failures to a
+     recorded baseline. Review cumulative implementation and remaining risks.
+   - [ ] Stop importing old generation discovery and public history-selection
+     paths, verify, then delete them under the grounded existing-history rollout
+     decision. No automatic choice of a maximum historical library for deletion.
+   - [ ] Update durable records under ADR conventions and delete this spec and its
+     handoff only when the full accepted outcome is implemented and verified.
+
+### Execution decisions still requiring evidence
+
+- Application compatibility and archive provenance: v1 has no application/data
+  identity or capture date. Define the format check before accepting arbitrary
+  uploads as restorable. Version 1's conservative recognition of BlobIds in
+  ordinary text can refuse capture; product acceptance of that limitation is
+  still outstanding.
+- Durability and size: filesystem reopen tests do not prove crash/power-loss
+  durability, and full JSON archives containing numeric byte arrays have not
+  been sized for Worker execution. Measure limits at the application and
+  transport boundaries; keep reconstruction application-side. Prove the selected
+  storage provider's write and retention guarantees before enabling activation.
+- Lifetime and authorization: resolve full shared/personal library identity from
+  current code, not stale principal assumptions. Define pending-reference storage
+  that remains available after App retirement without preserving retired edits.
+- Retention: protect published backups and active attempts first. Scheduling,
+  previews, automatic expiry, and user-driven deletion are separate features.
+  Do not silently delete user backups to satisfy a storage budget.
+- Production replacement still requires the recovery owner and verified catalog.
+  Existing-history rollout remains a separate decision before deployment.
+
+## Recovery planning review, 2026-09-09
+
+The independent design review kept the five-method API and the split between
+application-side codec, durable recovery coordinator, and opaque authority.
+It accepted the publication-first wave ordering. Two findings were incorporated:
+definitive preparation failure now fences late activation and releases the active
+slot; interrupted attempts resolve receipts before source-file reads. The plan
+also scopes this path to synchronized libraries and includes generic blob deletion
+in retention proof. These are planning repairs, not newly passing runtime tests.
+
+Documentation validation checks local links, code fences, whitespace, and ADR
+index registration. The task-start hygiene baseline contains 40 unrelated ADR
+dependency/status findings. This documentation pass changes no runtime code or
+ADR status.
 
 ## Required proof
 
@@ -223,6 +539,20 @@ slice. Do not deploy or delete real libraries as part of proving the protocol.
 | Existing editor or recorder still holds old references | Old lifetime cannot produce accepted/persisted writes |
 | Different-generation working-copy manifest | Push refuses; no reinterpretation as mass edits/deletions |
 | Archive round trip | Promised fields, content structure, and blobs survive reconstruction |
+| Manual backup, uploaded file, and pre-restore backup | Same verified publication path and persistent catalog |
+| Interrupted upload or publication | No usable catalog record; retry publishes once |
+| Download then import | Exact original bytes retained and served by the new backup ID |
+| Invalid application/format or unauthorized backup ID | Refused before library replacement |
+| Restore canceled after import or activation conflicts | Imported and completed safety backups remain downloadable |
+| Restore completes and generation changes | Backup history survives outside the replaced document |
+| Restore response lost, then page/owner restarts | Public backup-ID call resumes the retained request and original receipt |
+| Concurrent or repeated restore while outcome unknown | One pending attempt; no duplicate safety backup or activation |
+| Same backup deliberately restored after resolved completion | New internal attempt and fresh lineage |
+| Cleanup overlaps upload, publication, or active restore | No required archive, capture, attachment, or request object is removed |
+| Committed restore loses its response, then archive storage fails | Journal/authority receipt resolves without source download or reconstruction |
+| Permanent preparation failure, restart, then another backup chosen | Failed attempt releases its slot and another restore can proceed |
+| Delayed activation arrives after failure finalization | Authority rejects it in the same serialization boundary |
+| Generic blob deletion targets a retained recovery object | Retention cannot be bypassed through the existing DELETE route |
 
 ## First storage checkpoint, 2026-09-09
 
@@ -462,34 +792,100 @@ retirement wiring and readiness cleanup remain in that ongoing composition.
 Preserve them when committing that refactor. The restore commits do not include
 that unrelated refactor or server initialization work.
 
-## Integration pause and remaining proof
+## Archive storage continuation, 2026-09-09
 
-Another active task changed server generation routing, the initialization ledger,
-and browser discovery during this execution. It now owns changes in
-`packages/server/src/store-sync/`, `packages/sync/src/generations-route.ts`, and
-the bootstrap portion of `packages/data/src/store/browser.ts`. The attempted
-current-server replacement was backed out to preserve that work. The user has
-been asked which task should own their integration. No answer has been received.
+`packages/data/src/artifact/archive-storage.ts` now composes the structural
+archive with the existing immutable `BlobStore` contract. It remains unmounted.
+`saveArchive` captures the supplied destination state, writes it under a
+caller-retained archive id, reads it back, compares every byte and its MIME type,
+and verifies reconstruction. A retry accepts an existing object only when it
+matches exactly. A different capture cannot overwrite that archive id.
 
-After ownership is settled:
+`installArchive` validates the source archive before writing any destination
+blob. It installs each referenced id and verifies bytes and MIME type on
+read-back before returning fresh-lineage activation material. An interrupted
+installation can retry already written objects. A conflicting existing blob
+refuses installation without overwrite. Neither operation activates, deletes,
+or changes the authority.
 
-1. Mount one current authority per stable library address, retaining generation
-   identity in hibernated socket attachments. Replace discovery with atomic
-   current download and the optional-header cache. Remove independently writable
-   histories only after a grounded existing-history rollout decision.
-2. Persist an immutable backup and verify its read-back before activation.
-   Install and verify destination blobs, capture the destination condition, and
-   expose a deliberate restore operation with durable receipt retry.
-3. Prove the complete browser App loop, offline cached startup, failed download,
-   obsolete boot responses, editor/recorder cleanup, and real Durable Object
-   eviction/hibernation around restore. Preserve working-copy mismatch refusal.
-4. Run affected integration suites after the concurrent bootstrap work settles.
-   The current old App test fixtures expect the earlier initialization protocol;
-   the full workerd run also has initialization/connection failures. These are
-   unresolved integration results, not a passing restore checkpoint.
+The storage owner supplies durability and retention. Tests use actual temporary
+Bun filesystem stores and reopen their handles. They prove persisted read-back,
+not process interruption or power-loss durability. The Bun adapter publishes by
+rename without an explicit fsync barrier. This slice does not establish the
+complete pre-activation durability gate. Production composition must retain both
+the backup and installed blobs through activation and cleanup; the address-only
+blob capability itself has no retention pin.
+
+Validation:
+
+- Eight new archive-storage tests pass, with 27 assertions. They cover reopened
+  storage, unchanged backup retry, conflicting capture, failed write/read-back,
+  a different valid archive returned by storage, interrupted blob installation,
+  conflicting bytes/MIME types, and invalid archive refusal before any write.
+- The combined sync, authority, archive, persistence, store retirement, and
+  departure suite passes 216 tests with 1,271 assertions.
+- Focused strict TypeScript validation of the new module and tests passes.
+  The data package still reports eight browser-global diagnostics. A temporary
+  equivalent config excluding both new files reproduces those same diagnostics.
+- Before these documentation updates, doc hygiene reports 40 existing ADR
+  dependency/status issues. This continuation changes no ADR status.
+
+Independent design review accepted the shared read-back invariant and found no
+correctness blocker in this slice. It independently ran 49 archive/storage and
+current-authority/hub tests with 316 assertions. Its remaining findings match
+the durability, retention, and request-identity obligations below. The retry
+warning is now also on `installArchive` itself.
+
+Reproduce the focused continuation checks from the repository root:
+
+```sh
+bun test packages/data/src/artifact/archive-storage.test.ts packages/data/src/artifact/archive.test.ts packages/data/evidence/current-generation
+bun x tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target esnext --lib esnext --types bun --noUncheckedIndexedAccess packages/data/src/artifact/archive-storage.ts packages/data/src/artifact/archive-storage.test.ts
+```
+
+Next work must preserve the distinction between source provenance and destination
+coverage. An old archive's generation/head cannot authorize replacing today's
+library. Capture and save today's destination first, then condition activation
+on that captured destination position. Each `installArchive` call reconstructs
+new Yjs operation identities. Re-running it after a lost activation response
+would produce a different byte digest and fail the authority's request-bound
+receipt check. The recovery owner must persist the operation, exact replacement bytes, and
+destination condition before sending activation. Public callers supply only a
+backup ID. The orchestration and its interruption proof remain unimplemented.
+
+## Shared startup integration and remaining proof
+
+The user assigned the overlapping startup boundary to the Honeycrisp
+library-ownership continuation and selected one current authority with full
+page reopening. Follow `20260909T004225-library-ownership-execution.md` for its
+active implementation and exact evidence. The paused initializer proposal in
+ADR-0385 has been reconciled with this contract: no list/max adoption or separate
+initial-generation owner participates in startup.
+
+That continuation integrated `packages/server/src/store-sync/`, the shared route
+constants, and browser acquisition. It mounted the existing current-authority
+transaction, binds hibernated sockets to their admitted generation, and uses the
+optional-header cache for App startup. Historical numbered libraries remain
+untouched and their rollout remains a separate decision. Its earlier browser and
+Worker results are recorded in the ownership execution spec. The Two-device
+journey checkpoint above adds complete current downloads and real editor
+retirement/reload proof. Production restore remains unmounted.
+
+Remaining restore work:
+
+1. Compose verified archive storage and blob installation with a retained backup
+   and durable activation request. Prove durability, retention, request-bound
+   receipt recovery, and the deliberate restore operation.
+2. Extend browser and Worker proof to production recovery, restart reconciliation,
+   attachment retention, recorder cleanup, and obsolete/interrupted downloads.
+   Preserve the existing failed-invalidation and hibernation evidence and
+   working-copy mismatch refusal.
+3. Keep restore generation retirement distinct from Account retirement and
+   ordinary library switching. Only confirmed generation retirement authorizes
+   discarding a replica's pending edits.
 
 No restore endpoint, deployment, destructive migration, or real-library deletion
-was performed. The spec remains In Progress.
+is authorized by the Honeycrisp slice. This spec remains In Progress.
 
 ## Evidence already gathered
 
@@ -518,9 +914,10 @@ the existing benchmark and unit tests alone are not completion evidence.
 
 ## Remaining judgments and separate work
 
-The lifetime design is settled. Archive format/versioning, exact endpoint/frame
-names, receipt retention, temporary replacement storage limits, and rollout of
-existing independently writable generations still need implementation evidence.
+The lifetime design is settled. The recovery API and catalog rule are settled in ADR-0386. Archive metadata
+and versioning, private endpoint names, receipt retention, temporary replacement
+storage limits, and rollout of existing independently writable generations still
+need implementation evidence.
 Do not silently select a maximum and destroy other existing histories during a
 migration. Determine the deployed data situation and record the rollout decision
 before activating it on real libraries; no production action is authorized here.
