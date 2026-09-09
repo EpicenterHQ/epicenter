@@ -2,6 +2,7 @@
 import type { AccountIdentity } from '@epicenter/principal';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { claimLibrary } from './library-claim.js';
 import { appIdOrThrow, type AppSqliteDatabase, DeviceError } from './index.js';
 import {
 	isDatabaseName,
@@ -181,30 +182,57 @@ export function createAppSqlite(
 	account: AccountIdentity | null,
 ) {
 	const identity = capture(appId, account);
-	let pending: Promise<SqliteLifetime> | undefined;
+
+	let pending:
+		| Promise<
+				Result<{ lifetime: SqliteLifetime; release(): void }, DeviceError>
+		  >
+		| undefined;
 	let closed = false;
 	let closing: Promise<void> | undefined;
 	function acquire() {
-		if (closed) return Promise.reject(new Error('SQLite lifetime is closed.'));
-		return (pending ??= owner.acquire(appId, identity));
+		if (closed)
+			return Promise.resolve(
+				DeviceError.StorageFailed({
+					cause: new Error('SQLite lifetime is closed.'),
+				}),
+			);
+		return (pending ??= (async () => {
+			const claim = await claimLibrary(appId, identity);
+			if (claim.error) return claim;
+			try {
+				return Ok({
+					lifetime: await owner.acquire(appId, identity),
+					release: claim.data.release,
+				});
+			} catch (cause) {
+				claim.data.release();
+				return DeviceError.StorageFailed({ cause });
+			}
+		})());
 	}
 	return {
-		async acquire(): Promise<void> {
-			await acquire();
+		async acquire(): Promise<Result<void, DeviceError>> {
+			const result = await acquire();
+			return result.error ? result : Ok(undefined);
 		},
 		async open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>> {
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
+			const result = await acquire();
+			if (result.error) return result;
 			return tryAsync({
-				try: async () => (await acquire()).open(name),
+				try: () => result.data.lifetime.open(name),
 				catch: (cause) => DeviceError.StorageFailed({ cause }),
 			});
 		},
 		async delete(name: string): Promise<Result<void, DeviceError>> {
 			if (!isDatabaseName(name))
 				return DeviceError.InvalidDatabaseName({ databaseName: name });
+			const result = await acquire();
+			if (result.error) return result;
 			return tryAsync({
-				try: async () => (await acquire()).delete(name),
+				try: () => result.data.lifetime.delete(name),
 				catch: (cause) => DeviceError.StorageFailed({ cause }),
 			});
 		},
@@ -212,10 +240,11 @@ export function createAppSqlite(
 			if (closing) return closing;
 			closed = true;
 			return (closing = pending
-				? pending.then(
-						(lifetime) => lifetime.close(),
-						() => undefined,
-					)
+				? pending.then(async (result) => {
+						if (result.error) return;
+						await result.data.lifetime.close();
+						result.data.release();
+					})
 				: Promise.resolve());
 		},
 	};

@@ -15,7 +15,6 @@
 		"./flush-on-hide": "./src/store/flush-on-hide.ts",
 		"./memory": "./src/store/memory.ts",
 		"./browser": "./src/store/browser.ts",
-		"./test-locks": "./src/store/test-locks.ts",
 		"./sync": "./src/sync/index.ts"
 	},
 	"files": [

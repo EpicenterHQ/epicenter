@@ -16,6 +16,9 @@ import {
 	type SqliteBackend,
 } from './owner.js';
 
+import { installTestLocks } from './test-locks.js';
+installTestLocks();
+
 const appId = 'so.epicenter.test';
 function setup() {
 	const calls: string[] = [];

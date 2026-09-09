@@ -53,7 +53,7 @@ import {
 import * as Y from '@y/y';
 import { type DBSchema, deleteDB, type IDBPDatabase, openDB } from 'idb';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { claimDocument } from './claims.js';
+import { claimLibrary } from '@epicenter/device/library-claim';
 import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
@@ -156,24 +156,9 @@ function openIndexedDb(address: string): Promise<BrowserDurableDatabase> {
 
 /** Delete one store's IndexedDB definition whole. Our own connection is closed first. */
 function deleteIndexedDb(address: string): Promise<void> {
-	return new Promise((resolve, reject) => {
-		let blocked = false;
-		void deleteDB(address, {
-			blocked() {
-				// `deleteDB` waits for the other tab. This caller must instead know
-				// that its requested wipe did not happen before it reloads.
-				blocked = true;
-				reject(
-					new Error('Another tab is holding this store open. Close it first.'),
-				);
-			},
-		}).then(
-			() => {
-				if (!blocked) resolve();
-			},
-			(cause) => reject(cause),
-		);
-	});
+	// IndexedDB deletion cannot be cancelled. Keep the caller's library claim
+	// until the actual request settles, including while another connection blocks it.
+	return deleteDB(address);
 }
 
 /** One address's durable engine, loaded and ready to commit batches. */
@@ -213,15 +198,24 @@ export type BrowserBacking = {
 export async function openIdbBacking(
 	address: string,
 ): Promise<Result<BrowserBacking, StoreError>> {
-	return tryAsync({
+	const opened = await tryAsync({
+		try: () => openIndexedDb(address),
+		catch: (cause) => StoreError.StorageFailed({ cause }),
+	});
+	if (opened.error) return opened;
+	const durable = opened.data;
+	const result = await tryAsync({
 		try: async () => {
-			const durable = await openIndexedDb(address);
-
 			const read = durable.transaction(UPDATES_STORE, 'readonly');
 			const updateStore = read.objectStore(UPDATES_STORE);
-			const rows = await updateStore.getAll();
-			const ids = (await updateStore.getAllKeys()) as number[];
-			await read.done;
+			let rows: StoredUpdateRecord[];
+			let ids: number[];
+			try {
+				rows = await updateStore.getAll();
+				ids = (await updateStore.getAllKeys()) as number[];
+			} finally {
+				await read.done;
+			}
 
 			// One pass over the chain answers everything the snapshot holds, which
 			// is the shape of the collapse: the outbox and the cursor are read off
@@ -439,6 +433,10 @@ export async function openIdbBacking(
 		},
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
+	// A returned failure proves the acquired connection was released. A cleanup
+	// exception must escape so the caller keeps its library reservation.
+	if (result.error) durable.close();
+	return result;
 }
 
 /**
@@ -672,6 +670,17 @@ async function fetchGeneration(
 	}
 }
 
+/** Capture ownership and transport together before asynchronous discovery. */
+function captureAccount(account: DatabaseAccount): DatabaseAccount {
+	return Object.freeze({
+		authorityId: account.authorityId,
+		principalId: account.principalId,
+		baseURL: account.baseURL,
+		fetch: account.fetch,
+		openWebSocket: account.openWebSocket,
+	});
+}
+
 /**
  * Open one exact generation of one database, cache-first (ADR-0292).
  *
@@ -702,11 +711,42 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 ): Promise<
 	Result<OpenedDatabase<TDatabase>, StoreError | DataDefinitionParseError>
 > {
+	account = captureAccount(account);
 	const { data: parsed, error: parseError } = compileData(definition);
 	if (parseError !== null) return Err(parseError);
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error) return located;
+	if (!isGeneration(generation))
+		return StoreError.Unaddressable({
+			reason: `'${generation}' is not a generation number`,
+		});
 	const parts = createStoreOverPort({
 		definition: parsed,
-		acquire: () => acquireDatabase(parsed, { appId, generation, account }),
+		async acquire() {
+			const claim = await claimLibrary(appId, account);
+			if (claim.error) return claim;
+			const acquired = await acquireDatabase(parsed, {
+				appId,
+				generation,
+				account,
+			});
+			if (acquired.error) {
+				claim.data.release();
+				return acquired;
+			}
+			return Ok({
+				...acquired.data,
+				async dispose() {
+					await acquired.data.dispose?.();
+					claim.data.release();
+				},
+			});
+		},
 	});
 	const ready = await parts.ready;
 	if (ready.error !== null) return ready;
@@ -759,13 +799,9 @@ async function acquireDatabase(
 	void requestPersistentStorage();
 
 	const address = `${located.data}${generation}`;
-	const claim = await claimDocument(address);
-	if (claim.error !== null) return Err(claim.error);
-	const release = claim.data.release;
 
 	const opened = await openIdbBacking(address);
 	if (opened.error !== null) {
-		release();
 		return Err(opened.error);
 	}
 	let backing = opened.data;
@@ -783,7 +819,6 @@ async function acquireDatabase(
 				});
 		if (fetched.error !== null) {
 			backing.close();
-			release();
 			await deleteIndexedDb(address).catch(() => undefined);
 			return Err(fetched.error);
 		}
@@ -800,7 +835,6 @@ async function acquireDatabase(
 		});
 		if (writeError !== null) {
 			backing.close();
-			release();
 			return Err(writeError);
 		}
 		// Reopened rather than patched in memory: what hydrates has to be what
@@ -809,7 +843,6 @@ async function acquireDatabase(
 		backing.close();
 		const reopened = await openIdbBacking(address);
 		if (reopened.error !== null) {
-			release();
 			return Err(reopened.error);
 		}
 		backing = reopened.data;
@@ -820,11 +853,7 @@ async function acquireDatabase(
 		durable: held.port,
 		loaded: held.loaded,
 		dispose() {
-			try {
-				held.close();
-			} finally {
-				release();
-			}
+			held.close();
 		},
 	});
 }
@@ -859,16 +888,7 @@ export function openAppData<const TDefinition extends DataDefinition>(
 		throw new Error('The account has no stable authority identity.');
 	}
 	// Direct callers need the same capture guarantee as the app factory.
-	const account =
-		input === null
-			? null
-			: Object.freeze({
-					authorityId: input.authorityId,
-					principalId: input.principalId,
-					baseURL: input.baseURL,
-					fetch: input.fetch,
-					openWebSocket: input.openWebSocket,
-				});
+	const account = input === null ? null : captureAccount(input);
 	const identity =
 		account !== null
 			? Object.freeze({
@@ -882,65 +902,53 @@ export function openAppData<const TDefinition extends DataDefinition>(
 		blobStore: blobs.local,
 		local: account === null,
 		async acquire() {
-			const claim = await claimDocument(
-				`library:${JSON.stringify([appId, identity?.authorityId ?? null, identity?.principalId ?? null])}`,
-			);
-			if (claim.error !== null) return claim;
-			try {
-				await namedSqlite.acquire();
-				const resolved =
-					account === null
-						? Ok({ generation: 1 })
-						: await resolveGeneration(definition, { appId, account });
-				if (resolved.error !== null) {
-					await namedSqlite.close();
-					claim.data.release();
-					return resolved;
-				}
-				const generation = resolved.data.generation;
-				const acquired = await acquireDatabase(parsed, {
-					appId,
-					generation,
-					...(account === null ? {} : { account }),
-				});
-				if (acquired.error !== null) {
-					await namedSqlite.close();
-					claim.data.release();
-					return acquired;
-				}
-				return Ok({
-					...acquired.data,
-					async dispose() {
-						// Both resources belong to the document. Try every release, but
-						// retain exclusion if any owner cannot confirm it let go.
-						const released = await Promise.allSettled([
-							Promise.resolve().then(() => acquired.data.dispose?.()),
-							namedSqlite.close(),
-						]);
-						const failed = released.find(
-							(result) => result.status === 'rejected',
-						);
-						if (failed?.status === 'rejected') throw failed.reason;
-						claim.data.release();
-					},
-					...(account === null
-						? {}
-						: {
-								replication: {
-									address: {
-										baseURL: account.baseURL,
-										dataId: parsed.id,
-										generation,
-									},
-									transport: account,
-								},
-							}),
-				});
-			} catch (cause) {
-				await namedSqlite.close();
-				claim.data.release();
-				throw cause;
+			const acquiredSqlite = await namedSqlite.acquire();
+			if (acquiredSqlite.error) {
+				const error = acquiredSqlite.error;
+				return error.name === 'AlreadyOpen' ||
+					error.name === 'LocksUnsupported' ||
+					error.name === 'ClaimFailed'
+					? Err(error)
+					: StoreError.StorageFailed({ cause: error });
 			}
+			const resolved =
+				account === null
+					? Ok({ generation: 1 })
+					: await discoverGeneration(parsed, { appId, account });
+			if (resolved.error !== null) {
+				await namedSqlite.close();
+				return resolved;
+			}
+			const generation = resolved.data.generation;
+			const acquired = await acquireDatabase(parsed, {
+				appId,
+				generation,
+				...(account === null ? {} : { account }),
+			});
+			if (acquired.error !== null) {
+				await namedSqlite.close();
+				return acquired;
+			}
+			return Ok({
+				...acquired.data,
+				async dispose() {
+					// A failed backing release keeps SQL and its library claim reserved.
+					await acquired.data.dispose?.();
+					await namedSqlite.close();
+				},
+				...(account === null
+					? {}
+					: {
+							replication: {
+								address: {
+									baseURL: account.baseURL,
+									dataId: parsed.id,
+									generation,
+								},
+								transport: account,
+							},
+						}),
+			});
 		},
 	});
 	return Object.freeze(
@@ -1004,29 +1012,22 @@ async function writeGeneration({
 	if (located.error !== null) return Err(located.error);
 	const address = `${located.data}${generation}`;
 
-	const claim = await claimDocument(address);
-	if (claim.error !== null) return Err(claim.error);
-	const release = claim.data.release;
+	const opened = await openIdbBacking(address);
+	if (opened.error !== null) return Err(opened.error);
+	const backing = opened.data;
 	try {
-		const opened = await openIdbBacking(address);
-		if (opened.error !== null) return Err(opened.error);
-		const backing = opened.data;
-		try {
-			// Not `AlreadyOpen`: nobody holds this document, and telling a
-			// person to close another window would name a repair that cannot
-			// help. A generation is written once (ADR-0293).
-			if (backing.loaded.updates.length > 0) {
-				return StoreError.GenerationExists({ dataId, generation });
-			}
-			await backing.create({ bytes: state, position });
-			return Ok(undefined);
-		} catch (cause) {
-			return StoreError.StorageFailed({ cause });
-		} finally {
-			backing.close();
+		// Not `AlreadyOpen`: nobody holds this document, and telling a
+		// person to close another window would name a repair that cannot
+		// help. A generation is written once (ADR-0293).
+		if (backing.loaded.updates.length > 0) {
+			return StoreError.GenerationExists({ dataId, generation });
 		}
+		await backing.create({ bytes: state, position });
+		return Ok(undefined);
+	} catch (cause) {
+		return StoreError.StorageFailed({ cause });
 	} finally {
-		release();
+		backing.close();
 	}
 }
 
@@ -1075,6 +1076,29 @@ export async function createGeneration(
 	const { data: parsed, error: parseError } = compileData(definition);
 	if (parseError !== null) return Err(parseError);
 
+	account = captureAccount(account);
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error) return located;
+	const claim = await claimLibrary(appId, account);
+	if (claim.error) return claim;
+	const result = await postNewGeneration(parsed, { appId, account, from });
+	claim.data.release();
+	return result;
+}
+
+async function postNewGeneration(
+	parsed: ParsedDataDefinition,
+	{
+		appId,
+		account,
+		from,
+	}: { appId: string; account: DatabaseAccount; from?: Uint8Array },
+): Promise<Result<{ generation: number }, StoreError>> {
 	const state =
 		from ?? new Uint8Array(Y.encodeStateAsUpdateV2(createDatabaseDocument()));
 
@@ -1188,38 +1212,35 @@ export async function resolveGeneration(
 		account.authorityId,
 	);
 	if (located.error !== null) return Err(located.error);
-	// Generation allocation is a read/list/create critical section. Without a
-	// claim around the empty-list observation, two first opens can both POST an
-	// empty generation before either has published its local copy. A refusal is
-	// preferable to minting two histories; the caller can retry after the first
-	// opener has completed.
-	const allocation = await claimDocument(`${located.data}allocation`);
-	if (allocation.error !== null) return Err(allocation.error);
+	account = captureAccount(account);
+	const claim = await claimLibrary(appId, account);
+	if (claim.error) return claim;
+	const result = await discoverGeneration(parsed, { appId, account });
+	claim.data.release();
+	return result;
+}
 
-	try {
-		const held = await newestGeneration({
-			appId,
-			principalId: account.principalId,
-			authorityId: account.authorityId,
-			dataId: parsed.id,
-		});
-		if (held !== undefined) return Ok({ generation: held });
+async function discoverGeneration(
+	parsed: ParsedDataDefinition,
+	{ appId, account }: { appId: string; account: DatabaseAccount },
+): Promise<Result<{ generation: number }, StoreError>> {
+	const held = await newestGeneration({
+		appId,
+		principalId: account.principalId,
+		authorityId: account.authorityId,
+		dataId: parsed.id,
+	});
+	if (held !== undefined) return Ok({ generation: held });
 
-		const listed = await listGenerations(account, parsed.id);
-		if (listed.error !== null) return Err(listed.error);
-		// The maximum rather than the last element. The authority orders its listing
-		// and this does not need to know that.
-		if (listed.data.length > 0) {
-			return Ok({ generation: Math.max(...listed.data) });
-		}
-
-		// Await inside the critical section. Returning the promise directly would
-		// run this finally block immediately and let a second first-open race the
-		// still-pending authority POST.
-		return await createGeneration(definition, { appId, account });
-	} finally {
-		allocation.data.release();
+	const listed = await listGenerations(account, parsed.id);
+	if (listed.error !== null) return Err(listed.error);
+	// The maximum rather than the last element. The authority orders its listing
+	// and this does not need to know that.
+	if (listed.data.length > 0) {
+		return Ok({ generation: Math.max(...listed.data) });
 	}
+
+	return await postNewGeneration(parsed, { appId, account });
 }
 
 /** Which generations the authority holds, oldest first. */
@@ -1262,15 +1283,14 @@ async function listGenerations(
  * Erase the discovered generations of one account definition on this device.
  *
  * This is not whole-library removal: it excludes blobs, named SQL files, and
- * other definitions. It claims each discovered generation, but does not exclude
- * concurrent generation allocation. Callers must stop producers first. Do not
- * wire this helper directly to an account removal action.
+ * other definitions. It takes library exclusion before discovery, so no document
+ * or SQL-only owner can race allocation or erasure. Direct blob primitives still
+ * need producer coordination. Do not wire this to an account removal action.
  *
- * Claim every discovered generation before deleting any, so an AlreadyOpen
- * refusal deletes nothing. Delete oldest first so an interrupted erase leaves
- * the newest generation. Retrying discovers what remains. Only names in the
- * current address grammar are selected; legacy storage is left untouched.
+ * Delete oldest first so an interrupted erase leaves the newest generation.
+ * Retrying discovers what remains. Only current address names are selected.
  */
+
 export async function eraseGenerations({
 	appId,
 	authorityId,
@@ -1284,24 +1304,11 @@ export async function eraseGenerations({
 }): Promise<Result<{ erased: number }, StoreError>> {
 	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	if (located.error !== null) return Err(located.error);
-	const names = await heldGenerationNames(located.data);
-
-	// The same claim an open takes, so "somebody has this open" has one answer
-	// on this origin rather than a second one read off a delete that blocked.
-	const claims: Array<{ name: string; release(): void }> = [];
-	const release = () => {
-		for (const claim of claims) claim.release();
-	};
-	for (const name of names) {
-		const claim = await claimDocument(name);
-		if (claim.error !== null) {
-			release();
-			return Err(claim.error);
-		}
-		claims.push({ name, release: claim.data.release });
-	}
+	const claim = await claimLibrary(appId, { authorityId, principalId });
+	if (claim.error) return claim;
 
 	try {
+		const names = await heldGenerationNames(located.data);
 		// Oldest first, so an interrupted erase leaves the newest generation
 		// rather than a number nobody chose. `heldGenerationNames` answers in no
 		// order, and the remainder after the prefix is the number by grammar.
@@ -1317,10 +1324,10 @@ export async function eraseGenerations({
 			});
 			if (error !== null) return Err(error);
 		}
+		return Ok({ erased: names.length });
 	} finally {
-		release();
+		claim.data.release();
 	}
-	return Ok({ erased: names.length });
 }
 
 /** Every IndexedDB name under one generation prefix, in no order. */

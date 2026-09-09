@@ -18,7 +18,7 @@
  * belongs in this file's expectations once it is decided.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from './test-locks.js';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 

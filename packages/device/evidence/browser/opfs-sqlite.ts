@@ -69,7 +69,12 @@ const server = Bun.serve({
 });
 const origin = `http://localhost:${server.port}`;
 
-type Answer = { ok: boolean; value?: unknown; error?: string };
+type Answer = {
+	ok: boolean;
+	value?: unknown;
+	error?: string;
+	errorName?: string;
+};
 
 // A PERSISTENT context, not an ephemeral one. WebKit refuses a sync access
 // handle in a throwaway profile, which reads as a code failure and is a
@@ -246,9 +251,17 @@ try {
 		),
 	)) as Answer;
 	check(
-		'is refused rather than silently sharing the pool',
-		!contested.ok,
+		'the competing library is refused before opening its pool',
+		!contested.ok && contested.errorName === 'AlreadyOpen',
 		contested.error ?? '',
+	);
+	const competingWorkers = await second.evaluate(() =>
+		(globalThis as unknown as { workerCount(): number }).workerCount(),
+	);
+	check(
+		'refused tab never started a SQLite worker',
+		competingWorkers === 0,
+		competingWorkers,
 	);
 	const firstStillWorks = await call(
 		'run',

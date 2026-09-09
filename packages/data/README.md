@@ -68,8 +68,7 @@ build names one authority (ADR-0326) and is served from one origin, so it is a
 device-wide constant rather than an address.
 
 `eraseGenerations` deletes discovered generations for one account definition.
-It leaves blobs, named SQL files, and other definitions untouched. It claims
-each discovered generation but cannot exclude concurrent generation allocation.
+It leaves blobs, named SQL files, and other definitions untouched. It takes library exclusion before discovery, including against SQL-only owners.
 It is not an implementation of “remove local data.” See the
 [library erasure contract](../../docs/adr/0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md)
 for the ownership and backend work required before exposing that action.
@@ -78,12 +77,11 @@ Opening replays a durable log into one `Y.Doc`. After that every read is a
 property access on a document already in memory, so nothing below returns a
 promise.
 
-Opening one address twice in a process is refused with
-`StoreError.AlreadyOpen`. Two opens would be two `Y.Doc`s of one document that
-cannot see each other's writes, so they would converge through storage under
-last-writer-wins and quietly lose one side's work. Two generations, and two
-applications' replicas of one data id, are different addresses, so any number
-of them may be open at once.
+One active owner holds an application/account library across the browser origin.
+A second owner, including a sibling definition, another generation, or a SQL-only
+client, receives `AlreadyOpen` before discovery or storage opens. Close the first
+owner before opening another generation. Different applications and local/account
+libraries remain independent.
 
 ## The surface
 

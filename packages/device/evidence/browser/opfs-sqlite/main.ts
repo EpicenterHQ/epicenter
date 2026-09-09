@@ -7,13 +7,24 @@
 
 import { createBrowserDevice } from '../../../src/browser.js';
 
+let workersStarted = 0;
+const BrowserWorker = globalThis.Worker;
+globalThis.Worker = class extends BrowserWorker {
+	constructor(...args: ConstructorParameters<typeof BrowserWorker>) {
+		super(...args);
+		workersStarted++;
+	}
+};
+
 const APP_ID = 'so.epicenter.evidence';
 let storage = createBrowserDevice({ appId: APP_ID });
 const otherStorage = createBrowserDevice({
 	appId: 'so.epicenter.other-evidence',
 });
 
-type Answer = { ok: true; value?: unknown } | { ok: false; error: string };
+type Answer =
+	| { ok: true; value?: unknown }
+	| { ok: false; error: string; errorName?: string };
 
 async function attempt(run: () => Promise<Answer>): Promise<Answer> {
 	try {
@@ -27,6 +38,9 @@ async function attempt(run: () => Promise<Answer>): Promise<Answer> {
 }
 
 Object.assign(globalThis, {
+	workerCount() {
+		return workersStarted;
+	},
 	async closeAndReopen(): Promise<Answer> {
 		return attempt(async () => {
 			const retained = await storage.sqlite.open('local');
@@ -54,7 +68,11 @@ Object.assign(globalThis, {
 		return attempt(async () => {
 			const opened = await otherStorage.sqlite.open('local');
 			if (opened.error !== null)
-				return { ok: false, error: opened.error.message };
+				return {
+					ok: false,
+					error: opened.error.message,
+					errorName: opened.error.name,
+				};
 			const result = await opened.data.all(sql);
 			return result.error === null
 				? { ok: true, value: result.data }
@@ -69,7 +87,11 @@ Object.assign(globalThis, {
 		return attempt(async () => {
 			const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
-				return { ok: false, error: opened.error.message };
+				return {
+					ok: false,
+					error: opened.error.message,
+					errorName: opened.error.name,
+				};
 			const result = await opened.data.run(sql, parameters as never);
 			return result.error === null
 				? { ok: true, value: result.data }
@@ -84,7 +106,11 @@ Object.assign(globalThis, {
 		return attempt(async () => {
 			const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
-				return { ok: false, error: opened.error.message };
+				return {
+					ok: false,
+					error: opened.error.message,
+					errorName: opened.error.name,
+				};
 			const result = await opened.data.all(sql, parameters as never);
 			return result.error === null
 				? { ok: true, value: result.data }
@@ -98,7 +124,11 @@ Object.assign(globalThis, {
 		return attempt(async () => {
 			const opened = await storage.sqlite.open(name);
 			if (opened.error !== null)
-				return { ok: false, error: opened.error.message };
+				return {
+					ok: false,
+					error: opened.error.message,
+					errorName: opened.error.name,
+				};
 			const result = await opened.data.batch(statements as never);
 			return result.error === null
 				? { ok: true, value: result.data }

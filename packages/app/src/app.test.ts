@@ -5,7 +5,7 @@
  * Reopening fake IndexedDB proves rows survive a handle lifetime, not a browser restart.
  */
 import 'fake-indexeddb/auto';
-import { expect, test } from 'bun:test';
+import { expect, test, spyOn } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { type BlobStore, generateBlobId } from '@epicenter/blobs';
 import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
@@ -14,7 +14,7 @@ import {
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
-import { installTestLocks } from '@epicenter/data/test-locks';
+import { installTestLocks } from '@epicenter/device/test-locks';
 import { openAppData } from '@epicenter/data/browser';
 import {
 	defineData,
@@ -776,4 +776,77 @@ test('physical SQL close retains the library claim across sibling definitions', 
 	expectOk(await reopened.ready);
 	expect(acquisitions).toBe(2);
 	await reopened.close();
+});
+
+test('failed durable release retains SQL and the common library claim', async () => {
+	const appId = `test.${crypto.randomUUID()}`;
+	let sqlCloses = 0;
+	const epicenter = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			async acquire(...args) {
+				const lifetime = await testSqlite.acquire(...args);
+				return {
+					...lifetime,
+					async close() {
+						sqlCloses++;
+					},
+				};
+			},
+		},
+	});
+	const app = epicenter.openLocal();
+	expectOk(await app.ready);
+	const close = spyOn(IDBDatabase.prototype, 'close');
+	close.mockImplementation(function (this: IDBDatabase) {
+		throw new Error('Durable close failed');
+	});
+	try {
+		await expect(app.close()).rejects.toThrow('Durable close failed');
+		expect(sqlCloses).toBe(0);
+		const duplicate = epicenter.openLocal();
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close();
+	} finally {
+		close.mockRestore();
+	}
+});
+
+test('failed bootstrap cleanup retains SQL and library ownership before ready', async () => {
+	const appId = `test.${crypto.randomUUID()}`;
+	let sqlCloses = 0;
+	const epicenter = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			async acquire(...args) {
+				const lifetime = await testSqlite.acquire(...args);
+				return {
+					...lifetime,
+					async close() {
+						sqlCloses++;
+					},
+				};
+			},
+		},
+	});
+	const closing = spyOn(IDBDatabase.prototype, 'close').mockImplementation(
+		() => {
+			throw new Error('Bootstrap close failed');
+		},
+	);
+	try {
+		const app = epicenter.openLocal();
+		expect(expectErr(await app.ready).name).toBe('StorageFailed');
+		await app.close();
+		expect(sqlCloses).toBe(0);
+		const duplicate = epicenter.openLocal();
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close();
+	} finally {
+		closing.mockRestore();
+	}
 });

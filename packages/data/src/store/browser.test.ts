@@ -5,13 +5,13 @@ import { field, plainText } from '@epicenter/data/definition';
  * A browser store is addressed by the application that opened it, the data it
  * holds, and which history it is (ADR-0324), at an exact generation
  * (ADR-0292): `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>`, one IndexedDB database
- * and one open claim per GENERATION.
+ * and one active owner per application/account library.
  *
  * Key behaviors:
  * - The address is composed of exactly those four parts, under the format
  *   version, and nothing about who owns the store
  * - Two applications naming one data id keep their own replicas (ADR-0304)
- * - A second open of one address is refused with AlreadyOpen
+ * - A second owner of one library is refused with AlreadyOpen
  * - A second generation is a second address, and the first is untouched
  * - An application id, a generation number, or an account that cannot be named
  *   is refused before anything is claimed or created
@@ -28,11 +28,16 @@ import { field, plainText } from '@epicenter/data/definition';
  * real Chromium across a real reload.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from './test-locks.js';
+import { installTestLocks } from '@epicenter/device/test-locks';
+import { claimLibrary } from '@epicenter/device/library-claim';
 
 installTestLocks();
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, spyOn } from 'bun:test';
+import {
+	createAppSqlite,
+	type DeviceSqliteOwner,
+} from '@epicenter/device/owner';
 import {
 	type DataDefinition,
 	defineData,
@@ -1110,4 +1115,165 @@ test('a request failure remains inside the commit rejection and rolls back', asy
 	} finally {
 		reopened.close();
 	}
+});
+
+test('SQL-only and generation entrypoints exclude each other before discovery or I/O', async () => {
+	const database = databaseFor('sql-owner');
+	const account = accountFor(ALICE);
+	let acquisitions = 0;
+	const owner: DeviceSqliteOwner = {
+		async acquire() {
+			acquisitions++;
+			return {
+				open: async () => {
+					throw new Error('unused');
+				},
+				delete: async () => {},
+				close: async () => {},
+			};
+		},
+	};
+	const sql = createAppSqlite(owner, APP, account);
+	expectOkResult(await sql.acquire());
+	const fetch = spyOn(account, 'fetch');
+	const discovery = spyOn(indexedDB, 'databases');
+	try {
+		expect(
+			expectErr(
+				await openDatabase(database, { appId: APP, generation: GEN, account }),
+			).name,
+		).toBe('AlreadyOpen');
+		expect(
+			expectErr(await resolveGeneration(database, { appId: APP, account }))
+				.name,
+		).toBe('AlreadyOpen');
+		expect(
+			expectErr(await createGeneration(database, { appId: APP, account })).name,
+		).toBe('AlreadyOpen');
+		expect(
+			expectErr(
+				await eraseGenerations({
+					appId: APP,
+					authorityId: account.authorityId,
+					principalId: account.principalId,
+					dataId: database.id,
+				}),
+			).name,
+		).toBe('AlreadyOpen');
+		expect(fetch).not.toHaveBeenCalled();
+		expect(discovery).not.toHaveBeenCalled();
+		const local = createAppSqlite(owner, APP, null);
+		expectOkResult(await local.acquire());
+		await local.close();
+	} finally {
+		fetch.mockRestore();
+		discovery.mockRestore();
+		await sql.close();
+	}
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+	const document = expectOkResult(
+		await openDatabase(database, { appId: APP, generation: GEN, account }),
+	);
+	const competing = createAppSqlite(owner, APP, account);
+	try {
+		expect(expectErr(await competing.acquire()).name).toBe('AlreadyOpen');
+		expect(acquisitions).toBe(2);
+	} finally {
+		await competing.close();
+		await document.close();
+	}
+	const reopened = createAppSqlite(owner, APP, account);
+	expectOkResult(await reopened.acquire());
+	await reopened.close();
+});
+
+test('blocked IndexedDB deletion retains library exclusion until the request settles', async () => {
+	const database = databaseFor('blocked-delete');
+	const account = accountFor(ALICE);
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+	const request = indexedDB.open(storeAddress(database.id));
+	const blocker = await new Promise<IDBDatabase>((resolve, reject) => {
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
+	});
+	const deleting = Promise.withResolvers<void>();
+	blocker.onversionchange = () => deleting.resolve();
+	let settled = false;
+	const erasing = eraseGenerations({
+		appId: APP,
+		authorityId: account.authorityId,
+		principalId: account.principalId,
+		dataId: database.id,
+	}).then((result) => {
+		settled = true;
+		return result;
+	});
+	try {
+		await deleting.promise;
+		expect(settled).toBe(false);
+		expect(
+			expectErr(await resolveGeneration(database, { appId: APP, account }))
+				.name,
+		).toBe('AlreadyOpen');
+	} finally {
+		blocker.close();
+	}
+	expect(expectOkResult(await erasing).erased).toBe(1);
+	expect(await databaseNames()).not.toContain(storeAddress(database.id));
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+});
+
+for (const operation of ['open', 'create', 'resolve'] as const) {
+	test(`failed ${operation} acquisition cleanup retains library exclusion`, async () => {
+		const appId = `test.${crypto.randomUUID()}`;
+		const database = databaseFor(`failed-${operation}-cleanup`);
+		const account = accountFor(ALICE);
+		if (operation === 'resolve')
+			account.fetch = async (_input, init) =>
+				init?.method === 'POST'
+					? Response.json({ generation: GEN, position: 0 })
+					: Response.json({ generations: [] });
+		const closing = spyOn(IDBDatabase.prototype, 'close').mockImplementation(
+			() => {
+				throw new Error('Cleanup failed');
+			},
+		);
+		try {
+			if (operation === 'open')
+				expect(
+					expectErr(
+						await openDatabase(database, { appId, generation: GEN, account }),
+					).name,
+				).toBe('StorageFailed');
+			else
+				await expect(
+					operation === 'create'
+						? createGeneration(database, { appId, account })
+						: resolveGeneration(database, { appId, account }),
+				).rejects.toThrow('Cleanup failed');
+			expect(expectErr(await claimLibrary(appId, account)).name).toBe(
+				'AlreadyOpen',
+			);
+		} finally {
+			closing.mockRestore();
+		}
+	});
+}
+
+test('a backing read failure closes the acquired connection before returning a Result', async () => {
+	const address = `test.${crypto.randomUUID()}`;
+	const read = spyOn(IDBObjectStore.prototype, 'getAll').mockImplementationOnce(
+		() => {
+			throw new Error('Read failed');
+		},
+	);
+	const closing = spyOn(IDBDatabase.prototype, 'close');
+	try {
+		expect(expectErr(await openIdbBacking(address)).name).toBe('StorageFailed');
+		expect(closing).toHaveBeenCalledTimes(1);
+	} finally {
+		read.mockRestore();
+		closing.mockRestore();
+	}
+	expectOkResult(await openIdbBacking(address)).close();
 });

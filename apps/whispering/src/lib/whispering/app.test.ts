@@ -5,7 +5,7 @@
  * and domain disposal using the real IndexedDB opener.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from '@epicenter/data/test-locks';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 

@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
 import { defineData } from '@epicenter/data/definition';
-import { installTestLocks } from '@epicenter/data/test-locks';
+import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import {

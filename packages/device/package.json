@@ -9,7 +9,9 @@
 		"./browser": "./src/browser.ts",
 		"./owner": "./src/owner.ts",
 		"./desktop": "./src/desktop.ts",
-		"./protocol": "./src/protocol.ts"
+		"./protocol": "./src/protocol.ts",
+		"./library-claim": "./src/library-claim.ts",
+		"./test-locks": "./src/test-locks.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p evidence/browser/opfs-sqlite/tsconfig.json",

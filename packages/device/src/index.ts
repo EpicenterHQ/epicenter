@@ -9,30 +9,34 @@ import { isAppId } from '@epicenter/constants/app-id';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import { LibraryClaimError } from './library-claim.js';
 import type { ScopedSqlite } from './owner.js';
 import { isSecretLabel, type SecretLabel } from './protocol.js';
 
-export const DeviceError = defineErrors({
-	InvalidAppId: ({ appId }: { appId: string }) => ({
-		message: `The application id '${appId}' is not valid.`,
-		appId,
+export const DeviceError = {
+	...defineErrors({
+		InvalidAppId: ({ appId }: { appId: string }) => ({
+			message: `The application id '${appId}' is not valid.`,
+			appId,
+		}),
+		InvalidDatabaseName: ({ databaseName }: { databaseName: string }) => ({
+			message: `The SQLite database name '${databaseName}' is not valid.`,
+			databaseName,
+		}),
+		StorageFailed: ({ cause }: { cause: unknown }) => ({
+			message: 'The device storage owner failed.',
+			cause,
+		}),
+		ProtocolFailed: ({ status }: { status: number }) => ({
+			message: `The device storage owner rejected the request (${status}).`,
+			status,
+		}),
+		InvalidResponse: () => ({
+			message: 'The device storage owner returned an invalid response.',
+		}),
 	}),
-	InvalidDatabaseName: ({ databaseName }: { databaseName: string }) => ({
-		message: `The SQLite database name '${databaseName}' is not valid.`,
-		databaseName,
-	}),
-	StorageFailed: ({ cause }: { cause: unknown }) => ({
-		message: 'The device storage owner failed.',
-		cause,
-	}),
-	ProtocolFailed: ({ status }: { status: number }) => ({
-		message: `The device storage owner rejected the request (${status}).`,
-		status,
-	}),
-	InvalidResponse: () => ({
-		message: 'The device storage owner returned an invalid response.',
-	}),
-});
+	...LibraryClaimError,
+};
 export type DeviceError = InferErrors<typeof DeviceError>;
 
 export const SecretError = defineErrors({

@@ -17,6 +17,9 @@ import {
 import { DeviceError } from './index.js';
 import type { DeviceResponse } from './protocol.js';
 
+import { installTestLocks } from './test-locks.js';
+installTestLocks();
+
 const appId = 'so.epicenter.test';
 function setup() {
 	const calls: unknown[] = [];
@@ -50,7 +53,7 @@ function setup() {
 test('SQL-only acquisition reserves identity even before a database is opened', async () => {
 	const { owner, calls } = setup();
 	const storage = createAppSqlite(owner, appId, null);
-	await storage.acquire();
+	expectOk(await storage.acquire());
 	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
 	expect(calls).toEqual([]);
 	await storage.close();

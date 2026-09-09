@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-08
 - **Related:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md)
-- **Unbuilt:** Exclusion across all low-level storage producers, complete resource enumeration, native capture/media coordination, and app-factory removal.
+- **Unbuilt:** Exclusion for independently constructed blob producers, complete resource enumeration, native capture/media coordination, and app-factory removal.
 
 ## Context
 
@@ -19,9 +19,8 @@ handles could reopen a deleted name. SQL now has an explicit acquired lifetime
 that serializes statements, deletion, and physical close. Transport handles name
 that acquisition and its connections rather than reopening files per statement.
 
-`eraseGenerations` enumerates one account definition before claiming the
-generations it found. It cannot exclude a concurrent allocation or a new
-generation. `eraseBlobStore` excludes active blob operations, but an idle
+`eraseGenerations` now excludes competing generation and SQL owners before
+enumerating one account definition. `eraseBlobStore` excludes active blob operations, but an idle
 handle can recreate that store. Calling these two functions in sequence would
 still leave named SQL files and sibling definitions behind.
 
@@ -46,8 +45,11 @@ to historical generations remains supported.
 Every storage entrypoint must obey that exclusion, including direct generation,
 blob, and SQL-only consumers. The document owns a table application's lifetime.
 A SQL-only application closes its Device without constructing a dummy document.
-Per-generation and allocation claims can disappear only after all their entrypoints
-obey the stronger library exclusion; the current low-level paths still need them.
+Direct generation APIs and SQL-only Device acquisition now take the same origin-wide
+library claim before discovery or backend acquisition. Private generation helpers
+run under their caller's claim. This replaces per-generation and allocation claims.
+Independently constructed blob primitives still require producer coordination
+before whole-library erasure can be offered.
 
 The application stops consumers and closes the handles it owns. The factory
 then attempts exclusive library ownership before enumerating resources. It
@@ -56,14 +58,18 @@ another window. It does not close another caller's handle implicitly. Local
 and account libraries can continue independently.
 
 Document close stops admission synchronously and waits for acquisition and
-admitted operations to settle. It releases playback sources, its SQL connection
-ownership, and its durable backing before releasing claims. One owner may open
+admitted operations to settle. It releases playback sources and durable backing before closing its SQL
+lifetime and releasing the common library claim. A durable-close failure retains
+the SQL lifetime and claim. One owner may open
 several named SQL files and reuse a connection within that lifetime. It closes
 its physical connections without reference counting. The document remains the single owner
 of readiness, admission, draining, and close; this adds no application facade.
 If capture or playback cleanup cannot confirm release, close rejects and retains
 the acquired backing and reservation until context shutdown. It still attempts
-other producer cleanup. A failed close cannot admit a replacement owner.
+other producer cleanup. A failed close cannot admit a replacement owner. Acquisition follows the same
+rule: a returned operational failure releases resources first, while an unexpected
+cleanup exception retains ownership. A failed IndexedDB load closes its acquired
+connection before returning an error.
 
 The platform SQL owner serializes acquisition, statements, close, and deletion
 for a file. Deletion permanently invalidates every existing handle to that

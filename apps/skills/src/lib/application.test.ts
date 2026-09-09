@@ -21,7 +21,7 @@
  * runtime tests in this repo use.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from '@epicenter/data/test-locks';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 
