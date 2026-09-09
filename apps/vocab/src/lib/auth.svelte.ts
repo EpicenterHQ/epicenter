@@ -1,4 +1,9 @@
 import { fromAuth } from '@epicenter/auth/svelte';
-import { authClient } from './auth.js';
+import { authStartup } from './auth.js';
 
-export const auth = fromAuth(authClient);
+const auth = authStartup.auth ? fromAuth(authStartup.auth) : null;
+
+export function getAuth() {
+	if (!auth) throw new Error('Application UI requires a valid auth startup.');
+	return auth;
+}

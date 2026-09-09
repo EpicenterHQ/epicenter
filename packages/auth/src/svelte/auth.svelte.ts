@@ -3,7 +3,7 @@ import type { Brand } from 'wellcrafted/brand';
 import type { AuthClient } from '../index.js';
 
 /**
- * An auth client whose `state` and `connection.status` track in Svelte.
+ * An auth client whose `state` tracks in Svelte.
  *
  * The brand marks the reads that track, and handing a raw core client to a
  * surface that needs them is a type error rather than a silently frozen
@@ -11,7 +11,7 @@ import type { AuthClient } from '../index.js';
  * change.
  *
  * Application bootstrap reads the plain client once. This adapter belongs to
- * UI consumers that display changing identity or connection status; it does not
+ * UI consumers that display changing identity or credential refusal; it does not
  * own application lifetime or select a replacement library.
  *
  * The parameter carries the wrapped client's own type through, because a
@@ -24,7 +24,7 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
 	TClient & Brand<'ReactiveAuthClient'>;
 
 /**
- * Bridge an auth client's two external facts into Svelte's graph.
+ * Bridge an auth client's state into Svelte's graph.
  *
  * `from*` because that is what every Svelte adapter in this repository is
  * called: `fromData` wraps a store. It was
@@ -41,7 +41,7 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
  * wrap a client this module had not anticipated. One function takes any of
  * them.
  *
- * It spreads the client once and re-declares two getters, so a client whose
+ * It spreads the client once and re-declares its state getter, so a client whose
  * OTHER members are live getters loses them. Every client in this package
  * states the rest as values, which is what makes the spread safe.
  *
@@ -53,12 +53,6 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
  * simply falls through to the live getter. A shadow would subscribe eagerly,
  * once per component instance, for that component's whole life.
  *
- * Both facts are wrapped uniformly even though not every client can change
- * either one. The hosted session clients report a
- * constant `connected` with an `onChange` that never fires, and the desktop
- * broker also publishes credential refusal and retirement. Uniformity is the point: the brand
- * promises that reads track IF the underlying client ever changes, which is a
- * promise every client can keep.
  */
 export function fromAuth<TClient extends AuthClient>(
 	authClient: TClient,
@@ -66,22 +60,11 @@ export function fromAuth<TClient extends AuthClient>(
 	const subscribeState = createSubscriber((update) =>
 		authClient.onStateChange(update),
 	);
-	const connection = authClient.connection;
-	const subscribeConnection = createSubscriber((update) =>
-		connection.onChange(update),
-	);
 	return {
 		...authClient,
 		get state() {
 			subscribeState();
 			return authClient.state;
-		},
-		connection: {
-			...connection,
-			get status() {
-				subscribeConnection();
-				return connection.status;
-			},
 		},
 	} as ReactiveAuthClient<TClient>;
 }

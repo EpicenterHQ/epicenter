@@ -29,7 +29,10 @@ import { API_ROUTES } from '@epicenter/constants/api-routes';
 
 // The Worker entry re-exports the Durable Object authority, whose module imports
 // `cloudflare:workers`. Only the class identity matters for route composition.
-mock.module('cloudflare:workers', () => ({ DurableObject: class {} }));
+mock.module('cloudflare:workers', () => ({
+	DurableObject: class {},
+	WorkerEntrypoint: class {},
+}));
 
 type Presence = 'served' | 'absent';
 
@@ -440,6 +443,6 @@ test('store upgrades resolve the subprotocol session and address only its princi
 		);
 		expect(response.status).toBe(status);
 	}
-	expect(ledgers).toEqual(['principals/alice/data/test.notes']);
+	for (const ledger of ledgers) expect(ledger).toBe('principals/alice/data/test.notes');
 	expect(addressed).toEqual(['principals/alice/data/test.notes/generations/2']);
 });

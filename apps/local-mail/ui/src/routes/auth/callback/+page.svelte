@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCallbackAuthClient } from '@epicenter/auth';
 	import { Loading } from '@epicenter/ui/loading';
-	import { auth } from '#platform/auth';
+	import { authStartup } from '#platform/auth';
 	import { resolve } from '$app/paths';
 
 	// The callback completes identity and replaces the document. It opens no App.
@@ -9,6 +9,7 @@
 
 	$effect(() => {
 		void (async () => {
+			const auth = authStartup.auth;
 			if (!auth || !isCallbackAuthClient(auth)) {
 				// The desktop build signs in through the host, which relaunches the
 				// process, so no browser callback lands here.

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
-	import { authClient } from '#platform/auth';
+	import { authStartup } from '#platform/auth';
 	import { onMount, tick } from 'svelte';
 	import StoreShell from './components/StoreShell.svelte';
 
@@ -28,7 +28,7 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
-	<AppBoot auth={authClient} departure={application.departure} hasApp={application.app !== null} appName="Honeycrisp" noun="notes">
+	<AppBoot startup={authStartup} departure={application.departure} hasApp={application.app !== null} appName="Honeycrisp" noun="notes">
 		{#if application.app && showing}
 			{#await application.app.ready}
 				<Loading class="h-dvh" label="Opening your notes…" />

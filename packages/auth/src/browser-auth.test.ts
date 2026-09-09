@@ -2,6 +2,7 @@
  * cannot change it or leave new credentials, and live Accounts never retarget.
  */
 import { expect, test } from 'bun:test';
+import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createBrowserAuth } from './browser-auth.js';
 
@@ -35,7 +36,6 @@ function setup() {
 		value: {
 			localStorage: storage,
 			sessionStorage: storage,
-			prompt: () => 'replacement',
 			location: {
 				origin: 'https://app.test',
 				replace: (url: string) => navigations.push(url),
@@ -49,7 +49,6 @@ function setup() {
 	const create = (baseURL = 'https://hosted.test') =>
 		createBrowserAuth({
 			appId: 'test',
-			authorityId: 'epicenter-api',
 			baseURL,
 		});
 	return {
@@ -71,106 +70,148 @@ function setup() {
 	};
 }
 
-test('verified selection applies only to the next document and separates equal instance principals', async () => {
+test('server replacement retires the captured Account and separates Alice on two origins', async () => {
 	using environment = setup();
-	using hosted = environment.create();
-	expectOk(
-		await hosted.connectInstance({ url: 'https://first.test', token: 'first' }),
+	environment.cells.set(
+		'test.auth.server',
+		JSON.stringify({ method: 'issuer', origin: 'https://first.test' }),
 	);
-	expect(hosted.connection.baseURL).toBe('https://hosted.test');
+	for (const origin of ['https://first.test', 'https://second.test'])
+		environment.cells.set(
+			`test.auth.persisted:${origin}`,
+			JSON.stringify({ token: 'alice-session', principalId: 'alice' }),
+		);
 	using first = environment.create();
-	expect(first.connection.baseURL).toBe('https://first.test');
-	if (first.state.status === 'signed-out')
-		throw new Error('Expected persisted Account');
-	const account = first.state.account;
-	expectOk(
-		await first.connectInstance({
-			url: 'https://second.test',
-			token: 'second',
-		}),
-	);
-	expect(account.baseURL).toBe('https://first.test');
-	await expect(account.fetch('/resource')).rejects.toBeDefined();
+	const state = first.auth!.state;
+	if (state.status === 'signed-out') throw new Error('Expected Alice');
+	expectOk(await first.connectInstance({ url: 'https://second.test' }));
+	expect(state.account.baseURL).toBe('https://first.test');
+	await expect(state.account.fetch('/resource')).rejects.toBeDefined();
 	using second = environment.create();
-	expect(second.connection.baseURL).toBe('https://second.test');
-	if (second.state.status === 'signed-out')
-		throw new Error('Expected persisted Account');
-	expect(second.state.account.authorityId).not.toBe(account.authorityId);
-	expect(environment.navigations).toEqual(['/', '/']);
-	expect(environment.requests.every((url) => !url.includes('token='))).toBe(
-		true,
-	);
+	const next = second.auth!.state;
+	if (next.status === 'signed-out') throw new Error('Expected Alice');
+	expect(next.account.authorityId).not.toBe(state.account.authorityId);
+	expect(next.account.principalId).toBe(state.account.principalId);
+	expect(environment.navigations).toEqual(['/?connect']);
 });
 
-test('selection write failure restores the previous credential cell', async () => {
+test('selection write failure preserves the target credential and does not navigate', async () => {
 	using environment = setup();
-	const key = 'test.auth.instance:https://next.test';
-	environment.cells.set(key, 'previous-value');
-	using auth = environment.create();
-	environment.failSelection();
-	expectErr(
-		await auth.connectInstance({ url: 'https://next.test', token: 'secret' }),
+	const key = 'test.auth.persisted:https://next.test';
+	environment.cells.set(
+		key,
+		JSON.stringify({ token: 'saved', principalId: 'alice' }),
 	);
-	expect(environment.cells.get(key)).toBe('previous-value');
+	using startup = environment.create();
+	environment.failSelection();
+	expectErr(await startup.connectInstance({ url: 'https://next.test' }));
+	expect(environment.cells.get(key)).toContain('saved');
 	expect(environment.cells.has('test.auth.server')).toBe(false);
 	expect(environment.navigations).toHaveLength(0);
 });
 
-test('disconnect during verification cannot save a new server or token', async () => {
+test.each([
+	'sign-out',
+	'dispose',
+	'sign-in',
+] as const)('%s during predecessor revocation prevents a late server selection', async (action) => {
 	using environment = setup();
+	environment.cells.set(
+		'test.auth.persisted:https://hosted.test',
+		JSON.stringify({ token: 'old', principalId: 'alice' }),
+	);
 	const entered = Promise.withResolvers<void>();
-	const verification = Promise.withResolvers<Response>();
+	const revoked = Promise.withResolvers<Response>();
 	environment.respond(async () => {
 		entered.resolve();
-		return verification.promise;
+		return revoked.promise;
 	});
-	using auth = environment.create();
-	const connecting = auth.connectInstance({
-		url: 'https://next.test',
-		token: 'secret',
-	});
+	using startup = environment.create();
+	const connecting = startup.connectInstance({ url: 'https://next.test' });
 	await entered.promise;
-	expectOk(await auth.signOut());
-	verification.resolve(Response.json({ principalId: 'instance' }));
+	if (action === 'sign-out') expectOk(await startup.auth!.signOut());
+	if (action === 'dispose') startup[Symbol.dispose]();
+	if (action === 'sign-in') expectOk(await startup.auth!.startSignIn!());
+	revoked.resolve(Response.json({ success: true }));
 	expectErr(await connecting);
-	expect(environment.cells.has('test.auth.instance:https://next.test')).toBe(
-		false,
-	);
 	expect(environment.cells.has('test.auth.server')).toBe(false);
 	expect(environment.navigations).toHaveLength(0);
+	if (action === 'sign-in')
+		expect(window.location.href).toStartWith('https://hosted.test/');
 });
 
-test('invalid saved server selection still allows recovery', () => {
+test.each([
+	'broken',
+	'',
+	JSON.stringify({ method: 'issuer', origin: 'https://hosted.test' }),
+])('invalid saved selection %j never restores or revokes cached Cloud credentials', async (selection) => {
 	using environment = setup();
-	environment.cells.set('test.auth.server', 'broken');
+	environment.cells.set('test.auth.server', selection);
+	const key = 'test.auth.persisted:https://hosted.test';
+	const credential = JSON.stringify({
+		token: 'cloud-secret',
+		principalId: 'alice',
+	});
+	environment.cells.set(key, credential);
 	using auth = environment.create();
 	expect(auth.selectedServer).toBeNull();
-	expect(auth.state.status).toBe('signed-out');
+	expect(auth.auth).toBeNull();
+	expect(auth.auth?.startSignIn).toBeUndefined();
+	expect(environment.cells.get(key)).toBe(credential);
+	expect(environment.cells.get('test.auth.server')).toBe(selection);
+	expect(environment.requests).toHaveLength(0);
+	expectOk(await auth.useCloud());
+	expect(environment.navigations).toEqual(['/?connect']);
+	expect(environment.cells.get(key)).toBe(credential);
+	using recovered = environment.create();
+	expect(recovered.selectedServer).toBeNull();
+	expect(recovered.auth!.state.status).toBe('signed-in');
 });
 
-test('hosted sign-in cancels an outstanding instance choice', async () => {
+test('historical instance restoration keeps its identity until explicit issuer selection', async () => {
 	using environment = setup();
+	environment.cells.set('test.auth.server', 'https://instance.test');
+	const key = 'test.auth.instance:https://instance.test';
+	environment.cells.set(
+		key,
+		JSON.stringify({ token: 'legacy', principalId: 'instance' }),
+	);
+	using old = environment.create();
+	expect(old.auth!.startSignIn).toBeUndefined();
+	const state = old.auth!.state;
+	if (state.status === 'signed-out')
+		throw new Error('Expected historical identity');
+	expect(state.account.principalId).toBe(asPrincipalId('instance'));
+	expect(environment.requests).toHaveLength(0);
+	expectOk(await old.connectInstance({}));
+	using next = environment.create();
+	expect(next.auth!.state.status).toBe('signed-out');
+	expect(next.auth!.startSignIn).toBeFunction();
+	await expect(state.account.fetch('/resource')).rejects.toBeDefined();
+});
+
+test('a superseded selection cannot overwrite the next choice after delayed revocation', async () => {
+	using environment = setup();
+	environment.cells.set(
+		'test.auth.persisted:https://hosted.test',
+		JSON.stringify({ token: 'old', principalId: 'alice' }),
+	);
 	const entered = Promise.withResolvers<void>();
-	const verification = Promise.withResolvers<Response>();
+	const revoked = Promise.withResolvers<Response>();
 	environment.respond(async () => {
 		entered.resolve();
-		return verification.promise;
+		return revoked.promise;
 	});
-	using auth = environment.create();
-	const connecting = auth.connectInstance({
-		url: 'https://next.test',
-		token: 'secret',
-	});
+	using startup = environment.create();
+	const old = startup.connectInstance({ url: 'https://old.test' });
 	await entered.promise;
-	expectOk(await auth.startSignIn());
-	verification.resolve(Response.json({ principalId: 'instance' }));
-	expectErr(await connecting);
-	expect(environment.cells.has('test.auth.server')).toBe(false);
-	expect(environment.cells.has('test.auth.instance:https://next.test')).toBe(
-		false,
+	expectOk(await startup.connectInstance({ url: 'https://next.test' }));
+	revoked.resolve(Response.json({ success: true }));
+	expectErr(await old);
+	expect(JSON.parse(environment.cells.get('test.auth.server')!).origin).toBe(
+		'https://next.test',
 	);
-	expect(environment.navigations).toHaveLength(0);
-	expect(window.location.href).toStartWith('https://hosted.test/');
+	expect(environment.navigations).toEqual(['/?connect']);
 });
 
 test('hosted credentials are restored only at their saved server origin', () => {
@@ -185,6 +226,87 @@ test('hosted credentials are restored only at their saved server origin', () => 
 	);
 	using first = environment.create('https://first.test');
 	using second = environment.create('https://second.test');
-	expect(first.state.status).toBe('signed-in');
-	expect(second.state.status).toBe('signed-out');
+	expect(first.auth!.state.status).toBe('signed-in');
+	expect(second.auth!.state.status).toBe('signed-out');
+});
+
+test('URL-only selection opens the named issuer with callback support and no Cloud management', async () => {
+	using environment = setup();
+	using cloud = environment.create();
+	expectOk(await cloud.connectInstance({ url: 'https://personal.test' }));
+	expect(environment.requests).toHaveLength(0);
+	expect(environment.navigations).toEqual(['/?connect']);
+	using selected = environment.create();
+	expect(selected.auth?.baseURL).toBe('https://personal.test');
+	expect(selected.auth?.accountManagementUrl).toBeUndefined();
+	expect(selected.auth?.completeSignIn).toBeFunction();
+	expectOk(await selected.auth!.startSignIn!());
+	const target = new URL(window.location.href);
+	expect(target.origin).toBe('https://personal.test');
+	expect(target.searchParams.get('callback')).toBe(
+		'https://app.test/auth/callback',
+	);
+	expect(target.searchParams.get('challenge')).toHaveLength(43);
+	expect(target.searchParams.has('token')).toBe(false);
+});
+
+test('named issuer restores Alice offline without adopting the historical instance credential', async () => {
+	using environment = setup();
+	environment.cells.set(
+		'test.auth.server',
+		JSON.stringify({ method: 'issuer', origin: 'https://personal.test' }),
+	);
+	environment.cells.set(
+		'test.auth.instance:https://personal.test',
+		JSON.stringify({ token: 'legacy', principalId: 'instance' }),
+	);
+	environment.cells.set(
+		'test.auth.persisted:https://personal.test',
+		JSON.stringify({ token: 'alice-session', principalId: 'alice' }),
+	);
+	environment.respond(async () => {
+		throw new TypeError('Offline');
+	});
+	using startup = environment.create();
+	const state = startup.auth!.state;
+	if (state.status === 'signed-out') throw new Error('Expected cached Alice');
+	expect(state.account.principalId).toBe(asPrincipalId('alice'));
+	expect(state.account.authorityId).not.toBe('epicenter-api');
+	expect(environment.requests).toHaveLength(0);
+	await expect(state.account.fetch('/resource')).rejects.toBeDefined();
+	expect(startup.auth!.state).toEqual({
+		status: 'signed-in',
+		account: state.account,
+	});
+	expect(
+		environment.cells.get('test.auth.instance:https://personal.test'),
+	).toContain('legacy');
+});
+
+test('returning from a named issuer to Cloud changes the next document selection', async () => {
+	using environment = setup();
+	environment.cells.set(
+		'test.auth.server',
+		JSON.stringify({ method: 'issuer', origin: 'https://personal.test' }),
+	);
+	using startup = environment.create();
+	expectOk(await startup.useCloud());
+	expect(environment.navigations).toEqual(['/?connect']);
+	expect(environment.cells.has('test.auth.server')).toBe(false);
+	expect(window.location.href).toBeUndefined();
+});
+
+test('the configured Cloud origin cannot become a second authority through custom selection', async () => {
+	using environment = setup();
+	environment.cells.set(
+		'test.auth.persisted:https://hosted.test',
+		JSON.stringify({ token: 'cloud', principalId: 'alice' }),
+	);
+	using startup = environment.create();
+	const account = startup.auth!.state;
+	expectErr(await startup.connectInstance({ url: 'https://hosted.test/' }));
+	expect(startup.auth!.state).toEqual(account);
+	expect(environment.cells.has('test.auth.server')).toBe(false);
+	expect(environment.requests).toHaveLength(0);
+	expect(environment.navigations).toHaveLength(0);
 });

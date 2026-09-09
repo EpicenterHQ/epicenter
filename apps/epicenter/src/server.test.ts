@@ -57,6 +57,7 @@ import { createBunDevice, type BunDevice } from './test-sqlite.ts';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
+	ACCOUNT_CONNECT_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	APPLICATIONS_ROUTE,
 	BOOKS_ROUTE,
@@ -946,6 +947,14 @@ describe('createHomeServer', () => {
 				{ headers: { cookie, origin } },
 			);
 			expect(obsoleteProfile.status).toBe(404);
+
+			const selected = await fetch(ACCOUNT_CONNECT_ROUTE.url(origin), {
+				method: 'POST',
+				headers: { cookie, origin, 'content-type': 'application/json' },
+				body: JSON.stringify({ server: 'https://self.example' }),
+			});
+			expect(selected.status).toBe(202);
+			expect(await selected.text()).toBe('');
 
 			const signedOut = await fetch(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
 				method: 'POST',

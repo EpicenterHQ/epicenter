@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { isBrowserAuth } from '@epicenter/auth';
-	import type { AuthClient } from '@epicenter/auth';
+	import type { AuthClient, AuthStartup } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import ServerConnection from './server-connection.svelte';
@@ -10,12 +9,12 @@
 	 */
 	type SignInScreenProps = {
 		/**
-		 * The application's auth client, whose `startSignIn` this button calls.
+		 * The startup selection and the connection actions it supports.
 		 *
 		 * The boot owner has already closed the app, and successful sign-in
 		 * replaces this document or process.
 		 */
-		auth: AuthClient;
+		startup: AuthStartup;
 		/** The application's name, as the heading, e.g. `'Honeycrisp'`. */
 		appName: string;
 		/** What this application calls a person's stuff, plural, e.g. `'notes'`. */
@@ -23,7 +22,7 @@
 		onCancel?: () => void;
 	};
 
-	let { auth, appName, noun, onCancel }: SignInScreenProps = $props();
+	let { startup, appName, noun, onCancel }: SignInScreenProps = $props();
 
 	/**
 	 * Pending until the page or the process is replaced, which is why there is no
@@ -40,8 +39,8 @@
 	let signingIn = $state(false);
 	let connecting = $state(false);
 	let signInError = $state<string | undefined>(undefined);
-	let selection: ReturnType<AuthClient['startSignIn']> | undefined;
-	function select(action: () => ReturnType<AuthClient['startSignIn']>) {
+	let selection: ReturnType<NonNullable<AuthClient['startSignIn']>> | undefined;
+	function select(action: () => ReturnType<NonNullable<AuthClient['startSignIn']>>) {
 		if (selection) return selection;
 		selection = action().then((result) => {
 			if (result.error) selection = undefined;
@@ -51,9 +50,11 @@
 	}
 
 	async function signIn() {
+		const start = startup.auth?.startSignIn;
+		if (!start) return;
 		signInError = undefined;
 		signingIn = true;
-		const { error } = await select(() => auth.startSignIn());
+		const { error } = await select(() => start());
 		if (error !== null) {
 			signInError = error.message;
 			signingIn = false;
@@ -65,24 +66,27 @@
 	<div class="flex max-w-sm flex-col items-center gap-4">
 		<div class="space-y-2">
 			<h1 class="text-lg font-semibold">{appName}</h1>
+			{#if startup.auth === null}
+				<p role="alert" class="text-sm">Your saved server choice could not be read. Choose a server to continue. Your local data is still on this device.</p>
+			{/if}
 			<p class="text-sm text-muted-foreground">{onCancel ? 'Choose where to connect.' : `Sign in to open your ${noun}.`}</p>
 			{#if signInError !== undefined}
 				<p class="text-xs text-destructive">{signInError}</p>
 			{/if}
 		</div>
-		{#if auth.signInLocation === 'host-settings'}
-			<p class="text-sm text-muted-foreground">Open Home Settings to enter your server token.</p>
-		{:else if !isBrowserAuth(auth) || !auth.selectedServer}
+		{#if startup.signInLocation === 'host-settings'}
+			<p class="text-sm text-muted-foreground">Open Home Settings to sign in to your server.</p>
+		{:else if startup.auth?.startSignIn}
 			<Button size="lg" disabled={signingIn || connecting} onclick={signIn}>
 				{#if signingIn}
 					<Spinner class="size-4" />
 					Signing in…
 				{:else}
-					Sign in with Epicenter
+					{startup.selectedServer ? 'Sign in to your server' : 'Sign in with Epicenter'}
 				{/if}
 			</Button>
 		{/if}
-		<ServerConnection {auth} {select} disabled={signingIn} bind:pending={connecting} />
+		<ServerConnection {startup} {select} disabled={signingIn} bind:pending={connecting} />
 		{#if onCancel}<Button variant="ghost" disabled={signingIn || connecting} onclick={onCancel}>Back to {appName}</Button>{/if}
 	</div>
 </div>

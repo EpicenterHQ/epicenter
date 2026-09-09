@@ -8,8 +8,9 @@ passkeys, sessions, and recovery grants together. Cloud billing remains in
 
 The library-ownership implementation is in progress. Both runtime entries serve
 passkey sign-in and named sessions. The Worker also serves store sync; Bun still
-needs its sync backend. Application connection screens still need the new
-sign-in integration, and Shared libraries and optional passwords are unbuilt.
+needs its sync backend. Browser apps and desktop Settings can select this server
+and sign in through its issuer. Shared libraries and optional passwords remain
+unbuilt.
 Follow the [execution plan](../../specs/20260909T004225-library-ownership-execution.md)
 for remaining work and verification.
 
@@ -66,10 +67,54 @@ allows passkey enrollment and sign-in but refuses application handoffs.
 `TRUSTED_BROWSER_ORIGINS` separately controls cross-origin API requests and takes
 a comma-separated list of exact browser origins.
 
-The Worker credential owner exposes infrastructure RPC methods for admission,
-recovery, and removal. A runnable Worker operator command is still required;
-the local Bun command only changes its SQLite file. This reference has no public
-HTTP administration route. `INSTANCE_TOKEN` no longer authorizes either entry.
+The Worker exports a named `SelfHostOperator` entrypoint for admission, recovery,
+and removal. The command reaches it through a remote service binding authenticated
+by Wrangler. Sign in with `bun x wrangler login`, or provide a
+`CLOUDFLARE_API_TOKEN` authorized to create Worker preview sessions in the selected
+account. The deployed Worker must contain this entrypoint before using the command.
+
+From the repository root, substitute your Cloudflare account ID and deployed Worker
+name (including its environment suffix, if any):
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID='<account-id>'
+bun apps/self-host/scripts/manage-worker-user.ts my-self-host admit alice 'Alice'
+bun apps/self-host/scripts/manage-worker-user.ts my-self-host recover alice
+bun apps/self-host/scripts/manage-worker-user.ts my-self-host remove alice
+```
+
+These commands always change the selected remote deployment. They do not deploy
+code or open the Bun SQLite file. Admission and recovery print a private, expiring
+link using the deployment's configured issuer origin. Recovery and removal have
+the same identity and invalidation behavior described above.
+
+Cloudflare's account permissions protect the service binding. The named entrypoint
+has no HTTP handler and the public Worker exposes no administration routes. Treat
+access to create service bindings in this account as operator access.
+`INSTANCE_TOKEN` no longer authorizes either entry.
+
+The implementation uses Wrangler's [remote service bindings](https://developers.cloudflare.com/workers/local-development/bindings-per-env/)
+and [getPlatformProxy API](https://developers.cloudflare.com/workers/wrangler/api/).
+Direct remote Durable Object bindings are unsupported, so the service entrypoint
+forwards commands to the same `SelfHostAuthOwner` that serves sign-in.
+
+## Connect an application
+
+After Alice creates her passkey from the private link, she opens her app,
+chooses **Connect to your server**, and enters the issuer origin. The app opens
+the server's sign-in page and receives its own session through the callback.
+The existing browser sign-in can finish this handoff without another passkey
+prompt. Reauthentication asks for a fresh passkey proof.
+
+For a browser app, allow its exact `/auth/callback` URL in
+`SELF_HOST_CALLBACKS` and its origin in `TRUSTED_BROWSER_ORIGINS`. Desktop uses
+`epicenter://auth/callback`; select the server in Home Settings, restart, and
+choose **Sign in**. The desktop host keeps the credential and makes requests
+for application windows.
+
+An enrollment link does not select an application or start its PKCE transaction.
+Alice returns to the app to start that handoff. Recovery gives her a new passkey
+for the same identity. Her existing local data stays attached to that identity.
 
 ## Session and access boundaries
 
@@ -98,6 +143,8 @@ From the repository root:
 ```bash
 bun test apps/self-host/runtime-profile.test.ts packages/server/src/self-host-auth
 bun run --cwd apps/self-host typecheck
+bun apps/self-host/smoke/application.browser.mjs
+bun apps/self-host/smoke/application.browser.mjs --worker
 ```
 
 The production Worker credential owner also has real WebAuthn and HTTP handoff

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AuthError, createAccountManagementUrl } from '@epicenter/auth';
+	import { AuthError } from '@epicenter/auth';
 	import { tryAsync } from 'wellcrafted/result';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
@@ -229,9 +229,9 @@
 					<p class="text-xs text-muted-foreground">{disabledReason}</p>
 				{/if}
 				<div class="border-t pt-3 flex flex-col gap-1">
-					{#if auth.state.account.authorityId === 'epicenter-api'}
+					{#if auth.accountManagementUrl}
 						<Button
-							href={createAccountManagementUrl(auth.state.account, 'account').href}
+							href={auth.accountManagementUrl(auth.state.account, 'account').href}
 							target="_blank"
 							rel="noopener noreferrer"
 							variant="ghost"

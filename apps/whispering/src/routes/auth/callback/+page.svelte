@@ -19,7 +19,8 @@
 
 	$effect(() => {
 		void (async () => {
-			if (!isCallbackAuthClient(authClient)) {
+			const auth = authClient.auth;
+			if (!auth || !isCallbackAuthClient(auth)) {
 				// The desktop build. Its sign-in goes through the host, which
 				// relaunches the process with the new identity, so no browser
 				// callback ever lands here and this sentence is unreachable in
@@ -28,7 +29,7 @@
 				errorMessage = 'This build does not sign in through a browser callback.';
 				return;
 			}
-			const { error } = await authClient.completeSignIn();
+			const { error } = await auth.completeSignIn();
 			if (error) {
 				errorMessage = error.message;
 				return;

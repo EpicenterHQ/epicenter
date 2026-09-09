@@ -1,16 +1,18 @@
 /**
- * Production Worker auth through HTTP and the actual /api/session route.
+ * Production self-host Worker operator RPC, HTTP ceremonies, and /api/session.
  * Real passkey proofs bind browser cookies, admission and independent client handoff.
  */
 import { env, SELF, evictDurableObject } from 'cloudflare:test';
 import { expect, test } from 'vitest';
 import type { SelfHostAuthOwner } from '../../src/self-host-auth/worker.js';
+import type { SelfHostOperator } from '../../../../apps/self-host/worker/operator.js';
 import { createAuthenticator } from './authenticator.js';
 
 declare global {
 	namespace Cloudflare {
 		interface Env {
 			SELF_HOST_AUTH: DurableObjectNamespace<SelfHostAuthOwner>;
+			OPERATOR: Service<SelfHostOperator>;
 		}
 	}
 }
@@ -45,11 +47,11 @@ function browser() {
 	};
 }
 async function enroll(id: string) {
-	const grant = await owner().admit({ id, name: id });
+	const grant = await env.OPERATOR.admit({ id, name: id });
 	const request = browser();
 	const key = await createAuthenticator(origin);
 	const optionsResponse = await request('/auth/passkey/registration-options', {
-		token: grant.token,
+		token: new URLSearchParams(new URL(grant.url).hash.slice(1)).get('enroll'),
 	});
 	expect(optionsResponse.status).toBe(200);
 	const ceremony = await optionsResponse.json<{
@@ -141,7 +143,7 @@ test('Alice and Bob hand off independent no-email sessions; removal refuses Alic
 	expect(await (await profile(aliceToken)).json()).toEqual({
 		principalId: aliceId,
 	});
-	await owner().remove(aliceId);
+	await env.OPERATOR.remove(aliceId);
 	expect((await profile(aliceToken)).status).toBe(401);
 	expect(await (await profile(bobToken)).json()).toEqual({
 		principalId: bobId,
@@ -153,18 +155,18 @@ test('removal invalidates a previously issued handoff before redemption', async 
 	const id = `alice-${crypto.randomUUID()}`;
 	const { request } = await enroll(id);
 	const redeem = await handoff(request);
-	await owner().remove(id);
+	await env.OPERATOR.remove(id);
 	expect((await redeem()).status).toBe(400);
 });
 
 test('registration completion requires the browser that began the ceremony', async () => {
 	const id = `alice-${crypto.randomUUID()}`;
-	const grant = await owner().admit({ id, name: 'Alice' });
+	const grant = await env.OPERATOR.admit({ id, name: 'Alice' });
 	const first = browser();
 	const other = browser();
 	const key = await createAuthenticator(origin);
 	const response = await first('/auth/passkey/registration-options', {
-		token: grant.token,
+		token: new URLSearchParams(new URL(grant.url).hash.slice(1)).get('enroll'),
 	});
 	const ceremony = await response.json<{
 		id: string;
@@ -176,4 +178,64 @@ test('registration completion requires the browser that began the ceremony', asy
 	};
 	expect((await other('/auth/passkey/register', body)).status).toBe(400);
 	expect((await first('/auth/passkey/register', body)).status).toBe(200);
+});
+
+test('recovery link preserves Alice and invalidates her old session', async () => {
+	const id = `alice-${crypto.randomUUID()}`;
+	const alice = await enroll(id);
+	const response = await (await handoff(alice.request))();
+	const { token } = await response.json<{ token: string }>();
+	const grant = await env.OPERATOR.recover(id);
+	expect(new URL(grant.url).origin).toBe(origin);
+	expect(
+		(
+			await SELF.fetch(`${origin}/api/session`, {
+				headers: { authorization: `Bearer ${token}` },
+			})
+		).status,
+	).toBe(401);
+	const replacement = browser();
+	const key = await createAuthenticator(origin);
+	const options = await replacement('/auth/passkey/registration-options', {
+		token: new URLSearchParams(new URL(grant.url).hash.slice(1)).get('enroll'),
+	});
+	const ceremony = await options.json<{
+		id: string;
+		options: { challenge: string };
+	}>();
+	expect(
+		(
+			await replacement('/auth/passkey/register', {
+				id: ceremony.id,
+				response: await key.register(ceremony.options.challenge),
+			})
+		).status,
+	).toBe(200);
+	const next = await (await handoff(replacement))();
+	const fresh = await next.json<{ token: string }>();
+	expect(
+		await (
+			await SELF.fetch(`${origin}/api/session`, {
+				headers: { authorization: `Bearer ${fresh.token}` },
+			})
+		).json(),
+	).toEqual({ principalId: id });
+	await env.OPERATOR.remove(id);
+});
+
+test('public HTTP cannot invoke operator admission, recovery, or removal', async () => {
+	for (const operation of ['admit', 'recover', 'remove']) {
+		for (const path of [
+			`/${operation}`,
+			`/auth/${operation}`,
+			`/operator/${operation}`,
+		]) {
+			const response = await SELF.fetch(`${origin}${path}`, {
+				method: 'POST',
+				headers: { origin, 'content-type': 'application/json' },
+				body: JSON.stringify({ id: 'unauthorized-alice', name: 'Alice' }),
+			});
+			expect(response.status).toBe(404);
+		}
+	}
 });

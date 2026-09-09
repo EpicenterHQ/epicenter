@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCallbackAuthClient } from '@epicenter/auth';
 	import { Loading } from '@epicenter/ui/loading';
-	import { authClient } from '#platform/auth';
+	import { authStartup } from '#platform/auth';
 	import { resolve } from '$app/paths';
 
 	// Completion only. This route renders under the root layout, which is chrome
@@ -15,13 +15,14 @@
 
 	$effect(() => {
 		void (async () => {
-			if (!isCallbackAuthClient(authClient)) {
+			const auth = authStartup.auth;
+			if (!auth || !isCallbackAuthClient(auth)) {
 				// The desktop build signs in through the host, which relaunches the
 				// process, so no browser callback lands here.
 				errorMessage = 'This build does not sign in through a browser callback.';
 				return;
 			}
-			const { error } = await authClient.completeSignIn();
+			const { error } = await auth.completeSignIn();
 			if (error) {
 				errorMessage = error.message;
 				return;

@@ -171,6 +171,7 @@ for (const successor of ['bob', 'alice']) {
 		}[] = [];
 		let signIns = 0;
 		const auth = createSessionAuth({
+			authorityId: 'epicenter-api',
 			baseURL: 'https://api.example.test',
 			persistedAuthStorage: { initial: null, set() {} },
 			launcher: {

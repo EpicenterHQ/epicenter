@@ -1,4 +1,4 @@
-import { auth } from '$lib/auth.svelte.js';
+import { getAuth } from '$lib/auth.svelte.js';
 import { tauri } from '#platform/tauri';
 import {
 	TRANSCRIPTION_PROVIDERS,
@@ -65,7 +65,7 @@ export function isTranscriptionServiceConfigured(
 		case 'session':
 			// No key to configure: the credential is the signed-in session, so
 			// "configured" is "signed in". Metering and top-up live on the deployment.
-			return auth.state.status === 'signed-in';
+			return getAuth().state.status === 'signed-in';
 		case 'key':
 			return secrets.get(service.apiKeyConfigKey).status === 'available';
 		case 'endpoint':

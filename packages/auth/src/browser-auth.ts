@@ -1,9 +1,13 @@
 /// <reference lib="dom" />
 
 import { tryAsync } from 'wellcrafted/result';
-import type { AuthClient } from './auth-contract.js';
+import {
+	type AuthClient,
+	type AuthStartup,
+	isCallbackAuthClient,
+} from './auth-contract.js';
 import { AuthError } from './auth-errors.js';
-import type { PersistedAuth } from './auth-types.js';
+import { createBrowserRedirectAuth } from './browser-redirect-auth.js';
 import { createInstanceAuth } from './create-session-auth.js';
 import {
 	type CreateHostedBrowserRedirectAuthOptions,
@@ -12,8 +16,8 @@ import {
 import { normalizeInstanceServer } from './instance-server.js';
 import { createWebStoragePersistedAuthStorage } from './persisted-auth-storage.js';
 
-/** Select one server at document startup. A server change verifies a new
- * candidate, saves the next boot selection, then replaces the document.
+/** Select one server at document startup. A server change saves the next boot
+ * selection and replaces the document; its issuer then verifies the person.
  * Call connection actions only after the application owner has finished closing
  * its current App. No running Account changes its server or its data address.
  */
@@ -24,128 +28,147 @@ export function createBrowserAuth(
 	const storage = window.localStorage;
 	const selectedOrigin = storage.getItem(selectionKey);
 	let server: ReturnType<typeof normalizeInstanceServer> | null = null;
+	let invalidSelection = false;
+	let namedIssuer = false;
 	try {
-		if (selectedOrigin) server = normalizeInstanceServer(selectedOrigin);
+		if (selectedOrigin !== null) {
+			// Earlier static-token selections remain attached to the historical identity.
+			if (selectedOrigin.startsWith('{')) {
+				const selected = JSON.parse(selectedOrigin);
+				if (selected.method !== 'issuer' || typeof selected.origin !== 'string')
+					throw new Error('Invalid saved issuer.');
+				server = normalizeInstanceServer(selected.origin);
+				if (server.baseURL === new URL(options.baseURL).origin)
+					throw new Error('Use Epicenter Cloud to connect to this server.');
+				namedIssuer = true;
+			} else server = normalizeInstanceServer(selectedOrigin);
+		}
 	} catch {
-		/* Invalid saved selection returns to the hosted connection screen. */
+		server = null;
+		invalidSelection = true;
 	}
 	const instanceStorage = (baseURL: string) =>
 		createWebStoragePersistedAuthStorage({
 			key: `${options.appId}.auth.instance:${baseURL}`,
 			storage,
 		});
-	const auth = server
-		? createInstanceAuth({
-				...server,
-				persistedAuthStorage: instanceStorage(server.baseURL),
-				async requestToken() {
-					throw new Error('Use the server connection form.');
-				},
-			})
-		: createHostedBrowserRedirectAuth(options);
-	let generation = 0;
-	let candidate: AuthClient | undefined;
+	// Invalid selection has no credential owner. In particular, neither reading
+	// state nor recovering may restore or revoke a surviving Cloud credential.
+	const auth: AuthClient | null = invalidSelection
+		? null
+		: server
+			? namedIssuer
+				? createBrowserRedirectAuth({ ...options, ...server })
+				: createInstanceAuth({
+						baseURL: server.baseURL,
+						persistedAuthStorage: instanceStorage(server.baseURL),
+					})
+			: createHostedBrowserRedirectAuth(options);
+	let selection: AbortController | undefined;
 	let disposed = false;
-	function cancelCandidate() {
-		generation++;
-		candidate?.[Symbol.dispose]();
-		candidate = undefined;
+	function cancelSelection() {
+		selection?.abort();
+		selection = undefined;
 	}
-	function reopen() {
+	function reopen(path = '/') {
 		disposed = true;
-		auth[Symbol.dispose]();
-		window.location.replace('/');
+		auth?.[Symbol.dispose]();
+		window.location.replace(path);
 	}
+	const startSignIn = auth?.startSignIn;
+	const client = auth
+		? {
+				baseURL: auth.baseURL,
+				onStateChange: auth.onStateChange,
+				getProfile: auth.getProfile,
+				accountManagementUrl: auth.accountManagementUrl,
+				get state() {
+					return auth.state;
+				},
+				...(startSignIn
+					? {
+							startSignIn(options?: { reauthenticate?: boolean }) {
+								cancelSelection();
+								return startSignIn(options);
+							},
+						}
+					: {}),
+				...(isCallbackAuthClient(auth)
+					? {
+							completeSignIn: auth.completeSignIn,
+						}
+					: {}),
+				signOut() {
+					cancelSelection();
+					return auth.signOut();
+				},
+				[Symbol.dispose]() {
+					disposed = true;
+					cancelSelection();
+					auth[Symbol.dispose]();
+				},
+			}
+		: null;
 	return {
-		...auth,
-		get state() {
-			return auth.state;
-		},
+		auth: client,
 		selectedServer: server?.baseURL ?? null,
-		startSignIn(options?: { reauthenticate?: boolean }) {
-			cancelCandidate();
-			return auth.startSignIn(options);
-		},
-		connectInstance(input: { url: string; token: string }) {
-			cancelCandidate();
-			const attempt = generation;
+		connectInstance(input: { url?: string }) {
+			cancelSelection();
+			const attempt = new AbortController();
+			selection = attempt;
 			return tryAsync({
 				try: async () => {
 					if (disposed) throw new Error('Connection screen closed.');
-					const next = normalizeInstanceServer(input.url);
-					let verified: PersistedAuth | null = null;
-					const pending = createInstanceAuth({
-						...next,
-						persistedAuthStorage: {
-							initial: null,
-							set(value) {
-								verified = value;
-							},
-						},
-						requestToken: async () => input.token,
-					});
-					candidate = pending;
-					const result = await pending.startSignIn();
-					if (result.error) throw result.error;
-					if (attempt !== generation || disposed)
-						throw new Error('Connection cancelled.');
-					const signedOut = await auth.signOut();
-					if (signedOut.error) throw signedOut.error;
-					if (attempt !== generation || disposed)
-						throw new Error('Connection cancelled.');
-					if (!verified)
-						throw new Error('The server did not verify the credential.');
-					const credentialKey = `${options.appId}.auth.instance:${next.baseURL}`;
-					const previous = storage.getItem(credentialKey);
-					// Web Storage is synchronous: cancellation cannot interleave this commit.
-					storage.setItem(credentialKey, JSON.stringify(verified));
-					try {
-						storage.setItem(selectionKey, next.baseURL);
-					} catch (error) {
-						if (previous === null) storage.removeItem(credentialKey);
-						else storage.setItem(credentialKey, previous);
-						throw error;
+					const next = normalizeInstanceServer(
+						input.url ?? server?.baseURL ?? '',
+					);
+					if (next.baseURL === new URL(options.baseURL).origin)
+						throw new Error('Use Epicenter Cloud to connect to this server.');
+					if (namedIssuer && next.baseURL === server?.baseURL && startSignIn) {
+						const result = await startSignIn();
+						if (result.error) throw result.error;
+						return undefined;
 					}
-					reopen();
+					const signedOut = await auth?.signOut();
+					if (signedOut?.error) throw signedOut.error;
+					attempt.signal.throwIfAborted();
+					storage.setItem(
+						selectionKey,
+						JSON.stringify({ method: 'issuer', origin: next.baseURL }),
+					);
+					reopen('/?connect');
 					return undefined;
 				},
 				catch: (cause) => AuthError.StartSignInFailed({ cause }),
 			}).finally(() => {
-				if (attempt === generation) {
-					candidate?.[Symbol.dispose]();
-					candidate = undefined;
-				}
+				if (selection === attempt) selection = undefined;
 			});
 		},
-		useHostedServer() {
-			cancelCandidate();
-			const attempt = generation;
+		useCloud() {
+			cancelSelection();
+			if (!server && startSignIn) return startSignIn();
+			const attempt = new AbortController();
+			selection = attempt;
 			return tryAsync({
 				try: async () => {
 					if (disposed) throw new Error('Connection screen closed.');
-					const result = await auth.signOut();
-					if (result.error) throw result.error;
-					if (attempt !== generation || disposed)
-						throw new Error('Connection cancelled.');
+					const result = await auth?.signOut();
+					if (result?.error) throw result.error;
+					attempt.signal.throwIfAborted();
 					storage.removeItem(selectionKey);
-					reopen();
+					reopen('/?connect');
 					return undefined;
 				},
 				catch: (cause) => AuthError.StartSignInFailed({ cause }),
+			}).finally(() => {
+				if (selection === attempt) selection = undefined;
 			});
-		},
-		signOut() {
-			cancelCandidate();
-			return auth.signOut();
 		},
 		[Symbol.dispose]() {
 			disposed = true;
-			cancelCandidate();
-			auth[Symbol.dispose]();
+			cancelSelection();
+			auth?.[Symbol.dispose]();
 		},
-	};
+	} satisfies AuthStartup;
 }
 export type BrowserAuth = ReturnType<typeof createBrowserAuth>;
-export function isBrowserAuth(auth: AuthClient): auth is BrowserAuth {
-	return 'connectInstance' in auth && 'useHostedServer' in auth;
-}

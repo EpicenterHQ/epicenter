@@ -65,6 +65,7 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 	// The real client, with only its two runtime edges injected: the fetch that
 	// verifies `/api/session` and the constructor that would open the socket.
 	const auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL: BASE_URL,
 		persistedAuthStorage: { initial: persisted, set: async () => undefined },
 		launcher: { startSignIn: async () => ({ status: 'launched' }) },

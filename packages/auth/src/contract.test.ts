@@ -34,6 +34,7 @@ function setup(
 	const writes: (PersistedAuth | null)[] = [];
 	const requests: { url: string; init?: RequestInit }[] = [];
 	const auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL,
 		log: createLogger('test', () => undefined),
 		persistedAuthStorage: {

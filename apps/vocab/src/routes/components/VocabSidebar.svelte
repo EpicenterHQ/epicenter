@@ -8,7 +8,7 @@
 	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import TrashIcon from '@lucide/svelte/icons/trash';
-	import { auth } from '$lib/auth.svelte.js';
+	import { getAuth } from '$lib/auth.svelte.js';
 	import EntriesPanel from './EntriesPanel.svelte';
 
 	let {
@@ -27,6 +27,7 @@
 		/** Erase this account's copy and reopen, which only the session can do. */
 		removeLocalData?: () => Promise<void>;
 	} = $props();
+	const auth = getAuth();
 	const { dictation } = getVocabSurface();
 </script>
 

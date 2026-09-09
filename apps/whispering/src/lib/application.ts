@@ -8,8 +8,9 @@ import { sqlite } from '#platform/sqlite';
 import { whisperingDefinition } from './data.js';
 
 // The mounted application group imports this once; callbacks and overlays do not.
-const state = authClient.state;
-export const account = state.status === 'signed-out' ? null : state.account;
+const auth = authClient.auth;
+const state = auth?.state;
+export const account = !state || state.status === 'signed-out' ? null : state.account;
 const epicenter = createEpicenter({
 	appId: APPS.WHISPERING.id,
 	definition: whisperingDefinition,
@@ -17,7 +18,7 @@ const epicenter = createEpicenter({
 	blobs: appBlobs,
 	recording,
 });
-export const app = new URLSearchParams(location.search).has('connect')
+export const app = auth === null || new URLSearchParams(location.search).has('connect')
 	? null
 	: account === null
 		? epicenter.openLocal()
@@ -25,7 +26,7 @@ export const app = new URLSearchParams(location.search).has('connect')
 export const departure = createDeparture({
 	retirement: app?.retirement,
 	reload: () => location.reload(),
-	auth: app ? authClient : undefined,
+	auth: app && auth ? auth : undefined,
 	account,
 	close: () => app?.close() ?? Promise.resolve(),
 });

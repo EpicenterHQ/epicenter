@@ -89,15 +89,16 @@ for (const engine of [chromium, webkit]) {
 			await page.getByText('Choose where to connect.').waitFor();
 			if (local)
 				await page.getByText('Connect to your server', { exact: true }).click();
+			else
+				await page.getByRole('button', { name: 'Change server', exact: true }).click();
 			await page.getByLabel('Server URL').fill('https://next.example');
-			await page.getByLabel('Server token').fill('verified-token');
 			await page.evaluate(() => {
 				const original = Storage.prototype.setItem;
 				let fail = true;
 				Storage.prototype.setItem = function (key, value) {
 					if (
 						key === 'probe.auth.server' &&
-						value === 'https://next.example' &&
+						JSON.parse(value).origin === 'https://next.example' &&
 						fail
 					) {
 						fail = false;
@@ -112,13 +113,12 @@ for (const engine of [chromium, webkit]) {
 				.filter({ hasText: 'Could not connect.' })
 				.waitFor();
 			assert.equal(new URL(page.url()).search, '?connect');
-			await page.getByLabel('Server token').fill('verified-token');
 			await Promise.all([
 				page.waitForNavigation(),
 				page.getByRole('button', { name: 'Connect', exact: true }).click(),
 			]);
 			assert.equal(
-				await page.evaluate(() => localStorage.getItem('probe.auth.server')),
+				await page.evaluate(() => JSON.parse(localStorage.getItem('probe.auth.server')).origin),
 				'https://next.example',
 			);
 			assert.deepEqual(errors, []);

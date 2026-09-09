@@ -8,11 +8,11 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { AuthFetch } from './auth-contract.js';
 import type { PersistedAuth } from './auth-types.js';
 import { createInstanceAuth } from './create-session-auth.js';
+import { normalizeInstanceServer } from './instance-server.js';
 
 function setup(
 	options: {
 		initial?: PersistedAuth;
-		requestToken?: (options: { signal: AbortSignal }) => Promise<string>;
 		fetch?: AuthFetch;
 		baseURL?: string;
 	} = {},
@@ -27,7 +27,6 @@ function setup(
 				saved = value;
 			},
 		},
-		requestToken: options.requestToken ?? (async () => 'operator-token'),
 		fetch: async (input, init) => {
 			const url = input instanceof Request ? input.url : String(input);
 			requests.push({
@@ -66,7 +65,7 @@ test('first enrollment waits for verification and disconnect never revokes the s
 			return verified.promise;
 		},
 	});
-	const signingIn = context.auth.startSignIn();
+	const signingIn = context.auth.signIn('operator-token');
 	await entered.promise;
 	expect(context.auth.state.status).toBe('signed-out');
 	expect(context.saved).toBeNull();
@@ -74,6 +73,9 @@ test('first enrollment waits for verification and disconnect never revokes the s
 	expectOk(await signingIn);
 	const account = context.account;
 	expect(account.principalId).toBe(asPrincipalId('instance'));
+	expect(account.authorityId).toBe(
+		normalizeInstanceServer('https://instance.test').authorityId,
+	);
 	expect(context.saved?.token).toBe('operator-token');
 	expectOk(await context.auth.signOut());
 	expect(context.saved).toBeNull();
@@ -88,40 +90,38 @@ for (const status of [401, 503]) {
 		using context = setup({
 			fetch: async () => new Response(null, { status }),
 		});
-		expectErr(await context.auth.startSignIn());
+		expectErr(await context.auth.signIn('operator-token'));
 		expect(context.auth.state.status).toBe('signed-out');
 		expect(context.saved).toBeNull();
 		expect(context.requests).toHaveLength(1);
 	});
 }
 
-test('cancelled token entry cannot reconnect after disconnect even when it ignores cancellation', async () => {
-	const token = Promise.withResolvers<string>();
+test('cancelled token verification cannot reconnect after disconnect even when transport ignores cancellation', async () => {
+	const verified = Promise.withResolvers<Response>();
 	const entered = Promise.withResolvers<void>();
 	using context = setup({
-		requestToken: async () => {
+		fetch: async () => {
 			entered.resolve();
-			return token.promise;
+			return verified.promise;
 		},
 	});
-	const signingIn = context.auth.startSignIn();
+	const signingIn = context.auth.signIn('late-token');
 	await entered.promise;
 	expectOk(await context.auth.signOut());
-	token.resolve('late-token');
+	verified.resolve(Response.json({ principalId: 'instance' }));
 	expectErr(await signingIn);
 	await Promise.resolve();
 	expect(context.auth.state.status).toBe('signed-out');
 	expect(context.saved).toBeNull();
-	expect(context.requests).toHaveLength(0);
+	expect(context.requests).toHaveLength(1);
 });
 
 test('same-instance token replacement preserves Account and sends only the replacement token', async () => {
-	let token = 'first';
-	using context = setup({ requestToken: async () => token });
-	expectOk(await context.auth.startSignIn());
+	using context = setup();
+	expectOk(await context.auth.signIn('first'));
 	const account = context.account;
-	token = 'second';
-	expectOk(await context.auth.startSignIn());
+	expectOk(await context.auth.signIn('second'));
 	expect(context.account).toBe(account);
 	await account.fetch('/resource');
 	expect(context.requests.at(-1)?.bearer).toBe('Bearer second');
@@ -146,13 +146,62 @@ test('cached identity survives an outage but cannot authorize resource traffic',
 	).toEqual(['/api/session']);
 });
 
+test('a refused instance credential reauthenticates the same Account with the entered replacement', async () => {
+	using context = setup({
+		initial: { token: 'expired', principalId: asPrincipalId('instance') },
+		fetch: async (_input, init) =>
+			new Headers(init?.headers).get('authorization') === 'Bearer expired'
+				? new Response(null, { status: 401 })
+				: Response.json({ principalId: 'instance' }),
+	});
+	const account = context.account;
+	await expect(account.fetch('/resource')).rejects.toBeDefined();
+	expect(context.auth.state.status).toBe('reauth-required');
+	expectOk(await context.auth.signIn('replacement'));
+	expect(context.auth.state.status).toBe('signed-in');
+	expect(context.account).toBe(account);
+	expect(context.saved?.token).toBe('replacement');
+	await account.fetch('/resource');
+	expect(context.requests.at(-1)?.bearer).toBe('Bearer replacement');
+});
+
+test('an unexpected principal cannot enroll or replace an instance Account', async () => {
+	using enrollment = setup({
+		fetch: async () => Response.json({ principalId: 'cloud-person' }),
+	});
+	expectErr(await enrollment.auth.signIn('wrong-server-token'));
+	expect(enrollment.auth.state.status).toBe('signed-out');
+	expect(enrollment.saved).toBeNull();
+
+	using reentry = setup({
+		initial: { token: 'saved', principalId: asPrincipalId('instance') },
+		fetch: async () => Response.json({ principalId: 'cloud-person' }),
+	});
+	const account = reentry.account;
+	expectErr(await reentry.auth.signIn('wrong-server-token'));
+	expect(reentry.account).toBe(account);
+	expect(reentry.saved?.token).toBe('saved');
+});
+
+test('a cached non-instance principal remains stored without publishing an Account or making requests', () => {
+	const initial = {
+		token: 'saved',
+		principalId: asPrincipalId('cloud-person'),
+	};
+	using context = setup({ initial });
+	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.saved).toBe(initial);
+	expect(context.requests).toHaveLength(0);
+});
+
 test('two servers returning instance remain separate Accounts and reject foreign destinations', async () => {
 	using first = setup();
 	using second = setup({ baseURL: 'https://other-instance.test' });
-	expectOk(await first.auth.startSignIn());
-	expectOk(await second.auth.startSignIn());
+	expectOk(await first.auth.signIn('operator-token'));
+	expectOk(await second.auth.signIn('operator-token'));
 	expect(first.account.principalId).toBe(second.account.principalId);
 	expect(first.account).not.toBe(second.account);
+	expect(first.account.authorityId).not.toBe(second.account.authorityId);
 	await expect(
 		first.account.fetch('https://other-instance.test/resource'),
 	).rejects.toBeDefined();

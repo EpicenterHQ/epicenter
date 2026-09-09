@@ -29,6 +29,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	const retryReceived = Promise.withResolvers<void>();
 	const releaseRetry = Promise.withResolvers<void>();
 	const revocations: Promise<Response>[] = [];
+	const signInOptions: Array<{ reauthenticate?: boolean }> = [];
 	let verifications = 0;
 	let nextToken = 'revised';
 	let upstreamSockets = 0;
@@ -119,6 +120,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	});
 	const baseURL = upstream.url.origin;
 	const auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL,
 		fetch(input, init) {
 			const response = fetch(input, init);
@@ -134,7 +136,10 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 			set() {},
 		},
 		launcher: {
-			startSignIn: async () => ({ status: 'completed', token: nextToken }),
+			startSignIn: async ({ reauthenticate }) => {
+				signInOptions.push({ reauthenticate });
+				return { status: 'completed', token: nextToken };
+			},
 		},
 	});
 	if (auth.state.status === 'signed-out')
@@ -142,7 +147,9 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	const account = auth.state.account;
 	const bootstrap = {
 		state: { status: 'signed-in' as const, principalId: account.principalId },
-		connection: { baseURL, authorityId: 'test', status: 'connected' as const },
+		baseURL,
+		authorityId: 'epicenter-api',
+		startSignIn: true, accountManagement: true, recovery: false, selectedServer: null,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
 	const host = await createHomeHost({
@@ -180,10 +187,9 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 						};
 			},
 			startSignIn: auth.startSignIn,
-			prepareConnection: async () => Ok(undefined),
 			cancelConnection: async () => Ok(undefined),
 			connectInstance: async () => Ok(undefined),
-			selectHosted: async () => Ok(undefined),
+			useCloud: async () => Ok(undefined),
 			async signOut() {
 				expectOk(await auth.signOut());
 				return Ok(undefined);
@@ -236,12 +242,13 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 			super(url, { headers: socketHeaders });
 		}
 	} as typeof WebSocket;
-	const windowAuth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: origin,
 		fetch: windowFetch,
 		WebSocket: WindowSocket,
 	});
+	const windowAuth = startup.auth!;
 	if (windowAuth.state.status === 'signed-out')
 		throw new Error('Missing window account');
 	return {
@@ -253,6 +260,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		requests,
 		sessionRequests,
 		localCalls,
+		signInOptions,
 		streamCancelled,
 		retryReceived,
 		releaseRetry,
@@ -484,6 +492,28 @@ test('an old window cannot relay through the successor credential after account 
 	expect(context.requests.some(({ path }) => path === '/api/old-window')).toBe(
 		false,
 	);
+});
+
+test('the broker route validates and forwards forced reauthentication to the session launcher', async () => {
+	await using context = await setup();
+	for (const body of [null, [], { reauthenticate: 'true' }]) {
+		const response = await fetch(
+			`${context.origin}/_epicenter/account/sign-in`,
+			{
+				method: 'POST',
+				headers: {
+					cookie: context.cookie,
+					origin: context.origin,
+					'content-type': 'application/json',
+				},
+				body: JSON.stringify(body),
+			},
+		);
+		expect(response.status).toBe(400);
+	}
+	expect(context.signInOptions).toEqual([]);
+	expectOk(await context.windowAuth.startSignIn!({ reauthenticate: true }));
+	expect(context.signInOptions).toEqual([{ reauthenticate: true }]);
 });
 
 async function until(condition: () => boolean) {

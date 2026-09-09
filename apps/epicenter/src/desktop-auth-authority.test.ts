@@ -10,7 +10,11 @@ import { ApiSessionResponse, type AuthFetch } from '@epicenter/auth';
 import { expectOk } from 'wellcrafted/testing';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.ts';
 
-const STORED_CELL = JSON.stringify({ token: 'alice-1', principalId: 'alice' });
+const STORED_CELL = JSON.stringify({
+	method: 'cloud',
+	origin: 'https://api.epicenter.so',
+	auth: { token: 'alice-1', principalId: 'alice' },
+});
 
 function setup({
 	authCell = STORED_CELL,
@@ -130,10 +134,13 @@ test('a stored session boots offline and authorizes after verification without e
 		principalId: ApiSessionResponse.assert({ principalId: 'alice' })
 			.principalId,
 	});
-	expect(context.authority.bootSnapshot.connection).toEqual({
+	expect(context.authority.bootSnapshot).toMatchObject({
 		baseURL: 'https://api.epicenter.so',
 		authorityId: 'epicenter-api',
-		status: 'connected',
+		startSignIn: true,
+		accountManagement: true,
+		recovery: false,
+		selectedServer: null,
 	});
 	expect(JSON.stringify(context.authority.bootSnapshot)).not.toContain(
 		'alice-1',
@@ -185,9 +192,38 @@ test('sign-out waits for revocation completion before native relaunch', async ()
 	expect(context.events).toEqual(['stored', 'relaunch']);
 });
 
-test('unreadable and obsolete OAuth cells boot signed-out', () => {
+test('unsafe native cells enter recovery without exposing identity, requests, or changing saved bytes', async () => {
 	for (const authCell of [
 		'not-json',
+		JSON.stringify({
+			method: 'issuer',
+			origin: 'https://api.epicenter.so',
+			auth: { token: 'alice-1', principalId: 'alice' },
+		}),
+		'null',
+		JSON.stringify({ token: 'alice-1', principalId: 'alice' }),
+		JSON.stringify({
+			method: 'cloud',
+			origin: 'https://other.example',
+			auth: { token: 'alice-1', principalId: 'alice' },
+		}),
+		JSON.stringify({
+			method: 'instance',
+			origin: 'https://instance.example/',
+			auth: null,
+		}),
+		JSON.stringify({ method: 'instance', origin: 'invalid', auth: null }),
+		JSON.stringify({
+			method: 'instance',
+			origin: 'https://instance.example',
+			auth: { token: '', principalId: 'instance' },
+		}),
+		JSON.stringify({
+			method: 'instance',
+			origin: 'https://instance.example',
+			auth: { token: 'operator', principalId: 'alice' },
+		}),
+		JSON.stringify({ method: 'cloud', origin: 'https://api.epicenter.so' }),
 		'{"deployment":{"kind":"self-hosted"}}',
 		JSON.stringify({
 			grant: {
@@ -198,15 +234,54 @@ test('unreadable and obsolete OAuth cells boot signed-out', () => {
 			principalId: 'alice',
 		}),
 	]) {
-		using context = setup({ authCell });
+		let requests = 0;
+		using context = setup({
+			authCell,
+			fetch: async () => {
+				requests++;
+				throw new Error('Unsafe cell must not make requests.');
+			},
+		});
 		expect(context.authority.bootSnapshot.state).toEqual({
 			status: 'signed-out',
 		});
 		expect(context.authority.account).toBeNull();
+		expect(context.authority.bootSnapshot.recovery).toBe(true);
+		expect((await context.authority.startSignIn()).error).not.toBeNull();
+		expectOk(await context.authority.cancelConnection());
+		expect(context.writes).toEqual([]);
+		expect(requests).toBe(0);
 	}
 });
 
-test('duplicate sign-in calls register before the opener and persist before one relaunch', async () => {
+test('deliberate Cloud selection leaves recovery through a fresh process without revoking the unsafe token', async () => {
+	using context = setup({
+		authCell: JSON.stringify({ token: 'unsafe', principalId: 'alice' }),
+		fetch: async () => {
+			throw new Error('No revocation is permitted.');
+		},
+	});
+	expectOk(await context.authority.useCloud());
+	expect(context.writes).toEqual([null]);
+	expect(context.events).toEqual(['stored', 'relaunch']);
+	expect(context.authority.account).toBeNull();
+	expect(context.authority.bootSnapshot.recovery).toBe(true);
+});
+
+test('forced reauthentication reaches the native hosted handoff without preliminary sign-out', async () => {
+	using context = setup();
+	const account = context.authority.account;
+	const signingIn = context.authority.startSignIn({ reauthenticate: true });
+	await until(() => context.urls.length === 1);
+	expect(new URL(context.urls[0]!).searchParams.get('reauth')).toBe('1');
+	expect(context.writes).toEqual([]);
+	expect(context.revoked).toEqual([]);
+	context.finish('alice-2');
+	expectOk(await signingIn);
+	expect(context.authority.account).toBe(account);
+});
+
+test('duplicate same-owner sign-in calls persist once and retain the boot Account', async () => {
 	let callback: ((url: string) => void) | undefined;
 	using context = setup({
 		open: async (url) => {
@@ -224,8 +299,8 @@ test('duplicate sign-in calls register before the opener and persist before one 
 	expectOk(await first);
 	expect(context.urls).toHaveLength(1);
 	expect(new URL(context.urls[0]!).pathname).toBe('/sign-in');
-	expect(context.events).toEqual(['stored', 'relaunch']);
-	expect(JSON.parse(context.writes[0]!)).toEqual({
+	expect(context.events).toEqual(['stored']);
+	expect(JSON.parse(context.writes[0]!).auth).toEqual({
 		token: 'alice-2',
 		principalId: 'alice',
 	});
@@ -252,7 +327,7 @@ test('failed relaunch after replacement leaves the captured boot Account permane
 		principalId: ApiSessionResponse.assert({ principalId: 'alice' })
 			.principalId,
 	});
-	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
+	expect(JSON.parse(context.writes.at(-1)!).auth).toEqual({
 		token: 'bob-1',
 		principalId: 'bob',
 	});
@@ -322,7 +397,7 @@ test('timeout clears the waiter and a later attempt cannot consume its callback'
 		await until(() => context.urls.length === 2);
 		context.finish('alice-2');
 		expectOk(await next);
-		expect(context.events).toEqual(['stored', 'relaunch']);
+		expect(context.events).toEqual(['stored']);
 	} finally {
 		timer.mockRestore();
 	}
@@ -409,7 +484,11 @@ test('a cancelled redemption cannot overwrite a later sign-in or request another
 	await until(() => revoked.includes('orphan'));
 	expect(context.writes).toEqual([
 		null,
-		JSON.stringify({ token: 'bob-2', principalId: 'bob' }),
+		JSON.stringify({
+			method: 'cloud',
+			origin: 'https://api.epicenter.so',
+			auth: { token: 'bob-2', principalId: 'bob' },
+		}),
 	]);
 	expect(context.events.filter((event) => event === 'relaunch')).toHaveLength(
 		2,
@@ -417,45 +496,26 @@ test('a cancelled redemption cannot overwrite a later sign-in or request another
 	expect(revoked).not.toContain('bob-2');
 });
 
-test('instance selection verifies and persists one cell, then retires the captured boot Account', async () => {
-	using context = setup({
-		fetch: async (input, init) => {
-			const request = new Request(input, init);
-			if (new URL(request.url).pathname === '/auth/sign-out')
-				return new Response(null);
-			expect(request.url).toBe('http://localhost:8788/api/session');
-			expect(request.headers.get('authorization')).toBe('Bearer operator');
-			return Response.json({ principalId: 'instance' });
-		},
-	});
-	expectOk(await context.authority.prepareConnection());
+test('issuer selection persists one empty cell and retires the captured boot Account', async () => {
+	using context = setup();
 	const boot = context.authority.account!;
-	expectOk(
-		await context.authority.connectInstance(
-			'http://LOCALHOST:8788/',
-			'operator',
-		),
-	);
+	expectOk(await context.authority.connectInstance('http://LOCALHOST:8788/'));
 	expect(context.writes.map((cell) => JSON.parse(cell!))).toEqual([
 		null,
-		{
-			server: 'http://localhost:8788',
-			auth: { token: 'operator', principalId: 'instance' },
-		},
+		{ method: 'issuer', origin: 'http://localhost:8788', auth: null },
 	]);
 	expect(context.events).toEqual(['stored', 'stored', 'relaunch']);
 	expect(context.authority.baseURL).toBe('https://api.epicenter.so');
 	expect(context.authority.account).toBe(boot);
 	await expect(boot.fetch('/api/example')).rejects.toBeDefined();
-	expect(JSON.stringify(context.authority.bootSnapshot)).not.toContain(
-		'operator',
-	);
+	expect(context.urls).toEqual([]);
 });
 
 test('an instance boots offline with its own identity and disconnects without hosted revocation', async () => {
 	using context = setup({
 		authCell: JSON.stringify({
-			server: 'http://localhost:8788',
+			method: 'instance',
+			origin: 'http://localhost:8788',
 			auth: { token: 'operator', principalId: 'instance' },
 		}),
 		fetch: async () => {
@@ -463,67 +523,66 @@ test('an instance boots offline with its own identity and disconnects without ho
 		},
 	});
 	expect(context.authority.account!.authorityId).toStartWith('instance-');
-	expect(context.authority.bootSnapshot.connection.authorityId).toBe(
+	expect(context.authority.bootSnapshot.authorityId).toBe(
 		context.authority.account!.authorityId!,
 	);
 	expect(context.authority.baseURL).toBe('http://localhost:8788');
 	expect(context.authority.bootSnapshot.signInLocation).toBe('host-settings');
 	expectOk(await context.authority.signOut());
 	expect(context.writes).toEqual([
-		JSON.stringify({ server: 'http://localhost:8788', auth: null }),
+		JSON.stringify({
+			method: 'instance',
+			origin: 'http://localhost:8788',
+			auth: null,
+		}),
 	]);
 	expect(context.events).toEqual(['stored', 'relaunch']);
 });
 
-test('rejected instance credentials leave the original boot and stored selection intact', async () => {
-	using context = setup({
-		fetch: async () => new Response(null, { status: 401 }),
-	});
-	expectOk(await context.authority.prepareConnection());
+test('the configured Cloud origin cannot be selected as a custom issuer', async () => {
+	using context = setup();
 	const boot = context.authority.account;
-	expect(
-		(
-			await context.authority.connectInstance(
-				'https://my-server.example',
-				'wrong',
-			)
-		).error,
-	).not.toBeNull();
+	const result = await context.authority.connectInstance(
+		'https://API.epicenter.so/',
+	);
+	expect(result.error).not.toBeNull();
+	expect(result.error?.message).toContain(
+		'Use Epicenter Cloud to connect to this server.',
+	);
 	expect(context.writes).toEqual([]);
+	expect(context.events).toEqual([]);
+	expect(context.revoked).toEqual([]);
 	expect(context.authority.account).toBe(boot);
+	expect(context.authority.state.status).toBe('signed-in');
 });
 
-test('sign-out cancels an instance verification before it can save or relaunch', async () => {
+test('sign-out cancels issuer selection while the native close barrier is pending', async () => {
 	const requested = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	using context = setup({
 		authCell: null,
-		fetch: async () => {
+		closeApplications: async () => {
 			requested.resolve();
 			await release.promise;
-			return Response.json({ principalId: 'instance' });
 		},
 	});
-	expectOk(await context.authority.prepareConnection());
 	const connecting = context.authority.connectInstance(
 		'https://my-server.example',
-		'operator',
 	);
 	await requested.promise;
-	expectOk(await context.authority.signOut());
-	expect((await connecting).error).not.toBeNull();
+	const disconnecting = context.authority.signOut();
 	release.resolve();
-	await Bun.sleep(0);
+	expect((await connecting).error).not.toBeNull();
+	expectOk(await disconnecting);
 	expect(context.writes).toEqual([null]);
 	expect(context.events).toEqual(['stored', 'relaunch']);
 });
 
-test('cancelling an instance commit leaves the original server signed out', async () => {
+test('cancelling an issuer commit leaves the original server signed out', async () => {
 	const writing = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	let first = true;
 	using context = setup({
-		fetch: async () => Response.json({ principalId: 'instance' }),
 		store: async (cell) => {
 			if (cell !== null && first) {
 				first = false;
@@ -532,10 +591,9 @@ test('cancelling an instance commit leaves the original server signed out', asyn
 			}
 		},
 	});
-	expectOk(await context.authority.prepareConnection());
+
 	const connecting = context.authority.connectInstance(
 		'https://my-server.example',
-		'operator',
 	);
 	await writing.promise;
 	context.authority[Symbol.dispose]();
@@ -556,13 +614,12 @@ test('disconnect during hosted release cancels selection and does not reconnect'
 				await release.promise;
 				return new Response(null);
 			}
-			return Response.json({ principalId: 'instance' });
+			throw new Error('Selection must not contact the candidate issuer.');
 		},
 	});
-	expectOk(await context.authority.prepareConnection());
+
 	const connecting = context.authority.connectInstance(
 		'https://my-server.example',
-		'operator',
 	);
 	await revoking.promise;
 	const disconnecting = context.authority.signOut();
@@ -576,7 +633,7 @@ test('disconnect during hosted release cancels selection and does not reconnect'
 	);
 });
 
-for (const target of ['instance', 'hosted'] as const) {
+for (const target of ['issuer', 'hosted'] as const) {
 	test(`${target} selection drains an outstanding old principal-mismatch write before saving the next boot`, async () => {
 		const oldResponse = Promise.withResolvers<Response>();
 		const oldRequested = Promise.withResolvers<void>();
@@ -585,7 +642,8 @@ for (const target of ['instance', 'hosted'] as const) {
 		let firstClear = true;
 		using context = setup({
 			authCell: JSON.stringify({
-				server: 'https://old.example',
+				method: 'instance',
+				origin: 'https://old.example',
 				auth: { token: 'old', principalId: 'instance' },
 			}),
 			fetch: async (input) => {
@@ -593,7 +651,7 @@ for (const target of ['instance', 'hosted'] as const) {
 					oldRequested.resolve();
 					return oldResponse.promise;
 				}
-				return Response.json({ principalId: 'instance' });
+				throw new Error('Selection must not contact the candidate issuer.');
 			},
 			store: async (cell) => {
 				if (cell !== null && JSON.parse(cell).auth === null && firstClear) {
@@ -609,11 +667,11 @@ for (const target of ['instance', 'hosted'] as const) {
 		await oldRequested.promise;
 		oldResponse.resolve(Response.json({ principalId: 'different-person' }));
 		await clearing.promise;
-		expectOk(await context.authority.prepareConnection());
+
 		const selecting =
-			target === 'instance'
-				? context.authority.connectInstance('https://new.example', 'operator')
-				: context.authority.selectHosted();
+			target === 'issuer'
+				? context.authority.connectInstance('https://new.example')
+				: context.authority.useCloud();
 		await Bun.sleep(0);
 		expect(context.writes).toEqual([]);
 		expect(context.events).not.toContain('relaunch');
@@ -621,12 +679,13 @@ for (const target of ['instance', 'hosted'] as const) {
 		expectOk(await selecting);
 		await oldRequest;
 		expect(context.writes.map((cell) => JSON.parse(cell ?? 'null'))).toEqual([
-			{ server: 'https://old.example', auth: null },
-			{ server: 'https://old.example', auth: null },
-			target === 'instance'
+			{ method: 'instance', origin: 'https://old.example', auth: null },
+			{ method: 'instance', origin: 'https://old.example', auth: null },
+			target === 'issuer'
 				? {
-						server: 'https://new.example',
-						auth: { token: 'operator', principalId: 'instance' },
+						method: 'issuer',
+						origin: 'https://new.example',
+						auth: null,
 					}
 				: null,
 		]);
@@ -634,21 +693,24 @@ for (const target of ['instance', 'hosted'] as const) {
 	});
 }
 
-test('server selection is refused until every application has closed', async () => {
+test('server selection owns and waits for the application close barrier', async () => {
 	const closed = Promise.withResolvers<void>();
-	using context = setup({ closeApplications: () => closed.promise });
-	expect(
-		(await context.authority.connectInstance('https://example.com', 'token'))
-			.error,
-	).not.toBeNull();
-	expect((await context.authority.selectHosted()).error).not.toBeNull();
-	const preparing = context.authority.prepareConnection();
-	expect((await context.authority.selectHosted()).error).not.toBeNull();
+	using context = setup({
+		authCell: JSON.stringify({
+			method: 'issuer',
+			origin: 'https://self.example',
+			auth: { token: 'alice-1', principalId: 'alice' },
+		}),
+		closeApplications: () => closed.promise,
+	});
+	const selecting = context.authority.useCloud();
+	await Bun.sleep(0);
+	expect((await context.authority.useCloud()).error).not.toBeNull();
 	expect(context.writes).toEqual([]);
+	expect(context.authority.state.status).toBe('signed-in');
 	closed.resolve();
-	expectOk(await preparing);
-	expectOk(await context.authority.cancelConnection());
-	expect((await context.authority.selectHosted()).error).not.toBeNull();
+	expectOk(await selecting);
+	expect(context.events.at(-1)).toBe('relaunch');
 });
 
 test('a failed application close refuses sign-out without changing credentials or relaunching', async () => {
@@ -661,7 +723,7 @@ test('a failed application close refuses sign-out without changing credentials o
 	expect(context.writes).toEqual([]);
 	expect(context.events).toEqual([]);
 	expect(context.authority.state.status).toBe('signed-in');
-	expect((await context.authority.prepareConnection()).error).not.toBeNull();
+	expect((await context.authority.useCloud()).error).not.toBeNull();
 });
 
 test('ordinary sign-in waits for application close before opening the browser', async () => {
@@ -676,31 +738,33 @@ test('ordinary sign-in waits for application close before opening the browser', 
 	expectOk(await signingIn);
 });
 
-test('cancelling preparation revokes selection before the native launch gate reopens', async () => {
+test('selection remains blocked while the native launch gate is reopening', async () => {
 	const resumed = Promise.withResolvers<void>();
 	let closes = 0;
 	using context = setup({
+		authCell: JSON.stringify({
+			method: 'issuer',
+			origin: 'https://self.example',
+			auth: { token: 'alice-1', principalId: 'alice' },
+		}),
 		closeApplications: async () => {
 			closes++;
 		},
 		resumeApplications: () => resumed.promise,
 	});
-	expectOk(await context.authority.prepareConnection());
+
 	const cancelling = context.authority.cancelConnection();
 	expect(
-		(await context.authority.connectInstance('https://example.com', 'token'))
-			.error,
+		(await context.authority.connectInstance('https://example.com')).error,
 	).not.toBeNull();
-	expect((await context.authority.selectHosted()).error).not.toBeNull();
-	expect((await context.authority.prepareConnection()).error).not.toBeNull();
+	expect((await context.authority.useCloud()).error).not.toBeNull();
 	expect((await context.authority.startSignIn()).error).not.toBeNull();
 	expect(context.writes).toEqual([]);
-	expect(closes).toBe(1);
+	expect(closes).toBe(0);
 	resumed.resolve();
 	expectOk(await cancelling);
-	expect((await context.authority.selectHosted()).error).not.toBeNull();
-	expectOk(await context.authority.prepareConnection());
-	expect(closes).toBe(2);
+	expectOk(await context.authority.useCloud());
+	expect(closes).toBe(1);
 });
 
 for (const failure of ['candidate-save', 'old-sign-out'] as const) {
@@ -710,10 +774,10 @@ for (const failure of ['candidate-save', 'old-sign-out'] as const) {
 		let resumed = false;
 		using context = setup({
 			authCell: JSON.stringify({
-				server: originalServer,
+				method: 'instance',
+				origin: originalServer,
 				auth: { token: 'old', principalId: 'instance' },
 			}),
-			fetch: async () => Response.json({ principalId: 'instance' }),
 			resumeApplications: async () => {
 				resumed = true;
 			},
@@ -722,7 +786,7 @@ for (const failure of ['candidate-save', 'old-sign-out'] as const) {
 				if (
 					fail &&
 					(failure === 'candidate-save'
-						? value?.auth?.token === 'new'
+						? value?.origin === 'https://new.example'
 						: value?.auth === null)
 				) {
 					fail = false;
@@ -730,16 +794,19 @@ for (const failure of ['candidate-save', 'old-sign-out'] as const) {
 				}
 			},
 		});
-		expectOk(await context.authority.prepareConnection());
+
 		expect(
-			(await context.authority.connectInstance('https://new.example', 'new'))
-				.error,
+			(await context.authority.connectInstance('https://new.example')).error,
 		).not.toBeNull();
 		expect(context.authority.state.status).toBe('signed-out');
 		expect(context.events).not.toContain('relaunch');
 		expectOk(await context.authority.cancelConnection());
 		expect(context.writes.at(-1)).toBe(
-			JSON.stringify({ server: originalServer, auth: null }),
+			JSON.stringify({
+				method: 'instance',
+				origin: originalServer,
+				auth: null,
+			}),
 		);
 		expect(resumed).toBe(false);
 		expect(context.events.at(-1)).toBe('relaunch');
@@ -749,7 +816,6 @@ for (const failure of ['candidate-save', 'old-sign-out'] as const) {
 test('failed cancellation clear never relaunches or reopens a retired boot', async () => {
 	let resumed = false;
 	using context = setup({
-		fetch: async () => Response.json({ principalId: 'instance' }),
 		store: async () => {
 			throw new Error('native storage unavailable');
 		},
@@ -757,10 +823,9 @@ test('failed cancellation clear never relaunches or reopens a retired boot', asy
 			resumed = true;
 		},
 	});
-	expectOk(await context.authority.prepareConnection());
+
 	expect(
-		(await context.authority.connectInstance('https://new.example', 'new'))
-			.error,
+		(await context.authority.connectInstance('https://new.example')).error,
 	).not.toBeNull();
 	expect((await context.authority.cancelConnection()).error).not.toBeNull();
 	expect(context.events).toEqual([]);
@@ -797,4 +862,119 @@ test('failed hosted replacement drains its persistence before recovering the ori
 	expect(context.writes).toEqual([null]);
 	expect(context.events).toEqual(['stored', 'relaunch']);
 	expect(resumed).toBe(false);
+});
+
+test('URL-only selection persists a named issuer without treating the old static identity as its user', async () => {
+	using context = setup({
+		authCell: JSON.stringify({
+			method: 'instance',
+			origin: 'https://self.example',
+			auth: { token: 'operator', principalId: 'instance' },
+		}),
+	});
+	const old = context.authority.account!;
+	expectOk(await context.authority.connectInstance('https://self.example'));
+	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
+		method: 'issuer',
+		origin: 'https://self.example',
+		auth: null,
+	});
+	expect(context.authority.state.status).toBe('signed-out');
+	await expect(old.fetch('/api/example')).rejects.toThrow();
+	expect(context.urls).toEqual([]);
+	expect(context.events.at(-1)).toBe('relaunch');
+});
+
+test('a named issuer restores offline and repairs Alice through its own PKCE handoff without replacing the Account', async () => {
+	let resumes = 0;
+	const requests: Array<{ origin: string; token: string }> = [];
+	using context = setup({
+		authCell: JSON.stringify({
+			method: 'issuer',
+			origin: 'https://self.example',
+			auth: { token: 'alice-1', principalId: 'alice' },
+		}),
+		fetch: async (input, init) => {
+			const request = new Request(input, init);
+			const url = new URL(request.url);
+			const token = request.headers.get('authorization')?.slice(7) ?? '';
+			requests.push({ origin: url.origin, token });
+			if (url.pathname === '/auth/session/redeem')
+				return Response.json({
+					token: ((await request.json()) as { code: string }).code,
+				});
+			if (url.pathname === '/api/session')
+				return token === 'alice-1'
+					? new Response(null, { status: 401 })
+					: Response.json({ principalId: 'alice' });
+			return new Response('allowed');
+		},
+		resumeApplications: async () => {
+			resumes++;
+		},
+	});
+	const account = context.authority.account!;
+	expect(context.authority.state).toMatchObject({
+		status: 'signed-in',
+		principalId: 'alice',
+	});
+	expect(context.authority.bootSnapshot).toMatchObject({
+		baseURL: 'https://self.example',
+		selectedServer: 'https://self.example',
+		startSignIn: true,
+		accountManagement: false,
+	});
+	expect(account.authorityId).not.toBe('epicenter-api');
+	expect(JSON.stringify(context.authority.bootSnapshot)).not.toContain(
+		'alice-1',
+	);
+	await expect(account.fetch('/api/example')).rejects.toThrow();
+	expect(context.authority.state.status).toBe('reauth-required');
+	expect(context.authority.account).toBe(account);
+	const signingIn = context.authority.startSignIn({ reauthenticate: true });
+	await until(() => context.urls.length === 1);
+	const url = new URL(context.urls[0]!);
+	expect(url.origin).toBe('https://self.example');
+	expect(url.searchParams.get('reauth')).toBe('1');
+	expect(url.searchParams.get('challenge')).toBeTruthy();
+	context.finish('alice-2');
+	expectOk(await signingIn);
+	expect(resumes).toBe(1);
+	expect(context.authority.account).toBe(account);
+	expect(context.events).toEqual(['stored']);
+	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
+		method: 'issuer',
+		origin: 'https://self.example',
+		auth: { token: 'alice-2', principalId: 'alice' },
+	});
+	await account.fetch('/api/example');
+	expect(requests.at(-1)).toEqual({
+		origin: 'https://self.example',
+		token: 'alice-2',
+	});
+	expect(
+		requests.every((request) => request.origin === 'https://self.example'),
+	).toBe(true);
+});
+
+test('first issuer sign-in persists Alice for a new host without exposing credentials to the old windows', async () => {
+	using context = setup({
+		authCell: JSON.stringify({
+			method: 'issuer',
+			origin: 'https://self.example',
+			auth: null,
+		}),
+	});
+	const signingIn = context.authority.startSignIn();
+	await until(() => context.urls.length === 1);
+	context.finish('alice-1');
+	expectOk(await signingIn);
+	expect(context.authority.account).toBeNull();
+	expect(context.authority.state.status).toBe('signed-out');
+	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
+		method: 'issuer',
+		origin: 'https://self.example',
+		auth: { token: 'alice-1', principalId: 'alice' },
+	});
+	expect(context.events.at(-1)).toBe('relaunch');
 });

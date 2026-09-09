@@ -1,6 +1,7 @@
 import type { AccountIdentity } from '@epicenter/principal';
 import type { SocketTransport } from '@epicenter/sync/transport';
 import type { Result } from 'wellcrafted/result';
+import type { createAccountManagementUrl } from './account-management.js';
 import type { AuthError } from './auth-errors.js';
 import type { Principal } from './auth-types.js';
 
@@ -27,26 +28,13 @@ export type AuthState =
 	| { status: 'signed-out' }
 	| { status: 'signed-in' | 'reauth-required'; account: Account };
 
-export type ConnectionStatus =
-	| 'connecting'
-	| 'connected'
-	| 'unreachable'
-	| 'rejected';
-
-export type Connection = {
-	baseURL: string;
-	get status(): ConnectionStatus;
-	onChange(fn: (status: ConnectionStatus) => void): () => void;
-};
-
 /** Auth selects accounts; applications hold the Account they opened. */
 export type AuthClient = {
-	/** A host-owned token must be entered in host settings, outside app windows. */
-	signInLocation?: 'host-settings';
 	state: AuthState;
-	connection: Connection;
+	baseURL: string;
+	accountManagementUrl?: typeof createAccountManagementUrl;
 	onStateChange(fn: (state: AuthState) => void): () => void;
-	startSignIn(options?: {
+	startSignIn?(options?: {
 		reauthenticate?: boolean;
 	}): Promise<Result<undefined, AuthError>>;
 	/** Retire locally and clear persistence. Hosted clients await a revocation
@@ -57,9 +45,27 @@ export type AuthClient = {
 	[Symbol.dispose](): void;
 };
 
+/** Session clients expose sign-in independently of the issuer. */
+export type SessionAuthClient = AuthClient & {
+	startSignIn: NonNullable<AuthClient['startSignIn']>;
+};
+
 /** Only a redirect launcher can consume a sign-in callback. */
-export type CallbackAuthClient = AuthClient & {
+export type CallbackAuthClient = SessionAuthClient & {
 	completeSignIn(): Promise<Result<undefined, AuthError>>;
+};
+
+/** One document or host startup selection and its available sign-in actions. */
+export type AuthStartup = {
+	auth: AuthClient | null;
+	selectedServer: string | null;
+	/** Server selection and sign-in belong to host settings. */
+	signInLocation?: 'host-settings';
+	connectInstance?: (input: {
+		url?: string;
+	}) => Promise<Result<undefined, AuthError>>;
+	useCloud?: () => Promise<Result<undefined, AuthError>>;
+	[Symbol.dispose](): void;
 };
 
 export function isCallbackAuthClient(

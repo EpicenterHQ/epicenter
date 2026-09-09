@@ -53,8 +53,8 @@ export const ready = app?.ready.then((result) => {
 	app?.view.kv.update({ text: 'accepted edit' });
 });
 export const departure = createDeparture({
-	account: auth.state.status === 'signed-out' ? null : auth.state.account,
-	auth: app ? auth : undefined,
+	account: !auth.auth || auth.auth.state.status === 'signed-out' ? null : auth.auth.state.account,
+	auth: app ? auth.auth ?? undefined : undefined,
 	async close() {
 		await app?.close();
 		probe.events.push('closed');

@@ -10,7 +10,7 @@
  * - Window fetch passes requests through without an Authorization header
  * - Account commands post to the same-origin broker routes with cookies
  * - The profile is read from the broker projection, never the server transport
- * - openWebSocket refuses with `'no-credential-model'`
+ * - Retired Accounts refuse further HTTP and socket work
  * - It is not a callback client: no browser OAuth callback reaches a window
  */
 
@@ -25,11 +25,9 @@ import {
 
 const bootstrap = {
 	state: { status: 'signed-in', principalId: asPrincipalId('alice') },
-	connection: {
-		authorityId: 'test-server',
-		baseURL: 'https://api.epicenter.so',
-		status: 'connected',
-	},
+	authorityId: 'test-server',
+	baseURL: 'https://api.epicenter.so',
+	startSignIn: true, accountManagement: true, recovery: false, selectedServer: null,
 } as const;
 
 function recordingFetch(
@@ -46,11 +44,12 @@ function recordingFetch(
 
 test('window fetch attaches no credential to any request', async () => {
 	const { calls, fetch } = recordingFetch(() => new Response('ok'));
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
+	const auth = startup.auth!;
 
 	await selectedAccount(auth).fetch('https://api.epicenter.so/api/session');
 	await expect(
@@ -68,13 +67,17 @@ test('account commands post to the same-origin broker with cookies', async () =>
 	const { calls, fetch } = recordingFetch(
 		() => new Response(null, { status: 202 }),
 	);
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
+	const auth = startup.auth!;
 
-	expect((await auth.startSignIn()).error).toBeNull();
+	expect((await auth.startSignIn!({ reauthenticate: true })).error).toBeNull();
+	expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+		reauthenticate: true,
+	});
 	expect((await auth.signOut()).error).toBeNull();
 
 	expect(calls.map((call) => call.url)).toEqual([
@@ -91,13 +94,14 @@ test('a failed broker command returns a typed auth error', async () => {
 	const { fetch } = recordingFetch(
 		() => new Response('Unauthorized', { status: 401 }),
 	);
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
+	const auth = startup.auth!;
 
-	const { error } = await auth.startSignIn();
+	const { error } = await auth.startSignIn!();
 	expect(error?.name).toBe('StartSignInFailed');
 });
 
@@ -107,11 +111,12 @@ test('getProfile reads the broker projection, never the server transport', async
 			? Response.json({ principalId: 'alice', email: 'alice@example.com' })
 			: new Response('unexpected', { status: 500 }),
 	);
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
+	const auth = startup.auth!;
 
 	const profile = await auth.getProfile();
 	expect(profile.error).toBeNull();
@@ -126,11 +131,12 @@ test('getProfile reads the broker projection, never the server transport', async
 });
 
 test('a retired desktop account cannot open a socket', async () => {
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => new Response(null, { status: 202 }),
 	});
+	const auth = startup.auth!;
 	const account = selectedAccount(auth);
 	await auth.signOut();
 	await expect(
@@ -143,7 +149,7 @@ test('a retired desktop account cannot open a socket', async () => {
 
 test('a late HTTP completion cannot republish an account after sign-out', async () => {
 	const response = Promise.withResolvers<Response>();
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async (input) =>
@@ -151,6 +157,7 @@ test('a late HTTP completion cannot republish an account after sign-out', async 
 				? response.promise
 				: new Response(null, { status: 202 }),
 	});
+	const auth = startup.auth!;
 	const account = selectedAccount(auth);
 	const pending = account
 		.fetch('/api/example')
@@ -165,22 +172,24 @@ test('a late HTTP completion cannot republish an account after sign-out', async 
 	expect(auth.state).toEqual({ status: 'signed-out' });
 });
 
-test('the self-hosted server projects its boot connection status', () => {
-	const auth = createDesktopBrokerAuth({
+test('the instance broker exposes its destination and delegates token entry to Home', () => {
+	const startup = createDesktopBrokerAuth({
 		bootstrap: {
 			state: { status: 'signed-in', principalId: asPrincipalId('instance') },
-			connection: {
-				authorityId: 'test-server',
-				baseURL: 'https://epicenter.example.com',
-				status: 'connected',
-			},
+			authorityId: 'test-server',
+			baseURL: 'https://epicenter.example.com',
+			startSignIn: false, accountManagement: false, recovery: false, selectedServer: 'https://epicenter.example.com',
+			signInLocation: 'host-settings',
 		},
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => new Response('ok'),
 	});
+	const auth = startup.auth!;
 
-	expect(auth.connection.baseURL).toBe('https://epicenter.example.com');
-	expect(auth.connection.status).toBe('connected');
+	expect(auth.baseURL).toBe('https://epicenter.example.com');
+	expect(startup.selectedServer).toBe('https://epicenter.example.com');
+	expect(startup.signInLocation).toBe('host-settings');
+	expect(auth.startSignIn).toBeUndefined();
 });
 
 /**
@@ -237,18 +246,17 @@ test('a desktop window is not a callback client', () => {
 	// Sign-in goes to the host over the broker and the host relaunches the
 	// process; no browser OAuth callback ever lands in this window, so there is
 	// no `completeSignIn` to offer and none is offered.
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap: {
 			state: { status: 'signed-out' },
-			connection: {
-				authorityId: 'test-server',
-				baseURL: 'https://api.epicenter.test',
-				status: 'connected',
-			},
+			authorityId: 'test-server',
+			baseURL: 'https://api.epicenter.test',
+			startSignIn: true, accountManagement: true, recovery: false, selectedServer: null,
 		},
 		brokerBaseURL: 'http://127.0.0.1:4242',
 		fetch: async () => new Response(null, { status: 204 }),
 	});
+	const auth = startup.auth!;
 
 	expect(isCallbackAuthClient(auth)).toBe(false);
 	auth[Symbol.dispose]();
@@ -264,7 +272,7 @@ function selectedAccount(auth: import('./auth-contract.js').AuthClient) {
 test('an older success response cannot erase a newer desktop credential refusal', async () => {
 	const old = Promise.withResolvers<Response>();
 	let calls = 0;
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () =>
@@ -275,6 +283,7 @@ test('an older success response cannot erase a newer desktop credential refusal'
 						headers: { 'x-epicenter-auth-state': 'reauth-required' },
 					}),
 	});
+	const auth = startup.auth!;
 	const account = selectedAccount(auth);
 	const first = account.fetch('/api/old');
 	await account.fetch('/api/new');
@@ -290,11 +299,12 @@ test('an older success response cannot erase a newer desktop credential refusal'
 
 test('voluntary sign-out preserves the child Account until the host close barrier answers', async () => {
 	const barrier = Promise.withResolvers<Response>();
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => barrier.promise,
 	});
+	const auth = startup.auth!;
 	const account = selectedAccount(auth);
 	const signingOut = auth.signOut();
 	expect(selectedAccount(auth)).toBe(account);
@@ -304,11 +314,13 @@ test('voluntary sign-out preserves the child Account until the host close barrie
 });
 
 test('a refused host close barrier leaves the child Account usable', async () => {
-	const auth = createDesktopBrokerAuth({
+	const startup = createDesktopBrokerAuth({
 		bootstrap,
 		brokerBaseURL: 'http://127.0.0.1:39130',
-		fetch: async () => new Response('Recording in another window', { status: 409 }),
+		fetch: async () =>
+			new Response('Recording in another window', { status: 409 }),
 	});
+	const auth = startup.auth!;
 	const account = selectedAccount(auth);
 	const result = await auth.signOut();
 	expect(result.error?.name).toBe('SignOutFailed');

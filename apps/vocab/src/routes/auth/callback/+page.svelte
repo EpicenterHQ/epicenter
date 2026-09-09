@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCallbackAuthClient } from '@epicenter/auth';
 	import { Loading } from '@epicenter/ui/loading';
-	import { authClient } from '$lib/auth';
+	import { authStartup } from '$lib/auth';
 
 	// Completion only, and it opens nothing: the store is opened by
 	// `+page.svelte`, which is a sibling under the same chrome-only root layout
@@ -10,11 +10,12 @@
 
 	$effect(() => {
 		void (async () => {
-			if (!isCallbackAuthClient(authClient)) {
+			const auth = authStartup.auth;
+			if (!auth || !isCallbackAuthClient(auth)) {
 				errorMessage = 'This build does not sign in through a browser callback.';
 				return;
 			}
-			const { error } = await authClient.completeSignIn();
+			const { error } = await auth.completeSignIn();
 			if (error) {
 				errorMessage = error.message;
 				return;

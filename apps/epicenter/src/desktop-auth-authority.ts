@@ -1,32 +1,22 @@
 import {
-	type AuthClient,
 	AuthError,
 	type AuthFetch,
 	type AuthIdentityState,
-	type ConnectionStatus,
-	type PersistedAuthStorage,
+	createAccountManagementUrl,
 	createInstanceAuth,
 	createSerializedPersistedAuthStorage,
 	createSessionAuth,
 	createSessionHandoffClient,
 	normalizeInstanceServer,
+	parsePersistedAuth,
 } from '@epicenter/auth';
+import type { DesktopAuthBootstrap } from '@epicenter/auth/desktop';
 import { EPICENTER_API_URL } from '@epicenter/constants/apps';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { NativeAuthPort } from './sidecar-runtime.ts';
 
 const CALLBACK_TIMEOUT_MS = 10 * 60 * 1_000;
 const CALLBACK_URL = 'epicenter://auth/callback';
-
-export type DesktopAuthBootSnapshot = {
-	signInLocation?: 'host-settings';
-	state: AuthIdentityState;
-	connection: {
-		baseURL: string;
-		authorityId: string;
-		status: ConnectionStatus;
-	};
-};
 
 /**
  * Own the desktop session credential for one process generation.
@@ -43,18 +33,54 @@ export function createDesktopAuthAuthority({
 	fetch?: AuthFetch;
 }) {
 	// Server selection is read once. Replacement cells only affect the next boot.
+	// Legacy instance cells keep their static principal; issuer selection starts
+	// a separate named session without assigning that principal's data to a user.
 	let instanceServer: ReturnType<typeof normalizeInstanceServer> | undefined;
-	let initial = authCell;
+	let initial: string | null = null;
+	let method: 'cloud' | 'issuer' | 'instance' | 'recovery' = 'cloud';
 	try {
-		const cell = JSON.parse(authCell ?? 'null');
-		if (cell && typeof cell.server === 'string') {
-			instanceServer = normalizeInstanceServer(cell.server);
-			initial = JSON.stringify(cell.auth);
+		if (authCell !== null) {
+			const cell = JSON.parse(authCell);
+			if (
+				!cell ||
+				(cell.method !== 'cloud' &&
+					cell.method !== 'instance' &&
+					cell.method !== 'issuer') ||
+				typeof cell.origin !== 'string'
+			)
+				throw new Error('Invalid saved server selection.');
+			const selected = normalizeInstanceServer(cell.origin);
+			if (
+				selected.baseURL !== cell.origin ||
+				(cell.method === 'cloud' &&
+					cell.origin !== new URL(EPICENTER_API_URL).origin) ||
+				(cell.method === 'issuer' &&
+					cell.origin === new URL(EPICENTER_API_URL).origin)
+			)
+				throw new Error('Saved credentials belong to another server.');
+			const credential = parsePersistedAuth(JSON.stringify(cell.auth) ?? null);
+			if (cell.auth !== null && credential === null)
+				throw new Error('Invalid saved credential.');
+			if (
+				cell.method === 'instance' &&
+				credential !== null &&
+				credential.principalId !== 'instance'
+			)
+				throw new Error('Invalid instance principal.');
+			method = cell.method;
+			instanceServer = method === 'cloud' ? undefined : selected;
+			initial = credential === null ? null : JSON.stringify(credential);
 		}
 	} catch {
+		method = 'recovery';
+		instanceServer = undefined;
 		initial = null;
 	}
 	const baseURL = instanceServer?.baseURL ?? EPICENTER_API_URL;
+	const emptyCell = () =>
+		method === 'instance' || method === 'issuer'
+			? JSON.stringify({ method, origin: baseURL, auth: null })
+			: null;
 	let writeTail = Promise.resolve();
 	let currentCell = authCell;
 	function writeCell(value: string | null, signal?: AbortSignal) {
@@ -74,20 +100,21 @@ export function createDesktopAuthAuthority({
 	const persistedAuthStorage = createSerializedPersistedAuthStorage({
 		initial,
 		write: (serialized) =>
-			bootStorageRetired
+			bootStorageRetired || method === 'recovery'
 				? undefined
 				: writeCell(
-						instanceServer
-							? JSON.stringify({
-									server: baseURL,
-									auth: serialized === null ? null : JSON.parse(serialized),
-								})
-							: serialized,
+						serialized === null
+							? emptyCell()
+							: JSON.stringify({
+									method,
+									origin: new URL(baseURL).origin,
+									auth: JSON.parse(serialized),
+								}),
 					),
 	});
 	const transaction = new Map<string, string>();
 	const handoff = createSessionHandoffClient({
-		baseURL: EPICENTER_API_URL,
+		baseURL,
 		callback: CALLBACK_URL,
 		fetch,
 		storage: {
@@ -104,88 +131,98 @@ export function createDesktopAuthAuthority({
 	const stopCallbacks = nativeAuthPort.onAuthCallback((url) =>
 		callbackWaiter?.accept(url),
 	);
-	const auth = instanceServer
-		? createInstanceAuth({
-				...instanceServer,
-				fetch,
-				persistedAuthStorage,
-				async requestToken() {
-					throw new Error('Enter your token in Home Settings.');
-				},
-			})
-		: createSessionAuth({
-				authorityId: 'epicenter-api',
-				baseURL: EPICENTER_API_URL,
-				fetch,
-				persistedAuthStorage,
-				launcher: {
-					async startSignIn({ signal, reauthenticate }) {
-						signal.throwIfAborted();
-						const url = await handoff.begin();
-						signal.throwIfAborted();
-						if (reauthenticate) url.searchParams.set('reauth', '1');
-						const callback = await new Promise<string>((resolve, reject) => {
-							const cleanup = () => {
-								clearTimeout(timeout);
-								signal.removeEventListener('abort', abort);
-								if (callbackWaiter === waiter) callbackWaiter = undefined;
-							};
-							const waiter = {
-								accept(value: string) {
-									cleanup();
-									resolve(value);
-								},
-								reject(cause: unknown) {
-									if (callbackWaiter === waiter) handoff.cancel();
-									cleanup();
-									reject(cause);
-								},
-							};
-							const abort = () => waiter.reject(signal.reason);
-							const timeout = setTimeout(() => {
-								waiter.reject(
-									new Error('Timed out waiting for desktop sign-in.'),
-								);
-							}, CALLBACK_TIMEOUT_MS);
-							callbackWaiter = waiter;
-							signal.addEventListener('abort', abort, { once: true });
-							// Install cancellation before starting the asynchronous opener.
-							// Its acknowledgement must not hold a cancelled waiter open.
-							void Promise.resolve()
-								.then(() => {
+	const auth =
+		method === 'recovery'
+			? null
+			: method === 'instance' && instanceServer
+				? createInstanceAuth({
+						...instanceServer,
+						fetch,
+						persistedAuthStorage,
+					})
+				: Object.assign(
+						createSessionAuth({
+							authorityId: instanceServer?.authorityId ?? 'epicenter-api',
+							baseURL,
+							fetch,
+							persistedAuthStorage,
+							launcher: {
+								async startSignIn({ signal, reauthenticate }) {
 									signal.throwIfAborted();
-									return nativeAuthPort.openAuthUrl(url.href);
-								})
-								.catch(waiter.reject);
-						});
-						// The shared core owns installation and any orphan token revocation.
-						return {
-							status: 'completed',
-							token: await handoff.complete(callback),
-						};
-					},
-					cancel() {
-						callbackWaiter?.reject(
-							new DOMException('Sign-in cancelled.', 'AbortError'),
-						);
-						handoff.cancel();
-					},
-				},
-			});
+									const url = await handoff.begin();
+									signal.throwIfAborted();
+									if (reauthenticate) url.searchParams.set('reauth', '1');
+									const callback = await new Promise<string>(
+										(resolve, reject) => {
+											const cleanup = () => {
+												clearTimeout(timeout);
+												signal.removeEventListener('abort', abort);
+												if (callbackWaiter === waiter)
+													callbackWaiter = undefined;
+											};
+											const waiter = {
+												accept(value: string) {
+													cleanup();
+													resolve(value);
+												},
+												reject(cause: unknown) {
+													if (callbackWaiter === waiter) handoff.cancel();
+													cleanup();
+													reject(cause);
+												},
+											};
+											const abort = () => waiter.reject(signal.reason);
+											const timeout = setTimeout(() => {
+												waiter.reject(
+													new Error('Timed out waiting for desktop sign-in.'),
+												);
+											}, CALLBACK_TIMEOUT_MS);
+											callbackWaiter = waiter;
+											signal.addEventListener('abort', abort, { once: true });
+											// Install cancellation before starting the asynchronous opener.
+											// Its acknowledgement must not hold a cancelled waiter open.
+											void Promise.resolve()
+												.then(() => {
+													signal.throwIfAborted();
+													return nativeAuthPort.openAuthUrl(url.href);
+												})
+												.catch(waiter.reject);
+										},
+									);
+									// The shared core owns installation and any orphan token revocation.
+									return {
+										status: 'completed',
+										token: await handoff.complete(callback),
+									};
+								},
+								cancel() {
+									callbackWaiter?.reject(
+										new DOMException('Sign-in cancelled.', 'AbortError'),
+									);
+									handoff.cancel();
+								},
+							},
+						}),
+						method === 'cloud'
+							? { accountManagementUrl: createAccountManagementUrl }
+							: {},
+					);
 	const account =
-		auth.state.status === 'signed-out' ? null : auth.state.account;
-	const bootSnapshot: DesktopAuthBootSnapshot = {
-		...(instanceServer ? { signInLocation: 'host-settings' as const } : {}),
+		!auth || auth.state.status === 'signed-out' ? null : auth.state.account;
+	const bootSnapshot: DesktopAuthBootstrap = {
+		...(method === 'instance' || method === 'recovery'
+			? { signInLocation: 'host-settings' as const }
+			: {}),
 		state: projectBootIdentity(),
-		connection: {
-			baseURL,
-			authorityId: instanceServer?.authorityId ?? 'epicenter-api',
-			status: auth.connection.status,
-		},
+		baseURL,
+		authorityId: instanceServer?.authorityId ?? 'epicenter-api',
+		selectedServer: instanceServer?.baseURL ?? null,
+		recovery: method === 'recovery',
+		startSignIn: method === 'cloud' || method === 'issuer',
+		accountManagement: method === 'cloud',
 	};
-	let signInFlight: ReturnType<typeof auth.startSignIn> | undefined;
+	let signInFlight: Promise<Result<undefined, AuthError>> | undefined;
 	let disposed = false;
-	let candidate: AuthClient | undefined;
 	let selection: AbortController | undefined;
 	let prepared = false;
 	let preparing: Promise<void> | undefined;
@@ -225,22 +262,20 @@ export function createDesktopAuthAuthority({
 	}
 
 	async function recoverConnection() {
-		const current = auth.state;
+		const current = auth?.state;
 		if (
 			bootStorageRetired ||
 			(account !== null &&
-				(current.status === 'signed-out' || current.account !== account))
+				(!current ||
+					current.status === 'signed-out' ||
+					current.account !== account))
 		) {
 			// Retired boot identities cannot reopen their old documents. Clear
 			// only the original server's identity, then start a fresh process.
 			const pending = closeApplications()
 				.then(async () => {
 					bootStorageRetired = true;
-					await writeCell(
-						instanceServer
-							? JSON.stringify({ server: baseURL, auth: null })
-							: null,
-					);
+					await writeCell(emptyCell());
 					if (!disposed) nativeAuthPort.relaunch();
 				})
 				.finally(() => {
@@ -257,8 +292,8 @@ export function createDesktopAuthAuthority({
 		signal.throwIfAborted();
 		// Sign-out retires the captured Account and drains its queued persistence.
 		// Only then can the next boot's server and credential replace that cell.
-		const released = await auth.signOut();
-		if (released.error) throw released.error;
+		const released = await auth?.signOut();
+		if (released?.error) throw released.error;
 		signal.throwIfAborted();
 		bootStorageRetired = true;
 		await writeCell(cell, signal);
@@ -267,9 +302,10 @@ export function createDesktopAuthAuthority({
 	}
 
 	function projectBootIdentity(): AuthIdentityState {
-		const current = auth.state;
+		const current = auth?.state;
 		if (
 			account === null ||
+			!current ||
 			current.status === 'signed-out' ||
 			current.account !== account
 		)
@@ -282,11 +318,55 @@ export function createDesktopAuthAuthority({
 		disposed = true;
 		stopCallbacks();
 		selection?.abort();
-		candidate?.[Symbol.dispose]();
-		auth[Symbol.dispose]();
+		auth?.[Symbol.dispose]();
 	}
 	// EOF and protocol failure settle callback waiters as well as native RPCs.
 	void nativeAuthPort.completed.then(dispose, dispose);
+
+	function startSignIn(options?: { reauthenticate?: boolean }) {
+		if (
+			(method !== 'cloud' && method !== 'issuer') ||
+			disposed ||
+			selection ||
+			resuming ||
+			bootStorageRetired
+		)
+			return Promise.resolve(
+				AuthError.StartSignInFailed({
+					cause: new Error('Restart Epicenter to use the selected server.'),
+				}),
+			);
+		if (signInFlight) return signInFlight;
+		const pending = Promise.resolve()
+			.then(async () => {
+				try {
+					await closeApplications();
+					if (disposed || signInFlight !== pending)
+						throw new Error('Sign-in cancelled.');
+					if (!auth || !('startSignIn' in auth))
+						throw new Error('Sign-in is unavailable.');
+					const result = await auth.startSignIn(options);
+					if (signInFlight === pending && !disposed) {
+						if (result.error) await recoverConnection();
+						else if (
+							account !== null &&
+							auth.state.status !== 'signed-out' &&
+							auth.state.account === account
+						)
+							await resumeApplications();
+						else nativeAuthPort.relaunch();
+					}
+					return result;
+				} catch (cause) {
+					return AuthError.StartSignInFailed({ cause });
+				}
+			})
+			.finally(() => {
+				if (signInFlight === pending) signInFlight = undefined;
+			});
+		signInFlight = pending;
+		return pending;
+	}
 
 	return {
 		baseURL,
@@ -294,16 +374,6 @@ export function createDesktopAuthAuthority({
 		account,
 		get state() {
 			return projectBootIdentity();
-		},
-		async prepareConnection() {
-			try {
-				if (disposed || selection || signInFlight)
-					throw new Error('Another connection operation is in progress.');
-				await closeApplications();
-				return Ok(undefined);
-			} catch (cause) {
-				return AuthError.StartSignInFailed({ cause });
-			}
 		},
 		async cancelConnection() {
 			if (disposed || selection || signInFlight || resuming)
@@ -317,38 +387,9 @@ export function createDesktopAuthAuthority({
 				return AuthError.StartSignInFailed({ cause });
 			}
 		},
-		startSignIn() {
-			if (selection || resuming || bootStorageRetired)
-				return Promise.resolve(
-					AuthError.StartSignInFailed({
-						cause: new Error('Restart Epicenter to use the selected server.'),
-					}),
-				);
-			if (signInFlight) return signInFlight;
-			const pending = Promise.resolve()
-				.then(async () => {
-					try {
-						await closeApplications();
-						if (disposed || signInFlight !== pending)
-							throw new Error('Sign-in cancelled.');
-						const result = await auth.startSignIn();
-						if (signInFlight === pending && !disposed) {
-							if (result.error) await recoverConnection();
-							else nativeAuthPort.relaunch();
-						}
-						return result;
-					} catch (cause) {
-						return AuthError.StartSignInFailed({ cause });
-					}
-				})
-				.finally(() => {
-					if (signInFlight === pending) signInFlight = undefined;
-				});
-			signInFlight = pending;
-			return pending;
-		},
-		async connectInstance(server: string, token: string) {
-			if (disposed || !prepared || resuming || selection || signInFlight)
+		startSignIn,
+		async connectInstance(server: string) {
+			if (disposed || resuming || selection || signInFlight)
 				return AuthError.StartSignInFailed({
 					cause: new Error('Another connection operation is in progress.'),
 				});
@@ -356,43 +397,35 @@ export function createDesktopAuthAuthority({
 			selection = attempt;
 			try {
 				const selected = normalizeInstanceServer(server);
-				let verified: PersistedAuthStorage['initial'] = null;
-				const next = createInstanceAuth({
-					...selected,
-					fetch,
-					requestToken: async () => token,
-					persistedAuthStorage: {
-						initial: null,
-						set(value) {
-							verified = value;
-						},
-					},
-				});
-				candidate = next;
-				const result = await next.startSignIn();
-				if (result.error) return result;
+				if (selected.baseURL === new URL(EPICENTER_API_URL).origin)
+					throw new Error('Use Epicenter Cloud to connect to this server.');
 				attempt.signal.throwIfAborted();
+				await closeApplications();
 				await selectCell(
-					JSON.stringify({ server: selected.baseURL, auth: verified }),
+					JSON.stringify({
+						method: 'issuer',
+						origin: selected.baseURL,
+						auth: null,
+					}),
 					attempt.signal,
 				);
 				return Ok(undefined);
 			} catch (cause) {
 				return AuthError.StartSignInFailed({ cause });
 			} finally {
-				candidate?.[Symbol.dispose]();
-				candidate = undefined;
 				if (selection === attempt) selection = undefined;
 			}
 		},
-		async selectHosted() {
-			if (disposed || !prepared || resuming || selection || signInFlight)
+		async useCloud() {
+			if (method === 'cloud' && !bootStorageRetired) return startSignIn();
+			if (disposed || resuming || selection || signInFlight)
 				return AuthError.StartSignInFailed({
 					cause: new Error('Another connection operation is in progress.'),
 				});
 			const attempt = new AbortController();
 			selection = attempt;
 			try {
+				await closeApplications();
 				await selectCell(null, attempt.signal);
 				return Ok(undefined);
 			} catch (cause) {
@@ -403,8 +436,6 @@ export function createDesktopAuthAuthority({
 		},
 		async signOut() {
 			selection?.abort();
-			candidate?.[Symbol.dispose]();
-			candidate = undefined;
 			signInFlight = undefined;
 			try {
 				await closeApplications();
@@ -415,15 +446,19 @@ export function createDesktopAuthAuthority({
 				try {
 					const selected = JSON.parse(currentCell ?? 'null');
 					await writeCell(
-						selected?.server
-							? JSON.stringify({ server: selected.server, auth: null })
+						selected?.method === 'instance' || selected?.method === 'issuer'
+							? JSON.stringify({
+									method: selected.method,
+									origin: selected.origin,
+									auth: null,
+								})
 							: null,
 					);
 				} catch (cause) {
 					return AuthError.SignOutFailed({ cause });
 				}
 			}
-			const result = await auth.signOut();
+			const result = (await auth?.signOut()) ?? Ok(undefined);
 			if (!result.error && !disposed) nativeAuthPort.relaunch();
 			return result;
 		},

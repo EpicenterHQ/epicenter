@@ -5,7 +5,7 @@ Status: In Progress
 
 Each application opens Local, Personal, or Shared data through the three agreed methods, with the signed-in person and selected library kept distinct throughout storage and sync.
 
-This is the working implementation plan for [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md). The public opening API is selected. Checkpoint 1 reproduced the generation race. Checkpoint 2 now has real Worker WebAuthn enrollment and authentication evidence against a transactional admission owner. The production credential owner, HTTP session/handoff routes, shared passkey page, and Bun management command now work. Application Account integration, Worker operator tooling, optional passwords, and library ownership remain incomplete. Storage integration is paused at the overlap with the current-generation task described below.
+This is the working implementation plan for [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md). The public opening API is selected. Checkpoint 1 reproduced the generation race. Checkpoint 2 now has real Worker WebAuthn enrollment and authentication evidence against a transactional admission owner. The production credential owner, HTTP session/handoff routes, shared passkey page, Bun and Worker operator commands, and browser/desktop Account composition now work. Optional passwords and library ownership remain incomplete. Storage integration is paused at the overlap with the current-generation task described below.
 
 Completion means two named users have separate Personal libraries and converge on one Shared library per application on the same server, including simultaneous first opening and attachments. Matching user IDs on another server never join those libraries. Local remains usable without sign-in. Each document holds one primary App and closes before replacement.
 
@@ -75,11 +75,12 @@ Exit evidence: the cross-device race is reproduced, the proposed initial-generat
 - [x] Choose runtime order: Worker first, then Bun. The user selected both in that order on 2026-09-09; Bun remains required work.
 - [x] Choose the self-host admission/sign-in/recovery flow: operator enrollment, passkeys by default, optional operator-enabled passwords, and recovery of the same user. The user selected this direction on 2026-09-09; see ADR-0383.
 - [x] Prototype Worker passkey enrollment, authentication, and operator-assisted recovery against durable admission. Real cryptographic verification and SQLite commits prove single-use grants, same-principal recovery, credential/session invalidation, and refusal for removed users. This is isolated runtime evidence, not deployed sign-in.
-- [ ] Integrate the durable credential owner with real HTTP ceremonies, browser cookies, `/api/session`, application handoff, and operator tooling. Prove the no-email user contract through the existing Account client. Implement optional passwords only with complete setup/change/reset and recovery flows.
+- [x] Integrate the durable credential owner with real HTTP ceremonies, browser cookies, `/api/session`, application handoff, and operator tooling. Prove the no-email user contract through the existing Account client. Local Worker evidence exercises the actual deployment entry; remote Cloudflare authentication remains untested.
+- [ ] Implement optional passwords with complete setup/change/reset and recovery flows.
 - [x] Separate generic Account/session lifetime from Cloud issuer identity and dashboard links. The constructor now requires authority identity, and Cloud compositions attach management links. The existing bearer lifetime remains the owner. See ADR-0382 and the checkpoint 2 evidence below. Verify authentication-library behavior again when implementing the selected sign-in flow.
 - [ ] Implement user-bound sessions and durable admission without importing Cloud billing into self-hosting. Admission must gate sign-in/session issuance, handoff authorization and redemption, protected requests, and socket admission. Revoking existing sessions alone does not remove admission. Preserve the actor during Shared access.
 - [ ] Define and test removal for new requests, existing sockets, issued blob tickets, and in-flight operations. Do not claim immediate invalidation or remote erasure of offline copies without those guarantees.
-- [ ] Preserve same-owner credential repair, offline identity restoration, Account retirement, and host credential brokerage.
+- [x] Preserve same-owner credential repair, offline identity restoration, Account retirement, and host credential brokerage. Desktop repair retains the host Account, while the existing native close barrier closes app windows before sign-in.
 
 Exit evidence: actual sessions for Alice and Bob authorize the expected destinations on the selected runtime. Removing Alice blocks future authorized access according to the documented lifetime; Bob remains admitted. Server B with matching IDs retains a separate identity namespace.
 
@@ -152,7 +153,7 @@ Completion is local implementation plus verification on the explicitly selected 
 
 Use this file as the single working plan. At each checkpoint, replace the short progress entry below with the completed slice, exact verification evidence, unresolved decision, and next concrete action. Keep explanations of durable decisions in ADRs and detail needed only for investigation in the review. A handoff should point here and state the current checkpoint; it should not duplicate the plan.
 
-Current checkpoint: 2 in progress. The production credential owner verifies with SimpleWebAuthn and commits through Worker SQLite or Bun SQLite. Both self-host entries mount named sessions and the shared passkey page. ADR-0384 records that ownership direction. The Worker operator command and application Account integration are next, followed by complete optional password flows. Production Shared and Bun store sync remain unbuilt. Generation integration is paused pending coordination with the concurrent current-generation task; its competing server replacement was backed out, leaving this task’s partial initializer in place.
+Current checkpoint: 2 in progress. The production credential owner verifies with SimpleWebAuthn and commits through Worker SQLite or Bun SQLite. Both self-host entries mount named sessions and the shared passkey page. ADR-0384 records that ownership direction. The Worker operator command and browser/desktop Account integration now work. Complete optional password flows and access/removal evidence through storage consumers remain. Production Shared and Bun store sync remain unbuilt. Generation integration is paused pending coordination with the concurrent current-generation task; its competing server replacement was backed out, leaving this task’s partial initializer in place.
 
 Baseline: HEAD `2dee4a2cbea98c02f5d22bff7a6a25a9a7929def`, plus the pre-existing dirty worktree. Before editing, recorded status, tracked binary diff, and SHA-256 hashes of tracked/untracked files in `/tmp/library-checkpoint-1/{status.txt,baseline.patch,files.json}`. Task ownership is the two new evidence directories below and updates to this spec and the existing review. No production files were edited or staged by this task. Hash comparison also detected concurrent edits outside this task, including recorder lifecycle files, related ADRs, and Local Mail specs; they were left intact. The caller map was rechecked against the changed recorder ownership.
 
@@ -170,13 +171,11 @@ Review adjudication: accepted the missing WebSocket-admission finding and added 
 
 The [checkpoint investigation in the review](20260909T062714-library-ownership-api.review.md#checkpoint-1-investigation-2026-09-09) holds the live caller map, proposed wire operation, failure owners, exact address templates, durable-byte exceptions, and evidence limits. It is supporting investigation; this spec remains the execution plan.
 
-Next action within checkpoint 2: implement an infrastructure-authenticated Worker
-operator command against the existing owner, then connect browser and desktop
-Accounts to the issuer. Preserve same-owner repair, offline restoration, retirement,
-and credential brokerage. The Bun command is not a Worker management path.
-Optional passwords still require complete setup/change/reset. Before checkpoint 3
-resumes, resolve the generation-model overlap; picker scope and defaults remain
-checkpoint 4 choices.
+Next action within checkpoint 2: implement complete optional password
+setup/change/reset and extend removal evidence through sockets, blob tickets,
+and in-flight operations. Worker operator tooling and browser/desktop issuer
+composition are implemented below. Before checkpoint 3 resumes, resolve the
+generation-model overlap; picker scope and defaults remain checkpoint 4 choices.
 
 ## Checkpoint 2: issuer composition evidence
 
@@ -345,9 +344,10 @@ Verification:
 - `git diff --check` on the touched auth, self-host, and execution documents: passed.
 - `bun /tmp/library-worker-enrollment-browser/smoke.ts`: Chromium virtual CTAP2 enrollment, an injected handoff 503 followed by successful retry, and fresh passkey sign-in passed without page errors. This launches the actual Bun entry through root `bun dev:self-host` with temporary auth storage. Screenshot: `/tmp/library-worker-enrollment-browser/sign-in.png`. This temporary smoke is not a committed regression harness.
 
-Remaining auth work: a usable Worker operator path, actual application/desktop
-Account composition, complete optional passwords, and end-to-end access/removal
-coverage through library and blob consumers. No deployment or migration ran.
+At this earlier checkpoint, Worker operator tooling and application Account
+composition were still missing. The continuation below implements them.
+Complete optional passwords and access/removal coverage through library and
+blob consumers remain. No deployment or migration ran.
 
 ## Generation integration pause
 
@@ -372,3 +372,158 @@ overlap, and the full client/runtime integration is not verified. Do not mark
 checkpoint 3 complete or resume conflicting storage edits before the generation
 ownership/model question is settled. The public library binding and three
 openers have not been implemented by this slice.
+
+
+## Checkpoint 2: Worker operations and application Accounts
+
+Task-start HEAD was `5059dc4820`, with substantial existing dirty auth, host,
+application, and storage work. Status, HEAD, and the tracked binary diff are in
+`/tmp/library-auth-continuation/`; desktop source copies are in
+`/tmp/desktop-issuer-baseline/`. This continuation builds on that dirty auth
+composition. It does not claim the whole visible Git diff as its work. No
+files were staged or committed, and no generation route or storage bootstrap
+was edited.
+
+The Worker exports `SelfHostOperator`, a named service entrypoint with only
+`admit`, `recover`, and `remove` available through RPC. The command at
+`apps/self-host/scripts/manage-worker-user.ts` uses Wrangler's remote service
+binding and an explicit Cloudflare account and Worker name. It reaches the same
+`SelfHostAuthOwner` as public sign-in. The entrypoint has no public HTTP handler;
+it adds no operator password or second credential database. Admission and
+recovery return a private expiring link using the deployed issuer origin.
+
+Browser `createBrowserAuth` selects an issuer; `createBrowserRedirectAuth` owns
+browser storage and navigation around the existing PKCE handoff. Cloud keeps
+its existing authority bytes, management links, and exact ceremony-cookie
+policy. Self-hosted sessions use the origin-derived authority without those
+Cloud capabilities. `createSessionAuth` remains the sole Account lifetime owner.
+Applications already using the browser startup/callback contract receive this
+behavior without opening a library in the callback document.
+
+Desktop Settings selects the issuer. The host finishes its native callback,
+keeps the bearer, and brokers requests through its captured Account. Offline
+startup restores Alice without network access. Rejection preserves that Account;
+same-person repair installs a new credential on it. A different person or first
+sign-in is persisted for relaunch and never becomes the old windows' Account.
+The native barrier closes app windows before sign-in; same-person success resumes
+launching, not the closed windows themselves.
+
+The operator's private link enrolls Alice at the issuer. Alice then opens the
+application and connects to the server; the issuer cookie can complete the app's
+handoff without a second passkey prompt. The link itself does not select an app
+or fabricate its PKCE transaction. Exact callbacks and browser CORS origins must
+be configured. Desktop uses `epicenter://auth/callback`.
+
+Review accepted two repairs: remove fresh static-token connection branches now
+that both UIs submit only a URL, and reject the configured Cloud origin as a
+custom issuer so it cannot acquire a second local identity. Historical static
+`instance` attachments still restore under their original identity; named sign-in
+does not adopt their data. Cancellation, persistence-failure, and delayed-write
+tests now exercise issuer selection instead of the deleted token-entry path.
+The reviewer retained the shared browser redirect composition because it owns
+real callback/storage/navigation behavior used by both issuers. No additional
+session state machine or public client factory was introduced.
+
+Verification after review repairs:
+
+- `bun test packages/auth/src`: 137 passed, 562 assertions. Task-start result
+  was 123 passed and eight failures in browser tests using the previous startup
+  API. Those tests now use the current startup contract and preserve their
+  relevant cancellation/persistence schedules.
+- `bun run --cwd packages/auth typecheck`: passed. The task-start check had
+  22 diagnostics in those same outdated browser tests.
+- `bun test apps/epicenter/src/desktop-auth-authority.test.ts apps/epicenter/src/account-transport.test.ts`:
+  45 passed, 300 assertions. The two task-start timeouts were obsolete Cloud
+  selection fixtures waiting for an interactive sign-in; their replacements
+  explicitly select an issuer and exercise the intended close/write barrier.
+- `bun test apps/epicenter/src/server.test.ts -t 'the account broker requires'`:
+  one passed, seven assertions, including URL-only loopback server selection.
+- `bun run --cwd apps/epicenter typecheck:home`: TypeScript and Svelte checks
+  passed with no diagnostics.
+- `bun test apps/self-host packages/server/src/self-host-auth`: 40 passed,
+  120 assertions. `bun run --cwd apps/self-host typecheck`: passed.
+- From `packages/server`, `bun x vitest run -c evidence/enrollment/vitest.production.config.ts`:
+  five passed. These now run the actual self-host Worker entry and named
+  operator RPC rather than the former evidence-only entry. They cover real
+  WebAuthn, recovery of Alice's ID, Bob surviving Alice's removal, independent
+  handoff sessions, rejection of previously issued codes after removal, and
+  absent public operator routes. The obsolete evidence entry was deleted.
+- `bun apps/self-host/smoke/application.browser.mjs`: Chromium passed against
+  the actual Bun entry through root `bun dev:self-host`, using temporary SQLite
+  and a virtual passkey. The small browser consumer uses the same startup and
+  callback API as store apps. It proves enrollment, app Account establishment,
+  offline identity restoration, recovery with a replacement key, fresh sign-in,
+  and refusal on the next check after removal. It does not open a store or
+  exercise a packaged Tauri window.
+- `bun apps/self-host/smoke/application.browser.mjs --worker`: the same
+  Chromium scenario passed against the actual local Worker, starting with
+  `getPlatformProxy` and the named operator service binding. This joins operator
+  admission, the private link, passkey enrollment, application Account handoff,
+  offline identity, recovery, fresh sign-in, and removal in one runtime test.
+  The harness uses temporary config and SQLite with `remoteBindings: false`.
+  Bun mode was rerun after adding Worker mode and also passed. The Worker
+  subprocess resolves Wrangler from `apps/self-host` so its local service
+  registry matches the version imported by the operator proxy.
+- `bun run --cwd packages/app-shell typecheck` still reports one diagnostic in
+  `src/inference-picker/connections.test.ts:186`, a null/undefined comparison.
+  No diagnostic points to the modified sign-in components. This unrelated file
+  was not edited; the package check is not claimed as passing.
+
+The explicit strict TypeScript check for
+`scripts/manage-worker-user.ts` and `smoke/application-page.ts` also passes;
+these files are outside the app's normal include. Focused diff whitespace checks
+pass. `bun scripts/check-doc-hygiene.ts` reports 40 ADR issues outside this
+continuation; no ADR status or spec terminal state was changed.
+
+The remote command has not authenticated to Cloudflare or changed a deployed
+Worker. Local RPC evidence validates the bridge and owner; deployed account
+permissions and rollout remain unverified. No deployment or real-data migration
+was performed. This is an auth checkpoint, not completion of library ownership.
+Local/Personal/Shared openers, library selection, Shared attachments, optional
+passwords, Bun store sync, and the generation-model coordination remain required.
+
+## Auth checkpoint commit verification
+
+The commit includes the preceding uncommitted issuer-neutral auth/startup changes
+that this continuation depends on, together with their browser, desktop, and app
+consumers. Partial staging preserves the existing application constructors and
+excludes the separate AI, SQLite, generation, and restoration implementations.
+The staged source was materialized under `/tmp/library-auth-commit/snapshot`,
+with workspace packages resolving inside that snapshot and installed third-party
+dependencies reused. A separate HEAD archive is under the adjacent `baseline`
+directory.
+
+Commit inspection found and repaired Whispering's remaining old-shape callback,
+UI adapter, session-readiness check, and auth reads. Its staged application module
+keeps the committed opening model; the live, separately owned lazy bootstrap also
+received the equivalent auth read without being included in this commit. The
+AppBoot browser smoke now selects an issuer URL without entering a static token.
+The auth routing test checks any addressed ledger against Alice and still requires
+exactly Alice's authority; it no longer assumes the uncommitted initialization
+protocol must contact a ledger.
+
+Verification against the staged snapshot:
+
+- `bun test packages/auth/src apps/self-host packages/server/src/self-host-auth apps/epicenter/src/desktop-auth-authority.test.ts apps/epicenter/src/account-transport.test.ts`:
+  222 passed, 981 assertions.
+- From `packages/server`, `bun x vitest run -c evidence/enrollment/vitest.production.config.ts`:
+  five passed against the actual Worker entry.
+- `bun apps/self-host/smoke/application.browser.mjs --worker` and the same
+  command without `--worker`: both passed in Chromium using temporary state.
+- `bun packages/app-shell/smoke/app-boot.browser.mjs`: Chromium and WebKit
+  passed for signed-in and Local sessions, producer shutdown, durable closure,
+  selection-write failure, and successful issuer selection.
+- Auth, self-host, desktop Home, Honeycrisp (browser and host), Vocab, and
+  app-shell package typechecks passed in the isolated staged source.
+- Whispering checking reports only the unchanged SQLite fixture at
+  `src/lib/whispering/app.test.ts:38`, whose fake database lacks `query`.
+  The separate HEAD archive reproduces the same one diagnostic. It is not
+  an auth regression, and the full Whispering check remains failing.
+- Independent staging review found no other executable references to removed
+  auth startup members and no unrelated implementation changes in the index.
+  The focused staged whitespace check passes.
+
+The remaining unused low-level `verifyInstanceToken` export predates this
+continuation and has no production selection caller. It is a possible later
+cleanup; it does not restore token entry to either application's connection UI.
+The full library-ownership objective and generation integration pause remain open.

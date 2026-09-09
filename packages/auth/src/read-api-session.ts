@@ -51,14 +51,17 @@ export async function readApiSession({
 	baseURL,
 	fetch,
 	token,
+	signal,
 }: {
 	baseURL: string;
 	fetch: AuthFetch;
 	token: string;
+	signal?: AbortSignal;
 }): Promise<Result<ApiSessionResponse, ApiSessionReadError>> {
 	let response: Response;
 	try {
 		response = await fetch(API_ROUTES.session.url(baseURL), {
+			signal,
 			headers: { Authorization: `Bearer ${token}` },
 			credentials: 'omit',
 			redirect: 'error',

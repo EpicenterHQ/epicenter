@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { isBrowserAuth } from '@epicenter/auth';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -31,19 +30,11 @@
 	let signInError = $state<string | null>(null);
 	const accountLocked = $derived(!!disabledReason);
 
-	// Busy while the boot check is still connecting or a manual retry is in
-	// flight. A pending boot check has no ceiling here: `fetch` has no default
-	// timeout, so a box that accepts the socket but never answers leaves this on
-	// "Connecting…" until the browser's own timeout fires. Refused connections
-	// and 401s fail fast, so the common failures self-heal into a retryable state.
-	const busy = $derived(
-		signingIn || auth.connection.status === 'connecting',
-	);
-
 	// Pending until the page or the process is replaced, and cleared only on a
 	// failure. See `sign-in-screen.svelte` for why: resolving means the launcher
 	// finished its work, not that a navigation happened.
 	async function startSignIn() {
+		if (!auth.startSignIn) return;
 		signInError = null;
 		signingIn = true;
 		const { error } = await auth.startSignIn();
@@ -70,11 +61,9 @@
 	{/if}
 	{#if openConnection}
 		<Button class="w-full" disabled={accountLocked} onclick={openConnection}>Connect</Button>
-	{:else if auth.signInLocation === 'host-settings'}
-		<p class="text-sm text-muted-foreground">Open Home Settings to enter your server token.</p>
-	{:else if !isBrowserAuth(auth) || !auth.selectedServer}
-		<Button class="w-full" disabled={busy || accountLocked} onclick={startSignIn}>
-			{#if busy}
+	{:else if auth.startSignIn}
+		<Button class="w-full" disabled={signingIn || accountLocked} onclick={startSignIn}>
+			{#if signingIn}
 				<Spinner class="size-4" />
 				Signing in…
 			{:else if auth.state.status === 'reauth-required'}

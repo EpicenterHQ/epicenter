@@ -31,7 +31,8 @@
 	import { localRoute } from '$lib/state/local-route.svelte';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
-	import { auth } from '$lib/auth.svelte.js';
+	import { getAuth } from '$lib/auth.svelte.js';
+	const auth = getAuth();
 	import { tauri } from '#platform/tauri';
 	import AdvancedDisclosure from './AdvancedDisclosure.svelte';
 	import ProviderConfigFields from './ProviderConfigFields.svelte';
@@ -59,7 +60,7 @@
 			getDeviceConfig: deviceConfig.get,
 			// Session locality follows the bonded deployment. Sign-in status decides
 			// usability elsewhere; locality only needs the base URL.
-			sessionBaseUrl: auth.connection.baseURL,
+			sessionBaseUrl: auth.baseURL,
 		}),
 	);
 

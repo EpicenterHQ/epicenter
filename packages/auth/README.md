@@ -3,16 +3,15 @@
 Auth selects an account; every application session keeps the Account it opened with.
 
 ```ts
-const auth = createHostedBrowserRedirectAuth({
+const startup = createBrowserAuth({
  appId: 'so.epicenter.example',
  baseURL: 'https://api.epicenter.so',
 });
-const state = auth.state;
-if (state.status !== 'signed-out') {
+const state = startup.auth?.state;
+if (state && state.status !== 'signed-out') {
  const account = state.account;
- const session = epicenter.open(account);
- // Session-owned services use account.fetch, too.
- // The component that opened the session closes it on unmount.
+ // Keep this Account for the lifetime of the opened application.
+ const response = await account.fetch('/api/session');
 }
 ```
 
@@ -33,12 +32,23 @@ of remote logout. Success confirms local cleanup, not remote revocation.
 Replacing a credential also awaits bounded cleanup of its predecessor before
 sign-in completes, without delaying local retirement or blocking storage writes.
 
-## One hosted session path
+## One session lifetime
 
-Better Auth owns sessions and remains the client of social identity providers.
+Better Auth owns Cloud sessions and social-provider sign-in. The self-hosted
+credential owner stores admitted people, passkeys, and opaque sessions.
 Epicenter does not issue OAuth access/refresh grants. `createSessionAuth`
 owns one persisted `{ token, principalId }` cell, verification, ordered writes,
-sign-in cancellation, and Account retirement.
+sign-in cancellation, and Account retirement. Its constructor requires the
+`authorityId` selected by trusted installation composition. Matching principal
+IDs on two servers must receive different authorities.
+
+`SessionAuthClient` exposes sign-in; `CallbackAuthClient` adds callback
+completion. Neither implies Cloud identity or dashboard support. Cloud browser
+and desktop composition pass the existing `epicenter-api` authority and attach
+`createAccountManagementUrl` themselves. The session owner does not assign
+Cloud policy to another issuer. Self-hosted composition derives its authority
+from the selected server origin and exposes passkey sign-in without Cloud
+management links.
 
 The cached principal permits local boot without a network call. Before the
 first resource request, the runtime verifies that the credential belongs to
@@ -46,7 +56,7 @@ that principal through `/api/session`. A rejected credential preserves the
 Account and publishes `reauth-required`; an unavailable server refuses network
 traffic without discarding local identity.
 
-Requests use an explicit signed session bearer with `credentials: 'omit'`.
+Requests use an explicit session bearer with `credentials: 'omit'`.
 The Account rejects foreign origins and does not follow redirects. A 401
 pauses that credential. A request retries once only if same-Account
 reauthentication installed a different credential while it was in flight.
@@ -54,15 +64,23 @@ There is no refresh-token exchange.
 
 ## Browser and dashboard
 
-`createHostedBrowserRedirectAuth` composes local credential storage,
-sessionStorage handoff transactions, and `createSessionAuth`. Browser apps
-and the hosted dashboard use this same composition. The dashboard uses
-`/session/callback`; app callbacks default to `/auth/callback`.
+`createBrowserAuth` reads the server selected for this document. Its startup
+object exposes `auth`, `connectInstance({ url })`, and `useCloud()`. A new server
+selection retires the current Account and takes effect in a fresh document.
+Application code closes its producers and App before invoking that change.
+Entering the configured Cloud origin as a custom server is refused so one
+server cannot acquire two local authority identities.
 
-`startSignIn` begins a hosted sign-in. The hosted page explicitly continues
+`createBrowserRedirectAuth` owns browser storage, callback validation, and
+navigation for both issuers. `createHostedBrowserRedirectAuth` adds Cloud's
+identity, management links, and exact ceremony-cookie policy. The dashboard
+uses that Cloud composition with `/session/callback`; app callbacks default
+to `/auth/callback`.
+
+`startSignIn` opens the selected issuer’s sign-in page. The hosted page explicitly continues
 with its cookie session, or completes a social/passkey sign-in. The callback
 carries only a short-lived code and state. The client redeems it with its PKCE
-verifier for an independent signed session. Cancelled, superseded, and replayed
+verifier for an independent session. Cancelled, superseded, and replayed
 completions cannot install a credential; orphaned results are revoked where possible.
 A passive handoff inherits the source session's authentication age.
 
@@ -86,10 +104,13 @@ ambient cookies. This preserves browser ceremonies without cookie fallback.
 
 Desktop WebViews use `createDesktopBrokerAuth`; they receive identity and
 loopback access, never the remote credential. Bun owns the same session runtime
-and completes the hosted handoff through the native deep link.
+and completes the selected issuer’s handoff through the native deep link.
 
-The host forwards HTTP and live sync through its captured boot Account while a
-new sign-in is persisted for relaunch. A failed relaunch cannot make an old
+The host forwards HTTP and live sync through its captured boot Account.
+A first sign-in or different-person replacement is persisted for relaunch.
+Same-person repair keeps that Account and resumes application launching. The
+native close barrier has already closed app windows; resuming permits new
+windows and does not restore those that closed. A failed relaunch cannot make an old
 window use a replacement Account. Apps own their local stores and sync engines;
 the host relays bytes and owns no application replica or reconnect loop.
 
@@ -124,16 +145,15 @@ After building the API UI, `bun packages/auth/smoke/dashboard.browser.mjs`
 exercises the built sign-in/callback/dashboard routes and a virtual WebAuthn
 authenticator while a different principal owns the ambient browser cookie.
 
-## Instance credentials
+## Historical instance identity
 
-`createInstanceAuth` accepts a fixed `baseURL`, persisted auth storage, and
-`requestToken({ signal })`. The caller collects the existing operator token;
-the shared owner verifies `/api/session` before saving identity or publishing
-an Account. Previously verified identity can reopen offline, but network use
-must pass verification. The same Account lifetime, HTTP, and socket rules apply.
+Earlier installations saved a static bearer under the `instance` principal.
+The startup readers keep those credentials and local addresses separate from
+named-user sessions. `createInstanceAuth` restores that historical attachment;
+it does not offer sign-in or borrow a named user’s credential. The current
+self-host entries no longer authorize the old static bearer.
 
-Instance disconnect clears local persistence and retires the Account without
-calling hosted revocation endpoints. The token has no expiration; the operator
-rotates the configured server token to invalidate it. This constructor replaces
-the unused instance credential authority. Client server selection and token-entry
-UI are not yet wired into the shipped applications.
+Connection screens accept a server URL and start issuer sign-in. There is no
+new static-token connection path. Selecting the issuer from an old installation
+ends the old attachment and opens sign-in in a new document or process. It does
+not assign historical library content to the newly signed-in person.

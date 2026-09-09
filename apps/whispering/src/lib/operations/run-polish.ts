@@ -58,11 +58,13 @@ export function polishStatus(app: WhisperingApp): PolishStatus {
  * resolved completion target. Read at use per ADR 0012.
  */
 export function polishDestination(app: WhisperingApp): string {
+ const auth = authClient.auth;
+ if (!auth) throw new Error('Application requires a valid auth startup.');
 	return describePolishDestination(
 		resolveTranscriptionLocalityFromConfig({
 			service: app.settings.get('transcriptionService'),
 			getDeviceConfig: deviceConfig.get,
-			sessionBaseUrl: authClient.connection.baseURL,
+			sessionBaseUrl: auth.baseURL,
 		}),
 		app.settings.get('completionProvider'),
 		resolveCompletionState(app),

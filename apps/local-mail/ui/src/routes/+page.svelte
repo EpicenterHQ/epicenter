@@ -2,7 +2,7 @@
 	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { auth } from '#platform/auth';
+	import { authStartup } from '#platform/auth';
 	import { onMount, tick } from 'svelte';
 
 	let mounted = $state.raw<{
@@ -63,7 +63,7 @@
 	<p role="alert" class="p-6">{error}</p>
 {:else if mounted}
 	<AppBoot
-		{auth}
+		startup={authStartup}
 		departure={mounted.application.departure}
 		hasApp={mounted.application.app !== null}
 		appName="Local Mail"

@@ -8,6 +8,7 @@ import type {
 	AuthFetch,
 	AuthState,
 	CallbackAuthClient,
+	SessionAuthClient,
 } from './auth-contract.js';
 import {
 	AccountUnavailable,
@@ -15,6 +16,7 @@ import {
 	OpenWebSocketDenied,
 } from './auth-errors.js';
 import type { PersistedAuth } from './auth-types.js';
+import { normalizeInstanceServer } from './instance-server.js';
 import type { PersistedAuthStorage } from './persisted-auth-storage.js';
 import { getProfileVia, readApiSession } from './read-api-session.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
@@ -29,8 +31,6 @@ export type SessionLauncher = {
 };
 
 type AccountAuthOptions = {
-	/** Stable authority identity supplied by deployment configuration. */
-	authorityId?: string;
 	baseURL: string;
 	persistedAuthStorage: PersistedAuthStorage;
 	fetch?: AuthFetch;
@@ -39,6 +39,8 @@ type AccountAuthOptions = {
 };
 
 export type CreateSessionAuthOptions = AccountAuthOptions & {
+	/** Trusted installation identity; preserve existing authority bytes. */
+	authorityId: string;
 	launcher: SessionLauncher;
 };
 
@@ -69,14 +71,14 @@ export function createSessionAuth(
 ): CallbackAuthClient;
 export function createSessionAuth(
 	options: CreateSessionAuthOptions,
-): AuthClient;
+): SessionAuthClient;
 /** Own one session credential and uninterrupted Account attachment.
  * Restored identity is available offline; transport verifies it before first use.
  * Storage writes, including rollback of cancelled installation, are serialized.
  */
 export function createSessionAuth(
 	options: CreateSessionAuthOptions,
-): AuthClient {
+): SessionAuthClient {
 	const {
 		baseURL,
 		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
@@ -109,30 +111,90 @@ export function createSessionAuth(
 			);
 	}
 
-	return createBearerAuth(options, revoke);
+	const { auth, run, install } = createBearerAuth(
+		{
+			...options,
+			cancel: () => options.launcher.cancel?.(),
+		},
+		revoke,
+	);
+	const { launcher } = options;
+	return Object.assign(auth, {
+		startSignIn({
+			reauthenticate = auth.state.status === 'reauth-required',
+		} = {}) {
+			return run('start', async (signal) => {
+				const result = await launcher.startSignIn({ signal, reauthenticate });
+				if (result.status === 'completed') await install(result.token, signal);
+				else signal.throwIfAborted();
+			});
+		},
+		...(launcher.completeSignIn
+			? {
+					completeSignIn() {
+						return run('complete', async (signal) => {
+							await install(await launcher.completeSignIn!({ signal }), signal);
+						});
+					},
+				}
+			: {}),
+	});
 }
 
 /** Connect to one selected instance using its existing operator token.
  * First enrollment verifies /api/session. Disconnect only forgets the local
  * credential; it cannot revoke a shared operator token.
  */
-export function createInstanceAuth(
-	options: AccountAuthOptions & {
-		requestToken: (options: { signal: AbortSignal }) => Promise<string>;
-	},
-): AuthClient {
-	const { requestToken, ...shared } = options;
-	return createBearerAuth(
+export function createInstanceAuth(options: AccountAuthOptions) {
+	const { auth, run, install } = createBearerAuth(
 		{
-			...shared,
-			launcher: {
-				async startSignIn({ signal }) {
-					return { status: 'completed', token: await requestToken({ signal }) };
-				},
-			},
+			...options,
+			...normalizeInstanceServer(options.baseURL),
+			expectedPrincipalId: 'instance',
 		},
 		async () => {},
 	);
+	return Object.assign(auth, {
+		signIn(token: string) {
+			return run('start', (signal) => install(token, signal));
+		},
+	}) satisfies AuthClient;
+}
+
+export type InstanceAuth = ReturnType<typeof createInstanceAuth>;
+
+/** Verify an existing instance token without opening an Account or saving it.
+ * The selection owner keeps this signal active through persistence and restart.
+ * Cancellation settles even when the transport or response body ignores abort.
+ */
+export function verifyInstanceToken({
+	baseURL,
+	token,
+	signal,
+	fetch = globalThis.fetch.bind(globalThis),
+}: {
+	baseURL: string;
+	token: string;
+	signal: AbortSignal;
+	fetch?: AuthFetch;
+}) {
+	return tryAsync({
+		try: async () => {
+			signal.throwIfAborted();
+			const result = await whileActive(
+				readApiSession({ baseURL, token, fetch, signal }),
+				signal,
+			);
+			signal.throwIfAborted();
+			if (result.error) throw result.error;
+			if (result.data.principalId !== 'instance')
+				throw new Error(
+					'Instance authentication must resolve the instance principal.',
+				);
+			return { token, principalId: result.data.principalId };
+		},
+		catch: (cause) => AuthError.StartSignInFailed({ cause }),
+	});
 }
 
 function createBearerAuth(
@@ -140,13 +202,18 @@ function createBearerAuth(
 		authorityId,
 		baseURL,
 		persistedAuthStorage,
-		launcher,
+		cancel,
+		expectedPrincipalId,
 		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
 		WebSocket: WebSocketImpl = globalThis.WebSocket,
 		log = createLogger('auth/session'),
-	}: CreateSessionAuthOptions,
+	}: AccountAuthOptions & {
+		authorityId: string;
+		cancel?: () => void;
+		expectedPrincipalId?: 'instance';
+	},
 	revoke: (token: string) => Promise<void>,
-): AuthClient {
+) {
 	const origin = new URL(baseURL).origin;
 	let persisted = persistedAuthStorage.initial;
 	let attachment: Attachment | null = null;
@@ -317,7 +384,7 @@ function createBearerAuth(
 			return retry.response;
 		};
 		const account: Account = Object.freeze({
-			authorityId: authorityId ?? new URL(baseURL).origin,
+			authorityId,
 			principalId: value.principalId,
 			baseURL,
 			fetch: accountFetch,
@@ -377,6 +444,10 @@ function createBearerAuth(
 				token,
 				principalId: result.data.principalId,
 			};
+			if (expectedPrincipalId && next.principalId !== expectedPrincipalId)
+				throw new Error(
+					'Instance authentication must resolve the instance principal.',
+				);
 			await enqueue(async () => {
 				signal.throwIfAborted();
 				if (attachment && attachment.account.principalId !== next.principalId) {
@@ -446,41 +517,24 @@ function createBearerAuth(
 		return promise;
 	}
 
-	if (persisted) {
+	if (
+		persisted &&
+		(!expectedPrincipalId || persisted.principalId === expectedPrincipalId)
+	) {
 		attachment = createAttachment(persisted, false);
 		publish();
 	}
-	return {
+	const auth = {
 		get state() {
 			return state;
 		},
-		connection: {
-			baseURL,
-			status: 'connected',
-			onChange: () => () => undefined,
-		},
-		onStateChange(fn) {
+		baseURL,
+		onStateChange(fn: (state: AuthState) => void) {
 			listeners.add(fn);
 			return () => {
 				listeners.delete(fn);
 			};
 		},
-		startSignIn({ reauthenticate = state.status === 'reauth-required' } = {}) {
-			return run('start', async (signal) => {
-				const result = await launcher.startSignIn({ signal, reauthenticate });
-				if (result.status === 'completed') await install(result.token, signal);
-				else signal.throwIfAborted();
-			});
-		},
-		...(launcher.completeSignIn
-			? {
-					completeSignIn() {
-						return run('complete', async (signal) => {
-							await install(await launcher.completeSignIn!({ signal }), signal);
-						});
-					},
-				}
-			: {}),
 		signOut() {
 			const previous = persisted;
 			attempt?.abort();
@@ -494,7 +548,7 @@ function createBearerAuth(
 			return tryAsync({
 				try: async () => {
 					try {
-						launcher.cancel?.();
+						cancel?.();
 					} finally {
 						await clearing.finally(() => revocation);
 					}
@@ -517,12 +571,13 @@ function createBearerAuth(
 			retire();
 			listeners.clear();
 			try {
-				launcher.cancel?.();
+				cancel?.();
 			} catch (cause) {
 				log.error(SessionDiagnostic.Failed({ cause }));
 			}
 		},
 	};
+	return { auth, run, install };
 }
 
 /** A caller can stop waiting without aborting another caller's verification. */

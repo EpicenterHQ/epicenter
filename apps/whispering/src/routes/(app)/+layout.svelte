@@ -45,7 +45,7 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
-	<AppBoot auth={authClient} departure={application.departure} hasApp={application.app !== null} appName="Whispering" noun="recordings">
+	<AppBoot startup={authClient} departure={application.departure} hasApp={application.app !== null} appName="Whispering" noun="recordings">
 		{#if application.app && showing}
 			{#await application.app.ready}
 				<Loading class="h-dvh" label="Opening your recordings…" />

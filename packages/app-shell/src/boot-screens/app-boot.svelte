@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AuthClient } from '@epicenter/auth';
+	import type { AuthStartup } from '@epicenter/auth';
 	import { fromSubscription } from '@epicenter/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
@@ -9,8 +9,8 @@
 	import { attachDesktopClose } from './desktop-close.js';
 	import SignInScreen from './sign-in-screen.svelte';
 
-	let { auth, departure, hasApp, appName, noun, children }: {
-		auth: AuthClient;
+	let { startup, departure, hasApp, appName, noun, children }: {
+		startup: AuthStartup;
 		departure: Departure;
 		hasApp: boolean;
 		appName: string;
@@ -26,7 +26,8 @@
 		void departure.go(() => window.location.assign('/?connect')).catch(() => {});
 	});
 	provideSignOut(() => departure.go(async () => {
-		const result = await auth.signOut();
+		if (!startup.auth) return;
+		const result = await startup.auth.signOut();
 		if (result.error) throw result.error;
 		window.location.replace('/');
 	}));
@@ -53,7 +54,7 @@
 	{#if hasApp}
 		{@render children()}
 	{:else}
-		<SignInScreen {auth} {appName} {noun}
+		<SignInScreen {startup} {appName} {noun}
 			onCancel={new URLSearchParams(location.search).has('connect') ? () => location.replace('/') : undefined} />
 	{/if}
 {:else}

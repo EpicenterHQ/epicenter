@@ -5,10 +5,12 @@
 	import { Label } from '@epicenter/ui/label';
 	import {
 		ACCOUNT_CONNECT_ROUTE,
-		ACCOUNT_PREPARE_CONNECTION_ROUTE,
 		ACCOUNT_CANCEL_CONNECTION_ROUTE,
-		ACCOUNT_SELECT_HOSTED_ROUTE,
+		ACCOUNT_USE_CLOUD_ROUTE,
+		ACCOUNT_SIGN_IN_ROUTE,
+		ACCOUNT_SIGN_OUT_ROUTE,
 	} from '../routes.ts';
+	import { auth as startup } from './auth.js';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
@@ -29,28 +31,21 @@
 	 */
 
 	const launcher = createLaunch();
-	let server = $state('');
-	let token = $state('');
+	let server = $state(startup.selectedServer ?? '');
 	let connecting = $state(false);
 	let connectionError = $state('');
-	let choosingServer = $state(false);
-	async function connect(path: string, body?: { server: string; token: string }) {
+	let changingServer = $state(false);
+	async function connect(path: string, body: object = {}) {
 		connecting = true;
 		connectionError = '';
 		try {
 			const response = await fetch(path, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(body ?? {}),
+				body: JSON.stringify(body),
 			});
 			if (!response.ok) throw new Error(await response.text());
-			token = '';
-			if (path === ACCOUNT_PREPARE_CONNECTION_ROUTE.pattern) {
-				choosingServer = true;
-				connecting = false;
-			}
-			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern) {
-				choosingServer = false;
+			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern || path === ACCOUNT_SIGN_IN_ROUTE.pattern) {
 				connecting = false;
 			}
 			// A selected connection stays pending until native replaces this process.
@@ -76,35 +71,46 @@
 </script>
 
 {#if isDesktopHost()}
-	{#if !choosingServer}
-		<div class="grid gap-3 border-b p-3">
-			<h2 class="font-medium">Server connection</h2>
-			<p class="text-muted-foreground">Close your applications before choosing a server. Epicenter waits for their data to finish saving.</p>
-			<Button disabled={connecting} onclick={() => void connect(ACCOUNT_PREPARE_CONNECTION_ROUTE.pattern)}>Close apps and choose server</Button>
-			{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
-		</div>
-	{:else}
+	<div class="grid gap-3 border-b p-3">
+		<h2 class="font-medium">Account</h2>
+		{#if startup.auth === null}
+			<p role="alert">Your saved server choice could not be read. Choose a server to continue. Your local data is still on this device.</p>
+		{:else}
+			<p>{startup.selectedServer === null ? 'Epicenter Cloud' : 'Your server'}: {startup.auth.state.status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
+			{#if startup.selectedServer !== null}<p class="break-all text-sm text-muted-foreground">{startup.selectedServer}</p>{/if}
+		{/if}
+		<p class="text-muted-foreground">Changing accounts closes your applications and restarts Epicenter. Your existing local data stays with its original server.</p>
+		<Button disabled={connecting} onclick={() => void connect(startup.auth?.startSignIn !== undefined ? ACCOUNT_SIGN_IN_ROUTE.pattern : ACCOUNT_USE_CLOUD_ROUTE.pattern)}>
+			{startup.auth?.startSignIn !== undefined ? 'Sign in' : 'Use Epicenter Cloud'}
+		</Button>
+		{#if startup.selectedServer !== null && startup.auth?.startSignIn}
+			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_USE_CLOUD_ROUTE.pattern)}>Use Epicenter Cloud</Button>
+		{/if}
+		{#if startup.auth && startup.auth.state.status !== 'signed-out'}
+			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_OUT_ROUTE.pattern)}>Sign out</Button>
+		{/if}
+	</div>
 	<form
 		class="grid gap-3 border-b p-3"
 		onsubmit={(event) => {
 			event.preventDefault();
-			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server, token });
+			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server: startup.selectedServer !== null && !changingServer ? startup.selectedServer : server });
 		}}
 	>
 		<h2 class="font-medium">Connect to your server</h2>
-		<p class="text-muted-foreground">Epicenter restarts to use the selected server. Your existing local data stays with its original server.</p>
+		{#if startup.selectedServer !== null}
+			<Button type="button" variant="ghost" disabled={connecting} onclick={() => changingServer = !changingServer}>{changingServer ? 'Keep current server' : 'Change server'}</Button>
+		{/if}
 		<Label for="instance-server">Server URL</Label>
-		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" disabled={connecting} />
-		<Label for="instance-token">Server token</Label>
-		<Input id="instance-token" type="password" required bind:value={token} autocomplete="off" disabled={connecting} />
+		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" readonly={startup.selectedServer !== null && !changingServer} disabled={connecting} />
 		<div class="flex gap-2">
-			<Button type="button" variant="ghost" disabled={connecting} onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel</Button>
 			<Button type="submit" disabled={connecting}>Connect and restart</Button>
-			<Button type="button" variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SELECT_HOSTED_ROUTE.pattern)}>Use Epicenter hosted</Button>
 		</div>
-		{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
+		{#if connectionError}
+			<p role="alert" class="text-destructive">{connectionError}</p>
+			<Button type="button" variant="ghost" disabled={connecting} onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Return to saved connection</Button>
+		{/if}
 	</form>
-	{/if}
 {/if}
 
 {#if localModels.available}

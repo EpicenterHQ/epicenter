@@ -26,6 +26,7 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 		}
 	}
 	const auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL: 'https://account.test',
 		persistedAuthStorage: {
 			initial: {
@@ -87,6 +88,7 @@ const address = STORE_SYNC_ROUTE.address('https://account.test', {
 test('verification and uninterrupted same-person sign-in preserve the Account object', async () => {
 	using context = setup();
 	const account = context.account;
+	expect(account.authorityId).toBe('epicenter-api');
 	await account.fetch('/api/example');
 	expect(context.account).toBe(account);
 	await context.signIn('alice', 'alice-2');
@@ -257,6 +259,7 @@ test('retirement aborts a real HTTP response stream after headers have returned'
 	});
 	try {
 		using auth = createSessionAuth({
+			authorityId: 'epicenter-api',
 			baseURL: server.url.origin,
 			fetch: async (input, init) => {
 				const response = await fetch(input, init);
@@ -304,6 +307,7 @@ test('socket verification gates bearer emission and shares the result with HTTP'
 	}
 	let reads = 0;
 	using auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL: 'https://account.test',
 		persistedAuthStorage: {
 			initial: { token: 'session', principalId: asPrincipalId('alice') },

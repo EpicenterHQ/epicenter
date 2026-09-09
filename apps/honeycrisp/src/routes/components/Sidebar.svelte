@@ -22,7 +22,7 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { auth } from '$lib/auth.svelte.js';
+	import { getAuth } from '$lib/auth.svelte.js';
 	import type { WorkingCopy } from '@epicenter/data/artifact/checkout';
 	import { getHoneycrisp } from '$lib/app.svelte.js';
 		import { navigation } from '$lib/navigation.svelte.js';
@@ -42,6 +42,7 @@
 		removeLocalData?: () => Promise<void>;
 	} = $props();
 
+	const auth = getAuth();
 	const honeycrisp = getHoneycrisp();
 	let sync = $state.raw<SyncConnectionStatus | undefined>(undefined);
 

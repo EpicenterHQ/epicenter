@@ -10,7 +10,8 @@
 	import { GithubIcon } from '$lib/components/icons';
 	import studioMicrophone from '$lib/assets/studio-microphone.png';
 	import { NAV_ITEMS } from './nav-items';
-	import { auth } from '$lib/auth.svelte.js';
+	import { getAuth } from '$lib/auth.svelte.js';
+	const auth = getAuth();
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 

@@ -11,7 +11,8 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { auth } from '$lib/auth.svelte.js';
+	import { getAuth } from '$lib/auth.svelte.js';
+	const auth = getAuth();
 	import { tauri } from '#platform/tauri';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 

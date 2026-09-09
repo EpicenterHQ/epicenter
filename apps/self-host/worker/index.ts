@@ -1,3 +1,4 @@
+import { SelfHostOperator } from './operator.js';
 import { signInPage, signInScript } from '../sign-in.js';
 /** Self-hosted named-user Worker. The operator owns enrollment and durable admission. */
 import { asPrincipalId } from '@epicenter/principal';
@@ -76,4 +77,9 @@ mountTranscriptionApp(app, {
 });
 mountBlobsApp(app, { auth });
 export default app;
-export { GenerationsLedger, StoreAuthority, SelfHostAuthOwner };
+export {
+	GenerationsLedger,
+	StoreAuthority,
+	SelfHostAuthOwner,
+	SelfHostOperator,
+};

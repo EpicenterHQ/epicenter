@@ -8,6 +8,7 @@ import { createSessionAuth } from './create-session-auth.js';
 
 test('session refusal preserves the captured Account', async () => {
 	using auth = createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL: 'https://account.test',
 		persistedAuthStorage: {
 			initial: { token: 'session', principalId: asPrincipalId('alice') },

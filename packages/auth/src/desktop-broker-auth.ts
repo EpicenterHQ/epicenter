@@ -6,8 +6,9 @@ import type {
 	AuthClient,
 	AuthFetch,
 	AuthState,
-	ConnectionStatus,
+	AuthStartup,
 } from './auth-contract.js';
+import { createAccountManagementUrl } from './account-management.js';
 import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
 import type { AuthIdentityState } from './auth-identity-state.js';
 import { getProfileVia } from './read-api-session.js';
@@ -21,11 +22,12 @@ import { resolveTargetUrl } from './resolve-target-url.js';
 export type DesktopAuthBootstrap = {
 	signInLocation?: 'host-settings';
 	state: AuthIdentityState;
-	connection: {
-		authorityId: string;
-		baseURL: string;
-		status: ConnectionStatus;
-	};
+	authorityId: string;
+	baseURL: string;
+	selectedServer: string | null;
+	recovery: boolean;
+	startSignIn: boolean;
+	accountManagement: boolean;
 };
 
 /** Where the Bun authority stamps the boot snapshot into a served document. */
@@ -100,8 +102,14 @@ export function createDesktopBrokerAuth({
 	brokerBaseURL: string;
 	fetch?: AuthFetch;
 	WebSocket?: typeof WebSocket;
-}): AuthClient {
-	const baseURL = bootstrap.connection.baseURL;
+}): AuthStartup {
+	if (bootstrap.recovery) return {
+		auth: null,
+		selectedServer: bootstrap.selectedServer,
+		signInLocation: 'host-settings',
+		[Symbol.dispose]() {},
+	};
+	const baseURL = bootstrap.baseURL;
 	const origin = new URL(baseURL).origin;
 	const broker = createDesktopBroker({ brokerBaseURL, fetch: fetchImpl });
 	const lifetime = new AbortController();
@@ -152,7 +160,7 @@ export function createDesktopBrokerAuth({
 		bootstrap.state.status === 'signed-out'
 			? null
 			: Object.freeze({
-					authorityId: bootstrap.connection.authorityId,
+					authorityId: bootstrap.authorityId,
 					principalId: bootstrap.state.principalId,
 					baseURL,
 					fetch: accountFetch,
@@ -239,36 +247,29 @@ export function createDesktopBrokerAuth({
 				});
 	if (bootstrap.state.status !== 'signed-out' && account)
 		state = { status: bootstrap.state.status, account };
-	return {
-		...(bootstrap.signInLocation
-			? { signInLocation: bootstrap.signInLocation }
-			: {}),
+	const auth: AuthClient = {
 		get state() {
 			return state;
 		},
-		connection: {
-			baseURL,
-			get status() {
-				return bootstrap.connection.status;
-			},
-			onChange() {
-				return () => undefined;
-			},
-		},
+		baseURL,
 		onStateChange(fn) {
 			listeners.add(fn);
 			return () => {
 				listeners.delete(fn);
 			};
 		},
-		async startSignIn() {
-			try {
-				await broker('/_epicenter/account/sign-in', {});
-				return Ok(undefined);
-			} catch (cause) {
-				return AuthError.StartSignInFailed({ cause });
-			}
-		},
+		...(bootstrap.startSignIn
+			? {
+					async startSignIn(options?: { reauthenticate?: boolean }) {
+						try {
+							await broker('/_epicenter/account/sign-in', options ?? {});
+							return Ok(undefined);
+						} catch (cause) {
+							return AuthError.StartSignInFailed({ cause });
+						}
+					},
+				}
+			: {}),
 		async signOut() {
 			try {
 				await broker('/_epicenter/account/sign-out', {});
@@ -284,9 +285,16 @@ export function createDesktopBrokerAuth({
 				Promise.resolve(AuthError.ProfileUnavailable({ cause: 'Signed out.' }))
 			);
 		},
+		...(bootstrap.accountManagement ? { accountManagementUrl: createAccountManagementUrl } : {}),
 		[Symbol.dispose]() {
 			lifetime.abort();
 			listeners.clear();
 		},
+	};
+	return {
+		auth,
+		selectedServer: bootstrap.selectedServer,
+		...(bootstrap.signInLocation ? { signInLocation: bootstrap.signInLocation } : {}),
+		[Symbol.dispose]() { auth[Symbol.dispose](); },
 	};
 }

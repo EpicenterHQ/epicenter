@@ -2,14 +2,15 @@ import { createEpicenter } from '@epicenter/app';
 import { createBrowserAppBlobs } from '@epicenter/app/browser';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { APPS } from '@epicenter/constants/apps';
-import { authClient } from '#platform/auth';
+import { authStartup } from '#platform/auth';
 import { sqlite } from '#platform/sqlite';
 import { honeycrispDefinition } from './data.js';
 
 // Imported only after the application route mounts. Module lifetime fixes
 // both the Account and App across navigation in this document.
-const state = authClient.state;
-export const account = state.status === 'signed-out' ? null : state.account;
+const auth = authStartup.auth;
+const state = auth?.state;
+export const account = !state || state.status === 'signed-out' ? null : state.account;
 export const app =
 	account === null || new URLSearchParams(location.search).has('connect')
 		? null
@@ -22,7 +23,7 @@ export const app =
 export const departure = createDeparture({
 	retirement: app?.retirement,
 	reload: () => location.reload(),
-	auth: app ? authClient : undefined,
+	auth: app && auth ? auth : undefined,
 	account,
 	close: () => app?.close() ?? Promise.resolve(),
 });

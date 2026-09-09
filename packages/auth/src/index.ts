@@ -4,9 +4,9 @@ export type {
 	AuthClient,
 	AuthFetch,
 	AuthState,
+	AuthStartup,
 	CallbackAuthClient,
-	Connection,
-	ConnectionStatus,
+	SessionAuthClient,
 } from './auth-contract.js';
 export { isCallbackAuthClient } from './auth-contract.js';
 export * from './auth-errors.js';
@@ -15,13 +15,14 @@ export { ApiSessionResponse, Principal } from './auth-types.js';
 export {
 	type BrowserAuth,
 	createBrowserAuth,
-	isBrowserAuth,
 } from './browser-auth.js';
 export {
 	type CreateSessionAuthOptions,
 	createInstanceAuth,
 	createSessionAuth,
+	type InstanceAuth,
 	type SessionLauncher,
+	verifyInstanceToken,
 } from './create-session-auth.js';
 export {
 	type CreateHostedBrowserRedirectAuthOptions,
@@ -37,5 +38,6 @@ export {
 	createSerializedPersistedAuthStorage,
 	createWebStoragePersistedAuthStorage,
 	type PersistedAuthStorage,
+	parsePersistedAuth,
 } from './persisted-auth-storage.js';
 export { createSessionHandoffClient } from './session-handoff-client.js';

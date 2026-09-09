@@ -17,6 +17,6 @@
   },
  });
 </script>
-<AppBoot {auth} {departure} hasApp={app !== null} appName="Probe" noun="changes">
+<AppBoot startup={auth} {departure} hasApp={app !== null} appName="Probe" noun="changes">
  {#if showing}{#await ready}<p>Opening fixture</p>{:then}<Session />{/await}{/if}
 </AppBoot>
