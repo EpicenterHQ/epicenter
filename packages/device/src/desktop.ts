@@ -6,6 +6,7 @@
  * Secrets use HTTP and survive SQLite closure.
  */
 
+import type { AccountIdentity } from '@epicenter/principal';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
 	appIdOrThrow,
@@ -13,6 +14,7 @@ import {
 	DeviceError,
 	SecretError,
 	type SecretStore,
+	type SecretLabel,
 } from './index.js';
 import {
 	createAppSqlite,
@@ -125,15 +127,21 @@ function createSqliteSocket({
 	}
 	const request: AppSqliteTransport = async (message) => {
 		if (failed) return { error: failed, data: null };
+		const id = nextId++;
+		let frame: string;
+		try {
+			frame = JSON.stringify({ id, request: message });
+		} catch (cause) {
+			return DeviceError.StorageFailed({ cause });
+		}
 		try {
 			await ready();
 			if (failed) return { error: failed, data: null };
 			return await new Promise<Result<DeviceResponse, DeviceError>>(
 				(resolve) => {
-					const id = nextId++;
 					pending.set(id, resolve);
 					try {
-						socket!.send(JSON.stringify({ id, request: message }));
+						socket!.send(frame);
 					} catch (cause) {
 						fail(cause);
 					}
@@ -163,13 +171,12 @@ export function createDesktopDevice({
 	...options
 }: CreateDesktopDeviceOptions & { appId: string }): Device {
 	appIdOrThrow(appId);
-	const request = createOwnerRequest(options);
 	const owner = createDesktopSqliteOwner(options);
 	const sqlite = createAppSqlite(owner, appId, null);
 	return {
-		sqlite: Object.freeze(sqlite),
+		sqlite: Object.freeze(sqlite.value),
 		close: () => sqlite.close(),
-		secrets: Object.freeze(createKeychainSecrets(request, appId)),
+		secrets: Object.freeze(createDesktopSecrets(appId, null, options).value),
 	};
 }
 
@@ -203,38 +210,97 @@ function createOwnerRequest({
 	};
 }
 
-function createKeychainSecrets(
-	request: OwnerRequest,
+export function createDesktopSecrets(
 	appId: string,
-): SecretStore {
+	account: AccountIdentity | null,
+	{
+		assertUsable,
+		...options
+	}: CreateDesktopDeviceOptions & { assertUsable?: () => void } = {},
+): { value: SecretStore; close(): Promise<void> } {
+	appIdOrThrow(appId);
+	const request = createOwnerRequest(options);
+	const capturedAccount =
+		account === null
+			? null
+			: {
+					authorityId: account.authorityId,
+					principalId: account.principalId,
+				};
+	let closed = false;
+	let closing: Promise<void> | undefined;
+	let operations = 0;
+	let drained: (() => void) | undefined;
+	function assertOpen() {
+		assertUsable?.();
+		if (closed) throw new Error('Secret store is closed.');
+	}
+	async function admitted<T>(operation: () => Promise<T>): Promise<T> {
+		operations++;
+		try {
+			return await operation();
+		} finally {
+			if (--operations === 0) drained?.();
+		}
+	}
 	return {
-		put: async (label, value) => {
-			const result = await request({
-				kind: 'secret-put',
-				appId,
-				label,
-				value,
-			});
-			return result.error === null
-				? Ok(undefined)
-				: SecretError.StorageFailed({ cause: result.error });
-		},
-		get: async (label) => {
-			const result = await request({ kind: 'secret-get', appId, label });
-			if (result.error !== null) {
-				return SecretError.StorageFailed({ cause: result.error });
-			}
-			return result.data.kind === 'secret-get'
-				? Ok(result.data.value)
-				: SecretError.StorageFailed({
-						cause: DeviceError.InvalidResponse().error,
+		value: {
+			put(label: SecretLabel, value: string) {
+				assertOpen();
+				return admitted(async () => {
+					const result = await request({
+						kind: 'secret-put',
+						appId,
+						account: capturedAccount,
+						label,
+						value,
 					});
+					return result.error === null
+						? Ok(undefined)
+						: SecretError.StorageFailed({ cause: result.error });
+				});
+			},
+			get(label: SecretLabel) {
+				assertOpen();
+				return admitted(async () => {
+					const result = await request({
+						kind: 'secret-get',
+						appId,
+						account: capturedAccount,
+						label,
+					});
+					if (result.error !== null)
+						return SecretError.StorageFailed({ cause: result.error });
+					return result.data.kind === 'secret-get'
+						? Ok(result.data.value)
+						: SecretError.StorageFailed({
+								cause: DeviceError.InvalidResponse().error,
+							});
+				});
+			},
+			delete(label: SecretLabel) {
+				assertOpen();
+				return admitted(async () => {
+					const result = await request({
+						kind: 'secret-delete',
+						appId,
+						account: capturedAccount,
+						label,
+					});
+					return result.error === null
+						? Ok(undefined)
+						: SecretError.StorageFailed({ cause: result.error });
+				});
+			},
 		},
-		delete: async (label) => {
-			const result = await request({ kind: 'secret-delete', appId, label });
-			return result.error === null
-				? Ok(undefined)
-				: SecretError.StorageFailed({ cause: result.error });
+		close(): Promise<void> {
+			if (closing) return closing;
+			closed = true;
+			return (closing = operations
+				? new Promise<void>((resolve) => {
+						drained = resolve;
+					})
+				: Promise.resolve());
 		},
 	};
 }

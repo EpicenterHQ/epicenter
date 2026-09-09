@@ -41,10 +41,6 @@ import {
 	type DataDefinitionParseError,
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
-import {
-	createAppSqlite,
-	type DeviceSqliteOwner,
-} from '@epicenter/device/owner';
 import type { PrincipalId } from '@epicenter/principal';
 import {
 	GENERATIONS_ROUTE,
@@ -74,7 +70,6 @@ import {
 	type DeclaredData,
 	type ReplicaData,
 	type StoreBacking,
-	type StoreBlobBacking,
 	StoreError,
 } from './store.js';
 
@@ -685,7 +680,7 @@ function captureAccount(account: DatabaseAccount): DatabaseAccount {
  * Open one exact generation of one database, cache-first (ADR-0292).
  *
  * This low-level opener addresses a known account generation and leaves sync
- * attachment to its caller. Application sessions enter through `openAppData`.
+ * attachment to its caller. Application construction uses the claimed acquisition primitive below.
  *
  * The sequence, and every step of it is load-bearing:
  *
@@ -859,110 +854,41 @@ async function acquireDatabase(
 }
 
 /**
- * Construct the actual app document now and hydrate it from browser storage.
- * Invalid build-time declarations and account identities throw synchronously;
- * acquisition failures are reported by the engine's ready Result.
+ * Acquire browser data under the caller's exclusive library ownership.
+ * App construction acquires the library before calling this primitive and keeps
+ * that claim until document work and every other producer have released it.
  */
-export function openAppData<const TDefinition extends DataDefinition>(
-	definition: TDefinition,
-	{
-		appId,
-		account: input,
-		blobs,
-		sqlite,
-		recording,
-	}: {
-		appId: string;
-		account: DatabaseAccount | null;
-		blobs: StoreBlobBacking;
-		sqlite: DeviceSqliteOwner;
-		recording: import('@epicenter/recorder/recording').RecordingService;
-	},
+export async function acquireAppData(
+	definition: ParsedDataDefinition,
+	{ appId, account }: { appId: string; account: DatabaseAccount | null },
 ) {
-	if (!isAppId(appId))
-		throw new Error(`The application id '${appId}' is not valid.`);
-	const { data: parsed, error } = compileData(definition);
-	if (error !== null) throw new Error(error.message, { cause: error });
-	const authorityId = input?.authorityId;
-	if (input !== null && authorityId === undefined) {
-		throw new Error('The account has no stable authority identity.');
-	}
-	// Direct callers need the same capture guarantee as the app factory.
-	const account = input === null ? null : captureAccount(input);
-	const identity =
-		account !== null
-			? Object.freeze({
-					authorityId: account.authorityId,
-					principalId: account.principalId,
-				})
-			: null;
-	const namedSqlite = createAppSqlite(sqlite, appId, identity);
-	const parts = createStoreOverPort<StoreError | DataDefinitionParseError>({
-		definition: parsed,
-		blobStore: blobs.local,
-		local: account === null,
-		async acquire() {
-			const acquiredSqlite = await namedSqlite.acquire();
-			if (acquiredSqlite.error) {
-				const error = acquiredSqlite.error;
-				return error.name === 'AlreadyOpen' ||
-					error.name === 'LocksUnsupported' ||
-					error.name === 'ClaimFailed'
-					? Err(error)
-					: StoreError.StorageFailed({ cause: error });
-			}
-			const resolved =
-				account === null
-					? Ok({ generation: 1 })
-					: await discoverGeneration(parsed, { appId, account });
-			if (resolved.error !== null) {
-				await namedSqlite.close();
-				return resolved;
-			}
-			const generation = resolved.data.generation;
-			const acquired = await acquireDatabase(parsed, {
-				appId,
-				generation,
-				...(account === null ? {} : { account }),
-			});
-			if (acquired.error !== null) {
-				await namedSqlite.close();
-				return acquired;
-			}
-			return Ok({
-				...acquired.data,
-				async dispose() {
-					// A failed backing release keeps SQL and its library claim reserved.
-					await acquired.data.dispose?.();
-					await namedSqlite.close();
-				},
-				...(account === null
-					? {}
-					: {
-							replication: {
-								address: {
-									baseURL: account.baseURL,
-									dataId: parsed.id,
-									generation,
-								},
-								transport: account,
-							},
-						}),
-			});
-		},
+	const resolved =
+		account === null
+			? Ok({ generation: 1 })
+			: await discoverGeneration(definition, { appId, account });
+	if (resolved.error !== null) return resolved;
+	const generation = resolved.data.generation;
+	const acquired = await acquireDatabase(definition, {
+		appId,
+		generation,
+		...(account === null ? {} : { account }),
 	});
-	return Object.freeze(
-		Object.assign(parts.store, parts.view as DeclaredData<TDefinition>, {
-			appId,
-			dataId: parsed.id,
-			account: identity,
-			ready: parts.ready,
-			close: parts.close,
-			blobs: parts.createBlobs(blobs),
-			sqlite: parts.createSqlite(namedSqlite),
-			recording: parts.createRecording(recording),
-		}),
-	);
+	if (acquired.error !== null) return acquired;
+	return Ok({
+		...acquired.data,
+		...(account === null
+			? {}
+			: {
+					replication: {
+						address: {
+							baseURL: account.baseURL,
+							dataId: definition.id,
+							generation,
+						},
+						transport: account,
+					},
+				}),
+	});
 }
 
 /**

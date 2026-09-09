@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
+- **Amended by:** [ADR-0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) at shutdown coordination: the App coordinates resource owners instead of the document owning every capability. Exclusive acquisition, physical release, and retention after failed release remain.
 - **Related:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md)
 - **Unbuilt:** Exclusion for independently constructed blob producers, complete resource enumeration, native capture/media coordination, and app-factory removal.
 
@@ -56,6 +57,11 @@ then attempts exclusive library ownership before enumerating resources. It
 refuses while another owner remains active, including a sibling definition or
 another window. It does not close another caller's handle implicitly. Local
 and account libraries can continue independently.
+
+The following document-wide coordination mechanism is amended by ADR-0380:
+the App coordinates resource shutdown and final claim release, while each
+resource retains its own admission and drain guarantees. The release and
+failure guarantees below continue to apply.
 
 Document close stops admission synchronously and waits for acquisition and
 admitted operations to settle. It releases playback sources and durable backing before closing its SQL

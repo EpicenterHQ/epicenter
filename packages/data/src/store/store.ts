@@ -2,12 +2,8 @@ import {
 	generateBlobId,
 	parseBlobId,
 	type BlobId,
-	type BlobRemote,
-	type BlobSource,
-	type BlobSources,
 	type BlobStore,
 	BlobStoreError,
-	BlobRemoteError,
 } from '@epicenter/blobs';
 import {
 	type ConformanceIssue,
@@ -19,11 +15,6 @@ import {
 	type ParsedTable,
 } from '@epicenter/data/definition';
 import type { SqliteDatabase } from '@epicenter/sqlite';
-import type { ScopedSqlite } from '@epicenter/device/owner';
-import type {
-	Recording,
-	RecordingService,
-} from '@epicenter/recorder/recording';
 import * as Y from '@y/y';
 import { customAlphabet } from 'nanoid';
 import { defineErrors } from 'wellcrafted/error';
@@ -328,13 +319,6 @@ type StoreEngineOptions<
 	acquire(): Promise<Result<StoreBacking, TError>>;
 };
 
-/** Platform primitives used by the app's blob operations, not another owner. */
-export type StoreBlobBacking = {
-	local: BlobStore;
-	sources: BlobSources;
-	remote: BlobRemote | null;
-};
-
 export type CreateStoreOptions<TDatabase extends DataDefinition> = {
 	/** The application's definition declaration, a `defineData` literal. */
 	definition: TDatabase;
@@ -439,93 +423,13 @@ export function createStoreOverPort<
 		log = createLogger('data/store'),
 	} = options;
 	const database = createDatabaseDocument();
+	const lifetime = new AbortController();
 	let disposed = false;
 	let initialized = false;
 	let held: StoreBacking | undefined;
 	let connection: SyncConnection | undefined;
 	let stopHideFlush: (() => void) | undefined;
 	const operations = new Set<Promise<unknown>>();
-	const blobSources = new Set<BlobSource>();
-	let closeRecording: (() => Promise<void>) | undefined;
-
-	/** Capture shares this document's admission gate and drains before storage. */
-	function createRecording(backing: RecordingService): RecordingService {
-		const sessions = new Map<BlobId, { raw: Recording; public: Recording }>();
-		function hold(raw: Recording): Recording {
-			const existing = sessions.get(raw.audioBlobId);
-			if (existing) return existing.public;
-			const session: Recording = Object.freeze({
-				audioBlobId: raw.audioBlobId,
-				account: raw.account,
-				device: raw.device,
-				get endedReason() {
-					return raw.endedReason;
-				},
-				stop: () =>
-					runOperation(async () => {
-						try {
-							return await raw.stop();
-						} finally {
-							sessions.delete(raw.audioBlobId);
-						}
-					}),
-				cancel: () =>
-					runOperation(async () => {
-						try {
-							return await raw.cancel();
-						} finally {
-							sessions.delete(raw.audioBlobId);
-						}
-					}),
-				onLevel(handler) {
-					assertUsable();
-					return raw.onLevel(handler);
-				},
-				onEnded(handler) {
-					assertUsable();
-					return raw.onEnded(handler);
-				},
-			});
-			sessions.set(raw.audioBlobId, { raw, public: session });
-			return session;
-		}
-		closeRecording = async () => {
-			// Only the acquired dataset owner may adopt capture left by a reload.
-			// A refused duplicate opener shares its destination but owns nothing.
-			if (sessions.size === 0 && held !== undefined) {
-				const current = await backing.current();
-				if (current.error && current.error.name !== 'AlreadyRecording')
-					throw current.error;
-				if (current.data) hold(current.data);
-			}
-			try {
-				await Promise.all(
-					[...sessions.values()].map(async ({ raw }) => {
-						const result = await raw.cancel();
-						if (result.error && result.error.name !== 'NoActiveRecording')
-							throw result.error;
-					}),
-				);
-			} finally {
-				sessions.clear();
-			}
-		};
-		return Object.freeze({
-			current: () =>
-				runOperation(async () => {
-					const result = await backing.current();
-					return result.error
-						? result
-						: Ok(result.data === null ? null : hold(result.data));
-				}),
-			start: (params) =>
-				runOperation(async () => {
-					const result = await backing.start(params);
-					return result.error ? result : Ok(hold(result.data));
-				}),
-			enumerateDevices: () => runOperation(() => backing.enumerateDevices()),
-		} satisfies RecordingService);
-	}
 
 	function runOperation<T>(operation: () => Promise<T>): Promise<T> {
 		assertUsable();
@@ -538,91 +442,6 @@ export function createStoreOverPort<
 			() => operations.delete(pending),
 		);
 		return pending;
-	}
-
-	/** Construct SQL methods admitted and drained by this document. */
-	function createSqlite(backing: ScopedSqlite): ScopedSqlite {
-		return Object.freeze({
-			open: (name) =>
-				runOperation(async () => {
-					const result = await backing.open(name);
-					if (result.error !== null) return result;
-					// An opening connection belongs to this document even if close
-					// starts before it can be published. Close releases it after drain.
-					assertUsable();
-					const database: typeof result.data = {
-						run: (...args) => runOperation(() => result.data.run(...args)),
-						all: (...args) => runOperation(() => result.data.all(...args)),
-						batch: (...args) => runOperation(() => result.data.batch(...args)),
-					};
-					return Ok(Object.freeze(database));
-				}),
-			delete: (name) => runOperation(() => backing.delete(name)),
-		});
-	}
-
-	/** Construct actual blob methods under this document's readiness and close. */
-	function createBlobs({
-		sources,
-		remote,
-	}: Pick<StoreBlobBacking, 'sources' | 'remote'>) {
-		if (blobStore === undefined)
-			throw new Error('This document has no blob store.');
-		const local = blobStore;
-		return Object.freeze({
-			remote: Object.freeze({
-				upload: (id: BlobId) =>
-					runOperation(() =>
-						remote === null
-							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
-							: remote.upload(id),
-					),
-				download: (id: BlobId) =>
-					runOperation(() =>
-						remote === null
-							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
-							: remote.download(id),
-					),
-				purge: (id: BlobId) =>
-					runOperation(() =>
-						remote === null
-							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
-							: remote.purge(id),
-					),
-			}),
-			add(blob: Blob) {
-				return runOperation(async () => {
-					const id = generateBlobId();
-					const result = await local.put(id, blob);
-					return result.error === null ? Ok(id) : result;
-				});
-			},
-			get: (id: BlobId) => runOperation(() => local.get(id)),
-			stat: (id: BlobId) => runOperation(() => local.stat(id)),
-			statMany: (ids: readonly BlobId[]) =>
-				runOperation(() => local.statMany(ids)),
-			open(id: BlobId) {
-				return runOperation(async () => {
-					const result = await sources.open(id);
-					if (result.error !== null) return result;
-					const source = result.data;
-					if (disposed) {
-						source[Symbol.dispose]();
-						throw new StoreUnusableError();
-					}
-					blobSources.add(source);
-					return Ok(
-						Object.freeze({
-							url: source.url,
-							[Symbol.dispose]() {
-								if (blobSources.delete(source)) source[Symbol.dispose]();
-							},
-						}),
-					);
-				});
-			},
-			removeLocal: (id: BlobId) => runOperation(() => local.delete(id)),
-		});
 	}
 
 	/**
@@ -1126,64 +945,37 @@ export function createStoreOverPort<
 	const close = (): Promise<void> => {
 		disposed = true;
 		if (closing !== undefined) return closing;
-		// Publish completion before a disposer can re-enter close. The async
-		// body still stops callbacks synchronously, before its first await.
 		const completion = Promise.withResolvers<void>();
 		closing = completion.promise;
+		lifetime.abort();
 		void (async () => {
-			let producersReleased = true;
-			try {
+			const failures: unknown[] = [];
+			async function release(operation: () => void | Promise<unknown>) {
 				try {
-					connection?.[Symbol.dispose]();
-				} finally {
-					stopHideFlush?.();
-				}
-			} finally {
-				try {
-					try {
-						const flushing = initialized ? controller.close() : undefined;
-						await acquisition;
-						await flushing;
-					} finally {
-						try {
-							await Promise.allSettled(operations);
-						} finally {
-							try {
-								await closeRecording?.();
-							} catch (cause) {
-								producersReleased = false;
-								throw cause;
-							}
-						}
-					}
-				} finally {
-					try {
-						const sources = [...blobSources];
-						blobSources.clear();
-						const released = await Promise.allSettled(
-							sources.map(async (source) => source[Symbol.dispose]()),
-						);
-						const failures = released.filter(
-							(result) => result.status === 'rejected',
-						);
-						if (failures.length) {
-							producersReleased = false;
-							throw new AggregateError(
-								failures.map((failure) => failure.reason),
-								'Playback source cleanup failed.',
-							);
-						}
-					} finally {
-						try {
-							database.destroy();
-						} finally {
-							// A failed producer release retains the backing and its
-							// reservation. A replacement must not race remaining capture.
-							if (producersReleased) await held?.dispose?.();
-						}
-					}
+					await operation();
+				} catch (cause) {
+					failures.push(cause);
 				}
 			}
+			try {
+				connection?.[Symbol.dispose]();
+			} catch (cause) {
+				failures.push(cause);
+			}
+			try {
+				stopHideFlush?.();
+			} catch (cause) {
+				failures.push(cause);
+			}
+			const flushing = initialized ? controller.close() : undefined;
+			await release(() => acquisition);
+			await release(() => flushing);
+			await Promise.allSettled(operations);
+			await release(() => database.destroy());
+			await release(() => held?.dispose?.());
+			if (failures.length === 1) throw failures[0];
+			if (failures.length > 1)
+				throw new AggregateError(failures, 'Document cleanup failed.');
 		})().then(completion.resolve, completion.reject);
 		return closing;
 	};
@@ -1237,9 +1029,7 @@ export function createStoreOverPort<
 		// The compiled declaration rides on the store, so nothing downstream
 		// compiles it a second time (ADR-0340).
 		store,
-		createBlobs,
-		createSqlite,
-		createRecording,
+		lifetime: { assertUsable, signal: lifetime.signal },
 		close,
 		ready,
 		view,

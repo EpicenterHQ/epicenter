@@ -15,7 +15,8 @@
 		"./flush-on-hide": "./src/store/flush-on-hide.ts",
 		"./memory": "./src/store/memory.ts",
 		"./browser": "./src/store/browser.ts",
-		"./sync": "./src/sync/index.ts"
+		"./sync": "./src/sync/index.ts",
+		"./store": "./src/store/store.ts"
 	},
 	"files": [
 		"src",
@@ -32,7 +33,6 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/device": "workspace:*",
 		"@epicenter/principal": "workspace:*",
-		"@epicenter/recorder": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",
 		"@y/y": "14.0.0-rc.24",

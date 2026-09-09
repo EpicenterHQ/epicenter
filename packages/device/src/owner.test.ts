@@ -59,7 +59,7 @@ test('SQL-only acquisition reserves identity even before a database is opened', 
 	await storage.close();
 	const replacement = await owner.acquire(appId, null);
 	await replacement.close();
-	expectErr(await storage.open('search'));
+	expectErr(await storage.value.open('search'));
 });
 
 test('delete closes the physical database and retires every retained handle', async () => {
@@ -185,7 +185,7 @@ test('captured identities and other applications have independent lifetimes', as
 	const other = await owner.acquire(appId, account);
 	const local = await owner.acquire(appId, null);
 	const anotherApp = await owner.acquire('so.epicenter.other', null);
-	expectOk(await storage.open('search'));
+	expectOk(await storage.value.open('search'));
 	await storage.close();
 	expectOk(await (await other.open('search')).run('SELECT 1'));
 	await Promise.all([other.close(), local.close(), anotherApp.close()]);
@@ -205,8 +205,8 @@ test.each([
 ])('invalid name %s does not acquire storage', async (name) => {
 	const { owner, calls } = setup();
 	const storage = createAppSqlite(owner, appId, null);
-	expect(expectErr(await storage.open(name)).name).toBe('InvalidDatabaseName');
-	expect(expectErr(await storage.delete(name)).name).toBe(
+	expect(expectErr(await storage.value.open(name)).name).toBe('InvalidDatabaseName');
+	expect(expectErr(await storage.value.delete(name)).name).toBe(
 		'InvalidDatabaseName',
 	);
 	expect(calls).toEqual([]);
@@ -349,4 +349,153 @@ test('dispatcher cleanup reports failed physical close and preserves exclusion',
 	});
 	await expect(dispatch.close()).rejects.toThrow('dispatcher cleanup failed');
 	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+});
+
+test('app SQL acquisition precedes readiness but every public verb checks the borrowed gate synchronously', async () => {
+	const { owner, calls } = setup();
+	let ready = false;
+	const storage = createAppSqlite(owner, appId, null, {
+		assertUsable() {
+			if (!ready) throw new Error('App is not ready.');
+		},
+	});
+	expectOk(await storage.acquire());
+	const { open, delete: remove } = storage.value;
+	expect(() => open('search')).toThrow('not ready');
+	expect(() => remove('search')).toThrow('not ready');
+	expect(calls).toEqual([]);
+	ready = true;
+	const database = expectOk(await open('search'));
+	expect(expectOk(await open('search'))).toBe(database);
+	const { run, all, batch } = database;
+	ready = false;
+	for (const invoke of [
+		() => run('SELECT 1'),
+		() => all('SELECT 1'),
+		() => batch([]),
+	])
+		expect(invoke).toThrow('not ready');
+	expect(calls).toEqual([['open', appId, null, 'search']]);
+	await storage.close();
+});
+
+test('app close drains an admitted open and refuses late publication after the app retires', async () => {
+	const { owner, backend, calls } = setup();
+	const opening = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	const original = backend.open;
+	backend.open = async (...args) => {
+		started.resolve();
+		await opening.promise;
+		return original(...args);
+	};
+	let retired = false;
+	const storage = createAppSqlite(owner, appId, null, {
+		assertUsable() {
+			if (retired) throw new Error('App is closed.');
+		},
+	});
+	const pending = storage.value.open('search');
+	await started.promise;
+	retired = true;
+	const closing = storage.close();
+	expect(closing).toBe(storage.close());
+	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+	opening.resolve();
+	await expect(pending).rejects.toThrow('App is closed');
+	await closing;
+	expect(calls).toEqual([
+		['open', appId, null, 'search'],
+		['close', appId, null, 'search'],
+	]);
+	await (await owner.acquire(appId, null)).close();
+});
+
+test('app SQL close waits for a reentrant accepted write before releasing its lifetime', async () => {
+	const { owner, backend, calls } = setup();
+	const writing = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	const original = backend.open;
+	let closing: Promise<void> | undefined;
+	backend.open = async (...args) => ({
+		...(await original(...args)),
+		async run() {
+			closing = storage.close();
+			started.resolve();
+			await writing.promise;
+			calls.push(['written']);
+			return Ok({ changes: 7 });
+		},
+	});
+	const storage = createAppSqlite(owner, appId, null);
+	const database = expectOk(await storage.value.open('search'));
+	const result = database.run('INSERT INTO messages VALUES (1)');
+	await started.promise;
+	expect(closing).toBe(storage.close());
+	expectErr(await database.run('SELECT 1'));
+	expect(calls).toEqual([['open', appId, null, 'search']]);
+	writing.resolve();
+	expect(expectOk(await result)).toEqual({ changes: 7 });
+	await closing;
+	expect(calls.slice(-2)).toEqual([
+		['written'],
+		['close', appId, null, 'search'],
+	]);
+});
+
+test('app SQL forwards owner statement failures as the original Result', async () => {
+	const { owner, backend } = setup();
+	const failure = DeviceError.StorageFailed({
+		cause: new Error('disk is full'),
+	});
+	const original = backend.open;
+	backend.open = async (...args) => ({
+		...(await original(...args)),
+		async run() {
+			return failure;
+		},
+	});
+	const storage = createAppSqlite(owner, appId, null);
+	const database = expectOk(await storage.value.open('search'));
+	expect(await database.run('INSERT INTO messages VALUES (1)')).toBe(failure);
+	await storage.close();
+});
+
+test('SQL drain settles accepted work while retaining connections and the library claim', async () => {
+	const { owner, backend, calls } = setup();
+	const writing = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	const original = backend.open;
+	backend.open = async (...args) => ({
+		...(await original(...args)),
+		async run() {
+			started.resolve();
+			await writing.promise;
+			calls.push(['written']);
+			return Ok({ changes: 1 });
+		},
+	});
+	const storage = createAppSqlite(owner, appId, null);
+	const database = expectOk(await storage.value.open('search'));
+	const result = database.run('INSERT INTO messages VALUES (1)');
+	await started.promise;
+	let drained = false;
+	const draining = storage.drain();
+	void draining.then(() => {
+		drained = true;
+	});
+	await Promise.resolve();
+	expect(drained).toBe(false);
+	writing.resolve();
+	expectOk(await result);
+	await draining;
+	expect(calls).toEqual([['open', appId, null, 'search'], ['written']]);
+	const replacement = createAppSqlite(owner, appId, null);
+	expect(expectErr(await replacement.acquire()).name).toBe('AlreadyOpen');
+	await replacement.close();
+	expect(Object.keys(storage.value).sort()).toEqual(['delete', 'open']);
+	await storage.close();
+	const released = createAppSqlite(owner, appId, null);
+	expectOk(await released.acquire());
+	await released.close();
 });

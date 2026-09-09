@@ -4,12 +4,20 @@
 	"private": true,
 	"description": "One application's Epicenter Data session.",
 	"type": "module",
+	"imports": {
+		"#platform/resources": {
+			"epicenter-host": "./src/platform/epicenter-host.ts",
+			"default": "./src/platform/browser.ts"
+		}
+	},
 	"exports": {
 		".": "./src/index.ts",
-		"./browser": "./src/browser.ts"
+		"./browser": "./src/browser.ts",
+		"./ai": "./src/ai.ts",
+		"./ai-configuration": "./src/ai-configuration.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json",
 		"test": "bun test"
 	},
 	"dependencies": {
@@ -19,8 +27,10 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
 		"@epicenter/device": "workspace:*",
-		"wellcrafted": "catalog:",
-		"@epicenter/recorder": "workspace:*"
+		"@epicenter/recorder": "workspace:*",
+		"nanoid": "catalog:",
+		"openai": "^7.12.1",
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/principal": "workspace:*",

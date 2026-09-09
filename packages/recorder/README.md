@@ -7,12 +7,9 @@ detection for consumers that need utterances instead of saved recordings.
 
 ## Saved recordings
 
-The opened application exposes saved capture through `app.recording`:
+A workflow borrows the ready App from its caller, which owns shutdown:
 
 ```ts
-const app = epicenter.openLocal();
-const ready = await app.ready;
-if (ready.error) return showError(ready.error);
 const started = await app.recording.start();
 if (started.error) return showError(started.error);
 const recording = started.data;
@@ -27,7 +24,10 @@ if (stopped.error) return showError(stopped.error);
 `createBrowserRecording(appId, account)` from `/browser` uses MediaRecorder and
 the app's scoped browser blob store. `createDesktopRecording(appId, account)` from `/desktop`
 invokes Epicenter's native recorder. Choose the binding once at composition;
-construction opens no microphone, dataset, or model. Optional `selectedDeviceId`
+construction opens no microphone, dataset, or model. Each constructor returns
+`{ value, close }`: `value` holds the recording operations, and `close()` owns
+terminal capture cleanup. App exposes `value` and calls `close()` during its own
+shutdown. Optional `selectedDeviceId`
 uses the same device vocabulary as stream acquisition.
 
 Opening the app captures its local or account destination before permission acquisition.

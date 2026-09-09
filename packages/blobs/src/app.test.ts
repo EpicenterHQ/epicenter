@@ -1,11 +1,10 @@
 /**
- * Store-owned blob lifecycle tests.
+ * Blob resource lifecycle tests.
  *
  * Retained verbs refuse work before readiness and from the start of close.
  * Close drains admitted operations, including rejection and late URL acquisition,
  * and releases independently owned sources once before the SQLite backing.
  */
-import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import {
 	type BlobSource,
@@ -13,28 +12,21 @@ import {
 	BlobStoreError,
 	generateBlobId,
 } from '@epicenter/blobs';
-import { compileData, defineData } from '@epicenter/data/definition';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createSqliteDurablePort } from './log.js';
-import {
-	createStoreOverPort,
-	type StoreBacking,
-	type StoreBlobBacking,
-	StoreUnusableError,
-} from './store.js';
+import { createAppBlobs } from './app.js';
 
-const definition = expectOk(
-	compileData(
-		defineData({ id: 'so.epicenter.store-blobs-test', kv: {}, tables: {} }),
-	),
-);
+type BlobPrimitives = Omit<
+	Parameters<typeof createAppBlobs>[0],
+	'assertUsable'
+>;
 
 function setup() {
-	const raw = new Database(':memory:');
-	const port = createSqliteDurablePort({ sqlite: createBunSqliteAdapter(raw) });
-	const acquisition = Promise.withResolvers<Result<StoreBacking, never>>();
+	const acquisition = Promise.withResolvers<Result<void, never>>();
+	let initialized = false;
+	let closed = false;
+	let owner: ReturnType<typeof createAppBlobs>;
+	let closing: Promise<void> | undefined;
 	const events: string[] = [];
 	const calls: string[] = [];
 	const bytes = new Blob(['bytes']);
@@ -43,7 +35,7 @@ function setup() {
 		calls.push(name);
 		return Promise.resolve(value);
 	}
-	const primitives: StoreBlobBacking = {
+	const primitives: BlobPrimitives = {
 		local: {
 			put: () => record('put', Ok(undefined)),
 			copy: () => record('copy', Ok(undefined)),
@@ -65,19 +57,23 @@ function setup() {
 			purge: () => record('purge', Ok(undefined)),
 		},
 	};
-	const backing: StoreBacking = {
-		durable: port,
-		loaded: port.load(),
-		dispose() {
+	function createBlobs(options: BlobPrimitives) {
+		owner = createAppBlobs({
+			...options,
+			assertUsable() {
+				if (closed) throw new Error('closed');
+				if (!initialized) throw new Error('not ready');
+			},
+		});
+		return owner.value;
+	}
+	function close() {
+		closed = true;
+		return (closing ??= owner.close().then(() => {
 			events.push('backing');
-			raw.close();
-		},
-	};
-	const { createBlobs, ready, close } = createStoreOverPort({
-		definition,
-		blobStore: primitives.local,
-		acquire: () => acquisition.promise,
-	});
+		}));
+	}
+	const ready = acquisition.promise;
 	return {
 		createBlobs,
 		ready,
@@ -86,7 +82,10 @@ function setup() {
 		calls,
 		events,
 		bytes,
-		acquire: () => acquisition.resolve(Ok(backing)),
+		acquire: () => {
+			initialized = true;
+			acquisition.resolve(Ok(undefined));
+		},
 	};
 }
 
@@ -119,11 +118,9 @@ test('every retained blob verb refuses before readiness and throughout close wit
 		acquire();
 		expectOk(await ready);
 		const closing = close();
-		for (const operation of operations)
-			expect(operation).toThrow(StoreUnusableError);
+		for (const operation of operations) expect(operation).toThrow('closed');
 		await closing;
-		for (const operation of operations)
-			expect(operation).toThrow(StoreUnusableError);
+		for (const operation of operations) expect(operation).toThrow('closed');
 		expect(calls).toEqual([]);
 	} finally {
 		acquire();
@@ -145,16 +142,22 @@ test('unconfigured remote methods retain the document guard and return typed ref
 			expect(() => operation(id)).toThrow('not ready');
 		acquire();
 		expectOk(await ready);
-		expect(expectErr(await blobs.remote.upload(id)).name).toBe('RemoteNotConfigured');
-		expect(expectErr(await blobs.remote.download(id)).name).toBe('RemoteNotConfigured');
-		expect(expectErr(await blobs.remote.purge(id)).name).toBe('RemoteNotConfigured');
+		expect(expectErr(await blobs.remote.upload(id)).name).toBe(
+			'RemoteNotConfigured',
+		);
+		expect(expectErr(await blobs.remote.download(id)).name).toBe(
+			'RemoteNotConfigured',
+		);
+		expect(expectErr(await blobs.remote.purge(id)).name).toBe(
+			'RemoteNotConfigured',
+		);
 		expect(Reflect.set(blobs, 'remote', primitives.remote)).toBe(false);
 		const closing = close();
 		for (const operation of operations)
-			expect(() => operation(id)).toThrow(StoreUnusableError);
+			expect(() => operation(id)).toThrow('closed');
 		await closing;
 		for (const operation of operations)
-			expect(() => operation(id)).toThrow(StoreUnusableError);
+			expect(() => operation(id)).toThrow('closed');
 	} finally {
 		acquire();
 		await close();
@@ -246,7 +249,10 @@ test('a source arriving after close is disposed once before backing release and 
 		expect(events).toEqual([]);
 		opening.resolve(Ok(source));
 		expect(await rejected).toEqual([
-			{ status: 'rejected', reason: expect.any(StoreUnusableError) },
+			{
+				status: 'rejected',
+				reason: expect.objectContaining({ message: 'closed' }),
+			},
 		]);
 		await closing;
 		expect(events).toEqual(['late source', 'backing']);

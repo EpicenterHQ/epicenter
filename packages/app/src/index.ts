@@ -1,14 +1,18 @@
+import type { AiConfiguration } from './ai-configuration.js';
+import type { AiTransport } from './ai.js';
+import { openApp } from './open.js';
 import type { Account } from '@epicenter/auth';
 import type { BlobRemote, BlobSources, BlobStore } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
-import { openAppData } from '@epicenter/data/browser';
 import type { DataDefinition } from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { createBrowserRecording } from '@epicenter/recorder/browser';
 import type { RecordingFactory } from '@epicenter/recorder/recording';
+import { resources } from '#platform/resources';
+import { createBrowserAppAi, createBrowserAppBlobs } from './browser.js';
 
 export type App<TDefinition extends DataDefinition> = ReturnType<
-	typeof openAppData<TDefinition>
+	typeof openApp<TDefinition>
 >;
 export type AppSqlite = App<DataDefinition>['sqlite'];
 export type AppBlobs = App<DataDefinition>['blobs'];
@@ -24,7 +28,7 @@ export type AppBlobFactory = (input: {
 	account: Account | null;
 }) => AppBlobComposition;
 
-export type Epicenter<TDefinition extends DataDefinition> = {
+export type Application<TDefinition extends DataDefinition> = {
 	readonly appId: string;
 	openLocal(): App<TDefinition>;
 	openAccount(account: Account): App<TDefinition>;
@@ -36,6 +40,8 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 	sqlite,
 	blobs,
 	recording = createBrowserRecording,
+	ai,
+	secrets = resources.secrets,
 }: {
 	appId: string;
 	definition: TDefinition;
@@ -45,30 +51,20 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 	blobs: AppBlobFactory;
 	/** Capture binding. Constructing it acquires no microphone or model. */
 	recording?: RecordingFactory;
-}): Epicenter<TDefinition> {
+	ai?: AppAiBinding;
+	secrets?: typeof resources.secrets;
+}): Application<TDefinition> {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
-	function open(input: Account | null): App<TDefinition> {
-		// Bind every capability before asynchronous acquisition can observe a
-		// caller changing the supplied object. Transport closures retain retirement.
-		const account =
-			input === null
-				? null
-				: Object.freeze({
-						authorityId: input.authorityId,
-						principalId: input.principalId,
-						baseURL: input.baseURL,
-						fetch: input.fetch,
-						openWebSocket: input.openWebSocket,
-						getProfile: input.getProfile,
-					});
-		const blobComposition = blobs({ appId, account });
-		return openAppData(definition, {
+	function open(account: Account | null): App<TDefinition> {
+		return openApp(definition, {
 			appId,
 			account,
-			blobs: blobComposition,
 			sqlite,
-			recording: recording(appId, account),
+			blobs,
+			recording,
+			ai,
+			secrets,
 		});
 	}
 	return Object.freeze({
@@ -76,4 +72,51 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 		openLocal: () => open(null),
 		openAccount: (account: Account) => open(account),
 	});
+}
+
+/** Declare data; the build selects standard SQLite and secret resources. */
+export function defineApplication<const TDefinition extends DataDefinition>({
+	settingsKey,
+	...options
+}: {
+	appId: string;
+	definition: TDefinition;
+	/** Existing local AI settings may have an application-specific storage key. */
+	settingsKey?: string;
+}): Application<TDefinition> {
+	return createEpicenter({
+		...options,
+		...resources,
+		blobs: createBrowserAppBlobs(),
+		ai: createBrowserAppAi(settingsKey ?? options.appId),
+	});
+}
+
+/** Bind platform resources once; application declarations contain only identity and data. */
+export type AppAiBinding = {
+	runtime: AiTransport | null;
+	account: ((account: Account) => AiTransport) | null;
+	configuration?: (appId: string) => AiConfiguration;
+	configuredFetch?: AiTransport['fetch'];
+};
+
+export function bindApplication({
+	sqlite,
+	blobs,
+	recording,
+	ai,
+}: {
+	sqlite: DeviceSqliteOwner;
+	blobs: AppBlobFactory;
+	recording?: RecordingFactory;
+	ai?: AppAiBinding;
+}) {
+	return function defineApplication<
+		const TDefinition extends DataDefinition,
+	>(options: {
+		appId: string;
+		definition: TDefinition;
+	}): Application<TDefinition> {
+		return createEpicenter({ sqlite, blobs, recording, ai, ...options });
+	};
 }

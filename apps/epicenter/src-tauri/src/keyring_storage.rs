@@ -3,7 +3,7 @@
 //!
 //! The running bundle identifier names the service, isolating dev credentials.
 //! Rust owns the service and account strings. Bun sends the desktop auth cell's
-//! opaque value, or an application id and an account id; it never sends an
+//! opaque value, or an application id, captured account and label; it never sends an
 //! address in the credential store, and it cannot construct one. WebViews never
 //! receive a credential-store primitive.
 //!
@@ -18,42 +18,60 @@ use thiserror::Error;
 // constant rather than an input from Bun or a WebView.
 const KEYRING_ACCOUNT: &str = "auth-grant";
 
-/// The label grammar Rust will compose an account string out of.
-///
-/// Both halves are already validated at Bun's route; this is the second check,
-/// and it is the one that matters, because it is what makes the composed string
-/// unambiguous. A separator inside either label would let two different pairs
-/// name one entry, so the grammar has no separator in it.
+/// The captured account, with explicit null for standalone local devices.
+#[derive(Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub(crate) enum SecretAccount {
+    Local(()),
+    Personal {
+        #[serde(rename = "authorityId")]
+        authority_id: String,
+        #[serde(rename = "principalId")]
+        principal_id: String,
+    },
+}
+
 fn is_label(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 128
         && value
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
-/// Where one application's account secret is stored.
-///
-/// The `app:` prefix is what keeps this namespace clear of `auth-grant`, which
-/// is a bare account name and can never collide with a prefixed one. Two
-/// applications each naming a secret `gmail` land on two entries (ADR-0310).
-fn app_secret_account(app_id: &str, account_id: &str) -> Result<String, KeyringError> {
-    if !is_label(app_id) || !is_label(account_id) {
+/// JSON preserves identity component boundaries; the prefix excludes auth-grant.
+fn app_secret_account(
+    app_id: &str,
+    account: &SecretAccount,
+    label: &str,
+) -> Result<String, KeyringError> {
+    let valid_account = match account {
+        SecretAccount::Local(()) => true,
+        SecretAccount::Personal {
+            authority_id,
+            principal_id,
+        } => [authority_id, principal_id].into_iter().all(|part| {
+            !part.is_empty() && part != "." && part != ".." && !part.contains(['\0', '/', '\\'])
+        }),
+    };
+    if !is_label(app_id) || !is_label(label) || !valid_account {
         return Err(KeyringError::Failed {
-            message:
-                "an application secret label must be one dot, dash, underscore, or alphanumeric run"
-                    .to_string(),
+            message: "invalid application secret identity or label".to_string(),
         });
     }
-    Ok(format!("app:{app_id}:{account_id}"))
+    serde_json::to_string(&(app_id, account, label))
+        .map(|address| format!("app-secret:{address}"))
+        .map_err(|error| KeyringError::Failed {
+            message: error.to_string(),
+        })
 }
 
 pub(crate) fn read_app_secret(
     service: &str,
     app_id: &str,
-    account_id: &str,
+    identity: &SecretAccount,
+    label: &str,
 ) -> Result<Option<String>, KeyringError> {
-    let account = app_secret_account(app_id, account_id)?;
+    let account = app_secret_account(app_id, identity, label)?;
     let entry = Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.get_password() {
@@ -66,10 +84,11 @@ pub(crate) fn read_app_secret(
 pub(crate) fn write_app_secret(
     service: &str,
     app_id: &str,
-    account_id: &str,
+    identity: &SecretAccount,
+    label: &str,
     value: &str,
 ) -> Result<(), KeyringError> {
-    let account = app_secret_account(app_id, account_id)?;
+    let account = app_secret_account(app_id, identity, label)?;
     Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?
         .set_password(value)
@@ -79,9 +98,10 @@ pub(crate) fn write_app_secret(
 pub(crate) fn delete_app_secret(
     service: &str,
     app_id: &str,
-    account_id: &str,
+    identity: &SecretAccount,
+    label: &str,
 ) -> Result<(), KeyringError> {
-    let account = app_secret_account(app_id, account_id)?;
+    let account = app_secret_account(app_id, identity, label)?;
     let entry = Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.delete_credential() {
@@ -131,26 +151,48 @@ impl KeyringError {
 
 #[cfg(test)]
 mod tests {
-    use super::app_secret_account;
+    use super::{app_secret_account, SecretAccount};
 
     #[test]
-    fn a_label_pair_composes_one_unambiguous_account() {
+    fn structured_account_addresses_preserve_each_identity_component() {
+        let personal = |authority: &str, principal: &str| SecretAccount::Personal {
+            authority_id: authority.to_string(),
+            principal_id: principal.to_string(),
+        };
+        let accounts = [
+            SecretAccount::Local(()),
+            personal("a:b", "c"),
+            personal("a", "b:c"),
+            personal("a", "c"),
+        ];
+        let mut addresses = std::collections::HashSet::new();
+        for app in ["so.epicenter.mail", "so.epicenter.other"] {
+            for account in &accounts {
+                for label in ["token", "other"] {
+                    let address = app_secret_account(app, account, label).unwrap();
+                    assert!(address.starts_with("app-secret:"));
+                    assert!(addresses.insert(address));
+                }
+            }
+        }
         assert_eq!(
-            app_secret_account("so.epicenter.local-mail", "abc123").unwrap(),
-            "app:so.epicenter.local-mail:abc123"
+            app_secret_account("so.epicenter.mail", &SecretAccount::Local(()), "token").unwrap(),
+            r#"app-secret:["so.epicenter.mail",null,"token"]"#
         );
     }
 
     #[test]
-    fn a_separator_in_a_label_is_refused_rather_than_escaped() {
-        for (app_id, account_id) in [
-            ("so.epicenter:mail", "abc"),
-            ("so.epicenter.mail", "a:b"),
-            ("", "abc"),
-            ("so.epicenter.mail", ""),
-            ("so.epicenter.mail", "a/b"),
-        ] {
-            assert!(app_secret_account(app_id, account_id).is_err());
-        }
+    fn malformed_identity_and_labels_are_refused_without_opening_keychain() {
+        assert!(app_secret_account("", &SecretAccount::Local(()), "token").is_err());
+        assert!(app_secret_account("so.epicenter.mail", &SecretAccount::Local(()), "a/b").is_err());
+        assert!(app_secret_account(
+            "so.epicenter.mail",
+            &SecretAccount::Personal {
+                authority_id: "..".into(),
+                principal_id: "person".into(),
+            },
+            "token"
+        )
+        .is_err());
     }
 }

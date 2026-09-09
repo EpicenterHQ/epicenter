@@ -180,9 +180,9 @@ export function createAppSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
 	account: AccountIdentity | null,
+	{ assertUsable }: { assertUsable?: () => void } = {},
 ) {
 	const identity = capture(appId, account);
-
 	let pending:
 		| Promise<
 				Result<{ lifetime: SqliteLifetime; release(): void }, DeviceError>
@@ -190,13 +190,12 @@ export function createAppSqlite(
 		| undefined;
 	let closed = false;
 	let closing: Promise<void> | undefined;
+	let operations = 0;
+	let drained: (() => void) | undefined;
+	let draining: Promise<void> | undefined;
+	const handles = new WeakMap<AppSqliteDatabase, AppSqliteDatabase>();
+
 	function acquire() {
-		if (closed)
-			return Promise.resolve(
-				DeviceError.StorageFailed({
-					cause: new Error('SQLite lifetime is closed.'),
-				}),
-			);
 		return (pending ??= (async () => {
 			const claim = await claimLibrary(appId, identity);
 			if (claim.error) return claim;
@@ -211,41 +210,104 @@ export function createAppSqlite(
 			}
 		})());
 	}
+	function closedResult() {
+		return DeviceError.StorageFailed({
+			cause: new Error('SQLite lifetime is closed.'),
+		});
+	}
+	async function admitted<T>(operation: () => Promise<T>): Promise<T> {
+		// Reserve before invoking platform code: it may reenter close().
+		operations++;
+		try {
+			return await operation();
+		} finally {
+			if (--operations === 0) {
+				drained?.();
+				drained = undefined;
+				draining = undefined;
+			}
+		}
+	}
+	function statement<T>(operation: () => Promise<Result<T, DeviceError>>) {
+		assertUsable?.();
+		if (closed) return Promise.resolve(closedResult());
+		return admitted(operation);
+	}
+	function databaseHandle(database: AppSqliteDatabase): AppSqliteDatabase {
+		const existing = handles.get(database);
+		if (existing) return existing;
+		const handle: AppSqliteDatabase = {
+			run: (sql, parameters) => statement(() => database.run(sql, parameters)),
+			all: <TRow extends SqliteRow>(
+				sql: string,
+				parameters?: readonly SqliteValue[],
+			) => statement(() => database.all<TRow>(sql, parameters)),
+			batch: (statements) => statement(() => database.batch(statements)),
+		};
+		handles.set(database, handle);
+		return handle;
+	}
+	function drain(): Promise<void> {
+		if (!operations) return Promise.resolve();
+		return (draining ??= new Promise<void>((resolve) => {
+			drained = resolve;
+		}));
+	}
 	return {
+		drain,
 		async acquire(): Promise<Result<void, DeviceError>> {
+			if (closed) return closedResult();
 			const result = await acquire();
 			return result.error ? result : Ok(undefined);
 		},
-		async open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>> {
-			if (!isDatabaseName(name))
-				return DeviceError.InvalidDatabaseName({ databaseName: name });
-			const result = await acquire();
-			if (result.error) return result;
-			return tryAsync({
-				try: () => result.data.lifetime.open(name),
-				catch: (cause) => DeviceError.StorageFailed({ cause }),
-			});
-		},
-		async delete(name: string): Promise<Result<void, DeviceError>> {
-			if (!isDatabaseName(name))
-				return DeviceError.InvalidDatabaseName({ databaseName: name });
-			const result = await acquire();
-			if (result.error) return result;
-			return tryAsync({
-				try: () => result.data.lifetime.delete(name),
-				catch: (cause) => DeviceError.StorageFailed({ cause }),
-			});
+		value: {
+			open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>> {
+				assertUsable?.();
+				if (!isDatabaseName(name))
+					return Promise.resolve(
+						DeviceError.InvalidDatabaseName({ databaseName: name }),
+					);
+				if (closed) return Promise.resolve(closedResult());
+				return admitted(async () => {
+					const result = await acquire();
+					if (result.error) return result;
+					const opened = await tryAsync({
+						try: () => result.data.lifetime.open(name),
+						catch: (cause) => DeviceError.StorageFailed({ cause }),
+					});
+					if (opened.error) return opened;
+					assertUsable?.();
+					return Ok(databaseHandle(opened.data));
+				});
+			},
+			delete(name: string): Promise<Result<void, DeviceError>> {
+				assertUsable?.();
+				if (!isDatabaseName(name))
+					return Promise.resolve(
+						DeviceError.InvalidDatabaseName({ databaseName: name }),
+					);
+				if (closed) return Promise.resolve(closedResult());
+				return admitted(async () => {
+					const result = await acquire();
+					if (result.error) return result;
+					return tryAsync({
+						try: () => result.data.lifetime.delete(name),
+						catch: (cause) => DeviceError.StorageFailed({ cause }),
+					});
+				});
+			},
 		},
 		close(): Promise<void> {
 			if (closing) return closing;
 			closed = true;
-			return (closing = pending
-				? pending.then(async (result) => {
-						if (result.error) return;
-						await result.data.lifetime.close();
-						result.data.release();
-					})
-				: Promise.resolve());
+			return (closing = (async () => {
+				await drain();
+				if (!pending) return;
+				const result = await pending;
+				if (result.error) return;
+				await result.data.lifetime.close();
+				result.data.release();
+			})());
 		},
 	};
 }

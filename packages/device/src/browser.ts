@@ -20,9 +20,16 @@
  * this through its own `#platform/*` seam.
  */
 
+import type { AccountIdentity } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { browserSqliteTransport as request } from './browser-sqlite.js';
-import { appIdOrThrow, type Device, type SecretStore } from './index.js';
+import {
+	appIdOrThrow,
+	type Device,
+	type SecretLabel,
+	type SecretStore,
+} from './index.js';
+import { secretScopeKey } from './secrets.js';
 import { createAppSqlite, createTransportSqliteOwner } from './owner.js';
 
 export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwner {
@@ -43,24 +50,51 @@ export function createBrowserDevice({ appId }: { appId: string }): Device {
 	const owner = createBrowserSqliteOwner();
 	const sqlite = createAppSqlite(owner, appId, null);
 	return {
-		sqlite: Object.freeze(sqlite),
+		sqlite: Object.freeze(sqlite.value),
 		close: () => sqlite.close(),
-		secrets: Object.freeze(createTabMemorySecrets()),
+		secrets: Object.freeze(createBrowserSecrets(appId, null).value),
 	};
 }
 
 /** In memory, for the life of the tab, permanently rather than provisionally. */
-function createTabMemorySecrets(): SecretStore {
-	const values = new Map<string, string>();
+const tabSecrets = new Map<string, Map<string, string>>();
+
+export function createBrowserSecrets(
+	appId: string,
+	account: AccountIdentity | null,
+	{ assertUsable }: { assertUsable?: () => void } = {},
+): { value: SecretStore; close(): Promise<void> } {
+	appIdOrThrow(appId);
+	const key = secretScopeKey(appId, account);
+	let values = tabSecrets.get(key);
+	if (!values) {
+		values = new Map<string, string>();
+		tabSecrets.set(key, values);
+	}
+	let closing: Promise<void> | undefined;
+	function assertOpen() {
+		assertUsable?.();
+		if (closing) throw new Error('Secret store is closed.');
+	}
 	return {
-		put: async (label, value) => {
-			values.set(label, value);
-			return Ok(undefined);
+		value: {
+			put(label: SecretLabel, value: string) {
+				assertOpen();
+				values.set(label, value);
+				return Promise.resolve(Ok(undefined));
+			},
+			get(label: SecretLabel) {
+				assertOpen();
+				return Promise.resolve(Ok(values.get(label) ?? null));
+			},
+			delete(label: SecretLabel) {
+				assertOpen();
+				values.delete(label);
+				return Promise.resolve(Ok(undefined));
+			},
 		},
-		get: async (label) => Ok(values.get(label) ?? null),
-		delete: async (label) => {
-			values.delete(label);
-			return Ok(undefined);
+		close() {
+			return (closing ??= Promise.resolve());
 		},
 	};
 }

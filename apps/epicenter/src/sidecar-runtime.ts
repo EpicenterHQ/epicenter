@@ -1,3 +1,4 @@
+import type { AccountIdentity } from '@epicenter/principal';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
  * Rust resolves the runtime mode and port, then keeps stdin open as its parent
@@ -307,11 +308,11 @@ export function createNativeAuthPort(
 			| {
 					type: 'put-app-secret';
 					appId: string;
-					accountId: string;
+					account: AccountIdentity | null; label: string;
 					value: string;
 			  }
-			| { type: 'get-app-secret'; appId: string; accountId: string }
-			| { type: 'delete-app-secret'; appId: string; accountId: string },
+			| { type: 'get-app-secret'; appId: string; account: AccountIdentity | null; label: string }
+			| { type: 'delete-app-secret'; appId: string; account: AccountIdentity | null; label: string },
 	): Promise<string | null> {
 		const requestId = createRequestId();
 		return new Promise<string | null>((resolve, reject) => {
@@ -368,14 +369,35 @@ export function createNativeAuthPort(
 		async openAuthUrl(url: string) {
 			await request({ type: 'open-auth-url', url });
 		},
-		async putAppSecret(appId: string, accountId: string, value: string) {
-			await request({ type: 'put-app-secret', appId, accountId, value });
+		async putAppSecret(
+			appId: string,
+			account: AccountIdentity | null,
+			label: string,
+			value: string,
+		) {
+			await request({ type: 'put-app-secret', appId, account, label, value });
 		},
-		getAppSecret(appId: string, accountId: string) {
-			return request({ type: 'get-app-secret', appId, accountId });
+		async getAppSecret(
+			appId: string,
+			account: AccountIdentity | null,
+			label: string,
+		) {
+			const value = await request({
+				type: 'get-app-secret',
+				appId,
+				account,
+				label,
+			});
+			if (value !== null && typeof value !== 'string')
+				throw new Error('Invalid native secret value.');
+			return value;
 		},
-		async deleteAppSecret(appId: string, accountId: string) {
-			await request({ type: 'delete-app-secret', appId, accountId });
+		async deleteAppSecret(
+			appId: string,
+			account: AccountIdentity | null,
+			label: string,
+		) {
+			await request({ type: 'delete-app-secret', appId, account, label });
 		},
 		async closeApplications() {
 			await request({ type: 'close-applications' });

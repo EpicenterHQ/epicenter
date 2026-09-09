@@ -130,17 +130,20 @@ export type DeviceRequest =
 	| {
 			kind: 'secret-put';
 			appId: string;
+			account: AccountIdentity | null;
 			label: string;
 			value: string;
 	  }
 	| {
 			kind: 'secret-get';
 			appId: string;
+			account: AccountIdentity | null;
 			label: string;
 	  }
 	| {
 			kind: 'secret-delete';
 			appId: string;
+			account: AccountIdentity | null;
 			label: string;
 	  };
 

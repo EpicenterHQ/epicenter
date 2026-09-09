@@ -79,11 +79,24 @@ export type RecordingService = {
 	start(params?: RecordingParams): Promise<Result<Recording, RecorderError>>;
 };
 
+/** The constructed recorder owns capture and all pending cleanup. */
+export type RecordingOwner = {
+	value: RecordingService;
+	/** Terminal and idempotent; rejects if capture or listener release fails. */
+	close(): Promise<void>;
+};
+
+export type RecordingOptions = {
+	assertUsable?(): void;
+	canRecover?(): boolean;
+};
+
 /** Runtime composition is inert; acquisition happens only on start. */
 export type RecordingFactory = (
 	appId: string,
 	account: RecordingAccount,
-) => RecordingService;
+	options?: RecordingOptions,
+) => RecordingOwner;
 
 /** Capture the opened dataset before any asynchronous work. */
 export function captureRecordingAccount(

@@ -1,3 +1,6 @@
+import { createAiConfiguration } from './ai-configuration.js';
+import { accountInference, type AiTransport } from './ai.js';
+import type { AppAiBinding } from './index.js';
 import type { Account } from '@epicenter/auth';
 import {
 	createBrowserBlobSources,
@@ -41,4 +44,25 @@ export function createBrowserAppBlobs(): AppBlobFactory {
 				: null,
 		};
 	};
+}
+
+/** Origin-local settings; supported Epicenter accounts supply the /v1 gateway. */
+export function createBrowserAppAi(storageKey: string, configuredFetch?: AiTransport['fetch']): AppAiBinding {
+ return {
+  runtime: null,
+  account: accountInference,
+  configuredFetch,
+  configuration() {
+   return createAiConfiguration({
+    storage: window.localStorage, storageKey,
+    subscribeStorage(listener) {
+     const changed = (event: StorageEvent) => {
+      if (event.storageArea === window.localStorage && (event.key === `${storageKey}.app-ai` || event.key === null)) listener();
+     };
+     window.addEventListener('storage', changed);
+     return () => window.removeEventListener('storage', changed);
+    },
+   });
+  },
+ };
 }

@@ -206,8 +206,8 @@ enum BunToRustAuthFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        #[serde(rename = "accountId")]
-        account_id: String,
+        account: keyring_storage::SecretAccount,
+        label: String,
         value: String,
     },
     GetAppSecret {
@@ -215,16 +215,16 @@ enum BunToRustAuthFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        #[serde(rename = "accountId")]
-        account_id: String,
+        account: keyring_storage::SecretAccount,
+        label: String,
     },
     DeleteAppSecret {
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        #[serde(rename = "accountId")]
-        account_id: String,
+        account: keyring_storage::SecretAccount,
+        label: String,
     },
     CloseApplications {
         #[serde(rename = "requestId")]
@@ -1320,22 +1320,24 @@ fn handle_auth_frame(
         BunToRustAuthFrame::PutAppSecret {
             request_id,
             app_id,
-            account_id,
+            account,
+            label,
             value,
         } => {
-            let result = write_app_secret(&app.config().identifier, &app_id, &account_id, &value);
+            let result = write_app_secret(&app.config().identifier, &app_id, &account, &label, &value);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustAuthFrame::GetAppSecret {
             request_id,
             app_id,
-            account_id,
+            account,
+            label,
         } => {
             if request_id.is_empty() {
                 bail!("native requestId must be non-empty");
             }
             let state = app.state::<HostState>();
-            match read_app_secret(&app.config().identifier, &app_id, &account_id) {
+            match read_app_secret(&app.config().identifier, &app_id, &account, &label) {
                 Ok(value) => send_auth_frame(
                     &state,
                     generation,
@@ -1362,9 +1364,10 @@ fn handle_auth_frame(
         BunToRustAuthFrame::DeleteAppSecret {
             request_id,
             app_id,
-            account_id,
+            account,
+            label,
         } => {
-            let result = delete_app_secret(&app.config().identifier, &app_id, &account_id);
+            let result = delete_app_secret(&app.config().identifier, &app_id, &account, &label);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustAuthFrame::CloseApplications { request_id } => {

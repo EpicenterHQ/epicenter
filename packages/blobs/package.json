@@ -9,7 +9,8 @@
 		"./browser": "./src/browser.ts",
 		"./bun": "./src/bun.ts",
 		"./webview": "./src/webview.ts",
-		"./native": "./src/native.ts"
+		"./native": "./src/native.ts",
+		"./app": "./src/app.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {

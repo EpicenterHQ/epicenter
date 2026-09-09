@@ -69,9 +69,9 @@ try {
 		}: typeof import('@epicenter/blobs/browser') = await import(blobModule);
 		const appId = 'so.epicenter.recording-smoke';
 		const recorder = createBrowserRecording(appId, null);
-		const started = await bounded('start', recorder.start());
+		const started = await bounded('start', recorder.value.start());
 		if (started.error) throw new Error(JSON.stringify(started.error));
-		const rejected = await recorder.start();
+		const rejected = await recorder.value.start();
 		if (rejected.error?.name !== 'AlreadyRecording')
 			throw new Error('Competing capture admitted');
 		let meterTicks = 0;
@@ -98,13 +98,14 @@ try {
 		) {
 			throw new Error('Recording could not be decoded or metered');
 		}
-		const next = await bounded('restart', recorder.start());
+		const next = await bounded('restart', recorder.value.start());
 		if (next.error) throw new Error(JSON.stringify(next.error));
 		const cancelled = await bounded('cancel', next.data.cancel());
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		const absent = await store.stat(next.data.audioBlobId);
 		if (absent.error?.name !== 'BlobNotFound')
 			throw new Error('Cancel published audio');
+		await bounded('close recorder', recorder.close());
 		const ticksAfterStop = meterTicks;
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		if (meterTicks !== ticksAfterStop)

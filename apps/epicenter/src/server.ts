@@ -523,12 +523,21 @@ export function createHomeServer({
 		try {
 			if (request.kind === 'secret-put') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.put(request.appId, request.label, request.value);
+				await appSecrets.put(
+					request.appId,
+					request.account,
+					request.label,
+					request.value,
+				);
 				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
 			if (request.kind === 'secret-get') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				const value = await appSecrets.get(request.appId, request.label);
+				const value = await appSecrets.get(
+					request.appId,
+					request.account,
+					request.label,
+				);
 				return c.json({
 					kind: request.kind,
 					value,
@@ -536,7 +545,7 @@ export function createHomeServer({
 			}
 			if (request.kind === 'secret-delete') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.delete(request.appId, request.label);
+				await appSecrets.delete(request.appId, request.account, request.label);
 				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
 			return c.text('Bad Request', 400);
@@ -1041,17 +1050,24 @@ function parseDeviceRequest(
 			kind === 'secret-delete') &&
 		typeof input.label === 'string'
 	) {
-		if (!isSecretLabel(input.label)) return undefined;
+		if (!isSecretLabel(input.label) || !isSqliteAccount(input.account))
+			return undefined;
 		if (kind === 'secret-put' && typeof input.value !== 'string')
 			return undefined;
 		return kind === 'secret-put'
 			? {
 					kind,
 					appId: input.appId,
+					account: input.account,
 					label: input.label,
 					value: input.value as string,
 				}
-			: { kind, appId: input.appId, label: input.label };
+			: {
+					kind,
+					appId: input.appId,
+					account: input.account,
+					label: input.label,
+				};
 	}
 	return undefined;
 }

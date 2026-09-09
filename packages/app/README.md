@@ -1,36 +1,33 @@
 # @epicenter/app
 
-`app.recording` captures saved audio into the opened library.
-Its browser binding is the default. Desktop composition supplies
-`recording: createDesktopRecording` from `@epicenter/recorder/desktop` to
-`createEpicenter`. Opening binds the app ID and destination once:
-`openLocal()` selects the local library; `openAccount(account)` selects that
-account's library. After `app.ready` succeeds, call `app.recording.start()`.
-Neither `start()` nor `current()` takes an account. Closing waits for admitted
-work and cancels unresolved capture before releasing storage.
-Stop returns a published blob ID, duration, and byte length. The app owns the row
-and subsequent transcription or retention policy. See
-[the recording contract](../recorder/README.md#saved-recordings) for ownership
-and closure behavior.
-
-An app opens one local or account dataset and owns that application handle until it closes.
+An opened App is a vanilla TypeScript handle for one fixed local or account
+library. Whoever opens it stops product work and awaits `app.close()` when they
+deliberately finish. Screens borrow the handle; the page or job that owns it
+coordinates departure.
 
 ```ts
-import { createEpicenter } from '@epicenter/app';
-import { createBrowserAppBlobs } from '@epicenter/app/browser';
+import { defineApplication } from '@epicenter/app';
 
-const epicenter = createEpicenter({
+const application = defineApplication({
  appId: APP_ID,
  definition: honeycrispDefinition,
-	// Every app supplies its build's SQLite owner.
-	sqlite: deviceSqliteOwner,
-	blobs: createBrowserAppBlobs(),
 });
-const app = epicenter.openAccount(account);
-const result = await app.ready;
-// Use app.tables, app.kv, and app.blobs after a successful result.
-await app.close();
+const app = application.openAccount(account);
+try {
+ const result = await app.ready;
+ if (result.error !== null) throw result.error;
+ // Finish product work using app.tables, app.sqlite, and other capabilities.
+} finally {
+ await app.close();
+}
 ```
+
+The package selects SQLite and secrets for the build. Standard applications use
+browser blob storage and recording, including in host-served WebViews. An
+application with different capture or transport requirements can still compose
+those resources explicitly with `bindApplication`, as Whispering does.
+`settingsKey` preserves an existing local AI-settings namespace; new applications
+default to their app ID.
 
 Construction is inert. `openLocal()` and `openAccount(account)` return handles
 synchronously; `app.ready` resolves once with a usable dataset or a typed
@@ -41,11 +38,12 @@ operations reject premature or closed use, including methods retained by a
 consumer. Hydration fills the same document; no forwarding facade replaces it.
 Invalid declarations and accounts missing authority identity throw before I/O.
 
-The same document factory constructs blob and SQL operations. The app selects platform
-primitives and the browser opener composes the actual capabilities before one
-final freeze. There is no prototype facade or second closure flag. Retained blob
-and SQL methods throw on premature or closed use just as table
-methods do; ordinary storage and transfer failures remain Results.
+The App constructs each resource once and exposes its actual operation object.
+The resource owner keeps its cleanup controls; consumers receive SQL, secret,
+blob, and recording operations without a separate close obligation. The data
+engine constructs document operations and supplies their readiness guard to the
+resource implementations. Retained methods reject premature or closed use;
+ordinary storage and transfer failures remain Results.
 
 Tables declaring `field.blob()` create attachments directly:
 
@@ -73,11 +71,18 @@ Success means local bytes stored and row accepted; row durability still follows
 the document's persistence contract. This is not a cross-store atomic transaction
 or crash-recovery journal.
 
-Repeated `close()` calls return one completion promise. Close disables new
-operations immediately, then drains acquisition, persistence, and admitted blob/SQL
-operations before releasing resources. Acquired playback sources are released
-once, including sources that arrive during close. Consumers can release them
-earlier and can safely repeat disposal after close.
+Repeated `close()` calls return one completion promise. Close rejects new work
+immediately, cancels owned AI requests, settles admitted recording and storage
+work, and releases playback sources. The document stops sync and attempts its
+final local persistence flush. SQL work drains even if another cleanup fails.
+App releases its SQL lifetime and library claim only after dependent resources
+have released successfully; failed release retains the claim.
+
+Close cancels unresolved recording rather than saving a recording row. Finish
+and save a recording while the App is still usable. Close never signs out,
+navigates, deletes credentials, or erases the library. It preserves the store's
+existing persistence failure reporting; completed cleanup does not prove every
+edit reached durable storage or the server.
 
 Current transfer primitives cannot be cancelled. A transfer that never settles
 can therefore keep close pending; close does not release ownership while that
@@ -92,7 +97,8 @@ owner closes the handle and removes consuming UI.
 `AccountIdentity` lives in `@epicenter/principal`: authority ID and principal ID,
 without credentials. SQL and WebView blob factories take this identity or
 explicit `null`; no tagged storage wrapper repeats the selection. The document
-owns operation admission and close. Runtime owners still own physical files.
+owns document admission and cleanup. App coordinates resource shutdown, and
+runtime owners own physical files.
 
 `app.sqlite.open(name)` and `app.sqlite.delete(name)` use the same captured
 local or account scope as the rest of the handle. Every runtime supplies the
@@ -102,12 +108,32 @@ below `local/sqlite/` and account files below
 `accounts/<authority-id>/<principal-id>/sqlite/`. SQLite is auxiliary app data:
 primary tables and their durable Yjs records remain in the data store.
 
+`app.secrets.put(label, value)`, `get(label)`, and `delete(label)` capture the app
+and account scope. Browser secrets remain in document memory and disappear on
+reload; desktop secrets live in the keychain. Closing an App drains admitted
+secret operations and preserves their values. Reopening the same scope in the
+same document can read them again. Secrets never enter synchronized rows.
+
+`app.recording` captures saved audio into the opened library.
+Its browser binding is the default. Desktop composition supplies
+`recording: createDesktopRecording` from `@epicenter/recorder/desktop` to
+`createEpicenter`. Opening binds the app ID and destination once:
+`openLocal()` selects the local library; `openAccount(account)` selects that
+account's library. After `app.ready` succeeds, call `app.recording.start()`.
+Neither `start()` nor `current()` takes an account. Closing waits for admitted
+work and cancels unresolved capture before releasing storage.
+Stop returns a published blob ID, duration, and byte length. The app owns the row
+and subsequent transcription or retention policy. See
+[the recording contract](../recorder/README.md#saved-recordings) for ownership
+and closure behavior.
+
 Opening is cache-first. A device with a local generation can open it offline;
 a device without an account generation must reach the authority to list, fetch,
 or create one. The app owns persistence, sync, and teardown.
 
-Account opening requires `authorityId`. Every app supplies its platform SQLite
-owner; SQL-only consumers can use the device package without opening a document.
+Account opening requires `authorityId`. The package selects the platform SQLite
+owner by default; exceptional runtimes can compose one explicitly. SQL-only
+consumers can use the device package without opening a document.
 The remaining target contract
 and future whole-library removal are recorded in
 [ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).

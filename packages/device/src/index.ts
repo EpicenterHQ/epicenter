@@ -141,3 +141,5 @@ export type Device = {
 	readonly sqlite: ScopedSqlite;
 	readonly secrets: SecretStore;
 };
+
+export { secretScopeKey } from './secrets.js';

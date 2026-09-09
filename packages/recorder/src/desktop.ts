@@ -15,7 +15,8 @@ import {
 	type RecordingAccount,
 	type Recording,
 	type RecordingEndedReason,
-	type RecordingService,
+	type RecordingOwner,
+	type RecordingOptions,
 } from './recording.js';
 
 /** Wire shape pinned against the host's generated bindings by the consumer check. */
@@ -64,14 +65,43 @@ function call<T>(command: string, args?: Record<string, unknown>) {
 export function createDesktopRecording(
 	appId: string,
 	input: RecordingAccount,
-): RecordingService {
+	{ assertUsable, canRecover = () => false }: RecordingOptions = {},
+): RecordingOwner {
 	if (!isAppId(appId)) throw new Error(`Invalid recording app ID '${appId}'.`);
 	const account = captureRecordingAccount(input);
+	let closed = false;
+	let closing: Promise<void> | undefined;
+	const operations = new Set<Promise<unknown>>();
+	const cleanupErrors: unknown[] = [];
+	function assertOpen() {
+		if (closed) throw new Error('Recording is closed.');
+		assertUsable?.();
+	}
+	function run<T>(operation: () => Promise<T>): Promise<T> {
+		assertOpen();
+		const completion = Promise.withResolvers<T>();
+		operations.add(completion.promise);
+		void completion.promise.then(
+			() => operations.delete(completion.promise),
+			(cause) => {
+				operations.delete(completion.promise);
+				cleanupErrors.push(cause);
+			},
+		);
+		try {
+			completion.resolve(operation());
+		} catch (cause) {
+			completion.reject(cause);
+		}
+		return completion.promise;
+	}
+
 	const destination = blobDestination(appId, account);
 	let held:
 		| {
 				recording: Recording;
 				reconcile(reason: RecordingEndedReason | null): void;
+				cancel(): Promise<Result<void, RecorderError>>;
 		  }
 		| undefined;
 
@@ -105,27 +135,40 @@ export function createDesktopRecording(
 		let resolved = false;
 		const unlisteners = new Set<Promise<UnlistenFn>>();
 
+		const releases = new Set<Promise<void>>();
 		function unlisten(promise: Promise<UnlistenFn>) {
-			void promise
-				.then((stop) => stop())
-				.catch((cause) =>
-					log.warn(RecorderError.RecorderFailed({ cause }).error),
-				);
+			const release = promise.then((stop) => stop());
+			releases.add(release);
+			void release.then(
+				() => releases.delete(release),
+				(cause) => {
+					releases.delete(release);
+					cleanupErrors.push(cause);
+				},
+			);
 		}
-		function release() {
-			resolved = true;
-			if (held?.recording.audioBlobId === audioBlobId) held = undefined;
+		async function release() {
 			for (const listener of unlisteners) unlisten(listener);
 			unlisteners.clear();
+			await Promise.allSettled(releases);
 		}
 		function track(promise: Promise<UnlistenFn>) {
 			unlisteners.add(promise);
-			void promise.catch((cause) =>
-				log.warn(RecorderError.RecorderFailed({ cause }).error),
-			);
+			void promise.catch(() => {}); // release owns registration failures.
 			return () => {
 				if (unlisteners.delete(promise)) unlisten(promise);
 			};
+		}
+		async function cancel() {
+			resolved = true;
+			const result = await call<void>('cancel_recording', { audioBlobId });
+			await release();
+			if (
+				(result.error === null || result.error.name === 'NoActiveRecording') &&
+				held?.recording.audioBlobId === audioBlobId
+			)
+				held = undefined;
+			return result;
 		}
 		const recording = Object.freeze({
 			audioBlobId,
@@ -134,32 +177,38 @@ export function createDesktopRecording(
 			get endedReason() {
 				return endedReason;
 			},
-			async stop() {
-				if (resolved) return RecorderError.NoActiveRecording();
-				release();
-				const result = await call<{
-					audioBlobId: string;
-					durationMs: number;
-					byteLength: number;
-				}>('stop_recording', { audioBlobId });
-				if (result.error) return Err(result.error);
-				if (result.data.audioBlobId !== audioBlobId)
-					return RecorderError.RecorderFailed({
-						cause: new Error('The host stopped a different recording.'),
-					});
-				return Ok({ ...result.data, audioBlobId });
+			stop() {
+				return run(async () => {
+					if (resolved) return RecorderError.NoActiveRecording();
+					resolved = true;
+					const result = await call<{
+						audioBlobId: string;
+						durationMs: number;
+						byteLength: number;
+					}>('stop_recording', { audioBlobId });
+					await release();
+					if (result.error) return Err(result.error);
+					if (result.data.audioBlobId !== audioBlobId)
+						return RecorderError.RecorderFailed({
+							cause: new Error('The host stopped a different recording.'),
+						});
+					if (held?.recording.audioBlobId === audioBlobId) held = undefined;
+					return Ok({ ...result.data, audioBlobId });
+				});
 			},
-			async cancel() {
-				if (resolved) return RecorderError.NoActiveRecording();
-				release();
-				return call<void>('cancel_recording', { audioBlobId });
+			cancel() {
+				return run(async () => {
+					if (resolved) return RecorderError.NoActiveRecording();
+					return cancel();
+				});
 			},
 			onLevel(handler) {
+				assertOpen();
 				if (resolved || endedReason !== null) return () => {};
 				let subscribed = true;
 				const stop = track(
 					listen<number>('mic-level', (event) => {
-						if (subscribed && !resolved && endedReason === null)
+						if (!closed && subscribed && !resolved && endedReason === null)
 							handler(event.payload);
 					}),
 				);
@@ -169,11 +218,12 @@ export function createDesktopRecording(
 				};
 			},
 			onEnded(handler) {
+				assertOpen();
 				if (resolved) return () => {};
 				let subscribed = true;
 				let announced = false;
 				const announce = (reason: RecordingEndedReason) => {
-					if (!subscribed || resolved || announced) return;
+					if (closed || !subscribed || resolved || announced) return;
 					announced = true;
 					endedReason = reason;
 					handler(reason);
@@ -193,9 +243,9 @@ export function createDesktopRecording(
 				});
 				const stop = track(listening);
 				// Reconcile after installing the listener: capture may have ended in the gap.
-				void listening
+				const reconciliation = listening
 					.then(async () => {
-						if (!subscribed || resolved || announced) return;
+						if (closed || !subscribed || resolved || announced) return;
 						const current = await call<NativeRecording | null>(
 							'current_recording',
 						);
@@ -209,6 +259,8 @@ export function createDesktopRecording(
 					.catch((cause) =>
 						log.warn(RecorderError.RecorderFailed({ cause }).error),
 					);
+				operations.add(reconciliation);
+				void reconciliation.finally(() => operations.delete(reconciliation));
 				return () => {
 					subscribed = false;
 					stop();
@@ -217,6 +269,7 @@ export function createDesktopRecording(
 		} satisfies Recording);
 		held = {
 			recording,
+			cancel,
 			reconcile(reason) {
 				endedReason ??= reason;
 			},
@@ -233,32 +286,83 @@ export function createDesktopRecording(
 	}
 
 	return {
-		async current() {
-			const result = await call<NativeRecording | null>('current_recording');
-			if (result.error) return Err(result.error);
-			return result.data === null ? Ok(null) : wrap(result.data);
-		},
-		async enumerateDevices() {
-			const permitted = await permission('get_microphone_permission');
-			if (permitted.error) return permitted;
-			const result = await call<string[]>('enumerate_recording_devices');
-			if (result.error) return Err(result.error);
-			return Ok(
-				result.data.map((name) => ({
-					id: asDeviceIdentifier(name),
-					label: name,
-				})),
+		close() {
+			if (closing) return closing;
+			closed = true;
+			const completion = Promise.withResolvers<void>();
+			closing = completion.promise;
+			completion.resolve(
+				(async () => {
+					while (operations.size) await Promise.allSettled(operations);
+					if (!held && canRecover()) {
+						const result = await call<NativeRecording | null>(
+							'current_recording',
+						);
+						if (result.error !== null) throw result.error;
+						if (result.data !== null) {
+							const recovered = wrap(result.data);
+							if (
+								recovered.error !== null &&
+								recovered.error.name !== 'AlreadyRecording'
+							)
+								throw recovered.error;
+						}
+					}
+					if (held) {
+						const result = await held.cancel();
+						if (
+							result.error !== null &&
+							result.error.name !== 'NoActiveRecording'
+						) {
+							if (!cleanupErrors.length) throw result.error;
+							cleanupErrors.push(result.error);
+						}
+					}
+					if (cleanupErrors.length)
+						throw new AggregateError(
+							cleanupErrors,
+							'Recording cleanup failed.',
+						);
+				})(),
 			);
+			return closing;
 		},
-		async start({ selectedDeviceId = null } = {}) {
-			const permitted = await permission('request_microphone_permission');
-			if (permitted.error) return permitted;
-			const result = await call<NativeRecording>('start_recording', {
-				deviceIdentifier: selectedDeviceId,
-				destination,
-			});
-			if (result.error) return Err(result.error);
-			return wrap(result.data);
+		value: {
+			current() {
+				return run(async () => {
+					const result = await call<NativeRecording | null>(
+						'current_recording',
+					);
+					if (result.error) return Err(result.error);
+					return result.data === null ? Ok(null) : wrap(result.data);
+				});
+			},
+			enumerateDevices() {
+				return run(async () => {
+					const permitted = await permission('get_microphone_permission');
+					if (permitted.error) return permitted;
+					const result = await call<string[]>('enumerate_recording_devices');
+					if (result.error) return Err(result.error);
+					return Ok(
+						result.data.map((name) => ({
+							id: asDeviceIdentifier(name),
+							label: name,
+						})),
+					);
+				});
+			},
+			start({ selectedDeviceId = null } = {}) {
+				return run(async () => {
+					const permitted = await permission('request_microphone_permission');
+					if (permitted.error) return permitted;
+					const result = await call<NativeRecording>('start_recording', {
+						deviceIdentifier: selectedDeviceId,
+						destination,
+					});
+					if (result.error) return Err(result.error);
+					return wrap(result.data);
+				});
+			},
 		},
 	};
 }

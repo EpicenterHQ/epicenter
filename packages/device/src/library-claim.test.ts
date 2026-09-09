@@ -38,8 +38,8 @@ test('a raw library claim refuses standalone SQL before backend acquisition', as
 		null,
 	);
 	expect(expectErr(await storage.acquire()).name).toBe('AlreadyOpen');
-	expect(expectErr(await storage.open('search')).name).toBe('AlreadyOpen');
-	expect(expectErr(await storage.delete('search')).name).toBe('AlreadyOpen');
+	expect(expectErr(await storage.value.open('search')).name).toBe('AlreadyOpen');
+	expect(expectErr(await storage.value.delete('search')).name).toBe('AlreadyOpen');
 	expect(acquisitions).toBe(0);
 	await storage.close();
 	expect(expectErr(await claimLibrary(appId, null)).name).toBe('AlreadyOpen');

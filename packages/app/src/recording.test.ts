@@ -39,49 +39,84 @@ function setup({
 	let cancels = 0;
 	let stops = 0;
 	let releases = 0;
-	const recording: RecordingFactory = (appId, account) => {
+	const recording: RecordingFactory = (appId, account, options = {}) => {
 		bindings.push({ appId, account });
 		let active: Recording | null = null;
+		let closed = false;
+		let closing: Promise<void> | undefined;
+		const pending = new Set<Promise<unknown>>();
+		function run<T>(operation: () => Promise<T>): Promise<T> {
+			options.assertUsable?.();
+			if (closed) throw new Error('Recorder is closed.');
+			const promise = Promise.resolve().then(operation);
+			pending.add(promise);
+			void promise.then(
+				() => pending.delete(promise),
+				() => pending.delete(promise),
+			);
+			return promise;
+		}
+		async function cancel() {
+			cancels++;
+			await cancelGate;
+			if (cancelFails)
+				return RecorderError.RecorderFailed({
+					cause: new Error('Cancellation failed'),
+				});
+			active = null;
+			return Ok(undefined);
+		}
+		async function current() {
+			return recoveryFails || (recoveryFailsAfterStart && starts > 0)
+				? RecorderError.RecorderFailed({
+						cause: new Error('Recovery unavailable'),
+					})
+				: Ok(active);
+		}
 		const audioBlobId = generateBlobId();
 		const session: Recording = {
 			audioBlobId,
 			account,
 			device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 			endedReason: null,
-			async stop() {
-				stops++;
-				await stopGate;
-				active = null;
-				return Ok({ audioBlobId, durationMs: 100, byteLength: 32 });
-			},
-			async cancel() {
-				cancels++;
-				await cancelGate;
-				if (cancelFails)
-					return RecorderError.RecorderFailed({
-						cause: new Error('Cancellation failed'),
-					});
-				active = null;
-				return Ok(undefined);
-			},
+			stop: () =>
+				run(async () => {
+					stops++;
+					await stopGate;
+					active = null;
+					return Ok({ audioBlobId, durationMs: 100, byteLength: 32 });
+				}),
+			cancel: () => run(cancel),
 			onLevel: () => () => {},
 			onEnded: () => () => {},
 		};
 		if (recovered) active = session;
 		return {
-			current: async () =>
-				recoveryFails || (recoveryFailsAfterStart && starts > 0)
-					? RecorderError.RecorderFailed({
-							cause: new Error('Recovery unavailable'),
-						})
-					: Ok(active),
-			enumerateDevices: async () => Ok([]),
-			async start() {
-				starts++;
-				if (active) return RecorderError.AlreadyRecording();
-				await startGate;
-				active = session;
-				return Ok(session);
+			value: {
+				current: () => run(current),
+				enumerateDevices: () => run(async () => Ok([])),
+				start: () =>
+					run(async () => {
+						starts++;
+						if (active) return RecorderError.AlreadyRecording();
+						await startGate;
+						active = session;
+						return Ok(session);
+					}),
+			},
+			close() {
+				closed = true;
+				return (closing ??= (async () => {
+					await Promise.allSettled(pending);
+					if (active === null && (options.canRecover?.() ?? true)) {
+						const result = await current();
+						if (result.error) throw result.error;
+					}
+					if (active !== null && (options.canRecover?.() ?? true)) {
+						const result = await cancel();
+						if (result.error) throw result.error;
+					}
+				})());
 			},
 		};
 	};

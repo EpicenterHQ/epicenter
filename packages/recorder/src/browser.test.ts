@@ -101,7 +101,7 @@ function setup({
 	});
 	const appId = `test.${crypto.randomUUID()}`;
 	return {
-		service: createBrowserRecording(appId, null),
+		owner: createBrowserRecording(appId, null),
 		appId,
 		tracks,
 		recorders,
@@ -111,13 +111,13 @@ function setup({
 }
 
 test('construction is inert and pending permission excludes competing starts', async () => {
-	const { service, acquisitions, permission, tracks } = setup({
+	const { owner, acquisitions, permission, tracks } = setup({
 		deferPermission: true,
 	});
 	expect(acquisitions()).toBe(0);
-	const pending = service.start();
-	expect(expectErr(await service.start()).name).toBe('AlreadyRecording');
-	expect(expectErr(await service.current()).name).toBe('AlreadyRecording');
+	const pending = owner.value.start();
+	expect(expectErr(await owner.value.start()).name).toBe('AlreadyRecording');
+	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
 	expect(acquisitions()).toBe(1);
 	permission.resolve();
 	const recording = expectOk(await pending);
@@ -128,13 +128,13 @@ test('construction is inert and pending permission excludes competing starts', a
 test('stop stores final data in the captured account even when the input object changes', async () => {
 	const { appId, permission, recorders } = setup({ deferPermission: true });
 	const account = { authorityId: 'first', principalId: asPrincipalId('alice') };
-	const service = createBrowserRecording(appId, account);
+	const owner = createBrowserRecording(appId, account);
 	account.authorityId = 'second';
-	const pending = service.start();
+	const pending = owner.value.start();
 	permission.resolve();
 	const recording = expectOk(await pending);
 	expect(Reflect.set(recording, 'account', null)).toBe(false);
-	expect(expectOk(await service.current())).toBe(recording);
+	expect(expectOk(await owner.value.current())).toBe(recording);
 	recorders[0]?.data('first');
 	const stopped = expectOk(await recording.stop());
 	const store = createBrowserBlobStore({
@@ -146,14 +146,14 @@ test('stop stores final data in the captured account even when the input object 
 		'firstfinal',
 	);
 	expect(stopped.byteLength).toBe(10);
-	expect(expectOk(await service.current())).toBeNull();
+	expect(expectOk(await owner.value.current())).toBeNull();
 });
 
 test('cancel discards bytes and a stale session cannot stop its successor', async () => {
-	const { service, appId, recorders } = setup();
-	const first = expectOk(await service.start());
+	const { owner, appId, recorders } = setup();
+	const first = expectOk(await owner.value.start());
 	expectOk(await first.cancel());
-	const second = expectOk(await service.start());
+	const second = expectOk(await owner.value.start());
 	expect(expectErr(await first.stop()).name).toBe('NoActiveRecording');
 	expect(recorders[1]?.state).toBe('recording');
 	const store = createBrowserBlobStore({ appId, principalId: 'local' });
@@ -164,16 +164,16 @@ test('cancel discards bytes and a stale session cannot stop its successor', asyn
 });
 
 test('an asynchronous start error releases capture and permits another acquisition', async () => {
-	const { service, tracks, acquisitions } = setup({ failStart: true });
-	expect(expectErr(await service.start()).name).toBe('RecorderFailed');
+	const { owner, tracks, acquisitions } = setup({ failStart: true });
+	expect(expectErr(await owner.value.start()).name).toBe('RecorderFailed');
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
-	expect(expectErr(await service.start()).name).toBe('RecorderFailed');
+	expect(expectErr(await owner.value.start()).name).toBe('RecorderFailed');
 	expect(acquisitions()).toBe(2);
 });
 
 test('capture error preserves its final bytes for stop and reports ended once', async () => {
-	const { service, appId, recorders, tracks } = setup();
-	const recording = expectOk(await service.start());
+	const { owner, appId, recorders, tracks } = setup();
+	const recording = expectOk(await owner.value.start());
 	const reasons: string[] = [];
 	recording.onEnded((reason) => reasons.push(reason));
 	recorders[0]?.data('before');
@@ -188,8 +188,8 @@ test('capture error preserves its final bytes for stop and reports ended once', 
 });
 
 test('disconnected device remains resolvable and concurrent stop cannot publish twice', async () => {
-	const { service, tracks } = setup();
-	const recording = expectOk(await service.start());
+	const { owner, tracks } = setup();
+	const recording = expectOk(await owner.value.start());
 	tracks[0]?.dispatchEvent(new Event('ended'));
 	expect(recording.endedReason).toBe('deviceDisconnected');
 	const stopped = recording.stop();
@@ -198,8 +198,8 @@ test('disconnected device remains resolvable and concurrent stop cannot publish 
 });
 
 test('late ended subscription delivers once and an unsubscribed listener is skipped', async () => {
-	const { service, tracks } = setup();
-	const recording = expectOk(await service.start());
+	const { owner, tracks } = setup();
+	const recording = expectOk(await owner.value.start());
 	tracks[0]?.dispatchEvent(new Event('ended'));
 	const reasons: string[] = [];
 	recording.onEnded((reason) => reasons.push(reason));
@@ -211,18 +211,18 @@ test('late ended subscription delivers once and an unsubscribed listener is skip
 });
 
 test('failed publication releases capture and does not hold the next start', async () => {
-	const { service, tracks } = setup();
+	const { owner, tracks } = setup();
 	// Missing Web Locks makes the real store refuse publication.
 	Object.defineProperty(navigator, 'locks', { value: undefined });
-	const recording = expectOk(await service.start());
+	const recording = expectOk(await owner.value.start());
 	expect(expectErr(await recording.stop()).name).toBe('BlobStoreFailed');
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
-	const next = expectOk(await service.start());
+	const next = expectOk(await owner.value.start());
 	expectOk(await next.cancel());
 });
 
 test('meter subscription releases audio graph and animation without stopping capture', async () => {
-	const { service, recorders } = setup();
+	const { owner, recorders } = setup();
 	let closed = 0;
 	let disconnected = 0;
 	let cancelled = 0;
@@ -250,7 +250,7 @@ test('meter subscription releases audio graph and animation without stopping cap
 	replaceGlobal('cancelAnimationFrame', () => {
 		cancelled++;
 	});
-	const recording = expectOk(await service.start());
+	const recording = expectOk(await owner.value.start());
 	const off = recording.onLevel(() => {});
 	off();
 	expect(closed).toBe(1);
@@ -261,8 +261,179 @@ test('meter subscription releases audio graph and animation without stopping cap
 });
 
 test('stop before the start event settles acquisition and releases tracks', async () => {
-	const { service, tracks } = setup({ stopBeforeStart: true });
-	expect(expectErr(await service.start()).name).toBe('RecorderFailed');
+	const { owner, tracks } = setup({ stopBeforeStart: true });
+	expect(expectErr(await owner.value.start()).name).toBe('RecorderFailed');
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
-	expect(expectOk(await service.current())).toBeNull();
+	expect(expectOk(await owner.value.current())).toBeNull();
+});
+
+test('close waits for permission then discards late capture and stays terminal', async () => {
+	const { owner, permission, tracks, appId } = setup({
+		deferPermission: true,
+	});
+	const starting = owner.value.start();
+	const closing = owner.close();
+	expect(owner.close()).toBe(closing);
+	expect(() => owner.value.start()).toThrow('closed');
+	expect(() => owner.value.current()).toThrow('closed');
+	expect(() => owner.value.enumerateDevices()).toThrow('closed');
+	let finished = false;
+	void closing.then(() => {
+		finished = true;
+	});
+	await Promise.resolve();
+	expect(finished).toBe(false);
+	permission.resolve();
+	const recording = expectOk(await starting);
+	await closing;
+	expect(tracks[0]?.stops).toBeGreaterThan(0);
+	expect(() => recording.stop()).toThrow('closed');
+	expect(() => recording.cancel()).toThrow('closed');
+	expect(() => recording.onLevel(() => {})).toThrow('closed');
+	expect(() => recording.onEnded(() => {})).toThrow('closed');
+	const store = createBrowserBlobStore({ appId, principalId: 'local' });
+	expect(expectErr(await store.get(recording.audioBlobId)).name).toBe(
+		'BlobNotFound',
+	);
+});
+
+test('close drains an admitted stop through final blob publication', async () => {
+	const { owner, appId } = setup();
+	const publication = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	Object.defineProperty(navigator, 'locks', {
+		value: {
+			request: async (
+				_name: string,
+				_options: unknown,
+				callback: (lock: object) => unknown,
+			) => {
+				entered.resolve();
+				await publication.promise;
+				return callback({});
+			},
+		},
+	});
+	const recording = expectOk(await owner.value.start());
+	const stopping = recording.stop();
+	await entered.promise;
+	const closing = owner.close();
+	let finished = false;
+	void closing.then(() => {
+		finished = true;
+	});
+	await Promise.resolve();
+	expect(finished).toBe(false);
+	publication.resolve();
+	const saved = expectOk(await stopping);
+	await closing;
+	const store = createBrowserBlobStore({ appId, principalId: 'local' });
+	expect(await expectOk(await store.get(saved.audioBlobId)).text()).toBe(
+		'final',
+	);
+});
+
+test.each([
+	false,
+	true,
+])('close awaits AudioContext release and reports failure=%s', async (fail) => {
+	const { owner, tracks } = setup();
+	const released = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	replaceGlobal(
+		'AudioContext',
+		class {
+			state = 'running';
+			createMediaStreamSource() {
+				return { connect() {}, disconnect() {} };
+			}
+			createAnalyser() {
+				return { fftSize: 256 };
+			}
+			close() {
+				entered.resolve();
+				return released.promise;
+			}
+		},
+	);
+	replaceGlobal('requestAnimationFrame', () => 1);
+	replaceGlobal('cancelAnimationFrame', () => {});
+	const recording = expectOk(await owner.value.start());
+	recording.onLevel(() => {});
+	const closing = owner.close();
+	let finished = false;
+	void closing.then(
+		() => {
+			finished = true;
+		},
+		() => {
+			finished = true;
+		},
+	);
+	await entered.promise;
+	expect(finished).toBe(false);
+	expect(tracks[0]?.stops).toBeGreaterThan(0);
+	if (fail) {
+		released.reject(new Error('AudioContext release failed'));
+		await expect(closing).rejects.toThrow('cleanup failed');
+	} else {
+		released.resolve();
+		await closing;
+	}
+	expect(owner.close()).toBe(closing);
+});
+
+test('close rejects a failed cancellation while still releasing microphone tracks', async () => {
+	const { owner, recorders, tracks } = setup();
+	expectOk(await owner.value.start());
+	recorders[0]!.stop = () => {
+		throw new Error('stop failed');
+	};
+	await expect(owner.close()).rejects.toThrow('cleanup failed');
+	expect(tracks[0]?.stops).toBeGreaterThan(0);
+});
+
+test('construction readiness is checked at retained owner and session operations', async () => {
+	const { appId } = setup();
+	let usable = false;
+	const owner = createBrowserRecording(appId, null, {
+		assertUsable() {
+			if (!usable) throw new Error('not ready');
+		},
+	});
+	const start = owner.value.start;
+	expect(() => start()).toThrow('not ready');
+	usable = true;
+	const recording = expectOk(await start());
+	const stop = recording.stop;
+	usable = false;
+	expect(() => stop()).toThrow('not ready');
+	expect(() => recording.onEnded(() => {})).toThrow('not ready');
+	await owner.close();
+});
+
+test('failed publication retains its Result when AudioContext release also fails', async () => {
+	const { owner } = setup();
+	Object.defineProperty(navigator, 'locks', { value: undefined });
+	replaceGlobal(
+		'AudioContext',
+		class {
+			state = 'running';
+			createMediaStreamSource() {
+				return { connect() {}, disconnect() {} };
+			}
+			createAnalyser() {
+				return { fftSize: 256 };
+			}
+			async close() {
+				throw new Error('meter release failed');
+			}
+		},
+	);
+	replaceGlobal('requestAnimationFrame', () => 1);
+	replaceGlobal('cancelAnimationFrame', () => {});
+	const recording = expectOk(await owner.value.start());
+	recording.onLevel(() => {});
+	expect(expectErr(await recording.stop()).name).toBe('BlobStoreFailed');
+	await expect(owner.close()).rejects.toThrow('cleanup failed');
 });

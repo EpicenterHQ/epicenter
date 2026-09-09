@@ -25,6 +25,9 @@ function setup() {
 	const backend: SqliteBackend = {
 		async open() {
 			return {
+				async query() {
+					return Ok({ columns: [], rows: [], truncated: false });
+				},
 				async run() {
 					calls.push('run');
 					return Ok({ changes: 1 });

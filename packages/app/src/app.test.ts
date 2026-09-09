@@ -8,14 +8,20 @@ import 'fake-indexeddb/auto';
 import { expect, test, spyOn } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { type BlobStore, generateBlobId } from '@epicenter/blobs';
-import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
+import {
+	type AppSqliteDatabase,
+	DeviceError,
+	SecretError,
+	secretLabel,
+} from '@epicenter/device';
 import {
 	createSqliteOwner,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { installTestLocks } from '@epicenter/device/test-locks';
-import { openAppData } from '@epicenter/data/browser';
+import { openApp } from './open.js';
+import { createAiConfiguration } from './ai-configuration.js';
 import {
 	defineData,
 	defineTable,
@@ -25,6 +31,7 @@ import {
 import { createEpicenter } from './index.js';
 import { createBrowserAppBlobs } from './browser.js';
 import { createBrowserRecording } from '@epicenter/recorder/browser';
+import { createBrowserSecrets } from '@epicenter/device/browser';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -35,6 +42,7 @@ const testSqlite: DeviceSqliteOwner = {
 		open: async () => ({
 			run: async () => Ok({ changes: 0 }),
 			all: async () => Ok([]),
+
 			batch: async () => Ok({ changes: [] }),
 		}),
 		delete: async () => undefined,
@@ -114,6 +122,7 @@ test.each([
 					return {
 						run: async () => Ok({ changes: 0 }),
 						all: async () => Ok([]),
+
 						batch: async () => Ok({ changes: [] }),
 					};
 				},
@@ -158,12 +167,13 @@ test.each([
 	const accountApp =
 		entry === 'app'
 			? epicenter.openAccount(account)
-			: openAppData(definition, {
+			: openApp(definition, {
 					appId: 'so.epicenter.app-test',
 					account,
-					blobs: testBlobs({ appId: 'so.epicenter.app-test', account }),
+					blobs: testBlobs,
 					sqlite: owner,
-					recording: createBrowserRecording('so.epicenter.app-test', account),
+					recording: createBrowserRecording,
+					secrets: createBrowserSecrets,
 				});
 	if (timing === 'during acquisition') await requested.promise;
 	Reflect.set(account, 'authorityId', 'replacement-authority');
@@ -211,6 +221,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			open: async () => ({
 				run: async () => Ok({ changes: 0 }),
 				all: async () => Ok([]),
+
 				batch: async () => Ok({ changes: [] }),
 			}),
 			delete: async () => {
@@ -362,7 +373,9 @@ test.each([
 	expectOk(await app.ready);
 	const database = expectOk(await app.sqlite.open('search'));
 	const pending: Promise<Result<unknown, DeviceError>> =
-		verb === 'batch' ? database.batch([]) : database[verb]('select 1');
+		verb === 'batch'
+			? database.batch([])
+			: database[verb]('select 1');
 	try {
 		await started.promise;
 		expect(reentrant).toBe(app.close());
@@ -849,4 +862,519 @@ test('failed bootstrap cleanup retains SQL and library ownership before ready', 
 	} finally {
 		closing.mockRestore();
 	}
+});
+
+test('retained AI shares readiness and close drains response work before releasing storage', async () => {
+	const drain = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	const released: string[] = [];
+	let signal: AbortSignal | null | undefined;
+	const app = createEpicenter({
+		appId: 'so.epicenter.capability-test',
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				...(await testSqlite.acquire('so.epicenter.capability-test', null)),
+				close: async () => {
+					released.push('storage');
+				},
+			}),
+		},
+		ai: {
+			account: null,
+			runtime: {
+				baseURL: 'https://inference.test/v1',
+				fetch: async (_input, init) => {
+					signal = init?.signal;
+					started.resolve();
+					await drain.promise;
+					released.push('capability');
+					return Response.json({ data: [] });
+				},
+			},
+		},
+	}).openLocal();
+	const client = app.ai.runtime!.client;
+	expect(() => app.ai.configured()).toThrow('not ready');
+	expectOk(await app.ready);
+	const request = (async () => await client.models.list())();
+	void request.catch(() => {});
+	await started.promise;
+	const closing = app.close();
+	expect(signal?.aborted).toBe(true);
+	await expect((async () => await client.models.list())()).rejects.toThrow();
+	expect(app.close()).toBe(closing);
+	expect(released).toEqual([]);
+	drain.resolve();
+	await closing;
+	await expect(request).rejects.toThrow();
+	expect(released).toEqual(['capability', 'storage']);
+});
+
+test.each([
+	'recording',
+	'capability',
+] as const)('close waits for both producers when %s cleanup fails', async (failing) => {
+	const drain = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	let released = false;
+	let settled = false;
+	const appId = 'test.' + crypto.randomUUID();
+	const app = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				...(await testSqlite.acquire(appId, null)),
+				close: async () => {
+					released = true;
+				},
+			}),
+		},
+		recording: (id, account, options) => ({
+			...createBrowserRecording(id, account, options),
+			close: async () => {
+				if (failing === 'recording') throw new Error('recording failed');
+				await drain.promise;
+			},
+		}),
+		ai: {
+			account: null,
+			runtime: {
+				baseURL: 'https://inference.test/v1',
+				fetch: async () => {
+					started.resolve();
+					await drain.promise;
+					return Response.json({ data: [] });
+				},
+			},
+			configuration: () => ({
+				...createAiConfiguration({
+					storageKey: appId,
+					storage: { getItem: () => null, setItem() {}, removeItem() {} },
+				}),
+				close() {
+					if (failing === 'capability') throw new Error('capability failed');
+				},
+			}),
+		},
+	}).openLocal();
+	expectOk(await app.ready);
+	const request = (async () => await app.ai.runtime!.client.models.list())();
+	void request.catch(() => {});
+	await started.promise;
+	const closed = app.close();
+	void closed.then(
+		() => {
+			settled = true;
+		},
+		() => {
+			settled = true;
+		},
+	);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(settled).toBe(false);
+	drain.resolve();
+	await expect(closed).rejects.toThrow(
+		failing === 'recording'
+			? 'recording failed'
+			: 'AI transport cleanup failed',
+	);
+	await expect(request).rejects.toThrow();
+	expect(released).toBe(false);
+});
+
+test('one captured Account supplies library and AI; local opening never borrows it', async () => {
+	const appId = 'test.' + crypto.randomUUID();
+	const supplied: Account[] = [];
+	let inferenceRequests = 0;
+	let libraryRequests = 0;
+	const account: Account = {
+		authorityId: 'captured',
+		principalId: asPrincipalId('alice'),
+		baseURL: 'https://captured.example',
+		async fetch(input) {
+			if (String(input).endsWith('/models')) {
+				inferenceRequests++;
+				return Response.json({ data: [] });
+			}
+			return ++libraryRequests === 1
+				? Response.json({ generations: [] })
+				: Response.json({ generation: 1, position: 0 });
+		},
+		async openWebSocket() {
+			throw new Error('No test sync server');
+		},
+		async getProfile() {
+			throw new Error('No test profile');
+		},
+	};
+	const application = createEpicenter({
+		appId,
+		definition,
+		sqlite: testSqlite,
+		blobs: testBlobs,
+		ai: {
+			runtime: null,
+			account: (captured) => {
+				supplied.push(captured);
+				return { baseURL: `${captured.baseURL}/v1`, fetch: captured.fetch };
+			},
+		},
+	});
+	const local = application.openLocal();
+	expect(local.ai.account).toBeNull();
+	expect(supplied).toEqual([]);
+	expectOk(await local.ready);
+	await local.close();
+	const app = application.openAccount(account);
+	const retained = app.ai.account!.client;
+	Reflect.set(account, 'principalId', asPrincipalId('bob'));
+	account.fetch = async () => {
+		throw new Error('Replacement must not run');
+	};
+	expectOk(await app.ready);
+	expect(app.account?.principalId).toBe(asPrincipalId('alice'));
+	expect(supplied[0]?.principalId).toBe(asPrincipalId('alice'));
+	await retained.models.list();
+	expect(inferenceRequests).toBe(1);
+	await app.close();
+	await expect((async () => await retained.models.list())()).rejects.toThrow();
+	expect(inferenceRequests).toBe(1);
+});
+
+test('opening failure retires retained SDK clients through internal close', async () => {
+	let requests = 0;
+	const app = createEpicenter({
+		appId: 'test.' + crypto.randomUUID(),
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => {
+				throw new Error('storage unavailable');
+			},
+		},
+		ai: {
+			account: null,
+			runtime: {
+				baseURL: 'https://runtime.example/v1',
+				fetch: async () => {
+					requests++;
+					return Response.json({ data: [] });
+				},
+			},
+		},
+	}).openLocal();
+	const retained = app.ai.runtime!.client;
+	expectErr(await app.ready);
+	await expect((async () => await retained.models.list())()).rejects.toThrow();
+	expect(requests).toBe(0);
+	await app.close();
+});
+
+test('App secrets require readiness and survive closing and reopening the same document scope', async () => {
+	const label = secretLabel('gmail');
+	const first = create();
+	const app = first.openLocal();
+	expect(() => app.secrets.put(label, 'before-ready')).toThrow('not ready');
+	expectOk(await app.ready);
+	expectOk(await app.secrets.put(label, 'kept'));
+	await app.close();
+	expect(() => app.secrets.get(label)).toThrow();
+	expect(() => app.secrets.delete(label)).toThrow();
+	const reopened = first.openLocal();
+	expectOk(await reopened.ready);
+	expect(expectOk(await reopened.secrets.get(label))).toBe('kept');
+	expectOk(await reopened.secrets.delete(label));
+	await reopened.close();
+});
+
+test('App close drains admitted secret writes before releasing its SQL lifetime', async () => {
+	const write = Promise.withResolvers<void>();
+	let backingClosed = false;
+	let writes = 0;
+	const app = createEpicenter({
+		appId: 'so.epicenter.secret-drain',
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				open: async () => {
+					throw new Error('No database needed');
+				},
+				delete: async () => {},
+				close: async () => {
+					backingClosed = true;
+				},
+			}),
+		},
+		secrets: (_appId, _account, { assertUsable } = {}) => ({
+			close: () => write.promise,
+			value: {
+				put() {
+					assertUsable?.();
+					writes++;
+					return write.promise.then(() => Ok(undefined));
+				},
+				get: async () => Ok(null),
+				delete: async () => Ok(undefined),
+			},
+		}),
+	}).openLocal();
+	expectOk(await app.ready);
+	const saving = app.secrets.put(secretLabel('gmail'), 'token');
+	const closing = app.close();
+	expect(() => app.secrets.put(secretLabel('gmail'), 'late')).toThrow();
+	await Promise.resolve();
+	expect(writes).toBe(1);
+	expect(backingClosed).toBe(false);
+	write.resolve();
+	expectOk(await saving);
+	await closing;
+	expect(backingClosed).toBe(true);
+});
+
+test('a secret operation can reenter close and forwards its storage Result unchanged', async () => {
+	const release = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const failure = SecretError.StorageFailed({
+		cause: new Error('Keychain unavailable'),
+	});
+	let closing: Promise<void> | undefined;
+	let released = false;
+	const app = createEpicenter({
+		appId: 'so.epicenter.secret-reentrant',
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				open: async () => {
+					throw new Error('No database needed');
+				},
+				delete: async () => {},
+				close: async () => {
+					released = true;
+				},
+			}),
+		},
+		secrets: () => ({
+			close: () => release.promise,
+			value: {
+				put: async () => {
+					closing = app.close();
+					entered.resolve();
+					await release.promise;
+					return failure;
+				},
+				get: async () => Ok(null),
+				delete: async () => Ok(undefined),
+			},
+		}),
+	}).openLocal();
+	expectOk(await app.ready);
+	const writing = app.secrets.put(secretLabel('gmail'), 'token');
+	await entered.promise;
+	expect(released).toBe(false);
+	release.resolve();
+	expect(await writing).toBe(failure);
+	await closing;
+	expect(released).toBe(true);
+});
+
+test('a late capability constructor failure releases scheduled acquisition and prior capabilities', async () => {
+	const appId = `test.${crypto.randomUUID()}`;
+	const released = Promise.withResolvers<void>();
+	const events: string[] = [];
+	const failure = new Error('Secrets construction failed');
+	const application = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				...(await testSqlite.acquire(appId, null)),
+				close: async () => {
+					events.push('storage');
+					released.resolve();
+				},
+			}),
+		},
+		recording: (...args) => {
+			const recorder = createBrowserRecording(...args);
+			return {
+				...recorder,
+				async close() {
+					await recorder.close();
+					events.push('recording');
+				},
+			};
+		},
+		ai: {
+			account: null,
+			runtime: null,
+			configuration: () => ({
+				...createAiConfiguration({
+					storageKey: appId,
+					storage: { getItem: () => null, setItem() {}, removeItem() {} },
+				}),
+				close() {
+					events.push('ai');
+				},
+			}),
+		},
+		secrets: () => {
+			throw failure;
+		},
+	});
+	expect(() => application.openLocal()).toThrow(failure);
+	await released.promise;
+	expect(events).toContain('recording');
+	expect(events).toContain('ai');
+	expect(events.at(-1)).toBe('storage');
+	const next = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: testSqlite,
+	}).openLocal();
+	expectOk(await next.ready);
+	await next.close();
+});
+
+test.each([
+	false,
+	true,
+])('failed data opening authorizes recorder recovery and retains the opening error when cleanup fails=%s', async (cleanupFails) => {
+	const appId = `test.${crypto.randomUUID()}`;
+	let recoveryAllowed: boolean | undefined;
+	let sqlClosed = false;
+	const cleanupFailure = new Error('Capture release failed');
+	const account: Account = {
+		authorityId: 'failure-test',
+		principalId: asPrincipalId('alice'),
+		baseURL: 'https://failure.test',
+		fetch: async () => new Response('unavailable', { status: 503 }),
+		openWebSocket: async () => {
+			throw new Error('Unused');
+		},
+		getProfile: async () => {
+			throw new Error('Unused');
+		},
+	};
+	const application = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				...(await testSqlite.acquire(appId, account)),
+				close: async () => {
+					sqlClosed = true;
+				},
+			}),
+		},
+		recording: (id, identity, options) => ({
+			...createBrowserRecording(id, identity, options),
+			async close() {
+				recoveryAllowed = options?.canRecover?.();
+				if (cleanupFails) throw cleanupFailure;
+			},
+		}),
+	});
+	const app = application.openAccount(account);
+	const failure = expectErr(await app.ready);
+	expect(failure).not.toBe(cleanupFailure);
+	expect(recoveryAllowed).toBe(true);
+	if (cleanupFails) {
+		await expect(app.close()).rejects.toBe(cleanupFailure);
+		expect(sqlClosed).toBe(false);
+		const duplicate = application.openAccount(account);
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close().catch(() => {});
+	} else {
+		await app.close();
+		expect(sqlClosed).toBe(true);
+	}
+});
+
+test('failed recorder cleanup still drains SQL and keeps the claim after drain', async () => {
+	const appId = `test.${crypto.randomUUID()}`;
+	const write = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const failure = new Error('Recorder cleanup failed');
+	let released = false;
+	let settled = false;
+	const application = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: {
+			async acquire(id, account) {
+				const lifetime = await testSqlite.acquire(id, account);
+				return {
+					...lifetime,
+					async open(name) {
+						const database = await lifetime.open(name);
+						return {
+							...database,
+							async run() {
+								entered.resolve();
+								await write.promise;
+								return Ok({ changes: 1 });
+							},
+						};
+					},
+					async close() {
+						released = true;
+						await lifetime.close();
+					},
+				};
+			},
+		},
+		recording: (...args) => {
+			const owner = createBrowserRecording(...args);
+			return {
+				value: owner.value,
+				async close() {
+					await owner.close();
+					throw failure;
+				},
+			};
+		},
+	});
+	const app = application.openLocal();
+	expectOk(await app.ready);
+	for (const capability of [
+		app.sqlite,
+		app.blobs,
+		app.secrets,
+		app.recording,
+	]) {
+		expect(Object.hasOwn(capability, 'close')).toBe(false);
+		expect(Object.hasOwn(capability, 'acquire')).toBe(false);
+	}
+	const database = expectOk(await app.sqlite.open('cache'));
+	const writing = database.run('UPDATE cache SET value = 1');
+	await entered.promise;
+	const closing = app.close();
+	void closing.then(
+		() => {
+			settled = true;
+		},
+		() => {
+			settled = true;
+		},
+	);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(settled).toBe(false);
+	expect(released).toBe(false);
+	write.resolve();
+	expectOk(await writing);
+	await expect(closing).rejects.toBe(failure);
+	expect(released).toBe(false);
+	const duplicate = application.openLocal();
+	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+	await duplicate.close().catch(() => {});
 });

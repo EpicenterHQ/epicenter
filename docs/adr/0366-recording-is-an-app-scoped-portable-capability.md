@@ -42,10 +42,10 @@ and upload encoding use the same explicit destination as recording. No native
 storage module names Whispering.
 
 Permanent recording and microphone-to-text dictation have separate outcomes.
-Dictation can compose lower capture mechanisms and own temporary audio without
-opening a dataset or publishing a recording. Shared capture does not require
-that every consumer retain audio. The AI dictation proposal remains a separate
-implementation task.
+Reusable lower capture mechanisms can own temporary audio without opening a
+dataset or publishing a recording. The proposed public App dictation service
+uses the App's library lifetime. Shared capture does not require that every
+consumer retain audio. Public dictation remains a separate implementation task.
 
 ## Consequences
 
