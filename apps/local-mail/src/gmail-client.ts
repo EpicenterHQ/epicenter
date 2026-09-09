@@ -13,7 +13,7 @@ import {
 	ListMessageIdsResponseSchema,
 	ProfileResponseSchema,
 } from './schema.ts';
-import type { TokenError, TokenManager } from './token-manager.ts';
+import type { TokenManager, TokenManagerError } from './token-manager.js';
 
 export const GmailApiError = defineErrors({
 	Network: ({ cause }: { cause: unknown }) => ({
@@ -41,7 +41,7 @@ export const GmailApiError = defineErrors({
 });
 export type GmailApiError = InferErrors<typeof GmailApiError>;
 
-export type GmailClientError = GmailApiError | TokenError;
+export type GmailClientError = GmailApiError | TokenManagerError;
 
 /**
  * The public Gmail client surface. Derived from `createGmailClient` rather than

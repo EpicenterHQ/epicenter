@@ -13,16 +13,28 @@
  * by attempting the refresh and reading `invalid_grant` back.
  */
 
-import type { SecretLabel, SecretStore } from '@epicenter/device';
+import type { SecretError, SecretLabel, SecretStore } from '@epicenter/device';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { GmailClientIdentity, MailConfig } from './config.ts';
-import { OAuthError, refreshAccess } from './oauth.ts';
+import type { GmailClientIdentity, MailConfig } from './config.js';
+import {
+	type RefreshedAccess,
+	type RefreshAccessError,
+	refreshAccess,
+} from './oauth.js';
 
-export type TokenError = OAuthError;
+export const TokenError = defineErrors({
+	CredentialMissing: () => ({
+		message:
+			'No Gmail refresh token is stored for this account on this device.',
+	}),
+});
+export type TokenError = InferErrors<typeof TokenError>;
+export type TokenManagerError = TokenError | RefreshAccessError | SecretError;
 
 export type TokenManager = {
-	getValidAccessToken(): Promise<Result<string, TokenError>>;
-	forceRefresh(): Promise<Result<string, TokenError>>;
+	getValidAccessToken(): Promise<Result<string, TokenManagerError>>;
+	forceRefresh(): Promise<Result<string, TokenManagerError>>;
 };
 
 /** Refresh a little early so an in-flight request never races expiry. */
@@ -50,50 +62,70 @@ export function createTokenManager({
 	label: SecretLabel;
 	now: () => number;
 }): TokenManager {
-	let access: { token: string; expiresAt: string } | null = null;
-	let inFlight: Promise<Result<string, TokenError>> | null = null;
+	let access: RefreshedAccess | null = null;
+	let pending: { previousRefreshToken: string; grant: RefreshedAccess } | null =
+		null;
+	let inFlight: Promise<Result<string, TokenManagerError>> | null = null;
 
-	async function refreshOnce(): Promise<Result<string, TokenError>> {
-		const stored = await secrets.get(label);
-		// The account list synchronized and the credential did not, which is what
-		// a secret is (ADR-0310). A browser build reads this after every reload,
-		// and a new desktop device reads it once. A secret owner that FAILED and
-		// one that holds nothing land here together on purpose: what a person does
-		// about either is connect the account again.
-		if (stored.error !== null || stored.data === null) {
-			return OAuthError.ReauthRequired({
-				reason: 'this device holds no credential for the account',
-			});
+	/** Publish access only after its replacement refresh credential is saved. */
+	async function keepGrant(
+		grant: RefreshedAccess,
+		previousRefreshToken: string,
+	) {
+		access = null;
+		if (grant.refreshToken !== previousRefreshToken) {
+			pending = { previousRefreshToken, grant };
+			const kept = await secrets.put(label, grant.refreshToken);
+			if (kept.error !== null) return kept;
 		}
+		pending = null;
+		access = grant;
+		return Ok(grant.accessToken);
+	}
+
+	async function refreshOnce(
+		force: boolean,
+	): Promise<Result<string, TokenManagerError>> {
+		const stored = await secrets.get(label);
+		if (stored.error !== null) return stored;
+		// A browser reload keeps the account record but clears its in-memory
+		// credential. No request to Google has been made in this case.
+		if (stored.data === null) {
+			pending = null;
+			access = null;
+			return TokenError.CredentialMissing();
+		}
+		let refreshToken = stored.data;
+		if (pending !== null) {
+			const { grant, previousRefreshToken } = pending;
+			// Reconnecting or removing the account supersedes an unsaved grant.
+			// A write may also have landed despite returning an error.
+			if (
+				refreshToken === previousRefreshToken ||
+				refreshToken === grant.refreshToken
+			) {
+				const kept = await keepGrant(grant, refreshToken);
+				if (kept.error !== null) return kept;
+				if (!force && !isAccessTokenExpired(grant.accessTokenExpiresAt, now()))
+					return kept;
+				refreshToken = grant.refreshToken;
+			} else {
+				pending = null;
+			}
+		}
+		access = null;
 		const refreshed = await refreshAccess({
 			config,
 			identity,
-			refreshToken: stored.data,
+			refreshToken,
 			now,
 		});
 		if (refreshed.error !== null) return refreshed;
-		access = {
-			token: refreshed.data.accessToken,
-			expiresAt: refreshed.data.accessTokenExpiresAt,
-		};
-		// Google rotates on its own schedule, so store back whatever is current.
-		// A failed write is reported rather than swallowed: this access token
-		// works, but the refresh token that earns the next one would exist only in
-		// memory, and the next session would present one Google has already
-		// replaced and ask for re-consent with nothing to explain it.
-		if (refreshed.data.refreshToken !== stored.data) {
-			const kept = await secrets.put(label, refreshed.data.refreshToken);
-			if (kept.error !== null) {
-				return OAuthError.ReauthRequired({
-					reason: `the rotated credential could not be stored (${kept.error.message})`,
-				});
-			}
-		}
-		return Ok(refreshed.data.accessToken);
+		return keepGrant(refreshed.data, refreshToken);
 	}
 
-	function refresh(): Promise<Result<string, TokenError>> {
-		inFlight ??= refreshOnce().finally(() => {
+	function refresh(force: boolean): Promise<Result<string, TokenManagerError>> {
+		inFlight ??= refreshOnce(force).finally(() => {
 			inFlight = null;
 		});
 		return inFlight;
@@ -101,11 +133,18 @@ export function createTokenManager({
 
 	return {
 		async getValidAccessToken() {
-			if (access !== null && !isAccessTokenExpired(access.expiresAt, now())) {
-				return Ok(access.token);
+			if (inFlight !== null) return inFlight;
+			if (
+				access !== null &&
+				!isAccessTokenExpired(access.accessTokenExpiresAt, now())
+			) {
+				return Ok(access.accessToken);
 			}
-			return refresh();
+			return refresh(false);
 		},
-		forceRefresh: refresh,
+		forceRefresh() {
+			access = null;
+			return refresh(true);
+		},
 	};
 }

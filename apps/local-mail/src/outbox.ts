@@ -90,7 +90,10 @@ export type OutboxFailure = {
  */
 function classifyFailure(failure: SyncFailure): OutboxFailure {
 	const shared = { name: failure.name, message: failure.message };
-	if (failure.name === 'ReauthRequired') {
+	if (
+		failure.name === 'ReauthRequired' ||
+		failure.name === 'CredentialMissing'
+	) {
 		return { kind: 'signin', ...shared };
 	}
 	// Gmail answers 401 for an access token this client refreshes on its own, so

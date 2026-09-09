@@ -20,6 +20,7 @@ import * as oauth from 'oauth4webapi';
 import {
 	defineErrors,
 	extractErrorMessage,
+	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -65,6 +66,10 @@ export const OAuthError = defineErrors({
 	}),
 });
 export type OAuthError = InferErrors<typeof OAuthError>;
+
+export type RefreshAccessError = InferError<
+	typeof OAuthError.ReauthRequired | typeof OAuthError.TokenExchangeFailed
+>;
 
 /**
  * `gmail.modify` for the mailbox, and `openid email` for the two things that
@@ -248,7 +253,7 @@ export async function refreshAccess({
 	identity: GmailClientIdentity;
 	refreshToken: string;
 	now: () => number;
-}): Promise<Result<RefreshedAccess, OAuthError>> {
+}): Promise<Result<RefreshedAccess, RefreshAccessError>> {
 	const as = authServer(config);
 	const client: oauth.Client = { client_id: identity.clientId };
 	try {
