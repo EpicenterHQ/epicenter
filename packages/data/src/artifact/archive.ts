@@ -1,25 +1,27 @@
 /**
- * Unmounted archive v1: complete visible stored values, reconstructed into a fresh lineage.
+ * Archive v2: complete visible stored values, reconstructed into a fresh lineage.
  * This format preserves every root, type name, attribute and formatted sequence run.
  * It excludes CRDT history and refuses subdocuments or unsupported runtime values.
  *
  * BlobStore cannot enumerate objects. Every nominal BlobId appearing anywhere in
  * stored string keys or values (including URLs and text) is therefore required.
- * This conservative v1 contract can refuse an ordinary mention of a missing blob.
+ * This conservative contract can refuse an ordinary mention of a missing blob.
  * It preserves undeclared attachments without guessing ownership from today's schema.
  *
  * The caller must durably save and read back the archive before preparing destructive
  * activation. These functions never activate, write a blob, or mutate a live document.
- * Version 1 has no migrations: unsupported versions are explicit refusals.
+ * Version 1 lacked application identity and is refused; this unshipped codec has no migrations.
  */
 import {
 	BLOB_ID_ROUTE_REGEX,
-	parseBlobId,
 	type BlobId,
 	type BlobNotFound,
-	type BlobStoreFailed,
 	type BlobStore,
+	type BlobStoreFailed,
+	parseBlobId,
 } from '@epicenter/blobs';
+import { isAppId } from '@epicenter/constants/app-id';
+import { DATA_ID } from '@epicenter/sync';
 import * as Y from '@y/y';
 import {
 	defineErrors,
@@ -30,6 +32,7 @@ import { type Result, tryAsync, trySync } from 'wellcrafted/result';
 import type { openCurrentAuthority } from '../sync/authority.js';
 
 type Capture = ReturnType<ReturnType<typeof openCurrentAuthority>['capture']>;
+export type ArchiveIdentity = { appId: string; dataId: string };
 
 type Value =
 	| ['null']
@@ -48,6 +51,7 @@ type Node = {
 	runs: { insert: ['text', string] | ['values', Value[]]; format: Value }[];
 };
 type Body = {
+	identity: ArchiveIdentity;
 	generation: number;
 	head: number;
 	roots: [string, Node][];
@@ -70,6 +74,20 @@ function compareNames(a: string, b: string) {
 
 function fail(message: string): never {
 	throw new Error(message);
+}
+function archiveIdentity(value: unknown): ArchiveIdentity {
+	object(value);
+	keys(value, ['appId', 'dataId']);
+	if (
+		typeof value.appId !== 'string' ||
+		!isAppId(value.appId) ||
+		value.appId.length > 128 ||
+		typeof value.dataId !== 'string' ||
+		!DATA_ID.test(value.dataId) ||
+		value.dataId.length > 128
+	)
+		fail('Invalid archive application/data identity');
+	return { appId: value.appId, dataId: value.dataId };
 }
 function integer(value: unknown): asserts value is number {
 	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
@@ -198,7 +216,7 @@ function complete(document: Y.Doc) {
 	)
 		fail('Captured document has unresolved Yjs dependencies');
 	if (document.getSubdocs().size !== 0)
-		fail('Subdocuments are not supported by archive v1');
+		fail('Subdocuments are not supported by archive v2');
 }
 
 function decode(value: unknown, depth = 0): unknown {
@@ -333,9 +351,11 @@ async function digest(value: unknown) {
 export async function captureArchive(
 	capture: Capture,
 	blobs: Pick<BlobStore, 'get'>,
+	identity: ArchiveIdentity,
 ): Promise<Result<Uint8Array, ArchiveError | BlobNotFound | BlobStoreFailed>> {
 	const captured = trySync({
 		try: () => {
+			const capturedIdentity = archiveIdentity(identity);
 			const { generation, head } = capture;
 			integer(generation);
 			integer(head);
@@ -354,6 +374,7 @@ export async function captureArchive(
 				if (position !== head) fail('Captured tail does not cover its head');
 				complete(document);
 				return {
+					identity: capturedIdentity,
 					generation,
 					head,
 					roots: roots(document),
@@ -383,7 +404,7 @@ export async function captureArchive(
 			new TextEncoder().encode(
 				JSON.stringify({
 					format: 'epicenter-current-archive',
-					version: 1,
+					version: 2,
 					body,
 					digest: await digest(body),
 				}),
@@ -410,12 +431,13 @@ export async function prepareArchive(bytes: Uint8Array) {
 			keys(envelope, ['format', 'version', 'body', 'digest']);
 			if (
 				envelope.format !== 'epicenter-current-archive' ||
-				envelope.version !== 1
+				envelope.version !== 2
 			)
 				fail('Unsupported archive format or version');
 			const body = envelope.body;
 			object(body);
-			keys(body, ['generation', 'head', 'roots', 'blobs']);
+			keys(body, ['identity', 'generation', 'head', 'roots', 'blobs']);
+			const identity = archiveIdentity(body.identity);
 			integer(body.generation);
 			integer(body.head);
 			if (
@@ -465,6 +487,8 @@ export async function prepareArchive(bytes: Uint8Array) {
 				if (JSON.stringify(roots(replayed)) !== JSON.stringify(body.roots))
 					fail('Serialized reconstruction changed archived values');
 				return {
+					identity,
+					version: 2,
 					source: { generation: body.generation, head: body.head },
 					bytes: new Uint8Array(bytes),
 					blobs,

@@ -288,11 +288,15 @@ export async function proveRetirement({
 		.waitFor();
 	await settled(bob);
 	const captured = await operator.capture();
-	const archive = await captureArchive(captured, {
-		async get() {
-			throw new Error('This note fixture has no attachments');
+	const archive = await captureArchive(
+		captured,
+		{
+			async get() {
+				throw new Error('This note fixture has no attachments');
+			},
 		},
-	});
+		{ appId: 'so.epicenter.honeycrisp', dataId: 'so.epicenter.honeycrisp' },
+	);
 	assert.equal(archive.error, null);
 	const archivePath = join(directory, 'verified-before-replacement.json');
 	await Bun.write(archivePath, archive.data);

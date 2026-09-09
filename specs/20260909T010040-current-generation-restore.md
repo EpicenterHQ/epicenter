@@ -21,8 +21,9 @@ through normal bootstrap without a generation picker.
 
 Build one library-bound recovery owner: every restore uses a published backup ID,
 and the owner manages the safety backup and durable attempt behind the call.
-The five-method API below is the target, not an existing export. Archive and
-storage helpers remain unmounted checkpoints with no production callers.
+The five-method API below is the target. `src/recovery.ts` now implements backup,
+import, list, and download as an unmounted coordinator. Restore, authenticated
+recovery transport, and durable client intent remain unimplemented.
 
 Read Settled product contract, Target ownership, Recovery API and execution,
 and Required proof first. Dated checkpoint sections preserve prior evidence;
@@ -33,6 +34,72 @@ rollout remain unresolved.
 This execution path targets synchronized libraries. Preserve existing local-only
 startup; local-only backup and replacement need an equivalent local recovery
 owner and are separate unresolved work.
+
+## Verified publication checkpoint, 2026-09-09
+
+`createLibraryRecovery` binds application/data identity, the stable authority,
+attachment reads, and immutable archive storage. Manual capture and exact file
+import converge on its private publication path. Archive v2 requires `appId` and
+`dataId`; v1 is refused because it lacks identity. The codec still preserves
+unknown values, rich content, and referenced attachment bytes. It never rewrites
+an imported file. Source generation/head remain provenance, with no fabricated
+capture time or assertion that imported contents existed in the destination.
+
+`CurrentAuthority.backups` owns `_backup_library` and `_backups` under the same
+SQLite transaction owner as the current generation. Reopening that catalog with
+another library or application/data identity refuses. A private publication
+request reserves its ID, whole-file digest, length, source metadata, and reason.
+It writes immutable bytes, reads them back, compares bytes and MIME type, then
+atomically records `addedAt`. Pending rows cannot be listed or downloaded.
+Matching concurrent/reopened requests resolve one record; changed requests
+conflict. Generation replacement leaves the catalog intact.
+
+Semantic verification runs in the application-side coordinator. The authority
+proves stored-object integrity and scope, and imports no Yjs codec. Its private
+metadata-bearing request is trusted infrastructure, not a production HTTP API.
+The transport checkpoint must preserve this trust boundary. Download checks the
+published whole-file digest and the coordinator revalidates archive semantics.
+
+`createS3ArchiveStore` reuses the existing presigned S3 adapter and addresses
+`<stable authority name>/backups/<id>`. Generic attachment DELETE targets
+`<library prefix>/blobs/<id>`, so it cannot reach these self-contained archives.
+The adapter has no deletion method. No bucket scans, expiry, cleanup, or retention
+UI were added. Provider retention and account deletion remain separate policies.
+`saveArchive` was absorbed into publication; `installArchive` retains destination
+attachment write/read-back verification for the next restore checkpoint.
+
+The coordinator holds a failed publication's exact request for retry in its live
+lifetime. Portable tests also replay a retained private request after SQLite
+reopen. Neither proves public-action retry after page/process restart: the next
+journal must durably retain publication intent and exact bytes, including manual
+captures before object upload. A reserved ID alone cannot recover those bytes.
+The `before-restore` reason uses the same authority publication operation; actual
+safety-backup orchestration remains unimplemented.
+
+Focused validation: 64 tests pass across archive, destination installation,
+recovery, catalog, current authority/hub, S3 archive adapter, and generic blob
+routes. The authority tests first failed with the publication API absent.
+Data's root TypeScript program retains the same eight browser-global diagnostics
+as the saved task-start run. No production endpoint, deployment, or UI was added.
+Server and Honeycrisp's script programs typecheck. Data's DOM leaf passes and its
+root program passes with explicit DOM libraries. The three current-generation
+Worker suites pass 13 tests. The complete Honeycrisp browser journey passes with
+the v2 archive fixture.
+
+Independent design review accepted the ownership split and found no blocker.
+Its suggested test repair made the wrong-bytes fixture explicitly match MIME
+and length, isolating byte equality; the remaining installation helper's header
+now describes its actual responsibility. Bun had normalized the fixture's earlier
+MIME shorthand, but the explicit spelling removes that dependency from the proof.
+The review kept durable public intent as the next checkpoint and rejected moving
+full pending archives into SQL solely for this unmounted lifetime.
+
+An isolated copy of the staged tree also passed all 64 focused tests, the data
+root with explicit DOM libraries, the data DOM leaf, and Server typechecks.
+Formatting and scoped whitespace checks pass; existing non-null assertion
+warnings remain in tests. Documentation hygiene reports 44 findings both before
+and after this checkpoint. The changed findings concern concurrent AI/runtime
+ADRs; this checkpoint adds no hygiene finding and leaves their work untouched.
 
 ## Two-device journey checkpoint, 2026-09-09
 
@@ -362,10 +429,9 @@ pre-restore backup: capture the destination position that activation will compar
           publish library catalog record -> return backup ID
 ```
 
-Preserve imported bytes; do not reconstruct and recapture the file simply to
-reuse `saveArchive`. Move the common immutable verification into recovery's
-private publication path. `captureArchive` and `prepareArchive` remain codec
-operations, and the existing storage verification behavior must survive.
+Preserve imported bytes; do not reconstruct and recapture the file.
+The coordinator's private publication path converges on authority-owned immutable
+verification. `captureArchive` and `prepareArchive` remain codec operations.
 
 Object storage and authority SQL do not share a transaction. First verify the
 immutable object, then publish its record. Interrupted or rejected publication
@@ -420,19 +486,22 @@ is allowed to create another backup even when restoring the same source.
 ### Implementation waves
 
 1. **Catalog and file contract, independent of deployed server replacement.**
-   - [ ] Add failing portable tests for publication, interruption, library scope,
+   - [x] Add failing portable tests for publication, interruption, library scope,
      and history surviving generation changes before defining catalog mutations.
-   - [ ] Extend the unshipped archive format with application/data identity and
+   - [x] Extend the unshipped archive format with application/data identity and
      explicit provenance. Decide version refusal from actual fixtures; do not
      guess missing identity or silently add a compatibility reader.
-   - [ ] Implement private catalog/publication over portable authority SQL and
+   - [x] Implement private catalog/publication over portable authority SQL and
      immutable object storage. Reuse exact byte/MIME checks from
      `archive-storage.ts`; preserve uploaded files unchanged.
-   - [ ] Exercise manual capture and imported files through the same publication
+   - [x] Exercise manual capture and imported files through the same publication
      owner. Verify invalid files, missing objects, and interrupted finalization
      never become usable records; retries publish one record.
-   - [ ] Review the resulting owner before starting dependent orchestration.
+   - [x] Review the resulting owner before starting dependent orchestration.
 2. **Durable restore owner behind the five methods.**
+   - [ ] Persist pending publication intent and exact capture/file bytes outside
+     retired replica storage. Reconcile before creating another backup/import
+     after restart. Preserve the current live-lifetime retry behavior.
    - [ ] Build the private attempt journal and active-attempt reservation. Test
      restart before first response, before/after request persistence, before/after
      activation, and before/after local pending-reference reconciliation.
@@ -441,14 +510,12 @@ is allowed to create another backup even when restoring the same source.
    - [ ] Compose destination capture, one safety backup, installed attachments,
      retained activation request, and receipt recovery. No live activation from
      unverified preparation and no fresh reconstruction on retry.
-   - [ ] Translate current archive-storage test callers to the complete recovery
-     API. In the existing save/reopen test, backup creation should return the ID
-     subsequently used by download; in interruption tests, retry the owner rather
-     than manually pass captures and bytes; in receipt tests, reopen recovery and
-     use only the backup ID. These are current test consumers, not production UI.
-   - [ ] Absorb storage composition into proposed `packages/data/src/recovery.ts`
-     when that owner exists. Delete superseded standalone storage exports and
-     their forwarding layer; keep codec and opaque authority boundaries.
+   - [ ] Extend recovery tests to reopen the public owner and resume using only
+     the backup ID. Publication tests already use backup/import/download and
+     preserve exact bytes. Private catalog replay still supplies a retained
+     request; replace that evidence gap with durable public reconciliation.
+   - [ ] Compose the remaining `installArchive` operation into restore. Retain
+     attachment conflict/read-back proof and the codec/opaque-authority boundary.
 3. **Production authority and browser integration.**
    - [x] Integrate one current authority with the shared browser bootstrap path.
    - [ ] Mount catalog and private restore transport against one stable library
@@ -484,9 +551,9 @@ is allowed to create another backup even when restoring the same source.
 
 ### Execution decisions still requiring evidence
 
-- Application compatibility and archive provenance: v1 has no application/data
-  identity or capture date. Define the format check before accepting arbitrary
-  uploads as restorable. Version 1's conservative recognition of BlobIds in
+- Application compatibility and archive provenance: v2 requires application/data
+  identity and preserves source generation/head. It supplies no capture date.
+  The codec's conservative recognition of BlobIds in
   ordinary text can refuse capture; product acceptance of that limitation is
   still outstanding.
 - Durability and size: filesystem reopen tests do not prove crash/power-loss

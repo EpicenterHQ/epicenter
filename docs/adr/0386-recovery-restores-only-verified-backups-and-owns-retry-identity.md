@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
-- **Unbuilt:** Library backup catalog, verified import publication, the recovery API, durable restore orchestration, and the Backups screen.
+- **Unbuilt:** Authenticated recovery transport, durable publication/restore intent, restore orchestration, and the Backups screen. Portable verified publication and the persistent catalog are implemented but unmounted.
 
 ## Context
 
@@ -36,7 +36,8 @@ recovery.download(backupId)
 recovery.restore(backupId)
 ```
 
-These names describe the target API, not existing exports. The factory binds
+These names describe the target API. The unmounted `src/recovery.ts` coordinator
+implements the first four; `restore` remains unimplemented. The factory binds
 resources once; callers do not pass storage, capture positions, prepared bytes,
 or operation IDs to individual actions. Fallible operations return Results.
 
@@ -60,6 +61,19 @@ and presigned URLs are implementation details. Catalog publication means more
 than an object appearing in a bucket listing. Authorization resolves the backup
 inside the selected library, and retention protects objects required by its
 catalog and active restore attempts.
+
+The unshipped structural archive uses version 2 with separate application and
+data-definition IDs. Version 1 is refused because it supplies neither. Source
+generation/head describe the capture; authority-recorded addition time describes
+publication. Import preserves the whole original file, including whitespace.
+The catalog digest covers those exact bytes, independently of the format's
+parsed-body integrity check.
+
+Recovery objects use `<stable authority name>/backups/<id>`. Generic attachment
+routes construct `<library prefix>/blobs/<id>` and cannot reach them. Archives
+embed their attachment bytes, so deleting an ordinary attachment does not remove
+it from an already published recovery point. Provider/account deletion policies
+remain separate from this protection.
 
 After explicit user confirmation, restore captures the destination and creates
 its required backup through the same publication path. It verifies the selected

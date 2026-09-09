@@ -65,6 +65,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 
 import { copyBytes } from '../store/log.js';
+import { openBackups } from './backups.js';
 import { CHUNK_BYTES, intoChunks } from './frames.js';
 import { createSyncHub, type SyncHub } from './hub.js';
 
@@ -536,6 +537,10 @@ export function openCurrentAuthority({
 		},
 		capture() {
 			return sqlite.transaction(capture);
+		},
+		/** Catalog rows share this stable owner and survive log replacement. */
+		backups(options: Omit<Parameters<typeof openBackups>[0], 'sqlite'>) {
+			return openBackups({ ...options, sqlite });
 		},
 
 		bind,

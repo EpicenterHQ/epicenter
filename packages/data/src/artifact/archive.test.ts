@@ -6,9 +6,9 @@
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import {
+	type BlobStore,
 	BlobStoreError,
 	generateBlobId,
-	type BlobStore,
 } from '@epicenter/blobs';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
@@ -92,7 +92,12 @@ test('archive preserves captured tail, named rich content, unknown roots and fie
 	const s = setup();
 	try {
 		const capture = s.authority.capture();
-		const archive = expectOk(await captureArchive(capture, s.blobs));
+		const archive = expectOk(
+			await captureArchive(capture, s.blobs, {
+				appId: 'so.epicenter.notes',
+				dataId: 'so.epicenter.notes',
+			}),
+		);
 		const restored = expectOk(await prepareArchive(archive));
 		const doc = new Y.Doc();
 		try {
@@ -121,7 +126,10 @@ test('ten archive activations preserve values with one new writer and no precedi
 		const expected = view(s.doc);
 		for (let index = 0; index < 10; index++) {
 			const archived = expectOk(
-				await captureArchive(s.authority.capture(), s.blobs),
+				await captureArchive(s.authority.capture(), s.blobs, {
+					appId: 'so.epicenter.notes',
+					dataId: 'so.epicenter.notes',
+				}),
 			);
 			const restored = expectOk(await prepareArchive(archived));
 			const activation = await s.authority.prepareActivation({
@@ -159,7 +167,12 @@ test('a missing referenced blob refuses the backup while retaining current gener
 				return BlobStoreError.BlobNotFound({ id });
 			},
 		};
-		const error = expectErr(await captureArchive(before, missing));
+		const error = expectErr(
+			await captureArchive(before, missing, {
+				appId: 'so.epicenter.notes',
+				dataId: 'so.epicenter.notes',
+			}),
+		);
 		expect(error.name).toBe('BlobNotFound');
 		expect(s.authority.capture()).toEqual(before);
 	} finally {
@@ -176,12 +189,16 @@ test('capture snapshots all source values before asynchronous blob acquisition',
 		const wait = new Promise<void>((resolve) => {
 			resume = resolve;
 		});
-		const saving = captureArchive(capture, {
-			async get(id) {
-				await wait;
-				return await s.blobs.get(id);
+		const saving = captureArchive(
+			capture,
+			{
+				async get(id) {
+					await wait;
+					return await s.blobs.get(id);
+				},
 			},
-		});
+			{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+		);
 		capture.generation = 123;
 		capture.head = 456;
 		capture.snapshot.bytes.fill(0);
@@ -212,7 +229,12 @@ test('capture refuses missing, duplicated, reordered, or over-head tail entries'
 			[...good.tail, { seq: good.head + 1, bytes: good.snapshot.bytes }],
 		]) {
 			expect(
-				expectErr(await captureArchive({ ...good, tail }, s.blobs)).name,
+				expectErr(
+					await captureArchive({ ...good, tail }, s.blobs, {
+						appId: 'so.epicenter.notes',
+						dataId: 'so.epicenter.notes',
+					}),
+				).name,
 			).toBe('InvalidArchive');
 		}
 	} finally {
@@ -247,6 +269,7 @@ test('capture refuses unresolved struct dependencies and unresolved delete depen
 						throw new Error('No blob read is permitted for incomplete capture');
 					},
 				},
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
 			);
 			expect(expectErr(result).message).toContain(
 				'unresolved Yjs dependencies',
@@ -289,10 +312,13 @@ test('unsupported versions, changed archive bytes, and structurally incomplete b
 	const s = setup();
 	try {
 		const bytes = expectOk(
-			await captureArchive(s.authority.capture(), s.blobs),
+			await captureArchive(s.authority.capture(), s.blobs, {
+				appId: 'so.epicenter.notes',
+				dataId: 'so.epicenter.notes',
+			}),
 		);
 		const unsupported = await rewrite(bytes, (archive) => {
-			archive.version = 2;
+			archive.version = 1;
 		});
 		expect(expectErr(await prepareArchive(unsupported)).message).toContain(
 			'Unsupported archive format or version',
@@ -332,13 +358,19 @@ test('preparation reads archive input before its first await and refuses unknown
 	const s = setup();
 	try {
 		const bytes = expectOk(
-			await captureArchive(s.authority.capture(), s.blobs),
+			await captureArchive(s.authority.capture(), s.blobs, {
+				appId: 'so.epicenter.notes',
+				dataId: 'so.epicenter.notes',
+			}),
 		);
 		const preparing = prepareArchive(bytes);
 		bytes.fill(0);
 		expect(expectOk(await preparing).blobs).toHaveLength(1);
 		const valid = expectOk(
-			await captureArchive(s.authority.capture(), s.blobs),
+			await captureArchive(s.authority.capture(), s.blobs, {
+				appId: 'so.epicenter.notes',
+				dataId: 'so.epicenter.notes',
+			}),
 		);
 		const unknown = await rewrite(
 			valid,
@@ -369,6 +401,7 @@ test('subdocuments refuse capture instead of silently dropping their content', a
 					throw new Error('No blobs should be read');
 				},
 			},
+			{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
 		);
 		expect(expectErr(result).message).toContain('Subdocuments');
 	} finally {
@@ -388,7 +421,12 @@ test('a blob named only inside an undeclared rich-content URL is included', asyn
 		);
 		const restored = expectOk(
 			await prepareArchive(
-				expectOk(await captureArchive(s.authority.capture(), s.blobs)),
+				expectOk(
+					await captureArchive(s.authority.capture(), s.blobs, {
+						appId: 'so.epicenter.notes',
+						dataId: 'so.epicenter.notes',
+					}),
+				),
 			),
 		);
 		expect(restored.blobs.map((blob) => blob.id)).toEqual([s.id]);
@@ -404,12 +442,16 @@ test('an accepted write during blob capture makes the prepared archive activatio
 		const wait = new Promise<void>((resolve) => {
 			resume = resolve;
 		});
-		const saving = captureArchive(s.authority.capture(), {
-			async get(id) {
-				await wait;
-				return await s.blobs.get(id);
+		const saving = captureArchive(
+			s.authority.capture(),
+			{
+				async get(id) {
+					await wait;
+					return await s.blobs.get(id);
+				},
 			},
-		});
+			{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+		);
 		const previous = Y.encodeStateVector(s.doc);
 		s.doc.get('kv').setAttr('after-backup-start', 'preserved by refusal');
 		expectOk(
@@ -443,20 +485,28 @@ test('a BlobId split across text formatting requires its bytes during capture an
 			snapshot: { position: 1, bytes: Y.encodeStateAsUpdateV2(doc) },
 			tail: [],
 		};
-		const missing = await captureArchive(capture, {
-			async get(requested) {
-				return BlobStoreError.BlobNotFound({ id: requested });
+		const missing = await captureArchive(
+			capture,
+			{
+				async get(requested) {
+					return BlobStoreError.BlobNotFound({ id: requested });
+				},
 			},
-		});
+			{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+		);
 		expect(expectErr(missing).name).toBe('BlobNotFound');
 		const reads: string[] = [];
 		const archive = expectOk(
-			await captureArchive(capture, {
-				async get(requested) {
-					reads.push(requested);
-					return Ok(new Blob(['split reference']));
+			await captureArchive(
+				capture,
+				{
+					async get(requested) {
+						reads.push(requested);
+						return Ok(new Blob(['split reference']));
+					},
 				},
-			}),
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+			),
 		);
 		expect(reads).toEqual([id]);
 		expect(
@@ -498,6 +548,7 @@ test('embedded content interrupts BlobId text matching', async () => {
 						return BlobStoreError.BlobNotFound({ id: requested });
 					},
 				},
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
 			),
 		);
 		expect(expectOk(await prepareArchive(archive)).blobs).toEqual([]);
