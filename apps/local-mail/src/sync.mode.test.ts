@@ -22,31 +22,15 @@ function state(over: Partial<CacheState>): CacheState {
 }
 
 describe('decideMode', () => {
-	test('--full always forces FULL', () => {
-		const decision = decideMode({
-			...base,
-			forceFull: true,
-			cacheState: state({
-				historyId: '100',
-				lastSyncedAt: daysAgo(1),
-				lastFullPullAt: daysAgo(1),
-			}),
-		});
-		expect(decision.mode).toBe('FULL');
-		expect(decision.reason).toContain('forced');
-	});
-
 	test('first run (no history cursor) is FULL', () => {
-		expect(
-			decideMode({ ...base, forceFull: false, cacheState: state({}) }).mode,
-		).toBe('FULL');
+		expect(decideMode({ ...base, cacheState: state({}) }).mode).toBe('FULL');
 	});
 
 	test('cursor present but no recorded sync time is FULL (defensive: should not happen)', () => {
 		expect(
 			decideMode({
 				...base,
-				forceFull: false,
+
 				cacheState: state({ historyId: '100', lastSyncedAt: null }),
 			}).mode,
 		).toBe('FULL');
@@ -55,7 +39,7 @@ describe('decideMode', () => {
 	test('recent sync + recent full pull is INCREMENTAL', () => {
 		const decision = decideMode({
 			...base,
-			forceFull: false,
+
 			cacheState: state({
 				historyId: '100',
 				lastSyncedAt: daysAgo(1),
@@ -68,7 +52,7 @@ describe('decideMode', () => {
 	test('last sync older than the safe window forces FULL (historyId likely expired)', () => {
 		const decision = decideMode({
 			...base,
-			forceFull: false,
+
 			cacheState: state({
 				historyId: '100',
 				lastSyncedAt: daysAgo(6),
@@ -82,7 +66,7 @@ describe('decideMode', () => {
 	test('last full pull older than the backstop forces FULL even with a fresh sync', () => {
 		const decision = decideMode({
 			...base,
-			forceFull: false,
+
 			cacheState: state({
 				historyId: '100',
 				lastSyncedAt: daysAgo(1),
@@ -96,7 +80,7 @@ describe('decideMode', () => {
 	test('no recorded full pull at all is FULL', () => {
 		const decision = decideMode({
 			...base,
-			forceFull: false,
+
 			cacheState: state({
 				historyId: '100',
 				lastSyncedAt: daysAgo(1),

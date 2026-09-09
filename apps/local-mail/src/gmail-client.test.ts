@@ -6,6 +6,8 @@
  * exercise.
  *
  * Key behaviors:
+ * - Provider failures survive reconciliation and reopening the durable pass record
+ * - Daily quotas stop immediately; temporary rate limits retain bounded retries
  * - messages.modify sends POST with the add/remove label body
  * - messages.trash/untrash POST to their endpoints with no request body
  * - Slim Gmail Message responses validate successfully
@@ -14,8 +16,12 @@
 
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
+import { expectErr } from 'wellcrafted/testing';
+import { type MailApp, reconcileNow } from './accounts.ts';
 import type { MailConfig } from './config.ts';
 import { createGmailClient } from './gmail-client.ts';
+import { openPassRecord, readOutbox } from './outbox.js';
+import { openTestSession } from './session.test-support.js';
 import type { TokenManager } from './token-manager.ts';
 
 const config: MailConfig = {
@@ -253,3 +259,92 @@ test('fetching a message spends exactly one format=full call and nothing else', 
 		server.stop(true);
 	}
 });
+
+for (const { status, reason, requests: expectedRequests, name } of [
+	{ status: 403, reason: 'dailyLimitExceeded', requests: 1, name: 'Http' },
+	{ status: 403, reason: 'domainPolicy', requests: 1, name: 'Http' },
+	{ status: 403, reason: 'insufficientPermissions', requests: 1, name: 'Http' },
+	{
+		status: 403,
+		reason: 'userRateLimitExceeded',
+		requests: 6,
+		name: 'Throttled',
+	},
+	{ status: 403, reason: 'rateLimitExceeded', requests: 6, name: 'Throttled' },
+	{ status: 429, reason: 'rateLimitExceeded', requests: 6, name: 'Throttled' },
+]) {
+	test(`${status} ${reason} makes ${expectedRequests} requests and preserves the provider failure`, async () => {
+		let requests = 0;
+		const body = JSON.stringify({
+			error: {
+				message: `Provider explanation for ${reason}`,
+				errors: [{ reason }],
+			},
+		});
+		const server = Bun.serve({
+			hostname: '127.0.0.1',
+			port: 0,
+			fetch(request) {
+				const path = new URL(request.url).pathname;
+				if (path.endsWith('/profile'))
+					return Response.json({ historyId: '100' });
+				if (path.endsWith('/labels')) return Response.json({ labels: [] });
+				if (path.endsWith('/messages'))
+					return Response.json({ messages: [{ id: 'm1', threadId: 't1' }] });
+				requests++;
+				return new Response(body, { status, headers: { 'Retry-After': '0' } });
+			},
+		});
+		try {
+			const client = createGmailClient({
+				config: { ...config, apiBase: `http://127.0.0.1:${server.port}` },
+				tokens,
+			});
+			const error = expectErr(await client.getMessage('m1'));
+			expect(requests).toBe(expectedRequests);
+			expect(error).toMatchObject({ name, status, body, reason });
+			expect(error.message).toContain(`Provider explanation for ${reason}`);
+			const session = await openTestSession();
+			try {
+				const app = {
+					now: () => 0,
+					activity: new Map([
+						[
+							session.sub,
+							{
+								pending: new Set(),
+								session: Promise.resolve({
+									...session,
+									client,
+									config,
+									now: () => 0,
+								}),
+							},
+						],
+					]),
+				} as unknown as MailApp;
+				await reconcileNow(app, session.sub);
+				const reopened = openPassRecord(session.localDatabase, session.sub);
+				const outbox = await readOutbox({ ...session, passes: reopened });
+				expect(outbox.waiting).toBe(0);
+				expect(outbox.status).toBe(
+					reason === 'insufficientPermissions' ? 'signin' : 'failed',
+				);
+				expect((await reopened.read())?.failure).toEqual({
+					name,
+					kind:
+						name === 'Throttled'
+							? 'retry'
+							: reason === 'insufficientPermissions'
+								? 'signin'
+								: 'refused',
+					message: error.message,
+				});
+			} finally {
+				session.close();
+			}
+		} finally {
+			server.stop(true);
+		}
+	});
+}

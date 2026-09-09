@@ -2,9 +2,8 @@
  * The act path: turning a triage intent into durable local state, and nothing
  * else. What these pin down:
  *
- * - An act is offline. It resolves label names against the mirror and never
- *   calls Gmail, so `deps` here carries no client at all.
- * - EVERY valid opinion is recorded at a fresh sequence, including one the
+ * - An act is offline. It records label IDs without consulting the cache or calling Gmail, so `deps` here carries no client at all.
+ * - EVERY valid opinion is recorded at a fresh revision, including one the
  *   mirror already agrees with. The mirror lags Gmail and lags in-flight
  *   delivery, so treating agreement as "nothing to do" would silently drop a
  *   user's choice; a redundant label modify is the cheaper mistake.
@@ -35,7 +34,7 @@ async function setup(
 	messages: GmailMessage[] = [message('m1', ['INBOX', 'UNREAD'])],
 ): Promise<{
 	deps: AssertDeps;
-	/** The cache behind `deps.mailbox`, for the one test that needs to change
+	/** The cache, for the one test that needs to change
 	 * Gmail's facts underneath an act. */
 	mailbox: Mailbox;
 	cleanup: () => void;
@@ -43,18 +42,14 @@ async function setup(
 	const session = await openTestSession();
 	const syncedAt = '2026-08-01T00:00:00.000Z';
 	await session.mailbox.ingestFullPullPage(messages, syncedAt);
-	await session.mailbox.ingestLabels(
-		[
-			{ id: 'INBOX', name: 'INBOX', type: 'system' },
-			{ id: 'UNREAD', name: 'UNREAD', type: 'system' },
-			{ id: 'TRASH', name: 'TRASH', type: 'system' },
-			{ id: 'Label_7', name: 'Altered Trajectories', type: 'user' },
-		],
-		syncedAt,
-	);
+	await session.mailbox.ingestLabels([
+		{ id: 'INBOX', name: 'INBOX', type: 'system' },
+		{ id: 'UNREAD', name: 'UNREAD', type: 'system' },
+		{ id: 'TRASH', name: 'TRASH', type: 'system' },
+		{ id: 'Label_7', name: 'Altered Trajectories', type: 'user' },
+	]);
 	return {
 		deps: {
-			mailbox: session.mailbox,
 			intents: session.intents,
 			now: () => Date.parse(ACTED_AT),
 		},
@@ -94,7 +89,7 @@ describe('assertMessageLabels', () => {
 		}
 	});
 
-	test('an inverse act overwrites the pending one at a newer sequence', async () => {
+	test('an inverse act overwrites the pending one at a newer revision', async () => {
 		const { deps, cleanup } = await setup();
 		try {
 			await act(deps, { ids: ['m1'], removeLabels: ['INBOX'] });
@@ -103,13 +98,13 @@ describe('assertMessageLabels', () => {
 			const { data } = await act(deps, { ids: ['m1'], addLabels: ['INBOX'] });
 
 			// One row, not two, and not zero: the store keeps the latest answer for
-			// the pair, and the newer sequence is what invalidates the retirement of
+			// the pair, and the newer revision is what invalidates the retirement of
 			// any delivery still carrying the older one.
 			expect(data).toEqual({ asserted: 1 });
 			const pending = await deps.intents.pending();
 			expect(pending).toHaveLength(1);
 			expect(pending[0]).toMatchObject({ labelId: 'INBOX', want: true });
-			expect(pending[0]?.seq).toBeGreaterThan(first?.seq ?? 0);
+			expect(pending[0]?.revision).toBeGreaterThan(first?.revision ?? 0);
 		} finally {
 			cleanup();
 		}
@@ -151,18 +146,6 @@ describe('assertMessageLabels', () => {
 		}
 	});
 
-	test('label names resolve to ids at act time', async () => {
-		const { deps, cleanup } = await setup();
-		try {
-			await act(deps, { ids: ['m1'], addLabels: ['Altered Trajectories'] });
-			expect(await deps.intents.pending()).toMatchObject([
-				{ messageId: 'm1', labelId: 'Label_7', want: true },
-			]);
-		} finally {
-			cleanup();
-		}
-	});
-
 	test('system labels resolve with an empty mirror label table', async () => {
 		// Before the first pull, and for the whole window after a mirror rebuild,
 		// the mirrored label table is empty. Gmail's system ids are protocol
@@ -172,7 +155,6 @@ describe('assertMessageLabels', () => {
 		try {
 			expect(await session.mailbox.listLabels()).toEqual([]);
 			const deps: AssertDeps = {
-				mailbox: session.mailbox,
 				intents: session.intents,
 				now: () => Date.parse(ACTED_AT),
 			};
@@ -202,37 +184,20 @@ describe('assertMessageLabels', () => {
 		}
 	});
 
-	test('a custom label is still mailbox data, so an unknown one is still refused', async () => {
+	test('a captured custom label ID can be recorded while the cache is empty', async () => {
 		const session = await openTestSession();
 		try {
-			const deps: AssertDeps = {
-				mailbox: session.mailbox,
-				intents: session.intents,
-				now: () => Date.parse(ACTED_AT),
-			};
-			// `Label_7` looks like a Gmail custom id, but only the cache can say
-			// whether this account has it, and right now the cache knows nothing.
-			expect(
-				(await act(deps, { ids: ['m1'], addLabels: ['Label_7'] })).error?.name,
-			).toBe('UnknownLabel');
-			expect(
-				(await act(deps, { ids: ['m1'], addLabels: ['Altered Trajectories'] }))
-					.error?.name,
-			).toBe('UnknownLabel');
-			expect(await session.intents.pending()).toEqual([]);
+			expect(await session.mailbox.listLabels()).toEqual([]);
+			const result = await act(
+				{ intents: session.intents, now: () => Date.parse(ACTED_AT) },
+				{ ids: ['m1'], addLabels: ['Label_7'] },
+			);
+			expect(result.error).toBeNull();
+			expect(await session.intents.pending()).toMatchObject([
+				{ messageId: 'm1', labelId: 'Label_7', want: true },
+			]);
 		} finally {
 			session.close();
-		}
-	});
-
-	test('an unknown label name is refused and records nothing', async () => {
-		const { deps, cleanup } = await setup();
-		try {
-			const { error } = await act(deps, { ids: ['m1'], addLabels: ['Nope'] });
-			expect(error?.name).toBe('UnknownLabel');
-			expect(await deps.intents.pending()).toEqual([]);
-		} finally {
-			cleanup();
 		}
 	});
 
@@ -246,14 +211,6 @@ describe('assertMessageLabels', () => {
 			});
 			expect(byId.error?.name).toBe('ContradictoryLabel');
 
-			// Caught after resolution, so spelling one side as a display name does
-			// not sneak past it.
-			const byName = await act(deps, {
-				ids: ['m1'],
-				addLabels: ['Altered Trajectories'],
-				removeLabels: ['Label_7'],
-			});
-			expect(byName.error?.name).toBe('ContradictoryLabel');
 			expect(await deps.intents.pending()).toEqual([]);
 		} finally {
 			cleanup();

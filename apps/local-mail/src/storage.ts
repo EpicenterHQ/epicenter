@@ -140,52 +140,44 @@ export async function openLocalMailStorage(
 	};
 }
 
-async function open(
-	device: Device,
-	name: string,
-): Promise<AppSqliteDatabase> {
+async function open(device: Device, name: string): Promise<AppSqliteDatabase> {
 	const opened = await device.sqlite.open(name);
 	if (opened.error !== null) throw opened.error;
 	return opened.data;
 }
 
 /**
- * The durable file's shape, and the only place a migration will ever go.
+ * The durable file's shape and preservation migrations.
  *
  * `user_version` is a migration cursor here, because these bytes cannot be
  * fetched again. A file stamped ahead of this build belongs to a newer release
  * and is refused rather than opened: a downgrade that wrote through an older
  * schema would lose the columns it does not know about.
  */
-export const LOCAL_SCHEMA_VERSION = 1;
+export const LOCAL_SCHEMA_VERSION = 2;
 
 export const LOCAL_SCHEMA = [
 	`CREATE TABLE IF NOT EXISTS accounts (
 		sub TEXT PRIMARY KEY,
 		email TEXT NOT NULL,
-		connected_at TEXT NOT NULL,
-		last_synced_at TEXT
+		connected_at TEXT NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS label_intents (
 		sub TEXT NOT NULL,
 		message_id TEXT NOT NULL,
 		label_id TEXT NOT NULL,
 		want INTEGER NOT NULL,
-		seq INTEGER NOT NULL,
+		revision INTEGER NOT NULL,
 		asserted_at TEXT NOT NULL,
 		PRIMARY KEY (sub, message_id, label_id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS intent_meta (
-		sub TEXT NOT NULL,
-		key TEXT NOT NULL,
-		value TEXT,
-		PRIMARY KEY (sub, key)
-	)`,
+	`CREATE TABLE IF NOT EXISTS intent_counters (
+        sub TEXT PRIMARY KEY,
+        next_revision INTEGER NOT NULL
+    )`,
 	`CREATE TABLE IF NOT EXISTS last_pass (
 		sub TEXT PRIMARY KEY,
 		finished_at TEXT NOT NULL,
-		delivered INTEGER NOT NULL,
-		waiting INTEGER NOT NULL,
 		discarded TEXT NOT NULL,
 		failure_kind TEXT,
 		failure_name TEXT,
@@ -201,10 +193,25 @@ async function migrateDurable(handle: SqliteHandle): Promise<void> {
 			`This device's Local Mail data was written by a newer version (${version}); this build understands ${LOCAL_SCHEMA_VERSION}.`,
 		);
 	}
-	// One version so far, so the whole migration is creating it. The next one
-	// appends a step here and raises the constant; nothing else moves.
 	await handle.batch([
-		...LOCAL_SCHEMA.map((sql) => ({ sql })),
+		...(version === 1
+			? [
+					`ALTER TABLE accounts DROP COLUMN last_synced_at`,
+					`ALTER TABLE label_intents RENAME COLUMN seq TO revision`,
+					LOCAL_SCHEMA[2],
+					`INSERT INTO intent_counters (sub, next_revision)
+             SELECT sub, MAX(next_revision) FROM (
+                 SELECT sub, MAX(1, COALESCE(CAST(value AS INTEGER), 1)) AS next_revision
+                 FROM intent_meta WHERE key = 'next_seq'
+                 UNION ALL
+                 SELECT sub, MAX(revision) + 1 FROM label_intents GROUP BY sub
+             ) GROUP BY sub`,
+					`DROP TABLE intent_meta`,
+					`ALTER TABLE last_pass DROP COLUMN delivered`,
+					`ALTER TABLE last_pass DROP COLUMN waiting`,
+				]
+			: LOCAL_SCHEMA
+		).map((sql) => ({ sql })),
 		{ sql: `PRAGMA user_version = ${LOCAL_SCHEMA_VERSION}` },
 	]);
 }
@@ -222,17 +229,19 @@ async function migrateDurable(handle: SqliteHandle): Promise<void> {
  * cannot reach another account's mail, which is the isolation an arbitrary-SQL
  * handle can actually enforce (ADR-0319).
  */
-export const MAIL_SCHEMA_VERSION = 1;
+export const MAIL_SCHEMA_VERSION = 2;
 
 export const MAIL_CACHE_SCHEMA = [
-	`CREATE TABLE IF NOT EXISTS cache_meta (
-		key TEXT PRIMARY KEY,
-		value TEXT
-	)`,
+	`CREATE TABLE IF NOT EXISTS sync_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        history_id TEXT,
+        last_full_pull_at TEXT,
+        last_synced_at TEXT
+    )`,
+	`INSERT OR IGNORE INTO sync_state (id) VALUES (1)`,
 	`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
 		resource TEXT NOT NULL,
-		thread_id TEXT GENERATED ALWAYS AS (json_extract(resource, '$.threadId')) VIRTUAL,
 		snippet TEXT GENERATED ALWAYS AS (json_extract(resource, '$.snippet')) STORED,
 		label_ids TEXT GENERATED ALWAYS AS (json_extract(resource, '$.labelIds')) VIRTUAL,
 		internal_date INTEGER GENERATED ALWAYS AS (CAST(json_extract(resource, '$.internalDate') AS INTEGER)) STORED,
@@ -245,31 +254,40 @@ export const MAIL_CACHE_SCHEMA = [
 		id TEXT PRIMARY KEY,
 		resource TEXT NOT NULL,
 		name TEXT GENERATED ALWAYS AS (json_extract(resource, '$.name')) VIRTUAL,
-		type TEXT GENERATED ALWAYS AS (json_extract(resource, '$.type')) VIRTUAL,
-		synced_at TEXT NOT NULL
+		type TEXT GENERATED ALWAYS AS (json_extract(resource, '$.type')) VIRTUAL
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_recent ON messages(internal_date DESC)`,
-	`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, internal_date)`,
 ] as const;
 
-/**
- * Open one account's copy at the shape this build expects, demolishing it if it
- * holds another.
- *
- * `user_version` is a demolition trigger here rather than a migration cursor,
- * and that inversion is the lifetime split stated in code: Gmail still has the
- * originals, so the cheapest correct answer to a file this build does not
- * understand is to delete it and pull again. A version from the future gets the
- * same treatment as one from the past, because neither is a shape this build
- * can read and neither costs anything but a backfill.
- */
+/** Open a known cache in place; rebuild only an unrecognized schema. */
 async function openBorrowed(
 	device: Device,
 	name: string,
 ): Promise<AppSqliteDatabase> {
 	const opened = await open(device, name);
 	const handle = sqliteHandle(opened);
-	if ((await userVersion(handle)) === MAIL_SCHEMA_VERSION) return opened;
+	const version = await userVersion(handle);
+	if (version === MAIL_SCHEMA_VERSION) return opened;
+	if (version === 1) {
+		// Preserve a known cache and its cursor: rebuilding would spend Gmail
+		// quota and make an offline mailbox unavailable until another full pull.
+		await handle.batch([
+			...[
+				MAIL_CACHE_SCHEMA[0],
+				`INSERT INTO sync_state (id, history_id, last_full_pull_at, last_synced_at)
+                 SELECT 1,
+                   (SELECT value FROM cache_meta WHERE key = 'history_id'),
+                   (SELECT value FROM cache_meta WHERE key = 'last_full_pull_at'),
+                   (SELECT value FROM cache_meta WHERE key = 'last_synced_at')`,
+				`DROP TABLE cache_meta`,
+				`DROP INDEX idx_messages_thread`,
+				`ALTER TABLE messages DROP COLUMN thread_id`,
+				`ALTER TABLE labels DROP COLUMN synced_at`,
+				`PRAGMA user_version = ${MAIL_SCHEMA_VERSION}`,
+			].map((sql) => ({ sql })),
+		]);
+		return opened;
+	}
 
 	// A file nothing has ever written answers version zero and holds no tables,
 	// which is the first account rather than a shape this build refuses. It is

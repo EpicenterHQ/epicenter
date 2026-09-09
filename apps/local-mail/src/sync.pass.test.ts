@@ -99,15 +99,12 @@ describe('syncMailbox: FULL pull', () => {
 			labels: [{ id: 'INBOX', name: 'INBOX', type: 'system' }],
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-07-01T00:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
+		});
 
 		expect(outcome.mode).toBe('FULL');
 		expect(outcome.failure).toBeNull();
@@ -145,15 +142,12 @@ describe('syncMailbox: FULL pull', () => {
 			},
 		};
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-07-01T00:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(order.slice(0, 2)).toEqual(['getProfile', 'listMessageIds:first']);
@@ -187,15 +181,12 @@ describe('syncMailbox: FULL pull', () => {
 			},
 		};
 
-		const syncing = syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-07-01T00:00:00.000Z'),
-			},
-			{ forceFull: true },
-		);
+		const syncing = syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
+		});
 		while (highWater < 8) await Bun.sleep(1);
 		expect(active).toBe(8);
 		release.resolve();
@@ -231,15 +222,12 @@ describe('syncMailbox: FULL pull', () => {
 			},
 		};
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-07-01T00:00:00.000Z'),
-			},
-			{ forceFull: true },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
+		});
 
 		expect(outcome.failure?.name).toBe('Http');
 		expect(outcome.cursorAfter).toBeNull();
@@ -254,9 +242,9 @@ describe('syncMailbox: FULL pull', () => {
 		const cleanup = session.close;
 		await mailbox.ingestFullPullPage(
 			[message('kept'), message('stale')],
-			'2026-06-30T00:00:00.000Z',
+			'2026-05-30T00:00:00.000Z',
 		);
-		await mailbox.finishFullPull('500', '2026-06-30T00:00:00.000Z');
+		await mailbox.finishFullPull('500', '2026-05-30T00:00:00.000Z');
 		const remote = new Map([['kept', message('kept')]]);
 		const client = createFakeGmailClient({
 			mailbox: remote,
@@ -264,15 +252,12 @@ describe('syncMailbox: FULL pull', () => {
 			profileHistoryId: '1000',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-07-01T00:00:00.000Z'),
-			},
-			{ forceFull: true },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(outcome.messagesUpserted).toBe(1);
@@ -304,10 +289,9 @@ describe('syncMailbox: INCREMENTAL', () => {
 			[message('existing')],
 			'2026-06-30T00:00:00.000Z',
 		);
-		await session.mailbox.ingestLabels(
-			[{ id: 'INBOX', name: 'INBOX', type: 'system' }],
-			'2026-06-30T00:00:00.000Z',
-		);
+		await session.mailbox.ingestLabels([
+			{ id: 'INBOX', name: 'INBOX', type: 'system' },
+		]);
 		await session.mailbox.finishFullPull('500', '2026-06-30T00:00:00.000Z');
 		return session;
 	}
@@ -335,15 +319,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999', // must not be used; INCREMENTAL doesn't call getProfile
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.mode).toBe('INCREMENTAL');
 		expect(outcome.messagesUpserted).toBe(1);
@@ -389,15 +370,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			],
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(outcome.cursorAfter).toBe('502');
@@ -414,13 +392,10 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const session = await seededDb();
 		const { mailbox } = session;
 		const cleanup = session.close;
-		await mailbox.ingestLabels(
-			[
-				{ id: 'INBOX', name: 'INBOX', type: 'system' },
-				{ id: 'IMPORTANT', name: 'Old important', type: 'system' },
-			],
-			'2026-06-30T00:00:00.000Z',
-		);
+		await mailbox.ingestLabels([
+			{ id: 'INBOX', name: 'INBOX', type: 'system' },
+			{ id: 'IMPORTANT', name: 'Old important', type: 'system' },
+		]);
 		const client = createFakeGmailClient({
 			mailbox: new Map(),
 			historyPages: [
@@ -450,15 +425,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			],
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(client.calls.listLabels()).toBe(1);
@@ -501,24 +473,18 @@ describe('syncMailbox: INCREMENTAL', () => {
 			labels: [{ id: 'INBOX', name: 'INBOX', type: 'system' }],
 		});
 
-		const first = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
-		const second = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:01:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const first = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
+		const second = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:01:00.000Z'),
+		});
 
 		expect(first.failure).toBeNull();
 		expect(first.cursorAfter).toBe('502');
@@ -565,16 +531,13 @@ describe('syncMailbox: INCREMENTAL', () => {
 			},
 		};
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-				log: (message) => logs.push(message),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+			log: (message) => logs.push(message),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(outcome.cursorAfter).toBe('502');
@@ -611,15 +574,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(outcome.labelsPatched).toBe(1);
@@ -664,15 +624,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(outcome.cursorAfter).toBe('502');
@@ -714,15 +671,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(outcome.labelsPatched).toBe(0);
@@ -761,15 +715,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(client.calls.getMessage()).toBe(1);
@@ -812,15 +763,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.failure).toBeNull();
 		expect(client.calls.getMessage()).toBe(1);
@@ -855,15 +803,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.messagesDeleted).toBe(1);
 		const row = await session.row<{ n: number }>(
@@ -884,15 +829,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			profileHistoryId: '999',
 		});
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.messagesUpserted).toBe(0);
 		expect(outcome.messagesDeleted).toBe(0);
@@ -916,15 +858,12 @@ describe('syncMailbox: INCREMENTAL', () => {
 			},
 		};
 
-		const outcome = await syncMailbox(
-			{
-				mailbox,
-				client,
-				config,
-				now: () => Date.parse('2026-06-30T01:00:00.000Z'),
-			},
-			{ forceFull: false },
-		);
+		const outcome = await syncMailbox({
+			mailbox,
+			client,
+			config,
+			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
+		});
 
 		expect(outcome.mode).toBe('FULL');
 		expect(outcome.reason).toBe('historyId expired mid-pass');
@@ -968,14 +907,14 @@ describe('syncMailbox: concurrent writers', () => {
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		};
 
-		const outcome = await syncMailbox(deps, { forceFull: true });
+		const outcome = await syncMailbox(deps);
 		expect(outcome.failure?.name).toBe('CacheBusy');
 		expect(outcome.cursorAfter).toBe(outcome.cursorBefore);
 		expect((await mailbox.readCacheState()).historyId).toBeNull();
 
 		// The lock released: the very next pass succeeds against the same handle.
 		locked = false;
-		const retry = await syncMailbox(deps, { forceFull: true });
+		const retry = await syncMailbox(deps);
 		expect(retry.failure).toBeNull();
 		expect((await mailbox.readCacheState()).historyId).toBe('1000');
 		session.close();

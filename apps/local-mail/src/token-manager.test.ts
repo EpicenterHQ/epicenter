@@ -219,8 +219,6 @@ test('a device holding no credential asks for the account again', async () => {
 	try {
 		await session.passes.record({
 			finishedAt: new Date(NOW()).toISOString(),
-			delivered: 0,
-			waiting: 0,
 			discarded: [],
 			failure: error,
 		});
@@ -290,8 +288,6 @@ test('a failed rotation stays retryable until the replacement credential is save
 			expect(error).toBe(expectErr(failed));
 			await session.passes.record({
 				finishedAt: new Date(NOW()).toISOString(),
-				delivered: 0,
-				waiting: 0,
 				discarded: [],
 				failure: error,
 			});

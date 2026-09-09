@@ -147,25 +147,25 @@ test('an older delivery cannot retire a newer assertion', async () => {
 	const current = await intents.pending();
 	expect(current).toHaveLength(1);
 	expect(current[0]?.want).toBe(true);
-	expect(current[0]?.seq).toBeGreaterThan(inFlight.seq);
+	expect(current[0]?.revision).toBeGreaterThan(inFlight.revision);
 	expect(await intents.retire(current)).toBe(1);
 	expect(await intents.pending()).toEqual([]);
 });
 
-test('the sequence stays monotonic across an emptied table', async () => {
+test('the revision stays monotonic across an emptied table', async () => {
 	const { intent } = await openBoth();
 	const intents = openIntentStore(intent, 'account-one');
 	await intents.assert(
 		[{ messageId: 'm1', labelId: 'INBOX', want: false }],
 		AT,
 	);
-	const first = (await intents.pending())[0]?.seq ?? 0;
+	const first = (await intents.pending())[0]?.revision ?? 0;
 	await intents.discardAll();
 	await intents.assert(
 		[{ messageId: 'm2', labelId: 'INBOX', want: false }],
 		AT,
 	);
-	expect((await intents.pending())[0]?.seq).toBeGreaterThan(first);
+	expect((await intents.pending())[0]?.revision).toBeGreaterThan(first);
 });
 
 test('a history batch folds labels and advances the cursor together', async () => {

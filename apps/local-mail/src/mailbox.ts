@@ -43,7 +43,6 @@ export type CacheState = {
  */
 export type MessageSummary = {
 	id: string;
-	threadId: string | null;
 	subject: string | null;
 	sender: string | null;
 	snippet: string | null;
@@ -196,14 +195,6 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		};
 	}
 
-	function setMetaStatement(key: string, value: string) {
-		return {
-			sql: `INSERT INTO cache_meta (key, value) VALUES (?, ?)
-			      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-			parameters: [key, value] as const,
-		};
-	}
-
 	/**
 	 * `messages.id` carries `label` effectively, as SQL.
 	 *
@@ -242,7 +233,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	}
 
 	const SUMMARY_COLUMNS =
-		'id, thread_id, subject, sender, snippet, internal_date, label_ids';
+		'id, subject, sender, snippet, internal_date, label_ids';
 
 	/**
 	 * The columns a summary is built from, named once.
@@ -254,7 +245,6 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	 */
 	type SummaryRow = {
 		id: string;
-		thread_id: string | null;
 		subject: string | null;
 		sender: string | null;
 		snippet: string | null;
@@ -265,7 +255,6 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	function toSummary(row: SummaryRow, overlay: LabelOverlay): MessageSummary {
 		return {
 			id: row.id,
-			threadId: row.thread_id,
 			subject: row.subject,
 			sender: row.sender,
 			snippet: row.snippet,
@@ -275,14 +264,18 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	}
 
 	async function readCacheState(): Promise<CacheState> {
-		const rows = await all<{ key: string; value: string | null }>(
-			`SELECT key, value FROM cache_meta`,
+		const [state] = await all<{
+			history_id: string | null;
+			last_full_pull_at: string | null;
+			last_synced_at: string | null;
+		}>(
+			`SELECT history_id, last_full_pull_at, last_synced_at FROM sync_state WHERE id = 1`,
 		);
-		const meta = new Map(rows.map((row) => [row.key, row.value]));
+		if (!state) throw new Error('The mailbox sync state is missing.');
 		return {
-			historyId: meta.get('history_id') ?? null,
-			lastFullPullAt: meta.get('last_full_pull_at') ?? null,
-			lastSyncedAt: meta.get('last_synced_at') ?? null,
+			historyId: state.history_id,
+			lastFullPullAt: state.last_full_pull_at,
+			lastSyncedAt: state.last_synced_at,
 		};
 	}
 
@@ -353,19 +346,6 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				id,
 			]);
 			return rows.length > 0;
-		},
-
-		async findLabelByIdOrExactName(
-			label: string,
-		): Promise<{ id: string; name: string | null } | null> {
-			const rows = await all<{ id: string; name: string | null }>(
-				`SELECT id, name FROM labels
-				 WHERE id = ? OR name = ?
-				 ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id
-				 LIMIT 1`,
-				[label, label, label],
-			);
-			return rows[0] ?? null;
 		},
 
 		/**
@@ -479,21 +459,14 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		},
 
 		/** Replace the label set, which `labels.list` returns complete every call. */
-		async ingestLabels(
-			labels: readonly GmailLabel[],
-			syncedAt: string,
-		): Promise<void> {
+		async ingestLabels(labels: readonly GmailLabel[]): Promise<void> {
 			await batch([
 				{
 					sql: `DELETE FROM labels`,
 				},
 				...labels.map((label) => ({
-					sql: `INSERT INTO labels (id, resource, synced_at)
-					      VALUES (?, ?, ?)
-					      ON CONFLICT(id) DO UPDATE SET
-					        resource = excluded.resource,
-					        synced_at = excluded.synced_at`,
-					parameters: [label.id, JSON.stringify(label), syncedAt] as const,
+					sql: `INSERT INTO labels (id, resource) VALUES (?, ?)`,
+					parameters: [label.id, JSON.stringify(label)] as const,
 				})),
 			]);
 		},
@@ -509,9 +482,10 @@ export function openMailbox(mail: AppSqliteDatabase) {
 					sql: `DELETE FROM messages WHERE synced_at < ?`,
 					parameters: [syncedAt],
 				},
-				setMetaStatement('history_id', historyId),
-				setMetaStatement('last_full_pull_at', syncedAt),
-				setMetaStatement('last_synced_at', syncedAt),
+				{
+					sql: `UPDATE sync_state SET history_id = ?, last_full_pull_at = ?, last_synced_at = ? WHERE id = 1`,
+					parameters: [historyId, syncedAt, syncedAt],
+				},
 			]);
 			return changes[0] ?? 0;
 		},
@@ -576,8 +550,10 @@ export function openMailbox(mail: AppSqliteDatabase) {
 					parameters: [id] as const,
 				})),
 				...folds.map((fold) => fold.statement),
-				setMetaStatement('history_id', newHistoryId),
-				setMetaStatement('last_synced_at', syncedAt),
+				{
+					sql: `UPDATE sync_state SET history_id = ?, last_synced_at = ? WHERE id = 1`,
+					parameters: [newHistoryId, syncedAt],
+				},
 			]);
 			return { labelsChanged: folds.filter((fold) => fold.changed).length };
 		},

@@ -1,34 +1,13 @@
 /**
- * The outbox: what this machine still owes Gmail, and what happened the last
- * time it tried to deliver it (ADR-0327).
+ * The outbox combines pending intentions with the last sync run's explanation.
+ * Intent rows own what is still owed; their live count cannot become stale
+ * when a delivery succeeds before the report is written.
  *
- * **Two owners, one view.** The intent store owns owed work: a row exists
- * because a person acted, and it leaves only when Gmail agrees or the person
- * abandons it (ADR-0199). This module owns the other half, which is what the
- * attempt said: `last_pass` holds one row per account, and that row is
- * overwritten by every pass. The outbox is the projection of the two, and it is
- * durable all the way down: everything here answers the same after a reload as
- * before one. Whether a pass is running this second is a fact about the surface
- * running it, so the surface says that beside this rather than through it.
- *
- * Keeping them apart is what stops the same fact being stored twice. "Three
- * changes waiting" is counted from the intent store at read time and is never
- * written down, so a pass that crashes between delivering and recording cannot
- * leave a stale number on screen; the worst it leaves is a stale explanation
- * beside a count that is already right.
- *
- * **One row per account, not a log.** A pass outcome answers "can my triage
- * reach Gmail right now", and only the latest answer can. A log would need a
- * retention rule, a reader, and an interface, and nothing has asked for one;
- * this is the same objection that kept a dead-letter table out of delivery,
- * applied to the record that replaced it.
- *
- * **Which is why an individually refused assertion is written here after all.**
- * `discarded` used to ride out on the pass's return value and be announced in a
- * toast, which was honest while the window ran the pass and stops being honest
- * once the host does (ADR-0323). It is stored as part of the last pass rather
- * than as rows of its own, so it inherits that row's lifetime: the next pass
- * replaces it, and nothing accumulates.
+ * The account run owns last_pass: it accumulates individual Gmail rejections
+ * across coalesced passes and persists the report after each pass. A separate
+ * run replaces that report. Pending work never expires; confirmed revisions,
+ * individual permanent refusals, or explicit discard are what retire it.
+ * Live sync activity belongs to the page's account-filtered mutation state.
  */
 
 import type { AppSqliteDatabase } from '@epicenter/device';
@@ -97,12 +76,13 @@ function classifyFailure(failure: SyncFailure): OutboxFailure {
 		return { kind: 'signin', ...shared };
 	}
 	// Gmail answers 401 for an access token this client refreshes on its own, so
-	// a 401 reaching here means the refresh itself did not help. 403 is a scope
-	// or permission answer, and the retryable rate-limit 403s never arrive as
-	// `Http`: `gmail-client.ts` backs off and reports `Throttled` instead.
+	// a 401 reaching here means the refresh itself did not help. Only a 403
+	// naming missing scopes suggests signing in again. Project quota and domain
+	// policy refusals require a change outside the sign-in flow.
 	if (
 		failure.name === 'Http' &&
-		(failure.status === 401 || failure.status === 403)
+		(failure.status === 401 ||
+			(failure.status === 403 && failure.reason === 'insufficientPermissions'))
 	) {
 		return { kind: 'signin', ...shared };
 	}
@@ -116,13 +96,9 @@ function classifyFailure(failure: SyncFailure): OutboxFailure {
 	return { kind: 'retry', ...shared };
 }
 
-/** What one pass said, as it was written down. */
+/** What the latest sync run said, as it was written down. */
 export type PassOutcome = {
 	finishedAt: string;
-	/** Assertions Gmail confirmed and the store retired in this pass. */
-	delivered: number;
-	/** Assertions still owed when the pass ended. */
-	waiting: number;
 	discarded: DiscardedAssertion[];
 	failure: OutboxFailure | null;
 };
@@ -130,8 +106,6 @@ export type PassOutcome = {
 /** What a pass has to say about itself, before the record decides the rest. */
 export type PassReport = {
 	finishedAt: string;
-	delivered: number;
-	waiting: number;
 	discarded: readonly DiscardedAssertion[];
 	failure: SyncFailure | null;
 };
@@ -150,8 +124,6 @@ export function openPassRecord(local: AppSqliteDatabase, sub: string) {
 
 	type Row = {
 		finished_at: string;
-		delivered: number;
-		waiting: number;
 		discarded: string;
 		failure_kind: string | null;
 		failure_name: string | null;
@@ -161,12 +133,11 @@ export function openPassRecord(local: AppSqliteDatabase, sub: string) {
 	function toOutcome(row: Row): PassOutcome {
 		return {
 			finishedAt: row.finished_at,
-			delivered: row.delivered,
-			waiting: row.waiting,
+
 			// A row this application wrote, so a parse failure is a corrupt file
 			// rather than a case to handle. An empty list is the honest fallback:
 			// refusals are the least load-bearing thing in the row, and losing the
-			// failure and the counts with them would be worse.
+			// systemic failure with them would hide why delivery stopped.
 			discarded: parseDiscarded(row.discarded),
 			failure:
 				row.failure_kind === null
@@ -183,7 +154,7 @@ export function openPassRecord(local: AppSqliteDatabase, sub: string) {
 		/** What the last pass said, or `null` when none has ever finished. */
 		async read(): Promise<PassOutcome | null> {
 			const [row] = await all<Row>(
-				`SELECT finished_at, delivered, waiting, discarded, failure_kind,
+				`SELECT finished_at, discarded, failure_kind,
 				        failure_name, failure_message
 				 FROM last_pass WHERE sub = ?`,
 				[sub],
@@ -205,13 +176,11 @@ export function openPassRecord(local: AppSqliteDatabase, sub: string) {
 				report.failure === null ? null : classifyFailure(report.failure);
 			await run(
 				`INSERT INTO last_pass
-				   (sub, finished_at, delivered, waiting, discarded, failure_kind,
+				   (sub, finished_at, discarded, failure_kind,
 				    failure_name, failure_message)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				 VALUES (?, ?, ?, ?, ?, ?)
 				 ON CONFLICT(sub) DO UPDATE SET
 				   finished_at = excluded.finished_at,
-				   delivered = excluded.delivered,
-				   waiting = excluded.waiting,
 				   discarded = excluded.discarded,
 				   failure_kind = excluded.failure_kind,
 				   failure_name = excluded.failure_name,
@@ -219,8 +188,6 @@ export function openPassRecord(local: AppSqliteDatabase, sub: string) {
 				[
 					sub,
 					report.finishedAt,
-					report.delivered,
-					report.waiting,
 					JSON.stringify(report.discarded),
 					failure?.kind ?? null,
 					failure?.name ?? null,
@@ -229,8 +196,7 @@ export function openPassRecord(local: AppSqliteDatabase, sub: string) {
 			);
 			return {
 				finishedAt: report.finishedAt,
-				delivered: report.delivered,
-				waiting: report.waiting,
+
 				discarded: [...report.discarded],
 				failure,
 			};
@@ -264,7 +230,7 @@ export type OutboxStatus = 'clear' | 'waiting' | 'signin' | 'failed';
  * One waiting act, named the way the person made it.
  *
  * The assertion itself, plus the two things a list of them needs: when it was
- * made, and what it is about. `seq` is not here, because it is the store's own
+ * made, and what it is about. `revision` is not here, because it is the store's own
  * bookkeeping for retiring a row and nothing a person is shown depends on it.
  */
 export type OutboxEntry = LabelAssertion & {
@@ -355,24 +321,13 @@ export async function readBlockedAccounts(
 	return blocked;
 }
 
-/**
- * A failure outranks a count.
- *
- * A sign-in that expired is reported even with nothing waiting, because it is
- * the state where an account outlives its credential and every act made from
- * now on would silently pile up (ADR-0320). Any other failure with nothing left
- * to deliver is not reported at all: what failed was a pull, the next open
- * repeats it, and there is no person's work stuck behind it.
- *
- * `failed` covers both remaining kinds, and `lastPass.failure.kind` is what
- * separates "pressing Retry may work" from "pressing Retry will not". That is a
- * difference in what a person is told, not in what the work is.
- */
+/** A missing sign-in or failed pull remains visible even with no pending work.
+ * The failure kind determines which recovery action the UI presents. */
 function outboxStatus(
 	waiting: number,
 	lastPass: PassOutcome | null,
 ): OutboxStatus {
 	if (lastPass?.failure?.kind === 'signin') return 'signin';
-	if (waiting === 0) return 'clear';
-	return lastPass?.failure == null ? 'waiting' : 'failed';
+	if (lastPass?.failure) return 'failed';
+	return waiting === 0 ? 'clear' : 'waiting';
 }

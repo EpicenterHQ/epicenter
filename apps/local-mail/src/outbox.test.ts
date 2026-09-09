@@ -56,8 +56,6 @@ const report = (
 	> = {},
 ) => ({
 	finishedAt: AT,
-	delivered: 0,
-	waiting: 0,
 	discarded: [],
 	failure: null,
 	...over,
@@ -84,7 +82,7 @@ test('a sign-in failure is still there after the surface that saw it is gone', a
 			[{ messageId: 'm1', labelId: 'INBOX', want: false }],
 			AT,
 		);
-		await session.passes.record(report({ waiting: 1, failure: reauth() }));
+		await session.passes.record(report({ failure: reauth() }));
 
 		// A second window, over the same durable file. Nothing in memory carries
 		// across, which is the whole claim being tested.
@@ -124,17 +122,17 @@ test('work clears only when Gmail agreed, not when a pass merely ended', async (
 			[{ messageId: 'm1', labelId: 'INBOX', want: false }],
 			AT,
 		);
-		await session.passes.record(report({ waiting: 1, failure: offline() }));
+		await session.passes.record(report({ failure: offline() }));
 		expect((await readOutbox(session)).status).toBe('failed');
 
 		// The delivery is what clears the row, and the record only describes it.
 		// Recording a clean pass while the assertion is still owed must not read
 		// as finished, because the assertion is the truth about what is owed.
-		await session.passes.record(report({ waiting: 1 }));
+		await session.passes.record(report({}));
 		expect((await readOutbox(session)).status).toBe('waiting');
 
 		await session.intents.retire(await session.intents.pending());
-		await session.passes.record(report({ delivered: 1 }));
+		await session.passes.record(report({}));
 		const settled = await readOutbox(session);
 		expect(settled.status).toBe('clear');
 		expect(settled.waiting).toBe(0);
@@ -152,7 +150,7 @@ test('a failure Gmail will repeat is named as one, so Retry is not offered', asy
 			AT,
 		);
 		const recorded = await session.passes.record(
-			report({ waiting: 1, failure: refused() }),
+			report({ failure: refused() }),
 		);
 		// The status is the same either way; the kind is what decides whether the
 		// panel invites a person to press Retry.
@@ -168,7 +166,6 @@ test('a lock another writer held reads as worth trying again', async () => {
 	try {
 		const recorded = await session.passes.record(
 			report({
-				waiting: 1,
 				failure: failure(
 					CacheWriteError.CacheBusy({ cause: { code: 'SQLITE_BUSY' } }),
 				),
@@ -185,7 +182,6 @@ test('an assertion Gmail refused outright survives the pass that discovered it',
 	try {
 		await session.passes.record(
 			report({
-				delivered: 0,
 				discarded: [
 					{
 						messageId: 'm1',
@@ -275,15 +271,13 @@ test('the record is the latest attempt, not a history of them', async () => {
 	const session = await openTestSession(SUB);
 	try {
 		await session.passes.record(report({ failure: offline() }));
-		await session.passes.record(report({ delivered: 2, finishedAt: LATER }));
+		await session.passes.record(report({ finishedAt: LATER }));
 
 		// One row per account: the question it answers is "can my triage reach
 		// Gmail", and only the latest attempt answers it.
 		const reopened = openPassRecord(session.localDatabase, SUB);
 		expect(await reopened.read()).toEqual({
 			finishedAt: LATER,
-			delivered: 2,
-			waiting: 0,
 			discarded: [],
 			failure: null,
 		});
@@ -312,7 +306,7 @@ test('the switcher marks only the accounts a person has to answer for', async ()
 		// pressing Retry will reproduce.
 		await owe('refused-with-work');
 		await openPassRecord(local, 'refused-with-work').record(
-			report({ waiting: 1, failure: refused() }),
+			report({ failure: refused() }),
 		);
 		// Does not block: what was refused was a pull, and the next open repeats
 		// it with nobody's triage waiting on it.
@@ -323,7 +317,7 @@ test('the switcher marks only the accounts a person has to answer for', async ()
 		// rather than stuck.
 		await owe('offline-with-work');
 		await openPassRecord(local, 'offline-with-work').record(
-			report({ waiting: 1, failure: offline() }),
+			report({ failure: offline() }),
 		);
 
 		const blocked = await readBlockedAccounts(local, [

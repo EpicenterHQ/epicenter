@@ -21,18 +21,30 @@ export const GmailApiError = defineErrors({
 		cause,
 	}),
 	Http: ({ status, body }: { status: number; body: string }) => ({
-		message: `Gmail API returned ${status}: ${body.slice(0, 500)}`,
+		message: `Gmail API returned ${status} (${errorReason(body) ?? 'unknown reason'}): ${body.slice(0, 500)}`,
 		status,
 		body,
+		reason: errorReason(body),
 	}),
 	/** `startHistoryId` is expired or invalid; the caller must fall back to a full sync. */
 	HistoryExpired: () => ({
 		message:
 			'Gmail history.list returned 404: startHistoryId is expired or invalid.',
 	}),
-	Throttled: ({ retries }: { retries: number }) => ({
-		message: `Gmail API throttled the request after ${retries} retries.`,
+	Throttled: ({
 		retries,
+		status,
+		body,
+	}: {
+		retries: number;
+		status: number;
+		body: string;
+	}) => ({
+		message: `Gmail API throttled the request after ${retries} retries: ${status} (${errorReason(body) ?? 'unknown reason'}): ${body.slice(0, 500)}`,
+		retries,
+		status,
+		body,
+		reason: errorReason(body),
 	}),
 	InvalidResponse: ({ detail }: { detail: string }) => ({
 		message: `Gmail API response was not the expected JSON shape: ${detail}`,
@@ -55,7 +67,6 @@ const THROTTLE_WAIT_MS = 30_000;
 const RETRYABLE_403_REASONS = new Set([
 	'rateLimitExceeded',
 	'userRateLimitExceeded',
-	'dailyLimitExceeded',
 ]);
 
 function retryAfterMs(response: Response): number | null {
@@ -66,8 +77,8 @@ function retryAfterMs(response: Response): number | null {
 }
 
 /**
- * Best-effort scrape of Google's error-body `reason`, used only to decide
- * whether a 403 is retryable. Deliberately untyped/tolerant rather than
+ * Best-effort scrape of Google's error-body `reason`, used to classify
+ * retries and the recovery action shown by the outbox. Deliberately untyped/tolerant rather than
  * typebox-validated: a wrong-shaped or non-JSON error body should silently
  * fall through to "not retryable", never fail the request a second way.
  */
@@ -76,7 +87,8 @@ function errorReason(body: string): string | null {
 		const parsed = JSON.parse(body) as {
 			error?: { errors?: { reason?: string }[] };
 		};
-		return parsed.error?.errors?.[0]?.reason ?? null;
+		const reason = parsed.error?.errors?.[0]?.reason;
+		return typeof reason === 'string' ? reason : null;
 	} catch {
 		return null;
 	}
@@ -116,9 +128,9 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * methods and field paths they rely on against Gmail's live Discovery document.
  *
  * Grounded against Gmail API docs (2026-06-30/07-01):
- * - Rate limiting is 429 (`rateLimitExceeded`/`userRateLimitExceeded`) or 403
- *   (`dailyLimitExceeded`, project-level); both back off, everything else 403
- *   is a hard permission error, not retried.
+ * - 429 and 403 `rateLimitExceeded`/`userRateLimitExceeded` back off.
+ *   `dailyLimitExceeded` is a configured project quota cap, so it returns
+ *   immediately along with other non-retryable 403s. Verified 2026-09-08.
  *   https://developers.google.com/gmail/api/guides/handle-errors
  * - `history.list` 404s when `startHistoryId` is expired/invalid ("typically
  *   available for at least one week and often longer"); the caller must fall
@@ -217,7 +229,11 @@ export function createGmailClient(deps: {
 			if (retryableThrottle || response.status >= 500) {
 				if (attempt >= MAX_RETRIES) {
 					return retryableThrottle
-						? GmailApiError.Throttled({ retries: attempt })
+						? GmailApiError.Throttled({
+								retries: attempt,
+								status: response.status,
+								body,
+							})
 						: GmailApiError.Http({ status: response.status, body });
 				}
 				attempt += 1;

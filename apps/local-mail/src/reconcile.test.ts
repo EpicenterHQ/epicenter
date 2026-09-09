@@ -4,13 +4,13 @@
  *
  * - One message's opinions become ONE `messages.modify`, with trash routed to
  *   Gmail's own endpoint at delivery and never smuggled into a label set.
- * - Retirement requires the sequence that was delivered, so an act made while a
+ * - Retirement requires the revision that was delivered, so an act made while a
  *   delivery is in flight survives it.
  * - A refused request is retried one assertion at a time before anything is
  *   resolved, so one impossible label cannot discard the archive that shared its
  *   call; a systemic failure stops delivery and keeps every assertion, with
  *   nothing written down about the failure itself.
- * - An act made mid-delivery wins, because retirement matches the sequence that
+ * - An act made mid-delivery wins, because retirement matches the revision that
  *   was actually proved.
  * - Read-only skips delivery entirely.
  *
@@ -19,6 +19,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { MailSession } from './accounts.ts';
 import { assertMessageLabels } from './assert.ts';
 import { DEFAULT_MAIL_CONFIG } from './config.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
@@ -26,7 +27,7 @@ import type { IntentStore } from './intent-store.ts';
 import { openIntentStore } from './intent-store.ts';
 import { type Mailbox, openMailbox, overlayOf } from './mailbox.ts';
 import { openPassRecord } from './outbox.ts';
-import { type ReconcileDeps, reconcileAccount } from './reconcile.ts';
+import { reconcileAccount } from './reconcile.ts';
 import type { GmailLabel, GmailMessage, HistoryPage } from './schema.ts';
 import { openTestSession, type TestSession } from './session.test-support.ts';
 
@@ -153,7 +154,7 @@ async function setup(
 	client: GmailClient,
 	messages: GmailMessage[] = [message('m1', ['INBOX', 'UNREAD'])],
 ): Promise<{
-	deps: ReconcileDeps;
+	deps: MailSession;
 	session: TestSession;
 	mailbox: Mailbox;
 	intents: IntentStore;
@@ -162,7 +163,7 @@ async function setup(
 	const session = await openTestSession(ACCOUNT_ID);
 	const syncedAt = new Date(NOW).toISOString();
 	await session.mailbox.ingestFullPullPage(messages, syncedAt);
-	await session.mailbox.ingestLabels(MIRRORED_LABELS, syncedAt);
+	await session.mailbox.ingestLabels(MIRRORED_LABELS);
 	// A cursor plus a recent sync keeps the pull phase INCREMENTAL, so these
 	// tests exercise delivery rather than a full backfill.
 	await session.mailbox.finishFullPull('1', syncedAt);
@@ -190,8 +191,7 @@ async function setup(
  * of a second caller to a pass already in flight; that is `accounts.test.ts`'
  * subject, and everything below is about what a single pass does.
  */
-const pass = (deps: ReconcileDeps) =>
-	reconcileAccount(deps, { forceFull: false });
+const pass = (deps: MailSession) => reconcileAccount(deps);
 
 /** Gmail's facts for one message, straight out of the cache column, with no
  * intent overlay: what the reconciler folded, not what a reader would see. */
@@ -433,7 +433,7 @@ describe('drain', () => {
 			const { delivery } = await pass(created.deps);
 
 			expect(client.untrashCalls).toEqual(['m1']);
-			// The untrash proved the old sequence and retires nothing; the archive is
+			// The untrash proved the old revision and retires nothing; the archive is
 			// unrelated and lands.
 			expect(delivery).toMatchObject({ pending: 2, delivered: 1, retained: 1 });
 			expect(await intents.pending()).toMatchObject([
@@ -488,7 +488,7 @@ describe('drain', () => {
 	});
 
 	test('archive then undo, racing an in-flight drain, keeps the undo', async () => {
-		// The whole point of sequencing, driven through the public act path rather
+		// The whole point of revision matching, driven through the public act path rather
 		// than the store: the user archives, the drain picks it up, and the undo
 		// lands while that delivery is on the wire.
 		let undo: (() => Promise<void>) | null = null;
@@ -519,7 +519,7 @@ describe('drain', () => {
 			const first = await pass(deps);
 
 			// Gmail was told to archive, and answered. But the undo carries a newer
-			// sequence, so that answer proves nothing about it: nothing is retired,
+			// revision, so that answer proves nothing about it: nothing is retired,
 			// and the mailbox the user sees is back in the inbox on the strength of
 			// the still-pending assertion.
 			expect(client.modifyCalls).toEqual([
@@ -634,7 +634,13 @@ describe('drain', () => {
 							error: GmailApiError.Http({ status: 400, body: 'bad request' })
 								.error,
 						}
-					: { error: GmailApiError.Throttled({ retries: 5 }).error };
+					: {
+							error: GmailApiError.Throttled({
+								retries: 5,
+								status: 429,
+								body: 'Too many requests',
+							}).error,
+						};
 			},
 		});
 		const { deps, intents, cleanup } = await setup(client);
@@ -715,7 +721,16 @@ describe('drain', () => {
 	test('a systemic failure stops delivery and keeps every undelivered assertion', async () => {
 		const client = fakeGmail(
 			new Map<string, WriteResult>([
-				['m1', { error: GmailApiError.Throttled({ retries: 5 }).error }],
+				[
+					'm1',
+					{
+						error: GmailApiError.Throttled({
+							retries: 5,
+							status: 429,
+							body: 'Too many requests',
+						}).error,
+					},
+				],
 				['m2', { data: message('m2', []) }],
 			]),
 		);
@@ -828,7 +843,7 @@ describe('across a restart', () => {
 			[message('m1', ['INBOX', 'UNREAD'])],
 			syncedAt,
 		);
-		await session.mailbox.ingestLabels(MIRRORED_LABELS, syncedAt);
+		await session.mailbox.ingestLabels(MIRRORED_LABELS);
 		await session.mailbox.finishFullPull('1', syncedAt);
 
 		// Session one: offline. Every Gmail write fails with a network error, which
@@ -837,7 +852,7 @@ describe('across a restart', () => {
 		const offline = fakeGmail(new Map());
 		offline.modifyMessage = async () =>
 			GmailApiError.Network({ cause: new Error('offline') });
-		const firstDeps: ReconcileDeps = {
+		const firstDeps: MailSession = {
 			mailbox: session.mailbox,
 			intents: session.intents,
 			passes: session.passes,
@@ -879,7 +894,7 @@ describe('across a restart', () => {
 		const restarted = openMailbox(session.mailboxDatabase);
 		const restartedIntents = openIntentStore(session.localDatabase, ACCOUNT_ID);
 		const restartedPasses = openPassRecord(session.localDatabase, ACCOUNT_ID);
-		const secondDeps: ReconcileDeps = {
+		const secondDeps: MailSession = {
 			mailbox: restarted,
 			intents: restartedIntents,
 			passes: restartedPasses,

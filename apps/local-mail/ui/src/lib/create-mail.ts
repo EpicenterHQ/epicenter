@@ -8,10 +8,10 @@ import {
 	finishConnect,
 	listAccounts,
 	type MailApp,
-	openSession,
 	reconcileNow,
 	removeAccount,
 	startConnect,
+	withSession,
 } from '@epicenter/local-mail/accounts';
 import { assertMessageLabels } from '@epicenter/local-mail/assert';
 import { CALLBACK_PATH } from '@epicenter/local-mail/authorization-return';
@@ -146,7 +146,7 @@ export function createMail({
 		/** How much of Gmail this device holds for one account, and how fresh it is. */
 		status: operation(
 			async (sub: string): Promise<MailStatus> =>
-				(await openSession(await app(), sub)).mailbox.status(),
+				withSession(await app(), sub, (session) => session.mailbox.status()),
 		),
 
 		/**
@@ -158,7 +158,7 @@ export function createMail({
 		 */
 		outbox: operation(
 			async (sub: string): Promise<Outbox> =>
-				readOutbox(await openSession(await app(), sub)),
+				withSession(await app(), sub, readOutbox),
 		),
 
 		/**
@@ -174,7 +174,9 @@ export function createMail({
 		/** This account's mirrored label set, for the rail and for naming a label. */
 		labels: operation(
 			async (sub: string): Promise<LabelSummary[]> =>
-				(await openSession(await app(), sub)).mailbox.listLabels(),
+				withSession(await app(), sub, (session) =>
+					session.mailbox.listLabels(),
+				),
 		),
 
 		messages: operation(
@@ -187,23 +189,25 @@ export function createMail({
 					offset?: number;
 				} = {},
 			): Promise<MessageSummary[]> => {
-				const session = await openSession(await app(), sub);
-				return session.mailbox.listMessages({
-					labelId: query.label,
-					search: query.search,
-					limit: query.limit ?? 100,
-					offset: query.offset ?? 0,
-					overlay: overlayOf(await session.intents.pending()),
-				});
+				return withSession(await app(), sub, async (session) =>
+					session.mailbox.listMessages({
+						labelId: query.label,
+						search: query.search,
+						limit: query.limit ?? 100,
+						offset: query.offset ?? 0,
+						overlay: overlayOf(await session.intents.pending()),
+					}),
+				);
 			},
 		),
 
 		message: operation(
 			async (sub: string, id: string): Promise<MessageDetail | null> => {
-				const session = await openSession(await app(), sub);
-				return session.mailbox.getMessageDetail(
-					id,
-					overlayOf(await session.intents.pending()),
+				return withSession(await app(), sub, async (session) =>
+					session.mailbox.getMessageDetail(
+						id,
+						overlayOf(await session.intents.pending()),
+					),
 				);
 			},
 		),
@@ -231,14 +235,16 @@ export function createMail({
 			) => {
 				// A session already satisfies `AssertDeps`; rebuilding it field by field
 				// here was three chances to hand the act path a different account's store.
-				const recorded = await assertMessageLabels({
-					deps: await openSession(await app(), sub),
-					input: {
-						ids: input.ids,
-						addLabels: input.addLabels ?? [],
-						removeLabels: input.removeLabels ?? [],
-					},
-				});
+				const recorded = await withSession(await app(), sub, (session) =>
+					assertMessageLabels({
+						deps: session,
+						input: {
+							ids: input.ids,
+							addLabels: input.addLabels ?? [],
+							removeLabels: input.removeLabels ?? [],
+						},
+					}),
+				);
 				if (recorded.error !== null) throw new Error(recorded.error.message);
 				// The act is durable and visible here, and it is owed to Gmail. Delivering
 				// it is the caller's next step rather than this one's: a person pressing

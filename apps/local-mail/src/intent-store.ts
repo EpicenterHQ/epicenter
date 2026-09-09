@@ -9,12 +9,12 @@
  * database and cannot reach it.
  *
  * What it holds is deliberately small: a partial map from `(message, label)` to
- * wanted or not wanted, each row carrying the sequence it was asserted at. That
+ * wanted or not wanted, each row carrying the revision it was asserted at. That
  * answers both questions the system asks. Reads: how do this message's effective
  * labels differ from Gmail's facts? Delivery: what is still owed, and is the
  * answer I am holding still the current one?
  *
- * There are exactly two ways a row leaves. `retire` requires the sequence a
+ * There are exactly two ways a row leaves. `retire` requires the revision a
  * delivery actually proved, and `discardAll` is a person's explicit abandonment.
  * Neither is a guess about what Gmail already holds: an act cannot erase an
  * earlier act, it can only supersede it (ADR-0199).
@@ -26,7 +26,7 @@ import { sqliteHandle } from './handle.ts';
 /**
  * One opinion: this message should, or should not, carry this label.
  *
- * The whole of what a caller says. `seq` is allocated by the store and
+ * The whole of what a caller says. `revision` is allocated by the store and
  * `assertedAt` is passed to `assert` for the batch, so neither belongs to the
  * act; they are what recording it added.
  */
@@ -38,8 +38,8 @@ export type LabelAssertion = {
 
 /** An assertion as the store holds it: the opinion, plus its place in line. */
 export type LabelIntent = LabelAssertion & {
-	/** The account-monotonic sequence this row was last asserted at. */
-	seq: number;
+	/** The account-monotonic revision this row was last asserted at. */
+	revision: number;
 	/** When the person made this act, which is what the outbox ages. */
 	assertedAt: string;
 };
@@ -49,33 +49,11 @@ export type IntentStore = ReturnType<typeof openIntentStore>;
 export function openIntentStore(intent: AppSqliteDatabase, sub: string) {
 	const { all, batch } = sqliteHandle(intent);
 
-	/**
-	 * The next sequence to hand out.
-	 *
-	 * The counter in `intent_meta` is the source and survives the table emptying.
-	 * The `max(seq)` floor is there so a lost or unreadable counter can never
-	 * hand out a number a live row already holds, which is the one thing that
-	 * would let a stale delivery retire a newer wish.
-	 */
-	async function nextSeq(): Promise<number> {
-		const [counter] = await all<{ value: string | null }>(
-			`SELECT value FROM intent_meta WHERE sub = ? AND key = 'next_seq'`,
-			[sub],
-		);
-		const [highest] = await all<{ seq: number | null }>(
-			`SELECT max(seq) AS seq FROM label_intents WHERE sub = ?`,
-			[sub],
-		);
-		const stored = Number(counter?.value);
-		const fromCounter = Number.isSafeInteger(stored) && stored > 0 ? stored : 1;
-		return Math.max(fromCounter, (highest?.seq ?? 0) + 1);
-	}
-
 	return {
 		sub,
 
 		/**
-		 * Record opinions, one fresh sequence per pair, in one batch.
+		 * Record opinions, one fresh revision per pair, in one batch.
 		 *
 		 * Every opinion the act path passes is stored: this is the last word on
 		 * each pair, not a judgement about whether it is worth delivering.
@@ -85,36 +63,46 @@ export function openIntentStore(intent: AppSqliteDatabase, sub: string) {
 			assertedAt: string,
 		): Promise<number> {
 			if (assertions.length === 0) return 0;
-			let seq = await nextSeq();
-			const statements = assertions.map((assertion) => {
-				const at = seq;
-				seq += 1;
-				return {
+			// Reserve revisions and write the assertions in one transaction. A
+			// second store cannot read the same counter before this write lands.
+			// The live-row floor preserves ordering if the counter is missing;
+			// the durable counter prevents reuse after every intent is retired.
+			await batch([
+				{
+					sql: `INSERT INTO intent_counters (sub, next_revision)
+					      SELECT ?, COALESCE(MAX(revision), 0) + 1 + ?
+					      FROM label_intents WHERE sub = ?
+					      ON CONFLICT(sub) DO UPDATE SET
+					        next_revision = MAX(intent_counters.next_revision,
+					                    excluded.next_revision - ?) + ?`,
+					parameters: [
+						sub,
+						assertions.length,
+						sub,
+						assertions.length,
+						assertions.length,
+					],
+				},
+				...assertions.map((assertion, index) => ({
 					sql: `INSERT INTO label_intents
-					        (sub, message_id, label_id, want, seq, asserted_at)
-					      VALUES (?, ?, ?, ?, ?, ?)
+					        (sub, message_id, label_id, want, revision, asserted_at)
+					      VALUES (?, ?, ?, ?,
+					        (SELECT next_revision - ? FROM intent_counters
+					         WHERE sub = ?), ?)
 					      ON CONFLICT(sub, message_id, label_id) DO UPDATE SET
 					        want = excluded.want,
-					        seq = excluded.seq,
+					        revision = excluded.revision,
 					        asserted_at = excluded.asserted_at`,
 					parameters: [
 						sub,
 						assertion.messageId,
 						assertion.labelId,
 						assertion.want ? 1 : 0,
-						at,
+						assertions.length - index,
+						sub,
 						assertedAt,
-					] as const,
-				};
-			});
-			await batch([
-				...statements,
-				{
-					sql: `INSERT INTO intent_meta (sub, key, value)
-					      VALUES (?, 'next_seq', ?)
-					      ON CONFLICT(sub, key) DO UPDATE SET value = excluded.value`,
-					parameters: [sub, String(seq)] as const,
-				},
+					],
+				})),
 			]);
 			return assertions.length;
 		},
@@ -141,18 +129,18 @@ export function openIntentStore(intent: AppSqliteDatabase, sub: string) {
 				message_id: string;
 				label_id: string;
 				want: number;
-				seq: number;
+				revision: number;
 				asserted_at: string;
 			}>(
-				`SELECT message_id, label_id, want, seq, asserted_at FROM label_intents
-				 WHERE sub = ? ORDER BY seq`,
+				`SELECT message_id, label_id, want, revision, asserted_at FROM label_intents
+				 WHERE sub = ? ORDER BY revision`,
 				[sub],
 			);
 			return rows.map((row) => ({
 				messageId: row.message_id,
 				labelId: row.label_id,
 				want: row.want === 1,
-				seq: row.seq,
+				revision: row.revision,
 				assertedAt: row.asserted_at,
 			}));
 		},
@@ -160,8 +148,8 @@ export function openIntentStore(intent: AppSqliteDatabase, sub: string) {
 		/**
 		 * Forget assertions Gmail has now confirmed.
 		 *
-		 * The sequence match is the whole point: a pair re-asserted while the
-		 * delivery was in flight carries a newer sequence, so this deletes nothing
+		 * The revision match is the whole point: a pair re-asserted while the
+		 * delivery was in flight carries a newer revision, so this deletes nothing
 		 * and the next pass delivers the newer opinion.
 		 */
 		async retire(retirements: readonly LabelIntent[]): Promise<number> {
@@ -169,12 +157,12 @@ export function openIntentStore(intent: AppSqliteDatabase, sub: string) {
 			const changes = await batch(
 				retirements.map((retirement) => ({
 					sql: `DELETE FROM label_intents
-					      WHERE sub = ? AND message_id = ? AND label_id = ? AND seq = ?`,
+					      WHERE sub = ? AND message_id = ? AND label_id = ? AND revision = ?`,
 					parameters: [
 						sub,
 						retirement.messageId,
 						retirement.labelId,
-						retirement.seq,
+						retirement.revision,
 					] as const,
 				})),
 			);
@@ -186,7 +174,7 @@ export function openIntentStore(intent: AppSqliteDatabase, sub: string) {
 		 *
 		 * This is the human bound on retrying: nothing ages out and nothing gives
 		 * up after N attempts, so the only way an undelivered act stops being owed
-		 * without reaching Gmail is somebody saying so (ADR-0199). The sequence
+		 * without reaching Gmail is somebody saying so (ADR-0199). The revision
 		 * counter is untouched, so a later assertion still cannot collide with an
 		 * in-flight delivery's number.
 		 */

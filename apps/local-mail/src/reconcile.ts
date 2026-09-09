@@ -1,9 +1,10 @@
 import type { Result } from 'wellcrafted/result';
+import type { MailSession } from './accounts.ts';
 import type { GmailClientError } from './gmail-client.ts';
-import type { IntentStore, LabelIntent } from './intent-store.ts';
-import type { DiscardedAssertion, PassOutcome, PassRecord } from './outbox.ts';
+import type { LabelIntent } from './intent-store.ts';
+import type { DiscardedAssertion } from './outbox.ts';
 import type { GmailMessage } from './schema.ts';
-import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
+import { type SyncOutcome, syncMailbox } from './sync.ts';
 
 /**
  * The reconciler: one pass per account, and the only thing in Local Mail that
@@ -23,8 +24,7 @@ import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
  * background: it reconciles when the application opens, when a person records
  * triage, and when a person presses Retry. So there is no scheduler, no worker,
  * and nothing that can start a pass while another is running except a second
- * gesture, which `reconcileNow` joins to the pass already in flight rather than
- * racing. This module is the pass itself and holds none of that.
+ * gesture, which `reconcileNow` coalesces into a follow-up pass. This module is the pass itself and holds none of that.
  *
  * This used to require a `ReconcileClaim` that only a claim module could mint,
  * back when the writers were a CLI watch loop, an MCP server, and a desktop
@@ -41,7 +41,7 @@ import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
  *   where it is, every undelivered assertion stays exactly as it was, and the
  *   next pass tries again.
  *
- * **Both shapes end up written down.** A pass records what it did in
+ * **Both shapes end up written down.** The account run records what its passes did in
  * `last_pass` before it returns, so a failure is still on screen after the
  * window that saw it was closed and reopened (ADR-0327). The return value is
  * the same facts for the caller that is still there; the record is what a
@@ -58,29 +58,6 @@ import { type SyncDeps, type SyncOutcome, syncMailbox } from './sync.ts';
  * own, so an accumulation past Gmail's 100-label-per-direction request cap
  * still lands.
  */
-
-/**
- * Everything one account's work needs.
- *
- * `openSession` in `accounts.ts` builds one, and it is the only thing that
- * does. It was declared twice for a while, once here and once there under the
- * name `MailSession`, with identical fields; the tell was a caller writing
- * `{ ...openSession(app, id), sub }` over a spread that already carried
- * `sub`.
- *
- * `sub` is on it so a session names the account it was opened for. Nothing in a
- * pass reads it: `intents` and `passes` are already scoped, and `reconcileNow`
- * keys its in-flight map by the subject it was asked for. It is here because a
- * session held in a map, printed in a log, or read in a test should say which
- * mailbox it is, and because the alternative is a second account's session
- * being indistinguishable from this one's.
- */
-export type ReconcileDeps = SyncDeps & {
-	intents: IntentStore;
-	/** Where this pass writes what it did, so the outbox outlives the pass. */
-	passes: PassRecord;
-	sub: string;
-};
 
 export type DeliveryOutcome = {
 	/** Assertions the drain phase held at its start. */
@@ -106,11 +83,9 @@ export type DeliveryOutcome = {
 	failure: GmailClientError | null;
 };
 
-export type ReconcileOutcome = {
+export type ReconcilePassOutcome = {
 	delivery: DeliveryOutcome;
 	pull: SyncOutcome;
-	/** What was written to `last_pass`, which is what the outbox reads. */
-	pass: PassOutcome;
 };
 
 /** Everything one message's pending assertions ask for, in one place: the label
@@ -155,10 +130,10 @@ function unachievableStatus(
 /**
  * Deliver everything the intent store holds. Snapshots the pending set first,
  * so an assertion made while this pass is running is neither delivered from a
- * stale read nor retired by it: retirement matches on the sequence in the
+ * stale read nor retired by it: retirement matches on the revision in the
  * snapshot, and a re-assertion has a newer one.
  */
-async function drain(deps: ReconcileDeps): Promise<DeliveryOutcome> {
+async function drain(deps: MailSession): Promise<DeliveryOutcome> {
 	const pending = await deps.intents.pending();
 	if (pending.length === 0) {
 		return {
@@ -216,7 +191,7 @@ async function drain(deps: ReconcileDeps): Promise<DeliveryOutcome> {
 			log(`delivery refused for ${covered[0]?.messageId}: ${error.message}`);
 			for (const assertion of covered) {
 				// Retire first: only a row that actually left the store is reported as
-				// discarded, so a pair re-asserted mid-flight (whose sequence no longer
+				// discarded, so a pair re-asserted mid-flight (whose revision no longer
 				// matches) is not announced as dropped when it is in fact still owed.
 				if ((await deps.intents.retire([assertion])) === 1) {
 					discarded.push({
@@ -305,35 +280,14 @@ async function drain(deps: ReconcileDeps): Promise<DeliveryOutcome> {
 }
 
 /**
- * One reconcile pass for one account: deliver what is owed, refresh the facts,
- * and write down what happened.
- *
- * The pull runs even when delivery failed, because a failure to write is not a
- * reason to stop reading. The record is written last and unconditionally, so
- * "no pass has ever run" and "a pass ran and delivered nothing" are different
- * states on disk rather than the same silence: the first leaves `last_pass`
- * untouched, and the second stamps it with a fresh `finishedAt` and no failure.
- *
- * The delivery failure is the one recorded when there are two. A pull that also
- * failed is the same connection saying so twice, and what a person is owed an
- * explanation for is their own undelivered work.
- *
- * Call `reconcileNow` rather than this. Reaching here directly runs a pass
- * beside one that may already be in flight for the same account, which is safe
- * (a delivery retires only against the sequence it proved) but wasteful.
+ * Deliver pending assertions, then refresh cached facts even if delivery failed.
+ * The account run owns admission, follow-up passes, and durable reporting.
+ * Call reconcileNow so another writer cannot race this pass for the account.
  */
 export async function reconcileAccount(
-	deps: ReconcileDeps,
-	{ forceFull }: { forceFull: boolean },
-): Promise<ReconcileOutcome> {
+	deps: MailSession,
+): Promise<ReconcilePassOutcome> {
 	const delivery = await drain(deps);
-	const pull = await syncMailbox(deps, { forceFull });
-	const pass = await deps.passes.record({
-		finishedAt: new Date(deps.now()).toISOString(),
-		delivered: delivery.delivered,
-		waiting: delivery.retained,
-		discarded: delivery.discarded,
-		failure: delivery.failure ?? pull.failure,
-	});
-	return { delivery, pull, pass };
+	const pull = await syncMailbox(deps);
+	return { delivery, pull };
 }

@@ -48,9 +48,9 @@ against it. The address is display metadata and is refreshed on each connection.
 ```txt
 <epicenter-data-root>/apps/so.epicenter.local-mail/sqlite/
 ├── local.sqlite            durable, kilobytes, migrated, never unlinked
-│     accounts, label_intents, intent_meta
-└── mail-<sub>.sqlite       borrowed, gigabytes, unlinked routinely
-      cache_meta, messages, labels
+│     accounts, label_intents, intent_counters, last_pass
+└── mail-<sub>.sqlite       borrowed, gigabytes, rebuildable
+      sync_state, messages, labels
 ```
 
 `local` holds the only irreplaceable bytes. A mail file is a copy Gmail still
@@ -59,10 +59,15 @@ followed by a `VACUUM`, corruption costs one account's re-pull instead of
 everything, and a statement in a mail file cannot reach another account's mail
 because the file is the scope.
 
-The schema version lives in `PRAGMA user_version` and never in a filename. The
-same integer means opposite things: in `local.sqlite` it is a migration cursor,
-and in a mail file it is a demolition trigger, so a build that wants a shape the
-file does not have closes it, unlinks it, and pulls Gmail again.
+The schema version lives in `PRAGMA user_version`. Durable data is migrated
+transactionally and a newer durable schema is refused. Known cache migrations
+also run in place, preserving mail and cursors so an upgrade costs no Gmail
+backfill. An unrecognized cache schema is rebuilt from Gmail.
+
+`intent_counters.next_revision` allocates revisions atomically with each intent
+write and survives an empty outbox. `sync_state` holds one row with the history
+cursor, last full pull, and last successful pull time. Pending counts are read
+from the intents; they are not duplicated in the last sync report.
 
 ## The write model
 
@@ -79,7 +84,9 @@ then un-archive, then archive is one row.
 **One reconciler per account is the only thing that writes to Gmail.** It drains
 the account's assertions, retires each one Gmail confirms, then pulls Gmail's
 facts. `reconcileNow` is the only way to start one, and a second caller arriving
-mid-pass joins the pass in flight rather than starting a second writer.
+mid-pass requests a follow-up pass. All callers wait until those passes finish.
+The run retains rejection notices across its follow-ups. Account removal closes
+admission and waits for all accepted work before checking pending changes.
 
 **Nothing reconciles in the background.** A pass runs when the application
 opens, when a person records triage, and when a person presses Retry. Owed work
@@ -115,7 +122,7 @@ page immediately and the page still comes back full.
 | `handle.ts` | the one way both stores read and write their database |
 | `mailbox.ts` | one account's disposable cache, which is one file, and the overlay |
 | `intent-store.ts` | one account's slice of the durable assertions, keyed by `sub` |
-| `assert.ts` | the act path: entirely local, resolves label names to ids |
+| `assert.ts` | the act path: entirely local, records captured label ids |
 | `reconcile.ts` | the one Gmail writer: drain, then pull |
 | `outbox.ts` | what is owed, what the last pass said, and the two as one view |
 | `sync.ts` | full pull and incremental `history.list` folding |

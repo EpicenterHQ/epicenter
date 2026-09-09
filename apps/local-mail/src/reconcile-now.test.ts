@@ -13,17 +13,18 @@
 
 import { expect, test } from 'bun:test';
 import type { Device } from '@epicenter/device';
+import type { MailSession } from './accounts.ts';
 import {
 	createMailApp,
 	type MailApp,
 	reconcileNow,
 	removeAccount,
+	withSession,
 } from './accounts.ts';
 import { DEFAULT_MAIL_CONFIG } from './config.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
 import { OAuthError } from './oauth.ts';
 import { readOutbox } from './outbox.ts';
-import type { ReconcileDeps } from './reconcile.ts';
 import type { GmailLabel, GmailMessage, HistoryPage } from './schema.ts';
 import { openTestSession, type TestSession } from './session.test-support.ts';
 import { LOCAL_MAIL_APP_ID } from './storage.ts';
@@ -128,7 +129,7 @@ function scriptedGmail() {
 async function openApp(): Promise<{
 	app: MailApp;
 	session: TestSession;
-	deps: ReconcileDeps;
+	deps: MailSession;
 	gmail: ReturnType<typeof scriptedGmail>;
 	forgotten: string[];
 	close(): void;
@@ -136,15 +137,15 @@ async function openApp(): Promise<{
 	const session = await openTestSession(SUB);
 	const gmail = scriptedGmail();
 	await session.mailbox.ingestFullPullPage([message('m1')], AT);
-	await session.mailbox.ingestLabels(LABELS, AT);
+	await session.mailbox.ingestLabels(LABELS);
 	await session.mailbox.finishFullPull('1', AT);
 	await session.localDatabase.run(
-		`INSERT INTO accounts (sub, email, connected_at, last_synced_at)
-		 VALUES (?, 'person@example.com', ?, NULL)`,
+		`INSERT INTO accounts (sub, email, connected_at)
+		 VALUES (?, 'person@example.com', ?)`,
 		[SUB, AT],
 	);
 
-	const deps: ReconcileDeps = {
+	const deps: MailSession = {
 		sub: SUB,
 		mailbox: session.mailbox,
 		intents: session.intents,
@@ -170,7 +171,7 @@ async function openApp(): Promise<{
 		config: DEFAULT_MAIL_CONFIG,
 		now: () => NOW,
 	});
-	app.sessions.set(SUB, Promise.resolve(deps));
+	app.activity.set(SUB, { session: Promise.resolve(deps), pending: new Set() });
 
 	return { app, session, deps, gmail, forgotten, close: session.close };
 }
@@ -326,6 +327,120 @@ test('removal still refuses when the pass it waited for could not deliver', asyn
 		const removed = await removeAccount(app, SUB);
 		expect(removed.error?.name).toBe('OwesWork');
 		expect(forgotten).toEqual([]);
+	} finally {
+		close();
+	}
+});
+
+test('a request during delivery covers a newly recorded assertion before settling', async () => {
+	const { app, session, gmail, close } = await openApp();
+	try {
+		await archive(session);
+		gmail.hold();
+		const first = reconcileNow(app, SUB);
+		while (gmail.modifyCalls.length === 0) await Bun.sleep(1);
+		await withSession(app, SUB, (held) =>
+			held.intents.assert(
+				[{ messageId: 'm2', labelId: 'INBOX', want: false }],
+				AT,
+			),
+		);
+		const second = reconcileNow(app, SUB);
+		gmail.release();
+		await Promise.all([first, second]);
+		expect(gmail.modifyCalls).toEqual(['m1', 'm2']);
+		expect(await session.intents.count()).toBe(0);
+	} finally {
+		gmail.release();
+		close();
+	}
+});
+
+test('removal waits for an admitted local write and refuses new account work', async () => {
+	const { app, forgotten, close } = await openApp();
+	const gate = Promise.withResolvers<void>();
+	try {
+		const writing = withSession(app, SUB, async (session) => {
+			await gate.promise;
+			return session.intents.assert(
+				[{ messageId: 'm1', labelId: 'TRASH', want: true }],
+				AT,
+			);
+		});
+		const removing = removeAccount(app, SUB);
+		await expect(withSession(app, SUB, async () => undefined)).rejects.toThrow(
+			'being removed',
+		);
+		await expect(reconcileNow(app, SUB)).rejects.toThrow('being removed');
+		gate.resolve();
+		await writing;
+		expect((await removing).error?.name).toBe('OwesWork');
+		expect(forgotten).toEqual([]);
+		expect(
+			await withSession(app, SUB, (session) => session.intents.count()),
+		).toBe(1);
+	} finally {
+		gate.resolve();
+		close();
+	}
+});
+
+for (const microtasks of [0, 1, 2, 3, 4, 5, 6]) {
+	test(`a sync request at completion is covered (${microtasks} microtasks)`, async () => {
+		const { app, deps, close } = await openApp();
+		const requested = Promise.withResolvers<Promise<unknown>>();
+		let pulls = 0;
+		const listLabels = deps.client.listLabels;
+		deps.client.listLabels = async () => {
+			pulls++;
+			return listLabels();
+		};
+		const record = deps.passes.record;
+		let scheduled = false;
+		deps.passes.record = async (report) => {
+			const result = await record(report);
+			if (!scheduled) {
+				scheduled = true;
+				let remaining = microtasks;
+				const request = () => {
+					if (remaining-- > 0) queueMicrotask(request);
+					else requested.resolve(reconcileNow(app, SUB));
+				};
+				queueMicrotask(request);
+			}
+			return result;
+		};
+		try {
+			await reconcileNow(app, SUB);
+			await requested.promise;
+			expect(pulls).toBe(2);
+		} finally {
+			close();
+		}
+	});
+}
+
+test('a coalesced follow-up preserves the rejection from its first pass', async () => {
+	const { app, deps, session, close } = await openApp();
+	let followup: Promise<unknown> | undefined;
+	deps.client.modifyMessage = async () => {
+		followup = reconcileNow(app, SUB);
+		return GmailApiError.Http({
+			status: 404,
+			body: 'message no longer exists',
+		});
+	};
+	try {
+		await archive(session);
+		const outcome = await reconcileNow(app, SUB);
+		await followup;
+		expect(outcome.pass.discarded).toHaveLength(1);
+		expect((await session.passes.read())?.discarded).toEqual(
+			outcome.pass.discarded,
+		);
+		expect(await session.intents.count()).toBe(0);
+		await reconcileNow(app, SUB);
+		expect((await session.passes.read())?.discarded).toEqual([]);
 	} finally {
 		close();
 	}

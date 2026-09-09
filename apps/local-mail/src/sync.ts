@@ -15,7 +15,6 @@ export type SyncMode = 'FULL' | 'INCREMENTAL';
 type ModeDecision = { mode: SyncMode; reason: string };
 
 type ModeInputs = {
-	forceFull: boolean;
 	cacheState: CacheState;
 	now: number;
 	historySafeWindowDays: number;
@@ -32,14 +31,11 @@ type ModeInputs = {
  * actually have.
  */
 export function decideMode({
-	forceFull,
 	cacheState,
 	now,
 	historySafeWindowDays,
 	fullBackstopDays,
 }: ModeInputs): ModeDecision {
-	if (forceFull) return { mode: 'FULL', reason: 'forced' };
-
 	if (!cacheState.historyId)
 		return { mode: 'FULL', reason: 'no cursor (first run)' };
 	if (!cacheState.lastSyncedAt) {
@@ -192,7 +188,7 @@ async function fullPull(
 
 	const labels = await client.listLabels();
 	if (labels.error) return { upserted, failure: labels.error };
-	await mailbox.ingestLabels(labels.data, syncedAt);
+	await mailbox.ingestLabels(labels.data);
 
 	return { upserted, failure: null };
 }
@@ -316,7 +312,7 @@ async function incrementalPoll(
 			`labels.list failed during incremental refresh: ${labels.error.message}`,
 		);
 	} else {
-		await mailbox.ingestLabels(labels.data, syncedAt);
+		await mailbox.ingestLabels(labels.data);
 	}
 
 	const { labelsChanged } = await mailbox.applyHistoryBatch({
@@ -344,17 +340,13 @@ async function incrementalPoll(
  * fall back to FULL within the same pass if the cursor turns out to be
  * expired (`HistoryExpired`) even though `decideMode` thought it was fresh.
  */
-export async function syncMailbox(
-	deps: SyncDeps,
-	{ forceFull }: { forceFull: boolean },
-): Promise<SyncOutcome> {
+export async function syncMailbox(deps: SyncDeps): Promise<SyncOutcome> {
 	const { mailbox, config, now } = deps;
 	const log = deps.log ?? (() => {});
 
 	const cacheState = await mailbox.readCacheState();
 	const nowMs = now();
 	const decision = decideMode({
-		forceFull,
 		cacheState,
 		now: nowMs,
 		historySafeWindowDays: config.historySafeWindowDays,
