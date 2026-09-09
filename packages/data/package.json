@@ -26,7 +26,8 @@
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.dom.json && tsc --noEmit -p evidence/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/browser/port-cost/tsconfig.json",
-		"test": "bun test"
+		"test": "bun test",
+		"bench": "bun src/__benchmarks__/root-rotation.bench.ts && bun src/__benchmarks__/checkout.bench.ts"
 	},
 	"dependencies": {
 		"@epicenter/blobs": "workspace:*",
