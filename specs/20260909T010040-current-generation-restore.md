@@ -2,15 +2,50 @@
 
 **Status:** In Progress
 
+## Shared startup integration and remaining proof
+
+The user assigned the overlapping startup boundary to the Honeycrisp
+library-ownership continuation and selected one current authority with full
+page reopening. Follow `20260909T004225-library-ownership-execution.md` for its
+active implementation and exact evidence. The paused initializer proposal in
+ADR-0385 has been reconciled with this contract: no list/max adoption or separate
+initial-generation owner participates in startup.
+
+The continuation owns `packages/server/src/store-sync/`, the shared route
+constants, and browser acquisition. It mounts the existing current-authority
+transaction, binds hibernated sockets to their admitted generation, and uses the
+optional-header cache for App startup. Historical numbered libraries remain
+untouched and their rollout remains a separate decision. The Honeycrisp Alice/Bob browser slice and 31 Worker tests pass. Exact commands
+and limits are in the ownership execution spec; production restore remains
+unmounted.
+
+Remaining restore work:
+
+1. Compose verified archive storage and blob installation with a retained backup
+   and durable activation request. Prove durability, retention, request-bound
+   receipt recovery, and the deliberate restore operation.
+2. Extend complete browser and Worker proof to production restore activation,
+   interruption, failed invalidation, obsolete downloads, and real hibernation.
+   Preserve working-copy mismatch refusal.
+3. Keep restore generation retirement distinct from Account retirement and
+   ordinary library switching. Only confirmed generation retirement authorizes
+   discarding a replica's pending edits.
+
+No restore endpoint, deployment, destructive migration, or real-library deletion
+is authorized by the Honeycrisp slice. This spec remains In Progress.
+
+
+## Restore scope
+
 Restore replaces the library's current generation; devices invalidate retired
 IndexedDB replicas and reload, while ordinary use stays cache-first and
 offline-capable.
 
 The design is in [ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md).
-The unmounted current authority now lives in `packages/data/src/sync/authority.ts`.
+The current authority now lives in `packages/data/src/sync/authority.ts`.
 Its portable transactions and generation-bound hub lifetimes are exercised under
 `packages/data/evidence/current-generation/`. The replaced native Bun harness has
-been deleted. Production still has separately writable numbered generations. Done means the
+been deleted. Production browser startup now uses the stable current authority. Done means the
 authority rejects all retired writes, browser invalidation survives interruptions,
 restore preserves its promised archive contents, and affected applications reload
 through normal bootstrap without a generation picker.
