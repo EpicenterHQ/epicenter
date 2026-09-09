@@ -35,13 +35,15 @@
 		"@tauri-apps/api": "catalog:",
 		"@y/y": "14.0.0-rc.24",
 		"arktype": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"openai": "^7.12.1"
 	},
 	"license": "AGPL-3.0-or-later"
 }

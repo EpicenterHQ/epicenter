@@ -14,6 +14,7 @@
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
+		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/app": "workspace:*",
 		"@epicenter/app-shell": "workspace:*",

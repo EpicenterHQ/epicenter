@@ -1,16 +1,6 @@
 <script lang="ts">
-	/**
-	 * The shared, model-first inference picker (ADR-0059). One flat searchable list
-	 * of models grouped by connection: the hosted Epicenter catalog plus each
-	 * device-local custom connection's discovered models, with "Connect a
-	 * provider..." as the footer escape hatch. The model is the only leaf; the
-	 * connection (billing / location) is a group facet, never a level.
-	 *
-	 * The device's connections, discovery, and resolution all live in the injected
-	 * {@link InferenceConnections} registry, so this component is just UI: it reads
-	 * the registry and calls its methods. Mounted like `<AccountPopover />`: once per
-	 * chat surface, bound to that app's registry.
-	 */
+	/** Models grouped by their exact connection. A pick saves both before updating
+	 * the synced model; identical model ids never imply identical destinations. */
 	import {
 		CONNECTION_PRESETS,
 		type ListModelsError,
@@ -25,17 +15,18 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
-	import Cloud from '@lucide/svelte/icons/cloud';
 	import Eye from '@lucide/svelte/icons/eye';
 	import EyeOff from '@lucide/svelte/icons/eye-off';
-	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { SvelteSet } from 'svelte/reactivity';
-	import type { InferenceConnections } from './connections.svelte.js';
+	import type { Snippet } from 'svelte';
+		import type { InferenceConnections } from './connections.svelte.js';
 
 	type Props = {
+		/** Device-local selection scope, normally the conversation id. */
+		scope: string;
 		/** The conversation's current model id (synced, ADR-0055). */
 		model: string;
 		/** Commit a model pick. Writes the synced conversation model column. */
@@ -44,9 +35,16 @@
 		connections: InferenceConnections;
 		/** Disable while a turn generates, so a transcript never spans backends. */
 		disabled?: boolean;
+		/** Suggestions appropriate to this workflow's account operation. */
+		accountModels?: InferenceConnections['hostedModels'];
+		/** Native file inference is useful to audio workflows only. */
+		includeRuntime?: boolean;
+		placeholder?: string;
+		additionalOptions?: Snippet<[close: () => void]>;
 	};
 
-	let { model, onSelectModel, connections, disabled = false }: Props = $props();
+	let { scope, model, onSelectModel, connections, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model', additionalOptions }: Props = $props();
+	const models = $derived(accountModels ?? connections.hostedModels);
 
 	let open = $state(false);
 	let view = $state<'list' | 'connect'>('list');
@@ -55,6 +53,8 @@
 	// is showing; a value means its sub-form is.
 	let formPreset = $state<PresetId | 'custom' | null>(null);
 	let formBaseUrl = $state('');
+ let formName = $state('');
+ let editingId = $state<string | null>(null);
 	let formApiKey = $state('');
 	let formModel = $state('');
 	let showKey = $state(false);
@@ -77,6 +77,8 @@
 	function resetConnectForm() {
 		formPreset = null;
 		formBaseUrl = '';
+  formName = '';
+  editingId = null;
 		formApiKey = '';
 		formModel = '';
 		showKey = false;
@@ -100,48 +102,33 @@
 		}
 	}
 
-	function isLocal(baseUrl: string): boolean {
-		return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl);
-	}
-
-	function localityLabel(baseUrl: string): 'local' | 'cloud' {
-		return isLocal(baseUrl) ? 'local' : 'cloud';
-	}
-
-	// Derive the group label from the stored base URL: match a preset by its full
-	// normalized base URL (so a self-hosted proxy that merely shares a host won't
-	// false-match, and Ollama's :11434 stays distinct from LM Studio's :1234), else
-	// fall back to the URL host. Derived, not stored, so it cannot drift when the
-	// user edits the URL (ADR-0060).
-	function connectionLabel(baseUrl: string): string {
-		const normalized = baseUrl.replace(/\/+$/, '');
-		const preset = CONNECTION_PRESETS.find(
-			(p) => p.baseUrl.replace(/\/+$/, '') === normalized,
-		);
-		if (preset) return preset.label;
+	function hostLabel(baseUrl: string): string {
 		try {
-			return new URL(baseUrl).host;
+			const url = new URL(baseUrl);
+			return `${url.host}${url.pathname.replace(/\/+$/, '')}`;
 		} catch {
-			return baseUrl;
+			return 'Invalid endpoint';
 		}
 	}
 
-	const requiresKey = $derived(
-		formPreset === 'custom' ||
-			(formPreset !== null &&
-				(CONNECTION_PRESETS.find((p) => p.id === formPreset)?.requiresKey ??
-					false)),
-	);
 
-	// The label on the closed trigger: a hosted model shows its product role
-	// (Fast, Best); a custom model shows its raw id (Ollama ids have no nice name).
+	const selected = $derived(connections.target(scope, model));
 	const triggerLabel = $derived(
-		!model
-			? 'Select model'
-			: (connections.hostedModels.find((m) => m.id === model)?.label ?? model),
+		!selected
+			? placeholder
+			: selected.connectionId === connections.runtimeId
+				? `${model} · This device`
+			: selected.connectionId === connections.accountId
+				? `${models.find((entry) => entry.id === model)?.label ?? model} · ${connections.accountLabel}`
+				: `${model} · ${connections.custom.find(entry => entry.id === selected.connectionId)?.name ?? "Unavailable connection"}`,
 	);
 
-	function selectModel(id: string) {
+	function isSelected(connectionId: string, id: string) {
+		return selected?.connectionId === connectionId && selected.model === id;
+	}
+
+	function selectModel(connectionId: string, id: string) {
+		connections.select(scope, { connectionId, model: id });
 		onSelectModel(id);
 		open = false;
 	}
@@ -176,15 +163,16 @@
 		const baseUrl = formBaseUrl.trim();
 		const trimmedModel = chosenModel.trim();
 		if (!baseUrl || !trimmedModel) return;
-		connections.add(
+		const id = editingId ?? connections.add(
 			{
 				baseUrl,
+    name: formName.trim() || undefined,
 				apiKey: formApiKey.trim() || undefined,
 			},
-			discovered ?? undefined,
+			[...new Set([...(discovered ?? []), trimmedModel])],
 		);
-		onSelectModel(trimmedModel);
-		open = false;
+		if (editingId) connections.update(editingId, { name: formName.trim() || connections.custom.find(entry => entry.id === editingId)?.name || 'Connection', baseUrl, apiKey: formApiKey.trim() || undefined, models: [...new Set([...(connections.custom.find(entry => entry.id === editingId)?.models ?? []), ...(discovered ?? []), trimmedModel])] });
+  selectModel(id, trimmedModel);
 	}
 
 	// Reopening the picker always lands on the model list, never a half-filled form.
@@ -193,6 +181,9 @@
 			view = 'list';
 			resetConnectForm();
 		}
+	});
+	$effect(() => {
+		if (open && includeRuntime) void connections.refreshRuntime();
 	});
 
 	// Auto-discover on a debounced change of the connect form's endpoint or key.
@@ -207,6 +198,7 @@
 			discovering = false;
 			return;
 		}
+		discovered = null;
 		let cancelled = false;
 		discovering = true;
 		discoveryError = null;
@@ -228,14 +220,6 @@
 	});
 </script>
 
-{#snippet localityIcon(baseUrl: string)}
-	{#if isLocal(baseUrl)}
-		<HardDrive class="size-4 shrink-0 opacity-70" />
-	{:else}
-		<Cloud class="size-4 shrink-0 opacity-70" />
-	{/if}
-{/snippet}
-
 <Popover.Root bind:open>
 	<Popover.Trigger>
 		{#snippet child({ props })}
@@ -245,6 +229,7 @@
 				variant="outline"
 				size="sm"
 				role="combobox"
+				aria-label={triggerLabel}
 				aria-expanded={open}
 				class="max-w-56 justify-between gap-2 font-normal"
 			>
@@ -259,65 +244,93 @@
 				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-80">
 					<Command.Empty>No models found.</Command.Empty>
+					{#if includeRuntime && connections.runtimeId}
+						<Command.Group heading="This device">
+							{#each connections.runtimeModels as id (id)}
+								<Command.Item value="native {id}" onSelect={() => selectModel(connections.runtimeId!, id)}>
+									<Check class="size-4 {isSelected(connections.runtimeId!, id) ? 'opacity-100' : 'opacity-0'}" />
+									<span class="break-all">{id}</span>
+								</Command.Item>
+							{/each}
+							<div class="flex gap-1 p-2">
+								<Input bind:value={formModel} aria-label="Native model ID" placeholder="Enter an installed model ID" />
+								<Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(connections.runtimeId!, formModel.trim())}>Use</Button>
+							</div>
+						</Command.Group>
+					{/if}
 
-					{#if connections.hostedModels.length > 0}
-						<Command.Group heading="Epicenter · metered">
-							{#each connections.hostedModels as hostedModel (hostedModel.id)}
+					{#if connections.ai.account && connections.accountId}
+						<Command.Group heading={`Connected account · ${connections.accountLabel}`}>
+							{#each models as hostedModel (hostedModel.id)}
 								<Command.Item
-									value={`${hostedModel.label} ${hostedModel.id}`}
+									value={`hosted ${hostedModel.id}`}
 									keywords={[hostedModel.id, hostedModel.label]}
-									onSelect={() => selectModel(hostedModel.id)}
+									onSelect={() => selectModel(connections.accountId!, hostedModel.id)}
 								>
 									<Check
-										class="size-4 shrink-0 {model === hostedModel.id
+										class="size-4 shrink-0 {isSelected(connections.accountId!, hostedModel.id)
 											? 'opacity-100'
 											: 'opacity-0'}"
 									/>
 									<span class="flex-1 truncate">{hostedModel.label}</span>
-									<span class="text-xs text-muted-foreground">
-										{hostedModel.credits} cr
-									</span>
+
 								</Command.Item>
 							{/each}
+       <div class="flex gap-1 p-2">
+        <Input bind:value={formModel} aria-label="Account model ID" placeholder="Enter a model ID" />
+        <Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(connections.accountId!, formModel.trim())}>Use</Button>
+       </div>
 						</Command.Group>
 					{/if}
 
-					{#each connections.custom as connection (connection.baseUrl)}
+					{#each connections.custom as connection (connection.id)}
 						{@const ids = connection.models ?? []}
-						{@const label = connectionLabel(connection.baseUrl)}
-						{@const locality = localityLabel(connection.baseUrl)}
-						<Command.Group heading="{label} · {locality}">
+						{@const label = connection.name}
+						<Command.Group heading={label}>
 							{#each ids as id (id)}
 								<Command.Item
-									value="{id} {label}"
-									keywords={[id]}
-									onSelect={() => selectModel(id)}
+									value="{connection.id} {id}"
+									keywords={[id, label]}
+									onSelect={() => selectModel(connection.id, id)}
 								>
 									<Check
-										class="size-4 shrink-0 {model === id
+										class="size-4 shrink-0 {isSelected(connection.id, id)
 											? 'opacity-100'
 											: 'opacity-0'}"
 									/>
-									{@render localityIcon(connection.baseUrl)}
 									<span
-										class="line-clamp-2 flex-1 break-all {model === id
+										class="line-clamp-2 flex-1 break-all {isSelected(connection.id, id)
 											? 'font-medium'
 											: ''}"
 										title={id}>{id}</span>
 								</Command.Item>
 							{:else}
-								<Command.Item disabled value="{connection.baseUrl} empty">
+								<Command.Item disabled value="{connection.id} empty">
 									<span class="text-xs text-muted-foreground">
 										No models discovered
 									</span>
 								</Command.Item>
 							{/each}
 							<Command.Item
-								value="refresh {connection.baseUrl}"
-								disabled={refreshingBaseUrls.has(connection.baseUrl)}
-								onSelect={() => refreshConnection(connection.baseUrl)}
+								value="configure {connection.id}"
+								onSelect={() => {
+									choosePreset('custom');
+									formBaseUrl = connection.baseUrl;
+         formName = connection.name;
+         editingId = connection.id;
+									formApiKey = connection.apiKey ?? '';
+									view = 'connect';
+								}}
 							>
-								{#if refreshingBaseUrls.has(connection.baseUrl)}
+								<Plus class="size-4" />
+								<span class="text-xs">Edit {label} or enter a model</span>
+							</Command.Item>
+							<Command.Item
+								value="refresh {connection.id}"
+								disabled={refreshingBaseUrls.has(connection.id)}
+								onSelect={() => refreshConnection(connection.id)}
+							>
+								{#if refreshingBaseUrls.has(connection.id)}
 									<Spinner class="size-4" />
 								{:else}
 									<RefreshCw class="size-4" />
@@ -325,8 +338,8 @@
 								<span class="text-xs">Refresh {label}</span>
 							</Command.Item>
 							<Command.Item
-								value="remove {connection.baseUrl}"
-								onSelect={() => connections.remove(connection.baseUrl)}
+								value="remove {connection.id}"
+								onSelect={() => connections.remove(connection.id)}
 							>
 								<Trash2 class="size-4" />
 								<span class="text-xs">Remove {label}</span>
@@ -335,6 +348,7 @@
 					{/each}
 
 					<Command.Separator />
+					{@render additionalOptions?.(() => { open = false; })}
 					<Command.Item
 						value="connect a provider"
 						onSelect={() => (view = 'connect')}
@@ -366,10 +380,9 @@
 									value={preset.label}
 									onSelect={() => choosePreset(preset.id)}
 								>
-									{@render localityIcon(preset.baseUrl)}
 									<span class="flex-1">{preset.label}</span>
 									<span class="text-xs text-muted-foreground">
-										{localityLabel(preset.baseUrl)}
+										{hostLabel(preset.baseUrl)}
 									</span>
 								</Command.Item>
 							{/each}
@@ -385,41 +398,42 @@
 					</Command.Root>
 				{:else}
 					<div class="space-y-1">
-						<Label for="conn-url" class="text-xs">Base URL</Label>
+						<Label for="conn-name" class="text-xs">Name</Label>
+      <Input id="conn-name" bind:value={formName} placeholder="Connection name" />
+      <Label for="conn-url" class="text-xs">Base URL</Label>
 						<Input
 							id="conn-url"
 							bind:value={formBaseUrl}
+							oninput={() => (formApiKey = '')}
 							placeholder="http://localhost:11434/v1"
 						/>
 					</div>
 
-					{#if requiresKey}
-						<div class="space-y-1">
-							<Label for="conn-key" class="text-xs">
-								API key{formPreset === 'custom' ? ' (optional)' : ''}
-							</Label>
-							<div class="flex gap-1">
-								<Input
-									id="conn-key"
-									type={showKey ? 'text' : 'password'}
-									bind:value={formApiKey}
-									placeholder="sk-..."
-								/>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									onclick={() => (showKey = !showKey)}
-									aria-label={showKey ? 'Hide key' : 'Show key'}
-								>
-									{#if showKey}
-										<EyeOff class="size-4" />
-									{:else}
-										<Eye class="size-4" />
-									{/if}
-								</Button>
-							</div>
+					<div class="space-y-1">
+						<Label for="conn-key" class="text-xs">
+							API key (if required by your server)
+						</Label>
+						<div class="flex gap-1">
+							<Input
+								id="conn-key"
+								type={showKey ? 'text' : 'password'}
+								bind:value={formApiKey}
+								placeholder="sk-..."
+							/>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								onclick={() => (showKey = !showKey)}
+								aria-label={showKey ? 'Hide key' : 'Show key'}
+							>
+								{#if showKey}
+									<EyeOff class="size-4" />
+								{:else}
+									<Eye class="size-4" />
+								{/if}
+							</Button>
 						</div>
-					{/if}
+					</div>
 
 					<div class="space-y-1">
 						<Label class="text-xs">Model</Label>
@@ -460,17 +474,17 @@
 									Enter an endpoint to load models.
 								</p>
 							{/if}
-							<div class="flex gap-1">
-								<Input bind:value={formModel} placeholder="qwen2.5:3b" />
-								<Button
-									size="sm"
-									disabled={!formBaseUrl.trim() || !formModel.trim()}
-									onclick={() => commitConnection(formModel)}
-								>
-									Add
-								</Button>
-							</div>
 						{/if}
+						<div class="flex gap-1">
+							<Input bind:value={formModel} aria-label="Model ID" placeholder="Enter a model ID" />
+							<Button
+								size="sm"
+								disabled={!formBaseUrl.trim() || !formModel.trim()}
+								onclick={() => commitConnection(formModel)}
+							>
+								Add
+							</Button>
+						</div>
 					</div>
 
 					<p class="text-xs text-muted-foreground">

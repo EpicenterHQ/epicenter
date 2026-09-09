@@ -2,12 +2,9 @@
  * Tier-1 smoke test for the OpenAI-compatible inference method (ADR-0049/0050)
  * against a local Ollama, with no auth, no API, and no UI.
  *
- * It drives the exact production seam: it builds the same {@link AgentEngine} the
- * Vocab chat uses (`createOpenAiAgentEngine`) and resolves the transport through
- * the same `resolveConnection` the header picker stores (ADR-0060), with a
- * connection pointed at Ollama. So a green run here means the engine, the
- * system prompts, and the SSE tool-call/text reducer all work end to end against
- * a real OpenAI-compatible server, before any of the auth-gated app is involved.
+ * It builds the same agent engine Vocab chat uses (`createOpenAiAgentEngine`)
+ * with an explicit SDK client pointed at Ollama. A green run verifies the
+ * system prompts, SDK streaming, and tool-call reducer against a real server.
  *
  * It doubles as a model-comparison harness: pass a model and a prompt.
  *
@@ -33,10 +30,10 @@
  *   OLLAMA_API_KEY    Bearer key for a hosted endpoint (omit for local Ollama)
  */
 
+import OpenAI from 'openai';
 import {
 	type AgentEngineRequest,
 	createOpenAiAgentEngine,
-	resolveConnection,
 } from '@epicenter/client';
 import { VOCAB_SYSTEM_PROMPT } from '../vocab.js';
 
@@ -86,16 +83,17 @@ async function preflight(): Promise<void> {
 async function main(): Promise<void> {
 	await preflight();
 
-	// The exact device-connection path the header picker stores (ADR-0060): a
-	// connection carries no Epicenter bearer (the resolver never sees one), so this
-	// turn reaches only the user's URL with the user's key. The model is paired
-	// separately below (a connection carries no model).
-	const { fetch, baseURL } = resolveConnection({ baseUrl, apiKey });
+	// The explicit SDK client owns this script's endpoint and optional key.
+	const client = new OpenAI({
+		baseURL: baseUrl,
+		apiKey: apiKey || 'unauthenticated',
+		defaultHeaders: apiKey ? undefined : { Authorization: null },
+		maxRetries: 0,
+	});
 
 	const engine = createOpenAiAgentEngine({
 		data: () => ({
-			fetch,
-			baseURL,
+			client,
 			model,
 			systemPrompts: [VOCAB_SYSTEM_PROMPT],
 		}),

@@ -1,4 +1,10 @@
+/**
+ * Dictation lifetime tests over the actual SDK transcription client.
+ * Close joins microphone startup, accepts its final flush, drains the response,
+ * and rejects late callbacks or an unsuccessful recorder teardown.
+ */
 import { expect, mock, test } from 'bun:test';
+import OpenAI from 'openai';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -9,7 +15,7 @@ mock.module('$lib/data', () => ({ VOCAB_STT_MODEL: 'whisper-1' }));
 let start = async (_options: { onSpeechEnd(blob: Blob): void }) =>
 	Ok(undefined);
 let stop = async (): Promise<unknown> => Ok(undefined);
-let transcribe = async () => Ok('phrase');
+let respond = async () => Response.json({ text: 'phrase' });
 mock.module('@epicenter/recorder', () => ({
 	createVadRecorder: () => ({
 		startActiveListening: (options: { onSpeechEnd(blob: Blob): void }) =>
@@ -17,9 +23,14 @@ mock.module('@epicenter/recorder', () => ({
 		stopActiveListening: () => stop(),
 	}),
 }));
-mock.module('@epicenter/client', () => ({ transcribe: () => transcribe() }));
-const { createDictation } = await import('./dictation.svelte');
-const transport = { resolveOrHosted: () => ({}) } as unknown as Parameters<typeof createDictation>[0];
+const { createDictation } = await import('./dictation.svelte.js');
+const client = new OpenAI({
+	apiKey: 'test',
+	baseURL: 'https://dictation.test/v1',
+	maxRetries: 0,
+	fetch: (input) =>
+		String(input) === 'data:,' ? Promise.resolve(new Response()) : respond(),
+});
 
 test('close joins microphone startup, stops it, then drains captured phrases', async () => {
 	const started = Promise.withResolvers<void>();
@@ -37,12 +48,12 @@ test('close joins microphone startup, stops it, then drains captured phrases', a
 		speechEnd?.(new Blob(['last phrase']));
 		return Ok(undefined);
 	};
-	transcribe = async () => {
+	respond = async () => {
 		events.push('transcribe');
 		await transcribed.promise;
-		return Ok('last phrase');
+		return Response.json({ text: 'last phrase' });
 	};
-	const dictation = createDictation(transport);
+	const dictation = createDictation(client);
 	const options = { onTranscript: () => events.push('delivered') };
 	const starting = dictation.start(options);
 	const duplicate = dictation.start(options);
@@ -72,21 +83,30 @@ test('a failed recorder stop refuses close instead of declaring it drained', asy
 	const failure = { name: 'StopFailed', message: 'microphone teardown failed' };
 	start = async () => Ok(undefined);
 	stop = async () => ({ data: null, error: failure });
-	const dictation = createDictation(transport);
+	const dictation = createDictation(client);
 	expectOk(await dictation.start({ onTranscript() {} }));
 	await expect(dictation.close()).rejects.toEqual(failure);
 	expect(dictation.status).toBe('listening');
 });
 
-
 test('close accepts the stop flush but rejects a late model callback after stop', async () => {
 	const delivered: string[] = [];
 	let speechEnd: ((blob: Blob) => void) | undefined;
-	start = async (options) => { speechEnd = options.onSpeechEnd; return Ok(undefined); };
-	stop = async () => { speechEnd?.(new Blob(['flush'])); return Ok(undefined); };
-	transcribe = async () => Ok('captured');
-	const dictation = createDictation(transport);
-	expectOk(await dictation.start({ onTranscript: (result) => delivered.push(expectOk(result)) }));
+	start = async (options) => {
+		speechEnd = options.onSpeechEnd;
+		return Ok(undefined);
+	};
+	stop = async () => {
+		speechEnd?.(new Blob(['flush']));
+		return Ok(undefined);
+	};
+	respond = async () => Response.json({ text: 'captured' });
+	const dictation = createDictation(client);
+	expectOk(
+		await dictation.start({
+			onTranscript: (result) => delivered.push(expectOk(result)),
+		}),
+	);
 	await dictation.close();
 	expect(delivered).toEqual(['captured']);
 	speechEnd?.(new Blob(['late frame']));

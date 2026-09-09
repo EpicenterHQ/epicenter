@@ -151,6 +151,26 @@ test('same-owner refresh preserves an account client and sign-out retires its st
  auth[Symbol.dispose]();
 });
 
+test('App retirement never turns partial tool arguments into an executable call', async () => {
+ const { createOpenAiAgentEngine } = await import('@epicenter/client');
+ const received = Promise.withResolvers<void>();
+ const { ai, close } = setup(async () => new Response(new ReadableStream({
+  start(controller) {
+   controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool-1","function":{"name":"remove","arguments":"{"}}]}}]}\n\n'));
+  },
+  pull() { received.resolve(); },
+ }), { headers: { 'content-type': 'text/event-stream' } }));
+ const engine = createOpenAiAgentEngine({ data: () => ({ client: ai.account!.client, model: 'chosen', systemPrompts: [] }) });
+ const caller = new AbortController();
+ const chunks = (async () => { const result = []; for await (const chunk of engine({ messages: [], tools: [] }, caller.signal)) result.push(chunk); return result; })();
+ await received.promise;
+ await close();
+ const result = await chunks;
+ expect(caller.signal.aborted).toBe(false);
+ expect(result.some(chunk => chunk.type === 'tool-call')).toBe(false);
+ expect(result.some(chunk => chunk.type === 'run-error')).toBe(true);
+});
+
 test('close reports cancellation failure even when headers arrive after retirement', async () => {
  const started = Promise.withResolvers<void>();
  const response = Promise.withResolvers<Response>();

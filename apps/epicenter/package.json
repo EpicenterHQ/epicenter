@@ -28,6 +28,7 @@
 		"typecheck:home": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
+		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/device": "workspace:*",
 		"@epicenter/auth": "workspace:*",

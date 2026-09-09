@@ -47,8 +47,9 @@
 	/* svelte-ignore state_referenced_locally */
 	const entries = createEntriesState({ data });
 	/* svelte-ignore state_referenced_locally */
-	const inferenceConnections = createVocabConnections(account);
-	const dictation = createDictation(inferenceConnections);
+	const inferenceConnections = createVocabConnections(opened);
+	/* svelte-ignore state_referenced_locally */
+	const dictation = createDictation(opened.ai.account?.client ?? null);
 	setVocabSurface({ entries, inferenceConnections, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:

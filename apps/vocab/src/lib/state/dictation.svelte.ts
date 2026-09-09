@@ -12,28 +12,26 @@
  * phrase does not end the session.
  *
  * Transcription is a stateless service (the spec's star/service/library model):
- * this holds no preferences and reaches for no sync. It pulls only the device
- * connection registry and Vocab's own app-local model constant.
+ * this holds no preferences and reaches for no sync. It receives its
+ * hosted transport and uses Vocab's app-local transcription model constant.
  *
- * The transport comes from `resolveOrHosted(VOCAB_STT_MODEL)`, the same predicate
- * chat uses. `whisper-1` is not in Vocab's hosted *chat* catalog, so nothing
- * "serves" it and the call falls back to the hosted transport: the STT gateway on
- * the same `<origin>/v1` Connection base, zero setup, metered. A user who added
- * their own OpenAI key that serves `whisper-1` dictates through that key instead,
- * off Epicenter credits, exactly like a custom chat model resolves first. So the
- * honest path is the registry's, not a hosted transport rebuilt here.
+ * Dictation explicitly uses the app's hosted transcription transport. Chat
+ * connection selection never changes where microphone audio is sent.
  */
 
-import { type TranscribeError, transcribe } from '@epicenter/client';
+import {
+
+	TranscribeError,
+} from '@epicenter/client';
 import {
 	createVadRecorder,
 	type DeviceStreamError,
 	type VadRecorderError,
 } from '@epicenter/recorder';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, tryAsync, type Result } from 'wellcrafted/result';
+import type OpenAI from 'openai';
 import { base } from '$app/paths';
 import { VOCAB_STT_MODEL } from '$lib/data';
-import type { createVocabConnections } from './inference-connections.svelte';
 
 /**
  * Where the mic is: closed, waiting for speech, or capturing a phrase.
@@ -42,9 +40,7 @@ import type { createVocabConnections } from './inference-connections.svelte';
  */
 export type DictationStatus = 'idle' | 'listening' | 'speaking';
 
-export function createDictation(
-	inferenceConnections: ReturnType<typeof createVocabConnections>,
-) {
+export function createDictation(client: OpenAI | null) {
 	// The VAD model and wasm are fetched at runtime, so their URL has to carry
 	// whatever prefix this build was served under. `base` is empty on Vocab's
 	// own deploy and `/apps/<dataId>` inside Epicenter (ADR-0210), which is
@@ -63,7 +59,7 @@ export function createDictation(
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
-		| Promise<Result<void, VadRecorderError | DeviceStreamError>>
+		| Promise<Result<void, VadRecorderError | DeviceStreamError | TranscribeError>>
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
 	let closing: Promise<void> | undefined;
@@ -115,8 +111,9 @@ export function createDictation(
 			onTranscript,
 		}: {
 			onTranscript: (result: Result<string, TranscribeError>) => void;
-		}): Promise<Result<void, VadRecorderError | DeviceStreamError>> {
+		}): Promise<Result<void, VadRecorderError | DeviceStreamError | TranscribeError>> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
+            if (!client) return TranscribeError.TransportFailed({ cause: new Error('This Account does not supply transcription.') });
 			if (starting) return starting;
 			const generation = ++callbackGeneration;
 			starting = (async () => {
@@ -142,13 +139,17 @@ export function createDictation(
 						inFlightCount += 1;
 						deliveries = deliveries
 							.then(async () => {
-								const transport = inferenceConnections.resolveOrHosted(VOCAB_STT_MODEL);
 								onTranscript(
 									// No language hint: a learner may dictate their question in the
 									// language they are studying, so Whisper auto-detects (ADR-0105).
-									await transcribe(blob, transport, {
-										model: VOCAB_STT_MODEL,
-									}),
+									await tryAsync({
+                                        try: async () => {
+                                            const result = await client.audio.transcriptions.create({ file: new File([blob], 'dictation.webm', { type: blob.type }), model: VOCAB_STT_MODEL });
+                                            if (typeof result.text !== 'string') throw new Error('Transcription returned no text.');
+                                            return result.text;
+                                        },
+                                        catch: cause => TranscribeError.TransportFailed({ cause }),
+                                    }),
 								);
 							})
 							// transcribe is Result-typed and never rejects; this only keeps a

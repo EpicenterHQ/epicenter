@@ -5,7 +5,8 @@
 		type ConversationHandle,
 	} from '@epicenter/app-shell/agent-chat';
 	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
-	import { complete } from '@epicenter/client';
+	import { CompleteError } from '@epicenter/client';
+ import { tryAsync } from 'wellcrafted/result';
 	import { Button } from '@epicenter/ui/button';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { untrack } from 'svelte';
@@ -140,13 +141,20 @@
 		const controller = new AbortController();
 		entryCandidateAbortController = controller;
 		entryCandidateRequest = { messageId, status: 'loading', candidates: [] };
-		const connection = inferenceConnections.resolveOrHosted(model);
-		const { data, error } = await complete(connection, {
-			model,
-			systemPrompt: buildEntryCandidatePrompt(),
-			userPrompt: passage,
-			signal: controller.signal,
-		});
+		const connection = active ? inferenceConnections.resolve(active.id, model) : null;
+		if (!connection) {
+			entryCandidateRequest = { messageId, status: 'error', candidates: [], detail: 'Choose a connection in the model menu before suggesting entries.' };
+			return;
+		}
+        const { data, error } = await tryAsync({
+            try: async () => {
+                const result = await connection.chat.completions.create({ model, messages: [{ role: 'system', content: buildEntryCandidatePrompt() }, { role: 'user', content: passage }], stream: false }, { signal: controller.signal });
+                const text = result.choices?.[0]?.message?.content;
+                if (typeof text !== 'string') throw new Error('The response contained no text.');
+                return text;
+            },
+            catch: cause => CompleteError.TransportFailed({ cause }),
+        });
 		// A dismiss, a cancel, or a request for another message may have superseded
 		// this one while it was in flight; drop the stale result rather than
 		// overwrite. (A cancel nulls the request, so an aborted request lands here.)

@@ -106,6 +106,7 @@
         "@tauri-apps/api": "catalog:",
         "hono": "catalog:",
         "mime": "catalog:",
+        "openai": "^7.12.1",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -451,6 +452,7 @@
         "@lucide/svelte": "catalog:",
         "arktype": "catalog:",
         "mode-watcher": "^1.1.0",
+        "openai": "^7.12.1",
         "pinyin-pro": "^3.28.0",
         "svelte-sonner": "catalog:",
         "transliteration": "^2.6.1",
@@ -621,6 +623,7 @@
       "version": "0.3.0",
       "dependencies": {
         "@epicenter/agent": "workspace:*",
+        "@epicenter/app": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/chat": "workspace:*",
         "@epicenter/client": "workspace:*",
@@ -637,6 +640,7 @@
       },
       "devDependencies": {
         "@types/bun": "catalog:",
+        "openai": "^7.12.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "typescript": "catalog:",
@@ -704,6 +708,7 @@
         "@epicenter/auth": "workspace:*",
         "@epicenter/blobs": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "openai": "^7.12.1",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

@@ -9,6 +9,7 @@
  */
 
 import { join } from 'node:path';
+import OpenAI from 'openai';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import {
@@ -196,21 +197,18 @@ export function homeEngineFromEnvironment(
 		};
 	}
 
+	const client = new OpenAI({
+		baseURL,
+		apiKey: apiKey || 'unauthenticated',
+		defaultHeaders: apiKey ? undefined : { Authorization: null },
+		maxRetries: 0,
+	});
+
 	return {
 		model,
 		engine: createOpenAiAgentEngine({
 			data: () => ({
-				fetch: apiKey
-					? (input, init) =>
-							fetch(input, {
-								...init,
-								headers: {
-									...init?.headers,
-									authorization: `Bearer ${apiKey}`,
-								},
-							})
-					: fetch,
-				baseURL,
+				client,
 				model,
 				systemPrompts: [
 					'You are Epicenter Home, a local assistant that acts across the apps on this machine through their tools.',

@@ -2,8 +2,8 @@
  * The inference connection: a device-local, capability-orthogonal endpoint
  * (ADR-0060, amending ADR-0059). A connection is just where + how to authenticate
  * to one OpenAI-compatible server; it carries no model and no capability, so one
- * connection can drive chat, transcription, or embeddings alike. The model is the
- * conversation's (ADR-0055), paired with the transport by the caller per turn.
+ * connection can drive chat, transcription, or embeddings alike. The caller pairs a model with
+ * the explicitly selected transport for each run (ADR-0363).
  *
  * There is no `kind` discriminant and no auth-strategy union. A connection is the
  * static data a human types into a form: a base URL and an optional bearer key.
@@ -12,7 +12,7 @@
  * hosted Epicenter gateway (an injected session fetch) and any future
  * signing/refresh auth (Bedrock SigV4, Vertex OAuth), never enters this shape: the
  * caller composes it into a {@link ResolvedConnection} and injects it. Hosted is
- * therefore not a member of this type; it is the registry's injected fallback
+ * therefore not a member of this type; it is the registry's injected hosted
  * transport (see `@epicenter/app-shell` `createInferenceConnections`).
  *
  * The leak guard is structural (ADR-0053): the Epicenter bearer is attached only by
@@ -38,9 +38,8 @@ export type PresetId = 'ollama' | 'lmstudio' | 'openai' | 'openrouter' | 'groq';
  * The data that distinguishes one OpenAI-compatible provider from another. The
  * key is always `Authorization: Bearer`, so a preset is pure data with no
  * matching code path: only the base URL and whether a key is needed differ. The
- * local-vs-cloud facet is derived from the base URL (is it `localhost`?), not
- * stored, so it cannot drift from the URL and a user-entered custom URL gets the
- * same treatment as a preset.
+ * endpoint address identifies the first hop, not where inference executes.
+ * Presets supply defaults; users can override the URL and optional key.
  */
 export type ConnectionPreset = {
 	id: PresetId;
@@ -94,8 +93,8 @@ export const CONNECTION_PRESETS = [
 /**
  * A device-local inference connection (ADR-0060): one OpenAI-compatible server
  * plus the optional bearer key to reach it. The device holds a set of these (see
- * `createInferenceConnections`); the conversation's model selects which one serves
- * a turn. `apiKey` is sent as `Authorization: Bearer <key>`; absent means a keyless
+ * `createInferenceConnections`); the device-local selection identifies which
+ * connection and model serve a run (ADR-0363). `apiKey` is sent as `Authorization: Bearer <key>`; absent means a keyless
  * local server (Ollama, LM Studio).
  *
  * This is the whole shape on purpose. Two widenings are deliberately deferred until

@@ -22,7 +22,7 @@
  *
  * Inference rides the OpenAI-compatible gateway (ADR-0049/0050). The engine is
  * built here, once: per turn it resolves the conversation's model (ADR-0055)
- * against this device's connection registry (ADR-0059, `resolveOrHosted`) and
+ * against this device's explicit connection selection and
  * reads the app's system prompts. What the agent can do is grouped into one
  * `agent` bundle ({@link AgentKit}), since every field of it varies with the
  * app's persona; the loop's other collaborators are passed alongside:
@@ -60,7 +60,10 @@ import {
 	type ConversationsTable,
 	createAgentMessageStore,
 } from '@epicenter/chat';
-import { createOpenAiAgentEngine } from '@epicenter/client';
+import {
+	createOpenAiAgentEngine,
+	type OpenAiTurnContext,
+} from '@epicenter/client';
 import { InstantString } from '@epicenter/data/field';
 import { bindAgentConversation } from '@epicenter/svelte';
 import type * as Y from '@y/y';
@@ -250,6 +253,20 @@ export function createAgentChatState({
 			decision.resolve(approved);
 		}
 
+		let runTarget: OpenAiTurnContext | null = null;
+
+		function captureTarget(): boolean {
+			if (convo.isGenerating) return false;
+			const transport = connections.resolve(conversationId, currentModel);
+			if (!transport) return false;
+			runTarget = {
+				client: transport,
+				model: currentModel,
+				systemPrompts: buildSystemPrompts(),
+			};
+			return true;
+		}
+
 		// Bind the conversation's messages to the loop. The engine reads this
 		// conversation's model and the live system prompts per turn, so a
 		// mid-conversation model switch takes effect on the next answer.
@@ -257,18 +274,13 @@ export function createAgentChatState({
 			createAgentConversation({
 				store: createAgentMessageStore(messages),
 				engine: createOpenAiAgentEngine({
-					// The conversation's model (ADR-0055) is resolved per turn against this
-					// device's connection set (ADR-0059), so a switch lands on the next
-					// turn. `resolveOrHosted` falls back to the hosted gateway for a model no
-					// device connection serves; the UI gates sending in that case, so the
-					// fallback only errors loudly rather than silently substituting a model.
+					// One target is captured before send/retry and reused across tool steps.
 					data: () => {
-						const transport = connections.resolveOrHosted(currentModel);
-						return {
-							...transport,
-							model: currentModel,
-							systemPrompts: buildSystemPrompts(),
-						};
+						if (!runTarget)
+							throw new Error(
+								'Choose an inference connection before running a turn.',
+							);
+						return runTarget;
 					},
 				}),
 				tools: toolCatalog,
@@ -341,6 +353,11 @@ export function createAgentChatState({
 			 * default is the factory's `defaultModel`, owned here so a thread needn't be
 			 * told it a second time alongside the registry that already holds it. */
 			useDefaultModel() {
+                if (!connections.ai.account || !connections.accountId) return;
+				connections.select(conversationId, {
+					connectionId: connections.accountId!,
+					model: defaultModel,
+				});
 				patchConversation(conversationId, { model: defaultModel });
 			},
 
@@ -410,7 +427,7 @@ export function createAgentChatState({
 			 * chat surface used to recompute against the app's connection singleton. */
 			get canSend() {
 				return (
-					connections.canServe(currentModel) &&
+					connections.canServe(conversationId, currentModel) &&
 					!convo.isGenerating &&
 					inputValue.trim().length > 0
 				);
@@ -435,6 +452,11 @@ export function createAgentChatState({
 
 			sendMessage(content: string) {
 				const text = content.trim();
+				if (!text || convo.isGenerating) return;
+				if (!captureTarget()) {
+					inputValue = text;
+					return;
+				}
 				// The loop owns the empty/mid-turn guard; gate the title write on
 				// whether it actually started a turn rather than re-deriving it.
 				if (!convo.send(text)) return;
@@ -454,6 +476,7 @@ export function createAgentChatState({
 			},
 
 			reload() {
+				if (!captureTarget()) return;
 				// Retrying re-arms the error banner: a repeat failure shows again
 				// rather than staying hidden behind the earlier dismissal.
 				dismissedError = null;
@@ -557,6 +580,10 @@ export function createAgentChatState({
 		});
 
 		const id = asConversationId(row.id);
+		const target = current
+			? connections.target(current.id, current.model)
+			: null;
+		if (target) connections.select(id, target);
 		ensureHandle(id);
 		selection.select(id);
 
