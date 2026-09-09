@@ -11,6 +11,10 @@
 		"evidence/browser/port-cost",
 		"src/store/browser.ts",
 		"src/store/browser.test.ts",
-		"src/store/port-conformance.test.ts"
+		"src/store/port-conformance.test.ts",
+		"evidence/browser/current-cache.ts",
+		"evidence/browser/current-cache",
+		"src/store/current-cache.ts",
+		"src/store/idb-updates.ts"
 	]
 }
