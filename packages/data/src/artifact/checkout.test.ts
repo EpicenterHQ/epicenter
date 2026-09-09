@@ -1955,3 +1955,25 @@ describe('the working copy owns the loop, and what bounds it', () => {
 		await data[Symbol.asyncDispose]();
 	});
 });
+
+test('a fields-only checkout pushes field edits without replacing its node', async () => {
+	const fieldsOnly = defineData({
+		id: DATA_ID,
+		kv: {},
+		tables: {
+			queries: defineTable({ name: field.string(), sql: field.string() }),
+		},
+	});
+	await using opened = await openMemory(fieldsOnly);
+	const data = addressed(opened);
+	const row = data.tables.queries.create({ name: 'Inbox', sql: 'SELECT 1' });
+	const host = fakeHost();
+	expectOk(await pullInto(host, data));
+	expect(host.folder.get(AGENTS_PATH)).toContain('Do not add body text');
+	const path = `queries/${row.id}.md`;
+	host.folder.set(path, host.folder.get(path)!.replace('SELECT 1', 'SELECT 2'));
+	expectOk(await sendBack(host, data));
+	expect(data.tables.queries.get(row.id)?.sql).toBe('SELECT 2');
+	expect(data.tables.queries.get(row.id)?.content).toBe(row.content);
+	expect(row.content.length).toBe(0);
+});

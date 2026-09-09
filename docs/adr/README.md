@@ -627,3 +627,5 @@ When you add an ADR, add its row here.
 | [0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) | The caller owns when to close and the App owns resource shutdown | Proposed |
 
 | [0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) | User-authored SQL runs through a bounded read-only operation | Proposed |
+
+| [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |

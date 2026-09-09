@@ -48,9 +48,8 @@ export const RenderError = defineErrors({
 	 * row's body has nowhere to go. Fatal for the row: a file that quietly
 	 * lacks its content node feeds a restore that would delete that node everywhere.
 	 *
-	 * Unreachable through `defineTable`, whose parameter type refuses it. It is
-	 * reachable through a definition that arrived as JSON, which cannot carry a
-	 * function, and that is exactly the case a silent empty body would ruin.
+	 * A table may omit its codec, but writing to its live node still works.
+	 * Export must refuse that populated node to preserve its contents.
 	 */
 	UncodedRow: ({ table, rowId }: { table: string; rowId: string }) => ({
 		message: `Table '${table}' declares a content node and no file codec to write '${rowId}' with`,
@@ -171,7 +170,7 @@ export async function renderRow(
 	const node = content;
 	const codec = definition.tables.get(table)?.content;
 	if (codec === undefined) {
-		// A definition that arrived as JSON carries no codec, and a row whose
+		// A table may declare no codec, and a row whose
 		// node is empty has nothing that needed one: its file is its frontmatter,
 		// which is the whole of what it is (ADR-0296). A node WITH content and no
 		// codec has a body it cannot write, and writing the file without it is

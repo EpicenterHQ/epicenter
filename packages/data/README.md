@@ -270,6 +270,7 @@ A row holds exactly one node, because one file has one region below the fence
 type ContentCodec = {
   encode: (node: Y.Type) => string;
   decode: (text: string) => Result<Y.Type, ContentError>;
+  rewrite: (node: Y.Type, text: string) => Result<void, ContentError>;
 };
 ```
 
@@ -279,7 +280,9 @@ The table owns what its node MEANS, and there is no default: a node carries a
 sequence and attributes at once, so rendering one as text round-trips a keyed
 log into one literal string that prints identically. `plainText()` is a codec a
 table opts into, not a fallback. Epicenter picks no content format and never
-looks inside.
+looks inside. A table may omit `content` for fields-only artifacts. Every row
+still owns a node; exporting a populated node or importing a nonempty body
+without a codec is refused.
 
 ## What merges with what
 

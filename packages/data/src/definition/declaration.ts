@@ -12,11 +12,11 @@
  * checked in `compile.ts`.
  */
 
+import type { BlobId } from '@epicenter/blobs';
 import type * as Y from '@y/y';
 import { type Static, type TSchema, Type } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { BlobId } from '@epicenter/blobs';
 import {
 	BLOB_KEYWORD,
 	type Field,
@@ -72,8 +72,7 @@ export type ContentError = InferErrors<typeof ContentError>;
  * "render it as text" is not a safe fallback: `toString` is a debug rendering,
  * not a serialization, and feeding its output back through `insert` turns an
  * attribute-bearing node into one literal string that PRINTS IDENTICALLY. A
- * table that declared nothing would round-trip through that silently, so every
- * table states what its content is.
+ * table that declares no codec can export only an empty node.
  *
  * **`decode` mints and `rewrite` edits, and they are not the same verb.**
  * `decode` builds a node for a row that does not exist yet, and the node it
@@ -141,10 +140,8 @@ export const CONTENT_FIELD = 'content';
  * edited in place, merging internally, and written below the fence through the
  * codec declared here.
  *
- * `content` is optional HERE and required at the authoring call. A definition
- * that arrived as JSON cannot carry a function, so the serialized form has no
- * codec; `defineTable` demands one, and the export refuses a row whose node
- * has content and whose table declares nothing to write it with.
+ * `content` is optional, with no default codec. Export refuses a populated
+ * node without a codec; import refuses a nonempty body without one.
  */
 export type TableDeclaration = {
 	/** Value field descriptors live directly on the table. */
