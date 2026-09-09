@@ -60,13 +60,20 @@
 		}
 	});
 
+	// Count every pending call for the displayed account. Undo can sync another
+	// account without changing this indicator.
+	const accountSyncs = useIsMutating({
+		mutationKey: ['mail', 'reconcile'],
+		predicate: (mutation) => mutation.state.variables === selectedAccount,
+	});
+
 	// How much of Gmail this device holds, and how fresh it is. What a person
 	// still owes Gmail is the outbox below, not this.
 	const status = createQuery(() => ({
 		queryKey: ['status', selectedAccount],
 		queryFn: () => mail.status(selectedAccount as string),
 		enabled: selectedAccount !== null,
-		refetchInterval: 30_000,
+		refetchInterval: accountSyncs.current > 0 ? 1_000 : 30_000,
 	}));
 	/**
 	 * The outbox for the account in view.
@@ -95,6 +102,7 @@
 	const labels = createQuery(() => ({
 		queryKey: ['labels', selectedAccount],
 		queryFn: () => mail.labels(selectedAccount as string),
+		refetchInterval: accountSyncs.current > 0 ? 1_000 : false,
 		enabled: selectedAccount !== null,
 	}));
 	const messages = createQuery(() => {
@@ -106,6 +114,7 @@
 		return {
 			queryKey: ['messages', selectedAccount, query],
 			queryFn: () => mail.messages(selectedAccount as string, query),
+			refetchInterval: accountSyncs.current > 0 ? 1_000 : false,
 			enabled: selectedAccount !== null,
 		};
 	});
@@ -129,13 +138,6 @@
 		onSettled: () => invalidateReads(),
 		onError: (error: Error) => toast.error(error.message),
 	}));
-
-	// Count every pending call for the displayed account. Undo can sync another
-	// account without changing this indicator.
-	const accountSyncs = useIsMutating({
-		mutationKey: ['mail', 'reconcile'],
-		predicate: (mutation) => mutation.state.variables === selectedAccount,
-	});
 
 	/**
 	 * Opening the application delivers what was owed when it was last closed.

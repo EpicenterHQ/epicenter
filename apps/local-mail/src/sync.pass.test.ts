@@ -7,7 +7,6 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_MAIL_CONFIG, type MailConfig } from './config.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
 import type { GmailMessage, HistoryPage } from './schema.ts';
 import { openTestSession, type TestSession } from './session.test-support.ts';
@@ -68,7 +67,8 @@ function createFakeGmailClient(seed: {
 		async listHistory() {
 			const page = seed.historyPages[historyCallCount];
 			historyCallCount += 1;
-			if (!page) throw new Error('fake client: no more history pages seeded');
+			if (!page)
+				return { data: { historyId: seed.profileHistoryId }, error: null };
 			return { data: page, error: null };
 		},
 		async listLabels() {
@@ -80,8 +80,6 @@ function createFakeGmailClient(seed: {
 		},
 	};
 }
-
-const config: MailConfig = DEFAULT_MAIL_CONFIG;
 
 describe('syncMailbox: FULL pull', () => {
 	test('first run pulls every message, labels, and records the profile historyId as cursor', async () => {
@@ -102,7 +100,6 @@ describe('syncMailbox: FULL pull', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		});
 
@@ -145,7 +142,6 @@ describe('syncMailbox: FULL pull', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		});
 
@@ -184,7 +180,6 @@ describe('syncMailbox: FULL pull', () => {
 		const syncing = syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		});
 		while (highWater < 8) await Bun.sleep(1);
@@ -225,7 +220,6 @@ describe('syncMailbox: FULL pull', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		});
 
@@ -244,7 +238,7 @@ describe('syncMailbox: FULL pull', () => {
 			[message('kept'), message('stale')],
 			'2026-05-30T00:00:00.000Z',
 		);
-		await mailbox.finishFullPull('500', '2026-05-30T00:00:00.000Z');
+
 		const remote = new Map([['kept', message('kept')]]);
 		const client = createFakeGmailClient({
 			mailbox: remote,
@@ -255,7 +249,6 @@ describe('syncMailbox: FULL pull', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		});
 
@@ -322,7 +315,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -373,7 +365,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -428,7 +419,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -476,13 +466,11 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const first = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 		const second = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:01:00.000Z'),
 		});
 
@@ -534,7 +522,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 			log: (message) => logs.push(message),
 		});
@@ -577,7 +564,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -627,7 +613,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -674,7 +659,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -718,7 +702,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -766,7 +749,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -806,7 +788,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -832,7 +813,6 @@ describe('syncMailbox: INCREMENTAL', () => {
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
@@ -853,20 +833,21 @@ describe('syncMailbox: INCREMENTAL', () => {
 				historyPages: [],
 				profileHistoryId: '9000',
 			}),
-			async listHistory() {
-				return GmailApiError.HistoryExpired();
+			async listHistory(cursor) {
+				return cursor === '500'
+					? GmailApiError.HistoryExpired()
+					: { data: { historyId: '9000' }, error: null };
 			},
 		};
 
 		const outcome = await syncMailbox({
 			mailbox,
 			client,
-			config,
 			now: () => Date.parse('2026-06-30T01:00:00.000Z'),
 		});
 
 		expect(outcome.mode).toBe('FULL');
-		expect(outcome.reason).toBe('historyId expired mid-pass');
+		expect(outcome.reason).toBe('history cursor expired');
 		expect(outcome.failure).toBeNull();
 		expect(outcome.cursorAfter).toBe('9000');
 		expect((await mailbox.readCacheState()).historyId).toBe('9000');
@@ -903,7 +884,6 @@ describe('syncMailbox: concurrent writers', () => {
 		const deps = {
 			mailbox: guarded,
 			client,
-			config,
 			now: () => Date.parse('2026-07-01T00:00:00.000Z'),
 		};
 
@@ -919,4 +899,242 @@ describe('syncMailbox: concurrent writers', () => {
 		expect((await mailbox.readCacheState()).historyId).toBe('1000');
 		session.close();
 	});
+});
+
+describe('whole-mailbox receiving', () => {
+	const at = '2026-09-08T00:00:00.000Z';
+	const now = () => Date.parse(at);
+
+	test('an old valid cursor applies thin label deltas across pages without fetching cached mail', async () => {
+		const session = await openTestSession();
+		try {
+			await session.mailbox.ingestFullPullPage(
+				[message('m1', { labelIds: ['INBOX', 'UNREAD'] })],
+				'2020-01-01',
+			);
+			await session.mailbox.finishFullPull('100', '2020-01-01');
+			const thin = { id: 'm1', threadId: 't-m1' };
+			const client = createFakeGmailClient({
+				mailbox: new Map(),
+				profileHistoryId: 'unused',
+				historyPages: [
+					{
+						historyId: '103',
+						nextPageToken: 'next',
+						history: [
+							{
+								id: '101',
+								labelsAdded: [{ message: thin, labelIds: ['STARRED'] }],
+							},
+							{
+								id: '102',
+								labelsRemoved: [
+									{ message: thin, labelIds: ['STARRED', 'UNREAD'] },
+								],
+							},
+						],
+					},
+					{
+						historyId: '103',
+						history: [
+							{
+								id: '103',
+								labelsAdded: [{ message: thin, labelIds: ['STARRED'] }],
+							},
+						],
+					},
+				],
+			});
+			client.listMessageIds = async () => {
+				throw new Error('a valid cursor must not enumerate');
+			};
+			const outcome = await syncMailbox({
+				mailbox: session.mailbox,
+				client,
+				now,
+			});
+			expect(outcome.failure).toBeNull();
+			expect(outcome.mode).toBe('INCREMENTAL');
+			expect(client.calls.getMessage()).toBe(0);
+			expect(
+				(await session.mailbox.getMessageDetail('m1'))?.labelIds.sort(),
+			).toEqual(['INBOX', 'STARRED']);
+			expect((await session.mailbox.readCacheState()).historyId).toBe('103');
+		} finally {
+			session.close();
+		}
+	});
+
+	test('completed pages are readable during download and history catches changes before completion', async () => {
+		const session = await openTestSession();
+		const waiting = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const client = createFakeGmailClient({
+			mailbox: new Map([
+				['m1', message('m1')],
+				['m2', message('m2')],
+			]),
+			profileHistoryId: '100',
+			labels: [{ id: 'INBOX', name: 'Inbox', type: 'system' }],
+			historyPages: [
+				{
+					historyId: '101',
+					history: [
+						{
+							id: '101',
+							labelsAdded: [
+								{
+									message: { id: 'm1', threadId: 't-m1' },
+									labelIds: ['STARRED'],
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		client.listMessageIds = async (page) => {
+			if (!page)
+				return { data: { ids: ['m1'], nextPageToken: 'second' }, error: null };
+			waiting.resolve();
+			await release.promise;
+			return { data: { ids: ['m2', 'disappeared'] }, error: null };
+		};
+		const syncing = syncMailbox({ mailbox: session.mailbox, client, now });
+		try {
+			await waiting.promise;
+			expect((await session.mailbox.status()).rows).toEqual({
+				messages: 1,
+				labels: 1,
+			});
+			expect((await session.mailbox.status()).cache).toBe('building');
+			await session.intents.assert(
+				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+				at,
+			);
+			await session.intents.assert(
+				[{ messageId: 'm1', labelId: 'INBOX', want: true }],
+				at,
+			);
+			release.resolve();
+			const outcome = await syncing;
+			expect(outcome.failure).toBeNull();
+			expect(outcome.cursorAfter).toBe('101');
+			expect(outcome.messagesUpserted).toBe(2);
+			expect(await session.mailbox.hasMessage('disappeared')).toBe(false);
+			expect((await session.mailbox.getMessageDetail('m1'))?.labelIds).toEqual([
+				'INBOX',
+				'STARRED',
+			]);
+			expect((await session.intents.pending()).map(({ want }) => want)).toEqual(
+				[true],
+			);
+			expect((await session.mailbox.status()).cache).toBe('ready');
+		} finally {
+			release.resolve();
+			await syncing;
+			session.close();
+		}
+	});
+
+	test('failed catchup preserves enumeration and retries history without redownloading', async () => {
+		const session = await openTestSession();
+		try {
+			const client = createFakeGmailClient({
+				mailbox: new Map([['m1', message('m1')]]),
+				profileHistoryId: '100',
+				historyPages: [],
+			});
+			client.listHistory = async () =>
+				GmailApiError.Http({ status: 503, body: 'unavailable' });
+			const first = await syncMailbox({
+				mailbox: session.mailbox,
+				client,
+				now,
+			});
+			expect(first.failure?.name).toBe('Http');
+			expect(first.cursorBefore).toBeNull();
+			expect(first.cursorAfter).toBe('100');
+			expect((await session.mailbox.readCacheState()).lastSyncedAt).toBeNull();
+			expect((await session.mailbox.status()).cache).toBe('building');
+			client.listMessageIds = async () => {
+				throw new Error('completed enumeration must not repeat');
+			};
+			client.listHistory = async (cursor) => {
+				expect(cursor).toBe('100');
+				return { data: { historyId: '101' }, error: null };
+			};
+			const second = await syncMailbox({
+				mailbox: session.mailbox,
+				client,
+				now,
+			});
+			expect(second.failure).toBeNull();
+			expect(client.calls.getMessage()).toBe(1);
+			expect((await session.mailbox.readCacheState()).lastSyncedAt).toBe(at);
+		} finally {
+			session.close();
+		}
+	});
+
+	test('expiry during initial catchup stops after one enumeration', async () => {
+		const session = await openTestSession();
+		try {
+			const client = createFakeGmailClient({
+				mailbox: new Map([['m1', message('m1')]]),
+				profileHistoryId: '100',
+				historyPages: [],
+			});
+			client.listHistory = async () => GmailApiError.HistoryExpired();
+			const outcome = await syncMailbox({
+				mailbox: session.mailbox,
+				client,
+				now,
+			});
+			expect(outcome.failure?.name).toBe('HistoryExpired');
+			expect(outcome.cursorAfter).toBe('100');
+			expect(client.calls.getMessage()).toBe(1);
+			expect((await session.mailbox.readCacheState()).lastSyncedAt).toBeNull();
+		} finally {
+			session.close();
+		}
+	});
+});
+
+test('a later page lock reports the messages already committed', async () => {
+	const session = await openTestSession();
+	try {
+		const client = createFakeGmailClient({
+			mailbox: new Map([
+				['m1', message('m1')],
+				['m2', message('m2')],
+			]),
+			historyPages: [],
+			profileHistoryId: '100',
+		});
+		client.listMessageIds = async (page) => ({
+			data: page ? { ids: ['m2'] } : { ids: ['m1'], nextPageToken: 'second' },
+			error: null,
+		});
+		let pages = 0;
+		const outcome = await syncMailbox({
+			client,
+			now: () => Date.parse('2026-09-08'),
+			mailbox: {
+				...session.mailbox,
+				async ingestFullPullPage(...args) {
+					if (++pages === 2)
+						throw Object.assign(new Error('locked'), { code: 'SQLITE_BUSY' });
+					await session.mailbox.ingestFullPullPage(...args);
+				},
+			},
+		});
+		expect(outcome.failure?.name).toBe('CacheBusy');
+		expect(outcome.messagesUpserted).toBe(1);
+		expect(outcome.cursorAfter).toBeNull();
+		expect(await session.mailbox.hasMessage('m1')).toBe(true);
+		expect(await session.mailbox.hasMessage('m2')).toBe(false);
+	} finally {
+		session.close();
+	}
 });

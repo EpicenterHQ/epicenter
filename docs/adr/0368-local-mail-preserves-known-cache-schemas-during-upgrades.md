@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
+- **Amended by:** [ADR-0370](0370-local-mail-downloads-the-mailbox-and-maintains-it-through-history.md), cursor preservation when adopting whole-mailbox scope.
 - **Amends:** [ADR-0319](0319-local-mail-is-device-local-and-its-storage-splits-by-lifetime.md), only the rule that every cache schema mismatch triggers deletion.
 
 ## Context

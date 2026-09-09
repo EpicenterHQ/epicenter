@@ -58,10 +58,9 @@ export const GmailLabelSchema = Type.Object({
 });
 export type GmailLabel = Static<typeof GmailLabelSchema>;
 
-/** One `history.list` entry. Four mutually-exclusive record types; a
- * `labelsAdded`/`labelsRemoved` entry's `message.labelIds` is the full CURRENT
- * snapshot, its own `labelIds` field is the delta (see `sync.ts`'s
- * `foldHistoryRecords`, which intentionally uses only the former). */
+/** One history entry can contain several event types. Label events carry
+ * additions/removals in their own labelIds; embedded messages may contain
+ * only id and threadId. */
 export const HistoryRecordSchema = Type.Object({
 	id: Type.String({ minLength: 1 }),
 	messagesAdded: Type.Optional(

@@ -21,7 +21,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { MailSession } from './accounts.ts';
 import { assertMessageLabels } from './assert.ts';
-import { DEFAULT_MAIL_CONFIG } from './config.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
 import type { IntentStore } from './intent-store.ts';
 import { openIntentStore } from './intent-store.ts';
@@ -173,7 +172,6 @@ async function setup(
 			intents: session.intents,
 			passes: session.passes,
 			client,
-			config: DEFAULT_MAIL_CONFIG,
 			now: () => NOW,
 			sub: ACCOUNT_ID,
 		},
@@ -857,7 +855,6 @@ describe('across a restart', () => {
 			intents: session.intents,
 			passes: session.passes,
 			client: offline,
-			config: DEFAULT_MAIL_CONFIG,
 			now: () => NOW,
 			sub: ACCOUNT_ID,
 		};
@@ -899,7 +896,6 @@ describe('across a restart', () => {
 			intents: restartedIntents,
 			passes: restartedPasses,
 			client: online,
-			config: DEFAULT_MAIL_CONFIG,
 			now: () => NOW,
 			sub: ACCOUNT_ID,
 		};

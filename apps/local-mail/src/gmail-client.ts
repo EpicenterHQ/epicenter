@@ -265,6 +265,7 @@ export function createGmailClient(deps: {
 				operation: 'messages.list',
 				path: 'messages',
 				params: {
+					includeSpamTrash: 'true',
 					maxResults: String(config.pageSize),
 					...(pageToken ? { pageToken } : {}),
 				},

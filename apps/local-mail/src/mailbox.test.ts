@@ -123,7 +123,6 @@ test('throwing the cache away cannot reach the durable intent store', async () =
 	expect(await reopened.counts()).toEqual({ messages: 0, labels: 0 });
 	expect(await reopened.readCacheState()).toEqual({
 		historyId: null,
-		lastFullPullAt: null,
 		lastSyncedAt: null,
 	});
 	expect(await intents.count()).toBe(1);
@@ -181,11 +180,11 @@ test('a history batch folds labels and advances the cursor together', async () =
 		messagesToUpsert: [message('m3', ['INBOX'])],
 		messagesToDelete: ['m2'],
 		labelPatches: [
-			{ messageId: 'm1', labelIds: ['INBOX'] },
+			{ messageId: 'm1', wants: new Map([['UNREAD', false]]) },
 			// An echo of labels already current is applied and not counted.
-			{ messageId: 'm3', labelIds: ['INBOX'] },
+			{ messageId: 'm3', wants: new Map([['INBOX', true]]) },
 			// A patch for a row that is not mirrored is skipped.
-			{ messageId: 'absent', labelIds: ['INBOX'] },
+			{ messageId: 'absent', wants: new Map([['INBOX', true]]) },
 		],
 		newHistoryId: '910',
 		syncedAt: '2026-08-31T01:00:00.000Z',
@@ -213,8 +212,8 @@ test('a full pull sweeps what the pass did not touch', async () => {
 
 /**
  * The cache's lifecycle, which is what `status` is for: `empty` is nothing
- * pulled, `building` is rows without a finished full pull, and `ready` is a
- * cursor that `finishFullPull` wrote after every page landed. The middle one is
+ * pulled, `building` is an unfinished population, and `ready` requires both
+ * completed enumeration and successful history catchup. The middle one is
  * the one that matters, because a partial mailbox that reported `ready` would
  * have a person believing mail is missing from Gmail.
  */
@@ -235,6 +234,14 @@ test('the cache reports which of its three states it is in', async () => {
 		expect(building.rows.messages).toBe(1);
 
 		await mailbox.finishFullPull('900', AT);
+		expect((await mailbox.status()).cache).toBe('building');
+		await mailbox.applyHistoryBatch({
+			messagesToUpsert: [],
+			messagesToDelete: [],
+			labelPatches: [],
+			newHistoryId: '900',
+			syncedAt: AT,
+		});
 		const ready = await mailbox.status();
 		expect(ready.cache).toBe('ready');
 		expect(ready.lastSyncedAt).toBe(AT);

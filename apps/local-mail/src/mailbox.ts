@@ -32,7 +32,6 @@ import type { GmailLabel, GmailMessage } from './schema.ts';
 
 export type CacheState = {
 	historyId: string | null;
-	lastFullPullAt: string | null;
 	lastSyncedAt: string | null;
 };
 
@@ -169,7 +168,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	 */
 	async function foldLabels(
 		messageId: string,
-		labelIds: readonly string[],
+		labels: readonly string[] | ReadonlyMap<string, boolean>,
 		syncedAt: string,
 	): Promise<{ statement: Statement; changed: boolean } | undefined> {
 		const [row] = await all<{ resource: string }>(
@@ -181,6 +180,16 @@ export function openMailbox(mail: AppSqliteDatabase) {
 			labelIds?: string[];
 		};
 		const previous = Array.isArray(parsed.labelIds) ? parsed.labelIds : [];
+		const labelIds = new Set(previous);
+		if (Array.isArray(labels)) {
+			labelIds.clear();
+			for (const label of labels) labelIds.add(label);
+		} else {
+			for (const [label, want] of labels as ReadonlyMap<string, boolean>) {
+				if (want) labelIds.add(label);
+				else labelIds.delete(label);
+			}
+		}
 		return {
 			statement: {
 				sql: `UPDATE messages SET resource = ?, synced_at = ?
@@ -191,7 +200,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 					messageId,
 				],
 			},
-			changed: !sameLabelSet(previous, labelIds),
+			changed: !sameLabelSet(previous, [...labelIds]),
 		};
 	}
 
@@ -266,15 +275,11 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	async function readCacheState(): Promise<CacheState> {
 		const [state] = await all<{
 			history_id: string | null;
-			last_full_pull_at: string | null;
 			last_synced_at: string | null;
-		}>(
-			`SELECT history_id, last_full_pull_at, last_synced_at FROM sync_state WHERE id = 1`,
-		);
+		}>(`SELECT history_id, last_synced_at FROM sync_state WHERE id = 1`);
 		if (!state) throw new Error('The mailbox sync state is missing.');
 		return {
 			historyId: state.history_id,
-			lastFullPullAt: state.last_full_pull_at,
 			lastSyncedAt: state.last_synced_at,
 		};
 	}
@@ -301,15 +306,14 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		 * impossible for an empty or broken cache to report zero waiting work
 		 * (ADR-0306).
 		 *
-		 * `building` is the state worth naming: rows are here but no history cursor
-		 * has been written, so no full pull has finished and what a person is
-		 * looking at is a partial mailbox rather than a small one.
+		 * `building` means downloaded rows are available, but population and its
+		 * first history catchup have not both succeeded.
 		 */
 		async status(): Promise<MailStatus> {
 			const [state, rows] = await Promise.all([readCacheState(), counts()]);
 			return {
 				cache:
-					state.historyId !== null
+					state.historyId !== null && state.lastSyncedAt !== null
 						? 'ready'
 						: rows.messages === 0
 							? 'empty'
@@ -472,9 +476,10 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		},
 
 		/**
-		 * Close out a full pull: sweep what this pass did not touch and record the
+		 * Checkpoint enumeration: sweep what this pass did not touch and record the
 		 * `historyId` baseline read BEFORE page one, so changes made during the
 		 * pull replay idempotently instead of disappearing behind a later cursor.
+		 * History catchup alone records the successful-sync time.
 		 */
 		async finishFullPull(historyId: string, syncedAt: string): Promise<number> {
 			const changes = await batch([
@@ -483,8 +488,8 @@ export function openMailbox(mail: AppSqliteDatabase) {
 					parameters: [syncedAt],
 				},
 				{
-					sql: `UPDATE sync_state SET history_id = ?, last_full_pull_at = ?, last_synced_at = ? WHERE id = 1`,
-					parameters: [historyId, syncedAt, syncedAt],
+					sql: `UPDATE sync_state SET history_id = ? WHERE id = 1`,
+					parameters: [historyId],
 				},
 			]);
 			return changes[0] ?? 0;
@@ -527,17 +532,16 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		}: {
 			messagesToUpsert: readonly GmailMessage[];
 			messagesToDelete: readonly string[];
-			labelPatches: readonly { messageId: string; labelIds: string[] }[];
+			labelPatches: readonly {
+				messageId: string;
+				wants: ReadonlyMap<string, boolean>;
+			}[];
 			newHistoryId: string;
 			syncedAt: string;
 		}): Promise<{ labelsChanged: number }> {
 			const folds: { statement: Statement; changed: boolean }[] = [];
 			for (const patch of labelPatches) {
-				const fold = await foldLabels(
-					patch.messageId,
-					patch.labelIds,
-					syncedAt,
-				);
+				const fold = await foldLabels(patch.messageId, patch.wants, syncedAt);
 				if (fold !== undefined) folds.push(fold);
 			}
 

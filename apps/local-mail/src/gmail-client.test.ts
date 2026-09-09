@@ -28,8 +28,6 @@ const config: MailConfig = {
 	apiBase: 'http://127.0.0.1:0',
 	authorizeUrl: 'http://127.0.0.1:0/auth',
 	tokenUrl: 'http://127.0.0.1:0/token',
-	historySafeWindowDays: 5,
-	fullBackstopDays: 30,
 	pageSize: 100,
 };
 
@@ -348,3 +346,28 @@ for (const { status, reason, requests: expectedRequests, name } of [
 		}
 	});
 }
+
+test('mailbox enumeration includes Spam and Trash on every page', async () => {
+	const urls: URL[] = [];
+	const server = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		fetch(request) {
+			urls.push(new URL(request.url));
+			return Response.json({ messages: [{ id: 'm1', threadId: 't1' }] });
+		},
+	});
+	try {
+		const client = createGmailClient({
+			config: { ...config, apiBase: `http://127.0.0.1:${server.port}` },
+			tokens,
+		});
+		expect((await client.listMessageIds()).error).toBeNull();
+		expect((await client.listMessageIds('next')).error).toBeNull();
+		for (const url of urls)
+			expect(url.searchParams.get('includeSpamTrash')).toBe('true');
+		expect(urls[1]?.searchParams.get('pageToken')).toBe('next');
+	} finally {
+		server.stop(true);
+	}
+});

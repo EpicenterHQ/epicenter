@@ -18,16 +18,6 @@ export type MailConfig = {
 	authorizeUrl: string;
 	/** Google OAuth2 token endpoint. */
 	tokenUrl: string;
-	/**
-	 * Force a full pull once the time since the last successful sync exceeds
-	 * this many days. Gmail's `historyId` retention is "at least a week, often
-	 * longer" rather than a fixed window, so this measures wall-clock staleness
-	 * of our own last poll rather than trying to read an age out of the opaque
-	 * cursor.
-	 */
-	historySafeWindowDays: number;
-	/** Force a full pull this many days after the last one, as a backstop. */
-	fullBackstopDays: number;
 	/** `messages.list` and `history.list` page size; Gmail caps at 500. */
 	pageSize: number;
 };
@@ -41,8 +31,6 @@ export const DEFAULT_MAIL_CONFIG: MailConfig = {
 	apiBase: GMAIL_API_BASE,
 	authorizeUrl: GOOGLE_AUTHORIZE_URL,
 	tokenUrl: GOOGLE_TOKEN_URL,
-	historySafeWindowDays: 5,
-	fullBackstopDays: 30,
 	pageSize: 100,
 };
 

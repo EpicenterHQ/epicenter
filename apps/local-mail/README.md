@@ -1,7 +1,7 @@
 # local-mail
 
 Gmail in Epicenter. Local Mail pulls a Gmail account into a disposable local
-cache with full pulls plus incremental `history.list` polling, records triage
+cache with a whole-mailbox download followed by `history.list` updates, records triage
 acts as durable local assertions, and delivers them back to Gmail from one
 reconciler per account.
 
@@ -61,13 +61,38 @@ because the file is the scope.
 
 The schema version lives in `PRAGMA user_version`. Durable data is migrated
 transactionally and a newer durable schema is refused. Known cache migrations
-also run in place, preserving mail and cursors so an upgrade costs no Gmail
-backfill. An unrecognized cache schema is rebuilt from Gmail.
+also run in place, preserving downloaded mail. Cache v3 clears the old history
+cursor once so the next connection includes historical Spam and Trash and
+repairs old label folding. Pending work and offline mail remain available.
+An unrecognized cache schema is rebuilt from Gmail.
 
 `intent_counters.next_revision` allocates revisions atomically with each intent
 write and survives an empty outbox. `sync_state` holds one row with the history
-cursor, last full pull, and last successful pull time. Pending counts are read
+cursor and last successful sync time. Pending counts are read
 from the intents; they are not duplicated in the last sync report.
+
+## Receiving mail
+
+Sync downloads the whole mailbox, including Spam and Trash. Each completed page
+is committed to SQLite and becomes readable while later pages download. The UI
+refreshes local reads during synchronization; those reads do not call Gmail.
+Attachments that Gmail returns as separate attachment IDs are not downloaded.
+
+Before enumeration, Sync captures Gmail's history cursor. After enumeration, it
+sweeps absent messages and saves that baseline, then replays changes from the
+baseline before reporting success. Failed catchup resumes from the saved
+baseline. A failure before enumeration completes leaves downloaded pages
+readable, but the next attempt starts enumeration again.
+
+Subsequent Sync calls use the saved cursor regardless of elapsed time. A full
+scan happens only without a cursor or when Gmail says it expired. History label
+events apply additions and removals to cached labels; unrelated labels survive.
+The cursor and resulting message changes commit together.
+
+Reloading the browser retains SQLite mail and pending changes. Browser
+credentials live in memory, so reconnecting Gmail enables network work again.
+Pending changes are delivered by the next reconciliation run, before receiving
+Gmail updates. Reading the downloaded mailbox needs no Gmail connection.
 
 ## The write model
 

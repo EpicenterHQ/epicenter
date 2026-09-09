@@ -288,10 +288,9 @@ for (const complete of [false, true]) {
 		]);
 		const storage = await openLocalMailStorage(owner.device);
 		const current = await storage.mail('one');
-		expect(await version(current)).toBe(2);
+		expect(await version(current)).toBe(MAIL_SCHEMA_VERSION);
 		expect(await openMailbox(current).readCacheState()).toEqual({
-			historyId: complete ? '123' : null,
-			lastFullPullAt: complete ? 'full' : null,
+			historyId: null,
 			lastSyncedAt: complete ? 'latest' : null,
 		});
 		expect(
@@ -335,4 +334,50 @@ test('a failed durable migration rolls back schema and version without deleting 
 		),
 	).toEqual([]);
 	expect(owner.deleted).toEqual([]);
+});
+
+test('cache v2 adoption retains offline mail and pending work, and invalidates its smaller-scope cursor once', async () => {
+	const owner = testOwner();
+	const opened = await owner.device.sqlite.open(
+		requireAccountFiling('one').database,
+	);
+	if (opened.error) throw opened.error;
+	const db = sqliteHandle(opened.data);
+	// Frozen v2 sync shape. Other tables are unchanged by this migration.
+	await db.batch([
+		{
+			sql: `CREATE TABLE sync_state (id INTEGER PRIMARY KEY CHECK (id = 1), history_id TEXT, last_full_pull_at TEXT, last_synced_at TEXT)`,
+		},
+		{ sql: `INSERT INTO sync_state VALUES (1, '123', 'full', 'latest')` },
+		{
+			sql: `CREATE TABLE messages (id TEXT PRIMARY KEY, resource TEXT NOT NULL)`,
+		},
+		{
+			sql: `INSERT INTO messages VALUES ('m1', '{"id":"m1","threadId":"t1","labelIds":["INBOX"]}')`,
+		},
+		{ sql: `PRAGMA user_version = 2` },
+	]);
+	const storage = await openLocalMailStorage(owner.device);
+	const intents = openIntentStore(storage.local, 'one');
+	await intents.assert(
+		[{ messageId: 'm1', labelId: 'TRASH', want: true }],
+		'now',
+	);
+	const pending = await intents.pending();
+	const current = await storage.mail('one');
+	expect(await version(current)).toBe(MAIL_SCHEMA_VERSION);
+	expect(await db.all('SELECT * FROM sync_state')).toEqual([
+		{ id: 1, history_id: null, last_synced_at: 'latest' },
+	]);
+	expect(await db.all('SELECT id FROM messages')).toEqual([{ id: 'm1' }]);
+	expect(await intents.pending()).toEqual(pending);
+	expect(owner.deleted).toEqual([]);
+	await db.run("UPDATE sync_state SET history_id = '456' WHERE id = 1");
+	const reopened = await openLocalMailStorage(owner.device);
+	await reopened.mail('one');
+	expect(
+		(
+			await db.all<{ history_id: string }>('SELECT history_id FROM sync_state')
+		)[0]?.history_id,
+	).toBe('456');
 });

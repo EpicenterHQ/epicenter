@@ -151,7 +151,6 @@ async function openApp(): Promise<{
 		intents: session.intents,
 		passes: session.passes,
 		client: gmail.client,
-		config: DEFAULT_MAIL_CONFIG,
 		now: () => NOW,
 	};
 	const forgotten: string[] = [];

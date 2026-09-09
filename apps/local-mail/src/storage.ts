@@ -229,13 +229,12 @@ async function migrateDurable(handle: SqliteHandle): Promise<void> {
  * cannot reach another account's mail, which is the isolation an arbitrary-SQL
  * handle can actually enforce (ADR-0319).
  */
-export const MAIL_SCHEMA_VERSION = 2;
+export const MAIL_SCHEMA_VERSION = 3;
 
 export const MAIL_CACHE_SCHEMA = [
 	`CREATE TABLE IF NOT EXISTS sync_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         history_id TEXT,
-        last_full_pull_at TEXT,
         last_synced_at TEXT
     )`,
 	`INSERT OR IGNORE INTO sync_state (id) VALUES (1)`,
@@ -269,22 +268,32 @@ async function openBorrowed(
 	const version = await userVersion(handle);
 	if (version === MAIL_SCHEMA_VERSION) return opened;
 	if (version === 1) {
-		// Preserve a known cache and its cursor: rebuilding would spend Gmail
-		// quota and make an offline mailbox unavailable until another full pull.
+		// Preserve known cached mail while adopting the whole-mailbox scope.
 		await handle.batch([
 			...[
 				MAIL_CACHE_SCHEMA[0],
-				`INSERT INTO sync_state (id, history_id, last_full_pull_at, last_synced_at)
+				`INSERT INTO sync_state (id, history_id, last_synced_at)
                  SELECT 1,
                    (SELECT value FROM cache_meta WHERE key = 'history_id'),
-                   (SELECT value FROM cache_meta WHERE key = 'last_full_pull_at'),
                    (SELECT value FROM cache_meta WHERE key = 'last_synced_at')`,
 				`DROP TABLE cache_meta`,
 				`DROP INDEX idx_messages_thread`,
 				`ALTER TABLE messages DROP COLUMN thread_id`,
 				`ALTER TABLE labels DROP COLUMN synced_at`,
+				`UPDATE sync_state SET history_id = NULL WHERE id = 1`,
 				`PRAGMA user_version = ${MAIL_SCHEMA_VERSION}`,
 			].map((sql) => ({ sql })),
+		]);
+		return opened;
+	}
+
+	if (version === 2) {
+		// Older enumerations omitted Spam/Trash and history folding could lose
+		// untouched labels. Rebaseline once, retaining all offline mail and work.
+		await handle.batch([
+			{ sql: `UPDATE sync_state SET history_id = NULL WHERE id = 1` },
+			{ sql: `ALTER TABLE sync_state DROP COLUMN last_full_pull_at` },
+			{ sql: `PRAGMA user_version = ${MAIL_SCHEMA_VERSION}` },
 		]);
 		return opened;
 	}

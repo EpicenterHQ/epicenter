@@ -400,7 +400,6 @@ function openSession(app: MailApp, sub: string): Promise<MailSession> {
 			intents: openIntentStore(app.storage.local, sub),
 			passes: openPassRecord(app.storage.local, sub),
 			client: createGmailClient({ config: app.config, tokens }),
-			config: app.config,
 			now: app.now,
 		};
 	})();

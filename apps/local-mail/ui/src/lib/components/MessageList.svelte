@@ -87,7 +87,7 @@
 			</Empty.Title>
 			<Empty.Description>
 				{mirrorEmpty
-					? 'Run local-mail reconcile --full to populate the mirror.'
+					? 'Open Sync to download your mail or reconnect Gmail.'
 					: 'Try a different label or search term.'}
 			</Empty.Description>
 		</Empty.Root>
