@@ -151,6 +151,9 @@ async function dial(): Promise<Opening> {
 	const store = await openStore();
 	await using _store = store;
 	const connection = attachStoreSync({
+		onRetired() {
+			throw new Error('Unexpected retirement in this transport test');
+		},
 		store,
 		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
 		transport:

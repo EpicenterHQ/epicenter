@@ -20,6 +20,8 @@ export const app =
 				blobs: createBrowserAppBlobs(),
 			}).openAccount(account);
 export const departure = createDeparture({
+	retirement: app?.retirement,
+	reload: () => location.reload(),
 	auth: app ? authClient : undefined,
 	account,
 	close: () => app?.close() ?? Promise.resolve(),

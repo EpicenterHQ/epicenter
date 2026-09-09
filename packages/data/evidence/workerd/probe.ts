@@ -466,6 +466,7 @@ console.log('\n5. the same regime, driven, so the watchdog can be judged');
 
 	function drive(side: 'author' | 'reader', store: DataDocument) {
 		return createSyncConnection({
+			onRetired() { throw new Error('Unexpected retirement in the workerd probe'); },
 			store,
 			idleMs: 5,
 			// Far shorter than the 30 s default, so a stall inside a probe run

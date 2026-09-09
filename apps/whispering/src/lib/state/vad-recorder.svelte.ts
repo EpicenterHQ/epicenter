@@ -122,7 +122,7 @@ function createReactiveVadRecorder() {
 		 */
 		async stopActiveListening() {
 			const result = await vad.stopActiveListening();
-			_state = 'IDLE';
+			if (result.error === null) _state = 'IDLE';
 			return result;
 		},
 	};

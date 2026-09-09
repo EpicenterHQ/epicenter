@@ -121,6 +121,7 @@ test('physical close failure prevents selection and remains terminal', async () 
 	).rejects.toThrow('disk failed');
 	expect(departure.state.phase).toBe('failed');
 	expect(closes).toBe(1);
+	expect(departure.canReopen).toBe(false);
 	expect(selected).toBe(false);
 });
 
@@ -143,6 +144,7 @@ test('quiescence failure still releases storage and prevents selection', async (
 	expect(closed).toBe(true);
 	expect(selected).toBe(false);
 	expect(departure.state.phase).toBe('failed');
+	expect(departure.canReopen).toBe(false);
 });
 
 test('selection failure after close cannot trigger another action', async () => {
@@ -159,6 +161,7 @@ test('selection failure after close cannot trigger another action', async () => 
 		}),
 	).rejects.toThrow('login failed');
 	expect(second).toBe(false);
+	expect(departure.canReopen).toBe(true);
 });
 
 test('unexpected retirement bypasses voluntary preflight and closes locally', async () => {
@@ -217,4 +220,148 @@ test('completed resource close remains noninteractive while the action is pendin
 	selected.resolve();
 	await pending;
 	expect(departure.state.phase).toBe('departing');
+});
+
+test('library retirement quiesces UI and waits invalidation before close and reload', async () => {
+	const notification =
+		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
+	const invalidation = Promise.withResolvers<void>();
+	const events: string[] = [];
+	const departure = createDeparture({
+		account: null,
+		retirement: notification.promise,
+		close: async () => {
+			events.push('close');
+		},
+		reload: () => {
+			events.push('reload');
+		},
+	});
+	departure.attachUi({
+		async preflight() {
+			throw new Error('Retirement must bypass preflight');
+		},
+		async quiesce() {
+			events.push('quiesce');
+		},
+	});
+	notification.resolve({
+		invalidated: invalidation.promise,
+		retryInvalidation: () => invalidation.promise,
+	});
+	await Bun.sleep(0);
+	expect(events).toEqual(['quiesce']);
+	const closed = departure.close();
+	invalidation.resolve();
+	await closed;
+	expect(events).toEqual(['quiesce', 'close', 'reload']);
+	await departure.close();
+	expect(events).toHaveLength(3);
+});
+
+test('failed library invalidation retains ownership and retries cleanup without another UI drain', async () => {
+	const notification =
+		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
+	const first = Promise.withResolvers<void>();
+	const retry = Promise.withResolvers<void>();
+	let closes = 0;
+	let quiesces = 0;
+	let reloads = 0;
+	const departure = createDeparture({
+		account: null,
+		retirement: notification.promise,
+		close: async () => {
+			closes += 1;
+		},
+		reload: () => {
+			reloads += 1;
+		},
+	});
+	departure.attachUi({
+		async quiesce() {
+			quiesces += 1;
+		},
+	});
+	notification.resolve({
+		invalidated: first.promise,
+		retryInvalidation: () => retry.promise,
+	});
+	await Bun.sleep(0);
+	first.reject(new Error('Disk failed'));
+	await expect(departure.close()).rejects.toThrow('Disk failed');
+	expect(closes).toBe(0);
+	expect(departure.canRetryRetirement).toBe(true);
+	const finishing = departure.retryRetirement();
+	retry.resolve();
+	await finishing;
+	expect(quiesces).toBe(1);
+	expect(closes).toBe(1);
+	expect(reloads).toBe(1);
+});
+
+test('a retirement UI cleanup failure keeps the claim held and permits retry', async () => {
+	const notification =
+		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
+	let busy = true;
+	let closed = false;
+	const departure = createDeparture({
+		account: null,
+		retirement: notification.promise,
+		close: async () => {
+			closed = true;
+		},
+		reload() {},
+	});
+	departure.attachUi({
+		async quiesce() {
+			if (busy) throw new Error('Producer still running');
+		},
+	});
+	notification.resolve({
+		invalidated: Promise.resolve(),
+		retryInvalidation: () => Promise.resolve(),
+	});
+	await Bun.sleep(0);
+	await expect(departure.close()).rejects.toThrow('Producer still running');
+	expect(closed).toBe(false);
+	expect(departure.canReopen).toBe(false);
+	busy = false;
+	await departure.retryRetirement();
+	expect(closed).toBe(true);
+});
+
+test('retirement during voluntary UI drain takes over close ordering and suppresses auth changes', async () => {
+	const notification =
+		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
+	const draining = Promise.withResolvers<void>();
+	const invalidating = Promise.withResolvers<void>();
+	let closed = false;
+	let selected = false;
+	const departure = createDeparture({
+		account: null,
+		retirement: notification.promise,
+		close: async () => {
+			closed = true;
+		},
+		reload() {},
+	});
+	departure.attachUi({ quiesce: () => draining.promise });
+	const going = departure.go(() => {
+		selected = true;
+	});
+	const refusal = going.catch((error: unknown) => error);
+	await Bun.sleep(0);
+	notification.resolve({
+		invalidated: invalidating.promise,
+		retryInvalidation: () => invalidating.promise,
+	});
+	draining.resolve();
+	await Bun.sleep(0);
+	expect(closed).toBe(false);
+	invalidating.resolve();
+	expect(await refusal).toEqual(
+		new Error('The library was restored. Reload the application.'),
+	);
+	expect(closed).toBe(true);
+	expect(selected).toBe(false);
 });

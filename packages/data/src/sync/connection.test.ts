@@ -1,4 +1,3 @@
-import { field, plainText } from '@epicenter/data/definition';
 /**
  * The driver, over the same hub and authority that get deployed.
  *
@@ -14,15 +13,25 @@ import { field, plainText } from '@epicenter/data/definition';
  * where nothing was ever delivered.
  */
 
+import { field, plainText } from '@epicenter/data/definition';
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { defineData, defineTable } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Result } from 'wellcrafted/result';
 
-import { type DeclaredData, openAccountStore } from '../store/store.js';
+import {
+	type DeclaredData,
+	openAccountStore,
+	syncEngineOf,
+} from '../store/store.js';
 import { openSyncAuthority } from './authority.js';
-import { createSyncConnection, type SyncDial } from './connection.js';
+import {
+	createSyncConnection,
+	type SyncDial,
+	type SyncAttempt,
+} from './connection.js';
+import { encodeFrame } from './frames.js';
 import { createSyncHub, type HubConnection } from './hub.js';
 
 const database = defineData({
@@ -199,6 +208,7 @@ async function openDriven({
 	};
 
 	const connection = createSyncConnection({
+		onRetired: () => undefined,
 		store,
 		dial,
 		schedule: clock.schedule,
@@ -498,6 +508,7 @@ describe('a refused dial is reported and dialled again', () => {
 		const db = data as DeclaredData<typeof database>;
 		let dials = 0;
 		const connection = createSyncConnection({
+			onRetired: () => undefined,
 			store,
 			schedule: clock.schedule,
 			dial: ({ closed }) => {
@@ -559,6 +570,7 @@ describe('a refused dial is reported and dialled again', () => {
 		});
 		let refuse = true;
 		const connection = createSyncConnection({
+			onRetired: () => undefined,
 			store: data,
 			schedule: clock.schedule,
 			dial: ({ closed }) => {
@@ -590,12 +602,16 @@ describe('a refused dial is reported and dialled again', () => {
 		let refuse = true;
 		let dials = 0;
 		const connection = createSyncConnection({
+			onRetired: () => undefined,
 			store: data,
 			schedule: clock.schedule,
-			dial: ({ closed, opened }) => {
+			dial: ({ closed, opened, received }) => {
 				dials += 1;
 				if (refuse) closed('reauth-required');
-				else opened({ send: () => undefined });
+				else {
+					opened({ send: () => undefined });
+					received(encodeFrame({ kind: 'admitted' }));
+				}
 				return () => undefined;
 			},
 		});
@@ -673,11 +689,13 @@ describe('a retired opcode on the wire is ignored, not concluded from', () => {
 		});
 		const retired = new Uint8Array([9, 1, 2, 3]);
 		const connection = createSyncConnection({
+			onRetired: () => undefined,
 			store: data,
 			idleMs: 1_000,
 			schedule: clock.schedule,
 			dial: ({ opened, received }) => {
 				opened({ send: () => undefined });
+				received(encodeFrame({ kind: 'admitted' }));
 				wire.defer(() => received(retired));
 				return () => undefined;
 			},
@@ -690,4 +708,277 @@ describe('a retired opcode on the wire is ignored, not concluded from', () => {
 		connection[Symbol.dispose]();
 		void data[Symbol.asyncDispose]();
 	});
+});
+
+async function openAdmissionDriver(onRetired: () => void = () => undefined) {
+	const store = await openAccountStore({
+		definition: database,
+		sqlite: createBunSqliteAdapter(new Database(':memory:')),
+	});
+	const clock = createClock();
+	const attempts: SyncAttempt[] = [];
+	const sent: Uint8Array[] = [];
+	let stopped = 0;
+	let retirements = 0;
+	const connection = createSyncConnection({
+		store,
+		schedule: clock.schedule,
+		admissionMs: 20,
+		backoff: () => 10,
+		onRetired() {
+			retirements += 1;
+			onRetired();
+		},
+		dial(attempt) {
+			attempts.push(attempt);
+			return () => {
+				stopped += 1;
+			};
+		},
+	});
+	connection.start();
+	return {
+		store,
+		connection,
+		clock,
+		attempts,
+		sent,
+		open() {
+			attempts.at(-1)?.opened({ send: (bytes) => sent.push(bytes) });
+		},
+		retirements: () => retirements,
+		stopped: () => stopped,
+		async [Symbol.asyncDispose]() {
+			connection[Symbol.dispose]();
+			await store[Symbol.asyncDispose]();
+		},
+	};
+}
+
+test('socket open and local edits send nothing until explicit admission', async () => {
+	await using driver = await openAdmissionDriver();
+	expectOk(driver.store.tables.notes.create({ title: 'pending' }));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	driver.open();
+	expectOk(driver.connection.flush());
+	expect(driver.sent).toHaveLength(0);
+	expect(driver.connection.status().connected).toBe(false);
+	driver.attempts[0]?.received(encodeFrame({ kind: 'admitted' }));
+	expect(driver.sent.length).toBeGreaterThan(0);
+	expect(driver.connection.status().connected).toBe(true);
+	const sent = driver.sent.length;
+	driver.attempts[0]?.received(encodeFrame({ kind: 'admitted' }));
+	expect(driver.sent).toHaveLength(sent);
+});
+
+test('data arriving before admission cannot alter the held document or cursor', async () => {
+	await using driver = await openAdmissionDriver();
+	await using donor = await openAccountStore({
+		definition: database,
+		sqlite: createBunSqliteAdapter(new Database(':memory:')),
+	});
+	expectOk(donor.tables.notes.create({ title: 'remote' }));
+	const bytes = syncEngineOf(donor).encodeSnapshot();
+	driver.open();
+	for (const frame of [
+		encodeFrame({ kind: 'snapshot', position: 4, chunk: 0, chunks: 1, bytes }),
+		encodeFrame({ kind: 'entry', seq: 1, chunk: 0, chunks: 1, bytes }),
+	])
+		driver.attempts[0]?.received(frame);
+	expect(driver.store.tables.notes.rows).toHaveLength(0);
+	expect(driver.connection.status().cursor).toBe(0);
+	driver.attempts[0]?.received(encodeFrame({ kind: 'admitted' }));
+	driver.attempts[0]?.received(
+		encodeFrame({ kind: 'entry', seq: 1, chunk: 0, chunks: 1, bytes }),
+	);
+	expect(driver.store.tables.notes.rows.map((row) => row.title)).toEqual([
+		'remote',
+	]);
+});
+
+test('retirement stops sends and retries before notifying the lifetime owner once', async () => {
+	await using driver = await openAdmissionDriver(() => {
+		expect(driver.connection.status().connected).toBe(false);
+		expect(driver.connection.status().retired).toBe(true);
+		expectOk(driver.store.tables.notes.create({ title: 'late producer' }));
+		expectOk(driver.connection.flush());
+	});
+	driver.open();
+	driver.attempts[0]?.received(encodeFrame({ kind: 'admitted' }));
+	driver.attempts[0]?.received(encodeFrame({ kind: 'retired' }));
+	driver.attempts[0]?.received(encodeFrame({ kind: 'retired' }));
+	driver.attempts[0]?.closed();
+	driver.connection.start();
+	driver.clock.advance(120_000);
+	expect(driver.retirements()).toBe(1);
+	expect(driver.sent).toHaveLength(0);
+	expect(driver.attempts).toHaveLength(1);
+	expect(driver.stopped()).toBe(1);
+	expect(driver.clock.pending()).toBe(0);
+});
+
+test('retirement before admission preserves pending bytes and never sends them', async () => {
+	await using driver = await openAdmissionDriver();
+	expectOk(driver.store.tables.notes.create({ title: 'pending' }));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	driver.open();
+	driver.attempts[0]?.received(encodeFrame({ kind: 'retired' }));
+	driver.attempts[0]?.received(encodeFrame({ kind: 'admitted' }));
+	expect(driver.retirements()).toBe(1);
+	expect(driver.sent).toHaveLength(0);
+	expect(driver.store.tables.notes.rows).toHaveLength(1);
+});
+
+test('stale attempts cannot admit or retire their replacement', async () => {
+	await using driver = await openAdmissionDriver();
+	driver.open();
+	const stale = driver.attempts[0];
+	stale?.closed();
+	driver.clock.advance(10);
+	driver.open();
+	stale?.received(encodeFrame({ kind: 'admitted' }));
+	expect(driver.connection.status().connected).toBe(false);
+	driver.attempts[1]?.received(encodeFrame({ kind: 'admitted' }));
+	stale?.received(encodeFrame({ kind: 'retired' }));
+	expect(driver.connection.status().connected).toBe(true);
+	expect(driver.retirements()).toBe(0);
+});
+
+test('a silent socket times out admission and retries without sending its outbox', async () => {
+	await using driver = await openAdmissionDriver();
+	expectOk(driver.store.tables.notes.create({ title: 'pending' }));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	driver.open();
+	driver.clock.advance(20);
+	expect(driver.connection.status().lastReconnect).toBe('admission');
+	expect(driver.stopped()).toBe(1);
+	driver.clock.advance(10);
+	expect(driver.attempts).toHaveLength(2);
+	expect(driver.sent).toHaveLength(0);
+	expect(driver.retirements()).toBe(0);
+});
+
+test('retirement inside the first outgoing chunk stops the remaining submission', async () => {
+	await using driver = await openAdmissionDriver();
+	expectOk(driver.store.tables.notes.create({ title: 'x'.repeat(5_000_000) }));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	const attempt = driver.attempts[0];
+	attempt?.opened({
+		send(bytes) {
+			driver.sent.push(bytes);
+			attempt.received(encodeFrame({ kind: 'retired' }));
+		},
+	});
+	expect(() =>
+		attempt?.received(encodeFrame({ kind: 'admitted' })),
+	).not.toThrow();
+	expect(driver.sent).toHaveLength(1);
+	expect(driver.retirements()).toBe(1);
+	expect(driver.clock.pending()).toBe(0);
+});
+
+test('synchronous retirement during dial releases the teardown returned afterward', async () => {
+	await using store = await openAccountStore({
+		definition: database,
+		sqlite: createBunSqliteAdapter(new Database(':memory:')),
+	});
+	const clock = createClock();
+	let stopped = 0;
+	let retirements = 0;
+	using connection = createSyncConnection({
+		store,
+		schedule: clock.schedule,
+		onRetired: () => {
+			retirements += 1;
+		},
+		dial(attempt) {
+			attempt.opened({ send: () => undefined });
+			attempt.received(encodeFrame({ kind: 'retired' }));
+			return () => {
+				stopped += 1;
+				attempt.closed();
+			};
+		},
+	});
+	connection.start();
+	clock.advance(120_000);
+	expect(stopped).toBe(1);
+	expect(retirements).toBe(1);
+	expect(clock.pending()).toBe(0);
+});
+
+test('retirement inside a snapshot offer stops its remaining chunks', async () => {
+	await using driver = await openAdmissionDriver();
+	await using donor = await openAccountStore({
+		definition: database,
+		sqlite: createBunSqliteAdapter(new Database(':memory:')),
+	});
+	expectOk(donor.tables.notes.create({ title: 'x'.repeat(5_000_000) }));
+	const attempt = driver.attempts[0];
+	attempt?.opened({
+		send(bytes) {
+			driver.sent.push(bytes);
+			attempt.received(encodeFrame({ kind: 'retired' }));
+		},
+	});
+	attempt?.received(encodeFrame({ kind: 'admitted' }));
+	attempt?.received(
+		encodeFrame({
+			kind: 'snapshot',
+			position: 1,
+			chunk: 0,
+			chunks: 1,
+			bytes: syncEngineOf(donor).encodeSnapshot(),
+		}),
+	);
+	expect(() =>
+		attempt?.received(encodeFrame({ kind: 'wanted', position: 1 })),
+	).not.toThrow();
+	expect(driver.sent).toHaveLength(1);
+	expect(driver.retirements()).toBe(1);
+});
+
+test('retirement still fences its owner when socket teardown throws', async () => {
+	await using store = await openAccountStore({
+		definition: database,
+		sqlite: createBunSqliteAdapter(new Database(':memory:')),
+	});
+	const clock = createClock();
+	const failure = new Error('Socket close failed');
+	let current: SyncAttempt | undefined;
+	let retirements = 0;
+	let sent = 0;
+	using connection = createSyncConnection({
+		store,
+		schedule: clock.schedule,
+		onRetired() {
+			retirements += 1;
+		},
+		dial(attempt) {
+			current = attempt;
+			attempt.opened({
+				send() {
+					sent += 1;
+				},
+			});
+			return () => {
+				throw failure;
+			};
+		},
+	});
+	connection.start();
+	current?.received(encodeFrame({ kind: 'admitted' }));
+	expect(() => current?.received(encodeFrame({ kind: 'retired' }))).toThrow(
+		failure,
+	);
+	expect(retirements).toBe(1);
+	expect(connection.status().connected).toBe(false);
+	expect(connection.status().retired).toBe(true);
+	expectOk(store.tables.notes.create({ title: 'late' }));
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	clock.advance(120_000);
+	current?.received(encodeFrame({ kind: 'retired' }));
+	expect(sent).toBe(0);
+	expect(retirements).toBe(1);
+	expect(clock.pending()).toBe(0);
 });

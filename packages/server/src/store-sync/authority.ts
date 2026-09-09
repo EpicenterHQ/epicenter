@@ -216,9 +216,9 @@ export class StoreAuthority extends DurableObject {
 		// socket, so a replica would wait forever on a submission that had already
 		// failed; a refusal has to travel as a frame, and the hub sends one.
 		//
-		// `adopt` re-runs admission for a socket this object no longer holds, so a
-		// push from a superseded connection meets the identity check and lands
-		// nowhere: the one equality covers dial-time supersession and this race.
+		// `adopt` restores hub membership for an authorized socket after wake.
+		// Generation isolation currently comes from this object's address;
+		// adoption does not check whether that generation has been retired.
 		const connection = this.adopt(socket);
 		if (connection === undefined) return;
 		this.hub.receive(connection, new Uint8Array(message));

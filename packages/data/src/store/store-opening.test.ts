@@ -695,6 +695,9 @@ test('close during sync attachment releases the late socket and refuses readines
 				dispose: () => {
 					disposalCalls++;
 				},
+				async discard() {
+					throw new Error('This test never retires a generation');
+				},
 				replication: {
 					address: {
 						baseURL: server.url.origin,

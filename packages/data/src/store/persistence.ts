@@ -166,6 +166,8 @@ const PersistenceError = defineErrors({
 });
 
 export type PersistenceController = {
+	/** End the retired in-memory queue without submitting or retrying its work. */
+	discard(): Promise<void>;
 	close(): Promise<void>;
 	append(bytes: Uint8Array, authoritySeq: number | undefined): void;
 	acknowledge(throughId: number, authoritySeq: number): void;
@@ -204,6 +206,7 @@ export function createPersistenceController({
 	// this floor and recovers any retirement that did not reach storage.
 	let acknowledgedThroughId = 0;
 	let closed = false;
+	let discarded = false;
 	const sendableListeners = new Set<() => void>();
 
 	const statusListeners = new Set<() => void>();
@@ -305,7 +308,7 @@ export function createPersistenceController({
 	}
 
 	function enqueue(ops: readonly DurableOp[]): void {
-		if (ops.length === 0) return;
+		if (discarded || ops.length === 0) return;
 		queue.push(...ops);
 		void flush();
 	}
@@ -322,6 +325,7 @@ export function createPersistenceController({
 
 	/** One completion path makes durability independent of adapter timing. */
 	function flush(): Promise<void> {
+		if (discarded) return running ?? Promise.resolve();
 		if (running !== undefined) {
 			requested = true;
 			return running;
@@ -337,10 +341,12 @@ export function createPersistenceController({
 					try {
 						await port.commit(batch);
 					} catch (cause) {
+						if (discarded) return;
 						failed(batch, cause);
 						if (requested) continue;
 						break;
 					}
+					if (discarded) return;
 					succeeded(batch);
 					if (
 						!closed &&
@@ -366,6 +372,16 @@ export function createPersistenceController({
 	}
 
 	return {
+		discard() {
+			discarded = true;
+			closed = true;
+			queue = [];
+			outbox = [];
+			requested = false;
+			sendableListeners.clear();
+			statusListeners.clear();
+			return running ?? Promise.resolve();
+		},
 		close() {
 			closed = true;
 			sendableListeners.clear();

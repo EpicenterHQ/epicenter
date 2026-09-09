@@ -1,4 +1,3 @@
-import { defineTable, field, plainText } from '@epicenter/data/definition';
 /**
  * What the shared dial has to get right: the address it asks for, including
  * the subprotocol the server requires, and how it classifies a rejection.
@@ -10,6 +9,7 @@ import { defineTable, field, plainText } from '@epicenter/data/definition';
  * transient spins the backoff against it forever.
  */
 
+import { defineTable, field, plainText } from '@epicenter/data/definition';
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { defineData } from '@epicenter/data/definition';
@@ -21,6 +21,7 @@ import type {
 } from '@epicenter/sync/transport';
 import { openAccountStore } from '../store/store.js';
 import { attachStoreSync } from './attach.js';
+import { encodeFrame } from './frames.js';
 
 const database = defineData({
 	id: 'so.epicenter.attach-test',
@@ -69,6 +70,7 @@ test('the first dial names the dataId, a cursor of zero, and the main subprotoco
 		() => new Promise<WebSocket>(() => {}),
 	);
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -103,6 +105,7 @@ test('the store answers for the connection driving it, and stops when it goes', 
 
 	const { transport } = createTransport(() => new Promise<WebSocket>(() => {}));
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -127,6 +130,7 @@ test('a denial is reported as a refusal code and is not a transport error', asyn
 	const { transport } = createTransport(() => Promise.reject(denial));
 	const transportErrors: unknown[] = [];
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -149,6 +153,7 @@ test('an unrecognised rejection is a transport error and a close', async () => {
 	const { transport } = createTransport(() => Promise.reject(cause));
 	const transportErrors: unknown[] = [];
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -174,6 +179,7 @@ test('abandoning an attempt closes a socket that arrives late', async () => {
 	const arrival = Promise.withResolvers<WebSocket>();
 	const { transport } = createTransport(() => arrival.promise);
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -193,28 +199,37 @@ test('abandoning an attempt closes a socket that arrives late', async () => {
  * keeps the listeners so a test can fire the events itself.
  */
 function createSocket(readyState: number) {
-	const listeners = new Map<string, () => void>();
+	const listeners = new Map<string, (event: Event) => void>();
 	const socket = {
 		binaryType: '',
 		readyState,
-		addEventListener: (event: string, listen: () => void) =>
+		addEventListener: (event: string, listen: (event: Event) => void) =>
 			listeners.set(event, listen),
 		send: () => {},
 		close: () => {},
 	} as unknown as WebSocket;
-	return { socket, fire: (event: string) => listeners.get(event)?.() };
+	return {
+		socket,
+		fire: (event: string) => listeners.get(event)?.(new Event(event)),
+		receive(kind: 'admitted' | 'retired') {
+			listeners.get('message')?.(
+				new MessageEvent('message', { data: encodeFrame({ kind }).buffer }),
+			);
+		},
+	};
 }
 
-test('a socket handed back already open is attached without an open event', async () => {
+test('an already open socket waits for admission without needing an open event', async () => {
 	const store = await openStore();
 	await using _store = store;
 	// What a Worker's upgrade produces: `fetch` answers with an accepted
 	// socket, which is live and will never fire `open`. Waiting for one leaves
 	// the driver holding a healthy socket it never sends on, and nothing times
 	// out.
-	const { socket } = createSocket(1);
+	const { socket, receive } = createSocket(1);
 	const { transport } = createTransport(() => Promise.resolve(socket));
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -225,15 +240,18 @@ test('a socket handed back already open is attached without an open event', asyn
 	using _ = connection;
 
 	await Bun.sleep(1);
+	expect(connection.status().connected).toBe(false);
+	receive('admitted');
 	expect(connection.status().connected).toBe(true);
 });
 
-test('a connecting socket is attached only once it opens', async () => {
+test('a connecting socket attaches only after opening and admission', async () => {
 	const store = await openStore();
 	await using _store = store;
-	const { socket, fire } = createSocket(0);
+	const { socket, fire, receive } = createSocket(0);
 	const { transport } = createTransport(() => Promise.resolve(socket));
 	const connection = attachStoreSync({
+		onRetired: () => undefined,
 		store,
 		address,
 		transport,
@@ -246,5 +264,32 @@ test('a connecting socket is attached only once it opens', async () => {
 	await Bun.sleep(1);
 	expect(connection.status().connected).toBe(false);
 	fire('open');
+	expect(connection.status().connected).toBe(false);
+	receive('admitted');
 	expect(connection.status().connected).toBe(true);
+});
+
+test('authenticated retirement reaches the App owner once through the socket adapter', async () => {
+	await using store = await openStore();
+	const { socket, receive } = createSocket(1);
+	const { transport } = createTransport(() => Promise.resolve(socket));
+	let retired = 0;
+	using connection = attachStoreSync({
+		store,
+		address,
+		transport,
+		onTransportError: (cause) => {
+			throw cause;
+		},
+		onRetired() {
+			retired += 1;
+			expect(store.sync.status()?.retired).toBe(true);
+		},
+	});
+	await Bun.sleep(1);
+	receive('retired');
+	receive('retired');
+	receive('admitted');
+	expect(retired).toBe(1);
+	expect(connection.status().connected).toBe(false);
 });

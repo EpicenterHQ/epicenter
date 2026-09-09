@@ -136,7 +136,9 @@ export type Frame =
 	| EntryFrame
 	| OfferFrame
 	| SnapshotFrame
-	| WantedFrame;
+	| WantedFrame
+	| { kind: 'admitted' }
+	| { kind: 'retired' };
 
 const PUSH = 1;
 const ACK = 2;
@@ -145,6 +147,9 @@ const ENTRY = 4;
 const OFFER = 5;
 const SNAPSHOT = 6;
 const WANTED = 7;
+// Admission belongs to the authenticated generation in the connection address.
+const ADMITTED = 10;
+const RETIRED = 11;
 // Opcode 8 carried `boundary` for one unreleased build and is retired; a
 // decoder treats it as unknown. Do not reuse it.
 //
@@ -159,6 +164,10 @@ const DATA_HEADER_BYTES = 13;
 
 export function encodeFrame(frame: Frame): Uint8Array {
 	switch (frame.kind) {
+		case 'admitted':
+			return new Uint8Array([ADMITTED]);
+		case 'retired':
+			return new Uint8Array([RETIRED]);
 		case 'push':
 			return encodeData(
 				PUSH,
@@ -239,6 +248,13 @@ export function decodeFrame(input: Uint8Array): Result<Frame, FrameError> {
 	if (input.length === 0) return FrameError.Malformed({ reason: 'empty' });
 	const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
 	const kind = view.getUint8(0);
+	if (kind === ADMITTED || kind === RETIRED) {
+		if (input.length !== 1)
+			return FrameError.Malformed({
+				reason: `admission frame is ${input.length} bytes`,
+			});
+		return Ok({ kind: kind === ADMITTED ? 'admitted' : 'retired' });
+	}
 
 	if (kind === WANTED) {
 		if (input.length < 5) {

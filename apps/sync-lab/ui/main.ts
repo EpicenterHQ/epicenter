@@ -54,6 +54,7 @@ const store = db;
  * two of the four.
  */
 const connection = createSyncConnection({
+	onRetired() { throw new Error('This sync laboratory does not restore generations'); },
 	store,
 	dial: ({ cursor, opened, received, closed }) => {
 		const url = new URL('/sync', location.href);

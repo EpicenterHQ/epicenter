@@ -11,6 +11,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { createSqliteDurablePort } from '../store/log.js';
 import type { DurableOp } from '../store/persistence.js';
 import { createStoreOverPort, syncEngineOf } from '../store/store.js';
+import { encodeFrame } from './frames.js';
 import { createSyncConnection } from './connection.js';
 import { decodeFrame } from './frames.js';
 
@@ -76,10 +77,14 @@ test('a durable append wakes an idle connection after the original send window',
 	const sent: Uint8Array[] = [];
 	const timers = new Set<{ run(): void; delay: number }>();
 	using connection = createSyncConnection({
+		onRetired() {
+			throw new Error('Unexpected retirement in this transport test');
+		},
 		store: replica.store,
 		idleMs: 1,
 		dial(attempt) {
 			attempt.opened({ send: (bytes) => sent.push(bytes) });
+			attempt.received(encodeFrame({ kind: 'admitted' }));
 			return () => {};
 		},
 		schedule(run, delay) {

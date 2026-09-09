@@ -23,6 +23,8 @@ export const app = new URLSearchParams(location.search).has('connect')
 		? epicenter.openLocal()
 		: epicenter.openAccount(account);
 export const departure = createDeparture({
+	retirement: app?.retirement,
+	reload: () => location.reload(),
 	auth: app ? authClient : undefined,
 	account,
 	close: () => app?.close() ?? Promise.resolve(),

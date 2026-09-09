@@ -510,8 +510,9 @@ describe('the ack is what makes a refusal visible', () => {
 
 		// The authority answered rather than going quiet, and it named the
 		// submission, so the client knows exactly which work it still owes.
-		expect(answers).toHaveLength(1);
-		const refusal = expectOk(decodeFrame(answers[0] as Uint8Array));
+		expect(answers).toHaveLength(2);
+		expect(expectOk(decodeFrame(answers[0]!))).toEqual({ kind: 'admitted' });
+		const refusal = expectOk(decodeFrame(answers[1] as Uint8Array));
 		if (refusal.kind !== 'refuse')
 			throw new Error(`answered with ${refusal.kind}`);
 		expect(refusal.submission).toBe(7);
@@ -1280,7 +1281,7 @@ describe('an entry that will not apply is loud, not silent', () => {
 		);
 
 		// Accepted: acknowledged at a position, and in the log byte for byte.
-		const answer = expectOk(decodeFrame(answers[0] as Uint8Array));
+		const answer = expectOk(decodeFrame(answers[1] as Uint8Array));
 		if (answer.kind !== 'ack') throw new Error(`answered with ${answer.kind}`);
 		expect(answer.seq).toBe(1);
 		expect(expectOk(authority.head())).toBe(1);
@@ -2238,13 +2239,7 @@ describe('random schedules, and everyone still agrees', () => {
 	});
 });
 
-describe('admission is catch-up, and there is nothing else to check', () => {
-	// Four verdicts became two (ADR-0292). `bootstrap` and `retired` existed to
-	// answer "is this replica's state part of the history this log describes",
-	// and the generation is in the address now: a replica reaching this hub was
-	// addressed at this generation, which is created once and never mutated in
-	// place, so the question cannot be asked wrongly. What is left is membership
-	// and storage trouble.
+describe('wire admission precedes catch-up and membership requires delivery', () => {
 	test('any connection is admitted and caught up from its own cursor', async () => {
 		const { wire, hub, phone } = await setup();
 		phone.connect();
@@ -2262,14 +2257,14 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		};
 		expect(hub.join(late)).toBe('admitted');
 		expect(hub.attached()).toBe(2);
-		// Everything after its cursor, and nothing before: no announcement, no
-		// handshake, no second dial.
+		// Admission precedes everything after its cursor.
 		expect(sent.map((bytes) => expectOk(decodeFrame(bytes)))).toEqual([
+			{ kind: 'admitted' },
 			expect.objectContaining({ kind: 'entry', seq: 3 }),
 		]);
 	});
 
-	test('a cursor at the head is admitted and sent nothing', async () => {
+	test('a cursor at the head receives only admission', async () => {
 		const { wire, hub, phone } = await setup();
 		phone.connect();
 		phone.db.tables.notes.create({ title: 'current' });
@@ -2284,10 +2279,12 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		};
 		expect(hub.join(caughtUp)).toBe('admitted');
 		expect(hub.attached()).toBe(2);
-		expect(sent).toHaveLength(0);
+		expect(sent.map((bytes) => expectOk(decodeFrame(bytes)))).toEqual([
+			{ kind: 'admitted' },
+		]);
 	});
 
-	test('an unreadable log fails closed: no admission and no frame', async () => {
+	test('a catch-up failure removes membership after wire admission', async () => {
 		const { authority } = openAuthority();
 		const broken: SyncAuthority = {
 			...authority,
@@ -2301,6 +2298,8 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		};
 		expect(hub.join(connection)).toBe('unavailable');
 		expect(hub.attached()).toBe(0);
-		expect(sent).toHaveLength(0);
+		expect(sent.map((bytes) => expectOk(decodeFrame(bytes)))).toEqual([
+			{ kind: 'admitted' },
+		]);
 	});
 });

@@ -155,10 +155,14 @@ export function openApp<const TDefinition extends DataDefinition>(
 					failures.map((result) => result.reason),
 					'Application cleanup failed.',
 				);
-		})().then(completion.resolve, completion.reject);
+		})().then(completion.resolve, (cause) => {
+			if (document.isRetired && !dataReleased) closing = undefined;
+			completion.reject(cause);
+		});
 		return closing;
 	}
 	const ready = document.ready.then(async (result) => {
+		if (document.isRetired) return StoreError.ClosedWhileOpening();
 		if (result.error)
 			await close().catch((cause) =>
 				log.error(
@@ -178,6 +182,10 @@ export function openApp<const TDefinition extends DataDefinition>(
 			assertUsable: document.lifetime.assertUsable,
 			canRecover: () => acquired,
 		});
+		// Capture must stop while cache invalidation is still pending. The owner
+		// retains a failed close; final App closure observes it before releasing
+		// the library claim. This callback does not close the data backing.
+		void document.retirement.then(() => recorder?.close()).catch(() => {});
 		inference = createAppAi({
 			lifetime: document.lifetime,
 			account: account === null ? null : (ai?.account?.(account) ?? null),
@@ -197,6 +205,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 					dataId: parsed.data.id,
 					account: identity,
 					ready,
+					retirement: document.retirement,
 					close,
 					blobs: blobAccess.value,
 					sqlite: databases.value,

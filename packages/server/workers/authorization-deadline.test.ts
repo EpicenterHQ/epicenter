@@ -159,7 +159,7 @@ it('blocks outgoing relay to an expired socket before a delayed alarm runs', asy
 		}),
 	);
 	expect((await expired.closed).code).toBe(1008);
-	expect(expired.frames).toEqual([]);
+	expect(expired.frames).toEqual([{ kind: 'admitted' }]);
 });
 
 it('refuses catch-up on wake for expired and missing authorization attachments', async () => {
@@ -183,8 +183,8 @@ it('refuses catch-up on wake for expired and missing authorization attachments',
 	await (await stub.fetch('https://authority.test/')).arrayBuffer();
 	expect((await expired.closed).code).toBe(1008);
 	expect((await legacy.closed).code).toBe(1008);
-	expect(expired.frames).toEqual([]);
-	expect(legacy.frames).toEqual([]);
+	expect(expired.frames).toEqual([{ kind: 'admitted' }]);
+	expect(legacy.frames).toEqual([{ kind: 'admitted' }]);
 });
 
 it('alarm expires the earliest peer after hibernation and reschedules the remaining peer', async () => {
@@ -231,7 +231,7 @@ it('a scheduled alarm closes an idle hibernating socket without incoming traffic
 	const close = await peer.closed;
 	expect(close.code).toBe(1008);
 	expect(close.reason).toBe('socket authorization expired');
-	expect(peer.frames).toEqual([]);
+	expect(peer.frames).toEqual([{ kind: 'admitted' }]);
 });
 
 it('closing the earliest peer moves the alarm, and closing the last removes it', async () => {

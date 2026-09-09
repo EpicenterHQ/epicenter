@@ -27,7 +27,9 @@ for (const operation of ['snapshot', 'since'] as const) {
 		const connection = {
 			cursor: 0,
 			send: (bytes: Uint8Array) => {
-				frames.push(expectOk(decodeFrame(bytes)));
+				const frame = expectOk(decodeFrame(bytes));
+				if (frame.kind === 'admitted' || frame.kind === 'retired') return;
+				frames.push(frame);
 			},
 		};
 		expect(hub.join(connection)).toBe('unavailable');
@@ -65,7 +67,9 @@ test('a failed catch-up before acknowledgement preserves the connection cursor',
 	const connection = {
 		cursor: 0,
 		send: (bytes: Uint8Array) => {
-			frames.push(expectOk(decodeFrame(bytes)));
+			const frame = expectOk(decodeFrame(bytes));
+			if (frame.kind === 'admitted' || frame.kind === 'retired') return;
+			frames.push(frame);
 		},
 	};
 	expect(hub.join(connection)).toBe('admitted');
@@ -115,7 +119,9 @@ for (const position of [1, 0]) {
 		const connection = {
 			cursor: 0,
 			send: (bytes: Uint8Array) => {
-				frames.push(expectOk(decodeFrame(bytes)));
+				const frame = expectOk(decodeFrame(bytes));
+				if (frame.kind === 'admitted' || frame.kind === 'retired') return;
+				frames.push(frame);
 			},
 		};
 		expect(hub.join(connection)).toBe('admitted');
@@ -157,7 +163,9 @@ for (const baseline of ['entry', 'snapshot'] as const) {
 		const connection = {
 			cursor: 0,
 			send(bytes: Uint8Array) {
-				frames.push(expectOk(decodeFrame(bytes)));
+				const frame = expectOk(decodeFrame(bytes));
+				if (frame.kind === 'admitted' || frame.kind === 'retired') return;
+				frames.push(frame);
 				if (answered) return;
 				answered = true;
 				hub.receive(
@@ -214,3 +222,88 @@ test('a synchronous push from failed admission is discarded before it can append
 	expect(hub.attached()).toBe(0);
 	expect(expectOk(authority.head())).toBe(1);
 });
+
+test('retiring during chunk delivery fences materialized bytes and queued replies', () => {
+	const authority = openSyncAuthority({
+		sqlite: createBunSqliteAdapter(new Database(':memory:')),
+	});
+	expectOk(authority.seed(new Uint8Array(2 * 1024 * 1024).fill(1)));
+	const hub = createSyncHub({ authority });
+	const frames: Frame[] = [];
+	const connection = {
+		cursor: 0,
+		send(bytes: Uint8Array) {
+			const frame = expectOk(decodeFrame(bytes));
+			if (frame.kind === 'admitted' || frame.kind === 'retired') return;
+			frames.push(frame);
+			hub.receive(
+				connection,
+				encodeFrame({
+					kind: 'push',
+					submission: 1,
+					chunk: 0,
+					chunks: 1,
+					bytes: new Uint8Array([2]),
+				}),
+			);
+			hub.retire();
+		},
+	};
+	expect(hub.join(connection)).toBe('retired');
+	expect(frames).toHaveLength(1);
+	expect(connection.cursor).toBe(0);
+	expect(hub.attached()).toBe(0);
+	expect(expectOk(authority.head())).toBe(1);
+	expect(hub.join(connection)).toBe('retired');
+});
+
+for (const partial of [false, true]) {
+	test(`storage failure ${partial ? 'during' : 'before'} collection refuses the push and forgets partial bytes`, () => {
+		const sqlite = createBunSqliteAdapter(new Database(':memory:'));
+		let failing = false;
+		const authority = openSyncAuthority({
+			sqlite: {
+				...sqlite,
+				transaction(run) {
+					if (failing) throw new Error('storage unavailable');
+					return sqlite.transaction(run);
+				},
+			},
+		});
+		const hub = createSyncHub({ authority });
+		const frames: Frame[] = [];
+		const connection = {
+			cursor: 0,
+			send(bytes: Uint8Array) {
+				const frame = expectOk(decodeFrame(bytes));
+				if (frame.kind === 'admitted' || frame.kind === 'retired') return;
+				frames.push(frame);
+			},
+		};
+		const chunk = (index: number) =>
+			encodeFrame({
+				kind: 'push',
+				submission: 1,
+				chunk: index,
+				chunks: 2,
+				bytes: new Uint8Array([index + 1]),
+			});
+		expect(hub.join(connection)).toBe('admitted');
+		if (partial) hub.receive(connection, chunk(0));
+		failing = true;
+		hub.receive(connection, chunk(1));
+		expect(frames).toEqual([
+			{
+				kind: 'refuse',
+				submission: 1,
+				reason: 'The authority could not commit to durable storage',
+			},
+		]);
+		failing = false;
+		hub.receive(connection, chunk(1));
+		expect(expectOk(authority.head())).toBe(0);
+		hub.receive(connection, chunk(0));
+		expect(expectOk(authority.head())).toBe(1);
+		expect(frames.at(-1)).toEqual({ kind: 'ack', submission: 1, seq: 1 });
+	});
+}

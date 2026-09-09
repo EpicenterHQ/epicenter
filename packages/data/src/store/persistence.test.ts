@@ -612,3 +612,66 @@ describe('the controller against an asynchronous engine', () => {
 		).toEqual([2, 3, 4]);
 	});
 });
+
+test('discard drops queued work before its commit microtask and never retries it', async () => {
+	let commits = 0;
+	const controller = createPersistenceController({
+		port: {
+			commit() {
+				commits += 1;
+			},
+		},
+		loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+		log: silent,
+		assertUsable() {},
+	});
+	controller.append(new Uint8Array([1]), undefined);
+	const discarded = controller.discard();
+	controller.append(new Uint8Array([2]), undefined);
+	controller.acknowledge(1, 1);
+	await discarded;
+	await controller.close();
+	expect(commits).toBe(0);
+	expect(controller.coalesce()).toBeUndefined();
+});
+
+test.each([
+	'resolve',
+	'reject',
+] as const)('discard waits an overlapping commit that will %s without restoring its queue', async (outcome) => {
+	const commit = Promise.withResolvers<void>();
+	let commits = 0;
+	let reports = 0;
+	const controller = createPersistenceController({
+		port: {
+			commit() {
+				commits += 1;
+				return commit.promise;
+			},
+		},
+		loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+		log: {
+			...silent,
+			error: () => {
+				reports += 1;
+			},
+		},
+		assertUsable() {},
+	});
+	controller.append(new Uint8Array([1]), undefined);
+	await Promise.resolve();
+	controller.append(new Uint8Array([2]), undefined);
+	let settled = false;
+	const discarded = controller.discard().then(() => {
+		settled = true;
+	});
+	await Promise.resolve();
+	expect(settled).toBe(false);
+	if (outcome === 'resolve') commit.resolve();
+	else commit.reject(new Error('Backing retirement refused this commit'));
+	await discarded;
+	await controller.close();
+	expect(commits).toBe(1);
+	expect(reports).toBe(0);
+	expect(controller.coalesce()).toBeUndefined();
+});

@@ -1,14 +1,19 @@
 import type { Account, AuthClient } from '@epicenter/auth';
+import type { LibraryRetirement } from '@epicenter/data/store';
 
 /** One page can close once. Only a refusal before teardown permits another try. */
 export function createDeparture({
 	auth,
 	account,
 	close,
+	retirement,
+	reload,
 }: {
 	auth?: Pick<AuthClient, 'onStateChange'>;
 	account: Account | null;
 	close: () => Promise<void>;
+	retirement?: Promise<LibraryRetirement>;
+	reload?: () => void;
 }) {
 	let state: {
 		phase:
@@ -31,6 +36,12 @@ export function createDeparture({
 	let closing: Promise<void> | undefined;
 	let departing: Promise<void> | undefined;
 	let retired = false;
+	let closedSuccessfully = false;
+	let library: LibraryRetirement | undefined;
+	let invalidated: Promise<void> | undefined;
+	let physicalCloseStarted = false;
+	let uiQuiesced = false;
+	let reloaded = false;
 	function publish(phase: typeof state.phase, error: unknown = null) {
 		state = { phase, error };
 		for (const listener of listeners) listener();
@@ -51,11 +62,23 @@ export function createDeparture({
 			publish('closing');
 			try {
 				try {
-					await ui?.quiesce();
-				} finally {
-					await close();
+					if (!uiQuiesced) await ui?.quiesce();
+					uiQuiesced = true;
+				} catch (error) {
+					// Retirement cannot release the library claim while a producer
+					// still holds old references. Ordinary departure keeps its drain.
+					if (library === undefined) await close();
+					throw error;
 				}
+				if (library !== undefined) await invalidated;
+				physicalCloseStarted = true;
+				await close();
+				closedSuccessfully = true;
 				publish(retired ? 'retired' : 'closed');
+				if (library !== undefined && !reloaded) {
+					reloaded = true;
+					reload?.();
+				}
 			} catch (error) {
 				publish('failed', error);
 				throw error;
@@ -78,7 +101,37 @@ export function createDeparture({
 			// Auth already retired transport. This only finishes the local page.
 			void finish().catch(() => {});
 		}) ?? (() => {});
+	void retirement?.then((notice) => {
+		library = notice;
+		invalidated = notice.invalidated;
+		retired = true;
+		if (state.phase === 'open' || state.phase === 'checking') publish('closing');
+		void finish().catch(() => {});
+	});
 	return {
+		/** Retry cleanup while the retired library's claim is still held. */
+		get canRetryRetirement() {
+			return (
+				library !== undefined &&
+				state.phase === 'failed' &&
+				!physicalCloseStarted
+			);
+		},
+		retryRetirement(): Promise<void> {
+			if (
+				library === undefined ||
+				state.phase !== 'failed' ||
+				physicalCloseStarted
+			)
+				return closing ?? Promise.resolve();
+			invalidated = library.retryInvalidation();
+			closing = undefined;
+			return finish();
+		},
+		/** Navigation after failure is safe only when producers and storage closed. */
+		get canReopen() {
+			return closedSuccessfully;
+		},
 		get state() {
 			return state;
 		},
@@ -103,7 +156,11 @@ export function createDeparture({
 				try {
 					await finish();
 					if (retired)
-						throw new Error('The account changed. Reopen the application.');
+						throw new Error(
+							library === undefined
+								? 'The account changed. Reopen the application.'
+								: 'The library was restored. Reload the application.',
+						);
 					publish('departing');
 					await action();
 				} catch (error) {

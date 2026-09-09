@@ -18,6 +18,7 @@ const saved = Promise.withResolvers<void>();
 const initialized = Promise.withResolvers<void>();
 const events: string[] = [];
 let pipelineFailure: Error | undefined;
+let vadFailure: Error | undefined;
 const capture = {
 	audioBlobId: generateBlobId(),
 	onEnded: () => () => {},
@@ -33,6 +34,7 @@ let speechEnd: ((blob: Blob) => Promise<void>) | undefined;
 const vadRecorder = {
 	state: 'IDLE',
 	async stopActiveListening() {
+		if (vadFailure) throw vadFailure;
 		vadRecorder.state = 'IDLE';
 		events.push('vad released');
 		return Ok({ status: 'stopped' });
@@ -112,7 +114,9 @@ test('recording work owns close eligibility through native finalization and row 
 	});
 	const stopping = app.recording.stop();
 	app.recordingEnabled = false;
-	const closing = closeRecordingWork().then(() => { events.push('producers closed'); });
+	const closing = closeRecordingWork().then(() => {
+		events.push('producers closed');
+	});
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize']);
@@ -244,4 +248,78 @@ test('push-to-talk release during startup saves through the composed workflow', 
 	expect(app.recording.state).toBe('IDLE');
 	expect(removeLocal).toHaveBeenCalledTimes(1);
 	expect(recordingActive(app)).toBe(false);
+});
+
+test('retirement retries the retained UI cleanup after unmount before releasing a failed active VAD', async () => {
+	mock.module('../whispering/app', () => ({
+		createWhisperingDomains: () => ({ settings: {}, [Symbol.dispose]() {} }),
+	}));
+	mock.module('../state/recordings.svelte', () => ({
+		createRecordings: () => ({}),
+	}));
+	mock.module('../state/settings.svelte', () => ({
+		createSettingsView: () => ({}),
+	}));
+	mock.module('../queries', () => ({ createWhisperingQueries: () => ({}) }));
+	mock.module('../queries/client', () => ({
+		createWhisperingQueryRuntime: () => ({ queryClient: { clear() {} } }),
+	}));
+	const { createWhisperingUiSession } = await import(
+		'../whispering/ui-session'
+	);
+	const { createDeparture } = await import('@epicenter/app-shell/departure');
+	const notification =
+		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
+	const session = createWhisperingUiSession({
+		openedApp: {
+			recording: { current: async () => Ok(null) },
+		} as unknown as import('../whispering/app').WhisperingAppHandle,
+		account: null,
+	});
+	let shell: { close(): Promise<void> } | undefined = {
+		close: () => session[Symbol.asyncDispose](),
+	};
+	let closeUi: (() => Promise<void>) | undefined;
+	let closed = false;
+	let reloaded = false;
+	const departure = createDeparture({
+		account: null,
+		retirement: notification.promise,
+		close: async () => {
+			closed = true;
+		},
+		reload: () => {
+			reloaded = true;
+		},
+	});
+	departure.attachUi({
+		async quiesce() {
+			closeUi ??= shell?.close;
+			const closing = closeUi?.();
+			shell = undefined;
+			await closing;
+		},
+	});
+	vadRecorder.state = 'LISTENING';
+	vadFailure = new Error('Microphone graph still held');
+	notification.resolve({
+		invalidated: Promise.resolve(),
+		retryInvalidation: () => Promise.resolve(),
+	});
+	try {
+		await Bun.sleep(0);
+		await expect(departure.close()).rejects.toBe(vadFailure);
+		expect(shell).toBeUndefined();
+		expect(closed).toBe(false);
+		expect(reloaded).toBe(false);
+		expect(vadRecorder.state).toBe('LISTENING');
+		vadFailure = undefined;
+		await departure.retryRetirement();
+		expect(vadRecorder.state).toBe('IDLE');
+		expect(closed).toBe(true);
+		expect(reloaded).toBe(true);
+	} finally {
+		vadFailure = undefined;
+		await closeRecordingWork();
+	}
 });

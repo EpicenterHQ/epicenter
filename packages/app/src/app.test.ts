@@ -21,6 +21,8 @@ import {
 import { asPrincipalId } from '@epicenter/principal';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { openApp } from './open.js';
+import * as dataBrowser from '@epicenter/data/browser';
+import { encodeFrame } from '../../data/src/sync/frames.js';
 import { createAiConfiguration } from './ai-configuration.js';
 import {
 	defineData,
@@ -1377,4 +1379,171 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	const duplicate = application.openLocal();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close().catch(() => {});
+});
+
+
+test('App retirement closes its recorder while retaining the library claim through invalidation failure and retry', async () => {
+	const appId = `test.${crypto.randomUUID()}`;
+	const events = new EventTarget();
+	const socket = Object.assign(events, {
+		readyState: 1,
+		binaryType: '',
+		send() {},
+		close() {},
+	}) as unknown as WebSocket;
+	let invalidation = Promise.withResolvers<void>();
+	let disposed = 0;
+	let recorderCloses = 0;
+	const account: Account = {
+		authorityId: 'retirement-test',
+		principalId: asPrincipalId('alice'),
+		baseURL: 'https://retirement.test',
+		async fetch() {
+			throw new Error('This test uses its isolated backing');
+		},
+		async openWebSocket() {
+			return socket;
+		},
+		async getProfile() {
+			throw new Error('Unused');
+		},
+	};
+	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
+		async () =>
+			Ok({
+				durable: { commit() {} },
+				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+				discard: () => invalidation.promise,
+				dispose() {
+					disposed += 1;
+				},
+				replication: {
+					address: {
+						baseURL: account.baseURL,
+						dataId: definition.id,
+						generation: 1,
+					},
+					transport: account,
+				},
+			}),
+	);
+	const application = createEpicenter({
+		appId,
+		definition,
+		blobs: testBlobs,
+		sqlite: testSqlite,
+		recording(...args) {
+			const owner = createBrowserRecording(...args);
+			return {
+				...owner,
+				close() {
+					recorderCloses += 1;
+					return owner.close();
+				},
+			};
+		},
+	});
+	const app = application.openAccount(account);
+	try {
+		expectOk(await app.ready);
+		await Bun.sleep(0);
+		events.dispatchEvent(
+			new MessageEvent('message', {
+				data: encodeFrame({ kind: 'retired' }).buffer,
+			}),
+		);
+		const notice = await app.retirement;
+		expect(recorderCloses).toBe(1);
+		expect(disposed).toBe(0);
+		expect(() => app.tables.notes.create({ title: 'late' })).toThrow();
+		invalidation.reject(new Error('Invalidation failed'));
+		await expect(app.close()).rejects.toThrow('Invalidation failed');
+		expect(disposed).toBe(0);
+		const duplicate = application.openAccount(account);
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close();
+		invalidation = Promise.withResolvers<void>();
+		const retried = notice.retryInvalidation();
+		invalidation.resolve();
+		await retried;
+		await app.close();
+		expect(disposed).toBe(1);
+		const reopened = application.openAccount(account);
+		expectOk(await reopened.ready);
+		await reopened.close();
+	} finally {
+		invalidation.resolve();
+		await app.close().catch(() => {});
+		acquire.mockRestore();
+	}
+});
+
+test('App retirement during attachment refuses readiness without auto-releasing its backing', async () => {
+	const invalidation = Promise.withResolvers<void>();
+	let disposed = 0;
+	const socket = {
+		readyState: 1,
+		binaryType: '',
+		send() {},
+		close() {},
+		addEventListener(type: string, listener: EventListener) {
+			if (type === 'message')
+				listener(
+					new MessageEvent('message', {
+						data: encodeFrame({ kind: 'retired' }).buffer,
+					}),
+				);
+		},
+	} as unknown as WebSocket;
+	const account: Account = {
+		authorityId: 'retirement-during-attach',
+		principalId: asPrincipalId('alice'),
+		baseURL: 'https://retirement.test',
+		async fetch() {
+			throw new Error('Unused');
+		},
+		async openWebSocket() {
+			return socket;
+		},
+		async getProfile() {
+			throw new Error('Unused');
+		},
+	};
+	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
+		async () =>
+			Ok({
+				durable: { commit() {} },
+				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+				discard: () => invalidation.promise,
+				dispose() {
+					disposed += 1;
+				},
+				replication: {
+					address: {
+						baseURL: account.baseURL,
+						dataId: definition.id,
+						generation: 1,
+					},
+					transport: account,
+				},
+			}),
+	);
+	const app = createEpicenter({
+		appId: `test.${crypto.randomUUID()}`,
+		definition,
+		blobs: testBlobs,
+		sqlite: testSqlite,
+	}).openAccount(account);
+	try {
+		expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
+		await app.retirement;
+		expect(disposed).toBe(0);
+		invalidation.resolve();
+		await app.close();
+		expect(disposed).toBe(1);
+	} finally {
+		invalidation.resolve();
+		await app.close().catch(() => {});
+		acquire.mockRestore();
+	}
 });

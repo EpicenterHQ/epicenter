@@ -52,6 +52,8 @@ export type AttachStoreSyncOptions = {
 	 * own backoff owns the retry and nobody is holding a promise for it.
 	 */
 	onTransportError: (cause: unknown) => void;
+	/** End this App lifetime after authenticated generation retirement. */
+	onRetired: () => void;
 };
 
 /**
@@ -72,9 +74,11 @@ export function attachStoreSync({
 	address,
 	transport,
 	onTransportError,
+	onRetired,
 }: AttachStoreSyncOptions): SyncConnection {
 	const connection = createSyncConnection({
 		store,
+		onRetired,
 		dial: ({ cursor, opened, received, closed }) => {
 			let socket: WebSocket | undefined;
 			let abandoned = false;

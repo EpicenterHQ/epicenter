@@ -175,6 +175,10 @@ export class StoreTestReplica extends DurableObject<Env> {
 		if (store === undefined) throw new Error('open first');
 		if (this.connection !== undefined) return;
 		this.connection = attachStoreSync({
+			onRetired: () => {
+				this.lastTransportError = 'Replica generation retired';
+				this.stopSync();
+			},
 			store,
 			address: store,
 			transport: this.transport(),

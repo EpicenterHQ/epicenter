@@ -61,12 +61,18 @@
 		{#if status.current.phase !== 'failed' && status.current.phase !== 'retired'}
 			<Loading label="Closing your {noun}…" />
 		{:else}
-			<p>{appName} has closed.</p>
-			<Button onclick={() => location.reload()}>Reopen {appName}</Button>
+			{#if departure.canRetryRetirement}
+				<p>Could not finish updating your {noun}. Keep this window open and try again.</p>
+				<Button onclick={() => { void departure.retryRetirement().catch(() => {}); }}>Try again</Button>
+			{:else if departure.canReopen}
+				<Button onclick={() => location.reload()}>Reopen {appName}</Button>
+			{:else}
+				<p>Could not finish saving. Keep this window open.</p>
+			{/if}
 		{/if}
 	</div>
 {/if}
-{#if status.current.error !== null}
+{#if status.current.error !== null && !departure.canRetryRetirement}
 	<div class="fixed inset-x-0 bottom-0 z-50 border-t bg-background p-4 text-center" role="alert">
 		<p>{status.current.error instanceof Error ? status.current.error.message : `Could not finish closing ${appName}.`}</p>
 	</div>

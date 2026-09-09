@@ -23,7 +23,7 @@
  *
  * - The cursor goes into every dial, read fresh, so a reconnect is always a
  *   catch-up from what this replica has applied.
- * - Attach on open, feed on message, detach on close.
+ * - Attach only after authority admission, feed admitted messages, detach on close.
  * - Reconnect when the socket closes, with backoff.
  * - Reconnect when the client reports `needsResync`, which is the repair for a
  *   gap and for a broken chunk stream alike.
@@ -42,10 +42,8 @@
  *   dial after a person signs back in simply succeeds. This driver runs for as
  *   long as the store is open and has no parked state to resume from.
  *
- * Everything else is ordinary weather: a close, garbage on the wire, and every
- * failure reconnect on backoff. Nothing this driver sees can discard local
- * state, which is what makes "doubt never discards" structural rather than
- * careful.
+ * Authenticated retirement ends this connection before notifying the App owner.
+ * Transport failures preserve local state and retry on backoff.
  */
 import type { SyncRefusal } from '@epicenter/sync/transport';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -59,6 +57,7 @@ import {
 	type SyncClientStatus,
 	type SyncSocket,
 } from './client.js';
+import { decodeFrame } from './frames.js';
 
 /**
  * One attempt at a connection, from the host's point of view.
@@ -113,11 +112,15 @@ export type ReconnectReason =
 	/** A submission went unacknowledged past the watchdog's patience. */
 	| 'stalled'
 	/** The host's credential model refused to open a socket. */
-	| 'refused';
+	| 'refused'
+	/** The authority did not admit this attempt before its deadline. */
+	| 'admission';
 
 export type SyncConnectionStatus = SyncClientStatus & {
 	/** Whether a socket is currently attached. */
 	connected: boolean;
+	/** The authenticated authority permanently retired this generation. */
+	retired: boolean;
 	/**
 	 * Why the host's credential model refused the last dial, if it did.
 	 *
@@ -166,6 +169,8 @@ function defaultBackoff(failures: number): number {
 export function createSyncConnection({
 	store,
 	dial,
+	onRetired,
+	admissionMs = 30_000,
 	idleMs,
 	schedule = (task, delayMs) => {
 		const handle = setTimeout(task, delayMs);
@@ -194,6 +199,10 @@ export function createSyncConnection({
 }: {
 	store: DataDocument;
 	dial: SyncDial;
+	/** Called once, after sends and retries have stopped. The owner discards its backing. */
+	onRetired: () => void;
+	/** Deadline for explicit admission, including a socket that never opens. */
+	admissionMs?: number;
 	idleMs?: number;
 	schedule?: Schedule;
 	backoff?: (failures: number) => number;
@@ -209,6 +218,7 @@ export function createSyncConnection({
 	let running = false;
 	let disposed = false;
 	let connected = false;
+	let retired = false;
 	let refusal: SyncRefusal | undefined;
 	let failures = 0;
 	let lastReconnect: ReconnectReason | undefined;
@@ -223,6 +233,7 @@ export function createSyncConnection({
 	let attempt = 0;
 	let teardown: (() => void) | undefined;
 	let cancelRedial: (() => void) | undefined;
+	let cancelAdmission: (() => void) | undefined;
 	let cancelHealthy: (() => void) | undefined;
 	let cancelWatchdog: (() => void) | undefined;
 	/** The submission the watchdog saw on its previous tick. */
@@ -231,6 +242,8 @@ export function createSyncConnection({
 	const stopSendable = syncEngineOf(store).onSendable(() => client.nudge());
 
 	function cancelTimers(): void {
+		cancelAdmission?.();
+		cancelAdmission = undefined;
 		cancelHealthy?.();
 		cancelHealthy = undefined;
 		cancelWatchdog?.();
@@ -286,36 +299,63 @@ export function createSyncConnection({
 		stopSendable();
 		cancelRedial?.();
 		cancelRedial = undefined;
-		abandon();
-		client.dispose();
+		try {
+			abandon();
+		} finally {
+			client.dispose();
+		}
 	}
 
 	function open(): void {
 		if (!running || teardown !== undefined) return;
 		const dialled = ++attempt;
 		const live = () => running && attempt === dialled;
+		let socket: SyncSocket | undefined;
+		cancelAdmission = schedule(() => {
+			cancelAdmission = undefined;
+			if (live()) reconnect('admission');
+		}, admissionMs);
 
 		teardown = dial({
 			cursor: client.cursor(),
-			opened(socket: SyncSocket) {
-				if (!live()) return;
-				connected = true;
-				// This dial was not refused, so whatever refused the one before it
-				// is no longer what happened.
+			opened(openedSocket: SyncSocket) {
+				if (!live() || socket !== undefined) return;
+				socket = openedSocket;
 				refusal = undefined;
-				client.attach(socket);
-				// A socket that lasts is what proves the far end works. Anything
-				// shorter is an attempt that failed in a way that happens to include
-				// a successful upgrade.
-				cancelHealthy = schedule(() => {
-					cancelHealthy = undefined;
-					failures = 0;
-				}, healthyMs);
-				startWatchdog();
-				settle();
 			},
 			received(bytes: Uint8Array) {
 				if (!live()) return;
+				// Control frames contain no payload. Leave data decoding to the client
+				// so a chunk is copied only once at the framing boundary.
+				const frame = bytes.length === 1 ? decodeFrame(bytes).data : undefined;
+				if (frame?.kind === 'retired') {
+					retired = true;
+					disposed = true;
+					try {
+						shutdown();
+					} finally {
+						// Host socket cleanup cannot skip the backing's retirement fence.
+						onRetired();
+					}
+					return;
+				}
+				if (frame?.kind === 'admitted') {
+					if (connected || socket === undefined) return;
+					cancelAdmission?.();
+					cancelAdmission = undefined;
+					connected = true;
+					client.attach(socket);
+					// attach sends immediately; its synchronous reply may end this attempt.
+					if (!live()) return;
+					cancelHealthy = schedule(() => {
+						cancelHealthy = undefined;
+						failures = 0;
+					}, healthyMs);
+					startWatchdog();
+					settle();
+					return;
+				}
+				if (!connected) return;
 				client.receive(bytes);
 				settle();
 			},
@@ -382,6 +422,7 @@ export function createSyncConnection({
 			return {
 				...client.status(),
 				connected,
+				retired,
 				refusal,
 				failures,
 				lastReconnect,

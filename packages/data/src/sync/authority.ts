@@ -56,25 +56,30 @@
  * position. The application merge remains on the client, over bytes that
  * client owns.
  *
- * Do not reintroduce root-document compaction or baselines here. Snapshot
- * coverage is the separate automatic log-folding invariant.
- *
- * This authority describes exactly one generation of one database, and the
- * ADDRESS says which (ADR-0292). It holds no identity of its own and answers
- * no membership question, because a generation is created once and never
- * mutated in place, so a replica that reached this object was addressed at
- * this history. A whole-database rebuild is a new generation, which is a new
- * object; ADR-0276 named that action Rebuild rather than Compact, because it
- * retains what it rebuilt from.
+ * The deployed wrapper still owns one independently addressed generation.
+ * The unmounted current authority below owns generation admission, replacement,
+ * and its hubs in one lifetime. Both share the same transaction-local log SQL.
  */
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Err, type Result, trySync } from 'wellcrafted/result';
+import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 
 import { copyBytes } from '../store/log.js';
 import { CHUNK_BYTES, intoChunks } from './frames.js';
+import { createSyncHub, type SyncHub } from './hub.js';
 
 export const AuthorityError = defineErrors({
+	GenerationUnavailable: ({
+		generation,
+		current,
+	}: {
+		generation: number;
+		current: number | undefined;
+	}) => ({
+		message: `Generation ${generation} is not current (${current ?? 'absent'})`,
+		generation,
+		current,
+	}),
 	/**
 	 * The only way an append can fail, now that nothing inspects the bytes.
 	 *
@@ -123,6 +128,8 @@ export type LogEntry = { seq: number; bytes: Uint8Array };
 export type Snapshot = { position: number; bytes: Uint8Array };
 
 export type SyncAuthority = {
+	/** Check admission again before sending already-materialized bytes. */
+	admission(): Result<void, AuthorityError>;
 	/**
 	 * Give one whole update a position and store it, unread.
 	 *
@@ -233,219 +240,34 @@ const SNAPSHOTS_KEPT = 2;
  */
 const SNAPSHOT_FLOOR_BYTES = 64 * 1024;
 
-export function openSyncAuthority({
-	sqlite,
-	/** Injected so a test can reach the snapshot path without a real vault. */
-	snapshotFloorBytes = SNAPSHOT_FLOOR_BYTES,
-}: {
-	sqlite: SqliteDatabase;
-	snapshotFloorBytes?: number;
-}): SyncAuthority {
-	applyAuthoritySchema(sqlite);
-
-	function read<TValue>(run: () => TValue): Result<TValue, AuthorityError> {
-		return trySync({
-			try: run,
-			catch: (cause) => AuthorityError.StorageFailed({ cause }),
-		});
+/** Private operations: callers own the transaction and all admission checks. */
+function createLogOperations(
+	sqlite: SqliteDatabase,
+	snapshotFloorBytes: number,
+) {
+	function snapshotPosition(): number {
+		return (
+			sqlite.all<SqliteRow & { position: number }>(
+				'SELECT COALESCE(MAX(position), 0) AS position FROM _snapshot',
+			)[0]?.position ?? 0
+		);
 	}
-
-	/**
-	 * The newest position, whether it is an entry or the snapshot.
-	 *
-	 * Both, because a snapshot DELETES the entries it covers, so the log alone
-	 * would report a head of zero straight after one and the next append would
-	 * reuse positions the replicas have already read.
-	 */
-	function headSeq(): number {
-		const newestEntry =
+	function head(): number {
+		return Math.max(
+			snapshotPosition(),
 			sqlite.all<SqliteRow & { seq: number }>(
 				'SELECT COALESCE(MAX(seq), 0) AS seq FROM _log',
-			)[0]?.seq ?? 0;
-		return Math.max(newestEntry, snapshotPositionOf());
+			)[0]?.seq ?? 0,
+		);
 	}
-
-	return Object.freeze({
-		append(update: Uint8Array): Result<number, AuthorityError> {
-			return read(() =>
-				sqlite.transaction(() => {
-					const seq = headSeq() + 1;
-					// Chunking happens at the storage boundary rather than on the wire's
-					// terms, so a client that framed its message differently, or an
-					// authority whose cap moves, cannot make the stored form wrong.
-					const chunks = intoChunks(update, CHUNK_BYTES);
-					for (const [index, chunk] of chunks.entries()) {
-						sqlite.run(
-							'INSERT INTO _log (seq, chunk, bytes) VALUES (?, ?, ?)',
-							[seq, index, new Uint8Array(chunk)],
-						);
-					}
-					return seq;
-				}),
+	function writeSnapshot(position: number, bytes: Uint8Array): void {
+		for (const [index, chunk] of intoChunks(bytes, CHUNK_BYTES).entries()) {
+			sqlite.run(
+				'INSERT OR REPLACE INTO _snapshot (position, chunk, bytes) VALUES (?, ?, ?)',
+				[position, index, new Uint8Array(chunk)],
 			);
-		},
-
-		since(cursor: number, limit = 64): Result<LogEntry[], AuthorityError> {
-			return read(() => {
-				// The positions first, so `limit` bounds ENTRIES rather than rows. A
-				// limit on rows would return a fraction of a chunked entry and the
-				// caller would have no way to know it had been cut.
-				const positions = sqlite.all<SqliteRow & { seq: number }>(
-					'SELECT DISTINCT seq FROM _log WHERE seq > ? ORDER BY seq LIMIT ?',
-					[cursor, limit],
-				);
-				const newest = positions.at(-1)?.seq;
-				if (newest === undefined) return [];
-
-				const rows = sqlite.all<
-					SqliteRow & {
-						seq: number;
-						chunk: number;
-						bytes: Uint8Array | ArrayBuffer;
-					}
-				>(
-					'SELECT seq, chunk, bytes FROM _log WHERE seq > ? AND seq <= ? ORDER BY seq, chunk',
-					[cursor, newest],
-				);
-				const entries: LogEntry[] = [];
-				let holding: { seq: number; chunks: Uint8Array[] } | undefined;
-				for (const row of rows) {
-					if (holding === undefined || holding.seq !== row.seq) {
-						if (holding !== undefined) entries.push(flush(holding));
-						holding = { seq: row.seq, chunks: [] };
-					}
-					holding.chunks.push(copyBytes(row.bytes));
-				}
-				if (holding !== undefined) entries.push(flush(holding));
-				return entries;
-			});
-
-			function flush(held: { seq: number; chunks: Uint8Array[] }): LogEntry {
-				let total = 0;
-				for (const chunk of held.chunks) total += chunk.length;
-				const bytes = new Uint8Array(total);
-				let at = 0;
-				for (const chunk of held.chunks) {
-					bytes.set(chunk, at);
-					at += chunk.length;
-				}
-				return { seq: held.seq, bytes };
-			}
-		},
-
-		head: () => read(headSeq),
-
-		snapshotPosition: () => read(snapshotPositionOf),
-
-		snapshot(): Result<Snapshot | undefined, AuthorityError> {
-			return read(() => {
-				const position = snapshotPositionOf();
-				if (position === 0) return undefined;
-				const rows = sqlite.all<
-					SqliteRow & { bytes: Uint8Array | ArrayBuffer }
-				>('SELECT bytes FROM _snapshot WHERE position = ? ORDER BY chunk', [
-					position,
-				]);
-				return {
-					position,
-					bytes: join(rows.map((row) => copyBytes(row.bytes))),
-				};
-			});
-		},
-
-		seed(bytes: Uint8Array): Result<number, AuthorityError> {
-			const { data: head, error } = read(headSeq);
-			if (error !== null) return Err(error);
-			if (head !== 0) {
-				// Not empty, so this is not a birth. `head` is nonzero for a log
-				// with entries and for one whose entries a snapshot replaced, which
-				// is exactly the pair of states a second seed must not overwrite.
-				return AuthorityError.SnapshotRefused({
-					offered: 1,
-					head,
-					current: head,
-				});
-			}
-			// Birth needs only the snapshot. Writing a temporary log entry first
-			// split one durable fact across two commits and made a failed seed
-			// impossible to retry. Every chunk commits in this one transaction.
-			return read(() =>
-				sqlite.transaction(() => {
-					for (const [index, chunk] of intoChunks(
-						bytes,
-						CHUNK_BYTES,
-					).entries()) {
-						sqlite.run(
-							'INSERT INTO _snapshot (position, chunk, bytes) VALUES (?, ?, ?)',
-							[1, index, new Uint8Array(chunk)],
-						);
-					}
-					return 1;
-				}),
-			);
-		},
-
-		replaceSnapshot(position, bytes): Result<void, AuthorityError> {
-			const { data: head, error } = read(headSeq);
-			if (error !== null) return Err(error);
-			const { data: current, error: currentError } = read(snapshotPositionOf);
-			if (currentError !== null) return Err(currentError);
-			// Coverage, not currency. The snapshot is about to stand for every
-			// entry at or before `position`, so it must not run past what exists,
-			// and it must not walk history backwards.
-			if (position > head || position <= current) {
-				return AuthorityError.SnapshotRefused({
-					offered: position,
-					head,
-					current,
-				});
-			}
-			return read(() =>
-				sqlite.transaction(() => {
-					const chunks = intoChunks(bytes, CHUNK_BYTES);
-					for (const [index, chunk] of chunks.entries()) {
-						sqlite.run(
-							'INSERT OR REPLACE INTO _snapshot (position, chunk, bytes) VALUES (?, ?, ?)',
-							[position, index, new Uint8Array(chunk)],
-						);
-					}
-					// Everything the snapshot covers is forgotten. This is the line
-					// that makes storage constant instead of growing, and it is also
-					// what makes a deletion real: a snapshot is current state, so it
-					// carries no trace of what was deleted before it.
-					sqlite.run('DELETE FROM _log WHERE seq <= ?', [position]);
-					const kept = sqlite
-						.all<SqliteRow & { position: number }>(
-							'SELECT DISTINCT position FROM _snapshot ORDER BY position DESC LIMIT ?',
-							[SNAPSHOTS_KEPT],
-						)
-						.map((row) => row.position);
-					const oldest = kept.at(-1);
-					if (oldest !== undefined) {
-						sqlite.run('DELETE FROM _snapshot WHERE position < ?', [oldest]);
-					}
-				}),
-			);
-		},
-
-		shouldSnapshot(): Result<boolean, AuthorityError> {
-			return read(() => {
-				const tail = sumBytes('_log');
-				if (tail < snapshotFloorBytes) return false;
-				return tail > sumBytes('_snapshot');
-			});
-		},
-
-		/**
-		 * The one number to instrument.
-		 *
-		 * Automatic snapshot folding remains the maintenance path. This number is
-		 * instrumentation for deciding whether a future explicit Compact store
-		 * action has earned its place; the authority does not trigger that action.
-		 */
-		storedBytes: () => read(() => sumBytes('_log') + sumBytes('_snapshot')),
-	});
-
+		}
+	}
 	function sumBytes(relation: '_log' | '_snapshot'): number {
 		return (
 			sqlite.all<SqliteRow & { bytes: number }>(
@@ -453,14 +275,156 @@ export function openSyncAuthority({
 			)[0]?.bytes ?? 0
 		);
 	}
+	return {
+		head,
+		snapshotPosition,
+		writeSnapshot,
+		append(update: Uint8Array): number {
+			const seq = head() + 1;
+			for (const [index, chunk] of intoChunks(update, CHUNK_BYTES).entries()) {
+				sqlite.run('INSERT INTO _log (seq, chunk, bytes) VALUES (?, ?, ?)', [
+					seq,
+					index,
+					new Uint8Array(chunk),
+				]);
+			}
+			return seq;
+		},
+		since(cursor: number, limit = 64): LogEntry[] {
+			// Limit entries, not storage chunks: every returned entry is complete.
+			const positions = sqlite.all<SqliteRow & { seq: number }>(
+				'SELECT DISTINCT seq FROM _log WHERE seq > ? ORDER BY seq LIMIT ?',
+				[cursor, limit],
+			);
+			const newest = positions.at(-1)?.seq;
+			if (newest === undefined) return [];
+			const rows = sqlite.all<
+				SqliteRow & { seq: number; bytes: Uint8Array | ArrayBuffer }
+			>(
+				'SELECT seq, chunk, bytes FROM _log WHERE seq > ? AND seq <= ? ORDER BY seq, chunk',
+				[cursor, newest],
+			);
+			const entries: LogEntry[] = [];
+			let holding: { seq: number; chunks: Uint8Array[] } | undefined;
+			for (const row of rows) {
+				if (holding === undefined || holding.seq !== row.seq) {
+					if (holding !== undefined)
+						entries.push({ seq: holding.seq, bytes: join(holding.chunks) });
+					holding = { seq: row.seq, chunks: [] };
+				}
+				holding.chunks.push(copyBytes(row.bytes));
+			}
+			if (holding !== undefined)
+				entries.push({ seq: holding.seq, bytes: join(holding.chunks) });
+			return entries;
+		},
+		snapshot(): Snapshot | undefined {
+			const position = snapshotPosition();
+			if (position === 0) return undefined;
+			const rows = sqlite.all<SqliteRow & { bytes: Uint8Array | ArrayBuffer }>(
+				'SELECT bytes FROM _snapshot WHERE position = ? ORDER BY chunk',
+				[position],
+			);
+			return { position, bytes: join(rows.map((row) => copyBytes(row.bytes))) };
+		},
+		fold(position: number, bytes: Uint8Array): void {
+			writeSnapshot(position, bytes);
+			sqlite.run('DELETE FROM _log WHERE seq <= ?', [position]);
+			const kept = sqlite.all<SqliteRow & { position: number }>(
+				'SELECT DISTINCT position FROM _snapshot ORDER BY position DESC LIMIT ?',
+				[SNAPSHOTS_KEPT],
+			);
+			const oldest = kept.at(-1)?.position;
+			if (oldest !== undefined)
+				sqlite.run('DELETE FROM _snapshot WHERE position < ?', [oldest]);
+		},
+		replace(bytes: Uint8Array): void {
+			sqlite.run('DELETE FROM _log');
+			sqlite.run('DELETE FROM _snapshot');
+			writeSnapshot(1, bytes);
+		},
+		shouldSnapshot(): boolean {
+			const tail = sumBytes('_log');
+			return tail >= snapshotFloorBytes && tail > sumBytes('_snapshot');
+		},
+		storedBytes: () => sumBytes('_log') + sumBytes('_snapshot'),
+	};
+}
 
-	function snapshotPositionOf(): number {
-		return (
-			sqlite.all<SqliteRow & { position: number }>(
-				'SELECT COALESCE(MAX(position), 0) AS position FROM _snapshot',
-			)[0]?.position ?? 0
-		);
+/** Each verb checks admission and performs its SQL within the same transaction. */
+function bindLog({
+	sqlite,
+	log,
+	admission,
+}: {
+	sqlite: SqliteDatabase;
+	log: ReturnType<typeof createLogOperations>;
+	admission: () => Result<void, AuthorityError>;
+}): SyncAuthority {
+	function run<TValue>(
+		operation: () => Result<TValue, AuthorityError>,
+	): Result<TValue, AuthorityError> {
+		const result = trySync({
+			try: () =>
+				sqlite.transaction(() => {
+					const admitted = admission();
+					if (admitted.error !== null) return Err(admitted.error);
+					return operation();
+				}),
+			catch: (cause) => AuthorityError.StorageFailed({ cause }),
+		});
+		return result.error === null ? result.data : Err(result.error);
 	}
+	return Object.freeze({
+		admission: () => run(() => Ok(undefined)),
+		append: (bytes) => run(() => Ok(log.append(bytes))),
+		since: (cursor, limit) => run(() => Ok(log.since(cursor, limit))),
+		head: () => run(() => Ok(log.head())),
+		snapshot: () => run(() => Ok(log.snapshot())),
+		snapshotPosition: () => run(() => Ok(log.snapshotPosition())),
+		shouldSnapshot: () => run(() => Ok(log.shouldSnapshot())),
+		storedBytes: () => run(() => Ok(log.storedBytes())),
+		seed: (bytes) =>
+			run(() => {
+				const head = log.head();
+				if (head !== 0)
+					return AuthorityError.SnapshotRefused({
+						offered: 1,
+						head,
+						current: head,
+					});
+				log.writeSnapshot(1, bytes);
+				return Ok(1);
+			}),
+		replaceSnapshot: (position, bytes) =>
+			run(() => {
+				const head = log.head();
+				const current = log.snapshotPosition();
+				if (position > head || position <= current)
+					return AuthorityError.SnapshotRefused({
+						offered: position,
+						head,
+						current,
+					});
+				log.fold(position, bytes);
+				return Ok(undefined);
+			}),
+	});
+}
+
+export function openSyncAuthority({
+	sqlite,
+	snapshotFloorBytes = SNAPSHOT_FLOOR_BYTES,
+}: {
+	sqlite: SqliteDatabase;
+	snapshotFloorBytes?: number;
+}): SyncAuthority {
+	applyAuthoritySchema(sqlite);
+	return bindLog({
+		sqlite,
+		log: createLogOperations(sqlite, snapshotFloorBytes),
+		admission: () => Ok(undefined),
+	});
 }
 
 /** Concatenate chunks back into the value they were cut from. */
@@ -476,3 +440,214 @@ function join(chunks: readonly Uint8Array[]): Uint8Array {
 	}
 	return bytes;
 }
+
+type CapturePosition = { generation: number; head: number };
+type ActivationReceipt = CapturePosition & {
+	operation: string;
+	status: 'activated';
+};
+
+function positiveInteger(value: number): void {
+	if (!Number.isSafeInteger(value) || value < 1)
+		throw new Error('Expected a positive safe integer');
+}
+function nonempty(bytes: Uint8Array): void {
+	if (bytes.length === 0)
+		throw new Error('A complete state must contain bytes');
+}
+
+/**
+ * Unmounted authority checkpoint. Raw replacement bytes are trusted inputs;
+ * this owner does not verify a backup or reconstruct application data.
+ * Storage failures throw and roll back the enclosing transaction.
+ */
+export function openCurrentAuthority({
+	sqlite,
+	snapshotFloorBytes = SNAPSHOT_FLOOR_BYTES,
+}: {
+	sqlite: SqliteDatabase;
+	snapshotFloorBytes?: number;
+}) {
+	applyAuthoritySchema(sqlite);
+	const log = createLogOperations(sqlite, snapshotFloorBytes);
+	let currentHub: { generation: number; hub: SyncHub } | undefined;
+	sqlite.run(`CREATE TABLE IF NOT EXISTS _current_generation (
+		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+		generation INTEGER NOT NULL CHECK (generation >= 1)
+	)`);
+	sqlite.run(`CREATE TABLE IF NOT EXISTS _restore_receipts (
+		operation TEXT PRIMARY KEY,
+		expected_generation INTEGER NOT NULL,
+		expected_head INTEGER NOT NULL,
+		digest TEXT NOT NULL,
+		generation INTEGER NOT NULL,
+		head INTEGER NOT NULL
+	)`);
+	function current() {
+		return sqlite.all<SqliteRow & { generation: number }>(
+			'SELECT generation FROM _current_generation WHERE singleton = 1',
+		)[0]?.generation;
+	}
+	function capture() {
+		const generation = current();
+		if (generation === undefined) throw new Error('No current generation');
+		const head = log.head();
+		const snapshot = log.snapshot();
+		if (snapshot === undefined)
+			throw new Error('Current generation has no baseline');
+		const tail: LogEntry[] = [];
+		let cursor = snapshot.position;
+		while (cursor < head) {
+			const entries = log.since(cursor);
+			const last = entries.at(-1);
+			if (last === undefined) throw new Error('Current log has a gap');
+			tail.push(...entries);
+			cursor = last.seq;
+		}
+		return { generation, head, snapshot, tail };
+	}
+	function bind(generation: number): SyncAuthority {
+		positiveInteger(generation);
+		return bindLog({
+			sqlite,
+			log,
+			admission() {
+				const held = current();
+				return held === generation
+					? Ok(undefined)
+					: AuthorityError.GenerationUnavailable({ generation, current: held });
+			},
+		});
+	}
+	return {
+		ensureCurrent(bytes: Uint8Array) {
+			nonempty(bytes);
+			return sqlite.transaction(() => {
+				if (current() === undefined) {
+					if (log.head() !== 0)
+						throw new Error(
+							'Current authority requires empty storage or an existing current generation',
+						);
+					log.writeSnapshot(1, bytes);
+					sqlite.run('INSERT INTO _current_generation VALUES (1, 1)');
+				}
+				return capture();
+			});
+		},
+		capture() {
+			return sqlite.transaction(capture);
+		},
+
+		bind,
+		/** Reconstructing a hibernated attachment must pass its original generation. */
+		createHub(
+			generation: number,
+			{ batch }: { batch?: number } = {},
+		): Result<SyncHub, AuthorityError> {
+			const authority = bind(generation);
+			const admitted = authority.admission();
+			if (admitted.error !== null) return Err(admitted.error);
+			if (currentHub?.generation === generation) return Ok(currentHub.hub);
+			currentHub?.hub.retire();
+			const hub = createSyncHub({ authority, batch });
+			currentHub = { generation, hub };
+			return Ok(hub);
+		},
+
+		/** Copy and hash before activation; no asynchronous work enters its transaction. */
+		async prepareActivation(request: {
+			operation: string;
+			expected: CapturePosition;
+			bytes: Uint8Array;
+		}) {
+			const operation = request.operation;
+			const expected = { ...request.expected };
+			const bytes = new Uint8Array(request.bytes);
+			positiveInteger(expected.generation);
+			positiveInteger(expected.head);
+			nonempty(bytes);
+			if (operation.length === 0)
+				throw new Error('An activation needs an operation id');
+			const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+			const digest = Array.from(hash, (byte) =>
+				byte.toString(16).padStart(2, '0'),
+			).join('');
+			return {
+				activate() {
+					let activated = false;
+					const result = sqlite.transaction(() => {
+						const previous = sqlite.all<
+							SqliteRow & {
+								expected_generation: number;
+								expected_head: number;
+								digest: string;
+								generation: number;
+								head: number;
+							}
+						>('SELECT * FROM _restore_receipts WHERE operation = ?', [
+							operation,
+						])[0];
+						if (previous !== undefined) {
+							if (
+								previous.expected_generation !== expected.generation ||
+								previous.expected_head !== expected.head ||
+								previous.digest !== digest
+							) {
+								return { status: 'operation-conflict' } as const;
+							}
+							return {
+								status: 'activated',
+								operation,
+								generation: previous.generation,
+								head: previous.head,
+							} satisfies ActivationReceipt;
+						}
+						if (
+							current() !== expected.generation ||
+							log.head() !== expected.head
+						)
+							return { status: 'conflict' } as const;
+						const generation = expected.generation + 1;
+						positiveInteger(generation);
+						log.replace(bytes);
+						sqlite.run(
+							'UPDATE _current_generation SET generation = ? WHERE singleton = 1',
+							[generation],
+						);
+						sqlite.run(
+							'INSERT INTO _restore_receipts VALUES (?, ?, ?, ?, ?, ?)',
+							[
+								operation,
+								expected.generation,
+								expected.head,
+								digest,
+								generation,
+								1,
+							],
+						);
+						activated = true;
+						return {
+							status: 'activated',
+							operation,
+							generation,
+							head: 1,
+						} satisfies ActivationReceipt;
+					});
+					// Only after commit. A rollback leaves the admitted lifetime usable.
+					if (
+						activated &&
+						result.status === 'activated' &&
+						currentHub !== undefined &&
+						currentHub.generation < result.generation
+					) {
+						currentHub.hub.retire();
+						currentHub = undefined;
+					}
+
+					return result;
+				},
+			};
+		},
+	};
+}
+export type CurrentAuthority = ReturnType<typeof openCurrentAuthority>;

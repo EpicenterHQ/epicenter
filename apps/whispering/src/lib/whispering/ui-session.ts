@@ -67,7 +67,12 @@ export function createWhisperingUiSession({
 					queryRuntime.queryClient.clear();
 					domains[Symbol.dispose]();
 				}
-			})();
+			})().catch((cause) => {
+				// Keep this owner callable after its component unmounts. A failed
+				// VAD release must be retried, never mistaken for completed cleanup.
+				disposal = undefined;
+				throw cause;
+			});
 			return disposal;
 		},
 	};

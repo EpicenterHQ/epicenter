@@ -290,6 +290,14 @@ export type StoreBacking = {
 	loaded: DurableSnapshot;
 	dispose?: () => void | Promise<void>;
 	replication?: Pick<AttachStoreSyncOptions, 'address' | 'transport'>;
+	/** Fence synchronously, then invalidate the generation header and all rows atomically. */
+	discard?: () => Promise<void>;
+};
+
+/** One authenticated retirement and its backing-owned retry after failed invalidation. */
+export type LibraryRetirement = {
+	invalidated: Promise<void>;
+	retryInvalidation(): Promise<void>;
 };
 
 type StoreEngineOptions<
@@ -425,11 +433,41 @@ export function createStoreOverPort<
 	const database = createDatabaseDocument();
 	const lifetime = new AbortController();
 	let disposed = false;
+	let retired = false;
+	const retirement = Promise.withResolvers<LibraryRetirement>();
+	let invalidation: Promise<void> | undefined;
+	let discarded: Promise<void> | undefined;
 	let initialized = false;
 	let held: StoreBacking | undefined;
 	let connection: SyncConnection | undefined;
 	let stopHideFlush: (() => void) | undefined;
 	const operations = new Set<Promise<unknown>>();
+
+	function onRetired(): void {
+		if (retired || held?.replication === undefined) return;
+		retired = true;
+		const backing = held;
+		function invalidate(): Promise<void> {
+			// Invoke now: the backing closes its write gate before returning.
+			try {
+				if (backing.discard === undefined)
+					throw new Error(
+						'This store backing does not support generation invalidation.',
+					);
+				invalidation = backing.discard();
+			} catch (cause) {
+				invalidation = Promise.reject(cause);
+			}
+			// Observers may mount after this fails. Keep the original rejection
+			// observable without making it an unhandled promise rejection.
+			void invalidation.catch(() => {});
+			return invalidation;
+		}
+		const invalidated = invalidate();
+		discarded = controller.discard();
+		lifetime.abort();
+		retirement.resolve({ invalidated, retryInvalidation: invalidate });
+	}
 
 	function runOperation<T>(operation: () => Promise<T>): Promise<T> {
 		assertUsable();
@@ -668,6 +706,7 @@ export function createStoreOverPort<
 				_document: Y.Doc,
 				transaction: Y.Transaction,
 			) => {
+				if (retired) return;
 				if (isRemoteApply(origin)) {
 					// `applyRemote` owns both halves for its own bytes. It hears about
 					// this transaction through the origin it minted.
@@ -711,12 +750,13 @@ export function createStoreOverPort<
 				connection = attachStoreSync({
 					store,
 					...replication,
+					onRetired,
 					onTransportError: (cause) =>
 						log.warn(StoreBackgroundError.SyncTransportFailed({ cause })),
 				});
 				// A caller-owned transport can synchronously close this store
 				// before attach returns the connection close must release.
-				if (disposed) connection[Symbol.dispose]();
+				if (disposed || retired) connection[Symbol.dispose]();
 			} catch (cause) {
 				log.warn(StoreBackgroundError.SyncTransportFailed({ cause }));
 			}
@@ -728,7 +768,7 @@ export function createStoreOverPort<
 	 * returns. Fresh per throw so each call site gets its own stack.
 	 */
 	function assertUsable(): void {
-		if (disposed) throw new StoreUnusableError();
+		if (disposed || retired) throw new StoreUnusableError();
 		if (!initialized) throw new Error('The store is not ready.');
 	}
 
@@ -967,8 +1007,19 @@ export function createStoreOverPort<
 			} catch (cause) {
 				failures.push(cause);
 			}
-			const flushing = initialized ? controller.close() : undefined;
+			const flushing = initialized && !retired ? controller.close() : undefined;
 			await release(() => acquisition);
+			if (retired) {
+				try {
+					await invalidation;
+				} catch (cause) {
+					// Nothing physical has been released. A successful explicit
+					// invalidation retry permits another close attempt.
+					closing = undefined;
+					throw cause;
+				}
+				await release(() => discarded);
+			}
 			await release(() => flushing);
 			await Promise.allSettled(operations);
 			await release(() => database.destroy());
@@ -1005,6 +1056,7 @@ export function createStoreOverPort<
 			if (isErr(result)) {
 				return failOpening(result.error);
 			}
+			if (retired) return Err(StoreError.ClosedWhileOpening().error);
 			if (disposed) {
 				return failOpening(StoreError.ClosedWhileOpening().error);
 			}
@@ -1013,11 +1065,13 @@ export function createStoreOverPort<
 			} catch (cause) {
 				return failOpening(StoreError.StorageFailed({ cause }).error);
 			}
+			if (retired) return Err(StoreError.ClosedWhileOpening().error);
 			if (disposed) return failOpening(StoreError.ClosedWhileOpening().error);
 			return Ok(undefined);
 		},
 	);
 	async function failOpening(error: TError | StoreError) {
+		if (retired) return Err(error);
 		// Readiness reports why opening failed. A cleanup failure remains on
 		// close's promise and is logged, never substituted for that boot outcome.
 		await close().catch((cause) =>
@@ -1030,6 +1084,10 @@ export function createStoreOverPort<
 		// compiles it a second time (ADR-0340).
 		store,
 		lifetime: { assertUsable, signal: lifetime.signal },
+		retirement: retirement.promise,
+		get isRetired() {
+			return retired;
+		},
 		close,
 		ready,
 		view,

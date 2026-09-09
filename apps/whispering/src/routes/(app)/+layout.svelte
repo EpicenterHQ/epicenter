@@ -10,6 +10,7 @@
 	let error = $state('');
 	let showing = $state(true);
 	let shell: WhisperingShell | undefined = $state();
+	let closeUi: (() => Promise<void>) | undefined;
 	onMount(() => {
 		let stopped = false;
 		void import('$lib/application.js').then(async (opened) => {
@@ -28,7 +29,8 @@
 				},
 				async quiesce() {
 					if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-					const closingUi = shell?.close();
+					closeUi ??= shell?.close;
+					const closingUi = closeUi?.();
 					showing = false;
 					await tick();
 					await closingUi;
