@@ -1,7 +1,7 @@
 /**
- * Bun SQLite owner tests.
- * Verifies file and cache isolation, atomic batches, failed-open recovery, and
- * deletion that closes retained native handles before reopening an empty file.
+ * Bun SQLite lifetime tests.
+ * Verifies physical close preserves files, delete invalidates old connections,
+ * concurrent lifecycle operations serialize, and app/account files stay isolated.
  */
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -11,169 +11,157 @@ import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createBunDevice } from './device.js';
 
-const local = null;
+const appId = 'so.epicenter.mail';
 
-test('application SQLite is scoped, async, and batch is atomic', async () => {
+async function setup() {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
-	const storage = createBunDevice(root);
-	const first = await storage.open('so.epicenter.mail', local, 'mail');
-	const second = await storage.open('so.epicenter.other', local, 'mail');
-	const account = await storage.open(
-		'so.epicenter.mail',
-		{ authorityId: 'cloud', principalId: asPrincipalId('alice') },
-		'mail',
-	);
+	return { root, owner: createBunDevice(root) };
+}
 
-	const schema = await first.batch([
-		{ sql: 'CREATE TABLE messages (id TEXT PRIMARY KEY, subject TEXT)' },
-		{ sql: 'INSERT INTO messages VALUES (?, ?)', parameters: ['one', 'Hello'] },
-	]);
-	expect(schema.error).toBeNull();
-
-	const rows = await first.all<{ id: string; subject: string }>(
-		'SELECT id, subject FROM messages',
-	);
-	expect(rows.data).toEqual([{ id: 'one', subject: 'Hello' }]);
-
-	const failed = await first.batch([
-		{ sql: 'INSERT INTO messages VALUES (?, ?)', parameters: ['two', 'World'] },
-		{ sql: 'INSERT INTO missing VALUES (?)', parameters: ['never'] },
-	]);
-	expect(failed.error).not.toBeNull();
-	const afterFailure = await first.all<{ id: string }>(
-		'SELECT id FROM messages',
-	);
-	expect(afterFailure.data).toEqual([{ id: 'one' }]);
-
-	const isolated = await second.all('SELECT name FROM sqlite_master');
-	expect(isolated.data).toEqual([]);
-	await second.run('CREATE TABLE only_here (id TEXT)');
-	await account.run('CREATE TABLE account_only (id TEXT)');
-	const mailPath = join(
-		root,
-		'apps',
-		'so.epicenter.mail',
-		'local',
-		'sqlite',
-		'mail.sqlite',
-	);
-	const otherPath = join(
-		root,
-		'apps',
-		'so.epicenter.other',
-		'local',
-		'sqlite',
-		'mail.sqlite',
-	);
-	const accountPath = join(
-		root,
-		'apps',
-		'so.epicenter.mail',
-		'accounts',
-		'cloud',
-		'alice',
-		'sqlite',
-		'mail.sqlite',
-	);
-	expect(Bun.file(mailPath).size).toBeGreaterThan(0);
-	expect(Bun.file(otherPath).size).toBeGreaterThan(0);
-	expect(Bun.file(accountPath).size).toBeGreaterThan(0);
+test('close retains file contents and refuses the retired lifetime', async () => {
+	const { root, owner } = await setup();
+	const lifetime = await owner.acquire(appId, null);
+	const database = await lifetime.open('mail');
+	expectOk(await database.run('CREATE TABLE messages (id TEXT)'));
+	const write = database.run('INSERT INTO messages VALUES (?)', ['one']);
+	await lifetime.close();
+	expectOk(await write);
+	expectErr(await database.all('SELECT * FROM messages'));
+	await expect(lifetime.open('mail')).rejects.toThrow();
+	await expect(lifetime.delete('mail')).rejects.toThrow();
+	await lifetime.close();
+	const next = await owner.acquire(appId, null);
+	expect(
+		expectOk(await (await next.open('mail')).all('SELECT * FROM messages')),
+	).toEqual([{ id: 'one' }]);
+	await next.close();
+	await rm(root, { recursive: true });
 });
 
-test('an open that failed is not remembered', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
-	const storage = createBunDevice(root);
+test('batch rolls back failed statements and same-name opens share a connection', async () => {
+	const { root, owner } = await setup();
+	const lifetime = await owner.acquire(appId, null);
+	const database = await lifetime.open('mail');
+	expect(await lifetime.open('mail')).toBe(database);
+	expectOk(
+		await database.batch([
+			{ sql: 'CREATE TABLE messages (id TEXT PRIMARY KEY)' },
+			{ sql: 'INSERT INTO messages VALUES (?)', parameters: ['one'] },
+		]),
+	);
+	expectErr(
+		await database.batch([
+			{ sql: 'INSERT INTO messages VALUES (?)', parameters: ['two'] },
+			{ sql: 'INSERT INTO missing VALUES (?)', parameters: ['never'] },
+		]),
+	);
+	expect(expectOk(await database.all('SELECT * FROM messages'))).toEqual([
+		{ id: 'one' },
+	]);
+	await lifetime.close();
+	await rm(root, { recursive: true });
+});
 
-	// A file where the application's directory belongs, so `mkdir` fails the
-	// way a locked or full disk would, and clears the same way.
-	const appDir = join(root, 'apps', 'so.epicenter.mail');
+test('a failed physical open can be retried in the same lifetime', async () => {
+	const { root, owner } = await setup();
+	const lifetime = await owner.acquire(appId, null);
+	const appDir = join(root, 'apps', appId);
 	await mkdir(join(root, 'apps'), { recursive: true });
 	await Bun.write(appDir, 'in the way');
-	await expect(
-		storage.open('so.epicenter.mail', local, 'mail'),
-	).rejects.toThrow();
-
+	await expect(lifetime.open('mail')).rejects.toThrow();
 	await rm(appDir);
-	const opened = await storage.open('so.epicenter.mail', local, 'mail');
-	expect(
-		(await opened.run('CREATE TABLE recovered (id TEXT)')).error,
-	).toBeNull();
-});
-
-test('deleting a database closes it, removes the file, and forgets the name', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
-	const storage = createBunDevice(root);
-	const path = join(
-		root,
-		'apps',
-		'so.epicenter.mail',
-		'local',
-		'sqlite',
-		'mail.sqlite',
+	expectOk(
+		await (await lifetime.open('mail')).run('CREATE TABLE recovered (id TEXT)'),
 	);
-
-	const before = await storage.open('so.epicenter.mail', local, 'mail');
-	await before.run('CREATE TABLE messages (id TEXT)');
-	await before.run('INSERT INTO messages VALUES (?)', ['one']);
-	expect(await Bun.file(path).exists()).toBe(true);
-
-	await storage.delete('so.epicenter.mail', local, 'mail');
-	expect(await Bun.file(path).exists()).toBe(false);
-	// The closed handle stays closed: an application holding it past a deletion
-	// is holding a connection to a file that is gone, and must be told so.
-	expect((await before.all('SELECT id FROM messages')).error).not.toBeNull();
-
-	// Opening the same name again is a new, empty database rather than the
-	// evicted handle.
-	const after = await storage.open('so.epicenter.mail', local, 'mail');
-	expect((await after.all('SELECT name FROM sqlite_master')).data).toEqual([]);
+	await lifetime.close();
+	await rm(root, { recursive: true });
 });
 
-test('deleting a database that was never created succeeds', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
-	const storage = createBunDevice(root);
-	await storage.delete('so.epicenter.mail', local, 'never');
+test('delete removes database sidecars and reopening never revives an old handle', async () => {
+	const { root, owner } = await setup();
+	const lifetime = await owner.acquire(appId, null);
+	const database = await lifetime.open('mail');
+	expectOk(await database.run('CREATE TABLE messages (id TEXT)'));
+	const path = join(root, 'apps', appId, 'local', 'sqlite', 'mail.sqlite');
+	// Closed SQLite may remove its own journals; leftover sidecars must go too.
+	await Bun.write(`${path}-journal`, 'orphaned journal');
+	await lifetime.delete('mail');
+	for (const file of [path, `${path}-wal`, `${path}-shm`, `${path}-journal`]) {
+		expect(await Bun.file(file).exists()).toBe(false);
+	}
+	const reopened = await lifetime.open('mail');
+	expect(
+		expectOk(await reopened.all('SELECT name FROM sqlite_master')),
+	).toEqual([]);
+	expectErr(await database.all('SELECT name FROM sqlite_master'));
+	await lifetime.delete('never');
+	await lifetime.close();
+	await rm(root, { recursive: true });
 });
 
-test('cache reuse and deletion preserve other accounts and the local library', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
-	const storage = createBunDevice(root);
-	const appId = 'so.epicenter.mail';
+test('concurrent open, delete, and reopen settle in issue order', async () => {
+	const { root, owner } = await setup();
+	const lifetime = await owner.acquire(appId, null);
+	const opening = lifetime.open('mail');
+	const deleting = lifetime.delete('mail');
+	const reopening = lifetime.open('mail');
+	const first = await opening;
+	await deleting;
+	const second = await reopening;
+	expectErr(await first.run('CREATE TABLE old (id TEXT)'));
+	expectOk(await second.run('CREATE TABLE current (id TEXT)'));
+	await lifetime.close();
+	await rm(root, { recursive: true });
+});
+
+test('duplicate lifetimes refuse while local, other accounts, and other apps stay independent', async () => {
+	const { root, owner } = await setup();
 	const accounts = [
 		null,
 		{ authorityId: 'cloud', principalId: asPrincipalId('alice') },
 		{ authorityId: 'cloud', principalId: asPrincipalId('bob') },
 		{ authorityId: 'other', principalId: asPrincipalId('alice') },
 	];
-	for (const [index, account] of accounts.entries()) {
-		const database = await storage.open(appId, account, 'mail');
-		expect(
-			await storage.open(
-				appId,
-				account === null ? null : { ...account },
-				'mail',
-			),
-		).toBe(database);
+	const lifetimes = await Promise.all(
+		accounts.map((account) => owner.acquire(appId, account)),
+	);
+	for (const [index, lifetime] of lifetimes.entries()) {
+		await expect(owner.acquire(appId, accounts[index]!)).rejects.toThrow();
+		const database = await lifetime.open('mail');
 		expectOk(await database.run('CREATE TABLE marker (value INTEGER)'));
 		expectOk(await database.run('INSERT INTO marker VALUES (?)', [index]));
 	}
-	const alice = { authorityId: 'cloud', principalId: asPrincipalId('alice') };
-	const retained = await storage.open(appId, alice, 'mail');
-	await storage.delete(appId, alice, 'mail');
-	expectErr(await retained.all('SELECT * FROM marker'));
+	const other = await owner.acquire('so.epicenter.other', null);
 	expect(
 		expectOk(
-			await (await storage.open(appId, alice, 'mail')).all(
-				'SELECT name FROM sqlite_master',
-			),
+			await (await other.open('mail')).all('SELECT name FROM sqlite_master'),
 		),
 	).toEqual([]);
-	for (const [index, account] of accounts.entries()) {
+	await lifetimes[1]!.delete('mail');
+	for (const [index, lifetime] of lifetimes.entries()) {
 		if (index === 1) continue;
-		const database = await storage.open(appId, account, 'mail');
-		expect(expectOk(await database.all('SELECT value FROM marker'))).toEqual([
-			{ value: index },
-		]);
+		expect(
+			expectOk(
+				await (await lifetime.open('mail')).all('SELECT value FROM marker'),
+			),
+		).toEqual([{ value: index }]);
 	}
-	for (const account of accounts) await storage.delete(appId, account, 'mail');
+	await Promise.all([...lifetimes, other].map((lifetime) => lifetime.close()));
+	await rm(root, { recursive: true });
+});
+
+test('owner validates scope and database names before constructing paths', async () => {
+	const { root, owner } = await setup();
+	await expect(owner.acquire('../escape', null)).rejects.toThrow();
+	await expect(
+		owner.acquire(appId, {
+			authorityId: '..',
+			principalId: asPrincipalId('alice'),
+		}),
+	).rejects.toThrow();
+	const lifetime = await owner.acquire(appId, null);
+	await expect(lifetime.open('../escape')).rejects.toThrow();
+	await expect(lifetime.delete('../escape')).rejects.toThrow();
+	await lifetime.close();
+	await rm(root, { recursive: true });
 });

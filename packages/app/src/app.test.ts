@@ -9,7 +9,10 @@ import { expect, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { type BlobStore, generateBlobId } from '@epicenter/blobs';
 import { type AppSqliteDatabase, DeviceError } from '@epicenter/device';
-import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import {
+	createSqliteOwner,
+	type DeviceSqliteOwner,
+} from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { installTestLocks } from '@epicenter/data/test-locks';
 import { openAppData } from '@epicenter/data/browser';
@@ -28,12 +31,16 @@ import { Ok, type Result } from 'wellcrafted/result';
 installTestLocks();
 
 const testSqlite: DeviceSqliteOwner = {
-	open: async () => ({
-		run: async () => Ok({ changes: 0 }),
-		all: async () => Ok([]),
-		batch: async () => Ok({ changes: [] }),
+	acquire: async () => ({
+		open: async () => ({
+			run: async () => Ok({ changes: 0 }),
+			all: async () => Ok([]),
+			batch: async () => Ok({ changes: [] }),
+		}),
+		delete: async () => undefined,
+
+		close: async () => undefined,
 	}),
-	delete: async () => undefined,
 };
 const testBlobs = createBrowserAppBlobs();
 
@@ -100,15 +107,21 @@ test.each([
 	const releaseRequest = Promise.withResolvers<void>();
 	const identities: unknown[] = [];
 	const owner: DeviceSqliteOwner = {
-		open: async (_appId, account) => {
+		acquire: async (_appId, account) => {
 			identities.push(account);
 			return {
-				run: async () => Ok({ changes: 0 }),
-				all: async () => Ok([]),
-				batch: async () => Ok({ changes: [] }),
+				open: async () => {
+					return {
+						run: async () => Ok({ changes: 0 }),
+						all: async () => Ok([]),
+						batch: async () => Ok({ changes: [] }),
+					};
+				},
+				delete: async () => undefined,
+
+				close: async () => undefined,
 			};
 		},
-		delete: async () => undefined,
 	};
 	let requests = 0;
 	const account: Account = {
@@ -194,15 +207,19 @@ test('closing waits for an admitted SQLite delete', async () => {
 		(resolve) => (releaseDelete = resolve),
 	);
 	const owner: DeviceSqliteOwner = {
-		open: async () => ({
-			run: async () => Ok({ changes: 0 }),
-			all: async () => Ok([]),
-			batch: async () => Ok({ changes: [] }),
+		acquire: async () => ({
+			open: async () => ({
+				run: async () => Ok({ changes: 0 }),
+				all: async () => Ok([]),
+				batch: async () => Ok({ changes: [] }),
+			}),
+			delete: async () => {
+				beginDelete();
+				await deleteReleased;
+			},
+
+			close: async () => undefined,
 		}),
-		delete: async () => {
-			beginDelete();
-			await deleteReleased;
-		},
 	};
 	const app = createEpicenter({
 		appId: 'so.epicenter.app-test',
@@ -244,26 +261,30 @@ test('closing waits for an admitted SQLite delete', async () => {
 test('every retained SQL verb refuses closed use without reaching the shared owner', async () => {
 	const calls: string[] = [];
 	const owner: DeviceSqliteOwner = {
-		async open() {
-			calls.push('open');
-			return {
-				run: async () => {
-					calls.push('run');
-					return Ok({ changes: 1 });
-				},
-				all: async () => {
-					calls.push('all');
-					return Ok([]);
-				},
-				batch: async () => {
-					calls.push('batch');
-					return Ok({ changes: [1] });
-				},
-			};
-		},
-		async delete() {
-			calls.push('delete');
-		},
+		acquire: async () => ({
+			async open() {
+				calls.push('open');
+				return {
+					run: async () => {
+						calls.push('run');
+						return Ok({ changes: 1 });
+					},
+					all: async () => {
+						calls.push('all');
+						return Ok([]);
+					},
+					batch: async () => {
+						calls.push('batch');
+						return Ok({ changes: [1] });
+					},
+				};
+			},
+			async delete() {
+				calls.push('delete');
+			},
+
+			close: async () => undefined,
+		}),
 	};
 	const app = createEpicenter({
 		appId: 'so.epicenter.app-test',
@@ -305,28 +326,32 @@ test.each([
 	const started = Promise.withResolvers<void>();
 	let reentrant: Promise<void> | undefined;
 	const owner: DeviceSqliteOwner = {
-		async open() {
-			async function wait() {
-				reentrant = app.close();
-				started.resolve();
-				await released.promise;
-			}
-			return {
-				run: async () => {
-					await wait();
-					return Ok({ changes: 1 });
-				},
-				all: async () => {
-					await wait();
-					return Ok([]);
-				},
-				batch: async () => {
-					await wait();
-					return Ok({ changes: [1] });
-				},
-			};
-		},
-		delete: testSqlite.delete,
+		acquire: async () => ({
+			async open() {
+				async function wait() {
+					reentrant = app.close();
+					started.resolve();
+					await released.promise;
+				}
+				return {
+					run: async () => {
+						await wait();
+						return Ok({ changes: 1 });
+					},
+					all: async () => {
+						await wait();
+						return Ok([]);
+					},
+					batch: async () => {
+						await wait();
+						return Ok({ changes: [1] });
+					},
+				};
+			},
+			delete: async () => undefined,
+
+			close: async () => undefined,
+		}),
 	};
 	const app = createEpicenter({
 		appId: 'so.epicenter.app-test',
@@ -353,16 +378,22 @@ test.each([
 	}
 });
 
-test('a late SQL open refuses publication and leaves shared physical storage alive', async () => {
-	const opening = Promise.withResolvers<AppSqliteDatabase>();
+test('a late SQL open refuses publication and physically closes without deleting files', async () => {
+	const opening = Promise.withResolvers<
+		AppSqliteDatabase & { close(): Promise<void> }
+	>();
 	const started = Promise.withResolvers<void>();
 	let deletes = 0;
-	const physical = await testSqlite.open(
-		'so.epicenter.app-test',
-		null,
-		'search',
-	);
-	const owner: DeviceSqliteOwner = {
+	let physicalCloses = 0;
+	const physical = {
+		...(await (
+			await testSqlite.acquire('so.epicenter.app-test', null)
+		).open('search')),
+		async close() {
+			physicalCloses++;
+		},
+	};
+	const owner = createSqliteOwner({
 		open() {
 			started.resolve();
 			return opening.promise;
@@ -370,7 +401,7 @@ test('a late SQL open refuses publication and leaves shared physical storage ali
 		async delete() {
 			deletes++;
 		},
-	};
+	});
 	const app = createEpicenter({
 		appId: 'so.epicenter.app-test',
 		definition,
@@ -398,7 +429,7 @@ test('a late SQL open refuses publication and leaves shared physical storage ali
 		]);
 		await closing;
 		expect(deletes).toBe(0);
-		expectOk(await physical.run('select 1'));
+		expect(physicalCloses).toBe(1);
 	} finally {
 		opening.resolve(physical);
 		await closing;
@@ -424,13 +455,19 @@ test('reentrant failed cleanup still drains SQL, blobs, and owning creation befo
 		appId: 'so.epicenter.app-test',
 		definition,
 		sqlite: {
-			async open() {
-				return {
-					...(await testSqlite.open('so.epicenter.app-test', null, 'search')),
-					run: () => sql.promise,
-				};
-			},
-			delete: testSqlite.delete,
+			acquire: async () => ({
+				async open() {
+					return {
+						...(await (
+							await testSqlite.acquire('so.epicenter.app-test', null)
+						).open('search')),
+						run: () => sql.promise,
+					};
+				},
+				delete: async () => undefined,
+
+				close: async () => undefined,
+			}),
 		},
 		blobs(input) {
 			const backing = testBlobs(input);
@@ -683,4 +720,60 @@ test('invalid definitions and missing account identity throw before opening stor
 			name?.split('/').includes('so.epicenter.app-test'),
 		),
 	).toEqual([]);
+});
+
+test('physical SQL close retains the library claim across sibling definitions', async () => {
+	const started = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	let acquisitions = 0;
+	const owner: DeviceSqliteOwner = {
+		async acquire(appId, account) {
+			acquisitions++;
+			const lifetime = await testSqlite.acquire(appId, account);
+			return {
+				...lifetime,
+				async close() {
+					started.resolve();
+					await released.promise;
+				},
+			};
+		},
+	};
+	const first = createEpicenter({
+		appId: 'so.epicenter.app-test',
+		definition,
+		sqlite: owner,
+		blobs: testBlobs,
+	}).openLocal();
+	expectOk(await first.ready);
+	const siblingDefinition = defineData({
+		id: 'so.epicenter.sibling',
+		tables: {},
+		kv: {},
+	});
+	const sibling = () =>
+		createEpicenter({
+			appId: 'so.epicenter.app-test',
+			definition: siblingDefinition,
+			sqlite: owner,
+			blobs: testBlobs,
+		}).openLocal();
+	const duplicate = sibling();
+	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+	await duplicate.close();
+	const closing = first.close();
+	try {
+		await started.promise;
+		const duringClose = sibling();
+		expect(expectErr(await duringClose.ready).name).toBe('AlreadyOpen');
+		await duringClose.close();
+		expect(acquisitions).toBe(1);
+	} finally {
+		released.resolve();
+		await closing;
+	}
+	const reopened = sibling();
+	expectOk(await reopened.ready);
+	expect(acquisitions).toBe(2);
+	await reopened.close();
 });

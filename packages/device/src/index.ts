@@ -1,27 +1,8 @@
 /**
- * This device's files and secrets, scoped to one application (ADR-0321,
- * ADR-0310).
- *
- * The package name is the axis. `@epicenter/data` is an ACCOUNT's data: it is
- * principal-scoped, it is the same on every runtime, and it travels with the
- * person. This is a DEVICE's: it has no principal, it varies by runtime, and it
- * stays on the machine. That difference is invariant 4 of the account model,
- * which is why the two are separate packages rather than two namespaces on one
- * handle: a person removing their local data removes a replica, and never a
- * file or a secret.
- *
- * An application never selects OPFS, Bun SQLite, a native path, a keychain, or
- * a host IPC mechanism, because none of those names appear on this surface. It
- * selects a runtime through its own `#platform/device` seam and calls one of
- * the two constructors. There is no `typeof window` test and there must not be
- * one: the desktop build runs in a WebView, so a runtime sniff cannot tell it
- * apart from a browser tab. A build that forgot to declare its condition fails
- * to resolve rather than silently running the wrong owner.
- *
- * Runtime differences are typed failures, never branches (ADR-0181). A browser
- * build has no keychain, so its secret leaf answers from tab memory and forgets
- * everything on close; the application handles that because a `Result` obliges
- * it to.
+ * Runtime-owned SQLite files and application secrets.
+ * SQLite lifetimes capture an app and account identity; standalone devices use
+ * the local identity. Closing a lifetime releases connections and preserves
+ * files and secrets. Platform imports select the browser worker or native host.
  */
 
 import { isAppId } from '@epicenter/constants/app-id';
@@ -29,10 +10,7 @@ import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { ScopedSqlite } from './owner.js';
-import {
-	isSecretLabel,
-	type SecretLabel,
-} from './protocol.js';
+import { isSecretLabel, type SecretLabel } from './protocol.js';
 
 export const DeviceError = defineErrors({
 	InvalidAppId: ({ appId }: { appId: string }) => ({
@@ -104,10 +82,8 @@ export function secretLabel(value: string): SecretLabel {
 }
 
 /**
- * All `run`, `all`, and `batch` (ADR-0312). A transaction never crosses this
- * boundary, so `batch` is how several statements become one, and there is no
- * `close`: the owner holds the handle for the life of the application, and the
- * only thing that ends that life is `sqlite.delete` (ADR-0321).
+ * Statements on one acquired connection. Deleting its file or closing its
+ * lifetime permanently retires this handle. Batch executes one transaction.
  */
 export type AppSqliteDatabase = {
 	run(
@@ -156,6 +132,8 @@ export type SecretStore = {
  * it is.
  */
 export type Device = {
+	/** Drain and close SQLite connections, preserving files and secrets. */
+	close(): Promise<void>;
 	readonly sqlite: ScopedSqlite;
 	readonly secrets: SecretStore;
 };

@@ -33,8 +33,8 @@ import type { AppSqliteDatabase } from './index.js';
 import { DeviceError } from './index.js';
 import {
 	type AppSqliteRequest,
-	answerDevice,
-	type DeviceSqliteOwner,
+	createDeviceDispatcher,
+	createSqliteOwner,
 } from './owner.js';
 
 /** sqlite.org's OO1 `DB`, plus the one method the adapter does not carry. */
@@ -86,48 +86,6 @@ async function install(): Promise<Pool> {
 	});
 }
 
-/**
- * One live connection per file, and the promise rather than the connection.
- *
- * Caching the promise is what orders an open against a delete of the same name
- * without a queue over everything: a second open joins the first instead of
- * building a second connection over one access handle, and a delete awaits the
- * entry before it closes and unlinks. Names do not order against each other,
- * and nothing asks them to: the Bun owner disclaims it too, and Local Mail's
- * `forgetMail` sequences its own open before its delete (ADR-0321).
- */
-const open = new Map<string, Promise<PoolDatabase>>();
-
-function opening(file: string): Promise<PoolDatabase> {
-	const existing = open.get(file);
-	if (existing !== undefined) return existing;
-	const opened = (async () => {
-		const pool = await poolReady();
-		// A slot is a file, not a connection, so the pool grows with the number of
-		// databases this origin has ever held and never shrinks on close. The
-		// headroom is for the rollback journal a write transaction creates beside
-		// the database, which takes a slot of its own until it commits.
-		await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
-		return new pool.OpfsSAHPoolDb(file);
-	})();
-	opened.catch(() => {
-		if (open.get(file) === opened) open.delete(file);
-	});
-	open.set(file, opened);
-	return opened;
-}
-
-async function closing(file: string): Promise<void> {
-	const opened = open.get(file);
-	open.delete(file);
-	// Settle an open already in flight before closing it, and swallow its
-	// failure: a delete of a file that could not be opened is still a delete.
-	await opened?.then(
-		(database) => database.close(),
-		() => undefined,
-	);
-}
-
 function databaseFilename(
 	appId: string,
 	account: AccountIdentity | null,
@@ -142,24 +100,40 @@ function databaseFilename(
 	return `/${encodeURIComponent(JSON.stringify(address))}.sqlite`;
 }
 
-const owner: DeviceSqliteOwner = {
-	open: async (appId, account, name) =>
-		sqliteOver(await opening(databaseFilename(appId, account, name))),
-	delete: async (appId, account, name) => {
-		const file = databaseFilename(appId, account, name);
-		// Closed first, because the pool unlinks out from under a live connection
-		// without saying so: the connection survives and every statement through
-		// it then reports that the tables are gone.
-		await closing(file);
-		const pool = await poolReady();
-		pool.unlink(file);
-		// The rollback journal is a file in the pool like any other and `unlink`
-		// takes one name, so leaving it behind would hold a slot forever and, on
-		// the next open of this name, offer SQLite a journal describing a database
-		// that no longer exists.
-		pool.unlink(`${file}-journal`);
+// Capacity reservation and file allocation share the pool across app lifetimes.
+let poolOperations: Promise<unknown> = Promise.resolve();
+function inPool<T>(operation: () => Promise<T>): Promise<T> {
+	const result = poolOperations.then(operation);
+	poolOperations = result.catch(() => undefined);
+	return result;
+}
+
+const owner = createSqliteOwner({
+	open(appId, account, name) {
+		return inPool(async () => {
+			const pool = await poolReady();
+			await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
+			const database = new pool.OpfsSAHPoolDb(
+				databaseFilename(appId, account, name),
+			);
+			return {
+				...sqliteOver(database),
+				async close() {
+					database.close();
+				},
+			};
+		});
 	},
-};
+	delete(appId, account, name) {
+		return inPool(async () => {
+			const file = databaseFilename(appId, account, name);
+			const pool = await poolReady();
+			pool.unlink(file);
+			pool.unlink(`${file}-journal`);
+		});
+	},
+});
+const dispatch = createDeviceDispatcher(owner);
 
 /**
  * One connection as the owner contract states it.
@@ -210,7 +184,7 @@ type Envelope = { id: number; request: AppSqliteRequest };
 self.onmessage = async (event: MessageEvent<Envelope>) => {
 	const { id, request } = event.data;
 	try {
-		self.postMessage({ id, response: await answerDevice(owner, request) });
+		self.postMessage({ id, response: await dispatch.request(request) });
 	} catch (cause) {
 		// Only the words cross. An `Error` structured-clones without its subclass
 		// and a `DOMException` does not survive at all, so the page rebuilds a

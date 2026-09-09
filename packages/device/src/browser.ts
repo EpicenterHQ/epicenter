@@ -23,21 +23,10 @@
 import { Ok } from 'wellcrafted/result';
 import { browserSqliteTransport as request } from './browser-sqlite.js';
 import { appIdOrThrow, type Device, type SecretStore } from './index.js';
-import { createAppSqlite, createOwnedSqlite, unwrap } from './owner.js';
+import { createAppSqlite, createTransportSqliteOwner } from './owner.js';
 
 export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwner {
-	return {
-		open: async (ownerAppId, account, name) =>
-			createOwnedSqlite(request, ownerAppId, account, name),
-		delete: async (ownerAppId, account, name) => {
-			const result = await unwrap(
-				request({ kind: 'sqlite-delete', appId: ownerAppId, account, name }),
-				'sqlite-delete',
-				() => undefined,
-			);
-			if (result.error !== null) throw result.error;
-		},
-	};
+	return createTransportSqliteOwner(request);
 }
 
 /**
@@ -52,8 +41,10 @@ export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwn
 export function createBrowserDevice({ appId }: { appId: string }): Device {
 	appIdOrThrow(appId);
 	const owner = createBrowserSqliteOwner();
+	const sqlite = createAppSqlite(owner, appId, null);
 	return {
-		sqlite: Object.freeze(createAppSqlite(owner, appId, null)),
+		sqlite: Object.freeze(sqlite),
+		close: () => sqlite.close(),
 		secrets: Object.freeze(createTabMemorySecrets()),
 	};
 }

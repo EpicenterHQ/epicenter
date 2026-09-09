@@ -93,15 +93,7 @@
 				<AccountPopover
 					{auth}
 					syncNoun="notes"
-					onRemoveLocalData={async () => {
-						// Honeycrisp keeps no account data outside the store: no blobs and no
-						// app-owned SQLite. The working copy is the person's own folder of
-						// notes, deliberately outside the store (ADR-0337), and is left
-						// alone: deleting somebody's own directory is not what this button
-						// says it does. Erasing the replica is the rest of it, and the
-						// session owns it, because erasing swaps the session.
-						await removeLocalData?.();
-					}}
+					onRemoveLocalData={removeLocalData}
 				/>
 				<Sidebar.Trigger />
 			</div>

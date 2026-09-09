@@ -8,7 +8,7 @@
  * synchronous access handles exist only in a dedicated worker
  * (`browser-sqlite.worker.ts` says what that costs). So this file is what the
  * desktop leaf is with `fetch` swapped for `postMessage`, and both of them
- * hand the same `createOwnedSqlite` the same `DeviceRequest`.
+ * carry the same lifetime and connection requests.
  *
  * It holds no map of open databases. The worker owns those, because it owns
  * the connections; a page-side map would be a second answer to "is this file

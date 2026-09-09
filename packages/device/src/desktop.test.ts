@@ -1,103 +1,210 @@
 /**
- * Desktop device wire tests.
- * SQL messages carry the captured application and explicit account identity;
- * secrets retain their application-only addressing.
+ * Native SQL socket lifetimes.
+ * Verifies physical cleanup after disconnect, response correlation, permanent
+ * handle retirement, and secrets continuing over HTTP after SQL closes.
  */
 import { expect, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/principal';
-import { expectOk } from 'wellcrafted/testing';
+import { Ok } from 'wellcrafted/result';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createDesktopDevice, createDesktopSqliteOwner } from './desktop.js';
 import { secretLabel } from './index.js';
-import type { DeviceRequest } from './protocol.js';
+import {
+	createDeviceDispatcher,
+	createSqliteOwner,
+	type AppSqliteRequest,
+	type DeviceSqliteOwner,
+	type SqliteBackend,
+} from './owner.js';
 
-function ownerFor(answer: (request: DeviceRequest) => Response): {
-	calls: DeviceRequest[];
-	fetch: typeof globalThis.fetch;
-} {
-	const calls: DeviceRequest[] = [];
-	const fetchImplementation = (async (_url: string, init?: RequestInit) => {
-		const request = JSON.parse(String(init?.body)) as DeviceRequest;
-		calls.push(request);
-		return answer(request);
-	}) as unknown as typeof globalThis.fetch;
-	return { calls, fetch: fetchImplementation };
+const appId = 'so.epicenter.test';
+function setup() {
+	const calls: string[] = [];
+	const backend: SqliteBackend = {
+		async open() {
+			return {
+				async run() {
+					calls.push('run');
+					return Ok({ changes: 1 });
+				},
+				async all() {
+					return Ok([]);
+				},
+				async batch() {
+					return Ok({ changes: [] });
+				},
+				async close() {
+					calls.push('close');
+				},
+			};
+		},
+		async delete() {
+			calls.push('delete');
+		},
+	};
+	const owner = createSqliteOwner(backend);
+	return { calls, backend, owner };
 }
 
-test('statements and secrets reach the owner scoped by application', async () => {
-	const owner = ownerFor((request) => {
-		if (request.kind === 'sqlite-all') {
-			return Response.json({ kind: 'sqlite-all', rows: [{ id: 'one' }] });
+function socketsFor(owner: DeviceSqliteOwner) {
+	const sockets: Socket[] = [];
+	class Socket {
+		onopen?: () => void;
+		onclose?: () => void;
+		onerror?: () => void;
+		onmessage?: (event: { data: string }) => void;
+		closed = false;
+		disposal: Promise<void> | undefined;
+		requests: AppSqliteRequest[] = [];
+		dispatch = createDeviceDispatcher(owner);
+		constructor(public url: string) {
+			sockets.push(this);
+			queueMicrotask(() => this.onopen?.());
 		}
-		if (request.kind === 'secret-get') {
-			return Response.json({ kind: 'secret-get', value: 'refresh' });
+		send(text: string) {
+			const { id, request } = JSON.parse(text) as {
+				id: number;
+				request: AppSqliteRequest;
+			};
+			this.requests.push(request);
+			void this.dispatch.request(request).then(
+				(response) => this.receive({ id, response }),
+				(cause: unknown) =>
+					this.receive({
+						id,
+						failure: cause instanceof Error ? cause.message : String(cause),
+					}),
+			);
 		}
-		return Response.json({ kind: request.kind });
-	});
+		receive(frame: unknown) {
+			if (!this.closed) this.onmessage?.({ data: JSON.stringify(frame) });
+		}
+		close() {
+			if (this.closed) return;
+			this.closed = true;
+			this.disposal = this.dispatch.close();
+			void this.disposal.catch(() => undefined);
+			this.onclose?.();
+		}
+	}
+	return { sockets, webSocket: Socket as unknown as typeof WebSocket };
+}
+
+test('SQL uses one lifetime socket and secrets survive its acknowledged close', async () => {
+	const { owner, calls } = setup();
+	const transport = socketsFor(owner);
+	const http: string[] = [];
 	const storage = createDesktopDevice({
-		appId: 'so.epicenter.test',
-		baseURL: 'http://127.0.0.1:1',
-		fetch: owner.fetch,
+		appId,
+		baseURL: 'https://epicenter.test',
+		webSocket: transport.webSocket,
+		fetch: (async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			http.push(request.kind);
+			return Response.json({ kind: request.kind, value: 'refresh' });
+		}) as typeof fetch,
 	});
-
-	const sqlite = await storage.sqlite.open('mail');
-	if (sqlite.error !== null) throw sqlite.error;
-	const rows = await sqlite.data.all('SELECT id FROM messages');
-	expect(rows.data).toEqual([{ id: 'one' }]);
-
-	await storage.secrets.put(secretLabel('account-1'), 'refresh');
-	const secret = await storage.secrets.get(secretLabel('account-1'));
-	expect(secret.data).toBe('refresh');
-
-	expect(owner.calls.map((call) => call.kind)).toEqual([
-		'sqlite-all',
-		'secret-put',
-		'secret-get',
-	]);
-	expect(owner.calls.every((call) => call.appId === 'so.epicenter.test')).toBe(
-		true,
+	expect(transport.sockets).toHaveLength(0);
+	const database = expectOk(await storage.sqlite.open('mail'));
+	expectOk(await database.run('SELECT 1'));
+	await storage.close();
+	expectErr(await database.run('SELECT 1'));
+	expectOk(await storage.secrets.put(secretLabel('account-1'), 'refresh'));
+	expect(expectOk(await storage.secrets.get(secretLabel('account-1')))).toBe(
+		'refresh',
 	);
-	expect(owner.calls[0]).toMatchObject({ account: null });
+	expect(http).toEqual(['secret-put', 'secret-get']);
+	expect(calls).toEqual(['run', 'close']);
+	expect(transport.sockets).toHaveLength(1);
+	expect(transport.sockets[0]?.url).toBe(
+		'wss://epicenter.test/api/device/sqlite',
+	);
+	expect(transport.sockets[0]?.closed).toBe(true);
+	expect(transport.sockets[0]?.requests.map(({ kind }) => kind)).toEqual([
+		'sqlite-acquire',
+		'sqlite-open',
+		'sqlite-run',
+		'sqlite-close',
+	]);
 });
 
-test('all SQL verbs send the captured account without a storage scope', async () => {
-	const transport = ownerFor((request) =>
-		Response.json({
-			kind: request.kind,
-			changes: request.kind === 'sqlite-batch' ? [] : 0,
-			rows: [],
-		}),
-	);
-	const owner = createDesktopSqliteOwner({
-		baseURL: 'http://127.0.0.1:1',
-		fetch: transport.fetch,
-	});
-	const account = { authorityId: 'cloud', principalId: asPrincipalId('alice') };
-	const database = await owner.open('so.epicenter.test', account, 'search');
-	account.authorityId = 'replacement';
-	account.principalId = asPrincipalId('bob');
-	expectOk(await database.run('SELECT 1'));
-	expectOk(await database.all('SELECT 1'));
-	expectOk(await database.batch([]));
-	await owner.delete(
-		'so.epicenter.test',
-		{
-			authorityId: 'cloud',
-			principalId: asPrincipalId('alice'),
+test('disconnect during acquisition rejects the caller and drains the late acquired lifetime', async () => {
+	const { owner } = setup();
+	const gate = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	const transport = socketsFor({
+		async acquire(...args) {
+			started.resolve();
+			await gate.promise;
+			return owner.acquire(...args);
 		},
-		'search',
-	);
-	expect(transport.calls.map((call) => call.kind)).toEqual([
-		'sqlite-run',
-		'sqlite-all',
-		'sqlite-batch',
-		'sqlite-delete',
-	]);
-	for (const call of transport.calls) {
-		expect(call).toMatchObject({
-			appId: 'so.epicenter.test',
-			account: { authorityId: 'cloud', principalId: 'alice' },
-			name: 'search',
-		});
-		expect(call).not.toHaveProperty('scope');
-	}
+	});
+	const desktop = createDesktopSqliteOwner({
+		baseURL: 'http://epicenter.test',
+		webSocket: transport.webSocket,
+	});
+	const acquiring = desktop.acquire(appId, null);
+	void acquiring.catch(() => undefined);
+	await started.promise;
+	transport.sockets[0]!.close();
+	await expect(acquiring).rejects.toMatchObject({ name: 'StorageFailed' });
+	gate.resolve();
+	await transport.sockets[0]!.disposal;
+	await (await owner.acquire(appId, null)).close();
+	expect(transport.sockets).toHaveLength(1);
+});
+
+test('disconnect drains a delayed statement and retained handles never reconnect', async () => {
+	const { owner, backend, calls } = setup();
+	const gate = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	const original = backend.open;
+	backend.open = async (...args) => ({
+		...(await original(...args)),
+		async run() {
+			started.resolve();
+			await gate.promise;
+			calls.push('finished');
+			return Ok({ changes: 1 });
+		},
+	});
+	const transport = socketsFor(owner);
+	const desktop = createDesktopSqliteOwner({
+		baseURL: 'http://epicenter.test',
+		webSocket: transport.webSocket,
+	});
+	const lifetime = await desktop.acquire(appId, null);
+	const database = await lifetime.open('mail');
+	const pending = database.run('SELECT 1');
+	await started.promise;
+	transport.sockets[0]!.close();
+	expectErr(await pending);
+	expectErr(await database.all('SELECT 1'));
+	await expect(lifetime.open('another')).rejects.toMatchObject({
+		name: 'StorageFailed',
+	});
+	expect(transport.sockets).toHaveLength(1);
+	expect(calls).toEqual([]);
+	gate.resolve();
+	await transport.sockets[0]!.disposal;
+	expect(calls).toEqual(['finished', 'close']);
+	const replacement = await desktop.acquire(appId, null);
+	expect(transport.sockets).toHaveLength(2);
+	expectErr(await database.all('SELECT 1'));
+	await replacement.close();
+});
+
+test('an unknown response id retires the socket instead of settling another request', async () => {
+	const { owner } = setup();
+	const transport = socketsFor(owner);
+	const lifetime = await createDesktopSqliteOwner({
+		baseURL: 'http://epicenter.test',
+		webSocket: transport.webSocket,
+	}).acquire(appId, null);
+	transport.sockets[0]!.receive({ id: -1, response: { kind: 'sqlite-close' } });
+	await expect(lifetime.open('search')).rejects.toMatchObject({
+		name: 'StorageFailed',
+	});
+	expect(transport.sockets[0]!.closed).toBe(true);
+	expect(transport.sockets).toHaveLength(1);
+	await transport.sockets[0]!.disposal;
 });

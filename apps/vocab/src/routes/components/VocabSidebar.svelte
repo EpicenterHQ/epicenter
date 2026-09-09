@@ -44,11 +44,7 @@
 					disabledReason={dictation.status !== 'idle'
 						? 'Finish dictating to change your account'
 						: undefined}
-					onRemoveLocalData={async () => {
-						// Vocab keeps no account data outside the store, so erasing the
-						// replica is the whole of what forgetting this device means.
-						await removeLocalData?.();
-					}}
+					onRemoveLocalData={removeLocalData}
 				/>
 			</div>
 		</div>

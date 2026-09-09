@@ -876,30 +876,71 @@ export function openAppData<const TDefinition extends DataDefinition>(
 					principalId: account.principalId,
 				})
 			: null;
+	const namedSqlite = createAppSqlite(sqlite, appId, identity);
 	const parts = createStoreOverPort<StoreError | DataDefinitionParseError>({
 		definition: parsed,
 		blobStore: blobs.local,
 		local: account === null,
 		async acquire() {
-			if (account === null) {
-				return acquireDatabase(parsed, { appId, generation: 1 });
+			const claim = await claimDocument(
+				`library:${JSON.stringify([appId, identity?.authorityId ?? null, identity?.principalId ?? null])}`,
+			);
+			if (claim.error !== null) return claim;
+			try {
+				await namedSqlite.acquire();
+				const resolved =
+					account === null
+						? Ok({ generation: 1 })
+						: await resolveGeneration(definition, { appId, account });
+				if (resolved.error !== null) {
+					await namedSqlite.close();
+					claim.data.release();
+					return resolved;
+				}
+				const generation = resolved.data.generation;
+				const acquired = await acquireDatabase(parsed, {
+					appId,
+					generation,
+					...(account === null ? {} : { account }),
+				});
+				if (acquired.error !== null) {
+					await namedSqlite.close();
+					claim.data.release();
+					return acquired;
+				}
+				return Ok({
+					...acquired.data,
+					async dispose() {
+						// Both resources belong to the document. Try every release, but
+						// retain exclusion if any owner cannot confirm it let go.
+						const released = await Promise.allSettled([
+							Promise.resolve().then(() => acquired.data.dispose?.()),
+							namedSqlite.close(),
+						]);
+						const failed = released.find(
+							(result) => result.status === 'rejected',
+						);
+						if (failed?.status === 'rejected') throw failed.reason;
+						claim.data.release();
+					},
+					...(account === null
+						? {}
+						: {
+								replication: {
+									address: {
+										baseURL: account.baseURL,
+										dataId: parsed.id,
+										generation,
+									},
+									transport: account,
+								},
+							}),
+				});
+			} catch (cause) {
+				await namedSqlite.close();
+				claim.data.release();
+				throw cause;
 			}
-			const resolved = await resolveGeneration(definition, { appId, account });
-			if (resolved.error !== null) return resolved;
-			const generation = resolved.data.generation;
-			const acquired = await acquireDatabase(parsed, {
-				appId,
-				generation,
-				account,
-			});
-			if (acquired.error !== null) return acquired;
-			return Ok({
-				...acquired.data,
-				replication: {
-					address: { baseURL: account.baseURL, dataId: parsed.id, generation },
-					transport: account,
-				},
-			});
 		},
 	});
 	return Object.freeze(
@@ -910,7 +951,7 @@ export function openAppData<const TDefinition extends DataDefinition>(
 			ready: parts.ready,
 			close: parts.close,
 			blobs: parts.createBlobs(blobs),
-			sqlite: parts.createSqlite(createAppSqlite(sqlite, appId, identity)),
+			sqlite: parts.createSqlite(namedSqlite),
 			recording: parts.createRecording(recording),
 		}),
 	);

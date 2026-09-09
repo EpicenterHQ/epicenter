@@ -52,7 +52,7 @@ import {
 	createProcessMemoryAppSecrets,
 } from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
-import type { BunDevice } from './device.ts';
+import { createBunDevice, type BunDevice } from './device.ts';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
@@ -2368,6 +2368,195 @@ describe('the application storage owner', () => {
 			body: JSON.stringify(body),
 		});
 	}
+
+	test('SQL sockets retire connections on delete and release their lifetime on reload without deleting files', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const root = testDataDir();
+		const server = await serveHost(host, PAGE, null, {
+			device: createBunDevice(root),
+		});
+		const { cookie, origin } = authenticationFor(server);
+		const url = `${server.url.origin}${DEVICE_PATH}/sqlite`;
+		const address = { appId: LOCAL_MAIL_APP_ID, account: null };
+		const sockets: WebSocket[] = [];
+		async function connect() {
+			const socket = new BunWebSocket(url.replace('http:', 'ws:'), {
+				headers: { cookie, origin },
+			});
+			sockets.push(socket);
+			await new Promise<void>((resolve, reject) => {
+				socket.addEventListener('open', () => resolve(), { once: true });
+				socket.addEventListener('error', reject, { once: true });
+			});
+			return socket;
+		}
+		let id = 0;
+		async function request(socket: WebSocket, body: unknown) {
+			const requestId = ++id;
+			const reply = new Promise<{
+				response?: Record<string, unknown>;
+				failure?: string;
+			}>((resolve, reject) => {
+				const timer = setTimeout(
+					() => reject(new Error('SQLite reply timed out')),
+					3000,
+				);
+				socket.addEventListener(
+					'message',
+					(event) => {
+						clearTimeout(timer);
+						const frame = JSON.parse(String(event.data));
+						expect(frame.id).toBe(requestId);
+						resolve(frame);
+					},
+					{ once: true },
+				);
+			});
+			socket.send(JSON.stringify({ id: requestId, request: body }));
+			return reply;
+		}
+		async function disconnect(socket: WebSocket) {
+			const closed = new Promise<void>((resolve) =>
+				socket.addEventListener('close', () => resolve(), { once: true }),
+			);
+			socket.close();
+			await closed;
+		}
+		try {
+			expect((await fetch(url)).status).toBe(401);
+			expect((await fetch(url, { headers: { cookie } })).status).toBe(403);
+			expect(
+				(await post(server, { kind: 'sqlite-acquire', ...address })).status,
+			).toBe(400);
+			const socket = await connect();
+			for (const body of [
+				{ kind: 'sqlite-acquire', appId: LOCAL_MAIL_APP_ID },
+				{
+					kind: 'sqlite-acquire',
+					...address,
+					account: { authorityId: '..', principalId: 'alice' },
+				},
+				{
+					kind: 'sqlite-run',
+					...address,
+					name: 'mail',
+					statement: { sql: 'SELECT 1' },
+				},
+				{ kind: 'secret-get', appId: LOCAL_MAIL_APP_ID, label: 'secret' },
+			])
+				expect((await request(socket, body)).failure).toBeDefined();
+			const acquired = await request(socket, {
+				kind: 'sqlite-acquire',
+				...address,
+			});
+			const session = { ...address, lifetimeId: acquired.response?.lifetimeId };
+			expect(typeof session.lifetimeId).toBe('string');
+			expect(
+				(await request(socket, { kind: 'sqlite-acquire', ...address })).failure,
+			).toBeDefined();
+			const opened = await request(socket, {
+				kind: 'sqlite-open',
+				...session,
+				name: 'mail',
+			});
+			const connectionId = opened.response?.connectionId;
+			expect(typeof connectionId).toBe('string');
+			expect(
+				(
+					await request(socket, {
+						kind: 'sqlite-delete',
+						...session,
+						name: 'mail',
+					})
+				).response,
+			).toEqual({ kind: 'sqlite-delete' });
+			const reopened = await request(socket, {
+				kind: 'sqlite-open',
+				...session,
+				name: 'mail',
+			});
+			const freshId = reopened.response?.connectionId;
+			expect(freshId).not.toBe(connectionId);
+			const statement = { sql: 'SELECT name FROM sqlite_master' };
+			expect(
+				(
+					await request(socket, {
+						kind: 'sqlite-all',
+						...session,
+						connectionId,
+						statement,
+					})
+				).failure,
+			).toBeDefined();
+			expect(
+				(
+					await request(socket, {
+						kind: 'sqlite-run',
+						...session,
+						connectionId: freshId,
+						statement: { sql: 'CREATE TABLE kept (value TEXT)' },
+					})
+				).failure,
+			).toBeUndefined();
+			expect(
+				(
+					await request(socket, {
+						kind: 'sqlite-run',
+						...session,
+						connectionId: freshId,
+						statement: { sql: "INSERT INTO kept VALUES ('survives reload')" },
+					})
+				).failure,
+			).toBeUndefined();
+			// Reload loses the document socket without sending sqlite-close.
+			await disconnect(socket);
+			const next = await connect();
+			const reacquired = await request(next, {
+				kind: 'sqlite-acquire',
+				...address,
+			});
+			expect(reacquired.failure).toBeUndefined();
+			const nextSession = {
+				...address,
+				lifetimeId: reacquired.response?.lifetimeId,
+			};
+			expect(
+				(
+					await request(next, {
+						kind: 'sqlite-all',
+						...session,
+						connectionId: freshId,
+						statement,
+					})
+				).failure,
+			).toBeDefined();
+			const nextOpen = await request(next, {
+				kind: 'sqlite-open',
+				...nextSession,
+				name: 'mail',
+			});
+			const rows = await request(next, {
+				kind: 'sqlite-all',
+				...nextSession,
+				connectionId: nextOpen.response?.connectionId,
+				statement: { sql: 'SELECT value FROM kept' },
+			});
+			expect(rows.response).toEqual({
+				kind: 'sqlite-all',
+				rows: [{ value: 'survives reload' }],
+			});
+			expect(
+				(await request(next, { kind: 'sqlite-close', ...nextSession }))
+					.response,
+			).toEqual({ kind: 'sqlite-close' });
+			await disconnect(next);
+		} finally {
+			for (const socket of sockets)
+				if (socket.readyState === 1) await disconnect(socket);
+			await server.stop(true);
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 
 	test('holds one labeled secret per application account', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });

@@ -104,34 +104,29 @@ export type SqliteStatement = {
 	parameters?: readonly SqliteValue[];
 };
 
+type SqliteAddress = { appId: string; account: AccountIdentity | null };
+type SqliteSession = SqliteAddress & { lifetimeId: string };
+
 export type DeviceRequest =
-	| {
+	| (SqliteAddress & { kind: 'sqlite-acquire' })
+	| (SqliteSession & { kind: 'sqlite-open'; name: string })
+	| (SqliteSession & { kind: 'sqlite-close' })
+	| (SqliteSession & { kind: 'sqlite-delete'; name: string })
+	| (SqliteSession & {
 			kind: 'sqlite-run';
-			appId: string;
-			account: AccountIdentity | null;
-			name: string;
+			connectionId: string;
 			statement: SqliteStatement;
-	  }
-	| {
+	  })
+	| (SqliteSession & {
 			kind: 'sqlite-all';
-			appId: string;
-			account: AccountIdentity | null;
-			name: string;
+			connectionId: string;
 			statement: SqliteStatement;
-	  }
-	| {
+	  })
+	| (SqliteSession & {
 			kind: 'sqlite-batch';
-			appId: string;
-			account: AccountIdentity | null;
-			name: string;
+			connectionId: string;
 			statements: readonly SqliteStatement[];
-	  }
-	| {
-			kind: 'sqlite-delete';
-			appId: string;
-			account: AccountIdentity | null;
-			name: string;
-	  }
+	  })
 	| {
 			kind: 'secret-put';
 			appId: string;
@@ -150,6 +145,9 @@ export type DeviceRequest =
 	  };
 
 export type DeviceResponse =
+	| { kind: 'sqlite-acquire'; lifetimeId: string }
+	| { kind: 'sqlite-open'; connectionId: string }
+	| { kind: 'sqlite-close' }
 	| { kind: 'sqlite-run'; changes: number }
 	| { kind: 'sqlite-all'; rows: readonly Record<string, unknown>[] }
 	| { kind: 'sqlite-batch'; changes: readonly number[] }
@@ -159,6 +157,9 @@ export type DeviceResponse =
 	| { kind: 'secret-delete' };
 
 const RESPONSE_KINDS: readonly DeviceResponse['kind'][] = [
+	'sqlite-acquire',
+	'sqlite-open',
+	'sqlite-close',
 	'sqlite-run',
 	'sqlite-all',
 	'sqlite-batch',
@@ -172,5 +173,17 @@ export function isDeviceResponse(value: unknown): value is DeviceResponse {
 	if (typeof value !== 'object' || value === null || !('kind' in value)) {
 		return false;
 	}
+	if (value.kind === 'sqlite-acquire')
+		return (
+			'lifetimeId' in value &&
+			typeof value.lifetimeId === 'string' &&
+			value.lifetimeId.length > 0
+		);
+	if (value.kind === 'sqlite-open')
+		return (
+			'connectionId' in value &&
+			typeof value.connectionId === 'string' &&
+			value.connectionId.length > 0
+		);
 	return RESPONSE_KINDS.includes(value.kind as DeviceResponse['kind']);
 }

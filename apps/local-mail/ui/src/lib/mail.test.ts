@@ -16,8 +16,14 @@ const request = {
 
 test('close waits for an admitted open to settle and refuses later operations', async () => {
 	const opening = Promise.withResolvers<MailApp>();
+	const releasing = Promise.withResolvers<void>();
+	const releaseEntered = Promise.withResolvers<void>();
 	let opens = 0;
 	const mail = createMail({
+		closeStorage: async () => {
+			releaseEntered.resolve();
+			await releasing.promise;
+		},
 		openApp: () => {
 			opens++;
 			return opening.promise;
@@ -40,6 +46,9 @@ test('close waits for an admitted open to settle and refuses later operations', 
 	expect(opens).toBe(1);
 	opening.reject(new Error('open failed'));
 	expect(await failedAccounts).toEqual(new Error('open failed'));
+	await releaseEntered.promise;
+	expect(closed).toBe(false);
+	releasing.resolve();
 	await closing;
 	expect(closed).toBe(true);
 	expect(mail.close()).toBe(closing);
@@ -49,6 +58,7 @@ test('close aborts consent but waits for the authorization owner to finish', asy
 	const consent = Promise.withResolvers<URL>();
 	const entered = Promise.withResolvers<AbortSignal>();
 	const mail = createMail({
+		closeStorage: async () => {},
 		openApp: async () => {
 			throw new Error('must not open');
 		},
@@ -85,6 +95,7 @@ test('close waits for an admitted durable write before acknowledging closure', a
 	const app = createMailApp({
 		identity: { clientId: 'test', clientSecret: 'test' },
 		device: {
+			close: async () => {},
 			sqlite: { open: unused, delete: unused },
 			secrets: { get: unused, put: unused, delete: unused },
 		},
@@ -103,6 +114,7 @@ test('close waits for an admitted durable write before acknowledging closure', a
 		},
 	});
 	const mail = createMail({
+		closeStorage: async () => {},
 		openApp: async () => app,
 		authorization: { authorize: unused },
 	});

@@ -25,7 +25,7 @@ test('shared requests fail together and a retired worker cannot fail its replace
 			};
 			const { browserSqliteTransport: request } = await import(${JSON.stringify(new URL('./browser-sqlite.js', import.meta.url).href)});
 			expect(workers).toHaveLength(0);
-			const message = { kind: 'sqlite-delete', appId: 'so.epicenter.transport-test', account: null, name: 'search' };
+			const message = { kind: 'sqlite-acquire', appId: 'so.epicenter.transport-test', account: null };
 			const first = request(message);
 			const second = request({ ...message, appId: 'so.epicenter.other-app' });
 			expect(workers).toHaveLength(1);
@@ -41,8 +41,8 @@ test('shared requests fail together and a retired worker cannot fail its replace
 			workers[0].onmessageerror();
 			await Promise.resolve();
 			expect(settled).toBe(false);
-			workers[1].onmessage({ data: { id: 2, response: { kind: 'sqlite-delete' } } });
-			expect(expectOk(await replacement)).toEqual({ kind: 'sqlite-delete' });
+			workers[1].onmessage({ data: { id: 2, response: { kind: 'sqlite-acquire', lifetimeId: 'replacement' } } });
+			expect(expectOk(await replacement)).toEqual({ kind: 'sqlite-acquire', lifetimeId: 'replacement' });
 			`,
 		],
 		cwd: import.meta.dir,

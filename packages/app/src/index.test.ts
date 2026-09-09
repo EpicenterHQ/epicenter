@@ -13,12 +13,16 @@ import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { Ok } from 'wellcrafted/result';
 
 const sqlite: DeviceSqliteOwner = {
-	open: async () => ({
-		run: async () => Ok({ changes: 0 }),
-		all: async () => Ok([]),
-		batch: async () => Ok({ changes: [] }),
+	acquire: async () => ({
+		open: async () => ({
+			run: async () => Ok({ changes: 0 }),
+			all: async () => Ok([]),
+			batch: async () => Ok({ changes: [] }),
+		}),
+		delete: async () => undefined,
+
+		close: async () => undefined,
 	}),
-	delete: async () => undefined,
 };
 const blobs = createBrowserAppBlobs();
 
@@ -29,17 +33,19 @@ test('the application id is explicit and independent from the definition id', ()
 	// (ADR-0324), so a reader application opening the notes definition is a
 	// different replica rather than the same one under another name.
 	expect(
-		createEpicenter({ appId: 'so.epicenter.notes', definition, sqlite, blobs }).appId,
+		createEpicenter({ appId: 'so.epicenter.notes', definition, sqlite, blobs })
+			.appId,
 	).toBe('so.epicenter.notes');
 	expect(
-		createEpicenter({ appId: 'so.epicenter.reader', definition, sqlite, blobs }).appId,
+		createEpicenter({ appId: 'so.epicenter.reader', definition, sqlite, blobs })
+			.appId,
 	).toBe('so.epicenter.reader');
 });
 
 test('an application id this platform cannot file refuses at construction', () => {
 	// It throws rather than answering a `Result`, because an id reaching this
 	// is a constant in a build and a wrong one is a bug, not a condition.
-	expect(() => createEpicenter({ appId: 'not an app id', definition, sqlite, blobs })).toThrow(
-		'is not valid',
-	);
+	expect(() =>
+		createEpicenter({ appId: 'not an app id', definition, sqlite, blobs }),
+	).toThrow('is not valid');
 });

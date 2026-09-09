@@ -13,7 +13,7 @@ import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { isAppId } from '@epicenter/constants/app-id';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
-import { answerDevice } from '@epicenter/device/owner';
+import { createDeviceDispatcher } from '@epicenter/device/owner';
 import {
 	DEVICE_PATH,
 	type DeviceRequest,
@@ -28,6 +28,7 @@ import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
+import { createLogger } from 'wellcrafted/logger';
 import { createAccountRelay } from './account-relay.ts';
 import type { AppSecretOwner } from './app-secrets.ts';
 import type { Application } from './applications.ts';
@@ -446,6 +447,76 @@ export function createHomeServer({
 	});
 	app.use('/api/home/*', requireBrowserSession);
 	app.use(`${DEVICE_PATH}/*`, requirePrivateBroker);
+	app.get(`${DEVICE_PATH}/sqlite`, async (c, next) => {
+		if (device === undefined) return c.text('Unavailable', 503);
+		const response = await upgradeWebSocket(() => {
+			const dispatcher = createDeviceDispatcher(device);
+			let closed = false;
+			const close = () => {
+				if (closed) return;
+				closed = true;
+				void dispatcher.close().catch((cause: unknown) => {
+					createLogger('epicenter/sqlite').error(
+						new Error('SQLite socket cleanup failed.', { cause }),
+					);
+				});
+			};
+			return {
+				onMessage(event, ws) {
+					if (closed) return;
+					const frame = parseFrame(event.data);
+					if (
+						typeof frame !== 'object' ||
+						frame === null ||
+						!('id' in frame) ||
+						!Number.isSafeInteger(frame.id)
+					) {
+						close();
+						ws.close(1008, 'Invalid SQLite request.');
+						return;
+					}
+					const input = 'request' in frame ? frame.request : null;
+					const request = parseDeviceRequest(
+						typeof input === 'object' && input !== null && !Array.isArray(input)
+							? (input as Record<string, unknown>)
+							: null,
+					);
+					if (
+						request === undefined ||
+						request.kind === 'secret-put' ||
+						request.kind === 'secret-get' ||
+						request.kind === 'secret-delete'
+					) {
+						ws.send(
+							JSON.stringify({
+								id: frame.id,
+								failure: 'Invalid SQLite request.',
+							}),
+						);
+						return;
+					}
+					void dispatcher.request(request).then(
+						(response) => {
+							if (!closed) ws.send(JSON.stringify({ id: frame.id, response }));
+						},
+						() => {
+							if (!closed)
+								ws.send(
+									JSON.stringify({
+										id: frame.id,
+										failure: 'Application storage failed',
+									}),
+								);
+						},
+					);
+				},
+				onClose: close,
+				onError: close,
+			};
+		})(c, next);
+		return response ?? c.text('Expected WebSocket upgrade', 400);
+	});
+
 	app.post(DEVICE_PATH, async (c) => {
 		const request = parseDeviceRequest(await readJsonObject(c.req.raw));
 		if (request === undefined) return c.text('Bad Request', 400);
@@ -468,10 +539,7 @@ export function createHomeServer({
 				await appSecrets.delete(request.appId, request.label);
 				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
-			if (device === undefined) return c.text('Unavailable', 503);
-			// Every transport answers a request the same way, so the host does not
-			// own a second reading of what one means (`@epicenter/app`'s `owner.ts`).
-			return c.json(await answerDevice(device, request));
+			return c.text('Bad Request', 400);
 		} catch {
 			return c.text('Application storage failed', 500);
 		}
@@ -933,40 +1001,39 @@ function parseDeviceRequest(
 		'account' in input && isSqliteAccount(input.account)
 			? input.account
 			: undefined;
-	if (
-		(kind === 'sqlite-run' || kind === 'sqlite-all') &&
-		typeof input.name === 'string' &&
-		account !== undefined
-	) {
-		const statement = parseSqliteStatement(input.statement);
-		return statement === undefined || !isDatabaseName(input.name)
-			? undefined
-			: { kind, appId: input.appId, account, name: input.name, statement };
-	}
-	if (
-		kind === 'sqlite-delete' &&
-		typeof input.name === 'string' &&
-		account !== undefined
-	) {
-		return isDatabaseName(input.name)
-			? { kind, appId: input.appId, account, name: input.name }
-			: undefined;
-	}
-	if (
-		kind === 'sqlite-batch' &&
-		typeof input.name === 'string' &&
-		account !== undefined
-	) {
-		if (!isDatabaseName(input.name) || !Array.isArray(input.statements)) {
+	if (kind.startsWith('sqlite-')) {
+		if (account === undefined) return undefined;
+		const address = { appId: input.appId, account };
+		if (kind === 'sqlite-acquire') return { kind, ...address };
+		if (typeof input.lifetimeId !== 'string' || input.lifetimeId === '')
 			return undefined;
+		const session = { ...address, lifetimeId: input.lifetimeId };
+		if (kind === 'sqlite-close') return { kind, ...session };
+		if (kind === 'sqlite-open' || kind === 'sqlite-delete') {
+			return typeof input.name === 'string' && isDatabaseName(input.name)
+				? { kind, ...session, name: input.name }
+				: undefined;
 		}
-		const statements: SqliteStatement[] = [];
-		for (const value of input.statements) {
-			const statement = parseSqliteStatement(value);
-			if (statement === undefined) return undefined;
-			statements.push(statement);
+		if (typeof input.connectionId !== 'string' || input.connectionId === '')
+			return undefined;
+		const connection = { ...session, connectionId: input.connectionId };
+		if (kind === 'sqlite-run' || kind === 'sqlite-all') {
+			const statement = parseSqliteStatement(input.statement);
+			return statement === undefined
+				? undefined
+				: { kind, ...connection, statement };
 		}
-		return { kind, appId: input.appId, account, name: input.name, statements };
+		if (kind === 'sqlite-batch') {
+			if (!Array.isArray(input.statements)) return undefined;
+			const statements: SqliteStatement[] = [];
+			for (const value of input.statements) {
+				const statement = parseSqliteStatement(value);
+				if (statement === undefined) return undefined;
+				statements.push(statement);
+			}
+			return { kind, ...connection, statements };
+		}
+		return undefined;
 	}
 	if (
 		(kind === 'secret-put' ||

@@ -50,9 +50,11 @@ function base(): string {
 export function createMail({
 	openApp,
 	authorization,
+	closeStorage,
 }: {
 	openApp: () => Promise<MailApp>;
 	authorization: GmailAuthorization;
+	closeStorage: () => Promise<void>;
 }) {
 	let opening: Promise<MailApp> | null = null;
 	let closing: Promise<void> | undefined;
@@ -84,9 +86,8 @@ export function createMail({
 		/** Stop new work, cancel the consent wait, and finish all admitted writes. */
 		close(): Promise<void> {
 			controller.abort();
-			// SQLite handles belong to the host. Successful writes are durable
-			// before they return; there is no page-owned file handle to close.
-			return (closing ??= Promise.allSettled(pending).then(() => {}));
+			// Release the physical lifetime even if opening the mail schema failed.
+			return (closing ??= Promise.allSettled(pending).then(closeStorage));
 		},
 
 		authorize: operation((request: AuthorizationRequest) =>

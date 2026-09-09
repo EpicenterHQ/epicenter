@@ -1,31 +1,9 @@
 /// <reference lib="dom" />
 
 /**
- * The desktop binding: the trusted Epicenter origin is the owner, reached over
- * same-origin HTTP.
- *
- * Two capabilities, and neither of them is the store. **Data stays
- * client-owned, and the host contributes nothing to it.** The store lives in
- * the WebView, exactly as it does in a browser tab, because the host serves
- * bundles and brokers credentials and owns no application data (ADR-0226,
- * ADR-0227). It is not on this leaf at all (ADR-0339): a deployed app is a
- * trusted app (ADR-0334), so there was no admission round trip and no second
- * party whose answer could mean anything, and a seam with one implementation
- * is not a seam.
- *
- * **This leaf builds storage, not a data session.** Nothing about a session
- * varies by runtime; the trusted owner's files and keychain do. So this is what
- * an application selects per build, while one `createEpicenter` in
- * `@epicenter/app` serves every build.
- *
- * **SQLite is a Bun-owned file.** The owner maps `(appId, account, name)` to a path
- * below the one Epicenter data root; the application sends statements and never
- * sees the path. Deleting one is the same round trip, and the owner closes its
- * handle before it unlinks, because the application cannot (ADR-0321).
- *
- * **A secret is a keychain entry.** The owner hands it to Rust over the private
- * sidecar pipe, which is the only thing on this machine that names a keyring
- * entry. Nothing durable lands in the page.
+ * Native SQLite uses one WebSocket per acquired lifetime. Socket loss retires
+ * client handles and lets the host drain and close that connection's resources.
+ * Secrets use HTTP and survive SQLite closure.
  */
 
 import { Ok, type Result } from 'wellcrafted/result';
@@ -36,7 +14,11 @@ import {
 	SecretError,
 	type SecretStore,
 } from './index.js';
-import { createAppSqlite, createOwnedSqlite, unwrap } from './owner.js';
+import {
+	createAppSqlite,
+	createTransportSqliteOwner,
+	type AppSqliteTransport,
+} from './owner.js';
 import {
 	DEVICE_PATH,
 	type DeviceRequest,
@@ -48,22 +30,124 @@ export type CreateDesktopDeviceOptions = {
 	/** The trusted origin that owns the files and the keychain entries. */
 	baseURL?: string;
 	fetch?: typeof globalThis.fetch;
+	webSocket?: typeof globalThis.WebSocket;
 };
 
 export function createDesktopSqliteOwner(
 	options: CreateDesktopDeviceOptions = {},
 ): import('./owner.js').DeviceSqliteOwner {
-	const request = createOwnerRequest(options);
 	return {
-		open: async (ownerAppId, account, name) =>
-			createOwnedSqlite(request, ownerAppId, account, name),
-		delete: async (ownerAppId, account, name) => {
-			const result = await unwrap(
-				request({ kind: 'sqlite-delete', appId: ownerAppId, account, name }),
-				'sqlite-delete',
-				() => undefined,
+		async acquire(appId, account) {
+			const socket = createSqliteSocket(options);
+			try {
+				const lifetime = await createTransportSqliteOwner(
+					socket.request,
+				).acquire(appId, account);
+				let closing: Promise<void> | undefined;
+				return {
+					open: lifetime.open,
+					delete: lifetime.delete,
+					close() {
+						return (closing ??= lifetime.close().finally(() => socket.close()));
+					},
+				};
+			} catch (cause) {
+				socket.close();
+				throw cause;
+			}
+		},
+	};
+}
+
+/** A document's socket never reconnects or transfers its lifetime to a new page. */
+function createSqliteSocket({
+	baseURL = globalThis.location?.origin,
+	webSocket: Socket = globalThis.WebSocket,
+}: CreateDesktopDeviceOptions) {
+	let socket: WebSocket | undefined;
+	let opening: Promise<void> | undefined;
+	let failed: DeviceError | undefined;
+	let nextId = 0;
+	const pending = new Map<
+		number,
+		(result: Result<DeviceResponse, DeviceError>) => void
+	>();
+	let rejectOpen: ((cause: unknown) => void) | undefined;
+	function fail(cause: unknown) {
+		if (failed) return;
+		failed = DeviceError.StorageFailed({ cause }).error;
+		rejectOpen?.(failed);
+		for (const settle of pending.values())
+			settle({ error: failed, data: null });
+		pending.clear();
+		socket?.close();
+	}
+	function ready() {
+		return (opening ??= new Promise<void>((resolve, reject) => {
+			rejectOpen = reject;
+			if (!baseURL || !Socket)
+				throw new Error('Desktop SQLite needs an origin and WebSocket.');
+			const url = new URL(`${DEVICE_PATH}/sqlite`, baseURL);
+			url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+			socket = new Socket(url.href);
+			socket.onopen = () => resolve();
+			socket.onclose = () => fail(new Error('SQLite socket closed.'));
+			socket.onerror = () => fail(new Error('SQLite socket failed.'));
+			socket.onmessage = (event) => {
+				try {
+					const answer: unknown = JSON.parse(String(event.data));
+					if (
+						typeof answer !== 'object' ||
+						answer === null ||
+						!('id' in answer) ||
+						typeof answer.id !== 'number' ||
+						!Number.isSafeInteger(answer.id) ||
+						!pending.has(answer.id)
+					)
+						throw new Error('Invalid SQLite response id.');
+					const settle = pending.get(answer.id)!;
+					if ('failure' in answer && typeof answer.failure === 'string') {
+						pending.delete(answer.id);
+						settle(
+							DeviceError.StorageFailed({ cause: new Error(answer.failure) }),
+						);
+						return;
+					}
+					if (!('response' in answer) || !isDeviceResponse(answer.response))
+						throw new Error('Invalid SQLite response.');
+					pending.delete(answer.id);
+					settle(Ok(answer.response));
+				} catch (cause) {
+					fail(cause);
+				}
+			};
+		}));
+	}
+	const request: AppSqliteTransport = async (message) => {
+		if (failed) return { error: failed, data: null };
+		try {
+			await ready();
+			if (failed) return { error: failed, data: null };
+			return await new Promise<Result<DeviceResponse, DeviceError>>(
+				(resolve) => {
+					const id = nextId++;
+					pending.set(id, resolve);
+					try {
+						socket!.send(JSON.stringify({ id, request: message }));
+					} catch (cause) {
+						fail(cause);
+					}
+				},
 			);
-			if (result.error !== null) throw result.error;
+		} catch (cause) {
+			fail(cause);
+			return DeviceError.StorageFailed({ cause });
+		}
+	};
+	return {
+		request,
+		close() {
+			fail(new Error('SQLite socket closed.'));
 		},
 	};
 }
@@ -81,8 +165,10 @@ export function createDesktopDevice({
 	appIdOrThrow(appId);
 	const request = createOwnerRequest(options);
 	const owner = createDesktopSqliteOwner(options);
+	const sqlite = createAppSqlite(owner, appId, null);
 	return {
-		sqlite: Object.freeze(createAppSqlite(owner, appId, null)),
+		sqlite: Object.freeze(sqlite),
+		close: () => sqlite.close(),
 		secrets: Object.freeze(createKeychainSecrets(request, appId)),
 	};
 }

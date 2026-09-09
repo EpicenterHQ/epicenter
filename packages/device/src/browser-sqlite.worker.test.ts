@@ -28,12 +28,14 @@ async function deleteFiles(
 			}));
 			globalThis.self = { postMessage(reply) { replies.push(reply); } };
 			await import(${JSON.stringify(new URL('./browser-sqlite.worker.ts', import.meta.url).href)});
-			for (const [id, request] of ${JSON.stringify(requests)}.entries()) {
-				await self.onmessage({ data: { id, request: { kind: 'sqlite-delete', ...request } } });
-			}
-			if (replies.some(reply => reply.response?.kind !== 'sqlite-delete')) {
-				throw new Error(JSON.stringify(replies));
-			}
+            for (const [id, request] of ${JSON.stringify(requests)}.entries()) {
+                await self.onmessage({ data: { id, request: { kind: 'sqlite-acquire', appId: request.appId, account: request.account } } });
+                const lifetimeId = replies.at(-1).response?.lifetimeId;
+                if (!lifetimeId) throw new Error(JSON.stringify(replies));
+                await self.onmessage({ data: { id, request: { kind: 'sqlite-delete', ...request, lifetimeId } } });
+                if (replies.at(-1).response?.kind !== 'sqlite-delete') throw new Error(JSON.stringify(replies));
+                await self.onmessage({ data: { id, request: { kind: 'sqlite-close', ...request, lifetimeId } } });
+            }
 			console.log(JSON.stringify(files));
 			`,
 		],

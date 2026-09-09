@@ -38,12 +38,16 @@ import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data';
 
 const testSqlite: DeviceSqliteOwner = {
-	open: async () => ({
-		run: async () => Ok({ changes: 0 }),
-		all: async () => Ok([]),
-		batch: async () => Ok({ changes: [] }),
+	acquire: async () => ({
+		open: async () => ({
+			run: async () => Ok({ changes: 0 }),
+			all: async () => Ok([]),
+			batch: async () => Ok({ changes: [] }),
+		}),
+		delete: async () => undefined,
+
+		close: async () => undefined,
 	}),
-	delete: async () => undefined,
 };
 const testBlobs = createBrowserAppBlobs();
 import { createWhisperingApp } from './app';

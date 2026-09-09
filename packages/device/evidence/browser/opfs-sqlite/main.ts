@@ -8,7 +8,7 @@
 import { createBrowserDevice } from '../../../src/browser.js';
 
 const APP_ID = 'so.epicenter.evidence';
-const storage = createBrowserDevice({ appId: APP_ID });
+let storage = createBrowserDevice({ appId: APP_ID });
 const otherStorage = createBrowserDevice({
 	appId: 'so.epicenter.other-evidence',
 });
@@ -27,6 +27,29 @@ async function attempt(run: () => Promise<Answer>): Promise<Answer> {
 }
 
 Object.assign(globalThis, {
+	async closeAndReopen(): Promise<Answer> {
+		return attempt(async () => {
+			const retained = await storage.sqlite.open('local');
+			if (retained.error) return { ok: false, error: retained.error.message };
+			await storage.close();
+			const stale = await retained.data.all('SELECT 1');
+			if (!stale.error)
+				return { ok: false, error: 'Closed connection accepted a statement.' };
+			storage = createBrowserDevice({ appId: APP_ID });
+			const reopened = await storage.sqlite.open('local');
+			return reopened.error
+				? { ok: false, error: reopened.error.message }
+				: { ok: true };
+		});
+	},
+	async duplicateOwner(): Promise<Answer> {
+		const duplicate = createBrowserDevice({ appId: APP_ID });
+		const result = await duplicate.sqlite.open('local');
+		await duplicate.close();
+		return result.error
+			? { ok: true }
+			: { ok: false, error: 'Duplicate lifetime opened.' };
+	},
 	async otherApp(sql: string): Promise<Answer> {
 		return attempt(async () => {
 			const opened = await otherStorage.sqlite.open('local');

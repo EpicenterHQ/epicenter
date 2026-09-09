@@ -30,12 +30,15 @@ function setup({
 	cancelGate = Promise.resolve(),
 	recovered = false,
 	recoveryFailsAfterStart = false,
+	recoveryFails = false,
+	cancelFails = false,
 } = {}) {
 	const appId = 'test.' + crypto.randomUUID();
 	const bindings: { appId: string; account: RecordingAccount }[] = [];
 	let starts = 0;
 	let cancels = 0;
 	let stops = 0;
+	let releases = 0;
 	const recording: RecordingFactory = (appId, account) => {
 		bindings.push({ appId, account });
 		let active: Recording | null = null;
@@ -54,6 +57,10 @@ function setup({
 			async cancel() {
 				cancels++;
 				await cancelGate;
+				if (cancelFails)
+					return RecorderError.RecorderFailed({
+						cause: new Error('Cancellation failed'),
+					});
 				active = null;
 				return Ok(undefined);
 			},
@@ -63,7 +70,7 @@ function setup({
 		if (recovered) active = session;
 		return {
 			current: async () =>
-				recoveryFailsAfterStart && starts > 0
+				recoveryFails || (recoveryFailsAfterStart && starts > 0)
 					? RecorderError.RecorderFailed({
 							cause: new Error('Recovery unavailable'),
 						})
@@ -82,10 +89,16 @@ function setup({
 		appId,
 		definition: defineData({ id: appId, kv: {}, tables: {} }),
 		sqlite: {
-			open: async () => {
-				throw new Error('Unused');
-			},
-			delete: async () => {},
+			acquire: async () => ({
+				open: async () => {
+					throw new Error('Unused');
+				},
+				delete: async () => {},
+
+				close: async () => {
+					releases++;
+				},
+			}),
 		},
 		blobs: createBrowserAppBlobs(),
 		recording,
@@ -97,6 +110,7 @@ function setup({
 		starts: () => starts,
 		cancels: () => cancels,
 		stops: () => stops,
+		releases: () => releases,
 	};
 }
 
@@ -236,3 +250,23 @@ test('closing before readiness never admits a new recording', async () => {
 	expect(starts()).toBe(0);
 	expect(() => app.recording.start()).toThrow();
 });
+
+for (const failure of ['recovery', 'cancellation'] as const) {
+	test(`failed ${failure} retains ownership while other libraries remain usable`, async () => {
+		const { epicenter, releases } = setup({
+			recoveryFails: failure === 'recovery',
+			cancelFails: failure === 'cancellation',
+		});
+		const app = epicenter.openLocal();
+		expectOk(await app.ready);
+		if (failure === 'cancellation') expectOk(await app.recording.start());
+		await expect(app.close()).rejects.toMatchObject({ name: 'RecorderFailed' });
+		expect(releases()).toBe(0);
+		const duplicate = epicenter.openLocal();
+		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+		await duplicate.close();
+		const other = setup().epicenter.openLocal();
+		expectOk(await other.ready);
+		await other.close();
+	});
+}

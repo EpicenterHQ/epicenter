@@ -7,6 +7,7 @@ import { gmailIdentity } from './identity.js';
 
 /** One operation owner per document, bound to this build's storage and consent UI. */
 export const mail = createMail({
+	closeStorage: () => device.close(),
 	openApp: async () =>
 		createMailApp({
 			device,

@@ -547,8 +547,8 @@ export function createStoreOverPort<
 				runOperation(async () => {
 					const result = await backing.open(name);
 					if (result.error !== null) return result;
-					// The owner caches physical connections shared by other clients.
-					// Refuse publication after close without deleting its database.
+					// An opening connection belongs to this document even if close
+					// starts before it can be published. Close releases it after drain.
 					assertUsable();
 					const database: typeof result.data = {
 						run: (...args) => runOperation(() => result.data.run(...args)),
@@ -1131,6 +1131,7 @@ export function createStoreOverPort<
 		const completion = Promise.withResolvers<void>();
 		closing = completion.promise;
 		void (async () => {
+			let producersReleased = true;
 			try {
 				try {
 					connection?.[Symbol.dispose]();
@@ -1147,21 +1148,38 @@ export function createStoreOverPort<
 						try {
 							await Promise.allSettled(operations);
 						} finally {
-							await closeRecording?.();
+							try {
+								await closeRecording?.();
+							} catch (cause) {
+								producersReleased = false;
+								throw cause;
+							}
 						}
 					}
 				} finally {
 					try {
 						const sources = [...blobSources];
 						blobSources.clear();
-						await Promise.all(
+						const released = await Promise.allSettled(
 							sources.map(async (source) => source[Symbol.dispose]()),
 						);
+						const failures = released.filter(
+							(result) => result.status === 'rejected',
+						);
+						if (failures.length) {
+							producersReleased = false;
+							throw new AggregateError(
+								failures.map((failure) => failure.reason),
+								'Playback source cleanup failed.',
+							);
+						}
 					} finally {
 						try {
 							database.destroy();
 						} finally {
-							await held?.dispose?.();
+							// A failed producer release retains the backing and its
+							// reservation. A replacement must not race remaining capture.
+							if (producersReleased) await held?.dispose?.();
 						}
 					}
 				}

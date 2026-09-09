@@ -331,7 +331,7 @@ test('a primitive that closes synchronously is already admitted to the drain', a
 	}
 });
 
-test('a throwing source disposer does not skip other sources or backing release', async () => {
+test('a throwing source disposer releases other sources but retains the backing', async () => {
 	const { createBlobs, primitives, ready, close, acquire, events } = setup();
 	const cause = new Error('source release failed');
 	let count = 0;
@@ -355,10 +355,10 @@ test('a throwing source disposer does not skip other sources or backing release'
 	const first = expectOk(await blobs.open(generateBlobId()));
 	const second = expectOk(await blobs.open(generateBlobId()));
 	const closing = close();
-	await expect(closing).rejects.toBe(cause);
+	await expect(closing).rejects.toMatchObject({ errors: [cause] });
 	expect(close()).toBe(closing);
-	expect(events).toEqual(['source 1', 'source 2', 'backing']);
+	expect(events).toEqual(['source 1', 'source 2']);
 	first[Symbol.dispose]();
 	second[Symbol.dispose]();
-	expect(events).toEqual(['source 1', 'source 2', 'backing']);
+	expect(events).toEqual(['source 1', 'source 2']);
 });

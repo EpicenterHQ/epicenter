@@ -131,6 +131,34 @@ try {
 		siblingCreated.error ?? '',
 	);
 
+	const duplicate = await call('duplicateOwner');
+	check(
+		'duplicate app/account lifetime is refused',
+		duplicate.ok,
+		duplicate.error ?? '',
+	);
+	const closed = await call('closeAndReopen');
+	check(
+		'physical close retires handles and allows reacquisition',
+		closed.ok,
+		closed.error ?? '',
+	);
+	const afterClose = await call('all', 'local', 'SELECT n FROM t ORDER BY n');
+	check(
+		'explicit close preserves the database file',
+		JSON.stringify(afterClose.value) === JSON.stringify([{ n: 1 }, { n: 2 }]),
+		JSON.stringify(afterClose.value),
+	);
+	const siblingAfterClose = await call(
+		'otherApp',
+		'SELECT count(*) AS c FROM sibling',
+	);
+	check(
+		'closing one lifetime preserves the second owner',
+		JSON.stringify(siblingAfterClose.value) === JSON.stringify([{ c: 0 }]),
+		siblingAfterClose.error ?? '',
+	);
+
 	console.log(
 		'\n2. reload the page, which discards the worker and its handles',
 	);
