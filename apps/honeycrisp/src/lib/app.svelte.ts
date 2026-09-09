@@ -64,7 +64,7 @@ export function createHoneycrisp({
 	// table: a node is watched through the table that hands out the type, so
 	// nothing in it reaches across any more.
 	const folders = createFolders(data);
-	const notes = createNotes(data.tables.notes);
+	const notes = createNotes(data.tables.notes, data.signal);
 
 	/**
 	 * The notes the user is currently looking at, in the order they appear.
@@ -255,7 +255,10 @@ function createFolders(data: ReactiveData<HoneycrispData>) {
  * deleted, per-folder counts, where a note's node is, and the domain commands
  * (soft delete, pinning, re-parenting) with their URL cleanup.
  */
-function createNotes(table: ReactiveData<HoneycrispData>['tables']['notes']) {
+function createNotes(
+	table: ReactiveData<HoneycrispData>['tables']['notes'],
+	signal: AbortSignal,
+) {
 	const all = $derived(table.rows.filter((note) => note.deletedAt === null));
 	const deleted = $derived(
 		table.rows.filter((note) => note.deletedAt !== null),
@@ -301,6 +304,7 @@ function createNotes(table: ReactiveData<HoneycrispData>['tables']['notes']) {
 		// writes during sustained typing, and a person who stops typing and
 		// closes the tab should not lose their title to a pending timer.
 		let queued: ReturnType<typeof setTimeout> | undefined;
+		let isClosed = false;
 		const flush = () => {
 			if (queued === undefined) return;
 			clearTimeout(queued);
@@ -312,14 +316,27 @@ function createNotes(table: ReactiveData<HoneycrispData>['tables']['notes']) {
 			});
 		};
 		const stop = table.watch(content, () => {
-			if (queued === undefined) queued = setTimeout(flush, 0);
+			if (isClosed || queued !== undefined) return;
+			queued = setTimeout(flush, 0);
 		});
+		function close() {
+			if (isClosed) return;
+			isClosed = true;
+			stop();
+			signal.removeEventListener('abort', close);
+			if (signal.aborted) {
+				clearTimeout(queued);
+				queued = undefined;
+				return;
+			}
+			flush();
+		}
+		// Retirement fences the store before UI teardown. Its pending derivations
+		// belong to the old library and must be cancelled before close can flush.
+		signal.addEventListener('abort', close, { once: true });
 		return {
 			content,
-			close: () => {
-				stop();
-				flush();
-			},
+			close,
 		};
 	}
 

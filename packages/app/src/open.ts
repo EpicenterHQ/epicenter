@@ -261,6 +261,8 @@ export function openApp<const TDefinition extends DataDefinition>(
 					dataId: parsed.data.id,
 					account: identity,
 					ready,
+					/** Aborts synchronously when this App closes or its library is retired. */
+					signal: document.lifetime.signal,
 					retirement: document.retirement,
 					close,
 					blobs: blobAccess.value,

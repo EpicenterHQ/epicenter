@@ -1509,11 +1509,13 @@ test('App retirement closes its recorder while retaining the library claim throu
 	try {
 		expectOk(await app.ready);
 		await Bun.sleep(0);
+		expect(app.signal.aborted).toBe(false);
 		events.dispatchEvent(
 			new MessageEvent('message', {
 				data: encodeFrame({ kind: 'retired' }).buffer,
 			}),
 		);
+		expect(app.signal.aborted).toBe(true);
 		const notice = await app.retirement;
 		expect(recorderCloses).toBe(1);
 		expect(disposed).toBe(0);
