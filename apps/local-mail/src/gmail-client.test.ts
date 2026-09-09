@@ -323,7 +323,11 @@ for (const { status, reason, requests: expectedRequests, name } of [
 				} as unknown as MailApp;
 				await reconcileNow(app, session.sub);
 				const reopened = openPassRecord(session.localDatabase, session.sub);
-				const outbox = await readOutbox({ ...session, passes: reopened });
+				const outbox = await readOutbox({
+					...session,
+					subjectsOf: session.mailbox.subjectsOf,
+					passes: reopened,
+				});
 				expect(outbox.waiting).toBe(0);
 				expect(outbox.status).toBe(
 					reason === 'insufficientPermissions' ? 'signin' : 'failed',

@@ -224,6 +224,7 @@ test('a device holding no credential asks for the account again', async () => {
 		});
 		const outbox = await readOutbox({
 			...session,
+			subjectsOf: session.mailbox.subjectsOf,
 			passes: openPassRecord(session.localDatabase, session.sub),
 		});
 		expect(outbox.status).toBe('signin');
@@ -293,6 +294,7 @@ test('a failed rotation stays retryable until the replacement credential is save
 			});
 			const outbox = await readOutbox({
 				...session,
+				subjectsOf: session.mailbox.subjectsOf,
 				passes: openPassRecord(session.localDatabase, session.sub),
 			});
 			expect(outbox.lastPass?.failure).toMatchObject({

@@ -9,6 +9,7 @@ import {
 	listAccounts,
 	type MailApp,
 	reconcileNow,
+	readAccountOutbox,
 	removeAccount,
 	startConnect,
 	withSession,
@@ -27,7 +28,6 @@ import {
 	type Outbox,
 	type PassOutcome,
 	readBlockedAccounts,
-	readOutbox,
 } from '@epicenter/local-mail/outbox';
 import type { GmailAuthorization } from './platform/types.js';
 
@@ -159,7 +159,7 @@ export function createMail({
 		 */
 		outbox: operation(
 			async (sub: string): Promise<Outbox> =>
-				withSession(await app(), sub, readOutbox),
+				readAccountOutbox(await app(), sub),
 		),
 
 		/**

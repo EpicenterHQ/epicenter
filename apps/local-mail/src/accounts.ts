@@ -47,6 +47,7 @@ import {
 import {
 	type DiscardedAssertion,
 	openPassRecord,
+	readOutbox,
 	type PassOutcome,
 	type PassRecord,
 } from './outbox.ts';
@@ -154,6 +155,33 @@ export function withSession<T>(
 	run: (session: MailSession) => Promise<T>,
 ): Promise<T> {
 	return withAccount(app, sub, async () => run(await openSession(app, sub)));
+}
+
+/** Inspect durable work even when opening the optional mail cache fails. */
+export function readAccountOutbox(app: MailApp, sub: string) {
+	return withAccount(app, sub, async () => {
+		await requireConnectedAccount(app, sub);
+		return readOutbox({
+			intents: openIntentStore(app.storage.local, sub),
+			passes: openPassRecord(app.storage.local, sub),
+			subjectsOf: async (ids) =>
+				openMailbox(await app.storage.mail(sub)).subjectsOf(ids),
+		});
+	});
+}
+
+/** Membership failures must never be mistaken for an unavailable cache. */
+async function requireConnectedAccount(
+	app: MailApp,
+	sub: string,
+): Promise<void> {
+	const [row] = await sqliteHandle(app.storage.local).all<{ sub: string }>(
+		`SELECT sub FROM accounts WHERE sub = ?`,
+		[sub],
+	);
+	if (row === undefined) {
+		throw new Error(`No account is connected on this device for ${sub}.`);
+	}
 }
 
 export function createMailApp({
@@ -380,13 +408,7 @@ function openSession(app: MailApp, sub: string): Promise<MailSession> {
 	const existing = activity.session;
 	if (existing !== undefined) return existing;
 	const opening = (async () => {
-		const [row] = await sqliteHandle(app.storage.local).all<{ sub: string }>(
-			`SELECT sub FROM accounts WHERE sub = ?`,
-			[sub],
-		);
-		if (row === undefined) {
-			throw new Error(`No account is connected on this device for ${sub}.`);
-		}
+		await requireConnectedAccount(app, sub);
 		const tokens = createTokenManager({
 			config: app.config,
 			identity: app.identity,

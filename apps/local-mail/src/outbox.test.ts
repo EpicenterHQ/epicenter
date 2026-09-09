@@ -64,7 +64,10 @@ const report = (
 test('nothing has ever run, so the outbox says so rather than guessing', async () => {
 	const session = await openTestSession(SUB);
 	try {
-		const outbox = await readOutbox(session);
+		const outbox = await readOutbox({
+			...session,
+			subjectsOf: session.mailbox.subjectsOf,
+		});
 		expect(outbox.status).toBe('clear');
 		// The absence is the point: an account whose first pass has not happened
 		// is not an account whose last pass succeeded.
@@ -91,7 +94,10 @@ test('a sign-in failure is still there after the surface that saw it is gone', a
 			mailbox: openMailbox(session.mailboxDatabase),
 			passes: openPassRecord(session.localDatabase, SUB),
 		};
-		const outbox = await readOutbox(reopened);
+		const outbox = await readOutbox({
+			...reopened,
+			subjectsOf: reopened.mailbox.subjectsOf,
+		});
 		expect(outbox.status).toBe('signin');
 		expect(outbox.lastPass?.failure).toMatchObject({
 			kind: 'signin',
@@ -109,7 +115,10 @@ test('an expired sign-in is reported even with nothing waiting behind it', async
 		await session.passes.record(report({ failure: reauth() }));
 		// Every act made from now on would pile up silently, so this is the one
 		// failure that outranks an empty outbox (ADR-0320).
-		expect((await readOutbox(session)).status).toBe('signin');
+		expect(
+			(await readOutbox({ ...session, subjectsOf: session.mailbox.subjectsOf }))
+				.status,
+		).toBe('signin');
 	} finally {
 		session.close();
 	}
@@ -123,17 +132,26 @@ test('work clears only when Gmail agreed, not when a pass merely ended', async (
 			AT,
 		);
 		await session.passes.record(report({ failure: offline() }));
-		expect((await readOutbox(session)).status).toBe('failed');
+		expect(
+			(await readOutbox({ ...session, subjectsOf: session.mailbox.subjectsOf }))
+				.status,
+		).toBe('failed');
 
 		// The delivery is what clears the row, and the record only describes it.
 		// Recording a clean pass while the assertion is still owed must not read
 		// as finished, because the assertion is the truth about what is owed.
 		await session.passes.record(report({}));
-		expect((await readOutbox(session)).status).toBe('waiting');
+		expect(
+			(await readOutbox({ ...session, subjectsOf: session.mailbox.subjectsOf }))
+				.status,
+		).toBe('waiting');
 
 		await session.intents.retire(await session.intents.pending());
 		await session.passes.record(report({}));
-		const settled = await readOutbox(session);
+		const settled = await readOutbox({
+			...session,
+			subjectsOf: session.mailbox.subjectsOf,
+		});
 		expect(settled.status).toBe('clear');
 		expect(settled.waiting).toBe(0);
 		expect(settled.entries).toEqual([]);
@@ -155,7 +173,10 @@ test('a failure Gmail will repeat is named as one, so Retry is not offered', asy
 		// The status is the same either way; the kind is what decides whether the
 		// panel invites a person to press Retry.
 		expect(recorded.failure?.kind).toBe('refused');
-		expect((await readOutbox(session)).status).toBe('failed');
+		expect(
+			(await readOutbox({ ...session, subjectsOf: session.mailbox.subjectsOf }))
+				.status,
+		).toBe('failed');
 	} finally {
 		session.close();
 	}
@@ -221,7 +242,10 @@ test('the outbox names each waiting act with the message it is about', async () 
 			[{ messageId: 'm1', labelId: 'INBOX', want: false }],
 			AT,
 		);
-		const outbox = await readOutbox(session);
+		const outbox = await readOutbox({
+			...session,
+			subjectsOf: session.mailbox.subjectsOf,
+		});
 		expect(outbox.entries).toEqual([
 			{
 				messageId: 'm1',
@@ -253,7 +277,7 @@ test('undelivered work stays counted after the cache is thrown away', async () =
 		const outbox = await readOutbox({
 			intents: session.intents,
 			passes: session.passes,
-			mailbox: openMailbox(replacement),
+			subjectsOf: openMailbox(replacement).subjectsOf,
 		});
 		// Reporting zero here would hide a person's own work at exactly the moment
 		// it is most easily lost. The subject is what is missing, and it is the

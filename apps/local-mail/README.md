@@ -94,6 +94,11 @@ credentials live in memory, so reconnecting Gmail enables network work again.
 Pending changes are delivered by the next reconciliation run, before receiving
 Gmail updates. Reading the downloaded mailbox needs no Gmail connection.
 
+The outbox reads pending changes and the last failure from durable storage.
+Opening the mail cache is optional enrichment for subject lines; a cache
+failure cannot hide waiting work or prevent the removal dialog from showing it.
+Account removal waits for admitted reads, including their optional cache access.
+
 ## The write model
 
 There is one model, and this is it (ADR-0198, ADR-0199).

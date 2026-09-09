@@ -188,7 +188,10 @@ test('a pass delivers what is owed and empties the outbox', async () => {
 		await archive(session);
 		await reconcileNow(app, SUB);
 		expect(gmail.modifyCalls).toEqual(['m1']);
-		expect((await readOutbox(deps)).status).toBe('clear');
+		expect(
+			(await readOutbox({ ...deps, subjectsOf: deps.mailbox.subjectsOf }))
+				.status,
+		).toBe('clear');
 	} finally {
 		close();
 	}
@@ -238,7 +241,10 @@ test('a failed pass keeps the work owed, records why, and can be retried', async
 		await archive(session);
 		await reconcileNow(app, SUB);
 
-		const failed = await readOutbox(deps);
+		const failed = await readOutbox({
+			...deps,
+			subjectsOf: deps.mailbox.subjectsOf,
+		});
 		expect(failed.status).toBe('failed');
 		expect(failed.waiting).toBe(1);
 		expect(failed.lastPass?.failure?.kind).toBe('retry');
@@ -247,7 +253,10 @@ test('a failed pass keeps the work owed, records why, and can be retried', async
 		// The person presses Retry, and it is the same call.
 		gmail.says('ok');
 		await reconcileNow(app, SUB);
-		expect((await readOutbox(deps)).status).toBe('clear');
+		expect(
+			(await readOutbox({ ...deps, subjectsOf: deps.mailbox.subjectsOf }))
+				.status,
+		).toBe('clear');
 	} finally {
 		close();
 	}
@@ -259,13 +268,19 @@ test('an expired sign-in survives the pass, and Retry is still allowed to try', 
 		gmail.says('reauth');
 		await archive(session);
 		await reconcileNow(app, SUB);
-		expect((await readOutbox(deps)).status).toBe('signin');
+		expect(
+			(await readOutbox({ ...deps, subjectsOf: deps.mailbox.subjectsOf }))
+				.status,
+		).toBe('signin');
 
 		// The boundary refuses nothing: what a person does about an expired
 		// sign-in is sign in again, and the pass after that is this same call.
 		gmail.says('ok');
 		await reconcileNow(app, SUB);
-		expect((await readOutbox(deps)).status).toBe('clear');
+		expect(
+			(await readOutbox({ ...deps, subjectsOf: deps.mailbox.subjectsOf }))
+				.status,
+		).toBe('clear');
 	} finally {
 		close();
 	}

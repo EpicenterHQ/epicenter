@@ -251,13 +251,13 @@ export type Outbox = {
 
 export type OutboxDeps = {
 	intents: IntentStore;
-	mailbox: Mailbox;
+	subjectsOf: Mailbox['subjectsOf'];
 	passes: PassRecord;
 };
 
 /** Read the outbox: owed work, the last pass, and the status the two imply. */
 export async function readOutbox(
-	{ intents, mailbox, passes }: OutboxDeps,
+	{ intents, subjectsOf, passes }: OutboxDeps,
 	{ limit = 50 }: { limit?: number } = {},
 ): Promise<Outbox> {
 	const [waiting, lastPass] = await Promise.all([
@@ -270,9 +270,12 @@ export async function readOutbox(
 	// a person some subject lines and never their own undelivered work
 	// (ADR-0306). Reporting nothing waiting because there is no cache would hide
 	// that work at exactly the moment it is most easily lost.
-	const subjects = await mailbox
-		.subjectsOf(shown.map((one) => one.messageId))
-		.catch(() => new Map<string, string | null>());
+	const subjects =
+		shown.length === 0
+			? new Map<string, string | null>()
+			: await subjectsOf(shown.map((one) => one.messageId)).catch(
+					() => new Map<string, string | null>(),
+				);
 	return {
 		status: outboxStatus(waiting.length, lastPass),
 		entries: shown.map((one) => ({
