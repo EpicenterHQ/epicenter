@@ -7,7 +7,10 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./bun": "./src/bun.ts",
-		"./cloud-db": "./src/cloud-db.ts"
+		"./cloud-db": "./src/cloud-db.ts",
+		"./self-host-auth": "./src/self-host-auth/index.ts",
+		"./self-host-auth/worker": "./src/self-host-auth/worker.ts",
+		"./self-host-auth/bun": "./src/self-host-auth/bun.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p workers/tsconfig.json",
@@ -25,6 +28,7 @@
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",
 		"@hono/standard-validator": "catalog:",
+		"@simplewebauthn/server": "13.3.2",
 		"@y/y": "14.0.0-rc.24",
 		"arktype": "catalog:",
 		"aws4fetch": "catalog:",

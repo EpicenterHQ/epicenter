@@ -5,7 +5,7 @@ Status: In Progress
 
 Each application opens Local, Personal, or Shared data through the three agreed methods, with the signed-in person and selected library kept distinct throughout storage and sync.
 
-This is the working implementation plan for [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md). The public opening API is selected; the storage and self-hosted mechanisms are not implemented. Checkpoint 1 now has a reproduced race and a test-only contract slice. Its independent review is resolved; production implementation still depends on selected-runtime proof and the product choices below.
+This is the working implementation plan for [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md). The public opening API is selected. Checkpoint 1 reproduced the generation race. Checkpoint 2 now has real Worker WebAuthn enrollment and authentication evidence against a transactional admission owner. The production credential owner, HTTP session/handoff routes, shared passkey page, and Bun management command now work. Application Account integration, Worker operator tooling, optional passwords, and library ownership remain incomplete. Storage integration is paused at the overlap with the current-generation task described below.
 
 Completion means two named users have separate Personal libraries and converge on one Shared library per application on the same server, including simultaneous first opening and attachments. Matching user IDs on another server never join those libraries. Local remains usable without sign-in. Each document holds one primary App and closes before replacement.
 
@@ -36,7 +36,7 @@ application.openShared(account);
 
 Keep the same App data methods, readiness, and close contract. `openPersonal` replaces `openAccount` without an alias. Both server-library openers receive an established Account. Shared does not change Alice into a shared principal. No public destination-object opener or LibraryManager is required.
 
-The current implementation still derives server partitions and most local resources directly from account identity. `createSessionAuth` also supplies the fixed Cloud authority ID. The first-open flow lists generations before creating one; independent devices can both observe an empty list. The Worker self-hosted entry has store synchronization, while the Bun entry does not. These observations were checked against source on 2026-09-09; no build or behavior test was run for this planning pass.
+The current implementation still derives server partitions and most local resources directly from account identity. `createSessionAuth` now requires an explicit authority ID; Cloud compositions retain the fixed Cloud identity. The first-open flow lists generations before creating one; independent devices can both observe an empty list. The Worker self-hosted entry has store synchronization, while the Bun entry does not. Checkpoint evidence below records the source checks and behavior tests run on 2026-09-09.
 
 ## What is decided and what needs judgment
 
@@ -44,12 +44,13 @@ The current implementation still derives server partitions and most local resour
 | --- | --- | --- |
 | Public API and vocabulary | Three verbs; Account is the actor; Local/Personal/Shared name libraries | Implement ADR-0375 without reopening equivalent API encodings |
 | Shared access | Every admitted self-hosted user has full content read/write access | Concrete admission, sessions, removal, and recovery |
+| Self-host sign-in | Passkeys by default; operator-enabled passwords; recovery preserves the same user ([ADR-0383](../docs/adr/0383-self-hosted-sign-in-defaults-to-passkeys-with-optional-passwords.md)) | Prove enrollment and recovery on Worker, then implement complete optional password setup/reset |
 | App lifetime | One primary library per document; close before replacement | Picker and navigation integration |
 | Client account selection | Many server users do not imply a credential wallet | Installation configuration and reconfiguration workflow |
 | Library choice across apps | Review recommends per-window selection, with one desktop Account/server | Product choice before desktop picker behavior is implemented |
 | Local Shared cache | Review recommends separate actor-bound caches/outboxes for Alice and Bob | Validate the address contract before adopting it durably |
 | Server library scope | Review recommends app-scoped Shared data and blobs | Exact address/wire layout, including dataId and historical Personal storage |
-| Self-host runtime | Recommend Worker for the first complete slice because it already has store sync | Product choice: Worker-first delivery or add Bun sync before completion |
+| Self-host runtime | User selected Worker first, then Bun, on 2026-09-09 | Share server behavior; implement and verify runtime storage/sync adapters, including Bun's missing sync backend |
 | Initial/default library | No automatic copy or migration; outages never switch libraries | First-run selection and remembered-choice behavior |
 
 The implementation agent can resolve internal mechanics from evidence. Bring product choices back with a recommendation only when dependent work reaches them. They do not block reproducing the generation race or investigating ownership. When a new ownership or protocol decision settles, record it in an ADR before building dependent waves. Do not silently turn review recommendations into accepted decisions.
@@ -70,10 +71,13 @@ Exit evidence: the cross-device race is reproduced, the proposed initial-generat
 
 ## Checkpoint 2: named users on one server
 
-- [ ] Reconcile `apps/self-host/AGENTS.md` with the accepted named-user direction as part of the implementation; its token-only prohibitions describe the previous target.
-- [ ] Choose the first complete runtime and a concrete self-host admission/sign-in/recovery flow. Present the minimum operator setup and a user's first sign-in before selecting infrastructure.
-- [ ] Separate generic Account/session lifetime from Cloud issuer identity and dashboard links. Verify external authentication-library behavior against installed code/types or official documentation before relying on it.
-- [ ] Implement user-bound sessions and removal without importing Cloud billing into self-hosting. Preserve the actor during Shared access.
+- [x] Reconcile `apps/self-host/AGENTS.md` with the accepted named-user direction as part of the implementation; its token-only prohibitions describe the previous target.
+- [x] Choose runtime order: Worker first, then Bun. The user selected both in that order on 2026-09-09; Bun remains required work.
+- [x] Choose the self-host admission/sign-in/recovery flow: operator enrollment, passkeys by default, optional operator-enabled passwords, and recovery of the same user. The user selected this direction on 2026-09-09; see ADR-0383.
+- [x] Prototype Worker passkey enrollment, authentication, and operator-assisted recovery against durable admission. Real cryptographic verification and SQLite commits prove single-use grants, same-principal recovery, credential/session invalidation, and refusal for removed users. This is isolated runtime evidence, not deployed sign-in.
+- [ ] Integrate the durable credential owner with real HTTP ceremonies, browser cookies, `/api/session`, application handoff, and operator tooling. Prove the no-email user contract through the existing Account client. Implement optional passwords only with complete setup/change/reset and recovery flows.
+- [x] Separate generic Account/session lifetime from Cloud issuer identity and dashboard links. The constructor now requires authority identity, and Cloud compositions attach management links. The existing bearer lifetime remains the owner. See ADR-0382 and the checkpoint 2 evidence below. Verify authentication-library behavior again when implementing the selected sign-in flow.
+- [ ] Implement user-bound sessions and durable admission without importing Cloud billing into self-hosting. Admission must gate sign-in/session issuance, handoff authorization and redemption, protected requests, and socket admission. Revoking existing sessions alone does not remove admission. Preserve the actor during Shared access.
 - [ ] Define and test removal for new requests, existing sockets, issued blob tickets, and in-flight operations. Do not claim immediate invalidation or remote erasure of offline copies without those guarantees.
 - [ ] Preserve same-owner credential repair, offline identity restoration, Account retirement, and host credential brokerage.
 
@@ -134,19 +138,21 @@ Exit evidence: a person can deliberately open each offered library in each store
 
 ## Checkpoint 5: prove, remove, and document
 
+- [ ] After the Worker slice works, implement the Bun runtime adapters and missing store-sync backend against the same server contracts. Prove named sessions, admission/removal, atomic initialization, rows, attachments, and restart behavior on Bun. Avoid a second authentication or library-ownership model.
+
 - [ ] Run the focused tests, relevant package/app typechecks, browser storage tests, Worker integration tests, and desktop smokes appropriate to the implementation. Discover current scripts through package manifests and the `monorepo` skill; record exact commands and results.
 - [ ] Stop importing the old `openAccount` and token-selection paths. Verify all affected consumers on the replacement path while the unused code remains available for comparison.
 - [ ] Delete the obsolete public name, token-entry branches, expected-`instance` assertions, and stale UI only after the replacements pass. Preserve baseline lifecycle tests and adapt them to the new composition.
 - [ ] Update package READMEs and runtime instructions to describe shipped behavior. Reconcile the interrupted specs without attributing or deleting unrelated user work.
 - [ ] Apply `post-implementation-review` locally. Use `design-review` for materially new ownership questions, following `spec-execution` checkpoint cadence rather than requesting repeated reviews of the same settled decision.
 
-Completion is local implementation plus verification on the explicitly selected supported runtime(s). Deployment, data migration, source erasure, and automated account/deployment deletion are separate operations. If Bun support remains deferred, the final report and self-host README must say so. Whole-library physical purge and later Shared rebuild policy must not be presented as completed merely because normal shared content deletion works.
+Completion is local implementation plus verification on the explicitly selected supported runtime(s). Deployment, data migration, source erasure, and automated account/deployment deletion are separate operations. Bun is selected as the second supported runtime. Do not mark the full plan complete with Worker-only evidence; any later Bun deferral requires an explicit scope change. Whole-library physical purge and later Shared rebuild policy must not be presented as completed merely because normal shared content deletion works.
 
 ## Carry the work across sessions
 
 Use this file as the single working plan. At each checkpoint, replace the short progress entry below with the completed slice, exact verification evidence, unresolved decision, and next concrete action. Keep explanations of durable decisions in ADRs and detail needed only for investigation in the review. A handoff should point here and state the current checkpoint; it should not duplicate the plan.
 
-Current checkpoint: 1 complete as test-only foundation evidence. Independent design review resolved. Next: checkpoint 2; production Shared and named-user authentication remain unbuilt.
+Current checkpoint: 2 in progress. The production credential owner verifies with SimpleWebAuthn and commits through Worker SQLite or Bun SQLite. Both self-host entries mount named sessions and the shared passkey page. ADR-0384 records that ownership direction. The Worker operator command and application Account integration are next, followed by complete optional password flows. Production Shared and Bun store sync remain unbuilt. Generation integration is paused pending coordination with the concurrent current-generation task; its competing server replacement was backed out, leaving this task’s partial initializer in place.
 
 Baseline: HEAD `2dee4a2cbea98c02f5d22bff7a6a25a9a7929def`, plus the pre-existing dirty worktree. Before editing, recorded status, tracked binary diff, and SHA-256 hashes of tracked/untracked files in `/tmp/library-checkpoint-1/{status.txt,baseline.patch,files.json}`. Task ownership is the two new evidence directories below and updates to this spec and the existing review. No production files were edited or staged by this task. Hash comparison also detected concurrent edits outside this task, including recorder lifecycle files, related ADRs, and Local Mail specs; they were left intact. The caller map was rechecked against the changed recorder ownership.
 
@@ -164,6 +170,205 @@ Review adjudication: accepted the missing WebSocket-admission finding and added 
 
 The [checkpoint investigation in the review](20260909T062714-library-ownership-api.review.md#checkpoint-1-investigation-2026-09-09) holds the live caller map, proposed wire operation, failure owners, exact address templates, durable-byte exceptions, and evidence limits. It is supporting investigation; this spec remains the execution plan.
 
-Next checkpoint: 2, named users on one server. Start by presenting the minimum operator setup and first sign-in flow, recommend Worker-first delivery because Bun still lacks store sync, and obtain the product choice before dependent auth implementation. Do not pick a provider silently. Before integrating the foundation into production, record its reviewed decision in ADRs and prove it on the selected runtime; checkpoint 3 now explicitly includes this missing production operation. Picker scope/defaults remain checkpoint 4 choices.
+Next action within checkpoint 2: implement an infrastructure-authenticated Worker
+operator command against the existing owner, then connect browser and desktop
+Accounts to the issuer. Preserve same-owner repair, offline restoration, retirement,
+and credential brokerage. The Bun command is not a Worker management path.
+Optional passwords still require complete setup/change/reset. Before checkpoint 3
+resumes, resolve the generation-model overlap; picker scope and defaults remain
+checkpoint 4 choices.
+
+## Checkpoint 2: issuer composition evidence
+
+The requested design review between checkpoints reconstructed self-hosted setup
+and recommended this independent slice before choosing credentials or storage.
+`createSessionAuth` now requires `authorityId`; `SessionAuthClient` and
+`CallbackAuthClient` describe session capabilities without requiring Cloud.
+`createHostedBrowserRedirectAuth` and the desktop Cloud constructor supply the
+unchanged `epicenter-api` bytes and attach `createAccountManagementUrl` themselves.
+The private bearer owner, persisted credential format, and retirement rules stay
+intact. The decision is recorded in
+[ADR-0382](../docs/adr/0382-session-composition-selects-issuer-identity-and-management-capabilities.md).
+All direct test constructors now explicitly select their existing Cloud identity.
+
+Verification baseline: checkpoint 1 commit plus the existing dirty worktree.
+Task-start hashes and copies of changed source are under
+`/tmp/library-checkpoint-2/`. Before this slice, `bun test packages/auth/src`
+reported 120 passed and eight failures in `browser-auth.test.ts`;
+`bun run typecheck` from `packages/auth` reported 22 diagnostics in that same
+unchanged startup test file.
+
+- `bun test packages/auth/src/session-authority.test.ts packages/auth/src/account-lifetime.test.ts packages/auth/src/contract.test.ts packages/auth/src/refusal-is-not-an-identity-change.test.ts`: 49 passed, 178 assertions.
+- From `packages/auth`: `bun x tsc --noEmit --strict --noUncheckedIndexedAccess --skipLibCheck --target esnext --module preserve --moduleResolution bundler --types bun --lib esnext,dom,dom.iterable src/create-session-auth.ts src/hosted-browser-redirect-auth.ts src/auth-contract.ts src/session-authority.test.ts src/account-lifetime.test.ts src/contract.test.ts src/refusal-is-not-an-identity-change.test.ts`: passed.
+- `bun test packages/auth/src`: 123 passed, the same eight failures; the three new tests pass. Package typecheck diagnostics match the task-start output exactly.
+- `bun test apps/epicenter/src/desktop-auth-authority.test.ts apps/epicenter/src/account-transport.test.ts packages/server/src/store-sync/browser-dial.test.ts packages/app/src/sync-subprotocol.test.ts packages/app/src/ai.test.ts apps/api/ui/src/lib/dashboard/runtime.test.ts`: 57 passed, two desktop close-barrier timeouts. The saved pre-edit source snapshot reproduced the same two timeouts: `bun test apps/epicenter/src/desktop-auth-authority.test.ts` from `/tmp/library-checkpoint-2/baseline-checkout` reported 31 passed and two failed. The test fixture matched its task-start hash.
+
+The runtime order is now selected: Worker first, then Bun, with shared server
+behavior and runtime adapters for persistence and synchronization. Bun still
+needs its sync backend; this is implementation work, not an existing adapter.
+The user selected the sign-in policy recorded in
+[ADR-0383](../docs/adr/0383-self-hosted-sign-in-defaults-to-passkeys-with-optional-passwords.md):
+operator-enrolled passkeys by default, optional operator-enabled passwords, and
+recovery that preserves the same principal. Applications will use the server's
+sign-in page and a code/state/PKCE handoff. Password enablement follows the
+passkey slice and requires complete setup/change/reset and recovery flows.
+Removing a user disables durable admission and outstanding enrollment/recovery
+grants without assigning or deleting library content.
+
+The implemented issuer requires a stable HTTPS origin, durable auth storage, and
+exact application callbacks. Its opaque sessions need no signing secret. Store
+sync and blob bindings remain separate deployment requirements.
+An operator command uses infrastructure credentials to manage people. This does
+not select D1, Postgres, an operator UI, or a particular schema. The installed
+passkey plugin's enrollment hooks need a prototype; the current Cloud schema's
+required email must not be filled with fabricated addresses to reuse it.
+
+Removal's proposed bound is request admission: new checks after removal refuse
+access; existing sockets keep their 600-second deadline; issued blob tickets
+keep their 120-second GET and 300-second PUT lifetimes. Already authorized work
+may finish and offline copies remain. Capability issuance racing removal needs
+an explicit rule and tests; do not claim a universal ten-minute cutoff.
+
+The independent implementation review accepted the production boundary and
+required one test repair: the hosted browser mock omitted `sessionStorage.setItem`,
+so disposal logged a cancellation failure even though assertions passed. The
+fixture now uses a functioning Map-backed session store. The three issuer tests
+were rerun with clean disposal. Production logging and cancellation were not
+weakened. Local post-edit inspection found no further issue. No additional
+issuer factory, bearer export, or capability registry was justified.
+
+The user selected Worker first and Bun next, and confirmed the credential policy
+on 2026-09-09. No further credential product choice is needed to start the Worker
+prototype. Database choice and runtime integration still require implementation
+evidence. This issuer slice does not complete named-user authentication.
+
+Decision-record verification: checked ADR-0383 and this spec for consistent
+runtime order, credential defaults, same-user recovery, and remaining unbuilt
+work. Relative links resolve and `git diff --check` passes for these documents.
+This documentation update adds no runtime verification claim.
 
 After the implementation is complete, move any remaining durable decisions into ADRs, record the completed spec in `docs/spec-history.md`, and delete spent planning artifacts. Leave no second competing execution plan.
+
+
+## Checkpoint 2: Worker credential-commit evidence
+
+The installed `@better-auth/passkey` 1.6.23 calls registration
+`afterVerification` before a separate credential insert. A real-handler test
+with a valid ES256 none-attestation response reproduces a consumed grant and no
+credential after injected insert failure. The plugin's current documentation
+includes newer session-creation behavior that is absent from the installed
+source. The implementation decision follows installed behavior, not that claim.
+`resolveUser` also does not create a user or session. Its no-session mode can
+prefer an ambient session, so it is not a sufficient grant identity boundary.
+
+The isolated candidate in `packages/server/evidence/enrollment/admission.ts`
+owns users, admission revisions, grants, registration/authentication ceremonies,
+credentials, and candidate sessions in one SQLite-backed Durable Object. It
+verifies responses using SimpleWebAuthn, then rechecks durable authorization
+inside the commit. Recovery invalidates access and advances the same user's
+revision when the operator issues the recovery grant. Removal never restores
+admission. The synthetic `complete` and inspection methods are evidence-only;
+no production route imports or exposes them.
+
+Worker evidence covers:
+
+- Two real registration responses for one grant publish one credential/session.
+- Failures after grant, credential, or session writes roll back the transaction.
+- Duplicate credential insertion rolls back grant consumption.
+- Unused ceremonies and committed enrollment survive object eviction. Replay
+  after eviction cannot enroll another credential. This is object restart
+  evidence, not a killed workerd process or simulated network response loss.
+- The enrolled private key signs a valid authentication assertion after eviction.
+- Recovery preserves Alice's ID and invalidates her old key, sessions, grants,
+  and pending registration ceremonies. Bob remains admitted after Alice's removal.
+- Removal and recovery while real registration or signature verification is
+  awaiting completion prevent stale credential/session publication.
+- Wrong origin, expired grant, another user, another server, and replay refuse
+  access at the tested boundary.
+
+Baseline is saved under `/tmp/library-worker-enrollment-baseline/`: HEAD,
+porcelain status, tracked binary diff, hashes of tracked/untracked files, and the
+starting spec. At the prototype checkpoint, task-owned changes were this evidence directory,
+the direct server SimpleWebAuthn dependency and corresponding lock entry,
+self-host instructions, ADR-0384, and this spec. The production slice below
+adds credential, runtime, browser, management, and partial initializer files. Other dirty work remains unrelated. The independent
+review compared the lockfile to the saved baseline; its other visible edits
+already existed at task start.
+
+Verification:
+
+- `bun test packages/server/evidence/enrollment/passkey-hooks.test.ts packages/server/src/auth/plugins.test.ts`: 6 passed, 25 assertions.
+- From `packages/server`: `bun x vitest run -c evidence/enrollment/vitest.config.ts`: 18 passed in workerd.
+- From `packages/server`: `bun x tsc --noEmit --strict --noUncheckedIndexedAccess --skipLibCheck --target esnext --module preserve --moduleResolution bundler --types bun,@cloudflare/workers-types,@cloudflare/vitest-pool-workers/types --lib esnext,dom,dom.iterable evidence/enrollment/admission.worker.ts evidence/enrollment/passkey-hooks.test.ts evidence/enrollment/vitest.config.ts`: passed. Normal package includes do not cover these evidence files.
+- `bun x biome format --write packages/server/evidence/enrollment`: formatted the five evidence files.
+- The initial `bun add` reached an existing workspace `install` script that
+  requires a release argument and failed. Repeating with `--ignore-scripts`
+  installed the explicit dependency and saved the lockfile. No deployment ran.
+
+Independent review retained the single durable owner and required more precise
+claims: candidate sessions are not working application sign-in, eviction is not
+process-crash proof, and cryptographic fixtures are not browser passkey UX.
+Accepted follow-ups added real authentication, eviction, duplicate insertion,
+and verification/removal races. The misleading second-ceremony test title was
+renamed. No production user data or legacy `instance` addresses changed.
+
+
+## Checkpoint 2: production issuer integration
+
+`packages/server/src/self-host-auth` now owns admission, same-user recovery,
+passkey registration/login, opaque sessions, and code/state/PKCE handoff. Worker
+and Bun adapters share the domain transactions. The self-host entries resolve
+named sessions before protected requests and serve the same `/sign-in` page.
+The local Bun command admits, recovers, or removes a person against the same
+SQLite file. It prints an expiring enrollment link; no public administration
+route or deployed Worker management command was added.
+
+Independent review retained the credential owner and required these repairs:
+
+- Reserve `instance` so named enrollment cannot adopt historical data.
+- Bound JSON requests to 256 KiB and durably limit anonymous ceremony issuance.
+- Preserve infrastructure failures as logged 503 responses.
+- Validate issuer/callback schemes and use HTTPS `__Host-` cookies.
+- Retry a failed handoff from completed sign-in rather than a consumed grant.
+  Enrollment also offers ordinary sign-in if its response was lost.
+- Drain active Bun handlers before closing SQLite and share one shutdown promise
+  across SIGINT and SIGTERM.
+
+Verification:
+
+- `bun test packages/server/src/self-host-auth/index.test.ts apps/self-host/runtime-profile.test.ts`: 21 passed, 83 assertions.
+- `bun test packages/server/src/self-host-auth/bun.test.ts`: 1 passed, 10 assertions. Real enrollment, login, recovery, and removal survive reopening file-backed SQLite.
+- From `packages/server`: `bun x vitest run -c evidence/enrollment/vitest.production.config.ts`: 3 passed. This mounts the production credential owner and session resolver in an evidence Hono entry, not the full deployment entry. It proves Alice/Bob sessions, browser-bound enrollment, handoff, removal, and object eviction.
+- From `packages/server`: `bun x tsc --noEmit --strict --noUncheckedIndexedAccess --skipLibCheck --target esnext --module preserve --moduleResolution bundler --types bun,@cloudflare/workers-types,@cloudflare/vitest-pool-workers/types --lib esnext,dom,dom.iterable evidence/enrollment/production.worker.ts evidence/enrollment/production-entry.ts evidence/enrollment/vitest.production.config.ts`: passed.
+- `bun test apps/self-host packages/server/src/self-host-auth`: 40 passed, 120 assertions after the final repairs, including suspended-request shutdown and repeated signals.
+- `bun run --cwd apps/self-host typecheck`: passed after the final repairs.
+- `git diff --check` on the touched auth, self-host, and execution documents: passed.
+- `bun /tmp/library-worker-enrollment-browser/smoke.ts`: Chromium virtual CTAP2 enrollment, an injected handoff 503 followed by successful retry, and fresh passkey sign-in passed without page errors. This launches the actual Bun entry through root `bun dev:self-host` with temporary auth storage. Screenshot: `/tmp/library-worker-enrollment-browser/sign-in.png`. This temporary smoke is not a committed regression harness.
+
+Remaining auth work: a usable Worker operator path, actual application/desktop
+Account composition, complete optional passwords, and end-to-end access/removal
+coverage through library and blob consumers. No deployment or migration ran.
+
+## Generation integration pause
+
+The concurrent current-generation task replaced the authority while this task
+was implementing `/initial`. That task has since backed out its server replacement
+to preserve the overlapping changes. Both execution plans record the coordination
+pause. The user was asked whether library ownership should integrate with the
+new current-generation model or retain this spec's history model. No answer has
+been received; elapsed time is not a decision.
+
+The partial history initializer remains in `generations.ts`, `mount.ts`,
+`authority.ts`, `generations-route.ts`, and browser bootstrap, with foundation
+and real Worker evidence. ADR-0385 is Proposed, not an accepted constraint on
+that choice. From `packages/server`, `bun x vitest run -c vitest.workers.config.ts workers/initial-generation.test.ts` passes five tests: competing
+seeds, reservation restart, stored-but-unadmitted restart, historical imports,
+and socket gating. The wider earlier Worker run had three authorization-deadline
+failures after the concurrent sync protocol changed. Baseline reconstruction did
+not execute successfully, so their attribution is unresolved.
+
+The proposed 32 MiB seed ingress bound is not currently implemented after the
+overlap, and the full client/runtime integration is not verified. Do not mark
+checkpoint 3 complete or resume conflicting storage edits before the generation
+ownership/model question is settled. The public library binding and three
+openers have not been implemented by this slice.
