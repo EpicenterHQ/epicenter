@@ -10,7 +10,6 @@
 	import { toast } from 'svelte-sonner';
 	import {
 		invert,
-		isReversible,
 		MOVE_TO_TRASH,
 		planToggle,
 		type ToggleVerb,
@@ -178,15 +177,18 @@
 	const act = createMutation(() => ({
 		mutationFn: (v: ActVars) =>
 			mail.assert(v.sub, {
-				ids: [v.id],
-				addLabels: v.action.addLabels,
-				removeLabels: v.action.removeLabels,
+				messageId: v.id,
+				labelId: v.action.labelId,
+				want: v.action.want,
 			}),
 		onSuccess: (_outcome, v) => {
+			invalidateReads();
+			// Deliver only after the local choice has committed.
+			reconcile.mutate(v.sub);
 			// Success is self-evident from the effect (the row leaves, chips update),
 			// so the only element that earns a toast is Undo. The undo act itself is
 			// not undoable, and fires silently.
-			if (v.undoable && isReversible(v.action)) {
+			if (v.undoable) {
 				toast.success(v.action.label, {
 					action: {
 						label: 'Undo',
@@ -197,13 +199,6 @@
 			}
 		},
 		onError: (error: Error) => toast.error(error.message),
-		onSettled: (_data, _error, v) => {
-			invalidateReads();
-			// The act is already durable and already on screen. Delivering it is a
-			// separate pass so that the keystroke never waits on the network, and
-			// so the outbox shows it going out rather than a second spinner.
-			reconcile.mutate(v.sub);
-		},
 	}));
 
 	/** Dispatch a planned action against the current account and selection. */
@@ -263,7 +258,7 @@
 		// Never hijack typing; let an open menu or overlay own the keyboard.
 		if (isTypingTarget(e.target) || shortcutsOpen || labelsOpen) return;
 
-		// Navigation is pure client selection, so it is safe in read-only mode.
+		// Navigation changes the local selection.
 		if (e.key === 'j' || e.key === 'ArrowDown') {
 			moveSelection(1);
 			e.preventDefault();

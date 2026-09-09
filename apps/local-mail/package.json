@@ -12,7 +12,6 @@
 	],
 	"exports": {
 		"./accounts": "./src/accounts.ts",
-		"./assert": "./src/assert.ts",
 		"./authorization-return": "./src/authorization-return.ts",
 		"./config": "./src/config.ts",
 		"./handle": "./src/handle.ts",

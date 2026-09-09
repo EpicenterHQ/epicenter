@@ -20,7 +20,6 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { MailSession } from './accounts.ts';
-import { assertMessageLabels } from './assert.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
 import type { IntentStore } from './intent-store.ts';
 import { openIntentStore } from './intent-store.ts';
@@ -486,8 +485,7 @@ describe('drain', () => {
 	});
 
 	test('archive then undo, racing an in-flight drain, keeps the undo', async () => {
-		// The whole point of revision matching, driven through the public act path rather
-		// than the store: the user archives, the drain picks it up, and the undo
+		// The whole point of revision matching, driven through the store and reconciler: the user archives, the drain picks it up, and the undo
 		// lands while that delivery is on the wire.
 		let undo: (() => Promise<void>) | null = null;
 		const client = fakeGmail(
@@ -498,20 +496,20 @@ describe('drain', () => {
 		const { deps, intents, session, cleanup } = created;
 		try {
 			const archive = () =>
-				assertMessageLabels({
-					deps,
-					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
-				});
+				intents.assert(
+					[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+					new Date(NOW).toISOString(),
+				);
 			const unarchive = () =>
-				assertMessageLabels({
-					deps,
-					input: { ids: ['m1'], addLabels: ['INBOX'], removeLabels: [] },
-				});
+				intents.assert(
+					[{ messageId: 'm1', labelId: 'INBOX', want: true }],
+					new Date(NOW).toISOString(),
+				);
 
-			expect((await archive()).error).toBeNull();
+			expect(await archive()).toBe(1);
 			undo = async () => {
 				undo = null;
-				expect((await unarchive()).error).toBeNull();
+				expect(await unarchive()).toBe(1);
 			};
 
 			const first = await pass(deps);
@@ -860,13 +858,11 @@ describe('across a restart', () => {
 		};
 
 		expect(
-			(
-				await assertMessageLabels({
-					deps: firstDeps,
-					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
-				})
-			).error,
-		).toBeNull();
+			await session.intents.assert(
+				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+				new Date(NOW).toISOString(),
+			),
+		).toBe(1);
 		// The act is already true for every reader, before Gmail has heard.
 		expect(
 			await session.mailbox.listMessages({

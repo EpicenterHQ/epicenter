@@ -111,6 +111,12 @@ holds opinions only about labels a person touched, so it never claims a whole
 desired label set, and it is keyed so re-asserting a pair overwrites it. Archive,
 then un-archive, then archive is one row.
 
+Each current UI action records one message, one label, and its desired presence.
+The account owner checks membership and writes durable SQLite without opening
+the cache or consulting credentials. Undo records the opposite choice against
+the captured account and message with a newer revision. A triage action requests
+reconciliation only after its local write succeeds.
+
 **One reconciler per account is the only thing that writes to Gmail.** It drains
 the account's assertions, retires each one Gmail confirms, then pulls Gmail's
 facts. `reconcileNow` is the only way to start one, and a second caller arriving
@@ -148,11 +154,10 @@ page immediately and the page still comes back full.
 | Module | What it owns |
 | --- | --- |
 | `storage.ts` | the app id, both schemas, and how each kind of file is opened |
-| `accounts.ts` | the registry, connect, remove, and one account's session |
+| `accounts.ts` | account admission, connect/remove, durable label choices, and sessions |
 | `handle.ts` | the one way both stores read and write their database |
 | `mailbox.ts` | one account's disposable cache, which is one file, and the overlay |
 | `intent-store.ts` | one account's slice of the durable assertions, keyed by `sub` |
-| `assert.ts` | the act path: entirely local, records captured label ids |
 | `reconcile.ts` | the one Gmail writer: drain, then pull |
 | `outbox.ts` | what is owed, what the last pass said, and the two as one view |
 | `sync.ts` | full pull and incremental `history.list` folding |

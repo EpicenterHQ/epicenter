@@ -36,7 +36,11 @@ import {
 } from './config.ts';
 import { createGmailClient } from './gmail-client.ts';
 import { sqliteHandle } from './handle.ts';
-import { type IntentStore, openIntentStore } from './intent-store.ts';
+import {
+	type IntentStore,
+	type LabelAssertion,
+	openIntentStore,
+} from './intent-store.ts';
 import { openMailbox } from './mailbox.ts';
 import {
 	type AuthorizationRequest,
@@ -155,6 +159,22 @@ export function withSession<T>(
 	run: (session: MailSession) => Promise<T>,
 ): Promise<T> {
 	return withAccount(app, sub, async () => run(await openSession(app, sub)));
+}
+
+/** Record one label choice without opening the cache or consulting Gmail.
+ * A fresh revision makes this choice supersede any delivery already in flight. */
+export function assertAccountLabel(
+	app: MailApp,
+	sub: string,
+	assertion: LabelAssertion,
+): Promise<void> {
+	return withAccount(app, sub, async () => {
+		await requireConnectedAccount(app, sub);
+		await openIntentStore(app.storage.local, sub).assert(
+			[assertion],
+			new Date(app.now()).toISOString(),
+		);
+	});
 }
 
 /** Inspect durable work even when opening the optional mail cache fails. */

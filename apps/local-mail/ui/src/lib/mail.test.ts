@@ -9,6 +9,7 @@ import { openTestSession } from '../../../src/session.test-support.ts';
 import { GmailApiError } from '../../../src/gmail-client.ts';
 import { createMailApp, type MailApp } from '@epicenter/local-mail/accounts';
 import { createMail } from './create-mail.js';
+import { openIntentStore } from '../../../src/intent-store.ts';
 
 const request = {
 	authorizeUrl: 'https://accounts.google.com/',
@@ -262,6 +263,136 @@ test('removal waits for optional cache reads, refuses pending work, and needs no
 		);
 	} finally {
 		release.resolve();
+		await mail.close();
+		session.close();
+	}
+});
+
+test('triage and Undo persist without cache or credentials, and stale delivery cannot erase Undo', async () => {
+	const { session, app, mail, cacheOpens } = await outboxFixture();
+	let credentialReads = 0;
+	app.device.secrets.get = async () => {
+		credentialReads++;
+		throw new Error('credentials unavailable');
+	};
+	try {
+		const archive = { messageId: 'm1', labelId: 'INBOX', want: false };
+		await mail.assert(session.sub, archive);
+		const oldDelivery = await session.intents.pending();
+		// Even repeating an identical choice gets a newer revision.
+		await mail.assert(session.sub, archive);
+		expect((await session.intents.pending())[0]?.revision).toBeGreaterThan(
+			oldDelivery[0]!.revision,
+		);
+		await mail.assert(session.sub, { ...archive, want: true });
+		const reopened = openIntentStore(session.localDatabase, session.sub);
+		expect(await reopened.retire(oldDelivery)).toBe(0);
+		expect(await reopened.pending()).toMatchObject([
+			{ ...archive, want: true },
+		]);
+		for (const labelId of ['TRASH', 'UNREAD', 'STARRED', 'Label_captured']) {
+			await mail.assert(session.sub, {
+				messageId: 'unseen',
+				labelId,
+				want: true,
+			});
+		}
+		expect(await reopened.count()).toBe(5);
+		expect(cacheOpens()).toBe(0);
+		expect(credentialReads).toBe(0);
+		expect(app.activity.get(session.sub)?.session).toBeUndefined();
+		const before = await reopened.pending();
+		await expect(mail.assert('missing', archive)).rejects.toThrow(
+			'No account is connected',
+		);
+		expect(await reopened.pending()).toEqual(before);
+	} finally {
+		await mail.close();
+		session.close();
+	}
+});
+
+test('account removal waits for a durable assertion and refuses to erase it', async () => {
+	const { session, app, mail, cacheOpens } = await outboxFixture();
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	app.storage.local = {
+		...session.localDatabase,
+		async batch(statements) {
+			entered.resolve();
+			await release.promise;
+			return session.localDatabase.batch(statements);
+		},
+	};
+	try {
+		const choice = { messageId: 'm1', labelId: 'TRASH', want: true };
+		const writing = mail.assert(session.sub, choice);
+		await entered.promise;
+		const removing = mail.remove(session.sub);
+		let settled = false;
+		void removing.then(() => {
+			settled = true;
+		});
+		await Promise.resolve();
+		await expect(
+			mail.assert(session.sub, { ...choice, want: false }),
+		).rejects.toThrow('being removed');
+		expect(settled).toBe(false);
+		release.resolve();
+		await writing;
+		expect(await removing).toEqual({ removed: false, pending: 1 });
+		expect(await session.intents.pending()).toMatchObject([choice]);
+		expect(cacheOpens()).toBe(0);
+	} finally {
+		release.resolve();
+		await mail.close();
+		session.close();
+	}
+});
+
+test('a failed durable assertion rejects, and page closure waits for an accepted write', async () => {
+	const { session, app, mail } = await outboxFixture();
+	try {
+		app.storage.local = {
+			...session.localDatabase,
+			batch: async () => {
+				throw new Error('durable write failed');
+			},
+		};
+		const choice = { messageId: 'm1', labelId: 'INBOX', want: false };
+		await expect(mail.assert(session.sub, choice)).rejects.toThrow(
+			'durable write failed',
+		);
+		expect(await session.intents.pending()).toEqual([]);
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		app.storage.local = {
+			...session.localDatabase,
+			async batch(statements) {
+				entered.resolve();
+				await release.promise;
+				return session.localDatabase.batch(statements);
+			},
+		};
+		const writing = mail.assert(session.sub, choice);
+		await entered.promise;
+		const closing = mail.close();
+		let closed = false;
+		void closing.then(() => {
+			closed = true;
+		});
+		try {
+			await expect(mail.assert(session.sub, choice)).rejects.toThrow(
+				'Local Mail is closing',
+			);
+			expect(closed).toBe(false);
+		} finally {
+			release.resolve();
+		}
+		await writing;
+		await closing;
+		expect(await session.intents.pending()).toMatchObject([choice]);
+	} finally {
 		await mail.close();
 		session.close();
 	}

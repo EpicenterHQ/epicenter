@@ -4,6 +4,7 @@
 
 import {
 	type ConnectedAccount,
+	assertAccountLabel,
 	discardPending,
 	finishConnect,
 	listAccounts,
@@ -14,7 +15,6 @@ import {
 	startConnect,
 	withSession,
 } from '@epicenter/local-mail/accounts';
-import { assertMessageLabels } from '@epicenter/local-mail/assert';
 import { CALLBACK_PATH } from '@epicenter/local-mail/authorization-return';
 import {
 	type LabelSummary,
@@ -232,27 +232,8 @@ export function createMail({
 		assert: operation(
 			async (
 				sub: string,
-				input: { ids: string[]; addLabels?: string[]; removeLabels?: string[] },
-			) => {
-				// A session already satisfies `AssertDeps`; rebuilding it field by field
-				// here was three chances to hand the act path a different account's store.
-				const recorded = await withSession(await app(), sub, (session) =>
-					assertMessageLabels({
-						deps: session,
-						input: {
-							ids: input.ids,
-							addLabels: input.addLabels ?? [],
-							removeLabels: input.removeLabels ?? [],
-						},
-					}),
-				);
-				if (recorded.error !== null) throw new Error(recorded.error.message);
-				// The act is durable and visible here, and it is owed to Gmail. Delivering
-				// it is the caller's next step rather than this one's: a person pressing
-				// `e` must not wait on a network pass, and the surface that asks for the
-				// pass is the surface that can show it running.
-				return recorded.data;
-			},
+				assertion: { messageId: string; labelId: string; want: boolean },
+			): Promise<void> => assertAccountLabel(await app(), sub, assertion),
 		),
 	};
 }
