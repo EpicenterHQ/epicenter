@@ -3,14 +3,13 @@ import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
-import { ManualRecorderLive } from '#platform/recorder';
 import type { WhisperingRecordingState } from '$lib/constants/audio';
 import {
 	RecorderError,
 	type Recording,
 	type RecordingEndedReason,
-	type RecordingAccount,
-} from '../services/recorder/contract';
+	type RecordingService,
+} from '@epicenter/recorder/recording';
 
 const ManualRecorderError = defineErrors({
 	EnumerateDevicesFailed: ({ cause }: { cause: unknown }) => ({
@@ -52,7 +51,7 @@ function createManualRecorder() {
 	// start firing in that window (e.g. a global shortcut pressed twice) would
 	// pass the `_current` check and orphan a second recording.
 	let starting = $state.raw<{
-		account: RecordingAccount;
+		service: RecordingService;
 		settled: Promise<void>;
 	} | null>(null);
 	let _stopEndedListener: (() => void) | null = null;
@@ -91,41 +90,26 @@ function createManualRecorder() {
 	// stale `_current === null` and either no-ops the cancel (leaking the
 	// host recording) or double-starts on top of a rehydrated one.
 	let bootstrapped: Promise<Result<void, RecorderError>> | null = null;
-	let bootstrappedAccount: RecordingAccount | undefined;
+	let bootstrappedService: RecordingService | undefined;
 	let bootstrappedSettled = false;
 
-	function sameAccount(
-		left: RecordingAccount | undefined,
-		right: RecordingAccount,
-	) {
-		if (left === undefined) return false;
-		if (left === null || right === null) return left === right;
-		return (
-			left.authorityId === right.authorityId &&
-			left.principalId === right.principalId
-		);
-	}
-
-	function ensureBootstrapped(account: RecordingAccount) {
-		if (
-			bootstrappedAccount !== undefined &&
-			!sameAccount(bootstrappedAccount, account)
-		) {
+	function ensureBootstrapped(service: RecordingService) {
+		if (bootstrappedService !== undefined && bootstrappedService !== service) {
 			if (!bootstrappedSettled)
 				return Promise.resolve(RecorderError.AlreadyRecording());
 			// A host recording belongs to the dataset that started it. Do not replace
 			// the bootstrap promise while one is live: a stop from the new account
 			// must never consume the old account's capture.
-			const startBelongsToAnotherAccount =
-				starting !== null && !sameAccount(starting.account, account);
-			if (_current !== null || startBelongsToAnotherAccount)
+			const startBelongsToAnotherApp =
+				starting !== null && starting.service !== service;
+			if (_current !== null || startBelongsToAnotherApp)
 				return Promise.resolve(RecorderError.AlreadyRecording());
 			bootstrapped = null;
 		}
-		bootstrappedAccount = account;
+		bootstrappedService = service;
 		if (bootstrapped === null) {
 			bootstrappedSettled = false;
-			bootstrapped = ManualRecorderLive.current(account).then((result) => {
+			bootstrapped = service.current().then((result) => {
 				const { data: found, error } = result;
 				if (error) {
 					bootstrapped = null;
@@ -142,8 +126,8 @@ function createManualRecorder() {
 
 	return {
 		/** Check native recovery before deciding this session is safe to close. */
-		recover(account: RecordingAccount): Promise<Result<void, RecorderError>> {
-			return ensureBootstrapped(account);
+		recover(service: RecordingService): Promise<Result<void, RecorderError>> {
+			return ensureBootstrapped(service);
 		},
 		/**
 		 * Whether a manual recording is live, derived from holding a `Recording`.
@@ -189,35 +173,35 @@ function createManualRecorder() {
 			_onEnded = handler;
 		},
 
-		enumerateDevices: {
-			options: resultQueryOptions({
+		enumerateDevices(service: RecordingService) {
+			return resultQueryOptions({
 				queryKey: manualRecorderKeys.devices,
 				queryFn: async () => {
-					const { data, error } = await ManualRecorderLive.enumerateDevices();
+					const { data, error } = await service.enumerateDevices();
 					if (error)
 						return ManualRecorderError.EnumerateDevicesFailed({ cause: error });
 					return Ok(data);
 				},
-			}),
+			});
 		},
 
-		async startRecording(account: RecordingAccount) {
+		async startRecording(service: RecordingService) {
 			if (starting !== null || _current)
 				return RecorderError.AlreadyRecording();
 			const completion = Promise.withResolvers<void>();
-			starting = { account, settled: completion.promise };
+			starting = { service, settled: completion.promise };
 			try {
 				// Bootstrap may rehydrate a host recording that outlived a reload,
 				// so the `_current` check has to come after it too.
-				const { error: bootstrapError } = await ensureBootstrapped(account);
+				const { error: bootstrapError } = await ensureBootstrapped(service);
 				if (bootstrapError) return Err(bootstrapError);
-				if (!sameAccount(bootstrappedAccount, account))
+				if (bootstrappedService !== service)
 					return RecorderError.AlreadyRecording();
 				if (_current) return RecorderError.AlreadyRecording();
 
-				const params = manualRecorderConfig.resolveStartParams(account);
+				const params = manualRecorderConfig.resolveStartParams();
 				const { data: recording, error: startError } =
-					await ManualRecorderLive.start(params);
+					await service.start(params);
 				if (startError) return Err(startError);
 
 				hold(recording);
@@ -228,15 +212,15 @@ function createManualRecorder() {
 			}
 		},
 
-		async stopRecording(account: RecordingAccount) {
+		async stopRecording(service: RecordingService) {
 			if (starting !== null) {
-				if (!sameAccount(starting.account, account))
+				if (starting.service !== service)
 					return RecorderError.AlreadyRecording();
 				await starting.settled;
 			}
-			const { error: bootstrapError } = await ensureBootstrapped(account);
+			const { error: bootstrapError } = await ensureBootstrapped(service);
 			if (bootstrapError) return Err(bootstrapError);
-			if (!sameAccount(bootstrappedAccount, account))
+			if (bootstrappedService !== service)
 				return RecorderError.AlreadyRecording();
 			const recording = _current;
 			if (!recording) return RecorderError.NoActiveRecording();
@@ -246,15 +230,15 @@ function createManualRecorder() {
 			return recording.stop();
 		},
 
-		async cancelRecording(account: RecordingAccount) {
+		async cancelRecording(service: RecordingService) {
 			if (starting !== null) {
-				if (!sameAccount(starting.account, account))
+				if (starting.service !== service)
 					return RecorderError.AlreadyRecording();
 				await starting.settled;
 			}
-			const { error: bootstrapError } = await ensureBootstrapped(account);
+			const { error: bootstrapError } = await ensureBootstrapped(service);
 			if (bootstrapError) return Err(bootstrapError);
-			if (!sameAccount(bootstrappedAccount, account))
+			if (bootstrappedService !== service)
 				return RecorderError.AlreadyRecording();
 			const recording = _current;
 			if (!recording) return Ok({ status: 'no-recording' as const });

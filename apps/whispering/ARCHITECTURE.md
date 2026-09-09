@@ -48,19 +48,13 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-Most seams now have a single leaf, because ADR-0227 left one shipped build:
-
-```
-src/lib/services/recorder/
-  contract.ts         Shared contract the impl is annotated with
-  index.tauri.ts      Tauri recorder plugin
-```
-
-The remaining platform seams are for capabilities genuinely owned by the host,
-such as authentication and recording input. Blob storage is part of the app
-handle and is scoped when that handle opens.
-
-Consumers (for example the services barrel `src/lib/services/index.ts`) import the bare specifier `from '#platform/recorder'` with **no platform branch at the call site**. Where a seam still has two leaves, the off-target file is never resolved, so it is physically absent from the bundle (a build-time guarantee, not Rollup tree-shaking).
+Recording is composed once through `#platform/recording`: the browser leaf uses
+`createBrowserRecording`, and the desktop leaf uses `createDesktopRecording`
+from `@epicenter/recorder`. Both implement the shared recording contract.
+Whispering calls `app.recording`; its reactive manual-recorder state owns
+UI projection and awaits admitted work before dataset closure. Capture, native
+IPC, and final audio publication live below that boundary. Device configuration
+selects browser device IDs or native device names through its matching seam.
 
 This mechanism is scoped to `#platform/*` only; every other bare import resolves normally. `tsconfig.json` typechecks the default resolution and `tsconfig.epicenter-host.json` repeats the check with the condition the Epicenter build activates. Each impl is annotated with the shared contract (`export const x: Contract = ...`, not `satisfies`, so the concrete type stays hidden and the variants stay in lockstep).
 

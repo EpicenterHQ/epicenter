@@ -593,6 +593,7 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/data": "workspace:*",
         "@epicenter/device": "workspace:*",
+        "@epicenter/recorder": "workspace:*",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -721,6 +722,7 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/device": "workspace:*",
         "@epicenter/principal": "workspace:*",
+        "@epicenter/recorder": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
         "@epicenter/sync": "workspace:*",
         "@y/y": "14.0.0-rc.24",
@@ -783,11 +785,17 @@
       "name": "@epicenter/recorder",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/blobs": "workspace:*",
+        "@epicenter/constants": "workspace:*",
+        "@epicenter/principal": "workspace:*",
         "@ricky0123/vad-web": "catalog:",
+        "@tauri-apps/api": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
+        "fake-indexeddb": "^6.2.5",
+        "playwright": "^1.61.1",
         "typescript": "catalog:",
       },
     },

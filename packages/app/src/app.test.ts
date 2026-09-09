@@ -21,6 +21,7 @@ import {
 } from '@epicenter/data/definition';
 import { createEpicenter } from './index.js';
 import { createBrowserAppBlobs } from './browser.js';
+import { createBrowserRecording } from '@epicenter/recorder/browser';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -149,6 +150,7 @@ test.each([
 					account,
 					blobs: testBlobs({ appId: 'so.epicenter.app-test', account }),
 					sqlite: owner,
+					recording: createBrowserRecording('so.epicenter.app-test', account),
 				});
 	if (timing === 'during acquisition') await requested.promise;
 	Reflect.set(account, 'authorityId', 'replacement-authority');

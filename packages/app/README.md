@@ -1,5 +1,18 @@
 # @epicenter/app
 
+`app.recording` captures saved audio into the opened library.
+Its browser binding is the default. Desktop composition supplies
+`recording: createDesktopRecording` from `@epicenter/recorder/desktop` to
+`createEpicenter`. Opening binds the app ID and destination once:
+`openLocal()` selects the local library; `openAccount(account)` selects that
+account's library. After `app.ready` succeeds, call `app.recording.start()`.
+Neither `start()` nor `current()` takes an account. Closing waits for admitted
+work and cancels unresolved capture before releasing storage.
+Stop returns a published blob ID, duration, and byte length. The app owns the row
+and subsequent transcription or retention policy. See
+[the recording contract](../recorder/README.md#saved-recordings) for ownership
+and closure behavior.
+
 An app opens one local or account dataset and owns that application handle until it closes.
 
 ```ts

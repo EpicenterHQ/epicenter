@@ -213,3 +213,9 @@ mod tests {
         assert_eq!(json["message"], "not yours");
     }
 }
+
+impl From<crate::blobs::BlobError> for RecorderError {
+    fn from(error: crate::blobs::BlobError) -> Self {
+        Self::failed(error.to_string())
+    }
+}

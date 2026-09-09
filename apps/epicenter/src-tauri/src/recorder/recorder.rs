@@ -79,7 +79,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-use crate::recorder::blob::{BlobScope, StagedBlob};
+use crate::blobs::{BlobDestination, StagedBlob};
 use crate::recorder::ended::EndedReason;
 use crate::recorder::error::RecorderError;
 
@@ -359,9 +359,21 @@ impl FinalizedRecording {
     /// recording is finished and out of the slot: nothing another window does
     /// can collide with it, because the next recording gets a different id.
     pub fn publish(self) -> Result<RecordedAudio> {
-        // Measured on the critical path on purpose: the progressive writer moved
-        // most of the cost off it, and these numbers are what would reopen that.
-        let byte_length = crate::timing::measure("stop.publish", || self.staged.publish())?;
+        // The recording command reports a u32 byte length. Refuse an oversized
+        // WAV before publication; shared blob storage itself has no format cap.
+        let byte_length = match std::fs::metadata(self.staged.data_path())
+            .map_err(|error| RecorderError::failed(format!("stat finalized WAV: {error}")))
+            .and_then(|metadata| {
+                u32::try_from(metadata.len())
+                    .map_err(|_| RecorderError::failed("finalized WAV exceeds the RIFF size limit"))
+            }) {
+            Ok(size) => size,
+            Err(error) => {
+                self.staged.discard();
+                return Err(error);
+            }
+        };
+        crate::timing::measure("stop.publish", || self.staged.publish("audio/wav"))?;
         Ok(RecordedAudio {
             duration_ms: self.duration_ms,
             byte_length,
@@ -388,7 +400,7 @@ struct HeldRecording {
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
     /// Dataset selected at start, retained for reload recovery.
-    scope: BlobScope,
+    destination: BlobDestination,
     /// Which microphone this recording opened, so a window that reloads can be
     /// told what it is recording from without reopening anything.
     device: DeviceAcquisition,
@@ -425,7 +437,7 @@ pub struct HostRecording {
     /// Dataset selected when the host minted this recording. It must travel
     /// through reload recovery; the requesting window is not enough to recover
     /// which blob partition owns the staged bytes.
-    pub scope: BlobScope,
+    pub destination: BlobDestination,
     pub device: DeviceAcquisition,
     /// `None` while capture is running. `Some` means capture is over and this
     /// recording is waiting to be stopped (publishing what it captured) or
@@ -479,7 +491,7 @@ impl Recorder {
         audio_blob_id: String,
         owner_label: String,
         app_handle: AppHandle,
-        scope: BlobScope,
+        destination: BlobDestination,
     ) -> Result<HostRecording> {
         self.require_free_slot()?;
 
@@ -499,7 +511,7 @@ impl Recorder {
         // Staging is opened before the microphone, so a recording that cannot be
         // written fails now rather than after an hour of captured speech.
         let capture = StagedCapture::open(
-            StagedBlob::create(&app_handle, &audio_blob_id, &scope)?,
+            StagedBlob::create(&app_handle, &audio_blob_id, &destination)?,
             device_rate,
         )?;
 
@@ -590,7 +602,7 @@ impl Recorder {
         self.active = Some(HeldRecording {
             audio_blob_id: audio_blob_id.clone(),
             owner_label,
-            scope: scope.clone(),
+            destination: destination.clone(),
             device: acquisition.clone(),
             ended_reason: None,
             cmd_tx,
@@ -598,7 +610,7 @@ impl Recorder {
         });
         Ok(HostRecording {
             audio_blob_id,
-            scope,
+            destination,
             device: acquisition,
             ended_reason: None,
         })
@@ -717,7 +729,7 @@ impl Recorder {
             .filter(|active| active.owner_label == caller_label)
             .map(|active| HostRecording {
                 audio_blob_id: active.audio_blob_id.clone(),
-                scope: active.scope.clone(),
+                destination: active.destination.clone(),
                 device: active.device.clone(),
                 ended_reason: active.ended_reason,
             })
@@ -1432,6 +1444,25 @@ mod tests {
     /// capture and transcription happen to agree.
     const TEST_RATE: u32 = 48_000;
 
+    #[test]
+    fn an_oversized_recording_is_discarded_before_publication() {
+        let root = staging_root();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let staged = StagedBlob::stage(root.path().into(), id).unwrap();
+        let staged_path = staged.data_path();
+        std::fs::File::create(&staged_path)
+            .unwrap()
+            .set_len(u64::from(u32::MAX) + 1)
+            .unwrap();
+        let recording = FinalizedRecording {
+            staged,
+            duration_ms: 1,
+        };
+        assert!(recording.publish().is_err());
+        assert!(!root.path().join(id).exists());
+        assert!(!staged_path.exists());
+    }
+
     /// A blobs root that disappears with the test.
     fn staging_root() -> TempDir {
         tempfile::tempdir().expect("a temporary blobs root")
@@ -1482,7 +1513,10 @@ mod tests {
         recorder.active = Some(HeldRecording {
             audio_blob_id: audio_blob_id.to_string(),
             owner_label: owner_label.to_string(),
-            scope: BlobScope::Local,
+            destination: BlobDestination {
+                app_id: "so.epicenter.notes".into(),
+                scope: crate::blobs::BlobScope::Local,
+            },
             device: DeviceAcquisition::Success {
                 device_id: "Test Microphone".to_string(),
             },
@@ -1555,15 +1589,21 @@ mod tests {
         let mut recorder = Recorder::new();
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
         recording_owned_by(&mut recorder, &root, id, "app-notes");
-        assert_eq!(recorder.current("app-notes").unwrap().scope, BlobScope::Local);
-        let account = BlobScope::Account {
-            authority_id: "authority-a".into(),
-            principal_id: "principal".into(),
+        assert_eq!(
+            recorder.current("app-notes").unwrap().destination.scope,
+            crate::blobs::BlobScope::Local
+        );
+        let account = BlobDestination {
+            app_id: "so.epicenter.whispering".into(),
+            scope: crate::blobs::BlobScope::Account {
+                authority_id: "authority-a".into(),
+                principal_id: "principal".into(),
+            },
         };
-        recorder.active.as_mut().unwrap().scope = account.clone();
+        recorder.active.as_mut().unwrap().destination = account.clone();
         recorder.end_capture(id, EndedReason::DeviceDisconnected);
         for _ in 0..2 {
-            assert_eq!(recorder.current("app-notes").unwrap().scope, account);
+            assert_eq!(recorder.current("app-notes").unwrap().destination, account);
         }
         assert!(recorder.current("another-window").is_none());
         recorder.cancel(id, "app-notes").unwrap();
@@ -2036,11 +2076,14 @@ mod tests {
             .finish()
             .expect("finish the capture");
         assert_eq!(stopped.duration_ms, 1_000);
-        let byte_length = stopped.staged.publish().expect("publish the blob");
+        let byte_length = stopped
+            .staged
+            .publish("audio/wav")
+            .expect("publish the blob");
 
         let published = root.path().join(id).join("data");
         let bytes = std::fs::read(&published).expect("read the published blob");
-        assert_eq!(bytes.len() as u32, byte_length);
+        assert_eq!(bytes.len() as u64, byte_length);
         // 44-byte canonical PCM header plus one second of 48 kHz mono PCM16.
         assert_eq!(bytes.len(), 44 + (TEST_RATE as usize * 2));
 
@@ -2073,7 +2116,7 @@ mod tests {
             .finish()
             .expect("finish")
             .staged
-            .publish()
+            .publish("audio/wav")
             .expect("publish");
         assert!(root.path().join(published_id).join("data").exists());
         assert!(root
@@ -2301,13 +2344,13 @@ mod tests {
             .finish()
             .expect("finish")
             .staged
-            .publish()
+            .publish("audio/wav")
             .expect("publish");
         // A capture the host died in the middle of: staged, never finalized.
         let abandoned = capture_holding(&root, abandoned_id, &tone(TEST_RATE, 1));
         std::mem::forget(abandoned);
 
-        crate::recorder::blob::delete_staging_root(root.path());
+        crate::blobs::delete_staging_root(root.path());
 
         assert!(
             root.path().join(published_id).join("data").exists(),

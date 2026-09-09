@@ -36,7 +36,6 @@ services/
 |-- blobs/
 |-- download/
 |-- http/
-|-- recorder/
 |-- text/
 |-- transcription/
 |-- local-shortcut-manager.ts
@@ -57,7 +56,9 @@ and `satisfies DownloadService` without a construction-only factory.
 Use a factory only when construction inputs, isolated mutable state, resource
 lifetime, or teardown earn one. Browser and CPAL recorder factories qualify
 because they create recording sessions that own stop, cancel, subscription, and
-teardown state.
+teardown state. Those factories now live in `@epicenter/recorder`; Whispering
+reaches them through `app.recording` and retains only its UI and workflow
+coordination.
 
 ## Build-Time Platform Injection
 

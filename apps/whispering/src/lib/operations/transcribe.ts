@@ -32,7 +32,8 @@ import {
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { type SecretKey, secrets } from '$lib/state/secrets.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { blobScope } from '$lib/tauri/commands';
+import { blobDestination } from '@epicenter/blobs/native';
+import { APPS } from '@epicenter/constants/apps';
 
 const log = createLogger('whispering/transcribe');
 
@@ -226,7 +227,7 @@ async function loadForUpload(
 		const { data: oggBytes, error } =
 			await tauri.transcription.encodeRecordingForUpload(
 				audioBlobId,
-				blobScope(app.account),
+				blobDestination(APPS.WHISPERING.id, app.account),
 			);
 		if (error === null) return Ok(new Blob([oggBytes], { type: 'audio/ogg' }));
 		report.info({
@@ -386,7 +387,7 @@ async function transcribeOnDevice(
 		await tauri.transcription.transcribeRecording(audioBlobId, {
 			language: language === 'auto' ? undefined : language,
 			initialPrompt: prompt || undefined,
-		}, blobScope(app.account));
+		}, blobDestination(APPS.WHISPERING.id, app.account));
 	if (error) return Err(error);
 
 	// Empty audio ran no model, so there is nothing to attribute and nothing to

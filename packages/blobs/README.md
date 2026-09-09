@@ -76,6 +76,17 @@ store; bytes never travel through the WebView. HTTP 404 names the source,
 
 ## Bun staging ownership
 
+The native counterpart is `apps/epicenter/src-tauri/src/blobs.rs`. It owns
+validated application/dataset paths, generic metadata, publication, and native
+staging cleanup. The recorder supplies WAV bytes and their content type; audio
+decoding belongs to the host's audio module. The `/native` TypeScript subpath
+captures `{ appId, scope }` at the IPC boundary for recording, transcription,
+and upload encoding. These are addresses in the same store, never paths supplied
+by a WebView.
+
+`bun packages/blobs/scripts/native-smoke.ts` verifies that the Bun store reads
+actual Rust-produced publication fixtures, including normalized metadata.
+
 Bun uploads stage under `.staging/bun/`; the Rust recorder stages native
 captures under `.staging/rust/`. Each operation removes its own staging
 directory when it fails.

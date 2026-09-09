@@ -8,6 +8,8 @@
 	import type { DeviceIdentifier } from '@epicenter/recorder';
 	import { asDeviceIdentifier } from '@epicenter/recorder';
 	import { manualRecorder } from '$lib/state/manual-recorder.svelte';
+	import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
 	import { tauri } from '#platform/tauri';
 
 	let {
@@ -18,7 +20,7 @@
 
 	// Use manualRecorder.enumerateDevices for manual recording (includes desktop devices)
 	const getDevicesQuery = createQuery(
-		() => manualRecorder.enumerateDevices.options,
+		() => manualRecorder.enumerateDevices(app.recording),
 	);
 
 	$effect(() => {

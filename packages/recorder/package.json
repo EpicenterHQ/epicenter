@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
-	"description": "Browser microphone capture and voice-activity detection: stream acquisition, device helpers, and Silero VAD.",
+	"description": "Portable recording sessions, browser stream acquisition, and voice activity detection.",
 	"keywords": [
 		"audio",
 		"recorder",
@@ -15,18 +15,29 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./vad-assets": "./src/vad-assets.ts"
+		"./vad-assets": "./src/vad-assets.ts",
+		"./recording": "./src/recording.ts",
+		"./browser": "./src/browser.ts",
+		"./desktop": "./src/desktop.ts"
 	},
 	"dependencies": {
 		"@ricky0123/vad-web": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/blobs": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@tauri-apps/api": "catalog:",
+		"@epicenter/principal": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"fake-indexeddb": "^6.2.5",
+		"playwright": "^1.61.1"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"smoke:browser": "bun scripts/browser-smoke.ts"
 	},
 	"license": "AGPL-3.0-or-later"
 }

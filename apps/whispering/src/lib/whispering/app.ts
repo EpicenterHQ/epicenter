@@ -108,6 +108,7 @@ export type WhisperingApp = {
 	 * here.
 	 */
 	readonly blobs: AppBlobs;
+	readonly recording: WhisperingAccountData['recording'];
 	/**
 	 * What sync is doing, or undefined when no connection is attached.
 	 *
@@ -172,6 +173,7 @@ export function createWhisperingApp({
 		// `SyncConnection` this file held, and passed through whole: a refusal is
 		// data on that status, and the surface decides what to say about it.
 		syncStatus: () => data.sync.status(),
+		recording: data.recording,
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;

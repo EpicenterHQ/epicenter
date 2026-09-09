@@ -36,6 +36,7 @@ use application_close::ApplicationClose;
 pub mod audio;
 use audio::encode_recording_for_upload;
 
+pub mod blobs;
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, cancel_recording_owned_by, current_recording, enumerate_recording_devices,
@@ -788,14 +789,9 @@ pub fn run() {
 
             app.manage(app_data::DesktopPaths::resolve(app.handle())?);
 
-            // A recording that was still capturing when a previous launch died
-            // left a partial WAV in the recorder's private staging. It is not a
-            // blob and never will be one, so it is deleted here and nothing
-            // else happens: no promotion, no repair, no notice. Owned by the
-            // recorder rather than by blob-store startup because `.staging/rust`
-            // is the recorder's alone (`packages/blobs` stages its own uploads
-            // under `.staging/bun` and cleans them per operation).
-            crate::recorder::blob::delete_stale_staging(app.handle());
+            // Remove incomplete native writes across app datasets before admitting
+            // capture. Published blobs and Bun's staging remain untouched.
+            crate::blobs::delete_stale_staging(app.handle());
 
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live beside the app's own config rather

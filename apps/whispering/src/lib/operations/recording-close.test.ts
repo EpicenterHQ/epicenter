@@ -53,7 +53,7 @@ mock.module('$lib/operations/transcribe', () => ({
 	prewarmOnDeviceModel: mock(),
 }));
 mock.module('$lib/report', () => ({ report: { info: mock(), error: mock() } }));
-mock.module('$lib/services/recorder/contract', () => ({ RecorderError: {} }));
+mock.module('@epicenter/recorder/recording', () => ({ RecorderError: {} }));
 mock.module('$lib/state/capture-surface.svelte', () => ({
 	captureSurface: { dismissImport: mock() },
 }));

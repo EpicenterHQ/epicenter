@@ -841,11 +841,13 @@ export function openAppData<const TDefinition extends DataDefinition>(
 		account: input,
 		blobs,
 		sqlite,
+		recording,
 	}: {
 		appId: string;
 		account: DatabaseAccount | null;
 		blobs: StoreBlobBacking;
 		sqlite: DeviceSqliteOwner;
+		recording: import('@epicenter/recorder/recording').RecordingService;
 	},
 ) {
 	if (!isAppId(appId))
@@ -909,6 +911,7 @@ export function openAppData<const TDefinition extends DataDefinition>(
 			close: parts.close,
 			blobs: parts.createBlobs(blobs),
 			sqlite: parts.createSqlite(createAppSqlite(sqlite, appId, identity)),
+			recording: parts.createRecording(recording),
 		}),
 	);
 }

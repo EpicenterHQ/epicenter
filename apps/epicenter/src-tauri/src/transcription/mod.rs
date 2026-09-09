@@ -10,8 +10,8 @@ pub use error::TranscriptionError;
 pub use model_cache::ModelCache;
 pub use settings::{LocalTranscriptionSettings, SettingsError, UnloadPolicy};
 
-use crate::recorder::read_blob_samples;
-use crate::recorder::blob::BlobScope;
+use crate::audio::read_blob_samples;
+use crate::blobs::BlobDestination;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -47,7 +47,11 @@ pub enum UnavailableReason {
 /// and the next transcribe turns a `ready` answer stale, and the transcribe path
 /// still fails closed on its own.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
-#[serde(tag = "status", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "status",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum LocalTranscriptionReadiness {
     Ready {
         /// Whether the active model accepts an initial prompt.
@@ -107,7 +111,11 @@ pub struct AppliedHints {
 /// no applied hints, because claiming either would be claiming an inference that
 /// never happened.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
-#[serde(tag = "outcome", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "outcome",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TranscriptionOutcome {
     Transcribed {
         text: String,
@@ -197,12 +205,12 @@ pub fn get_local_transcription_readiness(
 pub async fn transcribe_recording(
     audio_blob_id: String,
     hints: TranscriptionHints,
-    scope: BlobScope,
+    destination: BlobDestination,
     app_handle: AppHandle,
     model_cache: State<'_, ModelCache>,
 ) -> Result<TranscriptionOutcome, TranscriptionError> {
     let samples = crate::timing::measure("transcribe.read+decode", || {
-        read_blob_samples(&app_handle, &audio_blob_id, &scope)
+        read_blob_samples(&app_handle, &audio_blob_id, &destination)
     })
     .map_err(|e| TranscriptionError::AudioReadError {
         message: e.to_string(),

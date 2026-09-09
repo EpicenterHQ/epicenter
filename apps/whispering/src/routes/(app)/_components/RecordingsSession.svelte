@@ -22,10 +22,13 @@
 	export function close(): Promise<void> {
 		if (closing) return closing;
 		closing = (async () => {
-			const recovered = await manualRecorder.recover(account);
-			if (recovered.error !== null) throw recovered.error;
-			if (recordingActive.current) {
-				throw new Error('Finish recording and wait for it to save before closing Whispering.');
+			const ready = await app.ready;
+			if (ready.error === null) {
+				const recovered = await manualRecorder.recover(app.recording);
+				if (recovered.error !== null) throw recovered.error;
+				if (recordingActive.current) {
+					throw new Error('Finish recording and wait for it to save before closing Whispering.');
+				}
 			}
 			if (document.activeElement instanceof HTMLElement)
 				document.activeElement.blur();

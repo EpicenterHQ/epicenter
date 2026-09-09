@@ -1,24 +1,9 @@
-//! Native recorder staging and publication into Epicenter's canonical local
-//! blob layout.
+//! Canonical native blob storage, shared by capture and audio readers.
 //!
-//! Rust mints the opaque `BlobId` when a recording starts, writes its audio and
-//! metadata into a private staging directory, fsyncs both files, and atomically
-//! renames the directory to `<appDataDir>/blobs/<BlobId>`. Raw PCM never crosses
-//! the IPC boundary; an application holds only the id.
-//!
-//! The id exists before its blob does. `start` returns it, `stop` publishes the
-//! blob under it, and `cancel` burns it without a blob ever appearing. That is
-//! why this module mints and validates in the same place: the shape is one
-//! contract shared with `packages/blobs`, and the two mints must agree.
-//!
-//! # Staging is not a blob
-//!
-//! A [`StagedBlob`] is a directory nothing outside this module can name. It is
-//! written to while a recording runs and becomes a blob in exactly one step, the
-//! rename in [`StagedBlob::publish`]. Until that rename there is no blob at the
-//! id, which is what keeps ADR-0173's write-once slot from ever observing a
-//! partial byte stream: incomplete capture has temporary staging state and no
-//! permanent blob identity.
+//! A destination captures an application and its local/account dataset. Native
+//! writers stage private bytes and atomically publish data and metadata together
+//! into the same layout as `packages/blobs`. Unpublished staging is discarded
+//! on cancellation or swept at the next host startup.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -28,38 +13,69 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::audio::decode_to_pcm16k_mono;
-use crate::recorder::error::RecorderError;
-
-const BLOB_CONTENT_TYPE: &str = "audio/wav";
 const BLOBS_DIRECTORY: &str = "blobs";
-const WHISPERING_APP_ID: &str = "so.epicenter.whispering";
 const STAGING_DIRECTORY: &str = ".staging";
 const RUST_STAGING_DIRECTORY: &str = "rust";
 const DATA_FILE: &str = "data";
 const METADATA_FILE: &str = "metadata.json";
 
-/// The captured app dataset whose bytes this recorder owns.
+/// Match the Bun store's metadata codec, including JavaScript's trim set and
+/// UTF-16 length bound. A native publication must be readable by that store.
+fn normalize_content_type(value: &str) -> &str {
+    let value = value.trim_matches(|ch| {
+        matches!(ch,
+            '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' |
+            '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' |
+            '\u{205f}' | '\u{3000}' | '\u{feff}'
+        )
+    });
+    if value.is_empty()
+        || value.encode_utf16().count() > 255
+        || value.chars().any(|ch| ch <= '\u{001f}' || ch == '\u{007f}')
+    {
+        "application/octet-stream"
+    } else {
+        value
+    }
+}
+
+/// The application dataset containing a blob.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BlobScope {
     Local,
-	Account {
-		#[serde(rename = "authorityId")]
-		authority_id: String,
-		#[serde(rename = "principalId")]
-		principal_id: String,
+    Account {
+        #[serde(rename = "authorityId")]
+        authority_id: String,
+        #[serde(rename = "principalId")]
+        principal_id: String,
     },
+}
+
+/// The app and dataset captured before a native writer opens its staging file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobDestination {
+    pub app_id: String,
+    pub scope: BlobScope,
+}
+
+/// Storage failures stay independent of the operation using the bytes.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct BlobError(String);
+
+impl BlobError {
+    fn failed(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BlobMetadata {
-    content_type: &'static str,
-    /// Serializes as a plain JSON number, so the 32-bit width here is only the
-    /// RIFF bound this writer already enforces, not a change to the on-disk
-    /// metadata shape other blob writers produce.
-    size: u32,
+struct BlobMetadata<'a> {
+    content_type: &'a str,
+    size: u64,
 }
 
 /// `blob_` plus 21 characters of this alphabet, matching `generateBlobId` in
@@ -69,7 +85,7 @@ struct BlobMetadata {
 const BLOB_ID_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
 const BLOB_ID_BODY_LEN: usize = 21;
 
-/// Mint a fresh blob id for a recording that is about to start.
+/// Mint an opaque id before a writer stages its bytes.
 ///
 /// This is the second mint of the one BlobId shape; `generateBlobId` in
 /// `packages/blobs` is the other. They must produce the same shape, which
@@ -78,7 +94,7 @@ const BLOB_ID_BODY_LEN: usize = 21;
 /// Rejection sampling against a power-of-two mask rather than `byte % 36`,
 /// which would bias the first four letters. `getrandom` is the OS CSPRNG, the
 /// same source nanoid uses.
-pub(crate) fn mint_blob_id() -> Result<String, RecorderError> {
+pub(crate) fn mint_blob_id() -> Result<String, BlobError> {
     // 36 values need 6 bits; a 63 mask keeps the draw uniform and rejects the
     // 28 of 64 patterns that fall outside the alphabet.
     const MASK: u8 = 63;
@@ -87,7 +103,7 @@ pub(crate) fn mint_blob_id() -> Result<String, RecorderError> {
     let mut buffer = [0u8; 32];
     while id.len() < "blob_".len() + BLOB_ID_BODY_LEN {
         getrandom::fill(&mut buffer)
-            .map_err(|error| RecorderError::failed(format!("draw blob id bytes: {error}")))?;
+            .map_err(|error| BlobError::failed(format!("draw blob id bytes: {error}")))?;
         for byte in buffer {
             let index = (byte & MASK) as usize;
             if index < BLOB_ID_ALPHABET.len() {
@@ -101,36 +117,38 @@ pub(crate) fn mint_blob_id() -> Result<String, RecorderError> {
     Ok(id)
 }
 
-fn validate_blob_id(id: &str) -> Result<(), RecorderError> {
+fn validate_blob_id(id: &str) -> Result<(), BlobError> {
     let body = id
         .strip_prefix("blob_")
-        .ok_or_else(|| RecorderError::failed("blob id must start with 'blob_'"))?;
+        .ok_or_else(|| BlobError::failed("blob id must start with 'blob_'"))?;
     if body.len() != BLOB_ID_BODY_LEN
         || !body
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
     {
-        return Err(RecorderError::failed("blob id has an invalid shape"));
+        return Err(BlobError::failed("blob id has an invalid shape"));
     }
     Ok(())
 }
 
-/// The recorder and sidecar consume the same startup-selected data directory.
-fn app_blobs_root(app: &AppHandle) -> PathBuf {
-    app
-        .state::<crate::app_data::DesktopPaths>()
-        .data_dir
-        .join("apps")
-        .join(WHISPERING_APP_ID)
-}
-
-fn blobs_directory(app: &AppHandle, scope: &BlobScope) -> Result<PathBuf, RecorderError> {
-    let mut root = app_blobs_root(app);
-    match scope {
+/// Resolve only validated identifiers beneath the shared startup-selected root.
+fn blobs_directory(data_dir: &Path, destination: &BlobDestination) -> Result<PathBuf, BlobError> {
+    if !is_app_id(&destination.app_id) {
+        return Err(BlobError::failed(
+            "blob destination contains an invalid app id",
+        ));
+    }
+    let mut root = data_dir.join("apps").join(&destination.app_id);
+    match &destination.scope {
         BlobScope::Local => root.push("local"),
-        BlobScope::Account { authority_id, principal_id } => {
+        BlobScope::Account {
+            authority_id,
+            principal_id,
+        } => {
             if !is_path_segment(authority_id) || !is_path_segment(principal_id) {
-                return Err(RecorderError::failed("blob scope contains an invalid path segment"));
+                return Err(BlobError::failed(
+                    "blob scope contains an invalid path segment",
+                ));
             }
             root.push("accounts");
             root.push(authority_id);
@@ -140,13 +158,41 @@ fn blobs_directory(app: &AppHandle, scope: &BlobScope) -> Result<PathBuf, Record
     Ok(root.join(BLOBS_DIRECTORY))
 }
 
-fn is_path_segment(value: &str) -> bool {
-    !value.is_empty() && value != "." && value != ".." && !value.contains('/') && !value.contains('\\')
+/// Matches `packages/constants/src/app-id.ts` without a second regex dependency.
+fn is_app_id(value: &str) -> bool {
+    let labels: Vec<_> = value.split('.').collect();
+    labels.len() >= 2
+        && labels.iter().all(|label| {
+            let bytes = label.as_bytes();
+            let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+            bytes.first().is_some_and(|byte| alphanumeric(*byte))
+                && bytes.last().is_some_and(|byte| alphanumeric(*byte))
+                && bytes
+                    .iter()
+                    .all(|byte| alphanumeric(*byte) || *byte == b'-')
+        })
 }
 
-fn blob_data_path(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<PathBuf, RecorderError> {
+fn is_path_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && !value.contains('/')
+        && !value.contains('\\')
+}
+
+fn blob_data_path(
+    app: &AppHandle,
+    id: &str,
+    destination: &BlobDestination,
+) -> Result<PathBuf, BlobError> {
     validate_blob_id(id)?;
-    Ok(blobs_directory(app, scope)?.join(id).join(DATA_FILE))
+    Ok(blobs_directory(
+        &app.state::<crate::app_data::DesktopPaths>().data_dir,
+        destination,
+    )?
+    .join(id)
+    .join(DATA_FILE))
 }
 
 /// One blob's bytes, being written, before the blob exists.
@@ -157,7 +203,7 @@ fn blob_data_path(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<PathBu
 #[derive(Debug)]
 pub struct StagedBlob {
     id: String,
-    /// `<appDataDir>/blobs`, kept so publication can fsync it after the rename.
+    /// The captured dataset blobs directory, synced after publication.
     root: PathBuf,
     staged_directory: PathBuf,
     final_directory: PathBuf,
@@ -169,8 +215,18 @@ impl StagedBlob {
     /// The id is validated and the destination checked here, at the start of the
     /// recording, so a caller learns its blob cannot be written before it spends
     /// an hour capturing audio for it.
-    pub fn create(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<Self, RecorderError> {
-        Self::stage(blobs_directory(app, scope)?, id)
+    pub fn create(
+        app: &AppHandle,
+        id: &str,
+        destination: &BlobDestination,
+    ) -> Result<Self, BlobError> {
+        Self::stage(
+            blobs_directory(
+                &app.state::<crate::app_data::DesktopPaths>().data_dir,
+                destination,
+            )?,
+            id,
+        )
     }
 
     /// Open a staging directory under a given blobs root.
@@ -179,7 +235,7 @@ impl StagedBlob {
     /// store lives" is the app's fact while "how a blob is staged and published"
     /// is this module's. [`Self::create`] is the one production caller and
     /// supplies the app's own root.
-    pub(crate) fn stage(root: PathBuf, id: &str) -> Result<Self, RecorderError> {
+    pub(crate) fn stage(root: PathBuf, id: &str) -> Result<Self, BlobError> {
         validate_blob_id(id)?;
         // Each writer owns a distinct staging subtree. Bun writes under
         // `.staging/bun`; native capture writes here, which is what lets the
@@ -187,7 +243,7 @@ impl StagedBlob {
         // runtime's active publication for its own debris.
         let staging_root = root.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
         std::fs::create_dir_all(&staging_root).map_err(|error| {
-            RecorderError::failed(format!(
+            BlobError::failed(format!(
                 "create blob staging directory {}: {error}",
                 staging_root.display()
             ))
@@ -195,16 +251,16 @@ impl StagedBlob {
 
         let final_directory = root.join(id);
         if final_directory.exists() {
-            return Err(RecorderError::failed(format!("blob '{id}' already exists")));
+            return Err(BlobError::failed(format!("blob '{id}' already exists")));
         }
 
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|error| RecorderError::failed(format!("read system clock: {error}")))?
+            .map_err(|error| BlobError::failed(format!("read system clock: {error}")))?
             .as_nanos();
         let staged_directory = staging_root.join(format!("{id}-{}-{nonce}", std::process::id()));
         std::fs::create_dir(&staged_directory).map_err(|error| {
-            RecorderError::failed(format!(
+            BlobError::failed(format!(
                 "create staged blob directory {}: {error}",
                 staged_directory.display()
             ))
@@ -235,31 +291,27 @@ impl StagedBlob {
     /// durable too. Nothing here relies on `Drop`, which cannot report a
     /// failure.
     ///
-    /// `u32` rather than `u64` because the data is a RIFF WAV and RIFF states
-    /// its own size in 32 bits, so the writer already refuses anything larger.
-    pub fn publish(self) -> Result<u32, RecorderError> {
+    pub fn publish(self, content_type: &str) -> Result<u64, BlobError> {
         let mut published = false;
         let result = (|| {
             let data_path = self.data_path();
             sync_file(&data_path)?;
             let size = std::fs::metadata(&data_path)
                 .map_err(|error| {
-                    RecorderError::failed(format!(
-                        "stat staged blob {}: {error}",
-                        data_path.display()
-                    ))
+                    BlobError::failed(format!("stat staged blob {}: {error}", data_path.display()))
                 })?
                 .len();
-            let size = u32::try_from(size)
-                .map_err(|_| RecorderError::failed("published blob exceeds the RIFF size limit"))?;
+            if size > 9_007_199_254_740_991 {
+                return Err(BlobError::failed(
+                    "blob size exceeds the shared metadata integer limit",
+                ));
+            }
             let metadata_path = self.staged_directory.join(METADATA_FILE);
-            let metadata = serde_json::to_vec(&BlobMetadata {
-                content_type: BLOB_CONTENT_TYPE,
-                size,
-            })
-            .map_err(|error| RecorderError::failed(format!("serialize blob metadata: {error}")))?;
+            let content_type = normalize_content_type(content_type);
+            let metadata = serde_json::to_vec(&BlobMetadata { content_type, size })
+                .map_err(|error| BlobError::failed(format!("serialize blob metadata: {error}")))?;
             std::fs::write(&metadata_path, metadata).map_err(|error| {
-                RecorderError::failed(format!(
+                BlobError::failed(format!(
                     "write blob metadata {}: {error}",
                     metadata_path.display()
                 ))
@@ -267,7 +319,7 @@ impl StagedBlob {
             sync_file(&metadata_path)?;
             sync_directory(&self.staged_directory)?;
             std::fs::rename(&self.staged_directory, &self.final_directory).map_err(|error| {
-                RecorderError::failed(format!(
+                BlobError::failed(format!(
                     "publish blob {}: {error}",
                     self.final_directory.display()
                 ))
@@ -286,7 +338,7 @@ impl StagedBlob {
                     &self.staged_directory
                 };
                 if let Err(cleanup_error) = std::fs::remove_dir_all(cleanup_target) {
-                    return Err(RecorderError::failed(format!(
+                    return Err(BlobError::failed(format!(
                         "{error}; cleanup blob {}: {cleanup_error}",
                         cleanup_target.display()
                     )));
@@ -314,30 +366,25 @@ impl StagedBlob {
     }
 }
 
-/// Delete every staged native capture left behind by a previous launch.
+/// Delete abandoned native staging across every application dataset at startup.
 ///
-/// A recording that was still capturing when the host process died left a
-/// partial WAV here. It is not a blob and never will be one: no id was
-/// published, no row references it, and nothing can say whether it holds a whole
-/// sentence or half a word. So this deletes, and only deletes. It does not
-/// promote a partial file to a blob, repair it, announce it, or write a manifest
-/// naming it, because any of those would make a recording surviving a host crash
-/// a promise the host would then have to keep.
-///
-/// Safe to run because `.staging/rust` has exactly one writer and Epicenter is
-/// single-instance, so the only process that could own a live staging directory
-/// here is this one, which has not started a recording yet.
-///
-/// That rests on `tauri_plugin_single_instance`, whose macOS socket handshake is
-/// racy enough that two processes launched in the same instant can both survive
-/// it. The window it opens is not reachable: a surviving second process runs
-/// this sweep during its own startup, milliseconds after the first, and the
-/// first cannot have staged a recording in that time because staging begins at
-/// `start_recording`, which needs a person. Probing process liveness through the
-/// pid embedded in each staged directory name would close it, and is not worth
-/// the platform-specific code for a race that cannot lose audio.
+/// The single-instance host calls this before admitting any native writers.
+/// Staging is incomplete data; it is deleted, never promoted into a blob.
+/// Bun owns a separate staging subtree, which this sweep leaves untouched.
 pub fn delete_stale_staging(app: &AppHandle) {
-    delete_partition_staging(&app_blobs_root(app));
+    delete_apps_staging(&app.state::<crate::app_data::DesktopPaths>().data_dir);
+}
+
+fn delete_apps_staging(data_dir: &Path) {
+    if let Ok(apps) = std::fs::read_dir(data_dir.join("apps")) {
+        for app in apps.flatten() {
+            if app.file_type().is_ok_and(|kind| kind.is_dir())
+                && app.file_name().to_str().is_some_and(is_app_id)
+            {
+                delete_partition_staging(&app.path());
+            }
+        }
+    }
 }
 
 fn delete_partition_staging(root: &Path) {
@@ -364,50 +411,47 @@ pub(crate) fn delete_staging_root(root: &Path) {
     let staging_root = root.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
     match std::fs::remove_dir_all(&staging_root) {
         Ok(()) => info!(
-            "Deleted stale recorder staging at {}",
+            "Deleted stale native blob staging at {}",
             staging_root.display()
         ),
         // Nothing to sweep is the ordinary case: a clean exit leaves none.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => warn!(
-            "Failed to delete stale recorder staging at {}: {error}",
+            "Failed to delete stale native blob staging at {}: {error}",
             staging_root.display()
         ),
     }
 }
 
-/// Decode one canonical local blob to the PCM shape local transcription uses.
-pub fn read_blob_samples(app: &AppHandle, id: &str, scope: &BlobScope) -> Result<Vec<f32>, RecorderError> {
-    let path = blob_data_path(app, id, scope)?;
-    let bytes = std::fs::read(&path)
-        .map_err(|error| RecorderError::failed(format!("read blob {}: {error}", path.display())))?;
-    decode_to_pcm16k_mono(&bytes)
-        .map_err(|error| RecorderError::failed(format!("decode blob {}: {error}", path.display())))
+/// Read a published blob in the captured app dataset.
+pub fn read_blob_bytes(
+    app: &AppHandle,
+    id: &str,
+    destination: &BlobDestination,
+) -> Result<Vec<u8>, BlobError> {
+    let path = blob_data_path(app, id, destination)?;
+    std::fs::read(&path)
+        .map_err(|error| BlobError::failed(format!("read blob {}: {error}", path.display())))
 }
 
-/// Force a file's contents and metadata to disk, by path.
-///
-/// By path rather than by handle because the writer that produced the file has
-/// already been consumed by the time it is published: `hound`'s `finalize` takes
-/// the writer by value. Opening read-only is enough, since `fsync` acts on the
-/// file the descriptor names rather than on the descriptor's access mode.
-fn sync_file(path: &Path) -> Result<(), RecorderError> {
+/// Sync the completed data or metadata after its writer has closed it.
+fn sync_file(path: &Path) -> Result<(), BlobError> {
     File::open(path)
         .and_then(|file| file.sync_all())
-        .map_err(|error| RecorderError::failed(format!("sync {}: {error}", path.display())))
+        .map_err(|error| BlobError::failed(format!("sync {}: {error}", path.display())))
 }
 
 #[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), RecorderError> {
+fn sync_directory(path: &Path) -> Result<(), BlobError> {
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| {
-            RecorderError::failed(format!("sync blob directory {}: {error}", path.display()))
+            BlobError::failed(format!("sync blob directory {}: {error}", path.display()))
         })
 }
 
 #[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> Result<(), RecorderError> {
+fn sync_directory(_path: &Path) -> Result<(), BlobError> {
     Ok(())
 }
 
@@ -418,10 +462,181 @@ mod tests {
 
     const ID: &str = "blob_aaaaaaaaaaaaaaaaaaaaa";
 
+    /// The smoke runner consumes these actual native-produced metadata/body
+    /// fixtures through createBunBlobStore, rather than recreating the codec.
+    #[test]
+    fn native_publication_metadata_contract() {
+        let long = "x".repeat(256);
+        let unicode = "😀".repeat(128);
+        for (input, expected) in [
+            ("audio/wav", "audio/wav"),
+            ("  Text/Plain  ", "Text/Plain"),
+            ("\u{feff}audio/wav\u{feff}", "audio/wav"),
+            ("", "application/octet-stream"),
+            ("audio/\nwave", "application/octet-stream"),
+            (long.as_str(), "application/octet-stream"),
+            (unicode.as_str(), "application/octet-stream"),
+        ] {
+            let root = tempfile::tempdir().expect("blob root");
+            let staged = StagedBlob::stage(root.path().to_path_buf(), ID).expect("stage");
+            std::fs::write(staged.data_path(), b"native bytes").expect("write");
+            assert_eq!(staged.publish(input).expect("publish"), 12);
+            let metadata = std::fs::read_to_string(root.path().join(ID).join(METADATA_FILE))
+                .expect("metadata");
+            let parsed: serde_json::Value = serde_json::from_str(&metadata).expect("JSON");
+            assert_eq!(parsed["contentType"], expected);
+            let data = std::fs::read_to_string(root.path().join(ID).join(DATA_FILE)).expect("body");
+            println!(
+                "BLOB_CONTRACT {}",
+                serde_json::json!({ "id": ID, "metadata": metadata, "data": data })
+            );
+        }
+    }
+
+    #[test]
+    fn destinations_keep_applications_and_account_partitions_separate() {
+        let data = tempfile::tempdir().unwrap();
+        let mut roots = std::collections::HashSet::new();
+        for app_id in ["so.epicenter.whispering", "so.epicenter.notes"] {
+            for scope in [
+                BlobScope::Local,
+                BlobScope::Account {
+                    authority_id: "authority-a".into(),
+                    principal_id: "alice".into(),
+                },
+                BlobScope::Account {
+                    authority_id: "authority-b".into(),
+                    principal_id: "alice".into(),
+                },
+                BlobScope::Account {
+                    authority_id: "authority-a".into(),
+                    principal_id: "bob".into(),
+                },
+            ] {
+                let destination = BlobDestination {
+                    app_id: app_id.into(),
+                    scope,
+                };
+                let root = blobs_directory(data.path(), &destination).unwrap();
+                assert!(roots.insert(root.clone()));
+                let bytes = serde_json::to_vec(&destination).unwrap();
+                publish_bytes(&root, ID, &bytes).unwrap();
+                assert_eq!(std::fs::read(root.join(ID).join(DATA_FILE)).unwrap(), bytes);
+                let staged = StagedBlob::stage(root.clone(), "blob_bbbbbbbbbbbbbbbbbbbbb").unwrap();
+                std::fs::write(staged.data_path(), b"partial").unwrap();
+                let bun = root.join(".staging/bun");
+                std::fs::create_dir_all(&bun).unwrap();
+                std::fs::write(bun.join("retained"), b"bun-owned").unwrap();
+            }
+        }
+        delete_apps_staging(data.path());
+        for root in roots {
+            assert!(!root.join(".staging/rust").exists());
+            assert!(root.join(ID).join(DATA_FILE).exists());
+            assert!(root.join(".staging/bun/retained").exists());
+        }
+    }
+
+    #[test]
+    fn destination_rejects_invalid_app_ids_and_partition_traversal() {
+        let data = tempfile::tempdir().unwrap();
+        for app_id in [
+            "",
+            "app",
+            "../so.app",
+            "so/app",
+            "so.App",
+            ".so.app",
+            "so.app.",
+            "so..app",
+            "so.-app",
+            "so.app-",
+            "so.app_",
+            "so.é",
+        ] {
+            assert!(
+                blobs_directory(
+                    data.path(),
+                    &BlobDestination {
+                        app_id: app_id.into(),
+                        scope: BlobScope::Local
+                    }
+                )
+                .is_err(),
+                "accepted {app_id}"
+            );
+        }
+        for app_id in ["so.epicenter.whispering", "a.b", "a-1.b2", "1.2"] {
+            assert!(is_app_id(app_id), "rejected {app_id}");
+        }
+        for segment in ["", ".", "..", "a/b", "a\\b"] {
+            for scope in [
+                BlobScope::Account {
+                    authority_id: segment.into(),
+                    principal_id: "valid".into(),
+                },
+                BlobScope::Account {
+                    authority_id: "valid".into(),
+                    principal_id: segment.into(),
+                },
+            ] {
+                assert!(blobs_directory(
+                    data.path(),
+                    &BlobDestination {
+                        app_id: "so.app".into(),
+                        scope
+                    }
+                )
+                .is_err());
+            }
+        }
+        assert!(!data.path().join("apps").exists());
+    }
+
+    #[test]
+    fn publication_uses_the_content_type_and_supports_sizes_beyond_riff() {
+        let root = tempfile::tempdir().unwrap();
+        let staged = StagedBlob::stage(root.path().into(), ID).unwrap();
+        let size = u64::from(u32::MAX) + 1;
+        // A sparse file exercises the storage size contract without writing 4 GiB.
+        File::create(staged.data_path())
+            .unwrap()
+            .set_len(size)
+            .unwrap();
+        assert_eq!(staged.publish("application/octet-stream").unwrap(), size);
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.path().join(ID).join(METADATA_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(metadata["contentType"], "application/octet-stream");
+        assert_eq!(metadata["size"], size);
+    }
+
+    #[test]
+    fn a_writer_staged_before_another_publication_cannot_replace_it() {
+        let root = tempfile::tempdir().unwrap();
+        let first = StagedBlob::stage(root.path().into(), ID).unwrap();
+        let second = StagedBlob::stage(root.path().into(), ID).unwrap();
+        std::fs::write(first.data_path(), b"first").unwrap();
+        std::fs::write(second.data_path(), b"second").unwrap();
+        let second_staging = second.staged_directory.clone();
+        first.publish("text/plain").unwrap();
+        assert!(second.publish("text/plain").is_err());
+        assert_eq!(
+            std::fs::read(root.path().join(ID).join(DATA_FILE)).unwrap(),
+            b"first"
+        );
+        assert!(!second_staging.exists());
+    }
+
     #[test]
     fn startup_sweeps_local_and_account_staging_without_deleting_published_blobs() {
         let root = tempfile::tempdir().expect("app root");
-        for partition in ["local", "accounts/authority-a/principal", "accounts/authority-b/principal"] {
+        for partition in [
+            "local",
+            "accounts/authority-a/principal",
+            "accounts/authority-b/principal",
+        ] {
             let blobs = root.path().join(partition).join(BLOBS_DIRECTORY);
             let staging = blobs.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
             std::fs::create_dir_all(&staging).unwrap();
@@ -431,20 +646,30 @@ mod tests {
 
         delete_partition_staging(root.path());
 
-        for partition in ["local", "accounts/authority-a/principal", "accounts/authority-b/principal"] {
+        for partition in [
+            "local",
+            "accounts/authority-a/principal",
+            "accounts/authority-b/principal",
+        ] {
             let blobs = root.path().join(partition).join(BLOBS_DIRECTORY);
-            assert!(!blobs.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY).exists());
-            assert_eq!(std::fs::read(blobs.join(ID).join(DATA_FILE)).unwrap(), b"published");
+            assert!(!blobs
+                .join(STAGING_DIRECTORY)
+                .join(RUST_STAGING_DIRECTORY)
+                .exists());
+            assert_eq!(
+                std::fs::read(blobs.join(ID).join(DATA_FILE)).unwrap(),
+                b"published"
+            );
         }
     }
 
     /// Stage `bytes` under `id` and publish them, returning the published size.
-    fn publish_bytes(root: &Path, id: &str, bytes: &[u8]) -> Result<u32, RecorderError> {
+    fn publish_bytes(root: &Path, id: &str, bytes: &[u8]) -> Result<u64, BlobError> {
         let staged = StagedBlob::stage(root.to_path_buf(), id)?;
         let mut file = File::create(staged.data_path()).expect("create the staged data file");
         file.write_all(bytes).expect("write the staged data file");
         drop(file);
-        staged.publish()
+        staged.publish("audio/wav")
     }
 
     /// A blob's metadata must describe the bytes actually published, because it

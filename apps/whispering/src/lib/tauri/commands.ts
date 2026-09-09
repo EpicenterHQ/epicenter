@@ -26,19 +26,7 @@
 import { invoke as rawInvoke } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { events, commands as gen } from './bindings.gen';
-import type { BlobScope } from './bindings.gen';
-import type { AccountIdentity } from '@epicenter/principal';
-
-/** Convert the app handle's nullable identity at the native IPC boundary. */
-export function blobScope(account: AccountIdentity | null): BlobScope {
-	return account === null
-		? { kind: 'local' }
-		: {
-				kind: 'account',
-				authorityId: account.authorityId,
-				principalId: account.principalId,
-			};
-}
+import type { BlobDestination } from '@epicenter/blobs/native';
 
 // Mirrors the runtime shape tauri-specta emits with `ErrorHandlingMode::Result`.
 type SpectaResult<T, E> =
@@ -100,13 +88,13 @@ const wrappedGen = Object.fromEntries(
  */
 async function encodeRecordingForUpload(
 	audioBlobId: string,
-	scope: BlobScope,
+	destination: BlobDestination,
 ): Promise<Result<ArrayBuffer, string>> {
 	try {
 		return Ok(
 			await rawInvoke<ArrayBuffer>('encode_recording_for_upload', {
 				audioBlobId,
-				scope,
+				destination,
 			}),
 		);
 	} catch (e) {

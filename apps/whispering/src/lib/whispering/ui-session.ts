@@ -58,6 +58,7 @@ export function createWhisperingUiSession({
 		recordings: createRecordings(core),
 		recipes: core.recipes,
 		blobs: core.blobs,
+		recording: core.recording,
 		syncStatus: core.syncStatus,
 	};
 	const queryRuntime = createWhisperingQueryRuntime();

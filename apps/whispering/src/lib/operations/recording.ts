@@ -15,7 +15,7 @@ import { report } from '$lib/report';
 import {
 	RecorderError,
 	type RecordingEndedReason,
-} from '$lib/services/recorder/contract';
+} from '@epicenter/recorder/recording';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
@@ -152,7 +152,7 @@ export async function startManualRecording(
 	recordingMedia.pause(app);
 
 	const { data: recording, error } = await manualRecorder.startRecording(
-		app.account,
+		app.recording,
 	);
 
 	if (error) {
@@ -182,7 +182,7 @@ export async function stopManualRecording(app: WhisperingApp) {
 	if (!app.recordingEnabled) return;
 	return trackRecordingWork(async () => {
 		const { data: source, error } = await manualRecorder.stopRecording(
-			app.account,
+			app.recording,
 		);
 
 		if (error) {
@@ -281,7 +281,7 @@ export async function cancelRecording(app: WhisperingApp) {
 		// toasting on an unrelated press.
 
 		// A manual recording is the live capture: discard it.
-		const { data, error } = await manualRecorder.cancelRecording(app.account);
+		const { data, error } = await manualRecorder.cancelRecording(app.recording);
 		if (error) {
 			report.error({ title: 'Failed to cancel recording', cause: error });
 			return;

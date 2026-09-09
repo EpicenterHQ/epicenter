@@ -7,7 +7,7 @@
  */
 
 import type { Result } from 'wellcrafted/result';
-import type { RecordingEndedReason } from '$lib/services/recorder/contract';
+import type { RecordingEndedReason } from '@epicenter/recorder/recording';
 import type {
 	commands,
 	DeviceAcquisition,
@@ -92,7 +92,7 @@ type _SharedContracts = Expect<
 // does not have to enumerate devices first, because the host reports the
 // microphone it actually opened.
 type _StartRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.startRecording>, [string | null, import('./bindings.gen').BlobScope]>
+	Equal<Parameters<typeof commands.startRecording>, [string | null, import('./bindings.gen').BlobDestination]>
 >;
 
 type _StartRecording = Expect<
@@ -110,7 +110,7 @@ type _HostRecordingShape = Expect<
 		HostRecording,
 		{
 			audioBlobId: string;
-			scope: import('./bindings.gen').BlobScope;
+			destination: import('./bindings.gen').BlobDestination;
 			device: DeviceAcquisition;
 			endedReason: EndedReason | null;
 		}
@@ -218,7 +218,7 @@ type _TranscribeRecording = Expect<
 type _TranscribeRecordingArgs = Expect<
 	Equal<
 		Parameters<typeof commands.transcribeRecording>,
-		[string, TranscriptionHints, import('./bindings.gen').BlobScope]
+		[string, TranscriptionHints, import('./bindings.gen').BlobDestination]
 	>
 >;
 
@@ -282,3 +282,7 @@ type _TranscriptionHintsShape = Expect<
 		}
 	>
 >;
+
+/** Shared native capture wire contract follows the generated Rust shape. */
+type _PortableNativeRecording = Expect<Equal<HostRecording, import('@epicenter/recorder/desktop').NativeRecording>>;
+type _PortableBlobDestination = Expect<Equal<import('./bindings.gen').BlobDestination, import('@epicenter/blobs/native').BlobDestination>>;

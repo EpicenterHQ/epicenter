@@ -20,6 +20,10 @@ import {
 } from '@epicenter/data/definition';
 import type { SqliteDatabase } from '@epicenter/sqlite';
 import type { ScopedSqlite } from '@epicenter/device/owner';
+import type {
+	Recording,
+	RecordingService,
+} from '@epicenter/recorder/recording';
 import * as Y from '@y/y';
 import { customAlphabet } from 'nanoid';
 import { defineErrors } from 'wellcrafted/error';
@@ -442,6 +446,86 @@ export function createStoreOverPort<
 	let stopHideFlush: (() => void) | undefined;
 	const operations = new Set<Promise<unknown>>();
 	const blobSources = new Set<BlobSource>();
+	let closeRecording: (() => Promise<void>) | undefined;
+
+	/** Capture shares this document's admission gate and drains before storage. */
+	function createRecording(backing: RecordingService): RecordingService {
+		const sessions = new Map<BlobId, { raw: Recording; public: Recording }>();
+		function hold(raw: Recording): Recording {
+			const existing = sessions.get(raw.audioBlobId);
+			if (existing) return existing.public;
+			const session: Recording = Object.freeze({
+				audioBlobId: raw.audioBlobId,
+				account: raw.account,
+				device: raw.device,
+				get endedReason() {
+					return raw.endedReason;
+				},
+				stop: () =>
+					runOperation(async () => {
+						try {
+							return await raw.stop();
+						} finally {
+							sessions.delete(raw.audioBlobId);
+						}
+					}),
+				cancel: () =>
+					runOperation(async () => {
+						try {
+							return await raw.cancel();
+						} finally {
+							sessions.delete(raw.audioBlobId);
+						}
+					}),
+				onLevel(handler) {
+					assertUsable();
+					return raw.onLevel(handler);
+				},
+				onEnded(handler) {
+					assertUsable();
+					return raw.onEnded(handler);
+				},
+			});
+			sessions.set(raw.audioBlobId, { raw, public: session });
+			return session;
+		}
+		closeRecording = async () => {
+			// Recover even when this document never asked for current(): a native
+			// capture may have survived a reload. Never cancel a foreign destination.
+			if (sessions.size === 0) {
+				const current = await backing.current();
+				if (current.error && current.error.name !== 'AlreadyRecording')
+					throw current.error;
+				if (current.data) hold(current.data);
+			}
+			try {
+				await Promise.all(
+					[...sessions.values()].map(async ({ raw }) => {
+						const result = await raw.cancel();
+						if (result.error && result.error.name !== 'NoActiveRecording')
+							throw result.error;
+					}),
+				);
+			} finally {
+				sessions.clear();
+			}
+		};
+		return Object.freeze({
+			current: () =>
+				runOperation(async () => {
+					const result = await backing.current();
+					return result.error
+						? result
+						: Ok(result.data === null ? null : hold(result.data));
+				}),
+			start: (params) =>
+				runOperation(async () => {
+					const result = await backing.start(params);
+					return result.error ? result : Ok(hold(result.data));
+				}),
+			enumerateDevices: () => runOperation(() => backing.enumerateDevices()),
+		} satisfies RecordingService);
+	}
 
 	function runOperation<T>(operation: () => Promise<T>): Promise<T> {
 		assertUsable();
@@ -1060,7 +1144,11 @@ export function createStoreOverPort<
 						await acquisition;
 						await flushing;
 					} finally {
-						await Promise.allSettled(operations);
+						try {
+							await Promise.allSettled(operations);
+						} finally {
+							await closeRecording?.();
+						}
 					}
 				} finally {
 					try {
@@ -1133,6 +1221,7 @@ export function createStoreOverPort<
 		store,
 		createBlobs,
 		createSqlite,
+		createRecording,
 		close,
 		ready,
 		view,

@@ -19,7 +19,8 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
 		"@epicenter/device": "workspace:*",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/recorder": "workspace:*"
 	},
 	"devDependencies": {
 		"@epicenter/principal": "workspace:*",

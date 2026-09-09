@@ -4,6 +4,8 @@ import { isAppId } from '@epicenter/constants/app-id';
 import { openAppData } from '@epicenter/data/browser';
 import type { DataDefinition } from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import { createBrowserRecording } from '@epicenter/recorder/browser';
+import type { RecordingFactory } from '@epicenter/recorder/recording';
 
 export type App<TDefinition extends DataDefinition> = ReturnType<
 	typeof openAppData<TDefinition>
@@ -33,6 +35,7 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 	definition,
 	sqlite,
 	blobs,
+	recording = createBrowserRecording,
 }: {
 	appId: string;
 	definition: TDefinition;
@@ -40,6 +43,8 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 	sqlite: DeviceSqliteOwner;
 	/** Platform-owned blob capabilities for this app's storage root. */
 	blobs: AppBlobFactory;
+	/** Capture binding. Constructing it acquires no microphone or model. */
+	recording?: RecordingFactory;
 }): Epicenter<TDefinition> {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
@@ -63,6 +68,7 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 			account,
 			blobs: blobComposition,
 			sqlite,
+			recording: recording(appId, account),
 		});
 	}
 	return Object.freeze({
