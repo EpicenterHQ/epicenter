@@ -57,8 +57,8 @@ Use a factory only when construction inputs, isolated mutable state, resource
 lifetime, or teardown earn one. Browser and CPAL recorder factories qualify
 because they create recording sessions that own stop, cancel, subscription, and
 teardown state. Those factories now live in `@epicenter/recorder`; Whispering
-reaches them through `app.recording` and retains only its UI and workflow
-coordination.
+binds `openedApp.recording` to one UI session's `app.recording` workflow.
+It owns reactive capture state; the public stop saves a row and runs transcription.
 
 ## Build-Time Platform Injection
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { useSidebar } from '@epicenter/ui/sidebar';
 	import MoonIcon from '@lucide/svelte/icons/moon';
@@ -98,7 +100,7 @@
 					{auth}
 					syncNoun="recordings"
 					onRemoveLocalData={removeLocalData}
-					disabledReason={recordingActive.current
+					disabledReason={recordingActive(app)
 						? 'Stop recording to change your account'
 						: undefined}
 				/>

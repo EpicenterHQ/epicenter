@@ -187,7 +187,7 @@
 					your audio until you choose a provider.
 				</Empty.Description>
 				<Empty.Content class="flex flex-col gap-2">
-					<Button onclick={openConnection} disabled={recordingActive.current}>Sign in to Epicenter</Button>
+					<Button onclick={openConnection} disabled={recordingActive(app)}>Sign in to Epicenter</Button>
 					<Button
 						variant="outline"
 						onclick={() => {

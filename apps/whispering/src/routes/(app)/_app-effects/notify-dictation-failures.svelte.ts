@@ -29,7 +29,7 @@ export function notifyDictationFailures(): void {
 		// The outcome track is the failure source: a VAD utterance fails while the
 		// session keeps listening, so the failure never shows on the pill and the
 		// notification is its only proactive surface.
-		const { outcome } = dictationLifecycle.current;
+		const outcome = dictationLifecycle.outcome;
 		if (outcome.kind !== 'failed') return;
 		if (outcome.error === lastNotifiedError) return;
 		lastNotifiedError = outcome.error;

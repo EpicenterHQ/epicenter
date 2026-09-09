@@ -26,12 +26,9 @@ import { expect, test } from 'bun:test';
 
 import { createEpicenter } from '@epicenter/app';
 import { createBrowserAppBlobs } from '@epicenter/app/browser';
-import type { DeviceSqliteOwner } from '@epicenter/device/owner';
-import type { AppBlobs } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import { BlobRemoteError, generateBlobId, type BlobStore } from '@epicenter/blobs';
-import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { APPS } from '@epicenter/constants/apps';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
@@ -50,49 +47,8 @@ const testSqlite: DeviceSqliteOwner = {
 	}),
 };
 const testBlobs = createBrowserAppBlobs();
-import { createWhisperingApp } from './app';
 
-const local: BlobStore = {
-	async copy() {
-		return Ok(undefined);
-	},
-	async put() {
-		return Ok(undefined);
-	},
-	async get() {
-		return Ok(new Blob());
-	},
-	async stat() {
-		return Ok({ size: 0, contentType: 'application/octet-stream' });
-	},
-	statMany(ids) {
-		return Promise.all(ids.map((id) => local.stat(id)));
-	},
-	async delete() {
-		return Ok(undefined);
-	},
-};
-
-function appBlobs(): AppBlobs {
-	const sources = createBrowserBlobSources(local);
-	return {
-		remote: {
-			upload: async () => BlobRemoteError.RemoteNotConfigured(),
-			download: async () => BlobRemoteError.RemoteNotConfigured(),
-			purge: async () => BlobRemoteError.RemoteNotConfigured(),
-		},
-		async add(blob) {
-			const id = generateBlobId();
-			const result = await local.put(id, blob);
-			return result.error === null ? Ok(id) : result;
-		},
-		get: (id) => local.get(id),
-		stat: (id) => local.stat(id),
-		statMany: (ids) => local.statMany(ids),
-		open: (id) => sources.open(id),
-		removeLocal: (id) => local.delete(id),
-	};
-}
+import { createWhisperingDomains } from './app';
 
 /**
  * Start each test from empty storage. IndexedDB outlives a test in this
@@ -246,11 +202,10 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 	await resetStorage();
 	{
 		const account = announcingAccount('alice');
-		const data = await openWhispering(account);
-		const app = createWhisperingApp({
-			data,
+		const openedApp = await openWhispering(account);
+		const app = createWhisperingDomains({
+			openedApp,
 			account,
-			blobs: appBlobs(),
 		});
 
 		// Chosen by the application, applied by a read, never stored.
@@ -269,7 +224,7 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		await Bun.sleep(10);
 
 		app[Symbol.dispose]();
-		await data.close();
+		await openedApp.close();
 	}
 
 	// The same account, opened again on the same device: settings live on the
@@ -277,31 +232,29 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 	// rather than a second document being minted underneath it. It is also the
 	// close above being real: a lock still held would answer `AlreadyOpen`.
 	const account = announcingAccount('alice');
-	const data = await openWhispering(account);
-	const reopened = createWhisperingApp({
-		data,
+	const openedApp = await openWhispering(account);
+	const reopened = createWhisperingDomains({
+		openedApp,
 		account,
-		blobs: appBlobs(),
 	});
 
 	expect(reopened.settings.get('recordingAutoUpload')).toBe(true);
 
 	reopened[Symbol.dispose]();
-	await data.close();
+	await openedApp.close();
 });
 
 test('the domains stop reading the store once they are disposed', async () => {
-	// Disposal is on the value `createWhisperingApp` returns and not on
+	// Disposal is on the value `createWhisperingDomains` returns and not on
 	// `WhisperingApp`, so the session that built the domains is the only thing
 	// that can end them: a component reading the app through context has no
 	// `[Symbol.dispose]` to reach for.
 	await resetStorage();
 	const account = announcingAccount('alice');
-	const data = await openWhispering(account);
-	const app = createWhisperingApp({
-		data,
+	const openedApp = await openWhispering(account);
+	const app = createWhisperingDomains({
+		openedApp,
 		account,
-		blobs: appBlobs(),
 	});
 
 	app[Symbol.dispose]();
@@ -309,9 +262,9 @@ test('the domains stop reading the store once they are disposed', async () => {
 	app.settings.subscribe(() => {
 		notifications += 1;
 	});
-	data.kv.update({ recordingAutoUpload: true });
+	openedApp.kv.update({ recordingAutoUpload: true });
 	await Bun.sleep(10);
 
 	expect(notifications).toBe(0);
-	await data.close();
+	await openedApp.close();
 });

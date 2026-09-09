@@ -1,30 +1,50 @@
 import type { BlobId } from '@epicenter/blobs';
 import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
+import type {
+	Recording,
+	RecordingService,
+} from '@epicenter/recorder/recording';
+import {
+	RecorderError,
+	type RecordingEndedReason,
+} from '@epicenter/recorder/recording';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
+import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
 import { reportRecordingMicLevel } from '#platform/recording-mic-level';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
-import type { CaptureSurface } from '$lib/constants/audio';
+import type {
+	CaptureSurface,
+	WhisperingRecordingState,
+} from '$lib/constants/audio';
 import { logAnalyticsEvent } from '$lib/operations/analytics';
 import { recordingMedia } from '$lib/operations/media';
 import { processRecordingPipeline } from '$lib/operations/pipeline';
 import { playSoundIfEnabled } from '$lib/operations/sound';
 import { prewarmOnDeviceModel } from '$lib/operations/transcribe';
 import { report } from '$lib/report';
-import {
-	RecorderError,
-	type RecordingEndedReason,
-} from '@epicenter/recorder/recording';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
-import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import { trackRecordingWork } from '$lib/state/recording-active.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 const log = createLogger('whispering/recording');
+
+const RecordingDeviceError = defineErrors({
+	EnumerateDevicesFailed: ({ cause }: { cause: unknown }) => ({
+		message: `Failed to enumerate devices: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+});
+
+const recordingKeys = defineKeys({
+	devices: ['recorder', 'devices'],
+});
 
 /**
  * Surface the outcome of acquiring a recording device. A clean success is
@@ -86,136 +106,194 @@ const ENDED_NOTICE: Record<RecordingEndedReason, string> = {
 		"Epicenter couldn't keep writing the recording to disk, so it stopped.",
 };
 
-/**
- * React to a capture ending without anyone asking: tell the person why, then
- * claim what it recorded.
- *
- * Capture death is the only ending nobody asked for, so it is the only one that
- * needs telling. What it does *not* need is a recovery path of its own: the
- * recording is still held, so it goes down the ordinary stop-and-transcribe
- * route and lands in the history like any other. The alternative, throwing the
- * audio away and reporting a loss, was the previous behavior and is the loss
- * this whole design exists to stop.
- *
- * The stop can still fail, and then `stopManualRecording` reports the loss on
- * its own terms. That is why the notice above describes the capture ending and
- * says nothing about what became of the audio: two messages, one per fact, each
- * sent when it is actually known.
- *
- * Session-scoped rather than registered at import, because claiming the audio
- * means running the pipeline, which needs the app. One handler replaces the
- * last, so a new UI session re-registering is not a leak.
- */
-export function watchManualRecordingEnded(app: WhisperingApp): void {
-	manualRecorder.onEnded((reason) => {
-		if (!app.recordingEnabled) return;
-		const { error } = RecorderError.RecorderFailed({
-			cause: ENDED_NOTICE[reason],
-		});
-		report.error({ title: 'Recording stopped', cause: error });
-		void stopManualRecording(app);
-	});
-}
-
-function isVadRecordingActive() {
-	return (
-		vadRecorder.state === 'LISTENING' || vadRecorder.state === 'SPEECH_DETECTED'
-	);
-}
-
-/**
- * Start a manual recording and return the id of the recording it started, or
- * `null` when it did not start one (it failed, or a recording was already live so
- * this call was a no-op). Push-to-talk remembers that id to later stop only the
- * exact recording it owns; the button and toggle paths ignore the return.
- */
-export async function startManualRecording(
+/** One UI session's saved-recording workflow over its framework capture service. */
+export function createWhisperingRecording(
 	app: WhisperingApp,
-): Promise<BlobId | null> {
-	if (!app.recordingEnabled) return null;
-	app.settings.set('recordingTrigger', 'manual');
-	// A new dictation is starting: clear any lingering failed/delivered state so
-	// the pill follows this attempt, not the last one.
-	dictationLifecycle.reset();
-	// A capture just started, so leave the import overlay if it was open: the
-	// surface should follow the live recording, not stay parked on import.
-	captureSurface.dismissImport();
+	service: RecordingService,
+) {
+	let disposed = false;
+	let currentCapture = $state.raw<Recording | null>(null);
+	let pendingStart = $state.raw<Promise<void> | null>(null);
+	let stopEndedListener: (() => void) | null = null;
 
-	// Kick off the local model load now, concurrently with bringing up the
-	// recorder, so the ~1 s cold load overlaps the speech you're about to
-	// record rather than being paid after you stop. No-op for cloud/web.
-	prewarmOnDeviceModel(app);
-
-	// Manual owns playback for the whole recording; drop any leftover VAD
-	// per-utterance resume so it cannot fire mid-recording.
-	cancelPendingVadResume();
-	recordingMedia.pause(app);
-
-	const { data: recording, error } = await manualRecorder.startRecording(
-		app.recording,
-	);
-
-	if (error) {
-		void recordingMedia.resume();
-		// The recording never started, so there is no blob to recover: the
-		// loudest tier. The pill glances it and the OS notification always fires, so
-		// there is no toast.
-		dictationLifecycle.markFailed({ tier: 'silent-loss', error });
-		return null;
+	function hold(recording: Recording) {
+		stopEndedListener?.();
+		currentCapture = recording;
+		// The one ending a live caller cannot infer from its own calls: the
+		// capture died. Everything else that clears `currentCapture` is a consequence
+		// of something this module asked for.
+		//
+		// The recording is deliberately *not* released here. Its capture is over
+		// but it still holds what it recorded, and dropping it would strand that
+		// audio in a host slot nothing could ever claim. Resolving it is the
+		// handler's job, through the ordinary stop or cancel.
+		//
+		// One subscription covers every way a capture can end, including one that
+		// already had when this recording was handed over: `onEnded` announces
+		// that too, so nothing here has to ask which way it found out.
+		stopEndedListener = recording.onEnded((reason) => {
+			if (disposed || !app.recordingEnabled) return;
+			const { error } = RecorderError.RecorderFailed({
+				cause: ENDED_NOTICE[reason],
+			});
+			report.error({ title: 'Recording stopped', cause: error });
+			void stop();
+		});
 	}
 
-	// Feed the pill's meter the live mic level. The browser recorder taps its
-	// MediaStream; the native one forwards the level the host measures.
-	recording.onLevel(reportRecordingMicLevel);
+	function release() {
+		stopEndedListener?.();
+		stopEndedListener = null;
+		currentCapture = null;
+	}
 
-	// The pill shows the live recording; only a device fallback needs a notice.
-	reportDeviceAcquisitionOutcome(recording.device, (deviceId) => {
-		manualRecorderConfig.deviceId = deviceId;
-	});
-
-	log.info('Recording started');
-	void playSoundIfEnabled(app, 'manual-start');
-	return manualRecorder.currentAudioBlobId;
-}
-
-export async function stopManualRecording(app: WhisperingApp) {
-	if (!app.recordingEnabled) return;
-	return trackRecordingWork(async () => {
-		const { data: source, error } = await manualRecorder.stopRecording(
-			app.recording,
+	// Recover once per UI session. Failed recovery can be retried.
+	let recovery: Promise<Result<void, RecorderError>> | null = null;
+	function recover(): Promise<Result<void, RecorderError>> {
+		if (disposed) return Promise.resolve(RecorderError.NoActiveRecording());
+		recovery ??= service.current().then(
+			(result) => {
+				if (disposed) return RecorderError.NoActiveRecording();
+				if (result.error) {
+					recovery = null;
+					return Err(result.error);
+				}
+				if (result.data) hold(result.data);
+				return Ok(undefined);
+			},
+			(cause) => {
+				recovery = null;
+				throw cause;
+			},
 		);
+		return recovery;
+	}
+
+	async function startCapture() {
+		if (disposed) return RecorderError.NoActiveRecording();
+		if (pendingStart !== null || currentCapture)
+			return RecorderError.AlreadyRecording();
+		const completion = Promise.withResolvers<void>();
+		pendingStart = completion.promise;
+		try {
+			// Recovery may rehydrate a host recording that outlived a reload,
+			// so the `currentCapture` check has to come after it too.
+			const { error: recoveryError } = await recover();
+			if (recoveryError) return Err(recoveryError);
+			if (disposed) return RecorderError.NoActiveRecording();
+			if (currentCapture) return RecorderError.AlreadyRecording();
+
+			const params = manualRecorderConfig.resolveStartParams();
+			const { data: recording, error: startError } =
+				await service.start(params);
+			if (startError) return Err(startError);
+
+			if (disposed) return RecorderError.NoActiveRecording();
+			hold(recording);
+			return Ok(recording);
+		} finally {
+			pendingStart = null;
+			completion.resolve();
+		}
+	}
+
+	async function stopCapture() {
+		if (pendingStart !== null) await pendingStart;
+		const { error: recoveryError } = await recover();
+		if (recoveryError) return Err(recoveryError);
+		if (disposed) return RecorderError.NoActiveRecording();
+		const recording = currentCapture;
+		if (!recording) return RecorderError.NoActiveRecording();
+		// Released before the call resolves: this recording is over either
+		// way, and letting it linger would let a second stop address it.
+		release();
+		return recording.stop();
+	}
+
+	async function start(): Promise<BlobId | null> {
+		if (!app.recordingEnabled) return null;
+		app.settings.set('recordingTrigger', 'manual');
+		// A new dictation is starting: clear any lingering failed/delivered state so
+		// the pill follows this attempt, not the last one.
+		dictationLifecycle.reset();
+		// A capture just started, so leave the import overlay if it was open: the
+		// surface should follow the live recording, not stay parked on import.
+		captureSurface.dismissImport();
+
+		// Kick off the local model load now, concurrently with bringing up the
+		// recorder, so the ~1 s cold load overlaps the speech you're about to
+		// record rather than being paid after you stop. No-op for cloud/web.
+		prewarmOnDeviceModel(app);
+
+		// Manual owns playback for the whole recording; drop any leftover VAD
+		// per-utterance resume so it cannot fire mid-recording.
+		cancelPendingVadResume();
+		recordingMedia.pause(app);
+
+		const { data: recording, error } = await startCapture();
 
 		if (error) {
 			void recordingMedia.resume();
-			// Finalizing failed, so the captured audio never reached a row: treat it
-			// as a silent loss rather than a retryable transcription.
+			// The recording never started, so there is no blob to recover: the
+			// loudest tier. The pill glances it and the OS notification always fires, so
+			// there is no toast.
 			dictationLifecycle.markFailed({ tier: 'silent-loss', error });
-			return;
+			return null;
 		}
 
-		const { audioBlobId, durationMs, byteLength } = source;
+		// Feed the pill's meter the live mic level. The browser recorder taps its
+		// MediaStream; the native one forwards the level the host measures.
+		recording.onLevel(reportRecordingMicLevel);
 
-		// The pill carries "stopped -> transcribing"; the transcript landing is the
-		// receipt. No per-step toast.
-		log.info('Recording stopped');
-		void playSoundIfEnabled(app, 'manual-stop');
-		void recordingMedia.resume();
-
-		void logAnalyticsEvent(app, {
-			type: 'manual_recording_completed',
-			blob_size: byteLength,
-			duration: durationMs,
+		// The pill shows the live recording; only a device fallback needs a notice.
+		reportDeviceAcquisitionOutcome(recording.device, (deviceId) => {
+			manualRecorderConfig.deviceId = deviceId;
 		});
 
-		try {
+		log.info('Recording started');
+		void playSoundIfEnabled(app, 'manual-start');
+		return currentCapture?.audioBlobId ?? null;
+	}
+
+	async function stop(recordingId?: BlobId) {
+		// A delayed push-to-talk release can only resolve the capture it started.
+		if (
+			recordingId !== undefined &&
+			(currentCapture?.audioBlobId ?? null) !== recordingId
+		)
+			return;
+		if (!app.recordingEnabled) return;
+		return trackRecordingWork(async () => {
+			const { data: source, error } = await stopCapture();
+
+			if (error) {
+				void recordingMedia.resume();
+				// Finalizing failed, so the captured audio never reached a row: treat it
+				// as a silent loss rather than a retryable transcription.
+				dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+				return;
+			}
+
+			const { audioBlobId, durationMs, byteLength } = source;
+
+			// The pill carries "stopped -> transcribing"; the transcript landing is the
+			// receipt. No per-step toast.
+			log.info('Recording stopped');
+			void playSoundIfEnabled(app, 'manual-stop');
+			void recordingMedia.resume();
+
+			void logAnalyticsEvent(app, {
+				type: 'manual_recording_completed',
+				blob_size: byteLength,
+				duration: durationMs,
+			});
+
 			await processRecordingPipeline(app, {
 				audio: audioBlobId,
 				durationMs,
 			});
-		} finally {
-			// Native capture publishes a temporary source id. The owning table copies
-			// it into the row's fresh id; capture owns the temporary source and removes
-			// it after the pipeline has settled, including row or transcription failure.
+			// Preserve the capture source if the pipeline throws before saving its row.
+			// A completed pipeline owns an independent attachment, so release the source.
 			try {
 				const cleanup = await app.blobs.removeLocal(audioBlobId);
 				if (cleanup.error !== null)
@@ -225,83 +303,97 @@ export async function stopManualRecording(app: WhisperingApp) {
 						}),
 					);
 			} catch (cause) {
-				// Cleanup is secondary. In particular, a session may close while the
-				// pipeline is settling; never replace the creation/transcription failure
-				// with a late closed-handle error.
+				// A session may close before cleanup is admitted. Report the retained
+				// source without turning a saved recording into a failed operation.
 				log.warn(
 					new Error('Native recording source cleanup was not admitted.', {
 						cause,
 					}),
 				);
 			}
-		}
-	});
-}
-
-/**
- * Stop the manual recording only if `recordingId` names the one that is live. A
- * no-op otherwise, so a push-to-talk release that is stray, duplicated, or lands
- * after its recording was supplanted by a toggle/button recording never stops the
- * wrong one. This is the idempotent stop push-to-talk routes every stop through.
- */
-export async function stopManualRecordingById(
-	app: WhisperingApp,
-	recordingId: BlobId,
-) {
-	if (
-		manualRecorder.state !== 'RECORDING' ||
-		manualRecorder.currentAudioBlobId !== recordingId
-	) {
-		return;
+		});
 	}
-	await stopManualRecording(app);
+
+	return {
+		recording: {
+			get state(): WhisperingRecordingState {
+				return currentCapture ? 'RECORDING' : 'IDLE';
+			},
+			get isStarting() {
+				return pendingStart !== null;
+			},
+			recover,
+			enumerateDevices() {
+				return resultQueryOptions({
+					queryKey: recordingKeys.devices,
+					queryFn: async () => {
+						const { data, error } = await service.enumerateDevices();
+						if (error)
+							return RecordingDeviceError.EnumerateDevicesFailed({
+								cause: error,
+							});
+						return Ok(data);
+					},
+				});
+			},
+
+			start,
+			/** Finalize, save an owning row, and transcribe. An ID restricts this to that capture. */
+			stop,
+			toggle() {
+				return currentCapture ? stop() : start();
+			},
+			/** Discard saved-recording capture. False means there was none to cancel. */
+			async cancel(): Promise<boolean> {
+				if (!app.recordingEnabled) return false;
+				return trackRecordingWork(async () => {
+					if (pendingStart !== null) await pendingStart;
+					const { error: recoveryError } = await recover();
+					if (recoveryError) {
+						report.error({
+							title: 'Failed to cancel recording',
+							cause: recoveryError,
+						});
+						return true;
+					}
+					if (disposed) return true;
+					const recording = currentCapture;
+					if (!recording) return false;
+					release();
+					const { error } = await recording.cancel();
+					if (error) {
+						report.error({ title: 'Failed to cancel recording', cause: error });
+						return true;
+					}
+					void recordingMedia.resume();
+					void playSoundIfEnabled(app, 'manual-cancel');
+					log.info('Recording cancelled');
+					return true;
+				});
+			},
+		},
+		[Symbol.dispose]() {
+			disposed = true;
+			release();
+		},
+	};
 }
 
-export function toggleManualRecording(app: WhisperingApp) {
-	if (manualRecorder.state === 'RECORDING') {
-		return stopManualRecording(app);
-	}
-	return startManualRecording(app);
+export type WhisperingRecording = ReturnType<
+	typeof createWhisperingRecording
+>['recording'];
+
+function isVadRecordingActive() {
+	return (
+		vadRecorder.state === 'LISTENING' || vadRecorder.state === 'SPEECH_DETECTED'
+	);
 }
 
+/** The global cancel command also disarms voice-activated capture when needed. */
 export async function cancelRecording(app: WhisperingApp) {
 	if (!app.recordingEnabled) return;
-	return trackRecordingWork(async () => {
-		// Note: distinct from the low-level Tauri `commands.cancelRecording()` (CPAL
-		// stream teardown). This is the user-facing command: it decides what "cancel"
-		// means across the manual and VAD recorders.
-		//
-		// Cancel aborts whichever capture is live, without touching
-		// `recordingTrigger`: the chosen trigger (manual vs VAD) is a deliberate
-		// preference, not
-		// something a cancel keystroke should flip, so cancelling in VAD mode leaves
-		// you in VAD mode, idle and ready to listen again. This is also the global
-		// cancel chord (Cmd + . on macOS), which the global-shortcut plugin fires only
-		// on that exact chord, so when nothing is live it stays silent rather than
-		// toasting on an unrelated press.
-
-		// A manual recording is the live capture: discard it.
-		const { data, error } = await manualRecorder.cancelRecording(app.recording);
-		if (error) {
-			report.error({ title: 'Failed to cancel recording', cause: error });
-			return;
-		}
-		if (data.status === 'cancelled') {
-			void recordingMedia.resume();
-			// The pill vanishing plus the cancel sound is the confirmation; no toast.
-			void playSoundIfEnabled(app, 'manual-cancel');
-			log.info('Recording cancelled');
-			return;
-		}
-
-		// No manual recording, but a VAD session may be live. VAD has no
-		// discard-vs-finalize split: tearing the session down is the only way to
-		// abort it, which is exactly what stopVadRecording already does (same
-		// stopActiveListening call, same end state, mode left on `vad`). So cancel a
-		// live VAD session by stopping it, rather than cloning the teardown with a
-		// second toast and a manual-recording sound. Nothing live: silent no-op.
-		if (isVadRecordingActive()) await stopVadRecording(app);
-	});
+	if (!(await app.recording.cancel()) && isVadRecordingActive())
+		await stopVadRecording(app);
 }
 
 // VAD pauses playback per utterance (the speaking window), not for the whole
@@ -351,7 +443,7 @@ export async function startVadRecording(app: WhisperingApp) {
 		// A new dictation session is starting: clear any lingering terminal state.
 		dictationLifecycle.reset();
 		// A capture just started, so leave the import overlay if it was open (see
-		// startManualRecording).
+		// recording.start).
 		captureSurface.dismissImport();
 
 		// Warm the local model when listening is armed (not when speech is
@@ -477,8 +569,8 @@ export async function selectCaptureSurface(
 	// manual recording is saved and transcribed, and a voice-activated utterance
 	// in progress is flushed through the pipeline (the VAD runs with
 	// `submitUserSpeechOnPause`), so nothing you already said is lost.
-	if (surface !== 'manual' && manualRecorder.state === 'RECORDING') {
-		await stopManualRecording(app);
+	if (surface !== 'manual' && app.recording.state === 'RECORDING') {
+		await app.recording.stop();
 	}
 	if (surface !== 'vad' && isVadRecordingActive()) {
 		await stopVadRecording(app);

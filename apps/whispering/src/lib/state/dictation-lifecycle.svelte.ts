@@ -6,8 +6,8 @@ import {
 import { createLogger } from 'wellcrafted/logger';
 import type { VadState } from '$lib/constants/audio';
 import type { DeliveryReach } from '$lib/operations/delivery';
-import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
+import type { WhisperingRecording } from '../operations/recording.svelte.js';
 
 /**
  * The dictation lifecycle owned by the main window. See ADR-0039.
@@ -96,26 +96,24 @@ function createDictationLifecycle() {
 		deliveredTimer = undefined;
 	}
 
-	// The live session, read straight off the recorder machines. The pill owner is
-	// the most-recent dictation, so a manual recording and a VAD session never
-	// both report `recording` (only one recorder is live at a time).
-	const capture = $derived.by((): DictationCapture => {
-		if (manualRecorder.state === 'RECORDING')
-			return { kind: 'recording', trigger: 'manual' };
-		if (
-			vadRecorder.state === 'LISTENING' ||
-			vadRecorder.state === 'SPEECH_DETECTED'
-		)
-			return { kind: 'recording', trigger: 'vad', vadState: vadRecorder.state };
-		return { kind: 'idle' };
-	});
-
-	const current = $derived<DictationLifecycle>({ capture, outcome });
-
 	return {
-		/** The current lifecycle facts. Read reactively to project them. */
-		get current(): DictationLifecycle {
-			return current;
+		/** Project the current outcome alongside this session's capture. */
+		current(recording: Pick<WhisperingRecording, 'state'>): DictationLifecycle {
+			if (recording.state === 'RECORDING')
+				return { capture: { kind: 'recording', trigger: 'manual' }, outcome };
+			if (vadRecorder.state !== 'IDLE')
+				return {
+					capture: {
+						kind: 'recording',
+						trigger: 'vad',
+						vadState: vadRecorder.state,
+					},
+					outcome,
+				};
+			return { capture: { kind: 'idle' }, outcome };
+		},
+		get outcome() {
+			return outcome;
 		},
 
 		/**

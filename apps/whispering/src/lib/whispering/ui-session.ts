@@ -1,50 +1,29 @@
 import type { Account } from '@epicenter/auth';
-import type { AppBlobs } from '@epicenter/app';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { pushToTalk } from '../operations/push-to-talk';
-import { watchManualRecordingEnded } from '../operations/recording';
+import { createWhisperingRecording } from '../operations/recording.svelte.js';
 import { createWhisperingQueries } from '../queries';
 import { createWhisperingQueryRuntime } from '../queries/client';
 import { createRecordings } from '../state/recordings.svelte';
 import { createSettingsView } from '../state/settings.svelte';
 import {
-	createWhisperingApp,
-	type WhisperingAccountData,
+	createWhisperingDomains,
 	type WhisperingApp,
+	type WhisperingAppHandle,
 } from './app';
 
-/**
- * Everything that lives for as long as the app UI is mounted, over a store that
- * already lives longer.
- *
- * **Two lifetimes, and this is the shorter one.** The replica is the document's
- * (ADR-0088): it is opened once by the `(app)` layout and ended by the
- * document being replaced when identity changes. A query client, a settings
- * view, a recordings projection, the manual-recording watcher, and the
- * push-to-talk registration are the UI's, so they are built when the boot
- * reaches `ready` and released when that subtree goes.
- *
- * It is synchronous, and that is the whole shape change. It used to be
- * `openWhisperingUiSession(dependencies, signal)`: an `await` over an opener
- * that acquired a store, wrapped in an `AbortSignal` because a route could
- * unmount mid-acquisition, rendered through an `{#await}`, and disposed by a
- * helper that existed to arbitrate the resolve-after-unmount race. Nothing here
- * acquires now, so there is no in-flight anything to abort and no race to
- * arbitrate.
- */
+/** Build UI domains, queries, and the recording workflow over one ready App. */
 export function createWhisperingUiSession({
-	data,
-	blobs,
+	openedApp,
 	account,
 }: {
-	data: WhisperingAccountData;
-	blobs: AppBlobs;
+	openedApp: WhisperingAppHandle;
 	account: Account | null;
 }) {
-	const core = createWhisperingApp({ data, blobs, account });
-	// Named members rather than a spread of `core`, which used to carry
+	const domains = createWhisperingDomains({ openedApp, account });
+	// Named members rather than a spread of `domains`, which used to carry
 	// `[Symbol.dispose]` into the object handed to every component through
-	// context. Disposal is off `WhisperingApp` entirely now, and `core` is the
+	// context. Disposal is off `WhisperingApp` entirely now, and `domains` is the
 	// only thing holding it; writing the members out is what keeps a new one
 	// from arriving here unwrapped.
 	let disposal: Promise<void> | undefined;
@@ -54,18 +33,18 @@ export function createWhisperingUiSession({
 			return recordingEnabled;
 		},
 		account,
-		settings: createSettingsView(core.settings),
-		recordings: createRecordings(core),
-		recipes: core.recipes,
-		blobs: core.blobs,
-		recording: core.recording,
-		syncStatus: core.syncStatus,
+		settings: createSettingsView(domains.settings),
+		recordings: createRecordings(domains),
+		recipes: domains.recipes,
+		blobs: domains.blobs,
+		get recording() {
+			return recordingSession.recording;
+		},
+		syncStatus: domains.syncStatus,
 	};
+	const recordingSession = createWhisperingRecording(app, openedApp.recording);
 	const queryRuntime = createWhisperingQueryRuntime();
 	const queries = createWhisperingQueries(app, queryRuntime);
-	// A capture can end without anyone asking, including while no screen is
-	// mounted, so the reaction belongs to the session rather than to a component.
-	watchManualRecordingEnded(app);
 
 	return {
 		app,
@@ -77,8 +56,9 @@ export function createWhisperingUiSession({
 				try {
 					await pushToTalk.dispose(app);
 				} finally {
+					recordingSession[Symbol.dispose]();
 					queryRuntime.queryClient.clear();
-					core[Symbol.dispose]();
+					domains[Symbol.dispose]();
 				}
 			})();
 			return disposal;

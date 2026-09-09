@@ -1,10 +1,5 @@
 import { createMutation } from '@tanstack/svelte-query';
 import { MANUAL_RECORDING_BUTTON } from '$lib/constants/audio';
-import {
-	startManualRecording,
-	stopManualRecording,
-} from '$lib/operations/recording';
-import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import { getRecordingShortcutLabel } from '$lib/utils/recording-shortcut';
 import type { WhisperingApp } from '$lib/whispering/app';
 import type { RecordingActionController } from './recording-action-controller';
@@ -12,12 +7,12 @@ import type { RecordingActionController } from './recording-action-controller';
 /**
  * The manual-record button behavior as a `RecordingActionController`: the
  * start/stop mutations plus every prop a `RecordingActionCard` needs, all
- * derived from the one `manualRecorder` state machine.
+ * derived from the one `app.recording` workflow.
  *
- * Start and stop are separate mutations on purpose: `stopManualRecording` awaits
+ * Start and stop are separate mutations on purpose: `app.recording.stop()` awaits
  * the full transcription pipeline, so its pending window outlives the RECORDING
  * state (the recorder resets to IDLE the moment the mic stops, while
- * transcription is still running). Deriving direction from `manualRecorder.state`
+ * transcription is still running). Deriving direction from `app.recording.state`
  * alone would mislabel that post-stop window as "starting".
  *
  * Call from a component's init: it creates TanStack mutations, which need the
@@ -27,18 +22,16 @@ export function createManualRecordingController(
 	app: WhisperingApp,
 ): RecordingActionController {
 	const startMutation = createMutation(() => ({
-		// The record button is the `manual` source (the default); wrap so the
-		// mutation takes no variables rather than inferring the optional `source`.
-		mutationFn: () => startManualRecording(app),
+		mutationFn: () => app.recording.start(),
 	}));
 	const stopMutation = createMutation(() => ({
-		mutationFn: () => stopManualRecording(app),
+		mutationFn: () => app.recording.stop(),
 	}));
 
 	const isStarting = $derived(startMutation.isPending);
 	const isStopping = $derived(stopMutation.isPending);
-	const isRecording = $derived(manualRecorder.state === 'RECORDING');
-	const button = $derived(MANUAL_RECORDING_BUTTON[manualRecorder.state]);
+	const isRecording = $derived(app.recording.state === 'RECORDING');
+	const button = $derived(MANUAL_RECORDING_BUTTON[app.recording.state]);
 	const shortcutLabel = $derived(getRecordingShortcutLabel(app, 'manual'));
 
 	const description = $derived.by(() => {

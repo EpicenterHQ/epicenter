@@ -109,7 +109,7 @@
 	// recording, so lock the action while a capture is active. Account settings
 	// owns sign-out; this section only makes the hosted transcription route ready.
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
-	const accountLocked = $derived(recordingActive.current);
+	const accountLocked = $derived(recordingActive(app));
 	const openConnection = getConnectionScreen();
 </script>
 

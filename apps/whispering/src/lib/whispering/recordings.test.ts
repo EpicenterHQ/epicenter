@@ -632,7 +632,6 @@ test('recording creation reports the owning table failure without a second clean
 	try {
 		expect(expectErr(await context.recordings.create(recording()))).toMatchObject({
 		name: 'RowCreateFailed',
-		cleanupError: null,
 		});
 	} finally {
 		await context.dispose();

@@ -27,7 +27,7 @@
 	} from '$lib/constants/import-formats';
 	import { resolve } from '$app/paths';
 	import { importFiles } from '$lib/operations/import';
-	import { selectCaptureSurface } from '$lib/operations/recording';
+	import { selectCaptureSurface } from '$lib/operations/recording.svelte.js';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
 	import { report } from '$lib/report';
 	import {

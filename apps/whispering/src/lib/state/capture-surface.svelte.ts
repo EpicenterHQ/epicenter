@@ -17,7 +17,7 @@ import type { WhisperingApp } from '$lib/whispering/app';
  * It lives at module scope so the home tabs and the header dropdown share one
  * selection. This module is a leaf: the orchestration that runs when you switch
  * surfaces (stopping a live recorder, switching the trigger) lives in
- * `operations/recording.ts`, which calls `showImport`/`dismissImport` here.
+ * `operations/recording.svelte.ts`, which calls `showImport`/`dismissImport` here.
  */
 let isImportSurfaceShowing = $state(false);
 

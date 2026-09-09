@@ -30,16 +30,13 @@ export const RecordingCreationError = defineErrors({
 	RowCreateFailed: ({
 		audioBlobId,
 		cause,
-		cleanupError,
 	}: {
 		audioBlobId: Blob | BlobId;
 		cause: unknown;
-		cleanupError: BlobStoreFailed | null;
 	}) => ({
 		message: 'Could not create the recording.',
 		audioBlobId,
 		cause,
-		cleanupError,
 	}),
 });
 export type RecordingCreationError = InferErrors<typeof RecordingCreationError>;
@@ -417,10 +414,8 @@ export function createWhisperingRecordings({
 			return resolve(id);
 		},
 		async create(value) {
-			// Row creation owns row/blob consistency. Every caller commits the
-			// audio before creating the row, so a row that fails to land would
-			// leave bytes no row cites. Await their cleanup before reporting the
-			// original failure, and preserve a failed cleanup in the same error.
+			// The owning table copies the attachment and compensates failed creation.
+			// Whispering supplies recording defaults and translates the failure.
 			if (disposed) throw new Error('The recording session is closed.');
 			const { data: written, error } = await table.create({
 				...value,
@@ -434,7 +429,6 @@ export function createWhisperingRecordings({
 				return RecordingCreationError.RowCreateFailed({
 					audioBlobId: value.audioBlobId,
 					cause: error,
-					cleanupError: null,
 				});
 			}
 			return Ok(asRecording(written));

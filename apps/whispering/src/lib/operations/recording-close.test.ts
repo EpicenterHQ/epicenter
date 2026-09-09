@@ -1,16 +1,29 @@
+/** Verifies capture work blocks closure and failed saving preserves source audio. */
 import { expect, mock, test } from 'bun:test';
+import { generateBlobId } from '@epicenter/blobs';
+import type {
+	Recording,
+	RecordingService,
+} from '@epicenter/recorder/recording';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 
-Reflect.set(globalThis, '$state', <T>(value: T) => value);
+Reflect.set(
+	globalThis,
+	'$state',
+	Object.assign(<T>(value: T) => value, { raw: <T>(value: T) => value }),
+);
 const finalized = Promise.withResolvers<void>();
 const saved = Promise.withResolvers<void>();
 const initialized = Promise.withResolvers<void>();
 const events: string[] = [];
-const manualRecorder = {
+let pipelineFailure: Error | undefined;
+const capture = {
+	audioBlobId: generateBlobId(),
+	onEnded: () => () => {},
 	state: 'IDLE',
 	isStarting: false,
-	async stopRecording() {
+	async stop() {
 		events.push('finalize');
 		await finalized.promise;
 		return Ok({ audioBlobId: 'source', durationMs: 100, byteLength: 10 });
@@ -19,19 +32,19 @@ const manualRecorder = {
 let speechEnd: ((blob: Blob) => Promise<void>) | undefined;
 const vadRecorder = {
 	state: 'IDLE',
-	async startActiveListening(options: { onSpeechEnd(blob: Blob): Promise<void> }) {
+	async startActiveListening(options: {
+		onSpeechEnd(blob: Blob): Promise<void>;
+	}) {
 		speechEnd = options.onSpeechEnd;
 		events.push('initialize');
 		await initialized.promise;
 		return Ok({ outcome: 'success' });
 	},
 };
-mock.module('../state/manual-recorder.svelte', () => ({ manualRecorder }));
-mock.module('$lib/state/manual-recorder.svelte', () => ({ manualRecorder }));
 mock.module('../state/vad-recorder.svelte', () => ({ vadRecorder }));
 mock.module('$lib/state/vad-recorder.svelte', () => ({ vadRecorder }));
 mock.module('#platform/manual-recorder-config', () => ({
-	manualRecorderConfig: {},
+	manualRecorderConfig: { resolveStartParams: () => ({}) },
 }));
 mock.module('#platform/recording-mic-level', () => ({
 	reportRecordingMicLevel: mock(),
@@ -46,6 +59,7 @@ mock.module('$lib/operations/pipeline', () => ({
 	processRecordingPipeline: async () => {
 		events.push('save');
 		await saved.promise;
+		if (pipelineFailure) throw pipelineFailure;
 	},
 }));
 mock.module('$lib/operations/sound', () => ({ playSoundIfEnabled: mock() }));
@@ -53,7 +67,6 @@ mock.module('$lib/operations/transcribe', () => ({
 	prewarmOnDeviceModel: mock(),
 }));
 mock.module('$lib/report', () => ({ report: { info: mock(), error: mock() } }));
-mock.module('@epicenter/recorder/recording', () => ({ RecorderError: {} }));
 mock.module('$lib/state/capture-surface.svelte', () => ({
 	captureSurface: { dismissImport: mock() },
 }));
@@ -67,62 +80,151 @@ const activity = await import('../state/recording-active.svelte');
 const { recordingActive } = activity;
 mock.module('$lib/state/recording-active.svelte', () => activity);
 const {
-	stopManualRecording,
+	createWhisperingRecording,
 	startVadRecording,
-	startManualRecording,
 	cancelRecording,
 	stopVadRecording,
-} = await import('./recording');
+} = await import('./recording.svelte.js');
+
+function recordingApp<T extends object>(
+	options: T,
+	service = {
+		current: async () => Ok(capture as unknown as Recording),
+	} as RecordingService,
+) {
+	const app = options as T & WhisperingApp;
+	const session = createWhisperingRecording(app, service);
+	Object.defineProperty(app, 'recording', { value: session.recording });
+	return app;
+}
 
 test('recording work owns close eligibility through native finalization and row saving', async () => {
-	const app = {
+	const app = recordingApp({
 		account: null,
 		recordingEnabled: true,
 		blobs: { removeLocal: async () => Ok(undefined) },
-	} as unknown as WhisperingApp;
-	const stopping = stopManualRecording(app);
-	expect(recordingActive.current).toBe(true);
+	});
+	const stopping = app.recording.stop();
+	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
+	await Bun.sleep(0);
 	expect(events).toEqual(['finalize']);
 	finalized.resolve();
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize', 'save']);
-	expect(recordingActive.current).toBe(true);
+	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	saved.resolve();
 	await stopping;
-	expect(recordingActive.current).toBe(false);
+	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
 });
 
 test('VAD initialization owns close eligibility while recorder state remains idle', async () => {
-	const app = {
+	const app = recordingApp({
 		recordingEnabled: true,
 		settings: { set: mock() },
-	} as unknown as WhisperingApp;
+	});
 	const starting = startVadRecording(app);
 	expect(vadRecorder.state).toBe('IDLE');
-	expect(recordingActive.current).toBe(true);
+	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	initialized.resolve();
 	await starting;
-	expect(recordingActive.current).toBe(false);
+	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
 });
 
 test('queued capture actions cannot restart a disposed UI session', async () => {
-	const app = { recordingEnabled: false } as WhisperingApp;
+	const app = recordingApp({ recordingEnabled: false });
 	const before = events.length;
-	expect(await startManualRecording(app)).toBeNull();
+	expect(await app.recording.start()).toBeNull();
 	await startVadRecording(app);
-	await stopManualRecording(app);
+	await app.recording.stop();
 	await cancelRecording(app);
 	await stopVadRecording(app);
 	expect(events).toHaveLength(before);
 });
 
-
 test('a late VAD frame cannot save through its retired App', async () => {
-	const app = { recordingEnabled: true, settings: { set: mock() } };
+	const app = recordingApp({
+		recordingEnabled: true,
+		settings: { set: mock() },
+	});
 	await startVadRecording(app as unknown as WhisperingApp);
 	app.recordingEnabled = false;
 	const before = events.length;
 	await speechEnd?.(new Blob(['late frame']));
 	expect(events).toHaveLength(before);
-	expect(recordingActive.current).toBe(false);
+	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
+});
+
+test('failed row saving preserves the published capture source', async () => {
+	finalized.resolve();
+	saved.resolve();
+	const removeLocal = mock(async () => Ok(undefined));
+	const app = recordingApp({
+		recordingEnabled: true,
+		blobs: { removeLocal },
+	});
+	pipelineFailure = new Error('Row creation failed');
+	try {
+		await expect(app.recording.stop()).rejects.toBe(pipelineFailure);
+		expect(removeLocal).not.toHaveBeenCalled();
+		expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
+	} finally {
+		pipelineFailure = undefined;
+	}
+});
+
+test('completed saving releases the capture source once', async () => {
+	finalized.resolve();
+	saved.resolve();
+	const removeLocal = mock(async () => Ok(undefined));
+	const app = recordingApp({
+		recordingEnabled: true,
+		blobs: { removeLocal },
+	});
+	await app.recording.stop();
+	expect(removeLocal).toHaveBeenCalledTimes(1);
+	expect(removeLocal).toHaveBeenCalledWith('source');
+});
+
+test('a stale push-to-talk ID cannot stop the recovered recording', async () => {
+	const removeLocal = mock(async () => Ok(undefined));
+	const app = recordingApp({ recordingEnabled: true, blobs: { removeLocal } });
+	await app.recording.recover();
+	const before = events.length;
+	await app.recording.stop(generateBlobId());
+	expect(events).toHaveLength(before);
+	expect(app.recording.state).toBe('RECORDING');
+	await app.recording.stop(capture.audioBlobId);
+	expect(removeLocal).toHaveBeenCalledTimes(1);
+});
+
+test('push-to-talk release during startup saves through the composed workflow', async () => {
+	const { pushToTalk } = await import('./push-to-talk');
+	const acquired = Promise.withResolvers<ReturnType<typeof Ok<Recording>>>();
+	const service = {
+		current: async () => Ok(null),
+		start: () => acquired.promise,
+	} as RecordingService;
+	const removeLocal = mock(async () => Ok(undefined));
+	const app = recordingApp(
+		{
+			recordingEnabled: true,
+			settings: { set: mock() },
+			blobs: { removeLocal },
+		},
+		service,
+	);
+	const starting = pushToTalk.start(app);
+	expect(app.recording.isStarting).toBe(true);
+	await pushToTalk.stop(app);
+	acquired.resolve(
+		Ok({
+			...capture,
+			onLevel: () => () => {},
+			device: { outcome: 'success' },
+		} as unknown as Recording),
+	);
+	await starting;
+	expect(app.recording.state).toBe('IDLE');
+	expect(removeLocal).toHaveBeenCalledTimes(1);
+	expect(recordingActive(app)).toBe(false);
 });

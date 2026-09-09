@@ -1,4 +1,4 @@
-import { manualRecorder } from './manual-recorder.svelte';
+import type { WhisperingApp } from '../whispering/app.js';
 import { vadRecorder } from './vad-recorder.svelte';
 
 let pendingWork = $state(0);
@@ -16,13 +16,13 @@ export async function trackRecordingWork<T>(
 }
 
 /** Capture or admitted recording work still owns this App. */
-export const recordingActive = {
-	get current(): boolean {
-		return (
-			pendingWork > 0 ||
-			manualRecorder.isStarting ||
-			manualRecorder.state === 'RECORDING' ||
-			vadRecorder.state !== 'IDLE'
-		);
-	},
-};
+export function recordingActive(
+	app: Pick<WhisperingApp, 'recording'>,
+): boolean {
+	return (
+		pendingWork > 0 ||
+		app.recording.isStarting ||
+		app.recording.state === 'RECORDING' ||
+		vadRecorder.state !== 'IDLE'
+	);
+}

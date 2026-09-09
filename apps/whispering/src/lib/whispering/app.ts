@@ -1,8 +1,8 @@
-import type { App } from '@epicenter/app';
+import type { App, AppBlobs } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import type { AppBlobs } from '@epicenter/app';
 import type { SyncConnectionStatus } from '@epicenter/data/sync';
 import type { WhisperingSettingValues, whisperingDefinition } from '../data';
+import type { WhisperingRecording } from '../operations/recording.svelte.js';
 
 import {
 	createWhisperingRecipes,
@@ -14,7 +14,7 @@ import {
 } from './recordings';
 
 /** One local or account dataset's retained portable work. */
-export type WhisperingAccountData = App<typeof whisperingDefinition>;
+export type WhisperingAppHandle = App<typeof whisperingDefinition>;
 
 /**
  * Hydrated, UI-free settings over typed singleton values.
@@ -108,7 +108,7 @@ export type WhisperingApp = {
 	 * here.
 	 */
 	readonly blobs: AppBlobs;
-	readonly recording: WhisperingAccountData['recording'];
+	readonly recording: WhisperingRecording;
 	/**
 	 * What sync is doing, or undefined when no connection is attached.
 	 *
@@ -119,61 +119,36 @@ export type WhisperingApp = {
 	syncStatus(): SyncConnectionStatus | undefined;
 };
 
-/**
- * Build Whispering's domains over one already-open replica.
- *
- * Synchronous, and it opens nothing. This used to be `openWhisperingApp`: it
- * took an `AuthClient`, refused a signed-out one by throwing, built its own
- * `createEpicenter` handle, awaited `open()`, and unwound what the open had
- * acquired when an `AbortSignal` landed mid-flight. All four of those belong
- * somewhere else now. Opening is a verb the session owns (ADR-0344) and
- * `$lib/epicenter.svelte.ts` holds the one handle; a signed-out person is
- * shown a door by the layout rather than an exception; and there is no
- * in-flight open here to abort.
- *
- * What is left is the part that was always this application's: settings over
- * the KV, recordings over their table and blobs, and recipes over theirs.
- *
- * Disposal is on the RESULT, not on `WhisperingApp`. `WhisperingApp` is what a
- * component reads through context, and a type that carried `[Symbol.dispose]`
- * would let any descendant end the domains this session owns. The one caller
- * that may is the module local holding this return value.
- */
-export function createWhisperingApp({
-	data,
-	blobs,
+/** Build settings, saved recordings, and recipes over one ready framework App. */
+export function createWhisperingDomains({
+	openedApp,
 	account,
 }: {
-	/** The open replica, as `session.opened` resolved it. */
-	data: WhisperingAccountData;
-	blobs: AppBlobs;
+	/** The opened dataset owns tables, blobs, and recording. */
+	openedApp: WhisperingAppHandle;
 	account: Account | null;
-}): WhisperingApp & Disposable {
-	const settingsDomain = createWhisperingSettings({ kv: data.kv });
+}) {
+	const settingsDomain = createWhisperingSettings({ kv: openedApp.kv });
 	const recordingsDomain = createWhisperingRecordings({
-		table: data.tables.recordings,
-		blobs,
+		table: openedApp.tables.recordings,
+		blobs: openedApp.blobs,
 		remoteConfigured: account !== null,
 	});
 	const recipesDomain = createWhisperingRecipes({
-		table: data.tables.recipes,
+		table: openedApp.tables.recipes,
 	});
 
 	let disposed = false;
 	return Object.freeze({
-		get recordingEnabled() {
-			return !disposed;
-		},
 		account,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,
 		recipes: recipesDomain,
-		blobs,
+		blobs: openedApp.blobs,
 		// Read off the store's own connection (ADR-0340) rather than off a
 		// `SyncConnection` this file held, and passed through whole: a refusal is
 		// data on that status, and the surface decides what to say about it.
-		syncStatus: () => data.sync.status(),
-		recording: data.recording,
+		syncStatus: () => openedApp.sync.status(),
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
@@ -203,7 +178,7 @@ type SettingKey = keyof WhisperingSettingValues;
  * is a read, a write names its keys, and application recovery handles missing
  * values without creating a row to hold them.
  */
-function createWhisperingSettings({ kv }: { kv: WhisperingAccountData['kv'] }) {
+function createWhisperingSettings({ kv }: { kv: WhisperingAppHandle['kv'] }) {
 	let values: WhisperingSettingValues = { ...APPLICATION_DEFAULTS };
 	const listeners = new Set<() => void>();
 	const notify = () => {

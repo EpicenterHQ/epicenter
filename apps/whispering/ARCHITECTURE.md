@@ -16,29 +16,29 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 ## Application composition
 
-Whispering creates one inert handle and opens a data session for the Account
-selected by its boot layout:
+Whispering configures one inert Epicenter factory. The boot layout selects a
+local session or an Account and keys the session component on that selection.
 
 ```txt
-src/lib/data.ts                         inert definition
-src/lib/epicenter.svelte.ts              createEpicenter({ appId, definition })
-(app)/+layout.svelte                    auth gate; key on Account
-  -> RecordingsSession.svelte           epicenter.open(account); owns close/retry
-    -> WhisperingShell.svelte           app blobs, UI session, context, and chrome
-      -> createWhisperingUiSession      query runtime and application adapters
-        -> createWhisperingApp          settings, recordings, and recipes
+src/lib/data.ts                         dataset definition
+src/lib/epicenter.svelte.ts              createEpicenter with platform bindings
+(app)/+layout.svelte                    identity selection
+  -> RecordingsSession.svelte           openLocal/openAccount; owns ready and close
+    -> WhisperingShell.svelte           receives openedApp; owns UI session
+      -> createWhisperingUiSession      queries and the Whispering UI object
+        -> createWhisperingDomains      settings, saved recordings, and recipes
+        -> createWhisperingRecording    capture state and save/transcribe commands
 ```
 
-`#platform/auth` supplies auth; the boot layout passes its selected Account to
-the session child. The app handle supplies the scoped blob capability alongside
-the opened data document. Neither seam opens application storage at module evaluation.
+`openedApp` is the framework App throughout this chain. Its type is
+`WhisperingAppHandle`, and it owns tables, blobs, SQL, recording, and closure.
+The UI's `WhisperingApp` exposes product workflows. Its `recording.start()` and
+`recording.stop()` are the common entry for buttons and push-to-talk; stop saves
+an owning row and transcribes. The workflow owns its reactive capture state directly.
 
-`RecordingsSession` renders the pending, error, or data result of
-`session.opened`. A retry replaces the session with `epicenter.open(account)`.
-Its cleanup closes the session, releasing the replica and sync connection.
-`WhisperingShell` owns the UI session, its query cache, product namespaces, and
-ordered disposal. Hosted transcription and remote blobs use the captured
-Account, so delayed work cannot switch to the next person's credentials.
+`RecordingsSession` renders `openedApp.ready` before mounting the shell and
+closes that same handle after UI teardown. Hosted transcription and remote
+blobs use the captured Account, so delayed work cannot switch credentials.
 
 The app's recordings namespace owns row and blob consistency: audio storage, upload, download, purge, the `uploadedAt` marker, and deletion of the online copy, device copy, and row as one workflow. A row's values and its `content` node both live in the one Yjs 14 database document; there is no SQLite projection beside it (ADR-0269).
 
@@ -51,9 +51,10 @@ The key innovation is **build-time platform resolution** via Node-standard `#pla
 Recording is composed once through `#platform/recording`: the browser leaf uses
 `createBrowserRecording`, and the desktop leaf uses `createDesktopRecording`
 from `@epicenter/recorder`. Both implement the shared recording contract.
-Whispering calls `app.recording`; its reactive manual-recorder state owns
-UI projection and awaits admitted work before dataset closure. Capture, native
-IPC, and final audio publication live below that boundary. Device configuration
+The UI session composes `createWhisperingRecording(app, openedApp.recording)`
+once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal releases
+the capture subscription. The opened
+App owns capture admission, draining, cancellation, and storage closure. Device configuration
 selects browser device IDs or native device names through its matching seam.
 
 This mechanism is scoped to `#platform/*` only; every other bare import resolves normally. `tsconfig.json` typechecks the default resolution and `tsconfig.epicenter-host.json` repeats the check with the condition the Epicenter build activates. Each impl is annotated with the shared contract (`export const x: Contract = ...`, not `satisfies`, so the concrete type stays hidden and the variants stay in lockstep).
@@ -94,7 +95,7 @@ The query layer (`$lib/queries`) is where TanStack Query reactivity gets injecte
 The query layer's role has narrowed to things that don't fit in workspace rows:
 
 - **External APIs**: Transcription mutations (`queries.transcription.*`) around the transcription operations
-- **Microphone enumeration**: Async device list with loading states (`manualRecorder.enumerateDevices`). Recorder state itself lives in `$lib/state/manual-recorder.svelte.ts` and `$lib/state/vad-recorder.svelte.ts` as `$state`, not queries.
+- **Microphone enumeration**: Async device list with loading states (`app.recording.enumerateDevices`). Recorder state itself lives in `$lib/operations/recording.svelte.ts` and `$lib/state/vad-recorder.svelte.ts` as `$state`, not queries.
 - **Audio blob access**: Too large for workspace rows, still served via the blob store (`queries.audio.availability`, `queries.download.downloadRecording`)
 
 This design keeps services pure and platform-agnostic while giving the UI immediate reactivity for domain data and cached access for external resources.

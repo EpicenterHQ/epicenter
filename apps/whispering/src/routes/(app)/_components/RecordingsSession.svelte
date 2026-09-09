@@ -5,8 +5,6 @@
 	import { epicenter } from '$lib/epicenter.svelte';
 	import WhisperingShell from './WhisperingShell.svelte';
 	import { tick } from 'svelte';
-	import { recordingActive } from '$lib/state/recording-active.svelte';
-	import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 
 	// One keyed component owns one captured App. Its explicit close is awaited
 	// by AppBoot before another session or any connection controls can appear.
@@ -14,7 +12,7 @@
 	let { children, account }: { children: import('svelte').Snippet; account: Account | null } = $props();
 
 	/* svelte-ignore state_referenced_locally */
-	const app = account === null ? epicenter.openLocal() : epicenter.openAccount(account);
+	const openedApp = account === null ? epicenter.openLocal() : epicenter.openAccount(account);
 	let showing = $state(true);
 	let shell: WhisperingShell | undefined = $state();
 	let closing: Promise<void> | undefined;
@@ -22,23 +20,24 @@
 	export function close(): Promise<void> {
 		if (closing) return closing;
 		closing = (async () => {
-			const ready = await app.ready;
+			const ready = await openedApp.ready;
 			if (ready.error === null) {
-				const recovered = await manualRecorder.recover(app.recording);
-				if (recovered.error !== null) throw recovered.error;
-				if (recordingActive.current) {
-					throw new Error('Finish recording and wait for it to save before closing Whispering.');
+				if (shell) await shell.recoverRecording();
+				else {
+					const recovered = await openedApp.recording.current();
+					if (recovered.error) throw recovered.error;
+					if (recovered.data) throw new Error('Finish recording before closing Whispering.');
 				}
 			}
 			if (document.activeElement instanceof HTMLElement)
 				document.activeElement.blur();
 			const ui = shell?.close();
 			showing = false;
-			await tick();
 			try {
+				await tick();
 				await ui;
 			} finally {
-				await app.close();
+				await openedApp.close();
 			}
 		})();
 		void closing.catch(() => {
@@ -54,7 +53,7 @@
 </script>
 
 {#if showing}
-	{#await app.ready}
+	{#await openedApp.ready}
 		<Loading class="h-dvh" label="Opening your recordings…" />
 	{:then { error }}
 		{#if error !== null}
@@ -67,7 +66,7 @@
 		{:else}
 			<WhisperingShell
 				{account}
-				data={app}
+				{openedApp}
 				{removeLocalData}
 				bind:this={shell}
 			>

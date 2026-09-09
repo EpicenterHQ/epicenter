@@ -2,9 +2,7 @@ import type { BlobId } from '@epicenter/blobs';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { report } from '$lib/report';
-import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { startManualRecording, stopManualRecordingById } from './recording';
 
 /**
  * Push-to-talk owns the recording it starts. A press starts a session; a release
@@ -73,8 +71,8 @@ function createPushToTalk() {
 		return (
 			session !== null &&
 			pendingStart === undefined &&
-			manualRecorder.state !== 'RECORDING' &&
-			!manualRecorder.isStarting
+			session.app.recording.state !== 'RECORDING' &&
+			!session.app.recording.isStarting
 		);
 	}
 
@@ -86,7 +84,7 @@ function createPushToTalk() {
 		if (session?.id !== id) return; // superseded by a newer press
 		const { recordingId } = session;
 		clearSession();
-		if (recordingId) await stopManualRecordingById(app, recordingId);
+		if (recordingId) await app.recording.stop(recordingId);
 		if (options?.capped) {
 			report.info({
 				title: 'Recording stopped',
@@ -112,14 +110,14 @@ function createPushToTalk() {
 			// Either way, do not arm a cap or stop another source's recording.
 			let recordingId: BlobId | null;
 			try {
-				recordingId = await startManualRecording(app);
+				recordingId = await app.recording.start();
 			} catch (cause) {
 				if (session?.id === id) clearSession();
 				throw cause;
 			}
 
 			if (session?.id !== id) {
-				if (recordingId) await stopManualRecordingById(app, recordingId);
+				if (recordingId) await app.recording.stop(recordingId);
 				return;
 			}
 			if (!recordingId) {
@@ -152,8 +150,8 @@ function createPushToTalk() {
 	 */
 	async function stop(app: WhisperingApp) {
 		if (!session || session.app !== app) return; // not this app's hold
-		if (manualRecorder.state === 'RECORDING') return end(app, session.id);
-		if (manualRecorder.isStarting) {
+		if (app.recording.state === 'RECORDING') return end(app, session.id);
+		if (app.recording.isStarting) {
 			session.stopRequested = true; // honored when start completes
 			return;
 		}

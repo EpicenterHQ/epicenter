@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
 	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
@@ -18,7 +20,7 @@
 
 	// Sign in/out reloads the page (Option A) and a reload kills an in-flight
 	// browser recording, so block account changes while a capture is active.
-	const accountLocked = $derived(recordingActive.current);
+	const accountLocked = $derived(recordingActive(app));
 
 	const openConnection = getConnectionScreen();
 
