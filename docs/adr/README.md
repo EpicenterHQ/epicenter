@@ -616,3 +616,5 @@ Two habits make the link hard to forget:
 When you add an ADR, add its row here.
 
 | [0361](0361-hosted-and-instance-credentials-share-one-account-lifetime.md) | Hosted and instance credentials share one Account lifetime | Proposed |
+
+| [0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) | An application page owns one library and changing it ends the page | Accepted (unbuilt) |
