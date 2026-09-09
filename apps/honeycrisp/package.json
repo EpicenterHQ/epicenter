@@ -26,7 +26,8 @@
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && bun run typecheck:scripts",
+		"typecheck:scripts": "tsc -p tsconfig.scripts.json && tsc -p ../self-host/tsconfig.honeycrisp.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",

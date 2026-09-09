@@ -1,15 +1,19 @@
 /** Actual Honeycrisp UI against a temporary local Worker. Run with Bun from the repository root. */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { type Browser, chromium, type Page } from 'playwright';
+import type { PlatformProxy } from 'wrangler';
+import {
+	type LibraryTestOperator,
+	proveRetirement,
+} from './library-retirement.js';
 
-const { chromium } = createRequire(new URL('../package.json', import.meta.url))(
-	'playwright',
-);
-const { getPlatformProxy } = createRequire(
+// Use the same Wrangler installation as the self-hosted Worker below.
+const { getPlatformProxy }: typeof import('wrangler') = createRequire(
 	new URL('../../self-host/package.json', import.meta.url),
 )('wrangler');
 const root = join(import.meta.dir, '../../..');
@@ -34,56 +38,60 @@ const issuerEnvironment = {
 const workerName = `application-smoke-${crypto.randomUUID()}`;
 const workerConfig = join(directory, 'worker.json');
 const operatorConfig = join(directory, 'operator.json');
-{
-	writeFileSync(
-		workerConfig,
-		JSON.stringify({
-			name: workerName,
-			main: join(root, 'apps/self-host/worker/index.ts'),
-			compatibility_date: '2026-03-06',
-			compatibility_flags: ['nodejs_compat'],
-			send_metrics: false,
-			vars: issuerEnvironment,
-			durable_objects: {
-				bindings: [
-					{ name: 'SELF_HOST_AUTH', class_name: 'SelfHostAuthOwner' },
-					{ name: 'STORE_AUTHORITY', class_name: 'StoreAuthority' },
-					{ name: 'GENERATIONS_LEDGER', class_name: 'GenerationsLedger' },
+writeFileSync(
+	workerConfig,
+	JSON.stringify({
+		name: workerName,
+		main: join(root, 'apps/honeycrisp/scripts/library.worker.ts'),
+		compatibility_date: '2026-03-06',
+		compatibility_flags: ['nodejs_compat'],
+		send_metrics: false,
+		vars: issuerEnvironment,
+		durable_objects: {
+			bindings: [
+				{ name: 'SELF_HOST_AUTH', class_name: 'SelfHostAuthOwner' },
+				{ name: 'STORE_AUTHORITY', class_name: 'StoreAuthority' },
+				{ name: 'GENERATIONS_LEDGER', class_name: 'GenerationsLedger' },
+			],
+		},
+		migrations: [
+			{
+				tag: 'smoke',
+				new_sqlite_classes: [
+					'SelfHostAuthOwner',
+					'StoreAuthority',
+					'GenerationsLedger',
 				],
 			},
-			migrations: [
-				{
-					tag: 'smoke',
-					new_sqlite_classes: [
-						'SelfHostAuthOwner',
-						'StoreAuthority',
-						'GenerationsLedger',
-					],
-				},
-			],
-		}),
-	);
-	writeFileSync(
-		operatorConfig,
-		JSON.stringify({
-			name: 'application-smoke-operator',
-			compatibility_date: '2026-03-06',
-			send_metrics: false,
-			services: [
-				{
-					binding: 'OPERATOR',
-					service: workerName,
-					entrypoint: 'SelfHostOperator',
-					remote: false,
-				},
-			],
-		}),
-	);
-}
+		],
+	}),
+);
+writeFileSync(
+	operatorConfig,
+	JSON.stringify({
+		name: 'application-smoke-operator',
+		compatibility_date: '2026-03-06',
+		send_metrics: false,
+		services: [
+			{
+				binding: 'OPERATOR',
+				service: workerName,
+				entrypoint: 'SelfHostOperator',
+				remote: false,
+			},
+			{
+				binding: 'LIBRARY_TEST',
+				service: workerName,
+				entrypoint: 'LibraryTestOperator',
+				remote: false,
+			},
+		],
+	}),
+);
 
-const logs = [];
-const children = [];
-function start(args, cwd = root) {
+const logs: string[] = [];
+const children: ChildProcess[] = [];
+function start(args: string[], cwd = root) {
 	const child = spawn('bun', args, {
 		cwd,
 		detached: true,
@@ -124,7 +132,7 @@ const worker = start(
 const viteConfig = join(directory, 'vite.config.mts');
 writeFileSync(
 	viteConfig,
-	`import config from ${JSON.stringify(join(root, 'apps/honeycrisp/vite.config.ts'))};\nexport default { ...config, server: { ...config.server, watch: null } };\n`,
+	`import config from ${JSON.stringify(join(root, 'apps/honeycrisp/vite.config.ts'))};\nexport default { ...config, server: { ...config.server, watch: null, hmr: false } };\n`,
 );
 const vite = start([
 	'dev:honeycrisp:ui',
@@ -134,7 +142,7 @@ const vite = start([
 	new URL(appOrigin).port,
 	'--strictPort',
 ]);
-async function ready(url, child) {
+async function ready(url: string, child: ChildProcess) {
 	for (let i = 0; i < 200; i++) {
 		try {
 			if ((await fetch(url, { signal: AbortSignal.timeout(1000) })).ok) return;
@@ -144,14 +152,24 @@ async function ready(url, child) {
 	}
 	throw new Error(`Timed out starting ${url}`);
 }
-let browser,
-	proxy,
-	passed = false;
-const pages = [];
-const errors = [];
-async function select(page, name) {
+type TestBindings = {
+	OPERATOR: {
+		admit(input: { id: string; name: string }): Promise<{ url: string }>;
+		remove(id: string): Promise<void>;
+	};
+	LIBRARY_TEST: LibraryTestOperator & { ready(): Promise<boolean> };
+};
+let browser: Browser | undefined;
+let proxy: PlatformProxy<TestBindings> | undefined;
+let passed = false;
+const pages: Page[] = [];
+const errors: string[] = [];
+async function select(page: Page, name: 'Local' | 'Personal' | 'Shared') {
 	await page.evaluate(async () => {
-		const module = await import('/src/lib/application.ts');
+		const path = '/src/lib/application.ts';
+		const module: typeof import('../src/lib/application.js') = await import(
+			path
+		);
 		module.departure.onChange(() => {
 			if (module.departure.state.phase === 'closed')
 				sessionStorage.setItem('closed-library', module.library);
@@ -182,17 +200,19 @@ async function select(page, name) {
 		'true',
 	);
 }
-async function note(page, text) {
+async function note(page: Page, text: string) {
 	await page.getByRole('button', { name: 'New note', exact: true }).click();
 	await page.locator('.ProseMirror').fill(text);
 	await page.locator('.ProseMirror').blur();
 	await page.getByText(text, { exact: true }).first().waitFor();
 }
-async function openNote(page, text) {
+async function openNote(page: Page, text: string) {
 	await page.getByText(text, { exact: true }).first().click();
 	await page.locator('.ProseMirror').waitFor();
 }
-async function enroll(id) {
+async function enroll(id: string) {
+	assert(proxy);
+	assert(browser);
 	const grant = await proxy.env.OPERATOR.admit({
 		id,
 		name: id === 'alice' ? 'Alice' : 'Bob',
@@ -215,7 +235,7 @@ async function enroll(id) {
 			automaticPresenceSimulation: true,
 		},
 	});
-	await page.goto(grant.url ?? `${origin}/sign-in#enroll=${grant.token}`);
+	await page.goto(grant.url);
 	await page.click('#continue');
 	await page.waitForFunction(
 		() => document.querySelector('h1')?.textContent === 'You are signed in',
@@ -232,9 +252,12 @@ async function enroll(id) {
 	await page.getByRole('button', { name: 'New note', exact: true }).waitFor();
 	console.log('Opened Honeycrisp', id);
 	assert.equal(
-		await page.evaluate(
-			async () => (await import('/src/lib/application.ts')).account.principalId,
-		),
+		await page.evaluate(async () => {
+			const path = '/src/lib/application.ts';
+			const { account }: typeof import('../src/lib/application.js') =
+				await import(path);
+			return account?.principalId;
+		}),
 		id,
 	);
 	return page;
@@ -242,11 +265,22 @@ async function enroll(id) {
 try {
 	await Promise.all([ready(origin, worker), ready(appOrigin, vite)]);
 	console.log('Development servers ready', origin, appOrigin);
-	proxy = await getPlatformProxy({
+	proxy = await getPlatformProxy<TestBindings>({
 		configPath: operatorConfig,
 		persist: false,
 		remoteBindings: false,
 	});
+	// Probe without side effects before issuing a non-repeatable enrollment grant.
+	for (let attempt = 0; ; attempt++) {
+		try {
+			assert.equal(await proxy.env.LIBRARY_TEST.ready(), true);
+			break;
+		} catch (cause) {
+			if (attempt === 100) throw cause;
+			assert.equal(worker.exitCode, null, 'Development server exited');
+			await Bun.sleep(100);
+		}
+	}
 	browser = await chromium.launch({ headless: true });
 	const alice = await enroll('alice');
 	const bob = await enroll('bob');
@@ -261,7 +295,10 @@ try {
 		0,
 	);
 	const refusedPersonal = await bob.evaluate(async () => {
-		const { account } = await import('/src/lib/application.ts');
+		const modulePath = '/src/lib/application.ts';
+		const { account }: typeof import('../src/lib/application.js') =
+			await import(modulePath);
+		if (!account) throw new Error('Expected an authenticated account');
 		const path =
 			'/api/libraries/so.epicenter.honeycrisp/personal/data/so.epicenter.honeycrisp/current?owner=alice';
 		return (
@@ -289,6 +326,7 @@ try {
 			};
 		}),
 	);
+	assert(canonical[0]);
 	assert(canonical[0].generation);
 	assert(canonical[0].bytes.length > 0);
 	assert.deepEqual(canonical[0], canonical[1]);
@@ -308,13 +346,21 @@ try {
 		.first()
 		.waitFor();
 	await bob.screenshot({ path: '/tmp/honeycrisp-shared-bob.png' });
+	await proveRetirement({
+		alice,
+		bob,
+		origin,
+		operator: proxy.env.LIBRARY_TEST,
+		directory,
+		openNote,
+	});
 	await select(alice, 'Personal');
 	await alice
 		.getByText('Alice private note', { exact: true })
 		.first()
 		.waitFor();
 	assert.equal(
-		await alice.getByText('Shared note edited by Bob', { exact: true }).count(),
+		await alice.getByText('Replacement from Bob', { exact: true }).count(),
 		0,
 	);
 	await alice.screenshot({ path: '/tmp/honeycrisp-personal-alice.png' });
@@ -333,14 +379,17 @@ try {
 		.first()
 		.waitFor();
 	assert.equal(
-		await alice.evaluate(
-			async () => (await import('/src/lib/application.ts')).account.principalId,
-		),
+		await alice.evaluate(async () => {
+			const path = '/src/lib/application.ts';
+			const { account }: typeof import('../src/lib/application.js') =
+				await import(path);
+			return account?.principalId;
+		}),
 		'alice',
 	);
 	await select(alice, 'Shared');
 	await alice
-		.getByText('Shared note edited by Bob', { exact: true })
+		.getByText('Replacement from Bob', { exact: true })
 		.first()
 		.waitFor();
 	outage = false;
@@ -352,9 +401,12 @@ try {
 	await local.goto(appOrigin);
 	await note(local, 'Only on this device');
 	assert.equal(
-		await local.evaluate(
-			async () => (await import('/src/lib/application.ts')).account,
-		),
+		await local.evaluate(async () => {
+			const path = '/src/lib/application.ts';
+			const { account }: typeof import('../src/lib/application.js') =
+				await import(path);
+			return account;
+		}),
 		null,
 	);
 	await local.reload();
@@ -397,7 +449,10 @@ try {
 	);
 	await proxy.env.OPERATOR.remove('bob');
 	const removed = await bob.evaluate(async () => {
-		const { account } = await import('/src/lib/application.ts');
+		const modulePath = '/src/lib/application.ts';
+		const { account }: typeof import('../src/lib/application.js') =
+			await import(modulePath);
+		if (!account) throw new Error('Expected an authenticated account');
 		const result = await account.fetch('/api/session');
 		return result.status;
 	});
@@ -406,7 +461,7 @@ try {
 	assert.deepEqual(errors, []);
 	passed = true;
 	console.log(
-		'PASS: actual Honeycrisp UI, independent Alice/Bob browser storage, Personal isolation, Shared edit convergence, Local signed-out isolation, remembered selection, cached Worker-outage reopening, and close-before-switch. Existing socket removal is not proven here.',
+		'PASS: actual Honeycrisp UI, independent Alice/Bob browser storage, Personal isolation, Shared edit convergence and replacement retirement, Local signed-out isolation, remembered selection, cached Worker-outage reopening, and close-before-switch. Existing socket removal is not proven here.',
 	);
 } finally {
 	if (!passed) {
@@ -423,23 +478,28 @@ try {
 		console.error(errors, logs.join('\n'));
 	}
 	console.log('Closing Chromium');
-	await browser?.close();
-	console.log('Stopping development servers');
-	for (const child of children)
-		if (child.pid) {
-			try {
-				process.kill(-child.pid, 'SIGTERM');
-			} catch {}
+	try {
+		await browser?.close();
+	} finally {
+		try {
+			console.log('Disposing operator proxy');
+			await proxy?.dispose();
+		} finally {
+			console.log('Stopping development servers');
+			for (const child of children)
+				if (child.pid) {
+					try {
+						process.kill(-child.pid, 'SIGTERM');
+					} catch {}
+				}
+			await Bun.sleep(250);
+			for (const child of children)
+				if (child.pid) {
+					try {
+						process.kill(-child.pid, 'SIGKILL');
+					} catch {}
+				}
+			rmSync(directory, { recursive: true, force: true });
 		}
-	await Bun.sleep(250);
-	for (const child of children)
-		if (child.pid) {
-			try {
-				process.kill(-child.pid, 'SIGKILL');
-			} catch {}
-		}
-	console.log('Disposing operator proxy');
-	await proxy?.dispose();
-	console.log('Removed operator proxy');
-	rmSync(directory, { recursive: true, force: true });
+	}
 }

@@ -1,0 +1,5 @@
+{
+	"extends": "./tsconfig.json",
+	// The disposable Honeycrisp fixture inherits this Worker's production owners.
+	"include": ["../honeycrisp/scripts/library.worker.ts"]
+}

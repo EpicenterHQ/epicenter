@@ -88,7 +88,7 @@ Logs for root checks are under `/tmp/honeycrisp-library-baseline/`.
 
 | Command | Result and scope |
 | --- | --- |
-| `SMOKE_VERBOSE=1 bun apps/honeycrisp/scripts/library.browser.mjs` | Pass. Actual Honeycrisp UI, independent Chromium storage, real temporary Worker and virtual passkeys. Operator enrolls Alice/Bob; Personal isolation, Shared editing/convergence, unchanged Personal on return, signed-out Local, remembered selection, cached Worker-outage reopening, App closure before navigation, unauthorized Personal override 403, removal followed by session 401. Concurrent Shared initialization returns identical generation 1, position 1, and bytes. |
+| `SMOKE_VERBOSE=1 bun apps/honeycrisp/scripts/library.browser.ts` | Pass. Actual Honeycrisp UI, independent Chromium storage, real temporary Worker and virtual passkeys. Operator enrolls Alice/Bob; Personal isolation, Shared editing/convergence, unchanged Personal on return, signed-out Local, remembered selection, cached Worker-outage reopening, App closure before navigation, unauthorized Personal override 403, removal followed by session 401. Concurrent Shared initialization returns identical generation 1, position 1, and bytes. |
 | `bun test packages/app/src/app.test.ts packages/app/src/recording.test.ts packages/app/src/index.test.ts packages/server/src/routes/blobs.test.ts packages/data/src/store/current-open.test.ts` | 66 pass, 292 assertions. Includes actual App/auth Account replacement with fake HTTP/WebSocket: Bob submits none of Alice's pending Shared writes. Cache tests use fake IndexedDB; blob scope tests mock storage HTTP. |
 | `bun test packages/auth/src` | 137 pass, 562 assertions. Auth repair, identity, transport, and brokerage regression coverage. |
 | `bun test packages/data/evidence/current-generation packages/data/src/store/store-retirement.test.ts packages/data/src/store/persistence.test.ts packages/data/src/sync/persistence-scheduling.test.ts` | 57 pass, 304 assertions. Portable generation, retirement, and persistence behavior. |
@@ -170,7 +170,7 @@ work remains unstaged and unmounted.
 
 Additional checks on the isolated commit snapshot:
 
-- `SMOKE_VERBOSE=1 bun apps/honeycrisp/scripts/library.browser.mjs`: pass again.
+- `SMOKE_VERBOSE=1 bun apps/honeycrisp/scripts/library.browser.ts`: pass again.
   Temporary Vite configuration allowed the existing checkout's external
   dependency directory because the verification checkout shared installed
   third-party packages. This allowance was not committed. Application source
