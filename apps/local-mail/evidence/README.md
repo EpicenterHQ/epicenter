@@ -63,3 +63,44 @@ browser popup permission. Test that behavior manually with normal permissions.
 
 No harness verifies native WebView interaction, OS keychain reopening, or live
 Gmail download/history/delivery. Those remain separate checks in the active spec.
+
+## Planned end-to-end demo
+
+Start with synthetic mail in a temporary profile, then repeat the provider and
+desktop checks with a designated Gmail test account. The current harnesses
+cover saved queries and routes; they do not yet drive a download interruption
+through the mounted app.
+
+Before the demo, reconcile Local Mail's App opening with the shared library
+API and pass both UI typechecks. On September 9, 2026, preparation found Local
+Mail still calling `openAccount` while the working shared API exposed
+`openPersonal`, plus a shared `acquireAppData` argument mismatch. A bundle build
+passed despite those errors, so building alone is not the entry criterion.
+
+| Step | Action | Evidence to capture |
+| --- | --- | --- |
+| Open and read | Mount the actual route with synthetic identity and a paginated Gmail HTTP fixture. Download mail and open a message. | Rendered subjects and body match the fixture. |
+| Interrupt and resume | Commit the first page, hold a later response, then close the page without running app departure. Reopen the same profile and sync. | Saved mail remains; the next listing uses the saved token. No first-page repeat when the token is accepted. |
+| Repeat unfinished work | Interrupt before a page commits, then retry. | The unfinished page repeats without duplicate messages or skipped IDs. |
+| Catch up | Add and delete fixture messages while the app is closed. Finish the scan and history catchup. | The cache matches the fixture's final mailbox. |
+| Query offline | Save a query, reopen offline, and run it against two distinct account caches. | Query text persists; results stay within the selected account. |
+| Recover from failure | Reject one continuation token, then allow the fresh scan. Separately fail a page request temporarily. | Restart is bounded; temporary failure retains the bookmark and saved mail. |
+
+Drive the real Gmail HTTP client through intercepted requests. Keep the App,
+mail operations, SQLite worker, and rendered controls real. Record the request
+sequence alongside screenshots so a convincing screen cannot hide a repeated
+full download. The process-kill test in `src/sync.resume.test.ts` already proves
+recovery over a real SQLite file; this demo adds browser and UI evidence.
+
+For the live pass, start `bun dev:local-mail` from the repository root with the
+development configuration available. Use normal popup permissions and a chosen
+test mailbox. Verify consent, initial download, interruption, reconnect if
+needed, and subsequent history updates. Browser Gmail credentials last only
+for the document, so reopening can require consent again even though downloaded
+mail and its bookmark survive.
+
+Finally repeat opening, interruption, and reopening in the desktop WebView,
+including keychain retrieval. Before testing delivery, explicitly choose the
+test message and label change: reconciliation can send pending triage. Keep
+existing profiles, caches, and pending changes out of the demo. Report browser,
+desktop, and live-provider results separately.
