@@ -39,7 +39,13 @@ export type AttachStoreSyncOptions = {
 	/** The hydrated document this connection carries. */
 	store: DataDocument;
 	/** The replication address resolved when its backing was acquired. */
-	address: { baseURL: string; dataId: string; generation: number };
+	address: {
+		baseURL: string;
+		dataId: string;
+		generation: number;
+		appId?: string;
+		library?: 'personal' | 'shared';
+	};
 	/**
 	 * How this replica opens its socket. `AuthClient` implements it: it takes
 	 * the address the route built and appends the bearer subprotocol, because a
@@ -86,6 +92,8 @@ export function attachStoreSync({
 				.openWebSocket(
 					STORE_SYNC_ROUTE.address(address.baseURL, {
 						dataId: address.dataId,
+						appId: address.appId,
+						library: address.library,
 						generation: address.generation,
 						cursor,
 					}),

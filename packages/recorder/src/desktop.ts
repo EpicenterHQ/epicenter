@@ -1,5 +1,6 @@
+import { captureLibraryReplica } from '@epicenter/principal';
 import { parseBlobId } from '@epicenter/blobs';
-import { blobDestination, type BlobDestination } from '@epicenter/blobs/native';
+import { blobDestination } from '@epicenter/blobs/native';
 import { isAppId } from '@epicenter/constants/app-id';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -8,30 +9,16 @@ import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import {
 	asDeviceIdentifier,
 	type DeviceAcquisitionOutcome,
-} from './devices.js';
+} from '@epicenter/recorder';
 import {
-	captureRecordingAccount,
 	RecorderError,
-	type RecordingAccount,
+	type RecordingReplica,
 	type Recording,
 	type RecordingEndedReason,
 	type RecordingOwner,
 	type RecordingOptions,
+	type NativeRecording,
 } from './recording.js';
-
-/** Wire shape pinned against the host's generated bindings by the consumer check. */
-export type NativeRecording = {
-	audioBlobId: string;
-	destination: BlobDestination;
-	device:
-		| { outcome: 'success'; deviceId: string }
-		| {
-				outcome: 'fallback';
-				deviceId: string;
-				reason: 'no-device-selected' | 'preferred-device-unavailable';
-		  };
-	endedReason: RecordingEndedReason | null;
-};
 
 const log = createLogger('recorder/desktop');
 
@@ -64,11 +51,11 @@ function call<T>(command: string, args?: Record<string, unknown>) {
 /** Bind the existing host recorder to one application without acquiring resources. */
 export function createDesktopRecording(
 	appId: string,
-	input: RecordingAccount,
-	{ assertUsable, canRecover = () => false }: RecordingOptions = {},
+	input: RecordingReplica,
+	{ assertUsable, canRecover = () => false }: RecordingOptions,
 ): RecordingOwner {
 	if (!isAppId(appId)) throw new Error(`Invalid recording app ID '${appId}'.`);
-	const account = captureRecordingAccount(input);
+	const replica = captureLibraryReplica(input);
 	let closed = false;
 	let closing: Promise<void> | undefined;
 	const operations = new Set<Promise<unknown>>();
@@ -96,7 +83,7 @@ export function createDesktopRecording(
 		return completion.promise;
 	}
 
-	const destination = blobDestination(appId, account);
+	const destination = blobDestination(appId, replica);
 	let held:
 		| {
 				recording: Recording;
@@ -111,13 +98,13 @@ export function createDesktopRecording(
 			return RecorderError.RecorderFailed({
 				cause: new Error('The host returned an invalid blob ID.'),
 			});
-		const scope = live.destination.scope;
+		const captured = live.destination.replica;
 		const matches =
-			scope.kind === 'local'
-				? account === null
-				: account !== null &&
-					scope.authorityId === account.authorityId &&
-					scope.principalId === account.principalId;
+			captured.library === 'local'
+				? replica.library === 'local'
+				: replica.library === captured.library &&
+					captured.account.authorityId === replica.account.authorityId &&
+					captured.account.principalId === replica.account.principalId;
 		if (live.destination.appId !== appId || !matches) {
 			return RecorderError.AlreadyRecording({
 				cause: new Error('The recording belongs to another dataset.'),
@@ -172,7 +159,7 @@ export function createDesktopRecording(
 		}
 		const recording = Object.freeze({
 			audioBlobId,
-			account,
+			replica,
 			device,
 			get endedReason() {
 				return endedReason;

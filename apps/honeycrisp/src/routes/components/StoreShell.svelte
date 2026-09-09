@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { SidebarProvider } from '@epicenter/ui/sidebar';
@@ -19,7 +20,8 @@
 	let {
 		data: opened,
 		removeLocalData,
-	}: { data: HoneycrispData; removeLocalData?: () => Promise<void> } = $props();
+		librarySelection,
+	}: { data: HoneycrispData; librarySelection: Snippet; removeLocalData?: () => Promise<void> } = $props();
 
 	/* svelte-ignore state_referenced_locally */
 	const data = fromData(opened);
@@ -57,7 +59,7 @@
 />
 
 <SidebarProvider>
-	<HoneycrispSidebar {syncStatus} folder={undefined} {removeLocalData} />
+	<HoneycrispSidebar {librarySelection} {syncStatus} folder={undefined} {removeLocalData} />
 
 	<main class="flex h-screen flex-1 overflow-hidden">
 		<Resizable.PaneGroup direction="horizontal">

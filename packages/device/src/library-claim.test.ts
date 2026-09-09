@@ -25,7 +25,7 @@ function unopenedOwner() {
 
 test('a raw library claim refuses standalone SQL before backend acquisition', async () => {
 	const appId = 'so.epicenter.raw-claim';
-	const claim = expectOk(await claimLibrary(appId, null));
+	const claim = expectOk(await claimLibrary(appId, { library: 'local' }));
 	let acquisitions = 0;
 	const storage = createAppSqlite(
 		{
@@ -35,7 +35,7 @@ test('a raw library claim refuses standalone SQL before backend acquisition', as
 			},
 		},
 		appId,
-		null,
+		{ library: 'local' },
 	);
 	expect(expectErr(await storage.acquire()).name).toBe('AlreadyOpen');
 	expect(expectErr(await storage.value.open('search')).name).toBe(
@@ -46,7 +46,9 @@ test('a raw library claim refuses standalone SQL before backend acquisition', as
 	);
 	expect(acquisitions).toBe(0);
 	await storage.close();
-	expect(expectErr(await claimLibrary(appId, null)).name).toBe('AlreadyOpen');
+	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
+		'AlreadyOpen',
+	);
 	claim.release();
 });
 
@@ -68,15 +70,19 @@ test('a SQL-only lifetime excludes raw claims until its close completes', async 
 			},
 		},
 		appId,
-		null,
+		{ library: 'local' },
 	);
 	expectOk(await storage.acquire());
-	expect(expectErr(await claimLibrary(appId, null)).name).toBe('AlreadyOpen');
+	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
+		'AlreadyOpen',
+	);
 	const closing = storage.close();
-	expect(expectErr(await claimLibrary(appId, null)).name).toBe('AlreadyOpen');
+	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
+		'AlreadyOpen',
+	);
 	gate.resolve();
 	await closing;
-	expectOk(await claimLibrary(appId, null)).release();
+	expectOk(await claimLibrary(appId, { library: 'local' })).release();
 });
 
 test('application, authority, principal and local identity select independent claims', async () => {
@@ -89,15 +95,23 @@ test('application, authority, principal and local identity select independent cl
 		{ authorityId: 'other', principalId: asPrincipalId('three') },
 	];
 	const storage = accounts.map((account) =>
-		createAppSqlite(owner, appId, account),
+		createAppSqlite(
+			owner,
+			appId,
+			account === null
+				? { library: 'local' }
+				: { library: 'personal', account },
+		),
 	);
 	for (const lifetime of storage) expectOk(await lifetime.acquire());
 	const otherApp = expectOk(
-		await claimLibrary('so.epicenter.another-claim', null),
+		await claimLibrary('so.epicenter.another-claim', { library: 'local' }),
 	);
-	expect(expectErr(await claimLibrary(appId, accounts[1]!)).name).toBe(
-		'AlreadyOpen',
-	);
+	expect(
+		expectErr(
+			await claimLibrary(appId, { library: 'personal', account: accounts[1]! }),
+		).name,
+	).toBe('AlreadyOpen');
 	await Promise.all(storage.map((lifetime) => lifetime.close()));
 	otherApp.release();
 });
@@ -112,14 +126,14 @@ test('backend acquisition failure releases the claim and close finishes', async 
 			},
 		},
 		appId,
-		null,
+		{ library: 'local' },
 	);
 	expect(expectErr(await storage.acquire())).toMatchObject({
 		name: 'StorageFailed',
 		cause,
 	});
 	await storage.close();
-	expectOk(await claimLibrary(appId, null)).release();
+	expectOk(await claimLibrary(appId, { library: 'local' })).release();
 });
 
 test('close during acquisition waits for backend release before releasing the library', async () => {
@@ -144,17 +158,19 @@ test('close during acquisition waits for backend release before releasing the li
 			},
 		},
 		appId,
-		null,
+		{ library: 'local' },
 	);
 	const acquiring = storage.acquire();
 	await started.promise;
 	const closing = storage.close();
-	expect(expectErr(await claimLibrary(appId, null)).name).toBe('AlreadyOpen');
+	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
+		'AlreadyOpen',
+	);
 	gate.resolve();
 	expectOk(await acquiring);
 	await closing;
 	expect(closed).toBe(true);
-	expectOk(await claimLibrary(appId, null)).release();
+	expectOk(await claimLibrary(appId, { library: 'local' })).release();
 });
 
 test('failed physical close permanently retains the library claim', async () => {
@@ -174,11 +190,13 @@ test('failed physical close permanently retains the library claim', async () => 
 			},
 		},
 		appId,
-		null,
+		{ library: 'local' },
 	);
 	expectOk(await storage.acquire());
 	await expect(storage.close()).rejects.toThrow('physical close failed');
-	expect(expectErr(await claimLibrary(appId, null)).name).toBe('AlreadyOpen');
+	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
+		'AlreadyOpen',
+	);
 });
 
 test('missing locks, thrown requests and rejected requests preserve distinct claim failures', async () => {
@@ -189,11 +207,11 @@ test('missing locks, thrown requests and rejected requests preserve distinct cla
 			`
    const { claimLibrary } = await import(${JSON.stringify(new URL('./library-claim.ts', import.meta.url).href)});
    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
-   const results = [await claimLibrary('so.epicenter.claim-errors', null)];
+   const results = [await claimLibrary('so.epicenter.claim-errors', { library: 'local' })];
    navigator.locks = { request() { throw new Error('request threw'); } };
-   results.push(await claimLibrary('so.epicenter.claim-errors', null));
+   results.push(await claimLibrary('so.epicenter.claim-errors', { library: 'local' }));
    navigator.locks = { request() { return Promise.reject(new Error('request rejected')); } };
-   results.push(await claimLibrary('so.epicenter.claim-errors', null));
+   results.push(await claimLibrary('so.epicenter.claim-errors', { library: 'local' }));
    console.log(JSON.stringify(results.map(({ error }) => ({ name: error.name, address: error.address, cause: error.cause?.message }))));
   `,
 		],
@@ -207,10 +225,30 @@ test('missing locks, thrown requests and rejected requests preserve distinct cla
 		child.exited,
 	]);
 	expect({ stderr, exitCode }).toEqual({ stderr: '', exitCode: 0 });
-	const address = 'library:["so.epicenter.claim-errors",null,null]';
+	const address = 'library:["so.epicenter.claim-errors",{"library":"local"}]';
 	expect(JSON.parse(stdout)).toEqual([
 		{ name: 'LocksUnsupported', address },
 		{ name: 'ClaimFailed', address, cause: 'request threw' },
 		{ name: 'ClaimFailed', address, cause: 'request rejected' },
 	]);
+});
+
+test('personal and shared lifetimes are distinct while duplicate shared ownership is refused', async () => {
+	const appId = 'so.epicenter.library-kind-claim';
+	const alice = { authorityId: 'server', principalId: asPrincipalId('alice') };
+	const shared = { library: 'shared' as const, account: alice };
+	const claims = [
+		expectOk(
+			await claimLibrary(appId, { library: 'personal', account: alice }),
+		),
+		expectOk(await claimLibrary(appId, shared)),
+		expectOk(
+			await claimLibrary(appId, {
+				...shared,
+				account: { ...alice, principalId: asPrincipalId('bob') },
+			}),
+		),
+	];
+	expect(expectErr(await claimLibrary(appId, shared)).name).toBe('AlreadyOpen');
+	for (const claim of claims) claim.release();
 });

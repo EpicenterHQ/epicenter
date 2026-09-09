@@ -48,7 +48,7 @@ export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwn
 export function createBrowserDevice({ appId }: { appId: string }): Device {
 	appIdOrThrow(appId);
 	const owner = createBrowserSqliteOwner();
-	const sqlite = createAppSqlite(owner, appId, null);
+	const sqlite = createAppSqlite(owner, appId, { library: 'local' });
 	return {
 		sqlite: Object.freeze(sqlite.value),
 		close: () => sqlite.close(),

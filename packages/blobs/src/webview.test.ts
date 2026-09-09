@@ -18,6 +18,10 @@ import { generateBlobId } from './blob-id.js';
 import type { BlobRemoteError } from './blob-remote.js';
 import type { BlobStoreError } from './blob-store.js';
 import { BLOB_PATHS, createWebviewBlobs } from './webview.js';
+const remoteTransport = {
+	baseURL: 'https://server.test',
+	fetch: globalThis.fetch,
+};
 
 function setup(responses: Response[]) {
 	const requests: Request[] = [];
@@ -36,7 +40,8 @@ function setup(responses: Response[]) {
 	return {
 		...createWebviewBlobs({
 			appId: 'so.epicenter.test',
-			account: null,
+			replica: { library: 'local' },
+			remote: null,
 			fetch: fetcher,
 		}),
 		fetcher,
@@ -53,6 +58,7 @@ test('host mounts use canonical local and account collection paths', () => {
 	expect(BLOB_PATHS).toEqual({
 		local: '/api/apps/:appId/local/blobs',
 		account: '/api/apps/:appId/accounts/:authorityId/:principalId/blobs',
+		shared: '/api/apps/:appId/accounts/:authorityId/:principalId/shared/blobs',
 	});
 });
 
@@ -73,7 +79,12 @@ test('all verbs and playback keep the same encoded account after input mutation'
 		authorityId: 'authority %?#é',
 		principalId: asPrincipalId('principal :@&=+'),
 	};
-	const options = { appId: 'so.epicenter.test', account, fetch: fetcher };
+	const options = {
+		appId: 'so.epicenter.test',
+		replica: { library: 'personal' as const, account },
+		remote: remoteTransport,
+		fetch: fetcher,
+	};
 	const { local, sources, remote } = createWebviewBlobs(options);
 	const id = generateBlobId();
 	const destinationId = generateBlobId();
@@ -84,7 +95,7 @@ test('all verbs and playback keep the same encoded account after input mutation'
 	account.authorityId = 'other-authority';
 	account.principalId = asPrincipalId('other-principal');
 	options.appId = 'so.epicenter.other';
-	options.account = {
+	options.replica.account = {
 		authorityId: 'replacement',
 		principalId: asPrincipalId('replacement'),
 	};
@@ -168,7 +179,11 @@ test('missing app and account fail the type contract and throw before fetch', ()
 	}).toThrow();
 	expect(() => {
 		// @ts-expect-error App identity is mandatory for every capability.
-		createWebviewBlobs({ account: null, fetch: fetcher });
+		createWebviewBlobs({
+			replica: { library: 'local' },
+			remote: null,
+			fetch: fetcher,
+		});
 	}).toThrow();
 	expect(requests).toHaveLength(0);
 });
@@ -229,7 +244,8 @@ test('invalid app ids and incomplete or unsafe account segments fail before fetc
 			createWebviewBlobs({
 				// @ts-expect-error Exercise malformed runtime input at construction.
 				appId,
-				account: null,
+				replica: { library: 'local' },
+				remote: null,
 				fetch: fetcher,
 			}),
 		).toThrow();
@@ -239,7 +255,8 @@ test('invalid app ids and incomplete or unsafe account segments fail before fetc
 			createWebviewBlobs({
 				appId: 'so.epicenter.test',
 				// @ts-expect-error Exercise malformed runtime input at construction.
-				account,
+				replica: { library: 'personal', account },
+				remote: remoteTransport,
 				fetch: fetcher,
 			}),
 		).toThrow();
@@ -251,7 +268,14 @@ test('percent-encoded traversal text stays a literal identity segment', async ()
 	const { fetcher, requests } = setup([new Response('audio')]);
 	const { local } = createWebviewBlobs({
 		appId: 'so.epicenter.test',
-		account: { authorityId: '%2e%2e', principalId: asPrincipalId('%2f..%5c') },
+		replica: {
+			library: 'personal',
+			account: {
+				authorityId: '%2e%2e',
+				principalId: asPrincipalId('%2f..%5c'),
+			},
+		},
+		remote: remoteTransport,
 		fetch: fetcher,
 	});
 	const id = generateBlobId();
@@ -374,7 +398,8 @@ test('local verbs preserve transport causes and reject failed HTTP responses', a
 	const cause = new Error('host unavailable');
 	const { local } = createWebviewBlobs({
 		appId: 'so.epicenter.test',
-		account: null,
+		replica: { library: 'local' },
+		remote: null,
 		fetch: async () => {
 			throw cause;
 		},
@@ -425,7 +450,11 @@ test('remote statuses preserve typed errors including unavailable backing', asyn
 		const { fetcher } = setup([new Response(null, { status })]);
 		const { remote } = createWebviewBlobs({
 			appId: 'so.epicenter.test',
-			account: { authorityId: 'a', principalId: asPrincipalId('p') },
+			replica: {
+				library: 'personal',
+				account: { authorityId: 'a', principalId: asPrincipalId('p') },
+			},
+			remote: remoteTransport,
 			fetch: fetcher,
 		});
 		expect(
@@ -437,7 +466,11 @@ test('remote statuses preserve typed errors including unavailable backing', asyn
 			const { fetcher } = setup([new Response(null, { status })]);
 			const { remote } = createWebviewBlobs({
 				appId: 'so.epicenter.test',
-				account: { authorityId: 'a', principalId: asPrincipalId('p') },
+				replica: {
+					library: 'personal',
+					account: { authorityId: 'a', principalId: asPrincipalId('p') },
+				},
+				remote: remoteTransport,
 				fetch: fetcher,
 			});
 			expect(
@@ -453,7 +486,11 @@ test('all remote verbs preserve transport causes', async () => {
 	const cause = new Error('host unavailable');
 	const { remote } = createWebviewBlobs({
 		appId: 'so.epicenter.test',
-		account: { authorityId: 'a', principalId: asPrincipalId('p') },
+		replica: {
+			library: 'personal',
+			account: { authorityId: 'a', principalId: asPrincipalId('p') },
+		},
+		remote: remoteTransport,
 		fetch: async () => {
 			throw cause;
 		},
@@ -468,4 +505,29 @@ test('all remote verbs preserve transport causes', async () => {
 			cause,
 		});
 	}
+});
+
+test('shared bytes and transfers capture the actor and selected library', async () => {
+	const { fetcher, requests } = setup([
+		new Response(null, { status: 201 }),
+		new Response(null, { status: 204 }),
+	]);
+	const account = {
+		authorityId: 'server',
+		principalId: asPrincipalId('alice'),
+	};
+	const blobs = createWebviewBlobs({
+		appId: 'so.epicenter.test',
+		replica: { library: 'shared', account },
+		remote: remoteTransport,
+		fetch: fetcher,
+	});
+	account.principalId = asPrincipalId('bob');
+	const id = generateBlobId();
+	expectOk(await blobs.local.put(id, new Blob(['alice'])));
+	expectOk(await blobs.remote!.upload(id));
+	expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+		`/api/apps/so.epicenter.test/accounts/server/alice/shared/blobs/${id}`,
+		`/api/apps/so.epicenter.test/accounts/server/alice/shared/blobs/${id}/upload`,
+	]);
 });

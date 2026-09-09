@@ -1,6 +1,9 @@
 /// <reference lib="dom" />
 
-import type { PrincipalId } from '@epicenter/principal';
+import {
+	captureLibraryReplica,
+	type LibraryReplicaIdentity,
+} from '@epicenter/principal';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -32,21 +35,10 @@ const METADATA_STORE = 'blob-metadata';
  * must not reach the first one's recordings, and removing one account's local
  * data has to be able to take its audio and leave everybody else's.
  */
-export type BrowserBlobScope =
-	| {
-			/** The opening application, which is one segment of the name. */
-			appId: string;
-			/** The literal device-local partition. */
-			principalId: 'local';
-	  }
-	| {
-			/** The opening application, which is one segment of the name. */
-			appId: string;
-			/** The captured account principal. */
-			principalId: PrincipalId;
-			/** The authority that owns the account partition. */
-			authorityId: string;
-	  };
+export type BrowserBlobScope = {
+	appId: string;
+	replica: LibraryReplicaIdentity;
+};
 
 /**
  * Where one account's blobs live in this browser (ADR-0349).
@@ -86,12 +78,12 @@ export type BrowserBlobScope =
  * name is not a place to be lenient.
  */
 export function browserBlobStoreName(scope: BrowserBlobScope): string {
-	const { appId, principalId } = scope;
+	const { appId } = scope;
 	assertOneSegment(appId, 'app id');
-	assertOneSegment(principalId, 'principal id');
-	if (!('authorityId' in scope)) return `epicenter/${appId}/local/blobs`;
-	assertOneSegment(scope.authorityId, 'authority id');
-	return `epicenter/${appId}/accounts/${scope.authorityId}/${principalId}/blobs`;
+	const replica = captureLibraryReplica(scope.replica);
+	if (replica.library === 'local') return `epicenter/${appId}/local/blobs`;
+	const { authorityId, principalId } = replica.account;
+	return `epicenter/${appId}/accounts/${authorityId}/${principalId}/${replica.library === 'shared' ? 'shared/' : ''}blobs`;
 }
 
 function assertOneSegment(segment: string, label: string): void {

@@ -27,4 +27,4 @@ export const account: Account = {
 export const app = defineApplication({
 	appId: 'so.epicenter.local-mail-evidence',
 	definition: mailDefinition,
-}).openAccount(account);
+}).openPersonal(account);

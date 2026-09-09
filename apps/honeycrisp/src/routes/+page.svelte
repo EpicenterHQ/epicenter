@@ -4,6 +4,7 @@
 	import { authStartup } from '#platform/auth';
 	import { onMount, tick } from 'svelte';
 	import StoreShell from './components/StoreShell.svelte';
+	import LibrarySelection from './components/LibrarySelection.svelte';
 
 	let application = $state.raw<typeof import('$lib/application.js')>();
 	let error = $state('');
@@ -28,15 +29,24 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
+	{#snippet librarySelection()}
+		{#if application}
+			<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
+		{/if}
+	{/snippet}
+	{#if !application.app}
+		<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
+	{/if}
 	<AppBoot startup={authStartup} departure={application.departure} hasApp={application.app !== null} appName="Honeycrisp" noun="notes">
 		{#if application.app && showing}
 			{#await application.app.ready}
 				<Loading class="h-dvh" label="Opening your notes…" />
 			{:then { error }}
 				{#if error !== null}
+					<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
 					<CannotOpenScreen appName="Honeycrisp" noun="notes" {error} retry={() => location.reload()} />
 				{:else}
-					<StoreShell data={application.app} />
+					<StoreShell data={application.app} {librarySelection} />
 				{/if}
 			{/await}
 		{/if}

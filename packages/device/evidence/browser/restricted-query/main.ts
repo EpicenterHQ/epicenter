@@ -12,7 +12,9 @@ function check(name: string, condition: boolean, value?: unknown) {
 
 try {
 	const owner = createBrowserSqliteOwner();
-	const lifetime = await owner.acquire('so.epicenter.query-evidence', null);
+	const lifetime = await owner.acquire('so.epicenter.query-evidence', {
+		library: 'local',
+	});
 	const db = await lifetime.open('queries');
 	expectOk(
 		await db.batch([
@@ -126,7 +128,9 @@ try {
 		JSON.stringify(final.rows) === '[[{"integer":"2"}]]',
 		final,
 	);
-	const otherLifetime = await owner.acquire('so.epicenter.query-other', null);
+	const otherLifetime = await owner.acquire('so.epicenter.query-other', {
+		library: 'local',
+	});
 	const other = await otherLifetime.open('queries');
 	expectOk(await other.run('CREATE TABLE private_rows(id INTEGER)'));
 	const firstQuery = db.query(
@@ -231,7 +235,9 @@ try {
 			null,
 	);
 	await lifetime.close();
-	const reopened = await owner.acquire('so.epicenter.query-evidence', null);
+	const reopened = await owner.acquire('so.epicenter.query-evidence', {
+		library: 'local',
+	});
 	const reopenedDb = await reopened.open('queries');
 	check(
 		'reopenPhysicalJson',

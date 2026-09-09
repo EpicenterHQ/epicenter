@@ -66,7 +66,7 @@ function setup() {
 	);
 	const recording: Recording = {
 		audioBlobId,
-		account: null,
+		replica: { library: 'local' },
 		device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 		endedReason: null,
 		stop,

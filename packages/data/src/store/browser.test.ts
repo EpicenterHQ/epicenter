@@ -1133,7 +1133,7 @@ test('SQL-only and generation entrypoints exclude each other before discovery or
 			};
 		},
 	};
-	const sql = createAppSqlite(owner, APP, account);
+	const sql = createAppSqlite(owner, APP, { library: 'personal', account });
 	expectOkResult(await sql.acquire());
 	const fetch = spyOn(account, 'fetch');
 	const discovery = spyOn(indexedDB, 'databases');
@@ -1162,7 +1162,7 @@ test('SQL-only and generation entrypoints exclude each other before discovery or
 		).toBe('AlreadyOpen');
 		expect(fetch).not.toHaveBeenCalled();
 		expect(discovery).not.toHaveBeenCalled();
-		const local = createAppSqlite(owner, APP, null);
+		const local = createAppSqlite(owner, APP, { library: 'local' });
 		expectOkResult(await local.acquire());
 		await local.close();
 	} finally {
@@ -1174,7 +1174,10 @@ test('SQL-only and generation entrypoints exclude each other before discovery or
 	const document = expectOkResult(
 		await openDatabase(database, { appId: APP, generation: GEN, account }),
 	);
-	const competing = createAppSqlite(owner, APP, account);
+	const competing = createAppSqlite(owner, APP, {
+		library: 'personal',
+		account,
+	});
 	try {
 		expect(expectErr(await competing.acquire()).name).toBe('AlreadyOpen');
 		expect(acquisitions).toBe(2);
@@ -1182,7 +1185,10 @@ test('SQL-only and generation entrypoints exclude each other before discovery or
 		await competing.close();
 		await document.close();
 	}
-	const reopened = createAppSqlite(owner, APP, account);
+	const reopened = createAppSqlite(owner, APP, {
+		library: 'personal',
+		account,
+	});
 	expectOkResult(await reopened.acquire());
 	await reopened.close();
 });
@@ -1251,9 +1257,10 @@ for (const operation of ['open', 'create', 'resolve'] as const) {
 						? createGeneration(database, { appId, account })
 						: resolveGeneration(database, { appId, account }),
 				).rejects.toThrow('Cleanup failed');
-			expect(expectErr(await claimLibrary(appId, account)).name).toBe(
-				'AlreadyOpen',
-			);
+			expect(
+				expectErr(await claimLibrary(appId, { library: 'personal', account }))
+					.name,
+			).toBe('AlreadyOpen');
 		} finally {
 			closing.mockRestore();
 		}

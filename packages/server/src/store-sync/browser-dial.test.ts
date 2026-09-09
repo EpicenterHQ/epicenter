@@ -74,6 +74,7 @@ function createBrowserAuth(onOpening: (opening: Opening) => void) {
 		close() {}
 	} as unknown as typeof WebSocket;
 	return createSessionAuth({
+		authorityId: 'epicenter-api',
 		baseURL: BASE_URL,
 		persistedAuthStorage: storage,
 		launcher: { startSignIn: async () => ({ status: 'launched' }) },
@@ -127,9 +128,13 @@ function createServer(
 				: OAuthError.InvalidToken(),
 		resolveStore: () => ({
 			authority: () => authority,
-			ledger: () => {
-				throw new Error('the sync upgrade reads no ledger');
-			},
+			ledger: () => ({
+				initial: () => 1,
+				allocate: () => 1,
+				admit() {},
+				holds: () => true,
+				list: () => [],
+			}),
 		}),
 	});
 	return { app, seen };
@@ -155,7 +160,13 @@ async function dial(): Promise<Opening> {
 			throw new Error('Unexpected retirement in this transport test');
 		},
 		store,
-		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
+		address: {
+			baseURL: BASE_URL,
+			appId: definition.id,
+			library: 'personal',
+			dataId: definition.id,
+			generation: 1,
+		},
 		transport:
 			auth.state.status === 'signed-out'
 				? (() => {
@@ -183,6 +194,8 @@ test('the browser offers the main subprotocol and the bearer, in that order', as
 	const url = new URL(opening.url);
 	expect(url.protocol).toBe('ws:');
 	expect(url.pathname).toBe('/api/store/v1/sync');
+	expect(url.searchParams.get('appId')).toBe(definition.id);
+	expect(url.searchParams.get('library')).toBe('personal');
 	expect(url.searchParams.get('dataId')).toBe(definition.id);
 	expect(url.searchParams.get('generation')).toBe('1');
 	expect(url.searchParams.get('cursor')).toBe('0');
@@ -224,4 +237,30 @@ test('the accepted upgrade echoes the main subprotocol and never the bearer', as
 	expect(response.headers.get('sec-websocket-protocol')).not.toContain(
 		ACCESS_TOKEN,
 	);
+});
+
+test('Cloud refuses Shared before resolving its authority', async () => {
+	const opening = await dial();
+	const url = new URL(opening.url);
+	url.searchParams.set('library', 'shared');
+	const { app, seen } = createServer();
+	const response = await app.request(
+		upgradeRequest({ ...opening, url: url.toString() }),
+	);
+	expect(response.status).toBe(403);
+	expect(seen).toEqual([]);
+});
+
+test('a browser cannot select another Personal owner through its socket query', async () => {
+	const opening = await dial();
+	for (const key of ['owner', 'principalId']) {
+		const url = new URL(opening.url);
+		url.searchParams.set(key, 'another-user');
+		const { app, seen } = createServer();
+		const response = await app.request(
+			upgradeRequest({ ...opening, url: url.toString() }),
+		);
+		expect(response.status).toBe(403);
+		expect(seen).toEqual([]);
+	}
 });

@@ -34,7 +34,13 @@ let principalSequence = 0;
 /** One fresh account per test, so no test reads another's database. */
 function setup() {
 	const principalId = asPrincipalId(`principal-${principalSequence++}`);
-	const scope = { appId: APP_ID, principalId, authorityId: 'test-authority' };
+	const scope = {
+		appId: APP_ID,
+		replica: {
+			library: 'personal' as const,
+			account: { principalId, authorityId: 'test-authority' },
+		},
+	};
 	return {
 		scope,
 		databaseName: browserBlobStoreName(scope),
@@ -72,7 +78,7 @@ test('the name is the account prefix of the replica address, ending in blobs', (
 	expect(
 		browserBlobStoreName({
 			appId: 'so.epicenter.whispering',
-			principalId: 'local',
+			replica: { library: 'local' as const },
 		}),
 	).toBe('epicenter/so.epicenter.whispering/local/blobs');
 });
@@ -82,22 +88,35 @@ test('a segment that could be read as a path is refused at construction', () => 
 		expect(() =>
 			browserBlobStoreName({
 				appId: APP_ID,
-				principalId: asPrincipalId(bad),
-				authorityId: 'authority',
+				replica: {
+					library: 'personal' as const,
+					account: {
+						principalId: asPrincipalId(bad),
+						authorityId: 'authority',
+					},
+				},
 			}),
 		).toThrow();
 		expect(() =>
 			browserBlobStoreName({
 				appId: bad,
-				principalId: asPrincipalId('principal-1'),
-				authorityId: 'authority',
+				replica: {
+					library: 'personal' as const,
+					account: {
+						principalId: asPrincipalId('principal-1'),
+						authorityId: 'authority',
+					},
+				},
 			}),
 		).toThrow();
 	}
 	// Refused, never canonicalized: whitespace and case are the authority's.
-	expect(browserBlobStoreName({ appId: APP_ID, principalId: 'local' })).toBe(
-		`epicenter/${APP_ID}/local/blobs`,
-	);
+	expect(
+		browserBlobStoreName({
+			appId: APP_ID,
+			replica: { library: 'local' as const },
+		}),
+	).toBe(`epicenter/${APP_ID}/local/blobs`);
 });
 
 test('two accounts on one browser hold two stores and neither reads the other', async () => {
@@ -120,11 +139,16 @@ test('two accounts on one browser hold two stores and neither reads the other', 
 });
 
 test('the local partition is separate from every account partition', async () => {
-	const localScope = { appId: APP_ID, principalId: 'local' as const };
+	const localScope = { appId: APP_ID, replica: { library: 'local' as const } };
 	const accountScope = {
 		appId: APP_ID,
-		principalId: asPrincipalId('local-account'),
-		authorityId: 'test-authority',
+		replica: {
+			library: 'personal' as const,
+			account: {
+				principalId: asPrincipalId('local-account'),
+				authorityId: 'test-authority',
+			},
+		},
 	};
 	const local = createBrowserBlobStore({
 		...localScope,
@@ -150,17 +174,21 @@ test('authority identity is part of the account blob partition', async () => {
 	const principalId = asPrincipalId('same-principal');
 	const first = createBrowserBlobStore({
 		appId: APP_ID,
-		principalId,
-		authorityId: 'authority-one',
 		indexedDb: indexedDB,
 		locks: testLocks,
+		replica: {
+			library: 'personal' as const,
+			account: { principalId, authorityId: 'authority-one' },
+		},
 	});
 	const second = createBrowserBlobStore({
 		appId: APP_ID,
-		principalId,
-		authorityId: 'authority-two',
 		indexedDb: indexedDB,
 		locks: testLocks,
+		replica: {
+			library: 'personal' as const,
+			account: { principalId, authorityId: 'authority-two' },
+		},
 	});
 	const id = generateBlobId();
 
@@ -174,16 +202,21 @@ test('authority identity is part of the account blob partition', async () => {
 test('a principal minted as local cannot collide with the local partition', async () => {
 	const local = createBrowserBlobStore({
 		appId: APP_ID,
-		principalId: 'local',
 		indexedDb: indexedDB,
 		locks: testLocks,
+		replica: { library: 'local' as const },
 	});
 	const account = createBrowserBlobStore({
 		appId: APP_ID,
-		principalId: asPrincipalId('local'),
-		authorityId: 'authority-one',
 		indexedDb: indexedDB,
 		locks: testLocks,
+		replica: {
+			library: 'personal' as const,
+			account: {
+				principalId: asPrincipalId('local'),
+				authorityId: 'authority-one',
+			},
+		},
 	});
 	const id = generateBlobId();
 
@@ -712,3 +745,35 @@ test('a blocked delete reports failure but retains exclusion until the request a
 		'BlobNotFound',
 	);
 }, 15_000);
+
+test('shared blobs cannot alias personal bytes or another actor cache', async () => {
+	const account = {
+		authorityId: 'server',
+		principalId: asPrincipalId('alice'),
+	};
+	const options = {
+		appId: 'so.epicenter.shared-blob-test',
+		indexedDb: indexedDB,
+		locks: testLocks,
+	};
+	const personal = createBrowserBlobStore({
+		...options,
+		replica: { library: 'personal', account },
+	});
+	const shared = createBrowserBlobStore({
+		...options,
+		replica: { library: 'shared', account },
+	});
+	const bob = createBrowserBlobStore({
+		...options,
+		replica: {
+			library: 'shared',
+			account: { ...account, principalId: asPrincipalId('bob') },
+		},
+	});
+	const id = generateBlobId();
+	expectOk(await shared.put(id, new Blob(['shared alice'])));
+	expectErr(await personal.get(id));
+	expectErr(await bob.get(id));
+	expect(await expectOk(await shared.get(id)).text()).toBe('shared alice');
+});

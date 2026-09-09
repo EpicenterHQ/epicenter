@@ -41,15 +41,17 @@ import {
 	type DataDefinitionParseError,
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
-import type { PrincipalId } from '@epicenter/principal';
+import type { LibraryReplicaIdentity, PrincipalId } from '@epicenter/principal';
 import {
 	GENERATIONS_ROUTE,
+	CURRENT_GENERATION_HEADER,
 	LOG_POSITION_HEADER,
 } from '@epicenter/sync/generations-route';
 import * as Y from '@y/y';
 import { deleteDB, openDB } from 'idb';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { claimLibrary } from '@epicenter/device/library-claim';
+import { openCurrentCache } from './current-cache.js';
 import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
@@ -490,7 +492,7 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 	const parts = createStoreOverPort({
 		definition: parsed,
 		async acquire() {
-			const claim = await claimLibrary(appId, account);
+			const claim = await claimLibrary(appId, { library: 'personal', account });
 			if (claim.error) return claim;
 			const acquired = await acquireDatabase(parsed, {
 				appId,
@@ -627,35 +629,102 @@ async function acquireDatabase(
  */
 export async function acquireAppData(
 	definition: ParsedDataDefinition,
-	{ appId, account }: { appId: string; account: DatabaseAccount | null },
-) {
-	const resolved =
-		account === null
-			? Ok({ generation: 1 })
-			: await discoverGeneration(definition, { appId, account });
-	if (resolved.error !== null) return resolved;
-	const generation = resolved.data.generation;
-	const acquired = await acquireDatabase(definition, {
+	{
 		appId,
-		generation,
-		...(account === null ? {} : { account }),
-	});
-	if (acquired.error !== null) return acquired;
-	return Ok({
-		...acquired.data,
-		...(account === null
-			? {}
-			: {
-					replication: {
-						address: {
-							baseURL: account.baseURL,
-							dataId: definition.id,
-							generation,
-						},
-						transport: account,
-					},
-				}),
-	});
+		replica,
+		remote,
+	}: {
+		appId: string;
+		replica: LibraryReplicaIdentity;
+		remote: {
+			currentUrl: string;
+			address: {
+				baseURL: string;
+				appId: string;
+				library: 'personal' | 'shared';
+			};
+			transport: DatabaseAccount;
+		} | null;
+	},
+): Promise<Result<StoreBacking, StoreError>> {
+	if (replica.library === 'local')
+		return acquireDatabase(definition, { appId, generation: 1 });
+	if (remote === null)
+		return StoreError.Unaddressable({
+			reason: 'A synchronized replica needs its captured transport',
+		});
+	void requestPersistentStorage();
+	const prefix = generationPrefix(
+		appId,
+		replica.account.principalId,
+		definition.id,
+		replica.account.authorityId,
+	);
+	if (prefix.error) return prefix;
+	// A stable name per actor and selected library; generations live in its header.
+	const address = `${prefix.data}${replica.library}/current`;
+	const opened = await openCurrentCache(address);
+	if (opened.error) return opened;
+	const cache = opened.data;
+	try {
+		let loaded = cache.loaded;
+		if (loaded === undefined) {
+			const seed = createDatabaseDocument();
+			const body = new Uint8Array(Y.encodeStateAsUpdateV2(seed));
+			seed.destroy();
+			const response = await remote.transport.fetch(remote.currentUrl, {
+				method: 'POST',
+				headers: { 'content-type': 'application/octet-stream' },
+				body,
+			});
+			if (!response.ok)
+				throw new Error(`Current library download returned ${response.status}`);
+			const generationHeader = response.headers.get(CURRENT_GENERATION_HEADER);
+			const positionHeader = response.headers.get(LOG_POSITION_HEADER);
+			if (
+				!generationHeader ||
+				!/^[1-9][0-9]*$/.test(generationHeader) ||
+				!positionHeader ||
+				!/^[0-9]+$/.test(positionHeader)
+			)
+				throw new Error(
+					'Current library download has invalid generation or position headers',
+				);
+			const generation = Number(generationHeader);
+			const position = Number(positionHeader);
+			if (!Number.isSafeInteger(generation) || !Number.isSafeInteger(position))
+				throw new Error(
+					'Current library download has invalid generation or position',
+				);
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			// Validate the whole seed before publishing a usable header.
+			const validation = createDatabaseDocument();
+			try {
+				Y.applyUpdateV2(validation, bytes);
+			} finally {
+				validation.destroy();
+			}
+			const snapshot = await cache.install({ generation, bytes, position });
+			loaded = { generation, snapshot };
+		}
+		return Ok({
+			durable: cache.port,
+			loaded: loaded.snapshot,
+			discard: cache.discard,
+			dispose: cache.close,
+			replication: {
+				address: {
+					...remote.address,
+					dataId: definition.id,
+					generation: loaded.generation,
+				},
+				transport: remote.transport,
+			},
+		});
+	} catch (cause) {
+		cache.close();
+		return StoreError.StorageFailed({ cause });
+	}
 }
 
 /**
@@ -777,7 +846,7 @@ export async function createGeneration(
 		account.authorityId,
 	);
 	if (located.error) return located;
-	const claim = await claimLibrary(appId, account);
+	const claim = await claimLibrary(appId, { library: 'personal', account });
 	if (claim.error) return claim;
 	const result = await postNewGeneration(parsed, { appId, account, from });
 	claim.data.release();
@@ -906,7 +975,7 @@ export async function resolveGeneration(
 	);
 	if (located.error !== null) return Err(located.error);
 	account = captureAccount(account);
-	const claim = await claimLibrary(appId, account);
+	const claim = await claimLibrary(appId, { library: 'personal', account });
 	if (claim.error) return claim;
 	const result = await discoverGeneration(parsed, { appId, account });
 	claim.data.release();
@@ -997,7 +1066,10 @@ export async function eraseGenerations({
 }): Promise<Result<{ erased: number }, StoreError>> {
 	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	if (located.error !== null) return Err(located.error);
-	const claim = await claimLibrary(appId, { authorityId, principalId });
+	const claim = await claimLibrary(appId, {
+		library: 'personal',
+		account: { authorityId, principalId },
+	});
 	if (claim.error) return claim;
 
 	try {

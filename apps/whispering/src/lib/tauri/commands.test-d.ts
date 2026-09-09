@@ -92,7 +92,10 @@ type _SharedContracts = Expect<
 // does not have to enumerate devices first, because the host reports the
 // microphone it actually opened.
 type _StartRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.startRecording>, [string | null, import('./bindings.gen').BlobDestination]>
+	Equal<
+		Parameters<typeof commands.startRecording>,
+		[string | null, import('./bindings.gen').BlobDestination]
+	>
 >;
 
 type _StartRecording = Expect<
@@ -284,5 +287,12 @@ type _TranscriptionHintsShape = Expect<
 >;
 
 /** Shared native capture wire contract follows the generated Rust shape. */
-type _PortableNativeRecording = Expect<Equal<HostRecording, import('@epicenter/recorder/desktop').NativeRecording>>;
-type _PortableBlobDestination = Expect<Equal<import('./bindings.gen').BlobDestination, import('@epicenter/blobs/native').BlobDestination>>;
+type _PortableNativeRecording = Expect<
+	Equal<HostRecording, import('@epicenter/recorder/recording').NativeRecording>
+>;
+type _PortableBlobDestination = Expect<
+	Equal<
+		import('./bindings.gen').BlobDestination,
+		import('@epicenter/blobs/native').BlobDestination
+	>
+>;

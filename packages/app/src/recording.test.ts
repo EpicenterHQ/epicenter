@@ -14,7 +14,7 @@ import { asDeviceIdentifier } from '@epicenter/recorder';
 import {
 	RecorderError,
 	type Recording,
-	type RecordingAccount,
+	type RecordingReplica,
 	type RecordingFactory,
 } from '@epicenter/recorder/recording';
 import { Ok } from 'wellcrafted/result';
@@ -34,13 +34,13 @@ function setup({
 	cancelFails = false,
 } = {}) {
 	const appId = 'test.' + crypto.randomUUID();
-	const bindings: { appId: string; account: RecordingAccount }[] = [];
+	const bindings: { appId: string; replica: RecordingReplica }[] = [];
 	let starts = 0;
 	let cancels = 0;
 	let stops = 0;
 	let releases = 0;
-	const recording: RecordingFactory = (appId, account, options = {}) => {
-		bindings.push({ appId, account });
+	const recording: RecordingFactory = (appId, replica, options) => {
+		bindings.push({ appId, replica });
 		let active: Recording | null = null;
 		let closed = false;
 		let closing: Promise<void> | undefined;
@@ -76,7 +76,7 @@ function setup({
 		const audioBlobId = generateBlobId();
 		const session: Recording = {
 			audioBlobId,
-			account,
+			replica,
 			device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 			endedReason: null,
 			stop: () =>
@@ -137,6 +137,7 @@ function setup({
 		},
 		blobs: createBrowserAppBlobs(),
 		recording,
+		ai: { runtime: null, account: null },
 	});
 	return {
 		epicenter,
@@ -154,13 +155,13 @@ test('opening binds recording once and readiness gates microphone acquisition', 
 	expect(bindings).toEqual([]);
 	expect(Object.hasOwn(epicenter, 'recording')).toBe(false);
 	const app = epicenter.openLocal();
-	expect(bindings).toEqual([{ appId, account: null }]);
+	expect(bindings).toEqual([{ appId, replica: { library: 'local' } }]);
 	expect(() => app.recording.start()).toThrow('not ready');
 	expect(starts()).toBe(0);
 	expectOk(await app.ready);
 	const session = expectOk(await app.recording.start());
 	expect(expectOk(await app.recording.current())).toBe(session);
-	expect(session.account).toBeNull();
+	expect(session.replica).toEqual({ library: 'local' });
 	expectOk(await session.cancel());
 	await app.close();
 	expect(() => app.recording.start()).toThrow();
@@ -168,12 +169,17 @@ test('opening binds recording once and readiness gates microphone acquisition', 
 
 test('account recording keeps the opened identity when the supplied account changes', async () => {
 	const { epicenter, bindings } = setup();
+	let state: Blob | null = null;
 	const account: Account = {
 		authorityId: 'original',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',
-		fetch: async () =>
-			Response.json({ generations: [], generation: 1, position: 0 }),
+		async fetch(_input, init) {
+			state ??= await new Response(init?.body).blob();
+			return new Response(state, {
+				headers: { 'epicenter-generation': '1', 'epicenter-log-position': '1' },
+			});
+		},
 		openWebSocket: async () => {
 			throw new Error('Unused');
 		},
@@ -181,12 +187,15 @@ test('account recording keeps the opened identity when the supplied account chan
 			throw new Error('Unused');
 		},
 	};
-	const app = epicenter.openAccount(account);
+	const app = epicenter.openPersonal(account);
 	Reflect.set(account, 'authorityId', 'replacement');
 	expectOk(await app.ready);
 	const session = expectOk(await app.recording.start());
-	expect(session.account?.authorityId).toBe('original');
-	expect(bindings[0]?.account?.authorityId).toBe('original');
+	expect(session.replica).toEqual({
+		library: 'personal',
+		account: { authorityId: 'original', principalId: asPrincipalId('alice') },
+	});
+	expect(bindings[0]?.replica).toEqual(session.replica);
 	await app.close();
 });
 

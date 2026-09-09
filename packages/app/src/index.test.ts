@@ -15,7 +15,7 @@ import { Ok } from 'wellcrafted/result';
 const sqlite: DeviceSqliteOwner = {
 	acquire: async () => ({
 		open: async () => ({
-			query: async () => Ok({columns: [], rows: [], truncated: false}),
+			query: async () => Ok({ columns: [], rows: [], truncated: false }),
 			run: async () => Ok({ changes: 0 }),
 			all: async () => Ok([]),
 			batch: async () => Ok({ changes: [] }),

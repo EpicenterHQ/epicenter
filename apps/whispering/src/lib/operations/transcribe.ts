@@ -37,7 +37,6 @@ import { APPS } from '@epicenter/constants/apps';
 
 const log = createLogger('whispering/transcribe');
 
-
 /**
  * The error any transcription path can surface. Deliberately `AnyTaggedError`
  * rather than the concrete provider-error union: consumers present these by
@@ -135,7 +134,9 @@ const uploadDispatch = (app: WhisperingApp) =>
 			resolve: () => {
 				const account = app.account;
 				if (account === null)
-					throw new Error('The Epicenter transcription provider requires an account.');
+					throw new Error(
+						'The Epicenter transcription provider requires an account.',
+					);
 				return {
 					fetch: account.fetch,
 					baseURL: API_ROUTES.ai.baseUrl(account.baseURL),
@@ -227,7 +228,13 @@ async function loadForUpload(
 		const { data: oggBytes, error } =
 			await tauri.transcription.encodeRecordingForUpload(
 				audioBlobId,
-				blobDestination(APPS.WHISPERING.id, app.account),
+				blobDestination(
+					APPS.WHISPERING.id,
+					// Whispering bootstrap currently selects only Local or Personal.
+					app.account === null
+						? { library: 'local' }
+						: { library: 'personal', account: app.account },
+				),
 			);
 		if (error === null) return Ok(new Blob([oggBytes], { type: 'audio/ogg' }));
 		report.info({
@@ -384,10 +391,19 @@ async function transcribeOnDevice(
 		app.settings.get('dictionary'),
 	);
 	const { data: outcome, error } =
-		await tauri.transcription.transcribeRecording(audioBlobId, {
-			language: language === 'auto' ? undefined : language,
-			initialPrompt: prompt || undefined,
-		}, blobDestination(APPS.WHISPERING.id, app.account));
+		await tauri.transcription.transcribeRecording(
+			audioBlobId,
+			{
+				language: language === 'auto' ? undefined : language,
+				initialPrompt: prompt || undefined,
+			},
+			blobDestination(
+				APPS.WHISPERING.id,
+				app.account === null
+					? { library: 'local' }
+					: { library: 'personal', account: app.account },
+			),
+		);
 	if (error) return Err(error);
 
 	// Empty audio ran no model, so there is nothing to attribute and nothing to

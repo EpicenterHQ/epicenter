@@ -14,6 +14,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import type { SyncConnectionStatus } from '@epicenter/data/sync';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -31,10 +32,12 @@
 	import SendFolderEdits from './SendFolderEdits.svelte';
 
 	let {
+		librarySelection,
 		syncStatus,
 		folder,
 		removeLocalData,
 	}: {
+		librarySelection: Snippet;
 		syncStatus: () => SyncConnectionStatus | undefined;
 		/** The `~/Epicenter` folder, or nothing in a build with no filesystem. */
 		folder: WorkingCopy | undefined;
@@ -99,6 +102,7 @@
 				<Sidebar.Trigger />
 			</div>
 		</div>
+		<div class="px-2">{@render librarySelection()}</div>
 		<div class="px-2 pb-1">
 			<Sidebar.Input
 				placeholder="Search notes…"

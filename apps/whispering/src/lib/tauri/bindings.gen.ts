@@ -378,11 +378,8 @@ export type AppliedHints = {
 /**  The app and dataset captured before a native writer opens its staging file. */
 export type BlobDestination = {
 	appId: string,
-	scope: BlobScope,
+	replica: LibraryReplica,
 };
-
-/**  The application dataset containing a blob. */
-export type BlobScope = { kind: "local" } | { kind: "account"; authorityId: string; principalId: string };
 
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
 
@@ -573,6 +570,8 @@ export type HostRecording = {
 	endedReason: EndedReason | null,
 };
 
+export type LibraryReplica = { library: "local" } | { library: "personal"; account: ReplicaAccount } | { library: "shared"; account: ReplicaAccount };
+
 /**
  *  What an application may learn about the local transcription route: whether it
  *  is ready, and which advisory inputs it accepts.
@@ -682,6 +681,12 @@ export type RecorderError =
 export type RecordingEndedEvent = {
 	audioBlobId: string,
 	reason: EndedReason,
+};
+
+/**  Credential-free actor identity captured with a library replica. */
+export type ReplicaAccount = {
+	authorityId: string,
+	principalId: string,
 };
 
 /**

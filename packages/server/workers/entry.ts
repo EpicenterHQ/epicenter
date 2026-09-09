@@ -39,6 +39,7 @@ const resolveTestPrincipal: ResolveBearerPrincipal<Env> = async (
 const app = new Hono<Env>();
 mountStoreSyncApp(app, {
 	resolveBearerPrincipal: resolveTestPrincipal,
+	shared: true,
 	resolveStore: (env) => {
 		const bindings = env as unknown as {
 			STORE_AUTHORITY: DurableObjectNamespace;

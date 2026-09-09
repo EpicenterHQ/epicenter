@@ -1,60 +1,17 @@
 /**
- * Nothing above the OAuth callback opens a store.
- *
- * The rule is ADR-0345's, and it is the reason this application's boot lives
- * where it does: `/auth/callback` runs for one round trip while a PKCE code is
- * exchanged, and it runs while signed out, which is the one state in which
- * there is no store to open at all (ADR-0336). A store opened above it would
- * claim a Web Lock the real page then finds taken, and an auth gate rendered
- * above it would show a signed-out person a sign-in screen on top of the
- * callback that is signing them in.
- *
- * The failure is silent in exactly the way a lost platform leaf is: moving the
- * boot up one node still builds, still starts, and still passes every other
- * test in this application.
- *
- * This walks the tree rather than grepping the repository. It reads the
- * callback page's ancestor layouts, which is the set ADR-0345 names, and says
- * which one broke the rule.
- *
- * Key behaviors:
- * - Every ancestor layout of the callback opens nothing and imports no session
- * - The callback page itself opens nothing
- * - The boot node DOES open, which is what proves the assertion has teeth
+ * The application route owns library opening. Callback routes and their
+ * ancestors never import the bootstrap or acquire an App; the mounted page
+ * imports it dynamically, and StoreShell only consumes the opened App.
  */
-
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const appRoot = fileURLToPath(new URL('../..', import.meta.url));
 const routes = join(appRoot, 'src/routes');
 const callback = join(routes, 'auth/callback/+page.svelte');
 
-/** The application's one session module, as a route would import it. */
-const SESSION_MODULE = '$lib/epicenter';
-/**
- * The one component that opens, which the boot node mounts under its gate.
- *
- * The open moved off the boot node when a session became a value the tree owns
- * (ADR-0350), so a boot that drifted upward would now import a component rather
- * than call `epicenter.open` itself. That is why the assertions below forbid an
- * ancestor from naming EITHER: greping one string would pass over the drift.
- */
-const SESSION_COMPONENT = 'src/routes/components/NotesSession.svelte';
-/** The one node that is allowed to gate, and is not an ancestor of the callback. */
-/** What the session mounts once the store is open, which must not open it. */
-const SHELL = 'src/routes/components/StoreShell.svelte';
-const BOOT_NODE = 'src/routes/+page.svelte';
-
-/**
- * Every `+layout.svelte` that renders the callback, nearest first.
- *
- * SvelteKit composes a page under the layout of every ancestor directory, so
- * this is that chain and nothing else: a sibling group's layout never wraps
- * this page, which is the whole reason a boot node can be a sibling.
- */
 function ancestorLayouts(page: string): string[] {
 	const found: string[] = [];
 	for (
@@ -70,61 +27,39 @@ function ancestorLayouts(page: string): string[] {
 
 describe('the callback opens nothing', () => {
 	test('the callback page exists and has at least one ancestor layout', () => {
-		// Without this the walk below could pass by finding nothing, which is the
-		// one way a structural test lies.
 		expect(existsSync(callback)).toBe(true);
 		expect(ancestorLayouts(callback).length).toBeGreaterThan(0);
 	});
 
-	test('no ancestor layout imports the session or opens it', async () => {
-		for (const layout of ancestorLayouts(callback)) {
-			const source = await Bun.file(layout).text();
-			expect({
-				layout: relative(appRoot, layout),
-				imports: source.includes(SESSION_MODULE),
-				opens: source.includes('epicenter.open'),
-				mounts: source.includes(SESSION_COMPONENT.split('/').pop() ?? ''),
-			}).toEqual({
-				layout: relative(appRoot, layout),
-				imports: false,
-				opens: false,
-				mounts: false,
-			});
+	test('callback and ancestor layouts never import the bootstrap or open a library', async () => {
+		for (const file of [callback, ...ancestorLayouts(callback)]) {
+			const source = await Bun.file(file).text();
+			expect(source).not.toContain('$lib/application');
+			expect(source).not.toMatch(/\.open(?:Local|Personal|Shared)\(/);
 		}
 	});
 
-	test('the callback page itself opens nothing', async () => {
-		const source = await Bun.file(callback).text();
-		expect({
-			imports: source.includes(SESSION_MODULE),
-			opens: source.includes('epicenter.open'),
-		}).toEqual({ imports: false, opens: false });
-	});
-
-	test('the boot node opens, and is not an ancestor of the callback', async () => {
-		// The positive half. If the boot ever moved up into a layout the callback
-		// renders under, this would still pass and the test above would fail,
-		// which is the pair that says where the boundary is rather than that one
-		// file happens to be quiet.
-		const bootNode = join(appRoot, BOOT_NODE);
-		expect(await Bun.file(bootNode).text()).toContain(
-			SESSION_COMPONENT.split('/').pop() ?? '',
-		);
+	test('the mounted application page imports the bootstrap outside callback ancestors', async () => {
+		const bootNode = join(routes, '+page.svelte');
+		const source = await Bun.file(bootNode).text();
+		expect(source).toContain("import('$lib/application.js')");
+		expect(
+			source.indexOf("import('$lib/application.js').then"),
+		).toBeGreaterThan(source.indexOf('onMount(() =>'));
 		expect(ancestorLayouts(callback)).not.toContain(bootNode);
-
-		// The positive half is on the component that actually opens.
-		expect(await Bun.file(join(appRoot, SESSION_COMPONENT)).text()).toContain(
-			'epicenter.open',
-		);
+		const bootstrap = await Bun.file(
+			join(appRoot, 'src/lib/application.ts'),
+		).text();
+		for (const method of ['openLocal', 'openPersonal', 'openShared']) {
+			expect(bootstrap).toContain(`application.${method}(`);
+		}
 	});
 
-	test('the shell renders and does not open', async () => {
-		// The other direction the boot can drift. The shell holds everything that
-		// exists because the store is open, and the open itself must not follow it
-		// down: a shell that opened would still build, still start, and still pass
-		// every test above, because it is not an ancestor of the callback.
-		expect(await Bun.file(join(appRoot, SHELL)).text()).not.toContain(
-			'epicenter.open',
-		);
+	test('the shell consumes the opened library without importing its bootstrap', async () => {
+		const source = await Bun.file(
+			join(routes, 'components/StoreShell.svelte'),
+		).text();
+		expect(source).not.toContain('$lib/application');
+		expect(source).not.toMatch(/\.open(?:Local|Personal|Shared)\(/);
 	});
 });

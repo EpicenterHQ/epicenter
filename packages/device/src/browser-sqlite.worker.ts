@@ -26,7 +26,7 @@
  * retry below asks it not to.
  */
 
-import type { AccountIdentity } from '@epicenter/principal';
+import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import { Ok, tryAsync } from 'wellcrafted/result';
@@ -80,13 +80,20 @@ async function install() {
 
 function databaseFilename(
 	appId: string,
-	account: AccountIdentity | null,
+	replica: LibraryReplicaIdentity,
 	name: string,
 ): string {
 	const address =
-		account === null
+		replica.library === 'local'
 			? [appId, 'local', name]
-			: [appId, 'account', account.authorityId, account.principalId, name];
+			: [
+					appId,
+					'account',
+					replica.account.authorityId,
+					replica.account.principalId,
+					...(replica.library === 'shared' ? ['shared'] : []),
+					name,
+				];
 	// Keep every identity component separate before encoding. Joining even
 	// part of the address with ':' aliases accounts whose identifiers contain it.
 	return `/${encodeURIComponent(JSON.stringify(address))}.sqlite`;
@@ -101,12 +108,12 @@ function inPool<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 const owner = createSqliteOwner({
-	open(appId, account, name) {
+	open(appId, replica, name) {
 		return inPool(async () => {
 			const { pool, sqlite } = await poolReady();
 			await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
 			const database = new pool.OpfsSAHPoolDb(
-				databaseFilename(appId, account, name),
+				databaseFilename(appId, replica, name),
 			);
 			return {
 				...sqliteOver(database, sqlite),
@@ -116,9 +123,9 @@ const owner = createSqliteOwner({
 			};
 		});
 	},
-	delete(appId, account, name) {
+	delete(appId, replica, name) {
 		return inPool(async () => {
-			const file = databaseFilename(appId, account, name);
+			const file = databaseFilename(appId, replica, name);
 			const { pool } = await poolReady();
 			pool.unlink(file);
 			pool.unlink(`${file}-journal`);

@@ -35,6 +35,62 @@ export type AccountIdentity = {
 	readonly principalId: PrincipalId;
 };
 
+/** The selected library and the person who owns its local resources. */
+export type LibraryReplicaIdentity =
+	| { library: 'local' }
+	| { library: 'personal' | 'shared'; account: AccountIdentity };
+
+/** Validate a credential-free library replica received across a runtime boundary. */
+export function isLibraryReplica(
+	value: unknown,
+): value is LibraryReplicaIdentity {
+	if (
+		typeof value !== 'object' ||
+		value === null ||
+		Array.isArray(value) ||
+		!('library' in value)
+	)
+		return false;
+	if (value.library === 'local') return !('account' in value);
+	if (value.library !== 'personal' && value.library !== 'shared') return false;
+	if (
+		!('account' in value) ||
+		typeof value.account !== 'object' ||
+		value.account === null ||
+		Array.isArray(value.account)
+	)
+		return false;
+	const account = value.account;
+	const segment = (value: unknown) =>
+		typeof value === 'string' &&
+		value !== '' &&
+		value !== '.' &&
+		value !== '..' &&
+		!/[\\/\p{Cc}]/u.test(value);
+	return (
+		'authorityId' in account &&
+		'principalId' in account &&
+		segment(account.authorityId) &&
+		segment(account.principalId)
+	);
+}
+
+/** Capture only addressing fields, never credentials or a mutable Account object. */
+export function captureLibraryReplica(
+	replica: LibraryReplicaIdentity,
+): LibraryReplicaIdentity {
+	if (!isLibraryReplica(replica))
+		throw new TypeError('Invalid library replica.');
+	if (replica.library === 'local') return Object.freeze({ library: 'local' });
+	return Object.freeze({
+		library: replica.library,
+		account: Object.freeze({
+			authorityId: replica.account.authorityId,
+			principalId: replica.account.principalId,
+		}),
+	});
+}
+
 /**
  * Syntactic sugar for `value as PrincipalId`. The function body is a single typed
  * cast; the constrained `string` parameter is what earns it over a raw `as`

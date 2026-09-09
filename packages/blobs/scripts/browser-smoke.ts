@@ -43,8 +43,13 @@ try {
 		// A fresh account per run, so a rerun never meets its own bytes.
 		const scope = {
 			appId: 'so.epicenter.smoke',
-			principalId: `webkit-${crypto.randomUUID()}`,
-			authorityId: 'smoke-authority',
+			replica: {
+				library: 'personal' as const,
+				account: {
+					principalId: `webkit-${crypto.randomUUID()}`,
+					authorityId: 'smoke-authority',
+				},
+			},
 		};
 		const input = new Blob(['webkit bytes'], { type: 'audio/wav' });
 		const first = createBrowserBlobStore(scope);

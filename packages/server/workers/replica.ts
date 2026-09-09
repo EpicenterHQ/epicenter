@@ -13,10 +13,8 @@
  * is the one thing a Worker cannot borrow, a `SocketTransport` over
  * `env.SELF.fetch`, and nothing else.
  *
- * There is no adoption step and nothing to supersede. A replica is addressed at
- * one generation, a generation is created complete and never mutated in place,
- * so the address is the identity (ADR-0292): the class opens, dials, and
- * catches up, exactly as a page does.
+ * The probe downloads the canonical current baseline before its first dial.
+ * It exercises real sync and storage, not the browser IndexedDB bootstrap.
  *
  * Not exported from `index.ts` and not in any `wrangler.jsonc`. Only the test
  * entry mounts it, so nothing deployable grows a class that exists for a test.
@@ -30,8 +28,14 @@ import {
 	type ReplicaData,
 } from '@epicenter/data';
 import { field } from '@epicenter/data/definition';
-import { openAccountStore } from '@epicenter/data/direct';
+import { openAccountStore, syncEngineOf } from '@epicenter/data/direct';
 import { attachStoreSync, type SyncConnection } from '@epicenter/data/sync';
+import { expectOk } from 'wellcrafted/testing';
+import {
+	CURRENT_ROUTE,
+	CURRENT_GENERATION_HEADER,
+	LOG_POSITION_HEADER,
+} from '@epicenter/sync/generations-route';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createDurableObjectSqliteAdapter,
@@ -43,13 +47,7 @@ import {
 	type SocketTransport,
 } from '@epicenter/sync';
 
-/**
- * The one generation this probe ever opens.
- *
- * A generation is an address (ADR-0292), so a probe needs one the way it needs
- * a dataId. It never changes here: moving to a newer generation is opening a
- * different object, and what these tests exercise is the transport into one.
- */
+/** This harness covers fresh libraries; restore admission has its own Worker suite. */
 const PROBE_GENERATION = 1;
 
 const probeDefinition = defineData({
@@ -82,6 +80,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 	private connection: SyncConnection | undefined;
 	private store: ProbeReplica | undefined;
 	private bearer = '';
+	private library: 'personal' | 'shared' = 'personal';
 	private lastTransportError: string | undefined;
 
 	constructor(ctx: DurableObjectState, env: Env) {
@@ -98,19 +97,20 @@ export class StoreTestReplica extends DurableObject<Env> {
 	async open(
 		bearer: string,
 		origin: string,
-		{ connect = true }: { connect?: boolean } = {},
+		{
+			connect = true,
+			library = 'personal',
+		}: { connect?: boolean; library?: 'personal' | 'shared' } = {},
 	): Promise<void> {
 		if (this.store !== undefined) return;
 		await this.ctx.blockConcurrencyWhile(async () => {
 			if (this.store !== undefined) return;
 			this.bearer = bearer;
+			this.library = library;
 			const database = createDurableObjectSqliteAdapter(
 				this.ctx.storage as unknown as DurableObjectSqliteStorage,
 			);
-			// The whole address, stamped the way `openDatabase` stamps a browser's
-			// replica: the dial reads the data id, the generation and the origin off
-			// the store rather than beside it (ADR-0340), so there is no second
-			// address here that could disagree with the one a page builds.
+			// The test replica captures its address before any asynchronous dial.
 			this.store = Object.freeze({
 				...(await openAccountStore({
 					definition: probeDefinition,
@@ -122,6 +122,33 @@ export class StoreTestReplica extends DurableObject<Env> {
 				baseURL: origin,
 				principalId: asPrincipalId(bearer.replace(/^device:/, '')),
 			});
+			const response = await this.env.SELF.fetch(
+				CURRENT_ROUTE.url(
+					origin,
+					probeDefinition.id,
+					library,
+					probeDefinition.id,
+				),
+				{
+					method: 'POST',
+					headers: { authorization: `Bearer ${bearer}` },
+					body: new Uint8Array(this.store.encodeStateSince()).buffer,
+				},
+			);
+			if (!response.ok)
+				throw new Error(`Current bootstrap refused: ${response.status}`);
+			if (
+				Number(response.headers.get(CURRENT_GENERATION_HEADER)) !==
+				PROBE_GENERATION
+			)
+				throw new Error('Probe expects generation one');
+			expectOk(
+				syncEngineOf(this.store).applyRemote(
+					new Uint8Array(await response.arrayBuffer()),
+					{ advanceTo: Number(response.headers.get(LOG_POSITION_HEADER)) },
+				),
+			);
+			await this.store.persistence.flush();
 		});
 		if (connect) this.startSync();
 	}
@@ -180,7 +207,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 				this.stopSync();
 			},
 			store,
-			address: store,
+			address: { ...store, library: this.library },
 			transport: this.transport(),
 			onTransportError: (cause) => {
 				this.lastTransportError = String(cause);

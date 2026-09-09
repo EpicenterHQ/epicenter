@@ -39,17 +39,20 @@ fn normalize_content_type(value: &str) -> &str {
     }
 }
 
-/// The application dataset containing a blob.
+/// Credential-free actor identity captured with a library replica.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum BlobScope {
-    Local,
-    Account {
-        #[serde(rename = "authorityId")]
-        authority_id: String,
-        #[serde(rename = "principalId")]
-        principal_id: String,
-    },
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplicaAccount {
+    pub authority_id: String,
+    pub principal_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "library", rename_all = "camelCase", deny_unknown_fields)]
+pub enum LibraryReplica {
+    Local {},
+    Personal { account: ReplicaAccount },
+    Shared { account: ReplicaAccount },
 }
 
 /// The app and dataset captured before a native writer opens its staging file.
@@ -57,7 +60,7 @@ pub enum BlobScope {
 #[serde(rename_all = "camelCase")]
 pub struct BlobDestination {
     pub app_id: String,
-    pub scope: BlobScope,
+    pub replica: LibraryReplica,
 }
 
 /// Storage failures stay independent of the operation using the bytes.
@@ -139,20 +142,20 @@ fn blobs_directory(data_dir: &Path, destination: &BlobDestination) -> Result<Pat
         ));
     }
     let mut root = data_dir.join("apps").join(&destination.app_id);
-    match &destination.scope {
-        BlobScope::Local => root.push("local"),
-        BlobScope::Account {
-            authority_id,
-            principal_id,
-        } => {
-            if !is_path_segment(authority_id) || !is_path_segment(principal_id) {
+    match &destination.replica {
+        LibraryReplica::Local {} => root.push("local"),
+        LibraryReplica::Personal { account } | LibraryReplica::Shared { account } => {
+            if !is_path_segment(&account.authority_id) || !is_path_segment(&account.principal_id) {
                 return Err(BlobError::failed(
-                    "blob scope contains an invalid path segment",
+                    "blob replica contains an invalid account",
                 ));
             }
             root.push("accounts");
-            root.push(authority_id);
-            root.push(principal_id);
+            root.push(&account.authority_id);
+            root.push(&account.principal_id);
+            if matches!(destination.replica, LibraryReplica::Shared { .. }) {
+                root.push("shared");
+            }
         }
     }
     Ok(root.join(BLOBS_DIRECTORY))
@@ -397,6 +400,9 @@ fn delete_partition_staging(root: &Path) {
                         if let Ok(principals) = std::fs::read_dir(authority.path()) {
                             for principal in principals.flatten() {
                                 delete_staging_root(&principal.path().join(BLOBS_DIRECTORY));
+                                delete_staging_root(
+                                    &principal.path().join("shared").join(BLOBS_DIRECTORY),
+                                );
                             }
                         }
                     }
@@ -494,28 +500,60 @@ mod tests {
     }
 
     #[test]
+    fn replica_wire_requires_an_explicit_library_and_actor() {
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!({"library": null}),
+            serde_json::json!({"library": "personal"}),
+            serde_json::json!({"library": "shared", "account": null}),
+            serde_json::json!({"library": "local", "account": {"authorityId": "server", "principalId": "alice"}}),
+            serde_json::json!({"authorityId": "server", "principalId": "alice"}),
+        ] {
+            assert!(serde_json::from_value::<LibraryReplica>(invalid).is_err());
+        }
+    }
+
+    #[test]
     fn destinations_keep_applications_and_account_partitions_separate() {
         let data = tempfile::tempdir().unwrap();
         let mut roots = std::collections::HashSet::new();
         for app_id in ["so.epicenter.whispering", "so.epicenter.notes"] {
-            for scope in [
-                BlobScope::Local,
-                BlobScope::Account {
-                    authority_id: "authority-a".into(),
-                    principal_id: "alice".into(),
+            for replica in [
+                LibraryReplica::Local {},
+                LibraryReplica::Shared {
+                    account: ReplicaAccount {
+                        authority_id: "authority-a".into(),
+                        principal_id: "alice".into(),
+                    },
                 },
-                BlobScope::Account {
-                    authority_id: "authority-b".into(),
-                    principal_id: "alice".into(),
+                LibraryReplica::Shared {
+                    account: ReplicaAccount {
+                        authority_id: "authority-a".into(),
+                        principal_id: "bob".into(),
+                    },
                 },
-                BlobScope::Account {
-                    authority_id: "authority-a".into(),
-                    principal_id: "bob".into(),
+                LibraryReplica::Personal {
+                    account: ReplicaAccount {
+                        authority_id: "authority-a".into(),
+                        principal_id: "alice".into(),
+                    },
+                },
+                LibraryReplica::Personal {
+                    account: ReplicaAccount {
+                        authority_id: "authority-b".into(),
+                        principal_id: "alice".into(),
+                    },
+                },
+                LibraryReplica::Personal {
+                    account: ReplicaAccount {
+                        authority_id: "authority-a".into(),
+                        principal_id: "bob".into(),
+                    },
                 },
             ] {
                 let destination = BlobDestination {
                     app_id: app_id.into(),
-                    scope,
+                    replica,
                 };
                 let root = blobs_directory(data.path(), &destination).unwrap();
                 assert!(roots.insert(root.clone()));
@@ -559,7 +597,7 @@ mod tests {
                     data.path(),
                     &BlobDestination {
                         app_id: app_id.into(),
-                        scope: BlobScope::Local
+                        replica: LibraryReplica::Local {}
                     }
                 )
                 .is_err(),
@@ -570,21 +608,25 @@ mod tests {
             assert!(is_app_id(app_id), "rejected {app_id}");
         }
         for segment in ["", ".", "..", "a/b", "a\\b"] {
-            for scope in [
-                BlobScope::Account {
-                    authority_id: segment.into(),
-                    principal_id: "valid".into(),
+            for replica in [
+                LibraryReplica::Personal {
+                    account: ReplicaAccount {
+                        authority_id: segment.into(),
+                        principal_id: "valid".into(),
+                    },
                 },
-                BlobScope::Account {
-                    authority_id: "valid".into(),
-                    principal_id: segment.into(),
+                LibraryReplica::Personal {
+                    account: ReplicaAccount {
+                        authority_id: "valid".into(),
+                        principal_id: segment.into(),
+                    },
                 },
             ] {
                 assert!(blobs_directory(
                     data.path(),
                     &BlobDestination {
                         app_id: "so.app".into(),
-                        scope
+                        replica
                     }
                 )
                 .is_err());

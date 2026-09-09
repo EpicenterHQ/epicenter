@@ -9,8 +9,10 @@ Design authority: [ADR-0339](../../docs/adr/0339-an-application-creates-one-epic
 
 ## One library per application document
 
-`src/lib/application.ts` captures the raw `authClient` Account and opens one
-App. The mounted `routes/+page.svelte` dynamically imports it; callback and
+`src/lib/application.ts` captures the saved Local, Personal, or Shared library
+choice and the raw `authClient` Account, then opens one App. Local works signed
+out; Personal and Shared require the captured Account. Shared is available on
+a self-hosted server (ADR-0375). The mounted `routes/+page.svelte` dynamically imports it; callback and
 preloaded route modules must not acquire data. The same document never opens
 a replacement App. `auth.svelte.ts` adapts auth only for UI reads.
 
@@ -118,15 +120,11 @@ only the default one is checked by an editor.
   build and the hosted build are two stores on one machine, and nothing moves
   between them. Two devices converge by signing into the same account, not by
   copying a file.
-- Do not reintroduce a second notebook. There is one store, because an
-  authority mints every generation (ADR-0336); a signed-out person meets the
-  sign-in screen rather than an empty local notebook, and the boot node writes
-  one set of sentences rather than choosing between two.
 - Do not add a boot screen for a distinction a person cannot act on. A
   generation that is missing and one that is unreachable both mean "try again
   when the world has changed", so they share a sentence; splitting them wrote
   two screens whose only difference was the word "downloaded".
-- Do not put the generation back in the URL, and do not add a picker. Nobody
+- Do not put the generation back in the URL or the library picker. Nobody
   chose that number and no link carries it. When importing a replica ships, an
   import ends in a document reload and a device holding an older number is told
   a newer one exists (ADR-0281); neither is a route parameter.

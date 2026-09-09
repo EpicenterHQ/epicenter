@@ -68,7 +68,15 @@ try {
 			createBrowserBlobStore,
 		}: typeof import('@epicenter/blobs/browser') = await import(blobModule);
 		const appId = 'so.epicenter.recording-smoke';
-		const recorder = createBrowserRecording(appId, null);
+		const store = createBrowserBlobStore({
+			appId,
+			replica: { library: 'local' },
+		});
+		const recorder = createBrowserRecording(
+			appId,
+			{ library: 'local' },
+			{ local: store },
+		);
 		const started = await bounded('start', recorder.value.start());
 		if (started.error) throw new Error(JSON.stringify(started.error));
 		const rejected = await recorder.value.start();
@@ -82,7 +90,6 @@ try {
 		const stopped = await bounded('stop', started.data.stop());
 		unlevel();
 		if (stopped.error) throw new Error(JSON.stringify(stopped.error));
-		const store = createBrowserBlobStore({ appId, principalId: 'local' });
 		const bytes = await bounded('read', store.get(stopped.data.audioBlobId));
 		if (bytes.error) throw new Error(JSON.stringify(bytes.error));
 		const context = new AudioContext();

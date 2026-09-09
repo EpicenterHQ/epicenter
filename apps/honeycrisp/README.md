@@ -24,7 +24,7 @@ callback or route preload opens nothing. Svelte adapts the opened App for UI
 reads; it does not choose or replace the library.
 
 ```txt
-authClient.state.account -> epicenter.openAccount(account) -> app.ready
+authClient.state.account -> epicenter.openPersonal(account) -> app.ready
 page departure -> editor cleanup -> app.close() -> auth change -> full navigation
 ```
 

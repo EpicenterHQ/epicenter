@@ -148,11 +148,7 @@ function createTestBlobs(): HomeServerOptions['blobs'] {
 	const directory = testDataDir();
 	const stores = new Map<string, BunBlobStore>();
 	return (appId, account) => {
-		const key = JSON.stringify([
-			appId,
-			account?.authorityId,
-			account?.principalId,
-		]);
+		const key = JSON.stringify([appId, account]);
 		let store = stores.get(key);
 		if (store === undefined) {
 			store = createBunBlobStore({
@@ -227,7 +223,8 @@ async function serveHost(
 		staticAssets: await createAppsDistFixture(page),
 		blobs: owners.blobs ?? createTestBlobs(),
 		desktopAuth: createTestDesktopAuth(),
-		blobRemote: (_appId, account) => (account === null ? null : blobRemote),
+		blobRemote: (_appId, replica) =>
+			replica.library === 'local' ? null : blobRemote,
 		...owners,
 	});
 	const server = Bun.serve({
@@ -1417,6 +1414,48 @@ describe('local blob routes', () => {
 		}
 	});
 
+	test('blob mounts distinguish Personal actors named shared from the Shared library', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const captures: Parameters<HomeServerOptions['blobs']>[] = [];
+		const stores = createTestBlobs();
+		const server = await serveHost(host, PAGE, null, {
+			blobs: (appId, replica) => {
+				captures.push([appId, replica]);
+				return stores(appId, replica);
+			},
+		});
+		const { cookie, origin } = authenticationFor(server);
+		const id = generateBlobId();
+		try {
+			for (const [authorityId, principalId] of [
+				['server', 'shared'],
+				['shared', 'blobs'],
+			]) {
+				const account = {
+					authorityId: authorityId!,
+					principalId: asPrincipalId(principalId!),
+				};
+				const personal = testBlobUrl(id, account);
+				const shared = personal.replace(`/blobs/${id}`, `/shared/blobs/${id}`);
+				const before = captures.length;
+				for (const path of [personal, shared]) {
+					const response = await fetch(`${server.url.origin}${path}`, {
+						method: 'PUT',
+						headers: { cookie, origin },
+						body: path,
+					});
+					expect(response.status).toBe(201);
+				}
+				expect(captures.slice(before)).toEqual([
+					[TEST_APP_ID, { library: 'personal', account }],
+					[TEST_APP_ID, { library: 'shared', account }],
+				]);
+			}
+		} finally {
+			await server.stop(true);
+		}
+	});
+
 	test('local blob copy is authenticated, scoped, and preserves the source', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
@@ -1426,11 +1465,7 @@ describe('local blob routes', () => {
 		let selections = 0;
 		const selectBlobs: HomeServerOptions['blobs'] = (appId, account) => {
 			selections += 1;
-			const key = JSON.stringify([
-				appId,
-				account?.authorityId,
-				account?.principalId,
-			]);
+			const key = JSON.stringify([appId, account]);
 			let store = stores.get(key);
 			if (store === undefined) {
 				store = createBunBlobStore({
@@ -1443,7 +1478,10 @@ describe('local blob routes', () => {
 		const source = generateBlobId();
 		const destination = generateBlobId();
 		const copyUrl = `${testBlobUrl(destination, TEST_ACCOUNT)}/copy`;
-		const sourceStore = selectBlobs(TEST_APP_ID, TEST_ACCOUNT);
+		const sourceStore = selectBlobs(TEST_APP_ID, {
+			library: 'personal',
+			account: TEST_ACCOUNT,
+		});
 		expectOk(
 			await sourceStore.put(source, new Blob(['audio'], { type: 'audio/wav' })),
 		);
@@ -2370,27 +2408,56 @@ describe('checkout routes (ADR-0337)', () => {
 });
 
 describe('the application storage owner', () => {
-    test('desktop SQLite carries binary parameters and results through the actual server socket', async () => {
-        await using host = await createTestHost({engine: scriptedEngine([[]])});
-        const root = testDataDir();
-        const server = await serveHost(host, PAGE, null, {device: createBunDevice(root)});
-        const {cookie, origin} = authenticationFor(server);
-        class AuthenticatedSocket extends BunWebSocket {
-            constructor(url: string) { super(url, {headers: {cookie, origin}}); }
-        }
-        const owner = createDesktopSqliteOwner({baseURL: origin, webSocket: AuthenticatedSocket as unknown as typeof WebSocket});
-        try {
-            const lifetime = await owner.acquire(LOCAL_MAIL_APP_ID, null);
-            try {
-                const database = await lifetime.open('binary');
-                expectOk(await database.run('CREATE TABLE values_test(bytes BLOB, text TEXT)'));
-                expectOk(await database.run('INSERT INTO values_test VALUES (?, ?)', [new Uint8Array([0, 1, 255]), 'a\0b']));
-                expect(expectOk(await database.all('SELECT bytes, text FROM values_test'))).toEqual([{bytes: new Uint8Array([0, 1, 255]), text: 'a\0b'}]);
-                expect((await database.run('SELECT ?', [Infinity])).error).not.toBeNull();
-                expect(expectOk(await database.all('SELECT count(*) AS count FROM values_test'))).toEqual([{count: 1}]);
-            } finally { await lifetime.close(); }
-        } finally { await server.stop(true); rmSync(root, {recursive: true, force: true}); }
-    });
+	test('desktop SQLite carries binary parameters and results through the actual server socket', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const root = testDataDir();
+		const server = await serveHost(host, PAGE, null, {
+			device: createBunDevice(root),
+		});
+		const { cookie, origin } = authenticationFor(server);
+		class AuthenticatedSocket extends BunWebSocket {
+			constructor(url: string) {
+				super(url, { headers: { cookie, origin } });
+			}
+		}
+		const owner = createDesktopSqliteOwner({
+			baseURL: origin,
+			webSocket: AuthenticatedSocket as unknown as typeof WebSocket,
+		});
+		try {
+			const lifetime = await owner.acquire(LOCAL_MAIL_APP_ID, {
+				library: 'local',
+			});
+			try {
+				const database = await lifetime.open('binary');
+				expectOk(
+					await database.run('CREATE TABLE values_test(bytes BLOB, text TEXT)'),
+				);
+				expectOk(
+					await database.run('INSERT INTO values_test VALUES (?, ?)', [
+						new Uint8Array([0, 1, 255]),
+						'a\0b',
+					]),
+				);
+				expect(
+					expectOk(await database.all('SELECT bytes, text FROM values_test')),
+				).toEqual([{ bytes: new Uint8Array([0, 1, 255]), text: 'a\0b' }]);
+				expect(
+					(await database.run('SELECT ?', [Infinity])).error,
+				).not.toBeNull();
+				expect(
+					expectOk(
+						await database.all('SELECT count(*) AS count FROM values_test'),
+					),
+				).toEqual([{ count: 1 }]);
+			} finally {
+				await lifetime.close();
+			}
+		} finally {
+			await server.stop(true);
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 
 	async function post(server: TestServer, body: unknown) {
 		const { cookie, origin } = authenticationFor(server);
@@ -2409,7 +2476,7 @@ describe('the application storage owner', () => {
 		});
 		const { cookie, origin } = authenticationFor(server);
 		const url = `${server.url.origin}${DEVICE_PATH}/sqlite`;
-		const address = { appId: LOCAL_MAIL_APP_ID, account: null };
+		const address = { appId: LOCAL_MAIL_APP_ID, replica: { library: 'local' } };
 		const sockets: WebSocket[] = [];
 		async function connect() {
 			const socket = new BunWebSocket(url.replace('http:', 'ws:'), {
@@ -2466,7 +2533,10 @@ describe('the application storage owner', () => {
 				{
 					kind: 'sqlite-acquire',
 					...address,
-					account: { authorityId: '..', principalId: 'alice' },
+					replica: {
+						library: 'personal',
+						account: { authorityId: '..', principalId: 'alice' },
+					},
 				},
 				{
 					kind: 'sqlite-run',

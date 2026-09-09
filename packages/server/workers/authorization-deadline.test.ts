@@ -11,12 +11,21 @@ import {
 	runDurableObjectAlarm,
 	runInDurableObject,
 } from 'cloudflare:test';
-import { decodeFrame, encodeFrame, type Frame } from '@epicenter/data/sync';
+import {
+	decodeFrame,
+	encodeFrame,
+	openCurrentAuthority,
+	type Frame,
+} from '@epicenter/data/sync';
 import {
 	bearerSubprotocol,
 	formatSubprotocols,
 	MAIN_SUBPROTOCOL,
 } from '@epicenter/sync';
+import {
+	createDurableObjectSqliteAdapter,
+	type DurableObjectSqliteStorage,
+} from '@epicenter/sqlite/durable-object';
 import { Hono } from 'hono';
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest';
 import { expectOk } from 'wellcrafted/testing';
@@ -32,8 +41,14 @@ function authority() {
 }
 
 async function connect(stub: ReturnType<typeof authority>, query = '') {
+	const initialized = await stub.fetch('https://authority.test/', {
+		method: 'POST',
+		body: new Uint8Array([42]),
+	});
+	expect(initialized.status).toBe(200);
+	await initialized.arrayBuffer();
 	const response = await stub.fetch(
-		`https://authority.test/?cursor=0&${query}`,
+		`https://authority.test/?generation=1&cursor=1&${query}`,
 		{
 			headers: {
 				Upgrade: 'websocket',
@@ -84,6 +99,7 @@ async function attachments(stub: ReturnType<typeof authority>) {
 			(socket) =>
 				socket.deserializeAttachment() as {
 					cursor: number;
+					generation: number;
 					authorizedUntil: number;
 				},
 		),
@@ -96,7 +112,7 @@ it('grants exactly 600 seconds from admission and ignores request deadlines', as
 	const stub = authority();
 	await connect(stub, `authorizedUntil=${Number.MAX_SAFE_INTEGER}&expiresAt=0`);
 	expect(await attachments(stub)).toEqual([
-		{ cursor: 0, authorizedUntil: now + 600_000 },
+		{ generation: 1, cursor: 1, authorizedUntil: now + 600_000 },
 	]);
 	expect(
 		await runInDurableObject(stub, (_instance, state) =>
@@ -112,19 +128,19 @@ it('preserves the original deadline through cursor writes and real hibernation',
 	const peer = await connect(stub);
 	peer.push();
 	await vi.waitFor(() =>
-		expect(peer.frames).toContainEqual({ kind: 'ack', submission: 1, seq: 1 }),
+		expect(peer.frames).toContainEqual({ kind: 'ack', submission: 1, seq: 2 }),
 	);
 	expect(await attachments(stub)).toEqual([
-		{ cursor: 1, authorizedUntil: now + 600_000 },
+		{ generation: 1, cursor: 2, authorizedUntil: now + 600_000 },
 	]);
 	await evictDurableObject(stub);
 	clock.mockReturnValue(now + 599_999);
 	peer.push(2);
 	await vi.waitFor(() =>
-		expect(peer.frames).toContainEqual({ kind: 'ack', submission: 2, seq: 2 }),
+		expect(peer.frames).toContainEqual({ kind: 'ack', submission: 2, seq: 3 }),
 	);
 	expect(await attachments(stub)).toEqual([
-		{ cursor: 2, authorizedUntil: now + 600_000 },
+		{ generation: 1, cursor: 3, authorizedUntil: now + 600_000 },
 	]);
 	clock.mockReturnValue(now + 600_000);
 	peer.push(3);
@@ -139,7 +155,7 @@ it('preserves the original deadline through cursor writes and real hibernation',
 		fresh.frames
 			.filter((frame) => frame.kind === 'entry')
 			.map((frame) => frame.seq),
-	).toEqual([1, 2]);
+	).toEqual([2, 3]);
 });
 
 it('blocks outgoing relay to an expired socket before a delayed alarm runs', async () => {
@@ -155,7 +171,7 @@ it('blocks outgoing relay to an expired socket before a delayed alarm runs', asy
 		expect(writer.frames).toContainEqual({
 			kind: 'ack',
 			submission: 1,
-			seq: 1,
+			seq: 2,
 		}),
 	);
 	expect((await expired.closed).code).toBe(1008);
@@ -171,13 +187,17 @@ it('refuses catch-up on wake for expired and missing authorization attachments',
 	await runInDurableObject(stub, (_instance, state) => {
 		state.getWebSockets()[1]!.serializeAttachment({ cursor: 0 });
 	});
-	// HTTP seeding creates catch-up work without sending anything on the sockets.
-	const seeded = await stub.fetch('https://authority.test/', {
-		method: 'POST',
-		body: new Uint8Array([42]),
+	// Commit catch-up work without delivering it to the open sockets.
+	await runInDurableObject(stub, (_instance, state) => {
+		const sqlite = createDurableObjectSqliteAdapter(
+			state.storage as unknown as DurableObjectSqliteStorage,
+		);
+		expectOk(
+			openCurrentAuthority({ sqlite })
+				.bind(1)
+				.append(new Uint8Array([43])),
+		);
 	});
-	expect(seeded.status).toBe(200);
-	expect(await seeded.json()).toEqual({ position: 1 });
 	await evictDurableObject(stub);
 	clock.mockReturnValue(now + 600_000);
 	await (await stub.fetch('https://authority.test/')).arrayBuffer();
@@ -257,7 +277,7 @@ it('closing the earliest peer moves the alarm, and closing the last removes it',
 	).toBeNull();
 });
 
-it('the self-host static bearer can reconnect through the real mount after expiry', async () => {
+it('a valid bearer can reconnect through the real mount after socket expiry', async () => {
 	const now = Date.now();
 	const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
 	const stub = authority();
@@ -274,7 +294,7 @@ it('the self-host static bearer can reconnect through the real mount after expir
 		resolveStore: () => ({ authority: () => stub, ledger: () => ledger }),
 	});
 	const seeded = await app.request(
-		'/api/data/v1/so.epicenter.storeprobe/generations',
+		'/api/libraries/so.epicenter.storeprobe/personal/data/so.epicenter.storeprobe/current',
 		{
 			method: 'POST',
 			headers: { authorization: `Bearer ${token}` },
@@ -282,9 +302,11 @@ it('the self-host static bearer can reconnect through the real mount after expir
 		},
 	);
 	expect(seeded.status).toBe(200);
-	expect(await seeded.json()).toEqual({ generation: 1, position: 1 });
+	expect(new Uint8Array(await seeded.arrayBuffer())).toEqual(
+		new Uint8Array([42]),
+	);
 	const url =
-		'/api/store/v1/sync?dataId=so.epicenter.storeprobe&generation=1&cursor=1';
+		'/api/store/v1/sync?appId=so.epicenter.storeprobe&library=personal&dataId=so.epicenter.storeprobe&generation=1&cursor=1';
 	const upgrade = (bearer: string) =>
 		app.request(url, {
 			headers: {

@@ -9,7 +9,7 @@ import {
 	createSqliteOwner,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
-import type { AccountIdentity } from '@epicenter/principal';
+import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import type { SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -23,10 +23,10 @@ export type BunDevice = DeviceSqliteOwner;
  */
 export function createBunDevice(root: string): BunDevice {
 	return createSqliteOwner({
-		async open(appId, account, name) {
+		async open(appId, replica, name) {
 			const directory = join(
 				appDataDir(root, appId),
-				accountPath(account),
+				accountPath(replica),
 				'sqlite',
 			);
 			await mkdir(directory, { recursive: true });
@@ -41,10 +41,10 @@ export function createBunDevice(root: string): BunDevice {
 				throw cause;
 			}
 		},
-		async delete(appId, account, name) {
+		async delete(appId, replica, name) {
 			const path = join(
 				appDataDir(root, appId),
-				accountPath(account),
+				accountPath(replica),
 				'sqlite',
 				`${name}.sqlite`,
 			);
@@ -57,10 +57,10 @@ export function createBunDevice(root: string): BunDevice {
 	});
 }
 
-function accountPath(account: AccountIdentity | null): string {
-	return account === null
+function accountPath(replica: LibraryReplicaIdentity): string {
+	return replica.library === 'local'
 		? 'local'
-		: `accounts/${account.authorityId}/${account.principalId}`;
+		: `accounts/${replica.account.authorityId}/${replica.account.principalId}${replica.library === 'shared' ? '/shared' : ''}`;
 }
 
 /** What the owner holds: the application's three verbs, plus the close it may not call. */

@@ -1,4 +1,5 @@
-import type { AccountIdentity } from '@epicenter/principal';
+import type { BlobDestination } from '@epicenter/blobs/native';
+import { type LibraryReplicaIdentity } from '@epicenter/principal';
 import type { BlobId, BlobStore } from '@epicenter/blobs';
 import {
 	defineErrors,
@@ -10,10 +11,10 @@ import type {
 	Device,
 	DeviceAcquisitionOutcome,
 	DeviceIdentifier,
-} from './devices.js';
+} from '@epicenter/recorder';
 
-/** The captured dataset identity. Null names this application's local library. */
-export type RecordingAccount = AccountIdentity | null;
+/** The library whose local bytes receive the completed recording. */
+export type RecordingReplica = LibraryReplicaIdentity;
 
 export const RecorderError = defineErrors({
 	MicrophonePermissionDenied: ({ cause }: { cause?: unknown } = {}) => ({
@@ -60,7 +61,7 @@ export type RecordingEndedReason =
 /** One capture, permanently bound to its original dataset and owner. */
 export type Recording = {
 	readonly audioBlobId: BlobId;
-	readonly account: RecordingAccount;
+	readonly replica: RecordingReplica;
 	readonly device: DeviceAcquisitionOutcome;
 	readonly endedReason: RecordingEndedReason | null;
 	/** Stop capture and publish complete local bytes. A session resolves once. */
@@ -87,6 +88,7 @@ export type RecordingOwner = {
 };
 
 export type RecordingOptions = {
+	local: BlobStore;
 	assertUsable?(): void;
 	canRecover?(): boolean;
 };
@@ -94,18 +96,20 @@ export type RecordingOptions = {
 /** Runtime composition is inert; acquisition happens only on start. */
 export type RecordingFactory = (
 	appId: string,
-	account: RecordingAccount,
-	options?: RecordingOptions,
+	replica: RecordingReplica,
+	options: RecordingOptions,
 ) => RecordingOwner;
 
-/** Capture the opened dataset before any asynchronous work. */
-export function captureRecordingAccount(
-	account: RecordingAccount,
-): RecordingAccount {
-	return account === null
-		? null
-		: Object.freeze({
-				authorityId: account.authorityId,
-				principalId: account.principalId,
-			});
-}
+/** Wire shape pinned against the host's generated bindings by the consumer check. */
+export type NativeRecording = {
+	audioBlobId: string;
+	destination: BlobDestination;
+	device:
+		| { outcome: 'success'; deviceId: string }
+		| {
+				outcome: 'fallback';
+				deviceId: string;
+				reason: 'no-device-selected' | 'preferred-device-unavailable';
+		  };
+	endedReason: RecordingEndedReason | null;
+};

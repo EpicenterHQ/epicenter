@@ -1,5 +1,8 @@
 /** Origin-wide exclusion for one application's account or local library. */
-import type { AccountIdentity } from '@epicenter/principal';
+import {
+	captureLibraryReplica,
+	type LibraryReplicaIdentity,
+} from '@epicenter/principal';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -32,9 +35,9 @@ type LockManager = {
 /** Refuse competing producers before discovery, network access, or storage opens. */
 export async function claimLibrary(
 	appId: string,
-	account: AccountIdentity | null,
+	replica: LibraryReplicaIdentity,
 ): Promise<Result<{ release(): void }, LibraryClaimError>> {
-	const address = `library:${JSON.stringify([appId, account?.authorityId ?? null, account?.principalId ?? null])}`;
+	const address = `library:${JSON.stringify([appId, captureLibraryReplica(replica)])}`;
 	const locks = (globalThis as { navigator?: { locks?: LockManager } })
 		.navigator?.locks;
 	if (!locks) return LibraryClaimError.LocksUnsupported({ address });

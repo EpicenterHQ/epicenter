@@ -1,27 +1,26 @@
-import type { AccountIdentity } from '@epicenter/principal';
+import {
+	captureLibraryReplica,
+	type LibraryReplicaIdentity,
+} from '@epicenter/principal';
 
-/** Address of a dataset in the desktop blob protocol, never a filesystem path. */
+/** Address of local native bytes, never a filesystem path or credential. */
 export type BlobDestination = {
 	appId: string;
-	scope:
-		| { kind: 'local' }
-		| { kind: 'account'; authorityId: string; principalId: string };
+	replica:
+		| { library: 'local' }
+		| {
+				library: 'personal';
+				account: { authorityId: string; principalId: string };
+		  }
+		| {
+				library: 'shared';
+				account: { authorityId: string; principalId: string };
+		  };
 };
 
-/** Capture native addressing at the IPC boundary. */
 export function blobDestination(
 	appId: string,
-	account: AccountIdentity | null,
+	replica: LibraryReplicaIdentity,
 ): BlobDestination {
-	return {
-		appId,
-		scope:
-			account === null
-				? { kind: 'local' }
-				: {
-						kind: 'account',
-						authorityId: account.authorityId,
-						principalId: account.principalId,
-					},
-	};
+	return { appId, replica: captureLibraryReplica(replica) };
 }

@@ -148,14 +148,14 @@ test('disconnect during acquisition rejects the caller and drains the late acqui
 		baseURL: 'http://epicenter.test',
 		webSocket: transport.webSocket,
 	});
-	const acquiring = desktop.acquire(appId, null);
+	const acquiring = desktop.acquire(appId, { library: 'local' });
 	void acquiring.catch(() => undefined);
 	await started.promise;
 	transport.sockets[0]!.close();
 	await expect(acquiring).rejects.toMatchObject({ name: 'StorageFailed' });
 	gate.resolve();
 	await transport.sockets[0]!.disposal;
-	await (await owner.acquire(appId, null)).close();
+	await (await owner.acquire(appId, { library: 'local' })).close();
 	expect(transport.sockets).toHaveLength(1);
 });
 
@@ -178,7 +178,7 @@ test('disconnect drains a delayed statement and retained handles never reconnect
 		baseURL: 'http://epicenter.test',
 		webSocket: transport.webSocket,
 	});
-	const lifetime = await desktop.acquire(appId, null);
+	const lifetime = await desktop.acquire(appId, { library: 'local' });
 	const database = await lifetime.open('mail');
 	const pending = database.run('SELECT 1');
 	await started.promise;
@@ -193,7 +193,7 @@ test('disconnect drains a delayed statement and retained handles never reconnect
 	gate.resolve();
 	await transport.sockets[0]!.disposal;
 	expect(calls).toEqual(['finished', 'close']);
-	const replacement = await desktop.acquire(appId, null);
+	const replacement = await desktop.acquire(appId, { library: 'local' });
 	expect(transport.sockets).toHaveLength(2);
 	expectErr(await database.all('SELECT 1'));
 	await replacement.close();
@@ -205,7 +205,7 @@ test('an unknown response id retires the socket instead of settling another requ
 	const lifetime = await createDesktopSqliteOwner({
 		baseURL: 'http://epicenter.test',
 		webSocket: transport.webSocket,
-	}).acquire(appId, null);
+	}).acquire(appId, { library: 'local' });
 	transport.sockets[0]!.receive({ id: -1, response: { kind: 'sqlite-close' } });
 	await expect(lifetime.open('search')).rejects.toMatchObject({
 		name: 'StorageFailed',

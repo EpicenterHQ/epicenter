@@ -39,6 +39,7 @@ const testSqlite: DeviceSqliteOwner = {
 		open: async () => ({
 			run: async () => Ok({ changes: 0 }),
 			all: async () => Ok([]),
+			query: async () => Ok({ columns: [], rows: [], truncated: false }),
 			batch: async () => Ok({ changes: [] }),
 		}),
 		delete: async () => undefined,
@@ -177,7 +178,7 @@ async function openWhispering(account: Account) {
 		sqlite: testSqlite,
 		blobs: testBlobs,
 	});
-	const app = handle.openAccount(account);
+	const app = handle.openPersonal(account);
 	expectOk(await app.ready);
 	return app;
 }

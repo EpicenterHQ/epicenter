@@ -16,7 +16,7 @@ export const app =
 		: defineApplication({
 				appId: 'so.epicenter.local-mail',
 				definition: mailDefinition,
-			}).openAccount(account);
+			}).openPersonal(account);
 
 export const departure = createDeparture({
 	auth: app && auth ? auth : undefined,

@@ -30,11 +30,11 @@
 		"@epicenter/recorder": "workspace:*",
 		"nanoid": "catalog:",
 		"openai": "^7.12.1",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/sync": "workspace:*",
+		"@epicenter/principal": "workspace:*"
 	},
 	"devDependencies": {
-		"@epicenter/principal": "workspace:*",
-		"@epicenter/sync": "workspace:*",
 		"@types/bun": "catalog:",
 		"fake-indexeddb": "^6.2.5",
 		"typescript": "catalog:"

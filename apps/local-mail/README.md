@@ -61,7 +61,7 @@ renders the mail shell. Auth callbacks and Gmail consent callbacks open no
 primary library. Importing or preloading the route does not open one either.
 
 `application.ts` uses `defineApplication` and the available Personal opener,
-`openAccount(account)`. The separate library-ownership work owns its planned
+`openPersonal(account)`. The separate library-ownership work owns its planned
 rename to `openPersonal`. Identity is required on first opening. A cached
 identity and an existing library can reopen without network access; connection
 health does not disable local triage, Undo, outbox reads, or queries.

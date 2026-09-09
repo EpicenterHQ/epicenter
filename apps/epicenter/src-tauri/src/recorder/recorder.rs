@@ -1515,7 +1515,7 @@ mod tests {
             owner_label: owner_label.to_string(),
             destination: BlobDestination {
                 app_id: "so.epicenter.notes".into(),
-                scope: crate::blobs::BlobScope::Local,
+                replica: crate::blobs::LibraryReplica::Local {},
             },
             device: DeviceAcquisition::Success {
                 device_id: "Test Microphone".to_string(),
@@ -1590,15 +1590,12 @@ mod tests {
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
         recording_owned_by(&mut recorder, &root, id, "app-notes");
         assert_eq!(
-            recorder.current("app-notes").unwrap().destination.scope,
-            crate::blobs::BlobScope::Local
+            recorder.current("app-notes").unwrap().destination.replica,
+            crate::blobs::LibraryReplica::Local {}
         );
         let account = BlobDestination {
             app_id: "so.epicenter.whispering".into(),
-            scope: crate::blobs::BlobScope::Account {
-                authority_id: "authority-a".into(),
-                principal_id: "principal".into(),
-            },
+            replica: crate::blobs::LibraryReplica::Personal { account: crate::blobs::ReplicaAccount { authority_id: "authority-a".into(), principal_id: "principal".into() } },
         };
         recorder.active.as_mut().unwrap().destination = account.clone();
         recorder.end_capture(id, EndedReason::DeviceDisconnected);

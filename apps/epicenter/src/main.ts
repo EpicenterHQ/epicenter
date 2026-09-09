@@ -10,7 +10,7 @@
 
 import { join } from 'node:path';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import type { AccountIdentity } from '@epicenter/principal';
+import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import {
 	type AgentEngine,
 	createBunBlobRemote,
@@ -63,18 +63,19 @@ async function main(): Promise<void> {
 		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
-		const blobs = (appId: string, account: AccountIdentity | null) =>
+		const blobs = (appId: string, replica: LibraryReplicaIdentity) =>
 			createBunBlobStore({
 				directory:
-					account === null
+					replica.library === 'local'
 						? join(dataRoot, 'apps', appId, 'local', 'blobs')
 						: join(
 								dataRoot,
 								'apps',
 								appId,
 								'accounts',
-								account.authorityId,
-								account.principalId,
+								replica.account.authorityId,
+								replica.account.principalId,
+								...(replica.library === 'shared' ? ['shared'] : []),
 								'blobs',
 							),
 			});
@@ -87,19 +88,30 @@ async function main(): Promise<void> {
 		// remote over the authority's own deployment fetch, a signed-out one
 		// has none until sign-in relaunches the app.
 		const bootAccount = auth.account;
-		const blobRemote = (appId: string, account: AccountIdentity | null) => {
+		const blobRemote = (appId: string, replica: LibraryReplicaIdentity) => {
 			if (
 				bootAccount === null ||
-				account === null ||
-				account.authorityId !== bootAccount.authorityId ||
-				account.principalId !== bootAccount.principalId
+				replica.library === 'local' ||
+				replica.account.authorityId !== bootAccount.authorityId ||
+				replica.account.principalId !== bootAccount.principalId
 			)
 				return null;
 			return createBunBlobRemote({
-				store: blobs(appId, account),
+				store: blobs(appId, replica),
 				client: createEpicenterClient({
 					baseURL: bootAccount.baseURL,
-					fetch: bootAccount.fetch,
+					fetch: (input, init) => {
+						const request = new Request(input, init);
+						const url = new URL(request.url);
+						if (
+							url.pathname === '/api/blobs' ||
+							url.pathname.startsWith('/api/blobs/')
+						) {
+							url.searchParams.set('appId', appId);
+							url.searchParams.set('library', replica.library);
+						}
+						return bootAccount.fetch(new Request(url, request));
+					},
 				}),
 			});
 		};

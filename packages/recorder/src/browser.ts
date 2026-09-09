@@ -1,19 +1,15 @@
+import { captureLibraryReplica } from '@epicenter/principal';
 import { generateBlobId } from '@epicenter/blobs';
-import {
-	browserBlobStoreName,
-	createBrowserBlobStore,
-} from '@epicenter/blobs/browser';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok } from 'wellcrafted/result';
 import {
 	enumerateDevices,
 	getRecordingStream,
 	type DeviceStreamError,
-} from './device-stream.js';
+} from '@epicenter/recorder';
 import {
-	captureRecordingAccount,
 	RecorderError,
-	type RecordingAccount,
+	type RecordingReplica,
 	type Recording,
 	type RecordingEndedReason,
 	type RecordingOwner,
@@ -30,12 +26,11 @@ function acquisitionError(error: DeviceStreamError) {
 
 /** Browser capture belongs to this document; construction acquires no resources. */
 export function createBrowserRecording(
-	appId: string,
-	input: RecordingAccount,
-	{ assertUsable }: RecordingOptions = {},
+	_appId: string,
+	input: RecordingReplica,
+	{ assertUsable, local: store }: RecordingOptions,
 ): RecordingOwner {
-	browserBlobStoreName({ appId, principalId: 'local' });
-	const account = captureRecordingAccount(input);
+	const replica = captureLibraryReplica(input);
 	let closed = false;
 	let closing: Promise<void> | undefined;
 	const operations = new Set<Promise<unknown>>();
@@ -114,11 +109,6 @@ export function createBrowserRecording(
 					pending = true;
 					let release: () => void | Promise<void> = () => {};
 					try {
-						const store = createBrowserBlobStore(
-							account === null
-								? { appId, principalId: 'local' }
-								: { appId, ...account },
-						);
 						const acquired = await getRecordingStream({
 							selectedDeviceId: params.selectedDeviceId ?? null,
 						});
@@ -265,7 +255,7 @@ export function createBrowserRecording(
 						const audioBlobId = generateBlobId();
 						const session: Recording = {
 							audioBlobId,
-							account,
+							replica,
 							device: deviceOutcome,
 							get endedReason() {
 								return endedReason;

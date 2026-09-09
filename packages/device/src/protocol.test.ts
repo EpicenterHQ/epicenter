@@ -1,3 +1,4 @@
+import { isLibraryReplica } from '@epicenter/principal';
 /**
  * SQLite account wire validation.
  * Only explicit null selects local storage. Account identity requires two
@@ -49,4 +50,21 @@ test.each([
 	expect(isSqliteAccount({ authorityId: 'cloud', principalId: segment })).toBe(
 		false,
 	);
+});
+
+test('replica addressing requires a selected library and its actor', () => {
+	const account = { authorityId: 'server', principalId: 'alice' };
+	expect(isLibraryReplica({ library: 'local' })).toBe(true);
+	expect(isLibraryReplica({ library: 'personal', account })).toBe(true);
+	expect(isLibraryReplica({ library: 'shared', account })).toBe(true);
+	for (const invalid of [
+		null,
+		account,
+		{ account },
+		{ library: 'shared' },
+		{ library: 'local', account },
+		{ library: null, account },
+		{ library: 'other', account },
+	])
+		expect(isLibraryReplica(invalid)).toBe(false);
 });

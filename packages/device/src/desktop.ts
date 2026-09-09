@@ -174,7 +174,7 @@ export function createDesktopDevice({
 }: CreateDesktopDeviceOptions & { appId: string }): Device {
 	appIdOrThrow(appId);
 	const owner = createDesktopSqliteOwner(options);
-	const sqlite = createAppSqlite(owner, appId, null);
+	const sqlite = createAppSqlite(owner, appId, { library: 'local' });
 	return {
 		sqlite: Object.freeze(sqlite.value),
 		close: () => sqlite.close(),

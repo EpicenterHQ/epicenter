@@ -2,6 +2,7 @@ import type { AiConfiguration } from './ai-configuration.js';
 import type { AiTransport } from './ai.js';
 import { openApp } from './open.js';
 import type { Account } from '@epicenter/auth';
+import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import type { BlobRemote, BlobSources, BlobStore } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
 import type { DataDefinition } from '@epicenter/data/definition';
@@ -25,13 +26,15 @@ export type AppBlobComposition = {
 
 export type AppBlobFactory = (input: {
 	appId: string;
-	account: Account | null;
+	replica: LibraryReplicaIdentity;
+	remote: Pick<Account, 'baseURL' | 'fetch'> | null;
 }) => AppBlobComposition;
 
 export type Application<TDefinition extends DataDefinition> = {
 	readonly appId: string;
 	openLocal(): App<TDefinition>;
-	openAccount(account: Account): App<TDefinition>;
+	openPersonal(account: Account): App<TDefinition>;
+	openShared(account: Account): App<TDefinition>;
 };
 
 export function createEpicenter<const TDefinition extends DataDefinition>({
@@ -56,10 +59,14 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 }): Application<TDefinition> {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
-	function open(account: Account | null): App<TDefinition> {
+	function open(
+		choice:
+			| { library: 'local' }
+			| { library: 'personal' | 'shared'; account: Account },
+	): App<TDefinition> {
 		return openApp(definition, {
 			appId,
-			account,
+			choice,
 			sqlite,
 			blobs,
 			recording,
@@ -69,8 +76,9 @@ export function createEpicenter<const TDefinition extends DataDefinition>({
 	}
 	return Object.freeze({
 		appId,
-		openLocal: () => open(null),
-		openAccount: (account: Account) => open(account),
+		openLocal: () => open({ library: 'local' }),
+		openPersonal: (account: Account) => open({ library: 'personal', account }),
+		openShared: (account: Account) => open({ library: 'shared', account }),
 	});
 }
 

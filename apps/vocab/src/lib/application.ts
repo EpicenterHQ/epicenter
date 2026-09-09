@@ -10,7 +10,8 @@ import { vocabDefinition } from './data.js';
 // both the Account and App across navigation in this document.
 const auth = authStartup.auth;
 const state = auth?.state;
-export const account = !state || state.status === 'signed-out' ? null : state.account;
+export const account =
+	!state || state.status === 'signed-out' ? null : state.account;
 export const app =
 	account === null || new URLSearchParams(location.search).has('connect')
 		? null
@@ -19,7 +20,7 @@ export const app =
 				definition: vocabDefinition,
 				sqlite,
 				blobs: createBrowserAppBlobs(),
-			}).openAccount(account);
+			}).openPersonal(account);
 export const departure = createDeparture({
 	retirement: app?.retirement,
 	reload: () => location.reload(),

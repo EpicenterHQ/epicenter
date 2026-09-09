@@ -34,7 +34,7 @@ import type { Hono, MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
 import { MAX_BLOB_BYTES } from '../constants.js';
-import { blobKey } from '../principal.js';
+import { resolveLibraryPrefix } from '../library.js';
 import {
 	createS3BlobStore,
 	type S3BlobStore,
@@ -66,7 +66,10 @@ const TicketBody = type({
  */
 type BlobEnv = {
 	Bindings: Env['Bindings'];
-	Variables: Env['Variables'] & { blobStore: S3BlobStore };
+	Variables: Env['Variables'] & {
+		blobStore: S3BlobStore;
+		libraryPrefix: string;
+	};
 };
 
 /**
@@ -146,13 +149,26 @@ const requireBlobStore = createMiddleware<BlobEnv>(async (c, next) => {
  */
 export function mountBlobsApp<E extends Env = Env>(
 	app: Hono<E>,
-	opts: { auth: MiddlewareHandler<E> },
+	opts: { auth: MiddlewareHandler<E>; shared?: boolean },
 ): void {
+	const library = createMiddleware<BlobEnv>(async (c, next) => {
+		const prefix = resolveLibraryPrefix(
+			c.req.query('appId'),
+			c.req.query('library'),
+			c.var.principal.id,
+			opts.shared === true,
+		);
+		if (!prefix || c.req.query('principalId') || c.req.query('owner'))
+			return c.text('Library access refused', 403);
+		c.set('libraryPrefix', prefix);
+		await next();
+	});
 	app
 		// POST: request a create-only presigned PUT.
 		.post(
 			API_ROUTES.blobs.collection.pattern,
 			opts.auth,
+			library,
 			requireBlobStore,
 			describeRoute({
 				description: 'Request an upload ticket for an opaque-id blob.',
@@ -160,7 +176,6 @@ export function mountBlobsApp<E extends Env = Env>(
 			}),
 			sValidator('json', TicketBody),
 			async (c) => {
-				const principalId = c.var.principal.id;
 				const {
 					blobId: rawBlobId,
 					sizeBytes,
@@ -184,8 +199,13 @@ export function mountBlobsApp<E extends Env = Env>(
 					return c.json(err, err.error.status);
 				}
 
-				const key = blobKey(principalId, blobId);
-				const url = API_ROUTES.blobs.byId.url(c.var.authBaseURL, blobId);
+				const key = `${c.var.libraryPrefix}/blobs/${blobId}`;
+				const resourceUrl = new URL(
+					API_ROUTES.blobs.byId.url(c.var.authBaseURL, blobId),
+				);
+				resourceUrl.searchParams.set('appId', c.req.query('appId')!);
+				resourceUrl.searchParams.set('library', c.req.query('library')!);
+				const url = resourceUrl.toString();
 
 				const { url: uploadUrl, requiredHeaders } =
 					await c.var.blobStore.presignPut({
@@ -207,6 +227,7 @@ export function mountBlobsApp<E extends Env = Env>(
 		.get(
 			API_ROUTES.blobs.byId.pattern,
 			opts.auth,
+			library,
 			requireBlobStore,
 			describeRoute({
 				description:
@@ -214,10 +235,9 @@ export function mountBlobsApp<E extends Env = Env>(
 				tags: ['blobs'],
 			}),
 			async (c) => {
-				const principalId = c.var.principal.id;
 				const blobId = parseBlobId(c.req.param('blobId'));
 				if (!blobId) return c.notFound();
-				const key = blobKey(principalId, blobId);
+				const key = `${c.var.libraryPrefix}/blobs/${blobId}`;
 				if (!(await c.var.blobStore.exists(key))) {
 					const err = BlobError.NotFound();
 					return c.json(err, err.error.status);
@@ -233,16 +253,16 @@ export function mountBlobsApp<E extends Env = Env>(
 		.delete(
 			API_ROUTES.blobs.byId.pattern,
 			opts.auth,
+			library,
 			requireBlobStore,
 			describeRoute({
 				description: 'Delete a blob for the current principal.',
 				tags: ['blobs'],
 			}),
 			async (c) => {
-				const principalId = c.var.principal.id;
 				const blobId = parseBlobId(c.req.param('blobId'));
 				if (!blobId) return c.notFound();
-				await c.var.blobStore.delete(blobKey(principalId, blobId));
+				await c.var.blobStore.delete(`${c.var.libraryPrefix}/blobs/${blobId}`);
 				return c.body(null, 204);
 			},
 		);

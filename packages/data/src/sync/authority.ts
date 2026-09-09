@@ -57,7 +57,7 @@
  * client owns.
  *
  * The deployed wrapper still owns one independently addressed generation.
- * The unmounted current authority below owns generation admission, replacement,
+ * The current authority below owns generation admission, replacement,
  * and its hubs in one lifetime. Both share the same transaction-local log SQL.
  */
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
@@ -457,7 +457,7 @@ function nonempty(bytes: Uint8Array): void {
 }
 
 /**
- * Unmounted authority checkpoint. Raw replacement bytes are trusted inputs;
+ * Current-generation authority. Raw replacement bytes are trusted inputs;
  * this owner does not verify a backup or reconstruct application data.
  * Storage failures throw and roll back the enclosing transaction.
  */

@@ -101,7 +101,16 @@ function setup({
 	});
 	const appId = `test.${crypto.randomUUID()}`;
 	return {
-		owner: createBrowserRecording(appId, null),
+		owner: createBrowserRecording(
+			appId,
+			{ library: 'local' },
+			{
+				local: createBrowserBlobStore({
+					appId,
+					replica: { library: 'local' as const },
+				}),
+			},
+		),
 		appId,
 		tracks,
 		recorders,
@@ -128,25 +137,58 @@ test('construction is inert and pending permission excludes competing starts', a
 test('stop stores final data in the captured account even when the input object changes', async () => {
 	const { appId, permission, recorders } = setup({ deferPermission: true });
 	const account = { authorityId: 'first', principalId: asPrincipalId('alice') };
-	const owner = createBrowserRecording(appId, account);
+	const owner = createBrowserRecording(
+		appId,
+		{ library: 'personal', account },
+		{
+			local: createBrowserBlobStore({
+				appId,
+				replica: { library: 'personal', account },
+			}),
+		},
+	);
 	account.authorityId = 'second';
 	const pending = owner.value.start();
 	permission.resolve();
 	const recording = expectOk(await pending);
-	expect(Reflect.set(recording, 'account', null)).toBe(false);
+	expect(Reflect.set(recording, 'replica', { library: 'local' })).toBe(false);
 	expect(expectOk(await owner.value.current())).toBe(recording);
 	recorders[0]?.data('first');
 	const stopped = expectOk(await recording.stop());
 	const store = createBrowserBlobStore({
 		appId,
-		authorityId: 'first',
-		principalId: account.principalId,
+		replica: {
+			library: 'personal' as const,
+			account: { authorityId: 'first', principalId: account.principalId },
+		},
 	});
 	expect(await expectOk(await store.get(stopped.audioBlobId)).text()).toBe(
 		'firstfinal',
 	);
 	expect(stopped.byteLength).toBe(10);
 	expect(expectOk(await owner.value.current())).toBeNull();
+});
+
+test('stop publishes through the supplied store when its namespace differs from recording identity', async () => {
+	const { appId } = setup();
+	const local = createBrowserBlobStore({
+		appId: `supplied.${crypto.randomUUID()}`,
+		replica: { library: 'local' as const },
+	});
+	const owner = createBrowserRecording(appId, { library: 'local' }, { local });
+	const recording = expectOk(await owner.value.start());
+	const stopped = expectOk(await recording.stop());
+	expect(await expectOk(await local.get(stopped.audioBlobId)).text()).toBe(
+		'final',
+	);
+	const identityStore = createBrowserBlobStore({
+		appId,
+		replica: { library: 'local' as const },
+	});
+	expect(expectErr(await identityStore.get(stopped.audioBlobId)).name).toBe(
+		'BlobNotFound',
+	);
+	await owner.close();
 });
 
 test('cancel discards bytes and a stale session cannot stop its successor', async () => {
@@ -156,7 +198,10 @@ test('cancel discards bytes and a stale session cannot stop its successor', asyn
 	const second = expectOk(await owner.value.start());
 	expect(expectErr(await first.stop()).name).toBe('NoActiveRecording');
 	expect(recorders[1]?.state).toBe('recording');
-	const store = createBrowserBlobStore({ appId, principalId: 'local' });
+	const store = createBrowserBlobStore({
+		appId,
+		replica: { library: 'local' as const },
+	});
 	expect(expectErr(await store.get(first.audioBlobId)).name).toBe(
 		'BlobNotFound',
 	);
@@ -181,7 +226,10 @@ test('capture error preserves its final bytes for stop and reports ended once', 
 	const stopped = expectOk(await recording.stop());
 	expect(reasons).toEqual(['streamFailed']);
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
-	const store = createBrowserBlobStore({ appId, principalId: 'local' });
+	const store = createBrowserBlobStore({
+		appId,
+		replica: { library: 'local' as const },
+	});
 	expect(await expectOk(await store.get(stopped.audioBlobId)).text()).toBe(
 		'beforesaved',
 	);
@@ -211,9 +259,19 @@ test('late ended subscription delivers once and an unsubscribed listener is skip
 });
 
 test('failed publication releases capture and does not hold the next start', async () => {
-	const { owner, tracks } = setup();
+	const { appId, tracks } = setup();
 	// Missing Web Locks makes the real store refuse publication.
 	Object.defineProperty(navigator, 'locks', { value: undefined });
+	const owner = createBrowserRecording(
+		appId,
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId,
+				replica: { library: 'local' as const },
+			}),
+		},
+	);
 	const recording = expectOk(await owner.value.start());
 	expect(expectErr(await recording.stop()).name).toBe('BlobStoreFailed');
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
@@ -291,14 +349,17 @@ test('close waits for permission then discards late capture and stays terminal',
 	expect(() => recording.cancel()).toThrow('closed');
 	expect(() => recording.onLevel(() => {})).toThrow('closed');
 	expect(() => recording.onEnded(() => {})).toThrow('closed');
-	const store = createBrowserBlobStore({ appId, principalId: 'local' });
+	const store = createBrowserBlobStore({
+		appId,
+		replica: { library: 'local' as const },
+	});
 	expect(expectErr(await store.get(recording.audioBlobId)).name).toBe(
 		'BlobNotFound',
 	);
 });
 
 test('close drains an admitted stop through final blob publication', async () => {
-	const { owner, appId } = setup();
+	const { appId } = setup();
 	const publication = Promise.withResolvers<void>();
 	const entered = Promise.withResolvers<void>();
 	Object.defineProperty(navigator, 'locks', {
@@ -314,6 +375,16 @@ test('close drains an admitted stop through final blob publication', async () =>
 			},
 		},
 	});
+	const owner = createBrowserRecording(
+		appId,
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId,
+				replica: { library: 'local' as const },
+			}),
+		},
+	);
 	const recording = expectOk(await owner.value.start());
 	const stopping = recording.stop();
 	await entered.promise;
@@ -327,7 +398,10 @@ test('close drains an admitted stop through final blob publication', async () =>
 	publication.resolve();
 	const saved = expectOk(await stopping);
 	await closing;
-	const store = createBrowserBlobStore({ appId, principalId: 'local' });
+	const store = createBrowserBlobStore({
+		appId,
+		replica: { library: 'local' as const },
+	});
 	expect(await expectOk(await store.get(saved.audioBlobId)).text()).toBe(
 		'final',
 	);
@@ -396,11 +470,19 @@ test('close rejects a failed cancellation while still releasing microphone track
 test('construction readiness is checked at retained owner and session operations', async () => {
 	const { appId } = setup();
 	let usable = false;
-	const owner = createBrowserRecording(appId, null, {
-		assertUsable() {
-			if (!usable) throw new Error('not ready');
+	const owner = createBrowserRecording(
+		appId,
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId,
+				replica: { library: 'local' as const },
+			}),
+			assertUsable() {
+				if (!usable) throw new Error('not ready');
+			},
 		},
-	});
+	);
 	const start = owner.value.start;
 	expect(() => start()).toThrow('not ready');
 	usable = true;
@@ -413,8 +495,18 @@ test('construction readiness is checked at retained owner and session operations
 });
 
 test('failed publication retains its Result when AudioContext release also fails', async () => {
-	const { owner } = setup();
+	const { appId } = setup();
 	Object.defineProperty(navigator, 'locks', { value: undefined });
+	const owner = createBrowserRecording(
+		appId,
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId,
+				replica: { library: 'local' as const },
+			}),
+		},
+	);
 	replaceGlobal(
 		'AudioContext',
 		class {

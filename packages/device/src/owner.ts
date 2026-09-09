@@ -1,13 +1,15 @@
 import type { QueryOptions } from './query.js';
 /** SQLite lifetime ownership shared by the native host and browser worker. */
-import type { AccountIdentity } from '@epicenter/principal';
+import {
+	captureLibraryReplica,
+	type LibraryReplicaIdentity,
+} from '@epicenter/principal';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { claimLibrary } from './library-claim.js';
 import { appIdOrThrow, type AppSqliteDatabase, DeviceError } from './index.js';
 import {
 	isDatabaseName,
-	isSqliteAccount,
 	type DeviceRequest,
 	type DeviceResponse,
 } from './protocol.js';
@@ -20,48 +22,38 @@ export type SqliteLifetime = {
 export type DeviceSqliteOwner = {
 	acquire(
 		appId: string,
-		account: AccountIdentity | null,
+		replica: LibraryReplicaIdentity,
 	): Promise<SqliteLifetime>;
 };
 export type SqliteBackend = {
 	open(
 		appId: string,
-		account: AccountIdentity | null,
+		replica: LibraryReplicaIdentity,
 		name: string,
 	): Promise<AppSqliteDatabase & { close(): Promise<void> }>;
 	delete(
 		appId: string,
-		account: AccountIdentity | null,
+		replica: LibraryReplicaIdentity,
 		name: string,
 	): Promise<void>;
 };
-function capture(appId: string, account: AccountIdentity | null) {
+function capture(appId: string, replica: LibraryReplicaIdentity) {
 	appIdOrThrow(appId);
-	if (!isSqliteAccount(account)) throw new Error('Invalid SQLite account.');
-	return account === null
-		? null
-		: Object.freeze({
-				authorityId: account.authorityId,
-				principalId: account.principalId,
-			});
+	return captureLibraryReplica(replica);
 }
-function address(appId: string, account: AccountIdentity | null) {
-	return JSON.stringify([
-		appId,
-		account?.authorityId ?? null,
-		account?.principalId ?? null,
-	]);
+function address(appId: string, replica: LibraryReplicaIdentity) {
+	return JSON.stringify([appId, replica]);
 }
 function validateName(name: string) {
 	if (!isDatabaseName(name)) throw new Error('Invalid SQLite database name.');
 }
 
-/** Reserve one SQL lifetime per app/account until every physical close succeeds. */
+/** Reserve one SQL lifetime per app/replica until every physical close succeeds. */
 export function createSqliteOwner(backend: SqliteBackend): DeviceSqliteOwner {
 	const claimed = new Set<string>();
 	return {
-		async acquire(appId, account) {
-			const identity = capture(appId, account);
+		async acquire(appId, replica) {
+			const identity = capture(appId, replica);
 			const key = address(appId, identity);
 			if (claimed.has(key))
 				throw new Error('SQLite lifetime is already acquired.');
@@ -191,10 +183,10 @@ export type ScopedSqlite = {
 export function createAppSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
-	account: AccountIdentity | null,
+	replica: LibraryReplicaIdentity,
 	{ assertUsable }: { assertUsable?: () => void } = {},
 ) {
-	const identity = capture(appId, account);
+	const identity = capture(appId, replica);
 	let pending:
 		| Promise<
 				Result<{ lifetime: SqliteLifetime; release(): void }, DeviceError>
@@ -344,10 +336,10 @@ export function createDeviceDispatcher(owner: DeviceSqliteOwner) {
 		{ lifetimeId: string; connectionId: string; controller: AbortController }
 	>();
 	async function dispatch(request: AppSqliteRequest): Promise<DeviceResponse> {
-		capture(request.appId, request.account);
-		const key = address(request.appId, request.account);
+		const replica = capture(request.appId, request.replica);
+		const key = address(request.appId, replica);
 		if (request.kind === 'sqlite-acquire') {
-			const lifetime = await owner.acquire(request.appId, request.account);
+			const lifetime = await owner.acquire(request.appId, replica);
 			const lifetimeId = crypto.randomUUID();
 			lifetimes.set(lifetimeId, { key, lifetime, connections: new Map() });
 			return { kind: request.kind, lifetimeId };
@@ -499,13 +491,13 @@ export function createTransportSqliteOwner(
 		return result.data;
 	}
 	return {
-		async acquire(appId, account) {
-			const identity = capture(appId, account);
+		async acquire(appId, replica) {
+			const identity = capture(appId, replica);
 			const { lifetimeId } = await send(
-				{ kind: 'sqlite-acquire', appId, account: identity },
+				{ kind: 'sqlite-acquire', appId, replica: identity },
 				'sqlite-acquire',
 			);
-			const session = { appId, account: identity, lifetimeId };
+			const session = { appId, replica: identity, lifetimeId };
 			return {
 				async open(name) {
 					const { connectionId } = await send(

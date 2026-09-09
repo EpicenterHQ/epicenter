@@ -4,10 +4,11 @@
  * listener cleanup, and typed IPC failures without opening a microphone.
  */
 import { expect, mock, test } from 'bun:test';
+import { createBrowserBlobStore } from '@epicenter/blobs/browser';
 import { generateBlobId } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { NativeRecording } from './desktop.js';
+import type { NativeRecording } from './recording.js';
 
 let perform: (
 	command: string,
@@ -48,7 +49,7 @@ function setup() {
 	released.length = 0;
 	const live: NativeRecording = {
 		audioBlobId: generateBlobId(),
-		destination: { appId: 'so.epicenter.test', scope: { kind: 'local' } },
+		destination: { appId: 'so.epicenter.test', replica: { library: 'local' } },
 		device: { outcome: 'success', deviceId: 'mic' },
 		endedReason: null,
 	};
@@ -74,7 +75,19 @@ function setup() {
 				throw new Error(`Unexpected command: ${command}`);
 		}
 	};
-	return { owner: createDesktopRecording('so.epicenter.test', null), live };
+	return {
+		owner: createDesktopRecording(
+			'so.epicenter.test',
+			{ library: 'local' },
+			{
+				local: createBrowserBlobStore({
+					appId: 'so.epicenter.test',
+					replica: { library: 'local' as const },
+				}),
+			},
+		),
+		live,
+	};
 }
 
 test('construction is inert and start captures destination before permission completes', async () => {
@@ -88,23 +101,35 @@ test('construction is inert and start captures destination before permission com
 		if (command === 'start_recording') {
 			expect(args?.destination).toEqual({
 				appId: 'so.epicenter.test',
-				scope: {
-					kind: 'account',
-					authorityId: 'first',
-					principalId: 'alice',
+				replica: {
+					library: 'personal',
+					account: { authorityId: 'first', principalId: 'alice' },
 				},
 			});
 			live.destination = args?.destination as NativeRecording['destination'];
 		}
 		return original(command, args);
 	};
-	const owner = createDesktopRecording('so.epicenter.test', account);
+	const owner = createDesktopRecording(
+		'so.epicenter.test',
+		{ library: 'personal', account },
+		{
+			local: createBrowserBlobStore({
+				appId: 'so.epicenter.test',
+				replica: { library: 'personal', account },
+			}),
+		},
+	);
 	account.authorityId = 'second';
 	const started = owner.value.start();
 	permission.resolve('granted');
 	const recording = expectOk(await started);
-	expect(recording.account?.authorityId).toBe('first');
-	expect(Reflect.set(recording, 'account', null)).toBe(false);
+	expect(
+		recording.replica.library === 'local'
+			? undefined
+			: recording.replica.account.authorityId,
+	).toBe('first');
+	expect(Reflect.set(recording, 'replica', { library: 'local' })).toBe(false);
 	expectOk(await recording.cancel());
 });
 
@@ -113,10 +138,9 @@ test('recovery refuses a different app or account without ending the host captur
 	live.destination.appId = 'so.epicenter.another';
 	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
 	live.destination.appId = 'so.epicenter.test';
-	live.destination.scope = {
-		kind: 'account',
-		authorityId: 'authority',
-		principalId: 'alice',
+	live.destination.replica = {
+		library: 'personal',
+		account: { authorityId: 'authority', principalId: 'alice' },
 	};
 	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
 	expect(
@@ -227,14 +251,30 @@ test('close drains an admitted native stop before recovery or cancellation', asy
 
 test('refused recovery performs no native calls but own capture is still cancelled', async () => {
 	setup();
-	const refused = createDesktopRecording('so.epicenter.test', null, {
-		canRecover: () => false,
-	});
+	const refused = createDesktopRecording(
+		'so.epicenter.test',
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId: 'so.epicenter.test',
+				replica: { library: 'local' as const },
+			}),
+			canRecover: () => false,
+		},
+	);
 	await refused.close();
 	expect(invoke).not.toHaveBeenCalled();
-	const owner = createDesktopRecording('so.epicenter.test', null, {
-		canRecover: () => false,
-	});
+	const owner = createDesktopRecording(
+		'so.epicenter.test',
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId: 'so.epicenter.test',
+				replica: { library: 'local' as const },
+			}),
+			canRecover: () => false,
+		},
+	);
 	expectOk(await owner.value.start());
 	await owner.close();
 	expect(
@@ -287,11 +327,19 @@ test('failed unlisten rejects close after attempting every listener release', as
 test('native readiness checks retained operations synchronously and close bypasses readiness', async () => {
 	setup();
 	let usable = false;
-	const owner = createDesktopRecording('so.epicenter.test', null, {
-		assertUsable() {
-			if (!usable) throw new Error('not ready');
+	const owner = createDesktopRecording(
+		'so.epicenter.test',
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId: 'so.epicenter.test',
+				replica: { library: 'local' as const },
+			}),
+			assertUsable() {
+				if (!usable) throw new Error('not ready');
+			},
 		},
-	});
+	);
 	const start = owner.value.start;
 	expect(() => start()).toThrow('not ready');
 	usable = true;
@@ -330,9 +378,17 @@ test('construction-only close cannot recover native capture without authorizatio
 test('authorized close ignores capture owned by another destination', async () => {
 	const { live } = setup();
 	live.destination.appId = 'so.epicenter.another';
-	const owner = createDesktopRecording('so.epicenter.test', null, {
-		canRecover: () => true,
-	});
+	const owner = createDesktopRecording(
+		'so.epicenter.test',
+		{ library: 'local' },
+		{
+			local: createBrowserBlobStore({
+				appId: 'so.epicenter.test',
+				replica: { library: 'local' as const },
+			}),
+			canRecover: () => true,
+		},
+	);
 	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
 	await owner.close();
 	expect(

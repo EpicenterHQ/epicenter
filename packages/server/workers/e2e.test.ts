@@ -39,9 +39,7 @@ function openAccount(label: string) {
 		/**
 		 * One device of this account, or of another when `principal` says so.
 		 *
-		 * The principal is what the bearer resolves to, and it is the ONLY thing
-		 * that decides which authority this device reaches. Nothing else here can
-		 * express "whose data".
+		 * Personal uses the resolved actor; Shared joins the application's library.
 		 */
 		device(name: string, principal = account) {
 			const stub = env.REPLICA.get(
@@ -57,7 +55,10 @@ function openAccount(label: string) {
 					run(replica as unknown as StoreTestReplica),
 				);
 			return {
-				open: (options?: { connect?: boolean }) =>
+				open: (options?: {
+					connect?: boolean;
+					library?: 'personal' | 'shared';
+				}) =>
 					inside((replica) =>
 						replica.open(`device:${principal}`, ORIGIN, options),
 					),
@@ -73,15 +74,7 @@ function openAccount(label: string) {
 	};
 }
 
-/**
- * Wait for the socket, which is all a device waits for now.
- *
- * There used to be a boot gate here: a signed-in replica was unavailable until
- * its first bootstrap stamped it with the authority's document identity, and
- * writing before that authored work no document owned. The generation is in
- * the address (ADR-0292), so a replica is bound the moment it opens and the
- * only thing left to wait for is a connection.
- */
+/** Wait until the production driver reports its socket connection. */
 async function bound(device: {
 	report(): Promise<ReplicaReport>;
 }): Promise<void> {
@@ -199,16 +192,43 @@ describe('two devices on one account converge', () => {
 
 	it('a dataId no workspace could declare is refused', async () => {
 		const response = await SELF.fetch(
-			new Request(`${ORIGIN}/api/store/v1/sync?dataId=../escape&cursor=0`, {
-				headers: {
-					Upgrade: 'websocket',
-					'sec-websocket-protocol': formatSubprotocols([
-						MAIN_SUBPROTOCOL,
-						bearerSubprotocol('device:someone'),
-					]),
+			new Request(
+				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.storeprobe&library=personal&dataId=../escape&generation=1&cursor=0`,
+				{
+					headers: {
+						Upgrade: 'websocket',
+						'sec-websocket-protocol': formatSubprotocols([
+							MAIN_SUBPROTOCOL,
+							bearerSubprotocol('device:someone'),
+						]),
+					},
 				},
-			}),
+			),
 		);
-		expect(response.status).toBe(400);
+		expect(response.status).toBe(403);
 	});
+});
+
+it('Alice and Bob converge on Shared rows while their Personal rows remain separate', async () => {
+	const vault = openAccount('shared');
+	const alice = vault.device('alice-shared', 'alice');
+	const bob = vault.device('bob-shared', 'bob');
+	const personal = vault.device('alice-personal', 'alice');
+	await Promise.all([
+		alice.open({ library: 'shared' }),
+		bob.open({ library: 'shared' }),
+		personal.open(),
+	]);
+	await bound(alice);
+	await bound(bob);
+	await bound(personal);
+	const title = `Shared ${crypto.randomUUID()}`;
+	await alice.write(title, 'Both people can read this');
+	await until('Bob to receive the Shared row', async () =>
+		(await bob.report()).titles.includes(title),
+	);
+	expect((await bob.report()).text.join(' ')).toContain(
+		'Both people can read this',
+	);
+	expect((await personal.report()).titles).not.toContain(title);
 });

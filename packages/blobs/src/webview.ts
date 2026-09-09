@@ -1,7 +1,10 @@
 /// <reference lib="dom" />
 
 import { isAppId } from '@epicenter/constants/app-id';
-import type { AccountIdentity } from '@epicenter/principal';
+import {
+	captureLibraryReplica,
+	type LibraryReplicaIdentity,
+} from '@epicenter/principal';
 import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 import { type BlobRemote, BlobRemoteError } from './blob-remote.js';
@@ -12,6 +15,7 @@ import { type BlobStore, BlobStoreError } from './blob-store.js';
 export const BLOB_PATHS = {
 	local: '/api/apps/:appId/local/blobs',
 	account: '/api/apps/:appId/accounts/:authorityId/:principalId/blobs',
+	shared: '/api/apps/:appId/accounts/:authorityId/:principalId/shared/blobs',
 } as const;
 
 type HttpFetch = (
@@ -35,19 +39,21 @@ function encodeIdentitySegment(value: unknown, label: string): string {
 }
 
 /**
- * Capture one app's local or account blob partition before any asynchronous work.
- * Invalid identity throws at construction; local storage requires explicit `null`.
+ * Capture one app's library replica before any asynchronous work.
+ * Invalid addressing throws at construction.
  * Relative URLs preserve the loopback origin and its HttpOnly session cookie.
  * The host owns remote credentials and byte transfer. A local partition has no
  * remote backing; the document store constructs its guarded public remote.
  */
 export function createWebviewBlobs({
 	appId,
-	account,
+	replica: input,
+	remote: selectedRemote,
 	fetch: fetcher = globalThis.fetch,
 }: {
 	appId: string;
-	account: AccountIdentity | null;
+	replica: LibraryReplicaIdentity;
+	remote: { baseURL: string; fetch: HttpFetch } | null;
 	fetch?: HttpFetch;
 }): { local: BlobStore; sources: BlobSources; remote: BlobRemote | null } {
 	if (typeof appId !== 'string' || appId.trim() !== appId || !isAppId(appId)) {
@@ -55,16 +61,11 @@ export function createWebviewBlobs({
 			'Invalid blob app id: expected a reverse-domain app id.',
 		);
 	}
-	if (
-		account !== null &&
-		(typeof account !== 'object' || Array.isArray(account))
-	) {
-		throw new TypeError('Blob account must be an explicit identity or null.');
-	}
+	const replica = captureLibraryReplica(input);
 	const prefix =
-		account === null
+		replica.library === 'local'
 			? `/api/apps/${encodeURIComponent(appId)}/local/blobs`
-			: `/api/apps/${encodeURIComponent(appId)}/accounts/${encodeIdentitySegment(account.authorityId, 'authorityId')}/${encodeIdentitySegment(account.principalId, 'principalId')}/blobs`;
+			: `/api/apps/${encodeURIComponent(appId)}/accounts/${encodeIdentitySegment(replica.account.authorityId, 'authorityId')}/${encodeIdentitySegment(replica.account.principalId, 'principalId')}/${replica.library === 'shared' ? 'shared/' : ''}blobs`;
 	const blobUrl = (id: BlobId) => `${prefix}/${id}`;
 	async function request(id: BlobId, init: RequestInit, suffix = '') {
 		return tryAsync({
@@ -209,7 +210,7 @@ export function createWebviewBlobs({
 	}
 
 	const remote: BlobRemote | null =
-		account === null
+		selectedRemote === null || replica.library === 'local'
 			? null
 			: {
 					async upload(id) {

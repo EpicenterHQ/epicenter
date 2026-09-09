@@ -34,6 +34,20 @@ const stripTrailing = (value: string): string => value.replace(/\/+$/, '');
  * framed it would have to be unframed on both sides.
  */
 export const LOG_POSITION_HEADER = 'epicenter-log-position';
+export const CURRENT_GENERATION_HEADER = 'epicenter-generation';
+
+/** The stable application library. Account authentication still identifies the actor. */
+export const CURRENT_ROUTE = {
+	pattern: '/api/libraries/:appId/:library/data/:dataId/current',
+	url(
+		baseURL: string,
+		appId: string,
+		library: 'personal' | 'shared',
+		dataId: string,
+	) {
+		return `${stripTrailing(baseURL)}/api/libraries/${encodeURIComponent(appId)}/${library}/data/${encodeURIComponent(dataId)}/current`;
+	},
+};
 
 export const GENERATIONS_ROUTE = {
 	/** Every generation of one database. The `:dataId` is a path parameter. */

@@ -1,5 +1,7 @@
 import { createAppBlobs } from '@epicenter/blobs/app';
 import type { Account } from '@epicenter/auth';
+import type { LibraryReplicaIdentity } from '@epicenter/principal';
+import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import { isAppId } from '@epicenter/constants/app-id';
 import { acquireAppData } from '@epicenter/data/browser';
 import { compileData, type DataDefinition } from '@epicenter/data/definition';
@@ -29,7 +31,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 	definition: TDefinition,
 	{
 		appId,
-		account: input,
+		choice,
 		sqlite,
 		blobs,
 		recording,
@@ -37,7 +39,9 @@ export function openApp<const TDefinition extends DataDefinition>(
 		ai,
 	}: {
 		appId: string;
-		account: Account | null;
+		choice:
+			| { library: 'local' }
+			| { library: 'personal' | 'shared'; account: Account };
 		sqlite: DeviceSqliteOwner;
 		blobs: AppBlobFactory;
 		recording: RecordingFactory;
@@ -50,6 +54,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 	const parsed = compileData(definition);
 	if (parsed.error)
 		throw new Error(parsed.error.message, { cause: parsed.error });
+	const input = choice.library === 'local' ? null : choice.account;
 	if (input !== null && input.authorityId === undefined)
 		throw new Error('The account has no stable authority identity.');
 	const account =
@@ -70,8 +75,54 @@ export function openApp<const TDefinition extends DataDefinition>(
 					authorityId: account.authorityId,
 					principalId: account.principalId,
 				});
-	const bytes = blobs({ appId, account });
-	const databases = createAppSqlite(sqlite, appId, identity, {
+	const replica: LibraryReplicaIdentity =
+		choice.library === 'local'
+			? { library: 'local' }
+			: { library: choice.library, account: identity! };
+	const remote =
+		choice.library === 'local'
+			? null
+			: {
+					currentUrl: CURRENT_ROUTE.url(
+						account!.baseURL,
+						appId,
+						choice.library,
+						parsed.data.id,
+					),
+					address: {
+						baseURL: account!.baseURL,
+						appId,
+						library: choice.library,
+					},
+					transport: account!,
+				};
+	const bytes = blobs({
+		appId,
+		replica,
+		remote:
+			remote === null
+				? null
+				: {
+						baseURL: remote.transport.baseURL,
+						fetch(input, init) {
+							const url = new URL(
+								input instanceof Request ? input.url : input.toString(),
+							);
+							if (
+								url.pathname === '/api/blobs' ||
+								url.pathname.startsWith('/api/blobs/')
+							) {
+								url.searchParams.set('appId', appId);
+								url.searchParams.set('library', remote.address.library);
+							}
+							return remote.transport.fetch(
+								input instanceof Request ? new Request(url, input) : url,
+								init,
+							);
+						},
+					},
+	});
+	const databases = createAppSqlite(sqlite, appId, replica, {
 		assertUsable(): void {
 			document.lifetime.assertUsable();
 		},
@@ -96,7 +147,11 @@ export function openApp<const TDefinition extends DataDefinition>(
 				}
 				acquired = true;
 				dataReleased = false;
-				const opened = await acquireAppData(parsed.data, { appId, account });
+				const opened = await acquireAppData(parsed.data, {
+					appId,
+					replica,
+					remote,
+				});
 				if (opened.error) {
 					dataReleased = true;
 					return opened;
@@ -178,7 +233,8 @@ export function openApp<const TDefinition extends DataDefinition>(
 			...bytes,
 			assertUsable: document.lifetime.assertUsable,
 		});
-		recorder = recording(appId, identity, {
+		recorder = recording(appId, replica, {
+			local: bytes.local,
 			assertUsable: document.lifetime.assertUsable,
 			canRecover: () => acquired,
 		});

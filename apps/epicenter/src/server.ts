@@ -25,7 +25,11 @@ import {
 	type SqliteStatement,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
-import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
+import {
+	type LibraryReplicaIdentity,
+	isLibraryReplica,
+	asPrincipalId,
+} from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
@@ -90,7 +94,7 @@ export type HomeServerOptions = {
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
 	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: (appId: string, account: AccountIdentity | null) => BunBlobStore;
+	blobs: (appId: string, replica: LibraryReplicaIdentity) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
 	/**
@@ -101,7 +105,7 @@ export type HomeServerOptions = {
 	 */
 	blobRemote: (
 		appId: string,
-		account: AccountIdentity | null,
+		replica: LibraryReplicaIdentity,
 	) => BlobRemote | null;
 	/** Bun owner for app-scoped SQLite files. */
 	device?: DeviceSqliteOwner;
@@ -303,10 +307,17 @@ export function createHomeServer({
 	});
 	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
 		const dataId = c.req.query('dataId') ?? '';
+		const appId = c.req.query('appId');
+		const library = c.req.query('library');
 		const generation = Number(c.req.query('generation'));
 		const cursor = Number(c.req.query('cursor'));
 		if (
 			!dataId ||
+			(appId !== undefined && !isAppId(appId)) ||
+			(library !== undefined &&
+				library !== 'personal' &&
+				library !== 'shared') ||
+			(appId === undefined) !== (library === undefined) ||
 			!Number.isSafeInteger(generation) ||
 			generation < 0 ||
 			!Number.isSafeInteger(cursor) ||
@@ -320,6 +331,8 @@ export function createHomeServer({
 				dataId,
 				generation,
 				cursor,
+				appId,
+				library,
 			}),
 		);
 	});
@@ -465,7 +478,10 @@ export function createHomeServer({
 			return {
 				onMessage(event, ws) {
 					if (closed) return;
-					const frame = typeof event.data === 'string' ? parseSqliteFrame(event.data) : undefined;
+					const frame =
+						typeof event.data === 'string'
+							? parseSqliteFrame(event.data)
+							: undefined;
 					if (
 						typeof frame !== 'object' ||
 						frame === null ||
@@ -498,7 +514,8 @@ export function createHomeServer({
 					}
 					void dispatcher.request(request).then(
 						(response) => {
-							if (!closed) ws.send(stringifySqliteFrame({ id: frame.id, response }));
+							if (!closed)
+								ws.send(stringifySqliteFrame({ id: frame.id, response }));
 						},
 						() => {
 							if (!closed)
@@ -643,7 +660,12 @@ export function createHomeServer({
 	});
 
 	type BlobEnv = {
-		Variables: { appId: string; account: AccountIdentity | null; id: BlobId };
+		Variables: {
+			appId: string;
+			replica: LibraryReplicaIdentity;
+			library: 'local' | 'personal' | 'shared';
+			id: BlobId;
+		};
 	};
 	const blobApi = new Hono<BlobEnv>();
 	blobApi.use('/:blobId/*', async (c, next) => {
@@ -670,16 +692,19 @@ export function createHomeServer({
 		c.set('appId', appId);
 		c.set('id', id);
 		c.set(
-			'account',
+			'replica',
 			authorityId === undefined || principalId === undefined
-				? null
-				: { authorityId, principalId: asPrincipalId(principalId) },
+				? { library: 'local' }
+				: {
+						library: c.var.library === 'shared' ? 'shared' : 'personal',
+						account: { authorityId, principalId: asPrincipalId(principalId) },
+					},
 		);
 		await next();
 	});
 
 	blobApi.put('/:blobId', async (c) => {
-		const store = blobs(c.var.appId, c.var.account);
+		const store = blobs(c.var.appId, c.var.replica);
 		const id = c.var.id;
 		const result = await store.putRequest(id, c.req.raw);
 		if (result.error === null) return c.body(null, 201);
@@ -701,7 +726,7 @@ export function createHomeServer({
 			return;
 		}
 		const id = c.var.id;
-		const store = blobs(c.var.appId, c.var.account);
+		const store = blobs(c.var.appId, c.var.replica);
 		const result = await store.stat(id);
 		if (result.error !== null) {
 			switch (result.error.name) {
@@ -722,7 +747,7 @@ export function createHomeServer({
 	});
 
 	blobApi.get('/:blobId', async (c) => {
-		const store = blobs(c.var.appId, c.var.account);
+		const store = blobs(c.var.appId, c.var.replica);
 		const id = c.var.id;
 		const result = await store.openFile(id);
 		if (result.error !== null) {
@@ -772,7 +797,7 @@ export function createHomeServer({
 	});
 
 	blobApi.delete('/:blobId', async (c) => {
-		const store = blobs(c.var.appId, c.var.account);
+		const store = blobs(c.var.appId, c.var.replica);
 		const id = c.var.id;
 		const result = await store.delete(id);
 		if (result.error !== null) return c.text('Blob store failed', 500);
@@ -780,7 +805,7 @@ export function createHomeServer({
 	});
 
 	blobApi.post('/:blobId/copy', async (c) => {
-		const store = blobs(c.var.appId, c.var.account);
+		const store = blobs(c.var.appId, c.var.replica);
 		const destinationId = c.var.id;
 		let body: unknown;
 		try {
@@ -824,7 +849,7 @@ export function createHomeServer({
 		>,
 	) => {
 		return async (c: Context<BlobEnv>) => {
-			const selectedRemote = blobRemote(c.var.appId, c.var.account);
+			const selectedRemote = blobRemote(c.var.appId, c.var.replica);
 			const id = c.var.id;
 			if (selectedRemote === null) {
 				return c.text('Remote storage unavailable', 503);
@@ -859,8 +884,19 @@ export function createHomeServer({
 		requireBlobRemote((remote, id) => remote.purge(id)),
 	);
 
-	app.route(BLOB_PATHS.local, blobApi);
-	app.route(BLOB_PATHS.account, blobApi);
+	for (const [path, library] of [
+		[BLOB_PATHS.local, 'local'],
+		[BLOB_PATHS.account, 'personal'],
+		[BLOB_PATHS.shared, 'shared'],
+	] as const) {
+		const selected = new Hono<BlobEnv>();
+		selected.use('*', async (c, next) => {
+			c.set('library', library);
+			await next();
+		});
+		selected.route('/', blobApi);
+		app.route(path, selected);
+	}
 	app.get(
 		SESSION_STREAM_ROUTE.pattern,
 		upgradeWebSocket(() => {
@@ -1007,13 +1043,9 @@ function parseDeviceRequest(
 		return undefined;
 	}
 	const kind = input.kind;
-	const account =
-		'account' in input && isSqliteAccount(input.account)
-			? input.account
-			: undefined;
 	if (kind.startsWith('sqlite-')) {
-		if (account === undefined) return undefined;
-		const address = { appId: input.appId, account };
+		if (!isLibraryReplica(input.replica)) return undefined;
+		const address = { appId: input.appId, replica: input.replica };
 		if (kind === 'sqlite-acquire') return { kind, ...address };
 		if (typeof input.lifetimeId !== 'string' || input.lifetimeId === '')
 			return undefined;
@@ -1033,13 +1065,35 @@ function parseDeviceRequest(
 				? undefined
 				: { kind, ...connection, statement };
 		}
-        if (kind === 'sqlite-query' || kind === 'sqlite-cancel') {
-            if (typeof input.queryId !== 'string' || input.queryId.length === 0 || input.queryId.length > 128) return undefined;
-            if (kind === 'sqlite-cancel') return {kind, ...connection, queryId: input.queryId};
-            const statement = parseSqliteStatement(input.statement);
-            if (!statement || new TextEncoder().encode(statement.sql).length > 65536 || !Array.isArray(input.tables) || input.tables.length > 128 || !input.tables.every((table): table is string => typeof table === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(table))) return undefined;
-            return {kind, ...connection, queryId: input.queryId, statement, tables: input.tables};
-        }
+		if (kind === 'sqlite-query' || kind === 'sqlite-cancel') {
+			if (
+				typeof input.queryId !== 'string' ||
+				input.queryId.length === 0 ||
+				input.queryId.length > 128
+			)
+				return undefined;
+			if (kind === 'sqlite-cancel')
+				return { kind, ...connection, queryId: input.queryId };
+			const statement = parseSqliteStatement(input.statement);
+			if (
+				!statement ||
+				new TextEncoder().encode(statement.sql).length > 65536 ||
+				!Array.isArray(input.tables) ||
+				input.tables.length > 128 ||
+				!input.tables.every(
+					(table): table is string =>
+						typeof table === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(table),
+				)
+			)
+				return undefined;
+			return {
+				kind,
+				...connection,
+				queryId: input.queryId,
+				statement,
+				tables: input.tables,
+			};
+		}
 		if (kind === 'sqlite-batch') {
 			if (!Array.isArray(input.statements)) return undefined;
 			const statements: SqliteStatement[] = [];
@@ -1105,7 +1159,10 @@ function parseSqliteStatement(value: unknown):
 
 function isSqliteValue(value: unknown): boolean {
 	return (
-		value === null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) || value instanceof Uint8Array
+		value === null ||
+		typeof value === 'string' ||
+		(typeof value === 'number' && Number.isFinite(value)) ||
+		value instanceof Uint8Array
 	);
 }
 

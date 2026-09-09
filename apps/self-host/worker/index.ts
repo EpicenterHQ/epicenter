@@ -52,6 +52,7 @@ app.all('/auth/*', (c) =>
 );
 mountSessionApp(app, { auth });
 mountStoreSyncApp(app, {
+	shared: true,
 	resolveBearerPrincipal,
 	resolveStore: (env) => {
 		const bindings = env as Cloudflare.Env;
@@ -75,7 +76,7 @@ mountTranscriptionApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 });
-mountBlobsApp(app, { auth });
+mountBlobsApp(app, { auth, shared: true });
 export default app;
 export {
 	GenerationsLedger,

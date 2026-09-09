@@ -12,7 +12,7 @@ const application = defineApplication({
  appId: APP_ID,
  definition: honeycrispDefinition,
 });
-const app = application.openAccount(account);
+const app = application.openPersonal(account);
 try {
  const result = await app.ready;
  if (result.error !== null) throw result.error;
@@ -29,7 +29,7 @@ those resources explicitly with `bindApplication`, as Whispering does.
 `settingsKey` preserves an existing local AI-settings namespace; new applications
 default to their app ID.
 
-Construction is inert. `openLocal()` and `openAccount(account)` return handles
+Construction is inert. `openLocal()`, `openPersonal(account)`, and `openShared(account)` return handles
 synchronously; `app.ready` resolves once with a usable dataset or a typed
 failure. Local opening performs no authority request or sync dial.
 
@@ -118,7 +118,7 @@ same document can read them again. Secrets never enter synchronized rows.
 Its browser binding is the default. Desktop composition supplies
 `recording: createDesktopRecording` from `@epicenter/recorder/desktop` to
 `createEpicenter`. Opening binds the app ID and destination once:
-`openLocal()` selects the local library; `openAccount(account)` selects that
+`openLocal()` selects the local library; `openPersonal(account)` selects that
 account's library. After `app.ready` succeeds, call `app.recording.start()`.
 Neither `start()` nor `current()` takes an account. Closing waits for admitted
 work and cancels unresolved capture before releasing storage.
@@ -128,8 +128,9 @@ and subsequent transcription or retention policy. See
 and closure behavior.
 
 Opening is cache-first. A device with a local generation can open it offline;
-a device without an account generation must reach the authority to list, fetch,
-or create one. The app owns persistence, sync, and teardown.
+a device without a cached generation must reach the current authority to atomically
+select or download the canonical generation. Personal and Shared caches include
+the authenticated actor, so replacement cannot replay another actor’s writes. The app owns persistence, sync, and teardown.
 
 Account opening requires `authorityId`. The package selects the platform SQLite
 owner by default; exceptional runtimes can compose one explicitly. SQL-only
@@ -145,3 +146,8 @@ playback bytes, and URL release. This does not establish native recording or
 account-transfer behavior.
 
 License: AGPL-3.0-or-later.
+
+Personal selects the authenticated person’s library. Shared selects the common
+application library on that server; Account remains the authenticated person.
+The App captures one credential-free replica scope for SQL, blobs, and recording.
+Switching closes the App before full navigation; a reload preserves its cache.

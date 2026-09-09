@@ -1,5 +1,5 @@
 /**
- * Unmounted synchronized-library cache at one stable IndexedDB address.
+ * Synchronized-library cache at one stable IndexedDB address.
  * The caller owns the library claim until discard and App cleanup finish.
  */
 import { openDB } from 'idb';

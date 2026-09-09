@@ -1,9 +1,8 @@
 /**
  * A whole database, through the real object, well past the value cap.
  *
- * ADR-0293 sends a generation's entire state as one request body and serves it
- * back the same way, and ADR-0295 sizes a database by its authority rather
- * than by its device. Both claims live or die inside `workerd`, and `bun test`
+ * Current initialization sends a complete baseline and returns canonical bytes.
+ * Retrying returns the stored snapshot without replacing it. `bun test`
  * cannot run a Durable Object, so this is where the transfer is actually
  * exercised: 8 MB is nearly four times the enforced 2,199,995-byte SQLite value
  * cap, so it cannot pass without the authority chunking on the way in and
@@ -26,7 +25,7 @@ import { describe, expect, it } from 'vitest';
 
 const ORIGIN = 'http://example.com';
 const DATA_ID = 'so.epicenter.storeprobe';
-const collection = `/api/data/v1/${DATA_ID}/generations`;
+const collection = `/api/libraries/${DATA_ID}/personal/data/${DATA_ID}/current`;
 
 /**
  * Roughly a two-and-a-half thousand note vault at ADR-0294's measured 3.2 KB
@@ -72,13 +71,12 @@ describe('a database larger than the value cap survives the round trip', () => {
 			body: state as unknown as BodyInit,
 		});
 		expect(created.status).toBe(200);
-		const { generation, position } = (await created.json()) as {
-			generation: number;
-			position: number;
-		};
-		expect(position).toBe(1);
-
-		const fetched = await request(principal, `${collection}/${generation}`);
+		expect(created.headers.get('epicenter-log-position')).toBe('1');
+		expect(await digest(await created.arrayBuffer())).toBe(expected);
+		const fetched = await request(principal, collection, {
+			method: 'POST',
+			body: new Uint8Array([99]),
+		});
 		expect(fetched.status).toBe(200);
 		const back = await fetched.arrayBuffer();
 

@@ -54,7 +54,7 @@ try {
 				const peer = defineApplication({
 					appId: 'so.epicenter.local-mail-evidence-peer',
 					definition: mailDefinition,
-				}).openAccount({
+				}).openPersonal({
 					...account,
 					fetch: async () =>
 						Response.json({ generations: [], generation: 1, position: 0 }),
@@ -86,7 +86,7 @@ try {
 							}),
 						},
 					}),
-				}).openAccount({
+				}).openPersonal({
 					...account,
 					fetch: async () =>
 						Response.json({ generations: [], generation: 1, position: 0 }),

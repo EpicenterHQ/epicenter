@@ -8,6 +8,8 @@ export {
 	applyAuthoritySchema,
 	type LogEntry,
 	openSyncAuthority,
+	openCurrentAuthority,
+	type CurrentAuthority,
 	type SyncAuthority,
 } from './authority.js';
 export {

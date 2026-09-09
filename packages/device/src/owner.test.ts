@@ -55,19 +55,21 @@ function setup() {
 
 test('SQL-only acquisition reserves identity even before a database is opened', async () => {
 	const { owner, calls } = setup();
-	const storage = createAppSqlite(owner, appId, null);
+	const storage = createAppSqlite(owner, appId, { library: 'local' });
 	expectOk(await storage.acquire());
-	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+	await expect(owner.acquire(appId, { library: 'local' })).rejects.toThrow(
+		'already acquired',
+	);
 	expect(calls).toEqual([]);
 	await storage.close();
-	const replacement = await owner.acquire(appId, null);
+	const replacement = await owner.acquire(appId, { library: 'local' });
 	await replacement.close();
 	expectErr(await storage.value.open('search'));
 });
 
 test('delete closes the physical database and retires every retained handle', async () => {
 	const { owner, calls } = setup();
-	const lifetime = await owner.acquire(appId, null);
+	const lifetime = await owner.acquire(appId, { library: 'local' });
 	const database = await lifetime.open('search');
 	expect(await lifetime.open('search')).toBe(database);
 	await lifetime.delete('search');
@@ -78,12 +80,12 @@ test('delete closes the physical database and retires every retained handle', as
 	await lifetime.close();
 	expectErr(await reopened.all('SELECT 1'));
 	expect(calls).toEqual([
-		['open', appId, null, 'search'],
-		['close', appId, null, 'search'],
-		['delete', appId, null, 'search'],
-		['open', appId, null, 'search'],
+		['open', appId, { library: 'local' }, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
+		['delete', appId, { library: 'local' }, 'search'],
+		['open', appId, { library: 'local' }, 'search'],
 		['run'],
-		['close', appId, null, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
 	]);
 });
 
@@ -97,21 +99,23 @@ test('close waits for an admitted open and refuses new work immediately', async 
 		await opening.promise;
 		return original(...args);
 	};
-	const lifetime = await owner.acquire(appId, null);
+	const lifetime = await owner.acquire(appId, { library: 'local' });
 	const database = lifetime.open('search');
 	await started.promise;
 	const closing = lifetime.close();
 	expect(lifetime.close()).toBe(closing);
 	await expect(lifetime.open('other')).rejects.toThrow('closed');
-	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+	await expect(owner.acquire(appId, { library: 'local' })).rejects.toThrow(
+		'already acquired',
+	);
 	opening.resolve();
 	await closing;
 	expectErr(await (await database).run('SELECT 1'));
 	expect(calls).toEqual([
-		['open', appId, null, 'search'],
-		['close', appId, null, 'search'],
+		['open', appId, { library: 'local' }, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
 	]);
-	await (await owner.acquire(appId, null)).close();
+	await (await owner.acquire(appId, { library: 'local' })).close();
 });
 
 test('close drains an admitted statement before physically closing', async () => {
@@ -128,7 +132,7 @@ test('close drains an admitted statement before physically closing', async () =>
 			return Ok({ changes: 1 });
 		},
 	});
-	const lifetime = await owner.acquire(appId, null);
+	const lifetime = await owner.acquire(appId, { library: 'local' });
 	const database = await lifetime.open('search');
 	const statement = database.run('SELECT 1');
 	await started.promise;
@@ -138,7 +142,7 @@ test('close drains an admitted statement before physically closing', async () =>
 	await closing;
 	expect(calls.slice(-2)).toEqual([
 		['finished'],
-		['close', appId, null, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
 	]);
 });
 
@@ -152,7 +156,7 @@ test('failed cleanup attempts every close and keeps the lifetime reserved', asyn
 			if (args[2] === 'search') throw new Error('disk failure');
 		},
 	});
-	const lifetime = await owner.acquire(appId, null);
+	const lifetime = await owner.acquire(appId, { library: 'local' });
 	await lifetime.open('search');
 	await lifetime.open('mail');
 	await expect(lifetime.close()).rejects.toThrow('cleanup failed');
@@ -160,7 +164,9 @@ test('failed cleanup attempts every close and keeps the lifetime reserved', asyn
 		['close', 'search'],
 		['close', 'mail'],
 	]);
-	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+	await expect(owner.acquire(appId, { library: 'local' })).rejects.toThrow(
+		'already acquired',
+	);
 });
 
 test('failed close during delete prevents unlink and replacement open', async () => {
@@ -172,22 +178,30 @@ test('failed close during delete prevents unlink and replacement open', async ()
 			throw new Error('disk failure');
 		},
 	});
-	const lifetime = await owner.acquire(appId, null);
+	const lifetime = await owner.acquire(appId, { library: 'local' });
 	const database = await lifetime.open('search');
 	await expect(lifetime.delete('search')).rejects.toThrow('disk failure');
 	await expect(lifetime.open('search')).rejects.toThrow('cleanup failed');
 	expectErr(await database.run('SELECT 1'));
-	expect(calls).toEqual([['open', appId, null, 'search']]);
+	expect(calls).toEqual([['open', appId, { library: 'local' }, 'search']]);
 });
 
 test('captured identities and other applications have independent lifetimes', async () => {
 	const { owner, calls } = setup();
 	const account = { authorityId: 'cloud', principalId: asPrincipalId('alice') };
-	const storage = createAppSqlite(owner, appId, account);
+	const storage = createAppSqlite(owner, appId, {
+		library: 'personal',
+		account: account,
+	});
 	account.principalId = asPrincipalId('bob');
-	const other = await owner.acquire(appId, account);
-	const local = await owner.acquire(appId, null);
-	const anotherApp = await owner.acquire('so.epicenter.other', null);
+	const other = await owner.acquire(appId, {
+		library: 'personal',
+		account: account,
+	});
+	const local = await owner.acquire(appId, { library: 'local' });
+	const anotherApp = await owner.acquire('so.epicenter.other', {
+		library: 'local',
+	});
 	expectOk(await storage.value.open('search'));
 	await storage.close();
 	expectOk(await (await other.open('search')).run('SELECT 1'));
@@ -195,7 +209,10 @@ test('captured identities and other applications have independent lifetimes', as
 	expect(calls[0]).toEqual([
 		'open',
 		appId,
-		{ authorityId: 'cloud', principalId: 'alice' },
+		{
+			library: 'personal',
+			account: { authorityId: 'cloud', principalId: 'alice' },
+		},
 		'search',
 	]);
 });
@@ -207,7 +224,7 @@ test.each([
 	'search.sqlite',
 ])('invalid name %s does not acquire storage', async (name) => {
 	const { owner, calls } = setup();
-	const storage = createAppSqlite(owner, appId, null);
+	const storage = createAppSqlite(owner, appId, { library: 'local' });
 	expect(expectErr(await storage.value.open(name)).name).toBe(
 		'InvalidDatabaseName',
 	);
@@ -215,7 +232,7 @@ test.each([
 		'InvalidDatabaseName',
 	);
 	expect(calls).toEqual([]);
-	await (await owner.acquire(appId, null)).close();
+	await (await owner.acquire(appId, { library: 'local' })).close();
 });
 
 test('a delayed statement cannot reopen a deleted filename or reach its replacement', async () => {
@@ -228,14 +245,14 @@ test('a delayed statement cannot reopen a deleted filename or reach its replacem
 			return DeviceError.StorageFailed({ cause });
 		}
 	});
-	const lifetime = await remote.acquire(appId, null);
+	const lifetime = await remote.acquire(appId, { library: 'local' });
 	const old = await lifetime.open('search');
 	await lifetime.delete('search');
 	const replacement = await lifetime.open('search');
 	expectErr(await old.run('SELECT 1'));
 	expectOk(await replacement.run('SELECT 1'));
 	await lifetime.close();
-	const next = await remote.acquire(appId, null);
+	const next = await remote.acquire(appId, { library: 'local' });
 	expectErr(await replacement.run('SELECT 1'));
 	await next.close();
 	expect(
@@ -252,13 +269,13 @@ test('dispatcher checks account and app identity before resolving a lifetime tok
 	const response = (await dispatch.request({
 		kind: 'sqlite-acquire',
 		appId,
-		account: null,
+		replica: { library: 'local' },
 	})) as Extract<DeviceResponse, { kind: 'sqlite-acquire' }>;
 	await expect(
 		dispatch.request({
 			kind: 'sqlite-open',
 			appId: 'so.epicenter.other',
-			account: null,
+			replica: { library: 'local' },
 			lifetimeId: response.lifetimeId,
 			name: 'search',
 		}),
@@ -266,7 +283,7 @@ test('dispatcher checks account and app identity before resolving a lifetime tok
 	await expect(
 		// @ts-expect-error Explicit account identity is required on every request.
 		dispatch.request({ kind: 'sqlite-acquire', appId }),
-	).rejects.toThrow('Invalid SQLite account');
+	).rejects.toThrow('Invalid library replica');
 });
 
 test('concurrent open, delete, and reopen preserve the replacement connection token', async () => {
@@ -287,7 +304,7 @@ test('concurrent open, delete, and reopen preserve the replacement connection to
 			return DeviceError.StorageFailed({ cause });
 		}
 	});
-	const lifetime = await remote.acquire(appId, null);
+	const lifetime = await remote.acquire(appId, { library: 'local' });
 	const old = lifetime.open('search');
 	await started.promise;
 	const deleted = lifetime.delete('search');
@@ -309,8 +326,10 @@ test('dispatcher close refuses new admission and releases every surviving lifeti
 			return DeviceError.StorageFailed({ cause });
 		}
 	});
-	const first = await remote.acquire(appId, null);
-	const second = await remote.acquire('so.epicenter.other', null);
+	const first = await remote.acquire(appId, { library: 'local' });
+	const second = await remote.acquire('so.epicenter.other', {
+		library: 'local',
+	});
 	await first.open('search');
 	await second.open('search');
 	const closing = dispatch.close();
@@ -319,15 +338,17 @@ test('dispatcher close refuses new admission and releases every surviving lifeti
 		dispatch.request({
 			kind: 'sqlite-acquire',
 			appId: 'so.epicenter.third',
-			account: null,
+			replica: { library: 'local' },
 		}),
 	).rejects.toThrow('dispatcher is closed');
 	await closing;
 	expect(
 		calls.filter((call) => Array.isArray(call) && call[0] === 'close'),
 	).toHaveLength(2);
-	await (await owner.acquire(appId, null)).close();
-	await (await owner.acquire('so.epicenter.other', null)).close();
+	await (await owner.acquire(appId, { library: 'local' })).close();
+	await (
+		await owner.acquire('so.epicenter.other', { library: 'local' })
+	).close();
 });
 
 test('dispatcher cleanup reports failed physical close and preserves exclusion', async () => {
@@ -347,13 +368,15 @@ test('dispatcher cleanup reports failed physical close and preserves exclusion',
 			return DeviceError.StorageFailed({ cause });
 		}
 	});
-	const lifetime = await remote.acquire(appId, null);
+	const lifetime = await remote.acquire(appId, { library: 'local' });
 	await lifetime.open('search');
 	await expect(lifetime.close()).rejects.toMatchObject({
 		name: 'StorageFailed',
 	});
 	await expect(dispatch.close()).rejects.toThrow('dispatcher cleanup failed');
-	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+	await expect(owner.acquire(appId, { library: 'local' })).rejects.toThrow(
+		'already acquired',
+	);
 });
 
 test('query cancellation bypasses the statement queue but waits for engine cleanup', async () => {
@@ -384,7 +407,7 @@ test('query cancellation bypasses the statement queue but waits for engine clean
 			return DeviceError.StorageFailed({ cause });
 		}
 	});
-	const lifetime = await remote.acquire(appId, null);
+	const lifetime = await remote.acquire(appId, { library: 'local' });
 	const database = await lifetime.open('search');
 	const controller = new AbortController();
 	let settled = false;
@@ -400,7 +423,12 @@ test('query cancellation bypasses the statement queue but waits for engine clean
 	expect(settled).toBe(false);
 	expect(calls).not.toContainEqual(['run']);
 	const closing = lifetime.close();
-	expect(calls).not.toContainEqual(['close', appId, null, 'search']);
+	expect(calls).not.toContainEqual([
+		'close',
+		appId,
+		{ library: 'local' },
+		'search',
+	]);
 	release.resolve();
 	expectErr(await query);
 	expectOk(await next);
@@ -408,7 +436,7 @@ test('query cancellation bypasses the statement queue but waits for engine clean
 	expect(calls.slice(-3)).toEqual([
 		['query-cleaned'],
 		['run'],
-		['close', appId, null, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
 	]);
 });
 
@@ -430,7 +458,7 @@ test('a query aborted while queued never reaches the engine', async () => {
 			return Ok({ columns: [], rows: [], truncated: false });
 		},
 	});
-	const lifetime = await owner.acquire(appId, null);
+	const lifetime = await owner.acquire(appId, { library: 'local' });
 	const database = await lifetime.open('search');
 	const writer = database.run('SELECT 1');
 	await started.promise;
@@ -450,11 +478,16 @@ test('a query aborted while queued never reaches the engine', async () => {
 test('app SQL acquisition precedes readiness but every public verb checks the borrowed gate synchronously', async () => {
 	const { owner, calls } = setup();
 	let ready = false;
-	const storage = createAppSqlite(owner, appId, null, {
-		assertUsable() {
-			if (!ready) throw new Error('App is not ready.');
+	const storage = createAppSqlite(
+		owner,
+		appId,
+		{ library: 'local' },
+		{
+			assertUsable() {
+				if (!ready) throw new Error('App is not ready.');
+			},
 		},
-	});
+	);
 	expectOk(await storage.acquire());
 	const { open, delete: remove } = storage.value;
 	expect(() => open('search')).toThrow('not ready');
@@ -472,7 +505,7 @@ test('app SQL acquisition precedes readiness but every public verb checks the bo
 		() => query('SELECT 1', { tables: [] }),
 	])
 		expect(invoke).toThrow('not ready');
-	expect(calls).toEqual([['open', appId, null, 'search']]);
+	expect(calls).toEqual([['open', appId, { library: 'local' }, 'search']]);
 	await storage.close();
 });
 
@@ -487,25 +520,32 @@ test('app close drains an admitted open and refuses late publication after the a
 		return original(...args);
 	};
 	let retired = false;
-	const storage = createAppSqlite(owner, appId, null, {
-		assertUsable() {
-			if (retired) throw new Error('App is closed.');
+	const storage = createAppSqlite(
+		owner,
+		appId,
+		{ library: 'local' },
+		{
+			assertUsable() {
+				if (retired) throw new Error('App is closed.');
+			},
 		},
-	});
+	);
 	const pending = storage.value.open('search');
 	await started.promise;
 	retired = true;
 	const closing = storage.close();
 	expect(closing).toBe(storage.close());
-	await expect(owner.acquire(appId, null)).rejects.toThrow('already acquired');
+	await expect(owner.acquire(appId, { library: 'local' })).rejects.toThrow(
+		'already acquired',
+	);
 	opening.resolve();
 	await expect(pending).rejects.toThrow('App is closed');
 	await closing;
 	expect(calls).toEqual([
-		['open', appId, null, 'search'],
-		['close', appId, null, 'search'],
+		['open', appId, { library: 'local' }, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
 	]);
-	await (await owner.acquire(appId, null)).close();
+	await (await owner.acquire(appId, { library: 'local' })).close();
 });
 
 test('app SQL close waits for a reentrant accepted write before releasing its lifetime', async () => {
@@ -524,19 +564,19 @@ test('app SQL close waits for a reentrant accepted write before releasing its li
 			return Ok({ changes: 7 });
 		},
 	});
-	const storage = createAppSqlite(owner, appId, null);
+	const storage = createAppSqlite(owner, appId, { library: 'local' });
 	const database = expectOk(await storage.value.open('search'));
 	const result = database.run('INSERT INTO messages VALUES (1)');
 	await started.promise;
 	expect(closing).toBe(storage.close());
 	expectErr(await database.run('SELECT 1'));
-	expect(calls).toEqual([['open', appId, null, 'search']]);
+	expect(calls).toEqual([['open', appId, { library: 'local' }, 'search']]);
 	writing.resolve();
 	expect(expectOk(await result)).toEqual({ changes: 7 });
 	await closing;
 	expect(calls.slice(-2)).toEqual([
 		['written'],
-		['close', appId, null, 'search'],
+		['close', appId, { library: 'local' }, 'search'],
 	]);
 });
 
@@ -552,7 +592,7 @@ test('app SQL forwards owner statement failures as the original Result', async (
 			return failure;
 		},
 	});
-	const storage = createAppSqlite(owner, appId, null);
+	const storage = createAppSqlite(owner, appId, { library: 'local' });
 	const database = expectOk(await storage.value.open('search'));
 	expect(await database.run('INSERT INTO messages VALUES (1)')).toBe(failure);
 	await storage.close();
@@ -572,7 +612,7 @@ test('SQL drain settles accepted work while retaining connections and the librar
 			return Ok({ changes: 1 });
 		},
 	});
-	const storage = createAppSqlite(owner, appId, null);
+	const storage = createAppSqlite(owner, appId, { library: 'local' });
 	const database = expectOk(await storage.value.open('search'));
 	const result = database.run('INSERT INTO messages VALUES (1)');
 	await started.promise;
@@ -586,13 +626,16 @@ test('SQL drain settles accepted work while retaining connections and the librar
 	writing.resolve();
 	expectOk(await result);
 	await draining;
-	expect(calls).toEqual([['open', appId, null, 'search'], ['written']]);
-	const replacement = createAppSqlite(owner, appId, null);
+	expect(calls).toEqual([
+		['open', appId, { library: 'local' }, 'search'],
+		['written'],
+	]);
+	const replacement = createAppSqlite(owner, appId, { library: 'local' });
 	expect(expectErr(await replacement.acquire()).name).toBe('AlreadyOpen');
 	await replacement.close();
 	expect(Object.keys(storage.value).sort()).toEqual(['delete', 'open']);
 	await storage.close();
-	const released = createAppSqlite(owner, appId, null);
+	const released = createAppSqlite(owner, appId, { library: 'local' });
 	expectOk(await released.acquire());
 	await released.close();
 });

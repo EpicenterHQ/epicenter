@@ -42,13 +42,21 @@ export const STORE_SYNC_ROUTE = {
 	 */
 	address(
 		baseURL: string,
-		params: { dataId: string; generation: number; cursor: number },
+		params: {
+			dataId: string;
+			generation: number;
+			cursor: number;
+			appId?: string;
+			library?: 'personal' | 'shared';
+		},
 	): WebSocketAddress {
 		const url = new URL(`${stripTrailing(baseURL)}${STORE_SYNC_ROUTE.pattern}`);
 		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 		url.searchParams.set('dataId', params.dataId);
 		url.searchParams.set('generation', String(params.generation));
 		url.searchParams.set('cursor', String(params.cursor));
+		if (params.appId) url.searchParams.set('appId', params.appId);
+		if (params.library) url.searchParams.set('library', params.library);
 		return { url: url.toString(), protocols: [MAIN_SUBPROTOCOL] };
 	},
 } as const;
