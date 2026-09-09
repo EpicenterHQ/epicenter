@@ -10,3 +10,7 @@ import { createDesktopDevice } from '@epicenter/device/desktop';
 import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
 
 export const device = createDesktopDevice({ appId: LOCAL_MAIL_APP_ID });
+
+/** Explain the lifetime of the credential owned by this build. */
+export const gmailSignInNotice: string =
+	'Your Gmail sign-in is saved in this device’s secure store. It is not shared with other devices.';

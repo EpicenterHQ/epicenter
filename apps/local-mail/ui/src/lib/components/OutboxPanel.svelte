@@ -18,12 +18,10 @@
 	 * who wants one row gone is asking to undo the act, which belongs in the
 	 * message list.
 	 */
+	import { gmailSignInNotice } from '#platform/device';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import ClockIcon from '@lucide/svelte/icons/clock';
 	import type { Outbox } from '@epicenter/local-mail/outbox';
 	import { describeAssertion } from '$lib/actions';
 	import { relativeTime } from '$lib/format';
@@ -56,51 +54,43 @@
 	const labelName = (id: string) =>
 		labels.find((label) => label.id === id)?.name ?? id;
 
-	/**
-	 * One line for the trigger, which is the only thing on screen when nothing is
-	 * wrong. It is the sentence a person wants when it says "Up to date".
-	 */
+	/** Current status for the popover, tooltip, and accessible button label. */
 	const summary = $derived.by(() => {
 		if (reconciling) return 'Syncing';
 		const count = numberFmt.format(waiting);
 		const plural = waiting === 1 ? 'change' : 'changes';
 		switch (status) {
 			case 'signin':
-				return 'Sign-in required';
+				return 'Reconnect to sync';
 			case 'failed':
-				return `${count} ${plural} stuck`;
+				return 'Sync needs attention';
 			case 'waiting':
-				return `${count} ${plural} waiting`;
+				return `${count} ${plural} pending`;
 			case 'clear':
 				return 'Up to date';
 		}
 	});
 
-	const tone = $derived(
-		reconciling
-			? 'text-muted-foreground'
-			: status === 'signin' || status === 'failed'
-				? 'text-destructive'
-				: status === 'waiting'
-					? 'text-amber-500'
-					: 'text-muted-foreground',
-	);
-
 	/**
 	 * What a person is told about the failure, in their words rather than the
 	 * library's. The library states the failure precisely and this decides what
-	 * is said about it (ADR-0244); the precise text is kept as the title, for
-	 * the person who wants it.
+	 * is said about it (ADR-0244); the precise text is available in Error details.
 	 */
 	const explanation = $derived.by(() => {
 		if (failure === null) return null;
 		switch (failure.kind) {
 			case 'signin':
-				return 'Sign-in expired. Nothing can be delivered until you sign in.';
+				if (failure.name === 'CredentialMissing') {
+					return 'Reconnect Gmail to resume syncing.';
+				}
+				return 'Reconnect Gmail to renew access and resume syncing.';
 			case 'refused':
-				return 'Gmail refused this change, and trying again will not help.';
+				return 'Gmail refused the request. Check the error details before trying again.';
 			case 'retry':
-				return 'Could not reach Gmail. Try again when you are back online.';
+				if (failure.name === 'StorageFailed') {
+					return 'Local Mail could not access your saved Gmail sign-in. Try again.';
+				}
+				return 'Sync could not finish. Try again later.';
 		}
 	});
 </script>
@@ -112,54 +102,64 @@
 				{...props}
 				size="sm"
 				variant="ghost"
-				class="h-7 gap-1.5 px-2 text-xs {tone}"
-				tooltip="What Gmail hasn't been told about yet"
+				class="text-muted-foreground"
+				aria-label={`Sync: ${summary}`}
+				tooltip={summary}
 			>
 				{#if reconciling}
 					<Spinner class="size-3" />
-				{:else if status === 'signin' || status === 'failed'}
-					<AlertTriangleIcon class="size-3" />
-				{:else if status === 'clear'}
-					<CheckIcon class="size-3" />
 				{:else}
-					<ClockIcon class="size-3" />
+					<span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
 				{/if}
-				<span class="tabular-nums">{summary}</span>
+				<span>Sync</span>
 			</Button>
 		{/snippet}
 	</Popover.Trigger>
 
 	<Popover.Content align="end" class="w-96 p-0">
 		<div class="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-			<span class="text-sm font-medium">Waiting for Gmail</span>
+			<div>
+				<p class="text-sm font-medium">Sync</p>
+				<p class="text-xs text-muted-foreground" aria-live="polite">{summary}</p>
+			</div>
 			{#if status === 'signin'}
-				<Button size="sm" variant="outline" class="h-7" onclick={onSignIn}>
-					Sign in
+				<Button size="sm" variant="outline" disabled={reconciling} onclick={onSignIn}>
+					Reconnect Gmail
 				</Button>
 			{:else}
 				<Button
 					size="sm"
 					variant="outline"
-					class="h-7"
 					disabled={reconciling}
 					onclick={onRetry}
 				>
-					Retry now
+					Sync now
 				</Button>
 			{/if}
 		</div>
 
 		{#if explanation}
-			<p
-				class="flex items-start gap-1.5 border-b border-border px-3 py-2 text-xs text-destructive"
-				title={failure?.message}
-			>
-				<AlertTriangleIcon class="mt-0.5 size-3 shrink-0" />
-				<span>{explanation}</span>
+			<p class="border-b border-border px-3 py-2 text-xs">
+				{explanation}
 			</p>
+			{#if failure?.kind === 'signin'}
+				<p class="border-b border-border px-3 py-2 text-xs text-muted-foreground">
+					{gmailSignInNotice}
+					{#if waiting > 0} Reconnecting will retry your pending changes.{/if}
+				</p>
+			{/if}
+			{#if failure && failure.name !== 'CredentialMissing'}
+				<details class="border-b border-border px-3 py-2 text-xs">
+					<summary class="cursor-pointer">Error details</summary>
+					<p class="mt-2 whitespace-pre-wrap break-words">{failure.message}</p>
+				</details>
+			{/if}
 		{/if}
 
 		{#if outbox && outbox.entries.length > 0}
+			<p class="px-3 pt-3 text-xs font-medium">
+				{numberFmt.format(waiting)} pending {waiting === 1 ? 'change' : 'changes'}
+			</p>
 			<ul class="max-h-72 overflow-y-auto py-1">
 				{#each outbox.entries as entry (`${entry.messageId}:${entry.labelId}`)}
 					<li class="flex items-baseline gap-3 px-3 py-1.5 text-xs">
@@ -188,7 +188,7 @@
 		{:else}
 			<p class="px-3 py-4 text-center text-xs text-muted-foreground">
 				<!-- Empty is the normal state, and saying so is the point. -->
-				Everything you've done here has reached Gmail.
+				No pending changes.
 			</p>
 		{/if}
 
@@ -199,7 +199,7 @@
 				toast, which told nobody who was away from the machine.
 			-->
 			<div class="border-t border-border px-3 py-2">
-				<p class="text-xs font-medium text-destructive">
+				<p class="text-xs font-medium">
 					Gmail refused {discarded.length}
 					{discarded.length === 1 ? 'change' : 'changes'}
 				</p>

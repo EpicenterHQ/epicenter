@@ -13,7 +13,6 @@
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
-	import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
 	import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -77,7 +76,7 @@
 				: cache === 'building'
 					? 'bg-amber-500'
 					: 'bg-muted-foreground',
-		label: cache,
+		label: cache === 'building' && !reconciling ? 'Sync incomplete' : cache,
 	});
 	const selectedEmail = $derived(
 		accounts.find((account) => account.sub === selectedAccount)?.email ??
@@ -118,7 +117,7 @@
 							<DropdownMenu.RadioItem value={account.sub}>
 								<span class="truncate font-mono text-xs">{account.email}</span>
 								{#if blocked.has(account.sub)}
-									<AlertTriangleIcon class="ml-auto size-3.5 text-destructive" />
+									<span class="ml-auto size-1.5 rounded-full bg-muted-foreground" role="img" aria-label="Sync needs attention"></span>
 								{/if}
 							</DropdownMenu.RadioItem>
 						{/each}
@@ -149,7 +148,11 @@
 				{numberFmt.format(status.rows.messages)} msgs · {status.rows.labels} labels
 			</span>
 			<span class="tabular-nums" title={status.lastSyncedAt ?? 'never synced'}>
-				synced {relativeTime(status.lastSyncedAt)}
+				{#if status.lastSyncedAt}
+					Synced {relativeTime(status.lastSyncedAt)}
+				{:else}
+					No completed sync
+				{/if}
 			</span>
 		{/if}
 		<OutboxPanel {outbox} {reconciling} {labels} {onRetry} {onSignIn} />

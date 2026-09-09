@@ -1,6 +1,7 @@
 <script lang="ts">
 	// The first thing a person sees with no account connected, and the only
 	// place Local Mail asks for one.
+	import { gmailSignInNotice } from '#platform/device';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -63,8 +64,7 @@
 				</Empty.Title>
 				<Empty.Description>
 					Local Mail keeps a copy of your mail on this machine and delivers your
-					triage back to Gmail. Your credential stays in this device's secure
-					store and never synchronizes.
+					changes back to Gmail. {gmailSignInNotice}
 				</Empty.Description>
 			</Empty.Header>
 			<Empty.Content>

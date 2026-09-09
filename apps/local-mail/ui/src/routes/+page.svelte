@@ -1,7 +1,12 @@
 <script lang="ts">
 	import * as Dialog from '@epicenter/ui/dialog';
 	import { Kbd } from '@epicenter/ui/kbd';
-	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import {
+		createMutation,
+		createQuery,
+		useIsMutating,
+		useQueryClient,
+	} from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import {
 		invert,
@@ -119,10 +124,18 @@
 	 * would say nothing at all to a person who had stepped away.
 	 */
 	const reconcile = createMutation(() => ({
+		mutationKey: ['mail', 'reconcile'],
 		mutationFn: (sub: string) => mail.reconcile(sub),
 		onSettled: () => invalidateReads(),
 		onError: (error: Error) => toast.error(error.message),
 	}));
+
+	// Count every pending call for the displayed account. Undo can sync another
+	// account without changing this indicator.
+	const accountSyncs = useIsMutating({
+		mutationKey: ['mail', 'reconcile'],
+		predicate: (mutation) => mutation.state.variables === selectedAccount,
+	});
 
 	/**
 	 * Opening the application delivers what was owed when it was last closed.
@@ -152,14 +165,17 @@
 	}
 
 	// The one write path. Both the toolbar (via `onDispatch`) and the keyboard
-	// call this; the undo toast lives here alone. `id` is
-	// explicit so Undo targets the original message even after the selection has
-	// moved on. Undo is the inverse assertion: it replaces the pending one, and
-	// wins even against a delivery already in flight.
-	type ActVars = { id: string; action: TriageAction; undoable: boolean };
+	// call this; the undo toast lives here alone. Capture the account and message
+	// together so Undo keeps its target after the selection changes.
+	type ActVars = {
+		sub: string;
+		id: string;
+		action: TriageAction;
+		undoable: boolean;
+	};
 	const act = createMutation(() => ({
 		mutationFn: (v: ActVars) =>
-			mail.assert(selectedAccount as string, {
+			mail.assert(v.sub, {
 				ids: [v.id],
 				addLabels: v.action.addLabels,
 				removeLabels: v.action.removeLabels,
@@ -172,28 +188,26 @@
 				toast.success(v.action.label, {
 					action: {
 						label: 'Undo',
-						onClick: () => runOn(v.id, invert(v.action), false),
+						onClick: () =>
+							act.mutate({ ...v, action: invert(v.action), undoable: false }),
 					},
 				});
 			}
 		},
 		onError: (error: Error) => toast.error(error.message),
-		onSettled: () => {
+		onSettled: (_data, _error, v) => {
 			invalidateReads();
 			// The act is already durable and already on screen. Delivering it is a
 			// separate pass so that the keystroke never waits on the network, and
 			// so the outbox shows it going out rather than a second spinner.
-			if (selectedAccount) reconcile.mutate(selectedAccount);
+			reconcile.mutate(v.sub);
 		},
 	}));
 
-	function runOn(id: string, action: TriageAction, undoable: boolean): void {
-		act.mutate({ id, action, undoable });
-	}
-	/** Dispatch a planned action against the current selection. */
+	/** Dispatch a planned action against the current account and selection. */
 	function dispatch(action: TriageAction): void {
-		if (!selectedId) return;
-		runOn(selectedId, action, true);
+		if (selectedAccount === null || !selectedId) return;
+		act.mutate({ sub: selectedAccount, id: selectedId, action, undoable: true });
 	}
 
 	// The list is exactly what the read model returned. There is no client-side
@@ -313,7 +327,7 @@
 			labelsOpen = false;
 		}}
 		onSignIn={() => (connecting = true)}
-		reconciling={reconcile.isPending}
+		reconciling={accountSyncs.current > 0}
 		onRetry={() => {
 			if (selectedAccount) reconcile.mutate(selectedAccount);
 		}}
