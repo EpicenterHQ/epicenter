@@ -3,7 +3,39 @@
 Date: 2026-09-09
 Status: In Progress
 
-## Working checkpoint
+## Whispering integration checkpoint: 2026-09-09
+
+Whispering now selects Local, Personal, or Shared before opening its one App.
+Local ignores ambient sign-in. Personal and Shared capture the authenticated
+person; switching closes UI producers and the App before document navigation.
+Native file transcription reads saved bytes through `app.blobs.get()`, so it
+does not reconstruct a Personal path for a Shared recording.
+
+The actual browser UI recorded synthetic speech, sent the saved bytes to a real
+native Whisper Tiny engine through an explicitly configured test endpoint,
+ran optional Polish through local Ollama, played the audio, and reopened both
+transcripts and identical bytes in all three libraries. Package browser evidence
+separately covers Alice/Bob Personal isolation, Shared row convergence, capture
+cancellation, meter cleanup, playback URL release, and zero Local authority
+requests. These tests use temporary Worker state and synthetic microphones.
+
+Real Wry WebView evidence covers explicit native SDK file inference, production
+app permissions, CSP, exact model/hint metadata, empty audio, and retired-client
+refusal. It does not establish native microphone capture, host blob playback,
+or active-capture reload recovery. No controllable CoreAudio input fixture was
+available. Cross-device attachment transfer through an object store, packaged
+desktop selection, full offline shell startup, and backup/recovery remain open.
+
+Reproduction and detailed outcomes are maintained in
+[the integration checkpoint](20260909T171130-ai-runtime-integration.handoff.md).
+This adds attachment and Whispering evidence without completing the wider
+ownership objective or changing an ADR's acceptance status.
+The integration is committed as runtime `89e2cf28f8`, SDK `fcdf6bfddc`, and
+Whispering workflow `6cb62c11d4`. Runtime and recording paths now agree between
+HEAD and the working tree; the older isolation notes below describe their earlier
+split. The final root typecheck retains only the eight starting Data errors.
+
+## Earlier Honeycrisp checkpoint
 
 Honeycrisp now opens Local, Personal, or Shared through its actual browser UI
 against the local self-hosted Worker. Alice and Bob authenticate as themselves,
@@ -78,10 +110,11 @@ No production restore endpoint was added.
 
 Blob tickets, reads, uploads, deletion, local caches, and native forwarding follow
 the selected app/library. Personal actors literally named `shared` are handled
-by matched routes, not substring guessing. Complete attachment-byte/browser
-proof remains follow-up work.
+by matched routes, not substring guessing. The later Whispering checkpoint proves
+capture/read/play/reopen bytes within each browser library. Cross-device attachment
+transfer through the object store remains unproved.
 
-## Verification
+## Earlier library verification
 
 Commands below ran on the working tree with Bun and temporary local data.
 Logs for root checks are under `/tmp/honeycrisp-library-baseline/`.
@@ -105,8 +138,8 @@ module mock; the isolated node-text file passes. This is not reported as a
 passing combined suite. Whispering transcription and recording also require
 separate processes because of an existing transcribe mock: 5 and 11 pass.
 
-`git diff --check` reports one unrelated pre-existing trailing-whitespace line in
-`apps/vocab/src/lib/state/dictation.svelte.ts:23`; it was preserved.
+The original `git diff --check` reported a trailing-whitespace line in Vocab
+dictation. The later AI integration removed it while migrating that consumer.
 
 Typechecks pass for app, auth, server, sync, device, blobs, self-host, Vocab,
 Whispering, Honeycrisp (browser and Epicenter-host), and Epicenter home. Commands
@@ -143,15 +176,15 @@ browser persistence request. One independent production reviewer authored the
 Worker harness/tests but none of the reviewed production implementation; a fresh
 reviewer could not be spawned because the thread agent limit was reached.
 
-Explicit follow-ups: complete attachment evidence; Bun store sync; other-app
-pickers and Whispering Shared native-transcription selection; packaged desktop
+Explicit follow-ups: cross-device attachment evidence; Bun store sync; other-app
+pickers; native microphone capture and recovery; packaged desktop
 brokerage/selection proof; full offline shell loading; verified backup/recovery
 orchestration and restore UI; deliberate historical-data rollout. Preserve
 permanent Account retirement, same-owner credential repair, host credentials,
 and the current-generation retirement contract while doing that work.
 
 
-## Commit isolation and additional verification
+## Earlier library commit isolation and additional verification
 
 The requested commit was built from the task-start diff and current code, then
 verified in `/tmp/honeycrisp-library-stage/checkout`. It leaves the concurrent

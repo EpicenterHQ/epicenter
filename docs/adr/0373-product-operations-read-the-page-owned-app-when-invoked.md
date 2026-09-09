@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Relates:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) fixes one library for an application document. This proposal preserves that lifetime and reconsiders how product consumers reach it.
-- **Unbuilt:** Import-safe App publication, Whispering operation migration, and removal of redundant product/context composition after capability and lifetime verification.
+- **Unbuilt:** Remaining product/context argument removal and native capture/recovery acceptance. The UI session still owns subscriptions, queries, and producer teardown.
 
 ## Context
 
@@ -125,6 +125,19 @@ plain product operation depends on Svelte adaptation.
   at invocation; they do not track subsequent binding initialization.
 
 ## Implementation
+
+Whispering has an inert `application.ts`, explicit mounted opening, and call-time
+completion, Polish, Recipe, and saved transcription execution. Publication survives
+a refused close and remains available to admitted work until UI drain finishes.
+Failed readiness releases the App while preserving the opening-error screen.
+Svelte observes the same completion resolver that execution uses.
+
+Recording, imports, and retries drain their complete workflows before App closure.
+The browser UI has capture/transcription/Polish/playback/reopen evidence in Local,
+Personal, and Shared. Native file inference has real WebView evidence; native
+capture and reload recovery remain unproved. The UI session remains because it
+owns subscriptions, query state, and producer teardown. This implementation
+evidence does not change the ADR's Proposed status.
 
 See the [Whispering execution spec](../../specs/20260908T212054-whispering-call-time-app-composition.md)
 for dependency reconciliation, caller migration, ownership removal, and acceptance.

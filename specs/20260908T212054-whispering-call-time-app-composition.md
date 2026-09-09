@@ -1,7 +1,28 @@
 # Make Whispering operations use the page-owned App at call time
 
-**Status:** Draft
+**Status:** In Progress
 **Date:** 2026-09-08
+
+## Integration continuation: 2026-09-09
+
+`application.ts` now publishes one mounted opening without acquiring resources
+on import. Completion, Polish, Recipe, and saved transcription read the ready
+App at invocation. Transcription captures its exact client, model, credentials,
+and hints before reading the saved blob. The real browser UI exercises that
+workflow in Local, Personal, and Shared, including real inference and reopen.
+
+Recording, imports, and manual/bulk retries share admission and complete-work
+draining. Unexpected account replacement stops follow-on inference and output
+while admitted audio still saves. A failed save still rejects so the recording
+caller retains its source. App retirement suppresses late history and delivery.
+
+The UI session remains because it owns capture subscriptions, query state,
+buffered UI producers, and their teardown. Full removal of those remaining
+product-object arguments is outside the bounded saved-recording integration.
+Native file inference has real WebView proof; native microphone capture and
+active-capture reload recovery remain open. Keep this spec active for that work.
+
+The sections below preserve the original migration scope and earlier evidence.
 
 Whispering product operations access the document's one App when invoked;
 module imports acquire nothing, and the page retains readiness and close ownership.
@@ -136,3 +157,79 @@ explicit instruction, not inferred completion.
 
 Record commands, results, and unproven behavior in this spec during execution.
 Do not equate compilation or mocked host tests with native acceptance.
+
+## Execution checkpoint: reconciliation
+
+Task-start HEAD: `2dee4a2cbea98c02f5d22bff7a6a25a9a7929def`.
+Concurrent tracked and untracked changes are preserved in
+`/tmp/whispering-composition-baseline/` for local attribution. Nothing was staged.
+The working tree already supplies AI clients and remote blob capabilities;
+those changes remain owned by their existing tasks.
+
+Waves: establish import-safe mounted publication and verify its lifetime; migrate
+one complete operation after the capability checkpoint; move remaining resource
+ownership and callers; verify shutdown and native acceptance before deletion.
+The old composition stays until its replacement meets those checks.
+
+### Publication and text-operation checkpoint
+
+- `application.ts` is inert. The mounted layout calls `openApplication()` once;
+  `bootstrap.ts` captures auth and the connect-only policy and opens the App.
+  `getApp()` rejects before successful readiness and after actual App close starts.
+- Departure preflight does not revoke access. Admitted work can still read the
+  App during UI quiescence. `bootstrap.closeApp()` owns terminal revocation.
+- Failed readiness releases the concrete App without completing document
+  departure, preserving the opening-error screen and retry control. Cleanup
+  failures are logged with their cause.
+- Polish and Recipe execution read settings and completion capabilities at call
+  time. Completion preserves the saved connection/model identity. Its Svelte
+  adapter observes KV and AI configuration, then calls the same product resolver.
+  The old UI session, context, recording admission, query client, and subscriptions
+  remain until their resource replacements and shutdown evidence are complete.
+
+Independent review found and resolved three publication defects: readiness lost
+when a preflight later refused, access revoked before admitted work drained, and
+failed acquisition cleanup hiding the opening error behind the departure screen.
+The reviewer also identified duplicated completion resolution; the Svelte layer
+now observes and presents the plain resolver instead of repeating its decision.
+
+Verification so far:
+
+- `bun test` over `application.test.ts`, `completion.test.ts`,
+  `run-polish.test.ts`, and `pipeline-auto-upload.test.ts`: 25 passed, 70 assertions.
+  Includes in-flight cancellation, exact destination, missing selection, failed
+  readiness cleanup, refused departure, and delayed UI drain.
+- App/AI prerequisite tests: 42 passed, 200 assertions.
+- Existing recording-close, recording-workflow, and departure tests passed in
+  separate processes; their logs are in the local baseline directory.
+- Whispering browser and host typechecks passed with zero errors/warnings.
+- Full `bun typecheck` still fails in concurrent inference-picker test work.
+  The task-start run also failed there and in concurrent App tests; the latter
+  errors disappeared as that task continued. Do not attribute those repairs here.
+- Fresh-process Polish import succeeds without browser globals or network access.
+- Shared AppBoot and real Honeycrisp final-editor smokes passed in Chromium and
+  WebKit. A successful repetition does not explain the earlier WebKit failure.
+- Doc hygiene reports 34 findings. No ADR status was changed.
+
+### Current reconciliation boundary
+
+During execution, `operations/transcribe.ts` changed from the task-start version
+and is now being migrated concurrently to App-owned AI clients. Reconcile that
+capability checkpoint before editing transcription or removing product ownership.
+The active native test process under `/tmp/epicenter-native-review.CPAgjH` was left
+untouched. Its older notes reported denied macOS permissions; a fresh check now
+reports Accessibility and Screen Recording enabled. A separate disposable native
+fixture is being prepared. Native acceptance remains unproven.
+
+Remaining owners before deletion:
+
+| Responsibility | Current owner | Replacement must preserve |
+| --- | --- | --- |
+| Recording admission and pending work | UI session and recording operations | Stop new work, drain startup/finalization/save, then release capture listeners |
+| Recording cache and backup coordination | Recordings domain | Coalescing, local availability, remote deletion safeguards, pending backup completion |
+| Settings and recipe subscriptions | Product domains | Readiness-only observation and terminal unsubscribe |
+| Query cache | UI session | Mounted query provider and terminal cache clear |
+| Buffered edits and UI producers | Layout and Shell | Blur, unmount, settle producers, then close App |
+
+Do not delete this spec or the old composition until the remaining migration,
+reactive presentation checks, and actual native shutdown acceptance are complete.

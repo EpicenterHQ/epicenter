@@ -20,7 +20,8 @@ The browser implementation uses browser capture; the desktop implementation
 uses the native recorder's invoke commands. The session contract is shared.
 
 `openLocal()` binds recording to the application's local library.
-`openAccount(account)` binds it to that account's library. The opened app captures
+`openPersonal(account)` and `openShared(account)` bind it to the selected library
+and captured person. The opened app captures
 the application ID and dataset identity once. `start()` and `current()` take no
 account argument and require successful app readiness. Stop
 publishes completed audio into that destination. Cancel discards it. Changing
@@ -70,10 +71,15 @@ encoding. Runtime differences do not change the application-facing methods.
 
 ## Implementation
 
-Implemented in the [shared recorder](../../packages/recorder/README.md),
+Saved recording is implemented in the [App recording contract](../../packages/app/src/recorder.ts),
 [application composition](../../packages/app/src/index.ts), and
 [native blob storage](../../apps/epicenter/src-tauri/src/blobs.rs).
 Whispering selects the runtime implementation at its platform seam.
+
+The actual Whispering browser UI records, saves, transcribes, plays, and reopens
+identical audio in Local, Personal, and Shared. Native file inference has real
+WebView evidence. Native microphone capture, host blob playback/reopen, and
+active-capture reload recovery still need a controllable input fixture.
 
 Lifecycle tests cover publication, cancellation, captured identity, recovery,
 and resource cleanup. The browser smoke captures and decodes synthetic microphone

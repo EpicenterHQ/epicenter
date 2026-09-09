@@ -32,11 +32,10 @@ pub enum UnavailableReason {
     ActiveModelUnavailable,
 }
 
-/// What an application may learn about the local transcription route: whether it
-/// is ready, and which advisory inputs it accepts.
+/// Whether the active-model transcription route is ready and which hints it accepts.
 ///
-/// Readiness and capability, never identity (ADR-0180). This is advisory UI
-/// state, not a preflight gate: a caller uses it to warn before capture and to
+/// This route preserves ADR-0180's identity-free readiness response. It is advisory
+/// UI state, not a preflight gate: a caller uses it to warn before capture and to
 /// decide whether to offer a prompt or language field, never to decide whether
 /// `transcribe_recording` may be called. Transcription resolves the active model
 /// independently at the point of use, so a stale read here can only produce a
@@ -68,10 +67,10 @@ pub enum LocalTranscriptionReadiness {
 
 /// The advisory hints an application supplies with a transcription.
 ///
-/// Model identity is deliberately absent (ADR-0180): the host resolves the one
-/// active model at use, so an ordinary request cannot reassign the shared model
-/// cache. Language and prompt stay application-owned and read-at-use, exactly as
-/// ADR-0012 left them; nothing here is retained between calls.
+/// The active-model route resolves the model from host settings. Explicit file
+/// inference receives the model separately from these hints. Neither route
+/// changes the active-model setting. Language and prompt remain application-owned;
+/// nothing here is retained between calls.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptionHints {
@@ -104,9 +103,9 @@ pub struct AppliedHints {
 /// What a transcription request produced.
 ///
 /// Two outcomes because there are two honest stories. `transcribed` names the
-/// exact model that produced the text, which is what makes an accidental
-/// substitution detectable: with the active model unchanged, identical ordinary
-/// requests must name the same model however the host arranges residency.
+/// exact model that produced the text, which makes accidental substitution
+/// detectable. Explicit inference must name the requested model; the active-model
+/// route must name the model it resolved from settings, regardless of residency.
 /// `empty-audio` reports that nothing ran, and deliberately carries no model and
 /// no applied hints, because claiming either would be claiming an inference that
 /// never happened.
@@ -133,9 +132,8 @@ pub enum TranscriptionOutcome {
 ///
 /// **Administration only.** Home holds this grant because Home chooses the
 /// active model and must show which one that is. Applications are not granted
-/// it and read `get_local_transcription_readiness` instead, which answers the
-/// question they actually have without handing them an identity they could
-/// start keying behaviour off.
+/// this command. Their active-model route reads `get_local_transcription_readiness`;
+/// explicit file inference reads installed IDs through `list_inference_models`.
 #[tauri::command]
 #[specta::specta]
 pub fn get_active_model(model_cache: State<'_, ModelCache>) -> Option<ActiveModel> {
@@ -182,8 +180,8 @@ pub fn set_unload_policy(
 
 /// Whether the local transcription route can run right now, and what it accepts.
 ///
-/// The one ordinary application-facing read. It exists so an app can warn the
-/// user *before* they speak, which matters because the surface that reports a
+/// Readiness for the active-model route lets an app warn the user before they
+/// speak, which matters because the surface that reports a
 /// failure afterwards (a dictation pill) has nowhere to put a recovery action.
 /// Advisory only: it never mutates, and it is not a gate the caller must pass
 /// before transcribing.

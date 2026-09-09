@@ -1,3 +1,169 @@
+# AI and runtime integration
+
+Status: In Progress
+
+## Integration evidence: 2026-09-09
+
+The actual Whispering browser workflow passes in Local, Personal, and Shared:
+select a connection/model, record, save, transcribe with real Whisper Tiny,
+Polish with real Ollama, play the audio, and reopen identical bytes and both
+transcripts. The final run has no browser errors or external requests.
+Native file inference separately passed a real Wry WebView using production
+permissions and host CSP. The host AI leaf now supplies that verified adapter.
+
+Native microphone capture, host blob playback/reopen, and active-capture reload
+recovery remain unproved. No controllable CoreAudio input fixture was available.
+This leaves the wider runtime and library specs active. File inference does not
+complete portable microphone-to-text dictation.
+
+### Delivered repairs
+
+- Whispering opens its selected library before creating UI consumers. Local
+  receives no ambient Account; Personal and Shared retain the authenticated actor.
+- Transcription captures its client, model, credentials, and hints before reading
+  saved bytes through `app.blobs.get()`. Removed or mismatched selections never
+  redirect to another destination. Shared never guesses a Personal native path.
+- The shared picker supports manual account, configured, and installed native
+  model choices. Previous OpenAI/Groq/speaches fields have an explicit import
+  action. Deepgram, ElevenLabs, and Mistral retain their distinct protocols.
+- Native file inference preserves empty-audio success, applied-hint metadata,
+  and exact model identity. It leaves active-model settings alone and drains
+  computation while suppressing cancelled output.
+- Recording, imports, and manual/bulk retries share complete-work draining.
+  Account replacement stops follow-on inference and delivery. An admitted stop
+  still saves after UI admission closes; failed row creation still rejects so
+  the caller retains its source. App retirement suppresses late history/output.
+- Browser leaves supply clipboard, fetch, downloads, focused shortcuts, and the
+  existing recording pill. Native-only UI effects no longer run in browser tabs.
+  The UI session remains because it owns real subscriptions and query teardown.
+
+### Reproduction and scope
+
+| Command from root | Evidence |
+| --- | --- |
+| `bun packages/app/scripts/recording-libraries.browser.mjs` | Real MediaRecorder and temporary authenticated Worker: Local, Alice/Bob Personal isolation, Shared row convergence, exact bytes/playback/reopen, owner-override 403, cancellation, meter and playback-source release, zero Local authority requests. |
+| `EPICENTER_NATIVE_AUDIO=/path/speech.wav bun apps/whispering/scripts/saved-recording.browser.mjs` | Actual Whispering UI in all three libraries. Saved/uploaded digests match, raw and polished text persist, library switching closes first. The browser uses an authenticated temporary endpoint backed by the real native engine; no production discovery bridge is added. |
+| `EPICENTER_NATIVE_AUDIO=/path/speech.wav bun packages/app/scripts/native-ai-smoke.ts` | Actual SDK multipart, native commands/decoder/cached model, invalid input, exact hints/model, output suppression and drain. This fixture uses Tauri MockRuntime. |
+| `EPICENTER_NATIVE_AUDIO=/path/speech.wav bun packages/app/scripts/native-webview-smoke.ts` | Actual macOS Wry/IPC, production app ACL/CSP, native transcript, empty input, denied model administration, retired-client refusal, unchanged settings, no CSP violations. No microphone or Account opens. |
+
+Native scripts require the already-cached
+`handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf` model.
+The run used `/tmp/app-ai-baseline/native-speech.wav`; Polish used installed
+Ollama `qwen2.5vl:3b`. No model was downloaded.
+
+The final isolated UI report and inspected screenshots are in
+`/tmp/ai-runtime-integration-20260909/workflow-candidate/browser-ui-evidence/`.
+The original live UI report remains in
+`/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/whispering-recording-evidence-DDV2rm/`.
+Package browser evidence is in
+`/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/app-recording-evidence-6Arf0l/`.
+Native logs and focused checks are under `/tmp/ai-runtime-integration-20260909/`.
+Scripts clean their processes and temporary test state. These paths are local
+run artifacts; the checked-in scripts are the durable reproduction procedure.
+
+### Committed integration
+
+| Commit | Working outcome |
+| --- | --- |
+| `89e2cf28f8` | One runtime declaration, App-owned saved recording, and all constructor/import consumers. |
+| `fcdf6bfddc` | SDK clients and explicit destinations across the picker, agent chat, Vocab, and Home. |
+| `6cb62c11d4` | Whispering library selection, saved-recording workflow, browser leaves, native inference, and reproducible acceptance scripts. |
+
+Each code commit was checked in an isolated snapshot with workspace dependencies
+pointing into that snapshot. Runtime has 132 focused passing tests; SDK has 98.
+The workflow snapshot has 106 App/recording tests and 77 Whispering tests passing,
+including platform and selection checks, plus both typecheck leaves and builds.
+Real native checks cover 23 transcription regressions, one cached-model test,
+two capability tests, binding coverage, SDK protocol, and actual SDK/Wry inference.
+The UI run initially stopped on Vite's allowance for shared installed dependencies;
+the checked-in test harness now permits the resolved Bun cache, and the retry
+passes without serving another checkout's application source.
+
+The additional unchanged Vocab boot guard expects the removed
+`ConversationsSession.svelte` component while its page mounts `VocabShell`.
+Its failing assertion and unchanged-file comparison are preserved in the SDK
+packet. This is separate from the passing SDK dictation and practice tests.
+
+Concurrent restore commit `b577421734` landed between the SDK and workflow commits.
+The final workflow patch preserves it. Auth, backup, and the proposed AI API
+conversion retain their separate ownership. Native comment corrections were
+reviewed separately and both binding files were regenerated by `export_types`.
+
+### Additional working-tree checks
+
+Focused checks pass: 25 AI/native/SDK-stream tests; 56 App tests; 151 auth and
+departure tests; 36 recording-contract tests; 9 picker tests; 10 agent-chat tests;
+3 Vocab dictation tests. Whispering's publication, completion, Polish,
+transcription, pipeline, import/retry, capture/recovery, and domain suites run in
+separate processes. Use `bun test --tsconfig-override .svelte-kit/tsconfig.json
+<file>` from `apps/whispering` for its aliases. Bun 1.3.14 still prints an internal
+directory-mismatch diagnostic on passing runs.
+
+The final root aggregate fails only on its eight starting Data browser-global/type
+inference errors. Intermediate runs also encountered concurrent backup and auth
+errors; those are absent from the final check. This integration corrected two
+native adapter test assertions that treated extra protocol metadata as SDK-declared
+fields. App's isolated snapshot and final live check both pass its two typecheck
+leaves. Root doc hygiene reports 44 findings and the path check reports ten
+existing references outside
+the edited integration paths. ADR status is not changed to silence those checks.
+
+Whispering browser and host typechecks pass with zero errors/warnings; both
+builds pass; platform selection has four passing checks. Browser main and
+non-overlay route imports exclude native inference and saved-recording host
+commands. The unchanged shared `desktop-close.ts` still imports Tauri core/event
+behind `isTauri()`; the entire multi-route bundle is not claimed to be native-free.
+
+Independent review retained the App/runtime and explicit picker boundaries and
+verified the lifecycle repairs above. Clipboard failure reporting remains a
+separate grounded follow-up: `operations/sink.ts` discards clipboard Results and
+can report successful delivery after refusal. This workflow proves saved history,
+not clipboard failure recovery.
+
+No deployment, production migration, historical-data deletion, or real credential
+change occurred. Cross-device object-store attachment transfer, packaged library
+selection, full offline shell startup, and backup/recovery remain in the wider
+library execution. The concurrent AI API revision below keeps its own owner.
+
+## Active execution path
+
+The 2026-09-09 AI boundary revision is the target for remaining connection work:
+`app.ai.connections` owns custom endpoint/key management and client access;
+applications own workflow selections outside core App. The separate, currently
+uncommitted `20260908T193514-app-ai-capabilities.md` execution plan owns that
+conversion, including preservation of the current combined saved envelope.
+Today's `configuration` and `configured()` members are still implemented;
+do not rebuild them as the target or add a core workflow resolver. Coordinate
+the caller switch with the API work before removing old configuration exports.
+The recording/native acceptance tasks below remain active and keep their evidence.
+
+The continuation baseline is `9bf9183425`; status and tracked patches are in
+`/tmp/ai-runtime-integration-20260909/`. The integration preserves the library
+checkpoint and concurrent restore work.
+
+The saved-recording selection, complete-work drain, browser acceptance, native
+file inference, and obsolete-path removal are delivered above. Remaining work:
+
+1. Supply a controllable CoreAudio input and prove host capture, App reads,
+   playback, and reopen in Local, Personal, and Shared.
+2. Reload during native capture, recover through the reopened App, then cancel
+   before storage ownership releases.
+3. Execute the separate AI API conversion with its owner. Portable dictation
+   remains a separate feature with its own acceptance target.
+
+The initial independent review retained the App and shared picker boundaries. It found
+transcription's late provider resolution, guessed Personal native blob paths,
+and untracked manual/bulk retries. Native empty audio and hint handling were
+compared and preserved before deleting the old route. The UI session still owns
+real recording/query/subscription lifetimes and remains until replaced.
+
+Starting App/Whispering typechecks and 11 AI/native protocol unit tests pass.
+The root baseline fails on eight Data browser-global/inference errors and one
+picker test assertion type. Bun 1.3.1 needs Whispering's generated SvelteKit
+tsconfig supplied explicitly for tests using `$lib` aliases.
+
+## Original handoff: historical task scope
+
 Continue in /Users/braden/conductor/workspaces/epicenter/yamoussoukro.
 
 Reconcile and finish the existing AI and runtime work around one dependable
@@ -29,8 +195,10 @@ Read these decisions as evidence, including their status and amendments:
 - ADR-0362: inference access does not require model/runtime administration.
 - ADR-0363: a selection identifies the connection and model; no discovery-based
   routing or silent fallback to another destination.
-- ADR-0365: actual SDK clients through `app.ai.runtime`, `app.ai.account`, and
-  `app.ai.configured()`, with a separately planned portable dictation lifecycle.
+- ADR-0365, the separate AI boundary proposal:
+  actual SDK clients through fixed runtime/account capabilities and the target
+  custom `connections` API; applications own workflow choices. App-owned
+  `app.ai.dictation` remains separate implementation work.
 - ADR-0373: product operations access the page-owned App when invoked.
 - ADR-0374: the host owns one Account and restarts applications on replacement.
 - ADR-0375 and ADR-0369: one selected library per application document.
@@ -45,9 +213,8 @@ The relevant plans are:
 - `specs/20260908-ai-client-and-portable-dictation.md`
 - `specs/20260909T004225-library-ownership-execution.md`
 
-Several checkpoints lag code. For example, ADR-0365 still calls App AI unbuilt,
-but `packages/app/src/ai.ts` already exposes those SDK clients and owns their
-shutdown. Its configured connection IDs, credentials, and selections live in
+Several older checkpoints lag code. `packages/app/src/ai.ts` already exposes
+SDK clients and owns their shutdown. Its configured connection IDs, credentials, and selections live in
 `ai-configuration.ts`. Current Whispering completion/transcription and the shared
 picker already contain consumer migrations. Assess what still needs removal or
 real evidence before proposing another migration.
@@ -71,7 +238,9 @@ Separate these three concerns:
    active-capture reload recovery, and orderly shutdown still need acceptance.
 3. Portable dictation: microphone-to-text streaming sessions and their shared
    desktop configuration are a separate feature. `app.ai.dictation` is not an
-   existing export. Do not make that full feature a prerequisite for finishing
+   existing export; it is the App-owned target in ADR-0365. ADR-0366 adds
+   concurrent native capture on distinct input devices. Do not make those
+   features prerequisites for finishing
    saved-recording transcription, and do not mistake raw audio transcription for
    completed portable dictation.
 
