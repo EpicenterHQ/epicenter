@@ -18,7 +18,7 @@ import {
 	type RecordingOwner,
 	type RecordingOptions,
 	type NativeRecording,
-} from './recording.js';
+} from '../recorder.js';
 
 const log = createLogger('recorder/desktop');
 

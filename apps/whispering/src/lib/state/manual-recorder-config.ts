@@ -1,5 +1,5 @@
 import { asDeviceIdentifier } from '@epicenter/recorder';
-import type { RecordingParams } from '@epicenter/recorder/recording';
+import type { RecordingParams } from '@epicenter/app/recorder';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 
 /** Device identifiers belong to the capture implementation that issued them. */

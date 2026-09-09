@@ -5,38 +5,38 @@
  * Reopening fake IndexedDB proves rows survive a handle lifetime, not a browser restart.
  */
 import 'fake-indexeddb/auto';
-import { expect, test, spyOn } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { type BlobStore, generateBlobId } from '@epicenter/blobs';
-import {
-	type AppSqliteDatabase,
-	DeviceError,
-	SecretError,
-	secretLabel,
-} from '@epicenter/device';
-import {
-	createSqliteOwner,
-	type DeviceSqliteOwner,
-} from '@epicenter/device/owner';
-import { asPrincipalId } from '@epicenter/principal';
-import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
-import { installTestLocks } from '@epicenter/device/test-locks';
-import { openApp } from './open.js';
 import * as dataBrowser from '@epicenter/data/browser';
-import { encodeFrame } from '../../data/src/sync/frames.js';
-import { createAiConfiguration } from './ai-configuration.js';
 import {
 	defineData,
 	defineTable,
 	field,
 	plainText,
 } from '@epicenter/data/definition';
-import { createEpicenter } from './index.js';
-import { createBrowserAppBlobs } from './browser.js';
-import { createBrowserRecording } from '@epicenter/recorder/browser';
+import {
+	type AppSqliteDatabase,
+	type DeviceError,
+	SecretError,
+	secretLabel,
+} from '@epicenter/device';
 import { createBrowserSecrets } from '@epicenter/device/browser';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import {
+	createSqliteOwner,
+	type DeviceSqliteOwner,
+} from '@epicenter/device/owner';
+import { installTestLocks } from '@epicenter/device/test-locks';
+import { asPrincipalId } from '@epicenter/principal';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok, type Result } from 'wellcrafted/result';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import { encodeFrame } from '../../data/src/sync/frames.js';
+import { createAiConfiguration } from './ai-configuration.js';
+import { browser, createBrowserAppBlobs } from './browser.js';
+import { defineApplication } from './index.js';
+import { openApp } from './open.js';
+import { createBrowserRecording } from './recording/browser.js';
 
 installTestLocks();
 
@@ -65,11 +65,14 @@ const definition = defineData({
 });
 
 const create = () =>
-	createEpicenter({
+	defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: testSqlite,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	});
 
@@ -175,11 +178,14 @@ test.each([
 			throw new Error('Not needed for SQLite scope.');
 		},
 	};
-	const epicenter = createEpicenter({
+	const epicenter = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	});
 	const localApp = epicenter.openLocal();
@@ -257,11 +263,14 @@ test('closing waits for an admitted SQLite delete', async () => {
 			close: async () => undefined,
 		}),
 	};
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await app.ready);
@@ -271,11 +280,14 @@ test('closing waits for an admitted SQLite delete', async () => {
 	const closing = app.close().then(() => {
 		closed = true;
 	});
-	const replacement = createEpicenter({
+	const replacement = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	await Promise.resolve();
@@ -286,11 +298,14 @@ test('closing waits for an admitted SQLite delete', async () => {
 	await closing;
 	expect(closed).toBe(true);
 	await replacement.close();
-	const reopened = createEpicenter({
+	const reopened = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await reopened.ready);
@@ -329,11 +344,14 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 			close: async () => undefined,
 		}),
 	};
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	const { open, delete: remove } = app.sqlite;
@@ -404,11 +422,14 @@ test.each([
 			close: async () => undefined,
 		}),
 	};
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await app.ready);
@@ -458,11 +479,14 @@ test('a late SQL open refuses publication and physically closes without deleting
 			deletes++;
 		},
 	});
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await app.ready);
@@ -508,43 +532,46 @@ test('reentrant failed cleanup still drains SQL, blobs, and owning creation befo
 		(name) =>
 			[name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
 	);
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: {
-			acquire: async () => ({
-				async open() {
-					return {
-						...(await (
-							await testSqlite.acquire('so.epicenter.app-test', {
-								library: 'local',
-							})
-						).open('search')),
-						run: () => sql.promise,
-					};
-				},
-				delete: async () => undefined,
+		runtime: {
+			...browser,
+			sqlite: {
+				acquire: async () => ({
+					async open() {
+						return {
+							...(await (
+								await testSqlite.acquire('so.epicenter.app-test', {
+									library: 'local',
+								})
+							).open('search')),
+							run: () => sql.promise,
+						};
+					},
+					delete: async () => undefined,
 
-				close: async () => undefined,
-			}),
-		},
-		blobs(input) {
-			const backing = testBlobs(input);
-			return {
-				...backing,
-				local: {
-					...backing.local,
-					get: () => reading.promise,
-					put() {
-						writeStarted.resolve();
-						return writing.promise;
+					close: async () => undefined,
+				}),
+			},
+			blobs(input) {
+				const backing = testBlobs(input);
+				return {
+					...backing,
+					local: {
+						...backing.local,
+						get: () => reading.promise,
+						put() {
+							writeStarted.resolve();
+							return writing.promise;
+						},
+						delete() {
+							compensated.resolve();
+							return compensating.promise;
+						},
 					},
-					delete() {
-						compensated.resolve();
-						return compensating.promise;
-					},
-				},
-			};
+				};
+			},
 		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
@@ -579,11 +606,14 @@ test('reentrant failed cleanup still drains SQL, blobs, and owning creation befo
 		sql.reject(sqlCause);
 		writing.resolve(Ok(undefined));
 		await compensated.promise;
-		const duplicate = createEpicenter({
+		const duplicate = defineApplication({
 			appId: 'so.epicenter.app-test',
 			definition,
-			sqlite: testSqlite,
-			blobs: testBlobs,
+			runtime: {
+				...browser,
+				sqlite: testSqlite,
+				blobs: testBlobs,
+			},
 			ai: { runtime: null, account: null },
 		}).openLocal();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
@@ -772,11 +802,14 @@ test('account acquisition hydrates the existing handles and survives refused syn
 
 test('invalid definitions and missing account identity throw before opening storage', async () => {
 	await clearStorage();
-	const invalid = createEpicenter({
+	const invalid = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition: { id: '', tables: {}, kv: {} },
-		sqlite: testSqlite,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	});
 	expect(() => invalid.openLocal()).toThrow();
@@ -804,11 +837,14 @@ test('physical SQL close retains the library claim across sibling definitions', 
 			};
 		},
 	};
-	const first = createEpicenter({
+	const first = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
-		sqlite: owner,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: owner,
+			blobs: testBlobs,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await first.ready);
@@ -818,11 +854,14 @@ test('physical SQL close retains the library claim across sibling definitions', 
 		kv: {},
 	});
 	const sibling = () =>
-		createEpicenter({
+		defineApplication({
 			appId: 'so.epicenter.app-test',
 			definition: siblingDefinition,
-			sqlite: owner,
-			blobs: testBlobs,
+			runtime: {
+				...browser,
+				sqlite: owner,
+				blobs: testBlobs,
+			},
 			ai: { runtime: null, account: null },
 		}).openLocal();
 	const duplicate = sibling();
@@ -848,19 +887,22 @@ test('physical SQL close retains the library claim across sibling definitions', 
 test('failed durable release retains SQL and the common library claim', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
-	const epicenter = createEpicenter({
+	const epicenter = defineApplication({
 		appId,
 		definition,
-		blobs: testBlobs,
-		sqlite: {
-			async acquire(...args) {
-				const lifetime = await testSqlite.acquire(...args);
-				return {
-					...lifetime,
-					async close() {
-						sqlCloses++;
-					},
-				};
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				async acquire(...args) {
+					const lifetime = await testSqlite.acquire(...args);
+					return {
+						...lifetime,
+						async close() {
+							sqlCloses++;
+						},
+					};
+				},
 			},
 		},
 		ai: { runtime: null, account: null },
@@ -885,19 +927,22 @@ test('failed durable release retains SQL and the common library claim', async ()
 test('failed bootstrap cleanup retains SQL and library ownership before ready', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
-	const epicenter = createEpicenter({
+	const epicenter = defineApplication({
 		appId,
 		definition,
-		blobs: testBlobs,
-		sqlite: {
-			async acquire(...args) {
-				const lifetime = await testSqlite.acquire(...args);
-				return {
-					...lifetime,
-					async close() {
-						sqlCloses++;
-					},
-				};
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				async acquire(...args) {
+					const lifetime = await testSqlite.acquire(...args);
+					return {
+						...lifetime,
+						async close() {
+							sqlCloses++;
+						},
+					};
+				},
 			},
 		},
 		ai: { runtime: null, account: null },
@@ -925,7 +970,7 @@ test('retained AI shares readiness and close drains response work before releasi
 	const started = Promise.withResolvers<void>();
 	const released: string[] = [];
 	let signal: AbortSignal | null | undefined;
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.capability-test',
 		definition,
 		ai: {
@@ -941,16 +986,19 @@ test('retained AI shares readiness and close drains response work before releasi
 				},
 			},
 		},
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				...(await testSqlite.acquire('so.epicenter.capability-test', {
-					library: 'local',
-				})),
-				close: async () => {
-					released.push('storage');
-				},
-			}),
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => ({
+					...(await testSqlite.acquire('so.epicenter.capability-test', {
+						library: 'local',
+					})),
+					close: async () => {
+						released.push('storage');
+					},
+				}),
+			},
 		},
 	}).openLocal();
 	const client = app.ai.runtime!.client;
@@ -979,7 +1027,7 @@ test.each([
 	let released = false;
 	let settled = false;
 	const appId = 'test.' + crypto.randomUUID();
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId,
 		definition,
 		ai: {
@@ -1002,22 +1050,25 @@ test.each([
 				},
 			}),
 		},
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				...(await testSqlite.acquire(appId, { library: 'local' })),
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => ({
+					...(await testSqlite.acquire(appId, { library: 'local' })),
+					close: async () => {
+						released = true;
+					},
+				}),
+			},
+			recording: (id, account, options) => ({
+				...createBrowserRecording(id, account, options),
 				close: async () => {
-					released = true;
+					if (failing === 'recording') throw new Error('recording failed');
+					await drain.promise;
 				},
 			}),
 		},
-		recording: (id, account, options) => ({
-			...createBrowserRecording(id, account, options),
-			close: async () => {
-				if (failing === 'recording') throw new Error('recording failed');
-				await drain.promise;
-			},
-		}),
 	}).openLocal();
 	expectOk(await app.ready);
 	const request = (async () => await app.ai.runtime!.client.models.list())();
@@ -1067,7 +1118,7 @@ test('one captured Account supplies library and AI; local opening never borrows 
 			throw new Error('No test profile');
 		},
 	};
-	const application = createEpicenter({
+	const application = defineApplication({
 		appId,
 		definition,
 		ai: {
@@ -1077,8 +1128,11 @@ test('one captured Account supplies library and AI; local opening never borrows 
 				return { baseURL: `${captured.baseURL}/v1`, fetch: captured.fetch };
 			},
 		},
-		sqlite: testSqlite,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
 	});
 	const local = application.openLocal();
 	expect(local.ai.account).toBeNull();
@@ -1103,7 +1157,7 @@ test('one captured Account supplies library and AI; local opening never borrows 
 
 test('opening failure retires retained SDK clients through internal close', async () => {
 	let requests = 0;
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'test.' + crypto.randomUUID(),
 		definition,
 		ai: {
@@ -1116,10 +1170,13 @@ test('opening failure retires retained SDK clients through internal close', asyn
 				},
 			},
 		},
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => {
-				throw new Error('storage unavailable');
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => {
+					throw new Error('storage unavailable');
+				},
 			},
 		},
 	}).openLocal();
@@ -1151,33 +1208,36 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 	const write = Promise.withResolvers<void>();
 	let backingClosed = false;
 	let writes = 0;
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.secret-drain',
 		definition,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				open: async () => {
-					throw new Error('No database needed');
-				},
-				delete: async () => {},
-				close: async () => {
-					backingClosed = true;
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => ({
+					open: async () => {
+						throw new Error('No database needed');
+					},
+					delete: async () => {},
+					close: async () => {
+						backingClosed = true;
+					},
+				}),
+			},
+			secrets: (_appId, _account, { assertUsable } = {}) => ({
+				close: () => write.promise,
+				value: {
+					put() {
+						assertUsable?.();
+						writes++;
+						return write.promise.then(() => Ok(undefined));
+					},
+					get: async () => Ok(null),
+					delete: async () => Ok(undefined),
 				},
 			}),
 		},
-		secrets: (_appId, _account, { assertUsable } = {}) => ({
-			close: () => write.promise,
-			value: {
-				put() {
-					assertUsable?.();
-					writes++;
-					return write.promise.then(() => Ok(undefined));
-				},
-				get: async () => Ok(null),
-				delete: async () => Ok(undefined),
-			},
-		}),
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await app.ready);
@@ -1201,34 +1261,37 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 	});
 	let closing: Promise<void> | undefined;
 	let released = false;
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: 'so.epicenter.secret-reentrant',
 		definition,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				open: async () => {
-					throw new Error('No database needed');
-				},
-				delete: async () => {},
-				close: async () => {
-					released = true;
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => ({
+					open: async () => {
+						throw new Error('No database needed');
+					},
+					delete: async () => {},
+					close: async () => {
+						released = true;
+					},
+				}),
+			},
+			secrets: () => ({
+				close: () => release.promise,
+				value: {
+					put: async () => {
+						closing = app.close();
+						entered.resolve();
+						await release.promise;
+						return failure;
+					},
+					get: async () => Ok(null),
+					delete: async () => Ok(undefined),
 				},
 			}),
 		},
-		secrets: () => ({
-			close: () => release.promise,
-			value: {
-				put: async () => {
-					closing = app.close();
-					entered.resolve();
-					await release.promise;
-					return failure;
-				},
-				get: async () => Ok(null),
-				delete: async () => Ok(undefined),
-			},
-		}),
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await app.ready);
@@ -1246,7 +1309,7 @@ test('a late capability constructor failure releases scheduled acquisition and p
 	const released = Promise.withResolvers<void>();
 	const events: string[] = [];
 	const failure = new Error('Secrets construction failed');
-	const application = createEpicenter({
+	const application = defineApplication({
 		appId,
 		definition,
 		ai: {
@@ -1262,28 +1325,31 @@ test('a late capability constructor failure releases scheduled acquisition and p
 				},
 			}),
 		},
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				...(await testSqlite.acquire(appId, { library: 'local' })),
-				close: async () => {
-					events.push('storage');
-					released.resolve();
-				},
-			}),
-		},
-		recording: (...args) => {
-			const recorder = createBrowserRecording(...args);
-			return {
-				...recorder,
-				async close() {
-					await recorder.close();
-					events.push('recording');
-				},
-			};
-		},
-		secrets: () => {
-			throw failure;
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => ({
+					...(await testSqlite.acquire(appId, { library: 'local' })),
+					close: async () => {
+						events.push('storage');
+						released.resolve();
+					},
+				}),
+			},
+			recording: (...args) => {
+				const recorder = createBrowserRecording(...args);
+				return {
+					...recorder,
+					async close() {
+						await recorder.close();
+						events.push('recording');
+					},
+				};
+			},
+			secrets: () => {
+				throw failure;
+			},
 		},
 	});
 	expect(() => application.openLocal()).toThrow(failure);
@@ -1291,11 +1357,14 @@ test('a late capability constructor failure releases scheduled acquisition and p
 	expect(events).toContain('recording');
 	expect(events).toContain('ai');
 	expect(events.at(-1)).toBe('storage');
-	const next = createEpicenter({
+	const next = defineApplication({
 		appId,
 		definition,
-		blobs: testBlobs,
-		sqlite: testSqlite,
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: testSqlite,
+		},
 		ai: { runtime: null, account: null },
 	}).openLocal();
 	expectOk(await next.ready);
@@ -1322,28 +1391,31 @@ test.each([
 			throw new Error('Unused');
 		},
 	};
-	const application = createEpicenter({
+	const application = defineApplication({
 		appId,
 		definition,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				...(await testSqlite.acquire(appId, {
-					library: 'personal',
-					account,
-				})),
-				close: async () => {
-					sqlClosed = true;
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				acquire: async () => ({
+					...(await testSqlite.acquire(appId, {
+						library: 'personal',
+						account,
+					})),
+					close: async () => {
+						sqlClosed = true;
+					},
+				}),
+			},
+			recording: (id, identity, options) => ({
+				...createBrowserRecording(id, identity, options),
+				async close() {
+					recoveryAllowed = options?.canRecover?.();
+					if (cleanupFails) throw cleanupFailure;
 				},
 			}),
 		},
-		recording: (id, identity, options) => ({
-			...createBrowserRecording(id, identity, options),
-			async close() {
-				recoveryAllowed = options?.canRecover?.();
-				if (cleanupFails) throw cleanupFailure;
-			},
-		}),
 		ai: { runtime: null, account: null },
 	});
 	const app = application.openPersonal(account);
@@ -1369,42 +1441,45 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	const failure = new Error('Recorder cleanup failed');
 	let released = false;
 	let settled = false;
-	const application = createEpicenter({
+	const application = defineApplication({
 		appId,
 		definition,
-		blobs: testBlobs,
-		sqlite: {
-			async acquire(id, replica) {
-				const lifetime = await testSqlite.acquire(id, replica);
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: {
+				async acquire(id, replica) {
+					const lifetime = await testSqlite.acquire(id, replica);
+					return {
+						...lifetime,
+						async open(name) {
+							const database = await lifetime.open(name);
+							return {
+								...database,
+								async run() {
+									entered.resolve();
+									await write.promise;
+									return Ok({ changes: 1 });
+								},
+							};
+						},
+						async close() {
+							released = true;
+							await lifetime.close();
+						},
+					};
+				},
+			},
+			recording: (...args) => {
+				const owner = createBrowserRecording(...args);
 				return {
-					...lifetime,
-					async open(name) {
-						const database = await lifetime.open(name);
-						return {
-							...database,
-							async run() {
-								entered.resolve();
-								await write.promise;
-								return Ok({ changes: 1 });
-							},
-						};
-					},
+					value: owner.value,
 					async close() {
-						released = true;
-						await lifetime.close();
+						await owner.close();
+						throw failure;
 					},
 				};
 			},
-		},
-		recording: (...args) => {
-			const owner = createBrowserRecording(...args);
-			return {
-				value: owner.value,
-				async close() {
-					await owner.close();
-					throw failure;
-				},
-			};
 		},
 		ai: { runtime: null, account: null },
 	});
@@ -1488,20 +1563,23 @@ test('App retirement closes its recorder while retaining the library claim throu
 				},
 			}),
 	);
-	const application = createEpicenter({
+	const application = defineApplication({
 		appId,
 		definition,
-		blobs: testBlobs,
-		sqlite: testSqlite,
-		recording(...args) {
-			const owner = createBrowserRecording(...args);
-			return {
-				...owner,
-				close() {
-					recorderCloses += 1;
-					return owner.close();
-				},
-			};
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: testSqlite,
+			recording(...args) {
+				const owner = createBrowserRecording(...args);
+				return {
+					...owner,
+					close() {
+						recorderCloses += 1;
+						return owner.close();
+					},
+				};
+			},
 		},
 		ai: { runtime: null, account: null },
 	});
@@ -1592,11 +1670,14 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 				},
 			}),
 	);
-	const app = createEpicenter({
+	const app = defineApplication({
 		appId: `test.${crypto.randomUUID()}`,
 		definition,
-		blobs: testBlobs,
-		sqlite: testSqlite,
+		runtime: {
+			...browser,
+			blobs: testBlobs,
+			sqlite: testSqlite,
+		},
 		ai: { runtime: null, account: null },
 	}).openPersonal(account);
 	try {
@@ -1671,11 +1752,10 @@ test('replacing the Account cannot submit Alice pending Shared edits as Bob', as
 			return current(input, init);
 		},
 	});
-	const application = createEpicenter({
+	const application = defineApplication({
 		appId,
 		definition,
-		sqlite: testSqlite,
-		blobs: testBlobs,
+		runtime: { ...browser, sqlite: testSqlite, blobs: testBlobs },
 		ai: { runtime: null, account: null },
 	});
 	const state = auth.state;

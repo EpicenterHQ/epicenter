@@ -1,9 +1,7 @@
-import { createEpicenter } from '@epicenter/app';
-import { createBrowserAppBlobs } from '@epicenter/app/browser';
+import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { APPS } from '@epicenter/constants/apps';
 import { authStartup } from '#platform/auth';
-import { sqlite } from '#platform/sqlite';
 import { honeycrispDefinition } from './data.js';
 
 // Imported only after the application route mounts. Module lifetime fixes
@@ -21,10 +19,9 @@ export const library: Library = (() => {
 	throw new Error('Your saved library choice could not be read.');
 })();
 export const canOpenShared = authStartup.selectedServer !== null;
-const application = createEpicenter({
+const application = defineApplication({
 	appId: APPS.HONEYCRISP.id,
-	sqlite,
-	blobs: createBrowserAppBlobs(),
+	settingsKey: 'honeycrisp',
 	definition: honeycrispDefinition,
 });
 export const app = (() => {

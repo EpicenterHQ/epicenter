@@ -12,10 +12,6 @@
 		"#platform/folder": {
 			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
 			"default": "./src/lib/platform/folder.browser.ts"
-		},
-		"#platform/sqlite": {
-			"epicenter-host": "./src/lib/platform/sqlite.epicenter-host.ts",
-			"default": "./src/lib/platform/sqlite.browser.ts"
 		}
 	},
 	"scripts": {

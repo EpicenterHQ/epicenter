@@ -5,10 +5,6 @@
 	"description": "Speech-to-text SPA served by the Epicenter desktop host",
 	"imports": {
 		"#platform/analytics": "./src/lib/services/analytics/index.tauri.ts",
-		"#platform/app-blobs": {
-			"epicenter-host": "./src/lib/platform/app-blobs.epicenter-host.ts",
-			"default": "./src/lib/platform/app-blobs.browser.ts"
-		},
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
@@ -23,18 +19,14 @@
 		},
 		"#platform/os": "./src/lib/platform/os.tauri.ts",
 		"#platform/os-notify": "./src/lib/report/os-notify.tauri.ts",
-		"#platform/sqlite": {
-			"epicenter-host": "./src/lib/platform/sqlite.epicenter-host.ts",
-			"default": "./src/lib/platform/sqlite.browser.ts"
-		},
 		"#platform/recording-mic-level": "./src/lib/recording-overlay/mic-level.tauri.ts",
 		"#platform/system-shortcuts": "./src/lib/platform/system-shortcuts.tauri.ts",
 		"#platform/tauri": "./src/lib/tauri.tauri.ts",
 		"#platform/text": "./src/lib/services/text/index.tauri.ts",
 		"#platform/window-events": "./src/lib/window-events.tauri.ts",
-		"#platform/recording": {
-			"epicenter-host": "./src/lib/platform/recording.epicenter-host.ts",
-			"default": "./src/lib/platform/recording.browser.ts"
+		"#platform/runtime": {
+			"epicenter-host": "./src/lib/platform/runtime.epicenter-host.ts",
+			"default": "./src/lib/platform/runtime.browser.ts"
 		}
 	},
 	"scripts": {

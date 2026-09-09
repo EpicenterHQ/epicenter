@@ -37,9 +37,9 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-Recording is composed once through `#platform/recording`: the browser leaf uses
-`createBrowserRecording`, and the desktop leaf uses `createDesktopRecording`
-from `@epicenter/recorder`. Both implement the shared recording contract.
+Storage and saved recording are selected together through `#platform/runtime`:
+the browser leaf selects `browser`, and the host leaf selects `epicenterHost`
+from App. The saved-recording contract lives at `@epicenter/app/recorder`.
 The UI session composes `createWhisperingRecording(app, openedApp.recording)`
 once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal releases
 the capture subscription. The opened

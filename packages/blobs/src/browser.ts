@@ -70,7 +70,7 @@ export type BrowserBlobScope = {
  * and not `.` or `..`. A principal id is whatever the authority minted, and
  * normalizing one here would invent an equivalence the authority never stated.
  * The app id's fuller grammar is enforced where a handle is composed
- * (`createEpicenter`); here it only has to be one segment so a name can never
+ * (`defineApplication`); here it only has to be one segment so a name can never
  * be read as somebody else's.
  *
  * A bad segment THROWS. This runs at a composition root with values a program

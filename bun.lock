@@ -603,6 +603,7 @@
         "@epicenter/principal": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/sync": "workspace:*",
+        "@tauri-apps/api": "catalog:",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
         "wellcrafted": "catalog:",
@@ -610,7 +611,9 @@
       "devDependencies": {
         "@types/bun": "catalog:",
         "fake-indexeddb": "^6.2.5",
+        "playwright": "^1.61.1",
         "typescript": "catalog:",
+        "vite": "catalog:",
       },
     },
     "packages/app-shell": {
@@ -793,17 +796,11 @@
       "name": "@epicenter/recorder",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/blobs": "workspace:*",
-        "@epicenter/constants": "workspace:*",
-        "@epicenter/principal": "workspace:*",
         "@ricky0123/vad-web": "catalog:",
-        "@tauri-apps/api": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
-        "fake-indexeddb": "^6.2.5",
-        "playwright": "^1.61.1",
         "typescript": "catalog:",
       },
     },

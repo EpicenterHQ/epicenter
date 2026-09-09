@@ -24,12 +24,13 @@ import { expect, test } from 'bun:test';
 	{ by: <TValue>(derive: () => TValue) => derive() },
 );
 
-import { createEpicenter } from '@epicenter/app';
-import { createBrowserAppBlobs } from '@epicenter/app/browser';
+import { defineApplication } from '@epicenter/app';
+import { browser, createBrowserAppBlobs } from '@epicenter/app/browser';
 import type { Account } from '@epicenter/auth';
 import { APPS } from '@epicenter/constants/apps';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data';
@@ -108,39 +109,32 @@ function createFakeAccount({
 	const unused = () => {
 		throw new Error('not part of the app boot');
 	};
-	/**
-	 * The generations collection, in memory, per fake account.
-	 *
-	 * The one HTTP surface a boot touches (ADR-0292): which generations exist,
-	 * and one whole state to bootstrap from. Held per client so two fake
-	 * accounts are two accounts.
-	 */
-	const held = new Map<number, Uint8Array>();
-	const generations = async (
+	let state: Uint8Array | undefined;
+	const current = async (
 		input: Request | string | URL,
 		init?: RequestInit,
 	): Promise<Response> => {
-		const url = new URL(String(input instanceof Request ? input.url : input));
-		const item = /\/generations\/(\d+)$/.exec(url.pathname);
-		if (init?.method === 'POST') {
-			const generation = held.size + 1;
-			held.set(generation, new Uint8Array(init.body as ArrayBuffer));
-			return Response.json({ generation, position: 1 });
-		}
-		if (item !== null) {
-			const bytes = held.get(Number(item[1]));
-			if (bytes === undefined) return new Response(null, { status: 404 });
-			return new Response(bytes as unknown as BodyInit, {
-				headers: { 'epicenter-log-position': '1' },
-			});
-		}
-		return Response.json({ generations: [...held.keys()].sort() });
+		const request = new Request(input, init);
+		if (
+			request.method !== 'POST' ||
+			!new URL(request.url).pathname.endsWith('/current')
+		)
+			throw new Error(
+				`Unexpected library request: ${request.method} ${request.url}`,
+			);
+		state ??= new Uint8Array(await request.arrayBuffer());
+		return createCurrentDownloadResponse({
+			generation: 1,
+			head: 1,
+			snapshot: { position: 1, bytes: state },
+			tail: [],
+		});
 	};
 	return {
 		authorityId: 'test-authority',
 		principalId: asPrincipalId(principalId),
 		baseURL: 'https://api.test',
-		fetch: generations,
+		fetch: current,
 		getProfile: unused,
 		openWebSocket,
 	};
@@ -172,11 +166,15 @@ function announcingAccount(principalId: string): Account {
  * nothing else can end what the open acquired (ADR-0340).
  */
 async function openWhispering(account: Account) {
-	const handle = createEpicenter({
+	const handle = defineApplication({
 		appId: APPS.WHISPERING.id,
 		definition: whisperingDefinition,
-		sqlite: testSqlite,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
+		ai: { runtime: null, account: null },
 	});
 	const app = handle.openPersonal(account);
 	expectOk(await app.ready);
@@ -185,11 +183,15 @@ async function openWhispering(account: Account) {
 
 test('constructing a factory acquires no local database', async () => {
 	await resetStorage();
-	const handle = createEpicenter({
+	const handle = defineApplication({
 		appId: APPS.WHISPERING.id,
 		definition: whisperingDefinition,
-		sqlite: testSqlite,
-		blobs: testBlobs,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
+		ai: { runtime: null, account: null },
 	});
 	expect(
 		(await indexedDB.databases()).filter(({ name }) =>

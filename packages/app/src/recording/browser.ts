@@ -14,7 +14,7 @@ import {
 	type RecordingEndedReason,
 	type RecordingOwner,
 	type RecordingOptions,
-} from './recording.js';
+} from '../recorder.js';
 
 const log = createLogger('browser-recording');
 

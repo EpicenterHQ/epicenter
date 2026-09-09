@@ -3,11 +3,11 @@ import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import type {
 	Recording,
 	RecordingService,
-} from '@epicenter/recorder/recording';
+} from '@epicenter/app/recorder';
 import {
 	RecorderError,
 	type RecordingEndedReason,
-} from '@epicenter/recorder/recording';
+} from '@epicenter/app/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';

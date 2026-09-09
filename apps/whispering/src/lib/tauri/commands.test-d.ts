@@ -7,7 +7,7 @@
  */
 
 import type { Result } from 'wellcrafted/result';
-import type { RecordingEndedReason } from '@epicenter/recorder/recording';
+import type { RecordingEndedReason } from '@epicenter/app/recorder';
 import type {
 	commands,
 	DeviceAcquisition,
@@ -288,7 +288,7 @@ type _TranscriptionHintsShape = Expect<
 
 /** Shared native capture wire contract follows the generated Rust shape. */
 type _PortableNativeRecording = Expect<
-	Equal<HostRecording, import('@epicenter/recorder/recording').NativeRecording>
+	Equal<HostRecording, import('@epicenter/app/recorder').NativeRecording>
 >;
 type _PortableBlobDestination = Expect<
 	Equal<

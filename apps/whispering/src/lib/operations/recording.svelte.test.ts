@@ -9,7 +9,7 @@ import {
 	RecorderError,
 	type Recording,
 	type RecordingService,
-} from '@epicenter/recorder/recording';
+} from '@epicenter/app/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { WhisperingApp } from '$lib/whispering/app';

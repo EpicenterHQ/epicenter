@@ -8,7 +8,7 @@ import { createBrowserBlobStore } from '@epicenter/blobs/browser';
 import { generateBlobId } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { NativeRecording } from './recording.js';
+import type { NativeRecording } from '../recorder.js';
 
 let perform: (
 	command: string,

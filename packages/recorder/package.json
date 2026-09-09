@@ -15,29 +15,19 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./vad-assets": "./src/vad-assets.ts",
-		"./recording": "./src/recording.ts",
-		"./browser": "./src/browser.ts",
-		"./desktop": "./src/desktop.ts"
+		"./vad-assets": "./src/vad-assets.ts"
 	},
 	"dependencies": {
 		"@ricky0123/vad-web": "catalog:",
-		"wellcrafted": "catalog:",
-		"@epicenter/blobs": "workspace:*",
-		"@epicenter/constants": "workspace:*",
-		"@tauri-apps/api": "catalog:",
-		"@epicenter/principal": "workspace:*"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"typescript": "catalog:",
-		"fake-indexeddb": "^6.2.5",
-		"playwright": "^1.61.1"
+		"typescript": "catalog:"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
-		"test": "bun test",
-		"smoke:browser": "bun scripts/browser-smoke.ts"
+		"test": "bun test"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -1,7 +1,7 @@
 # @epicenter/app
 
-An opened App is a vanilla TypeScript handle for one fixed local or account
-library. Whoever opens it stops product work and awaits `app.close()` when they
+An opened App is a vanilla TypeScript handle for one fixed Local, Personal, or
+Shared library. Whoever opens it stops product work and awaits `app.close()` when they
 deliberately finish. Screens borrow the handle; the page or job that owns it
 coordinates departure.
 
@@ -24,8 +24,12 @@ try {
 
 The package selects SQLite and secrets for the build. Standard applications use
 browser blob storage and recording, including in host-served WebViews. An
-application with different capture or transport requirements can still compose
-those resources explicitly with `bindApplication`, as Whispering does.
+application with native capture requirements selects `runtime: epicenterHost`
+from `@epicenter/app/epicenter-host`, as Whispering does. The complete `browser`
+runtime is exported from `@epicenter/app/browser`. An explicit runtime replaces
+SQLite, secrets, blobs, and recording together. Custom runtimes must publish
+recordings into the blob store they expose; TypeScript cannot prove compatibility.
+An independent `ai` binding replaces all default AI configuration.
 `settingsKey` preserves an existing local AI-settings namespace; new applications
 default to their app ID.
 
@@ -94,18 +98,17 @@ The app handle captures account identity and transport at open time. Sign-out
 retires that transport without changing the handle's dataset identity; the
 owner closes the handle and removes consuming UI.
 
-`AccountIdentity` lives in `@epicenter/principal`: authority ID and principal ID,
-without credentials. SQL and WebView blob factories take this identity or
-explicit `null`; no tagged storage wrapper repeats the selection. The document
+`LibraryReplicaIdentity` lives in `@epicenter/principal`: the library choice and,
+for Personal or Shared, the authenticated actor's credential-free identity.
+SQL, saved recording, and blob factories receive that fixed replica scope. The document
 owns document admission and cleanup. App coordinates resource shutdown, and
 runtime owners own physical files.
 
 `app.sqlite.open(name)` and `app.sqlite.delete(name)` use the same captured
-local or account scope as the rest of the handle. Every runtime supplies the
+library scope as the rest of the handle. Every runtime supplies the
 same capability, so an app never branches on whether SQLite exists. The app
-API validates the plain database name; the runtime owner stores local files
-below `local/sqlite/` and account files below
-`accounts/<authority-id>/<principal-id>/sqlite/`. SQLite is auxiliary app data:
+API validates the plain database name; the runtime owner chooses its
+replica-specific address. SQLite is auxiliary app data:
 primary tables and their durable Yjs records remain in the data store.
 
 `app.secrets.put(label, value)`, `get(label)`, and `delete(label)` capture the app
@@ -115,22 +118,22 @@ secret operations and preserves their values. Reopening the same scope in the
 same document can read them again. Secrets never enter synchronized rows.
 
 `app.recording` captures saved audio into the opened library.
-Its browser binding is the default. Desktop composition supplies
-`recording: createDesktopRecording` from `@epicenter/recorder/desktop` to
-`createEpicenter`. Opening binds the app ID and destination once:
+Its browser binding publishes into the App's own local blob store. The explicit
+`epicenterHost` runtime pairs native capture with host blob routes.
+Opening binds the app ID and destination once:
 `openLocal()` selects the local library; `openPersonal(account)` selects that
-account's library. After `app.ready` succeeds, call `app.recording.start()`.
+Personal library; `openShared(account)` selects the application's Shared library. After `app.ready` succeeds, call `app.recording.start()`.
 Neither `start()` nor `current()` takes an account. Closing waits for admitted
 work and cancels unresolved capture before releasing storage.
 Stop returns a published blob ID, duration, and byte length. The app owns the row
 and subsequent transcription or retention policy. See
-[the recording contract](../recorder/README.md#saved-recordings) for ownership
+[the recording contract](#saved-recordings) for ownership
 and closure behavior.
 
 Opening is cache-first. A device with a local generation can open it offline;
 a device without a cached generation must reach the current authority to atomically
 select or download the canonical generation. Personal and Shared caches include
-the authenticated actor, so replacement cannot replay another actor’s writes. The app owns persistence, sync, and teardown.
+the authenticated actor, so account replacement cannot replay another actor’s writes. The app owns persistence, sync, and teardown.
 
 Account opening requires `authorityId`. The package selects the platform SQLite
 owner by default; exceptional runtimes can compose one explicitly. SQL-only
@@ -145,9 +148,49 @@ attachment-created row/blob persistence across browser-process restart,
 playback bytes, and URL release. This does not establish native recording or
 account-transfer behavior.
 
-License: AGPL-3.0-or-later.
+## Saved recordings
 
-Personal selects the authenticated person’s library. Shared selects the common
-application library on that server; Account remains the authenticated person.
-The App captures one credential-free replica scope for SQL, blobs, and recording.
-Switching closes the App before full navigation; a reload preserves its cache.
+A workflow borrows the ready App from its caller, which owns shutdown:
+
+```ts
+const started = await app.recording.start();
+if (started.error) return showError(started.error);
+const recording = started.data;
+const unlevel = recording.onLevel(showLevel);
+const stopped = await recording.stop();
+unlevel();
+if (stopped.error) return showError(stopped.error);
+// stopped.data: { audioBlobId, durationMs, byteLength }
+```
+
+`@epicenter/app/recorder` owns the saved-recording contract. The runtime's
+internal recorder receives the captured identity and local blob store from App.
+Construction opens no microphone, dataset, or model. App exposes recording
+operations and retains their cleanup owner. `selectedDeviceId` uses the portable
+device vocabulary from `@epicenter/recorder`.
+
+Opening the app captures its local or account destination before permission acquisition.
+`openLocal()` binds the local library; `openPersonal(account)` binds that account's
+Personal library; `openShared(account)` binds the application's Shared library. These platform factories receive the captured identity at composition;
+feature code never passes an account into a recording operation.
+Stop publishes complete bytes there; cancel discards them. Each session resolves
+once, and subsequent stop/cancel calls return `NoActiveRecording`. Identity is
+immutable. An unexpected capture ending leaves accepted audio available to stop
+or cancel; `onEnded` reports that fact, including to a late subscriber.
+
+`app.recording.current()` recovers only the opened app's destination. Desktop recordings
+can survive a reload of their owning window, and window destruction cancels
+them. Browser recordings belong to their document. Recording methods share the
+app's readiness and close gate. `app.close()` waits for admitted starts and stops,
+then cancels unresolved capture before releasing storage. Applications that want
+to save that audio must stop and save it before closing. Recording does
+not insert rows, upload audio, or apply transcription policy.
+
+Text-only dictation should own temporary capture and release it with its session;
+it need not publish saved recordings. The browser stream/VAD primitives below
+remain independent of this saved-artifact API.
+
+Run `bun test` for lifecycle checks and `bun run smoke:recording` for Chromium
+capture, storage, decoding, metering, and cancellation with a synthetic microphone.
+
+License: AGPL-3.0-or-later.

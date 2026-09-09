@@ -5,23 +5,23 @@
  */
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
+import {
+	RecorderError,
+	type Recording,
+	type RecordingFactory,
+	type RecordingReplica,
+} from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
 import { defineData } from '@epicenter/data/definition';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
-import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { asDeviceIdentifier } from '@epicenter/recorder';
-import {
-	RecorderError,
-	type Recording,
-	type RecordingReplica,
-	type RecordingFactory,
-} from '@epicenter/recorder/recording';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createEpicenter } from './index.js';
-import { createBrowserAppBlobs } from './browser.js';
+import { browser, createBrowserAppBlobs } from './browser.js';
+import { defineApplication } from './index.js';
 
 installTestLocks();
 
@@ -121,23 +121,26 @@ function setup({
 			},
 		};
 	};
-	const epicenter = createEpicenter({
+	const epicenter = defineApplication({
 		appId,
 		definition: defineData({ id: appId, kv: {}, tables: {} }),
-		sqlite: {
-			acquire: async () => ({
-				open: async () => {
-					throw new Error('Unused');
-				},
-				delete: async () => {},
+		runtime: {
+			...browser,
+			sqlite: {
+				acquire: async () => ({
+					open: async () => {
+						throw new Error('Unused');
+					},
+					delete: async () => {},
 
-				close: async () => {
-					releases++;
-				},
-			}),
+					close: async () => {
+						releases++;
+					},
+				}),
+			},
+			blobs: createBrowserAppBlobs(),
+			recording,
 		},
-		blobs: createBrowserAppBlobs(),
-		recording,
 		ai: { runtime: null, account: null },
 	});
 	return {

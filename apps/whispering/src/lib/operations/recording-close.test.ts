@@ -4,7 +4,7 @@ import { generateBlobId } from '@epicenter/blobs';
 import type {
 	Recording,
 	RecordingService,
-} from '@epicenter/recorder/recording';
+} from '@epicenter/app/recorder';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 

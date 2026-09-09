@@ -14,10 +14,7 @@ import {
 	createAppSqlite,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
-import type {
-	RecordingFactory,
-	RecordingOwner,
-} from '@epicenter/recorder/recording';
+import type { RecordingFactory, RecordingOwner } from './recorder.js';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
 import { createAppAi } from './ai.js';

@@ -38,11 +38,9 @@ const aliases = Object.entries(imports).filter(
 describe('platform seams', () => {
 	test('the host supplies authentication, storage, and native capture', () => {
 		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
-			'#platform/app-blobs',
 			'#platform/auth',
 			'#platform/manual-recorder-config',
-			'#platform/recording',
-			'#platform/sqlite',
+			'#platform/runtime',
 		]);
 	});
 

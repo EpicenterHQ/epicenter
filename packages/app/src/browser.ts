@@ -1,3 +1,6 @@
+import type { ApplicationRuntime } from './index.js';
+import { resources as browserResources } from './platform/browser.js';
+import { createBrowserRecording } from './recording/browser.js';
 import { createAiConfiguration } from './ai-configuration.js';
 import { accountInference, type AiTransport } from './ai.js';
 import type { AppAiBinding } from './index.js';
@@ -57,3 +60,10 @@ export function createBrowserAppAi(
 		},
 	};
 }
+
+/** Browser storage and capture; importing this value acquires no resources. */
+export const browser: ApplicationRuntime = {
+	...browserResources,
+	blobs: createBrowserAppBlobs(),
+	recording: createBrowserRecording,
+};

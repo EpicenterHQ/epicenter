@@ -14,11 +14,14 @@
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
 		"./ai": "./src/ai.ts",
-		"./ai-configuration": "./src/ai-configuration.ts"
+		"./ai-configuration": "./src/ai-configuration.ts",
+		"./recorder": "./src/recorder.ts",
+		"./epicenter-host": "./src/epicenter-host.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json",
-		"test": "bun test"
+		"test": "bun test",
+		"smoke:recording": "bun scripts/browser-smoke.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
@@ -31,13 +34,16 @@
 		"nanoid": "catalog:",
 		"openai": "^7.12.1",
 		"wellcrafted": "catalog:",
-		"@epicenter/sync": "workspace:*",
-		"@epicenter/principal": "workspace:*"
+		"@tauri-apps/api": "catalog:",
+		"@epicenter/principal": "workspace:*",
+		"@epicenter/sync": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"fake-indexeddb": "^6.2.5",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"playwright": "^1.61.1",
+		"vite": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

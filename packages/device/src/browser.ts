@@ -11,7 +11,7 @@
  *
  * **This leaf builds storage, not a data session.** Nothing about a session
  * varies by runtime; an OPFS file and a keychain do. So this is what an
- * application selects per build, while one `createEpicenter` in
+ * application selects per build, while one `defineApplication` in
  * `@epicenter/app` serves every build.
  *
  * The runtime is still the import path, never a runtime test: a WebView cannot
