@@ -4,11 +4,16 @@
  */
 import { expect, mock, test } from 'bun:test';
 import { createDeparture } from '@epicenter/app-shell/departure';
+import {
+	createInferenceSelections,
+	type InferenceSelections,
+} from '@epicenter/app-shell/inference-selections';
 import { Ok } from 'wellcrafted/result';
 
 let current: {
 	app: { ready: Promise<{ error: unknown }> } | null;
 	account: null;
+	selections: InferenceSelections | null;
 	isClosing(): boolean;
 	closeApp(): Promise<void>;
 	departure: ReturnType<typeof createDeparture>;
@@ -16,15 +21,23 @@ let current: {
 let imports = 0;
 
 async function setup(appReady: Promise<{ error: unknown }> | null) {
+	const selections = appReady
+		? createInferenceSelections({
+				storageKey: 'application-test',
+				storage: { getItem: () => null, setItem() {} },
+			})
+		: null;
 	let closes = 0;
 	let closing = false;
 	const closeApp = async () => {
 		closing = true;
+		selections?.[Symbol.dispose]();
 		closes++;
 	};
 	current = {
 		app: appReady ? { ready: appReady } : null,
 		account: null,
+		selections,
 		isClosing: () => closing,
 		closeApp,
 		departure: createDeparture({ account: null, close: closeApp }),
@@ -45,15 +58,19 @@ test('import acquires nothing and repeated opening publishes the same ready App'
 	const { application } = await setup(ready.promise);
 	expect(imports).toBe(before);
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 	const first = application.openApplication();
 	expect(application.openApplication()).toBe(first);
 	const opened = await first;
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 	ready.resolve(Ok(undefined));
 	await ready.promise;
 	expect(application.getApp()).toBe(opened.app);
+	expect(application.getSelections()).toBe(opened.selections);
 	await opened.departure.close();
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 	expect(await application.openApplication()).toBe(opened);
 });
 
@@ -65,6 +82,7 @@ test('close during readiness prevents late publication', async () => {
 	ready.resolve(Ok(undefined));
 	await ready.promise;
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 	expect(closes()).toBe(1);
 });
 
@@ -75,6 +93,7 @@ test('failed readiness never publishes or separately closes the App', async () =
 	ready.resolve({ error: new Error('storage failed') });
 	await Bun.sleep(0);
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 	// The concrete App owns opening-failure cleanup; this observer cannot
 	// bypass retirement invalidation when readiness fails.
 	expect(closes()).toBe(0);
@@ -86,6 +105,7 @@ test('connection-only opening publishes no library', async () => {
 	const opened = await application.openApplication();
 	expect(opened.app).toBeNull();
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 });
 
 test('readiness during a refused departure leaves the App usable', async () => {
@@ -106,6 +126,7 @@ test('readiness during a refused departure leaves the App usable', async () => {
 	expect(await refusal).toEqual(new Error('recording'));
 	expect(opened.departure.state.phase).toBe('open');
 	expect(application.getApp()).toBe(opened.app);
+	expect(application.getSelections()).toBe(opened.selections);
 });
 
 test('admitted work can read the App during UI drain but not after App close starts', async () => {
@@ -117,7 +138,9 @@ test('admitted work can read the App during UI drain but not after App close sta
 	await Bun.sleep(0);
 	expect(opened.departure.state.phase).toBe('closing');
 	expect(application.getApp()).toBe(opened.app);
+	expect(application.getSelections()).toBe(opened.selections);
 	drain.resolve();
 	await closing;
 	expect(() => application.getApp()).toThrow();
+	expect(() => application.getSelections()).toThrow();
 });

@@ -26,7 +26,7 @@ const owner = createAppAi({
 	},
 	account: null,
 	runtime: transport,
-	configuration: null,
+	connections: null,
 });
 assert(owner.value.ai.runtime, 'App owns the supplied native runtime');
 const client = owner.value.ai.runtime.client;

@@ -4,12 +4,18 @@
  */
 import { expect, mock, test } from 'bun:test';
 import { createAppAi } from '@epicenter/app/ai';
-import { createAiConfiguration } from '@epicenter/app/ai-configuration';
+import { createAiConnections } from '@epicenter/app/ai-connections';
+import {
+	createInferenceSelections,
+	type InferenceSelections,
+} from '@epicenter/app-shell/inference-selections';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 let currentApp: unknown;
+let currentSelections: InferenceSelections;
 let reads = 0;
 mock.module('../application.js', () => ({
+	getSelections: () => currentSelections,
 	getApp() {
 		reads++;
 		return currentApp;
@@ -17,24 +23,35 @@ mock.module('../application.js', () => ({
 }));
 const { runPolish } = await import('./run-polish.js');
 
-function setup() {
+async function setup() {
 	const values = new Map<string, unknown>([
 		['completionModel', 'chosen'],
 		['polishEnabled', true],
 		['polishInstructions', 'Fix punctuation.'],
 		['dictionary', ['Epicenter']],
 	]);
-	const configuration = createAiConfiguration({
+	const savedConnections = new Map<string, string>();
+	const records = createAiConnections({
 		storageKey: 'polish',
-		storage: { getItem: () => null, setItem() {}, removeItem() {} },
+		storage: {
+			getItem: (key) => savedConnections.get(key) ?? null,
+			setItem: (key, value) => {
+				savedConnections.set(key, value);
+			},
+		},
 	});
+	const selections = createInferenceSelections({
+		storageKey: 'selection-test',
+		storage: { getItem: () => null, setItem() {} },
+	});
+	currentSelections = selections;
 	const controller = new AbortController();
 	const requests: unknown[] = [];
 	let fail = false;
 	let delayed = false;
 	const started = Promise.withResolvers<void>();
 	const owner = createAppAi({
-		configuration,
+		connections: records,
 		account: null,
 		runtime: null,
 		lifetime: {
@@ -60,12 +77,12 @@ function setup() {
 			});
 		},
 	});
-	const id = configuration.add({
+	const id = await owner.value.ai.connections!.add({
 		name: 'Chosen',
 		baseUrl: 'https://chosen.example/v1',
 		models: ['chosen'],
 	});
-	configuration.select('completion', { connectionId: id, model: 'chosen' });
+	selections.set('completion', { connectionId: id, model: 'chosen' });
 	currentApp = {
 		ai: owner.value.ai,
 		account: null,
@@ -74,7 +91,8 @@ function setup() {
 	return {
 		values,
 		requests,
-		configuration,
+		app: { ai: owner.value.ai },
+		selections,
 		id,
 		started: started.promise,
 		delay() {
@@ -84,6 +102,7 @@ function setup() {
 			fail = true;
 		},
 		async close() {
+			selections[Symbol.dispose]();
 			controller.abort();
 			await owner.close();
 		},
@@ -95,7 +114,7 @@ test('importing Polish reads no App or device configuration', () => {
 });
 
 test('Polish reads current settings and sends the selected model and dictionary', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		expect(expectOk(await runPolish({ input: 'hello epicenter' }))).toBe(
 			'Hello, Epicenter.',
@@ -114,13 +133,13 @@ test('Polish reads current settings and sends the selected model and dictionary'
 });
 
 test('disabled, empty, and missing selections return raw input without inference', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		fixture.values.set('polishEnabled', false);
 		expect(expectOk(await runPolish({ input: 'raw' }))).toBe('raw');
 		fixture.values.set('polishEnabled', true);
 		expect(expectOk(await runPolish({ input: '  ' }))).toBe('  ');
-		fixture.configuration.remove(fixture.id);
+		await fixture.app.ai.connections!.remove(fixture.id);
 		expect(expectOk(await runPolish({ input: 'raw' }))).toBe('raw');
 		expect(fixture.requests).toHaveLength(0);
 	} finally {
@@ -129,7 +148,7 @@ test('disabled, empty, and missing selections return raw input without inference
 });
 
 test('cancellation returns raw text and request failure carries a raw fallback', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		const controller = new AbortController();
 		controller.abort();
@@ -144,14 +163,14 @@ test('cancellation returns raw text and request failure carries a raw fallback',
 });
 
 test('retained operations refuse a closed App', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	await fixture.close();
-	await expect(runPolish({ input: 'raw' })).rejects.toThrow('closed');
+	await expect(runPolish({ input: 'raw' })).rejects.toThrow('disposed');
 	expect(fixture.requests).toHaveLength(0);
 });
 
 test('ship raw cancels an in-flight Polish request', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		fixture.delay();
 		const controller = new AbortController();

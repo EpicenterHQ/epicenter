@@ -1,4 +1,4 @@
-import type { AiConfiguration } from './ai-configuration.js';
+import type { AiConnections } from './ai-connections.js';
 import type { AiTransport } from './ai.js';
 import { openApp } from './open.js';
 import type { Account } from '@epicenter/auth';
@@ -9,7 +9,8 @@ import type { DataDefinition } from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import type { RecordingFactory } from './recorder.js';
 import { resources } from '#platform/resources';
-import { browser, createBrowserAppAi } from './browser.js';
+import { browser } from './browser.js';
+import { createDefaultAppAi } from '#platform/ai';
 
 export type App<TDefinition extends DataDefinition> = ReturnType<
 	typeof openApp<TDefinition>
@@ -53,7 +54,7 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 	definition,
 	settingsKey,
 	runtime = { ...browser, ...resources },
-	ai = createBrowserAppAi(settingsKey ?? appId),
+	ai = createDefaultAppAi(settingsKey ?? appId),
 }: {
 	appId: string;
 	definition: TDefinition;
@@ -87,10 +88,10 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 	});
 }
 
-/** Independent inference transport and configuration selection. */
+/** Independent inference transport and connections selection. */
 export type AppAiBinding = {
 	runtime: AiTransport | null;
 	account: ((account: Account) => AiTransport) | null;
-	configuration?: (appId: string) => AiConfiguration;
+	connections?: (appId: string) => AiConnections;
 	configuredFetch?: AiTransport['fetch'];
 };

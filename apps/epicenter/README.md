@@ -166,3 +166,17 @@ cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 - Do not create `apps/epicenter/<app>` source copies. The build must consume the canonical app source directly.
 
 The durable host and trust decision is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md).
+
+## Shared AI connections
+
+Apps built for `epicenter-host` use one custom inference catalog per desktop
+profile. The host stores endpoint metadata in `ai/connections.json` under its
+resolved data directory and optional keys in the OS keychain. This configuration
+is shared across apps on that profile; it does not sync between devices or enter
+an application's library data.
+
+The `/_epicenter/ai` broker uses the existing browser session. Mutations also
+require the exact host Origin. Open apps receive committed snapshots over SSE;
+inference requests identify an immutable connection ID and captured access
+version. Apps receive `hasApiKey`, never the stored key. Their workflow choices
+remain separate. See the [App API](../../packages/app/README.md).

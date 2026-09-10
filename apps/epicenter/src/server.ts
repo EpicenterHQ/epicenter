@@ -1,3 +1,5 @@
+import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
+import type { AiCatalog } from './ai-catalog.ts';
 /**
  * The Bun-owned Device origin: trusted SPA documents, Home APIs, and the
  * Home session WebSocket. The launch credential can only mint short-lived
@@ -111,6 +113,7 @@ export type HomeServerOptions = {
 	device?: DeviceSqliteOwner;
 	/** Credential-store owner for one labeled secret per application account. */
 	appSecrets?: AppSecretOwner;
+	aiCatalog?: AiCatalog;
 };
 
 const SESSION_COOKIE = 'epicenter_session';
@@ -144,6 +147,7 @@ export function createHomeServer({
 	blobRemote,
 	device,
 	appSecrets,
+	aiCatalog,
 }: HomeServerOptions) {
 	if (launchToken === '') {
 		throw new Error('Device refuses to serve without a launch token.');
@@ -249,6 +253,14 @@ export function createHomeServer({
 			return requireBrowserSession(c, next);
 		return requirePrivateBroker(c, next);
 	});
+
+	app.use('/_epicenter/ai/*', async (c, next) => {
+		c.header('cache-control', 'no-store');
+		if (c.req.method === 'GET' || c.req.method === 'HEAD')
+			return requireBrowserSession(c, next);
+		return requirePrivateBroker(c, next);
+	});
+	if (aiCatalog) app.route('/_epicenter/ai', createAiCatalogRoutes(aiCatalog));
 
 	app.all('/_epicenter/account/http', async (c) => {
 		const account = desktopAuth.account;

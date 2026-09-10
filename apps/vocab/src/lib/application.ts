@@ -1,6 +1,9 @@
 import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
+import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
+import { initializeBrowserAiSettings } from '@epicenter/app-shell/migrate-ai-settings';
 import { APPS } from '@epicenter/constants/apps';
+import { Ok, trySync } from 'wellcrafted/result';
 import { authStartup } from './auth.js';
 import { vocabDefinition } from './data.js';
 
@@ -8,19 +11,42 @@ import { vocabDefinition } from './data.js';
 // both the Account and App across navigation in this document.
 const auth = authStartup.auth;
 const state = auth?.state;
-export const account = !state || state.status === 'signed-out' ? null : state.account;
-export const app =
-	account === null || new URLSearchParams(location.search).has('connect')
-		? null
-		: defineApplication({
-				appId: APPS.VOCAB.id,
-				settingsKey: 'vocab',
-				definition: vocabDefinition,
-			}).openPersonal(account);
+export const account =
+	!state || state.status === 'signed-out' ? null : state.account;
+const shouldOpen =
+	account !== null && !new URLSearchParams(location.search).has('connect');
+if (shouldOpen) await initializeBrowserAiSettings('vocab');
+export const selections = shouldOpen
+	? createBrowserInferenceSelections('vocab')
+	: null;
+export const app = trySync({
+	try: () =>
+		account === null || new URLSearchParams(location.search).has('connect')
+			? null
+			: defineApplication({
+					appId: APPS.VOCAB.id,
+					settingsKey: 'vocab',
+					definition: vocabDefinition,
+				}).openPersonal(account),
+	catch(cause) {
+		// Preserve the opening failure even if subscription cleanup also fails.
+		trySync({
+			try: () => selections?.[Symbol.dispose](),
+			catch: () => Ok(undefined),
+		});
+		throw cause;
+	},
+}).data;
+void app?.ready.then(({ error }) => {
+	if (error) selections?.[Symbol.dispose]();
+});
 export const departure = createDeparture({
 	retirement: app?.retirement,
 	reload: () => location.reload(),
 	auth: app && auth ? auth : undefined,
 	account,
-	close: () => app?.close() ?? Promise.resolve(),
+	close() {
+		selections?.[Symbol.dispose]();
+		return app?.close() ?? Promise.resolve();
+	},
 });

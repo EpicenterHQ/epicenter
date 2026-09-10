@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -9,11 +11,24 @@
 	import { deviceConfig } from '$lib/state/device-config.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
-	const app = getWhisperingApp();
+	const whispering = getWhisperingApp();
+	const app = whispering.inferenceConnections.app;
+	let alive = true;
+	onDestroy(() => { alive = false; });
+	const useSavedEndpoint = createMutation(() => ({
+		mutationFn: async () => {
+			if (!previous.target) throw new Error('Saved endpoint is unavailable.');
+			const model = whispering.settings.get('completionModel').trim();
+			const id = await app.ai.connections!.add({ ...previous.target, models: [model] });
+			if (!alive || app !== whispering.inferenceConnections.app) return;
+			whispering.inferenceConnections.selections.set('completion', { connectionId: id, model });
+			whispering.settings.set('completionModel', model);
+		},
+	}));
 	const state = $derived(resolveCompletionState());
 	// Old provider fields are only an explicit setup source, never a routing fallback.
 	const previous = $derived(resolveCompletionStateFromConfig({
-		provider: app.settings.get('completionProvider'),
+		provider: whispering.settings.get('completionProvider'),
 		getDeviceConfig: deviceConfig.get,
 	}));
 </script>
@@ -23,13 +38,13 @@
 		<Field.Label>Text connection and model</Field.Label>
 		<InferencePicker
 			scope="completion"
-			model={app.settings.get('completionModel')}
-			connections={app.inferenceConnections}
-			onSelectModel={(model) => app.settings.set('completionModel', model)}
+			model={whispering.settings.get('completionModel')}
+			connections={whispering.inferenceConnections}
+			onSelectModel={(model) => whispering.settings.set('completionModel', model)}
 		/>
 		<Field.Description>
 			Polish and Recipes use this selection. Connect a provider from the picker,
-			then choose a model or enter its ID. Connections and keys stay in this app on this device.
+			then choose a model or enter its ID. Desktop connections are shared across apps on this device. Browser connections stay in this app’s local settings.
 		</Field.Description>
 	</Field.Field>
 	{#if state.canRun}
@@ -41,16 +56,12 @@
 				Choose a text connection and model. Until then, transcripts ship raw and Recipes cannot run.
 			</Alert.Description>
 		</Alert.Root>
-		{#if previous.target && previous.canRun && app.settings.get('completionModel').trim()}
+		{#if previous.target && previous.canRun && whispering.settings.get('completionModel').trim()}
 			{@const target = previous.target}
-			<Button variant="outline" onclick={() => {
-				const model = app.settings.get('completionModel').trim();
-				const id = app.inferenceConnections.add(target, [model]);
-				app.inferenceConnections.select('completion', { connectionId: id, model });
-				app.settings.set('completionModel', model);
-			}}>
-				Use saved endpoint: {app.settings.get('completionModel')} · {resolveTextDestination(app.settings.get('completionProvider'), target)}
+			<Button variant="outline" disabled={useSavedEndpoint.isPending} onclick={() => useSavedEndpoint.mutate()}>
+				Use saved endpoint: {whispering.settings.get('completionModel')} · {resolveTextDestination(whispering.settings.get('completionProvider'), target)}
 			</Button>
 		{/if}
 	{/if}
+	{#if useSavedEndpoint.isError}<p role="alert" class="text-sm text-destructive">Could not save the connection. Try again.</p>{/if}
 </Field.Group>

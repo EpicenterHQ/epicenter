@@ -32,14 +32,14 @@
 	<p role="alert">{error}</p>
 {:else if application}
 	<AppBoot startup={authStartup} departure={application.departure} hasApp={application.app !== null} appName="Vocab" noun="conversations">
-		{#if application.app && application.account && showing}
+		{#if application.app && application.account && application.selections && showing}
 			{#await application.app.ready}
 				<Loading class="h-dvh" label="Opening your conversations…" />
 			{:then { error }}
 				{#if error !== null}
 					<CannotOpenScreen appName="Vocab" noun="conversations" {error} retry={() => location.reload()} />
 				{:else}
-					<VocabShell data={application.app} account={application.account} bind:this={shell} />
+					<VocabShell selections={application.selections} data={application.app} account={application.account} bind:this={shell} />
 				{/if}
 			{/await}
 		{/if}

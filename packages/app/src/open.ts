@@ -213,7 +213,15 @@ export function openApp<const TDefinition extends DataDefinition>(
 		});
 		return closing;
 	}
-	const ready = document.ready.then(async (result) => {
+	const ready = document.ready.then(async (opened) => {
+		let result = opened;
+		if (!result.error) {
+			try {
+				await inference?.ready;
+			} catch (cause) {
+				result = StoreError.StorageFailed({ cause });
+			}
+		}
 		if (document.isRetired) return StoreError.ClosedWhileOpening();
 		if (result.error)
 			await close().catch((cause) =>
@@ -243,7 +251,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 			lifetime: document.lifetime,
 			account: account === null ? null : (ai?.account?.(account) ?? null),
 			runtime: ai?.runtime ?? null,
-			configuration: ai?.configuration?.(appId) ?? null,
+			connections: ai?.connections?.(appId) ?? null,
 			configuredFetch: ai?.configuredFetch,
 		});
 		secretAccess = secrets(appId, identity, {

@@ -50,14 +50,14 @@
 {:else if application}
 	<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
 	<AppBoot startup={authClient} departure={application.departure} hasApp={application.app !== null} appName="Whispering" noun="recordings">
-		{#if application.app && showing}
+		{#if application.app && application.selections && showing}
 			{#await application.app.ready}
 				<Loading class="h-dvh" label="Opening your recordings…" />
 			{:then { error }}
 				{#if error !== null}
 					<CannotOpenScreen appName="Whispering" noun="recordings" {error} retry={() => location.reload()} />
 				{:else}
-					<WhisperingShell openedApp={application.app} account={application.account} bind:this={shell}>
+					<WhisperingShell selections={application.selections} openedApp={application.app} account={application.account} bind:this={shell}>
 						{@render children()}
 					</WhisperingShell>
 				{/if}

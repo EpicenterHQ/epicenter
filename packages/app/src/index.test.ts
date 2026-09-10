@@ -15,6 +15,7 @@ import { defineApplication } from './index.js';
 import { browser, createBrowserAppBlobs } from './browser.js';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { Ok } from 'wellcrafted/result';
+import { createAiConnections } from './ai-connections.js';
 
 installTestLocks();
 
@@ -34,6 +35,54 @@ const sqlite: DeviceSqliteOwner = {
 const blobs = createBrowserAppBlobs();
 
 const definition = defineData({ id: 'so.epicenter.notes', tables: {}, kv: {} });
+
+test('App readiness includes catalog hydration and failed hydration releases the library', async () => {
+	const hydrated = Promise.withResolvers<void>();
+	const appId = `test.${crypto.randomUUID()}`;
+	let released = false;
+	const application = defineApplication({
+		appId,
+		definition,
+		runtime: { ...browser, sqlite, blobs },
+		ai: {
+			runtime: null,
+			account: null,
+			connections() {
+				const owner = createAiConnections({
+					storageKey: appId,
+					storage: { getItem: () => null, setItem() {} },
+				});
+				return {
+					...owner,
+					ready: hydrated.promise,
+					close() {
+						released = true;
+						owner.close();
+					},
+				};
+			},
+		},
+	});
+	const app = application.openLocal();
+	let ready = false;
+	void app.ready.then(() => {
+		ready = true;
+	});
+	await Bun.sleep(0);
+	expect(ready).toBe(false);
+	hydrated.reject(new Error('Catalog unavailable.'));
+	expect((await app.ready).error).not.toBeNull();
+	expect(released).toBe(true);
+	await app.close();
+	const replacement = defineApplication({
+		appId,
+		definition,
+		runtime: { ...browser, sqlite, blobs },
+		ai: { account: null, runtime: null },
+	}).openLocal();
+	expectOk(await replacement.ready);
+	await replacement.close();
+});
 
 test('the application id is explicit and independent from the definition id', () => {
 	// The opening application is its own segment of the store address
@@ -111,6 +160,9 @@ test.each([
 				setItem: (key: string, value: string) => stored.set(key, value),
 				removeItem: (key: string) => stored.delete(key),
 			},
+			dispatchEvent() {
+				return true;
+			},
 			addEventListener() {},
 			removeEventListener() {},
 		},
@@ -127,8 +179,10 @@ test.each([
 		expect(await expectOk(await app.blobs.get(blobId)).text()).toBe(
 			'default bytes',
 		);
-		app.ai.configuration!.add({ baseUrl: 'https://inference.example/v1' });
-		expect([...stored.keys()]).toEqual([`${settingsKey ?? appId}.app-ai`]);
+		await app.ai.connections!.add({ baseUrl: 'https://inference.example/v1' });
+		expect([...stored.keys()]).toEqual([
+			`${settingsKey ?? appId}.app-ai-connections`,
+		]);
 		await app.close();
 		const reopened = application.openLocal();
 		try {
@@ -136,7 +190,7 @@ test.each([
 			expect(await expectOk(await reopened.blobs.get(blobId)).text()).toBe(
 				'default bytes',
 			);
-			expect(reopened.ai.configuration!.read()).toHaveLength(1);
+			expect(reopened.ai.connections!.getAll()).toHaveLength(1);
 		} finally {
 			await reopened.close();
 		}
@@ -149,7 +203,7 @@ test.each([
 	}
 });
 
-test('an explicit runtime selects all resources while explicit AI omits default configuration', async () => {
+test('an explicit runtime selects all resources while explicit AI omits default connections', async () => {
 	const calls: string[] = [];
 	const appId = 'test.' + crypto.randomUUID();
 	const application = defineApplication({
@@ -182,7 +236,7 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 	try {
 		expectOk(await app.ready);
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets', 'sqlite']);
-		expect(app.ai.configuration).toBeNull();
+		expect(app.ai.connections).toBeNull();
 		expect(app.ai.account).toBeNull();
 		expect(app.ai.runtime).toBeNull();
 	} finally {

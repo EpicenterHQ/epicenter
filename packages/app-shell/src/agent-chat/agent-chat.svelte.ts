@@ -353,8 +353,8 @@ export function createAgentChatState({
 			 * default is the factory's `defaultModel`, owned here so a thread needn't be
 			 * told it a second time alongside the registry that already holds it. */
 			useDefaultModel() {
-                if (!connections.ai.account || !connections.accountId) return;
-				connections.select(conversationId, {
+				if (!connections.app.ai.account || !connections.accountId) return;
+				connections.selections.set(conversationId, {
 					connectionId: connections.accountId!,
 					model: defaultModel,
 				});
@@ -583,7 +583,7 @@ export function createAgentChatState({
 		const target = current
 			? connections.target(current.id, current.model)
 			: null;
-		if (target) connections.select(id, target);
+		if (target) connections.selections.set(id, target);
 		ensureHandle(id);
 		selection.select(id);
 

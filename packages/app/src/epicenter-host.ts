@@ -9,3 +9,5 @@ export const epicenterHost: ApplicationRuntime = {
 	blobs: createWebviewBlobs,
 	recording: createDesktopRecording,
 };
+
+export { createEpicenterHostAppAi } from './ai-connections.epicenter-host.js';

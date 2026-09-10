@@ -638,6 +638,7 @@
         "@tauri-apps/api": "catalog:",
         "@y/y": "14.0.0-rc.24",
         "arktype": "catalog:",
+        "nanoid": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

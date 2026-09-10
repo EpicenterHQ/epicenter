@@ -1,6 +1,7 @@
 /** Verifies capture work blocks closure and failed saving preserves source audio. */
 import { expect, mock, test } from 'bun:test';
 import type { Recording, RecordingService } from '@epicenter/app/recorder';
+import { createInferenceSelections } from '@epicenter/app-shell/inference-selections';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
@@ -269,6 +270,10 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	const notification =
 		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
 	const session = createWhisperingUiSession({
+		selections: createInferenceSelections({
+			storageKey: 'recording-close',
+			storage: { getItem: () => null, setItem() {} },
+		}),
 		openedApp: {
 			recording: { current: async () => Ok(null) },
 		} as unknown as import('../whispering/app').WhisperingAppHandle,

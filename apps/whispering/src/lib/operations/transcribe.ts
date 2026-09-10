@@ -1,12 +1,13 @@
+import { matchInferenceTarget } from '@epicenter/app-shell/inference-selections';
 import type { BlobId } from '@epicenter/blobs';
-import { APIError, type OpenAI } from 'openai';
+import { APIError } from 'openai';
 import {
 	type AnyTaggedError,
 	defineErrors,
 	extractErrorMessage,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { getApp } from '../application.js';
+import { getApp, getSelections } from '../application.js';
 import { isSupportedLanguage } from '../constants/languages.js';
 import type { RecordingId } from '../data.js';
 import { DeepgramTranscriptionServiceLive } from '../services/transcription/cloud/deepgram.js';
@@ -53,28 +54,10 @@ const TranscriptionOperationError = defineErrors({
 export function resolveTranscriptionState() {
 	const app = getApp();
 	const model = settings.get('transcriptionModel');
-	const selected = app.ai.configuration?.target('transcription', model);
-	let client: OpenAI | null = null;
-	let account = false;
-	if (selected) {
-		const accountId =
-			app.account === null
-				? null
-				: `account:${JSON.stringify([app.account.authorityId, app.account.principalId])}`;
-		const runtimeId = app.ai.runtime
-			? `runtime:${app.ai.runtime.client.baseURL}`
-			: null;
-		if (selected.connectionId === accountId) {
-			client = app.ai.account?.client ?? null;
-			account = client !== null;
-		} else if (selected.connectionId === runtimeId) {
-			client = app.ai.runtime?.client ?? null;
-		} else {
-			client =
-				app.ai.configured().find((entry) => entry.id === selected.connectionId)
-					?.client ?? null;
-		}
-	}
+	const selected = getSelections().get('transcription');
+	const client =
+		selected?.model === model ? matchInferenceTarget(app, selected) : null;
+	const account = client !== null && client === app.ai.account?.client;
 	return {
 		client,
 		model,

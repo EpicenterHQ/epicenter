@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import type { Account } from "@epicenter/auth";
 	import type { App } from '@epicenter/app';
 	import { createDictation } from "$lib/state/dictation.svelte";
@@ -29,11 +30,13 @@
 	// `data` and never asks which one it is.
 	let {
 		data: opened,
+		selections,
 		account,
 		removeLocalData,
 	}: {
 		account: Account;
 		data: App<typeof vocabDefinition>;
+		selections: InferenceSelections;
 		removeLocalData?: () => Promise<void>;
 	} = $props();
 
@@ -47,7 +50,7 @@
 	/* svelte-ignore state_referenced_locally */
 	const entries = createEntriesState({ data });
 	/* svelte-ignore state_referenced_locally */
-	const inferenceConnections = createVocabConnections(opened);
+	const inferenceConnections = createVocabConnections(opened, selections);
 	/* svelte-ignore state_referenced_locally */
 	const dictation = createDictation(opened.ai.account?.client ?? null);
 	setVocabSurface({ entries, inferenceConnections, dictation });

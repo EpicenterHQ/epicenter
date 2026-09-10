@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
@@ -14,9 +16,23 @@
 	import AdvancedDisclosure from './AdvancedDisclosure.svelte';
 	import ProviderConfigFields from './ProviderConfigFields.svelte';
 
-	const app = getWhisperingApp();
-	const service = $derived(app.settings.get('transcriptionService'));
-	const readiness = $derived(getTranscriptionReadiness(app));
+	const whispering = getWhisperingApp();
+	const app = whispering.inferenceConnections.app;
+	let alive = true;
+	onDestroy(() => { alive = false; });
+	const useSavedEndpoint = createMutation(() => ({
+		mutationFn: async () => {
+			if (!previous) throw new Error('Saved endpoint is unavailable.');
+			const { model, ...connection } = previous;
+			const id = await app.ai.connections!.add({ ...connection, models: [model] });
+			if (!alive || app !== whispering.inferenceConnections.app) return;
+			whispering.inferenceConnections.selections.set('transcription', { connectionId: id, model });
+			whispering.settings.set('transcriptionModel', model);
+			whispering.settings.set('transcriptionService', 'connection');
+		},
+	}));
+	const service = $derived(whispering.settings.get('transcriptionService'));
+	const readiness = $derived(getTranscriptionReadiness(whispering));
 	const previous = $derived.by(() => {
 		if (service === 'speaches') {
 			const endpoint = deviceConfig.get('providers.speaches.endpoint').trim();
@@ -27,7 +43,7 @@
 		const provider = PROVIDERS[service];
 		const key = secrets.get(provider.apiKeyConfigKey);
 		const override = deviceConfig.get(provider.endpointConfigKey).trim();
-		const model = app.settings.get(provider.modelSettingKey).trim();
+		const model = whispering.settings.get(provider.modelSettingKey).trim();
 		if (!model || (!override && key.status !== 'available')) return null;
 		return {
 			name: provider.label,
@@ -48,14 +64,9 @@
 		{#if readiness.primaryIssue}<p role="status" class="text-sm text-muted-foreground">{readiness.primaryIssue}</p>{/if}
 		{#if previous}
 			{@const saved = previous}
-			<Button variant="outline" onclick={() => {
-				const { model, ...connection } = saved;
-				const id = app.inferenceConnections.add(connection, [model]);
-				app.inferenceConnections.select('transcription', { connectionId: id, model: saved.model });
-				app.settings.set('transcriptionModel', saved.model);
-				app.settings.set('transcriptionService', 'connection');
-			}}>Use saved {saved.name} endpoint: {saved.model}</Button>
+			<Button variant="outline" disabled={useSavedEndpoint.isPending} onclick={() => useSavedEndpoint.mutate()}>Use saved {saved.name} endpoint: {saved.model}</Button>
 		{/if}
+		{#if useSavedEndpoint.isError}<p role="alert" class="text-sm text-destructive">Could not save the connection. Try again.</p>{/if}
 	</Field.Field>
 
 	<AdvancedDisclosure label="Other transcription providers">
@@ -66,8 +77,8 @@
 					<Field.Label>{provider.label}</Field.Label>
 					<ProviderConfigFields provider={id} />
 					<Field.Label for="transcription-model-{id}">Model ID</Field.Label>
-					<Input id="transcription-model-{id}" value={app.settings.get(provider.modelSettingKey)} onblur={event => app.settings.set(provider.modelSettingKey, event.currentTarget.value)} />
-					<Button variant={service === id ? 'secondary' : 'outline'} disabled={secrets.get(provider.apiKeyConfigKey).status !== 'available'} onclick={() => app.settings.set('transcriptionService', id)}>
+					<Input id="transcription-model-{id}" value={whispering.settings.get(provider.modelSettingKey)} onblur={event => whispering.settings.set(provider.modelSettingKey, event.currentTarget.value)} />
+					<Button variant={service === id ? 'secondary' : 'outline'} disabled={secrets.get(provider.apiKeyConfigKey).status !== 'available'} onclick={() => whispering.settings.set('transcriptionService', id)}>
 						{service === id ? `Using ${provider.label}` : `Use ${provider.label}`}
 					</Button>
 				</Field.Field>
@@ -79,8 +90,8 @@
 		<Field.Group>
 			<Field.Field>
 				<Field.Label for="spoken-language">Spoken language</Field.Label>
-				<Select.Root type="single" bind:value={() => app.settings.get('transcriptionLanguage'), value => app.settings.set('transcriptionLanguage', value as SupportedLanguage)}>
-					<Select.Trigger id="spoken-language">{SUPPORTED_LANGUAGES_OPTIONS.find(option => option.value === app.settings.get('transcriptionLanguage'))?.label ?? 'Auto'}</Select.Trigger>
+				<Select.Root type="single" bind:value={() => whispering.settings.get('transcriptionLanguage'), value => whispering.settings.set('transcriptionLanguage', value as SupportedLanguage)}>
+					<Select.Trigger id="spoken-language">{SUPPORTED_LANGUAGES_OPTIONS.find(option => option.value === whispering.settings.get('transcriptionLanguage'))?.label ?? 'Auto'}</Select.Trigger>
 					<Select.Content>
 						{#each SUPPORTED_LANGUAGES_OPTIONS as option}<Select.Item value={option.value} label={option.label} />{/each}
 					</Select.Content>
@@ -89,7 +100,7 @@
 			</Field.Field>
 			<Field.Field>
 				<Field.Label for="transcription-prompt">Transcription prompt</Field.Label>
-				<Textarea id="transcription-prompt" value={app.settings.get('transcriptionPrompt')} onblur={event => app.settings.set('transcriptionPrompt', event.currentTarget.value)} />
+				<Textarea id="transcription-prompt" value={whispering.settings.get('transcriptionPrompt')} onblur={event => whispering.settings.set('transcriptionPrompt', event.currentTarget.value)} />
 				<Field.Description>Names and context can help models that support prompts. Dictionary terms are included. Use Recipes for rewriting or translation.</Field.Description>
 			</Field.Field>
 		</Field.Group>

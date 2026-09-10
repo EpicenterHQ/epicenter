@@ -157,10 +157,10 @@ function createFakeChat() {
 			throw cause;
 		},
 		connections: {
-			select: (
-				scope: string,
-				target: { connectionId: string; model: string },
-			) => targets.set(scope, target),
+			selections: {
+				set: (scope: string, target: { connectionId: string; model: string }) =>
+					targets.set(scope, target),
+			},
 			target: (scope: string, model: string) =>
 				targets.get(scope)?.model === model ? targets.get(scope) : null,
 			resolve: (scope: string, model: string) =>

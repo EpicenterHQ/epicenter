@@ -8,13 +8,17 @@
 		"#platform/resources": {
 			"epicenter-host": "./src/platform/epicenter-host.ts",
 			"default": "./src/platform/browser.ts"
+		},
+		"#platform/ai": {
+			"epicenter-host": "./src/ai-connections.epicenter-host.ts",
+			"default": "./src/browser.ts"
 		}
 	},
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
 		"./ai": "./src/ai.ts",
-		"./ai-configuration": "./src/ai-configuration.ts",
+		"./ai-connections": "./src/ai-connections.ts",
 		"./native-ai": "./src/native-ai.ts",
 		"./recorder": "./src/recorder.ts",
 		"./epicenter-host": "./src/epicenter-host.ts"

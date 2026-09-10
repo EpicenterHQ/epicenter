@@ -34,3 +34,11 @@ export function getApp() {
 	}
 	return application.app;
 }
+
+/** Read workflow choices from the same ready document as product operations. */
+export function getSelections() {
+	getApp();
+	if (!application?.selections)
+		throw new Error('Whispering selections are unavailable.');
+	return application.selections;
+}

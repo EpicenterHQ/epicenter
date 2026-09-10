@@ -33,8 +33,94 @@ An independent `ai` binding replaces all default AI configuration.
 `settingsKey` preserves an existing local AI-settings namespace; new applications
 default to their app ID.
 
+`app.ai.account` and `app.ai.runtime` are fixed nullable SDK client capabilities.
+`app.ai.connections` owns device-local custom endpoints, optional bearer keys,
+and their clients. A binding without a custom store exposes `connections: null`.
+
+```ts
+if (app.ai.connections) {
+ const id = await app.ai.connections.add({
+  name: 'My server',
+  baseUrl: 'https://inference.example/v1',
+  apiKey: providerKey,
+  models: ['chosen-model'],
+ });
+ await app.ai.connections.get(id)!.client.chat.completions.create({
+  model: 'chosen-model',
+  messages,
+ });
+}
+```
+
+Write the full `app.ai.connections` path at call sites so the capability's owner
+stays visible. Do not alias the namespace to a local `connections` variable.
+
+`getAll()` and `get(id)` return detached saved fields plus the cached SDK client.
+`subscribe(listener)` immediately supplies the current ordered snapshot and then
+supplies each committed update; it returns an unsubscribe function. Reads use the
+local snapshot after `app.ready`. They do not request model discovery.
+
+```ts
+const stop = app.ai.connections!.subscribe((entries) => {
+ renderConnections(entries);
+});
+await app.ai.connections!.update(id, { name: 'Renamed server' });
+stop();
+```
+
+`add`, `update`, `remove`, and `reorder` return promises. Await them before
+selecting a new connection or showing success. Rename, reorder, and model-list
+edits preserve clients; endpoint and credential changes retire them. Desktop
+explicit key assignment always retires the old client, including assigning the
+same value. Omit `apiKey` from an update to retain it; supply `''` to remove it.
+
+Browser entries may contain the explicit key. Desktop entries expose
+`hasApiKey` and omit the key; the host applies it to requests. Never sync, log,
+or serialize a client-bearing entry. `preview({ baseUrl, apiKey? })` creates an
+unsaved client for `models.list()` discovery. All clients and collection methods
+obey App readiness and retirement. App close drains their requests. A client
+does not promise reachability or support for every SDK endpoint.
+
+Applications own workflow selections. Whispering and Vocab use the plain
+TypeScript selection owner and exact matcher in
+`@epicenter/app-shell/inference-selections`; Svelte only observes those choices.
+Missing connections, changed accounts, and mismatched models never select a
+replacement destination. See the [AI boundary decision](../../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
+
+The default AI binding follows the package's build condition:
+
+| Environment | Connection persistence | Credentials |
+| --- | --- | --- |
+| Standalone browser | `${settingsKey}.app-ai-connections` in origin-local `localStorage` | Optional key in that local record |
+| `epicenter-host` | `ai/connections.json` under the host's profile data directory, shared across its apps | OS keychain, reached through the host broker |
+
+Desktop sharing stays on one profile and does not sync between devices. The host
+serializes mutations and sends committed snapshots over SSE to open app windows.
+Browser mutations use a Web Lock, reread current storage before writing, and
+notify other owners in the same document or origin. Workflow selections remain
+product-local under `${settingsKey}.app-ai-selections` in both environments.
+Switching libraries retains this configuration while opening new App clients.
+An explicit `ai` binding replaces the default. Desktop apps that supply native
+inference can extend `createEpicenterHostAppAi(settingsKey)` from
+`@epicenter/app/epicenter-host` with their runtime transport.
+
+Applications with saved workflow choices await
+`initializeBrowserAiSettings(settingsKey)` from
+`@epicenter/app-shell/migrate-ai-settings` before opening. It splits the old
+combined envelope under a Web Lock, preserves IDs and successful writes across
+retries, and retains old bytes for recovery. Pre-ID settings are normalized once
+inside the same lock. A connection-only consumer can use
+`initializeAiConnections({ storage, storageKey, locks })` from
+`@epicenter/app/ai-connections` for already-normalized records.
+
+Desktop opening imports those normalized product records into the host catalog
+before readiness. The host records each product import durably, preserving IDs
+and optional keys. Reopening never resurrects subsequently deleted entries.
+Conflicting existing IDs fail opening instead of overwriting another endpoint.
+Legacy browser bytes remain recovery data. New desktop saves go to the host.
+
 Construction is inert. `openLocal()`, `openPersonal(account)`, and `openShared(account)` return handles
-synchronously; `app.ready` resolves once with a usable dataset or a typed
+synchronously; `app.ready` resolves once with a usable dataset and hydrated AI catalog, or a typed
 failure. Local opening performs no authority request or sync dial.
 
 The document, table handles, and KV handle exist before readiness. Their actual

@@ -1,6 +1,9 @@
 import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
+import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
+import { initializeBrowserAiSettings } from '@epicenter/app-shell/migrate-ai-settings';
 import { APPS } from '@epicenter/constants/apps';
+import { Ok, trySync } from 'wellcrafted/result';
 import { ai } from '#platform/ai';
 import { authClient } from '#platform/auth';
 import { runtime } from '#platform/runtime';
@@ -28,13 +31,34 @@ const application = defineApplication({
 	runtime,
 	ai,
 });
-export const app = (() => {
-	if (new URLSearchParams(location.search).has('connect')) return null;
-	if (library === 'local') return application.openLocal();
-	if (account === null) return null;
-	if (library === 'personal') return application.openPersonal(account);
-	return canOpenShared ? application.openShared(account) : null;
-})();
+const shouldOpen =
+	!new URLSearchParams(location.search).has('connect') &&
+	(library === 'local' ||
+		(account !== null && (library !== 'shared' || canOpenShared)));
+if (shouldOpen) await initializeBrowserAiSettings('whispering');
+export const selections = shouldOpen
+	? createBrowserInferenceSelections('whispering')
+	: null;
+export const app = trySync({
+	try: () => {
+		if (new URLSearchParams(location.search).has('connect')) return null;
+		if (library === 'local') return application.openLocal();
+		if (account === null) return null;
+		if (library === 'personal') return application.openPersonal(account);
+		return canOpenShared ? application.openShared(account) : null;
+	},
+	catch(cause) {
+		// Preserve the opening failure even if subscription cleanup also fails.
+		trySync({
+			try: () => selections?.[Symbol.dispose](),
+			catch: () => Ok(undefined),
+		});
+		throw cause;
+	},
+}).data;
+void app?.ready.then(({ error }) => {
+	if (error) selections?.[Symbol.dispose]();
+});
 let closing = false;
 export function isClosing() {
 	return closing;
@@ -43,6 +67,7 @@ export function isClosing() {
 /** Release the concrete App, including an acquisition that failed before UI mount. */
 export function closeApp() {
 	closing = true;
+	selections?.[Symbol.dispose]();
 	return app?.close() ?? Promise.resolve();
 }
 export const departure = createDeparture({

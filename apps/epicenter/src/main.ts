@@ -1,3 +1,4 @@
+import { createAiCatalog, type AiCatalog } from './ai-catalog.ts';
 /**
  * The Bun sidecar entrypoint: accept one versioned boot frame from Rust, bind
  * its validated loopback port, announce readiness once, and remain tied to the
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
 	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
+	let aiCatalog: AiCatalog | undefined;
 
 	try {
 		const runtimeMode = parseRuntimeMode(Bun.argv);
@@ -84,6 +86,7 @@ async function main(): Promise<void> {
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
 		const appSecrets = createNativeAppSecrets(nativePort);
+		aiCatalog = await createAiCatalog({ dataRoot, secrets: appSecrets });
 		// Identity is immutable per process generation, so remote availability
 		// is a boot-time fact: a signed-in generation composes the streaming
 		// remote over the authority's own deployment fetch, a signed-out one
@@ -143,6 +146,7 @@ async function main(): Promise<void> {
 			blobRemote,
 			device,
 			appSecrets,
+			aiCatalog,
 		});
 
 		server = Bun.serve({
@@ -161,7 +165,10 @@ async function main(): Promise<void> {
 			host: {
 				async [Symbol.asyncDispose]() {
 					ownedDesktopAuth[Symbol.dispose]();
-					await ownedHost[Symbol.asyncDispose]();
+					await Promise.all([
+						aiCatalog!.close(),
+						ownedHost[Symbol.asyncDispose](),
+					]);
 				},
 			},
 			parentPipe,
@@ -171,7 +178,7 @@ async function main(): Promise<void> {
 		if (!lifecycleOwnsResources) {
 			if (server) void server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
-			if (host) await host[Symbol.asyncDispose]();
+			await Promise.all([aiCatalog?.close(), host?.[Symbol.asyncDispose]()]);
 			await parentPipe.cancel();
 		}
 	}

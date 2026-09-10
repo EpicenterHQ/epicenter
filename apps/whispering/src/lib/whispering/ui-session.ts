@@ -1,3 +1,4 @@
+import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 import type { Account } from '@epicenter/auth';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { pushToTalk } from '../operations/push-to-talk';
@@ -20,12 +21,14 @@ import {
 export function createWhisperingUiSession({
 	openedApp,
 	account,
+	selections,
 }: {
 	openedApp: WhisperingAppHandle;
+	selections: InferenceSelections;
 	account: Account | null;
 }) {
 	const domains = createWhisperingDomains({ openedApp, account });
-	const inference = createWhisperingConnections(openedApp);
+	const inference = createWhisperingConnections(openedApp, selections);
 	// Named members rather than a spread of `domains`, which used to carry
 	// `[Symbol.dispose]` into the object handed to every component through
 	// context. Disposal is off `WhisperingApp` entirely now, and `domains` is the

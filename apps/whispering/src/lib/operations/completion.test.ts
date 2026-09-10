@@ -3,8 +3,13 @@
  * Missing, removed, and mismatched selections never send text to another client.
  */
 import { expect, mock, test } from 'bun:test';
-import { createAppAi } from '@epicenter/app/ai';
-import { createAiConfiguration } from '@epicenter/app/ai-configuration';
+import { type AiTransport, createAppAi } from '@epicenter/app/ai';
+import { createAiConnections } from '@epicenter/app/ai-connections';
+import { createNativeTransport } from '@epicenter/app/native-ai';
+import {
+	createInferenceSelections,
+	type InferenceSelections,
+} from '@epicenter/app-shell/inference-selections';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createInferenceConnections } from '../../../../../packages/app-shell/src/inference-picker/connections.svelte.js';
 import { resolveCompletionState as resolveCompletionPresentation } from '../state/completion.svelte.js';
@@ -14,32 +19,47 @@ import {
 } from './completion.js';
 
 let currentApp: unknown;
+let currentSelections: InferenceSelections;
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
-mock.module('../application.js', () => ({ getApp: () => currentApp }));
+mock.module('../application.js', () => ({
+	getApp: () => currentApp,
+	getSelections: () => currentSelections,
+}));
 
-function setup(values = new Map<string, string>(), principalId = 'A') {
+function setup(
+	values = new Map<string, string>(),
+	principalId = 'A',
+	runtime: AiTransport | null = null,
+) {
 	let model = 'same-model';
 	const requests: { url: string; key: string | null; model: string }[] = [];
-	const configuration = createAiConfiguration({
+	const records = createAiConnections({
 		storageKey: 'completion-test',
 		storage: {
 			getItem: (key) => values.get(key) ?? null,
 			setItem: (key, value) => {
 				values.set(key, value);
 			},
-			removeItem: (key) => {
-				values.delete(key);
+		},
+	});
+	const selections = createInferenceSelections({
+		storageKey: 'selection-test',
+		storage: {
+			getItem: (key) => values.get(key) ?? null,
+			setItem: (key, value) => {
+				values.set(key, value);
 			},
 		},
 	});
+	currentSelections = selections;
 	const controller = new AbortController();
 	const owner = createAppAi({
-		configuration,
+		connections: records,
 		lifetime: {
 			signal: controller.signal,
 			assertUsable: () => controller.signal.throwIfAborted(),
 		},
-		runtime: null,
+		runtime,
 		account: {
 			baseURL: 'https://hosted.example/v1',
 			fetch: async (input, init) => {
@@ -66,6 +86,7 @@ function setup(values = new Map<string, string>(), principalId = 'A') {
 		},
 	});
 	const connections = createInferenceConnections({
+		selections,
 		app: {
 			ai: owner.value.ai,
 			account: {
@@ -91,6 +112,7 @@ function setup(values = new Map<string, string>(), principalId = 'A') {
 	return {
 		values,
 		close: () => {
+			selections[Symbol.dispose]();
 			controller.abort();
 			return owner.close();
 		},
@@ -107,14 +129,18 @@ test('Polish and Recipe completion uses the exact connection when model IDs coll
 	const { connections, requests, run } = setup();
 	for (const path of ['first', 'second']) {
 		const baseUrl = `https://server.example/${path}/v1`;
-		const id = connections.add({ baseUrl, apiKey: path }, ['same-model']);
-		connections.select('completion', {
+		const id = await connections.app.ai.connections!.add({
+			baseUrl,
+			apiKey: path,
+			models: ['same-model'],
+		});
+		connections.selections.set('completion', {
 			connectionId: id,
 			model: 'same-model',
 		});
 		expect(expectOk(await run())).toBe('custom result');
 	}
-	connections.select('completion', {
+	connections.selections.set('completion', {
 		connectionId: connections.accountId!,
 		model: 'same-model',
 	});
@@ -142,17 +168,17 @@ test('missing, removed, and synced-model-mismatched selections send no text', as
 	const { connections, requests, run, setModel } = setup();
 	expectErr(await run());
 	const baseUrl = 'http://localhost:11434/v1';
-	const id = connections.add({ baseUrl });
-	connections.select('completion', {
+	const id = await connections.app.ai.connections!.add({ baseUrl });
+	connections.selections.set('completion', {
 		connectionId: id,
 		model: 'same-model',
 	});
 	setModel('changed-on-another-device');
 	expectErr(await run());
 	setModel('same-model');
-	connections.remove(id);
+	await connections.app.ai.connections!.remove(id);
 	expectErr(await run());
-	connections.add({ baseUrl });
+	await connections.app.ai.connections!.add({ baseUrl });
 	expectErr(await run());
 	expect(requests).toEqual([]);
 });
@@ -160,12 +186,12 @@ test('missing, removed, and synced-model-mismatched selections send no text', as
 test('manual model survives empty discovery and transcription selection stays independent', async () => {
 	const { connections, requests, run } = setup();
 	const baseUrl = 'http://localhost:11434/v1';
-	const id = connections.add({ baseUrl });
-	connections.select('completion', {
+	const id = await connections.app.ai.connections!.add({ baseUrl });
+	connections.selections.set('completion', {
 		connectionId: id,
 		model: 'same-model',
 	});
-	connections.select('transcription', {
+	connections.selections.set('transcription', {
 		connectionId: connections.accountId!,
 		model: 'same-model',
 	});
@@ -175,11 +201,11 @@ test('manual model survives empty discovery and transcription selection stays in
 	expect(requests[0]?.url).toBe(`${baseUrl}/chat/completions`);
 });
 
-test('destination labels distinguish paths and omit URL secrets', () => {
+test('destination labels distinguish paths and omit URL secrets', async () => {
 	const { connections } = setup();
 	const baseUrl = 'https://user:secret@proxy.example/first/v1?token=secret';
-	const id = connections.add({ baseUrl });
-	connections.select('completion', {
+	const id = await connections.app.ai.connections!.add({ baseUrl });
+	connections.selections.set('completion', {
 		connectionId: id,
 		model: 'same-model',
 	});
@@ -190,7 +216,7 @@ test('destination labels distinguish paths and omit URL secrets', () => {
 
 test('an account A completion selection sends no text after opening account B', async () => {
 	const first = setup();
-	first.connections.select('completion', {
+	first.connections.selections.set('completion', {
 		connectionId: first.connections.accountId!,
 		model: 'same-model',
 	});
@@ -207,11 +233,17 @@ test('an account A completion selection sends no text after opening account B', 
 test('same URL configured IDs send completion with their own credentials', async () => {
 	const fixture = setup();
 	const baseUrl = 'https://same.example/v1';
-	const first = fixture.connections.add({ baseUrl, apiKey: 'first' });
-	const second = fixture.connections.add({ baseUrl, apiKey: 'second' });
+	const first = await fixture.connections.app.ai.connections!.add({
+		baseUrl,
+		apiKey: 'first',
+	});
+	const second = await fixture.connections.app.ai.connections!.add({
+		baseUrl,
+		apiKey: 'second',
+	});
 	expect(first).not.toBe(second);
 	for (const id of [first, second]) {
-		fixture.connections.select('completion', {
+		fixture.connections.selections.set('completion', {
 			connectionId: id,
 			model: 'same-model',
 		});
@@ -221,5 +253,19 @@ test('same URL configured IDs send completion with their own credentials', async
 		'Bearer first',
 		'Bearer second',
 	]);
+	await fixture.close();
+});
+
+test('native text completion refuses the unsupported operation without falling back to account', async () => {
+	const invoke = mock(async () => []);
+	const fixture = setup(new Map(), 'A', createNativeTransport(invoke));
+	fixture.connections.selections.set('completion', {
+		connectionId: fixture.connections.runtimeId!,
+		model: 'same-model',
+	});
+	const failure = expectErr(await fixture.run());
+	expect(failure.name).toBe('TransportFailed');
+	expect(fixture.requests).toEqual([]);
+	expect(invoke).not.toHaveBeenCalled();
 	await fixture.close();
 });

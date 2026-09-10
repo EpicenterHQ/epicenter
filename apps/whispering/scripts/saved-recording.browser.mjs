@@ -97,7 +97,7 @@ const viteConfig = join(directory, 'vite.config.mts');
 const dependencyCache = realpathSync(join(root, 'node_modules/.bun'));
 writeFileSync(
 	viteConfig,
-	`import config from ${JSON.stringify(join(root, 'apps/whispering/vite.config.ts'))};\nexport default { ...config, server: { ...config.server, watch: null, fs: { ...config.server?.fs, allow: [...(config.server?.fs?.allow ?? []), ${JSON.stringify(root)}, ${JSON.stringify(dependencyCache)}] } } };\n`,
+	`import config from ${JSON.stringify(join(root, 'apps/whispering/vite.config.ts'))};\nexport default { ...config, server: { ...config.server, watch: null, hmr: false, fs: { ...config.server?.fs, allow: [...(config.server?.fs?.allow ?? []), ${JSON.stringify(root)}, ${JSON.stringify(dependencyCache)}] } } };\n`,
 );
 const children = [];
 const logs = [];
@@ -360,6 +360,53 @@ try {
 			`${library} App readiness`,
 		);
 	}
+	async function savedAiChoices(page) {
+		return page.evaluate(
+			async ({ apiKey, nativeModel, polishModel }) => {
+				const { app, selections } = await import('/src/lib/bootstrap.ts');
+				const records = JSON.parse(
+					localStorage.getItem('whispering.app-ai-connections'),
+				);
+				const choices = JSON.parse(
+					localStorage.getItem('whispering.app-ai-selections'),
+				);
+				if (
+					records?.version !== 1 ||
+					choices?.version !== 1 ||
+					Object.keys(records).sort().join() !== 'connections,version' ||
+					Object.keys(choices).sort().join() !== 'selections,version' ||
+					'configuration' in app.ai ||
+					'configured' in app.ai
+				)
+					throw new Error(
+						'AI settings did not use separate connection and selection owners.',
+					);
+				for (const [scope, model] of [
+					['transcription', nativeModel],
+					['completion', polishModel],
+				]) {
+					if (!model) continue;
+					const target = choices.selections[scope];
+					const saved = records.connections.find(
+						(record) => record.id === target?.connectionId,
+					);
+					if (
+						!saved ||
+						target.model !== model ||
+						saved.apiKey !== apiKey ||
+						'client' in saved ||
+						JSON.stringify(selections.get(scope)) !== JSON.stringify(target) ||
+						!app.ai.connections.get(saved.id)?.client
+					)
+						throw new Error(
+							'Saved AI choice does not identify its exact custom connection and model.',
+						);
+				}
+				return choices.selections;
+			},
+			{ apiKey, nativeModel, polishModel },
+		);
+	}
 	async function configure(page, reuse = false) {
 		await page.goto(`${appOrigin}/settings/processing`);
 		await page
@@ -405,6 +452,7 @@ try {
 		}
 		await choose(0, nativeModel, 'Native speech acceptance');
 		if (polishModel) await choose(1, polishModel, 'Local Polish acceptance');
+		await savedAiChoices(page);
 		console.log('Configured explicit transcription and text models');
 		await page.getByRole('link', { name: 'Home', exact: true }).click();
 		await page.getByRole('button', { name: /^Start recording/ }).waitFor();
@@ -521,11 +569,14 @@ try {
 			path: join(evidence, `${scope}.png`),
 			fullPage: true,
 		});
+		const choicesBeforeReload = await savedAiChoices(page);
 		await page.evaluate(async () =>
 			(await import('/src/lib/bootstrap.ts')).departure.close(),
 		);
 		await page.reload();
 		await opened(page, scope);
+		assert.deepEqual(await savedAiChoices(page), choicesBeforeReload);
+		report.checks.separateAiStoresSurviveReload = true;
 		await page
 			.getByRole('textbox', { name: 'Click to view transcript', exact: true })
 			.waitFor();

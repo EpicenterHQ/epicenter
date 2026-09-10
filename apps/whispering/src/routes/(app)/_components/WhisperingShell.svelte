@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import type { Account } from "@epicenter/auth";
 	import { Button } from '@epicenter/ui/button';
@@ -28,12 +29,14 @@
 
 	let {
 		openedApp,
+		selections,
 		account,
 		removeLocalData,
 		children,
 	}: {
 		/** The ready framework App, owned and closed by the application document. */
 		openedApp: WhisperingAppHandle;
+		selections: InferenceSelections;
 		account: Account | null;
 		/**
 		 * Sign out and remove this account's local data, owned by the session
@@ -50,6 +53,7 @@
 	/* svelte-ignore state_referenced_locally */
 	const session = createWhisperingUiSession({
 		openedApp,
+		selections,
 		account,
 	});
 

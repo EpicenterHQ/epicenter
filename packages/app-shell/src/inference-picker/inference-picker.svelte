@@ -20,8 +20,8 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import { SvelteSet } from 'svelte/reactivity';
-	import type { Snippet } from 'svelte';
+	import { createMutation, QueryClient } from '@tanstack/svelte-query';
+	import { onDestroy, type Snippet } from 'svelte';
 		import type { InferenceConnections } from './connections.svelte.js';
 
 	type Props = {
@@ -44,9 +44,12 @@
 	};
 
 	let { scope, model, onSelectModel, connections, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model', additionalOptions }: Props = $props();
+	const app = $derived(connections.app);
 	const models = $derived(accountModels ?? connections.hostedModels);
 
 	let open = $state(false);
+	let formVersion = 0;
+	let alive = true;
 	let view = $state<'list' | 'connect'>('list');
 
 	// "Connect a provider" form state. `formPreset` null means the preset chooser
@@ -56,6 +59,8 @@
  let formName = $state('');
  let editingId = $state<string | null>(null);
 	let formApiKey = $state('');
+	let removeApiKey = $state(false);
+	const savedConnection = $derived(editingId ? connections.custom.find(entry => entry.id === editingId) : undefined);
 	let formModel = $state('');
 	let showKey = $state(false);
 
@@ -66,20 +71,27 @@
 	// malformed), or null when discovery has not failed.
 	let discoveryError = $state<string | null>(null);
 
-	// Connections currently re-discovering their models, for per-group refresh
-	// spinners. Usually one entry, but keep the set keyed per URL so overlapping
-	// refreshes cannot clear each other's loading state.
-	const refreshingBaseUrls = new SvelteSet<string>();
+	// The picker also runs in apps without a QueryClientProvider.
+	const queryClient = new QueryClient();
+	onDestroy(() => { alive = false; queryClient.clear(); });
+	const refreshConnection = createMutation(() => ({
+		mutationFn: (id: string) => connections.refresh(id),
+	}), () => queryClient);
+	const removeConnection = createMutation(() => ({
+		mutationFn: (id: string) => app.ai.connections!.remove(id),
+	}), () => queryClient);
 
 	// Clear all of the connect form's working state. Called on close so a user who
 	// connected one provider lands back on the preset chooser (not a stale sub-form
 	// with a leftover typed API key) the next time they open the picker.
 	function resetConnectForm() {
+		formVersion++;
 		formPreset = null;
 		formBaseUrl = '';
   formName = '';
   editingId = null;
 		formApiKey = '';
+		removeApiKey = false;
 		formModel = '';
 		showKey = false;
 		discovering = false;
@@ -128,26 +140,16 @@
 	}
 
 	function selectModel(connectionId: string, id: string) {
-		connections.select(scope, { connectionId, model: id });
+		connections.selections.set(scope, { connectionId, model: id });
 		onSelectModel(id);
 		open = false;
 	}
 
-	// Re-discover a connected endpoint's models in place. Best effort: the group's
-	// list updates reactively when the fresh ids land, and stands on error.
-	async function refreshConnection(baseUrl: string) {
-		if (refreshingBaseUrls.has(baseUrl)) return;
-		refreshingBaseUrls.add(baseUrl);
-		try {
-			await connections.refresh(baseUrl);
-		} finally {
-			refreshingBaseUrls.delete(baseUrl);
-		}
-	}
-
 	function choosePreset(id: PresetId | 'custom') {
+		formVersion++;
 		formPreset = id;
 		formApiKey = '';
+		removeApiKey = false;
 		formModel = '';
 		discovered = null;
 		discoveryError = null;
@@ -157,23 +159,35 @@
 				: (CONNECTION_PRESETS.find((p) => p.id === id)?.baseUrl ?? '');
 	}
 
-	// Save the connection being configured (caching its discovered models), select
-	// the chosen model, and close: one commit for the whole "connect and use" path.
-	function commitConnection(chosenModel: string) {
-		const baseUrl = formBaseUrl.trim();
-		const trimmedModel = chosenModel.trim();
-		if (!baseUrl || !trimmedModel) return;
-		const id = editingId ?? connections.add(
-			{
+	// Persist access before saving the workflow choice. A failed save keeps the form open.
+	const saveConnection = createMutation(() => ({
+		mutationFn: async (chosenModel: string) => {
+			const attempt = { app, scope, formVersion };
+			const baseUrl = formBaseUrl.trim();
+			const trimmedModel = chosenModel.trim();
+			if (!baseUrl || !trimmedModel) throw new Error('Enter an endpoint and model.');
+			const credential = removeApiKey
+				? { apiKey: '' }
+				: formApiKey.trim() ? { apiKey: formApiKey.trim() } : {};
+			const input = {
 				baseUrl,
-    name: formName.trim() || undefined,
-				apiKey: formApiKey.trim() || undefined,
-			},
-			[...new Set([...(discovered ?? []), trimmedModel])],
-		);
-		if (editingId) connections.update(editingId, { name: formName.trim() || connections.custom.find(entry => entry.id === editingId)?.name || 'Connection', baseUrl, apiKey: formApiKey.trim() || undefined, models: [...new Set([...(connections.custom.find(entry => entry.id === editingId)?.models ?? []), ...(discovered ?? []), trimmedModel])] });
-  selectModel(id, trimmedModel);
-	}
+				name: formName.trim() || savedConnection?.name || undefined,
+				...credential,
+				models: [...new Set([...(savedConnection?.models ?? []), ...(discovered ?? []), trimmedModel])],
+			};
+			const id = editingId;
+			if (id) {
+				await app.ai.connections!.update(id, input);
+				return { ...attempt, id, model: trimmedModel };
+			}
+			return { ...attempt, id: await app.ai.connections!.add(input), model: trimmedModel };
+		},
+		onSuccess: (saved) => {
+			if (!alive || !open || saved.app !== app || saved.scope !== scope || saved.formVersion !== formVersion) return;
+			editingId = saved.id;
+			selectModel(saved.id, saved.model);
+		},
+	}), () => queryClient);
 
 	// Reopening the picker always lands on the model list, never a half-filled form.
 	$effect(() => {
@@ -192,6 +206,14 @@
 		if (view !== 'connect') return;
 		const url = formBaseUrl.trim();
 		const key = formApiKey.trim();
+		const retainSavedKey = savedConnection?.hasApiKey && !key && !removeApiKey;
+		const savedId = savedConnection && savedConnection.baseUrl === url && !key && !removeApiKey ? savedConnection.id : undefined;
+		if (retainSavedKey && !savedId) {
+			discovered = null;
+			discovering = false;
+			discoveryError = 'Save the changed endpoint with a model ID before discovering models with its saved key.';
+			return;
+		}
 		if (!url) {
 			discovered = null;
 			discoveryError = null;
@@ -203,7 +225,7 @@
 		discovering = true;
 		discoveryError = null;
 		const handle = setTimeout(async () => {
-			const { data, error } = await connections.discover(url, key || undefined);
+			const { data, error } = await connections.discover(url, key || undefined, savedId);
 			if (cancelled) return;
 			discovering = false;
 			if (error) {
@@ -259,7 +281,7 @@
 						</Command.Group>
 					{/if}
 
-					{#if connections.ai.account && connections.accountId}
+					{#if app.ai.account && connections.accountId}
 						<Command.Group heading={`Connected account · ${connections.accountLabel}`}>
 							{#each models as hostedModel (hostedModel.id)}
 								<Command.Item
@@ -318,7 +340,9 @@
 									formBaseUrl = connection.baseUrl;
          formName = connection.name;
          editingId = connection.id;
-									formApiKey = connection.apiKey ?? '';
+									formApiKey = '';
+									removeApiKey = false;
+									saveConnection.reset();
 									view = 'connect';
 								}}
 							>
@@ -327,10 +351,10 @@
 							</Command.Item>
 							<Command.Item
 								value="refresh {connection.id}"
-								disabled={refreshingBaseUrls.has(connection.id)}
-								onSelect={() => refreshConnection(connection.id)}
+								disabled={refreshConnection.isPending && refreshConnection.variables === connection.id}
+								onSelect={() => refreshConnection.mutate(connection.id)}
 							>
-								{#if refreshingBaseUrls.has(connection.id)}
+								{#if refreshConnection.isPending && refreshConnection.variables === connection.id}
 									<Spinner class="size-4" />
 								{:else}
 									<RefreshCw class="size-4" />
@@ -339,7 +363,8 @@
 							</Command.Item>
 							<Command.Item
 								value="remove {connection.id}"
-								onSelect={() => connections.remove(connection.id)}
+								disabled={removeConnection.isPending}
+								onSelect={() => removeConnection.mutate(connection.id)}
 							>
 								<Trash2 class="size-4" />
 								<span class="text-xs">Remove {label}</span>
@@ -359,11 +384,12 @@
 				</Command.List>
 			</Command.Root>
 		{:else}
-			<div class="space-y-3 p-3">
+			<fieldset class="space-y-3 p-3" disabled={saveConnection.isPending}>
 				<div class="flex items-center gap-2">
 					<Button
 						variant="ghost"
 						size="icon-sm"
+						disabled={saveConnection.isPending}
 						onclick={() => (view = 'list')}
 						aria-label="Back to models"
 					>
@@ -404,7 +430,7 @@
 						<Input
 							id="conn-url"
 							bind:value={formBaseUrl}
-							oninput={() => (formApiKey = '')}
+							disabled={saveConnection.isPending}
 							placeholder="http://localhost:11434/v1"
 						/>
 					</div>
@@ -418,7 +444,8 @@
 								id="conn-key"
 								type={showKey ? 'text' : 'password'}
 								bind:value={formApiKey}
-								placeholder="sk-..."
+								disabled={saveConnection.isPending || removeApiKey}
+								placeholder={savedConnection?.hasApiKey ? "Leave blank to keep saved key" : "sk-..."}
 							/>
 							<Button
 								variant="ghost"
@@ -434,6 +461,13 @@
 							</Button>
 						</div>
 					</div>
+
+					{#if savedConnection?.hasApiKey}
+						<Button variant="outline" size="sm" disabled={saveConnection.isPending} onclick={() => (removeApiKey = !removeApiKey)}>
+							{removeApiKey ? 'Keep saved API key' : 'Remove saved API key'}
+						</Button>
+						{#if removeApiKey}<p class="text-xs text-muted-foreground">The saved key will be removed when you save.</p>{/if}
+					{/if}
 
 					<div class="space-y-1">
 						<Label class="text-xs">Model</Label>
@@ -453,7 +487,8 @@
 										<Command.Item
 											value={id}
 											keywords={[id]}
-											onSelect={() => commitConnection(id)}
+											disabled={saveConnection.isPending}
+											onSelect={() => saveConnection.mutate(id)}
 										>
 											<span class="line-clamp-2 break-all" title={id}>{id}</span>
 										</Command.Item>
@@ -479,10 +514,10 @@
 							<Input bind:value={formModel} aria-label="Model ID" placeholder="Enter a model ID" />
 							<Button
 								size="sm"
-								disabled={!formBaseUrl.trim() || !formModel.trim()}
-								onclick={() => commitConnection(formModel)}
+								disabled={saveConnection.isPending || !formBaseUrl.trim() || !formModel.trim()}
+								onclick={() => saveConnection.mutate(formModel)}
 							>
-								Add
+								{saveConnection.isPending ? 'Saving...' : editingId ? 'Save' : 'Add'}
 							</Button>
 						</div>
 					</div>
@@ -492,7 +527,12 @@
 						sent there.
 					</p>
 				{/if}
-			</div>
+			</fieldset>
+		{/if}
+		{#if saveConnection.isError || removeConnection.isError || refreshConnection.isError}
+			<p role="alert" class="p-3 text-xs text-destructive">
+				{saveConnection.isError ? 'Could not save the connection. Your selection has not changed.' : removeConnection.isError ? 'Could not remove the connection.' : 'Could not refresh the models.'} Try again.
+			</p>
 		{/if}
 	</Popover.Content>
 </Popover.Root>

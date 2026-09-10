@@ -1,24 +1,17 @@
+import { matchInferenceTarget } from '@epicenter/app-shell/inference-selections';
 import { CompleteError } from '@epicenter/client';
 import { APIError } from 'openai';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { getApp } from '../application.js';
+import { getApp, getSelections } from '../application.js';
 import { settings } from './settings.js';
 
 /** Resolve exactly the saved connection and model from the ready document App. */
 export function resolveCompletionState() {
 	const app = getApp();
 	const model = settings.get('completionModel');
-	const selected = app.ai.configuration?.target('completion', model);
-	const accountId =
-		app.account === null
-			? null
-			: `account:${JSON.stringify([app.account.authorityId, app.account.principalId])}`;
-	const transport = !selected
-		? null
-		: selected.connectionId === accountId
-			? (app.ai.account?.client ?? null)
-			: (app.ai.configured().find((entry) => entry.id === selected.connectionId)
-					?.client ?? null);
+	const selected = getSelections().get('completion');
+	const transport =
+		selected?.model === model ? matchInferenceTarget(app, selected) : null;
 	return {
 		model,
 		transport,

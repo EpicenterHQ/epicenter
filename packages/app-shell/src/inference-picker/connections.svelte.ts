@@ -1,54 +1,53 @@
 import type { App } from '@epicenter/app';
-import type { AiTarget } from '@epicenter/app/ai-configuration';
-import { type Connection, ListModelsError } from '@epicenter/client';
+import {
+	accountInferenceId,
+	runtimeInferenceId,
+	matchInferenceTarget,
+	type InferenceSelections,
+} from '../inference-selections.js';
+import { ListModelsError } from '@epicenter/client';
 import type { DataDefinition } from '@epicenter/data/definition';
 import { createSubscriber } from 'svelte/reactivity';
-import { tryAsync } from 'wellcrafted/result';
+import { tryAsync, unwrap } from 'wellcrafted/result';
 
 export type HostedModel = { id: string; label: string; credits: number };
-export type InferenceTarget = AiTarget;
 
 /** Observe one App's configuration and resolve exact saved workflow destinations. */
 export function createInferenceConnections({
 	app,
+	selections,
 	hostedModels,
 }: {
 	app: Pick<App<DataDefinition>, 'ai' | 'account'>;
+	selections: InferenceSelections;
 	hostedModels: HostedModel[];
 }) {
-	const configuration = app.ai.configuration;
-	if (!configuration)
-		throw new Error('This App has no AI configuration binding.');
-	const observe = createSubscriber((update) => configuration.onChange(update));
-	const accountId =
-		app.account === null
-			? null
-			: `account:${JSON.stringify([app.account.authorityId, app.account.principalId])}`;
+	if (!app.ai.connections)
+		throw new Error('This App has no custom AI connection binding.');
+	const observeConnections = createSubscriber((update) =>
+		app.ai.connections!.subscribe(() => update()),
+	);
+	const observeSelections = createSubscriber((update) =>
+		selections.onChange(update),
+	);
+	const accountId = accountInferenceId(app);
 	const accountLabel = app.ai.account
 		? new URL(app.ai.account.client.baseURL).host
 		: '';
-	const runtimeId = app.ai.runtime
-		? `runtime:${app.ai.runtime.client.baseURL}`
-		: null;
+	const runtimeId = runtimeInferenceId(app);
 	let runtimeModels = $state.raw<string[]>([]);
 	function target(scope: string, model: string) {
-		observe();
-		return configuration!.target(scope, model);
+		observeSelections();
+		const selected = selections.get(scope);
+		return selected?.model === model ? selected : null;
 	}
 	function resolve(scope: string, model: string) {
-		const selected = target(scope, model);
-		if (!selected) return null;
-		if (selected.connectionId === accountId)
-			return app.ai.account?.client ?? null;
-		if (selected.connectionId === runtimeId)
-			return app.ai.runtime?.client ?? null;
-		return (
-			app.ai.configured().find((entry) => entry.id === selected.connectionId)
-				?.client ?? null
-		);
+		observeConnections();
+		return matchInferenceTarget(app, target(scope, model));
 	}
 	return {
-		ai: app.ai,
+		app,
+		selections,
 		accountId,
 		accountLabel,
 		runtimeId,
@@ -68,52 +67,36 @@ export function createInferenceConnections({
 		},
 		hostedModels,
 		get custom() {
-			observe();
-			const snapshot = app.ai.configured();
-			return configuration.read().map((record) => ({
-				...record,
-				...snapshot.find((entry) => entry.id === record.id)!,
-			}));
+			observeConnections();
+			return app.ai.connections!.getAll();
 		},
-		add(connection: Connection & { name?: string }, models: string[] = []) {
-			return configuration.add({
-				...connection,
-				name: connection.name,
-				models,
-			});
-		},
-		update: configuration.update,
-		remove: configuration.remove,
-		reorder: configuration.reorder,
-		discover(baseUrl: string, apiKey?: string) {
-			const client = configuration.preview({ baseUrl, apiKey });
+		discover(baseUrl: string, apiKey?: string, savedId?: string) {
 			return tryAsync({
-				try: async () =>
-					(await client.models.list()).data.map((model) => model.id),
+				try: async () => {
+					const client = savedId
+						? app.ai.connections!.get(savedId)?.client
+						: app.ai.connections!.preview({ baseUrl, apiKey });
+					if (!client) throw new Error('AI connection no longer exists.');
+					return (await client.models.list()).data.map((model) => model.id);
+				},
 				catch: (cause) => ListModelsError.Unreachable({ cause }),
 			});
 		},
 		async refresh(id: string) {
-			const connection = app.ai.configured().find((entry) => entry.id === id);
+			const connection = app.ai.connections!.get(id);
 			if (!connection) return;
 			const result = await tryAsync({
 				try: async () =>
 					(await connection.client.models.list()).data.map((model) => model.id),
 				catch: (cause) => ListModelsError.Unreachable({ cause }),
 			});
-			if (result.error) return;
-			const record = configuration.read().find((entry) => entry.id === id);
-			if (
-				!record ||
-				app.ai.configured().find((entry) => entry.id === id)?.client !==
-					connection.client
-			)
-				return;
-			configuration.update(id, {
-				models: [...new Set([...record.models, ...result.data])],
+			const models = unwrap(result);
+			const record = app.ai.connections!.get(id);
+			if (!record || record.client !== connection.client) return;
+			await app.ai.connections!.update(id, {
+				models: [...new Set([...record.models, ...models])],
 			});
 		},
-		select: configuration.select,
 		target,
 		resolve,
 		canServe(scope: string, model: string) {

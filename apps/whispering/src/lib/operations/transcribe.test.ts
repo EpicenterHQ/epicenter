@@ -5,16 +5,24 @@
  */
 import { expect, mock, test } from 'bun:test';
 import { createAppAi } from '@epicenter/app/ai';
-import { createAiConfiguration } from '@epicenter/app/ai-configuration';
+import { createAiConnections } from '@epicenter/app/ai-connections';
+import {
+	createInferenceSelections,
+	type InferenceSelections,
+} from '@epicenter/app-shell/inference-selections';
 import type { BlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { WhisperingApp, WhisperingAppHandle } from '../whispering/app.js';
 
 let activeApp: WhisperingAppHandle;
+let currentSelections: InferenceSelections;
 let bespoke: () => Promise<ReturnType<typeof Ok<string>>> = async () =>
 	Ok('bespoke words');
-mock.module('../application.js', () => ({ getApp: () => activeApp }));
+mock.module('../application.js', () => ({
+	getApp: () => activeApp,
+	getSelections: () => currentSelections,
+}));
 mock.module('../state/secrets.svelte.js', () => ({
 	secrets: { get: () => ({ status: 'available', value: 'bespoke-key' }) },
 }));
@@ -25,7 +33,7 @@ const { transcribeAudio, transcribeAndPersist } = await import(
 	'./transcribe.js'
 );
 
-function setup({
+async function setup({
 	response = () => Response.json({ text: '  spoken words  ' }),
 	principal = 'alice',
 }: {
@@ -33,13 +41,24 @@ function setup({
 	principal?: string;
 } = {}) {
 	const requests: Request[] = [];
-	const configuration = createAiConfiguration({
+	const savedConnections = new Map<string, string>();
+	const records = createAiConnections({
 		storageKey: 'test',
-		storage: { getItem: () => null, setItem() {}, removeItem() {} },
+		storage: {
+			getItem: (key) => savedConnections.get(key) ?? null,
+			setItem: (key, value) => {
+				savedConnections.set(key, value);
+			},
+		},
 	});
+	const selections = createInferenceSelections({
+		storageKey: 'selection-test',
+		storage: { getItem: () => null, setItem() {} },
+	});
+	currentSelections = selections;
 	const controller = new AbortController();
 	const owner = createAppAi({
-		configuration,
+		connections: records,
 		lifetime: {
 			signal: controller.signal,
 			assertUsable: () => controller.signal.throwIfAborted(),
@@ -77,20 +96,20 @@ function setup({
 		blobs: { get: () => load() },
 	} as unknown as WhisperingAppHandle;
 	activeApp = app;
-	const id = configuration.add({
+	const id = await owner.value.ai.connections!.add({
 		name: 'Chosen',
 		baseUrl: 'https://chosen.example/custom/v1',
 		apiKey: 'chosen-key',
 		models: [],
 	});
-	configuration.select('transcription', {
+	selections.set('transcription', {
 		connectionId: id,
 		model: 'saved-model',
 	});
 	return {
 		app,
 		values,
-		configuration,
+		selections,
 		id,
 		requests,
 		controller,
@@ -100,6 +119,7 @@ function setup({
 		},
 		run: () => transcribeAudio('audio-id' as BlobId),
 		close: async () => {
+			selections[Symbol.dispose]();
 			controller.abort();
 			await owner.close();
 		},
@@ -107,8 +127,8 @@ function setup({
 }
 
 test('exact configured client sends multipart bytes, model, credential, and dictionary hints', async () => {
-	const fixture = setup();
-	fixture.configuration.add({
+	const fixture = await setup();
+	await fixture.app.ai.connections!.add({
 		baseUrl: 'https://other.example/v1',
 		apiKey: 'other-key',
 		models: ['saved-model'],
@@ -130,18 +150,18 @@ test('exact configured client sends multipart bytes, model, credential, and dict
 });
 
 test('selection and model edits during a delayed blob read cannot retarget an admitted request', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	const loading = Promise.withResolvers<void>();
 	fixture.setLoad(async () => {
 		await loading.promise;
 		return Ok(fixture.audio);
 	});
 	const pending = fixture.run();
-	const other = fixture.configuration.add({
+	const other = await fixture.app.ai.connections!.add({
 		baseUrl: 'https://other.example/v1',
 	});
 	fixture.values.set('transcriptionModel', 'new-model');
-	fixture.configuration.select('transcription', {
+	fixture.selections.set('transcription', {
 		connectionId: other,
 		model: 'new-model',
 	});
@@ -155,15 +175,15 @@ test('selection and model edits during a delayed blob read cannot retarget an ad
 });
 
 test('removal during blob loading retires the captured client instead of selecting a replacement', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	const loading = Promise.withResolvers<void>();
 	fixture.setLoad(async () => {
 		await loading.promise;
 		return Ok(fixture.audio);
 	});
 	const pending = fixture.run();
-	fixture.configuration.remove(fixture.id);
-	fixture.configuration.add({
+	await fixture.app.ai.connections!.remove(fixture.id);
+	await fixture.app.ai.connections!.add({
 		baseUrl: 'https://chosen.example/custom/v1',
 		models: ['saved-model'],
 	});
@@ -175,19 +195,20 @@ test('removal during blob loading retires the captured client instead of selecti
 
 test('missing, mismatched, old provider, and another actor selections send no audio', async () => {
 	for (const change of [
-		(f: ReturnType<typeof setup>) => f.configuration.remove(f.id),
-		(f: ReturnType<typeof setup>) =>
+		(f: Awaited<ReturnType<typeof setup>>) =>
+			f.app.ai.connections!.remove(f.id),
+		(f: Awaited<ReturnType<typeof setup>>) =>
 			f.values.set('transcriptionModel', 'mismatch'),
-		(f: ReturnType<typeof setup>) =>
+		(f: Awaited<ReturnType<typeof setup>>) =>
 			f.values.set('transcriptionService', 'OpenAI'),
-		(f: ReturnType<typeof setup>) =>
-			f.configuration.select('transcription', {
+		(f: Awaited<ReturnType<typeof setup>>) =>
+			f.selections.set('transcription', {
 				connectionId: 'account:["server","bob"]',
 				model: 'saved-model',
 			}),
 	]) {
-		const fixture = setup();
-		change(fixture);
+		const fixture = await setup();
+		await change(fixture);
 		expect(expectErr(await fixture.run()).name).toBe('SelectionRequired');
 		expect(fixture.requests).toHaveLength(0);
 		await fixture.close();
@@ -196,12 +217,12 @@ test('missing, mismatched, old provider, and another actor selections send no au
 
 test('account credit failures stay credit-aware while configured 402 remains a request failure', async () => {
 	for (const account of [false, true]) {
-		const fixture = setup({
+		const fixture = await setup({
 			response: () =>
 				Response.json({ error: { message: 'No credits' } }, { status: 402 }),
 		});
 		if (account)
-			fixture.configuration.select('transcription', {
+			fixture.selections.set('transcription', {
 				connectionId: 'account:["server","alice"]',
 				model: 'saved-model',
 			});
@@ -219,7 +240,7 @@ test('malformed output fails and a retained operation sends nothing after closur
 		() =>
 			new Response('{', { headers: { 'content-type': 'application/json' } }),
 	]) {
-		const fixture = setup({ response });
+		const fixture = await setup({ response });
 		expect(expectErr(await fixture.run()).name).toBe('Malformed');
 		await fixture.close();
 		expectErr(await fixture.run());
@@ -228,7 +249,7 @@ test('malformed output fails and a retained operation sends nothing after closur
 });
 
 test('bespoke completion after retirement cannot publish transcript or history', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	fixture.values.set('transcriptionService', 'Deepgram');
 	const started = Promise.withResolvers<void>();
 	const finished = Promise.withResolvers<ReturnType<typeof Ok<string>>>();

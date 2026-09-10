@@ -36,7 +36,7 @@ import { createNativeInferenceTransport } from '${root}packages/app/src/native-a
 const violations = [];
 document.addEventListener('securitypolicyviolation', event => violations.push(event.violatedDirective));
 const lifetime = new AbortController();
-const owner = createAppAi({ lifetime: { signal: lifetime.signal, assertUsable: () => lifetime.signal.throwIfAborted() }, runtime: createNativeInferenceTransport(), account: null, configuration: null });
+const owner = createAppAi({ lifetime: { signal: lifetime.signal, assertUsable: () => lifetime.signal.throwIfAborted() }, runtime: createNativeInferenceTransport(), account: null, connections: null });
 try {
  if (!isTauri()) throw new Error('Real Tauri IPC is absent');
  const client = owner.value.ai.runtime.client;

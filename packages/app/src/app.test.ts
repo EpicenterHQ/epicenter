@@ -32,7 +32,7 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from '../../data/src/sync/frames.js';
-import { createAiConfiguration } from './ai-configuration.js';
+import { createAiConnections } from './ai-connections.js';
 import { browser, createBrowserAppBlobs } from './browser.js';
 import { defineApplication } from './index.js';
 import { openApp } from './open.js';
@@ -1002,7 +1002,7 @@ test('retained AI shares readiness and close drains response work before releasi
 		},
 	}).openLocal();
 	const client = app.ai.runtime!.client;
-	expect(() => app.ai.configured()).toThrow('not ready');
+	expect(app.ai.connections).toBeNull();
 	expectOk(await app.ready);
 	const request = (async () => await client.models.list())();
 	void request.catch(() => {});
@@ -1040,10 +1040,10 @@ test.each([
 					return Response.json({ data: [] });
 				},
 			},
-			configuration: () => ({
-				...createAiConfiguration({
+			connections: () => ({
+				...createAiConnections({
 					storageKey: appId,
-					storage: { getItem: () => null, setItem() {}, removeItem() {} },
+					storage: { getItem: () => null, setItem() {} },
 				}),
 				close() {
 					if (failing === 'capability') throw new Error('capability failed');
@@ -1315,10 +1315,10 @@ test('a late capability constructor failure releases scheduled acquisition and p
 		ai: {
 			account: null,
 			runtime: null,
-			configuration: () => ({
-				...createAiConfiguration({
+			connections: () => ({
+				...createAiConnections({
 					storageKey: appId,
-					storage: { getItem: () => null, setItem() {}, removeItem() {} },
+					storage: { getItem: () => null, setItem() {} },
 				}),
 				close() {
 					events.push('ai');
