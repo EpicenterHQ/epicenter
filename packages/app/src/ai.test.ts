@@ -328,6 +328,72 @@ test('close reports cancellation failure even when headers arrive after retireme
 	expect(await result).toBe(true);
 });
 
+test('close accepts the stored stream error when fetch aborts before reader cancellation', async () => {
+	let cancelCalls = 0;
+	const { ai, close } = setup(
+		async (_input, init) =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						init!.signal!.addEventListener(
+							'abort',
+							() => controller.error(init!.signal!.reason),
+							{ once: true },
+						);
+					},
+					cancel() {
+						cancelCalls++;
+					},
+				}),
+			),
+	);
+	const response = await ai.account!.client.models.list().asResponse();
+	await expect(close()).resolves.toBeUndefined();
+	await expect(response.text()).rejects.toThrow();
+	expect(cancelCalls).toBe(0);
+});
+
+test('close preserves an underlying cancellation failure even when it is named AbortError', async () => {
+	const { ai, close } = setup(
+		async () =>
+			new Response(
+				new ReadableStream({
+					cancel() {
+						throw new DOMException('Cleanup failed', 'AbortError');
+					},
+				}),
+			),
+	);
+	await ai.account!.client.models.list().asResponse();
+	await expect(close()).rejects.toThrow('AI transport cleanup failed.');
+});
+
+test('close accepts an already-errored body returned after retirement', async () => {
+	const started = Promise.withResolvers<void>();
+	const response = Promise.withResolvers<Response>();
+	const { ai, close } = setup(async () => {
+		started.resolve();
+		return response.promise;
+	});
+	const request = ai.account!.client.models.list().then(
+		() => 'sent',
+		() => 'rejected',
+	);
+	await started.promise;
+	const closing = close();
+	response.resolve(
+		new Response(
+			new ReadableStream({
+				start(controller) {
+					controller.error(new DOMException('Fetch aborted', 'AbortError'));
+				},
+			}),
+		),
+	);
+	await expect(closing).resolves.toBeUndefined();
+	expect(await request).toBe('rejected');
+});
+
 test('every extracted connection operation obeys App admission, including preview clients', async () => {
 	const { createAiConnections } = await import('./ai-connections.js');
 	const values = new Map<string, string>();

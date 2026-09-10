@@ -47,12 +47,20 @@ export function createAppAi({
 	>();
 
 	async function cancelBody(
-		body: { cancel(reason?: unknown): Promise<void> },
+		reader: ReadableStreamDefaultReader<Uint8Array>,
 		reason?: unknown,
 	) {
 		try {
-			await body.cancel(reason);
+			await reader.cancel(reason);
 		} catch (cause) {
+			// Fetch abort can error the stream before this cancellation runs. Cancel
+			// then repeats its stored error; an underlying cancel failure instead
+			// leaves reader.closed fulfilled because cancellation closes first.
+			const alreadyErrored = await reader.closed.then(
+				() => false,
+				(storedError) => Object.is(storedError, cause),
+			);
+			if (alreadyErrored) return;
 			cleanupFailures.push(cause);
 			throw cause;
 		}
@@ -109,7 +117,7 @@ export function createAppAi({
 						redirect: 'error',
 					});
 					if (signal.aborted) {
-						if (response.body) await cancelBody(response.body);
+						if (response.body) await cancelBody(response.body.getReader());
 						signal.throwIfAborted();
 					}
 					if (!response.body) {

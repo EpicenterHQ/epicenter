@@ -489,7 +489,10 @@ export async function createAiCatalog({
 					abort = () => {
 						if (ended) return;
 						ended = true;
-						sink.error(new Error('AI connection request was cancelled.'));
+						// The disconnected socket already failed for its caller. Erroring
+						// Bun's response stream during force-stop also fails the process.
+						if (request.signal.aborted) sink.close();
+						else sink.error(new Error('AI connection request was cancelled.'));
 						void reader
 							.cancel()
 							.catch(() => {})
