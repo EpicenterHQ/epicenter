@@ -119,6 +119,13 @@ and optional keys. Reopening never resurrects subsequently deleted entries.
 Conflicting existing IDs fail opening instead of overwriting another endpoint.
 Legacy browser bytes remain recovery data. New desktop saves go to the host.
 
+The [native catalog acceptance](scripts/shared-ai-catalog-native/README.md)
+exercises two installed test apps through real macOS WebViews and the Rust
+keychain bridge. It verifies cross-app updates, process restart, independent
+selections, SSE reconnect, and cancellation on App, window, and host closure.
+Its optional Whispering mode also verifies the desktop picker, imported audio,
+real transcription, and the saved result after document reload.
+
 Construction is inert. `openLocal()`, `openPersonal(account)`, and `openShared(account)` return handles
 synchronously; `app.ready` resolves once with a usable dataset and hydrated AI catalog, or a typed
 failure. Local opening performs no authority request or sync dial.

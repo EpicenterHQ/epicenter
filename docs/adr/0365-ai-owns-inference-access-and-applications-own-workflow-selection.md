@@ -335,5 +335,29 @@ Rust keychain access and host process restart are outside that harness. `bun pac
 verifies pending and failed saves, hidden key retention/removal, cross-window
 updates, and suppression of late selection after the picker closes.
 
+`bun packages/app/scripts/shared-ai-catalog.native.mjs` closes the native
+catalog acceptance gap with two installed test applications in real macOS
+WebViews. It uses the existing Rust secret bridge and OS keychain, restarts
+both host processes, preserves product selections and deleted import markers,
+and verifies SSE reconnect and upstream cancellation at each closure boundary.
+The [native procedure and evidence](../../packages/app/scripts/shared-ai-catalog-native/README.md)
+state the fixture's isolation and limits.
+
+The optional `--whispering` run also exercises the built desktop product's
+transcription picker, audio import, and saved transcript after a new document
+opens. Its authenticated fixture endpoint runs the real cached Whisper Tiny
+engine through Tauri MockRuntime. The product's catalog, keychain, and WebView
+paths remain native. Multipart forwarding preserves the encoded body and
+boundary: passing a Request as RequestInit creates a stream upload that WebKit
+rejects before it reaches the broker.
+
+Cancellation preserves the distinction between an existing response error and
+a failed cleanup operation. An errored stream repeats its stored error from
+`cancel()` and `reader.closed`; an underlying cancellation failure leaves
+`reader.closed` fulfilled. App closure only reports the latter as a cleanup
+failure. At the host, an incoming request that already disconnected needs its
+local response closed, while access retirement for a connected caller still
+errors the response. Both paths cancel the upstream body.
+
 The dictation proposal above remains separate microphone-to-text work. Real native capture acceptance
 continues in the [runtime integration handoff](../../specs/20260909T171130-ai-runtime-integration.handoff.md).
