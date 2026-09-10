@@ -203,7 +203,7 @@ export function createDesktopAiConnections({
 			const path = `${endpoint}inference/${encodeURIComponent(record.id)}/${encodeURIComponent(record.accessVersion!)}/`;
 			return {
 				baseURL: base,
-				fetch(input, init) {
+				async fetch(input, init) {
 					assertOpen();
 					const request = new Request(input, init);
 					if (!request.url.startsWith(`${base}/`))
@@ -211,18 +211,25 @@ export function createDesktopAiConnections({
 					const headers = new Headers(request.headers);
 					headers.delete('authorization');
 					headers.delete('cookie');
-					return fetch(
-						new Request(
-							`${path}${request.url.slice(base.length + 1)}`,
-							request,
-						),
-						{
-							headers,
-							credentials: 'include',
-							redirect: 'error',
-							signal: AbortSignal.any([controller.signal, request.signal]),
-						},
-					);
+					const signal = AbortSignal.any([controller.signal, request.signal]);
+					// Passing Request as RequestInit turns even FormData into a stream
+					// upload, which WebKit rejects. Keep its encoded bytes and boundary.
+					const body = request.body ? await request.blob() : undefined;
+					signal.throwIfAborted();
+					return fetch(`${path}${request.url.slice(base.length + 1)}`, {
+						method: request.method,
+						headers,
+						body,
+						cache: request.cache,
+						integrity: request.integrity,
+						keepalive: request.keepalive,
+						mode: request.mode,
+						referrer: request.referrer,
+						referrerPolicy: request.referrerPolicy,
+						credentials: 'include',
+						redirect: 'error',
+						signal,
+					});
 				},
 			};
 		},

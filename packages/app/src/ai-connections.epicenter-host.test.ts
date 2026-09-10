@@ -138,3 +138,46 @@ test('a failed initial event stream rejects readiness and releases observation',
 	expect(value.closed).toBe(true);
 	await value.close();
 });
+
+test('desktop transcription preserves multipart bytes and hints while the broker owns credentials', async () => {
+	const audio = new Uint8Array([82, 73, 70, 70, 0, 255, 128, 1]);
+	const value = fixture(async (input, init) => {
+		const request = new Request(input, init);
+		expect(request.url).toBe(
+			'http://127.0.0.1:1234/_epicenter/ai/inference/one/access/audio/transcriptions',
+		);
+		expect(request.method).toBe('POST');
+		expect(request.headers.get('authorization')).toBeNull();
+		expect(request.headers.get('cookie')).toBeNull();
+		expect(request.credentials).toBe('include');
+		expect(request.redirect).toBe('error');
+		const form = await request.formData();
+		const file = form.get('file');
+		expect(file).toBeInstanceOf(File);
+		expect(new Uint8Array(await (file as File).arrayBuffer())).toEqual(audio);
+		expect(form.get('model')).toBe('manual');
+		expect(form.get('language')).toBe('en');
+		expect(form.get('prompt')).toBe('Epicenter');
+		return Response.json({ text: 'Fixture transcript' });
+	});
+	value.publish(0);
+	await value.ready;
+	try {
+		const result = await value.app.ai
+			.connections!.get('one')!
+			.client.audio.transcriptions.create(
+				{
+					model: 'manual',
+					file: new File([audio], 'speech.wav', { type: 'audio/wav' }),
+					language: 'en',
+					prompt: 'Epicenter',
+				},
+				{
+					headers: { authorization: 'Bearer forbidden', cookie: 'forbidden=1' },
+				},
+			);
+		expect(result.text).toBe('Fixture transcript');
+	} finally {
+		await value.close();
+	}
+});
