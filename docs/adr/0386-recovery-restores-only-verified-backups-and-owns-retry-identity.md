@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
-- **Unbuilt:** Authenticated recovery transport, durable publication/restore intent, restore orchestration, and the Backups screen. Portable verified publication and the persistent catalog are implemented but unmounted.
+- **Unbuilt:** Authenticated recovery transport, restore orchestration, and the Backups screen. Portable verified publication, the persistent catalog, durable publication and restore intent, and the attempt journal are implemented but unmounted: there is no `restore()` method, no transport, and no package-barrel export.
 
 ## Context
 
@@ -37,7 +37,11 @@ recovery.restore(backupId)
 ```
 
 These names describe the target API. The unmounted `src/recovery.ts` coordinator
-implements the first four; `restore` remains unimplemented. The factory binds
+implements the first four; `restore` remains unimplemented. Its durable halves
+exist behind a private `attempts` owner on the same coordinator: reserving one
+unresolved attempt, publishing and retaining its single safety backup, pinning
+the exact prepared activation request, finalizing a failure, and reconciling an
+outcome. They are deliberately not a sixth public method. The factory binds
 resources once; callers do not pass storage, capture positions, prepared bytes,
 or operation IDs to individual actions. Fallible operations return Results.
 

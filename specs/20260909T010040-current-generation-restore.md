@@ -22,8 +22,9 @@ through normal bootstrap without a generation picker.
 Build one library-bound recovery owner: every restore uses a published backup ID,
 and the owner manages the safety backup and durable attempt behind the call.
 The five-method API below is the target. `src/recovery.ts` now implements backup,
-import, list, and download as an unmounted coordinator. Restore, authenticated
-recovery transport, and durable client intent remain unimplemented.
+import, list, and download as an unmounted coordinator, over durable publication
+intent and a durable attempt journal. Restore, authenticated recovery transport,
+and the Backups screen remain unimplemented.
 
 Read Settled product contract, Target ownership, Recovery API and execution,
 and Required proof first. Dated checkpoint sections preserve prior evidence;
@@ -34,6 +35,110 @@ rollout remain unresolved.
 This execution path targets synchronized libraries. Preserve existing local-only
 startup; local-only backup and replacement need an equivalent local recovery
 owner and are separate unresolved work.
+
+## Durable intent and retry checkpoint, 2026-09-12
+
+Publication intent is durable and the restore attempt has a journal. Neither is
+mounted: there is still no `restore()`, no transport, no package-barrel export,
+and no UI.
+
+`recovery-journal.ts` holds one intent at a time on the client, with the exact
+bytes rather than a reference to them. The intent is written before the first
+mutating request, so a capture that never reached object storage is still
+recoverable; a retry after restart republishes those bytes instead of capturing
+today's library under yesterday's intent. `recoveryJournalAddress` derives the
+slot from server, account, application, data definition, and library together.
+`store/idb-journal.ts` is the browser engine, in its own IndexedDB database, and
+a test drives a real `openCurrentCache` install and discard against it: the
+record survives the invalidation it exists to outlive. The header is written
+after the payload and carries its digest and length, so a torn pair reads as
+absent and is cleared rather than published.
+
+A publication whose read-back failed is finished by a coordinator built from
+nothing, over the same directory, after further writes were accepted. It
+publishes the original capture at the original position, one record, and the
+next backup is a fresh capture of today. A pending import is resumed only by the
+same file, and refuses a manual backup by name while it is unresolved.
+
+`sync/attempts.ts` owns the attempt under the same stable SQLite owner as the
+catalog, so it survives the generation it replaces. One unresolved attempt per
+library is a partial unique index over `status = 'pending'`, not a read followed
+by a write. Reserving the same operation resumes; a different selection under it
+conflicts; a different operation while one is unresolved is refused and names
+the one that holds the slot. The safety backup id, destination position, and
+prepared activation digest and object are each set once and refuse a different
+value. `pinLibrary` is now shared with the catalog, so an attempt cannot be
+opened against another library or application identity.
+
+`fail` proves in one transaction that nothing committed, then writes the fence.
+Activation reads that status in the same transaction as its destination
+comparison and receipt write, so a request already prepared by a failed attempt
+returns `fenced` and the generation does not move. An attempt that pinned no
+preparation cannot activate at all: "no live activation from unverified
+preparation" belongs in the same transaction as the fence, for the same reason
+the fence cannot live in a route. The fence is durable: a
+reopened authority refuses it too. Activation resolves its own attempt, and a
+committed outcome refuses to be rewritten as a failure. `authority.receipt`
+answers from the receipt table alone, so an outcome is observable with archive
+storage unreachable and without the bytes that produced it.
+
+The authority owns liveness and the journal carries bytes. Every reconciliation
+asks `attempts.pending()` first, so an attempt started in another tab, on
+another device, or before this device's site data was cleared still refuses a
+backup, an import, and a second attempt here, naming the operation that holds
+the slot. The reservation is written before the local reference, because the
+reservation is the durable record and a reference written first would survive a
+refused `begin` and block every later backup in the name of an attempt reserved
+nowhere. One exclusion covers every mutating coordinator method rather than
+publication alone, so a restore cannot overwrite the payload holding a
+publication's only copy of its capture.
+
+Reading an outcome is not what forgets it. `attempts.pending` returns a resolved
+attempt with its receipt; only `acknowledge` releases the local reference, and
+only for an attempt that is no longer pending. An attempt the authority never
+reserved is the one case cleared on sight. An activation that committed while
+the page was gone is reported on reopen, blocks a new backup until acknowledged,
+and leaves both the source and the safety backup in a catalog that outlived the
+generation.
+
+One safety backup per attempt survives an interrupted publication: the capture
+is journalled before it is sent, the same reservation republishes the same
+bytes, and asking again returns the record rather than capturing the destination
+a second time. It remains in the catalog after the attempt is finalized as
+failed. Prepared activation bytes are stored immutably, read back, and pinned by
+digest, so a retry activates the lineage it prepared; bytes rebuilt by a second
+reconstruction differ and are refused.
+
+Independent design review found four blockers and no objection to the ownership
+split. Liveness read only the client journal, so a coordinator with no local
+reference published while a restore was unresolved. `begin` wrote its reference
+before reserving, so a refused reservation left a name that blocked every later
+backup. Activation accepted an attempt that had pinned nothing. One exclusion
+covered publication alone while every attempt method wrote the same journal
+slot. All four are repaired, each with a regression test confirmed to fail
+against the code as reviewed. Its nits were applied except the tolerated
+unreferenced activation object.
+
+Focused validation: 84 tests pass across codec, destination installation,
+recovery, the journal, the attempt journal, the catalog, current authority/hub,
+the S3 archive adapter, and generic blob routes, up from 64 at the previous
+checkpoint. The whole data package passes 689 tests. Three Worker suites pass 13 tests. Server and Honeycrisp script
+programs typecheck. Data's DOM leaf passes; its root passes with explicit DOM
+libraries and retains the same eight browser-global diagnostics as task start.
+The full Honeycrisp browser journey passes. Documentation hygiene reports the
+same 44 existing findings; this checkpoint adds none.
+
+Still unproven here: crash and power-loss durability, as against reopening a
+file; hosted provider retention; and transport size limits for archives that
+still embed numeric byte arrays. The prepared activation object is uploaded
+before the attempt points at it, so an interruption between the two leaves an
+unreferenced object for cleanup rather than a lost request.
+
+One limitation is known and deferred rather than solved. Two coordinators over
+one journal address can still race a publication's single slot; the authority
+arbitrates attempts, but a publication intent has no equivalent durable holder.
+Binding recovery to the page's fixed application and account lifetime, with a
+lock on the journal address, is where that closes, and it is already wave 4.
 
 ## Verified publication checkpoint, 2026-09-09
 
@@ -499,18 +604,20 @@ is allowed to create another backup even when restoring the same source.
      never become usable records; retries publish one record.
    - [x] Review the resulting owner before starting dependent orchestration.
 2. **Durable restore owner behind the five methods.**
-   - [ ] Persist pending publication intent and exact capture/file bytes outside
+   - [x] Persist pending publication intent and exact capture/file bytes outside
      retired replica storage. Reconcile before creating another backup/import
      after restart. Preserve the current live-lifetime retry behavior.
-   - [ ] Build the private attempt journal and active-attempt reservation. Test
+   - [x] Build the private attempt journal and active-attempt reservation. Test
      restart before first response, before/after request persistence, before/after
      activation, and before/after local pending-reference reconciliation.
      Prove receipt recovery without archive storage, terminal preparation failure
      with slot release, and rejection of the failed attempt's late activation.
-   - [ ] Compose destination capture, one safety backup, installed attachments,
+   - [~] Compose destination capture, one safety backup, installed attachments,
      retained activation request, and receipt recovery. No live activation from
-     unverified preparation and no fresh reconstruction on retry.
-   - [ ] Extend recovery tests to reopen the public owner and resume using only
+     unverified preparation and no fresh reconstruction on retry. The durable
+     halves exist under the unmounted `attempts` owner; the activation call and
+     the `restore()` that sequences them do not.
+   - [x] Extend recovery tests to reopen the public owner and resume using only
      the backup ID. Publication tests already use backup/import/download and
      preserve exact bytes. Private catalog replay still supplies a retained
      request; replace that evidence gap with durable public reconciliation.

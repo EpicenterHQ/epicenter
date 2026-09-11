@@ -47,32 +47,40 @@ type BackupRow = SqliteRow & {
 };
 const ARCHIVE_CONTENT_TYPE = 'application/json;charset=utf-8';
 
-async function digest(bytes: Uint8Array<ArrayBuffer>) {
+/**
+ * The whole-file digest a recovery record is identified by.
+ *
+ * One definition, because the catalog, the client journal and the coordinator
+ * all compare against each other's value: three spellings of SHA-256 hex would
+ * agree until one of them did not.
+ */
+export async function digestHex(bytes: Uint8Array): Promise<string> {
 	return Array.from(
-		new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)),
+		new Uint8Array(
+			await crypto.subtle.digest('SHA-256', new Uint8Array(bytes)),
+		),
 		(byte) => byte.toString(16).padStart(2, '0'),
 	).join('');
 }
 
 /**
- * Internal authority composition. The host supplies an immutable archive store
- * isolated from generic blob deletion. The coordinator validates archive semantics;
- * this owner independently proves exact stored bytes before publishing metadata.
- * A retained request can retry across reopening. This is not an intent journal.
+ * Bind this SQLite owner to one library and application/data identity, once.
+ *
+ * Every durable recovery record here inherits its scope from the owner rather
+ * than carrying it per row, so the check that the owner is the expected one has
+ * to happen where the owner is opened. Reopening under a different identity
+ * refuses instead of quietly writing a second library's history into this file.
  */
-export function openBackups({
+export function pinLibrary({
 	sqlite,
 	library,
 	identity,
-	archives,
 }: {
 	sqlite: SqliteDatabase;
 	library: string;
 	identity: { appId: string; dataId: string };
-	archives: Pick<BlobStore, 'put' | 'get'>;
-}) {
-	const appId = identity.appId;
-	const dataId = identity.dataId;
+}): void {
+	const { appId, dataId } = identity;
 	if (!library || !appId || !dataId)
 		throw new Error('Backup library identity is required');
 	sqlite.transaction(() => {
@@ -94,6 +102,30 @@ export function openBackups({
 			held.data_id !== dataId
 		)
 			throw new Error('Backup catalog belongs to another library');
+	});
+}
+
+/**
+ * Internal authority composition. The host supplies an immutable archive store
+ * isolated from generic blob deletion. The coordinator validates archive semantics;
+ * this owner independently proves exact stored bytes before publishing metadata.
+ * A retained request can retry across reopening. This is not an intent journal.
+ */
+export function openBackups({
+	sqlite,
+	library,
+	identity,
+	archives,
+}: {
+	sqlite: SqliteDatabase;
+	library: string;
+	identity: { appId: string; dataId: string };
+	archives: Pick<BlobStore, 'put' | 'get'>;
+}) {
+	const appId = identity.appId;
+	const dataId = identity.dataId;
+	pinLibrary({ sqlite, library, identity });
+	sqlite.transaction(() => {
 		sqlite.run(`CREATE TABLE IF NOT EXISTS _backups (
 			id TEXT PRIMARY KEY, digest TEXT NOT NULL, byte_length INTEGER NOT NULL,
 			metadata TEXT NOT NULL, reason TEXT NOT NULL, added_at INTEGER
@@ -151,7 +183,7 @@ export function openBackups({
 						!bytes.length
 					)
 						throw new Error('Invalid backup request or application identity');
-					const hash = await digest(bytes);
+					const hash = await digestHex(bytes);
 					const previous = sqlite.transaction(() => {
 						const previous = row(id);
 						if (previous) {
@@ -239,7 +271,7 @@ export function openBackups({
 					if (
 						blob.type !== ARCHIVE_CONTENT_TYPE ||
 						bytes.length !== expected.byte_length ||
-						(await digest(bytes)) !== expected.digest
+						(await digestHex(bytes)) !== expected.digest
 					)
 						throw new Error(
 							'Stored archive does not match the published digest, length or MIME type',

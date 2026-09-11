@@ -13,17 +13,24 @@ import type {
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { ArchiveError, prepareArchive } from './archive.js';
 
-type ArchiveStorage = Pick<BlobStore, 'put' | 'get'>;
-type StorageError = ArchiveError | BlobNotFound | BlobStoreFailed;
+export type ArchiveStorage = Pick<BlobStore, 'put' | 'get'>;
+export type StorageError = ArchiveError | BlobNotFound | BlobStoreFailed;
 
-async function storeVerifiedBlob(
+/**
+ * Write one immutable object and prove the store kept exactly those bytes.
+ *
+ * A successful put is not the guarantee; the read-back is. A retry may find its
+ * own prior write, and a nominal BlobId is not a content hash, so equality has
+ * to be established rather than assumed. Shared by attachment installation and
+ * by the retained activation request, which need the same proof for the same
+ * reason.
+ */
+export async function storeVerifiedBlob(
 	store: ArchiveStorage,
 	id: BlobId,
 	blob: Blob,
 ): Promise<Result<Uint8Array<ArrayBuffer>, StorageError>> {
 	const written = await store.put(id, blob);
-	// A retry may find its prior immutable write. Verify it exactly; a nominal
-	// BlobId is not a content hash and cannot establish equality by itself.
 	if (written.error !== null && written.error.name !== 'BlobAlreadyExists')
 		return Err(written.error);
 	const read = await store.get(id);
