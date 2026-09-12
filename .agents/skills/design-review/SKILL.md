@@ -19,12 +19,11 @@ implementer is not evidence of a better review. Keeping the design is valid.
 
 ## Establish independence
 
-The coordinating agent starts one read-only reviewer that did not implement
-the work, with a fresh context. Use the runtime's available GPT-6 model with
-high reasoning. If unavailable, use the strongest available reviewer and
-disclose the substitution. Independent review requires subagent tools; if they
-are unavailable, perform the pass locally and state that it was not independent.
-Do not invoke Claude unless the user explicitly requests it.
+The coordinating agent starts one read-only reviewer subagent that did not
+implement the work. Use the runtime's available GPT-6 model with
+`fork_turns: "none"` and `reasoning_effort: "high"`.
+If subagent tools are unavailable, perform the pass locally and state that it
+was not independent. Do not invoke Claude unless the user explicitly requests it.
 
 Give the reviewer raw artifacts and open questions, without the implementer's
 preferred conclusion:
