@@ -643,14 +643,18 @@ git history.
      `packages/data/evidence/current-generation/` passing.
    - [ ] Delete `packages/server/src/backup-storage.ts` and its test.
 2. **The row is the blob's address.** ADR-0393.
-   - [ ] `field.blob()` becomes a nullable MIME-type cell; `compileData`
-     refuses a second blob field; `BlobFieldNames<T>` is one optional name.
-     `store.create` puts bytes at `<table>/<row-id>` and writes the cell;
-     `store.update` cannot touch it; no mint, no `copy`.
+   - [ ] `field.blob()` becomes `field.attachment()`, a nullable MIME-type
+     cell; `compileData` refuses a second; `BlobFieldNames<T>` is one optional
+     name. `table.attachment(rowId)` is the handle: `create` with bytes,
+     recorder fill, `url`, `bytes()`, `evict()`; it sets the cell once when
+     bytes are complete; `store.update` cannot touch it; no mint, no `copy`.
+     The push obligation is a `pushed` flag beside the bytes in the cache,
+     cleared by the store on a successful PUT, retried on connect.
    - [ ] `packages/blobs`: delete `blob-id.ts` and `BLOB_ID_ROUTE_REGEX`;
      rekey `browser.ts` and `bun.ts` by row path; delete `createAppBlobs().add`,
      `copy`, and `purge`; `removeLocal` and `download` are the cache verbs.
-   - [ ] Desktop: `recorder/commands.rs` takes the row id at `start`;
+   - [ ] Desktop: `recorder/commands.rs` takes the row's path at `start`,
+     handed through `recorder.start({ into: table.attachment(row.id) })`;
      `blobs.rs` writes `<table>/<row-id>/`; delete `mint_blob_id`. Host blob
      API in `apps/epicenter/src/server.ts` is addressed by row path.
    - [ ] Server: mount `PUT`, `GET`, `HEAD`
@@ -664,8 +668,8 @@ git history.
      from production.
    - [ ] Whispering: delete `recordingAutoUpload`, the storage badge, the
      Upload/Purge actions, the Backup Status card, and the `local-only` and
-     `remote-only` availability states; keep `uploadedAt` as the push
-     obligation marker and `kick()` as its runner. Settings says once that
+     `remote-only` availability states, `uploadedAt`, and `kick()`; the row
+     is created before `start` (ADR-0205) and the handle fills it. Settings says once that
      recordings are stored in the account and this device keeps a copy of the
      ones it plays. Deletion is `table.delete` in a loop.
 3. **Folder siblings.** ADR-0393 and ADR-0394.
@@ -767,10 +771,11 @@ work; cases below it are the three records.
 | Crash around invalidation/install | Prior valid cache before invalidation, absence after it, or a complete new baseline |
 | Failed download or missing local cache | Ordinary retry; no empty remote creation or reload loop |
 | Different-generation working-copy manifest | Push refuses; no reinterpretation as mass edits |
-| A second `field.blob()` on one table | `compileData` refuses |
-| Row created with bytes | Object at `<table>/<row-id>`, cell holds the MIME type, `uploadedAt` marks the push obligation until the PUT succeeds |
+| A second `field.attachment()` on one table | `compileData` refuses |
+| Row created with bytes | Object at `<table>/<row-id>`, cell holds the MIME type, the cache marks the push obligation until the PUT succeeds |
 | PUT to an existing row path | 409; bytes unchanged |
-| Row deleted | Row gone; object present until a pass finds no copy holding the row |
+| Capture crash before `stop` | Row exists with a null cell; host `current()` recovers and `stop()` fills it |
+| Row deleted | Row gone; cache entry gone; object present until a pass finds no copy holding the row |
 | Copy deleted | Rows gone; objects it alone named present until the next pass |
 | Pass after a copy is kept | Every object whose row file is in no copy is deleted; nothing named by any copy is touched; rerunning the pass deletes nothing |
 | Crash mid-pass | Next pass completes the same work |

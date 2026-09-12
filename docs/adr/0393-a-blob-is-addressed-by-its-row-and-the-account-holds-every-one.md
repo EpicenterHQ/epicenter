@@ -2,10 +2,10 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Amends:** [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md) at the whole mechanism: there is no content-addressed URL, no `/api/blobs`, and no citation found in prose; what survives is "documents are the only manifest", now literally, because the row is the address. [ADR-0154](0154-blob-access-is-address-only.md) at "takes a `BlobId` the caller already holds": the address is the row. [ADR-0349](0349-blobs-are-a-namespace-on-the-handle-addressed-by-id-and-stored-under-the-replicas-principal.md) (`Proposed`) at blob identity, the `principals/<id>/blobs/<blobId>` key, `uploadedAt` as the signal of a remote copy, the auto-upload preference, and its refusal of row-addressed blobs; its session-scoped local stores, Web Locks, erase, and legacy claim stand as the device cache. [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) and [ADR-0092](0092-identity-is-the-partition.md) at the R2 key and the public blob routes. [ADR-0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it-rather-than-losing-it.md) at "the recorder returns the id at `stop`": it returns nothing but bytes at a row path it was given at `start`. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at "audio is a string field containing a blob ID, with a separate `uploadedAt`". [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) at "content-addressed" (immutable stands) and at "`uploadedAt` is null until an upload succeeds" (it stays as the queue marker, not as a choice). [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at "a blob id is a minted nanoid".
+- **Amends:** [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md) at the whole mechanism: there is no content-addressed URL, no `/api/blobs`, and no citation found in prose; what survives is "documents are the only manifest", now literally, because the row is the address. [ADR-0154](0154-blob-access-is-address-only.md) at "takes a `BlobId` the caller already holds": the address is the row. [ADR-0349](0349-blobs-are-a-namespace-on-the-handle-addressed-by-id-and-stored-under-the-replicas-principal.md) (`Proposed`) at blob identity, the `principals/<id>/blobs/<blobId>` key, `uploadedAt` as the signal of a remote copy, the auto-upload preference, and its refusal of row-addressed blobs; its session-scoped local stores, Web Locks, erase, and legacy claim stand as the device cache. [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) and [ADR-0092](0092-identity-is-the-partition.md) at the R2 key and the public blob routes. [ADR-0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it-rather-than-losing-it.md) at "the recorder returns the id at `stop`": it returns nothing but bytes at a row path it was given at `start`. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at "audio is a string field containing a blob ID, with a separate `uploadedAt`". [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) at "content-addressed" (immutable stands) and at "`uploadedAt` is null until an upload succeeds" (the obligation moves into the store's cache and the field is deleted). [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at "a blob id is a minted nanoid".
 - **Supersedes:** [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md) (`Proposed`), whose at-most-one-blob-per-row rule and row-lifecycle claim are this record, without the write-once slot and without `table.blobUrl`. [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md) and [ADR-0149](0149-local-blob-stores-are-canonical-and-remote-replication-is-explicit.md) are already superseded; this record ends the id lineage the first began and inverts the second.
 - **Relates:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md), [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) (a reference travels; bytes travel with export and import), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md) (the upload queue is that obligation), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (a kept copy is the second thing that keeps bytes alive), [ADR-0287](0287-the-authority-does-not-delete-a-generation-and-erasure-is-an-account-operation.md) (the server reclaims only what a person un-names).
-- **Unbuilt:** All of it. `packages/blobs/src/blob-id.ts`, the `keyPath: 'id'` stores in `browser.ts` and `bun.ts`, `mint_blob_id` in `apps/epicenter/src-tauri/src/blobs.rs`, `packages/server/src/routes/blobs.ts` and `principal.ts#blobKey`, the host blob API in `apps/epicenter/src/server.ts`, the `generateBlobId` path in `packages/data/src/store/store.ts`, and Whispering's storage badges, Upload/Download/Remove actions, and Backup Status card are what this record replaces. The one production blob field is `recordings.audioBlobId` in `apps/whispering/src/lib/data.ts`.
+- **Unbuilt:** All of it. `packages/blobs/src/blob-id.ts`, the `keyPath: 'id'` stores in `browser.ts` and `bun.ts`, `mint_blob_id` in `apps/epicenter/src-tauri/src/blobs.rs`, `packages/server/src/routes/blobs.ts` and `principal.ts#blobKey`, the host blob API in `apps/epicenter/src/server.ts`, the `generateBlobId` path in `packages/data/src/store/store.ts`, `field.blob()` in `packages/data/src/field/builders.ts`, Whispering's `uploadedAt`, and its storage badges, Upload/Download/Remove actions, and Backup Status card are what this record replaces. The one production blob field is `recordings.audioBlobId` in `apps/whispering/src/lib/data.ts`.
 
 ## Context
 
@@ -35,32 +35,59 @@ row's attachment, and there is no other name for it.**
 authority   R2 object  <library prefix>/<table>/<row-id>     Content-Type as object metadata
 device      cache      the same path, in the session-scoped store ADR-0349 built
 folder      file       <table>/<row-id>.<ext>                 beside <table>/<row-id>.md
-cell        field.blob()   the attachment's MIME type, or null when the row has no bytes
+cell        field.attachment()   the MIME type once bytes exist, or null; plain data on the row
 ```
 
-A table declares at most one `field.blob()`; `compileData` refuses a second.
-`BlobId`, `generateBlobId`, `BLOB_ID_ROUTE_REGEX`, `BlobStore.copy`, and
-`createAppBlobs().add` are deleted. `CreateRowOf` takes bytes for the cell and
-`store.create` puts them at the row's path and writes the MIME type; nothing is
-minted. `store.update` cannot touch the cell. Changing the bytes is a new row.
+A table declares at most one `field.attachment()`; `compileData` refuses a
+second. `field.blob()` is renamed: a developer meets "attachment" on the row
+and never "blob", which stays the storage word in `packages/blobs`. `BlobId`,
+`generateBlobId`, `BLOB_ID_ROUTE_REGEX`, `BlobStore.copy`, and
+`createAppBlobs().add` are deleted. Nothing is minted by an application.
+
+**The row comes first, and its attachment is a handle on the table.**
+
+```ts
+const row = await app.tables.recordings.create({ title, audio: file });   // row and bytes together
+
+const row = app.tables.recordings.create({ title, audio: null });         // a row that fills (ADR-0205)
+const rec = await recorder.start({ into: app.tables.recordings.attachment(row.id) });
+await rec.stop();                 // bytes complete; the handle sets row.audio and owes the push
+
+const a = app.tables.recordings.attachment(row.id);
+a.url                             // GET …/blobs/recordings/<id>, durable for the row's life
+await a.bytes()                   // the cache, filled from the account when absent
+await a.evict()                   // drop the device copy; the account keeps it
+```
+
+`table.attachment(rowId)` exists only on a table that declares the field. It
+is the one object that knows the path `<table>/<row-id>`, the session cache,
+and the library transport: `create` with bytes goes through it, the recorder
+writes through it, `bytes()` reads through it, and nothing else touches bytes.
+The cell is set once, from `null` to a MIME type, inside the handle when the
+bytes are complete; `store.update` cannot reach it. Changing the bytes is a
+new row.
 
 **Bytes are immutable at their path, and a row keeps its bytes for life.** An
 object exists from the row's creation until the reclaim pass in ADR-0394 finds
 no copy that holds the row. Nothing else creates, replaces, or deletes an
 object, and no request deletes bytes immediately. A capture in progress writes
-to the path of the row the recorder was told it is filling
-(`apps/epicenter/src-tauri/src/recorder/commands.rs` takes the row id at
-`start` instead of minting a blob id); a capture whose row is never created is
-reclaimed the same way.
+to the path of the row it is filling
+(`apps/epicenter/src-tauri/src/recorder/commands.rs` takes the row's path at
+`start` instead of minting a blob id). A crash during capture leaves a row
+with a null cell and staged bytes at its path; the host's `current()` recovers
+the capture and `stop()` fills the row (ADR-0205). A crash before any bytes
+leaves a row with no attachment, which is what happened.
 
-**The account holds every blob, and the device is a cache.** Creating a row
-with bytes leaves an obligation to push them, as ADR-0171 already says of every
-durable local write; `uploadedAt` on the row is the marker of that obligation,
-and Whispering's single-flight `kick()` is the runner. There is no preference
-to keep audio on one device, no per-recording upload or purge action, and no
-availability state beyond "cached here or not". `removeLocal` clears the cache
-and `download` fills it. A person is told once, in settings: "Recordings are
-stored in your account. This device keeps a copy of the ones you play."
+**The account holds every blob, and the device is a cache.** Completing an
+attachment leaves an obligation to push it, as ADR-0171 already says of every
+durable local write. The obligation lives beside the bytes in the cache as a
+`pushed` flag the store clears when the `PUT` succeeds, retried on connect,
+single-flight, owned by the store and not by any application. Whispering's
+`uploadedAt` and `kick()` are deleted with it. There is no preference to keep
+audio on one device, no per-recording upload or purge action, and no
+availability state beyond "cached here or not". A person is told once, in
+settings: "Recordings are stored in your account. This device keeps a copy of
+the ones you play."
 
 **Blob requests go through the library's mount.** Four routes, resolved by the
 same bearer and library prefix as `CURRENT_ROUTE` in
@@ -95,6 +122,7 @@ cell is not null, and the authority can answer "which copies still hold this
 row" with one query on a path (ADR-0394), because the path is the identity.
 
 Deleted with the id: minting on both platforms, `copy`, the regex over prose,
+`uploadedAt` and `kick()`,
 the `blobs: { id, contentType, bytes }[]` array of the archive, the id
 validation on every route, `/api/blobs/*` and `/api/apps/*/blobs/*`, the
 per-principal key, `RemoteNotConfigured` as a state a person meets, Whispering's
@@ -123,6 +151,13 @@ that wants several attachments per row declares child rows.
   the recording's identity is the row's, which exists at `start`, and a hash
   would be a third name.
 - Several blob fields per row. Nothing declares two.
+- An application mints the row id before `start` and hands it to the recorder,
+  then creates the row with that id at `stop`. Carries an id across the
+  capture for nothing; ADR-0205 already has the row exist from the first
+  second.
+- The push obligation as an application field (`uploadedAt`) with an
+  application runner. Every application with an attachment would rebuild
+  both.
 - Device-only audio as a per-recording choice. It is what `uploadedAt` being
   nullable allowed, and it costs four availability states, two actions, a
   preference, and an export that can be missing files. A person who wants
