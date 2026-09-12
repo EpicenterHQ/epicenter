@@ -12,11 +12,30 @@ const appCallbacks = [
 	'https://vocab.epicenter.so/auth/callback',
 ];
 const localAppCallbacks = [
+	'http://127.0.0.1:39131/_epicenter/sign-in/callback',
 	'http://localhost:5177/auth/callback',
 	'http://localhost:5175/auth/callback',
 	'http://localhost:1420/auth/callback',
 	'http://localhost:8888/auth/callback',
 ];
+
+test('only a local issuer admits the exact configured desktop callback port', () => {
+	const callback = 'http://127.0.0.1:49152/_epicenter/sign-in/callback';
+	expect(buildSessionCallbacks('http://localhost:8787', '49152')).toContain(
+		callback,
+	);
+	expect(buildSessionCallbacks('http://localhost:8787', '49152')).not.toContain(
+		localAppCallbacks[0],
+	);
+	expect(
+		buildSessionCallbacks('https://api.epicenter.so', '49152'),
+	).not.toContain(callback);
+	for (const port of ['0', '1023', '65536', 'other', '39131/path']) {
+		expect(() =>
+			buildSessionCallbacks('http://localhost:8787', port),
+		).toThrow();
+	}
+});
 
 test('production permits only the exact native, hosted, and application callbacks', () => {
 	expect(buildSessionCallbacks('https://api.epicenter.so').sort()).toEqual(

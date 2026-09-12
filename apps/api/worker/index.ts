@@ -95,7 +95,11 @@ const cloudContext = createCloudContextMiddleware({
 	connect: (env) => connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
 	afterResponse: (c, work) => c.executionCtx.waitUntil(work),
 
-	resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
+	resolveSessionCallbacks: (c) =>
+		buildSessionCallbacks(
+			c.var.authBaseURL,
+			(c.env as Cloudflare.Env).EPICENTER_DEV_PORT,
+		),
 	resolveAuthSecrets: (c) => c.env as Cloudflare.Env,
 });
 

@@ -33,10 +33,14 @@
 	const launcher = createLaunch();
 	let server = $state(startup.selectedServer ?? '');
 	let connecting = $state(false);
+	let signingIn = $state(false);
 	let connectionError = $state('');
 	let changingServer = $state(false);
+	let operation = 0;
 	async function connect(path: string, body: object = {}) {
+		const current = ++operation;
 		connecting = true;
+		signingIn = path === ACCOUNT_SIGN_IN_ROUTE.pattern;
 		connectionError = '';
 		try {
 			const response = await fetch(path, {
@@ -44,15 +48,19 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(body),
 			});
+			if (current !== operation) return;
 			if (!response.ok) throw new Error(await response.text());
 			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern || path === ACCOUNT_SIGN_IN_ROUTE.pattern) {
 				connecting = false;
+				signingIn = false;
 			}
 			// A selected connection stays pending until native replaces this process.
 		} catch (cause) {
+			if (current !== operation) return;
 			connectionError =
 				cause instanceof Error ? cause.message : 'Could not connect.';
 			connecting = false;
+			signingIn = false;
 		}
 	}
 
@@ -83,6 +91,10 @@
 		<Button disabled={connecting} onclick={() => void connect(startup.auth?.startSignIn !== undefined ? ACCOUNT_SIGN_IN_ROUTE.pattern : ACCOUNT_USE_CLOUD_ROUTE.pattern)}>
 			{startup.auth?.startSignIn !== undefined ? 'Sign in' : 'Use Epicenter Cloud'}
 		</Button>
+		{#if signingIn}
+			<p role="status">Finish signing in in your browser, then return here.</p>
+			<Button variant="outline" onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel sign-in</Button>
+		{/if}
 		{#if startup.selectedServer !== null && startup.auth?.startSignIn}
 			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_USE_CLOUD_ROUTE.pattern)}>Use Epicenter Cloud</Button>
 		{/if}

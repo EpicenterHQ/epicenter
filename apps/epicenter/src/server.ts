@@ -68,6 +68,7 @@ import {
 	MAIL_PENDING_CALLBACK_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
+	SIGN_IN_CALLBACK_ROUTE,
 } from './routes.ts';
 import type { EpicenterStaticAssets } from './static-assets.ts';
 
@@ -230,6 +231,21 @@ export function createHomeServer({
 		});
 		return c.body(null, 204);
 	});
+	// Development has no installed macOS URL handler. The pending authority
+	// accepts only its exact callback and random state; no Home cookie is used.
+	if (desktopAuth.callbackUrl === SIGN_IN_CALLBACK_ROUTE.url(origin)) {
+		app.get(SIGN_IN_CALLBACK_ROUTE.pattern, (c) => {
+			c.header('cache-control', 'no-store');
+			if (!desktopAuth.acceptSignInCallback(c.req.url))
+				return c.text(
+					'This sign-in attempt is no longer active. Start again in Epicenter.',
+					400,
+				);
+			return c.html(
+				'<!doctype html><html><head><meta charset="utf-8"><title>Epicenter</title></head><body><p>Return to Epicenter to finish signing in. You can close this tab.</p></body></html>',
+			);
+		});
+	}
 	const hasBrowserSession = (c: Context) => {
 		const session = getCookie(c, SESSION_COOKIE);
 		return session !== undefined && sessionHashes.has(tokenHash(session));

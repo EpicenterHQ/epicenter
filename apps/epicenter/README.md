@@ -76,6 +76,13 @@ Start Epicenter from the repository root:
 bun dev:epicenter
 ```
 
+Finish sign-in in your browser, then return to Epicenter. Home shows the pending
+attempt and lets you cancel without signing out of your existing account.
+Development returns through the running host's loopback callback because a raw
+macOS development executable has no registered URL scheme. Packaged builds keep
+`epicenter://auth/callback`. If you set `EPICENTER_DEV_PORT`, set it on this root
+command so the API approves the same exact callback port the host binds.
+
 Local Mail's Google client arrives at build time, because a page cannot read a
 machine's environment. The launcher supplies it and changes nothing else:
 

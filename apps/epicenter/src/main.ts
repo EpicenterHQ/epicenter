@@ -42,6 +42,7 @@ import {
 	watchParentPipe,
 } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
+import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 
 // 1.3.1 and 1.3.3 report false stdin EOF during native sign-in, leaving
 // a live sidecar without its HTTP listener. 1.3.14 passes the native flow.
@@ -67,6 +68,10 @@ async function main(): Promise<void> {
 		const auth = createDesktopAuthAuthority({
 			authCell: boot.authCell,
 			nativeAuthPort: nativePort,
+			callbackUrl:
+				runtimeMode === 'development'
+					? SIGN_IN_CALLBACK_ROUTE.url(`http://127.0.0.1:${boot.port}`)
+					: undefined,
 		});
 		desktopAuth = auth;
 

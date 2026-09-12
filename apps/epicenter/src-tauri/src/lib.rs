@@ -1381,7 +1381,11 @@ fn handle_native_frame(
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::OpenAuthUrl { request_id, url } => {
-            let result = validate_hosted_auth_url(&url).and_then(|()| {
+            #[cfg(debug_assertions)]
+            let development_origin = std::env::var("EPICENTER_API_URL").ok();
+            #[cfg(not(debug_assertions))]
+            let development_origin: Option<String> = None;
+            let result = validate_hosted_auth_url(&url, development_origin.as_deref()).and_then(|()| {
                 app.opener()
                     .open_url(url, None::<String>)
                     .map_err(Into::into)
@@ -1524,17 +1528,25 @@ fn send_native_frame(
     Ok(())
 }
 
-fn validate_hosted_auth_url(value: &str) -> Result<()> {
+fn validate_hosted_auth_url(value: &str, development_origin: Option<&str>) -> Result<()> {
     let url = tauri::Url::parse(value).context("parse the hosted authorization URL")?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("api.epicenter.so")
-        || url.port().is_some()
+    let origin = development_origin.unwrap_or(HOSTED_AUTH_ORIGIN);
+    if let Some(development) = development_origin {
+        let parsed = tauri::Url::parse(development)?;
+        if parsed.scheme() != "http"
+            || !matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+            || parsed.origin().ascii_serialization() != development
+        {
+            bail!("EPICENTER_API_URL must be an HTTP loopback origin in development");
+        }
+    }
+    if url.origin().ascii_serialization() != origin
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()
         || url.path() != "/sign-in"
     {
-        bail!("authorization URL must be {HOSTED_AUTH_ORIGIN}/sign-in");
+        bail!("authorization URL must be {origin}/sign-in");
     }
     Ok(())
 }
@@ -1958,6 +1970,24 @@ mod tests {
         assert!(development_port(Some(OsStr::new("1023"))).is_err());
         assert!(development_port(Some(OsStr::new("65536"))).is_err());
         assert!(development_port(Some(OsStr::new("not-a-port"))).is_err());
+    }
+
+    #[test]
+    fn development_sign_in_opens_only_the_configured_local_issuer() {
+        let origin = Some("http://localhost:8787");
+        validate_hosted_auth_url("http://localhost:8787/sign-in?state=state", origin).unwrap();
+        for url in [
+            "https://api.epicenter.so/sign-in",
+            "http://localhost:8788/sign-in",
+            "http://127.0.0.1:8787/sign-in",
+            "http://localhost:8787/other",
+            "http://user@localhost:8787/sign-in",
+            "http://localhost:8787/sign-in#fragment",
+        ] {
+            assert!(validate_hosted_auth_url(url, origin).is_err());
+        }
+        assert!(validate_hosted_auth_url("http://localhost:8787/sign-in", None).is_err());
+        assert!(validate_hosted_auth_url("https://evil.test/sign-in", Some("https://evil.test")).is_err());
     }
 
     #[test]
@@ -2734,7 +2764,7 @@ mod tests {
             "https://api.epicenter.so/sign-in?callback=epicenter%3A%2F%2Fauth%2Fcallback&state=state&challenge=challenge",
             "https://api.epicenter.so/sign-in?reauth=1",
         ] {
-            validate_hosted_auth_url(allowed).unwrap();
+            validate_hosted_auth_url(allowed, None).unwrap();
         }
         for denied in [
             "http://api.epicenter.so/sign-in",
@@ -2746,7 +2776,7 @@ mod tests {
             "https://api.epicenter.so/sign-in#fragment",
             "https://api.epicenter.so:444/sign-in",
         ] {
-            assert!(validate_hosted_auth_url(denied).is_err());
+            assert!(validate_hosted_auth_url(denied, None).is_err());
         }
     }
 

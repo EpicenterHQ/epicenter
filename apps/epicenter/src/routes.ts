@@ -44,13 +44,12 @@ export type BuiltInRouteId = keyof typeof BUILT_IN_ROUTES;
 
 export const BOOTSTRAP_ROUTE = route('/_epicenter/bootstrap');
 export const ACCOUNT_SIGN_IN_ROUTE = route('/_epicenter/account/sign-in');
+export const SIGN_IN_CALLBACK_ROUTE = route('/_epicenter/sign-in/callback');
 export const ACCOUNT_CANCEL_CONNECTION_ROUTE = route(
 	'/_epicenter/account/cancel-connection',
 );
 export const ACCOUNT_CONNECT_ROUTE = route('/_epicenter/account/connect');
-export const ACCOUNT_USE_CLOUD_ROUTE = route(
-	'/_epicenter/account/use-cloud',
-);
+export const ACCOUNT_USE_CLOUD_ROUTE = route('/_epicenter/account/use-cloud');
 export const ACCOUNT_SIGN_OUT_ROUTE = route('/_epicenter/account/sign-out');
 export const HOME_ROUTE = BUILT_IN_ROUTES.home;
 export const WHISPERING_ROUTE = BUILT_IN_ROUTES.whispering;

@@ -85,6 +85,83 @@ import {
 } from './static-assets.ts';
 import { writeAppsDist } from './test-apps-dist.ts';
 import { createTestDesktopAuth } from './test-home-host.ts';
+import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
+
+test('development browser callback completes the pending sign-in without a Home cookie', async () => {
+	await using host = await createHomeHost({
+		model: 'test',
+		engine: async function* () {},
+	});
+	const origin = 'http://127.0.0.1:49152';
+	const callbackUrl = `${origin}/_epicenter/sign-in/callback`;
+	const opened = Promise.withResolvers<string>();
+	let relaunches = 0;
+	using desktopAuth = createDesktopAuthAuthority({
+		authCell: null,
+		callbackUrl,
+		nativeAuthPort: {
+			async closeApplications() {},
+			async resumeApplications() {},
+			async storeAuth() {},
+			async openAuthUrl(url) {
+				opened.resolve(url);
+			},
+			relaunch() {
+				relaunches++;
+			},
+			onAuthCallback() {
+				return () => false;
+			},
+			completed: new Promise(() => {}),
+		},
+		async fetch(input) {
+			return new URL(String(input)).pathname === '/api/session'
+				? Response.json({ principalId: 'alice' })
+				: Response.json({ token: 'alice' });
+		},
+	});
+	const options = {
+		folderRoot: testDataDir(),
+		host,
+		origin,
+		launchToken: 'launch',
+		staticAssets: await createAppsDistFixture(PAGE),
+		blobs: createTestBlobs(),
+		blobRemote: () => null,
+		desktopAuth,
+	};
+	const { app } = createHomeServer(options);
+	const pending = desktopAuth.startSignIn();
+	const launch = new URL(await opened.promise);
+	const request = (url: string) =>
+		app.request(url, { headers: { host: new URL(origin).host } });
+	expect((await request(`${callbackUrl}?code=code&state=wrong`)).status).toBe(
+		400,
+	);
+	const params = new URLSearchParams({
+		code: 'code',
+		state: launch.searchParams.get('state')!,
+	});
+	const response = await request(`${callbackUrl}?${params}`);
+	expect(response.status).toBe(200);
+	expect(response.headers.get('set-cookie')).toBeNull();
+	expect(response.headers.get('cache-control')).toBe('no-store');
+	expectOk(await pending);
+	expect(relaunches).toBe(1);
+	expect((await request(`${callbackUrl}?${params}`)).status).toBe(400);
+	using productionAuth = createTestDesktopAuth();
+	const production = createHomeServer({
+		...options,
+		desktopAuth: productionAuth,
+	});
+	expect(
+		(
+			await production.app.request(callbackUrl, {
+				headers: { host: new URL(origin).host },
+			})
+		).status,
+	).toBe(404);
+});
 
 const TOKEN = 'per-launch-secret';
 

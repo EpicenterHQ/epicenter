@@ -7,7 +7,7 @@
  */
 import { expect, spyOn, test } from 'bun:test';
 import { ApiSessionResponse, type AuthFetch } from '@epicenter/auth';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.ts';
 
 const STORED_CELL = JSON.stringify({
@@ -24,10 +24,12 @@ function setup({
 	store,
 	closeApplications,
 	resumeApplications,
+	callbackUrl,
 }: {
 	authCell?: string | null;
 	closeApplications?: () => Promise<void>;
 	resumeApplications?: () => Promise<void>;
+	callbackUrl?: string;
 	open?: (url: string) => Promise<void>;
 	relaunch?: () => void;
 	fetch?: AuthFetch;
@@ -42,6 +44,7 @@ function setup({
 	let listener: ((url: string) => void) | undefined;
 	const authority = createDesktopAuthAuthority({
 		authCell,
+		callbackUrl,
 		nativeAuthPort: {
 			async closeApplications() {
 				await closeApplications?.();
@@ -126,6 +129,143 @@ async function until(check: () => boolean) {
 		await Bun.sleep(1);
 	}
 }
+
+test('cancelling browser sign-in preserves the boot Account and releases application launching', async () => {
+	let resumed = 0;
+	using context = setup({
+		resumeApplications: async () => {
+			resumed++;
+		},
+	});
+	const account = context.authority.account;
+	const pending = context.authority.startSignIn();
+	await until(() => context.urls.length === 1);
+	expectOk(await context.authority.cancelConnection());
+	expectErr(await pending);
+	context.finish();
+	await Bun.sleep(0);
+	expect(context.authority.account).toBe(account);
+	expect(context.authority.state.status).toBe('signed-in');
+	expect(context.writes).toEqual([]);
+	expect(resumed).toBe(1);
+	expect(context.events).not.toContain('relaunch');
+});
+
+test('cancelling during application close waits for the barrier and never opens the browser', async () => {
+	const closed = Promise.withResolvers<void>();
+	let resumed = 0;
+	using context = setup({
+		closeApplications: () => closed.promise,
+		resumeApplications: async () => {
+			resumed++;
+		},
+	});
+	const pending = context.authority.startSignIn();
+	await Bun.sleep(0);
+	const cancelled = context.authority.cancelConnection();
+	closed.resolve();
+	expectOk(await cancelled);
+	expectErr(await pending);
+	expect(context.urls).toEqual([]);
+	expect(context.writes).toEqual([]);
+	expect(resumed).toBe(1);
+});
+
+test('development accepts only its configured loopback callback and pending state', async () => {
+	const callbackUrl = 'http://127.0.0.1:49152/_epicenter/sign-in/callback';
+	using context = setup({ callbackUrl });
+	const pending = context.authority.startSignIn();
+	await until(() => context.urls.length === 1);
+	const launch = new URL(context.urls[0]!);
+	expect(launch.searchParams.get('callback')).toBe(callbackUrl);
+	const params = new URLSearchParams({
+		code: 'alice-2',
+		state: launch.searchParams.get('state')!,
+	});
+	expect(
+		context.authority.acceptSignInCallback(
+			`epicenter://auth/callback?${params}`,
+		),
+	).toBe(false);
+	expect(
+		context.authority.acceptSignInCallback(
+			`${callbackUrl}?code=alice-2&state=wrong`,
+		),
+	).toBe(false);
+	expect(
+		context.authority.acceptSignInCallback(`${callbackUrl}?${params}`),
+	).toBe(true);
+	expectOk(await pending);
+	expect(
+		context.authority.acceptSignInCallback(`${callbackUrl}?${params}`),
+	).toBe(false);
+});
+
+test('cancellation waits for a credential write to roll back before reopening applications', async () => {
+	const saving = Promise.withResolvers<void>();
+	const saved = Promise.withResolvers<void>();
+	let resumed = false;
+	using context = setup({
+		async store(value) {
+			if (value?.includes('alice-2')) {
+				saving.resolve();
+				await saved.promise;
+			}
+		},
+		async resumeApplications() {
+			resumed = true;
+		},
+	});
+	const account = context.authority.account;
+	const pending = context.authority.startSignIn();
+	await until(() => context.urls.length === 1);
+	context.finish('alice-2');
+	await saving.promise;
+	const cancellation = context.authority.cancelConnection();
+	await Bun.sleep(0);
+	expect(resumed).toBe(false);
+	saved.resolve();
+	expectOk(await cancellation);
+	expectErr(await pending);
+	expect(context.writes.at(-1)).toBe(STORED_CELL);
+	expect(context.authority.account).toBe(account);
+	expect(resumed).toBe(true);
+});
+
+test('repeated cancellation cannot reopen applications until a failed rollback is repaired', async () => {
+	const saving = Promise.withResolvers<void>();
+	const saved = Promise.withResolvers<void>();
+	let failRestoration = true;
+	let resumed = false;
+	using context = setup({
+		async store(value) {
+			if (value?.includes('alice-2')) {
+				saving.resolve();
+				await saved.promise;
+			} else if (value === STORED_CELL && failRestoration) {
+				throw new Error('Keychain unavailable during rollback');
+			}
+		},
+		async resumeApplications() {
+			resumed = true;
+		},
+	});
+	const pending = context.authority.startSignIn();
+	await until(() => context.urls.length === 1);
+	context.finish('alice-2');
+	await saving.promise;
+	const cancellation = context.authority.cancelConnection();
+	await Bun.sleep(0);
+	saved.resolve();
+	expectErr(await cancellation);
+	expectErr(await pending);
+	expectErr(await context.authority.cancelConnection());
+	expect(resumed).toBe(false);
+	failRestoration = false;
+	expectOk(await context.authority.cancelConnection());
+	expect(context.writes.at(-1)).toBe(STORED_CELL);
+	expect(resumed).toBe(true);
+});
 
 test('a stored session boots offline and authorizes after verification without exposing the token', async () => {
 	using context = setup();
@@ -415,15 +555,17 @@ test('an opener failure clears the attempt and does not persist or relaunch', as
 	expect(context.events).toEqual([]);
 });
 
-test('an unsolicited or wrong-state callback never installs an account', async () => {
+test('an unsolicited or wrong-state callback cannot consume the pending sign-in', async () => {
 	using context = setup();
 	context.callback('epicenter://auth/callback?code=bob-1&state=unsolicited');
 	const pending = context.authority.startSignIn();
 	await until(() => context.urls.length === 1);
 	context.callback('epicenter://auth/callback?code=bob-1&state=wrong');
-	expect((await pending).error).not.toBeNull();
+	await Bun.sleep(0);
 	expect(context.writes).toEqual([]);
 	expect(context.events).toEqual([]);
+	context.finish('alice-2');
+	expectOk(await pending);
 });
 
 test('native persistence failure prevents relaunch and leaves the boot Account selected', async () => {
@@ -442,7 +584,10 @@ test('native persistence failure prevents relaunch and leaves the boot Account s
 	await until(() => context.revoked.includes('bob-1'));
 });
 
-test('a cancelled redemption cannot overwrite a later sign-in or request another relaunch', async () => {
+test.each([
+	'sign-out',
+	'cancel',
+] as const)('%s during redemption revokes a late result without overwriting the next sign-in', async (action) => {
 	const redeemed = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const revoked: string[] = [];
@@ -474,8 +619,14 @@ test('a cancelled redemption cannot overwrite a later sign-in or request another
 	await until(() => context.urls.length === 1);
 	context.finish('orphan');
 	await redeemed.promise;
-	expectOk(await context.authority.signOut());
+	const account = context.authority.account;
+	if (action === 'cancel') expectOk(await context.authority.cancelConnection());
+	else expectOk(await context.authority.signOut());
 	expect((await old).error).not.toBeNull();
+	expect(context.authority.account).toBe(account);
+	expect(context.authority.state.status).toBe(
+		action === 'cancel' ? 'signed-in' : 'signed-out',
+	);
 	const current = context.authority.startSignIn();
 	await until(() => context.urls.length === 2);
 	context.finish('bob-2');
@@ -491,7 +642,7 @@ test('a cancelled redemption cannot overwrite a later sign-in or request another
 		}),
 	]);
 	expect(context.events.filter((event) => event === 'relaunch')).toHaveLength(
-		2,
+		action === 'cancel' ? 1 : 2,
 	);
 	expect(revoked).not.toContain('bob-2');
 });

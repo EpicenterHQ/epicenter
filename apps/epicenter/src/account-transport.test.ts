@@ -149,7 +149,10 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		state: { status: 'signed-in' as const, principalId: account.principalId },
 		baseURL,
 		authorityId: 'epicenter-api',
-		startSignIn: true, accountManagement: true, recovery: false, selectedServer: null,
+		startSignIn: true,
+		accountManagement: true,
+		recovery: false,
+		selectedServer: null,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
 	const host = await createHomeHost({
@@ -175,6 +178,8 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		blobRemote: () => null,
 		desktopAuth: {
 			baseURL,
+			callbackUrl: 'epicenter://auth/callback',
+			acceptSignInCallback: () => false,
 			account,
 			bootSnapshot: bootstrap,
 			get state() {

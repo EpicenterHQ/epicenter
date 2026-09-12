@@ -27,10 +27,12 @@ export function createDesktopAuthAuthority({
 	authCell,
 	nativeAuthPort,
 	fetch = globalThis.fetch.bind(globalThis),
+	callbackUrl = CALLBACK_URL,
 }: {
 	authCell: string | null;
 	nativeAuthPort: NativeAuthPort;
 	fetch?: AuthFetch;
+	callbackUrl?: string;
 }) {
 	// Server selection is read once. Replacement cells only affect the next boot.
 	// Legacy instance cells keep their static principal; issuer selection starts
@@ -115,7 +117,7 @@ export function createDesktopAuthAuthority({
 	const transaction = new Map<string, string>();
 	const handoff = createSessionHandoffClient({
 		baseURL,
-		callback: CALLBACK_URL,
+		callback: callbackUrl,
 		fetch,
 		storage: {
 			getItem: (key) => transaction.get(key) ?? null,
@@ -125,12 +127,13 @@ export function createDesktopAuthAuthority({
 		},
 	});
 	let callbackWaiter:
-		| { accept(url: string): void; reject(cause: unknown): void }
+		| { accept(url: string): boolean; reject(cause: unknown): void }
 		| undefined;
 	// No unsolicited callback is queued for a future sign-in attempt.
-	const stopCallbacks = nativeAuthPort.onAuthCallback((url) =>
-		callbackWaiter?.accept(url),
-	);
+	function acceptSignInCallback(url: string) {
+		return callbackWaiter?.accept(url) ?? false;
+	}
+	const stopCallbacks = nativeAuthPort.onAuthCallback(acceptSignInCallback);
 	const auth =
 		method === 'recovery'
 			? null
@@ -162,8 +165,22 @@ export function createDesktopAuthAuthority({
 											};
 											const waiter = {
 												accept(value: string) {
+													let destination: URL;
+													try {
+														destination = new URL(value);
+													} catch {
+														return false;
+													}
+													const state = destination.searchParams.get('state');
+													destination.search = '';
+													if (
+														destination.href !== callbackUrl ||
+														state !== url.searchParams.get('state')
+													)
+														return false;
 													cleanup();
 													resolve(value);
+													return true;
 												},
 												reject(cause: unknown) {
 													if (callbackWaiter === waiter) handoff.cancel();
@@ -227,6 +244,7 @@ export function createDesktopAuthAuthority({
 	let prepared = false;
 	let preparing: Promise<void> | undefined;
 	let resuming: Promise<void> | undefined;
+	let cancelling: Promise<Result<undefined, AuthError>> | undefined;
 	function closeApplications() {
 		if (resuming)
 			return Promise.reject(new Error('Applications are resuming. Try again.'));
@@ -329,6 +347,7 @@ export function createDesktopAuthAuthority({
 			disposed ||
 			selection ||
 			resuming ||
+			cancelling ||
 			bootStorageRetired
 		)
 			return Promise.resolve(
@@ -341,12 +360,12 @@ export function createDesktopAuthAuthority({
 			.then(async () => {
 				try {
 					await closeApplications();
-					if (disposed || signInFlight !== pending)
+					if (disposed || cancelling || signInFlight !== pending)
 						throw new Error('Sign-in cancelled.');
 					if (!auth || !('startSignIn' in auth))
 						throw new Error('Sign-in is unavailable.');
 					const result = await auth.startSignIn(options);
-					if (signInFlight === pending && !disposed) {
+					if (signInFlight === pending && !disposed && !cancelling) {
 						if (result.error) await recoverConnection();
 						else if (
 							account !== null &&
@@ -370,26 +389,43 @@ export function createDesktopAuthAuthority({
 
 	return {
 		baseURL,
+		callbackUrl,
+		acceptSignInCallback,
 		bootSnapshot,
 		account,
 		get state() {
 			return projectBootIdentity();
 		},
-		async cancelConnection() {
-			if (disposed || selection || signInFlight || resuming)
-				return AuthError.StartSignInFailed({
-					cause: new Error('Wait for the connection operation to finish.'),
+		cancelConnection() {
+			if (cancelling) return cancelling;
+			if (disposed || selection || resuming)
+				return Promise.resolve(
+					AuthError.StartSignInFailed({
+						cause: new Error('Wait for the connection operation to finish.'),
+					}),
+				);
+			const pending = signInFlight;
+			const cancellation = Promise.resolve()
+				.then(async () => {
+					try {
+						if (auth && 'cancelSignIn' in auth) await auth.cancelSignIn();
+						await pending;
+						if (disposed) throw new Error('The desktop closed.');
+						await recoverConnection();
+						return Ok(undefined);
+					} catch (cause) {
+						return AuthError.StartSignInFailed({ cause });
+					}
+				})
+				.finally(() => {
+					if (cancelling === cancellation) cancelling = undefined;
 				});
-			try {
-				await recoverConnection();
-				return Ok(undefined);
-			} catch (cause) {
-				return AuthError.StartSignInFailed({ cause });
-			}
+			cancelling = cancellation;
+			return cancellation;
 		},
 		startSignIn,
 		async connectInstance(server: string) {
-			if (disposed || resuming || selection || signInFlight)
+			if (disposed || resuming || cancelling || selection || signInFlight)
 				return AuthError.StartSignInFailed({
 					cause: new Error('Another connection operation is in progress.'),
 				});
@@ -418,7 +454,7 @@ export function createDesktopAuthAuthority({
 		},
 		async useCloud() {
 			if (method === 'cloud' && !bootStorageRetired) return startSignIn();
-			if (disposed || resuming || selection || signInFlight)
+			if (disposed || resuming || cancelling || selection || signInFlight)
 				return AuthError.StartSignInFailed({
 					cause: new Error('Another connection operation is in progress.'),
 				});
@@ -435,6 +471,10 @@ export function createDesktopAuthAuthority({
 			}
 		},
 		async signOut() {
+			if (cancelling)
+				return AuthError.SignOutFailed({
+					cause: new Error('Sign-in cancellation is pending.'),
+				});
 			selection?.abort();
 			signInFlight = undefined;
 			try {
