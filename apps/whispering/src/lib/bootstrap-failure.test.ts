@@ -61,7 +61,6 @@ mock.module('@epicenter/app', () => ({
 	}),
 }));
 mock.module('./data.js', () => ({ whisperingDefinition: {} }));
-mock.module('#platform/ai', () => ({ ai: {} }));
 mock.module('#platform/runtime', () => ({ runtime: {} }));
 mock.module('#platform/auth', () => ({
 	authClient: { auth: null, selectedServer: null },

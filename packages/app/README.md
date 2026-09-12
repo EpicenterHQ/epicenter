@@ -102,9 +102,9 @@ Browser mutations use a Web Lock, reread current storage before writing, and
 notify other owners in the same document or origin. Workflow selections remain
 product-local under `${settingsKey}.app-ai-selections` in both environments.
 Switching libraries retains this configuration while opening new App clients.
-An explicit `ai` binding replaces the default. Desktop apps that supply native
-inference can extend `createEpicenterHostAppAi(settingsKey)` from
-`@epicenter/app/epicenter-host` with their runtime transport.
+An explicit `ai` binding replaces the default. The host build's default already
+supplies native file inference as `app.ai.runtime`, so no application composes
+it; the browser default has no runtime transport.
 
 Applications with saved workflow choices await
 `initializeBrowserAiSettings(settingsKey)` from

@@ -4,7 +4,6 @@ import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference
 import { initializeBrowserAiSettings } from '@epicenter/app-shell/migrate-ai-settings';
 import { APPS } from '@epicenter/constants/apps';
 import { Ok, trySync } from 'wellcrafted/result';
-import { ai } from '#platform/ai';
 import { authClient } from '#platform/auth';
 import { runtime } from '#platform/runtime';
 import { whisperingDefinition } from './data.js';
@@ -28,8 +27,9 @@ export const account = library === 'local' ? null : signedInAccount;
 const application = defineApplication({
 	appId: APPS.WHISPERING.id,
 	definition: whisperingDefinition,
+	// Pre-app-id storage prefix; the default AI binding reproduces the deleted seam.
+	settingsKey: 'whispering',
 	runtime,
-	ai,
 });
 const shouldOpen =
 	!new URLSearchParams(location.search).has('connect') &&

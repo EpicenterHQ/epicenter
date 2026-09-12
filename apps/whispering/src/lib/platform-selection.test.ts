@@ -39,7 +39,6 @@ const aliases = Object.entries(imports).filter(
 describe('platform seams', () => {
 	test('each platform-dependent capability selects a browser or host leaf', () => {
 		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
-			'#platform/ai',
 			'#platform/analytics',
 			'#platform/auth',
 			'#platform/commands',

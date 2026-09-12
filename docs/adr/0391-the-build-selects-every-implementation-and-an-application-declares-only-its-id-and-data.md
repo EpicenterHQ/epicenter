@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Unbuilt:** All of it. `defineApplication` still accepts `runtime`, `ai`, and `settingsKey`; `packages/app/src/index.ts` still statically imports the browser runtime; the package's host AI leaf still supplies no native inference transport; Whispering still composes `runtime` and `ai` through its own `#platform/runtime` and `#platform/ai` seams; no storage-key migration exists.
+- **Unbuilt:** The `#platform/runtime` seam and the deletion of `runtime`, `ai`, and `settingsKey`. `packages/app/src/index.ts` still statically imports the browser runtime; Whispering still composes `runtime` through its own `#platform/runtime` seam and passes `settingsKey: 'whispering'`; no storage-prefix migration exists. Built: the package's host AI leaf supplies the native inference transport, and Whispering's `#platform/ai` seam is deleted.
 
 ## Context
 

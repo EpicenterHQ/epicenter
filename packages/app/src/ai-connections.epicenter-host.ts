@@ -1,12 +1,13 @@
+import { createLogger } from 'wellcrafted/logger';
+import { type AiTransport, accountInference } from './ai.js';
 import type {
-	AiConnections,
 	AiConnectionSnapshot,
+	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
 import { parseAiConnections } from './ai-connections.js';
-import { accountInference, type AiTransport } from './ai.js';
 import type { AppAiBinding } from './index.js';
-import { createLogger } from 'wellcrafted/logger';
+import { createNativeInferenceTransport } from './native-ai.js';
 
 const log = createLogger('desktop-ai-connections');
 
@@ -265,11 +266,11 @@ export function createDesktopAiConnections({
 	};
 }
 
-/** Same collection API; its persistence and credentials belong to the desktop host. */
+/** Same collection API; its persistence and credentials belong to the desktop host, and native file inference is the runtime transport. */
 export function createEpicenterHostAppAi(storageKey: string): AppAiBinding {
 	return {
 		account: accountInference,
-		runtime: null,
+		runtime: createNativeInferenceTransport(),
 		connections: (appId) => createDesktopAiConnections({ appId, storageKey }),
 	};
 }

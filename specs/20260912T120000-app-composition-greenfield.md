@@ -25,9 +25,12 @@ Read if changing the direction: Open questions, Rejected shapes.
   local App has no `account` or `retirement` (ADR-0389). `AppAi.account`
   carries its identity and app-shell takes `ai: AppAi` (ADR-0390).
 - `defineApplication` accepts `runtime`, `ai`, `settingsKey`. Only Whispering
-  passes `runtime` and `ai`; Honeycrisp and Vocab pass `settingsKey`. The
-  package's host AI leaf supplies no native inference transport; Whispering's
-  does.
+  passes `runtime`; all three apps pass `settingsKey`. The package's host AI
+  leaf supplies the native inference transport, so no app passes `ai`.
+- The default runtime cannot flip to host blobs and recording until the
+  `honeycrisp` and `mail` windows hold the trusted app-window capability:
+  desktop recording's `close()` invokes `current_recording` on every acquired
+  App, and those windows lack that permission.
 - No standard app declares a blob field. Their host-build blob stores are
   IndexedDB and empty.
 - Whispering's `services` barrel holds analytics, text, download, local
