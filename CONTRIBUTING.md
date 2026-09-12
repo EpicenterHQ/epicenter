@@ -6,7 +6,7 @@ Welcome! We're excited you're interested in contributing to Epicenter. This guid
 
 - **Bun**: We use Bun as our JavaScript runtime and package manager
   - Install from [bun.sh](https://bun.sh) if you don't have it
-   - The repo requires Bun 1.4.2 or newer (automatically enforced)
+  - The repo requires Bun 1.4.2 or newer (automatically enforced)
 
 ## Getting Started
 
