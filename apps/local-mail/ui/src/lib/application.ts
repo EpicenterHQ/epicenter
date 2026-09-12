@@ -19,6 +19,8 @@ export const app =
 			}).openPersonal(account);
 
 export const departure = createDeparture({
+	retirement: app?.retirement,
+	reload: () => location.reload(),
 	auth: app && auth ? auth : undefined,
 	account,
 	async close() {
