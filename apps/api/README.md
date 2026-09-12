@@ -132,6 +132,11 @@ environment into Wrangler via `process.env`, so Postgres alone is not enough.
 This package owns the hosted API `.infisical.json`; account-wide operator
 commands live in `ops`. The monorepo root intentionally has no Infisical config.
 
+The launcher rebuilds the hosted UI at startup. After editing that UI while
+Wrangler is running, restart the root dev command or run
+`bun run --cwd apps/api/ui build`. A leftover sign-in page can use a different
+handoff protocol from the current clients.
+
 ### Local Postgres setup
 
 The API needs a local PostgreSQL instance for development. The connection string is configured in `wrangler.jsonc` under the Hyperdrive `localConnectionString`.

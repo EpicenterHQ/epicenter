@@ -130,7 +130,7 @@
 		"dev:api": "bun run --cwd apps/api dev",
 		"dev:api-dashboard": "API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev",
 		"dev:api-dashboard:ui": "bun run --cwd apps/api/ui dev",
-		"dev:epicenter": "bun run --cwd apps/epicenter dev",
+		"dev:epicenter": "EPICENTER_API_URL=http://localhost:8787 bun run --filter @epicenter/api --filter @epicenter/epicenter dev",
 		"dev:epicenter:mail": "infisical run --silent --env=dev --path=/apps/local-mail --project-config-dir=apps/api -- bun dev:epicenter",
 		"dev:honeycrisp": "bun run --filter @epicenter/api --filter @epicenter/honeycrisp dev",
 		"dev:honeycrisp:ui": "bun run --cwd apps/honeycrisp dev",

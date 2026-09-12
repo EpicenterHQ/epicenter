@@ -76,6 +76,11 @@ Start Epicenter from the repository root:
 bun dev:epicenter
 ```
 
+This starts the local API on `http://localhost:8787` and the desktop host.
+It requires the API's [local Postgres and Infisical setup](../api/README.md#development).
+The API rebuilds its sign-in page at startup so both sides use the current
+session handoff. Development never needs the deployed production sign-in page.
+
 Finish sign-in in your browser, then return to Epicenter. Home shows the pending
 attempt and lets you cancel without signing out of your existing account.
 Development returns through the running host's loopback callback because a raw
