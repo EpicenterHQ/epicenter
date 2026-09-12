@@ -1,5 +1,7 @@
 # Transcription providers, from first principles
 
+**Superseded by**: `specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md`
+
 ## Status
 
 Open. This spec is a brief for a fresh agent. It supersedes the narrow scoped collapse in `20260527T002843-cloud-transcription-collapse.md` only if the agent recommends adopting its conclusions; otherwise, the narrower spec stays as the fallback.

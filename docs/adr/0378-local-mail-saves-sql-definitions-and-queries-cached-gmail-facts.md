@@ -38,7 +38,8 @@ and shows existing cache availability/freshness without inventing a range tracke
 Local Mail's product operation fixes `tables: ['messages', 'labels']` on the
 selected cache connection and invokes `AppSqliteDatabase.query`. The SQL editor
 cannot change this allowlist. These names refer to physical SQLite tables;
-`app.tables.savedQueries` is the separate synchronized collection of definitions.
+`app.account.personal.tables.savedQueries` is the separate synchronized
+collection of definitions.
 The restricted-operation contract is described in
 [ADR-0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md).
 

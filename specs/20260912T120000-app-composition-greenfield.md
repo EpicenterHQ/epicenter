@@ -5,6 +5,7 @@
 **Owner**: Braden Wong
 **Branch**: braden-w/app-schema-derive-export-import
 **Grows from**: ADR-0388, ADR-0389, ADR-0390, ADR-0391
+**Superseded by**: `specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md`
 
 ## One sentence
 

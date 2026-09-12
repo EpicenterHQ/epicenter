@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Revised:** 2026-09-10
-- **Amended by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at the access surface: there is no `app.ai`, the machine's catalog is `app.device.connections`, and the server's gateway is `app.account.connection`.
 - **Unbuilt:** `app.device.connections` and `app.account.connection` as the two access members; the signed-out invitation design; the portable dictation capability; `connectionFor`, `connection.transcribe`, and selections as declared `app.device.kv` fields. Shared desktop custom connections are implemented, and selections are persisted today by `createInferenceSelections` in `packages/app-shell/src/inference-selections.ts`. Real native capture acceptance remains separate.
 
 ## Context
