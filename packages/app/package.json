@@ -12,6 +12,10 @@
 		"#platform/ai": {
 			"epicenter-host": "./src/ai-connections.epicenter-host.ts",
 			"default": "./src/browser.ts"
+		},
+		"#platform/clipboard": {
+			"epicenter-host": "./src/clipboard/epicenter-host.ts",
+			"default": "./src/clipboard/browser.ts"
 		}
 	},
 	"exports": {
@@ -19,6 +23,7 @@
 		"./browser": "./src/browser.ts",
 		"./ai": "./src/ai.ts",
 		"./ai-connections": "./src/ai-connections.ts",
+		"./clipboard": "./src/clipboard.ts",
 		"./native-ai": "./src/native-ai.ts",
 		"./recorder": "./src/recorder.ts",
 		"./epicenter-host": "./src/epicenter-host.ts"
@@ -40,6 +45,7 @@
 		"openai": "^7.12.1",
 		"wellcrafted": "catalog:",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-clipboard-manager": "^2.3.0",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/sync": "workspace:*"
 	},

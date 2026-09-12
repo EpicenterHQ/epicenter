@@ -30,6 +30,8 @@ runtime is exported from `@epicenter/app/browser`. An explicit runtime replaces
 SQLite, secrets, blobs, and recording together. Custom runtimes must publish
 recordings into the blob store they expose; TypeScript cannot prove compatibility.
 An independent `ai` binding replaces all default AI configuration.
+The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
+standalone platform module, described under [Clipboard](#clipboard).
 `settingsKey` preserves an existing local AI-settings namespace; new applications
 default to their app ID.
 
@@ -240,6 +242,34 @@ release. A disposable-profile WebKit and Chromium probe also verified
 attachment-created row/blob persistence across browser-process restart,
 playback bytes, and URL release. This does not establish native recording or
 account-transfer behavior.
+
+## Clipboard
+
+```ts
+import { clipboard } from '@epicenter/app/clipboard';
+
+const read = await clipboard.readText(); // Result<string | null, ClipboardError>
+const wrote = await clipboard.writeText(text); // Result<void, ClipboardError>
+```
+
+`clipboard` is a platform module, not an App capability. A clipboard captures no
+application, library, or account, and it owns no resource, so nothing on it
+needs `app.ready` or ends at `app.close()`. A boot-failure screen can copy
+diagnostics before any App exists, and a copy button keeps working while a page
+departs. Import it directly; do not thread an App handle to reach it.
+
+The package selects the implementation for the build. The default leaf uses the
+page's Clipboard API, which requires document focus and the browser's clipboard
+grant. The `epicenter-host` leaf uses the host's clipboard plugin, which also
+works while the window is unfocused, as a global shortcut needs. Trusted app
+windows hold the plugin's read-text and write-text permissions.
+
+Text only. `readText()` returns `null` for an empty clipboard. Platform failures
+return `ClipboardRead` or `ClipboardWrite` errors with the platform cause.
+Pasting into another application's cursor, preserving rich pasteboard contents,
+and synthetic keystrokes are not clipboard operations: they need accessibility
+grants and foreground focus, and they belong to the product that delivers text,
+as Whispering's text service does.
 
 ## Saved recordings
 

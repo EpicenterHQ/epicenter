@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "epicenter",
@@ -497,7 +498,6 @@
         "@tanstack/svelte-table": "catalog:",
         "@tanstack/table-core": "9.0.0-alpha.10",
         "@tauri-apps/api": "catalog:",
-        "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
         "@tauri-apps/plugin-deep-link": "catalog:",
         "@tauri-apps/plugin-dialog": "^2.3.2",
         "@tauri-apps/plugin-fs": "catalog:",
@@ -608,6 +608,7 @@
         "@epicenter/recorder": "workspace:*",
         "@epicenter/sync": "workspace:*",
         "@tauri-apps/api": "catalog:",
+        "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
         "wellcrafted": "catalog:",

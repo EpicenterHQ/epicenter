@@ -42,8 +42,6 @@
 		"allow-replace-global-shortcuts",
 		"allow-is-autostart-enabled",
 		"allow-set-autostart-enabled",
-		"clipboard-manager:allow-read-text",
-		"clipboard-manager:allow-write-text",
 		"dialog:allow-open",
 		"dialog:allow-save",
 		"deep-link:default",

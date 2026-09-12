@@ -43,6 +43,10 @@ services/
 `-- index.ts
 ```
 
+`text/` is delivery into other applications: cursor paste and synthetic
+keystrokes. Plain clipboard reads and writes are the shared `clipboard` from
+`@epicenter/app/clipboard`; call sites import it directly.
+
 Check the directory and `apps/whispering/package.json#imports` for the current
 set. This tree explains the ownership shape, not a permanent inventory.
 
@@ -67,7 +71,7 @@ imports:
 
 ```jsonc
 "#platform/text": {
-  "tauri": "./src/lib/services/text/index.tauri.ts",
+  "epicenter-host": "./src/lib/services/text/index.tauri.ts",
   "default": "./src/lib/services/text/index.browser.ts"
 }
 ```
@@ -78,8 +82,8 @@ Shared code imports one stable name:
 import { TextServiceLive } from '#platform/text';
 ```
 
-The web build resolves `default`. The Epicenter/Tauri build activates the
-`tauri` condition. The off-target file is not part of that module graph. Do not
+The web build resolves `default`. The Epicenter host build activates the
+`epicenter-host` condition. The off-target file is not part of that module graph. Do not
 add runtime `window.__TAURI_INTERNALS__` checks or parallel service registries.
 
 Each branch exports the same public name and conforms to the same contract.
