@@ -2,6 +2,75 @@
 
 Status: In Progress
 
+## Connection migration checkpoint: 2026-09-10
+
+The custom connection migration is complete in the working tree. Core App owns
+`app.ai.connections`; Whispering and Vocab own plain TypeScript selection
+handles. The picker and operations share exact source matching. The old combined
+configuration owner, exports, and duplicated routing branches are removed.
+The completed API spec and launcher were retired; ADR-0365 and the App README
+record the implemented boundary and migration procedure.
+
+Initialization uses one Web Lock per settings prefix. Pre-ID settings first
+become one committed ID mapping, then separate connection and selection stores.
+Existing destination stores win, including empty ones; successful writes survive
+an interrupted split. Connection-only callers can initialize normalized records
+without parsing selections. Synchronous owners refuse uninitialized legacy data.
+Old bytes remain recovery data and receive no steady-state writes or observation.
+
+Independent review retained these boundaries and found two construction gaps.
+The selection owner now refuses a pre-migration open, preventing new choices
+from hiding old scopes. Both application bootstraps release selection observation
+if synchronous App construction throws, preserving the original failure even if
+cleanup also fails. Regression tests reproduce both failures before the repairs.
+
+Verification from this checkout:
+
+| Check | Result |
+| --- | --- |
+| App, native protocol, connection lifetime/storage | 67 tests pass |
+| Selection, migration, picker | 26 tests pass |
+| Agent chat | 10 tests pass, separate process |
+| Whispering operations/publication/recording close and Vocab dictation/practice | 49 tests pass, mock-sensitive suites in separate processes |
+| Actual application bootstrap failure cleanup | 4 tests pass, separate processes |
+| Account lifetime/refusal/browser auth and departure | 43 tests pass |
+| Browser and desktop saved-recording contracts | 36 tests pass |
+| Platform selection and import seams | 4 tests pass; browser output excludes native inference commands |
+| App, app-shell, Vocab, Whispering browser/host typechecks | Pass |
+| Whispering browser and host builds | Pass |
+| Root typecheck | Same eight starting Data errors |
+| Document hygiene and paths | 44 existing hygiene findings; ten dead paths outside this change |
+
+`bun packages/app/scripts/ai-connections.browser.mjs` passes actual Chromium
+concurrent initialization, stable IDs across reload, exact SDK URL/bearer/model,
+and cross-document selection/deletion without fallback. Its compatible endpoint
+is a local protocol fixture. The product run separately passes the actual picker,
+recording, real cached Whisper Tiny, real Ollama Polish, playback, exact uploaded
+bytes, and reopen in Local, Personal, and Shared. New assertions prove separate
+stores survive reload and contain no serialized SDK client. No browser errors or
+external requests occurred. The first product attempt was interrupted by Vite
+hot updates during capture; the acceptance harness now disables HMR and the
+complete rerun passes.
+
+The native SDK smoke and actual Wry/IPC smoke both pass against the existing
+speech WAV and cached model, including invalid/empty input, exact hints/model,
+retirement, draining, denied model administration, unchanged settings, and no
+CSP violations. These are file-inference checks, not native microphone evidence.
+
+Logs, baseline status, patches, and original copies of the previously untracked
+API spec/launcher are in `/tmp/ai-connections-20260910/`. Final product evidence
+and inspected screenshots are in
+`/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/whispering-recording-evidence-jHwptN/`.
+Browser migration evidence is in
+`/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/ai-connections-evidence-WAzQSE/`.
+Checked-in scripts remain the reproduction procedure; temporary paths identify
+this run only. No commit, deployment, model download, production-data change,
+or real credential change was made.
+
+`system_profiler SPAudioDataType` still shows no controllable loopback input.
+Host microphone capture, host playback/reopen, and reload recovery remain the
+active tasks below. Portable dictation remains separate.
+
 ## Integration evidence: 2026-09-09
 
 The actual Whispering browser workflow passes in Local, Personal, and Shared:
@@ -127,15 +196,13 @@ library execution. The concurrent AI API revision below keeps its own owner.
 
 ## Active execution path
 
-The 2026-09-09 AI boundary revision is the target for remaining connection work:
-`app.ai.connections` owns custom endpoint/key management and client access;
-applications own workflow selections outside core App. The separate, currently
-uncommitted `20260908T193514-app-ai-capabilities.md` execution plan owns that
-conversion, including preservation of the current combined saved envelope.
-Today's `configuration` and `configured()` members are still implemented;
-do not rebuild them as the target or add a core workflow resolver. Coordinate
-the caller switch with the API work before removing old configuration exports.
-The recording/native acceptance tasks below remain active and keep their evidence.
+The connection API conversion is implemented: `app.ai.connections` owns custom
+endpoint/key management and clients; applications own workflow selections.
+Whispering and Vocab initialize separate stores before opening, using a serialized
+conversion that preserves IDs and recovery bytes. `configuration`, `configured()`,
+and the combined owner are removed. See the [package README](../packages/app/README.md)
+and [AI access decision](../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
+The recording/native acceptance tasks below remain active.
 
 The continuation baseline is `9bf9183425`; status and tracked patches are in
 `/tmp/ai-runtime-integration-20260909/`. The integration preserves the library
@@ -148,8 +215,8 @@ file inference, and obsolete-path removal are delivered above. Remaining work:
    playback, and reopen in Local, Personal, and Shared.
 2. Reload during native capture, recover through the reopened App, then cancel
    before storage ownership releases.
-3. Execute the separate AI API conversion with its owner. Portable dictation
-   remains a separate feature with its own acceptance target.
+
+Portable dictation remains a separate feature with its own acceptance target.
 
 The initial independent review retained the App and shared picker boundaries. It found
 transcription's late provider resolution, guessed Personal native blob paths,
@@ -207,17 +274,16 @@ Read these decisions as evidence, including their status and amendments:
 
 The relevant plans are:
 
-- `specs/20260908T193514-app-ai-capabilities.md`
+- AI connection API conversion, now recorded in ADR-0365 and the App README.
 - `specs/20260909T085106-application-runtime-composition.md`
 - `specs/20260908T212054-whispering-call-time-app-composition.md`
 - `specs/20260908-ai-client-and-portable-dictation.md`
 - `specs/20260909T004225-library-ownership-execution.md`
 
-Several older checkpoints lag code. `packages/app/src/ai.ts` already exposes
-SDK clients and owns their shutdown. Its configured connection IDs, credentials, and selections live in
-`ai-configuration.ts`. Current Whispering completion/transcription and the shared
-picker already contain consumer migrations. Assess what still needs removal or
-real evidence before proposing another migration.
+At the original handoff, `packages/app/src/ai.ts` already exposed SDK clients
+and owned their shutdown, while a combined owner persisted connection records
+and selections. The 2026-09-10 checkpoint above replaces that owner and migrates
+Whispering, Vocab, and the shared picker. Continue from that checkpoint.
 
 Separate these three concerns:
 

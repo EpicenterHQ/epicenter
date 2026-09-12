@@ -58,8 +58,8 @@ HEAD, staged changes, and the related specs before editing shared files.
 
 Related work:
 
-- `specs/20260908T193514-app-ai-capabilities.md`: configured clients,
-  explicit inference identity, and runtime binding.
+- [AI access boundary](../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md):
+  custom clients, application-owned selections, and runtime binding.
 - `specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md`:
   explicit observations and nullable remote blobs.
 - [Fixed page lifetime](20260908T194801-fixed-library-page-lifetime.md): existing

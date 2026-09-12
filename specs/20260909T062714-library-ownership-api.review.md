@@ -520,3 +520,75 @@ The coordinator reread all repaired files, checked that storage roots and wire
 paths remain separate, and checked the admission requirement against the live
 mount. The added test records current behavior for this investigation; production
 integration must replace its expectation with rejection before authority access.
+
+## Checkpoint 2 independent reviews
+
+After checkpoint 1 committed as `ea8f2d254d`, an independent read-only review
+examined the next production decision. It recommended separating issuer identity
+from session lifetime before selecting runtime or sign-in infrastructure. The
+coordinator implemented that slice and requested a second review of the new
+production delta, rather than repeating the checkpoint 1 investigation.
+
+The second review accepted required `authorityId`, generic `SessionAuthClient`
+and `CallbackAuthClient`, and explicit Cloud management composition. It confirmed
+that `Object.assign` preserves the original auth object's getter and disposal
+behavior, and found no task change to the private bearer lifetime. The proposed
+record is ADR-0382. No additional factory or exported bearer core was warranted.
+
+It caught an incomplete session-storage test fixture whose disposal logged an
+error despite passing assertions. The coordinator supplied a functioning
+Map-backed store and reran `bun test packages/auth/src/session-authority.test.ts`:
+three passed, 18 assertions, no cleanup diagnostic. The independent reviewer had
+rerun the broader issuer/lifetime suite: 49 passed, 178 assertions. The execution
+spec records the package and consumer failures and their pre-edit reproductions.
+
+The next sign-in proposal is operator-assisted passkey enrollment and recovery,
+with a stable principal preserved through recovery and durable admission checked
+at both session issuance and resource access. Worker-first is recommended because
+it has sync. Both remain product questions. The review explicitly refused to
+infer a working enrollment system from installed passkey hooks or reuse Cloud's
+required email field with fabricated values. No provider, database adapter,
+enrollment protocol, or removal implementation was selected here.
+
+Files read across the two reviews (focused excerpts included):
+
+```text
+.agents/skills/
+|-- design-review/SKILL.md
+|-- post-implementation-review/SKILL.md
+|-- greenfield-clean-breaks/SKILL.md
+|-- auth/SKILL.md
+`-- testing/{SKILL.md,references/honest-tests.md}
+docs/adr/
+|-- 0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md
+`-- 0382-session-composition-selects-issuer-identity-and-management-capabilities.md
+specs/
+|-- 20260909T004225-library-ownership-execution.md
+`-- 20260909T062714-library-ownership-api.review.md
+apps/
+|-- self-host/{AGENTS.md,README.md,package.json,server.ts,worker-configuration.d.ts,worker/index.ts}
+|-- api/{worker/index.ts,ui/src/lib/dashboard/runtime.test.ts}
+`-- epicenter/src/{desktop-auth-authority.ts,account-transport.test.ts}
+packages/
+|-- auth/
+|   |-- README.md
+|   `-- src/
+|       |-- {auth-contract.ts,auth-types.ts,browser-auth.ts,create-session-auth.ts}
+|       |-- {hosted-browser-redirect-auth.ts,account-management.ts,index.ts,instance-server.ts}
+|       |-- session-handoff-client.ts
+|       `-- {session-authority.test.ts,account-lifetime.test.ts,contract.test.ts,refusal-is-not-an-identity-change.test.ts}
+|-- app/src/{sync-subprotocol.test.ts,ai.test.ts}
+`-- server/
+    |-- node_modules/@better-auth/passkey/dist/index.mjs
+    `-- src/
+        |-- {create-cloud-context-middleware.ts,principal.ts}
+        |-- auth/{base-config.ts,create-auth.ts,oauth-resource.ts,plugins.ts,session-handoff.ts,session-policy.ts}
+        |-- db/schema/auth.ts
+        |-- middleware/require-auth.ts
+        |-- routes/{auth.ts,blobs.ts}
+        `-- store-sync/{mount.ts,authority.ts,browser-dial.test.ts}
+/tmp/library-checkpoint-2/
+|-- {changed.txt,delta.patch}
+|-- {baseline-auth-tests,auth-tests,baseline-auth-types,auth-types}.txt
+`-- {baseline-desktop-tests,consumer-tests}.txt
+```
