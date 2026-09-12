@@ -6,7 +6,7 @@ Welcome! We're excited you're interested in contributing to Epicenter. This guid
 
 - **Bun**: We use Bun as our JavaScript runtime and package manager
   - Install from [bun.sh](https://bun.sh) if you don't have it
-  - The repo requires Bun 1.2.19 or newer (automatically enforced)
+  - The repo requires Bun 1.4.2 or newer (automatically enforced)
 
 ## Getting Started
 
@@ -31,7 +31,7 @@ Epicenter is a monorepo containing multiple applications. The main application r
    bun install
    ```
 
-   > **Note**: If you see a version warning, run `bun upgrade` to update to the required version. The repository uses Bun 1.2.19 to ensure consistency across all contributors.
+   > **Note**: If you see a version warning, run `bun upgrade` to update to the required version. The repository uses Bun 1.4.2 to ensure consistency across all contributors.
 
    > **Note**: Desktop app development requires external tools not installed by the command above. Install these manually.
    > (For example: [Rust](https://www.rust-lang.org/tools/install) and [CMake](https://cmake.org/download/))
@@ -268,7 +268,7 @@ If you see a warning about Bun version mismatch:
 bun upgrade
 
 # Or install the specific version mentioned in the warning
-curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.19"
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
 ```
 
 ### Installation Issues
