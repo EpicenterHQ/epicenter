@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
+- **Unbuilt:** Independent native-session cleanup under concurrent capture; the current native recorder still has one slot.
 - **Amends:** [ADR-0367](0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md) at the document as the single coordinator of application resource shutdown. Exclusive acquisition, physical release, and retention of ownership after failed release remain required.
 - **Implementation:** App construction coordinates resource owners; data owns document shutdown. Capability factories were removed from the data engine.
 
@@ -72,7 +73,7 @@ pending work, and physical release needed to honor that transition.
 
 | Resource | Shutdown responsibility |
 | --- | --- |
-| Recording | Refuse new starts, settle pending acquisition, cancel remaining capture, and release capture listeners and devices. A stop already in progress settles before its storage is released. |
+| Recording | Refuse new starts, settle owned pending acquisition, cancel this App's remaining capture, and release its listeners and devices. A stop already in progress settles before its storage is released. |
 | AI and network producers | Cancel owned requests and response streams where supported, and await their cleanup. Receiving response headers is not completion. |
 | Blobs and playback | Settle accepted transfers and attachment work, release playback sources, and keep destinations available while a producer can still write. |
 | Data store | Stop sync and callbacks, settle document-owned work, attempt the final local persistence flush, and release the document and its backing. |
@@ -88,6 +89,19 @@ The recorder owns a close operation as part of its constructed capability. Its
 implementation handles a microphone request completing during shutdown and
 native capture recovery. Only an opener that acquired the library may adopt
 leftover capture for cleanup; a refused duplicate opener owns nothing to cancel.
+
+Every native capture shares the host capture owner described in
+[ADR-0366](0366-recording-is-an-app-scoped-portable-capability.md). Closing an
+App settles only its sessions, including pending starts. Window destruction
+settles all sessions owned by that window. Another window's capture continues.
+Commands, callbacks, and cleanup retain session identity so delayed work cannot
+affect a replacement session.
+
+Physical capture release permits the host to release that input's reservation.
+Publication or transcription may continue afterward under its original session.
+A release failure keeps the affected reservation until teardown is established;
+it must not block unrelated input control through a shared lock held across
+worker shutdown. Retaining recoverable audio alone does not retain a microphone.
 
 ### Completion and failure
 
