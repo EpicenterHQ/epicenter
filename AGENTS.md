@@ -29,7 +29,7 @@ One runtime: a desktop SPA in a WebView over a client-owned store (ADR-0227). Th
 ADR-0227 was executed as a clean break. `apps/skills`, `packages/chat`, `packages/skills`, and app-shell's agent chat all typecheck, so do not treat them as scrap: what they lack is a decision about what they are for, not a compiler pass. `apps/epicenter` serves bundles and forwards authenticated HTTP and live sync through its boot Account. Windows hold no server credentials; each app owns its store and sync lifetime.
 
 The three store applications are `apps/honeycrisp`, `apps/vocab`, and
-`apps/whispering`. Each application document owns one fixed library (ADR-0369).
+`apps/whispering`. Each application document owns one fixed library (ADR-0369; ADR-0392 proposes one auth generation per page instead).
 Plain TypeScript captures the raw auth Account and opens the App; Svelte adapts
 it at the UI boundary. Honeycrisp and Vocab require identity; Whispering also
 supports local startup. Deliberate account/server changes close UI producers

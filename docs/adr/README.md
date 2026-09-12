@@ -639,6 +639,13 @@ When you add an ADR, add its row here.
 | [0362](0362-inference-connections-do-not-require-runtime-management.md) | Inference connections do not require runtime management | Proposed |
 | [0371](0371-core-observations-and-queries-use-explicit-methods.md) | Core observations and queries use explicit methods | Proposed |
 | [0374](0374-the-host-selects-one-account-and-replacement-restarts-its-applications.md) | The host selects one account and replacement restarts its applications | Proposed |
+| [0384](0384-self-hosted-credential-commits-own-admission-and-recovery.md) | Self-hosted credential commits own admission and recovery | Proposed |
+| [0385](0385-initial-generation-selection-is-a-server-commit.md) | Initial generation selection is a server commit | Proposed |
+| [0387](0387-the-clipboard-is-a-platform-module-beside-the-app-not-a-capability-on-it.md) | The clipboard is a platform module beside the App, not a capability on it | Accepted |
+| [0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) | The App owns what a library scopes, and the package's modules supply what the device supplies | Accepted (capability spelling amended by 0392) |
+| [0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) | The open call decides the App's type, and a local App has no account members | Accepted (opener shape superseded by 0392) |
+| [0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) | The App is the unit of ownership, and a capability is the unit of sharing | Accepted (shared surface spelling amended by 0392) |
+| [0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) | The build selects every implementation, and an application declares only its id and data | Accepted |
 | [0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) | An App has a device scope and an account scope, and each store sits under its owner | Proposed (supersedes 0389 at the opener shape; amends 0369, 0355, 0388, 0365) |
 | [0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) | A blob is addressed by its row, and the account holds every one | Proposed (supersedes 0173; amends 0091, 0154, 0349, 0276, 0092, 0205, 0355, 0226, 0314) |
 | [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | A backup is the library's folder, kept by the authority | Proposed (amends 0287) |

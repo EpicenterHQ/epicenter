@@ -160,8 +160,8 @@ shapes, see `docs/adr/`.
   durable data. Definitions have no defaults; initialization and recovery are
   application decisions.
 - **Opened data**: the synchronous typed surface (`tables`, `kv`, `documents`,
-  `store`, and `transact`) an opened runtime holds over one data definition.
-  Born with the store; nothing rebinds a live runtime.
+  `store`, and `transact`) an opened store holds over one data definition.
+  Born with the store; nothing rebinds a live store.
 - **Database document**: the one Yjs document a database is (ADR-0295),
   persisted under the log name `app`. Its top-level roots are the bare named
   root `kv` and one `tables:<name>` root per declared table (ADR-0257). A row is

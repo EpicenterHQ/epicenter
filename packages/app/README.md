@@ -35,6 +35,12 @@ standalone platform module, described under [Clipboard](#clipboard).
 `settingsKey` preserves an existing local AI-settings namespace; new applications
 default to their app ID.
 
+This paragraph describes the shipped surface. ADR-0391 deletes `runtime`, `ai`,
+and `settingsKey` so the build selects every implementation, and ADR-0392
+replaces the three openers with one `open(account)` that returns a `device`
+scope and an optional `account` scope; both are Proposed and unbuilt, and the
+README changes when the code does.
+
 `app.ai.account` and `app.ai.runtime` are fixed nullable SDK client capabilities.
 `app.ai.connections` owns device-local custom endpoints, optional bearer keys,
 and their clients. A binding without a custom store exposes `connections: null`.
@@ -150,10 +156,14 @@ function watchRetirement(app: AccountApp<typeof definition>) {
 Shared code takes a capability, never the handle or a subset of it. `app.ai`
 carries everything inference needs, including the identity its account client
 was bound to, so a component that picks a model takes `ai: AppAi` and nothing
-else from the App. See
-[ADR-0389](../../docs/adr/0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md)
-and
-[ADR-0390](../../docs/adr/0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md).
+else from the App. The rule is
+[ADR-0390](../../docs/adr/0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md);
+the target spelling is
+[ADR-0392](../../docs/adr/0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md),
+where shared code takes `app.device.connections` and `app.account?.connection`
+and there is no `App` union discriminated by `library` (that shape,
+[ADR-0389](../../docs/adr/0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md),
+is superseded at the opener).
 
 The document, table handles, and KV handle exist before readiness. Their actual
 operations reject premature or closed use, including methods retained by a
@@ -333,8 +343,10 @@ to save that audio must stop and save it before closing. Recording does
 not insert rows, upload audio, or apply transcription policy.
 
 Text-only dictation should own temporary capture and release it with its session;
-it need not publish saved recordings. The browser stream/VAD primitives below
-remain independent of this saved-artifact API.
+it need not publish saved recordings. There is no dictation capability on the
+App: an application composes its own capture with a connection's `transcribe`
+(ADR-0365, ADR-0396). The browser stream/VAD primitives below remain
+independent of this saved-artifact API.
 
 Run `bun test` for lifecycle checks and `bun run smoke:recording` for Chromium
 capture, storage, decoding, metering, and cancellation with a synthetic microphone.

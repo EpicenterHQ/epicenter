@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-09-12
 - **Amended by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at the spelling of App-capability access: a capability reads under the scope that owns it, so the table's `app.x` is `app.device.sqlite`, `app.device.secrets`, and `app.account?.personal.blobs`. The membership test and the platform-module family stand.
-- **Unbuilt:** Download, sound, OS notification, platform information, and opening URLs as `@epicenter/app` platform modules. The rule is written here and applied to the clipboard only; Whispering still holds download and sound in its `services` barrel, OS notification under `report/`, and platform information and the opener in its Tauri namespace file.
+- **Amended by:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at the selector only: a platform module is selected by the package at runtime, not by the build condition. The membership rule, the family name, and the two-leaf shape stand.
+- **Unbuilt:** Download, OS notification, platform information, and opening URLs as `@epicenter/app` platform modules. Sound is withdrawn from the list: it has no platform split and carries Whispering's own cues, so it stays a Whispering service. The rule is written here and applied to the clipboard only; Whispering still holds download and sound in its `services` barrel, OS notification under `report/`, and platform information and the opener in its Tauri namespace file.
 
 ## Context
 
@@ -69,9 +70,9 @@ the App, `@epicenter/app/clipboard` is the platform the app runs on.
 - Presentation code and boot screens reach the platform without an App.
 - A `runtime` field on the App for a platform module is refused; the build
   condition is the only selector for one.
-- `docs/CONTEXT.md` still uses "runtime" for the opened data surface and
-  describes a composition root that no longer exists; its App composition
-  section is rewritten when this record and its siblings are accepted.
+- `docs/CONTEXT.md` names the opened data surface a store and carries the
+  App hub, device scope, and account scope entries; nothing there still
+  describes a composition root.
 
 ## Considered alternatives
 

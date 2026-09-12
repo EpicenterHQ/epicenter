@@ -1,9 +1,9 @@
 # 0366. Recording is an app-scoped portable capability
 
-- Status: Proposed
-- Date: 2026-09-08
-- Revised: 2026-09-09
-- Unbuilt: Concurrent native capture on distinct input devices and opaque device selection. Saved recording exists with a single host-wide slot; two-device native acceptance remains outstanding.
+- **Status:** Proposed
+- **Date:** 2026-09-08
+- **Revised:** 2026-09-09
+- **Unbuilt:** Concurrent native capture on distinct input devices and opaque device selection. Saved recording exists with a single host-wide slot; two-device native acceptance remains outstanding.
 
 ## Context
 
@@ -15,8 +15,8 @@ should not need Whispering's settings, rows, or native wrapper.
 
 ## Decision
 
-An opened App reaches saved capture through `app.device.recording`. The build selects
-the browser or desktop implementation. Defining an Application
+An opened App reaches saved capture through `app.device.recording`. The package selects
+the browser or desktop implementation at runtime (ADR-0403). Defining an Application
 acquires no microphone, opens no dataset, and loads no inference model.
 The browser implementation uses browser capture; the desktop implementation
 uses the native recorder's invoke commands. The session contract is shared.
