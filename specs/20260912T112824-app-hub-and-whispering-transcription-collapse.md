@@ -305,11 +305,7 @@ Each wave is one reviewable commit or a short series, green on `bun run typechec
    - Options: (a) read whole at open inside `ready`; (b) keep a `localStorage` mirror for first paint.
    - **Recommendation**: (a). Measure before adding a mirror.
 
-3. **Where the portable dictation service lives.** ADR-0365 named a `dictation` service (capture plus transcribe) and left it unbuilt. Under the two scopes it composes `app.device.recording` with a connection's `transcribe`, which suggests a helper in `@epicenter/app-shell` rather than a member on the App.
-   - Options: (a) an app-shell helper taking the App and a selection; (b) `app.device.dictation`; (c) nothing shared, each app composes the two calls.
-   - **Recommendation**: (c) until a second app needs more than the two calls; Vocab today is one `transcribe` on `app.account.connection`.
-
-Decided since the first draft and moved into records: the account menu strings "Sign out" and "Sign out and remove account data from this device", with "this device" for machine scope and "Local" only for the library (ADR-0399 amending ADR-0351); separate `kv` declarations for `device` and the synced libraries (ADR-0392); the default recording destination is `account.personal` when present, remembered in `device.kv` (ADR-0401); `Connection.client` puts the `OpenAI` SDK type on the App's surface, accepted by ADR-0396 as a named consequence, so replacing the SDK later is a breaking change to that type.
+Decided since the first draft and moved into records: there is no shared dictation capability, each app composes `app.device.recording` with `connection.transcribe`, and a helper is promoted only when a second app needs more than the two calls (ADR-0365 as revised 2026-09-12; the `specs/20260908-ai-client-and-portable-dictation.md` plan is deleted and its native capture half continues in `specs/20260912T122859-concurrent-native-capture.md`); the account menu strings "Sign out" and "Sign out and remove account data from this device", with "this device" for machine scope and "Local" only for the library (ADR-0399 amending ADR-0351); separate `kv` declarations for `device` and the synced libraries (ADR-0392); the default recording destination is `account.personal` when present, remembered in `device.kv` (ADR-0401); `Connection.client` puts the `OpenAI` SDK type on the App's surface, accepted by ADR-0396 as a named consequence, so replacing the SDK later is a breaking change to that type.
 
 ## Adjacent Work
 

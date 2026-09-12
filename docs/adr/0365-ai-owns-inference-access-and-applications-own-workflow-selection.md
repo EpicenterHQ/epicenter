@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Revised:** 2026-09-10
-- **Unbuilt:** `app.device.connections` and `app.account.connection` as the two access members; the signed-out invitation design; the portable dictation capability; `connectionFor`, `connection.transcribe`, and selections as declared `app.device.kv` fields. Shared desktop custom connections are implemented, and selections are persisted today by `createInferenceSelections` in `packages/app-shell/src/inference-selections.ts`. Real native capture acceptance remains separate.
+- **Unbuilt:** `app.device.connections` and `app.account.connection` as the two access members; the signed-out invitation design; `connectionFor`, `connection.transcribe`, and selections as declared `app.device.kv` fields. Shared desktop custom connections are implemented, and selections are persisted today by `createInferenceSelections` in `packages/app-shell/src/inference-selections.ts`. Real native capture acceptance remains separate.
 
 ## Context
 
@@ -237,41 +237,22 @@ promise all SDK endpoints, full protocol parity, successful model loading, or
 reachability. Native use requires evidence for real audio, explicit model
 selection, result mapping, authorization, and cancellation or drain.
 
-**The App also supplies microphone-to-text sessions as a dictation capability
-beside capture.**
+**There is no dictation capability on the App.**
 
-Dictation is machine-bound the way the microphone is, so it sits under `device`
-next to `app.device.recording`. ADR-0392's two scopes do not name it yet, and
-its exact member name is settled when it is built. App construction composes
-this capability alongside inference access. The custom
-connection collection owns neither capture nor dictation configuration. Dictation
-owns microphone acquisition, transcript updates, and session completion; it
-does not duplicate the SDK's file-transcription API. Products own text insertion,
-record creation, and subsequent workflows.
+Microphone-to-text is `app.device.recording` (ADR-0366) followed by
+`connection.transcribe` (ADR-0396), and an application composes the two calls
+itself. Each call already carries what a shared member would have carried:
+capture is bound to the App's lifetime and the machine's input selection, and
+the connection is bound to the App's signal and the caller's explicit
+`{ connectionId, model }`. A dictation member would capture nothing that
+`open()` fixed beyond what those two already capture, so under ADR-0388 it
+does not join the App. Vocab's dictation is one `transcribe` on
+`app.account?.connection` over its own VAD-segmented capture; Whispering's
+saved recording is one `start()` and one `stop()`.
 
-The proposed `start({ onUpdate, onError })` returns a `DictationSession` in a
-Wellcrafted Result. Its `finish()` stops listening and returns `{ text }` in a
-Result; `cancel()` discards the session. Saved audio remains
-[`app.device.recording`](0366-recording-is-an-app-scoped-portable-capability.md), whose
-returned Recording stops into a blob. Dictation does not publish a permanent
-recording merely because it captured audio. Each returned handle addresses its
-original session; a delayed finish or cancel cannot act on a newer one.
-
-Desktop dictation settings supply the input selection and inference route.
-Standalone browser composition supplies the same logical settings per
-application. Dictation captures these settings before acquisition and resolves
-the route against the opened App's actual capabilities. Missing or unavailable
-destinations fail without borrowing another Account or matching another scope.
-This dedicated configuration does not add generic workflow scopes to the App
-or move application completion and transcription choices into `connections`.
-
-Every App exposes the same dictation contract. An App opened with no account
-still has no account inference. Native recording and dictation reach one host capture
-owner, which admits concurrent sessions on distinct input devices under
-ADR-0366. Releasing a microphone does not wait for transcription to complete;
-the original session retains its inference work and result until it settles.
-App closure cancels or drains its sessions without shutting down other Apps'
-captures or the shared native engine.
+A shared helper over the two calls is promoted, into `@epicenter/app-shell`,
+only when a second application needs more than the two calls, for example
+streaming partial transcripts during capture. It is not promoted on intention.
 
 ## Consequences
 
@@ -319,9 +300,9 @@ account gateway or the native runtime into the custom catalog.
 - Require `ai.client(id)` across every scope: the implemented custom lookup did not need it. A unified access view was reconsidered and then decided by ADR-0392, which sorts access by owner into `device` and `account`; neither owns a workflow scope or chooses a fallback destination.
 - Select a server by discovered model name: can silently redirect data or billing when inventories or ordering change.
 - Add a separate inference Account: creates a second identity selector and replacement lifetime.
+- A dictation capability on the App with `start({ onUpdate, onError })`, `finish()`, and `cancel()`: proposed 2026-09-08 and withdrawn 2026-09-12. It captured nothing beyond what recording and the connection already capture, and one application needed it. Under ADR-0388 that is a composition, not a member.
 - Put dictation on the unopened Application: leaves its Account, readiness, and cleanup outside the opened App's lifetime; it does not solve native sharing across SPAs.
 - Make the custom connection collection own dictation: couples connection CRUD to microphone and transcript lifecycles.
-- Expose only an unscoped dictation stop: a delayed action can stop a different session even when one microphone admits only one capture at a time.
 - Require every native engine to expose an HTTP server: native custom fetch can implement the supported protocol over the existing bridge.
 
 ## Implementation
@@ -375,5 +356,7 @@ failure. At the host, an incoming request that already disconnected needs its
 local response closed, while access retirement for a connected caller still
 errors the response. Both paths cancel the upstream body.
 
-The dictation proposal above remains separate microphone-to-text work. Real native capture acceptance
-continues in the [runtime integration handoff](../../specs/20260909T171130-ai-runtime-integration.handoff.md).
+Real native file-transcription acceptance continues in the
+[runtime integration handoff](../../specs/20260909T171130-ai-runtime-integration.handoff.md);
+concurrent native capture continues in the
+[concurrent native capture spec](../../specs/20260912T122859-concurrent-native-capture.md).
