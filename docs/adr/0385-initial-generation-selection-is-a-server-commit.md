@@ -53,7 +53,7 @@ named user. Rollout and explicit migration remain separate decisions.
 Initialization, write admission, and future replacement share one transaction
 owner. A restore can retire the current generation without coordinating a
 separate pointer and independently writable authorities. Backup/restore
-orchestration remains the work described by ADR-0379 and ADR-0386.
+orchestration remains the work described by ADR-0379, ADR-0394, and ADR-0395.
 
 The old ledger remains only as historical storage and a migration-refusal check;
 it is not a second production initialization protocol. Library selection and

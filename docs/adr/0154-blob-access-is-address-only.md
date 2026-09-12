@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-19
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) and [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md)
+- **Amended by:** [ADR-0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) at "takes a `BlobId` the caller already holds" and "Bulk operations iterate ids from application data": the address is the row, `<table>/<row-id>`, and the inventory is the rows whose one declared `field.blob()` cell is not null. Address-only and the absence of `list` stand for clients; the library's authority enumerates its own objects for the reclaim pass in [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md).
 
 ## Context
 

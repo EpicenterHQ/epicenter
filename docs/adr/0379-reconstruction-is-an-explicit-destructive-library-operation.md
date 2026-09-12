@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
-- **Unbuilt:** Verified backup catalog, durable restore orchestration, production activation transport, and the destructive product action. The authority and browser retirement path are implemented; container replacement remains an experiment.
+- **Relates:** [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (what a backup is: the row and kv files of the ADR-0337 folder, kept as rows by the authority, naming each row's bytes by naming the row) and [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) (a restore is one request whose transaction keeps the safety copy; there is no receipt, because a retry after a lost response is refused by the position check and the reload already shows the result)
+- **Unbuilt:** Kept backups, the one-request restore route, production activation transport, and the destructive product action. The authority and browser retirement path are implemented; container replacement remains an experiment.
 
 ## Context
 
@@ -99,9 +100,9 @@ The product presents this as replacing the shared library, names the destination
 and explains that unsynchronized work on other devices can be lost. Before
 activation, retain a verified, complete backup of the captured state and validate
 the replacement against its intended contents. That backup cannot contain work
-the authority has never received. A backup intended to recover rich content and
-blobs must prove that fidelity; today's folder export is not automatically that
-proof.
+the authority has never received. That backup is the text of the ADR-0337 folder (ADR-0394); it names each
+row's bytes by naming the row (ADR-0393), and its fidelity is what each
+table's mandatory codec writes (ADR-0268).
 
 The accepted loss boundary is every edit in the retired generation that the
 authority never accepted, including offline edits and queued edits during a
@@ -127,8 +128,10 @@ invalidation and cleanup. This is a whole-application transition. It does not
 require an ordinary generation picker. It cannot instantly erase an offline device's storage, purge backups, or promise
 secure erasure of deleted bytes.
 
-Archives are immutable captured states with their own retention policy. They may
-be created periodically or before replacement without changing the live database.
+Archives are immutable captured states. The application keeps one daily and
+keeps the newest seven; a person's own copies and every before-restore copy
+are deleted only by that person (ADR-0394). They are created without changing
+the live database.
 Browsing an archive is read-only; restoring it is another deliberate replacement.
 An older writable generation is not an archive.
 
@@ -208,8 +211,9 @@ retry, reconnecting stale replicas, and an editor holding the removed content no
 Include an old socket submitting during activation, a delayed queued write, and a
 reconnect after retired bytes have been deleted. For the fresh-document path,
 each must leave the replacement untouched and must not recreate the retired one.
-Replacement requests also need durable operation receipts: retrying after a lost
-response must report that activation rather than restore again. Capture must
+Replacement requests carry the position the safety copy was rendered from;
+retrying after a lost response is refused because that position has moved,
+and the reload already shows the result (ADR-0395). Capture must
 cover the authoritative log head, including its tail; the latest stored snapshot
 alone may lag accepted writes.
 
@@ -242,9 +246,9 @@ synchronously when retirement makes the App unusable. It does not mean resource
 cleanup or durable invalidation has finished.
 
 Activation in this journey uses a test-only service binding and the actual
-authority owner. It does not expose a restore endpoint or establish the backup
-catalog, destination safety-backup orchestration, attachment retention, or
-restart reconciliation required by ADR-0386. Stronger cancellation of a cache
+authority owner. It does not expose a restore endpoint, keep backups, or carry
+a safety copy in the activation transaction as ADR-0394 and ADR-0395 require.
+Stronger cancellation of a cache
 installation after its boot owner aborts also remains unproved; acquisition
 currently retains its claim through completion and refuses a closed App's readiness.
 

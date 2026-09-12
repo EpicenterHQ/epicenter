@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
-- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), and [ADR-0154](0154-blob-access-is-address-only.md)
+- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), [ADR-0154](0154-blob-access-is-address-only.md), and [ADR-0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) at the whole mechanism: there is no content-addressed URL, no `/api/blobs`, and no citation found in prose. A blob is the object at its row's path under the library's mount, and "documents are the only manifest" is now literal, because the row is the address.
 
 > **2026-07-02 amendment:** The durable read URL is now `<origin>/api/blobs/<sha256>`. Auth resolves the principal, so the URL no longer echoes the owner or principal id.
 

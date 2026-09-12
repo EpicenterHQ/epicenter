@@ -6,16 +6,40 @@ Restore replaces the library's current generation; devices invalidate retired
 IndexedDB replicas and reload, while ordinary use stays cache-first and
 offline-capable.
 
+## Superseding decisions, 2026-09-12
+
+The recovery design below the "Settled product contract" heading was replaced
+by three records before the restore orchestration was mounted. Read them before
+anything in this spec that mentions a catalog, an archive, an attempt, a
+journal, a blob id, or object storage for backups:
+
+- [ADR-0393](../docs/adr/0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md):
+  a blob is the object at `<table>/<row-id>` under the library's mount, its
+  cell holds the MIME type, bytes are immutable and a row keeps them for life,
+  and the account holds every blob while the device caches.
+- [ADR-0394](../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md):
+  a backup is the text of the ADR-0337 folder kept by the authority as
+  `_kept` and `_kept_files` rows; a copy names bytes by naming rows; all
+  reclaim is one eventual pass after any copy is kept; daily automatic copies
+  keep the newest seven; six verbs on `openLibraryRecovery` and five routes
+  beside `CURRENT_ROUTE`.
+- [ADR-0395](../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md):
+  restore is one request carrying the safety entries, the reconstructed state,
+  and the expected position; the transaction keeps the safety copy; there is
+  no attempt journal, pin, fence, receipt, operation id, or client journal.
+
+ADR-0386 was deleted. The current-generation authority, retirement, cache
+invalidation, reload, and the Honeycrisp browser journey stand. The dated
+checkpoints below remain evidence of what was built. "Implementation waves"
+and "Required proof" were rewritten on 2026-09-12 against the three records
+and are the plan; every other section below this notice that describes a
+catalog, an archive, an attempt, or a journal is history.
+
 The reconstruction design is in [ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md).
-The agreed recovery API and backup history are recorded in
-[ADR-0386](../docs/adr/0386-recovery-restores-only-verified-backups-and-owns-retry-identity.md).
-The current authority now lives in `packages/data/src/sync/authority.ts`.
-Its portable transactions and generation-bound hub lifetimes are exercised under
-`packages/data/evidence/current-generation/`. The replaced native Bun harness has
-been deleted. Production browser startup now uses the stable current authority through the Honeycrisp integration. Done means the
-authority rejects all retired writes, browser invalidation survives interruptions,
-restore preserves its promised archive contents, and affected applications reload
-through normal bootstrap without a generation picker.
+The current authority lives in `packages/data/src/sync/authority.ts`; its
+portable transactions and generation-bound hub lifetimes are exercised under
+`packages/data/evidence/current-generation/`. Production browser startup uses
+the stable current authority through the Honeycrisp integration.
 
 ## Active execution path
 
@@ -590,71 +614,105 @@ is allowed to create another backup even when restoring the same source.
 
 ### Implementation waves
 
-1. **Catalog and file contract, independent of deployed server replacement.**
-   - [x] Add failing portable tests for publication, interruption, library scope,
-     and history surviving generation changes before defining catalog mutations.
-   - [x] Extend the unshipped archive format with application/data identity and
-     explicit provenance. Decide version refusal from actual fixtures; do not
-     guess missing identity or silently add a compatibility reader.
-   - [x] Implement private catalog/publication over portable authority SQL and
-     immutable object storage. Reuse exact byte/MIME checks from
-     `archive-storage.ts`; preserve uploaded files unchanged.
-   - [x] Exercise manual capture and imported files through the same publication
-     owner. Verify invalid files, missing objects, and interrupted finalization
-     never become usable records; retries publish one record.
-   - [x] Review the resulting owner before starting dependent orchestration.
-2. **Durable restore owner behind the five methods.**
-   - [x] Persist pending publication intent and exact capture/file bytes outside
-     retired replica storage. Reconcile before creating another backup/import
-     after restart. Preserve the current live-lifetime retry behavior.
-   - [x] Build the private attempt journal and active-attempt reservation. Test
-     restart before first response, before/after request persistence, before/after
-     activation, and before/after local pending-reference reconciliation.
-     Prove receipt recovery without archive storage, terminal preparation failure
-     with slot release, and rejection of the failed attempt's late activation.
-   - [~] Compose destination capture, one safety backup, installed attachments,
-     retained activation request, and receipt recovery. No live activation from
-     unverified preparation and no fresh reconstruction on retry. The durable
-     halves exist under the unmounted `attempts` owner; the activation call and
-     the `restore()` that sequences them do not.
-   - [x] Extend recovery tests to reopen the public owner and resume using only
-     the backup ID. Publication tests already use backup/import/download and
-     preserve exact bytes. Private catalog replay still supplies a retained
-     request; replace that evidence gap with durable public reconciliation.
-   - [ ] Compose the remaining `installArchive` operation into restore. Retain
-     attachment conflict/read-back proof and the codec/opaque-authority boundary.
-3. **Production authority and browser integration.**
-   - [x] Integrate one current authority with the shared browser bootstrap path.
-   - [ ] Mount catalog and private restore transport against one stable library
-     authority, with account/library authorization on every operation. Use
-     configured object storage and prove retention across generation cleanup.
-   - [x] Replace list/max discovery with atomic current download and stable
-     optional-header cache; preserve offline opening and local-only startup.
-   - [x] Prove Durable Object eviction/hibernation and old-socket rejection.
-   - [ ] Exercise hosted R2 adapter behavior and the self-hosted S3 boundary without
-     deploying to production or deleting existing libraries.
-4. **Backups screen and complete native-browser proof.**
-   - [ ] Add Create backup and Upload backup to the Backups screen. Upload selects
-     its published row and offers Restore this backup without a list detour.
-   - [ ] Restore confirmation names the destination and unsynchronized-work loss.
-     Import cancellation, preparation errors, conflicts, and unknown outcomes
-     retain the appropriate backups and pending attempt for recovery.
-   - [ ] Bind the recovery owner to the page's fixed App/account lifetime. Fence
-     late callbacks after departure; never publish into another account's library.
-   - [x] Prove Honeycrisp editor cleanup, full reload, offline cached startup,
-     failed invalidation, failed download, and complete replacement readiness
-     in a native browser through test-only activation.
-   - [ ] Extend the native proof to production recovery, recorder cleanup,
-     restart reconciliation, and obsolete boot response interruption. Preserve
-     different-generation working-copy refusal.
-5. **Prove and retire replaced paths.**
-   - [ ] Run affected suites and typechecks, attributing unrelated failures to a
-     recorded baseline. Review cumulative implementation and remaining risks.
-   - [ ] Stop importing old generation discovery and public history-selection
-     paths, verify, then delete them under the grounded existing-history rollout
-     decision. No automatic choice of a maximum historical library for deletion.
-   - [ ] Update durable records under ADR conventions and delete this spec and its
-     handoff only when the full accepted outcome is implemented and verified.
+Rewritten 2026-09-12 against ADR-0393, ADR-0394, and ADR-0395. Each wave ends
+with focused passing checks and a reviewable commit. The old checklist is in
+git history.
+
+1. **Delete the retired recovery code, in dependency order.** Nothing here is
+   mounted or exported from a barrel; the only production-adjacent consumer is
+   the Honeycrisp fixture script.
+   - [ ] Rewrite `apps/honeycrisp/scripts/library-retirement.ts` to build its
+     test activation from `renderArtifact` plus `readArtifact` over a fixture
+     folder instead of `captureArchive` and `prepareArchive`. This is the one
+     consumer of `artifact/archive.ts` outside the deletion set.
+     `packages/server/workers/current-retirement.test.ts` does not consume the
+     archive; it drives `openCurrentAuthority` and `readCurrentDownload` and
+     stays.
+   - [ ] Delete `packages/data/src/recovery.ts`, `recovery.test.ts`,
+     `recovery-journal.ts`, `recovery-journal.test.ts`,
+     `recovery-journal.test-support.ts`, `store/idb-journal.ts`.
+   - [ ] Delete `packages/data/src/artifact/archive-storage.ts` and its test,
+     then `artifact/archive.ts` and its test.
+   - [ ] Remove `openBackups`, `openAttempts`, `readAttempt`, and
+     `applyAttemptSchema` from `sync/authority.ts`; delete `sync/backups.ts`,
+     `sync/attempts.ts`, and their tests; drop `_restore_receipts`,
+     `readReceipt`, `pinPreparation`, the `failed` fence, and the digest
+     comparison from `prepareActivation().activate()`. Keep the position
+     check, the log replacement, the generation advance, and post-commit hub
+     retirement; keep every evidence test under
+     `packages/data/evidence/current-generation/` passing.
+   - [ ] Delete `packages/server/src/backup-storage.ts` and its test.
+2. **The row is the blob's address.** ADR-0393.
+   - [ ] `field.blob()` becomes a nullable MIME-type cell; `compileData`
+     refuses a second blob field; `BlobFieldNames<T>` is one optional name.
+     `store.create` puts bytes at `<table>/<row-id>` and writes the cell;
+     `store.update` cannot touch it; no mint, no `copy`.
+   - [ ] `packages/blobs`: delete `blob-id.ts` and `BLOB_ID_ROUTE_REGEX`;
+     rekey `browser.ts` and `bun.ts` by row path; delete `createAppBlobs().add`,
+     `copy`, and `purge`; `removeLocal` and `download` are the cache verbs.
+   - [ ] Desktop: `recorder/commands.rs` takes the row id at `start`;
+     `blobs.rs` writes `<table>/<row-id>/`; delete `mint_blob_id`. Host blob
+     API in `apps/epicenter/src/server.ts` is addressed by row path.
+   - [ ] Server: mount `PUT`, `GET`, `HEAD`
+     `…/data/:dataId/blobs/:table/:rowId` in `store-sync/mount.ts`, handled by
+     the library's Durable Object against R2 under the library prefix; delete
+     `routes/blobs.ts`, `principal.ts#blobKey`, and the `/api/blobs` entries
+     in `packages/constants/src/api-routes.ts`. Both deployables.
+   - [ ] One-time move of existing R2 objects from
+     `principals/<id>/blobs/<blobId>` to the row path, driven by each
+     recording row's cell, idempotent, run before the old routes are removed
+     from production.
+   - [ ] Whispering: delete `recordingAutoUpload`, the storage badge, the
+     Upload/Purge actions, the Backup Status card, and the `local-only` and
+     `remote-only` availability states; keep `uploadedAt` as the push
+     obligation marker and `kick()` as its runner. Settings says once that
+     recordings are stored in the account and this device keeps a copy of the
+     ones it plays. Deletion is `table.delete` in a loop.
+3. **Folder siblings.** ADR-0393 and ADR-0394.
+   - [ ] `parseRowPath` learns `<table>/<row-id>.<ext>` as the row's
+     attachment; `render` writes the sibling from the cell; `import` reads the
+     cell as the MIME type and the sibling as the bytes; a missing sibling
+     imports the row with its cell intact. `push` plans no item for the cell.
+   - [ ] `apps/epicenter/src/checkout.ts` gains a binary read and write for the
+     sibling and sweeps it with its row.
+4. **Kept copies and the pass.** ADR-0394.
+   - [ ] `_kept(id, automatic)` and `_kept_files(kept_id, path, bytes)` in the
+     library's Durable Object; `GET`, `POST`, `GET :id`, `DELETE :id` under
+     `…/data/:dataId/backups`, through the store-sync mount, both deployables.
+     A posted entry above 2 MiB is refused with its path; the 16 MiB body
+     refusal applies.
+   - [ ] The pass: after any `POST …/backups`, delete every object under the
+     library prefix whose `<table>/<row-id>.md` is in no `_kept_files` row,
+     and every `automatic = 1` copy beyond the newest seven. Prove it is
+     idempotent and that a crash mid-pass leaves the next pass with the same
+     work.
+   - [ ] `openLibraryRecovery({ account, appId, library, definition })` with
+     `list`, `backup`, `export`, `import`, `delete`; `export` fetches each
+     row's object and writes the zip; `import` puts siblings create-only then
+     posts the entries. Needs no open App.
+5. **Restore.** ADR-0395.
+   - [ ] `POST …/restore` multipart `safety`, `state`, `expected`; the
+     transaction keeps `safety` with `automatic = 0`, checks `expected`,
+     replaces the log, advances the generation; retirement after commit.
+   - [ ] `recovery.restore(id)`: download entries, reconstruct through the
+     codecs, render current as `safety`, send. Departure is the success path;
+     `conflict` is "the library changed while you were restoring; try again".
+6. **Backups screen and the daily copy.**
+   - [ ] Settings, Backups in Honeycrisp and Whispering: a list of times,
+     automatic copies greyed, Export, Restore, Delete, Save a copy now, the
+     one-line reclaim note. Restore confirmation names the destination and
+     the loss boundary from ADR-0379.
+   - [ ] On open, at most once a day, `backup()` with `automatic = 1`.
+   - [ ] Extend the Honeycrisp native-browser proof from test-only activation
+     to production restore through the screen.
+7. **Docs.** Edit in place: `docs/CONTEXT.md` (blob vocabulary),
+   `docs/trust-model.md` (the key prefix argument moves to the library prefix
+   and the bearer), `docs/the-store-and-what-it-replaced.md`,
+   `packages/blobs/README.md`, `packages/data/README.md`,
+   `packages/app/README.md`, `apps/api/README.md` route table,
+   `docs/guides/trusted-app-architecture-handoff.md`,
+   `.agents/skills/query-layer/SKILL.md` example. Then delete this spec and
+   its handoff.
 
 ### Execution decisions still requiring evidence
 
@@ -694,39 +752,41 @@ ADR status.
 
 ## Required proof
 
+Rewritten 2026-09-12. Cases above the rule stand from the current-generation
+work; cases below it are the three records.
+
 | Case | Required result |
 | --- | --- |
 | Two first devices with empty caches | One current generation, not two imports |
-| Accepted write during replacement preparation | Activation fails its captured-head condition |
-| Two concurrent restores | One winner for the same expected generation/head |
-| Lost restore response and retry | Same durable receipt, no second activation |
-| Ten sequential restores | Fresh lineages; no merge into prior document |
-| Old socket, queued push, partial chunk, or hibernated socket | No write accepted into current generation |
-| Old generation bytes already deleted | Old identity cannot recreate a writable history |
+| Accepted write during replacement preparation | Restore refused `conflict`; nothing kept, nothing replaced |
+| Two concurrent restores | The second is refused `conflict`; one safety copy |
+| Ten sequential restores | Fresh lineages; ten safety copies; no merge into a prior document |
+| Old socket, queued push, partial chunk, or hibernated socket | No write accepted into the current generation |
 | Cached device opens offline | Existing valid cache remains usable |
 | Retirement with pending writes | All pending work discarded; no automatic recovery |
-| Persistence transaction paused across retirement plus late edit | No old writes survive invalidation or contaminate replacement |
-| Crash around invalidation/install | Prior valid cache before invalidation, absence after it, or complete new baseline |
-| Another raw IndexedDB connection stays open | Invalidation completes without database deletion |
+| Crash around invalidation/install | Prior valid cache before invalidation, absence after it, or a complete new baseline |
 | Failed download or missing local cache | Ordinary retry; no empty remote creation or reload loop |
-| Late response after App closure; restore during download | Obsolete owner cannot install; admission rejects retired generation |
-| Existing editor or recorder still holds old references | Old lifetime cannot produce accepted/persisted writes |
-| Different-generation working-copy manifest | Push refuses; no reinterpretation as mass edits/deletions |
-| Archive round trip | Promised fields, content structure, and blobs survive reconstruction |
-| Manual backup, uploaded file, and pre-restore backup | Same verified publication path and persistent catalog |
-| Interrupted upload or publication | No usable catalog record; retry publishes once |
-| Download then import | Exact original bytes retained and served by the new backup ID |
-| Invalid application/format or unauthorized backup ID | Refused before library replacement |
-| Restore canceled after import or activation conflicts | Imported and completed safety backups remain downloadable |
-| Restore completes and generation changes | Backup history survives outside the replaced document |
-| Restore response lost, then page/owner restarts | Public backup-ID call resumes the retained request and original receipt |
-| Concurrent or repeated restore while outcome unknown | One pending attempt; no duplicate safety backup or activation |
-| Same backup deliberately restored after resolved completion | New internal attempt and fresh lineage |
-| Cleanup overlaps upload, publication, or active restore | No required archive, capture, attachment, or request object is removed |
-| Committed restore loses its response, then archive storage fails | Journal/authority receipt resolves without source download or reconstruction |
-| Permanent preparation failure, restart, then another backup chosen | Failed attempt releases its slot and another restore can proceed |
-| Delayed activation arrives after failure finalization | Authority rejects it in the same serialization boundary |
-| Generic blob deletion targets a retained recovery object | Retention cannot be bypassed through the existing DELETE route |
+| Different-generation working-copy manifest | Push refuses; no reinterpretation as mass edits |
+| A second `field.blob()` on one table | `compileData` refuses |
+| Row created with bytes | Object at `<table>/<row-id>`, cell holds the MIME type, `uploadedAt` marks the push obligation until the PUT succeeds |
+| PUT to an existing row path | 409; bytes unchanged |
+| Row deleted | Row gone; object present until a pass finds no copy holding the row |
+| Copy deleted | Rows gone; objects it alone named present until the next pass |
+| Pass after a copy is kept | Every object whose row file is in no copy is deleted; nothing named by any copy is touched; rerunning the pass deletes nothing |
+| Crash mid-pass | Next pass completes the same work |
+| Eighth automatic copy | Oldest automatic copy deleted by the pass; manual and before-restore copies untouched |
+| Backup of a library with hours of audio | Text only; body under 16 MiB; no object read or written |
+| Entry above 2 MiB | Refused with its path |
+| Export | Zip holds `kv.json`, every row file, and a sibling for every row whose cell is not null; a row whose object is absent has no sibling |
+| Import of that zip | Siblings put create-only; entries kept as a copy; importing twice changes no bytes |
+| Import with a missing sibling | Row imports with its cell; shows as missing audio; restore invents nothing |
+| Folder from an older build | Undeclared tables and unknown keys kept; a body with no codec refused at that file |
+| Restore | Safety copy kept and log replaced in one transaction; hub retired after commit; no object moves; every row in the restored copy has its bytes |
+| Lost restore response, then retry | `conflict`; the device is looking at the restored library after reload |
+| Restore while the client's replica is behind the authority | `conflict`; a second attempt renders a safety copy containing the missed edit |
+| Rollback inside the restore transaction | No kept copy, no generation change, sockets usable |
+| Local library | No recovery object; `pull` writes the folder with siblings; `import` reads it back |
+| R2 move of pre-existing objects | Every recording row's object reachable at its row path; rerunnable; old keys unread afterwards |
 
 ## First storage checkpoint, 2026-09-09
 
@@ -1088,7 +1148,7 @@ the existing benchmark and unit tests alone are not completion evidence.
 
 ## Remaining judgments and separate work
 
-The lifetime design is settled. The recovery API and catalog rule are settled in ADR-0386. Archive metadata
+The lifetime design is settled. The recovery API and catalog rule recorded in ADR-0386 at the time were later replaced by ADR-0394 and ADR-0395. Archive metadata
 and versioning, private endpoint names, receipt retention, temporary replacement
 storage limits, and rollout of existing independently writable generations still
 need implementation evidence.

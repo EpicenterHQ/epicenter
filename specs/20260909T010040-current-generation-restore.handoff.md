@@ -1,7 +1,20 @@
 # Continue with restore orchestration and authenticated transport
 
+> **Superseded on 2026-09-12 before this checkpoint was started.** The design
+> this handoff continues was replaced by
+> [ADR-0393](../docs/adr/0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md),
+> [ADR-0394](../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md),
+> and [ADR-0395](../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md),
+> and ADR-0386 was deleted. Do not add `restore()` to `createLibraryRecovery`,
+> do not mount the `attempts` namespace, and do not build transport for the
+> catalog or the attempt journal. Start at wave 1 of "Implementation waves" in
+> the execution spec, which deletes what this handoff continues; the waves and
+> "Required proof" there were rewritten against the three records on
+> 2026-09-12. The text below is preserved as evidence of what exists and how
+> it was verified.
+
 Continue in `/Users/braden/conductor/workspaces/epicenter/yamoussoukro`.
-Read `AGENTS.md`, [ADR-0386](../docs/adr/0386-recovery-restores-only-verified-backups-and-owns-retry-identity.md),
+Read `AGENTS.md`,
 [ADR-0379](../docs/adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md),
 and the [execution spec](20260909T010040-current-generation-restore.md).
 Start with Active execution path and Durable intent and retry checkpoint.
