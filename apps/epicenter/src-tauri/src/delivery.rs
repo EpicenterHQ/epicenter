@@ -1,6 +1,7 @@
 //! Native transcript delivery and synthetic keyboard commands for Whispering.
 
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+#[cfg(target_os = "macos")]
 use tauri::Manager;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
