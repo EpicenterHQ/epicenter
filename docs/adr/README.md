@@ -636,6 +636,7 @@ When you add an ADR, add its row here.
 | [0378](0378-local-mail-saves-sql-definitions-and-queries-cached-gmail-facts.md) | Local Mail saves SQL definitions and queries cached Gmail facts | Proposed |
 | [0382](0382-session-composition-selects-issuer-identity-and-management-capabilities.md) | Session composition selects issuer identity and management capabilities | Proposed |
 | [0383](0383-self-hosted-sign-in-defaults-to-passkeys-with-optional-passwords.md) | Self-hosted sign-in defaults to passkeys with optional passwords | Proposed |
+| [0362](0362-inference-connections-do-not-require-runtime-management.md) | Inference connections do not require runtime management | Proposed |
 | [0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) | An App has a device scope and an account scope, and each store sits under its owner | Proposed (supersedes 0389 at the opener shape; amends 0369, 0355, 0388, 0365) |
 | [0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) | A blob is addressed by its row, and the account holds every one | Proposed (supersedes 0173; amends 0091, 0154, 0349, 0276, 0092, 0205, 0355, 0226, 0314) |
 | [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | A backup is the library's folder, kept by the authority | Proposed (amends 0287) |
