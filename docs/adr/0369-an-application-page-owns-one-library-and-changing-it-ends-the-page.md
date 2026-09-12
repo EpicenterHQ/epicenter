@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
+- **Amended by:** [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) at defining a library solely by account identity or local ownership: Personal and Shared are distinct libraries for the same signed-in person, while fixed page ownership and close-before-replacement remain.
+- **Amended by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at "one library": a page owns one auth generation and holds the device store and the account's libraries at once. Close-before-replacement on an account change stands.
 - **Amends:** [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at application lifetime: same-document account session replacement is withdrawn. Credential refusal and sync status remain separate from library selection.
 - **Implementation:** Fixed page bootstrap and deliberate departure are implemented across the three store applications. Acceptance evidence and remaining native/browser checks are tracked in the execution spec.
 

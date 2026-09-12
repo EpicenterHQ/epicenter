@@ -132,6 +132,28 @@ shapes, see `docs/adr/`.
   durable ledgers behind a persistence controller, and a synchronous surface
   over both. Opening one is the only asynchronous operation an application
   has.
+- **Library**: one application's data in one destination, named Local,
+  Personal, or Shared (ADR-0375). Local is this machine, Personal is one signed-in
+  person's server data, Shared is one self-hosted deployment's common data.
+- **App hub** (unbuilt, ADR-0392): what one `open(account)` returns: `device`,
+  an optional `account`, plus `signal`, `ready`, and `close`. `device` is always
+  present; `account` is present when a person is signed in. Each store sits
+  under the scope that owns it. A page owns one auth generation, and an account
+  change ends it. Today three openers each return one library instead.
+- **Device scope** (unbuilt, ADR-0392): `app.device`, everything true of this
+  machine. The same `kv`, `tables`, and `blobs` implementation with no
+  authority, plus `sqlite`, `secrets`, `connections`, and `recording`, which
+  exist nowhere else. Its `tables` and `blobs` hold the library a person reads
+  as Local. Device preferences live in `device.kv` and survive sign-out.
+- **Account scope** (unbuilt, ADR-0392): `app.account`, everything true of the
+  signed-in person on one server, present only while signed in. It holds
+  `identity`, the `personal` store, the optional `shared` store, and
+  `connection`, that server's inference gateway. It ends with the auth
+  generation.
+- **Row copy** (unbuilt, ADR-0399): what "add to my account" does. The
+  application reads rows from `app.device` and writes them to
+  `app.account.personal` through ordinary writes, preserving row ids. There is
+  no adoption verb and no Add, Delete, Keep flow.
 - **Data definition**: one application's inert, pure JSON declaration of its
   durable data, created with `defineData` and read with `parseData` (ADR-0255).
   It is release-local: a newer release ships a newer declaration over the same
@@ -265,9 +287,13 @@ shapes, see `docs/adr/`.
   inert, which `scripts/check-boot-purity.ts` enforces.
 - **`#platform/*`**: the build-time platform DI seam for multi-platform (Tauri) apps.
 - **`session`**: the singleton holding the signed-in Epicenter lifecycle.
-- **deviceConfig vs synced values**: per-device settings (global shortcuts,
-  machine collisions) versus synced settings (local shortcuts). The asymmetry is
-  deliberate.
+- **Device settings vs synced settings**: per-device settings (global shortcuts,
+  the microphone, the inference selection) versus synced settings (in-app
+  shortcuts). The asymmetry is deliberate (ADR-0007): machine-world settings face
+  per-device collisions and OS keys. Device settings live in Whispering's
+  `deviceConfig` today and belong in `device.kv` (unbuilt, ADR-0392). The
+  machine's endpoint catalog is `app.device.connections` and the server's
+  gateway is `app.account.connection` (unbuilt, ADR-0396).
 - **Vault**: the designated, not-yet-built home for the one encryption that
   survives ADR-0004: an explicitly encrypted store for the values a person
   brings that name no durable local state, such as a provider API key. The key

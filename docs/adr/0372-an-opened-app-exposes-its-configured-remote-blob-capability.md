@@ -12,13 +12,16 @@ separately supplied Account and exposes it as `recordings.remoteAvailable`.
 
 ## Decision
 
-The opened App exposes `blobs.remote` as a fixed capability or null. The blob
-composition owns its presence. Actual blob methods enforce readiness and their
+Each opened library exposes `blobs.remote` as a fixed capability or null, so
+`app.account?.personal.blobs.remote` carries the configured remote and
+`app.device.blobs.remote` is null (ADR-0392). The blob composition owns its
+presence. Actual blob methods enforce readiness and their
 resource's close/drain contract. Whispering derives remote behavior from this capability and
 removes its account-derived constructor flag and `remoteAvailable` property.
 
 Presence means configured, not reachable or currently authorized. Offline and
-reauthentication failures remain operation results. Local libraries remain valid.
+reauthentication failures remain operation results. A library whose remote is
+null is valid, and the device store is always one.
 
 ## Consequences
 

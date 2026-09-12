@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Unbuilt:** Native capture/read/play/reopen and active-capture reload recovery acceptance; complete desktop Local Mail workflow verification.
+- **Unbuilt:** One `open(account)` returning the hub of ADR-0392; native capture/read/play/reopen and active-capture reload recovery acceptance; complete desktop Local Mail workflow verification.
 - **Unbuilt:** Portable App dictation and concurrent native capture on distinct input devices as described by ADR-0365 and ADR-0366.
-- **Implementation:** Runtime composition, App-owned saved recording, and explicit Local/Personal/Shared opening are implemented. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView; native capture/read/reopen and active-capture reload recovery remain unproved. Complete desktop Local Mail verification remains separate.
+- **Implementation:** Runtime composition, App-owned saved recording, and the three separate openers are implemented. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView; native capture/read/reopen and active-capture reload recovery remain unproved. Complete desktop Local Mail verification remains separate.
 
 ## Context
 
@@ -14,8 +14,8 @@ Whispering selects a complete runtime for recording and blobs, with an independe
 AI binding for its transport requirements. Local Mail uses the same declaration and reads SQLite and secrets from its opened App.
 
 `Application` exposes `openLocal()`, `openPersonal(account)`, and
-`openShared(account)`. The authenticated Account remains the person while the
-opening method selects the library. Authors do not assemble platform resources.
+`openShared(account)`, so the caller picks one library before opening. Authors
+do not assemble platform resources.
 
 The App now coordinates SQL, secret, blob, and recording owners as described in
 ADR-0380. It exposes each resource's actual operation object and retains cleanup
@@ -37,11 +37,12 @@ const application = defineApplication({
   definition: mailDefinition,
 });
 
-const app = application.openPersonal(account);
+const app = application.open(account);
 const ready = await app.ready;
 if (ready.error !== null) throw ready.error;
 
-// Product operations borrow app.tables, app.sqlite, and app.secrets.
+// Product operations borrow app.account.personal.tables, app.device.sqlite,
+// and app.device.secrets.
 // The caller stops those operations before awaiting app.close().
 ```
 
@@ -50,11 +51,11 @@ synchronously; `app.ready` reports whether acquisition succeeded. A module impor
 is not evidence of readiness. A SPA starts its primary opening from mounted
 application bootstrap; consent callbacks and auxiliary routes open no library.
 
-The opening methods are `openLocal()`, `openPersonal(account)`, and
-`openShared(account)`. Each illustrates a separate opening. One application
-page holds one App and changes its library through close and navigation.
-Personal and Shared retain the same authenticated actor while selecting
-different library destinations. Shared access still requires server authorization.
+There is one opening method, `open(account)`, and it returns the two scopes of
+ADR-0392: `device` always, and `account` with `personal` and `shared` when the
+signed-in person can reach them. One application page holds one App for one auth generation and
+ends it by close and navigation when the account changes. Shared access still
+requires server authorization.
 
 **Platform selection, resource scope, and shutdown have distinct owners.**
 
@@ -110,17 +111,17 @@ configuration; an explicit binding replaces it as a whole. `settingsKey`
 continues to select the default AI settings namespace. A supplied AI binding
 owns its own configuration and does not inherit `settingsKey` implicitly.
 
-The proposed `app.ai.dictation` composes capture from the selected runtime with
-inference available through the App's AI binding. Its public placement under
-`ai` does not create another microphone owner. In the native runtime, recording
-and dictation from every Local, Personal, and Shared App reach the same host
+Dictation composes capture from the machine's runtime with inference reached
+through a connection (ADR-0396). It creates no second microphone owner. In the
+native runtime, recording and dictation from every App reach the same host
 owner. That owner reserves inputs per session under
 [ADR-0366](0366-recording-is-an-app-scoped-portable-capability.md).
 
 The Application declaration remains inert. Each opened App owns its issued
 Recording and DictationSession handles and their cleanup. A shared host engine
-outlives any one App; its existence neither grants a Local App account inference
-nor requires temporary dictation audio to enter permanent blob storage.
+outlives any one App; its existence neither grants a signed-out App account
+inference nor requires temporary dictation audio to enter permanent blob
+storage.
 
 **App owns saved-recording integration; the recorder package owns portable
 microphone and voice activity detection primitives.**
@@ -141,25 +142,25 @@ Resource checks remain necessary where a retained method could reach closed
 storage. Ordinary failures already represented as Wellcrafted Results pass
 through unchanged; throwing platform APIs are adapted at their owning boundary.
 
-**Secrets remain local to the captured application and actor.**
+**Secrets remain local to the captured application.**
 
-`app.secrets` has `put`, `get`, and `delete` over labeled strings. Browser
+`app.device.secrets` has `put`, `get`, and `delete` over labeled strings. Browser
 secrets last within the document; desktop secrets use the keychain. They never
 enter table synchronization or queryable SQLite. Closing does not delete them.
-Current account scoping captures app ID, authority, principal, and label through
-structured addressing. Shared-library construction must preserve private actor
-scope; sharing rows does not authorize sharing Gmail credentials.
+A secret is addressed by application id and label (ADR-0400). Sharing rows in a
+Shared library does not share Gmail credentials, because credentials are not in
+a library at all.
 
 Product operations read the App when invoked. Multi-step mail work keeps its
 own admission and drain accounting: reading a token, fetching mail, and writing
 messages is one workflow, including the time between resource calls. This
 accounting neither opens another App nor duplicates physical storage ownership.
 
-Local Mail uses `app.tables.savedQueries` for synchronized definitions,
-`app.sqlite` for the downloaded Gmail cache and local intentions, and
-`app.secrets` for credentials. Sharing one App does not merge these storage
-semantics. SQL's permitted table names refer to physical cache tables, not to
-`app.tables` collections.
+Local Mail uses `app.account.personal.tables.savedQueries` for synchronized
+definitions, `app.device.sqlite` for the downloaded Gmail cache and pending
+intentions, and `app.device.secrets` for credentials. Sharing one App does not merge these
+storage semantics. SQL's permitted table names refer to physical cache tables,
+not to `tables` collections.
 
 ### How the related proposals compose
 
@@ -198,7 +199,7 @@ persist and reopen offline. The clean break requires no physical deletion of
 old user files and changes no other application's resource destinations.
 
 Resource shutdown now lives outside the data engine. Product operations still
-use `app.sqlite` and `app.secrets`. The resource owners preserve closure, partial
+use `app.device.sqlite` and `app.device.secrets`. The resource owners preserve closure, partial
 acquisition, producer drain, and failed-cleanup exclusion guarantees.
 The implementation sequence and verification gates remain in the
 [Local Mail execution spec](../../specs/20260908T233656-local-mail-app-and-saved-queries.md).

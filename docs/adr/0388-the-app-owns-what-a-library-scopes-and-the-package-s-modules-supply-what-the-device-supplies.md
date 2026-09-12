@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Amended by:** [ADR-0392](0392-an-app-is-a-hub-of-local-personal-and-shared-and-device-state-lives-in-local.md) at the spelling of App-capability access: a capability a library scopes reads under its library, so the table's `app.x` is `app.local.sqlite`, `app.local.secrets`, and `app.personal?.blobs`. The membership test and the platform-module family stand.
+- **Amended by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at the spelling of App-capability access: a capability reads under the scope that owns it, so the table's `app.x` is `app.device.sqlite`, `app.device.secrets`, and `app.account?.personal.blobs`. The membership test and the platform-module family stand.
 - **Unbuilt:** Download, sound, OS notification, platform information, and opening URLs as `@epicenter/app` platform modules. The rule is written here and applied to the clipboard only; Whispering still holds download and sound in its `services` barrel, OS notification under `report/`, and platform information and the opener in its Tauri namespace file.
 
 ## Context

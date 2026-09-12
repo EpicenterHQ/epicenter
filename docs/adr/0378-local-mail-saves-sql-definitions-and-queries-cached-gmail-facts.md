@@ -19,10 +19,10 @@ described the artifacts Local Mail held then, not a prohibition on preferences.
 
 Local Mail stores named query definitions in `savedQueries` through Epicenter
 Data. Each row uses the existing row identity and the fields `name` and `sql`.
-The target destination is the person's Personal library. The current opener is
-`openAccount(account)`; the library-ownership proposal renames it
-`openPersonal(account)`. SQL results, provider
-credentials, mailbox caches, and pending intentions never synchronize with it.
+The target destination is the person's Personal library, written as
+`app.account.personal.tables.savedQueries` after one `open(account)` (ADR-0392).
+SQL results, provider credentials, mailbox caches, and pending intentions never
+synchronize with it.
 
 An explicit Run action captures SQL text and a selected Google subject and
 executes against that account's downloaded cache. A saved query has no account

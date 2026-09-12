@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Relates:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) fixes one library for an application document. This proposal preserves that lifetime and reconsiders how product consumers reach it.
+- **Relates:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) and [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) fix one auth generation for an application document. This proposal preserves that lifetime and reconsiders how product consumers reach it.
 - **Unbuilt:** Remaining product/context argument removal and native capture/recovery acceptance. The UI session still owns subscriptions, queries, and producer teardown.
 
 ## Context
@@ -45,17 +45,19 @@ import { app } from '$lib/application';
 
 export const whispering = {
   async transcribeRecording(recordingId: RecordingId) {
-    // Read app.tables.recordings, app.blobs, and supplied inference here.
+    // Read app.account.personal.tables.recordings, app.account.personal.blobs,
+    // and
+    // supplied inference here.
     // Coordinate the product workflow and persist its result.
   },
 };
 ```
 
-The object adds no `ready`, `openLocal`, `openAccount`, or `close` merely to
-group functions. Named exports and cohesive namespaces follow their callers;
+The object adds no `ready`, `open`, or `close` merely to group functions. Named exports and cohesive namespaces follow their callers;
 this decision does not require one giant Whispering object. Consumers keep full
-member paths such as `app.tables.recordings` rather than capturing namespace
-aliases. Fixed document identity makes call-time access stable across awaits;
+member paths such as `app.account.personal.tables.recordings` rather than capturing
+namespace aliases, which is what keeps a write's destination visible at the call
+site (ADR-0401). Fixed document identity makes call-time access stable across awaits;
 it does not permit operations after close begins.
 
 The Svelte boundary observes plain product/data capabilities and gates consumers

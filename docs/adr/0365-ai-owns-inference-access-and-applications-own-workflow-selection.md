@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Revised:** 2026-09-10
-- **Unbuilt:** A unified account/runtime/custom access view and the signed-out invitation design; the portable `app.ai.dictation` service. Shared desktop custom connections and application-owned selections are implemented. Real native capture acceptance remains separate.
+- **Amended by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at the access surface: there is no `app.ai`, the machine's catalog is `app.device.connections`, and the server's gateway is `app.account.connection`.
+- **Unbuilt:** `app.device.connections` and `app.account.connection` as the two access members; the signed-out invitation design; the portable dictation capability; `connectionFor`, `connection.transcribe`, and selections as declared `app.device.kv` fields. Shared desktop custom connections are implemented, and selections are persisted today by `createInferenceSelections` in `packages/app-shell/src/inference-selections.ts`. Real native capture acceptance remains separate.
 
 ## Context
 
@@ -18,7 +19,7 @@ separately for dictation.
 
 These uses identify the boundary: a connection supplies access to inference;
 an application decides which connection and model a particular job uses.
-Core AI does not need to know what `completion`, `transcription`, or a
+The App does not need to know what `completion`, `transcription`, or a
 conversation ID means.
 
 ## Decision
@@ -61,7 +62,8 @@ the application follows its own selection and lifetime rules.
 
 ### Catalog ownership and observation
 
-`app.ai.connections` exposes the environment's custom catalog. Desktop stores
+`app.device.connections` exposes the environment's custom catalog beside the
+host-supplied native runtime. Desktop stores
 metadata in `ai/connections.json` under its profile data directory. One host
 owner serializes writes, persists by atomic replacement, and broadcasts committed
 snapshots to its apps over SSE. Browser bindings use `localStorage` under the
@@ -82,45 +84,47 @@ access; rename, model-list changes, and ordering preserve it. Metadata changes
 retain keychain references without retrieving their values. Explicit replacement
 or removal can repair a missing keychain entry while preserving the saved ID.
 
-### Structural decisions still open
+### The access view is decided; the signed-out invitation is not
 
-The picker currently composes account, runtime, and custom access. A unified
-core view remains a separate design choice. The signed-out invitation also
-needs reconciliation with the captured-Account rule: a Local App currently has
-no account inference despite ambient sign-in. This catalog change does not alter
-that authentication or opening lifecycle.
+ADR-0392 settles how access is sorted: by owner, into two scopes. The machine
+owns the native runtime and the custom endpoints in `app.device.connections`;
+the signed-in person owns one server gateway at `app.account.connection`. The
+picker composes its list from those two members and needs no third view.
+
+The signed-out invitation still needs a design. A person with no account has no
+`app.account`, so the Epicenter group in the picker is an invitation rather than
+a connection, and what that group says and offers is undecided. This catalog
+change does not alter the authentication or opening lifecycle.
 
 ### Inference access and the current API
 
-**The App supplies clients bound to destinations and credentials. The caller
-chooses a client, supplies a model, and makes a request.**
+**The App supplies connections bound to destinations and credentials. The caller
+chooses a connection, supplies a model, and makes a request.**
 
-The current namespace exposes three sources of access:
+Access sits under the scope that owns it (ADR-0392):
 
 | Member | Source and owner |
 | --- | --- |
-| `app.ai.account` | Fixed nullable client capability using the App's captured Account transport |
-| `app.ai.runtime` | Fixed nullable client capability supplied by the AI binding |
-| `app.ai.connections` | Custom connection management and client access, nullable when the binding supplies no custom connection store |
+| `app.device.connections` | The machine's catalog: the host-supplied native runtime plus the custom endpoints a person added, with management and client access |
+| `app.account?.connection` | One gateway for the signed-in person's server, using the App's captured Account transport, absent when no account opened the App |
 
-Account and runtime connections retain their own management and authentication.
-They are not editable records in the custom collection. A runtime connection
-can use a native bridge; a custom connection can reach a local HTTP server.
-The source names do not classify where computation physically occurs.
+The account gateway keeps its own authentication and is not a record in any
+catalog. The native runtime appears in the machine's catalog but is
+host-supplied, not an editable entry. A runtime connection can use a native
+bridge; a custom connection can reach an HTTP server on this machine. The scope
+names say who owns a connection, not where computation physically occurs.
 
 The implemented custom API combines management and requests in one entry:
 
 ```ts
-if (!app.ai.connections) return showCustomConnectionsUnavailable();
-
-const id = await app.ai.connections.add({
+const id = await app.device.connections.add({
   name: 'My server',
   baseUrl: 'https://inference.example/v1',
   apiKey: providerKey, // Optional; omit for endpoints without bearer auth.
   models: ['chosen-model'],
 });
 
-const connection = app.ai.connections.get(id);
+const connection = app.device.connections.get(id);
 if (!connection) return showMissingConnection();
 
 await connection.client.chat.completions.create({
@@ -129,9 +133,9 @@ await connection.client.chat.completions.create({
 });
 ```
 
-Call sites write `app.ai.connections` directly rather than aliasing the
-namespace to a local variable. The full path keeps ownership visible. A workflow
-can retain a selected connection or client to fix its destination for that run.
+Call sites write `app.device.connections` directly rather than aliasing the
+member to a short variable. The full path keeps ownership visible. A workflow
+can retain a selected connection to fix its destination for that run.
 
 **The current custom API has one namespace for management and use.**
 
@@ -172,39 +176,45 @@ for an unsaved candidate and never persists its credentials.
 
 **Applications own workflow selection, its persistence, and its validation.**
 
-Core AI exposes no scope-indexed selections, default workflow model, `select`,
-`target`, or `resolve(scope, model)`. A lookup in `app.ai.connections.get(id)` addresses
-one custom connection; it does not choose a workflow or source.
+The App exposes no scope-indexed selections, default workflow model, `select`,
+or `target`. A lookup in `app.device.connections.get(id)` addresses one entry in
+the machine's catalog; it does not choose a workflow or a scope.
+`connectionFor(app, selection)` is the exception the platform does own: a free
+function that takes the explicit `{ connectionId, model }` the caller supplies
+and stores nothing. [ADR-0396](0396-a-connection-transcribes-and-owns-the-four-rules.md)
+records that surface.
 
-Applications remember explicit connection-and-model pairs. A shared plain
-TypeScript helper outside `@epicenter/app` may persist those choices and match
-them against available clients. Its caller owns the scopes, initial default,
-and model consistency policy. Svelte observes that application-layer owner;
-product operations use the same owner without importing reactive UI state.
+Applications remember explicit connection-and-model pairs. Each pair is a
+declared field in that application's `app.device.kv`, the machine's store, so it
+survives sign-out and never syncs. No owner outside `@epicenter/app` persists
+it. The application owns the field names, the initial default, and which
+workflow reads which field. Svelte observes `app.device.kv`; product operations
+read the same field without importing reactive UI state.
 
-Saved account references identify the concrete authority and principal. Runtime
-references identify the supplied destination. Custom references use the immutable
-connection ID. A missing reference must not resolve to another source, a new
+Saved account references identify the concrete authority and principal. Native
+runtime references identify the supplied destination. Custom references use the
+immutable connection ID. A missing reference must not match another scope, a new
 account, or a connection advertising the same model. A workflow captures its
-client and model together before sending data.
+connection and model together before sending data.
 
 **The opened App owns inference access for its lifetime.**
 
-`defineApplication` is inert composition. `openLocal()`, `openPersonal(account)`,
-and `openShared(account)` return an App synchronously; the caller awaits
-`app.ready` and stops product work before `app.close()`.
+`defineApplication` is inert composition. `open(account)` returns an App
+synchronously; the caller awaits `app.ready` and stops product work before
+`app.close()` (ADR-0392).
 
-The account supplied at opening determines both library actor and account
-inference. Local opening has no account inference, even if authentication
-elsewhere is signed in. Personal and Shared opening use the captured actor for
-inference. There is no independent inference-account selector. Same-owner
-credential refresh preserves access through the captured transport; account
-replacement closes the App and opens another.
+The account supplied at opening determines both the account libraries and
+account inference. `open(null)` has no `app.account`, so no account inference,
+even if authentication elsewhere is signed in. An App opened with an account
+uses that captured actor for inference. There is no independent
+inference-account selector. Same-owner credential refresh preserves access
+through the captured transport; account replacement closes the App and opens
+another.
 
-Runtime and AI bindings are selected independently at application declaration.
-Selecting native storage or running inside Tauri does not itself supply native
-inference. Null means no capability was supplied, not that a request failed or
-a model needs downloading.
+The storage and native inference bindings are selected independently at
+application declaration. Selecting native storage or running inside Tauri does
+not itself supply native inference. An absent native runtime means no capability
+was supplied, not that a request failed or a model needs downloading.
 
 Retained clients reject premature or retired use. Closing cancels or drains
 admitted requests, including streamed response bodies and noninterruptible
@@ -213,10 +223,13 @@ Resource cleanup remains owned by App, not by individual consumers.
 
 **The SDK owns inference operations and protocol types.**
 
-Applications call `client.chat.completions.create`,
-`client.audio.transcriptions.create`, and `client.models.list` where supported.
-Epicenter does not add a second set of core completion or transcription verbs.
-Application workflows can translate SDK exceptions into their existing Results.
+Applications call `client.chat.completions.create` and `client.models.list`
+where supported. Epicenter adds no second set of completion verbs, and no
+Epicenter type restates a request or response body the SDK already declares.
+The one Epicenter verb is `connection.transcribe`, which exists because four
+rules around a transcription call are platform rules rather than product choices
+(ADR-0396). Application workflows translate SDK exceptions into their existing
+Results everywhere else.
 
 A native adapter can translate supported SDK requests into Tauri commands
 through custom fetch without opening an HTTP socket. The current adapter
@@ -225,9 +238,13 @@ promise all SDK endpoints, full protocol parity, successful model loading, or
 reachability. Native use requires evidence for real audio, explicit model
 selection, result mapping, authorization, and cancellation or drain.
 
-**The App also supplies microphone-to-text sessions through `app.ai.dictation`.**
+**The App also supplies microphone-to-text sessions as a dictation capability
+beside capture.**
 
-App construction composes this capability alongside inference access. The custom
+Dictation is machine-bound the way the microphone is, so it sits under `device`
+next to `app.device.recording`. ADR-0392's two scopes do not name it yet, and
+its exact member name is settled when it is built. App construction composes
+this capability alongside inference access. The custom
 connection collection owns neither capture nor dictation configuration. Dictation
 owns microphone acquisition, transcript updates, and session completion; it
 does not duplicate the SDK's file-transcription API. Products own text insertion,
@@ -236,7 +253,7 @@ record creation, and subsequent workflows.
 The proposed `start({ onUpdate, onError })` returns a `DictationSession` in a
 Wellcrafted Result. Its `finish()` stops listening and returns `{ text }` in a
 Result; `cancel()` discards the session. Saved audio remains
-[`app.recording`](0366-recording-is-an-app-scoped-portable-capability.md), whose
+[`app.device.recording`](0366-recording-is-an-app-scoped-portable-capability.md), whose
 returned Recording stops into a blob. Dictation does not publish a permanent
 recording merely because it captured audio. Each returned handle addresses its
 original session; a delayed finish or cancel cannot act on a newer one.
@@ -245,12 +262,12 @@ Desktop dictation settings supply the input selection and inference route.
 Standalone browser composition supplies the same logical settings per
 application. Dictation captures these settings before acquisition and resolves
 the route against the opened App's actual capabilities. Missing or unavailable
-destinations fail without borrowing another Account or choosing another source.
-This dedicated configuration does not add generic workflow scopes to core AI
+destinations fail without borrowing another Account or matching another scope.
+This dedicated configuration does not add generic workflow scopes to the App
 or move application completion and transcription choices into `connections`.
 
-Local, Personal, and Shared Apps expose the same dictation contract. Local still
-has no account inference. Native recording and dictation reach one host capture
+Every App exposes the same dictation contract. An App opened with no account
+still has no account inference. Native recording and dictation reach one host capture
 owner, which admits concurrent sessions on distinct input devices under
 ADR-0366. Releasing a microphone does not wait for transcription to complete;
 the original session retains its inference work and result until it settles.
@@ -288,19 +305,19 @@ browser bytes remain available for recovery, while all new desktop writes go to
 the shared owner. Product selections remain local and separate.
 
 The Svelte adapter still earns observation and presentation. It loses custom
-connection CRUD forwarding and independent routing logic. Account/runtime
-matching can be shared at the application layer without flattening their
-management into custom connections.
+connection CRUD forwarding and independent routing logic. `connectionFor` in
+`@epicenter/app` matches a selection across both scopes without flattening the
+account gateway or the native runtime into the custom catalog.
 
 ## Considered alternatives
 
 - Share catalogs through account sync: not needed for sharing apps on one desktop; would add cross-device credential and conflict policy.
 - Use `read()` plus a change-only `onChange()`: makes each reactive caller assemble its initial snapshot and updates. `getAll()` and immediate `subscribe()` state that contract directly.
 - Keep `configuration` beside `configured()`: separates editing from use with names that require explaining their grammatical difference.
-- Put `resolve('completion', model)` in core AI: combines application settings lookup, model consistency policy, and client lookup in a capability API.
+- Put `resolve('completion', model)` on the App: combines application settings lookup, model consistency policy, and connection lookup in one capability API. `connectionFor(app, selection)` is the narrower shape that survived, because it reads no setting and knows no workflow scope.
 - Remove optional custom credentials: excludes endpoints requiring bearer authentication for little reduction in the connection contract.
-- Make all sources editable custom records: misrepresents account authentication and runtime ownership.
-- Require `ai.client(id)` across every source: the implemented custom lookup did not need it. A unified access view is now being reconsidered for the shared-environment experience; it still must not own workflow scopes or choose fallback destinations.
+- Make every connection an editable custom record: misrepresents account authentication and native runtime ownership.
+- Require `ai.client(id)` across every scope: the implemented custom lookup did not need it. A unified access view was reconsidered and then decided by ADR-0392, which sorts access by owner into `device` and `account`; neither owns a workflow scope or chooses a fallback destination.
 - Select a server by discovered model name: can silently redirect data or billing when inventories or ordering change.
 - Add a separate inference Account: creates a second identity selector and replacement lifetime.
 - Put dictation on the unopened Application: leaves its Account, readiness, and cleanup outside the opened App's lifetime; it does not solve native sharing across SPAs.
@@ -322,7 +339,7 @@ find its credential.
 
 Whispering and Vocab retain selections through
 `packages/app-shell/src/inference-selections.ts`. The picker uses the full
-`app.ai.connections` API, waits for saves before selection, and supports replacing
+`app.device.connections` API, waits for saves before selection, and supports replacing
 or removing a hidden desktop key. The old combined configuration owner and
 public aliases remain removed.
 

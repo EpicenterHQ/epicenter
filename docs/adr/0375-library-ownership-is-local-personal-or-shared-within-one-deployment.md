@@ -3,8 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Amends:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md) at the hosted-only sign-in restriction; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) at shared-token-only self-hosting; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md) at the prohibition on self-hosted session infrastructure; [ADR-0092](0092-identity-is-the-partition.md) at equating authenticated identity with every data partition; [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) at the account-or-local definition of a library, preserving fixed page ownership.
-- **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the opening API and account identity as a complete library selector: `openPersonal(account)` replaces `openAccount(account)`, and `openShared(account)` selects a distinct library for the same Account. The common application data API, readiness, and closure remain.
-- **Implementation:** Named self-hosted Accounts and the three opening methods exist. Honeycrisp selection and current-generation integration pass the local Worker browser checkpoint; complete attachment, Bun sync, and packaged desktop evidence remain.
+- **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at account identity as a complete library selector: an Account does not name a library by itself, because Personal and Shared are distinct libraries for the same person. The common application data API, readiness, and closure remain, and ADR-0392 owns the opening call.
+- **Unbuilt:** One `open(account)` that returns the device scope and the account scope. The three opening methods `openLocal`, `openPersonal`, and `openShared` exist instead.
+- **Implementation:** Named self-hosted Accounts exist. Honeycrisp selection and current-generation integration pass the local Worker browser checkpoint; complete attachment, Bun sync, and packaged desktop evidence remain.
 
 ## Context
 
@@ -52,34 +53,31 @@ Local is a separate library, not the offline state of Personal or Shared. All
 three use local storage. Browser-facing descriptions should say "this browser"
 when separate browser profiles hold separate Local libraries.
 
-**The opening API names the library; Account names the signed-in person.**
-
-The target API has three opening methods. Each call below illustrates a separate
-opening, not three primary libraries in one application document:
+**One open returns every library the person can reach; Account names the
+signed-in person.**
 
 ```ts
-application.openLocal();
-application.openPersonal(account);
-application.openShared(account);
+const app = await open(account);   // Account | null
+app.device             // always present; the Local library lives here
+app.account?.personal  // present when signed in
+app.account?.shared    // present on a deployment that offers it, to an admitted person
 ```
 
-`openLocal()` opens the application's Local library without an Account.
-`openPersonal(account)` opens that person's Personal library on their server.
-`openShared(account)` opens the application's Shared library on that server,
-authenticated as the same person. Neither account-backed opener initiates
-sign-in or accepts another person's ID as the owner to open. Cloud does not
-authorize Shared access merely because the client exposes the method.
+`device` holds the application's library on this machine and needs no Account.
+`account.personal` is that person's library on their server. `account.shared`
+is the application's one library on that server, reached as the same person. Opening
+initiates no sign-in and accepts no other person's id as the owner to open.
+Cloud authorizes no Shared library merely because the member exists.
+[ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md)
+owns the shape of those two scopes and what each library carries.
 
-`openPersonal` replaces `openAccount`; retain no alias. The three verbs share
-one internal construction path and return the same application data API with
-its existing readiness and close contract. Do not add a second public
-`open(destination)` form or a public Library wrapper to express the same choice.
-
-Use Local, Personal, and Shared in library selection and descriptions. Keep
-Account for sign-in, profile, credential repair, and sign-out. An Account is
-one uninterrupted attachment to one signed-in person on one server; the same
-Account can authenticate access to Personal and Shared. Local has no fabricated
+Keep Account for sign-in, profile, credential repair, and sign-out. An Account
+is one uninterrupted attachment to one signed-in person on one server; the same
+Account authenticates access to Personal and Shared. Local has no fabricated
 account, and Shared is never a special account to sign in as.
+
+Use Local, Personal, and Shared wherever a person picks a destination or
+reads a description of one.
 
 **Self-hosted users authenticate as themselves when accessing either Personal or Shared libraries.**
 
@@ -121,18 +119,18 @@ anonymous access. Internal library identifiers, storage keys, routes, and type
 representations remain implementation design work; the opening verbs do not
 prescribe them.
 
-**Each opened application keeps one primary library for its lifetime.**
+**An opened application keeps one auth generation for its lifetime.**
 
-Changing from Personal to Shared changes the library, not necessarily the
-signed-in person. Application producers and storage close before a replacement
-library opens through a fresh document or the host's established restart
-boundary. Sign-out and account replacement still retire the old Account;
-credential repair for the same person is not a library change.
+Personal and Shared are two libraries one signed-in person reaches at once, so
+moving between them is not an event. Sign-out and account replacement retire
+the old Account: producers and storage close before the new one opens, through
+a fresh document or the host's established restart boundary. Credential repair
+for the same person retires nothing.
 
 A temporary server outage preserves established local data and identity while
 remote work is unavailable. It does not select Local, sign in another person,
-or make Shared public. Choosing another library neither copies nor merges data
-from the previous one.
+or make Shared public. Writing to one library neither copies nor merges data
+from another; a copy is an explicit operation (ADR-0399).
 
 ## Consequences
 
@@ -152,9 +150,9 @@ rename cannot establish that boundary. Existing `instance` data must remain
 intact until an explicit migration or import decision assigns its destination;
 the first named user does not inherit it automatically.
 
-Application callers replace `openAccount(account)` with
-`openPersonal(account)` and use `openShared(account)` for Shared. Feature code
-continues to use the opened App's common data API. No `principalId` rename,
+Application callers read `app.account?.personal` and `app.account?.shared` from
+one open. Feature
+code continues to use the common data API each library exposes. No `principalId` rename,
 discriminator field, shared route spelling, binary split, or configuration
 format is selected here.
 
@@ -163,16 +161,16 @@ data and blob addressing, actor-isolated caches, and self-host Worker sync.
 Complete attachment evidence, Bun sync, and packaged desktop verification remain
 separate work. See the library-ownership execution spec for exact evidence.
 
-Library selection is per application. The desktop host retains one signed-in
-person and server; each application remembers its own Local, Personal, or Shared
-choice. The browser first opens Local without an Account and defaults an existing
-Account to Personal when no choice has been saved. An explicitly remembered
-protected choice requires its Account and never falls back during an outage.
+A destination is chosen per record, not per page (ADR-0401). The desktop host
+retains one signed-in person and server; each application remembers the
+destination a person last picked in `device.kv`, and offers Personal when an
+Account is present. A page signed out reaches only the device store, so it
+writes there without asking.
 
-**Construction resolves the choice once.** The opening methods feed the existing
-App constructor with Local, Personal plus an Account, or Shared plus an Account.
-A private input type may describe those cases; no public Library wrapper or
-binding object gains its own lifecycle. The constructor captures transport and
+**Construction resolves reach once.** One `open(account)` feeds the existing App
+constructor with the device store and, when an Account is present, that person's
+Personal and Shared libraries. A private input type may describe those cases; no
+public Library wrapper or binding object gains its own lifecycle. The constructor captures transport and
 projects a credential-free replica scope for storage, locking, and recording
 recovery. Resource backends serialize and validate that scope without inferring
 Personal from an omitted Shared flag. Inference and credentials remain attached
@@ -183,7 +181,7 @@ buffered edits, awaits App closure, preserves the previous cache and pending wor
 records the next choice, and navigates. Confirmed generation retirement instead
 fences writes and atomically invalidates the retired replica before closure and
 reload. The next page alone opens the replacement through normal startup.
-Local is primary durable data. Personal and Shared use actor-bound local replicas
+The device store is primary durable data. Personal and Shared use actor-bound replicas
 with the same application/Yjs format and distinct remote destinations. The server
 owns one current generation per stable library, as developed in ADR-0379 and
 ADR-0385. No generation picker or persisted cache-transition phase is required.
@@ -204,7 +202,7 @@ ADR-0385. No generation picker or persisted cache-transition phase is required.
   Personal destination implicit, even though the same Account can open Shared.
 - Rename Account to Personal: confuses the authenticated person with one of the
   libraries they can access.
-- Use one public `open(destination)` or expose it beside the three verbs: adds
-  a destination object or duplicate entrypoint without a caller that needs it.
-  The three verbs express the fixed choices and require an Account precisely
-  for the two server libraries.
+- Use one public `open(destination)` that selects one library: passes a
+  destination object to answer a question the caller should not have to answer
+  once. ADR-0392 removes the parameter instead: one `open(account)` returns
+  every library the person can reach.
