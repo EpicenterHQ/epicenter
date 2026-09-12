@@ -23,10 +23,23 @@
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
 		return new Promise((resolve) => {
-			document.startViewTransition(async () => {
+			const transition = document.startViewTransition(async () => {
 				resolve();
 				await navigation.complete;
 			});
+			// Named snapshots are an enhancement. If a browser cannot capture one
+			// (for example, while old and new route trees briefly overlap), skip the
+			// animation instead of leaving its rejected readiness promise to blank
+			// the WebView.
+			void transition.ready.catch(() => transition.skipTransition());
+			// A failed or superseded navigation also rejects the update callback and
+			// finished promises. They mirror navigation.complete after SvelteKit has
+			// already taken ownership of the navigation failure, so observe both to
+			// keep the browser from reporting unhandled transition rejections.
+			void Promise.allSettled([
+				transition.updateCallbackDone,
+				transition.finished,
+			]);
 		});
 	});
 </script>
