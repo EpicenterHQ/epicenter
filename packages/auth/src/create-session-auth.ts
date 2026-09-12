@@ -111,7 +111,7 @@ export function createSessionAuth(
 			);
 	}
 
-	const { auth, run, install } = createBearerAuth(
+	const { auth, run, install, cancelSignIn } = createBearerAuth(
 		{
 			...options,
 			cancel: () => options.launcher.cancel?.(),
@@ -120,6 +120,7 @@ export function createSessionAuth(
 	);
 	const { launcher } = options;
 	return Object.assign(auth, {
+		cancelSignIn,
 		startSignIn({
 			reauthenticate = auth.state.status === 'reauth-required',
 		} = {}) {
@@ -221,6 +222,7 @@ function createBearerAuth(
 	let disposed = false;
 	let writes: Promise<void> = Promise.resolve();
 	let attempt: AbortController | undefined;
+	let cancellation: Promise<void> | undefined;
 	let flight:
 		| {
 				kind: 'start' | 'complete';
@@ -253,8 +255,9 @@ function createBearerAuth(
 	}
 
 	function enqueue(operation: () => Promise<void>) {
-		const pending = writes.then(operation);
-		writes = pending.catch(() => undefined);
+		const pending = writes.catch(() => undefined).then(operation);
+		writes = pending;
+		void pending.catch(() => undefined);
 		return pending;
 	}
 
@@ -493,6 +496,10 @@ function createBearerAuth(
 				: AuthError.CompleteSignInFailed;
 		if (disposed)
 			return Promise.resolve(fail({ cause: 'Auth client disposed.' }));
+		if (cancellation)
+			return Promise.resolve(
+				fail({ cause: 'Sign-in cancellation is pending.' }),
+			);
 		if (flight?.kind === kind) return flight.promise;
 		attempt?.abort();
 		attempt = new AbortController();
@@ -577,7 +584,37 @@ function createBearerAuth(
 			}
 		},
 	};
-	return { auth, run, install };
+	return {
+		auth,
+		run,
+		install,
+		cancelSignIn() {
+			if (cancellation) return cancellation;
+			const pending = flight?.promise;
+			const signal = attempt?.signal;
+			attempt?.abort();
+			const settling = Promise.resolve()
+				.then(async () => {
+					try {
+						cancel?.();
+					} finally {
+						await pending;
+						// A native credential write cannot be interrupted. Its rollback
+						// must finish before the caller can reopen applications.
+						await writes.catch(async (cause) => {
+							if (cause === signal?.reason) return;
+							// Retry a failed rollback even after the original flight ended.
+							await enqueue(async () => persistedAuthStorage.set(persisted));
+						});
+					}
+				})
+				.finally(() => {
+					if (cancellation === settling) cancellation = undefined;
+				});
+			cancellation = settling;
+			return settling;
+		},
+	};
 }
 
 /** A caller can stop waiting without aborting another caller's verification. */

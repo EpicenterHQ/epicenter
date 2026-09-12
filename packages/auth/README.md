@@ -84,6 +84,11 @@ verifier for an independent session. Cancelled, superseded, and replayed
 completions cannot install a credential; orphaned results are revoked where possible.
 A passive handoff inherits the source session's authentication age.
 
+`SessionAuthClient.cancelSignIn()` aborts the pending attempt and waits for
+credential persistence to settle. It preserves an unchanged Account. Desktop
+composition then releases its application-close barrier; if replacement already
+retired the original Account, that composition starts a fresh process instead.
+
 Only callback-capable clients expose `completeSignIn`. Success means the
 credential was verified, persisted, and published. The callback route then uses
 `window.location.replace` to leave the callback document.

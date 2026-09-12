@@ -5,6 +5,26 @@ import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createBrowserAuth } from './browser-auth.js';
+import { isCallbackAuthClient } from './auth-contract.js';
+
+test('the composed browser callback client exposes non-destructive sign-in cancellation', async () => {
+	using environment = setup();
+	const key = 'test.auth.persisted:https://hosted.test';
+	const credential = JSON.stringify({ token: 'old', principalId: 'alice' });
+	environment.cells.set(key, credential);
+	using startup = environment.create();
+	const client = startup.auth;
+	if (!client || !isCallbackAuthClient(client))
+		throw new Error('Expected a callback client');
+	if (client.state.status === 'signed-out')
+		throw new Error('Expected a stored Account');
+	const account = client.state.account;
+	await client.cancelSignIn();
+	expect(client.state.status).toBe('signed-in');
+	expect(client.state.account).toBe(account);
+	expect(environment.cells.get(key)).toBe(credential);
+	expect(environment.navigations).toEqual([]);
+});
 
 function setup() {
 	const cells = new Map<string, string>();

@@ -96,6 +96,7 @@ export function createBrowserAuth(
 				...(isCallbackAuthClient(auth)
 					? {
 							completeSignIn: auth.completeSignIn,
+							cancelSignIn: auth.cancelSignIn,
 						}
 					: {}),
 				signOut() {

@@ -48,6 +48,8 @@ export type AuthClient = {
 /** Session clients expose sign-in independently of the issuer. */
 export type SessionAuthClient = AuthClient & {
 	startSignIn: NonNullable<AuthClient['startSignIn']>;
+	/** Stop the pending sign-in and settle persistence without signing out. */
+	cancelSignIn(): Promise<void>;
 };
 
 /** Only a redirect launcher can consume a sign-in callback. */
