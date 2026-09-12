@@ -1,7 +1,8 @@
 /** App AI access tests: captured credentials, streamed-body retirement, and honest request drain. */
 import { expect, test } from 'bun:test';
+import { asPrincipalId } from '@epicenter/principal';
 import OpenAI from 'openai';
-import { createAppAi, type AiTransport } from './ai.js';
+import { type AiTransport, createAppAi } from './ai.js';
 
 function setup(fetch: AiTransport['fetch']) {
 	const lifetime = new AbortController();
@@ -10,7 +11,11 @@ function setup(fetch: AiTransport['fetch']) {
 			signal: lifetime.signal,
 			assertUsable: () => lifetime.signal.throwIfAborted(),
 		},
-		account: { baseURL: 'https://account.example/v1', fetch },
+		account: {
+			baseURL: 'https://account.example/v1',
+			fetch,
+			identity: { authorityId: 'account', principalId: asPrincipalId('me') },
+		},
 		runtime: null,
 		connections: null,
 	});

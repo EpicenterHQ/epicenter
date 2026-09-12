@@ -44,7 +44,7 @@
 	};
 
 	let { scope, model, onSelectModel, connections, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model', additionalOptions }: Props = $props();
-	const app = $derived(connections.app);
+	const ai = $derived(connections.ai);
 	const models = $derived(accountModels ?? connections.hostedModels);
 
 	let open = $state(false);
@@ -78,7 +78,7 @@
 		mutationFn: (id: string) => connections.refresh(id),
 	}), () => queryClient);
 	const removeConnection = createMutation(() => ({
-		mutationFn: (id: string) => app.ai.connections!.remove(id),
+		mutationFn: (id: string) => ai.connections!.remove(id),
 	}), () => queryClient);
 
 	// Clear all of the connect form's working state. Called on close so a user who
@@ -162,7 +162,7 @@
 	// Persist access before saving the workflow choice. A failed save keeps the form open.
 	const saveConnection = createMutation(() => ({
 		mutationFn: async (chosenModel: string) => {
-			const attempt = { app, scope, formVersion };
+			const attempt = { ai, scope, formVersion };
 			const baseUrl = formBaseUrl.trim();
 			const trimmedModel = chosenModel.trim();
 			if (!baseUrl || !trimmedModel) throw new Error('Enter an endpoint and model.');
@@ -177,13 +177,13 @@
 			};
 			const id = editingId;
 			if (id) {
-				await app.ai.connections!.update(id, input);
+				await ai.connections!.update(id, input);
 				return { ...attempt, id, model: trimmedModel };
 			}
-			return { ...attempt, id: await app.ai.connections!.add(input), model: trimmedModel };
+			return { ...attempt, id: await ai.connections!.add(input), model: trimmedModel };
 		},
 		onSuccess: (saved) => {
-			if (!alive || !open || saved.app !== app || saved.scope !== scope || saved.formVersion !== formVersion) return;
+			if (!alive || !open || saved.ai !== ai || saved.scope !== scope || saved.formVersion !== formVersion) return;
 			editingId = saved.id;
 			selectModel(saved.id, saved.model);
 		},
@@ -281,7 +281,7 @@
 						</Command.Group>
 					{/if}
 
-					{#if app.ai.account && connections.accountId}
+					{#if ai.account && connections.accountId}
 						<Command.Group heading={`Connected account · ${connections.accountLabel}`}>
 							{#each models as hostedModel (hostedModel.id)}
 								<Command.Item

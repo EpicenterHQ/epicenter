@@ -12,15 +12,15 @@
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const whispering = getWhisperingApp();
-	const app = whispering.inferenceConnections.app;
+	const ai = whispering.inferenceConnections.ai;
 	let alive = true;
 	onDestroy(() => { alive = false; });
 	const useSavedEndpoint = createMutation(() => ({
 		mutationFn: async () => {
 			if (!previous.target) throw new Error('Saved endpoint is unavailable.');
 			const model = whispering.settings.get('completionModel').trim();
-			const id = await app.ai.connections!.add({ ...previous.target, models: [model] });
-			if (!alive || app !== whispering.inferenceConnections.app) return;
+			const id = await ai.connections!.add({ ...previous.target, models: [model] });
+			if (!alive || ai !== whispering.inferenceConnections.ai) return;
 			whispering.inferenceConnections.selections.set('completion', { connectionId: id, model });
 			whispering.settings.set('completionModel', model);
 		},

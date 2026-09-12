@@ -10,7 +10,7 @@ export const createVocabConnections = (
 	selections: InferenceSelections,
 ) =>
 	createInferenceConnections({
-		app,
+		ai: app.ai,
 		selections,
 		hostedModels: toHostedCatalog([VOCAB_MODEL]),
 	});

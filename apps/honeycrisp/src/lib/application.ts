@@ -33,9 +33,9 @@ export const app = (() => {
 	return application.openShared(account);
 })();
 export const departure = createDeparture({
-	retirement: app?.retirement,
+	retirement: app && app.library !== 'local' ? app.retirement : undefined,
 	reload: () => location.reload(),
-	auth: app && library !== 'local' && auth ? auth : undefined,
+	auth: app && app.library !== 'local' && auth ? auth : undefined,
 	account,
 	close: () => app?.close() ?? Promise.resolve(),
 });

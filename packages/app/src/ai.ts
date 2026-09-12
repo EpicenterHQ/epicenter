@@ -1,8 +1,9 @@
 import type { Account, AuthFetch } from '@epicenter/auth';
+import type { AccountIdentity } from '@epicenter/principal';
 import OpenAI from 'openai';
 import type {
-	AiConnections,
 	AiConnectionSnapshot,
+	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
 
@@ -18,7 +19,7 @@ export function createAppAi({
 	configuredFetch = globalThis.fetch.bind(globalThis),
 }: {
 	lifetime: { assertUsable(): void; signal: AbortSignal };
-	account: AiTransport | null;
+	account: (AiTransport & { identity: AccountIdentity }) | null;
 	runtime: AiTransport | null;
 	connections: AiConnections | null;
 	configuredFetch?: AuthFetch;
@@ -241,7 +242,13 @@ export function createAppAi({
 	}
 	const ai = Object.freeze({
 		runtime: runtime ? Object.freeze({ client: bind(runtime).client }) : null,
-		account: account ? Object.freeze({ client: bind(account).client }) : null,
+		/** Bound to one account; carries its identity so consumers never reach back into the App. */
+		account: account
+			? Object.freeze({
+					identity: account.identity,
+					client: bind(account).client,
+				})
+			: null,
 		/** Device-local custom access. Saved fields include credentials; never sync or log entries. */
 		connections: connections
 			? Object.freeze({

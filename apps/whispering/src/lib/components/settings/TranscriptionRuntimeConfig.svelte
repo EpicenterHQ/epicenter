@@ -17,15 +17,15 @@
 	import ProviderConfigFields from './ProviderConfigFields.svelte';
 
 	const whispering = getWhisperingApp();
-	const app = whispering.inferenceConnections.app;
+	const ai = whispering.inferenceConnections.ai;
 	let alive = true;
 	onDestroy(() => { alive = false; });
 	const useSavedEndpoint = createMutation(() => ({
 		mutationFn: async () => {
 			if (!previous) throw new Error('Saved endpoint is unavailable.');
 			const { model, ...connection } = previous;
-			const id = await app.ai.connections!.add({ ...connection, models: [model] });
-			if (!alive || app !== whispering.inferenceConnections.app) return;
+			const id = await ai.connections!.add({ ...connection, models: [model] });
+			if (!alive || ai !== whispering.inferenceConnections.ai) return;
 			whispering.inferenceConnections.selections.set('transcription', { connectionId: id, model });
 			whispering.settings.set('transcriptionModel', model);
 			whispering.settings.set('transcriptionService', 'connection');

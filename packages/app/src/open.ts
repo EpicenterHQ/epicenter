@@ -1,7 +1,5 @@
-import { createAppBlobs } from '@epicenter/blobs/app';
 import type { Account } from '@epicenter/auth';
-import type { LibraryReplicaIdentity } from '@epicenter/principal';
-import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
+import { createAppBlobs } from '@epicenter/blobs/app';
 import { isAppId } from '@epicenter/constants/app-id';
 import { acquireAppData } from '@epicenter/data/browser';
 import { compileData, type DataDefinition } from '@epicenter/data/definition';
@@ -14,17 +12,109 @@ import {
 	createAppSqlite,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
-import type { RecordingFactory, RecordingOwner } from './recorder.js';
+import type {
+	AccountIdentity,
+	LibraryReplicaIdentity,
+} from '@epicenter/principal';
+import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import { createLogger } from 'wellcrafted/logger';
 import { Err } from 'wellcrafted/result';
+import type { resources } from '#platform/resources';
 import { createAppAi } from './ai.js';
 import type { AppAiBinding, AppBlobFactory } from './index.js';
-import type { resources } from '#platform/resources';
+import type { RecordingFactory, RecordingOwner } from './recorder.js';
 
 const log = createLogger('app');
 
+type LibraryChoice =
+	| { library: 'local' }
+	| { library: 'personal' | 'shared'; account: Account };
+
+type OpenOptions = {
+	appId: string;
+	sqlite: DeviceSqliteOwner;
+	blobs: AppBlobFactory;
+	recording: RecordingFactory;
+	secrets: typeof resources.secrets;
+	ai?: AppAiBinding;
+};
+
+/** Every fact the library choice fixes, derived once. */
+function captureReplica(choice: LibraryChoice, appId: string, dataId: string) {
+	if (choice.library === 'local')
+		return {
+			replica: { library: 'local' } as const satisfies LibraryReplicaIdentity,
+			identity: null,
+			remote: null,
+		};
+	const account = choice.account;
+	const identity: AccountIdentity = Object.freeze({
+		authorityId: account.authorityId,
+		principalId: account.principalId,
+	});
+	const transport = Object.freeze({
+		authorityId: account.authorityId,
+		principalId: account.principalId,
+		baseURL: account.baseURL,
+		fetch: account.fetch,
+		openWebSocket: account.openWebSocket,
+		getProfile: account.getProfile,
+	});
+	return {
+		replica: {
+			library: choice.library,
+			account: identity,
+		} satisfies LibraryReplicaIdentity,
+		identity,
+		remote: {
+			currentUrl: CURRENT_ROUTE.url(
+				account.baseURL,
+				appId,
+				choice.library,
+				dataId,
+			),
+			address: {
+				baseURL: account.baseURL,
+				appId,
+				library: choice.library,
+			},
+			transport,
+		},
+	};
+}
+
+/** The opened handle, shaped by the open call: a local App has no account members. */
+export type App<TDefinition extends DataDefinition> = ReturnType<
+	typeof buildApp<TDefinition>
+>;
+export type LocalApp<TDefinition extends DataDefinition> = Extract<
+	App<TDefinition>,
+	{ library: 'local' }
+>;
+export type AccountApp<TDefinition extends DataDefinition> = Exclude<
+	App<TDefinition>,
+	{ library: 'local' }
+>;
+
 /** Construct one fixed App; its caller owns when to await close. */
 export function openApp<const TDefinition extends DataDefinition>(
+	definition: TDefinition,
+	options: OpenOptions & { choice: { library: 'local' } },
+): LocalApp<TDefinition>;
+export function openApp<const TDefinition extends DataDefinition>(
+	definition: TDefinition,
+	options: OpenOptions & {
+		choice: { library: 'personal' | 'shared'; account: Account };
+	},
+): AccountApp<TDefinition>;
+export function openApp<const TDefinition extends DataDefinition>(
+	definition: TDefinition,
+	options: OpenOptions & { choice: LibraryChoice },
+): App<TDefinition> {
+	return buildApp(definition, options);
+}
+
+function buildApp<const TDefinition extends DataDefinition>(
 	definition: TDefinition,
 	{
 		appId,
@@ -34,65 +124,18 @@ export function openApp<const TDefinition extends DataDefinition>(
 		recording,
 		secrets,
 		ai,
-	}: {
-		appId: string;
-		choice:
-			| { library: 'local' }
-			| { library: 'personal' | 'shared'; account: Account };
-		sqlite: DeviceSqliteOwner;
-		blobs: AppBlobFactory;
-		recording: RecordingFactory;
-		secrets: typeof resources.secrets;
-		ai?: AppAiBinding;
-	},
+	}: OpenOptions & { choice: LibraryChoice },
 ) {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
 	const parsed = compileData(definition);
 	if (parsed.error)
 		throw new Error(parsed.error.message, { cause: parsed.error });
-	const input = choice.library === 'local' ? null : choice.account;
-	if (input !== null && input.authorityId === undefined)
-		throw new Error('The account has no stable authority identity.');
-	const account =
-		input === null
-			? null
-			: Object.freeze({
-					authorityId: input.authorityId,
-					principalId: input.principalId,
-					baseURL: input.baseURL,
-					fetch: input.fetch,
-					openWebSocket: input.openWebSocket,
-					getProfile: input.getProfile,
-				});
-	const identity =
-		account === null
-			? null
-			: Object.freeze({
-					authorityId: account.authorityId,
-					principalId: account.principalId,
-				});
-	const replica: LibraryReplicaIdentity =
-		choice.library === 'local'
-			? { library: 'local' }
-			: { library: choice.library, account: identity! };
-	const remote =
-		choice.library === 'local'
-			? null
-			: {
-					currentUrl: CURRENT_ROUTE.url(
-						account!.baseURL,
-						appId,
-						choice.library,
-						parsed.data.id,
-					),
-					address: {
-						baseURL: account!.baseURL,
-						appId,
-						library: choice.library,
-					},
-					transport: account!,
-				};
+	const { replica, identity, remote } = captureReplica(
+		choice,
+		appId,
+		parsed.data.id,
+	);
 	const bytes = blobs({
 		appId,
 		replica,
@@ -130,7 +173,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 	const document = createStoreOverPort({
 		definition: parsed.data,
 		blobStore: bytes.local,
-		local: account === null,
+		local: identity === null,
 		async acquire() {
 			try {
 				const owned = await databases.acquire();
@@ -247,9 +290,15 @@ export function openApp<const TDefinition extends DataDefinition>(
 		// retains a failed close; final App closure observes it before releasing
 		// the library claim. This callback does not close the data backing.
 		void document.retirement.then(() => recorder?.close()).catch(() => {});
+		// The binding sees the captured snapshot, never the live Account.
+		const accountTransport =
+			remote === null ? null : (ai?.account?.(remote.transport) ?? null);
 		inference = createAppAi({
 			lifetime: document.lifetime,
-			account: account === null ? null : (ai?.account?.(account) ?? null),
+			account:
+				accountTransport && identity !== null
+					? { ...accountTransport, identity }
+					: null,
 			runtime: ai?.runtime ?? null,
 			connections: ai?.connections?.(appId) ?? null,
 			configuredFetch: ai?.configuredFetch,
@@ -257,26 +306,38 @@ export function openApp<const TDefinition extends DataDefinition>(
 		secretAccess = secrets(appId, identity, {
 			assertUsable: document.lifetime.assertUsable,
 		});
+		const common = {
+			appId,
+			dataId: parsed.data.id,
+			ready,
+			/** Aborts synchronously when this App closes or its library is retired. */
+			signal: document.lifetime.signal,
+			close,
+			blobs: blobAccess.value,
+			sqlite: databases.value,
+			secrets: secretAccess.value,
+			recording: recorder.value,
+			ai: inference.value.ai,
+		};
+		// One object, one owner: the store is extended in place, never spread.
 		return Object.freeze(
-			Object.assign(
-				document.store,
-				document.view as DeclaredData<TDefinition>,
-				{
-					appId,
-					dataId: parsed.data.id,
-					account: identity,
-					ready,
-					/** Aborts synchronously when this App closes or its library is retired. */
-					signal: document.lifetime.signal,
-					retirement: document.retirement,
-					close,
-					blobs: blobAccess.value,
-					sqlite: databases.value,
-					secrets: secretAccess.value,
-					recording: recorder.value,
-					ai: inference.value.ai,
-				},
-			),
+			identity === null
+				? Object.assign(
+						document.store,
+						document.view as DeclaredData<TDefinition>,
+						common,
+						{ library: 'local' as const },
+					)
+				: Object.assign(
+						document.store,
+						document.view as DeclaredData<TDefinition>,
+						common,
+						{
+							library: replica.library as 'personal' | 'shared',
+							account: identity,
+							retirement: document.retirement,
+						},
+					),
 		);
 	} catch (cause) {
 		void close().catch((error) =>

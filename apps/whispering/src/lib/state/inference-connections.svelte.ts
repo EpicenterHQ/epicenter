@@ -8,7 +8,7 @@ export function createWhisperingConnections(
 	selections: InferenceSelections,
 ) {
 	return createInferenceConnections({
-		app,
+		ai: app.ai,
 		selections,
 		hostedModels: toHostedCatalog(['gpt-5.4-mini', 'gpt-5.5']),
 	});

@@ -1,40 +1,39 @@
-import type { App } from '@epicenter/app';
-import {
-	accountInferenceId,
-	runtimeInferenceId,
-	matchInferenceTarget,
-	type InferenceSelections,
-} from '../inference-selections.js';
+import type { AppAi } from '@epicenter/app/ai';
 import { ListModelsError } from '@epicenter/client';
-import type { DataDefinition } from '@epicenter/data/definition';
 import { createSubscriber } from 'svelte/reactivity';
 import { tryAsync, unwrap } from 'wellcrafted/result';
+import {
+	accountInferenceId,
+	type InferenceSelections,
+	matchInferenceTarget,
+	runtimeInferenceId,
+} from '../inference-selections.js';
 
 export type HostedModel = { id: string; label: string; credits: number };
 
-/** Observe one App's configuration and resolve exact saved workflow destinations. */
+/** Observe one App's AI capability and resolve exact saved workflow destinations. */
 export function createInferenceConnections({
-	app,
+	ai,
 	selections,
 	hostedModels,
 }: {
-	app: Pick<App<DataDefinition>, 'ai' | 'account'>;
+	ai: AppAi;
 	selections: InferenceSelections;
 	hostedModels: HostedModel[];
 }) {
-	if (!app.ai.connections)
+	if (!ai.connections)
 		throw new Error('This App has no custom AI connection binding.');
 	const observeConnections = createSubscriber((update) =>
-		app.ai.connections!.subscribe(() => update()),
+		ai.connections!.subscribe(() => update()),
 	);
 	const observeSelections = createSubscriber((update) =>
 		selections.onChange(update),
 	);
-	const accountId = accountInferenceId(app);
-	const accountLabel = app.ai.account
-		? new URL(app.ai.account.client.baseURL).host
+	const accountId = accountInferenceId(ai);
+	const accountLabel = ai.account
+		? new URL(ai.account.client.baseURL).host
 		: '';
-	const runtimeId = runtimeInferenceId(app);
+	const runtimeId = runtimeInferenceId(ai);
 	let runtimeModels = $state.raw<string[]>([]);
 	function target(scope: string, model: string) {
 		observeSelections();
@@ -43,10 +42,10 @@ export function createInferenceConnections({
 	}
 	function resolve(scope: string, model: string) {
 		observeConnections();
-		return matchInferenceTarget(app, target(scope, model));
+		return matchInferenceTarget(ai, target(scope, model));
 	}
 	return {
-		app,
+		ai,
 		selections,
 		accountId,
 		accountLabel,
@@ -55,10 +54,10 @@ export function createInferenceConnections({
 			return runtimeModels;
 		},
 		async refreshRuntime() {
-			if (!app.ai.runtime) return;
+			if (!ai.runtime) return;
 			const result = await tryAsync({
 				try: async () =>
-					(await app.ai.runtime!.client.models.list()).data.map(
+					(await ai.runtime!.client.models.list()).data.map(
 						(model) => model.id,
 					),
 				catch: (cause) => ListModelsError.Unreachable({ cause }),
@@ -68,14 +67,14 @@ export function createInferenceConnections({
 		hostedModels,
 		get custom() {
 			observeConnections();
-			return app.ai.connections!.getAll();
+			return ai.connections!.getAll();
 		},
 		discover(baseUrl: string, apiKey?: string, savedId?: string) {
 			return tryAsync({
 				try: async () => {
 					const client = savedId
-						? app.ai.connections!.get(savedId)?.client
-						: app.ai.connections!.preview({ baseUrl, apiKey });
+						? ai.connections!.get(savedId)?.client
+						: ai.connections!.preview({ baseUrl, apiKey });
 					if (!client) throw new Error('AI connection no longer exists.');
 					return (await client.models.list()).data.map((model) => model.id);
 				},
@@ -83,7 +82,7 @@ export function createInferenceConnections({
 			});
 		},
 		async refresh(id: string) {
-			const connection = app.ai.connections!.get(id);
+			const connection = ai.connections!.get(id);
 			if (!connection) return;
 			const result = await tryAsync({
 				try: async () =>
@@ -91,9 +90,9 @@ export function createInferenceConnections({
 				catch: (cause) => ListModelsError.Unreachable({ cause }),
 			});
 			const models = unwrap(result);
-			const record = app.ai.connections!.get(id);
+			const record = ai.connections!.get(id);
 			if (!record || record.client !== connection.client) return;
-			await app.ai.connections!.update(id, {
+			await ai.connections!.update(id, {
 				models: [...new Set([...record.models, ...models])],
 			});
 		},

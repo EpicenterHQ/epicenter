@@ -2,8 +2,9 @@
  * Completion uses the selected App AI client and model without substitution.
  * Missing, removed, and mismatched selections never send text to another client.
  */
+
 import { expect, mock, test } from 'bun:test';
-import { type AiTransport, createAppAi } from '@epicenter/app/ai';
+import { type AiTransport, type AppAi, createAppAi } from '@epicenter/app/ai';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { createNativeTransport } from '@epicenter/app/native-ai';
 import {
@@ -62,6 +63,12 @@ function setup(
 		runtime,
 		account: {
 			baseURL: 'https://hosted.example/v1',
+			identity: {
+				authorityId: 'https://hosted.example',
+				principalId: principalId as NonNullable<
+					AppAi['account']
+				>['identity']['principalId'],
+			},
 			fetch: async (input, init) => {
 				requests.push({
 					url: String(input),
@@ -87,15 +94,7 @@ function setup(
 	});
 	const connections = createInferenceConnections({
 		selections,
-		app: {
-			ai: owner.value.ai,
-			account: {
-				authorityId: 'https://hosted.example',
-				principalId,
-			} as NonNullable<
-				Parameters<typeof createInferenceConnections>[0]['app']['account']
-			>,
-		},
+		ai: owner.value.ai,
 		hostedModels: [{ id: model, label: 'Hosted', credits: 1 }],
 	});
 
@@ -129,7 +128,7 @@ test('Polish and Recipe completion uses the exact connection when model IDs coll
 	const { connections, requests, run } = setup();
 	for (const path of ['first', 'second']) {
 		const baseUrl = `https://server.example/${path}/v1`;
-		const id = await connections.app.ai.connections!.add({
+		const id = await connections.ai.connections!.add({
 			baseUrl,
 			apiKey: path,
 			models: ['same-model'],
@@ -168,7 +167,7 @@ test('missing, removed, and synced-model-mismatched selections send no text', as
 	const { connections, requests, run, setModel } = setup();
 	expectErr(await run());
 	const baseUrl = 'http://localhost:11434/v1';
-	const id = await connections.app.ai.connections!.add({ baseUrl });
+	const id = await connections.ai.connections!.add({ baseUrl });
 	connections.selections.set('completion', {
 		connectionId: id,
 		model: 'same-model',
@@ -176,9 +175,9 @@ test('missing, removed, and synced-model-mismatched selections send no text', as
 	setModel('changed-on-another-device');
 	expectErr(await run());
 	setModel('same-model');
-	await connections.app.ai.connections!.remove(id);
+	await connections.ai.connections!.remove(id);
 	expectErr(await run());
-	await connections.app.ai.connections!.add({ baseUrl });
+	await connections.ai.connections!.add({ baseUrl });
 	expectErr(await run());
 	expect(requests).toEqual([]);
 });
@@ -186,7 +185,7 @@ test('missing, removed, and synced-model-mismatched selections send no text', as
 test('manual model survives empty discovery and transcription selection stays independent', async () => {
 	const { connections, requests, run } = setup();
 	const baseUrl = 'http://localhost:11434/v1';
-	const id = await connections.app.ai.connections!.add({ baseUrl });
+	const id = await connections.ai.connections!.add({ baseUrl });
 	connections.selections.set('completion', {
 		connectionId: id,
 		model: 'same-model',
@@ -204,7 +203,7 @@ test('manual model survives empty discovery and transcription selection stays in
 test('destination labels distinguish paths and omit URL secrets', async () => {
 	const { connections } = setup();
 	const baseUrl = 'https://user:secret@proxy.example/first/v1?token=secret';
-	const id = await connections.app.ai.connections!.add({ baseUrl });
+	const id = await connections.ai.connections!.add({ baseUrl });
 	connections.selections.set('completion', {
 		connectionId: id,
 		model: 'same-model',
@@ -233,11 +232,11 @@ test('an account A completion selection sends no text after opening account B', 
 test('same URL configured IDs send completion with their own credentials', async () => {
 	const fixture = setup();
 	const baseUrl = 'https://same.example/v1';
-	const first = await fixture.connections.app.ai.connections!.add({
+	const first = await fixture.connections.ai.connections!.add({
 		baseUrl,
 		apiKey: 'first',
 	});
-	const second = await fixture.connections.app.ai.connections!.add({
+	const second = await fixture.connections.ai.connections!.add({
 		baseUrl,
 		apiKey: 'second',
 	});

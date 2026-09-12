@@ -132,6 +132,29 @@ Construction is inert. `openLocal()`, `openPersonal(account)`, and `openShared(a
 synchronously; `app.ready` resolves once with a usable dataset and hydrated AI catalog, or a typed
 failure. Local opening performs no authority request or sync dial.
 
+The open call decides the handle's type. `openLocal()` returns `LocalApp<T>`;
+`openPersonal(account)` and `openShared(account)` return `AccountApp<T>`; `App<T>`
+is their union, discriminated by `app.library`. A local App has no `account` and
+no `retirement`, and its `ai.account` is null. Code that borrows either kind
+checks `app.library` once and TypeScript narrows the rest; code that needs sync
+or retirement takes `AccountApp<T>` and the compiler refuses a local handle.
+
+```ts
+import type { AccountApp } from '@epicenter/app';
+
+function watchRetirement(app: AccountApp<typeof definition>) {
+ return app.retirement.then(() => app.close());
+}
+```
+
+Shared code takes a capability, never the handle or a subset of it. `app.ai`
+carries everything inference needs, including the identity its account client
+was bound to, so a component that picks a model takes `ai: AppAi` and nothing
+else from the App. See
+[ADR-0389](../../docs/adr/0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md)
+and
+[ADR-0390](../../docs/adr/0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md).
+
 The document, table handles, and KV handle exist before readiness. Their actual
 operations reject premature or closed use, including methods retained by a
 consumer. Hydration fills the same document; no forwarding facade replaces it.
@@ -189,9 +212,9 @@ transfer can still write. Raw Yjs content is borrowed: stop editor bindings befo
 closing its owner. App workflows spanning multiple awaited calls must also handle
 closure between those calls.
 
-The app handle captures account identity and transport at open time. Sign-out
-retires that transport without changing the handle's dataset identity; the
-owner closes the handle and removes consuming UI.
+An account App captures account identity and transport at open time as
+`app.account`. Sign-out retires that transport without changing the handle's
+dataset identity; the owner closes the handle and removes consuming UI.
 
 `LibraryReplicaIdentity` lives in `@epicenter/principal`: the library choice and,
 for Personal or Shared, the authenticated actor's credential-free identity.

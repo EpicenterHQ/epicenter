@@ -3,8 +3,9 @@
  * Tests multipart bytes, hints, account/configured isolation, removed selections,
  * retirement, and output suppression through actual App AI SDK clients.
  */
+
 import { expect, mock, test } from 'bun:test';
-import { createAppAi } from '@epicenter/app/ai';
+import { type AppAi, createAppAi } from '@epicenter/app/ai';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import {
 	createInferenceSelections,
@@ -66,6 +67,12 @@ async function setup({
 		runtime: null,
 		account: {
 			baseURL: 'https://account.example/v1',
+			identity: {
+				authorityId: 'https://account.example',
+				principalId: 'me' as NonNullable<
+					AppAi['account']
+				>['identity']['principalId'],
+			},
 			fetch: async (input, init) => {
 				requests.push(new Request(input, init));
 				return response();

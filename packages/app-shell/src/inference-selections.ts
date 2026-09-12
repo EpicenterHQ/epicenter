@@ -1,5 +1,4 @@
-import type { App } from '@epicenter/app';
-import type { DataDefinition } from '@epicenter/data/definition';
+import type { AppAi } from '@epicenter/app/ai';
 
 export type InferenceTarget = { connectionId: string; model: string };
 
@@ -149,25 +148,26 @@ export function createBrowserInferenceSelections(storageKey: string) {
 	});
 }
 
-export function accountInferenceId(app: Pick<App<DataDefinition>, 'account'>) {
-	return app.account === null
-		? null
-		: `account:${JSON.stringify([app.account.authorityId, app.account.principalId])}`;
+/** The account source's stable id, from the identity the AI capability carries. */
+export function accountInferenceId(ai: Pick<AppAi, 'account'>) {
+	return ai.account
+		? `account:${JSON.stringify([ai.account.identity.authorityId, ai.account.identity.principalId])}`
+		: null;
 }
 
-export function runtimeInferenceId(app: Pick<App<DataDefinition>, 'ai'>) {
-	return app.ai.runtime ? `runtime:${app.ai.runtime.client.baseURL}` : null;
+export function runtimeInferenceId(ai: Pick<AppAi, 'runtime'>) {
+	return ai.runtime ? `runtime:${ai.runtime.client.baseURL}` : null;
 }
 
 /** Match one explicit source; unavailable identities never fall through to another source. */
 export function matchInferenceTarget(
-	app: Pick<App<DataDefinition>, 'ai' | 'account'>,
+	ai: AppAi,
 	target: InferenceTarget | null,
 ) {
 	if (!target) return null;
-	if (target.connectionId === accountInferenceId(app))
-		return app.ai.account?.client ?? null;
-	if (target.connectionId === runtimeInferenceId(app))
-		return app.ai.runtime?.client ?? null;
-	return app.ai.connections?.get(target.connectionId)?.client ?? null;
+	if (target.connectionId === accountInferenceId(ai))
+		return ai.account?.client ?? null;
+	if (target.connectionId === runtimeInferenceId(ai))
+		return ai.runtime?.client ?? null;
+	return ai.connections?.get(target.connectionId)?.client ?? null;
 }

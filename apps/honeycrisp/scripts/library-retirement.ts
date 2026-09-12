@@ -207,7 +207,8 @@ async function watchRetirement(page: Page) {
 		const path = '/src/lib/application.ts';
 		const { app, departure }: typeof import('../src/lib/application.js') =
 			await import(path);
-		if (!app) throw new Error('Expected an opened App');
+		if (!app || app.library === 'local')
+			throw new Error('Expected an opened account App');
 		const note = app.tables.notes.rows[0];
 		if (!note) throw new Error('Expected a note');
 		(window as JourneyWindow).journey = {

@@ -113,7 +113,9 @@ async function clearStorage() {
 test('local handle opens without account and survives close and reopen', async () => {
 	await clearStorage();
 	const first = create().openLocal();
-	expect(first.account).toBeNull();
+	expect(first.library).toBe('local');
+	expect('account' in first).toBe(false);
+	expect('retirement' in first).toBe(false);
 	expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
 	expect(Object.hasOwn(first, 'tables')).toBe(true);
 	expect(Object.hasOwn(first, 'blobs')).toBe(true);

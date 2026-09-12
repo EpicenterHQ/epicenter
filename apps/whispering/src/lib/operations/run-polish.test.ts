@@ -91,7 +91,7 @@ async function setup() {
 	return {
 		values,
 		requests,
-		app: { ai: owner.value.ai },
+		ai: owner.value.ai,
 		selections,
 		id,
 		started: started.promise,
@@ -139,7 +139,7 @@ test('disabled, empty, and missing selections return raw input without inference
 		expect(expectOk(await runPolish({ input: 'raw' }))).toBe('raw');
 		fixture.values.set('polishEnabled', true);
 		expect(expectOk(await runPolish({ input: '  ' }))).toBe('  ');
-		await fixture.app.ai.connections!.remove(fixture.id);
+		await fixture.ai.connections!.remove(fixture.id);
 		expect(expectOk(await runPolish({ input: 'raw' }))).toBe('raw');
 		expect(fixture.requests).toHaveLength(0);
 	} finally {

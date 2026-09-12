@@ -56,7 +56,7 @@ export function resolveTranscriptionState() {
 	const model = settings.get('transcriptionModel');
 	const selected = getSelections().get('transcription');
 	const client =
-		selected?.model === model ? matchInferenceTarget(app, selected) : null;
+		selected?.model === model ? matchInferenceTarget(app.ai, selected) : null;
 	const account = client !== null && client === app.ai.account?.client;
 	return {
 		client,
