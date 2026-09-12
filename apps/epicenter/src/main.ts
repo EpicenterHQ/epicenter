@@ -43,7 +43,16 @@ import {
 } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
 
+// 1.3.1 and 1.3.3 report false stdin EOF during native sign-in, leaving
+// a live sidecar without its HTTP listener. 1.3.14 passes the native flow.
+const MINIMUM_BUN_VERSION = '1.3.14';
+
 async function main(): Promise<void> {
+	if (Bun.semver.order(Bun.version, MINIMUM_BUN_VERSION) < 0) {
+		throw new Error(
+			`Epicenter requires Bun ${MINIMUM_BUN_VERSION} or newer; found ${Bun.version}. Upgrade Bun and restart development, or rebuild the packaged Epicenter application.`,
+		);
+	}
 	const parentPipe = watchParentPipe(Bun.stdin.stream());
 	let host: HomeHost | undefined;
 	let desktopAuth: DesktopAuthAuthority | undefined;

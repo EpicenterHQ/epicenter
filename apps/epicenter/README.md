@@ -64,6 +64,12 @@ The same override can keep an existing installation at its old location.
 
 ### Start the host
 
+Use Bun 1.3.14 or newer (`bun --version`; update with `bun upgrade`).
+Bun 1.3.1 and 1.3.3 can close the native input stream during sign-in, leaving
+Home disconnected and applications unable to open. The host rejects older
+runtimes before startup. Packaged builds embed Bun and must be rebuilt with
+the supported version.
+
 Start Epicenter from the repository root:
 
 ```bash
