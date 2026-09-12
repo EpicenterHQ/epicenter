@@ -103,8 +103,8 @@ function toTranscriber(
 			};
 		}
 		case 'endpoint': {
-			// Preserve #2337's exact model confirmation without making an arbitrary
-			// server identifier the compact trigger's primary label.
+			// Carry host + modelId so the selector can show `host · modelId`
+			// for the active self-hosted route (#2337).
 			const endpoint = deviceConfig.get(entry.endpointConfigKey);
 			const modelId = deviceConfig.get(entry.modelIdConfigKey);
 			return {

@@ -60,12 +60,20 @@
 			: !!selectedService && !isSelectedServiceReady,
 	);
 
-	// The pipeline trigger surfaces the active transcriber: a curated on-device
-	// model name or a remote provider name. Exact remote model ids stay in the
-	// expanded rows and settings.
-	const pipelineLabel = $derived(
-		activeTranscriber?.title ?? selectedService?.label ?? 'Choose model',
-	);
+	// The pipeline trigger surfaces the active transcriber. For self-hosted
+	// endpoints, show host · modelId so the closed selector confirms which
+	// Speaches model is selected (#2337); other routes keep the provider name.
+	const pipelineLabel = $derived.by(() => {
+		if (
+			activeTranscriber?.access === 'endpoint' &&
+			activeTranscriber.modelId
+		) {
+			return activeTranscriber.endpointHost
+				? `${activeTranscriber.endpointHost} · ${activeTranscriber.modelId}`
+				: activeTranscriber.modelId;
+		}
+		return activeTranscriber?.title ?? selectedService?.label ?? 'Choose model';
+	});
 
 	// The pipeline pill already shows the transcriber name, so its tooltip
 	// describes the action. The icon-only standalone switcher keeps the exact
@@ -77,13 +85,19 @@
 				: 'Choose transcription model';
 		}
 		if (activeTranscriber) {
+			if (
+				activeTranscriber.access === 'endpoint' &&
+				activeTranscriber.modelId
+			) {
+				const selection = activeTranscriber.endpointHost
+					? `${activeTranscriber.endpointHost} · ${activeTranscriber.modelId}`
+					: activeTranscriber.modelId;
+				return `${activeTranscriber.title} - ${selection}`;
+			}
 			const model = activeTranscriber.modelId
 				? ` - ${activeTranscriber.modelId}`
 				: '';
-			const host = activeTranscriber.endpointHost
-				? ` · ${activeTranscriber.endpointHost}`
-				: '';
-			return `${activeTranscriber.title}${model}${host}`;
+			return `${activeTranscriber.title}${model}`;
 		}
 		return selectedService
 			? selectedService.label
