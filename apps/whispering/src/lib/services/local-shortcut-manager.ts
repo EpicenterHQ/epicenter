@@ -3,8 +3,8 @@ import type { Brand } from 'wellcrafted/brand';
 import type { ShortcutEventState } from '$lib/commands';
 import {
 	bindingsEqual,
+	createModifierLatch,
 	domCodeToKey,
-	eventModifiers,
 	type Key,
 	type KeyBinding,
 } from '$lib/utils/key-binding';
@@ -49,11 +49,12 @@ export const LocalShortcutManagerLive = {
 		/**
 		 * Physical (non-modifier) keys currently held, by our `Key` space (from
 		 * `e.code` via {@link domCodeToKey}). Modifier codes map to `null` and never
-		 * land here; the modifier set is read live from the event flags instead, so
-		 * a swallowed modifier-keyup can never strand state. Combined with the live
-		 * modifiers into a `KeyBinding` and matched by set-equality.
+		 * land here. Modifier flags are read live, with a keydown-to-keyup fallback
+		 * latch for browsers that expose Linux Super without setting `metaKey`.
+		 * Combined into a `KeyBinding` and matched by set-equality.
 		 */
 		const pressedKeys = new Set<Key>();
+		const modifierLatch = createModifierLatch();
 		/**
 		 * Set tracking which shortcuts have already been triggered and are currently active.
 		 * This prevents key repeat spam when holding down keys - without this, holding
@@ -69,9 +70,9 @@ export const LocalShortcutManagerLive = {
 		 */
 		const activeShortcuts = new Set<CommandId>();
 
-		/** The gesture currently held: live modifier flags plus the pressed keys. */
-		const heldBinding = (e: KeyboardEvent): KeyBinding => ({
-			modifiers: eventModifiers(e),
+		/** The gesture currently held: resolved modifiers plus the pressed keys. */
+		const heldBinding = (modifiers: KeyBinding['modifiers']): KeyBinding => ({
+			modifiers,
 			keys: [...pressedKeys],
 		});
 
@@ -91,11 +92,11 @@ export const LocalShortcutManagerLive = {
 
 			// Physical key from `e.code` (layout-stable, no Option-character quirk).
 			// Modifier codes and keys off the bindable alphabet map to null and are
-			// not tracked here; modifiers come from the event flags via heldBinding.
+			// not tracked here; the modifier latch resolves the held modifier set.
 			const key = domCodeToKey(e.code);
 			if (key) pressedKeys.add(key);
 
-			const held = heldBinding(e);
+			const held = heldBinding(modifierLatch.keydown(e));
 
 			// Check all registered shortcuts for an exact set match.
 			for (const [id, binding] of shortcuts.entries()) {
@@ -126,12 +127,11 @@ export const LocalShortcutManagerLive = {
 			// Skip shortcut processing if user is typing in an input field
 			if (isTypingInInput()) return;
 
-			// Drop the released key, then recompute the held gesture. Modifiers read
-			// live from the event flags, so releasing a modifier shows up in `held`
-			// without tracking modifier keyups (no stuck-modifier class of bug).
+			// Drop the released key and its modifier fallback before recomputing the
+			// held gesture, so keyup can never re-add the key it just released.
 			const key = domCodeToKey(e.code);
 			if (key) pressedKeys.delete(key);
-			const held = heldBinding(e);
+			const held = heldBinding(modifierLatch.keyup(e));
 
 			// Any armed shortcut that no longer matches has been released. Iterating
 			// activeShortcuts (not all shortcuts) means only what actually fired can
@@ -159,6 +159,7 @@ export const LocalShortcutManagerLive = {
 			for (const id of activeShortcuts) onTrigger(id, 'Released');
 			activeShortcuts.clear();
 			pressedKeys.clear();
+			modifierLatch.reset();
 		};
 
 		/**

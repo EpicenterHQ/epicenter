@@ -2,8 +2,9 @@
  * The shared `KeyBinding` core: define, parse, serialize, label, and match the
  * structured physical binding both shortcut reaches speak. No Tauri dependency
  * and no DOM side effects; the only DOM contact is reading `KeyboardEvent` fields
- * (`.code`, the modifier flags) in {@link domCodeToKey} and {@link eventModifiers},
- * which is the capture side of the same physical-key model.
+ * (`.code`, the modifier flags, and modifier key names) in
+ * {@link domCodeToKey}, {@link eventModifiers}, and {@link eventKeyModifier},
+ * which form the capture side of the same physical-key model.
  */
 
 /**
@@ -362,22 +363,74 @@ export function domCodeToKey(code: string): Key | null {
 	return null;
 }
 
-/**
- * Read the live modifier set from a `KeyboardEvent`'s boolean flags rather than
- * its `.code`, so a gesture carries its modifiers no matter which key fired and
- * a stuck modifier-keyup can never strand state (the flags are always current).
- * Fn has no flag (and no `.code`), so a webview capture or the browser matcher
- * can never produce an Fn modifier: that is exactly why an Fn gesture cannot be
- * recorded or fire, and is refused as a global shortcut (ADR-0117). Shared by the
- * chord recorder and the browser matcher so both read modifiers the same way.
- */
-export function eventModifiers(e: KeyboardEvent): Modifier[] {
+type ModifierEvent = {
+	readonly ctrlKey: boolean;
+	readonly altKey: boolean;
+	readonly shiftKey: boolean;
+	readonly metaKey: boolean;
+	readonly key: string;
+};
+
+/** Read the modifiers the browser reports as currently held. */
+export function eventModifiers(e: ModifierEvent): Modifier[] {
 	const modifiers: Modifier[] = [];
 	if (e.ctrlKey) modifiers.push('ctrl');
 	if (e.altKey) modifiers.push('alt');
 	if (e.shiftKey) modifiers.push('shift');
 	if (e.metaKey) modifiers.push('meta');
 	return modifiers;
+}
+
+/**
+ * Map a modifier keydown or keyup to our modifier space. WebKitGTK exposes
+ * Linux Super as `Super` without setting `metaKey`; `OS` is its older browser
+ * spelling. Fn has no reliable browser event and remains unsupported.
+ */
+export function eventKeyModifier(e: ModifierEvent): Modifier | null {
+	switch (e.key) {
+		case 'Control':
+			return 'ctrl';
+		case 'Alt':
+			return 'alt';
+		case 'Shift':
+			return 'shift';
+		case 'Meta':
+		case 'OS':
+		case 'Super':
+			return 'meta';
+		default:
+			return null;
+	}
+}
+
+/**
+ * Carry a modifier whose browser flag is missing from its keydown through the
+ * rest of that physical gesture. Keyup removes the fallback before matching,
+ * so the released modifier cannot strand a hold active.
+ */
+export function createModifierLatch() {
+	const fallbackModifiers = new Set<Modifier>();
+	const held = (e: ModifierEvent): Modifier[] => [
+		...new Set([...eventModifiers(e), ...fallbackModifiers]),
+	];
+
+	return {
+		keydown(e: ModifierEvent): Modifier[] {
+			const modifier = eventKeyModifier(e);
+			if (modifier !== null && !eventModifiers(e).includes(modifier)) {
+				fallbackModifiers.add(modifier);
+			}
+			return held(e);
+		},
+		keyup(e: ModifierEvent): Modifier[] {
+			const modifier = eventKeyModifier(e);
+			if (modifier !== null) fallbackModifiers.delete(modifier);
+			return held(e);
+		},
+		reset(): void {
+			fallbackModifiers.clear();
+		},
+	};
 }
 
 /** A binding with no modifiers and no keys can never fire; treat it as unset. */
