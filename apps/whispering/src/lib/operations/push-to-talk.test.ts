@@ -1,3 +1,14 @@
+/**
+ * Push-to-Talk Lifecycle Tests
+ *
+ * Verifies that push-to-talk owns and stops only the recording started by its
+ * current press, including when release or app teardown races recorder startup.
+ *
+ * Key behaviors:
+ * - Release during startup stops the recording as soon as startup completes
+ * - App teardown drains an in-flight or active recording
+ * - Teardown from another app cannot retire the current session
+ */
 import { expect, mock, test } from 'bun:test';
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type { WhisperingApp } from '$lib/whispering/app';
@@ -29,6 +40,28 @@ mock.module('./recording', () => ({
 
 const { pushToTalk } = await import('./push-to-talk');
 const app = {} as WhisperingApp;
+
+test('release during startup stops the recording when startup completes', async () => {
+	const recordingId = generateBlobId();
+	let resolveStart!: () => void;
+	startManualRecording.mockImplementationOnce(async () => {
+		recorderIsStarting = true;
+		await new Promise<void>((resolve) => {
+			resolveStart = resolve;
+		});
+		recorderIsStarting = false;
+		recorderState = 'RECORDING';
+		return recordingId;
+	});
+
+	const start = pushToTalk.start(app);
+	const release = pushToTalk.stop(app);
+	resolveStart();
+	await Promise.all([start, release]);
+
+	expect(stopManualRecordingById).toHaveBeenLastCalledWith(app, recordingId);
+	recorderState = 'STOPPED';
+});
 
 test('dispose stops an active push-to-talk recording before app teardown', async () => {
 	const recordingId = generateBlobId();
