@@ -52,11 +52,16 @@ export type ParsedFile = {
 };
 
 /**
- * Leading `---\n...\n---` block. The newline before the closing `---` is
- * optional so an empty block (`---\n---`) matches; tolerates CRLF and an
- * optional trailing newline.
+ * Leading `---\n...\n---` block. The closing fence is `---` at the start of a
+ * line, followed by nothing but optional trailing whitespace and the line
+ * ending (or end of input). Anchoring it to a line start is what keeps a
+ * `---` inside a value (`title: Part 1 --- Introduction`, which `yaml`
+ * emits as a plain scalar) from being read as the fence and dumping the rest
+ * of the block into the body. The block's own lines are optional so an empty
+ * block (`---\n---`) matches; CRLF and a missing trailing newline are
+ * tolerated.
  */
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n?---\r?\n?/;
+const FRONTMATTER = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
 /** A git conflict marker at the start of any line. */
 const CONFLICT_MARKER = /^(<<<<<<<|=======|>>>>>>>)/m;

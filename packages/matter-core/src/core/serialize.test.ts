@@ -111,4 +111,22 @@ describe('edit cycle (parse -> edit -> serialize -> parse)', () => {
 			body: 'new body',
 		});
 	});
+
+	// `yaml` emits `Part 1 --- Introduction` as a plain scalar, so the written
+	// file carries `---` mid-line inside the block. The next parse must still
+	// find the real fence, or the fields after that value fall into the body
+	// and the following edit writes them there for good.
+	test('a value containing --- survives the edit cycle with every other field', () => {
+		const raw = '---\ntitle: Hello\nstatus: draft\n---\n# Body';
+		const titled = editField(raw, 'title', 'Part 1 --- Introduction');
+		expect(parseMarkdown(titled).data).toEqual({
+			frontmatter: { title: 'Part 1 --- Introduction', status: 'draft' },
+			body: '# Body',
+		});
+		const published = editField(titled, 'status', 'published');
+		expect(parseMarkdown(published).data).toEqual({
+			frontmatter: { title: 'Part 1 --- Introduction', status: 'published' },
+			body: '# Body',
+		});
+	});
 });
